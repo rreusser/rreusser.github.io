@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html class='no-js'>
+  <head>
+    <meta charset='utf-8'>
+    <meta content='IE=edge,chrome=1' http-equiv='X-UA-Compatible'>
+    <meta content='width=device-width' name='viewport'>
+    <link href="../../../../stylesheets/demo-9aa7243a.css" rel="stylesheet" type="text/css" />
+  </head>
+  <body>
+    <script src="../../../../javascripts/demo-0971ac80.js" type="text/javascript"></script>
+    <script>
+      window.frame = new FrameInstance();
+    </script>
+    <script src="../../../../canvas-demo/js/class-9e292719.js"></script>
+    <script src="../../../../canvas-demo/js/canvas-e74f9c7e.js"></script>
+    <script src="../../../../canvas-demo/js/raf-98536a9a.js"></script>
+    <script src="../../../../canvas-demo/js/blittable-88dc8d59.js"></script>
+    <script src="../../../../canvas-demo/js/balls-005d4c99.js"></script>
+    
+    <style>
+      body,html {
+        margin: 0;
+        padding: 0;
+      }
+      canvas {
+        display: block;
+      }
+    
+      #container {
+        max-width: 640px;
+        width: 500px;
+        height: 900px;
+        position: relative;
+        margin-left: auto;
+        margin-right: auto;
+      }
+    
+      .canvas-container {
+        position: absolute;
+        width: 120px;
+        height: 120px;
+        display: block;
+        border: 1px dashed black;
+        box-sizing: border-box;
+      }
+      .canvas-container.onscreen {
+        border-style: solid;
+      }
+      .canvas-container.half {
+        height: 60px;
+      }
+      #l1 { top: 0; left: 196px;}
+      #r1 { top: 0; right: 0;}
+      #l2 { top: 115px; left: 196px;}
+      #r2 { top: 115px; right: 0;}
+      #l3 { top: 324px; left: 196px;}
+    
+      #result1 { top: 522px; left: 287px;}
+      #result2 { bottom: 0; left: 287px;}
+    
+      #lco {
+        position: absolute;
+        top: 270px;
+        left: 196px;
+        width: 120px;
+      }
+      #rco {
+        position: absolute;
+        top: 270px;
+        left: 380px;
+        width: 120px;
+      }
+      #fco {
+        position: absolute;
+        top: 78%;
+        left: 287px;
+        width: 120px;
+      }
+      #arrows {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        left: 0;
+        top: 0;
+        z-index:-1;
+      }
+    
+      .square {
+        position: absolute;
+        width: 120px;
+        height: 120px;
+      }
+      #layer-1 {
+        top: 324px;
+        left: 0;
+      }
+      #layer-2 {
+        bottom: 0;
+        left: 83px;
+      }
+    
+      button {
+        cursor: pointer;
+        outline: none;
+        background: #5588aa;
+        color: white;
+        border-radius: 3px;
+        padding: 6px 15px;
+        border: none;
+      }
+    </style>
+    
+    <div id="container">
+      <object id="arrows" data="../../../../canvas-demo/arrows-7bf7cf81.svg" type="image/svg+xml"></object>
+    
+      <!--button id="play">Play/Pause</button-->
+    
+      <img src="../../../../canvas-demo/layer-1-c29893b4.png" id="layer-1" class="square">
+      <img src="../../../../canvas-demo/layer-2-9318a4a5.png" id="layer-2" class="square">
+    
+      <select name="finalCompositeOperation" id="fco">
+        <option value="source-over" selected>source-over</option>
+        <option value="source-in">source-in</option>
+        <option value="source-out">source-out</option>
+        <option value="source-atop">source-atop</option>
+        <option value="destination-over">destination-over</option>
+        <option value="destination-in">destination-in</option>
+        <option value="destination-out">destination-out</option>
+        <option value="destination-atop">destination-atop</option>
+        <option value="lighter">lighter</option>
+        <option value="darker">darker</option>
+        <option value="copy">copy</option>
+        <option value="xor">xor</option>
+      </select>
+    
+      <select name="leftCompositeOperation" id="lco">
+        <option value="source-over">source-over</option>
+        <option value="source-in">source-in</option>
+        <option value="source-out">source-out</option>
+        <option value="source-atop">source-atop</option>
+        <option value="destination-over">destination-over</option>
+        <option value="destination-in">destination-in</option>
+        <option value="destination-out" selected>destination-out</option>
+        <option value="destination-atop">destination-atop</option>
+        <option value="lighter">lighter</option>
+        <option value="darker">darker</option>
+        <option value="copy">copy</option>
+        <option value="xor">xor</option>
+      </select>
+    
+      <select name="rightCompositeOperation" id="rco">
+        <option value="source-over" selected>source-over</option>
+        <option value="source-in">source-in</option>
+        <option value="source-out">source-out</option>
+        <option value="source-atop">source-atop</option>
+        <option value="destination-over">destination-over</option>
+        <option value="destination-in">destination-in</option>
+        <option value="destination-out">destination-out</option>
+        <option value="destination-atop">destination-atop</option>
+        <option value="lighter">lighter</option>
+        <option value="darker">darker</option>
+        <option value="copy">copy</option>
+        <option value="xor">xor</option>
+      </select>
+    
+      <div id="l1" class="canvas-container half"></div>
+      <div id="l2" class="canvas-container"></div>
+      <div id="l3" class="canvas-container"></div>
+      <div id="r1" class="canvas-container half"></div>
+      <div id="r2" class="canvas-container"></div>
+      <div id="result1" class="canvas-container"></div>
+      <div id="result2" class="canvas-container onscreen"></div>
+    </div>
+    
+    <script>
+      $(function() {
+    
+        var pr = window.devicePixelRatio;
+        var l1 = new CTK.DOMCanvas({ parentId: 'l1' });
+        var l2 = new CTK.DOMCanvas({ parentId: 'l2' });
+        var l3 = new CTK.DOMCanvas({ parentId: 'l3' });
+        var r1 = new CTK.DOMCanvas({ parentId: 'r1' });
+        var r2 = new CTK.DOMCanvas({ parentId: 'r2' });
+        var result1 = new CTK.DOMCanvas({ parentId: 'result1' });
+        var result2 = new CTK.DOMCanvas({ parentId: 'result2' });
+    
+        var buf = new CTK.OffscreenCanvas({mirror: result1});
+        var buf2 = new CTK.OffscreenCanvas({mirror: result1});
+    
+        var size = $('#result1').innerWidth() * pr;
+        var debug1 = new CTK.OffscreenCanvas({ width: size, height: size });
+        var debug2 = new CTK.OffscreenCanvas({ width: size, height: size });
+        var debug3 = new CTK.OffscreenCanvas({ width: size, height: size });
+        var debug4 = new CTK.OffscreenCanvas({ width: size, height: size });
+    
+        var loader = new CTK.Loader();
+    
+        var overlayColor = 'rgba(134,83,105,0.5)';
+    
+        var bg = new CTK.Image('../../../../canvas-demo/transparent-bg-f4c4168e.png', {loader: loader});
+        var pic = new CTK.Image('../../../../canvas-demo/abstract-0a869242.jpg', {loader: loader});
+    
+        var timer;
+    
+        loader.complete(function() {
+    
+          var ball = new ART.Ball({
+            colors: [0,1,0,2],
+            size: size,
+          });
+    
+          timer = new CTK.RAF(function( tick ) {
+            //if( tick.frame %10 != 0 ) return;
+            l1.clear().ctx.drawImage( bg.el, 0, 0 );
+            l1.ctx.drawImage( ball.whiteArc.canvas, 0, 0 );
+    
+            r1.clear().ctx.drawImage( bg.el, 0, 0 );
+            r1.ctx.drawImage( ball.blackArc.canvas, 0, 0 );
+    
+    
+            ball.draw(result1, {
+              t: tick.t * 0.2,
+              debug: [debug3, debug4],
+              stroke: false
+            });
+    
+            ball.draw(result1, {
+              t: tick.t * 0.2,
+              debug: [ debug1, debug2 ],
+              stroke: true
+            });
+    
+            l2.ctx.drawImage( bg.el, 0, 0 );
+            l2.ctx.drawImage( debug1.canvas, 0, 0);
+    
+            r2.ctx.drawImage( bg.el, 0, 0 );
+            r2.ctx.drawImage( debug2.canvas, 0, 0);
+            
+            var leftOp = $('#lco').val();
+            var rightOp = $('#rco').val();
+            var finalOp = $('#fco').val();
+    
+    
+            buf.clear();
+            buf.ctx.globalCompositeOperation = 'source-over';
+            buf.fill(overlayColor);
+            buf.ctx.globalCompositeOperation = leftOp;
+            buf.ctx.drawImage( debug3.canvas, 0, 0);
+    
+            l3.ctx.drawImage( bg.el, 0, 0 );
+            l3.ctx.drawImage( buf.canvas, 0, 0 );
+    
+            buf.clear();
+            buf.ctx.globalCompositeOperation = 'source-over';
+            buf.fill(overlayColor);
+            buf.ctx.globalCompositeOperation = leftOp;
+            buf.ctx.drawImage( debug3.canvas, 0, 0);
+            buf.ctx.globalCompositeOperation = rightOp;
+            buf.ctx.drawImage( debug4.canvas, 0, 0);
+    
+            result1.clear();
+            result1.ctx.drawImage( bg.el, 0, 0 );
+            result1.ctx.drawImage( buf.canvas, 0, 0 );
+    
+            buf2.clear();
+            buf2.ctx.globalCompositeOperation = 'copy';
+            buf2.ctx.drawImage( pic.el, 0, 0 );
+            buf2.ctx.globalCompositeOperation = finalOp;
+            buf2.ctx.drawImage( buf.canvas, 0, 0 );
+    
+            result2.clear();
+            result2.ctx.drawImage( bg.el, 0, 0 );
+            result2.ctx.drawImage( buf2.canvas, 0, 0 );
+          });
+    
+          frame.on('occluded', function() {
+            timer.pause();
+          }).on('visible', function() {
+            timer.play();
+          });
+        });
+    
+    
+      });
+    </script>
+    <script>
+      var _gaq=[['_setAccount','UA-50197543-4'],['_trackPageview']];
+      (function(d,t){var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
+      g.src=('https:'==location.protocol?'//ssl':'//www')+'.google-analytics.com/ga.js';
+      s.parentNode.insertBefore(g,s)}(document,'script'));
+    </script>
+  </body>
+</html>

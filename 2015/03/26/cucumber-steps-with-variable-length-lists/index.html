@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html class='no-js sticky'>
+  <head>
+    <meta charset='utf-8'>
+    <meta content='IE=edge,chrome=1' http-equiv='X-UA-Compatible'>
+    <title>Cucumber steps with variable-length lists | Ricky Reusser</title>
+    <meta name="site" content="Ricky Reusser" />
+    <meta name="og:site_name" content="Ricky Reusser" />
+    <meta name="title" content="Cucumber steps with variable-length lists" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Cucumber steps with variable-length lists" />
+    <meta name="twitter:site" content="@rickyreusser" />
+    <meta name="og:title" content="Cucumber steps with variable-length lists" />
+    <meta content='width=device-width, initial-scale=1' name='viewport'>
+    <link href="../../../../stylesheets/application-576d5dfe.css" rel="stylesheet" type="text/css" />
+    <link href='//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.3/styles/default.min.css' rel='stylesheet'>
+    <link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" />
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+  </head>
+  <body>
+    <div class='wrapper'>
+      <nav class='navbar' id='navbar'>
+        <a class="menu-toggle" href="/"><span class='burger'></span>
+        <span class='burger'></span>
+        <span class='burger'></span>
+        </a>
+        <ul id='menu'>
+          <li class='top'>
+            <a class="brand" href="/">rickyreusser.com
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="/tags/science"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+              <g>
+                <circle fill="#ffffff" cx="37.915" cy="34.252" r="2.165"/>
+                <circle fill="#ffffff" cx="35.086" cy="34.252" r="2.165"/>
+                <circle fill="#ffffff" cx="37.915" cy="37.08" r="2.165"/>
+                <circle fill="#ffffff" cx="35.086" cy="37.08" r="2.165"/>
+                <circle fill="#ffffff" cx="59.5" cy="43.666" r="3.888"/>
+                <ellipse fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10" cx="36.5" cy="35.666" rx="33.333" ry="11.167"/>
+                <circle fill="#ffffff" cx="18.39" cy="51.134" r="3.889"/>
+                
+                  <ellipse transform="matrix(-0.4996 0.8662 -0.8662 -0.4996 85.7024 20.9105)" fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10" cx="36.812" cy="35.207" rx="33.333" ry="11.167"/>
+                <circle fill="#ffffff" cx="32.201" cy="12.24" r="3.889"/>
+                
+                  <ellipse transform="matrix(-0.4988 -0.8667 0.8667 -0.4988 23.7217 86.0485)" fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10" cx="36.74" cy="36.166" rx="33.333" ry="11.167"/>
+              </g>
+            </svg>
+            <span class='label'>science</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="/tags/dev"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+              <g>
+                <path fill="#ffffff" d="M25.295,28.367l-14.941,7.489l14.941,7.42v4.284l-18.58-9.784v-3.886l18.58-9.784V28.367z"/>
+                <path fill="#ffffff" d="M41.468,15.914h3.34L30.991,55.308h-3.357L41.468,15.914z"/>
+                <path fill="#ffffff" d="M47.06,28.367v-4.261l18.58,9.784v3.886l-18.58,9.784v-4.284l14.941-7.42L47.06,28.367z"/>
+              </g>
+            </svg>
+            <span class='label'>dev</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a id="fun" href="/tags/fun"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+              <g>
+                <path fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10" d="M54.566,58.368"/>
+                <path fill="#ffffff" d="M54.244,40.188l-7.595,4.933L25.393,13.908L2.23,58.5h67.697L54.244,40.188z M25.707,19.157l7.821,11.502
+                  l-1.919,5.119l-5.349-7.932l-3.208,5.65l-1.992-5.403L25.707,19.157z"/>
+              </g>
+            </svg>
+            <span class='label'>fun</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="https://github.com/rreusser"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+            <path fill-rule="evenodd" clip-rule="evenodd" fill="#ffffff" d="M36.21,8.152C20.488,8.152,7.738,20.9,7.738,36.629
+            	c0,12.579,8.158,23.251,19.474,27.017c1.424,0.262,1.943-0.618,1.943-1.372c0-0.676-0.024-2.467-0.038-4.843
+            	c-7.921,1.721-9.592-3.817-9.592-3.817c-1.295-3.289-3.161-4.165-3.161-4.165c-2.586-1.767,0.195-1.73,0.195-1.73
+            	c2.857,0.201,4.361,2.934,4.361,2.934c2.54,4.352,6.664,3.096,8.287,2.366c0.258-1.84,0.994-3.095,1.808-3.807
+            	c-6.323-0.719-12.971-3.161-12.971-14.072c0-3.109,1.11-5.65,2.932-7.641c-0.293-0.721-1.271-3.616,0.278-7.536
+            	c0,0,2.392-0.766,7.831,2.919c2.271-0.632,4.707-0.947,7.128-0.958c2.417,0.011,4.855,0.326,7.13,0.958
+            	c5.434-3.685,7.82-2.919,7.82-2.919c1.555,3.92,0.578,6.815,0.283,7.536c1.826,1.99,2.926,4.531,2.926,7.641
+            	c0,10.938-6.656,13.345-13,14.05c1.023,0.88,1.934,2.617,1.934,5.273c0,3.807-0.035,6.878-0.035,7.812
+            	c0,0.761,0.514,1.647,1.959,1.369c11.305-3.772,19.455-14.438,19.455-27.014C64.686,20.9,51.936,8.152,36.21,8.152z"/>
+            </svg>
+            <span class='label'>github</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="/about"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+              <path fill="#ffffff" d="M53.5,55.333c-9.984-2.463-11.438-6.349-10.25-8.583c1.041-1.96,2.268-1.829,5.464-9.761
+                c0.094,0.036,0.182,0.084,0.282,0.106c1.588,0.356,3.365-1.132,3.965-3.326c0.598-2.191-0.207-4.261-1.794-4.617
+                c-0.083-0.019-0.168-0.012-0.252-0.021C54.667,8.497,38.667,5.997,30.167,11.247c-3.917-2.359-12.25,1.917-10.068,17.885
+                c-0.084,0.009-0.155,0.002-0.238,0.021c-1.587,0.356-2.392,2.426-1.794,4.617c0.6,2.194,2.377,3.683,3.965,3.326
+                c0.101-0.022,0.188-0.07,0.282-0.106c3.196,7.932,4.271,7.988,5.312,9.948c1.188,2.234,0.231,5.982-9.745,8.477
+                C4.546,58.747,5.527,65.5,5.527,65.5H35.5h30C65.5,65.5,66.666,58.581,53.5,55.333z"/>
+            </svg>
+            <span class='label'>about me</span>
+            </a>
+          </li>
+        </ul>
+        <div class='content'></div>
+        <div class='inner-content'>
+          <h5 class='abbrev'>
+            <span>Cucumber steps with variable-length lists</span>
+          </h5>
+        </div>
+      </nav>
+      <article>
+        <section class='frontmatter' data-abbrvd-target='#navbar'>
+          <div class='container'>
+            <div class='outer-container'>
+              <div class='inner-container'>
+                <h1 class='title'>Cucumber steps with variable-length lists</h1>
+                <h5 class='metadata'>
+                  <span class='published-at'>March 26, 2015</span>
+                  <br>
+                  <div class='tags'>
+                    <span class='tag'><a href="/tags/testing/">#testing</a></span>
+                    <span class='tag'><a href="/tags/dev/">#dev</a></span>
+                    <span class='tag'><a href="/tags/cucumber/">#cucumber</a></span>
+                    <span class='tag'><a href="/tags/regex/">#regex</a></span>
+                  </div>
+                </h5>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class='content'>
+          <h2>A problem</h2>
+          
+          <p>I&rsquo;m working hard to learn both RSpec and Cucumber. The verdict is out. I like the idea of Cucumber for happy path behavior testing and RSpec for unit and functional testing. The reality with Cucumber though is that I find I spend a lot of my time constructing regular expressions and pretty abstractions. Here&rsquo;s a great example of when I start to feel like I&rsquo;m headed down the wrong path: let&rsquo;s say you have a feature that could expect a variable number of parameters.</p>
+          <div class="highlight gherkin"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7</pre></td><td class="code"><pre>  <span class="kn">Scenario</span><span class="p">:</span> Adding two colors&#x000A;    <span class="nf">Given</span> you add the colors <span class="s">"red"</span> and <span class="s">"green"</span>&#x000A;    <span class="nf">Then</span> you should get <span class="s">"yellow"</span>&#x000A;&#x000A;  <span class="kn">Scenario</span><span class="p">:</span> Adding three colors&#x000A;    <span class="nf">Given</span> you add the colors <span class="s">"red"</span>, <span class="s">"green"</span>, and <span class="s">"blue"</span>&#x000A;    <span class="nf">Then</span> you should get <span class="s">"white"</span></pre></td></tr></tbody></table>
+          </div>
+          
+          <p>Cucumber recommends the matchers:</p>
+          <div class="highlight ruby"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7</pre></td><td class="code"><pre><span class="no">Given</span><span class="p">(</span><span class="sr">/^you add the colors? "(.*?)" and "(.*?)"$/</span><span class="p">)</span> <span class="k">do</span> <span class="o">|</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">,</span> <span class="n">arg3</span><span class="o">|</span>&#x000A;  <span class="n">pending</span>&#x000A;<span class="k">end</span>&#x000A;&#x000A;<span class="no">Given</span><span class="p">(</span><span class="sr">/^you add the colors? "(.*?)", "(.*?)", and "(.*?)"$/</span><span class="p">)</span> <span class="k">do</span> <span class="o">|</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">,</span> <span class="n">arg3</span><span class="o">|</span>&#x000A;  <span class="n">pending</span>&#x000A;<span class="k">end</span></pre></td></tr></tbody></table>
+          </div>
+          
+          <p>This is inconvenient. They&rsquo;re basically the same. And what if you have four colors? Another matcher? I suspect this is a Cucumber anti-pattern I&rsquo;m trying to solve, but I was curious how to clean it up. We could to write a regex that handles a variable number of captures, but to the best of my knowledge&mdash;apart from maybe some recursive extension to regexes&mdash;the &ldquo;regular&rdquo; in regex means regular expressions just don&rsquo;t work that way.</p>
+          
+          <p>That&rsquo;s vague and confusing. Consider <code>/&quot;([^&quot;]*)&quot;(?:,\s+)?/</code>. This captures a quoted string perhaps followed by a comma and a space. (Remember that <code>(?:)</code> is a non-capturing group.) <a href="http://rubular.com/r/33UNiVNQWL">Our three-color string has three matches and returns &ldquo;red&rdquo;, &ldquo;green&rdquo;, and &ldquo;blue&rdquo;</a>. Except Cucumber isn&rsquo;t interested in multiple <em>matches</em>. It wants <em>one</em> match with multiple <em>captures</em>. That&rsquo;s what regexes won&rsquo;t do.</p>
+          
+          <h2>A good-enough solution</h2>
+          
+          <p>The obvious alternative is to enumerate some number of step definitions like Cucumber suggested in the first place, but that&rsquo;s crazytown. But maybe it&rsquo;s not <em>so</em> crazy if we can roll it up a little:</p>
+          <div class="highlight ruby"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5</pre></td><td class="code"><pre><span class="p">(</span><span class="mi">1</span><span class="p">.</span><span class="nf">.</span><span class="mi">10</span><span class="p">).</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">n</span><span class="o">|</span>&#x000A;  <span class="no">Given</span><span class="p">(</span><span class="sr">%r{^you add the colors? </span><span class="si">#{</span><span class="no">Array</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="s1">'"([^\"]*)"'</span><span class="p">).</span><span class="nf">join</span><span class="p">(</span><span class="s1">',?\s+(?:and\s+)?'</span><span class="p">)</span><span class="si">}</span><span class="sr">$}</span><span class="p">)</span> <span class="k">do</span> <span class="o">|*</span><span class="n">args</span><span class="o">|</span>&#x000A;    <span class="vi">@colors</span> <span class="o">=</span> <span class="n">args</span>&#x000A;  <span class="k">end</span>&#x000A;<span class="k">end</span></pre></td></tr></tbody></table>
+          </div>
+          
+          <p>This creates ten step definitions, and our two strings match the two they need. Great! But in addition to feeling ugly, it now actually <em>is</em> ugly. Let&rsquo;s wrap this up in a function. I&rsquo;ll add this to my support code:</p>
+          <div class="highlight ruby"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5</pre></td><td class="code"><pre><span class="k">def</span> <span class="nf">for_list_of</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">range</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">block</span><span class="p">)</span>&#x000A;  <span class="n">range</span><span class="p">.</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">n</span><span class="o">|</span>&#x000A;    <span class="n">block</span><span class="p">.</span><span class="nf">call</span><span class="p">(</span> <span class="no">Array</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="n">pattern</span><span class="p">).</span><span class="nf">join</span><span class="p">(</span><span class="s1">',?\s+(?:and\s+)?'</span><span class="p">)</span> <span class="p">)</span>&#x000A;  <span class="k">end</span>&#x000A;<span class="k">end</span></pre></td></tr></tbody></table>
+          </div>
+          
+          <p>Then I can write:</p>
+          <div class="highlight ruby"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7</pre></td><td class="code"><pre><span class="no">QUOTED_STRING</span> <span class="o">=</span> <span class="sr">/"([^"]*)"/</span>&#x000A;&#x000A;<span class="n">for_list_of</span><span class="p">(</span><span class="no">QUOTED_STRING</span><span class="p">,</span> <span class="mi">1</span><span class="p">.</span><span class="nf">.</span><span class="mi">10</span><span class="p">)</span> <span class="k">do</span> <span class="o">|</span><span class="n">re</span><span class="o">|</span>&#x000A;  <span class="no">Given</span><span class="p">(</span><span class="sr">/^you add the colors? </span><span class="si">#{</span><span class="n">re</span><span class="si">}</span><span class="sr">$/</span><span class="p">)</span> <span class="k">do</span> <span class="o">|*</span><span class="n">args</span><span class="o">|</span>&#x000A;    <span class="vi">@colors</span> <span class="o">=</span> <span class="n">args</span>&#x000A;  <span class="k">end</span>&#x000A;<span class="k">end</span></pre></td></tr></tbody></table>
+          </div>
+          
+          <p>This works, it&rsquo;s concise and readable, and it matches the plain English variations:</p>
+          
+          <ul>
+          <li><code>you add the color &quot;red&quot;</code></li>
+          <li><code>you add the colors &quot;red&quot; and &quot;green&quot;</code></li>
+          <li><code>you add the colors &quot;red&quot;, &quot;green&quot;, and &quot;blue&quot;</code></li>
+          <li><code>you add the colors &quot;red&quot;, &quot;green&quot;, &quot;blue&quot;, and &quot;fuchsia&quot;</code></li>
+          </ul>
+          
+          <p>This accomplishes what I was trying to do in the first place, so I&rsquo;m going to consider it a success. Do you know some regex magic I don&rsquo;t? I&rsquo;d love to hear about it. Is this an over-beautified Cucumber anti-pattern? Yeah. That&rsquo;s my suspicion.</p>
+        </section>
+      </article>
+      <div class='push'></div>
+    </div>
+    <section class='footer'>
+      <div class='container'>
+        <div class='article-footer'>
+          <div id='disqus_thread'></div>
+          <script>
+              var disqus_shortname = 'rickyreusser';
+              (function() {
+                  var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+                  dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+                  (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+              })();
+          </script>
+          <noscript>
+            Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+          </noscript>
+        </div>
+        <!--div class="sharing">
+        <a href="http://www.twitter.com/share?url=<%= data['site']['siteurl'] %><%= current_article.url %>&amp;text=<%= current_article.title %> by <%= data['site']['twitter_id'] %>" title="Share this post on Twitter" data-lang="en" onclick="return !window.open(this.href, 'Twitter', 'width=640,height=300')"><span class="socicon socicon-twitter fgcolor"></span></a>
+        <a target="_blank" onclick="return !window.open(this.href, 'Facebook', 'width=640,height=300')" href="http://www.facebook.com/sharer/sharer.php?u=<%= data['site']['siteurl'] %><%= current_article.url %>" title="Share this post on Facebook"><span class="socicon socicon-facebook fgcolor"></span></a>
+        <a href="http://plus.google.com/share?url=<%= data['site']['siteurl'] %><%= current_article.url %>" target="_blank" onclick="return !window.open(this.href, 'Google +', 'width=640,height=300')" title="Share this post on Google +"><span class="socicon socicon-google fgcolor"></span></a>
+        </div-->
+      </div>
+    </section>
+    <script src="../../../../javascripts/all-5962ed70.js" type="text/javascript"></script>
+    <script>
+      var _gaq=[['_setAccount','UA-50197543-4'],['_trackPageview']];
+      (function(d,t){var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
+      g.src=('https:'==location.protocol?'//ssl':'//www')+'.google-analytics.com/ga.js';
+      s.parentNode.insertBefore(g,s)}(document,'script'));
+    </script>
+    <script>
+      $('code').each(function(i,el) {
+        var $el = $(el);
+        var html = $el.html();
+        if( html.match(/^\${1,2}.*\${1,2}$/) || html.match(/^\\\(.*\\\)$/) ){
+          var container = $('<span>');
+          container.html(html);
+          $el.replaceWith(container);
+        }
+      });
+    </script>
+  </body>
+</html>
