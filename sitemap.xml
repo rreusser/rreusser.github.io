@@ -73,6 +73,12 @@
     <priority>0.5</priority>
   </url>
   <url>
+    <loc>http://rickyreusser.com/2015-04-12-new-york-city-skyline.html</loc>
+    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
     <loc>http://rickyreusser.com/about.html</loc>
     <lastmod>2015-04-11T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
@@ -151,6 +157,18 @@
     <priority>0.5</priority>
   </url>
   <url>
+    <loc>http://rickyreusser.com/2015/04/12.html</loc>
+    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://rickyreusser.com/2015/04.html</loc>
+    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
     <loc>http://rickyreusser.com/2015.html</loc>
     <lastmod>2015-04-11T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
@@ -193,6 +211,12 @@
     <priority>0.5</priority>
   </url>
   <url>
+    <loc>http://rickyreusser.com/index.html</loc>
+    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1</priority>
+  </url>
+  <url>
     <loc>http://rickyreusser.com/tags/photos.html</loc>
     <lastmod>2015-04-11T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
@@ -205,19 +229,13 @@
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>http://rickyreusser.com/index.html</loc>
-    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>1</priority>
-  </url>
-  <url>
-    <loc>http://rickyreusser.com/tags/cfd.html</loc>
+    <loc>http://rickyreusser.com/tags/canvas.html</loc>
     <lastmod>2015-04-11T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>http://rickyreusser.com/tags/hidden.html</loc>
+    <loc>http://rickyreusser.com/tags/cfd.html</loc>
     <lastmod>2015-04-11T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
@@ -289,18 +307,6 @@
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>http://rickyreusser.com/tags/canvas.html</loc>
-    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>http://rickyreusser.com/tags/dev.html</loc>
-    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
     <loc>http://rickyreusser.com/work.html</loc>
     <lastmod>2015-04-11T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
@@ -308,6 +314,18 @@
   </url>
   <url>
     <loc>http://rickyreusser.com/tags/demo.html</loc>
+    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://rickyreusser.com/tags/hidden.html</loc>
+    <lastmod>2015-04-11T00:00:00-04:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://rickyreusser.com/tags/dev.html</loc>
     <lastmod>2015-04-11T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
