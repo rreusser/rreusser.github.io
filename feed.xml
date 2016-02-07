@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-07T10:56:01-05:00</updated>
+  <updated>2016-02-07T11:15:50-05:00</updated>
   <author>
     <name/>
   </author>
@@ -21,7 +21,9 @@
 
 &lt;p&gt;The governing equations of aerodynamics are actually pretty intuitively simple, but, unfortunately, actually solving practical engineering problems is &lt;a href="http://www.claymath.org/millennium-problems/navier%E2%80%93stokes-equation"&gt;way too fundamentally difficult&lt;/a&gt; for all but the simplest of problems. Engineering is about useful approximations though, and the first step of discretization, the process of turning an exact but unsolvable problem into a bunch of immensely easier approximate problems, is to generate a grid on which to solve the problem. (A side note on relevance: doing this on seriously grown-up problems was recently &lt;a href="http://www.siemens.com/press/en/pressrelease/?press=/en/pressrelease/2016/corporate/pr2016010139coen.htm&amp;amp;content[]=Corp"&gt;worth at least a nice chunk of $970M&lt;/a&gt;.)&lt;/p&gt;
 
-&lt;p&gt;Imagine trying to figure out how much lift and drag an airfoil produces. Unless airflow over the airfoil is laminar (smooth) and maybe even has a &lt;a href="https://en.wikipedia.org/wiki/Joukowsky_transform"&gt;clever analytical solution&lt;/a&gt;, we&amp;rsquo;ll need a grid. Since we don&amp;rsquo;t really care where our grid ends as long as it&amp;rsquo;s far away, the obvious approach is to start at the airfoil and march a contour outward.&lt;/p&gt;
+&lt;p&gt;Oh, and of course I should point out that the primary motivation for me actually writing this up and putting it out here on the web is to try to figure out what all the reports I did years ago would have looked like if I&amp;rsquo;d had a set of tools on hand that allowed me to communicate things interactively. &lt;a href="http://blog.codinghorror.com/the-principle-of-least-power/"&gt;The trend of porting everything to JavaScript&lt;/a&gt; gets really old, but as rightfully maligned as it is, it does allow for a unique combination of portability and interactivity that I don&amp;rsquo;t think are fully utilized yet. So my goal here is to create interesting things but also to refine the tools other people could use to communicate perhaps more meaningful things.&lt;/p&gt;
+
+&lt;p&gt;So anyway, imagine trying to figure out how much lift and drag an airfoil produces. Unless airflow over the airfoil is laminar (smooth) and maybe even has a &lt;a href="https://en.wikipedia.org/wiki/Joukowsky_transform"&gt;clever analytical solution&lt;/a&gt;, we&amp;rsquo;ll need a grid. Since we don&amp;rsquo;t really care where our grid ends as long as it&amp;rsquo;s far away, the obvious approach is to start at the airfoil and march a contour outward.&lt;/p&gt;
 
 &lt;figure&gt;
   &lt;img alt="Our basic strategy for grid generation around an airfoil." src="/hyperbolic-grid-generation/naive-method.png"&gt;
@@ -97,7 +99,7 @@ defines our step. &lt;code&gt;\(\epsilon\)&lt;/code&gt; is a small number and &l
 
 &lt;p&gt;The best we can do and indeed what people seem to do is to add diffusion. In terms of stability, diffusion pulls things toward the origin of the complex plane and back inside the region of stability, the unit circle.&lt;/p&gt;
 
-&lt;p&gt;The final result is pictured below. It&amp;rsquo;d be worthwhile to add some logic to the constant &lt;code&gt;\(A\)&lt;/code&gt; in order to optimize the cell stretching, but in lieu of all of these caveats, it works pretty well! You can find the code on &lt;a href="https://github.com/rreusser/grid-generation-experiments"&gt;github&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;The final result is pictured below. It&amp;rsquo;d be worthwhile to add some logic to the constant &lt;code&gt;\(A\)&lt;/code&gt; in order to optimize the cell stretching, but in lieu of all of these caveats, it works pretty well! In a future writeup, I&amp;rsquo;ll try to use this to do some actual fluid dynamics! You can find the code on &lt;a href="https://github.com/rreusser/grid-generation-experiments"&gt;github&lt;/a&gt;.&lt;/p&gt;
 
 &lt;figure class="wide"&gt;
 &lt;p&gt;&lt;code&gt;interactive-frame[width=100% height=600 border=#eee](http://rickyreusser.com/grid-generation-experiments/?stepInc=0.002&amp;m=201&amp;n=40&amp;stepStart=0.002&amp;clustering=15&amp;camber=0.25&amp;xmin=-0.3&amp;xmax=1.3&amp;diffusion=0.001&amp;integrator=rk2&amp;mouseWheel=false&amp;ymin=0.1&amp;ymax=0.1)&lt;/code&gt;&lt;/p&gt;
