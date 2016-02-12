@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-12T04:00:21-05:00</updated>
+  <updated>2016-02-12T04:02:19-05:00</updated>
   <author>
     <name/>
   </author>
@@ -19,7 +19,7 @@
     </author>
     <content type="html">&lt;h2&gt;Introduction&lt;/h2&gt;
 
-&lt;p&gt;It&amp;rsquo;s easy to dismiss front-end development as something that just happens if you put a developer in a room for four days with a laptop, some PNGs, and a standing desk. Truth is, shoddy CSS won&amp;rsquo;t sink the business and your code doesn&amp;rsquo;t need to be perfect. Your current tech problem is, in almost-certain fact, &amp;ldquo;not a tech problem.&amp;rdquo;&lt;/p&gt;
+&lt;p&gt;It&amp;rsquo;s easy to dismiss front-end development as something that just happens if you put a developer in a room for four days with a laptop, some PNGs, and a standing desk. Truth is, shoddy CSS won&amp;rsquo;t sink the business and your code doesn&amp;rsquo;t need to be anywhere close to perfect. Your current tech problem is, in almost-certain fact, &amp;ldquo;not a tech problem.&amp;rdquo;&lt;/p&gt;
 
 &lt;p&gt;Someday though, there&amp;rsquo;ll come a moment when the original developer has left, two new developers are starting, and the business needs to pivot. Or maybe it&amp;rsquo;s growing. The new designs are ready. Something is going to happen, and it&amp;rsquo;s either going to amount to a new coat of paint or scorched-earth death and rebirth. This is the moment when the original code is exposed in all of its beautiful and terrible glory.&lt;/p&gt;
 
@@ -98,7 +98,7 @@
 &lt;p&gt;&lt;strong&gt;If it&amp;rsquo;s not obvious whether a rule can be removed, your selectors are probably too general and your nesting too deep.&lt;/strong&gt;&lt;/p&gt;
 &lt;/blockquote&gt;
 
-&lt;p&gt;I want to emphasize that my CSS is not (f***ing) perfect, but here&amp;rsquo;s a suggested reworking of the above example. You may try rewriting the classes like this:&lt;/p&gt;
+&lt;p&gt;I want to emphasize that my CSS is not (f***ing) great, but here&amp;rsquo;s a suggested reworking of the above example. You may try rewriting the classes like this:&lt;/p&gt;
 &lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3
