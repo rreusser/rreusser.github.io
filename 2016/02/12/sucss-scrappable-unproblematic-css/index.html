@@ -220,12 +220,12 @@
           <p>There&rsquo;s a lot going on here and <a href="http://getbem.com/introduction/">BEM</a> describes it more clearly and precisely than I&rsquo;m able, so I&rsquo;ll only ask you to notice three things:</p>
           
           <ol>
-          <li><p><strong>I haven&rsquo;t used SASS&rsquo;s nesting feature. At all. <a href="https://medium.com/@fat/mediums-css-is-actually-pretty-fucking-good-b8e2a6c78b06#3a3b">Don&rsquo;t</a>.</strong> Selectors with more than two or <em>maybe</em> three levels almost certainly don&rsquo;t need the meaning you&rsquo;re giving them.</p></li>
+          <li><p><strong>I haven&rsquo;t used SASS&rsquo;s nested braces. At all. <a href="https://medium.com/@fat/mediums-css-is-actually-pretty-fucking-good-b8e2a6c78b06#3a3b">Don&rsquo;t</a>.</strong> Selectors with more than two or <em>maybe</em> three levels almost certainly don&rsquo;t need the meaning you&rsquo;re giving them. And for two or three-level selectors, instead of nesting braces, write each rule separately, one per line. This will force you to think about what you mean.</p></li>
           <li><p>I used the <code>moduleName-childName</code> convention. Choose your own dash convention, but when you do, call things on the page modules. Give modules children. And <strong>choose names uniquely and consistently so they will not interact in unexpected ways</strong>.</p></li>
           <li><p>I&rsquo;ve used SASS&rsquo;s <code>@extend</code> to <strong>avoid littering my CSS with presentational classes</strong>. Whether to use <code>col-md-6</code> or <code>btn btn-primary btn-lg</code> everywhere is a contentious issue. I prefer without, but as a matter of dogma I take no stance; I only want to point out <code>@extend</code> is a very useful thing you can do.</p></li>
           </ol>
           
-          <p>Things get subtle. Ambiguous. There are countless details to work out. But if we&rsquo;re grappling with these questions, we&rsquo;re light years ahead of where we started.</p>
+          <p>Things get subtle. Ambiguous. These are merely strong suggestions. There are countless details to work out. But if we&rsquo;re grappling with these questions, we&rsquo;re light years ahead of where we started.</p>
           
           <h2>A slightly more nuanced example</h2>
           
