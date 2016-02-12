@@ -4,10 +4,310 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-07T11:35:52-05:00</updated>
+  <updated>2016-02-12T02:54:19-05:00</updated>
   <author>
     <name/>
   </author>
+  <entry>
+    <title>SUCSS: A conceptual framework for Scrappable, Unproblematic CSS</title>
+    <link rel="alternate" href="http://rickyreusser.com/2016/02/12/sucss-scrappable-unproblematic-css/"/>
+    <id>http://rickyreusser.com/2016/02/12/sucss-scrappable-unproblematic-css/</id>
+    <published>2016-02-11T19:00:00-05:00</published>
+    <updated>2016-02-11T19:00:00-05:00</updated>
+    <author>
+      <name/>
+    </author>
+    <content type="html">&lt;h2&gt;Introduction&lt;/h2&gt;
+
+&lt;p&gt;It&amp;rsquo;s easy to dismiss front-end development as something that just happens if you put a developer in a room for four days with a laptop, some PNGs, and a standing desk. Truth is, shoddy CSS won&amp;rsquo;t sink the business and your code doesn&amp;rsquo;t need to be perfect. Your current tech problem is, in almost-certain fact, &amp;ldquo;not a tech problem.&amp;rdquo;&lt;/p&gt;
+
+&lt;p&gt;Someday though, there&amp;rsquo;ll come a moment when the original developer has left, two new developers are starting, and the business needs to pivot. Or maybe it&amp;rsquo;s growing. The new designs are ready. Something is going to happen, and it&amp;rsquo;s either going to amount to a new coat of paint or scorched-earth death and rebirth. This is the moment when the original code is exposed in all of its beautiful and terrible glory.&lt;/p&gt;
+
+&lt;p&gt;I&amp;rsquo;m not going to write about great CSS. There&amp;rsquo;s a lot of that. I&amp;rsquo;m sure &lt;a href="https://medium.com/@fat/mediums-css-is-actually-pretty-fucking-good-b8e2a6c78b06"&gt;Medium&amp;rsquo;s CSS &lt;em&gt;is&lt;/em&gt; actually pretty f***ing good&lt;/a&gt;. Nicolas Gallagher has &lt;a href="http://nicolasgallagher.com/about-html-semantics-front-end-architecture/"&gt;some illuminating thoughts on semantics&lt;/a&gt;. You should read about the difference between the &lt;a href="https://smacss.com/"&gt;SMACSS&lt;/a&gt; and &lt;a href="http://getbem.com/introduction/"&gt;BEM&lt;/a&gt; methodologies.&lt;/p&gt;
+
+&lt;p&gt;No, today I&amp;rsquo;m going to back up a couple steps and focus on conditioning a big red alarm bell to go off in your head when you&amp;rsquo;re wading into dangerous territory. Naming conventions have no bearing on this discussion, but to be clear, I&amp;rsquo;ll write the examples in &lt;a href="http://sass-lang.com/"&gt;SASS&lt;/a&gt;, will opt for &lt;a href="https://smacss.com/"&gt;SMACSS&lt;/a&gt;-like notation with &lt;a href="http://getbem.com/introduction/"&gt;BEM&lt;/a&gt;-like minimalism, and &lt;strong&gt;I&amp;rsquo;ll call my approach SUCSS: Scrappable, Unproblematic CSS&lt;/strong&gt;.&lt;/p&gt;
+
+&lt;h2&gt;The problem: Unscrappable, Problematic&amp;nbsp;CSS&lt;/h2&gt;
+
+&lt;p&gt;Early on, I got backed into an interesting corner. My task was to bring an inherited project to launch (as if I couldn&amp;rsquo;t list five good examples of problems &lt;em&gt;I&lt;/em&gt; caused). There was a single 2269-line SASS stylesheet nested as many as seven levels deep. An actual rule:&lt;/p&gt;
+&lt;div class="highlight css"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nf"&gt;#content&lt;/span&gt;&lt;span class="nc"&gt;.user-creations&lt;/span&gt; &lt;span class="nc"&gt;.right&lt;/span&gt; &lt;span class="nc"&gt;.user-stats&lt;/span&gt; &lt;span class="nc"&gt;.detail&lt;/span&gt; &lt;span class="nt"&gt;ul&lt;/span&gt; &lt;span class="nt"&gt;li&lt;/span&gt;&lt;span class="nc"&gt;.last&lt;/span&gt; &lt;span class="nt"&gt;label&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;I don&amp;rsquo;t need to tell you the situation wasn&amp;rsquo;t great, but the problem wasn&amp;rsquo;t that I couldn&amp;rsquo;t &lt;em&gt;add&lt;/em&gt; CSS rules. Adding rules is pretty much always easy. The problem was that I couldn&amp;rsquo;t &lt;em&gt;remove&lt;/em&gt; rules. It was unscrappable. Pretty soon the CSS was 3000 lines. Then 3500 lines. I was pretty sure large sections of the stylesheet no longer applied. But not totally sure. I split it into multiple files, but that only spread the confusion across multiple files.&lt;/p&gt;
+
+&lt;p&gt;This rule is an example of &lt;em&gt;&lt;a href="https://en.wikipedia.org/wiki/Coupling_(computer_programming)"&gt;tight coupling&lt;/a&gt;&lt;/em&gt;. It&amp;rsquo;s effectively unmaintainable. Is the &lt;code&gt;label&lt;/code&gt; in question simultaneously and meaningfully connected to the list, the stats, the right column &lt;em&gt;and&lt;/em&gt; the user creations page? Nesting SASS is easy, but at this depth the structure you&amp;rsquo;ve given it &lt;strike&gt;almost certainly&lt;/strike&gt; does not reflect any meaning.&lt;/p&gt;
+
+&lt;p&gt;The solution, a concept underlying all CSS methodologies, is &lt;em&gt;&lt;a href="https://en.wikipedia.org/wiki/Loose_coupling"&gt;loose coupling&lt;/a&gt;&lt;/em&gt;. The details vary, but the question you need to ask is the same:&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;What happens if I move this piece of the view?&lt;/strong&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;The desired answer, more often than not, is that it should look the same. The corollary, I&amp;rsquo;ll go as far as to say, is that the worst thing you can do for your CSS is to mirror the DOM structure. Consider the HTML:&lt;/p&gt;
+&lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3
+4
+5
+6
+7&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"new-post blog row active"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"left-column col-md-6"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;form&amp;gt;&lt;/span&gt;
+      &lt;span class="nt"&gt;&amp;lt;input&lt;/span&gt; &lt;span class="na"&gt;type=&lt;/span&gt;&lt;span class="s"&gt;"submit"&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"btn btn-primary"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;/form&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;and corresponding SASS:&lt;/p&gt;
+&lt;div class="highlight scss"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nc"&gt;.new-post.row&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="k"&gt;&amp;amp;&lt;/span&gt;&lt;span class="nc"&gt;.active&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+    &lt;span class="nc"&gt;.left-column&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+      &lt;span class="nt"&gt;form&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+        &lt;span class="nc"&gt;.btn&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+          &lt;span class="nc"&gt;...&lt;/span&gt;
+        &lt;span class="p"&gt;}&lt;/span&gt;
+      &lt;span class="p"&gt;}&lt;/span&gt;
+    &lt;span class="p"&gt;}&lt;/span&gt;
+  &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;There&amp;rsquo;s a laundry list of problems. If you move the &lt;code&gt;.btn&lt;/code&gt; into the right column, you have to rework your CSS. A plain &lt;code&gt;.btn&lt;/code&gt; styled anywhere else on the site will affect this button. Same for &lt;code&gt;blog&lt;/code&gt; affecting &lt;code&gt;newPost&lt;/code&gt;. (Einstein called quantum entanglement &amp;ldquo;&lt;a href="https://en.wikipedia.org/wiki/Action_at_a_distance"&gt;spooky action at a distance&lt;/a&gt;.&amp;rdquo; I call unexpected interaction with distant code &amp;ldquo;shitty action at a distance.&amp;rdquo;)&lt;/p&gt;
+
+&lt;p&gt;The harsh reality is that once things reach a certain level of complexity—not even very much—it&amp;rsquo;ll almost certainly become more efficient to leave the existing CSS in tact (just in case!) and write new rules in parallel. Your CSS becomes a wasteland of the overspecified concealing a minefield of the overgeneralized.&lt;/p&gt;
+
+&lt;h2&gt;A solution: Scrappable, Unproblematic&amp;nbsp;CSS&lt;/h2&gt;
+
+&lt;p&gt;My CSS is not (f***ing) perfect. But here&amp;rsquo;s a suggested reworking. You may try writing the classes like this:&lt;/p&gt;
+&lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3
+4
+5
+6
+7&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"newPost newPost--blog is-active"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"newPost-leftCol"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;form&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"newPost-form"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+      &lt;span class="nt"&gt;&amp;lt;input&lt;/span&gt; &lt;span class="na"&gt;type=&lt;/span&gt;&lt;span class="s"&gt;"submit"&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"newPost-submit"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;/form&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;If you&amp;rsquo;re using Bootstrap and SASS, you could write your styles like this:&lt;/p&gt;
+&lt;div class="highlight scss"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nc"&gt;.newPost&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="k"&gt;@extend&lt;/span&gt; &lt;span class="nc"&gt;.row&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+  &lt;span class="nc"&gt;...&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.newPost-leftCol&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="k"&gt;@extend&lt;/span&gt; &lt;span class="nc"&gt;.col-md-6&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+  &lt;span class="nc"&gt;...&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.newPost-form&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="nc"&gt;...&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.newPost-submit&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="k"&gt;@extend&lt;/span&gt; &lt;span class="nc"&gt;.btn&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+  &lt;span class="k"&gt;@extend&lt;/span&gt; &lt;span class="nc"&gt;.btn-primary&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.newPost.is-active&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="cm"&gt;/* An active post. Don't style .is-* except with the thing it modifies! */&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.newPost--blog&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="cm"&gt;/* "--blog" signals we're modifying the look of the new post because
+   * it's a new *blog* post */&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;There&amp;rsquo;s a lot going on here and &lt;a href="http://getbem.com/introduction/"&gt;BEM&lt;/a&gt; describes it more clearly and precisely than I&amp;rsquo;m able, so I&amp;rsquo;ll only ask you to notice three things:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;&lt;strong&gt;I haven&amp;rsquo;t used SASS&amp;rsquo;s nesting feature. At all. &lt;a href="https://medium.com/@fat/mediums-css-is-actually-pretty-fucking-good-b8e2a6c78b06#3a3b"&gt;Don&amp;rsquo;t&lt;/a&gt;.&lt;/strong&gt; Selectors with more than two or &lt;em&gt;maybe&lt;/em&gt; three levels almost certainly don&amp;rsquo;t need the meaning you&amp;rsquo;re giving them.&lt;/p&gt;&lt;/li&gt;
+&lt;li&gt;&lt;p&gt;I used the &lt;code&gt;moduleName-childName&lt;/code&gt; convention. Choose your own dash convention, but when you do, call things on the page modules. Give modules children. And &lt;strong&gt;choose names uniquely so they will not interact&lt;/strong&gt;.&lt;/p&gt;&lt;/li&gt;
+&lt;li&gt;&lt;p&gt;I&amp;rsquo;ve used SASS&amp;rsquo;s &lt;code&gt;@extend&lt;/code&gt; to &lt;strong&gt;avoid littering my CSS with presentational classes&lt;/strong&gt;. Whether to use &lt;code&gt;col-md-6&lt;/code&gt; or &lt;code&gt;btn btn-primary btn-lg&lt;/code&gt; everywhere is a contentious issue. I prefer without, but as a matter of dogma I take no stance; I only want to point out it&amp;rsquo;s a very useful thing you can do.&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Things get subtle. Ambiguous. There are countless details to work out. But if we&amp;rsquo;re grappling with these questions, we&amp;rsquo;re light years ahead of where we started.&lt;/p&gt;
+
+&lt;h2&gt;A slightly more nuanced example&lt;/h2&gt;
+
+&lt;p&gt;Applying these guidlines is never totally straightforward. Consider this simple but slightly more illuminating case:&lt;/p&gt;
+&lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3
+4
+5
+6
+7&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"userProfile"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"avatar"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"avatar-wrapper"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+      &lt;span class="nt"&gt;&amp;lt;img&lt;/span&gt; &lt;span class="na"&gt;src=&lt;/span&gt;&lt;span class="s"&gt;"..."&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Perfectly lovely CSS is:&lt;/p&gt;
+&lt;div class="highlight scss"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nc"&gt;.avatar&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="cm"&gt;/* What does a generic avatar look like? */&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.avatar-wrapper&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="nc"&gt;...&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.avatar&lt;/span&gt; &lt;span class="nt"&gt;img&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="cm"&gt;/* (Note this rule is *not* `.avatar .avatar-wrapper img`) */&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.userProfile&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="nc"&gt;...&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="nc"&gt;.userProfile&lt;/span&gt; &lt;span class="nc"&gt;.avatar&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="cm"&gt;/* This is the interface between the two modules. The only sort of thing
+   * here should be outward-facing properties that affect how userProfile
+    * interacts with its surroundings. Things like: */&lt;/span&gt;
+  &lt;span class="nl"&gt;display&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;inline-block&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+  &lt;span class="nl"&gt;margin-top&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="m"&gt;20px&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;I don&amp;rsquo;t love this since the avatar shouldn&amp;rsquo;t care that it&amp;rsquo;s in a profile. But these things do happen sometimes. Perhaps we could write instead:&lt;/p&gt;
+&lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3
+4
+5
+6
+7&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"userProfile"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"userProfile-avatar"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"avatar-wrapper"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+      &lt;span class="nt"&gt;&amp;lt;img&lt;/span&gt; &lt;span class="na"&gt;src=&lt;/span&gt;&lt;span class="s"&gt;"..."&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;In this case the CSS for the avatar would be slightly different. Omitting the repeated parts, we&amp;rsquo;d write:&lt;/p&gt;
+&lt;div class="highlight scss"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nc"&gt;.userProfile-avatar&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+  &lt;span class="k"&gt;@extend&lt;/span&gt; &lt;span class="nc"&gt;.avatar&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;I think they&amp;rsquo;re both lovely and the best choice depends on how you&amp;rsquo;ve set up your partials. Again, if this is the discussion we&amp;rsquo;re having, we&amp;rsquo;re doing well.&lt;/p&gt;
+
+&lt;h2&gt;CSS Rules to live by&lt;/h2&gt;
+
+&lt;p&gt;In no particular order:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Almost never use SASS or LESS nesting capability.&lt;/strong&gt; It&amp;rsquo;s convenient, but the meaning is all wrong. If you feel the need to nest, write the rules separately. This will force you to think about what you&amp;rsquo;re actually saying.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Don&amp;rsquo;t use page classes&lt;/strong&gt; (e.g. &lt;code&gt;.post-page&lt;/code&gt;) on the &lt;code&gt;body&lt;/code&gt; element or equivalent.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Always use a &lt;code&gt;moduleName-childName&lt;/code&gt;-like convention.&lt;/strong&gt; But &lt;a href="http://getbem.com/introduction/"&gt;read more about it&lt;/a&gt; first.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2&gt;Don&amp;rsquo;t get lazy&lt;/h2&gt;
+
+&lt;p&gt;This section started as a fourth bullet point, but it requires a few more words. It&amp;rsquo;s sooo tempting to slip up and omit the module convention to save some typing:&lt;/p&gt;
+&lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
+2
+3
+4
+5&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"postForm-row"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"postForm-field"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+    &lt;span class="nt"&gt;&amp;lt;input&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"postForm-input email"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
+  &lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;See what happened? Everything was great right up until the &lt;code&gt;email&lt;/code&gt; class. This might seem nitpicky, but it&amp;rsquo;s not. A legitimate and carefully constructed &lt;code&gt;email&lt;/code&gt; module &lt;em&gt;anywhere else in the CSS&lt;/em&gt; will accidentally style the form input. This will cause strange UI quirks that could very easily not get tracked down until they&amp;rsquo;ve been in production for a couple months, if ever. This is wasted time and money for the potential savings of a few keystrokes. There are many solutions. Understand this as a red flag.&lt;/p&gt;
+
+&lt;h2&gt;Conclusion&lt;/h2&gt;
+
+&lt;p&gt;If you&amp;rsquo;re somehow here and even more miraculously still with me, you should definitely read the sources I&amp;rsquo;ve cited. They&amp;rsquo;re good. Real good. Way better than my half-baked blog post. &lt;a href="http://getbem.com/introduction/"&gt;BEM&lt;/a&gt; is straightforward. &lt;a href="https://smacss.com/"&gt;SMACSS&lt;/a&gt; is a little long. Still good though.&lt;/p&gt;
+
+&lt;p&gt;At its core, this isn&amp;rsquo;t even about CSS. It&amp;rsquo;s about expressing meaning through code. It&amp;rsquo;s about expressing technial meaning simply and effectively so that you can create. So that you can collaborate. So that you can free your mind to worry about real meaning. Solving problems. Creating things to earn money. Creating things to help people. So that you can feel good about your work and live your life. Take a walk. Climb a mountain. Fall in love. And when someone asks you about your front-end technique, you can look them straight in the eye and reply with firm conviction and a pure heart, &amp;ldquo;Well it&amp;rsquo;s not perfect, but at least my CSS doesn&amp;rsquo;t suck. It&amp;rsquo;s SUCSS.&amp;rdquo;&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Thoughts? Feedback? I don&amp;rsquo;t claim to be right. I&amp;rsquo;m only trying to be better. Let me know below if anything resonated or fell flat. Or if you have better ideas!&lt;/em&gt;&lt;/p&gt;
+</content>
+  </entry>
   <entry>
     <title>Hyperbolic Grid Generation</title>
     <link rel="alternate" href="http://rickyreusser.com/2016/02/07/hyperbolic-grid-generation/"/>
