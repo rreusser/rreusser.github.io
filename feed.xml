@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-12T03:40:45-05:00</updated>
+  <updated>2016-02-12T03:47:35-05:00</updated>
   <author>
     <name/>
   </author>
@@ -278,41 +278,13 @@
 
 &lt;p&gt;I think they&amp;rsquo;re both lovely and the best choice depends on how you&amp;rsquo;ve set up your partials. Again, if this is the discussion we&amp;rsquo;re having, we&amp;rsquo;re doing well.&lt;/p&gt;
 
-&lt;h2&gt;CSS Rules to live by&lt;/h2&gt;
-
-&lt;p&gt;In no particular order:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Almost never use SASS or LESS nesting capability.&lt;/strong&gt; It&amp;rsquo;s convenient, but the meaning is all wrong. If you feel the need to nest, write the rules separately. This will force you to think about what you&amp;rsquo;re actually saying.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Don&amp;rsquo;t use page classes&lt;/strong&gt; (e.g. &lt;code&gt;.post-page&lt;/code&gt;) on the &lt;code&gt;body&lt;/code&gt; element (or equivalent page-wrapping element).&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Always use a &lt;code&gt;moduleName-childName&lt;/code&gt;-like convention.&lt;/strong&gt; But &lt;a href="http://getbem.com/introduction/"&gt;read more about it&lt;/a&gt; first. This stuff is a huge help and is very accessible.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;If you&amp;rsquo;re unsure whether a rule can be removed, you need to rethink how you&amp;rsquo;re structuring your selectors.&lt;/strong&gt; This follows from everything above regarding specificity.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h2&gt;Don&amp;rsquo;t get lazy&lt;/h2&gt;
-
-&lt;p&gt;This section started as a fifth bullet point, but it requires a few more words because it&amp;rsquo;s sooo tempting to slip up and omit the module convention to save some typing:&lt;/p&gt;
-&lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
-2
-3
-4
-5&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"postForm-row"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
-  &lt;span class="nt"&gt;&amp;lt;div&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"postForm-field"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
-    &lt;span class="nt"&gt;&amp;lt;input&lt;/span&gt; &lt;span class="na"&gt;class=&lt;/span&gt;&lt;span class="s"&gt;"postForm-input email"&lt;/span&gt;&lt;span class="nt"&gt;&amp;gt;&lt;/span&gt;
-  &lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
-&lt;span class="nt"&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;
-&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
-&lt;/div&gt;
-
-&lt;p&gt;See what happened? Everything was great right up until the &lt;code&gt;email&lt;/code&gt; class. This might seem nitpicky, but it&amp;rsquo;s not. A legitimate and carefully constructed &lt;code&gt;email&lt;/code&gt; module &lt;em&gt;anywhere else in the app&lt;/em&gt; will accidentally style the form input. This will cause strange UI quirks that could very easily not get tracked down until they&amp;rsquo;ve been in production for a couple months, if ever. This is wasted time and money for the potential savings of a few keystrokes. There are many solutions. Understand this as a red flag.&lt;/p&gt;
-
 &lt;h2&gt;Conclusion&lt;/h2&gt;
 
 &lt;p&gt;If you&amp;rsquo;re somehow here and even more miraculously still with me, you should definitely read the sources I&amp;rsquo;ve cited. They&amp;rsquo;re good. Real good. Way better than my half-baked blog post. &lt;a href="http://getbem.com/introduction/"&gt;BEM&lt;/a&gt; is straightforward. &lt;a href="https://smacss.com/"&gt;SMACSS&lt;/a&gt; is a little long. Still good though.&lt;/p&gt;
 
 &lt;p&gt;At its core, this isn&amp;rsquo;t even about CSS. It&amp;rsquo;s about expressing technical meaning simply and effectively so that you can create. So that you can collaborate. So that you can free your mind to worry about real meaning. Like creating things to earn money. Creating things to help people. Creating things so that you can feel good about your work and live your life. Take a walk. Climb a mountain. Fall in love. So that when someone asks you about your front-end technique, you can look them straight in the eye and reply with firm conviction and a pure heart, &amp;ldquo;Well it&amp;rsquo;s not perfect, but I do my best. My CSS? It&amp;rsquo;s SUCSS.&amp;rdquo;&lt;/p&gt;
 
-&lt;p&gt;&lt;em&gt;Thoughts? Feedback? I don&amp;rsquo;t claim to be right. I&amp;rsquo;m only trying to be better. Let me know below if anything resonated or fell flat. Or if you have better ideas!&lt;/em&gt;&lt;/p&gt;
+&lt;p style="margin-top:150px; font-style: italic;"&gt;Thoughts? Feedback? I don&amp;rsquo;t claim to be right. I&amp;rsquo;m only trying to be better. Let me know below if anything resonated or fell flat. Or if you have better ideas!&lt;/p&gt;
 </content>
   </entry>
   <entry>

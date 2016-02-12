@@ -247,32 +247,13 @@
           
           <p>I think they&rsquo;re both lovely and the best choice depends on how you&rsquo;ve set up your partials. Again, if this is the discussion we&rsquo;re having, we&rsquo;re doing well.</p>
           
-          <h2>CSS Rules to live by</h2>
-          
-          <p>In no particular order:</p>
-          
-          <ul>
-          <li><strong>Almost never use SASS or LESS nesting capability.</strong> It&rsquo;s convenient, but the meaning is all wrong. If you feel the need to nest, write the rules separately. This will force you to think about what you&rsquo;re actually saying.</li>
-          <li><strong>Don&rsquo;t use page classes</strong> (e.g. <code>.post-page</code>) on the <code>body</code> element (or equivalent page-wrapping element).</li>
-          <li><strong>Always use a <code>moduleName-childName</code>-like convention.</strong> But <a href="http://getbem.com/introduction/">read more about it</a> first. This stuff is a huge help and is very accessible.</li>
-          <li><strong>If you&rsquo;re unsure whether a rule can be removed, you need to rethink how you&rsquo;re structuring your selectors.</strong> This follows from everything above regarding specificity.</li>
-          </ul>
-          
-          <h2>Don&rsquo;t get lazy</h2>
-          
-          <p>This section started as a fifth bullet point, but it requires a few more words because it&rsquo;s sooo tempting to slip up and omit the module convention to save some typing:</p>
-          <div class="highlight html"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5</pre></td><td class="code"><pre><span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"postForm-row"</span><span class="nt">&gt;</span>&#x000A;  <span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"postForm-field"</span><span class="nt">&gt;</span>&#x000A;    <span class="nt">&lt;input</span> <span class="na">class=</span><span class="s">"postForm-input email"</span><span class="nt">&gt;</span>&#x000A;  <span class="nt">&lt;/div&gt;</span>&#x000A;<span class="nt">&lt;/div&gt;</span></pre></td></tr></tbody></table>
-          </div>
-          
-          <p>See what happened? Everything was great right up until the <code>email</code> class. This might seem nitpicky, but it&rsquo;s not. A legitimate and carefully constructed <code>email</code> module <em>anywhere else in the app</em> will accidentally style the form input. This will cause strange UI quirks that could very easily not get tracked down until they&rsquo;ve been in production for a couple months, if ever. This is wasted time and money for the potential savings of a few keystrokes. There are many solutions. Understand this as a red flag.</p>
-          
           <h2>Conclusion</h2>
           
           <p>If you&rsquo;re somehow here and even more miraculously still with me, you should definitely read the sources I&rsquo;ve cited. They&rsquo;re good. Real good. Way better than my half-baked blog post. <a href="http://getbem.com/introduction/">BEM</a> is straightforward. <a href="https://smacss.com/">SMACSS</a> is a little long. Still good though.</p>
           
           <p>At its core, this isn&rsquo;t even about CSS. It&rsquo;s about expressing technical meaning simply and effectively so that you can create. So that you can collaborate. So that you can free your mind to worry about real meaning. Like creating things to earn money. Creating things to help people. Creating things so that you can feel good about your work and live your life. Take a walk. Climb a mountain. Fall in love. So that when someone asks you about your front-end technique, you can look them straight in the eye and reply with firm conviction and a pure heart, &ldquo;Well it&rsquo;s not perfect, but I do my best. My CSS? It&rsquo;s SUCSS.&rdquo;</p>
           
-          <p><em>Thoughts? Feedback? I don&rsquo;t claim to be right. I&rsquo;m only trying to be better. Let me know below if anything resonated or fell flat. Or if you have better ideas!</em></p>
+          <p style="margin-top:150px; font-style: italic;">Thoughts? Feedback? I don&rsquo;t claim to be right. I&rsquo;m only trying to be better. Let me know below if anything resonated or fell flat. Or if you have better ideas!</p>
         </section>
       </article>
       <div class='push'></div>
