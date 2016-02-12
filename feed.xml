@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-12T03:20:09-05:00</updated>
+  <updated>2016-02-12T03:23:22-05:00</updated>
   <author>
     <name/>
   </author>
@@ -280,12 +280,12 @@
 &lt;li&gt;&lt;strong&gt;Almost never use SASS or LESS nesting capability.&lt;/strong&gt; It&amp;rsquo;s convenient, but the meaning is all wrong. If you feel the need to nest, write the rules separately. This will force you to think about what you&amp;rsquo;re actually saying.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Don&amp;rsquo;t use page classes&lt;/strong&gt; (e.g. &lt;code&gt;.post-page&lt;/code&gt;) on the &lt;code&gt;body&lt;/code&gt; element (or equivalent page-wrapping element).&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Always use a &lt;code&gt;moduleName-childName&lt;/code&gt;-like convention.&lt;/strong&gt; But &lt;a href="http://getbem.com/introduction/"&gt;read more about it&lt;/a&gt; first. This stuff is a huge help and is very accessible.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;If grepping for selectors doesn&amp;rsquo;t make CSS cleanup trivial, you need to rethink how you&amp;rsquo;re structuring it&lt;/strong&gt;. This follows from everything above regarding specificity.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;If you&amp;rsquo;re unsure whether a rule can be removed, you need to rethink how you&amp;rsquo;re structuring your selectors.&lt;/strong&gt; This follows from everything above regarding specificity.&lt;/li&gt;
 &lt;/ul&gt;
 
 &lt;h2&gt;Don&amp;rsquo;t get lazy&lt;/h2&gt;
 
-&lt;p&gt;This section started as a fourth bullet point, but it requires a few more words because it&amp;rsquo;s sooo tempting to slip up and omit the module convention to save some typing:&lt;/p&gt;
+&lt;p&gt;This section started as a fifth bullet point, but it requires a few more words because it&amp;rsquo;s sooo tempting to slip up and omit the module convention to save some typing:&lt;/p&gt;
 &lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3

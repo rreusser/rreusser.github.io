@@ -249,12 +249,12 @@
           <li><strong>Almost never use SASS or LESS nesting capability.</strong> It&rsquo;s convenient, but the meaning is all wrong. If you feel the need to nest, write the rules separately. This will force you to think about what you&rsquo;re actually saying.</li>
           <li><strong>Don&rsquo;t use page classes</strong> (e.g. <code>.post-page</code>) on the <code>body</code> element (or equivalent page-wrapping element).</li>
           <li><strong>Always use a <code>moduleName-childName</code>-like convention.</strong> But <a href="http://getbem.com/introduction/">read more about it</a> first. This stuff is a huge help and is very accessible.</li>
-          <li><strong>If grepping for selectors doesn&rsquo;t make CSS cleanup trivial, you need to rethink how you&rsquo;re structuring it</strong>. This follows from everything above regarding specificity.</li>
+          <li><strong>If you&rsquo;re unsure whether a rule can be removed, you need to rethink how you&rsquo;re structuring your selectors.</strong> This follows from everything above regarding specificity.</li>
           </ul>
           
           <h2>Don&rsquo;t get lazy</h2>
           
-          <p>This section started as a fourth bullet point, but it requires a few more words because it&rsquo;s sooo tempting to slip up and omit the module convention to save some typing:</p>
+          <p>This section started as a fifth bullet point, but it requires a few more words because it&rsquo;s sooo tempting to slip up and omit the module convention to save some typing:</p>
           <div class="highlight html"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5</pre></td><td class="code"><pre><span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"postForm-row"</span><span class="nt">&gt;</span>&#x000A;  <span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"postForm-field"</span><span class="nt">&gt;</span>&#x000A;    <span class="nt">&lt;input</span> <span class="na">class=</span><span class="s">"postForm-input email"</span><span class="nt">&gt;</span>&#x000A;  <span class="nt">&lt;/div&gt;</span>&#x000A;<span class="nt">&lt;/div&gt;</span></pre></td></tr></tbody></table>
           </div>
           
