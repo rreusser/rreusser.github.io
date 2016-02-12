@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-12T03:14:33-05:00</updated>
+  <updated>2016-02-12T03:16:57-05:00</updated>
   <author>
     <name/>
   </author>
@@ -86,7 +86,7 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;There&amp;rsquo;s a laundry list of problems. If you move the &lt;code&gt;.btn&lt;/code&gt; into the right column, you have to rework your CSS. A plain &lt;code&gt;.btn&lt;/code&gt; styled anywhere else on the site will affect this button. Same for &lt;code&gt;blog&lt;/code&gt; affecting &lt;code&gt;newPost&lt;/code&gt;. (Einstein called quantum entanglement &amp;ldquo;&lt;a href="https://en.wikipedia.org/wiki/Action_at_a_distance"&gt;spooky action at a distance&lt;/a&gt;.&amp;rdquo; I call unexpected interaction with distant code &amp;ldquo;shitty action at a distance.&amp;rdquo;)&lt;/p&gt;
+&lt;p&gt;There&amp;rsquo;s a laundry list of problems. If you move the &lt;code&gt;.btn&lt;/code&gt; into the right column, you have to rework your CSS. A plain &lt;code&gt;.btn&lt;/code&gt; styled anywhere else on the site will affect this button. Same for unrelated &lt;code&gt;blog&lt;/code&gt; styles potentially affecting &lt;code&gt;newPost&lt;/code&gt;. (Einstein called quantum entanglement &amp;ldquo;&lt;a href="https://en.wikipedia.org/wiki/Action_at_a_distance"&gt;spooky action at a distance&lt;/a&gt;.&amp;rdquo; I call unexpected interaction with distant code &amp;ldquo;shitty action at a distance.&amp;rdquo;)&lt;/p&gt;
 
 &lt;p&gt;The harsh reality is that once things reach a certain level of complexity—not even very much—it&amp;rsquo;ll almost certainly become more efficient to leave the existing CSS in tact (just in case!) and write new rules in parallel. Your CSS becomes a wasteland of the overspecified concealing a minefield of the overgeneralized.&lt;/p&gt;
 
