@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-12T03:16:57-05:00</updated>
+  <updated>2016-02-12T03:20:09-05:00</updated>
   <author>
     <name/>
   </author>
@@ -170,8 +170,8 @@
 
 &lt;ol&gt;
 &lt;li&gt;&lt;p&gt;&lt;strong&gt;I haven&amp;rsquo;t used SASS&amp;rsquo;s nesting feature. At all. &lt;a href="https://medium.com/@fat/mediums-css-is-actually-pretty-fucking-good-b8e2a6c78b06#3a3b"&gt;Don&amp;rsquo;t&lt;/a&gt;.&lt;/strong&gt; Selectors with more than two or &lt;em&gt;maybe&lt;/em&gt; three levels almost certainly don&amp;rsquo;t need the meaning you&amp;rsquo;re giving them.&lt;/p&gt;&lt;/li&gt;
-&lt;li&gt;&lt;p&gt;I used the &lt;code&gt;moduleName-childName&lt;/code&gt; convention. Choose your own dash convention, but when you do, call things on the page modules. Give modules children. And &lt;strong&gt;choose names uniquely so they will not interact&lt;/strong&gt;.&lt;/p&gt;&lt;/li&gt;
-&lt;li&gt;&lt;p&gt;I&amp;rsquo;ve used SASS&amp;rsquo;s &lt;code&gt;@extend&lt;/code&gt; to &lt;strong&gt;avoid littering my CSS with presentational classes&lt;/strong&gt;. Whether to use &lt;code&gt;col-md-6&lt;/code&gt; or &lt;code&gt;btn btn-primary btn-lg&lt;/code&gt; everywhere is a contentious issue. I prefer without, but as a matter of dogma I take no stance; I only want to point out it&amp;rsquo;s a very useful thing you can do.&lt;/p&gt;&lt;/li&gt;
+&lt;li&gt;&lt;p&gt;I used the &lt;code&gt;moduleName-childName&lt;/code&gt; convention. Choose your own dash convention, but when you do, call things on the page modules. Give modules children. And &lt;strong&gt;choose names uniquely and consistently so they will not interact in unexpected ways&lt;/strong&gt;.&lt;/p&gt;&lt;/li&gt;
+&lt;li&gt;&lt;p&gt;I&amp;rsquo;ve used SASS&amp;rsquo;s &lt;code&gt;@extend&lt;/code&gt; to &lt;strong&gt;avoid littering my CSS with presentational classes&lt;/strong&gt;. Whether to use &lt;code&gt;col-md-6&lt;/code&gt; or &lt;code&gt;btn btn-primary btn-lg&lt;/code&gt; everywhere is a contentious issue. I prefer without, but as a matter of dogma I take no stance; I only want to point out &lt;code&gt;@extend&lt;/code&gt; is a very useful thing you can do.&lt;/p&gt;&lt;/li&gt;
 &lt;/ol&gt;
 
 &lt;p&gt;Things get subtle. Ambiguous. There are countless details to work out. But if we&amp;rsquo;re grappling with these questions, we&amp;rsquo;re light years ahead of where we started.&lt;/p&gt;
