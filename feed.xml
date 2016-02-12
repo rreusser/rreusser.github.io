@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-12T03:23:22-05:00</updated>
+  <updated>2016-02-12T03:31:40-05:00</updated>
   <author>
     <name/>
   </author>
@@ -92,7 +92,13 @@
 
 &lt;h2&gt;A solution: Scrappable, Unproblematic&amp;nbsp;CSS&lt;/h2&gt;
 
-&lt;p&gt;My CSS is not (f***ing) perfect. But here&amp;rsquo;s a suggested reworking. You may try rewriting the classes like this:&lt;/p&gt;
+&lt;p&gt;CSS has a way of getting out of control. Legacy styles become undeletable because who knows? I propose the rule of thumb,&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;If it&amp;rsquo;s not obvious whether a rule can be removed, your selectors are probably too general and your nesting too deep.&lt;/strong&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;I want to emphasize that my CSS is not (f***ing) perfect, but here&amp;rsquo;s a suggested reworking of the above example. You may try rewriting the classes like this:&lt;/p&gt;
 &lt;div class="highlight html"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3
