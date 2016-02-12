@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-12T04:02:19-05:00</updated>
+  <updated>2016-02-12T04:07:55-05:00</updated>
   <author>
     <name/>
   </author>
@@ -34,7 +34,7 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;I don&amp;rsquo;t need to tell you the front-end situation wasn&amp;rsquo;t great, but the problem wasn&amp;rsquo;t that I couldn&amp;rsquo;t &lt;em&gt;add&lt;/em&gt; CSS rules. Adding rules is pretty much always easy. The problem was that I couldn&amp;rsquo;t &lt;em&gt;remove&lt;/em&gt; rules. They were unscrappable. Pretty soon the CSS was 3000 lines. Then 3500 lines. I was pretty sure large swaths of the stylesheet no longer applied. But not totally sure. I split it into multiple files, but that only spread the confusion across multiple files.&lt;/p&gt;
+&lt;p&gt;I don&amp;rsquo;t need to tell you the front-end situation wasn&amp;rsquo;t great, but the problem wasn&amp;rsquo;t that I couldn&amp;rsquo;t &lt;em&gt;add&lt;/em&gt; CSS rules. Adding rules is pretty much always easy. The problem was that I couldn&amp;rsquo;t &lt;em&gt;remove&lt;/em&gt; rules. They were unscrappable. Pretty soon the CSS was 3000 lines. Then 3500 lines. I was pretty sure large swaths of the stylesheet no longer applied. But not totally sure. I split it into multiple files, but that only spread the confusion across multiple files. The CSS ceased to function as a system of rules because it was littered with too many unremovable gotchas.&lt;/p&gt;
 
 &lt;p&gt;The above rule is an example of &lt;em&gt;&lt;a href="https://en.wikipedia.org/wiki/Coupling_(computer_programming)"&gt;tight coupling&lt;/a&gt;&lt;/em&gt;. It&amp;rsquo;s effectively unmaintainable. Is the &lt;code&gt;label&lt;/code&gt; in question simultaneously and meaningfully connected to the list, the stats, the right column &lt;em&gt;and&lt;/em&gt; the user creations page? Nesting SASS is easy, but at this depth the structure you&amp;rsquo;ve given it &lt;strike&gt;almost certainly&lt;/strike&gt; does not reflect any meaning.&lt;/p&gt;
 
