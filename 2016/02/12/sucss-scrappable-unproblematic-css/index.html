@@ -179,7 +179,7 @@
           <div class="highlight css"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="nf">#content</span><span class="nc">.user-creations</span> <span class="nc">.right</span> <span class="nc">.user-stats</span> <span class="nc">.detail</span> <span class="nt">ul</span> <span class="nt">li</span><span class="nc">.last</span> <span class="nt">label</span></pre></td></tr></tbody></table>
           </div>
           
-          <p>I don&rsquo;t need to tell you the situation wasn&rsquo;t great, but the problem wasn&rsquo;t that I couldn&rsquo;t <em>add</em> CSS rules. Adding rules is pretty much always easy. The problem was that I couldn&rsquo;t <em>remove</em> rules. They were unscrappable. Pretty soon the CSS was 3000 lines. Then 3500 lines. I was pretty sure large swaths of the stylesheet no longer applied. But not totally sure. I split it into multiple files, but that only spread the confusion across multiple files.</p>
+          <p>I don&rsquo;t need to tell you the front-end situation wasn&rsquo;t great, but the problem wasn&rsquo;t that I couldn&rsquo;t <em>add</em> CSS rules. Adding rules is pretty much always easy. The problem was that I couldn&rsquo;t <em>remove</em> rules. They were unscrappable. Pretty soon the CSS was 3000 lines. Then 3500 lines. I was pretty sure large swaths of the stylesheet no longer applied. But not totally sure. I split it into multiple files, but that only spread the confusion across multiple files.</p>
           
           <p>The above rule is an example of <em><a href="https://en.wikipedia.org/wiki/Coupling_(computer_programming)">tight coupling</a></em>. It&rsquo;s effectively unmaintainable. Is the <code>label</code> in question simultaneously and meaningfully connected to the list, the stats, the right column <em>and</em> the user creations page? Nesting SASS is easy, but at this depth the structure you&rsquo;ve given it <strike>almost certainly</strike> does not reflect any meaning.</p>
           
@@ -249,6 +249,7 @@
           <li><strong>Almost never use SASS or LESS nesting capability.</strong> It&rsquo;s convenient, but the meaning is all wrong. If you feel the need to nest, write the rules separately. This will force you to think about what you&rsquo;re actually saying.</li>
           <li><strong>Don&rsquo;t use page classes</strong> (e.g. <code>.post-page</code>) on the <code>body</code> element (or equivalent page-wrapping element).</li>
           <li><strong>Always use a <code>moduleName-childName</code>-like convention.</strong> But <a href="http://getbem.com/introduction/">read more about it</a> first. This stuff is a huge help and is very accessible.</li>
+          <li><strong>If grepping for selectors doesn&rsquo;t make CSS cleanup trivial, you need to rethink how you&rsquo;re structuring it</strong>. This follows from everything above regarding specificity.</li>
           </ul>
           
           <h2>Don&rsquo;t get lazy</h2>

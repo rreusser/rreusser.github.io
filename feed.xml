@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-02-12T03:09:56-05:00</updated>
+  <updated>2016-02-12T03:14:33-05:00</updated>
   <author>
     <name/>
   </author>
@@ -34,7 +34,7 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;I don&amp;rsquo;t need to tell you the situation wasn&amp;rsquo;t great, but the problem wasn&amp;rsquo;t that I couldn&amp;rsquo;t &lt;em&gt;add&lt;/em&gt; CSS rules. Adding rules is pretty much always easy. The problem was that I couldn&amp;rsquo;t &lt;em&gt;remove&lt;/em&gt; rules. They were unscrappable. Pretty soon the CSS was 3000 lines. Then 3500 lines. I was pretty sure large swaths of the stylesheet no longer applied. But not totally sure. I split it into multiple files, but that only spread the confusion across multiple files.&lt;/p&gt;
+&lt;p&gt;I don&amp;rsquo;t need to tell you the front-end situation wasn&amp;rsquo;t great, but the problem wasn&amp;rsquo;t that I couldn&amp;rsquo;t &lt;em&gt;add&lt;/em&gt; CSS rules. Adding rules is pretty much always easy. The problem was that I couldn&amp;rsquo;t &lt;em&gt;remove&lt;/em&gt; rules. They were unscrappable. Pretty soon the CSS was 3000 lines. Then 3500 lines. I was pretty sure large swaths of the stylesheet no longer applied. But not totally sure. I split it into multiple files, but that only spread the confusion across multiple files.&lt;/p&gt;
 
 &lt;p&gt;The above rule is an example of &lt;em&gt;&lt;a href="https://en.wikipedia.org/wiki/Coupling_(computer_programming)"&gt;tight coupling&lt;/a&gt;&lt;/em&gt;. It&amp;rsquo;s effectively unmaintainable. Is the &lt;code&gt;label&lt;/code&gt; in question simultaneously and meaningfully connected to the list, the stats, the right column &lt;em&gt;and&lt;/em&gt; the user creations page? Nesting SASS is easy, but at this depth the structure you&amp;rsquo;ve given it &lt;strike&gt;almost certainly&lt;/strike&gt; does not reflect any meaning.&lt;/p&gt;
 
@@ -280,6 +280,7 @@
 &lt;li&gt;&lt;strong&gt;Almost never use SASS or LESS nesting capability.&lt;/strong&gt; It&amp;rsquo;s convenient, but the meaning is all wrong. If you feel the need to nest, write the rules separately. This will force you to think about what you&amp;rsquo;re actually saying.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Don&amp;rsquo;t use page classes&lt;/strong&gt; (e.g. &lt;code&gt;.post-page&lt;/code&gt;) on the &lt;code&gt;body&lt;/code&gt; element (or equivalent page-wrapping element).&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Always use a &lt;code&gt;moduleName-childName&lt;/code&gt;-like convention.&lt;/strong&gt; But &lt;a href="http://getbem.com/introduction/"&gt;read more about it&lt;/a&gt; first. This stuff is a huge help and is very accessible.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;If grepping for selectors doesn&amp;rsquo;t make CSS cleanup trivial, you need to rethink how you&amp;rsquo;re structuring it&lt;/strong&gt;. This follows from everything above regarding specificity.&lt;/li&gt;
 &lt;/ul&gt;
 
 &lt;h2&gt;Don&amp;rsquo;t get lazy&lt;/h2&gt;
