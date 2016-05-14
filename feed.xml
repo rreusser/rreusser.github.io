@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T01:55:51-04:00</updated>
+  <updated>2016-05-14T02:30:58-04:00</updated>
   <author>
     <name/>
   </author>
@@ -45,7 +45,7 @@
 
 &lt;p&gt;&lt;strong&gt;React universal template&lt;/strong&gt; The future is upon us. Web, iOS, Android, Server. One codebase. And Windows Phone, soonish. &lt;a href="https://github.com/este/este"&gt;este/este.js&lt;/a&gt;&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;My template&lt;/strong&gt; which isn&amp;rsquo;t great but maybe has a couple things going for it regarding redux + immutable setup. Don&amp;rsquo;t just copy the setup blindly though. Understand it. &lt;a href="https://github.com/rreusser/react-native-with-everything"&gt;react-native-with-everything&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;My template&lt;/strong&gt; which isn&amp;rsquo;t great but maybe has a couple things going for it regarding redux + immutable setup. Generally speaking, don&amp;rsquo;t just copy the setup blindly though. Understand it. &lt;a href="https://github.com/rreusser/react-native-with-everything"&gt;react-native-with-everything&lt;/a&gt;&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Live on the bleeding edge&lt;/strong&gt;: It&amp;rsquo;s a calculated risk when you&amp;rsquo;re trying to run a business, but we never got bitten by upgrading early and often. On the contrary, the bugfixes and frequent updates prevented our code from getting stale. It meant submitting lots of little PRs to different repos, but it was time well spent. When the community indicates the direction they&amp;rsquo;re going, take a hint. So yeah, it&amp;rsquo;s all NavigatorExperimental moving forward.&lt;/p&gt;
 
