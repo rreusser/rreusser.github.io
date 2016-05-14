@@ -151,12 +151,6 @@
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>http://rickyreusser.com/tags/bootstrap.html</loc>
-    <lastmod>2016-05-13T00:00:00-04:00</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
     <loc>http://rickyreusser.com/2015/03/16.html</loc>
     <lastmod>2016-05-13T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
@@ -241,7 +235,7 @@
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>http://rickyreusser.com/tags/css.html</loc>
+    <loc>http://rickyreusser.com/tags/react-native.html</loc>
     <lastmod>2016-05-13T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
@@ -251,6 +245,12 @@
     <lastmod>2016-05-13T00:00:00-04:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1</priority>
+  </url>
+  <url>
+    <loc>http://rickyreusser.com/tags/css.html</loc>
+    <lastmod>2016-05-13T00:00:00-04:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
   </url>
   <url>
     <loc>http://rickyreusser.com/tags/front-end.html</loc>
@@ -325,19 +325,13 @@
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>http://rickyreusser.com/tags/science.html</loc>
+    <loc>http://rickyreusser.com/tags/responsive-design.html</loc>
     <lastmod>2016-05-13T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
     <loc>http://rickyreusser.com/tags/disqus.html</loc>
-    <lastmod>2016-05-13T00:00:00-04:00</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>http://rickyreusser.com/tags/responsive-design.html</loc>
     <lastmod>2016-05-13T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
@@ -404,6 +398,18 @@
   </url>
   <url>
     <loc>http://rickyreusser.com/tags/growl.html</loc>
+    <lastmod>2016-05-13T00:00:00-04:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://rickyreusser.com/tags/bootstrap.html</loc>
+    <lastmod>2016-05-13T00:00:00-04:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://rickyreusser.com/tags/science.html</loc>
     <lastmod>2016-05-13T00:00:00-04:00</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>

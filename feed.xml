@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-13T21:25:02-04:00</updated>
+  <updated>2016-05-13T22:22:15-04:00</updated>
   <author>
     <name/>
   </author>
@@ -23,7 +23,7 @@
 
 &lt;h2&gt;The kinda long; might read:&lt;/h2&gt;
 
-&lt;p&gt;I am decidedly not an expert in React Native, but that doesn&amp;rsquo;t mean I haven&amp;rsquo;t learned a lot of difficult lessons over the last &lt;a href="http://www.thefoodstand.com"&gt;eight months&lt;/a&gt;! And earlier today I had the chance to introduce a couple developers to React Native. They had JavaScript experience and knew their way around mobile apps, but React Native was a new beast. It made me recall what a foreign set of concepts &lt;a href="https://facebook.github.io/react/"&gt;React&lt;/a&gt; and &lt;a href="facebook.github.io/react-native"&gt;React Native&lt;/a&gt; were when we started out.&lt;/p&gt;
+&lt;p&gt;I am decidedly not an expert in &lt;a href="http://facebook.github.io/react-native/"&gt;React Native&lt;/a&gt;, but that doesn&amp;rsquo;t mean I haven&amp;rsquo;t learned a lot of difficult lessons over the last &lt;a href="http://www.thefoodstand.com"&gt;eight months&lt;/a&gt;! And earlier today I had the chance to introduce a couple developers to React Native. They had JavaScript experience and knew their way around mobile apps, but React Native was a new beast. It made me recall what a foreign set of concepts &lt;a href="https://facebook.github.io/react/"&gt;React&lt;/a&gt; and &lt;a href="facebook.github.io/react-native"&gt;React Native&lt;/a&gt; were when we started out.&lt;/p&gt;
 
 &lt;p&gt;This post is a loose collection of the things I wish someone had just told me from the beginning. Some are obvious; some aren&amp;rsquo;t. The original gist is &lt;a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3"&gt;here&lt;/a&gt;. It&amp;rsquo;s not everything, but hopefully it&amp;rsquo;s mostly valid information and can save someone else some of the time it took us to discover all of these things! If you know of improvements, please let me know in the comments section!&lt;/p&gt;
 
@@ -42,15 +42,18 @@
 &lt;p&gt;&lt;strong&gt;Put &lt;code&gt;console.logs&lt;/code&gt; in your render statements and figure out just how often things are getting rendered.&lt;/strong&gt; You can get away with a lot for a while using react. It&amp;rsquo;s magic. Until it feels laggy. The second major release of our iOS app was mainly a giant audit of why there was so much extra rendering going on. Performance increased dramatically.&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Follow people on twitter&lt;/strong&gt;
-&lt;a href="https://twitter.com/dan_abramov"&gt;@dan_abramov&lt;/a&gt;, &lt;a href="https://twitter.com/JI"&gt;@JI&lt;/a&gt;, &lt;a href="https://twitter.com/ReactJSNews"&gt;@ReactJSNews&lt;/a&gt;, &lt;a href="https://twitter.com/Vjeux"&gt;@Vjeux&lt;/a&gt;. Lots more. A good way to be a fly on the wall and find out about trendy stuff without getting sucked into a hacker-news-like rabbit hole.&lt;/p&gt;
+&lt;a href="https://twitter.com/dan_abramov"&gt;@dan_abramov&lt;/a&gt;, &lt;a href="https://twitter.com/JI"&gt;@JI&lt;/a&gt;, &lt;a href="https://twitter.com/ReactJSNews"&gt;@ReactJSNews&lt;/a&gt;, &lt;a href="https://twitter.com/Vjeux"&gt;@Vjeux&lt;/a&gt;. Lots more. A good way to be a fly on the wall and find out about trendy stuff without getting sucked into a hacker-news sort of rabbit hole.&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;React universal template&lt;/strong&gt; (web, app, server): &lt;a href="https://github.com/este/este"&gt;este/este.js&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;React universal template&lt;/strong&gt; The future is upon us. Web, iOS, Android, Server. One codebase. And Windows Phone. Soonish: &lt;a href="https://github.com/este/este"&gt;este/este.js&lt;/a&gt;&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;My template&lt;/strong&gt; which has maybe a couple things going for it regarding redux setup (immutable part could be edited out): &lt;a href="https://github.com/rreusser/react-native-with-everything"&gt;react-native-with-everything&lt;/a&gt;&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;This guy’s stuff is outstanding&lt;/strong&gt;:
-- &lt;a href="https://github.com/oblador/react-native-animatable"&gt;oblador/react-native-animatable&lt;/a&gt;
-- &lt;a href="https://github.com/oblador/react-native-vector-icons"&gt;oblador/react-native-vector-icons&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;This stuff is outstanding&lt;/strong&gt;:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="https://github.com/oblador/react-native-animatable"&gt;oblador/react-native-animatable&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/oblador/react-native-vector-icons"&gt;oblador/react-native-vector-icons&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
 
 &lt;p&gt;&lt;strong&gt;Corollary:&lt;/strong&gt; &lt;a href="https://icomoon.io/"&gt;icomoon.io&lt;/a&gt; is the best thing ever for managing icons.&lt;/p&gt;
 
@@ -71,10 +74,13 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;&lt;strong&gt;But be careful with those because: An interesting discussion on avoid re-rendering the entire app&lt;/strong&gt; on every state update: &lt;a href="https://medium.com/@esamatti/react-js-pure-render-performance-anti-pattern-fb88c101332f#.u3tqgdf47"&gt;Pure Render Performance Anti-Pattern&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;But be careful with those because:&lt;/strong&gt; An interesting discussion on avoiding re-rendering the entire app on every state update: &lt;a href="https://medium.com/@esamatti/react-js-pure-render-performance-anti-pattern-fb88c101332f#.u3tqgdf47"&gt;Pure Render Performance Anti-Pattern&lt;/a&gt;&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;Or just forget understanding optimization and use this:&lt;/strong&gt; 😄
-- &lt;a href="https://github.com/thejameskyle/babel-react-optimize"&gt;thejameskyle/babel-react-optimize&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Or just forget understanding optimization and use this:&lt;/strong&gt; 😄&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="https://github.com/thejameskyle/babel-react-optimize"&gt;thejameskyle/babel-react-optimize&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
 
 &lt;p&gt;&lt;strong&gt;A trivial optimization that may actually (somewhat surprisingly?) be noticable:&lt;/strong&gt;
 Instead of this:&lt;/p&gt;
@@ -101,7 +107,7 @@ Instead of this:&lt;/p&gt;
 
 &lt;p&gt;For events like keypresses, the recreation of an unoptimized callback over and over and over actually seems to noticably slow down the UI. Who would have guessed?&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;Fun facts:&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Rendering arrays:&lt;/strong&gt;&lt;/p&gt;
 
 &lt;p&gt;You can always return/insert an array of keyed nodes instead of jamming everything together (note to self: the actual return value of render needs to be a single node though, right?)&lt;/p&gt;
 &lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
@@ -118,7 +124,7 @@ Instead of this:&lt;/p&gt;
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;OR:&lt;/p&gt;
+&lt;p&gt;Or:&lt;/p&gt;
 &lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3
@@ -158,21 +164,24 @@ Instead of this:&lt;/p&gt;
 
 &lt;p&gt;Random fact: margins and padding on text elements more or less doesn&amp;rsquo;t work on android, so really try to avoid them!&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;How to add a loading overlay&lt;/strong&gt;.
+&lt;p&gt;&lt;strong&gt;Loading overlays and z-ordering:&lt;/strong&gt;
 Absolutely position the overlay top/right/left/bottom: 0 and make sure it’s &lt;em&gt;after&lt;/em&gt; the rest of the content it needs to overlay. Draw order is last-on-top:&lt;/p&gt;
 &lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3
 4&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nx"&gt;View&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
-  &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="err"&gt;……&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+  &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="p"&gt;...&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
   &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nx"&gt;LoadingOverlay&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
 &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="sr"&gt;/View&lt;/span&gt;&lt;span class="err"&gt;&amp;gt;
 &lt;/span&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;h2&gt;Android installation (Genymotion)&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Android installation (Genymotion)&lt;/strong&gt;
+Ommitted for brevity, but you can see it in the original gist &lt;a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3"&gt;here&lt;/a&gt;. Android Studio 2.0 seems better these days though. Great emulator.&lt;/p&gt;
 
-&lt;p&gt;Ommitted for brevity (naturally), but you can see it in the original gist &lt;a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3"&gt;here&lt;/a&gt;. Android Studio 2.0 seems better these days though. Great emulator.&lt;/p&gt;
+&lt;h2&gt;Conclusion&lt;/h2&gt;
+
+&lt;p&gt;That&amp;rsquo;s all for now! There&amp;rsquo;s nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we&amp;rsquo;d dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you &lt;a href="http://facebook.github.io/react-native/"&gt;give it a try!&lt;/a&gt;&lt;/p&gt;
 
 &lt;!--
 ## Android installation (Genymotion)

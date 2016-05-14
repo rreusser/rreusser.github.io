@@ -161,6 +161,7 @@
                   <div class='tags'>
                     <span class='tag'><a href="/tags/dev/">#dev</a></span>
                     <span class='tag'><a href="/tags/javascript/">#javascript</a></span>
+                    <span class='tag'><a href="/tags/react-native/">#react-native</a></span>
                   </div>
                 </h5>
               </div>
@@ -174,7 +175,7 @@
           
           <h2>The kinda long; might read:</h2>
           
-          <p>I am decidedly not an expert in React Native, but that doesn&rsquo;t mean I haven&rsquo;t learned a lot of difficult lessons over the last <a href="http://www.thefoodstand.com">eight months</a>! And earlier today I had the chance to introduce a couple developers to React Native. They had JavaScript experience and knew their way around mobile apps, but React Native was a new beast. It made me recall what a foreign set of concepts <a href="https://facebook.github.io/react/">React</a> and <a href="facebook.github.io/react-native">React Native</a> were when we started out.</p>
+          <p>I am decidedly not an expert in <a href="http://facebook.github.io/react-native/">React Native</a>, but that doesn&rsquo;t mean I haven&rsquo;t learned a lot of difficult lessons over the last <a href="http://www.thefoodstand.com">eight months</a>! And earlier today I had the chance to introduce a couple developers to React Native. They had JavaScript experience and knew their way around mobile apps, but React Native was a new beast. It made me recall what a foreign set of concepts <a href="https://facebook.github.io/react/">React</a> and <a href="facebook.github.io/react-native">React Native</a> were when we started out.</p>
           
           <p>This post is a loose collection of the things I wish someone had just told me from the beginning. Some are obvious; some aren&rsquo;t. The original gist is <a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3">here</a>. It&rsquo;s not everything, but hopefully it&rsquo;s mostly valid information and can save someone else some of the time it took us to discover all of these things! If you know of improvements, please let me know in the comments section!</p>
           
@@ -193,15 +194,18 @@
           <p><strong>Put <code>console.logs</code> in your render statements and figure out just how often things are getting rendered.</strong> You can get away with a lot for a while using react. It&rsquo;s magic. Until it feels laggy. The second major release of our iOS app was mainly a giant audit of why there was so much extra rendering going on. Performance increased dramatically.</p>
           
           <p><strong>Follow people on twitter</strong>
-          <a href="https://twitter.com/dan_abramov">@dan_abramov</a>, <a href="https://twitter.com/JI">@JI</a>, <a href="https://twitter.com/ReactJSNews">@ReactJSNews</a>, <a href="https://twitter.com/Vjeux">@Vjeux</a>. Lots more. A good way to be a fly on the wall and find out about trendy stuff without getting sucked into a hacker-news-like rabbit hole.</p>
+          <a href="https://twitter.com/dan_abramov">@dan_abramov</a>, <a href="https://twitter.com/JI">@JI</a>, <a href="https://twitter.com/ReactJSNews">@ReactJSNews</a>, <a href="https://twitter.com/Vjeux">@Vjeux</a>. Lots more. A good way to be a fly on the wall and find out about trendy stuff without getting sucked into a hacker-news sort of rabbit hole.</p>
           
-          <p><strong>React universal template</strong> (web, app, server): <a href="https://github.com/este/este">este/este.js</a></p>
+          <p><strong>React universal template</strong> The future is upon us. Web, iOS, Android, Server. One codebase. And Windows Phone. Soonish: <a href="https://github.com/este/este">este/este.js</a></p>
           
           <p><strong>My template</strong> which has maybe a couple things going for it regarding redux setup (immutable part could be edited out): <a href="https://github.com/rreusser/react-native-with-everything">react-native-with-everything</a></p>
           
-          <p><strong>This guy’s stuff is outstanding</strong>:
-          - <a href="https://github.com/oblador/react-native-animatable">oblador/react-native-animatable</a>
-          - <a href="https://github.com/oblador/react-native-vector-icons">oblador/react-native-vector-icons</a></p>
+          <p><strong>This stuff is outstanding</strong>:</p>
+          
+          <ul>
+          <li><a href="https://github.com/oblador/react-native-animatable">oblador/react-native-animatable</a></li>
+          <li><a href="https://github.com/oblador/react-native-vector-icons">oblador/react-native-vector-icons</a></li>
+          </ul>
           
           <p><strong>Corollary:</strong> <a href="https://icomoon.io/">icomoon.io</a> is the best thing ever for managing icons.</p>
           
@@ -217,10 +221,13 @@
           <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3</pre></td><td class="code"><pre><span class="kd">var</span> <span class="nx">Button</span> <span class="o">=</span> <span class="p">(</span><span class="nx">props</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>&#x000A;  <span class="k">return</span> <span class="o">&lt;</span><span class="nx">View</span><span class="o">&gt;&lt;</span><span class="nx">Text</span><span class="o">&gt;</span><span class="p">{</span><span class="nx">props</span><span class="p">.</span><span class="nx">label</span><span class="p">}</span><span class="o">&lt;</span><span class="sr">/Text&gt;&lt;/</span><span class="nx">View</span><span class="o">&gt;</span>&#x000A;<span class="p">}</span></pre></td></tr></tbody></table>
           </div>
           
-          <p><strong>But be careful with those because: An interesting discussion on avoid re-rendering the entire app</strong> on every state update: <a href="https://medium.com/@esamatti/react-js-pure-render-performance-anti-pattern-fb88c101332f#.u3tqgdf47">Pure Render Performance Anti-Pattern</a></p>
+          <p><strong>But be careful with those because:</strong> An interesting discussion on avoiding re-rendering the entire app on every state update: <a href="https://medium.com/@esamatti/react-js-pure-render-performance-anti-pattern-fb88c101332f#.u3tqgdf47">Pure Render Performance Anti-Pattern</a></p>
           
-          <p><strong>Or just forget understanding optimization and use this:</strong> 😄
-          - <a href="https://github.com/thejameskyle/babel-react-optimize">thejameskyle/babel-react-optimize</a></p>
+          <p><strong>Or just forget understanding optimization and use this:</strong> 😄</p>
+          
+          <ul>
+          <li><a href="https://github.com/thejameskyle/babel-react-optimize">thejameskyle/babel-react-optimize</a></li>
+          </ul>
           
           <p><strong>A trivial optimization that may actually (somewhat surprisingly?) be noticable:</strong>
           Instead of this:</p>
@@ -233,13 +240,13 @@
           
           <p>For events like keypresses, the recreation of an unoptimized callback over and over and over actually seems to noticably slow down the UI. Who would have guessed?</p>
           
-          <p><strong>Fun facts:</strong></p>
+          <p><strong>Rendering arrays:</strong></p>
           
           <p>You can always return/insert an array of keyed nodes instead of jamming everything together (note to self: the actual return value of render needs to be a single node though, right?)</p>
           <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6</pre></td><td class="code"><pre><span class="nx">renderSomePart</span> <span class="o">=</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>&#x000A;  <span class="k">return</span> <span class="p">[</span>&#x000A;    <span class="o">&lt;</span><span class="nx">View</span> <span class="nx">key</span><span class="o">=</span><span class="s2">"item-1"</span><span class="o">/&gt;</span><span class="p">,</span>&#x000A;    <span class="o">&lt;</span><span class="nx">View</span> <span class="nx">key</span><span class="o">=</span><span class="s2">"item-2"</span><span class="o">/&gt;</span>&#x000A;  <span class="p">];</span>&#x000A;<span class="p">};</span></pre></td></tr></tbody></table>
           </div>
           
-          <p>OR:</p>
+          <p>Or:</p>
           <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7</pre></td><td class="code"><pre><span class="nx">renderItem</span> <span class="o">=</span> <span class="p">(</span><span class="nx">item</span><span class="p">,</span> <span class="nx">i</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">(</span>&#x000A;  <span class="o">&lt;</span><span class="nx">View</span> <span class="nx">key</span><span class="o">=</span><span class="err">`</span><span class="nx">item</span><span class="o">-</span><span class="nx">$</span><span class="p">{</span><span class="nx">i</span><span class="p">}</span><span class="err">`</span><span class="o">&gt;</span> <span class="p">...</span> <span class="o">&lt;</span><span class="sr">/View</span><span class="err">&gt;&#x000A;</span><span class="p">)</span>&#x000A;&#x000A;<span class="nx">renderSomePart</span> <span class="o">=</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>&#x000A;  <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">props</span><span class="p">.</span><span class="nx">someDataItems</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">renderItem</span><span class="p">);</span>&#x000A;<span class="p">};</span></pre></td></tr></tbody></table>
           </div>
           
@@ -249,14 +256,17 @@
           
           <p>Random fact: margins and padding on text elements more or less doesn&rsquo;t work on android, so really try to avoid them!</p>
           
-          <p><strong>How to add a loading overlay</strong>.
+          <p><strong>Loading overlays and z-ordering:</strong>
           Absolutely position the overlay top/right/left/bottom: 0 and make sure it’s <em>after</em> the rest of the content it needs to overlay. Draw order is last-on-top:</p>
-          <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4</pre></td><td class="code"><pre><span class="o">&lt;</span><span class="nx">View</span><span class="o">&gt;</span>&#x000A;  <span class="o">&lt;</span><span class="err">……</span><span class="o">&gt;</span>&#x000A;  <span class="o">&lt;</span><span class="nx">LoadingOverlay</span><span class="o">&gt;</span>&#x000A;<span class="o">&lt;</span><span class="sr">/View</span><span class="err">&gt;&#x000A;</span></pre></td></tr></tbody></table>
+          <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4</pre></td><td class="code"><pre><span class="o">&lt;</span><span class="nx">View</span><span class="o">&gt;</span>&#x000A;  <span class="o">&lt;</span><span class="p">...</span><span class="o">&gt;</span>&#x000A;  <span class="o">&lt;</span><span class="nx">LoadingOverlay</span><span class="o">&gt;</span>&#x000A;<span class="o">&lt;</span><span class="sr">/View</span><span class="err">&gt;&#x000A;</span></pre></td></tr></tbody></table>
           </div>
           
-          <h2>Android installation (Genymotion)</h2>
+          <p><strong>Android installation (Genymotion)</strong>
+          Ommitted for brevity, but you can see it in the original gist <a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3">here</a>. Android Studio 2.0 seems better these days though. Great emulator.</p>
           
-          <p>Ommitted for brevity (naturally), but you can see it in the original gist <a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3">here</a>. Android Studio 2.0 seems better these days though. Great emulator.</p>
+          <h2>Conclusion</h2>
+          
+          <p>That&rsquo;s all for now! There&rsquo;s nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we&rsquo;d dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you <a href="http://facebook.github.io/react-native/">give it a try!</a></p>
           
           <!--
           ## Android installation (Genymotion)
