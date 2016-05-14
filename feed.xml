@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T02:30:58-04:00</updated>
+  <updated>2016-05-14T08:56:22-04:00</updated>
   <author>
     <name/>
   </author>
@@ -27,6 +27,16 @@
 
 &lt;p&gt;This post is a loose collection of the things I wish someone had just told me from the beginning. Some are obvious; some aren&amp;rsquo;t. The original gist is &lt;a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3"&gt;here&lt;/a&gt;. I&amp;rsquo;ve surely missed a lot of good information. So it&amp;rsquo;s not everything, but hopefully it&amp;rsquo;s mostly valid information that can save someone else some of the time it took us to discover all of these things. If there&amp;rsquo;s something that&amp;rsquo;s changed your life (dev-wise), please let me know in the comments section and I&amp;rsquo;d be glad to add it to the list!&lt;/p&gt;
 
+&lt;p&gt;&lt;em&gt;Update:&lt;/em&gt; Great recommendations based on twitter replies/searches (Thanks, &lt;a href="sseraphini"&gt;https://twitter.com/sseraphini&lt;/a&gt;!):&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="https://github.com/yelouafi/redux-saga"&gt;redux-saga&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/gaearon/redux-thunk"&gt;redux-thunk&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/lelandrichardson/react-native-mock"&gt;react-native-mock&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/airbnb/enzyme"&gt;enzyme&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://twitter.com/JI/status/728696866343243777"&gt;Sentry and Crashalytics&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
 &lt;h2&gt;The thoughts:&lt;/h2&gt;
 
 &lt;p&gt;&lt;strong&gt;Set up your environment carefully&lt;/strong&gt;: It&amp;rsquo;s important to have &lt;em&gt;one&lt;/em&gt; canonical source of truth per environment, per platform. (i.e. iOS Development, iOS Testflight, iOS Production, ditto Android.) Every time you build, your config should propagate values from one input source (per platform) to either Java/JavaScript or Objective-C/JavaScript. &lt;a href="https://gist.github.com/rreusser/77c18ca38a6848876c22a00d3fed99a9"&gt;Here&amp;rsquo;s what we did for Android&lt;/a&gt; and &lt;a href="https://gist.github.com/rreusser/283e032fb1bb5f59256fd5b96f8b8e6c"&gt;here&amp;rsquo;s what we did for iOS&lt;/a&gt;. I don&amp;rsquo;t doubt that you can do better. &lt;em&gt;Please do better.&lt;/em&gt; But you can&amp;rsquo;t say that we didn&amp;rsquo;t have one canonical source of truth that worked very simply and effectively throughout the development process.&lt;/p&gt;
@@ -47,7 +57,7 @@
 
 &lt;p&gt;&lt;strong&gt;My template&lt;/strong&gt; which isn&amp;rsquo;t great but maybe has a couple things going for it regarding redux + immutable setup. Generally speaking, don&amp;rsquo;t just copy the setup blindly though. Understand it. &lt;a href="https://github.com/rreusser/react-native-with-everything"&gt;react-native-with-everything&lt;/a&gt;&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;Live on the bleeding edge&lt;/strong&gt;: It&amp;rsquo;s a calculated risk when you&amp;rsquo;re trying to run a business, but we never got bitten by upgrading early and often. On the contrary, the bugfixes and frequent updates prevented our code from getting stale. It meant submitting lots of little PRs to different repos, but it was time well spent. When the community indicates the direction they&amp;rsquo;re going, take a hint. So yeah, it&amp;rsquo;s all NavigatorExperimental moving forward.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Live on the bleeding edge&lt;/strong&gt;: It&amp;rsquo;s a calculated risk when you&amp;rsquo;re trying to run a business, but we never got bitten by upgrading early and often. On the contrary, the bugfixes and frequent updates prevented our code from getting stale. It meant submitting lots of little PRs to different repos, but it was time well spent. When the community indicates the direction they&amp;rsquo;re going, take a hint. So yeah, it&amp;rsquo;s probably all NavigatorExperimental moving forward.&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;This stuff is outstanding&lt;/strong&gt;:&lt;/p&gt;
 
@@ -62,6 +72,8 @@
 
 &lt;p&gt;&lt;strong&gt;Keyboard spacer&lt;/strong&gt;: I &lt;em&gt;highly&lt;/em&gt; recommend a single keyboard spacer at the bottom of your top-level view. Or at least very few as high up in the DOM as possible. No need to add them all over the place (it&amp;rsquo;s a mess), and best to avoid fixing the height of anything to the height of the viewport (Android and the in-call status bar will make your life unpleasant).
 &lt;a href="https://www.npmjs.com/package/react-native-keyboard-spacer"&gt;react-native-keyboard-spacer&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Steer clear of negative margins.&lt;/strong&gt; On iOS it&amp;rsquo;s the same useful trick you web devs are used to. On Android (unless there&amp;rsquo;s a trick I wasn&amp;rsquo;t able to find), they all get clipped. If you want content to sit outside its parent container, use a larger parent container with &lt;a href="http://facebook.github.io/react-native/docs/view.html#pointerevents"&gt;&lt;code&gt;pointerEvents=&amp;quot;box-none&amp;quot;&lt;/code&gt;&lt;/a&gt;.&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Higher order components&lt;/strong&gt; (enhancing behavior without mixins or class inheritance):
 &lt;a href="https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775"&gt;https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775&lt;/a&gt;&lt;/p&gt;
