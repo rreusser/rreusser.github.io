@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T09:37:12-04:00</updated>
+  <updated>2016-05-14T09:42:09-04:00</updated>
   <author>
     <name/>
   </author>
@@ -196,7 +196,7 @@ Ommitted for brevity, but you can see it in the original gist &lt;a href="https:
 
 &lt;h2&gt;Conclusion&lt;/h2&gt;
 
-&lt;p&gt;That&amp;rsquo;s all for now! At the end here, I&amp;rsquo;m clearly kinda scraping the bottom of the barrel. There&amp;rsquo;s nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we&amp;rsquo;d dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and find ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you &lt;a href="http://facebook.github.io/react-native/"&gt;give it a try!&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;That&amp;rsquo;s all for now! At the end here, I&amp;rsquo;m clearly kinda scraping the bottom of the barrel. There&amp;rsquo;s nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we&amp;rsquo;d dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you &lt;a href="http://facebook.github.io/react-native/"&gt;give it a try!&lt;/a&gt;&lt;/p&gt;
 
 &lt;!--
 ## Android installation (Genymotion)
