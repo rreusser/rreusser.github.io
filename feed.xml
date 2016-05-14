@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-13T23:26:21-04:00</updated>
+  <updated>2016-05-14T00:09:36-04:00</updated>
   <author>
     <name/>
   </author>
@@ -65,7 +65,7 @@
 
 &lt;p&gt;&lt;strong&gt;This is useful&lt;/strong&gt;. Premature optimization is bad, but good to get a handle on what optimization means: &lt;a href="https://github.com/garbles/why-did-you-update"&gt;garbles/why-did-you-update&lt;/a&gt;&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;Stateless functional components&lt;/strong&gt;: &lt;a href="https://facebook.github.io/react/blog/2015/10/07/react-v0.14.html#stateless-functional-components"&gt;Stateless functional components&lt;/a&gt;: Good for components that can have no internal state.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;&lt;a href="https://facebook.github.io/react/blog/2015/10/07/react-v0.14.html#stateless-functional-components"&gt;Stateless functional components&lt;/a&gt;&lt;/strong&gt;: Good for components that can have no internal state.&lt;/p&gt;
 &lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="kd"&gt;var&lt;/span&gt; &lt;span class="nx"&gt;Button&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nx"&gt;props&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
@@ -162,7 +162,7 @@ Instead of this:&lt;/p&gt;
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;Random fact: margins and padding on text elements more or less doesn&amp;rsquo;t work on android, so really try to avoid them!&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Margins and padding on text elements&lt;/strong&gt; more or less don&amp;rsquo;t have much of an effect on Android, so really try to avoid them if you start with iOS!&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Loading overlays and z-ordering:&lt;/strong&gt;
 Absolutely position the overlay top/right/left/bottom: 0 and make sure it’s &lt;em&gt;after&lt;/em&gt; the rest of the content it needs to overlay. Draw order is last-on-top:&lt;/p&gt;
@@ -181,7 +181,7 @@ Ommitted for brevity, but you can see it in the original gist &lt;a href="https:
 
 &lt;h2&gt;Conclusion&lt;/h2&gt;
 
-&lt;p&gt;That&amp;rsquo;s all for now! There&amp;rsquo;s nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we&amp;rsquo;d dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you &lt;a href="http://facebook.github.io/react-native/"&gt;give it a try!&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;That&amp;rsquo;s all for now! At the end here, I&amp;rsquo;m clearly kinda scraping the bottom of the barrel. There&amp;rsquo;s nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we&amp;rsquo;d dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you &lt;a href="http://facebook.github.io/react-native/"&gt;give it a try!&lt;/a&gt;&lt;/p&gt;
 
 &lt;!--
 ## Android installation (Genymotion)

@@ -18,7 +18,7 @@
     <meta name="og:title" content="Things I learned the hard way using React Native" />
     <meta name="og:description" content="This post exists because I wish someone had sat me down and told me half of these things on Day One of using React Native." />
     <meta content='width=device-width, initial-scale=1' name='viewport'>
-    <link href="../../../../stylesheets/application-8c0872f0.css" rel="stylesheet" type="text/css" />
+    <link href="../../../../stylesheets/application-59c2395b.css" rel="stylesheet" type="text/css" />
     <link href='//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.3/styles/default.min.css' rel='stylesheet'>
     <link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" />
     <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_SVG"></script>
@@ -217,7 +217,7 @@
           
           <p><strong>This is useful</strong>. Premature optimization is bad, but good to get a handle on what optimization means: <a href="https://github.com/garbles/why-did-you-update">garbles/why-did-you-update</a></p>
           
-          <p><strong>Stateless functional components</strong>: <a href="https://facebook.github.io/react/blog/2015/10/07/react-v0.14.html#stateless-functional-components">Stateless functional components</a>: Good for components that can have no internal state.</p>
+          <p><strong><a href="https://facebook.github.io/react/blog/2015/10/07/react-v0.14.html#stateless-functional-components">Stateless functional components</a></strong>: Good for components that can have no internal state.</p>
           <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3</pre></td><td class="code"><pre><span class="kd">var</span> <span class="nx">Button</span> <span class="o">=</span> <span class="p">(</span><span class="nx">props</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>&#x000A;  <span class="k">return</span> <span class="o">&lt;</span><span class="nx">View</span><span class="o">&gt;&lt;</span><span class="nx">Text</span><span class="o">&gt;</span><span class="p">{</span><span class="nx">props</span><span class="p">.</span><span class="nx">label</span><span class="p">}</span><span class="o">&lt;</span><span class="sr">/Text&gt;&lt;/</span><span class="nx">View</span><span class="o">&gt;</span>&#x000A;<span class="p">}</span></pre></td></tr></tbody></table>
           </div>
           
@@ -254,7 +254,7 @@
           <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7&#x000A;8&#x000A;9</pre></td><td class="code"><pre><span class="nx">render</span> <span class="p">()</span> <span class="p">{</span>&#x000A;  <span class="k">return</span> <span class="o">&lt;</span><span class="nx">View</span><span class="o">&gt;</span><span class="p">{[</span>&#x000A;    <span class="o">&lt;</span><span class="nx">Text</span> <span class="nx">key</span><span class="o">=</span><span class="s2">"1"</span><span class="o">&gt;</span><span class="nx">Hello</span><span class="p">,</span> <span class="o">&lt;</span><span class="sr">/Text&gt;</span><span class="err">,&#x000A;</span>    <span class="o">&lt;</span><span class="nx">Text</span> <span class="nx">key</span><span class="o">=</span><span class="s2">"2"</span><span class="o">&gt;</span><span class="p">{[</span>&#x000A;      <span class="o">&lt;</span><span class="nx">Text</span> <span class="nx">key</span><span class="o">=</span><span class="s2">"1"</span> <span class="nx">onPress</span><span class="o">=</span><span class="p">{...}</span><span class="o">&gt;</span><span class="k">this</span> <span class="nx">is</span> <span class="nx">a</span> <span class="nx">link</span><span class="o">&lt;</span><span class="sr">/Text&gt;</span><span class="err">,&#x000A;</span>      <span class="o">&lt;</span><span class="nx">Text</span> <span class="nx">key</span><span class="o">=</span><span class="s2">"2"</span><span class="o">&gt;</span><span class="p">,</span> <span class="nx">and</span> <span class="k">this</span> <span class="nx">is</span> <span class="nx">just</span> <span class="nx">regular</span> <span class="nx">text</span><span class="o">&lt;</span><span class="sr">/Text</span><span class="err">&gt;&#x000A;</span>    <span class="p">]}</span><span class="o">&lt;</span><span class="sr">/Text</span><span class="err">&gt;&#x000A;</span>  <span class="p">]}</span><span class="o">&lt;</span><span class="sr">/View&gt;</span><span class="err">;&#x000A;</span><span class="p">}</span></pre></td></tr></tbody></table>
           </div>
           
-          <p>Random fact: margins and padding on text elements more or less doesn&rsquo;t work on android, so really try to avoid them!</p>
+          <p><strong>Margins and padding on text elements</strong> more or less don&rsquo;t have much of an effect on Android, so really try to avoid them if you start with iOS!</p>
           
           <p><strong>Loading overlays and z-ordering:</strong>
           Absolutely position the overlay top/right/left/bottom: 0 and make sure it’s <em>after</em> the rest of the content it needs to overlay. Draw order is last-on-top:</p>
@@ -266,7 +266,7 @@
           
           <h2>Conclusion</h2>
           
-          <p>That&rsquo;s all for now! There&rsquo;s nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we&rsquo;d dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you <a href="http://facebook.github.io/react-native/">give it a try!</a></p>
+          <p>That&rsquo;s all for now! At the end here, I&rsquo;m clearly kinda scraping the bottom of the barrel. There&rsquo;s nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we&rsquo;d dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you <a href="http://facebook.github.io/react-native/">give it a try!</a></p>
           
           <!--
           ## Android installation (Genymotion)
