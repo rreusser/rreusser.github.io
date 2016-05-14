@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T00:35:58-04:00</updated>
+  <updated>2016-05-14T00:54:15-04:00</updated>
   <author>
     <name/>
   </author>
@@ -37,7 +37,7 @@
 
 &lt;p&gt;&lt;strong&gt;Learning Redux&lt;/strong&gt;: It was useful to read the source itself. It&amp;rsquo;s actually relatively concise. It helped clear up my understanding of what&amp;rsquo;s going on. Understanding exactly why components get updated helped us improve performance dramatically. &lt;a href="https://github.com/reactjs/redux/blob/master/src/combineReducers.js#L123-L137"&gt;I think these are the lines that do it in redux&lt;/a&gt;. As for connecting components, we debated whether to connect giant parts of the state tree or lots of little values. Also whether to connect tons of little components or just the big components. Short answer: understand why things get re-rendered and a happy medium is probably best because either extreme has tradeoffs. Connecting &lt;strong&gt;every&lt;/strong&gt; component seems silly and expensive, but then it&amp;rsquo;s overkill and unnecessarily verbose to unpack tons of values in every &lt;code&gt;mapStateToProps&lt;/code&gt;. Happy medium, I think.&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;But what&amp;rsquo;s the right data store???&lt;/strong&gt; &lt;em&gt;The right data store is one that you understand.&lt;/em&gt; We stored our stuff in some weird key-value store (okay, a glorified plain old javascript object). It worked pretty well, but what would have made it better would have been either to understand what triggers updates better from the start or maybe to take the plunge and get on board with immutablejs from the start. But there&amp;rsquo;s no one true answer. Ours worked fine. If you use a library for your datastore, mainly try to understand &lt;em&gt;why&lt;/em&gt; it does what it does (which doesn&amp;rsquo;t necessarily include worrying about the internal workings).&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;But what&amp;rsquo;s the right data store???&lt;/strong&gt; &lt;em&gt;The right data store is one that you understand.&lt;/em&gt; We stored our stuff in some weird key-value store (okay, a glorified plain old javascript object). It worked pretty well, but what would have made it better would have been either to understand what triggers updates better from the start or maybe to take the plunge and get on board with immutablejs from the start. But there&amp;rsquo;s no one true answer. Ours worked fine. If you use a library for your datastore, mainly try to understand &lt;em&gt;why&lt;/em&gt; it does what it does (which doesn&amp;rsquo;t necessarily include worrying about the internal workings). So just pick one. Don&amp;rsquo;t worry. &lt;a href="http://techcrunch.com/2014/10/18/you-too-may-be-a-victim-of-developaralysis/"&gt;You&amp;rsquo;ll be fine&lt;/a&gt;.&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Put &lt;code&gt;console.logs&lt;/code&gt; in your render statements and figure out just how often things are getting rendered.&lt;/strong&gt; You can get away with a lot for a while using react. It&amp;rsquo;s magic. Until it feels laggy. The second major release of our iOS app was mainly a giant audit of why there was so much extra rendering going on. Performance increased dramatically.&lt;/p&gt;
 
