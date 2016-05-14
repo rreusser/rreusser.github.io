@@ -227,7 +227,7 @@
           
           <p><strong>Steer clear of negative margins.</strong> On iOS it&rsquo;s the same useful trick you web devs are used to. On Android (unless there&rsquo;s a trick I wasn&rsquo;t able to find), they all get clipped. If you want content to sit outside its parent container, use a larger parent container with <a href="http://facebook.github.io/react-native/docs/view.html#pointerevents"><code>pointerEvents=&quot;box-none&quot;</code></a>.</p>
           
-          <p><strong>Margins and padding on text elements</strong> more or less don&rsquo;t have much of an effect on Android, so really try to avoid them if you start with iOS!</p>
+          <p><strong>Margins and padding on text components</strong> more or less don&rsquo;t have much of an effect on Android, so really try to avoid them if you start with iOS!</p>
           
           <p><strong>Higher order components</strong> (enhancing behavior without mixins or class inheritance):
           <a href="https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775">https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775</a></p>
@@ -246,16 +246,16 @@
           <li><a href="https://github.com/thejameskyle/babel-react-optimize">thejameskyle/babel-react-optimize</a></li>
           </ul>
           
-          <p><strong>A trivial optimization that may actually (somewhat surprisingly?) be noticable:</strong>
+          <p><strong>A trivial optimization that may actually be noticable:</strong>
           Instead of this:</p>
-          <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="k">return</span> <span class="o">&lt;</span><span class="nx">Touchable</span> <span class="nx">onPress</span><span class="o">=</span><span class="p">{()</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="k">do</span> <span class="nx">something</span> <span class="nx">inline</span><span class="p">}}</span><span class="sr">/</span><span class="err">&gt;&#x000A;</span></pre></td></tr></tbody></table>
+          <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="k">return</span> <span class="o">&lt;</span><span class="nx">TextInput</span> <span class="nx">onChange</span><span class="o">=</span><span class="p">{()</span> <span class="o">=&gt;</span> <span class="p">{</span> <span class="k">do</span> <span class="nx">something</span> <span class="nx">inline</span><span class="p">}}</span><span class="sr">/</span><span class="err">&gt;&#x000A;</span></pre></td></tr></tbody></table>
           </div>
           
           <p>Do this:</p>
-          <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7</pre></td><td class="code"><pre><span class="nx">_handlePress</span> <span class="o">=</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>&#x000A;  <span class="nx">same</span> <span class="nx">thing</span> <span class="nx">but</span> <span class="nx">not</span> <span class="nx">inline</span>&#x000A;<span class="p">};</span>&#x000A;&#x000A;<span class="nx">render</span> <span class="p">()</span> <span class="p">{</span>&#x000A;  <span class="k">return</span> <span class="o">&lt;</span><span class="nx">Touchable</span> <span class="nx">onPress</span><span class="o">=</span><span class="p">{</span><span class="k">this</span><span class="p">.</span><span class="nx">_handlePress</span><span class="p">}</span><span class="sr">/</span><span class="err">&gt;&#x000A;</span><span class="p">}</span></pre></td></tr></tbody></table>
+          <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7</pre></td><td class="code"><pre><span class="nx">_handleChange</span> <span class="o">=</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>&#x000A;  <span class="nx">same</span> <span class="nx">thing</span> <span class="nx">but</span> <span class="nx">not</span> <span class="nx">inline</span>&#x000A;<span class="p">};</span>&#x000A;&#x000A;<span class="nx">render</span> <span class="p">()</span> <span class="p">{</span>&#x000A;  <span class="k">return</span> <span class="o">&lt;</span><span class="nx">TextInput</span> <span class="nx">onChange</span><span class="o">=</span><span class="p">{</span><span class="k">this</span><span class="p">.</span><span class="nx">_handlePress</span><span class="p">}</span><span class="sr">/</span><span class="err">&gt;&#x000A;</span><span class="p">}</span></pre></td></tr></tbody></table>
           </div>
           
-          <p>For events like keypresses, the recreation of an unoptimized callback over and over and over actually seems to noticably slow down the UI. Who would have guessed? More to the point, just keep in mind that it&rsquo;s mobile, so memory and CPU aren&rsquo;t free.</p>
+          <p>Subtle, but (and thanks, Scott Kyle for correcting my obvious oversight on this one!!) in the first version, the <code>TextInput</code> gets a new callback every time and so gets re-rendered. The second passes the reference to the same callback, hence no re-render.</p>
           
           <p><strong>Rendering arrays:</strong></p>
           

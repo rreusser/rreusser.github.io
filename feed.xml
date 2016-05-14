@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T10:24:58-04:00</updated>
+  <updated>2016-05-14T17:06:55-04:00</updated>
   <author>
     <name/>
   </author>
@@ -75,7 +75,7 @@
 
 &lt;p&gt;&lt;strong&gt;Steer clear of negative margins.&lt;/strong&gt; On iOS it&amp;rsquo;s the same useful trick you web devs are used to. On Android (unless there&amp;rsquo;s a trick I wasn&amp;rsquo;t able to find), they all get clipped. If you want content to sit outside its parent container, use a larger parent container with &lt;a href="http://facebook.github.io/react-native/docs/view.html#pointerevents"&gt;&lt;code&gt;pointerEvents=&amp;quot;box-none&amp;quot;&lt;/code&gt;&lt;/a&gt;.&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;Margins and padding on text elements&lt;/strong&gt; more or less don&amp;rsquo;t have much of an effect on Android, so really try to avoid them if you start with iOS!&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Margins and padding on text components&lt;/strong&gt; more or less don&amp;rsquo;t have much of an effect on Android, so really try to avoid them if you start with iOS!&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Higher order components&lt;/strong&gt; (enhancing behavior without mixins or class inheritance):
 &lt;a href="https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775"&gt;https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775&lt;/a&gt;&lt;/p&gt;
@@ -99,9 +99,9 @@
 &lt;li&gt;&lt;a href="https://github.com/thejameskyle/babel-react-optimize"&gt;thejameskyle/babel-react-optimize&lt;/a&gt;&lt;/li&gt;
 &lt;/ul&gt;
 
-&lt;p&gt;&lt;strong&gt;A trivial optimization that may actually (somewhat surprisingly?) be noticable:&lt;/strong&gt;
+&lt;p&gt;&lt;strong&gt;A trivial optimization that may actually be noticable:&lt;/strong&gt;
 Instead of this:&lt;/p&gt;
-&lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nx"&gt;Touchable&lt;/span&gt; &lt;span class="nx"&gt;onPress&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="p"&gt;{()&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;do&lt;/span&gt; &lt;span class="nx"&gt;something&lt;/span&gt; &lt;span class="nx"&gt;inline&lt;/span&gt;&lt;span class="p"&gt;}}&lt;/span&gt;&lt;span class="sr"&gt;/&lt;/span&gt;&lt;span class="err"&gt;&amp;gt;
+&lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nx"&gt;TextInput&lt;/span&gt; &lt;span class="nx"&gt;onChange&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="p"&gt;{()&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;do&lt;/span&gt; &lt;span class="nx"&gt;something&lt;/span&gt; &lt;span class="nx"&gt;inline&lt;/span&gt;&lt;span class="p"&gt;}}&lt;/span&gt;&lt;span class="sr"&gt;/&lt;/span&gt;&lt;span class="err"&gt;&amp;gt;
 &lt;/span&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
@@ -112,17 +112,17 @@ Instead of this:&lt;/p&gt;
 4
 5
 6
-7&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nx"&gt;_handlePress&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;()&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+7&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="nx"&gt;_handleChange&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;()&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
   &lt;span class="nx"&gt;same&lt;/span&gt; &lt;span class="nx"&gt;thing&lt;/span&gt; &lt;span class="nx"&gt;but&lt;/span&gt; &lt;span class="nx"&gt;not&lt;/span&gt; &lt;span class="nx"&gt;inline&lt;/span&gt;
 &lt;span class="p"&gt;};&lt;/span&gt;
 
 &lt;span class="nx"&gt;render&lt;/span&gt; &lt;span class="p"&gt;()&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
-  &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nx"&gt;Touchable&lt;/span&gt; &lt;span class="nx"&gt;onPress&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="k"&gt;this&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nx"&gt;_handlePress&lt;/span&gt;&lt;span class="p"&gt;}&lt;/span&gt;&lt;span class="sr"&gt;/&lt;/span&gt;&lt;span class="err"&gt;&amp;gt;
+  &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nx"&gt;TextInput&lt;/span&gt; &lt;span class="nx"&gt;onChange&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="k"&gt;this&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nx"&gt;_handlePress&lt;/span&gt;&lt;span class="p"&gt;}&lt;/span&gt;&lt;span class="sr"&gt;/&lt;/span&gt;&lt;span class="err"&gt;&amp;gt;
 &lt;/span&gt;&lt;span class="p"&gt;}&lt;/span&gt;
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;For events like keypresses, the recreation of an unoptimized callback over and over and over actually seems to noticably slow down the UI. Who would have guessed? More to the point, just keep in mind that it&amp;rsquo;s mobile, so memory and CPU aren&amp;rsquo;t free.&lt;/p&gt;
+&lt;p&gt;Subtle, but (and thanks, Scott Kyle for correcting my obvious oversight on this one!!) in the first version, the &lt;code&gt;TextInput&lt;/code&gt; gets a new callback every time and so gets re-rendered. The second passes the reference to the same callback, hence no re-render.&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Rendering arrays:&lt;/strong&gt;&lt;/p&gt;
 
