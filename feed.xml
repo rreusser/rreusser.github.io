@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T00:09:36-04:00</updated>
+  <updated>2016-05-14T00:17:40-04:00</updated>
   <author>
     <name/>
   </author>
@@ -23,9 +23,9 @@
 
 &lt;h2&gt;The kinda long; might read:&lt;/h2&gt;
 
-&lt;p&gt;I am decidedly not an expert in &lt;a href="http://facebook.github.io/react-native/"&gt;React Native&lt;/a&gt;, but that doesn&amp;rsquo;t mean I haven&amp;rsquo;t learned a lot of difficult lessons over the last &lt;a href="http://www.thefoodstand.com"&gt;eight months&lt;/a&gt;! And earlier today I had the chance to introduce a couple developers to React Native. They had JavaScript experience and knew their way around mobile apps, but React Native was a new beast. It made me recall what a foreign set of concepts &lt;a href="https://facebook.github.io/react/"&gt;React&lt;/a&gt; and &lt;a href="facebook.github.io/react-native"&gt;React Native&lt;/a&gt; were when we started out.&lt;/p&gt;
+&lt;p&gt;I am decidedly not an expert in &lt;a href="http://facebook.github.io/react-native/"&gt;React Native&lt;/a&gt;, but that doesn&amp;rsquo;t mean I haven&amp;rsquo;t learned a lot of difficult lessons over the last &lt;a href="http://www.thefoodstand.com"&gt;eight months&lt;/a&gt;. And earlier today I had the chance to introduce a couple developers to React Native. They had JavaScript experience and knew their way around mobile apps, but React Native was a new beast. It made me recall what a foreign set of concepts &lt;a href="https://facebook.github.io/react/"&gt;React&lt;/a&gt; and &lt;a href="facebook.github.io/react-native"&gt;React Native&lt;/a&gt; were when we started out.&lt;/p&gt;
 
-&lt;p&gt;This post is a loose collection of the things I wish someone had just told me from the beginning. Some are obvious; some aren&amp;rsquo;t. The original gist is &lt;a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3"&gt;here&lt;/a&gt;. It&amp;rsquo;s not everything, but hopefully it&amp;rsquo;s mostly valid information and can save someone else some of the time it took us to discover all of these things! If you know of improvements, please let me know in the comments section!&lt;/p&gt;
+&lt;p&gt;This post is a loose collection of the things I wish someone had just told me from the beginning. Some are obvious; some aren&amp;rsquo;t. The original gist is &lt;a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3"&gt;here&lt;/a&gt;. It&amp;rsquo;s not everything, but hopefully it&amp;rsquo;s mostly valid information and can save someone else some of the time it took us to discover all of these things. If you know of improvements, please let me know in the comments section!&lt;/p&gt;
 
 &lt;h2&gt;The thoughts:&lt;/h2&gt;
 
@@ -47,6 +47,8 @@
 &lt;p&gt;&lt;strong&gt;React universal template&lt;/strong&gt; The future is upon us. Web, iOS, Android, Server. One codebase. And Windows Phone, soonish. &lt;a href="https://github.com/este/este"&gt;este/este.js&lt;/a&gt;&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;My template&lt;/strong&gt; which has maybe a couple things going for it regarding redux setup (immutable part could be edited out): &lt;a href="https://github.com/rreusser/react-native-with-everything"&gt;react-native-with-everything&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Live on the bleeding edge&lt;/strong&gt;: It&amp;rsquo;s a calculated risk when you&amp;rsquo;re trying to run a business, but we never got bitten by upgrading early and often. On the contrary, the bugfixes and frequent updates prevented our code from getting stale. It meant submitting lots of little PRs to different repos, but it was time well spent.&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;This stuff is outstanding&lt;/strong&gt;:&lt;/p&gt;
 
@@ -141,7 +143,7 @@ Instead of this:&lt;/p&gt;
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;And text nodes can contain other text nodes. Our first attempt was to split text by whitespace and lay out nodes with flexbox. That was crazy. You can just nest text nodes and make some of them pressable. Sounds obscure, but it wasn&amp;rsquo;t obvious and if you need it, it&amp;rsquo;s life-changing.&lt;/p&gt;
+&lt;p&gt;And text nodes can contain other text nodes. Our first attempt at a paragraph with mentions was to split text by whitespace and lay out nodes with flexbox. That&amp;rsquo;s crazy. You can just nest text nodes and make some of them pressable. Sounds obscure, but it wasn&amp;rsquo;t immediately obvious, and if you need it, it&amp;rsquo;s life-changing.&lt;/p&gt;
 &lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3
