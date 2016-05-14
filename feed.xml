@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T08:56:22-04:00</updated>
+  <updated>2016-05-14T08:59:03-04:00</updated>
   <author>
     <name/>
   </author>
@@ -27,7 +27,7 @@
 
 &lt;p&gt;This post is a loose collection of the things I wish someone had just told me from the beginning. Some are obvious; some aren&amp;rsquo;t. The original gist is &lt;a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3"&gt;here&lt;/a&gt;. I&amp;rsquo;ve surely missed a lot of good information. So it&amp;rsquo;s not everything, but hopefully it&amp;rsquo;s mostly valid information that can save someone else some of the time it took us to discover all of these things. If there&amp;rsquo;s something that&amp;rsquo;s changed your life (dev-wise), please let me know in the comments section and I&amp;rsquo;d be glad to add it to the list!&lt;/p&gt;
 
-&lt;p&gt;&lt;em&gt;Update:&lt;/em&gt; Great recommendations based on twitter replies/searches (Thanks, &lt;a href="sseraphini"&gt;https://twitter.com/sseraphini&lt;/a&gt;!):&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;Update:&lt;/em&gt; Great recommendations based on twitter replies/searches (Thanks, &lt;a href="https://twitter.com/sseraphini"&gt;sseraphini&lt;/a&gt;!):&lt;/p&gt;
 
 &lt;ul&gt;
 &lt;li&gt;&lt;a href="https://github.com/yelouafi/redux-saga"&gt;redux-saga&lt;/a&gt;&lt;/li&gt;
@@ -39,7 +39,7 @@
 
 &lt;h2&gt;The thoughts:&lt;/h2&gt;
 
-&lt;p&gt;&lt;strong&gt;Set up your environment carefully&lt;/strong&gt;: It&amp;rsquo;s important to have &lt;em&gt;one&lt;/em&gt; canonical source of truth per environment, per platform. (i.e. iOS Development, iOS Testflight, iOS Production, ditto Android.) Every time you build, your config should propagate values from one input source (per platform) to either Java/JavaScript or Objective-C/JavaScript. &lt;a href="https://gist.github.com/rreusser/77c18ca38a6848876c22a00d3fed99a9"&gt;Here&amp;rsquo;s what we did for Android&lt;/a&gt; and &lt;a href="https://gist.github.com/rreusser/283e032fb1bb5f59256fd5b96f8b8e6c"&gt;here&amp;rsquo;s what we did for iOS&lt;/a&gt;. I don&amp;rsquo;t doubt that you can do better. &lt;em&gt;Please do better.&lt;/em&gt; But you can&amp;rsquo;t say that we didn&amp;rsquo;t have one canonical source of truth that worked very simply and effectively throughout the development process.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Set up your environment carefully&lt;/strong&gt;: It&amp;rsquo;s important to have &lt;em&gt;one&lt;/em&gt; canonical source of truth per environment, per platform. (i.e. iOS Development, iOS Testflight, iOS Production, ditto Android.) Every time you build, your config should propagate values from one input source (per env) to either Java/JavaScript or Objective-C/JavaScript. &lt;a href="https://gist.github.com/rreusser/77c18ca38a6848876c22a00d3fed99a9"&gt;Here&amp;rsquo;s what we did for Android&lt;/a&gt; and &lt;a href="https://gist.github.com/rreusser/283e032fb1bb5f59256fd5b96f8b8e6c"&gt;here&amp;rsquo;s what we did for iOS&lt;/a&gt;. I don&amp;rsquo;t doubt that you can do better. &lt;em&gt;Please do better.&lt;/em&gt; But you can&amp;rsquo;t say that we didn&amp;rsquo;t have one canonical source of truth that worked very simply and effectively throughout the development process.&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Don&amp;rsquo;t wait until the end to develop Android and iOS concurrently:&lt;/strong&gt; Even if you&amp;rsquo;re not actively focusing on both platforms, don&amp;rsquo;t assume that &amp;ldquo;RN is cross platform… we can develop iOS and flip the Android switch when we&amp;rsquo;re done.&amp;rdquo; It&amp;rsquo;s mostly cross-platform. But there&amp;rsquo;s lots of little stuff like iOS and Android handling margins on text differently. Small quirks, but not the sort of stuff you want to completely refactor at the end.&lt;/p&gt;
 
