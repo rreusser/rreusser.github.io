@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-13T22:22:15-04:00</updated>
+  <updated>2016-05-13T23:26:21-04:00</updated>
   <author>
     <name/>
   </author>
@@ -44,7 +44,7 @@
 &lt;p&gt;&lt;strong&gt;Follow people on twitter&lt;/strong&gt;
 &lt;a href="https://twitter.com/dan_abramov"&gt;@dan_abramov&lt;/a&gt;, &lt;a href="https://twitter.com/JI"&gt;@JI&lt;/a&gt;, &lt;a href="https://twitter.com/ReactJSNews"&gt;@ReactJSNews&lt;/a&gt;, &lt;a href="https://twitter.com/Vjeux"&gt;@Vjeux&lt;/a&gt;. Lots more. A good way to be a fly on the wall and find out about trendy stuff without getting sucked into a hacker-news sort of rabbit hole.&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;React universal template&lt;/strong&gt; The future is upon us. Web, iOS, Android, Server. One codebase. And Windows Phone. Soonish: &lt;a href="https://github.com/este/este"&gt;este/este.js&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;React universal template&lt;/strong&gt; The future is upon us. Web, iOS, Android, Server. One codebase. And Windows Phone, soonish. &lt;a href="https://github.com/este/este"&gt;este/este.js&lt;/a&gt;&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;My template&lt;/strong&gt; which has maybe a couple things going for it regarding redux setup (immutable part could be edited out): &lt;a href="https://github.com/rreusser/react-native-with-everything"&gt;react-native-with-everything&lt;/a&gt;&lt;/p&gt;
 
