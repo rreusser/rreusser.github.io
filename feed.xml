@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T00:54:15-04:00</updated>
+  <updated>2016-05-14T01:27:09-04:00</updated>
   <author>
     <name/>
   </author>
@@ -59,7 +59,7 @@
 
 &lt;p&gt;&lt;strong&gt;Corollary:&lt;/strong&gt; &lt;a href="https://icomoon.io/"&gt;icomoon.io&lt;/a&gt; is the best thing ever for managing icons.&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;We didn&amp;rsquo;t do much testing.&lt;/strong&gt; There. I said it. We didn&amp;rsquo;t do much testing. It felt horrible. I&amp;rsquo;m embarrassed. There are some little unit tests for tricky logic, but not really any integration testing. Honestly, good redux middleware made debugging and reasoning about state so easy that there was just never a time when it was a top priority to lock down functionality with tests before we ripped features out and replaced them. We had some minor regressions, but 80% of the challenges we had were obscure, untestable things like a weird layering bug with the twitter native share dialog. That said, you should always test your code. 😊👍🏼&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;We didn&amp;rsquo;t do much testing.&lt;/strong&gt; There. I said it. We didn&amp;rsquo;t do much testing. It felt horrible. I&amp;rsquo;m embarrassed. There are some little unit tests for tricky logic, but not really any integration testing. Honestly, good redux middleware made debugging and reasoning about state so easy that there was just never a time when it was a top priority to lock down functionality with tests before we ripped features out and replaced them. We had a couple minor regressions, but 80% of the challenges we had were obscure, untestable things like a weird layering bug with the twitter native share dialog. (And once we hooked up &lt;a href="https://microsoft.github.io/code-push/"&gt;CodePush&lt;/a&gt;, we could &lt;a href="https://www.youtube.com/watch?v=O_HyZ5aW76c"&gt;do it live&lt;/a&gt; anyway. That said, you should always test your code. 😊👍🏼&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Keyboard spacer&lt;/strong&gt;: I &lt;em&gt;highly&lt;/em&gt; recommend a single keyboard spacer at the bottom of your top-level view. Or at least very few as high up in the DOM as possible. No need to add them all over the place (it&amp;rsquo;s a mess), and best to avoid fixing the height of anything to the height of the viewport (Android and the in-call status bar will make your life unpleasant).
 &lt;a href="https://www.npmjs.com/package/react-native-keyboard-spacer"&gt;react-native-keyboard-spacer&lt;/a&gt;&lt;/p&gt;
