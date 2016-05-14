@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-14T08:59:03-04:00</updated>
+  <updated>2016-05-14T09:08:23-04:00</updated>
   <author>
     <name/>
   </author>
@@ -120,7 +120,7 @@ Instead of this:&lt;/p&gt;
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;For events like keypresses, the recreation of an unoptimized callback over and over and over actually seems to noticably slow down the UI. Who would have guessed?&lt;/p&gt;
+&lt;p&gt;For events like keypresses, the recreation of an unoptimized callback over and over and over actually seems to noticably slow down the UI. Who would have guessed? More to the point, just keep in mind that it&amp;rsquo;s mobile, so memory and CPU aren&amp;rsquo;t free.&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;Rendering arrays:&lt;/strong&gt;&lt;/p&gt;
 
