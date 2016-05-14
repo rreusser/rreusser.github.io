@@ -6,7 +6,7 @@
     <title>Things I learned the hard way using React Native | Ricky Reusser</title>
     <meta name="description" content="This post exists because I wish someone had sat me down and told me half of these things on Day One of using React Native." />
     <meta name="og:image" content="https://s3.amazonaws.com/images.rickyreusser.com/DSC_0699.JPG" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:card" content="summary" />
     <meta name="description" content="This post exists because I wish someone had sat me down and told me half of these things on Day One of using React Native." />
     <meta name="site" content="Ricky Reusser" />
     <meta name="og:site_name" content="Ricky Reusser" />
@@ -178,7 +178,7 @@
           
           <p>This post is a loose collection of the things I wish someone had just told me from the beginning. Some are obvious; some aren&rsquo;t. The original gist is <a href="https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3">here</a>. It&rsquo;s not everything, but hopefully it&rsquo;s mostly valid information and can save someone else some of the time it took us to discover all of these things! If you know of improvements, please let me know in the comments section!</p>
           
-          <h2>So the thoughts:</h2>
+          <h2>The thoughts:</h2>
           
           <p><strong>Set up your environment carefully</strong>: It&rsquo;s important to have <em>one</em> canonical source of truth per environment, per platform. (i.e. iOS Development, iOS Testflight, iOS Production, ditto Android.) Every time you build, your config should propagate values from one input source (per platform) to either Java/JavaScript or Objective-C/JavaScript. <a href="https://gist.github.com/rreusser/77c18ca38a6848876c22a00d3fed99a9">Here&rsquo;s what we did for Android</a> and <a href="https://gist.github.com/rreusser/283e032fb1bb5f59256fd5b96f8b8e6c">here&rsquo;s what we did for iOS</a>. I don&rsquo;t doubt that you can do better. <em>Please do better.</em> But you can&rsquo;t say that we didn&rsquo;t have one canonical source of truth that worked very simply and effectively throughout the development process.</p>
           
