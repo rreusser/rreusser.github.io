@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-05-16T14:12:09-04:00</updated>
+  <updated>2016-05-18T00:26:47-04:00</updated>
   <author>
     <name/>
   </author>
@@ -34,7 +34,7 @@
 &lt;li&gt;&lt;a href="https://github.com/gaearon/redux-thunk"&gt;redux-thunk&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a href="https://github.com/lelandrichardson/react-native-mock"&gt;react-native-mock&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a href="https://github.com/airbnb/enzyme"&gt;enzyme&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href="https://twitter.com/JI/status/728696866343243777"&gt;Sentry and Crashalytics&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://twitter.com/JI/status/728696866343243777"&gt;Sentry and Crashlytics&lt;/a&gt;&lt;/li&gt;
 &lt;/ul&gt;
 
 &lt;h2&gt;The thoughts:&lt;/h2&gt;
