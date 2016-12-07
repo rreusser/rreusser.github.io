@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-12-07T09:36:30-05:00</updated>
+  <updated>2016-12-07T09:42:04-05:00</updated>
   <author>
     <name/>
   </author>
@@ -82,7 +82,7 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;Let&amp;rsquo;s add some content. There&amp;rsquo;s a bit going on here. To summarize, you&amp;rsquo;re writing a small program (the vertex shader to tell the gpu how triangles in three dimensional space (&amp;ldquo;world space&amp;rdquo;)  get mapped to triangles on your screen (&amp;ldquo;screen space&amp;rdquo;), followed by another program (the fragment shader) that tells it what color each pixel is. The goal here isn&amp;rsquo;t to explain all the details. The goal here is just to get you a good setup so that you can play with things and discover for yourself.&lt;/p&gt;
+&lt;p&gt;I added also added a couple more dependencies we&amp;rsquo;ll want. Let&amp;rsquo;s add some content. There&amp;rsquo;s a bit going on here. To summarize, you&amp;rsquo;re writing a small program (the vertex shader to tell the gpu how triangles in three dimensional space (&amp;ldquo;world space&amp;rdquo;)  get mapped to triangles on your screen (&amp;ldquo;screen space&amp;rdquo;), followed by another program (the fragment shader) that tells it what color each pixel is. The goal here isn&amp;rsquo;t to explain all the details. The goal here is just to get you a good setup so that you can play with things and discover for yourself. &lt;a href="https://regl-project.github.io/regl/www/gallery.html"&gt;Try out some of the example&lt;/a&gt;.&lt;/p&gt;
 &lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3
@@ -174,6 +174,15 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
+&lt;p&gt;The result is a file called &lt;code&gt;index.html&lt;/code&gt; in the main directory. Push that to github, turn on the web server option in the repo settings, and you&amp;rsquo;ve got yourself a live webpage.&lt;/p&gt;
+
+&lt;p&gt;Hopefully you&amp;rsquo;re looking at a bunny. Let me know if you run into any trouble!&lt;/p&gt;
+
+&lt;figure&gt;
+&lt;p&gt;&lt;code&gt;interactive-frame[width=100% height=300 border=#eee](http://rickyreusser.com/demos/hello-regl/)&lt;/code&gt;&lt;/p&gt;
+&lt;figcaption&gt;Sorry about the mouse wheel behavior.&lt;/figcaption&gt;
+&lt;/figure&gt;
+
 &lt;h2&gt;Summarizing it&lt;/h2&gt;
 
 &lt;p&gt;To summarize again the tools we just used:&lt;/p&gt;
@@ -184,16 +193,8 @@
 &lt;li&gt;&lt;a href="https://github.com/mattdesl/budo"&gt;budo&lt;/a&gt;: test out javascript in the browser without writing any html&lt;/li&gt;
 &lt;li&gt;&lt;a href="https://www.npmjs.com/package/es2040"&gt;es2040&lt;/a&gt;: lots of new features have made there way into JavaScript lately. This plugin picks the good features and compiles your fancy es2040 down to code that will run in old browsers too.&lt;/li&gt;
 &lt;li&gt;&lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt;: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any code.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/regl-project/regl"&gt;regl&lt;/a&gt;: Functional WebGL&lt;/li&gt;
 &lt;/ul&gt;
-
-&lt;p&gt;The result is a file called &lt;code&gt;index.html&lt;/code&gt; in the main directory. Push that to github, turn on the web server option in the repo settings, and you&amp;rsquo;ve got yourself a live webpage.&lt;/p&gt;
-
-&lt;p&gt;Hopefully you&amp;rsquo;re looking at a bunny. Let me know if you run into any trouble!&lt;/p&gt;
-
-&lt;figure&gt;
-&lt;p&gt;&lt;code&gt;interactive-frame[width=100% height=300 border=#eee](http://rickyreusser.com/demos/hello-regl/)&lt;/code&gt;&lt;/p&gt;
-&lt;figcaption&gt;Sorry about the mouse wheel behavior.&lt;/figcaption&gt;
-&lt;/figure&gt;
 
 &lt;p&gt;🚀&lt;/p&gt;
 </content>
