@@ -4,22 +4,20 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-12-07T00:29:58-05:00</updated>
+  <updated>2016-12-07T09:36:30-05:00</updated>
   <author>
     <name/>
   </author>
   <entry>
-    <title>From Nothing to Something in WebGL</title>
-    <link rel="alternate" href="http://rickyreusser.com/2016/11/15/from-nothing-to-something-in-webgl/"/>
-    <id>http://rickyreusser.com/2016/11/15/from-nothing-to-something-in-webgl/</id>
-    <published>2016-11-14T19:00:00-05:00</published>
-    <updated>2016-11-14T19:00:00-05:00</updated>
+    <title>From Nothing to Something in WebGL using regl</title>
+    <link rel="alternate" href="http://rickyreusser.com/2016/12/07/from-nothing-to-something-in-webgl/"/>
+    <id>http://rickyreusser.com/2016/12/07/from-nothing-to-something-in-webgl/</id>
+    <published>2016-12-06T19:00:00-05:00</published>
+    <updated>2016-12-06T19:00:00-05:00</updated>
     <author>
       <name/>
     </author>
-    <content type="html">&lt;p&gt;Let&amp;rsquo;s cut right to it. JavaScript is incredibly powerful and etc. fatigue etc. ecosystem etc. Truth is, things have never been better, but I think there&amp;rsquo;s still a knowledge gap. Exploring front-end code is incredibly easy, but only if you already know how to do it efficiently.&lt;/p&gt;
-
-&lt;p&gt;I&amp;rsquo;ve been evangelizing about &lt;a href="https://github.com/regl-project/regl"&gt;regl&lt;/a&gt;, so here&amp;rsquo;s a quick walkthrough on setting it up. It&amp;rsquo;s &lt;em&gt;a&lt;/em&gt; setup. It&amp;rsquo;s not the best setup, but it&amp;rsquo;s super simple and maybe it&amp;rsquo;ll get you off the ground. Enough talk. This is my lunch hour. Let&amp;rsquo;s go.&lt;/p&gt;
+    <content type="html">&lt;p&gt;I&amp;rsquo;ve been telling all my friends lately how great and easy &lt;a href="github.com/regl-project/regl"&gt;regl&lt;/a&gt; is, but the truth is it&amp;rsquo;s only easy if you already know the ins and outs of setting up a modern development environment in the first place. It&amp;rsquo;s taken me a couple years to figure out a lot of this stuff, and I&amp;rsquo;m still not there. So here&amp;rsquo;s a quick walkthrough on setting up regl in a nice and simple and modern JavaScript environment. It&amp;rsquo;s &lt;em&gt;a&lt;/em&gt; setup. It&amp;rsquo;s not the perfect setup, but it&amp;rsquo;s super simple and it&amp;rsquo;ll get you off the ground. I use it all the time. Enough talk. Let&amp;rsquo;s go.&lt;/p&gt;
 
 &lt;h2&gt;Initialize it&lt;/h2&gt;
 
@@ -42,7 +40,7 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;Let&amp;rsquo;s add a development server script and a build script to &lt;code&gt;package.json&lt;/code&gt; so we can avoid typing out long commands on the command line:&lt;/p&gt;
+&lt;p&gt;I added indexhtmlify since we&amp;rsquo;ll want that one in a just a minute. Instead of typing out long commands on the command line, let&amp;rsquo;s add a development server script and a build script to &lt;code&gt;package.json&lt;/code&gt;:&lt;/p&gt;
 &lt;div class="highlight json"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3
@@ -66,15 +64,6 @@
 &lt;/div&gt;
 
 &lt;p&gt;The first command will start a live-reloading development server. Additionally it applies the &lt;a href="https://github.com/ahdinosaur/es2040"&gt;es2040&lt;/a&gt; &lt;a href="http://browserify.org/"&gt;browserify&lt;/a&gt; transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses &lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt; to wrap the final JS in some minimal html. I really wish I&amp;rsquo;d known about such a simple process for this earlier on.&lt;/p&gt;
-
-&lt;p&gt;To summarize again what we just added:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;a href="http://browserify.org/"&gt;browserify&lt;/a&gt;: turns multiple files with &lt;code&gt;require(...)&lt;/code&gt; statements &amp;ndash; which the browser knows nothing about &amp;ndash; into a single file the browser can run.&lt;/li&gt;
-&lt;li&gt;&lt;a href="https://github.com/mattdesl/budo"&gt;budo&lt;/a&gt;: test out javascript in the browser without writing any html&lt;/li&gt;
-&lt;li&gt;&lt;a href="https://www.npmjs.com/package/es2040"&gt;es2040&lt;/a&gt;: lots of new features have made there way into JavaScript lately. This plugin picks the good one and compiles your fancy es2040 down to code that will run in old browsers too.&lt;/li&gt;
-&lt;li&gt;&lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt;: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any code.&lt;/li&gt;
-&lt;/ul&gt;
 
 &lt;h2&gt;Run it&lt;/h2&gt;
 
@@ -184,6 +173,18 @@
 &lt;div class="highlight shell"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;&lt;span class="gp"&gt;$ &lt;/span&gt;npm run build
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
+
+&lt;h2&gt;Summarizing it&lt;/h2&gt;
+
+&lt;p&gt;To summarize again the tools we just used:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="https://www.npmjs.com/"&gt;npm&lt;/a&gt;: installs javascript modules from npmjs.com&lt;/li&gt;
+&lt;li&gt;&lt;a href="http://browserify.org/"&gt;browserify&lt;/a&gt;: turns multiple files with &lt;code&gt;require(...)&lt;/code&gt; statements &amp;ndash; which the browser knows nothing about &amp;ndash; into a single file the browser can run.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/mattdesl/budo"&gt;budo&lt;/a&gt;: test out javascript in the browser without writing any html&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://www.npmjs.com/package/es2040"&gt;es2040&lt;/a&gt;: lots of new features have made there way into JavaScript lately. This plugin picks the good features and compiles your fancy es2040 down to code that will run in old browsers too.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt;: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any code.&lt;/li&gt;
+&lt;/ul&gt;
 
 &lt;p&gt;The result is a file called &lt;code&gt;index.html&lt;/code&gt; in the main directory. Push that to github, turn on the web server option in the repo settings, and you&amp;rsquo;ve got yourself a live webpage.&lt;/p&gt;
 

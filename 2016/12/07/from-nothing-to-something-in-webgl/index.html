@@ -3,17 +3,17 @@
   <head>
     <meta charset='utf-8'>
     <meta content='IE=edge,chrome=1' http-equiv='X-UA-Compatible'>
-    <title>From Nothing to Something in WebGL | Ricky Reusser</title>
+    <title>From Nothing to Something in WebGL using regl | Ricky Reusser</title>
     <meta name="og:image" content="https://s3.amazonaws.com/images.rickyreusser.com/DSC_0699.JPG" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="description" content="Truth is, things have never been better in the JavaScript world, but I think there's still a knowledge gap. Exploring front-end code is incredibly easy, but only if you already know how to do it efficiently. I've been evangelizing about [regl](https://github.com/regl-project/regl), so here's a quick walkthrough on setting it up." />
     <meta name="site" content="Ricky Reusser" />
     <meta name="og:site_name" content="Ricky Reusser" />
-    <meta name="title" content="From Nothing to Something in WebGL" />
-    <meta name="twitter:title" content="From Nothing to Something in WebGL" />
+    <meta name="title" content="From Nothing to Something in WebGL using regl" />
+    <meta name="twitter:title" content="From Nothing to Something in WebGL using regl" />
     <meta name="twitter:site" content="@rickyreusser" />
     <meta name="twitter:image" content="https://s3.amazonaws.com/images.rickyreusser.com/DSC_0699.JPG" />
-    <meta name="og:title" content="From Nothing to Something in WebGL" />
+    <meta name="og:title" content="From Nothing to Something in WebGL using regl" />
     <meta content='width=device-width, initial-scale=1' name='viewport'>
     <link href="../../../../stylesheets/application-59c2395b.css" rel="stylesheet" type="text/css" />
     <link href='//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.3/styles/default.min.css' rel='stylesheet'>
@@ -140,7 +140,7 @@
         <div class='content'></div>
         <div class='inner-content'>
           <h5 class='abbrev'>
-            <span>From Nothing to Something in WebGL</span>
+            <span>From Nothing to Something in WebGL using regl</span>
           </h5>
         </div>
       </nav>
@@ -149,11 +149,11 @@
           <div class='container'>
             <div class='outer-container'>
               <div class='inner-container'>
-                <h1 class='title'>From Nothing to Something in WebGL</h1>
+                <h1 class='title'>From Nothing to Something in WebGL using regl</h1>
                 <h5 class='metadata'>
                   <span class='author'>Ricky Reusser</span>
                   <br>
-                  <span class='published-at'>November 15, 2016</span>
+                  <span class='published-at'>December 07, 2016</span>
                   <br>
                   <div class='tags'>
                     <span class='tag'><a href="/tags/webgl/">#webgl</a></span>
@@ -168,9 +168,7 @@
           </div>
         </section>
         <section class='content'>
-          <p>Let&rsquo;s cut right to it. JavaScript is incredibly powerful and etc. fatigue etc. ecosystem etc. Truth is, things have never been better, but I think there&rsquo;s still a knowledge gap. Exploring front-end code is incredibly easy, but only if you already know how to do it efficiently.</p>
-          
-          <p>I&rsquo;ve been evangelizing about <a href="https://github.com/regl-project/regl">regl</a>, so here&rsquo;s a quick walkthrough on setting it up. It&rsquo;s <em>a</em> setup. It&rsquo;s not the best setup, but it&rsquo;s super simple and maybe it&rsquo;ll get you off the ground. Enough talk. This is my lunch hour. Let&rsquo;s go.</p>
+          <p>I&rsquo;ve been telling all my friends lately how great and easy <a href="github.com/regl-project/regl">regl</a> is, but the truth is it&rsquo;s only easy if you already know the ins and outs of setting up a modern development environment in the first place. It&rsquo;s taken me a couple years to figure out a lot of this stuff, and I&rsquo;m still not there. So here&rsquo;s a quick walkthrough on setting up regl in a nice and simple and modern JavaScript environment. It&rsquo;s <em>a</em> setup. It&rsquo;s not the perfect setup, but it&rsquo;s super simple and it&rsquo;ll get you off the ground. I use it all the time. Enough talk. Let&rsquo;s go.</p>
           
           <h2>Initialize it</h2>
           
@@ -186,20 +184,11 @@
           <div class="highlight shell"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="gp">$ </span>npm install -D browserify es2040 budo indexhtmlify</pre></td></tr></tbody></table>
           </div>
           
-          <p>Let&rsquo;s add a development server script and a build script to <code>package.json</code> so we can avoid typing out long commands on the command line:</p>
+          <p>I added indexhtmlify since we&rsquo;ll want that one in a just a minute. Instead of typing out long commands on the command line, let&rsquo;s add a development server script and a build script to <code>package.json</code>:</p>
           <div class="highlight json"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7&#x000A;8&#x000A;9&#x000A;10</pre></td><td class="code"><pre><span class="p">{</span><span class="w">&#x000A;  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cool-project"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.0.0"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"main"</span><span class="p">:</span><span class="w"> </span><span class="s2">"index.js"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"scripts"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">&#x000A;    </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="s2">"budo index.js --open --live --host localhost -- -t es2040"</span><span class="p">,</span><span class="w">&#x000A;    </span><span class="nt">"build"</span><span class="p">:</span><span class="w"> </span><span class="s2">"browserify index.js -t es2040 | indexhtmlify &gt; index.html"</span><span class="w">&#x000A;  </span><span class="p">},</span><span class="w">&#x000A;  </span><span class="err">...</span><span class="w">&#x000A;</span><span class="err">}</span><span class="w">&#x000A;</span></pre></td></tr></tbody></table>
           </div>
           
           <p>The first command will start a live-reloading development server. Additionally it applies the <a href="https://github.com/ahdinosaur/es2040">es2040</a> <a href="http://browserify.org/">browserify</a> transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses <a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a> to wrap the final JS in some minimal html. I really wish I&rsquo;d known about such a simple process for this earlier on.</p>
-          
-          <p>To summarize again what we just added:</p>
-          
-          <ul>
-          <li><a href="http://browserify.org/">browserify</a>: turns multiple files with <code>require(...)</code> statements &ndash; which the browser knows nothing about &ndash; into a single file the browser can run.</li>
-          <li><a href="https://github.com/mattdesl/budo">budo</a>: test out javascript in the browser without writing any html</li>
-          <li><a href="https://www.npmjs.com/package/es2040">es2040</a>: lots of new features have made there way into JavaScript lately. This plugin picks the good one and compiles your fancy es2040 down to code that will run in old browsers too.</li>
-          <li><a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a>: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any code.</li>
-          </ul>
           
           <h2>Run it</h2>
           
@@ -225,6 +214,18 @@
           <p>We&rsquo;ve got a project! Up to now we&rsquo;ve been using a development server and testing it locally. If you want to stick the result on, say, Github (because for any faults, it&rsquo;s pretty great), you can just run</p>
           <div class="highlight shell"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="gp">$ </span>npm run build</pre></td></tr></tbody></table>
           </div>
+          
+          <h2>Summarizing it</h2>
+          
+          <p>To summarize again the tools we just used:</p>
+          
+          <ul>
+          <li><a href="https://www.npmjs.com/">npm</a>: installs javascript modules from npmjs.com</li>
+          <li><a href="http://browserify.org/">browserify</a>: turns multiple files with <code>require(...)</code> statements &ndash; which the browser knows nothing about &ndash; into a single file the browser can run.</li>
+          <li><a href="https://github.com/mattdesl/budo">budo</a>: test out javascript in the browser without writing any html</li>
+          <li><a href="https://www.npmjs.com/package/es2040">es2040</a>: lots of new features have made there way into JavaScript lately. This plugin picks the good features and compiles your fancy es2040 down to code that will run in old browsers too.</li>
+          <li><a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a>: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any code.</li>
+          </ul>
           
           <p>The result is a file called <code>index.html</code> in the main directory. Push that to github, turn on the web server option in the repo settings, and you&rsquo;ve got yourself a live webpage.</p>
           
