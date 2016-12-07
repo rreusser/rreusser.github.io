@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-12-07T00:15:53-05:00</updated>
+  <updated>2016-12-07T00:25:42-05:00</updated>
   <author>
     <name/>
   </author>
@@ -179,9 +179,9 @@
 
 &lt;p&gt;Hopefully you&amp;rsquo;re looking at a bunny. Let me know if you run into any trouble!&lt;/p&gt;
 
-&lt;figure class="wide"&gt;
-&lt;p&gt;&lt;code&gt;interactive-frame[width=100% height=600 border=#eee](http://rickyreusser.com/demos/hello-regl/)&lt;/code&gt;&lt;/p&gt;
-&lt;figcaption&gt;But don&amp;rsquo;t take my word for it.&lt;/figcaption&gt;
+&lt;figure&gt;
+&lt;p&gt;&lt;code&gt;interactive-frame[width=100% height=300 border=#eee](http://rickyreusser.com/demos/hello-regl/)&lt;/code&gt;&lt;/p&gt;
+&lt;figcaption&gt;Sorry about the mouse wheel behavior.&lt;/figcaption&gt;
 &lt;/figure&gt;
 
 &lt;p&gt;🚀&lt;/p&gt;
