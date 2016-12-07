@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-12-07T09:42:04-05:00</updated>
+  <updated>2016-12-07T09:45:12-05:00</updated>
   <author>
     <name/>
   </author>
@@ -192,7 +192,7 @@
 &lt;li&gt;&lt;a href="http://browserify.org/"&gt;browserify&lt;/a&gt;: turns multiple files with &lt;code&gt;require(...)&lt;/code&gt; statements &amp;ndash; which the browser knows nothing about &amp;ndash; into a single file the browser can run.&lt;/li&gt;
 &lt;li&gt;&lt;a href="https://github.com/mattdesl/budo"&gt;budo&lt;/a&gt;: test out javascript in the browser without writing any html&lt;/li&gt;
 &lt;li&gt;&lt;a href="https://www.npmjs.com/package/es2040"&gt;es2040&lt;/a&gt;: lots of new features have made there way into JavaScript lately. This plugin picks the good features and compiles your fancy es2040 down to code that will run in old browsers too.&lt;/li&gt;
-&lt;li&gt;&lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt;: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any code.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt;: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any html.&lt;/li&gt;
 &lt;li&gt;&lt;a href="https://github.com/regl-project/regl"&gt;regl&lt;/a&gt;: Functional WebGL&lt;/li&gt;
 &lt;/ul&gt;
 
