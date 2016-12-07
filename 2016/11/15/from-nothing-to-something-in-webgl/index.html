@@ -186,19 +186,20 @@
           <div class="highlight shell"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="gp">$ </span>npm install -D browserify es2040 budo indexhtmlify</pre></td></tr></tbody></table>
           </div>
           
-          <p>To summarize what these do:</p>
-          
-          <ul>
-          <li><a href="http://browserify.org/">browserify</a>: turns multiple files with <code>require(...)</code> statements &ndash; which the browser knows nothing about &ndash; into a single file the browser can run.</li>
-          <li><a href="https://github.com/mattdesl/budo">budo</a>: test out javascript in the browser without writing any html</li>
-          <li>[</li>
-          </ul>
-          
           <p>Let&rsquo;s add a development server script and a build script to <code>package.json</code> so we can avoid typing out long commands on the command line:</p>
           <div class="highlight json"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7&#x000A;8&#x000A;9&#x000A;10</pre></td><td class="code"><pre><span class="p">{</span><span class="w">&#x000A;  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cool-project"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.0.0"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"main"</span><span class="p">:</span><span class="w"> </span><span class="s2">"index.js"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"scripts"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">&#x000A;    </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="s2">"budo index.js --open --live --host localhost -- -t es2040"</span><span class="p">,</span><span class="w">&#x000A;    </span><span class="nt">"build"</span><span class="p">:</span><span class="w"> </span><span class="s2">"browserify index.js -t es2040 | indexhtmlify &gt; index.html"</span><span class="w">&#x000A;  </span><span class="p">},</span><span class="w">&#x000A;  </span><span class="err">...</span><span class="w">&#x000A;</span><span class="err">}</span><span class="w">&#x000A;</span></pre></td></tr></tbody></table>
           </div>
           
-          <p>The first command will start a live-reloading development server. Additionally it applies the <a href="https://github.com/ahdinosaur/es2040">es2040</a> <a href="http://browserify.org/">browserify</a> transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses <a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a> to wrap the final JS in some minimal html. I really wish I&rsquo;d know about such a simple process for this earlier on.</p>
+          <p>The first command will start a live-reloading development server. Additionally it applies the <a href="https://github.com/ahdinosaur/es2040">es2040</a> <a href="http://browserify.org/">browserify</a> transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses <a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a> to wrap the final JS in some minimal html. I really wish I&rsquo;d known about such a simple process for this earlier on.</p>
+          
+          <p>To summarize again what we just added:</p>
+          
+          <ul>
+          <li><a href="http://browserify.org/">browserify</a>: turns multiple files with <code>require(...)</code> statements &ndash; which the browser knows nothing about &ndash; into a single file the browser can run.</li>
+          <li><a href="https://github.com/mattdesl/budo">budo</a>: test out javascript in the browser without writing any html</li>
+          <li><a href="https://www.npmjs.com/package/es2040">es2040</a>: lots of new features have made there way into JavaScript lately. This plugin picks the good one and compiles your fancy es2040 down to code that will run in old browsers too.</li>
+          <li><a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a>: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any code.</li>
+          </ul>
           
           <h2>Run it</h2>
           
@@ -207,7 +208,7 @@
           </div>
           
           <figure>
-            <img alt="Hello!" src="/gpgpu-with-regl/hello.png" width="532">
+            <img alt="Hello!" src="/from-nothing-to-something-in-webgl/hello-6cbd220c.png" width="532">
             <figcaption>Hello!</figcaption>
           </figure>
           
@@ -225,7 +226,9 @@
           <div class="highlight shell"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="gp">$ </span>npm run build</pre></td></tr></tbody></table>
           </div>
           
-          <p>The result is a file called <code>index.html</code> in the main directory. Push that to github, turn on the web server option in the repo settings, and you&rsquo;ve got yourself a liv webpage. No live demo at the end. That&rsquo;s your job. Let me know if you run into any trouble.</p>
+          <p>The result is a file called <code>index.html</code> in the main directory. Push that to github, turn on the web server option in the repo settings, and you&rsquo;ve got yourself a live webpage.</p>
+          
+          <p>But there&rsquo;s no live demo at the end of this post. That&rsquo;s your job. Let me know if you run into any trouble.</p>
           
           <p>🚀</p>
         </section>

@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-12-06T23:47:26-05:00</updated>
+  <updated>2016-12-06T23:55:31-05:00</updated>
   <author>
     <name/>
   </author>
@@ -42,14 +42,6 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;To summarize what these do:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;a href="http://browserify.org/"&gt;browserify&lt;/a&gt;: turns multiple files with &lt;code&gt;require(...)&lt;/code&gt; statements &amp;ndash; which the browser knows nothing about &amp;ndash; into a single file the browser can run.&lt;/li&gt;
-&lt;li&gt;&lt;a href="https://github.com/mattdesl/budo"&gt;budo&lt;/a&gt;: test out javascript in the browser without writing any html&lt;/li&gt;
-&lt;li&gt;[&lt;/li&gt;
-&lt;/ul&gt;
-
 &lt;p&gt;Let&amp;rsquo;s add a development server script and a build script to &lt;code&gt;package.json&lt;/code&gt; so we can avoid typing out long commands on the command line:&lt;/p&gt;
 &lt;div class="highlight json"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
@@ -73,7 +65,16 @@
 &lt;/span&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;The first command will start a live-reloading development server. Additionally it applies the &lt;a href="https://github.com/ahdinosaur/es2040"&gt;es2040&lt;/a&gt; &lt;a href="http://browserify.org/"&gt;browserify&lt;/a&gt; transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses &lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt; to wrap the final JS in some minimal html. I really wish I&amp;rsquo;d know about such a simple process for this earlier on.&lt;/p&gt;
+&lt;p&gt;The first command will start a live-reloading development server. Additionally it applies the &lt;a href="https://github.com/ahdinosaur/es2040"&gt;es2040&lt;/a&gt; &lt;a href="http://browserify.org/"&gt;browserify&lt;/a&gt; transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses &lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt; to wrap the final JS in some minimal html. I really wish I&amp;rsquo;d known about such a simple process for this earlier on.&lt;/p&gt;
+
+&lt;p&gt;To summarize again what we just added:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="http://browserify.org/"&gt;browserify&lt;/a&gt;: turns multiple files with &lt;code&gt;require(...)&lt;/code&gt; statements &amp;ndash; which the browser knows nothing about &amp;ndash; into a single file the browser can run.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/mattdesl/budo"&gt;budo&lt;/a&gt;: test out javascript in the browser without writing any html&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://www.npmjs.com/package/es2040"&gt;es2040&lt;/a&gt;: lots of new features have made there way into JavaScript lately. This plugin picks the good one and compiles your fancy es2040 down to code that will run in old browsers too.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/dominictarr/indexhtmlify"&gt;indexhtmlify&lt;/a&gt;: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any code.&lt;/li&gt;
+&lt;/ul&gt;
 
 &lt;h2&gt;Run it&lt;/h2&gt;
 
@@ -83,7 +84,7 @@
 &lt;/div&gt;
 
 &lt;figure&gt;
-  &lt;img alt="Hello!" src="/gpgpu-with-regl/hello.png" width="532"&gt;
+  &lt;img alt="Hello!" src="/from-nothing-to-something-in-webgl/hello.png" width="532"&gt;
   &lt;figcaption&gt;Hello!&lt;/figcaption&gt;
 &lt;/figure&gt;
 
@@ -174,7 +175,9 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;The result is a file called &lt;code&gt;index.html&lt;/code&gt; in the main directory. Push that to github, turn on the web server option in the repo settings, and you&amp;rsquo;ve got yourself a liv webpage. No live demo at the end. That&amp;rsquo;s your job. Let me know if you run into any trouble.&lt;/p&gt;
+&lt;p&gt;The result is a file called &lt;code&gt;index.html&lt;/code&gt; in the main directory. Push that to github, turn on the web server option in the repo settings, and you&amp;rsquo;ve got yourself a live webpage.&lt;/p&gt;
+
+&lt;p&gt;But there&amp;rsquo;s no live demo at the end of this post. That&amp;rsquo;s your job. Let me know if you run into any trouble.&lt;/p&gt;
 
 &lt;p&gt;🚀&lt;/p&gt;
 </content>
