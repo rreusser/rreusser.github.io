@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html class='no-js sticky'>
+  <head>
+    <meta charset='utf-8'>
+    <meta content='IE=edge,chrome=1' http-equiv='X-UA-Compatible'>
+    <title>From Nothing to Something in WebGL | Ricky Reusser</title>
+    <meta name="og:image" content="https://s3.amazonaws.com/images.rickyreusser.com/DSC_0699.JPG" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="description" content="Truth is, things have never been better in the JavaScript world, but I think there's still a knowledge gap. Exploring front-end code is incredibly easy, but only if you already know how to do it efficiently. I've been evangelizing about [regl](https://github.com/regl-project/regl), so here's a quick walkthrough on setting it up." />
+    <meta name="site" content="Ricky Reusser" />
+    <meta name="og:site_name" content="Ricky Reusser" />
+    <meta name="title" content="From Nothing to Something in WebGL" />
+    <meta name="twitter:title" content="From Nothing to Something in WebGL" />
+    <meta name="twitter:site" content="@rickyreusser" />
+    <meta name="twitter:image" content="https://s3.amazonaws.com/images.rickyreusser.com/DSC_0699.JPG" />
+    <meta name="og:title" content="From Nothing to Something in WebGL" />
+    <meta content='width=device-width, initial-scale=1' name='viewport'>
+    <link href="../../../../stylesheets/application-59c2395b.css" rel="stylesheet" type="text/css" />
+    <link href='//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.3/styles/default.min.css' rel='stylesheet'>
+    <link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" />
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_SVG"></script>
+    <script>
+      MathJax.Hub.Config({
+        'HTML-CSS': {
+          scale: 115
+        }
+      })
+    </script>
+  </head>
+  <body>
+    <div class='wrapper'>
+      <nav class='navbar' id='navbar'>
+        <a class="menu-toggle" href="/"><span class='burger'></span>
+        <span class='burger'></span>
+        <span class='burger'></span>
+        </a>
+        <ul id='menu'>
+          <li class='top'>
+            <a class="brand" href="/">rickyreusser.com
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="/tags/science"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+              <g>
+                <circle fill="#ffffff" cx="37.915" cy="34.252" r="2.165"/>
+                <circle fill="#ffffff" cx="35.086" cy="34.252" r="2.165"/>
+                <circle fill="#ffffff" cx="37.915" cy="37.08" r="2.165"/>
+                <circle fill="#ffffff" cx="35.086" cy="37.08" r="2.165"/>
+                <circle fill="#ffffff" cx="59.5" cy="43.666" r="3.888"/>
+                <ellipse fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10" cx="36.5" cy="35.666" rx="33.333" ry="11.167"/>
+                <circle fill="#ffffff" cx="18.39" cy="51.134" r="3.889"/>
+                
+                  <ellipse transform="matrix(-0.4996 0.8662 -0.8662 -0.4996 85.7024 20.9105)" fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10" cx="36.812" cy="35.207" rx="33.333" ry="11.167"/>
+                <circle fill="#ffffff" cx="32.201" cy="12.24" r="3.889"/>
+                
+                  <ellipse transform="matrix(-0.4988 -0.8667 0.8667 -0.4988 23.7217 86.0485)" fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10" cx="36.74" cy="36.166" rx="33.333" ry="11.167"/>
+              </g>
+            </svg>
+            <span class='label'>science</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="/tags/dev"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+              <g>
+                <path fill="#ffffff" d="M25.295,28.367l-14.941,7.489l14.941,7.42v4.284l-18.58-9.784v-3.886l18.58-9.784V28.367z"/>
+                <path fill="#ffffff" d="M41.468,15.914h3.34L30.991,55.308h-3.357L41.468,15.914z"/>
+                <path fill="#ffffff" d="M47.06,28.367v-4.261l18.58,9.784v3.886l-18.58,9.784v-4.284l14.941-7.42L47.06,28.367z"/>
+              </g>
+            </svg>
+            <span class='label'>dev</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a id="fun" href="/tags/fun"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+              <g>
+                <path fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10" d="M54.566,58.368"/>
+                <path fill="#ffffff" d="M54.244,40.188l-7.595,4.933L25.393,13.908L2.23,58.5h67.697L54.244,40.188z M25.707,19.157l7.821,11.502
+                  l-1.919,5.119l-5.349-7.932l-3.208,5.65l-1.992-5.403L25.707,19.157z"/>
+              </g>
+            </svg>
+            <span class='label'>fun</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="https://github.com/rreusser"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+            <path fill-rule="evenodd" clip-rule="evenodd" fill="#ffffff" d="M36.21,8.152C20.488,8.152,7.738,20.9,7.738,36.629
+            	c0,12.579,8.158,23.251,19.474,27.017c1.424,0.262,1.943-0.618,1.943-1.372c0-0.676-0.024-2.467-0.038-4.843
+            	c-7.921,1.721-9.592-3.817-9.592-3.817c-1.295-3.289-3.161-4.165-3.161-4.165c-2.586-1.767,0.195-1.73,0.195-1.73
+            	c2.857,0.201,4.361,2.934,4.361,2.934c2.54,4.352,6.664,3.096,8.287,2.366c0.258-1.84,0.994-3.095,1.808-3.807
+            	c-6.323-0.719-12.971-3.161-12.971-14.072c0-3.109,1.11-5.65,2.932-7.641c-0.293-0.721-1.271-3.616,0.278-7.536
+            	c0,0,2.392-0.766,7.831,2.919c2.271-0.632,4.707-0.947,7.128-0.958c2.417,0.011,4.855,0.326,7.13,0.958
+            	c5.434-3.685,7.82-2.919,7.82-2.919c1.555,3.92,0.578,6.815,0.283,7.536c1.826,1.99,2.926,4.531,2.926,7.641
+            	c0,10.938-6.656,13.345-13,14.05c1.023,0.88,1.934,2.617,1.934,5.273c0,3.807-0.035,6.878-0.035,7.812
+            	c0,0.761,0.514,1.647,1.959,1.369c11.305-3.772,19.455-14.438,19.455-27.014C64.686,20.9,51.936,8.152,36.21,8.152z"/>
+            </svg>
+            <span class='label'>github</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="/about"><svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+              <path fill="#ffffff" d="M53.5,55.333c-9.984-2.463-11.438-6.349-10.25-8.583c1.041-1.96,2.268-1.829,5.464-9.761
+                c0.094,0.036,0.182,0.084,0.282,0.106c1.588,0.356,3.365-1.132,3.965-3.326c0.598-2.191-0.207-4.261-1.794-4.617
+                c-0.083-0.019-0.168-0.012-0.252-0.021C54.667,8.497,38.667,5.997,30.167,11.247c-3.917-2.359-12.25,1.917-10.068,17.885
+                c-0.084,0.009-0.155,0.002-0.238,0.021c-1.587,0.356-2.392,2.426-1.794,4.617c0.6,2.194,2.377,3.683,3.965,3.326
+                c0.101-0.022,0.188-0.07,0.282-0.106c3.196,7.932,4.271,7.988,5.312,9.948c1.188,2.234,0.231,5.982-9.745,8.477
+                C4.546,58.747,5.527,65.5,5.527,65.5H35.5h30C65.5,65.5,66.666,58.581,53.5,55.333z"/>
+            </svg>
+            <span class='label'>about me</span>
+            </a>
+          </li>
+          <li>
+            <div class='padding-container'></div>
+            <a href="/feed.xml"><?xml version="1.0" encoding="utf-8"?>
+            <!-- Generator: Adobe Illustrator 15.1.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
+            <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+            <svg version="1.1" id="rss-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+            	 width="72px" height="72px" viewBox="0 0 72 72" enable-background="new 0 0 72 72" xml:space="preserve">
+            <g>
+            	<path fill="#FFFFFF" d="M16.641,48.311c-3.875,0-7.023,3.16-7.023,7.012c0,3.873,3.148,6.998,7.023,6.998
+            		c3.889,0,7.033-3.125,7.033-6.998C23.674,51.471,20.53,48.311,16.641,48.311z"/>
+            	<path fill="#FFFFFF" d="M9.626,27.546v10.112c6.584,0,12.776,2.575,17.439,7.24c4.658,4.654,7.229,10.874,7.229,17.482h10.157
+            		C44.451,43.172,28.824,27.546,9.626,27.546z"/>
+            	<path fill="#FFFFFF" d="M9.638,9.618v10.118c23.485,0,42.6,19.133,42.6,42.645h10.143C62.381,33.296,38.718,9.618,9.638,9.618z"/>
+            </g>
+            </svg>
+            <span class='label'>feed</span>
+            </a>
+          </li>
+        </ul>
+        <div class='content'></div>
+        <div class='inner-content'>
+          <h5 class='abbrev'>
+            <span>From Nothing to Something in WebGL</span>
+          </h5>
+        </div>
+      </nav>
+      <article>
+        <section class='frontmatter' data-abbrvd-target='#navbar'>
+          <div class='container'>
+            <div class='outer-container'>
+              <div class='inner-container'>
+                <h1 class='title'>From Nothing to Something in WebGL</h1>
+                <h5 class='metadata'>
+                  <span class='author'>Ricky Reusser</span>
+                  <br>
+                  <span class='published-at'>November 15, 2016</span>
+                  <br>
+                  <div class='tags'>
+                    <span class='tag'><a href="/tags/webgl/">#webgl</a></span>
+                    <span class='tag'><a href="/tags/dev/">#dev</a></span>
+                    <span class='tag'><a href="/tags/javascript/">#javascript</a></span>
+                    <span class='tag'><a href="/tags/opengl/">#opengl</a></span>
+                    <span class='tag'><a href="/tags/regl/">#regl</a></span>
+                  </div>
+                </h5>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class='content'>
+          <p>Let&rsquo;s cut right to it. JavaScript is incredibly powerful and etc. fatigue etc. ecosystem etc. Truth is, things have never been better, but I think there&rsquo;s still a knowledge gap. Exploring front-end code is incredibly easy, but only if you already know how to do it efficiently.</p>
+          
+          <p>I&rsquo;ve been evangelizing about <a href="https://github.com/regl-project/regl">regl</a>, so here&rsquo;s a quick walkthrough on setting it up. It&rsquo;s <em>a</em> setup. It&rsquo;s not the best setup, but it&rsquo;s super simple and maybe it&rsquo;ll get you off the ground. Enough talk. This is my lunch hour. Let&rsquo;s go.</p>
+          
+          <h2>Initialize it</h2>
+          
+          <p>First we&rsquo;ll make a project. Let&rsquo;s start from the beginning. <a href="https://yarnpkg.com/">Yarn</a> is great for managing JS dependencies. <a href="http://blog.npmjs.org/post/85484771375/how-to-install-npm">npm</a> too. <a href="https://www.freebsd.org/doc/en_US.ISO8859-1/books/faq/misc.html#idp60510056">Don&rsquo;t bikeshed</a>. So let&rsquo;s use npm at the moment. You can create a new project from the command line with:</p>
+          <div class="highlight shell"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3</pre></td><td class="code"><pre><span class="gp">$ </span>mkdir cool-project&#x000A;<span class="gp">$ </span><span class="nb">cd </span>cool-project&#x000A;<span class="gp">$ </span>npm init -y</pre></td></tr></tbody></table>
+          </div>
+          
+          <p>That made an empty directory with a <code>package.json</code> in it. Let&rsquo;s create a file called <code>index.js</code> and start with the JS developer&rsquo;s favorite sanity-check:</p>
+          <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="nx">alert</span><span class="p">(</span><span class="s1">'hello, world!'</span><span class="p">);</span></pre></td></tr></tbody></table>
+          </div>
+          
+          <p>Technically we have a functioning project, but there&rsquo;s no way to see it just yet. To use it, we&rsquo;ll have to add a couple scripts. Let&rsquo;s use the <a href="https://github.com/ahdinosaur/es2040">good parts of ES6</a> and fire it up with a development server. <a href="https://github.com/mattdesl/budo">budo</a> is awesome for this. budo lets you run javascript files in the browser without having to write any html. To install budo and some other great tools we&rsquo;ll want, run:</p>
+          <div class="highlight shell"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="gp">$ </span>npm install -D browserify es2040 budo indexhtmlify</pre></td></tr></tbody></table>
+          </div>
+          
+          <p>To summarize what these do:</p>
+          
+          <ul>
+          <li><a href="http://browserify.org/">browserify</a>: turns multiple files with <code>require(...)</code> statements &ndash; which the browser knows nothing about &ndash; into a single file the browser can run.</li>
+          <li><a href="https://github.com/mattdesl/budo">budo</a>: test out javascript in the browser without writing any html</li>
+          <li>[</li>
+          </ul>
+          
+          <p>Let&rsquo;s add a development server script and a build script to <code>package.json</code> so we can avoid typing out long commands on the command line:</p>
+          <div class="highlight json"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7&#x000A;8&#x000A;9&#x000A;10</pre></td><td class="code"><pre><span class="p">{</span><span class="w">&#x000A;  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cool-project"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.0.0"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"main"</span><span class="p">:</span><span class="w"> </span><span class="s2">"index.js"</span><span class="p">,</span><span class="w">&#x000A;  </span><span class="nt">"scripts"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">&#x000A;    </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="s2">"budo index.js --open --live --host localhost -- -t es2040"</span><span class="p">,</span><span class="w">&#x000A;    </span><span class="nt">"build"</span><span class="p">:</span><span class="w"> </span><span class="s2">"browserify index.js -t es2040 | indexhtmlify &gt; index.html"</span><span class="w">&#x000A;  </span><span class="p">},</span><span class="w">&#x000A;  </span><span class="err">...</span><span class="w">&#x000A;</span><span class="err">}</span><span class="w">&#x000A;</span></pre></td></tr></tbody></table>
+          </div>
+          
+          <p>The first command will start a live-reloading development server. Additionally it applies the <a href="https://github.com/ahdinosaur/es2040">es2040</a> <a href="http://browserify.org/">browserify</a> transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses <a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a> to wrap the final JS in some minimal html. I really wish I&rsquo;d know about such a simple process for this earlier on.</p>
+          
+          <h2>Run it</h2>
+          
+          <p>That&rsquo;s it. We&rsquo;ve got a project. Let&rsquo;s run it:</p>
+          <div class="highlight shell"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="gp">$ </span>npm run start</pre></td></tr></tbody></table>
+          </div>
+          
+          <figure>
+            <img alt="Hello!" src="/gpgpu-with-regl/hello.png" width="532">
+            <figcaption>Hello!</figcaption>
+          </figure>
+          
+          <p>To make something interesting, I&rsquo;m going to use the <a href="https://github.com/regl-project/regl">regl</a> (at times pronounced &ldquo;re-gal&rdquo;) library because I love it and because it&rsquo;s so easy. To install and save it as a dependency:</p>
+          <div class="highlight plaintext"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre>$ npm install -S regl</pre></td></tr></tbody></table>
+          </div>
+          
+          <p>Let&rsquo;s add some content. There&rsquo;s a bit going on here. To summarize, you&rsquo;re writing a small program (the vertex shader to tell the gpu how triangles in three dimensional space (&ldquo;world space&rdquo;)  get mapped to triangles on your screen (&ldquo;screen space&rdquo;), followed by another program (the fragment shader) that tells it what color each pixel is. The goal here isn&rsquo;t to explain all the details. The goal here is just to get you a good setup so that you can play with things and discover for yourself.</p>
+          <div class="highlight javascript"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1&#x000A;2&#x000A;3&#x000A;4&#x000A;5&#x000A;6&#x000A;7&#x000A;8&#x000A;9&#x000A;10&#x000A;11&#x000A;12&#x000A;13&#x000A;14&#x000A;15&#x000A;16&#x000A;17&#x000A;18&#x000A;19&#x000A;20&#x000A;21&#x000A;22&#x000A;23&#x000A;24&#x000A;25&#x000A;26&#x000A;27&#x000A;28&#x000A;29&#x000A;30&#x000A;31&#x000A;32&#x000A;33&#x000A;34&#x000A;35&#x000A;36</pre></td><td class="code"><pre><span class="kr">const</span> <span class="nx">regl</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'regl'</span><span class="p">)();</span>&#x000A;<span class="kr">const</span> <span class="nx">bunny</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'bunny'</span><span class="p">);</span>&#x000A;<span class="kr">const</span> <span class="nx">camera</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'regl-camera'</span><span class="p">)(</span><span class="nx">regl</span><span class="p">);</span>&#x000A;<span class="kr">const</span> <span class="nx">angleNormals</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'angle-normals'</span><span class="p">);</span>&#x000A;&#x000A;<span class="kr">const</span> <span class="nx">drawBunny</span> <span class="o">=</span> <span class="nx">regl</span><span class="p">({</span>&#x000A;  <span class="na">vert</span><span class="p">:</span> <span class="err">`</span>&#x000A;    <span class="nx">precision</span> <span class="nx">mediump</span> <span class="kr">float</span><span class="p">;</span>&#x000A;    <span class="nx">attribute</span> <span class="nx">vec3</span> <span class="nx">position</span><span class="p">,</span> <span class="nx">normal</span><span class="p">;</span>&#x000A;    <span class="nx">uniform</span> <span class="nx">mat4</span> <span class="nx">projection</span><span class="p">,</span> <span class="nx">view</span><span class="p">;</span>&#x000A;    <span class="nx">varying</span> <span class="nx">vec3</span> <span class="nx">color</span><span class="p">;</span>&#x000A;    <span class="k">void</span> <span class="nx">main</span> <span class="p">()</span> <span class="p">{</span>&#x000A;      <span class="nx">color</span> <span class="o">=</span> <span class="nx">normal</span><span class="p">;</span>&#x000A;      <span class="nx">gl_Position</span> <span class="o">=</span> <span class="nx">projection</span> <span class="o">*</span> <span class="nx">view</span> <span class="o">*</span> <span class="nx">vec4</span><span class="p">(</span><span class="nx">position</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>&#x000A;    <span class="p">}</span>&#x000A;  <span class="err">`</span><span class="p">,</span>&#x000A;  <span class="na">frag</span><span class="p">:</span> <span class="err">`</span>&#x000A;    <span class="nx">precision</span> <span class="nx">mediump</span> <span class="kr">float</span><span class="p">;</span>&#x000A;    <span class="nx">varying</span> <span class="nx">vec3</span> <span class="nx">color</span><span class="p">;</span>&#x000A;    <span class="k">void</span> <span class="nx">main</span> <span class="p">()</span> <span class="p">{</span>&#x000A;      <span class="nx">gl_FragColor</span> <span class="o">=</span> <span class="nx">vec4</span><span class="p">(</span><span class="nx">color</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>&#x000A;    <span class="p">}</span>&#x000A;  <span class="err">`</span><span class="p">,</span>&#x000A;  <span class="na">attributes</span><span class="p">:</span> <span class="p">{</span>&#x000A;    <span class="na">position</span><span class="p">:</span> <span class="nx">bunny</span><span class="p">.</span><span class="nx">positions</span><span class="p">,</span>&#x000A;    <span class="na">normal</span><span class="p">:</span> <span class="nx">angleNormals</span><span class="p">(</span><span class="nx">bunny</span><span class="p">.</span><span class="nx">cells</span><span class="p">,</span> <span class="nx">bunny</span><span class="p">.</span><span class="nx">positions</span><span class="p">)</span>&#x000A;  <span class="p">},</span>&#x000A;  <span class="na">elements</span><span class="p">:</span> <span class="nx">bunny</span><span class="p">.</span><span class="nx">cells</span>&#x000A;<span class="p">});</span>&#x000A;&#x000A;<span class="nx">regl</span><span class="p">.</span><span class="nx">frame</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="p">{</span>&#x000A;  <span class="nx">regl</span><span class="p">.</span><span class="nx">clear</span><span class="p">({</span><span class="na">color</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]});</span>&#x000A;  <span class="nx">camera</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="p">{</span>&#x000A;    <span class="nx">drawBunny</span><span class="p">();</span>&#x000A;  <span class="p">});</span>&#x000A;<span class="p">});</span></pre></td></tr></tbody></table>
+          </div>
+          
+          <h2>Deploy it</h2>
+          
+          <p>We&rsquo;ve got a project! Up to now we&rsquo;ve been using a development server and testing it locally. If you want to stick the result on, say, Github (because for any faults, it&rsquo;s pretty great), you can just run</p>
+          <div class="highlight shell"><table style="border-spacing: 0"><tbody><tr><td class="gutter gl" style="text-align: right"><pre class="lineno">1</pre></td><td class="code"><pre><span class="gp">$ </span>npm run build</pre></td></tr></tbody></table>
+          </div>
+          
+          <p>The result is a file called <code>index.html</code> in the main directory. Push that to github, turn on the web server option in the repo settings, and you&rsquo;ve got yourself a liv webpage. No live demo at the end. That&rsquo;s your job. Let me know if you run into any trouble.</p>
+          
+          <p>🚀</p>
+        </section>
+      </article>
+      <div class='push'></div>
+    </div>
+    <section class='footer'>
+      <div class='container'>
+        <div class='article-footer'>
+          <div id='disqus_thread'></div>
+          <script>
+              var disqus_shortname = 'rickyreusser';
+              (function() {
+                  var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+                  dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+                  (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+              })();
+          </script>
+          <noscript>
+            Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+          </noscript>
+        </div>
+        <!--div class="sharing">
+        <a href="http://www.twitter.com/share?url=<%= data['site']['siteurl'] %><%= current_article.url %>&amp;text=<%= current_article.title %> by <%= data['site']['twitter_id'] %>" title="Share this post on Twitter" data-lang="en" onclick="return !window.open(this.href, 'Twitter', 'width=640,height=300')"><span class="socicon socicon-twitter fgcolor"></span></a>
+        <a target="_blank" onclick="return !window.open(this.href, 'Facebook', 'width=640,height=300')" href="http://www.facebook.com/sharer/sharer.php?u=<%= data['site']['siteurl'] %><%= current_article.url %>" title="Share this post on Facebook"><span class="socicon socicon-facebook fgcolor"></span></a>
+        <a href="http://plus.google.com/share?url=<%= data['site']['siteurl'] %><%= current_article.url %>" target="_blank" onclick="return !window.open(this.href, 'Google +', 'width=640,height=300')" title="Share this post on Google +"><span class="socicon socicon-google fgcolor"></span></a>
+        </div-->
+      </div>
+    </section>
+    <script src="../../../../javascripts/all-7c4f32d1.js" type="text/javascript"></script>
+    <script>
+      var _gaq=[['_setAccount','UA-50197543-4'],['_trackPageview']];
+      (function(d,t){var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
+      g.src=('https:'==location.protocol?'//ssl':'//www')+'.google-analytics.com/ga.js';
+      s.parentNode.insertBefore(g,s)}(document,'script'));
+    </script>
+    <script>
+      $('code').each(function(i,el) {
+        var $el = $(el);
+        var html = $el.html();
+        if( html.match(/^\${1,2}.*\${1,2}$/) || html.match(/^\\\(.*\\\)$/) ){
+          var container = $('<span>');
+          container.html(html);
+          $el.replaceWith(container);
+        }
+      });
+    </script>
+  </body>
+</html>
