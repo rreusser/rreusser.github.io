@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-12-06T23:55:31-05:00</updated>
+  <updated>2016-12-07T00:10:23-05:00</updated>
   <author>
     <name/>
   </author>
@@ -89,7 +89,7 @@
 &lt;/figure&gt;
 
 &lt;p&gt;To make something interesting, I&amp;rsquo;m going to use the &lt;a href="https://github.com/regl-project/regl"&gt;regl&lt;/a&gt; (at times pronounced &amp;ldquo;re-gal&amp;rdquo;) library because I love it and because it&amp;rsquo;s so easy. To install and save it as a dependency:&lt;/p&gt;
-&lt;div class="highlight plaintext"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;$ npm install -S regl
+&lt;div class="highlight plaintext"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1&lt;/pre&gt;&lt;/td&gt;&lt;td class="code"&gt;&lt;pre&gt;$ npm install -S regl regl-camera bunny angle-normals
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
@@ -177,7 +177,12 @@
 
 &lt;p&gt;The result is a file called &lt;code&gt;index.html&lt;/code&gt; in the main directory. Push that to github, turn on the web server option in the repo settings, and you&amp;rsquo;ve got yourself a live webpage.&lt;/p&gt;
 
-&lt;p&gt;But there&amp;rsquo;s no live demo at the end of this post. That&amp;rsquo;s your job. Let me know if you run into any trouble.&lt;/p&gt;
+&lt;p&gt;Hopefully you&amp;rsquo;re looking at a bunny. Let me know if you run into any trouble!&lt;/p&gt;
+
+&lt;figure class="wide"&gt;
+&lt;p&gt;&lt;code&gt;interactive-frame[width=100% height=600 border=#eee](http://rickyreusser.com/2016/11/15/from-nothing-to-something-in-webgl/cool-project/index.html)&lt;/code&gt;&lt;/p&gt;
+&lt;figcaption&gt;But don&amp;rsquo;t take my word for it.&lt;/figcaption&gt;
+&lt;/figure&gt;
 
 &lt;p&gt;🚀&lt;/p&gt;
 </content>
