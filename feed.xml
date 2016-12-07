@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-12-07T09:45:12-05:00</updated>
+  <updated>2016-12-07T09:47:08-05:00</updated>
   <author>
     <name/>
   </author>
@@ -82,7 +82,7 @@
 &lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;
 &lt;/div&gt;
 
-&lt;p&gt;I added also added a couple more dependencies we&amp;rsquo;ll want. Let&amp;rsquo;s add some content. There&amp;rsquo;s a bit going on here. To summarize, you&amp;rsquo;re writing a small program (the vertex shader to tell the gpu how triangles in three dimensional space (&amp;ldquo;world space&amp;rdquo;)  get mapped to triangles on your screen (&amp;ldquo;screen space&amp;rdquo;), followed by another program (the fragment shader) that tells it what color each pixel is. The goal here isn&amp;rsquo;t to explain all the details. The goal here is just to get you a good setup so that you can play with things and discover for yourself. &lt;a href="https://regl-project.github.io/regl/www/gallery.html"&gt;Try out some of the example&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;I added also added a couple more dependencies we&amp;rsquo;ll want. Let&amp;rsquo;s add some content. There&amp;rsquo;s a bit going on here. To summarize, you&amp;rsquo;re writing a small program (the vertex shader to tell the gpu how triangles in three dimensional space (&amp;ldquo;world space&amp;rdquo;)  get mapped to triangles on your screen (&amp;ldquo;screen space&amp;rdquo;), followed by another program (the fragment shader) that tells it what color each pixel is. The goal here isn&amp;rsquo;t to explain all the details. The goal here is just to get you a good setup so that you can play with things and discover for yourself. &lt;a href="https://regl-project.github.io/regl/www/gallery.html"&gt;Try out some of the examples&lt;/a&gt;.&lt;/p&gt;
 &lt;div class="highlight javascript"&gt;&lt;table style="border-spacing: 0"&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td class="gutter gl" style="text-align: right"&gt;&lt;pre class="lineno"&gt;1
 2
 3
