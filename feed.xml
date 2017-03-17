@@ -4,7 +4,7 @@
   <id>http://rickyreusser.com</id>
   <link href="http://rickyreusser.com"/>
   <link href="http://rickyreusser.com/feed.xml" rel="self"/>
-  <updated>2016-12-07T09:47:08-05:00</updated>
+  <updated>2017-03-17T09:03:59-04:00</updated>
   <author>
     <name/>
   </author>
@@ -17,7 +17,7 @@
     <author>
       <name/>
     </author>
-    <content type="html">&lt;p&gt;I&amp;rsquo;ve been telling all my friends lately how great and easy &lt;a href="github.com/regl-project/regl"&gt;regl&lt;/a&gt; is, but the truth is it&amp;rsquo;s only easy if you already know the ins and outs of setting up a modern development environment in the first place. It&amp;rsquo;s taken me a couple years to figure out a lot of this stuff, and I&amp;rsquo;m still not there. So here&amp;rsquo;s a quick walkthrough on setting up regl in a nice and simple and modern JavaScript environment. It&amp;rsquo;s &lt;em&gt;a&lt;/em&gt; setup. It&amp;rsquo;s not the perfect setup, but it&amp;rsquo;s super simple and it&amp;rsquo;ll get you off the ground. I use it all the time. Enough talk. Let&amp;rsquo;s go.&lt;/p&gt;
+    <content type="html">&lt;p&gt;I&amp;rsquo;ve been telling all my friends lately how great and easy &lt;a href="github.com/regl-project/regl"&gt;regl&lt;/a&gt; is, but the truth is it&amp;rsquo;s only easy if you already know the ins and outs of setting up a modern development environment in the first place. Which really sounds like way more than it is. But it&amp;rsquo;s taken me a couple years to figure out a lot of this stuff, and I&amp;rsquo;m still not there. So here&amp;rsquo;s a quick walkthrough on setting up regl in a nice and simple and modern JavaScript environment. It&amp;rsquo;s &lt;em&gt;a&lt;/em&gt; setup. It&amp;rsquo;s not the perfect setup, but it&amp;rsquo;s super simple and it&amp;rsquo;ll get you off the ground. I use it all the time. Enough talk. Let&amp;rsquo;s go.&lt;/p&gt;
 
 &lt;h2&gt;Initialize it&lt;/h2&gt;
 

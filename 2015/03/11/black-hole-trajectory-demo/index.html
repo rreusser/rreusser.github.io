@@ -34,14 +34,14 @@
     <script src="../../../../black-hole-trajectory-demo/rk-e00082f8.js"></script>
     
     <script type='text/javascript'>
-      
+    
       var deriv, xyz_to_rpt, dxyz_to_rpt;
       var i,j,l,n,rs,c;
       var r, theta, phi, n;
-      
+    
       c = 1.0;
       rs = 1.0;
-      
+    
       // Derivative function for the Schwarzschild solution
       var deriv = function(y,s) {
         if(y[0] < rs*1.01 || y[0] > rs*1000.0 ) {
@@ -59,7 +59,7 @@
           );
         }
       }
-      
+    
       // Rectangular coordinates -> Spherical coordinates
       var xyz_to_rpt = function(xR) {
         var ret = new Array(3);
@@ -68,66 +68,66 @@
         ret[2] = Math.atan2(xR[1],xR[0]);
         return ret;
       }
-      
+    
       // Rectangular velocity -> Spherical velocity
       var dxyz_to_drpt = function(x, dxR) {
         return new Array(
           Math.cos(x[2])*Math.sin(x[1])*dxR[0] +
           Math.sin(x[2])*Math.sin(x[1])*dxR[1] +
           Math.cos(x[1])*dxR[2],
-              
-          Math.cos(x[2])*Math.cos(x[1])/x[0]*dxR[0] + 
-          Math.sin(x[2])*Math.cos(x[1])/x[0]*dxR[1] - 
+    
+          Math.cos(x[2])*Math.cos(x[1])/x[0]*dxR[0] +
+          Math.sin(x[2])*Math.cos(x[1])/x[0]*dxR[1] -
           Math.sin(x[1])/x[0]*dxR[2],
-                    
-         -Math.sin(x[2])/Math.sin(x[1])/x[0]*dxR[0] + 
+    
+         -Math.sin(x[2])/Math.sin(x[1])/x[0]*dxR[0] +
           Math.cos(x[2])/Math.sin(x[1])/x[0]*dxR[1]
         );
       }
-      
+    
       var calculate_trajectory = function( x0R, dx0R ) {
         var n, dt, x0, x0d, f0, f, x, y, z;
         n = 1000;
         dt = 0.1;
-        
+    
         x0 = xyz_to_rpt(x0R);
         x0d= dxyz_to_drpt(x0,dx0R);
         var A = 1.0 - rs/x0[0];
         f0 = new Array( x0[0], x0[1], x0[2], 0.0, x0d[0]*A, x0d[1]*A, x0d[2]*A, 1.0 )
-        
+    
         f = rk45( deriv, f0, 0.0, dt, n, true );
         var n = f.length
         x = new Array(n), y = new Array(n), z = new Array(n);
         for(i=0; i<n; i++) {
-          x[i] = f[i][0]*Math.cos(f[i][2])*Math.sin(f[i][1]);
+          x[i] = f[i][0]*Math.sin(f[i][2])*Math.sin(f[i][1]);
           y[i] = f[i][0]*Math.sin(f[i][2])*Math.sin(f[i][1]);
-          z[i] = f[i][0]*Math.cos(f[i][2]);
+          z[i] = f[i][0]*Math.cos(f[i][1]);
         }
         return {x:x,y:y,z:z}
       }
-      
-     
     
-      
+    
+    
+    
       $(function() {
         var s = '#plot';
         var w = $(s).closest('p').width();
         var h = w;
-        
+    
         $(s).width(w);
         $(s).height(h);
         window.pl = new Plot(s);
-          
+    
         pl.add_axis();
         pl.grid();
         pl.axis(-5.5,5.5,-5.5,5.5);
-        
+    
         var x0 = 3.68;
         var y0 = 0;
         var dx0 = 0.0;
         var dy0 = 0.4999;
         var vscale = 2.0/(pl.gca().xmax-pl.gca().xmin);
-        
+    
         var plot_trajectory = function(x0, y0, dx0, dy0) {
           result = calculate_trajectory( [x0, y0,0], [dx0, dy0, 0] );
           pl.clf()
@@ -138,7 +138,7 @@
           pl.gca().clear()
           pl.show()
         }
-        
+    
         var click_trajectory = function(e) {
           vscale = 2.0/(pl.gca().xmax-pl.gca().xmin);
           var ax, x1, y1;
@@ -170,7 +170,7 @@
         $(window).resize(function() {
           pl.resize(window.innerWidth,window.innerHeight);
         }).trigger('resize');
-        
+    
     
         frame.on('resize',function(event,data) {
           pl.resize(data.width,data.height);
