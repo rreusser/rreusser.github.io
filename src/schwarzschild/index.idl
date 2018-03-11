@@ -1,8 +1,0 @@
-[meta title:"Idyll Project" description:"Short description of your project" /]
-
-[Header
-  title:"Flamm's Paraboloid"
-  subtitle:"Paraboloids, WebGL, and Spacetime"
-  author:"Ricky Reusser"
-  authorLink:"http://github.com/rreusser/" /]
-
