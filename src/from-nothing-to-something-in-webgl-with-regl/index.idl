@@ -1,0 +1,244 @@
+[Header
+  title: "From Nothing to Something in WebGL Using regl"
+  author: "Ricky Reusser"
+  authorLink: "https://github.com/rreusser" date: "December 7, 2016"
+  fullWidth:true
+/]
+
+I've been telling all my friends lately how great and easy [regl](github.com/regl-project/regl) is, but the truth is it's only easy if you already know the ins and outs of setting up a modern development environment in the first place. Which really sounds like way more than it is. But it's taken me a couple years to figure out a lot of this stuff, and I'm still not there. So here's a quick walkthrough on setting up regl in a nice and simple and modern JavaScript environment. It's *a* setup. It's not the perfect setup, but it's super simple and it'll get you off the ground. I use it all the time. Enough talk. Let's go.
+
+## Initialize it
+
+First we'll make a project. Let's start from the beginning. [Yarn](https://yarnpkg.com/) is great for managing JS dependencies. [npm](http://blog.npmjs.org/post/85484771375/how-to-install-npm) too. [Don't bikeshed](https://www.freebsd.org/doc/en_US.ISO8859-1/books/faq/misc.html#idp60510056). So let's use npm at the moment. You can create a new project from the command line with:
+
+```bash
+$ mkdir cool-project
+$ cd cool-project
+$ npm init -y
+```
+
+That made an empty directory with a `package.json` in it. Let's create a file called `index.js` and start with the JS developer's favorite sanity-check:
+
+```javascript
+alert('hello, world!');
+```
+
+Technically we have a functioning project, but there's no way to see it just yet. To use it, we'll have to add a couple scripts. Let's use the [good parts of ES6](https://github.com/ahdinosaur/es2040) and fire it up with a development server. [budo](https://github.com/mattdesl/budo) is awesome for this. budo lets you run javascript files in the browser without having to write any html. To install budo and some other great tools we'll want, run:
+
+```bash
+$ npm install -D browserify es2040 budo indexhtmlify uglify-js
+```
+
+I added `indexhtmlify` and `uglify-js` since we'll want those when it comes time to build this. Instead of typing out long commands on the command line, let's add a development server script and a build script to `package.json`:
+
+```json
+{
+  "name": "cool-project",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "budo index.js --open --live --host localhost -- -t es2040",
+    "build": "browserify index.js -t es2040 | uglifyjs -cm | indexhtmlify > index.html"
+  },
+  ...
+}
+```
+
+The first command will start a live-reloading development server. Additionally it applies the [es2040](https://github.com/ahdinosaur/es2040) browserify transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses [indexhtmlify](https://github.com/dominictarr/indexhtmlify) to wrap the final JS in some minimal html. I really wish I'd known about such a simple process for this earlier on.
+
+## Run it
+
+That's it. We've got a project. Let's run it:
+
+```bash
+$ npm start
+```
+
+[figure]
+  [img alt:"Hello!" src:"images/hello.png" width:"532"/]
+  [figcaption]Hello![/figcaption]
+[/figure]
+
+To make something interesting, I'm going to use the [regl](https://github.com/regl-project/regl) (at times pronounced "re-gal") library because I love it and because it's so easy. To install and save it as a dependency:
+
+```bash
+$ npm install -S regl regl-camera bunny angle-normals
+```
+
+I added also added a couple more dependencies we'll want. Let's add the content below. There's a bit going on here. To summarize, you're writing a small program (the vertex shader) to tell the gpu how triangles in three dimensional space get mapped to coordinates on your screen, followed by another program (the fragment shader) that tells it what color each pixel is. The goal here isn't to explain all the details. The goal here is just to get you a good setup so that you can play with things and discover for yourself. [Try out some of the examples](https://regl-project.github.io/regl/www/gallery.html).
+
+```javascript
+const regl = require('regl')();
+const bunny = require('bunny');
+const angleNormals = require('angle-normals');
+const camera = require('regl-camera')(regl, {
+  distance: 30,
+  phi: 0.7,
+  theta: 1.5,
+  center: [0, 5, 0],
+  damping: 0,
+  noScroll: true
+});
+
+const drawBunny = regl({
+  vert: `
+    precision mediump float;
+    attribute vec3 position, normal;
+    uniform mat4 projection, view;
+    varying vec3 surfaceNormal;
+    void main () {
+      surfaceNormal = normal;
+      gl_Position = projection * view * vec4(position, 1);
+    }
+  `,
+  frag: `
+    precision mediump float;
+    varying vec3 surfaceNormal;
+    void main () {
+      gl_FragColor = vec4(surfaceNormal, 1);
+    }
+  `,
+  attributes: {
+    position: bunny.positions,
+    normal: angleNormals(bunny.cells, bunny.positions)
+  },
+  elements: bunny.cells
+});
+
+regl.frame(() => {
+  camera(() => {
+    regl.clear({color: [0.1, 0.1, 0.1, 1]});
+    drawBunny();
+  });
+});
+```
+
+[figure]
+[ReglDemo1/]
+[figcaption]Hello, regl![/figcaption]
+[/figure]
+
+## Optimize it
+
+If you have this up and running, you should be looking at a bunny and your GPU fan should be audibly struggling. We're doing a few things... let's say, *not optimally*.
+
+First of all, we're rendering the bunny on every single `requestAnimationFrame`, even when nothing has changed. `regl-camera` has a state variable called `dirty` to help avoid that. When the camera has move and the scene needs to be re-rendered, `dirty` is set `true`. Otherwise we can just bail out. It's nothing magic. More often than not, I copy [regl-camera.js](https://github.com/regl-project/regl-camera/blob/master/regl-camera.js) into my current project and modify it however the current project requires. With this addition, our render loop becomes:
+
+```javascript
+regl.frame(() => {
+  camera(({dirty}) => {
+    if (!dirty) return;
+    regl.clear({color: [0.1, 0.1, 0.1, 1]});
+    drawBunny();
+  });
+});
+```
+
+Next, your pixel ratio might be rather high depending on your display. There are times when you can't even tell the difference, but even just going from a pixel ratio of 2 to 1.5 reduces the number of fragments processed by a factor of [Equation] (2 \cdot 2) / (1.5 \cdot 1.5) = 1.778 [/Equation]. You can constrain that by initializing regl with
+
+```javascript
+const regl = require('regl')({
+  pixelRatio: Math.min(window.devicePixelRatio, 1.5)
+});
+```
+
+Antialiasing can get pretty expensive too, but it's easy to disable. You can experiment and make the choice for yourself. I'm not sure if depth, stencil, or alpha have much of a cost, but while we're at it, let's just disable those too. Except the depth buffer. We're using that one. Let's leave it on.
+
+```javascript
+const regl = require('regl')({
+  pixelRatio: Math.min(window.devicePixelRatio, 1.5),
+  attributes: {
+    antialias: false,
+    stencil: false,
+    alpha: false,
+    depth: true
+  }
+});
+```
+
+## glslify it
+
+I should know enough not to make this too overwhelming for an introduction, but there's one more big piece of the puzzle: [glslify](https://github.com/glslify/glslify). Vertex and fragment shaders can get pretty verbose when you start assembling pieces together. glslify is like Node's `require` for GLSL. You can view tons of glslify modules in [the stack.gl docs](http://stack.gl/packages/). (Most of stack.gl's Core and WebGL API module have been largely superseded by regl, but there's tons of good stuff that's a perfect fit for use with regl!)
+
+So let's add [diffuse lambert shading](http://stack.gl/packages/#stackgl/glsl-diffuse-lambert). First install and save it as a dependency.
+
+```bash
+$ npm install -S glsl-diffuse-lambert
+```
+
+Now we require it and process the shaders with glsl. This requires passing some information from the vertex shader to the fragment shader using varying attributes.
+
+```javascript
+const glsl = require('glslify');
+
+const drawBunny = regl({
+  vert: `
+    precision mediump float;
+    attribute vec3 position, normal;
+    uniform mat4 projection, view;
+    varying vec3 surfaceNormal, surfacePosition;
+    void main () {
+      surfaceNormal = normal;
+      surfacePosition = position;
+      gl_Position = projection * view * vec4(position, 1);
+    }
+  `,
+  frag: glsl`
+    precision mediump float;
+    #pragma glslify: lambert = require(glsl-diffuse-lambert)
+    varying vec3 surfaceNormal, surfacePosition;
+    uniform vec3 lightPosition;
+    void main () {
+      vec3 lightDirection = normalize(lightPosition - surfacePosition);
+      vec3 normal = normalize(surfaceNormal);
+      float power = lambert(lightDirection, normal);
+      gl_FragColor = vec4(vec3(power), 1);
+    }
+  `,
+  uniforms: {
+    lightPosition: [100, 100, 100]
+  }
+  ...
+});
+```
+
+Okay, now here's why I brought this up in the first place. We don't want all of glslify's machinery making it into our production project. We want glslify to compile our shaders when we *bundle* our JavaScript. That means we need to use glslify's browserify transform. (Webpack can be made to work, but I won't cover that here.) Long story short, here are the two options:
+
+1. Use tagged template literals, i.e. ``glslify`...` ``, and use glslify as the *first* browserify transform, e.g. `browserify ... -t glslify -t es2040`.
+2. Use the functional form, i.e. ``glslify(`...`)``, and use glslify as the *last* browserify transform, e.g. `browserify ... -t es2040 -t glslify`.
+
+See [the glslify docs](https://github.com/glslify/glslify#module-api) for more information. The reasons aren't particularly interesting, but require some thought and debugging and can trip you up. For example, since the implementation on this page uses React and JSX, I had to use the second option so that the glslify transform wouldn't choke on untransformed JSX. 🤷🏻‍♂️
+
+Bottom line, glslify is very useful. There are a couple caveats involved, but it's great once you get it set up.
+
+## Deploy it
+
+We've got a project! Up to now we've been using a development server and testing it locally. If you want to stick the result on, say, Github (because for any faults, it's pretty great), you can just run
+
+```bash
+$ npm run build
+```
+
+The result is a file called `index.html` in the main directory. Push that to github, turn on the web server option in the repo settings, and you've got yourself a live webpage.
+
+Hopefully you're looking at a bunny. Let me know if you run into any trouble!
+
+[figure]
+[ReglDemo2/]
+[figcaption]Sorry about the mouse wheel behavior.[/figcaption]
+[/figure]
+
+## Summarizing it
+
+To summarize again the tools we just used:
+
+- [npm](https://www.npmjs.com/): installs javascript modules from npmjs.com
+- [browserify](http://browserify.org/): turns multiple files with `require(...)` statements -- which the browser knows nothing about -- into a single file the browser can run.
+- [budo](https://github.com/mattdesl/budo): test out javascript in the browser without writing any html
+- [es2020](https://www.npmjs.com/package/es2020): ES5 with template strings, arrow functions, and const. That is all.
+- [es2040](https://www.npmjs.com/package/es2040): a less spartan es2020. Lots of new features have made there way into JavaScript lately. This plugin picks the good features and compiles your fancy JavaScript down to code that will run in old browsers too.
+- [indexhtmlify](https://github.com/dominictarr/indexhtmlify): a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any html.
+- [regl](https://github.com/regl-project/regl): Functional WebGL
+- [glslify](https://github.com/glslify/glslify): `require` for your GLSL shaders
+
+🚀

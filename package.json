@@ -1,0 +1,63 @@
+{
+  "name": "demos",
+  "version": "1.0.0",
+  "description": "This is hopefully one repo to manage all the demos I've been accumulating or at least a place to dump the new ones. The goal here is to learn new things and test limits.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node scripts/watch.js",
+    "build": "node scripts/build.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rreusser/demos.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rreusser/demos/issues"
+  },
+  "homepage": "https://github.com/rreusser/demos#readme",
+  "devDependencies": {
+    "angle-normals": "^1.0.0",
+    "brfs": "^1.5.0",
+    "browserify": "^16.1.0",
+    "budo": "^11.1.7",
+    "bunny": "^1.0.1",
+    "cpr": "^3.0.1",
+    "es2040": "^1.2.6",
+    "fail-nicely": "^2.0.0",
+    "gl-mat3": "^1.0.0",
+    "gl-mat4": "^1.1.4",
+    "gl-vec3": "^1.0.3",
+    "gl-vec4": "^1.0.1",
+    "glsl-noise": "0.0.0",
+    "glsl-solid-wireframe": "^1.0.1",
+    "glsl-specular-blinn-phong": "^1.0.2",
+    "glslify": "^6.1.1",
+    "html-inject-github-corner": "^2.1.4",
+    "html-inject-meta": "^3.0.0",
+    "hyperstream": "^1.2.2",
+    "idyll": "^2.3.0",
+    "idyll-regl-component": "^1.0.4",
+    "indexhtmlify": "^1.3.1",
+    "minify-stream": "^1.1.0",
+    "mkdirp": "^0.5.1",
+    "mouse-change": "^1.4.0",
+    "mouse-wheel": "^1.2.0",
+    "regl": "^1.3.1",
+    "regl-camera": "^2.1.1",
+    "simple-html-index": "^1.5.0",
+    "uglify-js": "^3.3.13"
+  },
+  "dependencies": {
+    "eases": "^1.0.8",
+    "glsl-diffuse-lambert": "^1.0.0",
+    "glsl-easings": "^1.0.0",
+    "glsl-fast-gaussian-blur": "^1.0.2",
+    "glsl-random": "0.0.5",
+    "h": "^0.1.0",
+    "insert-css": "^2.0.0",
+    "nurbs": "^1.1.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "schwarzschild",
+  "version": "1.0.0",
+  "license": "MIT",
+  "scripts": {
+    "start": "idyll index.idl --defaultComponents=components/default --css styles.css --theme github --watch",
+    "build": "idyll index.idl --defaultComponents=components/default --theme github --css styles.css"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
