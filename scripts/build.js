@@ -39,12 +39,10 @@ switch (entryFile.type) {
     idyll.build();
 
     ['images'].forEach(dir => {
-      console.log('dir:', dir);
       var cpInputDir = path.join(__dirname, '..', projectDir, dir);
       var cpOutputDir = path.join(__dirname, '..', outputDir, dir);
 
       if (fs.existsSync(cpInputDir)) {
-        //mkdirp.sync(cpOutputDir);
         cpr(cpInputDir, cpOutputDir, {});
       }
     });
