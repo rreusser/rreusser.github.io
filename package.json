@@ -4,8 +4,9 @@
   "description": "This is hopefully one repo to manage all the demos I've been accumulating or at least a place to dump the new ones. The goal here is to learn new things and test limits.",
   "main": "index.js",
   "scripts": {
-    "start": "node scripts/watch.js",
-    "build": "node scripts/build.js"
+    "start": "node bin/watch.js",
+    "build": "node bin/build.js",
+    "build-all": "for dir in src/*; do ./bin/build.js $dir; done"
   },
   "repository": {
     "type": "git",

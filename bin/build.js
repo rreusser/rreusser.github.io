@@ -16,7 +16,8 @@ const brfs = require('brfs');
 const cpr = require('cpr');
 const fs = require('fs');
 
-const projectDir = process.argv[2];
+var projectDir = process.argv[2];
+if (!/^src\//.test(projectDir)) projectDir = path.join('src', projectDir);
 const entryFile = getEntryFile(projectDir);
 const outputDir = projectDir.replace(/^src\//, 'docs/');
 
@@ -27,7 +28,8 @@ switch (entryFile.type) {
       defaultComponents: path.join(__dirname, '..', 'lib', 'default-idyll-components'),
       components: path.join(__dirname, '..', projectDir, 'components'),
       output: path.join(__dirname, '..', outputDir),
-      css: path.join(__dirname, '..', 'lib', 'css', 'styles.css'),
+      //css: path.join(__dirname, '..', 'lib', 'css', 'styles.css'),
+			template: path.join(__dirname, '..', 'templates', '_index.html'),
       watch: false,
       minify: true,
       ssr: true,
@@ -47,6 +49,9 @@ switch (entryFile.type) {
       }
     });
 
+    fs.createReadStream(path.join(__dirname, '..', 'lib', 'css', 'styles.css'))
+      .pipe(fs.createWriteStream(path.join(__dirname, '..', 'docs', 'styles.css')));
+
     break;
   case 'html':
     break;
@@ -60,7 +65,8 @@ switch (entryFile.type) {
     mkdirp.sync(path.join(__dirname, '..', outputDir));
 
     const cssInputPath = path.join(__dirname, '..', projectDir, 'index.css');
-    if (fs.existsSync(cssInputPath)) {
+    const cssExists = fs.existsSync(cssInputPath);
+    if (cssExists) {
       const cssOutputPath = path.join(__dirname, '..', outputDir, 'index.css');
       fs.createReadStream(cssInputPath).pipe(fs.createWriteStream(cssOutputPath));
     }
@@ -83,7 +89,8 @@ switch (entryFile.type) {
 
     simpleHtmlIndex({
         entry: 'bundle.js',
-        title: metadata.title
+        title: metadata.title,
+        css: cssExists ? 'index.css' : null
       })
       .pipe(htmlInjectMeta({
         name: metadata.title,

@@ -12,7 +12,6 @@ const fs = require('fs');
 
 var projectDir = process.argv[2];
 if (!/^src\//.test(projectDir)) projectDir = path.join('src', projectDir);
-console.log('projectDir:', projectDir);
 const entryFile = getEntryFile(projectDir);
 const outputDir = projectDir.replace(/^src\//, 'docs/');
 
@@ -38,7 +37,7 @@ switch (entryFile.type) {
     });
 
     idyll.build();
-
+ 
     break;
   case 'html':
     console.log('Serving as raw HTML');
