@@ -1,0 +1,70 @@
+[Header
+  fullWidth:true
+  title:"Books"
+/]
+
+
+A list of books read in recent history, though it's been a rough couple years for reading. My commentary and opinions ommitted.
+
+[book
+  title:"Great Russian Short Stories of the Twentieth Century"
+  url:"http://store.doverpublications.com/048648873x.html"
+  author:"Yelena Francis (editor)"
+  dateRead:"01-2018"
+/]
+
+[book
+  title:"Polygon Mesh Processing"
+  url:"https://www.crcpress.com/Polygon-Mesh-Processing/Botsch-Kobbelt-Pauly-Alliez-Levy/p/book/9781568814261"
+  author:"Mario Botsch, Leif Kobbelt, Mark Pauly, Pierre Alliez, Bruno Levy"
+  dateRead:"12-2017"
+/]
+
+[book
+  title:"Is Journalism Worth Dying For?: Final Dispatches"
+  url:"https://www.mhpbooks.com/books/is-journalism-worth-dying-for/"
+  author:"Anna Politkovskaya"
+  dateRead:"10-2017"
+/]
+
+[book
+  title:"Secondhand Time: The Last of the Soviets"
+  url:"https://www.penguinrandomhouse.com/books/541184/secondhand-time-by-svetlana-alexievich/9780399588822/"
+  author:"Svetlana Alexievich"
+  dateRead:"07-2017"
+/]
+
+[book
+  title:"Pale Fire"
+  url:"https://www.amazon.com/Pale-Fire-Vladimir-Nabokov/dp/0679723420"
+  author:"Vladimir Nabokov"
+  dateRead:"07-2016"
+/]
+
+[book
+  title:"The Lottery and Other Stories"
+  url:"https://www.penguin.co.uk/books/133428/the-lottery-and-other-stories/"
+  author:"Shirley Jackson"
+  dateRead:"05-2016"
+/]
+
+[book
+  title:"Perestroika: New Thinking for Our Country and the World"
+  url:"https://www.amazon.com/Perestroika-New-Thinking-Country-World/dp/0060390859"
+  author:"Mikhail Gorbachev"
+  dateRead:"04-2016"
+/]
+
+[book
+  title:"Number Theory"
+  url:"http://store.doverpublications.com/0486682528.html"
+  author:"George E. Andrews"
+  dateRead:"04-2016"
+/]
+
+[book
+  title:"Sri Lanka—Ethnic Fratricide and the Dismantling of Democracy"
+  url:"http://press.uchicago.edu/ucp/books/book/chicago/S/bo5960167.html"
+  author:"Stanley Jeyaraja Tambiah"
+  dateRead:"04-2016"
+/]

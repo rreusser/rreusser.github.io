@@ -59,6 +59,8 @@ $ npm start
   [figcaption]Hello![/figcaption]
 [/figure]
 
+## Build it
+
 To make something interesting, I'm going to use the [regl](https://github.com/regl-project/regl) (at times pronounced "re-gal") library because I love it and because it's so easy. To install and save it as a dependency:
 
 ```bash
@@ -122,7 +124,7 @@ regl.frame(() => {
 
 If you have this up and running, you should be looking at a bunny and your GPU fan should be audibly struggling. We're doing a few things... let's say, *not optimally*.
 
-First of all, we're rendering the bunny on every single `requestAnimationFrame`, even when nothing has changed. `regl-camera` has a state variable called `dirty` to help avoid that. When the camera has move and the scene needs to be re-rendered, `dirty` is set `true`. Otherwise we can just bail out. It's nothing magic. More often than not, I copy [regl-camera.js](https://github.com/regl-project/regl-camera/blob/master/regl-camera.js) into my current project and modify it however the current project requires. With this addition, our render loop becomes:
+First of all, we're rendering the bunny on every single `requestAnimationFrame`, even when nothing has changed. `regl-camera` has a state variable called `dirty` to help avoid that. When the camera has move and the scene needs to be re-rendered, `dirty` is set `true`. Otherwise we can just bail out. (It's nothing magic though. Actually, more often than not, I copy [regl-camera.js](https://github.com/regl-project/regl-camera/blob/master/regl-camera.js) into my current project and modify it however the current project requires.) With this addition, our render loop becomes:
 
 ```javascript
 regl.frame(() => {
@@ -134,7 +136,7 @@ regl.frame(() => {
 });
 ```
 
-Next, your pixel ratio might be rather high depending on your display. There are times when you can't even tell the difference, but even just going from a pixel ratio of 2 to 1.5 reduces the number of fragments processed by a factor of [Equation] (2 \cdot 2) / (1.5 \cdot 1.5) = 1.778 [/Equation]. You can constrain that by initializing regl with
+Next, your pixel ratio might be rather high depending on your display. There are times when you can't even tell the difference, but even just going from a pixel ratio of 2 to 1.5 reduces the number of fragments processed by a factor of [Equation] (1.5 \cdot 1.5) / (2 \cdot 2) = 0.5625 [/Equation]. You can constrain that by initializing regl with
 
 ```javascript
 const regl = require('regl')({
@@ -158,7 +160,9 @@ const regl = require('regl')({
 
 ## glslify it
 
-I should know enough not to make this too overwhelming for an introduction, but there's one more big piece of the puzzle: [glslify](https://github.com/glslify/glslify). Vertex and fragment shaders can get pretty verbose when you start assembling pieces together. glslify is like Node's `require` for GLSL. You can view tons of glslify modules in [the stack.gl docs](http://stack.gl/packages/). (Most of stack.gl's Core and WebGL API module have been largely superseded by regl, but there's tons of good stuff that's a perfect fit for use with regl!)
+Generally speaking, regl is a low-level abstraction that doesn't add much. That's great in terms of API design, but inevitably we want to simply our code and add fancy things. [stack.gl](http://stack.gl/) is a great project with a lot to offer.
+
+In order to really utilize stack.gl, there's one more big piece of the puzzle: [glslify](https://github.com/glslify/glslify). Vertex and fragment shaders can get pretty verbose when you try to start assembling pieces together. glslify is like Node's `require` for GLSL. You can view tons of glslify modules in [the stack.gl docs](http://stack.gl/packages/). (Most of stack.gl's Core and WebGL API module have been largely superseded by regl, but there's tons of other great stuff that's a perfect fit for use with regl!)
 
 So let's add [diffuse lambert shading](http://stack.gl/packages/#stackgl/glsl-diffuse-lambert). First install and save it as a dependency.
 
@@ -202,12 +206,12 @@ const drawBunny = regl({
 });
 ```
 
-Okay, now here's why I brought this up in the first place. We don't want all of glslify's machinery making it into our production project. We want glslify to compile our shaders when we *bundle* our JavaScript. That means we need to use glslify's browserify transform. (Webpack can be made to work, but I won't cover that here.) Long story short, here are the two options:
+Okay, now here's why I brought this up in the first place. We don't want all of glslify's machinery making it into our production project. We want glslify to compile our shaders when we *bundle* our JavaScript. That means we need to use glslify's browserify transform. (Webpack can be made to work, but I won't cover that here.) Simplifying just a bit, there are two options:
 
-1. Use tagged template literals, i.e. ``glslify`...` ``, and use glslify as the *first* browserify transform, e.g. `browserify ... -t glslify -t es2040`.
+1. Use [tagged template literals](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals), i.e. ``glslify`...` ``, and use glslify as the *first* browserify transform, e.g. `browserify ... -t glslify -t es2040`.
 2. Use the functional form, i.e. ``glslify(`...`)``, and use glslify as the *last* browserify transform, e.g. `browserify ... -t es2040 -t glslify`.
 
-See [the glslify docs](https://github.com/glslify/glslify#module-api) for more information. The reasons aren't particularly interesting, but require some thought and debugging and can trip you up. For example, since the implementation on this page uses React and JSX, I had to use the second option so that the glslify transform wouldn't choke on untransformed JSX. 🤷🏻‍♂️
+See [the glslify docs](https://github.com/glslify/glslify#module-api) for more information. The reasons aren't particularly interesting, but require some thought and debugging and can trip you up. For example, since the implementation on this page uses React and JSX, I had to use the second option so that the glslify transform wouldn't choke on untransformed JSX. But for a standalone JavaScript project without fancy JSX transpiling, the first is perfectly fine. 🤷🏻‍♂️
 
 Bottom line, glslify is very useful. There are a couple caveats involved, but it's great once you get it set up.
 
