@@ -40,11 +40,12 @@ switch (entryFile.type) {
 
     idyll.build();
 
-    ['images'].forEach(dir => {
+    ['images', 'fonts'].forEach(dir => {
       var cpInputDir = path.join(__dirname, '..', projectDir, dir);
       var cpOutputDir = path.join(__dirname, '..', outputDir, dir);
 
       if (fs.existsSync(cpInputDir)) {
+        console.log('copying', dir);
         cpr(cpInputDir, cpOutputDir, {});
       }
     });
@@ -98,6 +99,16 @@ switch (entryFile.type) {
         author: metadata.author ||  "Ricky Reusser",
       }))
       .pipe(fs.createWriteStream(htmlOutputPath));
+
+    ['images', 'fonts'].forEach(dir => {
+      var cpInputDir = path.join(__dirname, '..', projectDir, dir);
+      var cpOutputDir = path.join(__dirname, '..', outputDir, dir);
+
+      if (fs.existsSync(cpInputDir)) {
+        console.log('copying', dir);
+        cpr(cpInputDir, cpOutputDir, {});
+      }
+    });
 
     break;
   case 'md':
