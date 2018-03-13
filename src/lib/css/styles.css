@@ -961,7 +961,6 @@ figcaption {
   flex-basis: 380px;
   flex-grow: 0;
   flex-shrink: 0;
-  height: 285px;
   background-color: #333;
   color: white;
   position: relative;
@@ -983,6 +982,10 @@ figcaption {
 
 .project:hover .project__overlay {
   opacity: 1;
+}
+
+.project img {
+  display: block;
 }
 
 .project__meta {
