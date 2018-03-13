@@ -31,7 +31,7 @@ projectDirListing.map(function (projectPath) {
   var meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
   var projectMetadata = {
     id: projectPath,
-    path: projectPath + '/',
+    path: '../' + projectPath + '/',
     title: meta.title,
     order: meta.order,
     description: meta.description || meta.title,
