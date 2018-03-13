@@ -1,0 +1,11 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true title:"Projects"/]
+
+[Header
+  fullWidth:true
+  title:"Projects"
+/]
+
+[ProjectIndex fullWidth:true/]
+

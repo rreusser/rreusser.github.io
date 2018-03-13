@@ -1,0 +1,5 @@
+{
+  "title": "Smooth Life",
+  "description": "Conway's Game of Life, generalized to a continuum and solved on the GPU",
+  "order": 80
+}
