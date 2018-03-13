@@ -1,3 +1,11 @@
+[menu fullWidth:true/]
+
+[meta
+  title:"Things I Learned the Hard Way Using React Native"
+  description:"A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."
+  fullWidth:true
+/]
+
 [Header
   title: "Things I Learned the Hard Way Using React Native"
   author: "Ricky Reusser"

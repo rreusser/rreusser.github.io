@@ -1,3 +1,7 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true title:"From Nothing to Something in WebGL Using regl"/]
+
 [Header
   title: "From Nothing to Something in WebGL Using regl"
   author: "Ricky Reusser"
