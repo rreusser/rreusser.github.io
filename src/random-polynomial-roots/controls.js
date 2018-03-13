@@ -1,0 +1,30 @@
+const controlPanel = require('control-panel');
+const h = require('h');
+const extend = require('xtend');
+const mutate = require('xtend/mutable');
+const fs = require('fs');
+
+module.exports = function (fields, state, cb) {
+  const control = h('div#control');
+  document.body.appendChild(control);
+  const controlHeader = h('div.control-header', 'Controls')
+  control.appendChild(controlHeader);
+  control.addEventListener('mousemove', e => e.stopPropagation());
+  control.addEventListener('mousedown', e => e.stopPropagation());
+  controlHeader.addEventListener('click', (e) => {
+    e.stopPropagation();
+    control.classList.toggle('expanded')
+  });
+
+  let pstate = extend({}, state);
+
+  require('control-panel')(fields, {
+    root: control,
+    theme: 'dark',
+    width: 375
+  }).on('input', data => {
+    pstate = extend({}, state);
+    mutate(state, data);
+    cb && cb(pstate, state);
+  });
+};

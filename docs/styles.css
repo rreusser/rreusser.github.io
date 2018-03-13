@@ -939,3 +939,71 @@ figcaption {
 .menu__item {
   display: block;
 }
+
+.projects {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 1200px;
+  box-sizing: border-box;
+
+  display: flex;
+  justify-content: center;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.project {
+  flex: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 7px;
+  max-width: 100%;
+  flex-basis: 380px;
+  flex-grow: 0;
+  flex-shrink: 0;
+  height: 285px;
+  background-color: #333;
+  color: white;
+  position: relative;
+  overflow: hidden;
+  line-height: 1.4em;
+}
+
+.project__overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background-color: rgba(30, 30, 30, 0.6);
+  opacity: 0;
+  transition: all 0.1s;
+  text-shadow: 0 0 30px rgba(0, 0, 0, 1.0);
+}
+
+.project:hover .project__overlay {
+  opacity: 1;
+}
+
+.project__meta {
+  position: absolute;
+  width: 100%;
+  padding: 0 15px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.project__title {
+  font-size: 1.2em;
+  margin: 15px 15px;
+  display: block;
+}
+
+.project__description {
+  font-size: 0.9em;
+  font-style: italic;
+}
+
+

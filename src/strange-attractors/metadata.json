@@ -1,4 +1,5 @@
 {
   "title": "Strange Attractors",
-  "description": "Strange attractors on the GPU"
+  "description": "Strange attractors on the GPU",
+  "order": 450
 }
