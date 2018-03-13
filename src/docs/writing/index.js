@@ -11499,7 +11499,7 @@ var Article = function (_React$Component) {
         { className: "article", itemProp: "mainEntity", itemScope: true, itemType: "http://schema.org/Article" },
         _react2.default.createElement(
           "a",
-          { href: '../' + this.props.path, className: "article__title", target: "_blank", itemProp: "name" },
+          { href: '../' + this.props.path, className: "article__title", itemProp: "name" },
           this.props.title
         ),
         _react2.default.createElement("br", null),
