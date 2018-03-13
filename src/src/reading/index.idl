@@ -1,10 +1,10 @@
 [menu fullWidth:true/]
 
-[meta fullWidth:true title:"Books"/]
+[meta fullWidth:true title:"Reading"/]
 
 [Header
   fullWidth:true
-  title:"Books"
+  title:"Reading"
 /]
 
 
