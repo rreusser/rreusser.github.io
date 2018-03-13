@@ -146,27 +146,27 @@ var Menu = function (_React$Component) {
             { className: 'menu__items' },
             _react2.default.createElement(
               'a',
-              { className: 'menu__item', href: '/Projects/' },
+              { className: 'menu__item', href: '/projects/' },
               'projects'
             ),
             _react2.default.createElement(
               'a',
-              { className: 'menu__item', href: '/Writing' },
+              { className: 'menu__item', href: '/writing' },
               'writing'
             ),
             _react2.default.createElement(
               'a',
-              { className: 'menu__item', href: '/Books/' },
+              { className: 'menu__item', href: '/books/' },
               'books'
             ),
             _react2.default.createElement(
               'a',
-              { className: 'menu__item', href: 'Github' },
+              { className: 'menu__item', href: 'https://github.com/rreusser' },
               'github.com/rreusser'
             ),
             _react2.default.createElement(
               'a',
-              { className: 'menu__item', href: 'Twitter' },
+              { className: 'menu__item', href: 'https://twitter.com/rickyreusser' },
               '@rickyreusser'
             )
           )
