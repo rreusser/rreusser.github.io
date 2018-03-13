@@ -1,4 +1,54 @@
-require=(function(){function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s}return e})()({"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js":[function(require,module,exports){
+require=(function(){function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s}return e})()({"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js":[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _react = require("react");
+
+var _react2 = _interopRequireDefault(_react);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var Footer = function (_React$PureComponent) {
+  _inherits(Footer, _React$PureComponent);
+
+  function Footer() {
+    _classCallCheck(this, Footer);
+
+    return _possibleConstructorReturn(this, (Footer.__proto__ || Object.getPrototypeOf(Footer)).apply(this, arguments));
+  }
+
+  _createClass(Footer, [{
+    key: "render",
+    value: function render() {
+      return _react2.default.createElement(
+        "footer",
+        { className: "footer" },
+        _react2.default.createElement(
+          "div",
+          { className: "footer__content" },
+          _react2.default.createElement(
+            "div",
+            { className: "footer_copy" },
+            "\xA9 2018. Ricky Reusser."
+          )
+        )
+      );
+    }
+  }]);
+
+  return Footer;
+}(_react2.default.PureComponent);
+
+module.exports = Footer;
+
+},{"react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js":[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -11525,7 +11575,7 @@ exports.default = Article;
 },{"react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"__IDYLL_AST__":[function(require,module,exports){
 "use strict";
 
-module.exports = [["menu", [], []], ["Header", [["title", ["value", "Writing"]]], []], ["TextContainer", [], [["Article", [["title", ["value", "From Nothing to Something in WebGL Using regl"]], ["summary", ["value", "A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."]], ["summary", ["value", "I've been telling all my friends how great and easy it is, but the truth is it's only easy if you already know the ins and outs of setting up a modern development environment in the first place. Which really sounds like way more than it is."]], ["date", ["value", "Dec 7, 2016"]], ["path", ["value", "from-nothing-to-something-in-webgl-with-regl"]]], []], ["Article", [["title", ["value", "Things I Learned the Hard Way Using React Native"]], ["summary", ["value", "A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."]], ["date", ["value", "May 5, 2016"]], ["path", ["value", "things-i-learned-the-hard-way-using-react-native"]]], []]]]];
+module.exports = [["menu", [], []], ["Header", [["title", ["value", "Writing"]]], []], ["TextContainer", [], [["Article", [["title", ["value", "From Nothing to Something in WebGL Using regl"]], ["summary", ["value", "A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."]], ["summary", ["value", "I've been telling all my friends how great and easy it is, but the truth is it's only easy if you already know the ins and outs of setting up a modern development environment in the first place. Which really sounds like way more than it is."]], ["date", ["value", "Dec 7, 2016"]], ["path", ["value", "from-nothing-to-something-in-webgl-with-regl"]]], []], ["Article", [["title", ["value", "Things I Learned the Hard Way Using React Native"]], ["summary", ["value", "A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."]], ["date", ["value", "May 5, 2016"]], ["path", ["value", "things-i-learned-the-hard-way-using-react-native"]]], []], ["Article", [["title", ["value", "A Series of Unfortunate Things I Programmed One Time\n"]], ["summary", ["value", "In which I try to communicate the regrets that surfaced last weekend when I plugged in my old laptop and sifted through a decade-old folder called `projects`."]], ["date", ["value", "March 16, 2015"]], ["path", ["value", "a-series-of-unfortunate-things-i-programmed-one-time"]]], []]]], ["footer", [], []]];
 
 },{}],"__IDYLL_COMPONENTS__":[function(require,module,exports){
 'use strict';
@@ -11534,10 +11584,11 @@ module.exports = {
 	'menu': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js'),
 	'header': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js'),
 	'text-container': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js'),
-	'article': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/src/writing/components/article.js')
+	'article': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/src/writing/components/article.js'),
+	'footer': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js')
 };
 
-},{"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/src/writing/components/article.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/src/writing/components/article.js"}],"__IDYLL_DATA__":[function(require,module,exports){
+},{"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/src/writing/components/article.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/src/writing/components/article.js"}],"__IDYLL_DATA__":[function(require,module,exports){
 "use strict";
 
 module.exports = {};

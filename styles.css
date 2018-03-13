@@ -6,7 +6,6 @@ body {
 }
 .idyll-root {
   box-sizing: border-box;
-  margin-bottom: 60px;
 }
 .article-header {
   margin-bottom: 45px;
@@ -1021,6 +1020,21 @@ figcaption {
 .article__title {
   font-size: 1.6em;
   font-weight: 200;
+}
+
+.footer {
+  margin-top: 60px;
+  background-color: #ca4747;
+  padding-top: 5em;
+  padding-bottom: 5em;
+  color: white;
+}
+
+.footer__content {
+  text-align: right;
+  max-width: 600px;
+  padding-left: 15px;
+  padding-right: 15px;
 }
 
 @media (max-width: 787px) {

@@ -1,7 +1,7 @@
 import React from 'react';
 
 class Header extends React.PureComponent {
-  render() {
+  render () {
     return (
       <div className={'article-header'}>
         <div className={'article-header__content'}>

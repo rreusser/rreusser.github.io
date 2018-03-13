@@ -164,3 +164,5 @@ Ommitted for brevity, but you can see it in the original gist [here](https://gis
 ## Conclusion
 
 That's all for now! At the end here, I'm clearly kinda scraping the bottom of the barrel. There's nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we'd dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you [give it a try!](http://facebook.github.io/react-native/)
+
+[footer fullWidth:true/]

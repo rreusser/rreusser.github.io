@@ -252,3 +252,5 @@ To summarize again the tools we just used:
 - [glslify](https://github.com/glslify/glslify): `require` for your GLSL shaders
 
 🚀
+
+[footer fullWidth:true/]
