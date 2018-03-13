@@ -1,0 +1,25 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true title:"Writing"/]
+
+[Header
+  fullWidth:true
+  title:"Writing"
+/]
+
+
+[Article
+  title:"From Nothing to Something in WebGL Using regl"
+  summary:"A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."
+  summary:"I've been telling all my friends how great and easy it is, but the truth is it's only easy if you already know the ins and outs of setting up a modern development environment in the first place. Which really sounds like way more than it is."
+  date:"Dec 7, 2016"
+  path:"from-nothing-to-something-in-webgl-with-regl"
+/]
+
+[Article
+  title:"Things I Learned the Hard Way Using React Native"
+  summary:"A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."
+  date:"May 5, 2016"
+  path:"thing-i-learned-the-hard-way-using-react-native"
+/]
+

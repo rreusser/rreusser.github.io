@@ -21,6 +21,8 @@ if (!/^src\//.test(projectDir)) projectDir = path.join('src', projectDir);
 const entryFile = getEntryFile(projectDir);
 const outputDir = projectDir.replace(/^src\//, '../');
 
+console.log('Building ', projectDir);
+
 switch (entryFile.type) {
   case 'idl':
     const idyll = Idyll({
@@ -51,7 +53,7 @@ switch (entryFile.type) {
     });
 
     fs.createReadStream(path.join(__dirname, '..', 'lib', 'css', 'styles.css'))
-      .pipe(fs.createWriteStream(path.join(outputDir, 'styles.css')));
+      .pipe(fs.createWriteStream(path.join(outputDir, '..', 'styles.css')));
 
     break;
   case 'html':
