@@ -180,7 +180,74 @@ var Menu = function (_React$Component) {
 
 exports.default = Menu;
 
-},{"classnames":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/classnames/index.js","react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/camel-case/camel-case.js":[function(require,module,exports){
+},{"classnames":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/classnames/index.js","react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js":[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _react = require('react');
+
+var _react2 = _interopRequireDefault(_react);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _objectWithoutProperties(obj, keys) { var target = {}; for (var i in obj) { if (keys.indexOf(i) >= 0) continue; if (!Object.prototype.hasOwnProperty.call(obj, i)) continue; target[i] = obj[i]; } return target; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var TextContainer = function (_React$PureComponent) {
+  _inherits(TextContainer, _React$PureComponent);
+
+  function TextContainer() {
+    _classCallCheck(this, TextContainer);
+
+    return _possibleConstructorReturn(this, (TextContainer.__proto__ || Object.getPrototypeOf(TextContainer)).apply(this, arguments));
+  }
+
+  _createClass(TextContainer, [{
+    key: 'render',
+    value: function render() {
+      var _props = this.props,
+          idyll = _props.idyll,
+          children = _props.children,
+          className = _props.className,
+          updateProps = _props.updateProps,
+          props = _objectWithoutProperties(_props, ['idyll', 'children', 'className', 'updateProps']);
+
+      var _idyll$layout = idyll.layout,
+          styles = _idyll$layout.styles,
+          layout = _objectWithoutProperties(_idyll$layout, ['styles']);
+
+      var _idyll$theme = idyll.theme,
+          _ = _idyll$theme.styles,
+          theme = _objectWithoutProperties(_idyll$theme, ['styles']);
+
+      var style = _extends({}, layout, theme);
+      var cn = (className || '') + ' idyll-text-container';
+      return _react2.default.createElement(
+        'div',
+        _extends({}, props, { className: cn }),
+        children
+      );
+    }
+  }]);
+
+  return TextContainer;
+}(_react2.default.PureComponent);
+
+exports.default = TextContainer;
+
+},{"react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/camel-case/camel-case.js":[function(require,module,exports){
 'use strict';
 
 var upperCase = require('upper-case');
@@ -11477,7 +11544,7 @@ module.exports=[{"id":"flamms-paraboloid","path":"../flamms-paraboloid/","title"
 },{}],"__IDYLL_AST__":[function(require,module,exports){
 "use strict";
 
-module.exports = [["menu", [], []], ["Header", [["title", ["value", "Projects"]]], []], ["ProjectIndex", [], []]];
+module.exports = [["menu", [], []], ["Header", [["title", ["value", "Projects"]]], []], ["TextContainer", [], [["p", [], ["A set of experirments and explorations, mostly using the ", ["a", [["href", ["value", "https://github.com/regl-project/regl"]]], ["regl"]], " WebGL library, some computed on the GPU and some on the CPU. The source for all content and projects on this site can be found ", ["a", [["href", ["value", "https://github.com/rreusser/rreusser.github.io/tree/master/src/src"]]], ["here"]], ". Keep in mind though that these are explorations and that I certainly learned as much (often more) about how ", ["em", [], ["not"]], " to approach these projects as about how ", ["em", [], ["to"]], " approach these projects."]], ["p", [], ["Comments? Questions? Let me know ", ["a", [["href", ["value", "https://twitter.com/rickyreusser"]]], ["@rickyreusser"]], "."]]]], ["ProjectIndex", [], []]];
 
 },{}],"__IDYLL_COMPONENTS__":[function(require,module,exports){
 'use strict';
@@ -11485,10 +11552,11 @@ module.exports = [["menu", [], []], ["Header", [["title", ["value", "Projects"]]
 module.exports = {
 	'menu': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js'),
 	'header': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js'),
+	'text-container': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js'),
 	'project-index': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/src/projects/components/ProjectIndex.js')
 };
 
-},{"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/src/projects/components/ProjectIndex.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/src/projects/components/ProjectIndex.js"}],"__IDYLL_DATA__":[function(require,module,exports){
+},{"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/src/projects/components/ProjectIndex.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/src/projects/components/ProjectIndex.js"}],"__IDYLL_DATA__":[function(require,module,exports){
 "use strict";
 
 module.exports = {};

@@ -1025,13 +1025,12 @@ figcaption {
 }
 
 @media (max-width: 787px) {
-  .project {
-    flex-basis: 320px;
+  .projects {
+    padding: 15px;
   }
-}
 
-@media (max-width: 667px) {
   .project {
-    flex-basis: 380px;
+    max-width:640px;
+    flex-basis: 100%;
   }
 }
