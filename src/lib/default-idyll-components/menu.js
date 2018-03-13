@@ -27,9 +27,9 @@ class Menu extends React.Component {
             <a href="/">rreusser.github.io</a>
           </div>
           <div className="menu__items">
-            <a className="menu__item" href="/projects/">projects</a>
-            <a className="menu__item" href="/writing">writing</a>
-            <a className="menu__item" href="/books/">books</a>
+            <a className="menu__item" href="/projects/">Projects</a>
+            <a className="menu__item" href="/writing/">Writing</a>
+            <a className="menu__item" href="/books/">Books</a>
             <a className="menu__item" href="https://github.com/rreusser">github.com/rreusser</a>
             <a className="menu__item" href="https://twitter.com/rickyreusser">@rickyreusser</a>
           </div>

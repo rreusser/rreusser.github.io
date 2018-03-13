@@ -147,17 +147,17 @@ var Menu = function (_React$Component) {
             _react2.default.createElement(
               'a',
               { className: 'menu__item', href: '/projects/' },
-              'projects'
+              'Projects'
             ),
             _react2.default.createElement(
               'a',
-              { className: 'menu__item', href: '/writing' },
-              'writing'
+              { className: 'menu__item', href: '/writing/' },
+              'Writing'
             ),
             _react2.default.createElement(
               'a',
               { className: 'menu__item', href: '/books/' },
-              'books'
+              'Books'
             ),
             _react2.default.createElement(
               'a',
