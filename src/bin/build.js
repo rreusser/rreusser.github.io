@@ -31,7 +31,7 @@ switch (entryFile.type) {
       components: path.join(__dirname, '..', projectDir, 'components'),
       output: path.join(__dirname, '..', outputDir),
       //css: path.join(__dirname, '..', 'lib', 'css', 'styles.css'),
-			template: path.join(__dirname, '..', 'templates', '_index.html'),
+      template: path.join(__dirname, '..', 'templates', '_index.html'),
       watch: false,
       minify: true,
       ssr: true,
