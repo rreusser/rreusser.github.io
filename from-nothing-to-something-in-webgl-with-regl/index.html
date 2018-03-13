@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+      <title>
+        From Nothing to Something in WebGL Using regl
+      </title>
+      <meta property="og:title" content="From Nothing to Something in WebGL Using regl">
+    <meta charset="utf-8">
+    <meta property="og:type" content="article">
+
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body>
+    <div id="idyll-mount"><div class="idyll-root" data-reactroot=""><nav class="menu"><button class="menu__thumb"><span class="menu__hamburger"></span><span class="menu__hamburger"></span><span class="menu__hamburger"></span></button><div class="menu__content"><div class="menu__heading"><a href="/">rreusser.github.io</a></div><div class="menu__items"><a class="menu__item" href="/projects">projects</a><a class="menu__item" href="/about">about</a><a class="menu__item" href="https://github.com/rreusser">github.com/rreusser</a><a class="menu__item" href="https://twitter.com/rickyreusser">@rickyreusser</a></div></div></nav><div class="article-header"><div class="article-header__content"><h1 class="hed">From Nothing to Something in WebGL Using regl</h1><div class="byline"><a href="https://github.com/rreusser">Ricky Reusser</a></div><div class="published-at">December 7, 2016</div></div></div><div class=" idyll-text-container"><p>I’ve been telling all my friends how great and easy <a href="github.com/regl-project/regl">regl</a> is. In short, regl is a wrapper for the WebGL API, written by <a href="http://github.com/mikolalysenko">Mikola Lysenko</a>. WebGL is a giant state machine that quickly gets fairly difficult to manage. regl threads the needle and adds just the right amount of abstraction without adding many of its own features at. There hasn’t been much development activity in a while because, for the most part, it’s complete and does what it intends to do.</p><p>So I’ve been telling all my friends how great and easy it is, but the truth is it’s only easy if you already know the ins and outs of setting up a modern development environment in the first place. Which really sounds like way more than it is. But it’s taken me a couple years to figure out a lot of this stuff, and I’m still not there. So here’s a quick walkthrough on setting up regl in a nice and simple and modern JavaScript environment. It’s *a* setup. It’s not the perfect setup, but it’s super simple and it’ll get you off the ground. I use it all the time. Enough talk. Let’s go.</p><h2>Initialize it</h2><p>First we’ll make a project. Let’s start from the beginning. <a href="https://yarnpkg.com/">Yarn</a> is great for managing JS dependencies. <a href="http://blog.npmjs.org/post/85484771375/how-to-install-npm">npm</a> too. <a href="https://www.freebsd.org/doc/en_US.ISO8859-1/books/faq/misc.html#idp60510056">Don’t bikeshed</a>. So let’s use npm at the moment. You can create a new project from the command line with:</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>$ mkdir cool-project
+$ <span style="color:#e6c07b">cd</span> cool-project
+$ npm init -y</code></pre><p>That made an empty directory with a <code>package.json</code> in it. Let’s create a file called <code>index.js</code> and start with the JS developer’s favorite sanity-check:</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>alert(<span style="color:#98c379">&#x27;hello, world!&#x27;</span>);</code></pre><p>Technically we have a functioning project, but there’s no way to see it just yet. To use it, we’ll have to add a couple scripts. Let’s use the <a href="https://github.com/ahdinosaur/es2040">good parts of ES6</a> and fire it up with a development server. <a href="https://github.com/mattdesl/budo">budo</a> is awesome for this. budo lets you run javascript files in the browser without having to write any html. To install budo and some other great tools we’ll want, run:</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>$ npm install -D browserify es2040 budo indexhtmlify uglify-js</code></pre><p>I added <code>indexhtmlify</code> and <code>uglify-js</code> since we’ll want those when it comes time to build this. Instead of typing out long commands on the command line, let’s add a development server script and a build script to <code>package.json</code>:</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>{
+  <span style="color:#d19a66">&quot;name&quot;</span>: <span style="color:#98c379">&quot;cool-project&quot;</span>,
+  <span style="color:#d19a66">&quot;version&quot;</span>: <span style="color:#98c379">&quot;1.0.0&quot;</span>,
+  <span style="color:#d19a66">&quot;main&quot;</span>: <span style="color:#98c379">&quot;index.js&quot;</span>,
+  <span style="color:#d19a66">&quot;scripts&quot;</span>: {
+    <span style="color:#d19a66">&quot;start&quot;</span>: <span style="color:#98c379">&quot;budo index.js --open --live --host localhost -- -t es2040&quot;</span>,
+    <span style="color:#d19a66">&quot;build&quot;</span>: <span style="color:#98c379">&quot;browserify index.js -t es2040 | uglifyjs -cm | indexhtmlify &gt; index.html&quot;</span>
+  },
+  ...
+}</code></pre><p>The first command will start a live-reloading development server. Additionally it applies the <a href="https://github.com/ahdinosaur/es2040">es2040</a> browserify transform so that we can use some more modern features of JS without sacrificing compatibility with old browsers. The second script just does the same thing, except it uses <a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a> to wrap the final JS in some minimal html. I really wish I’d known about such a simple process for this earlier on.</p><h2>Run it</h2><p>That’s it. We’ve got a project. Let’s run it:</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>$ npm start</code></pre><figure><img alt="Hello!" src="images/hello.png" width="532"/><figcaption>Hello!</figcaption></figure><h2>Build it</h2><p>To make something interesting, I’m going to use the <a href="https://github.com/regl-project/regl">regl</a> (at times pronounced “re-gal”) library because I love it and because it’s so easy. To install and save it as a dependency:</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>$ npm install -S regl regl-camera bunny angle-normals</code></pre><p>I added also added a couple more dependencies we’ll want. Let’s add the content below. There’s a bit going on here. To summarize, you’re writing a small program (the vertex shader) to tell the gpu how triangles in three dimensional space get mapped to coordinates on your screen, followed by another program (the fragment shader) that tells it what color each pixel is. The goal here isn’t to explain all the details. The goal here is just to get you a good setup so that you can play with things and discover for yourself. <a href="https://regl-project.github.io/regl/www/gallery.html">Try out some of the examples</a>.</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code><span style="color:#c678dd">const</span> regl = <span style="color:#e6c07b">require</span>(<span style="color:#98c379">&#x27;regl&#x27;</span>)();
+<span style="color:#c678dd">const</span> bunny = <span style="color:#e6c07b">require</span>(<span style="color:#98c379">&#x27;bunny&#x27;</span>);
+<span style="color:#c678dd">const</span> angleNormals = <span style="color:#e6c07b">require</span>(<span style="color:#98c379">&#x27;angle-normals&#x27;</span>);
+<span style="color:#c678dd">const</span> camera = <span style="color:#e6c07b">require</span>(<span style="color:#98c379">&#x27;regl-camera&#x27;</span>)(regl, {
+  <span style="color:#d19a66">distance</span>: <span style="color:#d19a66">30</span>,
+  <span style="color:#d19a66">phi</span>: <span style="color:#d19a66">0.7</span>,
+  <span style="color:#d19a66">theta</span>: <span style="color:#d19a66">1.5</span>,
+  <span style="color:#d19a66">center</span>: [<span style="color:#d19a66">0</span>, <span style="color:#d19a66">5</span>, <span style="color:#d19a66">0</span>],
+  <span style="color:#d19a66">damping</span>: <span style="color:#d19a66">0</span>,
+  <span style="color:#d19a66">noScroll</span>: <span style="color:#56b6c2">true</span>
+});
+
+<span style="color:#c678dd">const</span> drawBunny = regl({
+  <span style="color:#d19a66">vert</span>: <span style="color:#98c379">`
+    precision mediump float;
+    attribute vec3 position, normal;
+    uniform mat4 projection, view;
+    varying vec3 surfaceNormal;
+    void main () {
+      surfaceNormal = normal;
+      gl_Position = projection * view * vec4(position, 1);
+    }
+  `</span>,
+  <span style="color:#d19a66">frag</span>: <span style="color:#98c379">`
+    precision mediump float;
+    varying vec3 surfaceNormal;
+    void main () {
+      gl_FragColor = vec4(surfaceNormal, 1);
+    }
+  `</span>,
+  <span style="color:#d19a66">attributes</span>: {
+    <span style="color:#d19a66">position</span>: bunny.positions,
+    <span style="color:#d19a66">normal</span>: angleNormals(bunny.cells, bunny.positions)
+  },
+  <span style="color:#d19a66">elements</span>: bunny.cells
+});
+
+regl.frame(<span><span>()</span> =&gt;</span> {
+  camera(<span><span>()</span> =&gt;</span> {
+    regl.clear({<span style="color:#d19a66">color</span>: [<span style="color:#d19a66">0.1</span>, <span style="color:#d19a66">0.1</span>, <span style="color:#d19a66">0.1</span>, <span style="color:#d19a66">1</span>]});
+    drawBunny();
+  });
+});</code></pre><figure><div></div><figcaption>Hello, regl!</figcaption></figure><h2>Optimize it</h2><p>If you have this up and running, you should be looking at a bunny and your GPU fan should be audibly struggling. We’re doing a few things... let’s say, <em>not optimally</em>.</p><p>First of all, we’re rendering the bunny on every single <code>requestAnimationFrame</code>, even when nothing has changed. <code>regl-camera</code> has a state variable called <code>dirty</code> to help avoid that. When the camera has move and the scene needs to be re-rendered, <code>dirty</code> is set <code>true</code>. Otherwise we can just bail out. (It’s nothing magic though. Actually, more often than not, I copy <a href="https://github.com/regl-project/regl-camera/blob/master/regl-camera.js">regl-camera.js</a> into my current project and modify it however the current project requires.) With this addition, our render loop becomes:</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>regl.frame(<span><span>()</span> =&gt;</span> {
+  camera(<span>(<span>{dirty}</span>) =&gt;</span> {
+    <span style="color:#c678dd">if</span> (!dirty) <span style="color:#c678dd">return</span>;
+    regl.clear({<span style="color:#d19a66">color</span>: [<span style="color:#d19a66">0.1</span>, <span style="color:#d19a66">0.1</span>, <span style="color:#d19a66">0.1</span>, <span style="color:#d19a66">1</span>]});
+    drawBunny();
+  });
+});</code></pre><p>Next, your pixel ratio might be rather high depending on your display. There are times when you can’t even tell the difference, but even just going from a pixel ratio of 2 to 1.5 reduces the number of fragments processed by a factor of <span style="display:inline-block"><span> <span class="katex"><span class="katex-mathml"><math><semantics><mrow><mo>(</mo><mn>1</mn><mi mathvariant="normal">.</mi><mn>5</mn><mo>⋅</mo><mn>1</mn><mi mathvariant="normal">.</mi><mn>5</mn><mo>)</mo><mi mathvariant="normal">/</mi><mo>(</mo><mn>2</mn><mo>⋅</mo><mn>2</mn><mo>)</mo><mo>=</mo><mn>0</mn><mi mathvariant="normal">.</mi><mn>5</mn><mn>6</mn><mn>2</mn><mn>5</mn></mrow><annotation encoding="application/x-tex"> (1.5\cdot 1.5) / (2\cdot 2) = 0.5625</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="strut" style="height:0.75em;"></span><span class="strut bottom" style="height:1em;vertical-align:-0.25em;"></span><span class="base"><span class="mopen">(</span><span class="mord">1</span><span class="mord">.</span><span class="mord">5</span><span class="mord rule" style="margin-right:0.2222222222222222em;"></span><span class="mbin">⋅</span><span class="mord rule" style="margin-right:0.2222222222222222em;"></span><span class="mord">1</span><span class="mord">.</span><span class="mord">5</span><span class="mclose">)</span><span class="mord">/</span><span class="mopen">(</span><span class="mord">2</span><span class="mord rule" style="margin-right:0.2222222222222222em;"></span><span class="mbin">⋅</span><span class="mord rule" style="margin-right:0.2222222222222222em;"></span><span class="mord">2</span><span class="mclose">)</span><span class="mord rule" style="margin-right:0.2777777777777778em;"></span><span class="mrel">=</span><span class="mord rule" style="margin-right:0.2777777777777778em;"></span><span class="mord">0</span><span class="mord">.</span><span class="mord">5</span><span class="mord">6</span><span class="mord">2</span><span class="mord">5</span></span></span></span> </span></span>. You can constrain that by initializing regl with</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code><span style="color:#c678dd">const</span> regl = <span style="color:#e6c07b">require</span>(<span style="color:#98c379">&#x27;regl&#x27;</span>)({
+  <span style="color:#d19a66">pixelRatio</span>: <span style="color:#e6c07b">Math</span>.min(<span style="color:#e6c07b">window</span>.devicePixelRatio, <span style="color:#d19a66">1.5</span>)
+});</code></pre><p>Antialiasing can get pretty expensive too, but it’s easy to disable. You can experiment and make the choice for yourself. I’m not sure if depth, stencil, or alpha have much of a cost, but while we’re at it, let’s just disable those too. Except the depth buffer. We’re using that one. Let’s leave it on.</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code><span style="color:#c678dd">const</span> regl = <span style="color:#e6c07b">require</span>(<span style="color:#98c379">&#x27;regl&#x27;</span>)({
+  <span style="color:#d19a66">pixelRatio</span>: <span style="color:#e6c07b">Math</span>.min(<span style="color:#e6c07b">window</span>.devicePixelRatio, <span style="color:#d19a66">1.5</span>),
+  <span style="color:#d19a66">attributes</span>: {
+    <span style="color:#d19a66">antialias</span>: <span style="color:#56b6c2">false</span>,
+    <span style="color:#d19a66">stencil</span>: <span style="color:#56b6c2">false</span>,
+    <span style="color:#d19a66">alpha</span>: <span style="color:#56b6c2">false</span>,
+    <span style="color:#d19a66">depth</span>: <span style="color:#56b6c2">true</span>
+  }
+});</code></pre><h2>glslify it</h2><p>Generally speaking, regl is a low-level abstraction that doesn’t add much. That’s great in terms of API design, but inevitably we want to simply our code and add fancy things. <a href="http://stack.gl/">stack.gl</a> is a great project with a lot to offer.</p><p>In order to really utilize stack.gl, there’s one more big piece of the puzzle: <a href="https://github.com/glslify/glslify">glslify</a>. Vertex and fragment shaders can get pretty verbose when you try to start assembling pieces together. glslify is like Node’s <code>require</code> for GLSL. You can view tons of glslify modules in <a href="http://stack.gl/packages/">the stack.gl docs</a>. (Most of stack.gl’s Core and WebGL API module have been largely superseded by regl, but there’s tons of other great stuff that’s a perfect fit for use with regl!)</p><p>So let’s add <a href="http://stack.gl/packages/#stackgl/glsl-diffuse-lambert">diffuse lambert shading</a>. First install and save it as a dependency.</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>$ npm install -S glsl-diffuse-lambert</code></pre><p>Now we require it and process the shaders with glsl. This requires passing some information from the vertex shader to the fragment shader using varying attributes.</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code><span style="color:#c678dd">const</span> glsl = <span style="color:#e6c07b">require</span>(<span style="color:#98c379">&#x27;glslify&#x27;</span>);
+
+<span style="color:#c678dd">const</span> drawBunny = regl({
+  <span style="color:#d19a66">vert</span>: <span style="color:#98c379">`
+    precision mediump float;
+    attribute vec3 position, normal;
+    uniform mat4 projection, view;
+    varying vec3 surfaceNormal, surfacePosition;
+    void main () {
+      surfaceNormal = normal;
+      surfacePosition = position;
+      gl_Position = projection * view * vec4(position, 1);
+    }
+  `</span>,
+  <span style="color:#d19a66">frag</span>: glsl<span style="color:#98c379">`
+    precision mediump float;
+    #pragma glslify: lambert = require(glsl-diffuse-lambert)
+    varying vec3 surfaceNormal, surfacePosition;
+    uniform vec3 lightPosition;
+    void main () {
+      vec3 lightDirection = normalize(lightPosition - surfacePosition);
+      vec3 normal = normalize(surfaceNormal);
+      float power = lambert(lightDirection, normal);
+      gl_FragColor = vec4(vec3(power), 1);
+    }
+  `</span>,
+  <span style="color:#d19a66">uniforms</span>: {
+    <span style="color:#d19a66">lightPosition</span>: [<span style="color:#d19a66">100</span>, <span style="color:#d19a66">100</span>, <span style="color:#d19a66">100</span>]
+  }
+  ...
+});</code></pre><p>Okay, now here’s why I brought this up in the first place. We don’t want all of glslify’s machinery making it into our production project. We want glslify to compile our shaders when we <em>bundle</em> our JavaScript. That means we need to use glslify’s browserify transform. (Webpack can be made to work, but I won’t cover that here.) Simplifying just a bit, there are two options:</p><ol><li>Use <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals">tagged template literals</a>, i.e. <code>glslify`...`</code>, and use glslify as the <em>first</em> browserify transform, e.g. <code>browserify ... -t glslify -t es2040</code>.</li><li>Use the functional form, i.e. <code>glslify(`...`)</code>, and use glslify as the <em>last</em> browserify transform, e.g. <code>browserify ... -t es2040 -t glslify</code>.</li></ol><p>
+See <a href="https://github.com/glslify/glslify#module-api">the glslify docs</a> for more information. The reasons aren’t particularly interesting, but require some thought and debugging and can trip you up. For example, since the implementation on this page uses React and JSX, I had to use the second option so that the glslify transform wouldn’t choke on untransformed JSX. But for a standalone JavaScript project without fancy JSX transpiling, the first is perfectly fine. 🤷🏻‍♂️</p><p>Bottom line, glslify is very useful. There are a couple caveats involved, but it’s great once you get it set up.</p><h2>Deploy it</h2><p>We’ve got a project! Up to now we’ve been using a development server and testing it locally. If you want to stick the result on, say, Github (because for any faults, it’s pretty great), you can just run</p><pre style="display:block;overflow-x:auto;padding:0.5em;color:#abb2bf;background:#282c34"><code>$ npm run build</code></pre><p>The result is a file called <code>index.html</code> in the main directory. Push that to github, turn on the web server option in the repo settings, and you’ve got yourself a live webpage.</p><p>Hopefully you’re looking at a bunny. Let me know if you run into any trouble!</p><figure><div></div><figcaption>Sorry about the mouse wheel behavior.</figcaption></figure><h2>Summarizing it</h2><p>To summarize again the tools we just used:</p><ul><li><a href="https://www.npmjs.com/">npm</a>: installs javascript modules from npmjs.com</li><li><a href="http://browserify.org/">browserify</a>: turns multiple files with <code>require(...)</code> statements -- which the browser knows nothing about -- into a single file the browser can run.</li><li><a href="https://github.com/mattdesl/budo">budo</a>: test out javascript in the browser without writing any html</li><li><a href="https://www.npmjs.com/package/es2020">es2020</a>: ES<!-- -->5<!-- --> with template strings, arrow functions, and const. That is all.</li><li><a href="https://www.npmjs.com/package/es2040">es2040</a>: a less spartan es<!-- -->2<!-- -->0<!-- -->2<!-- -->0<!-- -->. Lots of new features have made there way into JavaScript lately. This plugin picks the good features and compiles your fancy JavaScript down to code that will run in old browsers too.</li><li><a href="https://github.com/dominictarr/indexhtmlify">indexhtmlify</a>: a super simple utility that wraps your javascript in some boilerplate html so you can throw a web page onto the internet and still not have to write any html.</li><li><a href="https://github.com/regl-project/regl">regl</a>: Functional WebGL</li><li><a href="https://github.com/glslify/glslify">glslify</a>: <code>require</code> for your GLSL shaders</li></ul><p>
+🚀</p></div></div></div>
+    <script src="index.js"></script>
+  </body>
+</html>
