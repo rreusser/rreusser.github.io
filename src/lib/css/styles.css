@@ -636,7 +636,8 @@ table tr:nth-child(2n) {
   background-color: #f6f8fa;
 }
 
-img {
+img,
+video {
   max-width: 100%;
   box-sizing: content-box;
   background-color: #fff;
