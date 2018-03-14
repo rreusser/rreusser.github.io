@@ -978,6 +978,7 @@ figcaption {
   opacity: 0;
   transition: all 0.1s;
   text-shadow: 0 0 30px rgba(0, 0, 0, 1.0);
+  text-align: center;
 }
 
 .project:hover .project__overlay {
@@ -989,6 +990,7 @@ figcaption {
 }
 
 .project__meta {
+  display: block;
   position: absolute;
   width: 100%;
   padding: 0 15px;
@@ -1007,6 +1009,8 @@ figcaption {
 .project__description {
   font-size: 0.9em;
   font-style: italic;
+  margin: 15px;
+  display: block;
 }
 
 .article {
@@ -1048,5 +1052,20 @@ figcaption {
   .project {
     max-width:640px;
     flex-basis: 100%;
+  }
+
+  .project__overlay {
+    top: auto;
+  }
+
+  .project__meta {
+    transform: none;
+    position: static;
+    height: auto;
+    bottom: 0;
+  }
+
+  .project__overlay {
+    opacity: 1;
   }
 }
