@@ -1062,8 +1062,8 @@ figcaption {
   align-self: stretch;
   margin-top: 60px;
   background-color: #ca4747;
-  padding-top: 5em;
-  padding-bottom: 5em;
+  padding-top: 1.5em;
+  padding-bottom: 1.5em;
   color: white;
 }
 
@@ -1074,6 +1074,19 @@ figcaption {
   padding-right: 15px;
   margin-left: auto;
   margin-right: auto;
+}
+
+.section-list {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 200;
+  margin-bottom: 1.5em;
+}
+
+.section-list__item {
+  width: 33%;
+  text-align: center;
+  display: inline-block;
 }
 
 @media (max-width: 787px) {

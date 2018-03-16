@@ -1,10 +1,12 @@
 import React from 'react';
-import projectsIndex from '../index.json';
+import projectsIndex from '../../src/projects/index.json';
 
 class ProjectIndex extends React.Component {
   render () {
+    var projects = this.props.limit ? projectsIndex.slice(0, this.props.limit) : projectsIndex;
+
     return <div className="projects">{
-      projectsIndex.map(project => (
+      projects.map(project => (
         <a
           className="project"
           key={project.id}

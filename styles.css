@@ -1,11 +1,26 @@
 @import url('https://fonts.googleapis.com/css?family=Open+Sans:300,400,400i,700');
 
+html, body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   font-family: "Open Sans", sans-serif;
 }
+
+.idyll-root, #idyll-mount {
+  min-height: 100%;
+}
+
+#idyll-mount {
+  height: 100%;
+}
+
 .idyll-root {
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 .article-header {
   margin-bottom: 45px;
@@ -27,6 +42,7 @@ input {
 }
 
 .idyll-text-container {
+  flex: 1;
   max-width: 640px;
   margin-left: auto;
   margin-right: auto;
@@ -757,6 +773,7 @@ hr {
   text-align: center;
   padding: 120px 15px;
   color: white;
+  position: relative;
 }
 
 .article-header h1 {
@@ -779,6 +796,16 @@ hr {
   max-width: 640px;
   margin-left: auto;
   margin-right: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.article-header__feature-container {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 @media all and (max-width: 640px) {
@@ -823,7 +850,7 @@ figcaption {
 }
 
 .menu__thumb {
-  z-index: 1;
+  z-index: 3;
   position: relative;
   display: block;
   border-radius: 0;
@@ -890,6 +917,7 @@ figcaption {
 
 .menu__content {
   position: absolute;
+  z-index: 2;
   top: 0;
   left: 0;
   right: 0;
@@ -1028,10 +1056,12 @@ figcaption {
 }
 
 .footer {
+  flex: 0;
+  align-self: stretch;
   margin-top: 60px;
   background-color: #ca4747;
-  padding-top: 5em;
-  padding-bottom: 5em;
+  padding-top: 1.5em;
+  padding-bottom: 1.5em;
   color: white;
 }
 
@@ -1042,6 +1072,19 @@ figcaption {
   padding-right: 15px;
   margin-left: auto;
   margin-right: auto;
+}
+
+.section-list {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 200;
+  margin-bottom: 1.5em;
+}
+
+.section-list__item {
+  width: 33%;
+  text-align: center;
+  display: inline-block;
 }
 
 @media (max-width: 787px) {

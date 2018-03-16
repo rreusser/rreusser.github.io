@@ -1,4 +1,4 @@
-require=(function(){function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s}return e})()({"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/ProjectIndex.js":[function(require,module,exports){
+require=(function(){function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s}return e})()({"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/code-highlight.js":[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -11,9 +11,13 @@ var _react = require('react');
 
 var _react2 = _interopRequireDefault(_react);
 
-var _index = require('../../src/projects/index.json');
+var _light = require('react-syntax-highlighter/dist/light');
 
-var _index2 = _interopRequireDefault(_index);
+var _light2 = _interopRequireDefault(_light);
+
+var _atomOneDark = require('react-syntax-highlighter/dist/styles/atom-one-dark');
+
+var _atomOneDark2 = _interopRequireDefault(_atomOneDark);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -23,62 +27,38 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var ProjectIndex = function (_React$Component) {
-  _inherits(ProjectIndex, _React$Component);
+var CodeHighlight = function (_React$PureComponent) {
+  _inherits(CodeHighlight, _React$PureComponent);
 
-  function ProjectIndex() {
-    _classCallCheck(this, ProjectIndex);
+  function CodeHighlight() {
+    _classCallCheck(this, CodeHighlight);
 
-    return _possibleConstructorReturn(this, (ProjectIndex.__proto__ || Object.getPrototypeOf(ProjectIndex)).apply(this, arguments));
+    return _possibleConstructorReturn(this, (CodeHighlight.__proto__ || Object.getPrototypeOf(CodeHighlight)).apply(this, arguments));
   }
 
-  _createClass(ProjectIndex, [{
+  _createClass(CodeHighlight, [{
     key: 'render',
     value: function render() {
-      var projects = this.props.limit ? _index2.default.slice(0, this.props.limit) : _index2.default;
-
       return _react2.default.createElement(
-        'div',
-        { className: 'projects' },
-        projects.map(function (project) {
-          return _react2.default.createElement(
-            'a',
-            {
-              className: 'project',
-              key: project.id,
-              href: project.path
-            },
-            _react2.default.createElement('img', { src: project.thumbnailPath }),
-            _react2.default.createElement(
-              'span',
-              { className: 'project__overlay' },
-              _react2.default.createElement(
-                'span',
-                { className: 'project__meta' },
-                _react2.default.createElement(
-                  'span',
-                  { className: 'project__title' },
-                  project.title
-                ),
-                project.description && _react2.default.createElement(
-                  'span',
-                  { className: 'project__description' },
-                  project.description
-                )
-              )
-            )
-          );
-        })
+        _light2.default,
+        {
+          style: _atomOneDark2.default,
+          language: this.props.language },
+        this.props.children.length ? this.props.children[0] : ''
       );
     }
   }]);
 
-  return ProjectIndex;
-}(_react2.default.Component);
+  return CodeHighlight;
+}(_react2.default.PureComponent);
 
-exports.default = ProjectIndex;
+CodeHighlight.defaultProps = {
+  children: []
+};
 
-},{"../../src/projects/index.json":"/Users/rreusser/node/rreusser/rreusser.github.io/src/src/projects/index.json","react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js":[function(require,module,exports){
+exports.default = CodeHighlight;
+
+},{"react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js","react-syntax-highlighter/dist/light":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/light.js","react-syntax-highlighter/dist/styles/atom-one-dark":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/styles/atom-one-dark.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js":[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -377,7 +357,56 @@ var TextContainer = function (_React$PureComponent) {
 
 exports.default = TextContainer;
 
-},{"react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/camel-case/camel-case.js":[function(require,module,exports){
+},{"react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/babel-runtime/core-js/object/assign.js":[function(require,module,exports){
+"use strict";
+
+module.exports = { "default": require("core-js/library/fn/object/assign"), __esModule: true };
+
+},{"core-js/library/fn/object/assign":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/fn/object/assign.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/babel-runtime/helpers/extends.js":[function(require,module,exports){
+"use strict";
+
+exports.__esModule = true;
+
+var _assign = require("../core-js/object/assign");
+
+var _assign2 = _interopRequireDefault(_assign);
+
+function _interopRequireDefault(obj) {
+  return obj && obj.__esModule ? obj : { default: obj };
+}
+
+exports.default = _assign2.default || function (target) {
+  for (var i = 1; i < arguments.length; i++) {
+    var source = arguments[i];
+
+    for (var key in source) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) {
+        target[key] = source[key];
+      }
+    }
+  }
+
+  return target;
+};
+
+},{"../core-js/object/assign":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/babel-runtime/core-js/object/assign.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/babel-runtime/helpers/objectWithoutProperties.js":[function(require,module,exports){
+"use strict";
+
+exports.__esModule = true;
+
+exports.default = function (obj, keys) {
+  var target = {};
+
+  for (var i in obj) {
+    if (keys.indexOf(i) >= 0) continue;
+    if (!Object.prototype.hasOwnProperty.call(obj, i)) continue;
+    target[i] = obj[i];
+  }
+
+  return target;
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/camel-case/camel-case.js":[function(require,module,exports){
 'use strict';
 
 var upperCase = require('upper-case');
@@ -497,7 +526,493 @@ module.exports = function (value, locale) {
   return upperCase(snakeCase(value, locale), locale);
 };
 
-},{"snake-case":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/snake-case/snake-case.js","upper-case":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/upper-case/upper-case.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/define-properties/index.js":[function(require,module,exports){
+},{"snake-case":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/snake-case/snake-case.js","upper-case":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/upper-case/upper-case.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/fn/object/assign.js":[function(require,module,exports){
+'use strict';
+
+require('../../modules/es6.object.assign');
+module.exports = require('../../modules/_core').Object.assign;
+
+},{"../../modules/_core":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_core.js","../../modules/es6.object.assign":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/es6.object.assign.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_a-function.js":[function(require,module,exports){
+'use strict';
+
+module.exports = function (it) {
+  if (typeof it != 'function') throw TypeError(it + ' is not a function!');
+  return it;
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_an-object.js":[function(require,module,exports){
+'use strict';
+
+var isObject = require('./_is-object');
+module.exports = function (it) {
+  if (!isObject(it)) throw TypeError(it + ' is not an object!');
+  return it;
+};
+
+},{"./_is-object":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_is-object.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_array-includes.js":[function(require,module,exports){
+'use strict';
+
+// false -> Array#indexOf
+// true  -> Array#includes
+var toIObject = require('./_to-iobject');
+var toLength = require('./_to-length');
+var toAbsoluteIndex = require('./_to-absolute-index');
+module.exports = function (IS_INCLUDES) {
+  return function ($this, el, fromIndex) {
+    var O = toIObject($this);
+    var length = toLength(O.length);
+    var index = toAbsoluteIndex(fromIndex, length);
+    var value;
+    // Array#includes uses SameValueZero equality algorithm
+    // eslint-disable-next-line no-self-compare
+    if (IS_INCLUDES && el != el) while (length > index) {
+      value = O[index++];
+      // eslint-disable-next-line no-self-compare
+      if (value != value) return true;
+      // Array#indexOf ignores holes, Array#includes - not
+    } else for (; length > index; index++) {
+      if (IS_INCLUDES || index in O) {
+        if (O[index] === el) return IS_INCLUDES || index || 0;
+      }
+    }return !IS_INCLUDES && -1;
+  };
+};
+
+},{"./_to-absolute-index":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-absolute-index.js","./_to-iobject":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-iobject.js","./_to-length":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-length.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_cof.js":[function(require,module,exports){
+"use strict";
+
+var toString = {}.toString;
+
+module.exports = function (it) {
+  return toString.call(it).slice(8, -1);
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_core.js":[function(require,module,exports){
+'use strict';
+
+var core = module.exports = { version: '2.5.3' };
+if (typeof __e == 'number') __e = core; // eslint-disable-line no-undef
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_ctx.js":[function(require,module,exports){
+'use strict';
+
+// optional / simple context binding
+var aFunction = require('./_a-function');
+module.exports = function (fn, that, length) {
+  aFunction(fn);
+  if (that === undefined) return fn;
+  switch (length) {
+    case 1:
+      return function (a) {
+        return fn.call(that, a);
+      };
+    case 2:
+      return function (a, b) {
+        return fn.call(that, a, b);
+      };
+    case 3:
+      return function (a, b, c) {
+        return fn.call(that, a, b, c);
+      };
+  }
+  return function () /* ...args */{
+    return fn.apply(that, arguments);
+  };
+};
+
+},{"./_a-function":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_a-function.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_defined.js":[function(require,module,exports){
+"use strict";
+
+// 7.2.1 RequireObjectCoercible(argument)
+module.exports = function (it) {
+  if (it == undefined) throw TypeError("Can't call method on  " + it);
+  return it;
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_descriptors.js":[function(require,module,exports){
+'use strict';
+
+// Thank's IE8 for his funny defineProperty
+module.exports = !require('./_fails')(function () {
+  return Object.defineProperty({}, 'a', { get: function get() {
+      return 7;
+    } }).a != 7;
+});
+
+},{"./_fails":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_fails.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_dom-create.js":[function(require,module,exports){
+'use strict';
+
+var isObject = require('./_is-object');
+var document = require('./_global').document;
+// typeof document.createElement is 'object' in old IE
+var is = isObject(document) && isObject(document.createElement);
+module.exports = function (it) {
+  return is ? document.createElement(it) : {};
+};
+
+},{"./_global":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_global.js","./_is-object":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_is-object.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_enum-bug-keys.js":[function(require,module,exports){
+'use strict';
+
+// IE 8- don't enum bug keys
+module.exports = 'constructor,hasOwnProperty,isPrototypeOf,propertyIsEnumerable,toLocaleString,toString,valueOf'.split(',');
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_export.js":[function(require,module,exports){
+'use strict';
+
+var global = require('./_global');
+var core = require('./_core');
+var ctx = require('./_ctx');
+var hide = require('./_hide');
+var PROTOTYPE = 'prototype';
+
+var $export = function $export(type, name, source) {
+  var IS_FORCED = type & $export.F;
+  var IS_GLOBAL = type & $export.G;
+  var IS_STATIC = type & $export.S;
+  var IS_PROTO = type & $export.P;
+  var IS_BIND = type & $export.B;
+  var IS_WRAP = type & $export.W;
+  var exports = IS_GLOBAL ? core : core[name] || (core[name] = {});
+  var expProto = exports[PROTOTYPE];
+  var target = IS_GLOBAL ? global : IS_STATIC ? global[name] : (global[name] || {})[PROTOTYPE];
+  var key, own, out;
+  if (IS_GLOBAL) source = name;
+  for (key in source) {
+    // contains in native
+    own = !IS_FORCED && target && target[key] !== undefined;
+    if (own && key in exports) continue;
+    // export native or passed
+    out = own ? target[key] : source[key];
+    // prevent global pollution for namespaces
+    exports[key] = IS_GLOBAL && typeof target[key] != 'function' ? source[key]
+    // bind timers to global for call from export context
+    : IS_BIND && own ? ctx(out, global)
+    // wrap global constructors for prevent change them in library
+    : IS_WRAP && target[key] == out ? function (C) {
+      var F = function F(a, b, c) {
+        if (this instanceof C) {
+          switch (arguments.length) {
+            case 0:
+              return new C();
+            case 1:
+              return new C(a);
+            case 2:
+              return new C(a, b);
+          }return new C(a, b, c);
+        }return C.apply(this, arguments);
+      };
+      F[PROTOTYPE] = C[PROTOTYPE];
+      return F;
+      // make static versions for prototype methods
+    }(out) : IS_PROTO && typeof out == 'function' ? ctx(Function.call, out) : out;
+    // export proto methods to core.%CONSTRUCTOR%.methods.%NAME%
+    if (IS_PROTO) {
+      (exports.virtual || (exports.virtual = {}))[key] = out;
+      // export proto methods to core.%CONSTRUCTOR%.prototype.%NAME%
+      if (type & $export.R && expProto && !expProto[key]) hide(expProto, key, out);
+    }
+  }
+};
+// type bitmap
+$export.F = 1; // forced
+$export.G = 2; // global
+$export.S = 4; // static
+$export.P = 8; // proto
+$export.B = 16; // bind
+$export.W = 32; // wrap
+$export.U = 64; // safe
+$export.R = 128; // real proto method for `library`
+module.exports = $export;
+
+},{"./_core":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_core.js","./_ctx":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_ctx.js","./_global":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_global.js","./_hide":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_hide.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_fails.js":[function(require,module,exports){
+"use strict";
+
+module.exports = function (exec) {
+  try {
+    return !!exec();
+  } catch (e) {
+    return true;
+  }
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_global.js":[function(require,module,exports){
+'use strict';
+
+// https://github.com/zloirock/core-js/issues/86#issuecomment-115759028
+var global = module.exports = typeof window != 'undefined' && window.Math == Math ? window : typeof self != 'undefined' && self.Math == Math ? self
+// eslint-disable-next-line no-new-func
+: Function('return this')();
+if (typeof __g == 'number') __g = global; // eslint-disable-line no-undef
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_has.js":[function(require,module,exports){
+"use strict";
+
+var hasOwnProperty = {}.hasOwnProperty;
+module.exports = function (it, key) {
+  return hasOwnProperty.call(it, key);
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_hide.js":[function(require,module,exports){
+'use strict';
+
+var dP = require('./_object-dp');
+var createDesc = require('./_property-desc');
+module.exports = require('./_descriptors') ? function (object, key, value) {
+  return dP.f(object, key, createDesc(1, value));
+} : function (object, key, value) {
+  object[key] = value;
+  return object;
+};
+
+},{"./_descriptors":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_descriptors.js","./_object-dp":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-dp.js","./_property-desc":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_property-desc.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_ie8-dom-define.js":[function(require,module,exports){
+'use strict';
+
+module.exports = !require('./_descriptors') && !require('./_fails')(function () {
+  return Object.defineProperty(require('./_dom-create')('div'), 'a', { get: function get() {
+      return 7;
+    } }).a != 7;
+});
+
+},{"./_descriptors":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_descriptors.js","./_dom-create":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_dom-create.js","./_fails":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_fails.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_iobject.js":[function(require,module,exports){
+'use strict';
+
+// fallback for non-array-like ES3 and non-enumerable old V8 strings
+var cof = require('./_cof');
+// eslint-disable-next-line no-prototype-builtins
+module.exports = Object('z').propertyIsEnumerable(0) ? Object : function (it) {
+  return cof(it) == 'String' ? it.split('') : Object(it);
+};
+
+},{"./_cof":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_cof.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_is-object.js":[function(require,module,exports){
+'use strict';
+
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
+
+module.exports = function (it) {
+  return (typeof it === 'undefined' ? 'undefined' : _typeof(it)) === 'object' ? it !== null : typeof it === 'function';
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-assign.js":[function(require,module,exports){
+'use strict';
+// 19.1.2.1 Object.assign(target, source, ...)
+
+var getKeys = require('./_object-keys');
+var gOPS = require('./_object-gops');
+var pIE = require('./_object-pie');
+var toObject = require('./_to-object');
+var IObject = require('./_iobject');
+var $assign = Object.assign;
+
+// should work with symbols and should have deterministic property order (V8 bug)
+module.exports = !$assign || require('./_fails')(function () {
+  var A = {};
+  var B = {};
+  // eslint-disable-next-line no-undef
+  var S = Symbol();
+  var K = 'abcdefghijklmnopqrst';
+  A[S] = 7;
+  K.split('').forEach(function (k) {
+    B[k] = k;
+  });
+  return $assign({}, A)[S] != 7 || Object.keys($assign({}, B)).join('') != K;
+}) ? function assign(target, source) {
+  // eslint-disable-line no-unused-vars
+  var T = toObject(target);
+  var aLen = arguments.length;
+  var index = 1;
+  var getSymbols = gOPS.f;
+  var isEnum = pIE.f;
+  while (aLen > index) {
+    var S = IObject(arguments[index++]);
+    var keys = getSymbols ? getKeys(S).concat(getSymbols(S)) : getKeys(S);
+    var length = keys.length;
+    var j = 0;
+    var key;
+    while (length > j) {
+      if (isEnum.call(S, key = keys[j++])) T[key] = S[key];
+    }
+  }return T;
+} : $assign;
+
+},{"./_fails":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_fails.js","./_iobject":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_iobject.js","./_object-gops":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-gops.js","./_object-keys":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-keys.js","./_object-pie":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-pie.js","./_to-object":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-object.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-dp.js":[function(require,module,exports){
+'use strict';
+
+var anObject = require('./_an-object');
+var IE8_DOM_DEFINE = require('./_ie8-dom-define');
+var toPrimitive = require('./_to-primitive');
+var dP = Object.defineProperty;
+
+exports.f = require('./_descriptors') ? Object.defineProperty : function defineProperty(O, P, Attributes) {
+  anObject(O);
+  P = toPrimitive(P, true);
+  anObject(Attributes);
+  if (IE8_DOM_DEFINE) try {
+    return dP(O, P, Attributes);
+  } catch (e) {/* empty */}
+  if ('get' in Attributes || 'set' in Attributes) throw TypeError('Accessors not supported!');
+  if ('value' in Attributes) O[P] = Attributes.value;
+  return O;
+};
+
+},{"./_an-object":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_an-object.js","./_descriptors":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_descriptors.js","./_ie8-dom-define":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_ie8-dom-define.js","./_to-primitive":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-primitive.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-gops.js":[function(require,module,exports){
+"use strict";
+
+exports.f = Object.getOwnPropertySymbols;
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-keys-internal.js":[function(require,module,exports){
+'use strict';
+
+var has = require('./_has');
+var toIObject = require('./_to-iobject');
+var arrayIndexOf = require('./_array-includes')(false);
+var IE_PROTO = require('./_shared-key')('IE_PROTO');
+
+module.exports = function (object, names) {
+  var O = toIObject(object);
+  var i = 0;
+  var result = [];
+  var key;
+  for (key in O) {
+    if (key != IE_PROTO) has(O, key) && result.push(key);
+  } // Don't enum bug & hidden keys
+  while (names.length > i) {
+    if (has(O, key = names[i++])) {
+      ~arrayIndexOf(result, key) || result.push(key);
+    }
+  }return result;
+};
+
+},{"./_array-includes":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_array-includes.js","./_has":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_has.js","./_shared-key":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_shared-key.js","./_to-iobject":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-iobject.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-keys.js":[function(require,module,exports){
+'use strict';
+
+// 19.1.2.14 / 15.2.3.14 Object.keys(O)
+var $keys = require('./_object-keys-internal');
+var enumBugKeys = require('./_enum-bug-keys');
+
+module.exports = Object.keys || function keys(O) {
+  return $keys(O, enumBugKeys);
+};
+
+},{"./_enum-bug-keys":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_enum-bug-keys.js","./_object-keys-internal":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-keys-internal.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-pie.js":[function(require,module,exports){
+"use strict";
+
+exports.f = {}.propertyIsEnumerable;
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_property-desc.js":[function(require,module,exports){
+"use strict";
+
+module.exports = function (bitmap, value) {
+  return {
+    enumerable: !(bitmap & 1),
+    configurable: !(bitmap & 2),
+    writable: !(bitmap & 4),
+    value: value
+  };
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_shared-key.js":[function(require,module,exports){
+'use strict';
+
+var shared = require('./_shared')('keys');
+var uid = require('./_uid');
+module.exports = function (key) {
+  return shared[key] || (shared[key] = uid(key));
+};
+
+},{"./_shared":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_shared.js","./_uid":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_uid.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_shared.js":[function(require,module,exports){
+'use strict';
+
+var global = require('./_global');
+var SHARED = '__core-js_shared__';
+var store = global[SHARED] || (global[SHARED] = {});
+module.exports = function (key) {
+  return store[key] || (store[key] = {});
+};
+
+},{"./_global":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_global.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-absolute-index.js":[function(require,module,exports){
+'use strict';
+
+var toInteger = require('./_to-integer');
+var max = Math.max;
+var min = Math.min;
+module.exports = function (index, length) {
+  index = toInteger(index);
+  return index < 0 ? max(index + length, 0) : min(index, length);
+};
+
+},{"./_to-integer":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-integer.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-integer.js":[function(require,module,exports){
+"use strict";
+
+// 7.1.4 ToInteger
+var ceil = Math.ceil;
+var floor = Math.floor;
+module.exports = function (it) {
+  return isNaN(it = +it) ? 0 : (it > 0 ? floor : ceil)(it);
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-iobject.js":[function(require,module,exports){
+'use strict';
+
+// to indexed object, toObject with fallback for non-array-like ES3 strings
+var IObject = require('./_iobject');
+var defined = require('./_defined');
+module.exports = function (it) {
+  return IObject(defined(it));
+};
+
+},{"./_defined":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_defined.js","./_iobject":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_iobject.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-length.js":[function(require,module,exports){
+'use strict';
+
+// 7.1.15 ToLength
+var toInteger = require('./_to-integer');
+var min = Math.min;
+module.exports = function (it) {
+  return it > 0 ? min(toInteger(it), 0x1fffffffffffff) : 0; // pow(2, 53) - 1 == 9007199254740991
+};
+
+},{"./_to-integer":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-integer.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-object.js":[function(require,module,exports){
+'use strict';
+
+// 7.1.13 ToObject(argument)
+var defined = require('./_defined');
+module.exports = function (it) {
+  return Object(defined(it));
+};
+
+},{"./_defined":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_defined.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_to-primitive.js":[function(require,module,exports){
+'use strict';
+
+// 7.1.1 ToPrimitive(input [, PreferredType])
+var isObject = require('./_is-object');
+// instead of the ES6 spec version, we didn't implement @@toPrimitive case
+// and the second argument - flag - preferred type is a string
+module.exports = function (it, S) {
+  if (!isObject(it)) return it;
+  var fn, val;
+  if (S && typeof (fn = it.toString) == 'function' && !isObject(val = fn.call(it))) return val;
+  if (typeof (fn = it.valueOf) == 'function' && !isObject(val = fn.call(it))) return val;
+  if (!S && typeof (fn = it.toString) == 'function' && !isObject(val = fn.call(it))) return val;
+  throw TypeError("Can't convert object to primitive value");
+};
+
+},{"./_is-object":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_is-object.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_uid.js":[function(require,module,exports){
+'use strict';
+
+var id = 0;
+var px = Math.random();
+module.exports = function (key) {
+  return 'Symbol('.concat(key === undefined ? '' : key, ')_', (++id + px).toString(36));
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/es6.object.assign.js":[function(require,module,exports){
+'use strict';
+
+// 19.1.3.1 Object.assign(target, source)
+var $export = require('./_export');
+
+$export($export.S + $export.F, 'Object', { assign: require('./_object-assign') });
+
+},{"./_export":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_export.js","./_object-assign":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/core-js/library/modules/_object-assign.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/define-properties/index.js":[function(require,module,exports){
 'use strict';
 
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
@@ -2371,7 +2886,905 @@ module.exports = function (value, locale) {
   });
 };
 
-},{"no-case":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/no-case/no-case.js","upper-case":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/upper-case/upper-case.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/idyll-document/dist/cjs/components/placeholder.js":[function(require,module,exports){
+},{"no-case":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/no-case/no-case.js","upper-case":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/upper-case/upper-case.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/highlight.js/lib/highlight.js":[function(require,module,exports){
+'use strict';
+
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
+
+/*
+Syntax highlighting with language autodetection.
+https://highlightjs.org/
+*/
+
+(function (factory) {
+
+  // Find the global object for export to both the browser and web workers.
+  var globalObject = (typeof window === 'undefined' ? 'undefined' : _typeof(window)) === 'object' && window || (typeof self === 'undefined' ? 'undefined' : _typeof(self)) === 'object' && self;
+
+  // Setup highlight.js for different environments. First is Node.js or
+  // CommonJS.
+  if (typeof exports !== 'undefined') {
+    factory(exports);
+  } else if (globalObject) {
+    // Export hljs globally even when using AMD for cases when this script
+    // is loaded with others that may still expect a global hljs.
+    globalObject.hljs = factory({});
+
+    // Finally register the global hljs with AMD.
+    if (typeof define === 'function' && define.amd) {
+      define([], function () {
+        return globalObject.hljs;
+      });
+    }
+  }
+})(function (hljs) {
+  // Convenience variables for build-in objects
+  var ArrayProto = [],
+      objectKeys = Object.keys;
+
+  // Global internal variables used within the highlight.js library.
+  var languages = {},
+      aliases = {};
+
+  // Regular expressions used throughout the highlight.js library.
+  var noHighlightRe = /^(no-?highlight|plain|text)$/i,
+      languagePrefixRe = /\blang(?:uage)?-([\w-]+)\b/i,
+      fixMarkupRe = /((^(<[^>]+>|\t|)+|(?:\n)))/gm;
+
+  var spanEndTag = '</span>';
+
+  // Global options used when within external APIs. This is modified when
+  // calling the `hljs.configure` function.
+  var options = {
+    classPrefix: 'hljs-',
+    tabReplace: null,
+    useBR: false,
+    languages: undefined
+  };
+
+  /* Utility functions */
+
+  function escape(value) {
+    return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function tag(node) {
+    return node.nodeName.toLowerCase();
+  }
+
+  function testRe(re, lexeme) {
+    var match = re && re.exec(lexeme);
+    return match && match.index === 0;
+  }
+
+  function isNotHighlighted(language) {
+    return noHighlightRe.test(language);
+  }
+
+  function blockLanguage(block) {
+    var i, match, length, _class;
+    var classes = block.className + ' ';
+
+    classes += block.parentNode ? block.parentNode.className : '';
+
+    // language-* takes precedence over non-prefixed class names.
+    match = languagePrefixRe.exec(classes);
+    if (match) {
+      return getLanguage(match[1]) ? match[1] : 'no-highlight';
+    }
+
+    classes = classes.split(/\s+/);
+
+    for (i = 0, length = classes.length; i < length; i++) {
+      _class = classes[i];
+
+      if (isNotHighlighted(_class) || getLanguage(_class)) {
+        return _class;
+      }
+    }
+  }
+
+  function inherit(parent) {
+    // inherit(parent, override_obj, override_obj, ...)
+    var key;
+    var result = {};
+    var objects = Array.prototype.slice.call(arguments, 1);
+
+    for (key in parent) {
+      result[key] = parent[key];
+    }objects.forEach(function (obj) {
+      for (key in obj) {
+        result[key] = obj[key];
+      }
+    });
+    return result;
+  }
+
+  /* Stream merging */
+
+  function nodeStream(node) {
+    var result = [];
+    (function _nodeStream(node, offset) {
+      for (var child = node.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3) offset += child.nodeValue.length;else if (child.nodeType === 1) {
+          result.push({
+            event: 'start',
+            offset: offset,
+            node: child
+          });
+          offset = _nodeStream(child, offset);
+          // Prevent void elements from having an end tag that would actually
+          // double them in the output. There are more void elements in HTML
+          // but we list only those realistically expected in code display.
+          if (!tag(child).match(/br|hr|img|input/)) {
+            result.push({
+              event: 'stop',
+              offset: offset,
+              node: child
+            });
+          }
+        }
+      }
+      return offset;
+    })(node, 0);
+    return result;
+  }
+
+  function mergeStreams(original, highlighted, value) {
+    var processed = 0;
+    var result = '';
+    var nodeStack = [];
+
+    function selectStream() {
+      if (!original.length || !highlighted.length) {
+        return original.length ? original : highlighted;
+      }
+      if (original[0].offset !== highlighted[0].offset) {
+        return original[0].offset < highlighted[0].offset ? original : highlighted;
+      }
+
+      /*
+      To avoid starting the stream just before it should stop the order is
+      ensured that original always starts first and closes last:
+       if (event1 == 'start' && event2 == 'start')
+        return original;
+      if (event1 == 'start' && event2 == 'stop')
+        return highlighted;
+      if (event1 == 'stop' && event2 == 'start')
+        return original;
+      if (event1 == 'stop' && event2 == 'stop')
+        return highlighted;
+       ... which is collapsed to:
+      */
+      return highlighted[0].event === 'start' ? original : highlighted;
+    }
+
+    function open(node) {
+      function attr_str(a) {
+        return ' ' + a.nodeName + '="' + escape(a.value).replace('"', '&quot;') + '"';
+      }
+      result += '<' + tag(node) + ArrayProto.map.call(node.attributes, attr_str).join('') + '>';
+    }
+
+    function close(node) {
+      result += '</' + tag(node) + '>';
+    }
+
+    function render(event) {
+      (event.event === 'start' ? open : close)(event.node);
+    }
+
+    while (original.length || highlighted.length) {
+      var stream = selectStream();
+      result += escape(value.substring(processed, stream[0].offset));
+      processed = stream[0].offset;
+      if (stream === original) {
+        /*
+        On any opening or closing tag of the original markup we first close
+        the entire highlighted node stack, then render the original tag along
+        with all the following original tags at the same offset and then
+        reopen all the tags on the highlighted stack.
+        */
+        nodeStack.reverse().forEach(close);
+        do {
+          render(stream.splice(0, 1)[0]);
+          stream = selectStream();
+        } while (stream === original && stream.length && stream[0].offset === processed);
+        nodeStack.reverse().forEach(open);
+      } else {
+        if (stream[0].event === 'start') {
+          nodeStack.push(stream[0].node);
+        } else {
+          nodeStack.pop();
+        }
+        render(stream.splice(0, 1)[0]);
+      }
+    }
+    return result + escape(value.substr(processed));
+  }
+
+  /* Initialization */
+
+  function expand_mode(mode) {
+    if (mode.variants && !mode.cached_variants) {
+      mode.cached_variants = mode.variants.map(function (variant) {
+        return inherit(mode, { variants: null }, variant);
+      });
+    }
+    return mode.cached_variants || mode.endsWithParent && [inherit(mode)] || [mode];
+  }
+
+  function compileLanguage(language) {
+
+    function reStr(re) {
+      return re && re.source || re;
+    }
+
+    function langRe(value, global) {
+      return new RegExp(reStr(value), 'm' + (language.case_insensitive ? 'i' : '') + (global ? 'g' : ''));
+    }
+
+    function compileMode(mode, parent) {
+      if (mode.compiled) return;
+      mode.compiled = true;
+
+      mode.keywords = mode.keywords || mode.beginKeywords;
+      if (mode.keywords) {
+        var compiled_keywords = {};
+
+        var flatten = function flatten(className, str) {
+          if (language.case_insensitive) {
+            str = str.toLowerCase();
+          }
+          str.split(' ').forEach(function (kw) {
+            var pair = kw.split('|');
+            compiled_keywords[pair[0]] = [className, pair[1] ? Number(pair[1]) : 1];
+          });
+        };
+
+        if (typeof mode.keywords === 'string') {
+          // string
+          flatten('keyword', mode.keywords);
+        } else {
+          objectKeys(mode.keywords).forEach(function (className) {
+            flatten(className, mode.keywords[className]);
+          });
+        }
+        mode.keywords = compiled_keywords;
+      }
+      mode.lexemesRe = langRe(mode.lexemes || /\w+/, true);
+
+      if (parent) {
+        if (mode.beginKeywords) {
+          mode.begin = '\\b(' + mode.beginKeywords.split(' ').join('|') + ')\\b';
+        }
+        if (!mode.begin) mode.begin = /\B|\b/;
+        mode.beginRe = langRe(mode.begin);
+        if (!mode.end && !mode.endsWithParent) mode.end = /\B|\b/;
+        if (mode.end) mode.endRe = langRe(mode.end);
+        mode.terminator_end = reStr(mode.end) || '';
+        if (mode.endsWithParent && parent.terminator_end) mode.terminator_end += (mode.end ? '|' : '') + parent.terminator_end;
+      }
+      if (mode.illegal) mode.illegalRe = langRe(mode.illegal);
+      if (mode.relevance == null) mode.relevance = 1;
+      if (!mode.contains) {
+        mode.contains = [];
+      }
+      mode.contains = Array.prototype.concat.apply([], mode.contains.map(function (c) {
+        return expand_mode(c === 'self' ? mode : c);
+      }));
+      mode.contains.forEach(function (c) {
+        compileMode(c, mode);
+      });
+
+      if (mode.starts) {
+        compileMode(mode.starts, parent);
+      }
+
+      var terminators = mode.contains.map(function (c) {
+        return c.beginKeywords ? '\\.?(' + c.begin + ')\\.?' : c.begin;
+      }).concat([mode.terminator_end, mode.illegal]).map(reStr).filter(Boolean);
+      mode.terminators = terminators.length ? langRe(terminators.join('|'), true) : { exec: function exec() /*s*/{
+          return null;
+        } };
+    }
+
+    compileMode(language);
+  }
+
+  /*
+  Core highlighting function. Accepts a language name, or an alias, and a
+  string with the code to highlight. Returns an object with the following
+  properties:
+   - relevance (int)
+  - value (an HTML string with highlighting markup)
+   */
+  function highlight(name, value, ignore_illegals, continuation) {
+
+    function subMode(lexeme, mode) {
+      var i, length;
+
+      for (i = 0, length = mode.contains.length; i < length; i++) {
+        if (testRe(mode.contains[i].beginRe, lexeme)) {
+          return mode.contains[i];
+        }
+      }
+    }
+
+    function endOfMode(mode, lexeme) {
+      if (testRe(mode.endRe, lexeme)) {
+        while (mode.endsParent && mode.parent) {
+          mode = mode.parent;
+        }
+        return mode;
+      }
+      if (mode.endsWithParent) {
+        return endOfMode(mode.parent, lexeme);
+      }
+    }
+
+    function isIllegal(lexeme, mode) {
+      return !ignore_illegals && testRe(mode.illegalRe, lexeme);
+    }
+
+    function keywordMatch(mode, match) {
+      var match_str = language.case_insensitive ? match[0].toLowerCase() : match[0];
+      return mode.keywords.hasOwnProperty(match_str) && mode.keywords[match_str];
+    }
+
+    function buildSpan(classname, insideSpan, leaveOpen, noPrefix) {
+      var classPrefix = noPrefix ? '' : options.classPrefix,
+          openSpan = '<span class="' + classPrefix,
+          closeSpan = leaveOpen ? '' : spanEndTag;
+
+      openSpan += classname + '">';
+
+      return openSpan + insideSpan + closeSpan;
+    }
+
+    function processKeywords() {
+      var keyword_match, last_index, match, result;
+
+      if (!top.keywords) return escape(mode_buffer);
+
+      result = '';
+      last_index = 0;
+      top.lexemesRe.lastIndex = 0;
+      match = top.lexemesRe.exec(mode_buffer);
+
+      while (match) {
+        result += escape(mode_buffer.substring(last_index, match.index));
+        keyword_match = keywordMatch(top, match);
+        if (keyword_match) {
+          relevance += keyword_match[1];
+          result += buildSpan(keyword_match[0], escape(match[0]));
+        } else {
+          result += escape(match[0]);
+        }
+        last_index = top.lexemesRe.lastIndex;
+        match = top.lexemesRe.exec(mode_buffer);
+      }
+      return result + escape(mode_buffer.substr(last_index));
+    }
+
+    function processSubLanguage() {
+      var explicit = typeof top.subLanguage === 'string';
+      if (explicit && !languages[top.subLanguage]) {
+        return escape(mode_buffer);
+      }
+
+      var result = explicit ? highlight(top.subLanguage, mode_buffer, true, continuations[top.subLanguage]) : highlightAuto(mode_buffer, top.subLanguage.length ? top.subLanguage : undefined);
+
+      // Counting embedded language score towards the host language may be disabled
+      // with zeroing the containing mode relevance. Usecase in point is Markdown that
+      // allows XML everywhere and makes every XML snippet to have a much larger Markdown
+      // score.
+      if (top.relevance > 0) {
+        relevance += result.relevance;
+      }
+      if (explicit) {
+        continuations[top.subLanguage] = result.top;
+      }
+      return buildSpan(result.language, result.value, false, true);
+    }
+
+    function processBuffer() {
+      result += top.subLanguage != null ? processSubLanguage() : processKeywords();
+      mode_buffer = '';
+    }
+
+    function startNewMode(mode) {
+      result += mode.className ? buildSpan(mode.className, '', true) : '';
+      top = Object.create(mode, { parent: { value: top } });
+    }
+
+    function processLexeme(buffer, lexeme) {
+
+      mode_buffer += buffer;
+
+      if (lexeme == null) {
+        processBuffer();
+        return 0;
+      }
+
+      var new_mode = subMode(lexeme, top);
+      if (new_mode) {
+        if (new_mode.skip) {
+          mode_buffer += lexeme;
+        } else {
+          if (new_mode.excludeBegin) {
+            mode_buffer += lexeme;
+          }
+          processBuffer();
+          if (!new_mode.returnBegin && !new_mode.excludeBegin) {
+            mode_buffer = lexeme;
+          }
+        }
+        startNewMode(new_mode, lexeme);
+        return new_mode.returnBegin ? 0 : lexeme.length;
+      }
+
+      var end_mode = endOfMode(top, lexeme);
+      if (end_mode) {
+        var origin = top;
+        if (origin.skip) {
+          mode_buffer += lexeme;
+        } else {
+          if (!(origin.returnEnd || origin.excludeEnd)) {
+            mode_buffer += lexeme;
+          }
+          processBuffer();
+          if (origin.excludeEnd) {
+            mode_buffer = lexeme;
+          }
+        }
+        do {
+          if (top.className) {
+            result += spanEndTag;
+          }
+          if (!top.skip) {
+            relevance += top.relevance;
+          }
+          top = top.parent;
+        } while (top !== end_mode.parent);
+        if (end_mode.starts) {
+          startNewMode(end_mode.starts, '');
+        }
+        return origin.returnEnd ? 0 : lexeme.length;
+      }
+
+      if (isIllegal(lexeme, top)) throw new Error('Illegal lexeme "' + lexeme + '" for mode "' + (top.className || '<unnamed>') + '"');
+
+      /*
+      Parser should not reach this point as all types of lexemes should be caught
+      earlier, but if it does due to some bug make sure it advances at least one
+      character forward to prevent infinite looping.
+      */
+      mode_buffer += lexeme;
+      return lexeme.length || 1;
+    }
+
+    var language = getLanguage(name);
+    if (!language) {
+      throw new Error('Unknown language: "' + name + '"');
+    }
+
+    compileLanguage(language);
+    var top = continuation || language;
+    var continuations = {}; // keep continuations for sub-languages
+    var result = '',
+        current;
+    for (current = top; current !== language; current = current.parent) {
+      if (current.className) {
+        result = buildSpan(current.className, '', true) + result;
+      }
+    }
+    var mode_buffer = '';
+    var relevance = 0;
+    try {
+      var match,
+          count,
+          index = 0;
+      while (true) {
+        top.terminators.lastIndex = index;
+        match = top.terminators.exec(value);
+        if (!match) break;
+        count = processLexeme(value.substring(index, match.index), match[0]);
+        index = match.index + count;
+      }
+      processLexeme(value.substr(index));
+      for (current = top; current.parent; current = current.parent) {
+        // close dangling modes
+        if (current.className) {
+          result += spanEndTag;
+        }
+      }
+      return {
+        relevance: relevance,
+        value: result,
+        language: name,
+        top: top
+      };
+    } catch (e) {
+      if (e.message && e.message.indexOf('Illegal') !== -1) {
+        return {
+          relevance: 0,
+          value: escape(value)
+        };
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  /*
+  Highlighting with language detection. Accepts a string with the code to
+  highlight. Returns an object with the following properties:
+   - language (detected language)
+  - relevance (int)
+  - value (an HTML string with highlighting markup)
+  - second_best (object with the same structure for second-best heuristically
+    detected language, may be absent)
+   */
+  function highlightAuto(text, languageSubset) {
+    languageSubset = languageSubset || options.languages || objectKeys(languages);
+    var result = {
+      relevance: 0,
+      value: escape(text)
+    };
+    var second_best = result;
+    languageSubset.filter(getLanguage).forEach(function (name) {
+      var current = highlight(name, text, false);
+      current.language = name;
+      if (current.relevance > second_best.relevance) {
+        second_best = current;
+      }
+      if (current.relevance > result.relevance) {
+        second_best = result;
+        result = current;
+      }
+    });
+    if (second_best.language) {
+      result.second_best = second_best;
+    }
+    return result;
+  }
+
+  /*
+  Post-processing of the highlighted markup:
+   - replace TABs with something more useful
+  - replace real line-breaks with '<br>' for non-pre containers
+   */
+  function fixMarkup(value) {
+    return !(options.tabReplace || options.useBR) ? value : value.replace(fixMarkupRe, function (match, p1) {
+      if (options.useBR && match === '\n') {
+        return '<br>';
+      } else if (options.tabReplace) {
+        return p1.replace(/\t/g, options.tabReplace);
+      }
+      return '';
+    });
+  }
+
+  function buildClassName(prevClassName, currentLang, resultLang) {
+    var language = currentLang ? aliases[currentLang] : resultLang,
+        result = [prevClassName.trim()];
+
+    if (!prevClassName.match(/\bhljs\b/)) {
+      result.push('hljs');
+    }
+
+    if (prevClassName.indexOf(language) === -1) {
+      result.push(language);
+    }
+
+    return result.join(' ').trim();
+  }
+
+  /*
+  Applies highlighting to a DOM node containing code. Accepts a DOM node and
+  two optional parameters for fixMarkup.
+  */
+  function highlightBlock(block) {
+    var node, originalStream, result, resultNode, text;
+    var language = blockLanguage(block);
+
+    if (isNotHighlighted(language)) return;
+
+    if (options.useBR) {
+      node = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+      node.innerHTML = block.innerHTML.replace(/\n/g, '').replace(/<br[ \/]*>/g, '\n');
+    } else {
+      node = block;
+    }
+    text = node.textContent;
+    result = language ? highlight(language, text, true) : highlightAuto(text);
+
+    originalStream = nodeStream(node);
+    if (originalStream.length) {
+      resultNode = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+      resultNode.innerHTML = result.value;
+      result.value = mergeStreams(originalStream, nodeStream(resultNode), text);
+    }
+    result.value = fixMarkup(result.value);
+
+    block.innerHTML = result.value;
+    block.className = buildClassName(block.className, language, result.language);
+    block.result = {
+      language: result.language,
+      re: result.relevance
+    };
+    if (result.second_best) {
+      block.second_best = {
+        language: result.second_best.language,
+        re: result.second_best.relevance
+      };
+    }
+  }
+
+  /*
+  Updates highlight.js global options with values passed in the form of an object.
+  */
+  function configure(user_options) {
+    options = inherit(options, user_options);
+  }
+
+  /*
+  Applies highlighting to all <pre><code>..</code></pre> blocks on a page.
+  */
+  function initHighlighting() {
+    if (initHighlighting.called) return;
+    initHighlighting.called = true;
+
+    var blocks = document.querySelectorAll('pre code');
+    ArrayProto.forEach.call(blocks, highlightBlock);
+  }
+
+  /*
+  Attaches highlighting to the page load event.
+  */
+  function initHighlightingOnLoad() {
+    addEventListener('DOMContentLoaded', initHighlighting, false);
+    addEventListener('load', initHighlighting, false);
+  }
+
+  function registerLanguage(name, language) {
+    var lang = languages[name] = language(hljs);
+    if (lang.aliases) {
+      lang.aliases.forEach(function (alias) {
+        aliases[alias] = name;
+      });
+    }
+  }
+
+  function listLanguages() {
+    return objectKeys(languages);
+  }
+
+  function getLanguage(name) {
+    name = (name || '').toLowerCase();
+    return languages[name] || languages[aliases[name]];
+  }
+
+  /* Interface definition */
+
+  hljs.highlight = highlight;
+  hljs.highlightAuto = highlightAuto;
+  hljs.fixMarkup = fixMarkup;
+  hljs.highlightBlock = highlightBlock;
+  hljs.configure = configure;
+  hljs.initHighlighting = initHighlighting;
+  hljs.initHighlightingOnLoad = initHighlightingOnLoad;
+  hljs.registerLanguage = registerLanguage;
+  hljs.listLanguages = listLanguages;
+  hljs.getLanguage = getLanguage;
+  hljs.inherit = inherit;
+
+  // Common regexps
+  hljs.IDENT_RE = '[a-zA-Z]\\w*';
+  hljs.UNDERSCORE_IDENT_RE = '[a-zA-Z_]\\w*';
+  hljs.NUMBER_RE = '\\b\\d+(\\.\\d+)?';
+  hljs.C_NUMBER_RE = '(-?)(\\b0[xX][a-fA-F0-9]+|(\\b\\d+(\\.\\d*)?|\\.\\d+)([eE][-+]?\\d+)?)'; // 0x..., 0..., decimal, float
+  hljs.BINARY_NUMBER_RE = '\\b(0b[01]+)'; // 0b...
+  hljs.RE_STARTERS_RE = '!|!=|!==|%|%=|&|&&|&=|\\*|\\*=|\\+|\\+=|,|-|-=|/=|/|:|;|<<|<<=|<=|<|===|==|=|>>>=|>>=|>=|>>>|>>|>|\\?|\\[|\\{|\\(|\\^|\\^=|\\||\\|=|\\|\\||~';
+
+  // Common modes
+  hljs.BACKSLASH_ESCAPE = {
+    begin: '\\\\[\\s\\S]', relevance: 0
+  };
+  hljs.APOS_STRING_MODE = {
+    className: 'string',
+    begin: '\'', end: '\'',
+    illegal: '\\n',
+    contains: [hljs.BACKSLASH_ESCAPE]
+  };
+  hljs.QUOTE_STRING_MODE = {
+    className: 'string',
+    begin: '"', end: '"',
+    illegal: '\\n',
+    contains: [hljs.BACKSLASH_ESCAPE]
+  };
+  hljs.PHRASAL_WORDS_MODE = {
+    begin: /\b(a|an|the|are|I'm|isn't|don't|doesn't|won't|but|just|should|pretty|simply|enough|gonna|going|wtf|so|such|will|you|your|they|like|more)\b/
+  };
+  hljs.COMMENT = function (begin, end, inherits) {
+    var mode = hljs.inherit({
+      className: 'comment',
+      begin: begin, end: end,
+      contains: []
+    }, inherits || {});
+    mode.contains.push(hljs.PHRASAL_WORDS_MODE);
+    mode.contains.push({
+      className: 'doctag',
+      begin: '(?:TODO|FIXME|NOTE|BUG|XXX):',
+      relevance: 0
+    });
+    return mode;
+  };
+  hljs.C_LINE_COMMENT_MODE = hljs.COMMENT('//', '$');
+  hljs.C_BLOCK_COMMENT_MODE = hljs.COMMENT('/\\*', '\\*/');
+  hljs.HASH_COMMENT_MODE = hljs.COMMENT('#', '$');
+  hljs.NUMBER_MODE = {
+    className: 'number',
+    begin: hljs.NUMBER_RE,
+    relevance: 0
+  };
+  hljs.C_NUMBER_MODE = {
+    className: 'number',
+    begin: hljs.C_NUMBER_RE,
+    relevance: 0
+  };
+  hljs.BINARY_NUMBER_MODE = {
+    className: 'number',
+    begin: hljs.BINARY_NUMBER_RE,
+    relevance: 0
+  };
+  hljs.CSS_NUMBER_MODE = {
+    className: 'number',
+    begin: hljs.NUMBER_RE + '(' + '%|em|ex|ch|rem' + '|vw|vh|vmin|vmax' + '|cm|mm|in|pt|pc|px' + '|deg|grad|rad|turn' + '|s|ms' + '|Hz|kHz' + '|dpi|dpcm|dppx' + ')?',
+    relevance: 0
+  };
+  hljs.REGEXP_MODE = {
+    className: 'regexp',
+    begin: /\//, end: /\/[gimuy]*/,
+    illegal: /\n/,
+    contains: [hljs.BACKSLASH_ESCAPE, {
+      begin: /\[/, end: /\]/,
+      relevance: 0,
+      contains: [hljs.BACKSLASH_ESCAPE]
+    }]
+  };
+  hljs.TITLE_MODE = {
+    className: 'title',
+    begin: hljs.IDENT_RE,
+    relevance: 0
+  };
+  hljs.UNDERSCORE_TITLE_MODE = {
+    className: 'title',
+    begin: hljs.UNDERSCORE_IDENT_RE,
+    relevance: 0
+  };
+  hljs.METHOD_GUARD = {
+    // excludes method names from keyword processing
+    begin: '\\.\\s*' + hljs.UNDERSCORE_IDENT_RE,
+    relevance: 0
+  };
+
+  return hljs;
+});
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/highlight.js/lib/languages/cpp.js":[function(require,module,exports){
+'use strict';
+
+module.exports = function (hljs) {
+  var CPP_PRIMITIVE_TYPES = {
+    className: 'keyword',
+    begin: '\\b[a-z\\d_]*_t\\b'
+  };
+
+  var STRINGS = {
+    className: 'string',
+    variants: [{
+      begin: '(u8?|U)?L?"', end: '"',
+      illegal: '\\n',
+      contains: [hljs.BACKSLASH_ESCAPE]
+    }, {
+      begin: '(u8?|U)?R"', end: '"',
+      contains: [hljs.BACKSLASH_ESCAPE]
+    }, {
+      begin: '\'\\\\?.', end: '\'',
+      illegal: '.'
+    }]
+  };
+
+  var NUMBERS = {
+    className: 'number',
+    variants: [{ begin: '\\b(0b[01\']+)' }, { begin: '(-?)\\b([\\d\']+(\\.[\\d\']*)?|\\.[\\d\']+)(u|U|l|L|ul|UL|f|F|b|B)' }, { begin: '(-?)(\\b0[xX][a-fA-F0-9\']+|(\\b[\\d\']+(\\.[\\d\']*)?|\\.[\\d\']+)([eE][-+]?[\\d\']+)?)' }],
+    relevance: 0
+  };
+
+  var PREPROCESSOR = {
+    className: 'meta',
+    begin: /#\s*[a-z]+\b/, end: /$/,
+    keywords: {
+      'meta-keyword': 'if else elif endif define undef warning error line ' + 'pragma ifdef ifndef include'
+    },
+    contains: [{
+      begin: /\\\n/, relevance: 0
+    }, hljs.inherit(STRINGS, { className: 'meta-string' }), {
+      className: 'meta-string',
+      begin: /<[^\n>]*>/, end: /$/,
+      illegal: '\\n'
+    }, hljs.C_LINE_COMMENT_MODE, hljs.C_BLOCK_COMMENT_MODE]
+  };
+
+  var FUNCTION_TITLE = hljs.IDENT_RE + '\\s*\\(';
+
+  var CPP_KEYWORDS = {
+    keyword: 'int float while private char catch import module export virtual operator sizeof ' + 'dynamic_cast|10 typedef const_cast|10 const for static_cast|10 union namespace ' + 'unsigned long volatile static protected bool template mutable if public friend ' + 'do goto auto void enum else break extern using asm case typeid ' + 'short reinterpret_cast|10 default double register explicit signed typename try this ' + 'switch continue inline delete alignof constexpr decltype ' + 'noexcept static_assert thread_local restrict _Bool complex _Complex _Imaginary ' + 'atomic_bool atomic_char atomic_schar ' + 'atomic_uchar atomic_short atomic_ushort atomic_int atomic_uint atomic_long atomic_ulong atomic_llong ' + 'atomic_ullong new throw return ' + 'and or not',
+    built_in: 'std string cin cout cerr clog stdin stdout stderr stringstream istringstream ostringstream ' + 'auto_ptr deque list queue stack vector map set bitset multiset multimap unordered_set ' + 'unordered_map unordered_multiset unordered_multimap array shared_ptr abort abs acos ' + 'asin atan2 atan calloc ceil cosh cos exit exp fabs floor fmod fprintf fputs free frexp ' + 'fscanf isalnum isalpha iscntrl isdigit isgraph islower isprint ispunct isspace isupper ' + 'isxdigit tolower toupper labs ldexp log10 log malloc realloc memchr memcmp memcpy memset modf pow ' + 'printf putchar puts scanf sinh sin snprintf sprintf sqrt sscanf strcat strchr strcmp ' + 'strcpy strcspn strlen strncat strncmp strncpy strpbrk strrchr strspn strstr tanh tan ' + 'vfprintf vprintf vsprintf endl initializer_list unique_ptr',
+    literal: 'true false nullptr NULL'
+  };
+
+  var EXPRESSION_CONTAINS = [CPP_PRIMITIVE_TYPES, hljs.C_LINE_COMMENT_MODE, hljs.C_BLOCK_COMMENT_MODE, NUMBERS, STRINGS];
+
+  return {
+    aliases: ['c', 'cc', 'h', 'c++', 'h++', 'hpp'],
+    keywords: CPP_KEYWORDS,
+    illegal: '</',
+    contains: EXPRESSION_CONTAINS.concat([PREPROCESSOR, {
+      begin: '\\b(deque|list|queue|stack|vector|map|set|bitset|multiset|multimap|unordered_map|unordered_set|unordered_multiset|unordered_multimap|array)\\s*<', end: '>',
+      keywords: CPP_KEYWORDS,
+      contains: ['self', CPP_PRIMITIVE_TYPES]
+    }, {
+      begin: hljs.IDENT_RE + '::',
+      keywords: CPP_KEYWORDS
+    }, {
+      // This mode covers expression context where we can't expect a function
+      // definition and shouldn't highlight anything that looks like one:
+      // `return some()`, `else if()`, `(x*sum(1, 2))`
+      variants: [{ begin: /=/, end: /;/ }, { begin: /\(/, end: /\)/ }, { beginKeywords: 'new throw return else', end: /;/ }],
+      keywords: CPP_KEYWORDS,
+      contains: EXPRESSION_CONTAINS.concat([{
+        begin: /\(/, end: /\)/,
+        keywords: CPP_KEYWORDS,
+        contains: EXPRESSION_CONTAINS.concat(['self']),
+        relevance: 0
+      }]),
+      relevance: 0
+    }, {
+      className: 'function',
+      begin: '(' + hljs.IDENT_RE + '[\\*&\\s]+)+' + FUNCTION_TITLE,
+      returnBegin: true, end: /[{;=]/,
+      excludeEnd: true,
+      keywords: CPP_KEYWORDS,
+      illegal: /[^\w\s\*&]/,
+      contains: [{
+        begin: FUNCTION_TITLE, returnBegin: true,
+        contains: [hljs.TITLE_MODE],
+        relevance: 0
+      }, {
+        className: 'params',
+        begin: /\(/, end: /\)/,
+        keywords: CPP_KEYWORDS,
+        relevance: 0,
+        contains: [hljs.C_LINE_COMMENT_MODE, hljs.C_BLOCK_COMMENT_MODE, STRINGS, NUMBERS, CPP_PRIMITIVE_TYPES]
+      }, hljs.C_LINE_COMMENT_MODE, hljs.C_BLOCK_COMMENT_MODE, PREPROCESSOR]
+    }, {
+      className: 'class',
+      beginKeywords: 'class struct', end: /[{;:]/,
+      contains: [{ begin: /</, end: />/, contains: ['self'] }, // skip generic stuff
+      hljs.TITLE_MODE]
+    }]),
+    exports: {
+      preprocessor: PREPROCESSOR,
+      strings: STRINGS,
+      keywords: CPP_KEYWORDS
+    }
+  };
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/idyll-document/dist/cjs/components/placeholder.js":[function(require,module,exports){
 'use strict';
 
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
@@ -3979,7 +5392,653 @@ var LANGUAGES = {
   return str.toLowerCase();
 };
 
-},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/no-case/no-case.js":[function(require,module,exports){
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/lowlight/lib/core.js":[function(require,module,exports){
+'use strict';
+
+var high = require('highlight.js/lib/highlight.js');
+
+/* The lowlight interface, which has to be compatible
+ * with highlight.js, as this object is passed to
+ * highlight.js syntaxes. */
+
+function High() {}
+
+High.prototype = high;
+
+/* Expose. */
+var low = new High(); // Ha!
+
+module.exports = low;
+
+low.highlight = highlight;
+low.highlightAuto = autoHighlight;
+low.registerLanguage = registerLanguage;
+low.getLanguage = getLanguage;
+
+var inherit = high.inherit;
+var own = {}.hasOwnProperty;
+
+var DEFAULT_PREFIX = 'hljs-';
+var KEY_INSENSITIVE = 'case_insensitive';
+var KEY_CACHED_VARIANTS = 'cached_variants';
+var EMPTY = '';
+
+var C_SPACE = ' ';
+var C_PIPE = '|';
+
+var T_ELEMENT = 'element';
+var T_TEXT = 'text';
+var T_SPAN = 'span';
+
+/* Maps of syntaxes. */
+var languageNames = [];
+var languages = {};
+var aliases = {};
+
+/* Highlighting with language detection.  Accepts a string
+ * with the code to highlight.  Returns an object with the
+ * following properties:
+ *
+ * - language (detected language)
+ * - relevance (int)
+ * - value (an HTML string with highlighting markup)
+ * - secondBest (object with the same structure for
+ *   second-best heuristically detected language, may
+ *   be absent) */
+function autoHighlight(value, options) {
+  var settings = options || {};
+  var prefix = settings.prefix;
+  var subset = settings.subset || languageNames;
+  var length = subset.length;
+  var index = -1;
+  var result;
+  var secondBest;
+  var current;
+  var name;
+
+  if (prefix === null || prefix === undefined) {
+    prefix = DEFAULT_PREFIX;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error('Expected `string` for value, got `' + value + '`');
+  }
+
+  secondBest = normalize({});
+  result = normalize({});
+
+  while (++index < length) {
+    name = subset[index];
+
+    if (!getLanguage(name)) {
+      continue;
+    }
+
+    current = normalize(coreHighlight(name, value, false, prefix));
+
+    current.language = name;
+
+    if (current.relevance > secondBest.relevance) {
+      secondBest = current;
+    }
+
+    if (current.relevance > result.relevance) {
+      secondBest = result;
+      result = current;
+    }
+  }
+
+  if (secondBest.language) {
+    result.secondBest = secondBest;
+  }
+
+  return result;
+}
+
+/* Highlighting `value` in the language `language`. */
+function highlight(language, value, options) {
+  var settings = options || {};
+  var prefix = settings.prefix;
+
+  if (prefix === null || prefix === undefined) {
+    prefix = DEFAULT_PREFIX;
+  }
+
+  return normalize(coreHighlight(language, value, true, prefix));
+}
+
+/* Register a language. */
+function registerLanguage(name, syntax) {
+  var lang = languages[name] = syntax(low);
+  var values = lang.aliases;
+  var length = values && values.length;
+  var index = -1;
+
+  languageNames.push(name);
+
+  while (++index < length) {
+    aliases[values[index]] = name;
+  }
+}
+
+/* Core highlighting function.  Accepts a language name, or
+ * an alias, and a string with the code to highlight.
+ * Returns an object with the following properties: */
+function coreHighlight(name, value, ignore, prefix, continuation) {
+  var continuations = {};
+  var stack = [];
+  var modeBuffer = EMPTY;
+  var relevance = 0;
+  var language;
+  var top;
+  var current;
+  var currentChildren;
+  var offset;
+  var count;
+  var match;
+  var children;
+
+  if (typeof name !== 'string') {
+    throw new Error('Expected `string` for name, got `' + name + '`');
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error('Expected `string` for value, got `' + value + '`');
+  }
+
+  language = getLanguage(name);
+  current = top = continuation || language;
+  currentChildren = children = [];
+
+  if (!language) {
+    throw new Error('Unknown language: `' + name + '` is not registered');
+  }
+
+  compileLanguage(language);
+
+  try {
+    offset = top.terminators.lastIndex = 0;
+    match = top.terminators.exec(value);
+
+    while (match) {
+      count = processLexeme(value.substring(offset, match.index), match[0]);
+      offset = top.terminators.lastIndex = match.index + count;
+      match = top.terminators.exec(value);
+    }
+
+    processLexeme(value.substr(offset));
+    current = top;
+
+    while (current.parent) {
+      if (current.className) {
+        pop();
+      }
+
+      current = current.parent;
+    }
+
+    return {
+      relevance: relevance,
+      value: currentChildren,
+      language: name,
+      top: top
+    };
+  } catch (err) {
+    /* istanbul ignore if - Catch-all  */
+    if (err.message.indexOf('Illegal') === -1) {
+      throw err;
+    }
+
+    return { relevance: 0, value: addText(value, []) };
+  }
+
+  /* Process a lexeme.  Returns next position. */
+  function processLexeme(buffer, lexeme) {
+    var newMode;
+    var endMode;
+    var origin;
+
+    modeBuffer += buffer;
+
+    if (lexeme === undefined) {
+      addSiblings(processBuffer(), currentChildren);
+
+      return 0;
+    }
+
+    newMode = subMode(lexeme, top);
+
+    if (newMode) {
+      addSiblings(processBuffer(), currentChildren);
+
+      startNewMode(newMode, lexeme);
+
+      return newMode.returnBegin ? 0 : lexeme.length;
+    }
+
+    endMode = endOfMode(top, lexeme);
+
+    if (endMode) {
+      origin = top;
+
+      if (!(origin.returnEnd || origin.excludeEnd)) {
+        modeBuffer += lexeme;
+      }
+
+      addSiblings(processBuffer(), currentChildren);
+
+      /* Close open modes. */
+      do {
+        if (top.className) {
+          pop();
+        }
+
+        relevance += top.relevance;
+        top = top.parent;
+      } while (top !== endMode.parent);
+
+      if (origin.excludeEnd) {
+        addText(lexeme, currentChildren);
+      }
+
+      modeBuffer = EMPTY;
+
+      if (endMode.starts) {
+        startNewMode(endMode.starts, EMPTY);
+      }
+
+      return origin.returnEnd ? 0 : lexeme.length;
+    }
+
+    if (isIllegal(lexeme, top)) {
+      throw new Error('Illegal lexeme "' + lexeme + '" for mode "' + (top.className || '<unnamed>') + '"');
+    }
+
+    /* Parser should not reach this point as all
+     * types of lexemes should be caught earlier,
+     * but if it does due to some bug make sure it
+     * advances at least one character forward to
+     * prevent infinite looping. */
+    modeBuffer += lexeme;
+
+    return lexeme.length || /* istanbul ignore next */1;
+  }
+
+  /* Start a new mode with a `lexeme` to process. */
+  function startNewMode(mode, lexeme) {
+    var node;
+
+    if (mode.className) {
+      node = build(mode.className, []);
+    }
+
+    if (mode.returnBegin) {
+      modeBuffer = EMPTY;
+    } else if (mode.excludeBegin) {
+      addText(lexeme, currentChildren);
+
+      modeBuffer = EMPTY;
+    } else {
+      modeBuffer = lexeme;
+    }
+
+    /* Enter a new mode. */
+    if (node) {
+      currentChildren.push(node);
+      stack.push(currentChildren);
+      currentChildren = node.children;
+    }
+
+    top = Object.create(mode, { parent: { value: top } });
+  }
+
+  /* Process the buffer. */
+  function processBuffer() {
+    var result = top.subLanguage === undefined ? processKeywords() : processSubLanguage();
+    modeBuffer = EMPTY;
+    return result;
+  }
+
+  /* Process a sublanguage (returns a list of nodes). */
+  function processSubLanguage() {
+    var explicit = typeof top.subLanguage === 'string';
+    var subvalue;
+
+    /* istanbul ignore if - support non-loaded sublanguages */
+    if (explicit && !languages[top.subLanguage]) {
+      return addText(modeBuffer, []);
+    }
+
+    if (explicit) {
+      subvalue = coreHighlight(top.subLanguage, modeBuffer, true, prefix, continuations[top.subLanguage]);
+    } else {
+      subvalue = autoHighlight(modeBuffer, {
+        subset: top.subLanguage.length ? top.subLanguage : undefined,
+        prefix: prefix
+      });
+    }
+
+    /* Counting embedded language score towards the
+     * host language may be disabled with zeroing the
+     * containing mode relevance.  Usecase in point is
+     * Markdown that allows XML everywhere and makes
+     * every XML snippet to have a much larger Markdown
+     * score. */
+    if (top.relevance > 0) {
+      relevance += subvalue.relevance;
+    }
+
+    if (explicit) {
+      continuations[top.subLanguage] = subvalue.top;
+    }
+
+    return [build(subvalue.language, subvalue.value, true)];
+  }
+
+  /* Process keywords. Returns nodes. */
+  function processKeywords() {
+    var nodes = [];
+    var lastIndex;
+    var keyword;
+    var node;
+    var submatch;
+
+    if (!top.keywords) {
+      return addText(modeBuffer, nodes);
+    }
+
+    lastIndex = 0;
+
+    top.lexemesRe.lastIndex = 0;
+
+    keyword = top.lexemesRe.exec(modeBuffer);
+
+    while (keyword) {
+      addText(modeBuffer.substring(lastIndex, keyword.index), nodes);
+
+      submatch = keywordMatch(top, keyword);
+
+      if (submatch) {
+        relevance += submatch[1];
+
+        node = build(submatch[0], []);
+
+        nodes.push(node);
+
+        addText(keyword[0], node.children);
+      } else {
+        addText(keyword[0], nodes);
+      }
+
+      lastIndex = top.lexemesRe.lastIndex;
+      keyword = top.lexemesRe.exec(modeBuffer);
+    }
+
+    addText(modeBuffer.substr(lastIndex), nodes);
+
+    return nodes;
+  }
+
+  /* Add siblings. */
+  function addSiblings(siblings, nodes) {
+    var length = siblings.length;
+    var index = -1;
+    var sibling;
+
+    while (++index < length) {
+      sibling = siblings[index];
+
+      if (sibling.type === T_TEXT) {
+        addText(sibling.value, nodes);
+      } else {
+        nodes.push(sibling);
+      }
+    }
+  }
+
+  /* Add a text. */
+  function addText(value, nodes) {
+    var tail;
+
+    if (value) {
+      tail = nodes[nodes.length - 1];
+
+      if (tail && tail.type === T_TEXT) {
+        tail.value += value;
+      } else {
+        nodes.push(buildText(value));
+      }
+    }
+
+    return nodes;
+  }
+
+  /* Build a text. */
+  function buildText(value) {
+    return { type: T_TEXT, value: value };
+  }
+
+  /* Build a span. */
+  function build(name, contents, noPrefix) {
+    return {
+      type: T_ELEMENT,
+      tagName: T_SPAN,
+      properties: {
+        className: [(noPrefix ? EMPTY : prefix) + name]
+      },
+      children: contents
+    };
+  }
+
+  /* Check if the first word in `keywords` is a keyword. */
+  function keywordMatch(mode, keywords) {
+    var keyword = keywords[0];
+
+    if (language[KEY_INSENSITIVE]) {
+      keyword = keyword.toLowerCase();
+    }
+
+    return own.call(mode.keywords, keyword) && mode.keywords[keyword];
+  }
+
+  /* Check if `lexeme` is illegal according to `mode`. */
+  function isIllegal(lexeme, mode) {
+    return !ignore && test(mode.illegalRe, lexeme);
+  }
+
+  /* Check if `lexeme` ends `mode`. */
+  function endOfMode(mode, lexeme) {
+    if (test(mode.endRe, lexeme)) {
+      while (mode.endsParent && mode.parent) {
+        mode = mode.parent;
+      }
+      return mode;
+    }
+
+    if (mode.endsWithParent) {
+      return endOfMode(mode.parent, lexeme);
+    }
+  }
+
+  /* Check a sub-mode. */
+  function subMode(lexeme, mode) {
+    var values = mode.contains;
+    var length = values.length;
+    var index = -1;
+
+    while (++index < length) {
+      if (test(values[index].beginRe, lexeme)) {
+        return values[index];
+      }
+    }
+  }
+
+  /* Exit the current context. */
+  function pop() {
+    /* istanbul ignore next - removed in hljs 9.3 */
+    currentChildren = stack.pop() || children;
+  }
+}
+
+function expandMode(mode) {
+  if (mode.variants && !mode[KEY_CACHED_VARIANTS]) {
+    mode[KEY_CACHED_VARIANTS] = mode.variants.map(function (variant) {
+      return inherit(mode, { variants: null }, variant);
+    });
+  }
+
+  return mode[KEY_CACHED_VARIANTS] || mode.endsWithParent && [inherit(mode)] || [mode];
+}
+
+/* Compile a language. */
+function compileLanguage(language) {
+  compileMode(language);
+
+  /* Compile a language mode, optionally with a parent. */
+  function compileMode(mode, parent) {
+    var compiledKeywords = {};
+    var terminators;
+
+    if (mode.compiled) {
+      return;
+    }
+
+    mode.compiled = true;
+
+    mode.keywords = mode.keywords || mode.beginKeywords;
+
+    if (mode.keywords) {
+      if (typeof mode.keywords === 'string') {
+        flatten('keyword', mode.keywords);
+      } else {
+        Object.keys(mode.keywords).forEach(function (className) {
+          flatten(className, mode.keywords[className]);
+        });
+      }
+
+      mode.keywords = compiledKeywords;
+    }
+
+    mode.lexemesRe = langRe(mode.lexemes || /\w+/, true);
+
+    if (parent) {
+      if (mode.beginKeywords) {
+        mode.begin = '\\b(' + mode.beginKeywords.split(C_SPACE).join(C_PIPE) + ')\\b';
+      }
+
+      if (!mode.begin) {
+        mode.begin = /\B|\b/;
+      }
+
+      mode.beginRe = langRe(mode.begin);
+
+      if (!mode.end && !mode.endsWithParent) {
+        mode.end = /\B|\b/;
+      }
+
+      if (mode.end) {
+        mode.endRe = langRe(mode.end);
+      }
+
+      mode.terminatorEnd = source(mode.end) || EMPTY;
+
+      if (mode.endsWithParent && parent.terminatorEnd) {
+        mode.terminatorEnd += (mode.end ? C_PIPE : EMPTY) + parent.terminatorEnd;
+      }
+    }
+
+    if (mode.illegal) {
+      mode.illegalRe = langRe(mode.illegal);
+    }
+
+    if (mode.relevance === undefined) {
+      mode.relevance = 1;
+    }
+
+    if (!mode.contains) {
+      mode.contains = [];
+    }
+
+    mode.contains = Array.prototype.concat.apply([], mode.contains.map(function (c) {
+      return expandMode(c === 'self' ? mode : c);
+    }));
+
+    mode.contains.forEach(function (c) {
+      compileMode(c, mode);
+    });
+
+    if (mode.starts) {
+      compileMode(mode.starts, parent);
+    }
+
+    terminators = mode.contains.map(function (c) {
+      return c.beginKeywords ? '\\.?(' + c.begin + ')\\.?' : c.begin;
+    }).concat([mode.terminatorEnd, mode.illegal]).map(source).filter(Boolean);
+
+    mode.terminators = terminators.length ? langRe(terminators.join(C_PIPE), true) : { exec: execNoop };
+
+    /* Flatten a classname. */
+    function flatten(className, value) {
+      var pairs;
+      var pair;
+      var index;
+      var length;
+
+      if (language[KEY_INSENSITIVE]) {
+        value = value.toLowerCase();
+      }
+
+      pairs = value.split(C_SPACE);
+      length = pairs.length;
+      index = -1;
+
+      while (++index < length) {
+        pair = pairs[index].split(C_PIPE);
+
+        compiledKeywords[pair[0]] = [className, pair[1] ? Number(pair[1]) : 1];
+      }
+    }
+  }
+
+  /* Create a regex for `value`. */
+  function langRe(value, global) {
+    return new RegExp(source(value), 'm' + (language[KEY_INSENSITIVE] ? 'i' : '') + (global ? 'g' : ''));
+  }
+
+  /* Get the source of an expression or string. */
+  function source(re) {
+    return re && re.source || re;
+  }
+}
+
+/* Normalize a syntax result. */
+function normalize(result) {
+  return {
+    relevance: result.relevance || 0,
+    language: result.language || null,
+    value: result.value || []
+  };
+}
+
+/* Check if `expression` matches `lexeme`. */
+function test(expression, lexeme) {
+  var match = expression && expression.exec(lexeme);
+  return match && match.index === 0;
+}
+
+/* No-op exec. */
+function execNoop() {
+  return null;
+}
+
+/* Get a language by `name`. */
+function getLanguage(name) {
+  name = name.toLowerCase();
+
+  return languages[name] || languages[aliases[name]];
+}
+
+},{"highlight.js/lib/highlight.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/highlight.js/lib/highlight.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/no-case/no-case.js":[function(require,module,exports){
 'use strict';
 
 var lowerCase = require('lower-case');
@@ -9730,7 +11789,466 @@ if ("development" === 'production') {
   module.exports = require('./cjs/react-dom.development.js');
 }
 
-},{"./cjs/react-dom.development.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-dom/cjs/react-dom.development.js","./cjs/react-dom.production.min.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-dom/cjs/react-dom.production.min.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/cjs/react.development.js":[function(require,module,exports){
+},{"./cjs/react-dom.development.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-dom/cjs/react-dom.development.js","./cjs/react-dom.production.min.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-dom/cjs/react-dom.production.min.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/create-element.js":[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var _assign = require('babel-runtime/core-js/object/assign');
+
+var _assign2 = _interopRequireDefault(_assign);
+
+var _extends2 = require('babel-runtime/helpers/extends');
+
+var _extends3 = _interopRequireDefault(_extends2);
+
+exports.createStyleObject = createStyleObject;
+exports.createClassNameString = createClassNameString;
+exports.createChildren = createChildren;
+exports.default = createElement;
+
+var _react = require('react');
+
+var _react2 = _interopRequireDefault(_react);
+
+function _interopRequireDefault(obj) {
+  return obj && obj.__esModule ? obj : { default: obj };
+}
+
+function createStyleObject(classNames) {
+  var elementStyle = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+  var stylesheet = arguments[2];
+
+  return classNames.reduce(function (styleObject, className) {
+    return (0, _extends3.default)({}, styleObject, stylesheet[className]);
+  }, elementStyle);
+}
+
+function createClassNameString(classNames) {
+  return classNames.join(' ');
+}
+
+function createChildren(stylesheet, useInlineStyles) {
+  var childrenCount = 0;
+  return function (children) {
+    childrenCount += 1;
+    return children.map(function (child, i) {
+      return createElement({
+        node: child,
+        stylesheet: stylesheet,
+        useInlineStyles: useInlineStyles,
+        key: 'code-segment-' + childrenCount + '-' + i
+      });
+    });
+  };
+}
+
+function createElement(_ref) {
+  var node = _ref.node,
+      stylesheet = _ref.stylesheet,
+      _ref$style = _ref.style,
+      style = _ref$style === undefined ? {} : _ref$style,
+      useInlineStyles = _ref.useInlineStyles,
+      key = _ref.key;
+  var properties = node.properties,
+      type = node.type,
+      TagName = node.tagName,
+      value = node.value;
+
+  if (type === 'text') {
+    return value;
+  } else if (TagName) {
+    var childrenCreator = createChildren(stylesheet, useInlineStyles);
+    var props = useInlineStyles ? {
+      style: createStyleObject(properties.className, (0, _assign2.default)({}, properties.style, style), stylesheet)
+    } : { className: createClassNameString(properties.className) };
+    var children = childrenCreator(node.children);
+    return _react2.default.createElement(TagName, (0, _extends3.default)({ key: key }, props), children);
+  }
+}
+
+},{"babel-runtime/core-js/object/assign":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/babel-runtime/core-js/object/assign.js","babel-runtime/helpers/extends":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/babel-runtime/helpers/extends.js","react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/highlight.js":[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var _assign = require('babel-runtime/core-js/object/assign');
+
+var _assign2 = _interopRequireDefault(_assign);
+
+var _objectWithoutProperties2 = require('babel-runtime/helpers/objectWithoutProperties');
+
+var _objectWithoutProperties3 = _interopRequireDefault(_objectWithoutProperties2);
+
+exports.default = function (lowlight, defaultStyle) {
+  return function SyntaxHighlighter(_ref5) {
+    var language = _ref5.language,
+        children = _ref5.children,
+        _ref5$style = _ref5.style,
+        style = _ref5$style === undefined ? defaultStyle : _ref5$style,
+        _ref5$customStyle = _ref5.customStyle,
+        customStyle = _ref5$customStyle === undefined ? {} : _ref5$customStyle,
+        _ref5$codeTagProps = _ref5.codeTagProps,
+        codeTagProps = _ref5$codeTagProps === undefined ? {} : _ref5$codeTagProps,
+        _ref5$useInlineStyles = _ref5.useInlineStyles,
+        useInlineStyles = _ref5$useInlineStyles === undefined ? true : _ref5$useInlineStyles,
+        _ref5$showLineNumbers = _ref5.showLineNumbers,
+        showLineNumbers = _ref5$showLineNumbers === undefined ? false : _ref5$showLineNumbers,
+        _ref5$startingLineNum = _ref5.startingLineNumber,
+        startingLineNumber = _ref5$startingLineNum === undefined ? 1 : _ref5$startingLineNum,
+        lineNumberContainerStyle = _ref5.lineNumberContainerStyle,
+        lineNumberStyle = _ref5.lineNumberStyle,
+        wrapLines = _ref5.wrapLines,
+        _ref5$lineStyle = _ref5.lineStyle,
+        lineStyle = _ref5$lineStyle === undefined ? {} : _ref5$lineStyle,
+        renderer = _ref5.renderer,
+        _ref5$PreTag = _ref5.PreTag,
+        PreTag = _ref5$PreTag === undefined ? 'pre' : _ref5$PreTag,
+        _ref5$CodeTag = _ref5.CodeTag,
+        CodeTag = _ref5$CodeTag === undefined ? 'code' : _ref5$CodeTag,
+        _ref5$code = _ref5.code,
+        code = _ref5$code === undefined ? Array.isArray(children) ? children[0] : children : _ref5$code,
+        rest = (0, _objectWithoutProperties3.default)(_ref5, ['language', 'children', 'style', 'customStyle', 'codeTagProps', 'useInlineStyles', 'showLineNumbers', 'startingLineNumber', 'lineNumberContainerStyle', 'lineNumberStyle', 'wrapLines', 'lineStyle', 'renderer', 'PreTag', 'CodeTag', 'code']);
+
+    /* 
+     * some custom renderers rely on individual row elements so we need to turn wrapLines on 
+     * if renderer is provided and wrapLines is undefined
+    */
+    wrapLines = renderer && wrapLines === undefined ? true : wrapLines;
+    renderer = renderer || defaultRenderer;
+    var codeTree = language && !!lowlight.getLanguage(language) ? lowlight.highlight(language, code) : lowlight.highlightAuto(code);
+    if (codeTree.language === null || language === 'text') {
+      codeTree.value = [{ type: 'text', value: code }];
+    }
+    var defaultPreStyle = style.hljs || { backgroundColor: '#fff' };
+    var preProps = useInlineStyles ? (0, _assign2.default)({}, rest, { style: (0, _assign2.default)({}, defaultPreStyle, customStyle) }) : (0, _assign2.default)({}, rest, { className: 'hljs' });
+
+    var tree = wrapLines ? wrapLinesInSpan(codeTree, lineStyle) : codeTree.value;
+    var lineNumbers = showLineNumbers ? _react2.default.createElement(LineNumbers, {
+      containerStyle: lineNumberContainerStyle,
+      numberStyle: lineNumberStyle,
+      startingLineNumber: startingLineNumber,
+      codeString: code
+    }) : null;
+    return _react2.default.createElement(PreTag, preProps, lineNumbers, _react2.default.createElement(CodeTag, codeTagProps, renderer({ rows: tree, stylesheet: style, useInlineStyles: useInlineStyles })));
+  };
+};
+
+var _react = require('react');
+
+var _react2 = _interopRequireDefault(_react);
+
+var _createElement = require('./create-element');
+
+var _createElement2 = _interopRequireDefault(_createElement);
+
+function _interopRequireDefault(obj) {
+  return obj && obj.__esModule ? obj : { default: obj };
+}
+
+var newLineRegex = /\n/g;
+function getNewLines(str) {
+  return str.match(newLineRegex);
+}
+
+function getLineNumbers(_ref) {
+  var lines = _ref.lines,
+      startingLineNumber = _ref.startingLineNumber,
+      style = _ref.style;
+
+  return lines.map(function (_, i) {
+    var number = i + startingLineNumber;
+    return _react2.default.createElement('span', {
+      key: 'line-' + i,
+      className: 'react-syntax-highlighter-line-number',
+      style: typeof style === 'function' ? style(number) : style
+    }, number + '\n');
+  });
+}
+
+function LineNumbers(_ref2) {
+  var codeString = _ref2.codeString,
+      _ref2$containerStyle = _ref2.containerStyle,
+      containerStyle = _ref2$containerStyle === undefined ? { float: 'left', paddingRight: '10px' } : _ref2$containerStyle,
+      _ref2$numberStyle = _ref2.numberStyle,
+      numberStyle = _ref2$numberStyle === undefined ? {} : _ref2$numberStyle,
+      startingLineNumber = _ref2.startingLineNumber;
+
+  return _react2.default.createElement('code', { style: containerStyle }, getLineNumbers({
+    lines: codeString.replace(/\n$/, '').split('\n'),
+    style: numberStyle,
+    startingLineNumber: startingLineNumber
+  }));
+}
+
+function createLineElement(_ref3) {
+  var children = _ref3.children,
+      lineNumber = _ref3.lineNumber,
+      lineStyle = _ref3.lineStyle,
+      _ref3$className = _ref3.className,
+      className = _ref3$className === undefined ? [] : _ref3$className;
+
+  return {
+    type: 'element',
+    tagName: 'span',
+    properties: {
+      className: className,
+      style: typeof lineStyle === 'function' ? lineStyle(lineNumber) : lineStyle
+    },
+    children: children
+  };
+}
+
+function flattenCodeTree(tree) {
+  var className = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : [];
+  var newTree = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : [];
+
+  for (var i = 0; i < tree.length; i++) {
+    var node = tree[i];
+    if (node.type === 'text') {
+      newTree.push(createLineElement({
+        children: [node],
+        className: className
+      }));
+    } else if (node.children) {
+      var classNames = className.concat(node.properties.className);
+      newTree = newTree.concat(flattenCodeTree(node.children, classNames));
+    }
+  }
+  return newTree;
+}
+
+function wrapLinesInSpan(codeTree, lineStyle) {
+  var tree = flattenCodeTree(codeTree.value);
+  var newTree = [];
+  var lastLineBreakIndex = -1;
+  var index = 0;
+
+  var _loop = function _loop() {
+    var node = tree[index];
+    var value = node.children[0].value;
+    var newLines = getNewLines(value);
+    if (newLines) {
+      (function () {
+        var splitValue = value.split('\n');
+        splitValue.forEach(function (text, i) {
+          var lineNumber = newTree.length + 1;
+          var newChild = { type: 'text', value: text + '\n' };
+          if (i === 0) {
+            var _children = tree.slice(lastLineBreakIndex + 1, index).concat(createLineElement({ children: [newChild], className: node.properties.className }));
+            newTree.push(createLineElement({ children: _children, lineNumber: lineNumber, lineStyle: lineStyle }));
+          } else if (i === splitValue.length - 1) {
+            var stringChild = tree[index + 1] && tree[index + 1].children && tree[index + 1].children[0];
+            if (stringChild) {
+              var lastLineInPreviousSpan = { type: 'text', value: '' + text };
+              var newElem = createLineElement({ children: [lastLineInPreviousSpan], className: node.properties.className });
+              tree.splice(index + 1, 0, newElem);
+            } else {
+              newTree.push(createLineElement({ children: [newChild], lineNumber: lineNumber, lineStyle: lineStyle }));
+            }
+          } else {
+            newTree.push(createLineElement({ children: [newChild], lineNumber: lineNumber, lineStyle: lineStyle }));
+          }
+        });
+        lastLineBreakIndex = index;
+      })();
+    }
+    index++;
+  };
+
+  while (index < tree.length) {
+    _loop();
+  }
+  if (lastLineBreakIndex !== tree.length - 1) {
+    var children = tree.slice(lastLineBreakIndex + 1, tree.length);
+    if (children && children.length) {
+      newTree.push(createLineElement({ children: children, lineNumber: newTree.length + 1, lineStyle: lineStyle }));
+    }
+  }
+  return newTree;
+}
+
+function defaultRenderer(_ref4) {
+  var rows = _ref4.rows,
+      stylesheet = _ref4.stylesheet,
+      useInlineStyles = _ref4.useInlineStyles;
+
+  return rows.map(function (node, i) {
+    return (0, _createElement2.default)({
+      node: node,
+      stylesheet: stylesheet,
+      useInlineStyles: useInlineStyles,
+      key: 'code-segement' + i
+    });
+  });
+}
+
+},{"./create-element":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/create-element.js","babel-runtime/core-js/object/assign":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/babel-runtime/core-js/object/assign.js","babel-runtime/helpers/objectWithoutProperties":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/babel-runtime/helpers/objectWithoutProperties.js","react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/languages/cpp.js":[function(require,module,exports){
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var _cpp = require("highlight.js/lib/languages/cpp");
+
+var _cpp2 = _interopRequireDefault(_cpp);
+
+function _interopRequireDefault(obj) {
+  return obj && obj.__esModule ? obj : { default: obj };
+}
+
+exports.default = _cpp2.default;
+
+},{"highlight.js/lib/languages/cpp":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/highlight.js/lib/languages/cpp.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/light.js":[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.registerLanguage = undefined;
+
+var _highlight = require('./highlight');
+
+var _highlight2 = _interopRequireDefault(_highlight);
+
+var _core = require('lowlight/lib/core');
+
+var _core2 = _interopRequireDefault(_core);
+
+function _interopRequireDefault(obj) {
+  return obj && obj.__esModule ? obj : { default: obj };
+}
+
+var registerLanguage = exports.registerLanguage = _core2.default.registerLanguage;
+exports.default = (0, _highlight2.default)(_core2.default, {});
+
+},{"./highlight":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/highlight.js","lowlight/lib/core":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/lowlight/lib/core.js"}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/styles/atom-one-dark.js":[function(require,module,exports){
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+    value: true
+});
+exports.default = {
+    "hljs": {
+        "display": "block",
+        "overflowX": "auto",
+        "padding": "0.5em",
+        "color": "#abb2bf",
+        "background": "#282c34"
+    },
+    "hljs-comment": {
+        "color": "#5c6370",
+        "fontStyle": "italic"
+    },
+    "hljs-quote": {
+        "color": "#5c6370",
+        "fontStyle": "italic"
+    },
+    "hljs-doctag": {
+        "color": "#c678dd"
+    },
+    "hljs-keyword": {
+        "color": "#c678dd"
+    },
+    "hljs-formula": {
+        "color": "#c678dd"
+    },
+    "hljs-section": {
+        "color": "#e06c75"
+    },
+    "hljs-name": {
+        "color": "#e06c75"
+    },
+    "hljs-selector-tag": {
+        "color": "#e06c75"
+    },
+    "hljs-deletion": {
+        "color": "#e06c75"
+    },
+    "hljs-subst": {
+        "color": "#e06c75"
+    },
+    "hljs-literal": {
+        "color": "#56b6c2"
+    },
+    "hljs-string": {
+        "color": "#98c379"
+    },
+    "hljs-regexp": {
+        "color": "#98c379"
+    },
+    "hljs-addition": {
+        "color": "#98c379"
+    },
+    "hljs-attribute": {
+        "color": "#98c379"
+    },
+    "hljs-meta-string": {
+        "color": "#98c379"
+    },
+    "hljs-built_in": {
+        "color": "#e6c07b"
+    },
+    "hljs-class .hljs-title": {
+        "color": "#e6c07b"
+    },
+    "hljs-attr": {
+        "color": "#d19a66"
+    },
+    "hljs-variable": {
+        "color": "#d19a66"
+    },
+    "hljs-template-variable": {
+        "color": "#d19a66"
+    },
+    "hljs-type": {
+        "color": "#d19a66"
+    },
+    "hljs-selector-class": {
+        "color": "#d19a66"
+    },
+    "hljs-selector-attr": {
+        "color": "#d19a66"
+    },
+    "hljs-selector-pseudo": {
+        "color": "#d19a66"
+    },
+    "hljs-number": {
+        "color": "#d19a66"
+    },
+    "hljs-symbol": {
+        "color": "#61aeee"
+    },
+    "hljs-bullet": {
+        "color": "#61aeee"
+    },
+    "hljs-link": {
+        "color": "#61aeee",
+        "textDecoration": "underline"
+    },
+    "hljs-meta": {
+        "color": "#61aeee"
+    },
+    "hljs-selector-id": {
+        "color": "#61aeee"
+    },
+    "hljs-title": {
+        "color": "#61aeee"
+    },
+    "hljs-emphasis": {
+        "fontStyle": "italic"
+    },
+    "hljs-strong": {
+        "fontWeight": "bold"
+    }
+};
+
+},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/cjs/react.development.js":[function(require,module,exports){
 /** @license React v16.2.0
  * react.development.js
  *
@@ -11591,12 +14109,10 @@ var LANGUAGES = {
   return str.toUpperCase();
 };
 
-},{}],"/Users/rreusser/node/rreusser/rreusser.github.io/src/src/projects/index.json":[function(require,module,exports){
-module.exports=[{"id":"flamms-paraboloid","path":"../flamms-paraboloid/","title":"Flamm's Paraboloid","order":1100,"description":"Scrollybuilding Flamm's Paraboloid","thumbnailPath":"images/flamms-paraboloid-thumbnail.jpg"},{"id":"continuum-gravity","path":"../continuum-gravity/","title":"Continuum Gravity","order":1000,"description":"One million particles interacting gravitationally via a Poisson equation solved on a 2D grid","thumbnailPath":"images/continuum-gravity-thumbnail.jpg"},{"id":"kuramoto-sivashinsky","path":"../kuramoto-sivashinsky/","title":"Kuramoto-Sivashinsky","order":900,"description":"Integrating the 2D Kuramoto-Sivashinsky Equation, ∂u/∂t + ∇⁴u + ∇²u + ½ |∇u|² = 0","thumbnailPath":"images/kuramoto-sivashinsky-thumbnail.jpg"},{"id":"karman-trefftz-airfoil","path":"../karman-trefftz-airfoil/","title":"Karman-Trefftz Airfoil","order":700,"description":"Flow over an airfoil, computed with the Karman-Trefftz conformal map and visualized on the GPU","thumbnailPath":"images/karman-trefftz-airfoil-thumbnail.jpg"},{"id":"periodic-three-body-orbits","path":"../periodic-three-body-orbits/","title":"Periodic Three-Body Orbits","order":600,"description":"Periodic solutions of the three bodies interacting via Newtonian gravity","thumbnailPath":"images/periodic-three-body-orbits-thumbnail.jpg"},{"id":"hydrodynamic-instabilities","path":"../hydrodynamic-instabilities/","title":"Hydrodynamic Instabilities","order":500,"description":"The Kelvin-Helmholtz and Rayleigh-Taylor hydrodynamic instabilities","thumbnailPath":"images/hydrodynamic-instabilities-thumbnail.jpg"},{"id":"strange-attractors","path":"../strange-attractors/","title":"Strange Attractors","order":450,"description":"Strange attractors on the GPU","thumbnailPath":"images/strange-attractors-thumbnail.jpg"},{"id":"random-polynomial-roots","path":"../random-polynomial-roots/","title":"Polynomial Roots","order":300,"description":"Roots of a polynomial with random coefficients, plotted in the complex plane","thumbnailPath":"images/random-polynomial-roots-thumbnail.jpg"},{"id":"schwarzschild-spacetime","path":"../schwarzschild-spacetime/","title":"Schwarzschild Trajectories","order":150,"description":"Integrating particle geodesics in Schwarzschild spacetime (a black hole).","thumbnailPath":"images/schwarzschild-spacetime-thumbnail.jpg"},{"id":"erosion","path":"../erosion/","title":"Erosion","order":100,"description":"An ad-hoc particle-based terrain erosion algorithm, computed on the GPU","thumbnailPath":"images/erosion-thumbnail.jpg"},{"id":"smooth-life","path":"../smooth-life/","title":"Smooth Life","order":80,"description":"Conway's Game of Life, generalized to a continuum and solved on the GPU","thumbnailPath":"images/smooth-life-thumbnail.jpg"},{"id":"logistic-map","path":"../logistic-map/","title":"Logistic Map","order":20,"description":"The chaotic logistic map, computed and displayed on the GPU","thumbnailPath":"images/logistic-map-thumbnail.jpg"}]
 },{}],"__IDYLL_AST__":[function(require,module,exports){
 "use strict";
 
-module.exports = [["menu", [], []], ["Header", [["title", ["value", "Projects"]]], []], ["TextContainer", [], [["p", [], ["A set of experirments and explorations, mostly using the ", ["a", [["href", ["value", "https://github.com/regl-project/regl"]]], ["regl"]], " WebGL library, some computed on the GPU and some on the CPU. The source for all content and projects on this site can be found ", ["a", [["href", ["value", "https://github.com/rreusser/rreusser.github.io/tree/master/src/src"]]], ["here"]], ". Keep in mind though that these are explorations and that I certainly learned as much (often more) about how ", ["em", [], ["not"]], " to approach these projects as about how ", ["em", [], ["to"]], " approach these projects."]], ["p", [], ["Comments? Questions? Let me know ", ["a", [["href", ["value", "https://twitter.com/rickyreusser"]]], ["@rickyreusser"]], "."]]]], ["ProjectIndex", [], []], ["footer", [], []]];
+module.exports = [["menu", [], []], ["Header", [["title", ["value", "A Series of Unfortunate Things I Programmed One Time"]], ["author", ["value", "Ricky Reusser"]], ["authorLink", ["value", "https://github.com/rreusser"]], ["date", ["value", "March 16, 2015"]]], []], ["TextContainer", [], [["p", [], ["I’ve been thinking lately about what makes good engineering. Actually, let’s be honest. As engineers, that’s not what we focus on. We get hung up on the failures—which always seem to outnumber the successes. Of course once you get out into the real world of programming for a livelihood, success is measured in terms of project completion and client satisfaction, but as easy as it is to put your head down and focus on the next ticket, that doesn’t absolve us of having to master our craft, to learn new things and better understand and utilize the old."]], ["p", [], ["But I won’t try to say anything intelligent on good engineering. Instead, I’ll try to communicate the regrets that surfaced last weekend when I plugged in my old laptop and sifted through a decade-old folder called ", ["code", [], ["projects"]], "."]], ["h2", [], ["How I started programming"]], ["p", [], ["The first thing I went looking for was one of my first major programming efforts, the result of the reason I started programming. A pretty long time ago, I came across a paper called ", ["a", [["href", ["value", "http://graphics.ucsd.edu/~henrik/papers/smoke/smoke.pdf"]]], ["Visual Simulation of Smoke"]], " by some pretty impressive people at Stanford. Research like this is what makes those Pixar movies possible. That you can simulate such complex dynamics from a set of simple principles fascinated me. This was about halfway through high school, so I decided to learn vector calculus and linear algebra just to make this happen."]], ["p", [], ["It was a long, slow process. Timestamps indicate that I finally got something working five years later in about 2005 (Junior year of college). Frankly, I still feel pretty good about the result!"]], ["figure", [], [["video", [["src", ["value", "https://s3.amazonaws.com/rickyreusser.com/fluid.mp4"]], ["loop", ["value", "true"]], ["controls", ["value", "true"]]], []], ["figcaption", [], ["\nThe finished product, five years in the making."]]]], ["h2", [], ["Down the Rabbit Hole"]], ["p", [], ["In hindsight, this shouldn’t really amount to more than a week or two of work, but learning is the process of making hindsight obvious. One way or another though, I had something special: knowledge. And experience. At this point, I had three options:"]], ["ol", [], [["li", [], ["Learn from what I’d done and improve"]], ["li", [], ["Learn from what others have done and improve"]], ["li", [], ["Go down the rabbit hole and see how complicated I can make things"]]]], ["p", [], ["\nGiven my experience at the time, it’s hard to say I chose the wrong option, but let’s be clear: I chose (3), and I didn’t just slowly wade into it. I sought out complexity. I enhanced the complexity. No, seriously. I took the basic method and made it as absolutely opaque as I could. I wanted to enter it into the ", ["a", [["href", ["value", "http://www.ioccc.org/"]]], ["International Obfuscated C Code Contest"]], ":"]], ["CodeHighlight", [["language", ["value", "cpp"]]], ["#include<X11/Xlib.h>\n#include<math.h>\n#include<stdio.h>\n#include<unistd.h>\n#include<stdlib.h>\n#define R(x)(x)/2\n#define r(w)_(w,0)\n#define V(w)(w)*(w)\n#define _(w,Z)u[w][p+Z]\n#define p a+l*b+V(l+1)*c+b\n#define o(x,j,S)U(x,j,l-j,S)\n#define L(w,Z,z)(1-z)*(w)+z*(Z)\n#define M(Z,j)(Z>j?j:(Z<0?0:Z))\n#define T(x,j)o(c,x,o(b,x,o(a,x,j)))\n#define U(w,Z,j,x)for(w=Z;w<j;w++){x}\n#define P(j)U(d,0,3,r(9)=_(9,j O[2-d]);h=a;a=b;b=c;c=h;)\n#define I m=V(l+1);Q=M(a-F[0]-(f=(int)(a-F[0])),l);E=M(\\\nb-F[1]-(g=(int)(b-F[1])),l);W=u[d]+f+O[1]*g+m*(e=(int)(\\\nc-F[2]));r(d+4)=L(L(L(W[0],W[1],Q),L(W[l+1],W[l+2],Q),E\\\n),L(L(W[m],W[m+1],Q),L(W[m+l+1],W[m+l+2],Q),E),M(c-F[2]-e,l));\n#define K(j)F[j]=R(R(r(j)+_(j,O[d])+_(j,O[j])+_(j,O[d]+O[j])));/*F(){..*4\\\n7,f-e-e.d/c/c0e.d/c0b0b(\"(b(#'b($&b($&b(%%b(&$b('#b((\"_.d.d.d.d.d.d.HUH?*/\nint a,b,c,d,e,f,g,h,i,j,k=1,l,m,Y;double Q,E,*u[012],F[3],*W;char*X,t[99];\nint main(int S,char**v){Y=**++v-48;l=atoi(*(v-2+S));Display*q=XOpenDisplay\n(0);Window H=RootWindow(q,0);if(S==02)l=(b=getchar())==9?80:b,S-=b==9;if(S\n!=2||b==9)putchar(l);GC G=XCreateGC(q,H,0,0);int O[3]={1,l+1,V(l+1)};U(a,0\n,10,u[a]=calloc(O[1]*V(l+1),8);)H=XCreateSimpleWindow(q,H,0,0,l*Y,l*Y,0,0,\n0);if(S-1){T(0,if(V(b-2)+V(c-R(l))+V(a-R(l))<V(l/10)){r(3)=r(7)=0.02;r(1)=\n7;})}else{U(e,0,22,gets(t);)X=t;while(k<=1948){S=!S;U(m,0,*X-33,U(e,044,44\n,j=k%80+(l/2-k/80)*O[1]-(p)+e*V(l+1);_(7,j)=_(3,j)=S*0.1;)k++;)X++;}T(0,if\n(a<40&&(Q=r(3))){a=80-a;r(3)=Q;a=80-a;})S=1;}XMapWindow(q,H);while(G){U(a,\n0,l,U(b,0,l,if(S-2){Q=0;U(c,0,l,E=0;f=a;g=b;e=c;while(f&&g-l&&e-l){E+=_(03\n,f--+g++*O[1]-(p)+(e+=S==1)*V(l+1));}Q+=r(3)*exp(-E*0.97e2);)e=(M(Q*015410\n,0377));putchar(e);}else{e=getchar();}XSetForeground(q,G,e|e<<8|e<<020|e<<\n24);U(f,0,Y,U(g,0,Y,XDrawPoint(q,H,G,a*Y+f,(l-b-1)*Y+g);))))if(S-2){i=1,j=\n0,k=2;T(0,if(b>2)r(1)+=(r(3)+_(3,l+1))*3.5/(1+4*(S==1));if(b<3){d=b;b=l-2+\n(d==1);r(d)=_(d,-l-1);b=d;})U(d,0,3,h=k;k=j;j=i;i=h;U(c,1,l-(k!=2),U(b,1,l\n-(j!=2),U(a,1,l-(i!=2),F[d]=r(d);K(j)K(i)I))))T(1,U(d,0,3,F[d]=R(r(d)+_(d,\nO[d]));)I)T(0,r(8)=0;U(d,0,3,r(8)+=_(4+d,O[d])-r(4+d);))f=80;while(f--){U(\na,0,l,U(b,0,l,c=0;P()c=l-1;P(-)))T(1,Q=-r(8);U(d,0,3,Q+=_(9,O[d])+_(9,-O[d\n]);)r(9)+=0117*(Q/6-r(9))/0620;)}T(1,U(d,0,3,if(a)r(d)=r(d+4)-r(9)+_(011,-\nO[d]);))W=u[3],u[3]=u[7],u[7]=W;}if(S-2)putchar(05);else{if(getchar()-05){\nrewind(stdin);getchar();}}usleep(9<<9);}}"]], ["p", [], ["This has basically all the features of the video above, except it’s dramatically less useful. I even RLE-encoded the University of Michigan ‘M’ on line 22 and a small part of line 21. It has a X-Windows interface. It doesn’t run correctly unless line 1 starts with a tab."]], ["p", [], ["So am I proud of this code? Yeah, a little. (", ["a", [["href", ["value", "https://github.com/rreusser/rrcfd/"]]], ["It’s on github by the way."]], ") But that’s vastly outweighed by the regret I have over not having used this period of my life more effectively. It’s likely I may never again have the combination of time, motivation, and inspiration that it takes to dive so deep into this particular confluence of math, science, and programming."]], ["h2", [], ["Still more"]], ["p", [], ["Actually, I went a bit farther. The next stop on this journey through my time capsule was into the pejoratively named field of Colorful Fluid Dynamics (CFD) (not to be confused with the more useful field of Computational Fluid Dynamics). Colorful Fluid Dynamics is what you get when you leave behind rigor and accuracy and just try to make pretty pictures."]], ["p", [], ["In 2006, I got my Incomplete LU-Preconditioned Bi-Conjugate Gradient Stabilized (ILU-Preconditioned BiCG-Stab) solver working and used it to solve Laplace’s equation (think: stretched membrane) on a two-dimensional finite volume grid. I’m pretty certain it remains the most complicated thing I’ve ever programmed successfully, but by the time I finally got it working, I was so exhausted and burned out on my search for complexity that the rest of my career in Aerospace Engineering was really just a slow coming-to-terms with the fact that I no longer wanted anything to do with it."]], ["p", [], ["I found the complexity I was looking for, but it didn’t have the meaning I’d hoped for."]], ["figure", [], [["img", [["src", ["value", "images/homework-soln.jpg"]], ["alt", ["value", "Finite Volume Homework"]]], []]]], ["h2", [], ["So did I learn anything?"]], ["p", [], ["I’m not trying to bash all my old projects. I learned a lot. I made some things I’m proud of. But for such a large amount of effort, there are so many ways I could’ve put this effort and energy to better use. So has anything changed? I’d definitely say so—at least I like to think I’m finally failing less—but for someone who codes full-time now, it’s hard to look at my github page and convince myself that I’m actually doing a better job of integrating meaningfully into a larger community of developers. Of course to be frank, that’s not the goal I’m after anyway. Tools are fun to use, learn, and create, but they’re not inherently meaningful. They are means to an end. So my real goal?"]], ["h2", [["style", ["expression", "{textAlign:\"center\", marginBottom:\"0em\", marginTop: \"1.5em\"}"]]], ["goal:"]], ["h3", [["style", ["expression", "{textAlign:\"center\", color:\"#ca4747\", marginTop:\"1.0em\", marginBottom:\"2em\", fontWeight:\"normal\", maxWidth:\"375px\", marginLeft:\"auto\", marginRight:\"auto\"}"]]], ["communicate passion and knowledge about things I find meaningful"]], ["p", [], ["And frankly, I think I’ve been doing a pretty poor job. ", ["a", [["href", ["value", "https://www.youtube.com/watch?v=vMN5uQhF-Ro"]]], ["But I’m trying real hard"]], "."]]]], ["footer", [], []]];
 
 },{}],"__IDYLL_COMPONENTS__":[function(require,module,exports){
 'use strict';
@@ -11605,11 +14121,11 @@ module.exports = {
 	'menu': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js'),
 	'header': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js'),
 	'text-container': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js'),
-	'project-index': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/ProjectIndex.js'),
+	'code-highlight': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/code-highlight.js'),
 	'footer': require('/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js')
 };
 
-},{"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/ProjectIndex.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/ProjectIndex.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js"}],"__IDYLL_DATA__":[function(require,module,exports){
+},{"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/code-highlight.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/code-highlight.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/footer.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/header.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/menu.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js":"/Users/rreusser/node/rreusser/rreusser.github.io/src/lib/default-idyll-components/text-container.js"}],"__IDYLL_DATA__":[function(require,module,exports){
 "use strict";
 
 module.exports = {};
@@ -11620,8 +14136,15 @@ module.exports = {};
 module.exports = { "ssr": true, "theme": "none", "layout": "none" };
 
 },{}],"__IDYLL_SYNTAX_HIGHLIGHT__":[function(require,module,exports){
-"use strict";
+'use strict';
 
-module.exports = function () {}();
+module.exports = function () {
+  var rsh = require('/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/light');
+  try {
+    rsh.registerLanguage('cpp', require('/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/languages/cpp').default);
+  } catch (e) {
+    console.warn("Warning: could not find syntax highlighter for cpp");
+  }
+}();
 
-},{}]},{},["/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/idyll/src/client/build.js"]);
+},{"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/languages/cpp":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/languages/cpp.js","/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/light":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react-syntax-highlighter/dist/light.js"}]},{},["/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/idyll/src/client/build.js"]);

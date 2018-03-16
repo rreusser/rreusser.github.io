@@ -7,7 +7,6 @@
   title:"Writing"
 /]
 
-
 [Article
   title:"From Nothing to Something in WebGL Using regl"
   summary:"A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."
