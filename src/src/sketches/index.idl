@@ -4,7 +4,7 @@
 
 [Header
   fullWidth:true
-  title:"Projects"
+  title:"Sketches"
 /]
 
 A set of experiments and explorations, mostly using the [regl](https://github.com/regl-project/regl) WebGL library, some computed on the GPU and some on the CPU. The source for all content and projects on this site can be found [here](https://github.com/rreusser/rreusser.github.io/tree/master/src/src).
