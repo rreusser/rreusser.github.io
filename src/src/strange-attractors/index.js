@@ -681,7 +681,7 @@ function run (regl) {
 
 
   var bgOutput = h('span');
-  var bgRange = h('input', {type: 'range', min: 0, max: 100, value: 100});
+  var bgRange = h('input', {type: 'range', min: 0, max: 100, value: 99});
   var bgField = h('div.field.fg-color', [bgRange, bgOutput]);
   bgRange.addEventListener('input', setBackground);
   bgRange.addEventListener('mousemove', e => e.stopPropagation());
