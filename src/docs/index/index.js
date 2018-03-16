@@ -123,8 +123,8 @@ var Menu = function (_React$Component) {
             { className: 'menu__items' },
             _react2.default.createElement(
               'a',
-              { className: 'menu__item', href: '/projects/' },
-              'Projects'
+              { className: 'menu__item', href: '/sketches/' },
+              'Sketches'
             ),
             _react2.default.createElement(
               'a',
@@ -11758,7 +11758,7 @@ exports.default = FancyHeader;
 },{"react":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/react/index.js","regl":"/Users/rreusser/node/rreusser/rreusser.github.io/src/node_modules/regl/dist/regl.js"}],"__IDYLL_AST__":[function(require,module,exports){
 "use strict";
 
-module.exports = [["menu", [], []], ["fancyheader", [["title", ["value", "ricky reusser"]]], []], ["TextContainer", [], [["div", [["className", ["value", "section-list"]]], [["div", [["className", ["value", "section-list__item"]]], [["a", [["href", ["value", "/projects"]]], ["Projects"]]]], ["div", [["className", ["value", "section-list__item"]]], [["a", [["href", ["value", "/writing"]]], ["Writing"]]]], ["div", [["className", ["value", "section-list__item"]]], [["a", [["href", ["value", "/reading"]]], ["Reading"]]]]]], ["p", [], ["Hi! I studied Aerospace Engineering, but now I’m a software developer. My primary intersts are numerical computing, visualization, and figuring out how to close the gap between the tools that do exist for communicating about technical concepts and the tools that I believe could exist."]], ["p", [], ["This site though is just side projects and diversions as I try to learn tools and improve. 🚀"]]]], ["footer", [], []]];
+module.exports = [["menu", [], []], ["fancyheader", [["title", ["value", "ricky reusser"]]], []], ["TextContainer", [], [["div", [["className", ["value", "section-list"]]], [["div", [["className", ["value", "section-list__item"]]], [["a", [["href", ["value", "/sketches"]]], ["Sketches"]]]], ["div", [["className", ["value", "section-list__item"]]], [["a", [["href", ["value", "/writing"]]], ["Writing"]]]], ["div", [["className", ["value", "section-list__item"]]], [["a", [["href", ["value", "/reading"]]], ["Reading"]]]]]], ["p", [], ["Hi! I studied Aerospace Engineering, but now I’m a software developer. My primary intersts are numerical computing, visualization, and figuring out how to close the gap between the tools that do exist for communicating about technical concepts and the tools that I believe could exist."]], ["p", [], ["This site though is just side projects and diversions as I try to learn tools and improve. 🚀"]]]], ["footer", [], []]];
 
 },{}],"__IDYLL_COMPONENTS__":[function(require,module,exports){
 'use strict';
