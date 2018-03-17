@@ -6,10 +6,10 @@ const getEntryFile = require('./util/get-entry-file');
 const assert = require('assert');
 
 const projectsRoot = path.join(__dirname, '..', 'src');
-const ignorePattern = /(\.DS_Store|projects|about|books)/;
+const ignorePattern = /(\.DS_Store|sketches|projects|about|books)/;
 const projectDirListing = fs.readdirSync(projectsRoot).filter(path => !ignorePattern.test(path));
 
-const projectsSrcPath = path.join(projectsRoot, 'projects');
+const projectsSrcPath = path.join(projectsRoot, 'sketches');
 const thumbnailsPath = path.join(projectsSrcPath, 'images');
 
 var projects = [];

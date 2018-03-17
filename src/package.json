@@ -7,7 +7,7 @@
     "start": "node bin/watch.js",
     "build": "node bin/build.js",
     "build-all": "for dir in src/*; do ./bin/build.js $dir; done",
-    "build-projects-index": "node bin/build-project-index.js > src/projects/index.json"
+    "build-projects-index": "node bin/build-project-index.js > src/sketches/index.json"
   },
   "repository": {
     "type": "git",
@@ -56,6 +56,7 @@
     "idyll-regl-component": "^1.0.4",
     "indexhtmlify": "^1.3.1",
     "isndarray": "^1.0.0",
+    "matcap": "0.0.2",
     "minify-stream": "^1.1.0",
     "mkdirp": "^0.5.1",
     "mouse-change": "^1.4.0",
@@ -70,6 +71,7 @@
     "random-normal": "^1.0.0",
     "regl": "^1.3.1",
     "regl-camera": "^2.1.1",
+    "resl": "^1.0.3",
     "rgb-hex": "^2.1.0",
     "simple-color-picker": "^0.1.2",
     "simple-html-index": "^1.5.0",

@@ -9,9 +9,10 @@ var DEFAULT_RESOLUTION = 30;
 var SPLINE_BOUNDARY_CLOSED = 'closed';
 var tmp1 = [0.0, 0.0, 0.0];
 var tmp2 = [0.0, 0.0, 0.0];
+var tmp3 = [0.0, 0.0, 0.0];
 
 module.exports = function (meshData, surfaceFn, opts) {//nbUFaces, nbVFaces, uDomain, vDomain, uIsClosed, vIsClosed, computeNormals) {
-  var i, j, u, v, index, nbUFaces, nbVFaces, dpdu, dpdv;
+  var i, j, u, v, index, nbUFaces, nbVFaces;
 
   opts = opts || {};
 
@@ -21,6 +22,11 @@ module.exports = function (meshData, surfaceFn, opts) {//nbUFaces, nbVFaces, uDo
 
   var uDomain = opts.uDomain === undefined ? [0, 1] : opts.uDomain;
   var vDomain = opts.vDomain === undefined ? [0, 1] : opts.vDomain;
+
+  var dpdu = opts.dpdu;
+  var dpdv = opts.dpdv;
+  var du = opts.du || (uDomain[1] - uDomain[0]) * 1e-4;
+  var dv = opts.dv || (vDomain[1] - vDomain[0]) * 1e-4;
 
   meshData = meshData || {};
 
@@ -40,6 +46,28 @@ module.exports = function (meshData, surfaceFn, opts) {//nbUFaces, nbVFaces, uDo
   assert.equal(cells.length, cellDataLength, 'Incorrect number of cells in pre-allocated array');
 
 	if (opts.computeNormals) {
+    var tmp4 = [0.0, 0.0, 0.0];
+    var tmp5 = [0.0, 0.0, 0.0];
+    if (!dpdu) {
+      dpdu = function (out, u, v) {
+        surfaceFn(tmp4, u + du, v);
+        surfaceFn(tmp5, u - du, v);
+        out[0] = (tmp4[0] - tmp5[0]) * 0.5 / du;
+        out[1] = (tmp4[1] - tmp5[1]) * 0.5 / du;
+        out[2] = (tmp4[2] - tmp5[2]) * 0.5 / du;
+        return out;
+      };
+    }
+    if (!dpdv) {
+      dpdv = function (out, u, v) {
+        surfaceFn(tmp4, u, v + dv);
+        surfaceFn(tmp5, u, v - dv);
+        out[0] = (tmp4[0] - tmp5[0]) * 0.5 / dv;
+        out[1] = (tmp4[1] - tmp5[1]) * 0.5 / dv;
+        out[2] = (tmp4[2] - tmp5[2]) * 0.5 / dv;
+        return out;
+      };
+    }
 		var normals = meshData.normals = meshData.normals || new Float32Array(positionDataLength);
 		assert.equal(normals.length, positionDataLength, 'Incorrect number of normals in pre-allocated array');
 	}
@@ -75,6 +103,17 @@ module.exports = function (meshData, surfaceFn, opts) {//nbUFaces, nbVFaces, uDo
       positions[index + 1] = tmp1[1];
       positions[index + 2] = tmp1[2];
 
+      if (opts.computeNormals) {
+        dpdu(tmp2, u, v);
+        dpdv(tmp3, u, v);
+        cross(tmp1, tmp2, tmp3);
+        normalize(tmp1, tmp1);
+
+        normals[index + 0] = tmp1[0];
+        normals[index + 1] = tmp1[1];
+        normals[index + 2] = tmp1[2];
+      }
+
       if (attributeKeys) {
         for (var k = 0; k < attributeKeys.length; k++) {
           var key = attributeKeys[k];
@@ -88,15 +127,6 @@ module.exports = function (meshData, surfaceFn, opts) {//nbUFaces, nbVFaces, uDo
         }
       }
 
-      if (opts.computeNormals) {
-        dpdu(tmp1, u, v);
-        dpdv(tmp2, u, v);
-        normalize(tmp1, cross(tmp1, tmp1, tmp2));
-
-        normals[index + 0] = tmp1[0];
-        normals[index + 1] = tmp1[1];
-        normals[index + 2] = tmp1[2];
-      }
     }
   }
 
