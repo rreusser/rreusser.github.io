@@ -11,7 +11,7 @@ function urlFor (id) {
   return 'https://rreusser.github.io/' + id;
 }
 
-var hrefParts = window.location.href.replace(/\/index\.html.*$/, '').replace(/\/$/,'').split('/');
+var hrefParts = window.location.href.replace(/(\/)?(index.html)?(#.*)?$/i, '').split('/');
 var id = hrefParts[hrefParts.length - 1];
 var indexUrl = 'https://rreusser.github.io/sketches/';
 var sourceUrl = 'https://github.com/rreusser/rreusser.github.io/tree/master/src/src/' + id;
