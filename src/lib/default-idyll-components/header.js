@@ -1,5 +1,6 @@
 import React from 'react';
 import classNames from 'classnames';
+import resl from 'resl';
 
 class Header extends React.PureComponent {
 	constructor (props) {
@@ -13,9 +14,19 @@ class Header extends React.PureComponent {
 
   componentDidMount () {
     if (this.props.bgImageSrc) {
-      this.setState({
-        bgImageSrc: this.props.bgImageSrc,
-        isPreview: false
+      resl({
+        manifest: {
+          bg: {
+            src: this.props.bgImageSrc,
+            type: 'image',
+          }
+        },
+        onDone: () => {
+          this.setState({
+            bgImageSrc: this.props.bgImageSrc,
+            isPreview: false
+          });
+        }
       });
     }
   }

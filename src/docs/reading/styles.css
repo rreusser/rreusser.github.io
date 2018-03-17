@@ -816,11 +816,11 @@ hr {
 }
 
 .article-header--has-image h1 {
-  text-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 0 30px rgba(0, 0, 0, 1.0);
 }
 
 .article-header--has-image-preview h1 {
-  text-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 0 30px rgba(0, 0, 0, 1.0);
 }
 
 .article-header--has-image-preview .article-header__image {
@@ -831,6 +831,7 @@ hr {
 
 .article-header__image {
   background-size: cover;
+  background-position: center center;
   position: absolute;
   top: 0;
   right: 0;
@@ -1142,7 +1143,8 @@ figcaption {
   .project__overlay {
     opacity: 1;
   }
-
+}
+@media (max-width:640px) {
   .section-list {
     margin-left: auto;
     margin-right: auto;
