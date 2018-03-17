@@ -37,7 +37,7 @@ css(`
 }
 
 .sketch-nav a {
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.8);
   color: rgb(220, 220, 220);
   font-family: sans-serif;
   padding: 5px 8px;
@@ -50,14 +50,14 @@ css(`
 }
 
 .sketch-nav a:hover {
-  background-color: rgba(255, 255, 255, 0.5);
+  background-color: rgba(255, 255, 255, 0.8);
   color: #333;
 }
 
 .sketch-nav h1 {
   font-style: italic;
   margin: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.8);
   color: white;
   font-family: sans-serif;
   font-weight: 200;
