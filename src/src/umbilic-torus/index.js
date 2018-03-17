@@ -6,6 +6,7 @@ require('resl')({
   onError: console.error,
   onDone: function (assets) {
     require('regl')({
+      pixelRatio: Math.min(1.5, window.devicePixelRatio),
       extensions: ['oes_standard_derivatives'],
       onDone: require('fail-nicely')(regl => run(regl, assets))
     });
@@ -84,7 +85,7 @@ function run (regl, assets) {
       void main () {
         vec2 uv = matcap(vEye, vNormal);
         vec3 col = texture2D(tex, uv).rgb;
-        gl_FragColor = vec4(mix(vec3(0.0), col, 0.5 + 0.5 * cartesian(vUv, 0.5, 2.0)), 1);
+        gl_FragColor = vec4(mix(vec3(0.0), col, 0.6 + 0.4 * cartesian(vUv, 0.5, 2.0)), 1);
       }
     `,
     uniforms: {tex: matcap},
