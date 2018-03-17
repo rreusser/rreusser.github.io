@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const getEntryFile = require('./util/get-entry-file');
+const hyperstream = require('hyperstream');
 const glslify = require('glslify');
 const es2040 = require('es2040');
 const assert = require('assert');

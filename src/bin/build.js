@@ -5,6 +5,7 @@ const simpleHtmlIndex = require('simple-html-index');
 const htmlInjectMeta = require('html-inject-meta');
 const minifyStream = require('minify-stream');
 const indexhtmlify = require('indexhtmlify');
+const hyperstream = require('hyperstream');
 const browserify = require('browserify');
 const glslify = require('glslify');
 const mkdirp = require('mkdirp');
@@ -99,6 +100,9 @@ switch (entryFile.type) {
         name: metadata.title,
         description: metadata.description,
         author: metadata.author ||  "Ricky Reusser",
+      }))
+      .pipe(hyperstream({
+        body: {_appendHtml: '<script src="../nav.bundle.js"></script>'}
       }))
       .pipe(fs.createWriteStream(htmlOutputPath));
 

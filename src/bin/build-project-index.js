@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const getEntryFile = require('./util/get-entry-file');
 const assert = require('assert');
+const browserify = require('browserify');
+const brfs = require('brfs');
 
 const projectsRoot = path.join(__dirname, '..', 'src');
 const ignorePattern = /(\.DS_Store|sketches|projects|about|books)/;
@@ -56,3 +58,12 @@ projects = projects.sort(function (a, b) {
 });
 
 process.stdout.write(JSON.stringify(projects));
+
+function buildNav () {
+  var b = browserify('lib/nav.js')
+    .transform(brfs)
+    .bundle()
+    .pipe(fs.createWriteStream(path.join(__dirname, '../../nav.bundle.js')));
+}
+
+buildNav();

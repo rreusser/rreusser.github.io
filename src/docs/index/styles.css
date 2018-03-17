@@ -776,6 +776,7 @@ hr {
   padding: 120px 15px;
   color: white;
   position: relative;
+  overflow: hidden;
 }
 
 .article-header h1 {
@@ -809,6 +810,35 @@ hr {
   bottom: 0;
   left: 0;
 }
+
+.article-header--has-image {
+  background-color: rgb(50, 50, 50);
+}
+
+.article-header--has-image h1 {
+  text-shadow: 0 0 30px rgba(0, 0, 0, 1.0);
+}
+
+.article-header--has-image-preview h1 {
+  text-shadow: 0 0 30px rgba(0, 0, 0, 1.0);
+}
+
+.article-header--has-image-preview .article-header__image {
+  -webkit-filter: blur(10px);
+  filter: blur(10px);
+  
+}
+
+.article-header__image {
+  background-size: cover;
+  background-position: center center;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
 
 @media all and (max-width: 640px) {
   .desktop {
@@ -1112,5 +1142,15 @@ figcaption {
 
   .project__overlay {
     opacity: 1;
+  }
+
+  .section-list {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .section-list__item {
+    display: block;
+    width: auto;
   }
 }
