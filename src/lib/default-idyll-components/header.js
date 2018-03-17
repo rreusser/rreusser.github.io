@@ -6,10 +6,7 @@ class Header extends React.PureComponent {
 	constructor (props) {
     super(props);
 
-    this.state = {
-      bgImageSrc: this.props.bgImagePreviewSrc || this.props.bgImageSrc,
-      isPreview: this.props.bgImagePreviewSrc ? true : false
-    };
+    this.state = {isLoaded: false};
   }
 
   componentDidMount () {
@@ -22,26 +19,28 @@ class Header extends React.PureComponent {
           }
         },
         onDone: () => {
-          this.setState({
-            bgImageSrc: this.props.bgImageSrc,
-            isPreview: false
-          });
+          this.setState({isLoaded: true});
         }
       });
     }
   }
 
   render () {
-    var styleProps = {};
-    if (this.state.bgImageSrc) {
-      styleProps.backgroundImage = 'url('+this.state.bgImageSrc+')';
+    if (this.props.bgImagePreviewSrc) {
+      var previewStyleProps = {};
+      previewStyleProps.backgroundImage = 'url('+this.props.bgImagePreviewSrc+')';
+    }
+    if (this.props.bgImageSrc) {
+      var styleProps = {};
+      styleProps.backgroundImage = 'url('+this.props.bgImageSrc+')';
     }
     return (
       <div className={classNames('article-header', {
-          'article-header--has-image': !!this.state.bgImageSrc,
-          'article-header--has-image-preview': this.state.isPreview
+          'article-header--has-image': !!this.props.bgImageSrc,
+          'article-header--has-image-preview': !!this.props.bgImagePreviewSrc
         })}>
-        {this.state.bgImageSrc && (<div className="article-header__image" style={styleProps}/>)}
+        {(this.props.bgImageSrc && this.state.isLoaded) && (<div className="article-header__image" style={styleProps}/>)}
+        {this.props.bgImagePreviewSrc && (<div className={classNames("article-header__image-preview", {"article-header__image-preview--hidden": !!this.state.isLoaded})} style={previewStyleProps}/>)}
         <div className={'article-header__content'}>
           <h1 className={'hed'}>
             {this.props.title}

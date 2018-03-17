@@ -85,10 +85,7 @@ var Header = function (_React$PureComponent) {
 
     var _this = _possibleConstructorReturn(this, (Header.__proto__ || Object.getPrototypeOf(Header)).call(this, props));
 
-    _this.state = {
-      bgImageSrc: _this.props.bgImagePreviewSrc || _this.props.bgImageSrc,
-      isPreview: _this.props.bgImagePreviewSrc ? true : false
-    };
+    _this.state = { isLoaded: false };
     return _this;
   }
 
@@ -106,10 +103,7 @@ var Header = function (_React$PureComponent) {
             }
           },
           onDone: function onDone() {
-            _this2.setState({
-              bgImageSrc: _this2.props.bgImageSrc,
-              isPreview: false
-            });
+            _this2.setState({ isLoaded: true });
           }
         });
       }
@@ -117,17 +111,22 @@ var Header = function (_React$PureComponent) {
   }, {
     key: 'render',
     value: function render() {
-      var styleProps = {};
-      if (this.state.bgImageSrc) {
-        styleProps.backgroundImage = 'url(' + this.state.bgImageSrc + ')';
+      if (this.props.bgImagePreviewSrc) {
+        var previewStyleProps = {};
+        previewStyleProps.backgroundImage = 'url(' + this.props.bgImagePreviewSrc + ')';
+      }
+      if (this.props.bgImageSrc) {
+        var styleProps = {};
+        styleProps.backgroundImage = 'url(' + this.props.bgImageSrc + ')';
       }
       return _react2.default.createElement(
         'div',
         { className: (0, _classnames2.default)('article-header', {
-            'article-header--has-image': !!this.state.bgImageSrc,
-            'article-header--has-image-preview': this.state.isPreview
+            'article-header--has-image': !!this.props.bgImageSrc,
+            'article-header--has-image-preview': !!this.props.bgImagePreviewSrc
           }) },
-        this.state.bgImageSrc && _react2.default.createElement('div', { className: 'article-header__image', style: styleProps }),
+        this.props.bgImageSrc && this.state.isLoaded && _react2.default.createElement('div', { className: 'article-header__image', style: styleProps }),
+        this.props.bgImagePreviewSrc && _react2.default.createElement('div', { className: (0, _classnames2.default)("article-header__image-preview", { "article-header__image-preview--hidden": !!this.state.isLoaded }), style: previewStyleProps }),
         _react2.default.createElement(
           'div',
           { className: 'article-header__content' },

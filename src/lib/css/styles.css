@@ -821,13 +821,13 @@ hr {
   text-shadow: 0 0 30px rgba(0, 0, 0, 1.0);
 }
 
-.article-header--has-image-preview .article-header__image {
+.article-header__image-preview {
   -webkit-filter: blur(10px);
   filter: blur(10px);
-  
 }
 
-.article-header__image {
+.article-header__image,
+.article-header__image-preview {
   background-size: cover;
   background-position: center center;
   position: absolute;
@@ -837,6 +837,15 @@ hr {
   left: 0;
 }
 
+.article-header__image-preview {
+  opacity: 1;
+  transition: opacity 0.2s;
+  transition-delay: 0.1s;
+}
+
+.article-header__image-preview--hidden {
+  opacity: 0;
+}
 
 @media all and (max-width: 640px) {
   .desktop {
