@@ -1,5 +1,4 @@
 'use strict';
-
 const meshSurface = require('../../lib/mesh-surface');
 const angleNormals = require('../../lib/angle-normals-packed');
 const createWireframe = require('../../lib/barycentric');

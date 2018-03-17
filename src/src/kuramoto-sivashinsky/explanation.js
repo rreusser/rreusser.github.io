@@ -38,7 +38,7 @@ module.exports = function () {
   `);
 
   return h('a', {id: 'explanation', href: 'https://www.encyclopediaofmath.org/index.php/Kuramoto-Sivashinsky_equation'}, [
-    h('h3', 'Kuramoto-Sivashinsky Equation,'),
+    //h('h3', 'Kuramoto-Sivashinsky Equation,'),
     eqn
   ]);
 };

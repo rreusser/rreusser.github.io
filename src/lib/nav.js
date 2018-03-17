@@ -1,6 +1,8 @@
 var h = require('h');
 var css = require('insert-css');
-var demoList = require('../src/sketches/index.json');
+var fs = require('fs');
+var path = require('path');
+var demoList = JSON.parse(fs.readFileSync(path.join(__dirname, '../src/sketches/index.json'), 'utf8'));
 var demoIndex = {};
 demoList.forEach(function (demo) {
   demoIndex[demo.id] = demo;
@@ -23,8 +25,8 @@ var nextUrl = curIndex === demoList.length - 1 ? indexUrl : urlFor(demoList[curI
 css(`
 .sketch-nav {
   position: fixed;
-  top: 1px;
-  right: 2px;
+  top: 0px;
+  right: 0px;
   z-index: 10000;
   text-align: right;
   transition: transform 0.2s;
@@ -38,26 +40,29 @@ css(`
   background-color: rgba(0, 0, 0, 0.5);
   color: rgb(220, 220, 220);
   font-family: sans-serif;
-  padding: 3px 5px;
-  margin: 2px 2px;
+  padding: 5px 8px;
+  margin: 0;
   text-decoration: none;
   border-radius; 2px;
   display: inline-block;
-  border-radius: 2px;
   font-size: 0.8em;
   font-weight: 200;
 }
 
+.sketch-nav a:hover {
+  background-color: rgba(255, 255, 255, 0.5);
+  color: #333;
+}
+
 .sketch-nav h1 {
   font-style: italic;
-  margin: 2px;
+  margin: 0;
   background-color: rgba(0, 0, 0, 0.5);
   color: white;
   font-family: sans-serif;
   font-weight: 200;
   font-size: 20px;
-  padding: 2px 5px;
-  border-radius: 2px;
+  padding: 4px 8px;
 }
 `);
 
