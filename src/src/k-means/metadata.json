@@ -1,0 +1,5 @@
+{
+  "title": "K-means clustering",
+  "description": "WIP refactoring of the kmpp npm module",
+  "order": 5
+}
