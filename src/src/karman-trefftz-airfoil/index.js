@@ -38,6 +38,7 @@ if (q.w && q.h) {
 
 const regl = require('regl')({
   extensions: ['oes_standard_derivatives'],
+  pixelRatio: Math.min(1.5, window.devicePixelRatio),
   canvas: canvas,
   attributes: {
     antialias: false,
