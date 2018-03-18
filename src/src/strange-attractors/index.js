@@ -19,6 +19,7 @@ let screenHeight = canvas.height;
 
 require('regl/dist/regl.min.js')({
   extensions: ['OES_texture_float'],
+  attributes: {antialias: false},
   pixelRatio: 1,
   canvas: canvas,
   onDone: (err, regl) => {
