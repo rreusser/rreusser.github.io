@@ -2,7 +2,8 @@ const glsl = require('glslify');
 const invertMat4 = require('gl-mat4/invert');
 const Complex = require('complex.js');
 const regl = require('regl')({
-  pixelRatio: Math.min(1.0, window.devicePixelRatio),
+  pixelRatio: Math.min(1.5, window.devicePixelRatio),
+  extensions: ['oes_standard_derivatives'],
   attributes: {antialias: false, depth: false, alpha: false, stencil: false},
   onDone: require('fail-nicely')(run)
 });
@@ -55,8 +56,34 @@ function run (regl) {
       }
     `,
     frag: glsl`
+      #extension GL_OES_standard_derivatives : enable
+
       precision highp float;
-      #pragma glslify: domainColoring = require(glsl-domain-coloring)
+
+      #pragma glslify: hsv2rgb = require(glsl-hsv2rgb)
+      #pragma glslify: hypot = require(glsl-hypot)
+      #pragma glslify: computeGrid = require(glsl-solid-wireframe/cartesian/scaled)
+
+      #define M_PI 3.141592653
+
+      vec4 domainColoring (vec2 z, vec2 gridSpacing, float saturation, float gridStrength, float magStrength) {
+        float carg = atan(z.y, z.x);
+        float cmod = hypot(z);
+        float logmag = log2(cmod);
+
+        float phaseGrid = 1.0 - computeGrid(z.xy * 0.01, 0.5, 0.5);
+        float magGrid = 1.0 - computeGrid(logmag, 0.5, 0.5);
+
+        return vec4(
+          hsv2rgb(vec3(
+            carg * 0.5 / M_PI,
+            saturation,
+            0.5 + 0.5 * saturation
+          )) * (0.4 + 0.6 * smoothstep(0.0, 10.0, logmag))
+          - gridStrength * phaseGrid + magGrid * magStrength,
+          1.0);
+      }
+
       #pragma glslify: hypot = require(glsl-hypot)
       uniform float w;
       uniform vec4 w2c2;
@@ -105,7 +132,7 @@ function run (regl) {
         gl_FragColor = domainColoring(vec2(
           denom.x * tqh.x - denom.y * tqh.y + num.x * tph.x - num.y * tph.y,
           denom.y * tqh.x + denom.x * tqh.y + num.y * tph.x + num.x * tph.y
-        ) / w / w, vec2(40.0), 0.7, 0.08, 0.15, 10.0);
+        ) / w / w, vec2(40.0), 0.7, 0.20, 0.2);
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
