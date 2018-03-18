@@ -42,6 +42,7 @@
     "gl-vec4": "^1.0.1",
     "glsl-camera-ray": "^1.0.0",
     "glsl-colormap": "^1.0.1",
+    "glsl-hypot": "^1.0.2",
     "glsl-noise": "0.0.0",
     "glsl-parser": "^2.0.0",
     "glsl-solid-wireframe": "^1.0.1",
@@ -80,8 +81,10 @@
     "util-extend": "^1.0.3"
   },
   "dependencies": {
+    "complex.js": "^2.0.4",
     "eases": "^1.0.8",
     "glsl-diffuse-lambert": "^1.0.0",
+    "glsl-domain-coloring": "^2.0.6",
     "glsl-easings": "^1.0.0",
     "glsl-fast-gaussian-blur": "^1.0.2",
     "glsl-random": "0.0.5",
