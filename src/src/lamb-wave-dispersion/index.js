@@ -105,7 +105,7 @@ function run (regl) {
         gl_FragColor = domainColoring(vec2(
           denom.x * tqh.x - denom.y * tqh.y + num.x * tph.x - num.y * tph.y,
           denom.y * tqh.x + denom.x * tqh.y + num.y * tph.x + num.x * tph.y
-        ), vec2(40.0) * w * w, 0.7, 0.08, 0.15, 10.0);
+        ) / w / w, vec2(40.0), 0.7, 0.08, 0.15, 10.0);
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
