@@ -2,7 +2,7 @@ const glsl = require('glslify');
 const invertMat4 = require('gl-mat4/invert');
 const Complex = require('complex.js');
 const regl = require('regl')({
-  pixelRatio: Math.min(2.0, window.devicePixelRatio),
+  pixelRatio: Math.min(1.0, window.devicePixelRatio),
   attributes: {antialias: false, depth: false, alpha: false, stencil: false},
   onDone: require('fail-nicely')(run)
 });
