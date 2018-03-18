@@ -1,0 +1,19 @@
+{
+  "name": "double-pendulum",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "control-panel": "git+ssh://git@github.com/rreusser/control-panel.git#input-events",
+    "d3": "^4.13.0"
+  }
+}
