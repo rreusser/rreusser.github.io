@@ -90,27 +90,22 @@ class FancyHeader extends React.Component {
           count: 3
         });
 
-        function frame () {
-          regl.frame(({time, framebufferWidth, framebufferHeight}) => {
-            for (i = 0; i < nOrigins; i++) {
-              var t = originUniforms['t0[' + i + ']']();
-              var standoff = 6.0;
-              if (time > 3.0 && time > t + standoff) {
-                randomizeOrigin(i, time + standoff * Math.random(), framebufferWidth / framebufferHeight); }
-            }
+        regl.frame(({time, framebufferWidth, framebufferHeight}) => {
+          for (i = 0; i < nOrigins; i++) {
+            var t = originUniforms['t0[' + i + ']']();
+            var standoff = 6.0;
+            if (time > 3.0 && time > t + standoff) {
+              randomizeOrigin(i, time + standoff * Math.random(), framebufferWidth / framebufferHeight); }
+          }
 
-            regl.clear({color: bgColor});
-            draw();
-          });
-        }
-
-        frame();
+          regl.clear({color: bgColor});
+          draw();
+        });
 
         window.addEventListener('resize', function () {
           var size = getSize();
           regl._gl.canvas.width = size.width();
           regl._gl.canvas.height = size.height();
-          frame();
         }, false);
 
       }
