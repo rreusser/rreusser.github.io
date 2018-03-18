@@ -14,7 +14,7 @@ function run (regl) {
 	var rho = 1.0;
 	var nu = 0.33;
 	var h = 1.0;
-	var w = 1.0;
+	var w = 5.0;
   var w;
   var viscoelasticity = 0.0;
   var w2c2 = [];
