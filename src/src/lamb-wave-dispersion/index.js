@@ -21,7 +21,7 @@ function run (regl) {
   var w2c2 = [];
 
   require('control-panel')([
-    {type: 'range', label: 'ω', min: 0.05, max: 10.0, initial: w, step: 0.01},
+    {type: 'range', label: 'ω', min: 0.05, max: 40.0, initial: w, step: 0.01},
     {type: 'range', label: 'ν', min: 0, max: 0.49, initial: nu, step: 0.01},
     {type: 'range', label: 'viscoelasticity', min: 0, max: Math.PI * 2, initial: viscoelasticity},
   ]).on('input', computeConstants);
@@ -71,7 +71,9 @@ function run (regl) {
         float cmod = hypot(z);
         float logmag = log2(cmod);
 
-        float phaseGrid = 1.0 - computeGrid(z.xy * 0.01, 0.5, 0.5);
+        gridSpacing /= cmod;
+
+        float phaseGrid = 1.0 - computeGrid(z.xy * gridSpacing, 0.5, 0.5);
         float magGrid = 1.0 - computeGrid(logmag, 0.5, 0.5);
 
         return vec4(
@@ -96,7 +98,49 @@ function run (regl) {
         return 0.5 * (ex - vec2(ex.y, -ex.x));
       }
 
-      vec4 computePq (vec2 z) {
+      vec2 cdiv (vec2 a, vec2 b) {
+        return vec2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / dot(b, b);
+      }
+
+      vec2 cmul (vec2 a, vec2 b) {
+        return vec2(a.x * b.x - a.y * b.y, a.y * b.x + a.x * b.y);
+      }
+
+      vec2 csqr (vec2 a) {
+        return vec2(a.x * a.x - a.y * a.y, 2.0 * a.x * a.y);
+      }
+
+      vec2 cinv (vec2 a) {
+        return vec2(a.x, -a.y) / dot(a, a);
+      }
+
+      float cmag2 (vec2 a) {
+        return dot(a, a);
+      }
+
+      float cosh (float x) {
+        return 0.5 * (exp(x) + exp(-x));
+      }
+
+      float sinh (float x) {
+        return 0.5 * (exp(x) - exp(-x));
+      }
+
+      vec2 csin (vec2 z) {
+        return vec2(
+          sin(z.x) * cosh(z.y),
+          cos(z.x) * sinh(z.y)
+        );
+      }
+
+      vec2 ccos (vec2 z) {
+        return vec2(
+          cos(z.x) * cosh(z.y),
+          -sin(z.x) * sinh(z.y)
+        );
+      }
+
+      vec4 computePQ (vec2 z) {
         vec2 k2 = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y);
         vec4 pq2 = w2c2 - k2.xyxy;
         vec2 mag2 = pq2.xz * pq2.xz + pq2.yw * pq2.yw;
@@ -108,19 +152,27 @@ function run (regl) {
       }
 
       void main () {
-        vec4 pq = computePq(z);
+        float mag = cmag2(z);
+        vec4 pq = computePQ(z);
+
         vec2 k2 = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y);
+        vec2 q2 = vec2(pq.z * pq.z - pq.w * pq.w, 2.0 * pq.z * pq.w);
 
         // (k^2 - q^2)^2:
-        vec2 q2 = vec2(pq.z * pq.z - pq.w * pq.w, 2.0 * pq.z * pq.w);
-        vec2 num = vec2(sqr(k2.x - q2.x) - sqr(k2.y - q2.y), 2.0 * (k2.y - q2.y) * (k2.x - q2.x));
+        vec2 k2q22 = vec2(sqr(k2.x - q2.x) - sqr(k2.y - q2.y), 2.0 * (k2.y - q2.y) * (k2.x - q2.x));
 
         // 4 * k^2 * q * p:
-        vec2 denom = 4.0 * vec2(
+        vec2 k24pq = 4.0 * vec2(
           k2.x * (pq.x * pq.z - pq.y * pq.w) - k2.y * (pq.y * pq.z + pq.x * pq.w),
           k2.y * (pq.x * pq.z - pq.y * pq.w) + k2.x * (pq.y * pq.z + pq.x * pq.w));
 
+        vec2 cospsinq = cmul(ccos(pq.xy * 0.5), csin(pq.zw * 0.5));
+        vec2 cosqsinp = cmul(ccos(pq.zw * 0.5), csin(pq.xy * 0.5));
+
+        vec2 fz = cmul(k2q22, cospsinq) + cmul(k24pq, cosqsinp);
+
         // tan qh:
+        /*
         vec2 sch = sinhcosh(2.0 * pq.w);
         float arg = 2.0 * pq.z;
         vec2 tqh = vec2(sin(arg), sch.x) / (sch.y + cos(arg));
@@ -129,10 +181,13 @@ function run (regl) {
         arg = 2.0 * pq.x;
         vec2 tph = vec2(sin(arg), sch.x) / (sch.y + cos(arg));
 
-        gl_FragColor = domainColoring(vec2(
-          denom.x * tqh.x - denom.y * tqh.y + num.x * tph.x - num.y * tph.y,
-          denom.y * tqh.x + denom.x * tqh.y + num.y * tph.x + num.x * tph.y
-        ) / w / w, vec2(40.0), 0.7, 0.20, 0.2);
+        vec2 fz = vec2(
+          k24pq.x * tqh.x - k24pq.y * tqh.y + k2q22.x * tph.x - k2q22.y * tph.y,
+          k24pq.y * tqh.x + k24pq.x * tqh.y + k2q22.y * tph.x + k2q22.x * tph.y
+        );
+        */
+
+        gl_FragColor = domainColoring(fz / w / w, vec2(1e-5), 0.7, 0.20, 0.2);
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
