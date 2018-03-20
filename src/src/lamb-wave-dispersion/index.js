@@ -1,6 +1,7 @@
 const glsl = require('glslify');
 const invertMat4 = require('gl-mat4/invert');
 const Complex = require('complex.js');
+const ResetTimer = require('./reset-timer');
 const regl = require('regl')({
   pixelRatio: Math.min(1.5, window.devicePixelRatio),
   extensions: ['oes_standard_derivatives'],
@@ -24,6 +25,38 @@ function run (regl) {
     {type: 'range', label: 'ν', min: 0, max: 0.49, initial: nu, step: 0.01},
     {type: 'range', label: 'viscoelasticity', min: 0, max: Math.PI * 2, initial: viscoelasticity},
   ]).on('input', computeConstants);
+
+  var loResFbo = regl.framebuffer({
+    color: regl.texture({
+      width: Math.round(regl._gl.canvas.width / 8),
+      height: Math.round(regl._gl.canvas.height / 8),
+      mag: 'linear'
+    })
+  });
+
+  const transfer = regl({
+    vert: `
+      precision mediump float;
+      attribute vec2 xy;
+      varying vec2 uv;
+      void main () {
+        uv = xy * 0.5 + 0.5;
+        gl_Position = vec4(xy, 0, 1);
+      }
+    `,
+    frag: `
+      precision mediump float;
+      varying vec2 uv;
+      uniform sampler2D src;
+      void main () {
+        gl_FragColor = texture2D(src, uv);
+      }
+    `,
+    attributes: {xy: [-4, -4, 0, 4, 4, -4]},
+    uniforms: {src: regl.prop('src')},
+    depth: {enable: false},
+    count: 3
+  });
 
   function computeConstants (state) {
     nu = state.ν;
@@ -60,27 +93,29 @@ function run (regl) {
       precision mediump float;
 
       #pragma glslify: hsv2rgb = require(glsl-hsv2rgb)
-      #pragma glslify: hypot = require(glsl-hypot)
       #pragma glslify: gridFn = require(glsl-solid-wireframe/cartesian/scaled)
 
       #define M_PI 3.141592653
 
+      uniform float w, lineWidth;
+      varying vec2 z;
+      uniform vec4 w2c2;
+
       vec4 domainColoring (vec2 z, vec2 gridSpacing, float saturation, float gridStrength, float magStrength) {
         float carg = atan(z.y, z.x);
-        float cmod = hypot(z);
+        float cmod = length(z);
         float logmag = log2(cmod) * 0.5;
 
         gridSpacing /= cmod;
 
         return vec4(
-          hsv2rgb(vec3(carg * 0.5 / M_PI, saturation, 0.5 + 0.5 * saturation))
-          - gridStrength * (1.0 - gridFn(vec3(logmag, z.xy * gridSpacing), 0.5, 1.0)),
-          1.0);
+          hsv2rgb(vec3(
+            carg * 0.5 / M_PI,
+            saturation,
+            0.5 + 0.5 * saturation
+          )) - gridStrength * (1.0 - gridFn(vec3(logmag, z.xy * gridSpacing), lineWidth, 1.0)
+          ), 1.0);
       }
-
-      uniform float w;
-      varying vec2 z;
-      uniform vec4 w2c2;
 
       vec2 sinhcosh (float x) {
         vec2 ex = exp(vec2(x, -x));
@@ -140,16 +175,55 @@ function run (regl) {
     uniforms: {
       mViewInv: ({view}) => invertMat4(mViewInv, view),
       w2c2: () => w2c2,
-      w: () => w
+      w: () => w,
+      lineWidth: (ctx, props) => (props.loRes ? 0.1 : 0.5) * ctx.pixelRatio,
     },
+    framebuffer: regl.prop('dst'),
     depth: {enable: false},
     count: 3
   });
 
-  regl.frame(() => {
+  var loRes = false;
+  var loResTimer = new ResetTimer(100);
+  loResTimer.on('timeout', function () {
+    camera.taint();
+    loRes = false;
+  });
+
+  camera.on('interaction', function () {
+    if (loResNeeded) {
+      loRes = true;
+    }
+    loResTimer.reset();
+  });
+
+  var loResNeeded = false;
+  var prevTime;
+  var framerate = 1 / 60;
+
+  regl.frame(({time}) => {
     camera.draw(({dirty}) => {
-      if (!dirty) return;
-      draw();
+      if (!dirty) {
+        prevTime = undefined;
+        return;
+      }
+
+      if (loRes) {
+        draw({dst: loResFbo, loRes: true});
+        transfer({src: loResFbo});
+        prevTime = undefined;
+      } else {
+        if (prevTime !== undefined) {
+          framerate = 0.9 * framerate + 0.1 * (time - prevTime);
+          if (framerate > (1 / 60) * 2.0) {
+            loResNeeded = true;
+          } else if (framerate < (1 / 60) * 1.1) {
+            loResNeeded = false;
+          }
+        }
+        draw({});
+        prevTime = time;
+      }
     });
   });
 

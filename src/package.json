@@ -36,6 +36,7 @@
     "event-emitter": "^0.3.5",
     "fail-nicely": "^2.0.0",
     "float-hsl2rgb": "^1.0.2",
+    "fps": "0.0.3",
     "gl-mat3": "^1.0.0",
     "gl-mat4": "^1.1.4",
     "gl-vec3": "^1.0.3",
