@@ -28,8 +28,8 @@ function run (regl) {
 
   var loResFbo = regl.framebuffer({
     color: regl.texture({
-      width: Math.round(regl._gl.canvas.width / 8),
-      height: Math.round(regl._gl.canvas.height / 8),
+      width: Math.round(regl._gl.canvas.width / 4),
+      height: Math.round(regl._gl.canvas.height / 4),
       mag: 'linear'
     })
   });
