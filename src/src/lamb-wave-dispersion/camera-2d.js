@@ -72,7 +72,7 @@ module.exports = function makeCamera2D (regl, opts) {
 
   var dViewport = [];
 
-  interactionEvents({
+  var ie = interactionEvents({
     element: element,
   }).on('interactionstart', function (ev) {
     ev.preventDefault();
@@ -130,6 +130,9 @@ module.exports = function makeCamera2D (regl, opts) {
   });
 
   return {
+    on: ie.on.bind(ie),
+    off: ie.off.bind(ie),
+    once: ie.once.bind(ie),
     draw: function (cb) {
       setProps({
         view: mView,
