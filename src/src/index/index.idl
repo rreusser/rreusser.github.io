@@ -15,6 +15,7 @@
 [div className:"section-list"]
   [div className:"section-list__item"][Sketches](/sketches)[/div]
   [div className:"section-list__item"][Writing](/writing)[/div]
+  [div className:"section-list__item"][Running](/running)[/div]
   [div className:"section-list__item"][Reading](/reading)[/div]
 [/div]
 
