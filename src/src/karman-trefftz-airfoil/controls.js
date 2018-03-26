@@ -13,6 +13,10 @@ module.exports = function (fields, state, cb) {
   control.appendChild(controlHeader);
   control.addEventListener('mousemove', e => e.stopPropagation());
   control.addEventListener('mousedown', e => e.stopPropagation());
+  controlHeader.addEventListener('touchstart', (e) => {
+    e.stopPropagation();
+    control.classList.toggle('expanded')
+  });
   controlHeader.addEventListener('click', (e) => {
     e.stopPropagation();
     control.classList.toggle('expanded')

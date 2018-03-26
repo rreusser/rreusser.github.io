@@ -77,7 +77,8 @@ module.exports = function makeCamera2D (regl, opts) {
   }).on('interactionstart', function (ev) {
     ev.preventDefault();
   }).on('interactionend', function (ev) {
-    ev.preventDefault();
+    //ev.preventDefault();
+    ev.stopPropagation();
   }).on('interaction', function (ev) {
     if (!ev.buttons && (ev.type === undefined || ['wheel', 'touch', 'pinch'].indexOf(ev.type) === -1)) return;
 

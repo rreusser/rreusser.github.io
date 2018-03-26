@@ -18,6 +18,9 @@ function run (regl) {
     rect.xmin *= aspect;
     rect.xmax *= aspect;
   }
+
+  document.body.appendChild(require('./explanation')(setInitial));
+
   const camera = require('./camera-2d')(regl, rect);
   const staticState = require('./state-vector')(regl, 3);
   const dynamicState = require('./dynamic-state')(regl);
@@ -65,8 +68,6 @@ function run (regl) {
 
   computeStatic(y0, tmax, staticState, tol);
   var trajectory = computeDynamic(y0, dt, dynamicState);
-
-  document.body.appendChild(require('./explanation')(setInitial));
 
   /*
   var staticFbo = regl.framebuffer({

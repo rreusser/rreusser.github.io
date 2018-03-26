@@ -129,7 +129,13 @@ function render (onChange) {
     }
   });
 
-  title.addEventListener('click', function () {
+  title.addEventListener('touchstart', function (e) {
+    e.stopPropagation();
+  });
+
+  title.addEventListener('click', function (e) {
+    e.stopPropagation();
+
     root.classList.toggle('is-expanded');
   });
 
