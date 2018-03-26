@@ -98,17 +98,12 @@ function run (regl, assets) {
     count: mesh.cells.length
   });
 
-  const camera = require('../../lib/camera-3d')(regl, {
-    phi: 0.1,
-    theta: 1.5,
-    distance: 30,
-    damping: 0
-  });
+  const camera = require('./camera-2d')(regl);
 
-  window.addEventListener('resize', camera.taint);
+  window.addEventListener('resize', camera.resize);
 
   regl.frame(() => {
-    camera(({dirty}) => {
+    camera.draw(({dirty}) => {
       if (!dirty) return;
       drawBg();
       drawMesh();

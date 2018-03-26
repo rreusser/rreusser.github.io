@@ -60,7 +60,7 @@ switch (entryFile.type) {
       dir: path.join(__dirname, '..', projectDir),
       live: true,
       open: true,
-      host: host,
+      //host: host,
       port: port,
       css: hasCss ? 'index.css' : null,
       stream: process.stdout,

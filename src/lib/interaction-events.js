@@ -45,6 +45,85 @@ function interactionEvents (opts, callback) {
     return evOut;
   }
 
+  function noop () {}
+
+  var pickup = 1.0;
+  var prevEvent = {};
+  var lastEvent = {
+    dx: 0.0,
+    dy: 0.0,
+    dz: 0.0,
+    dsx: 0.0,
+    dsy: 0.0,
+    dsz: 0.0,
+    dtheta: 0.0,
+  };
+  var continuing = false;
+
+  function queue (event) {
+    continuing = true;
+    Object.assign(lastEvent, event);
+    lastEvent.preventDefault = noop;
+    lastEvent.stopPropagation = noop;
+    lastEvent.dx = pickup * event.dx + (1.0 - pickup) * lastEvent.dx;
+    lastEvent.dy = pickup * event.dy + (1.0 - pickup) * lastEvent.dy;
+    lastEvent.dz = pickup * event.dz + (1.0 - pickup) * lastEvent.dz;
+    lastEvent.dsx = pickup * event.dsx + (1.0 - pickup) * lastEvent.dsx;
+    lastEvent.dsy = pickup * event.dsy + (1.0 - pickup) * lastEvent.dsy;
+    lastEvent.dsz = pickup * event.dsz + (1.0 - pickup) * lastEvent.dsz;
+    lastEvent.dtheta = pickup * event.dtheta + (1.0 - pickup) * lastEvent.dtheta;
+    lastEvent.buttons = event.buttons;
+    lastEvent.mods = Object.assign({}, event.mods);
+  }
+
+  var t0 = null;
+  var dxTol = 0.01;
+  var dyTol = 0.01;
+  var dzTol = 0.01;
+  var dsxTol = 0.01;
+  var dsyTol = 0.01;
+  var dszTol = 0.01;
+  var dthetaTol = 0.01;
+  var timeConstant = 0.1;
+  var decayConstant = 1 / (1000 * timeConstant) * Math.log(2);
+
+  function idleEmit (t) {
+    if (!interacting && continuing) {
+      emitter.emit('interaction', lastEvent);
+    }
+
+    var dt = t - t0;
+    var decay = Math.exp(-dt * decayConstant);
+
+    if (continuing) {
+      lastEvent.dx *= decay;
+      lastEvent.dy *= decay;
+      lastEvent.dz *= decay;
+      lastEvent.dsx = 1 + (lastEvent.dsx - 1) * decay;
+      lastEvent.dsy = 1 + (lastEvent.dsy - 1) * decay;
+      lastEvent.dsz = 1 + (lastEvent.dsz - 1) * decay;
+      lastEvent.dtheta *= decay;
+
+      if (Math.abs(lastEvent.dx) < dxTol &&
+        Math.abs(lastEvent.dy) < dyTol &&
+        Math.abs(lastEvent.dz) < dzTol &&
+        Math.abs(lastEvent.dsx - 1) < dsxTol &&
+        Math.abs(lastEvent.dsy - 1) < dsyTol &&
+        Math.abs(lastEvent.dsz - 1) < dszTol &&
+        Math.abs(lastEvent.dtheta) < dthetaTol
+      ) {
+        continuing = false;
+      }
+    }
+
+    requestAnimationFrame(idleEmit);
+    t0 = t;
+  }
+
+  idleEmit();
+
+  var interacting = false;
+
   function onWheel (event) {
     var dx, dy, dz, x0, y0;
 
@@ -62,7 +141,13 @@ function interactionEvents (opts, callback) {
     ev.theta = 0;
     ev.dtheta = 0;
 
+    continuing = false;
+    interacting = true;
     emitter.emit('interaction', forward(ev, event));
+  }
+
+  function onMouseUp (event) {
+    interacting = false;
   }
 
   function onMouseDown (event) {
@@ -83,6 +168,8 @@ function interactionEvents (opts, callback) {
     ev.theta = 0;
     ev.dtheta = 0;
 
+    continuing = false;
+    interacting = true;
     emitter.emit('interactionend', forward(ev, event));
   }
 
@@ -107,6 +194,9 @@ function interactionEvents (opts, callback) {
     xprev = x;
     yprev = y;
 
+    if (ev.buttons) {
+      queue(ev);
+    }
     emitter.emit('interaction', forward(ev, event));
   }
 
@@ -167,6 +257,8 @@ function interactionEvents (opts, callback) {
       ev.theta = 0;
       ev.dtheta = 0;
 
+      interacting = true;
+      queue(ev);
       emitter.emit('interactionstart', forward(ev, event));
     }
   }
@@ -187,7 +279,9 @@ function interactionEvents (opts, callback) {
     }
 
     if (changed) {
-      if (activeCount === 1) {
+      if (activeCount === 0) {
+        interacting = false;
+      } else if (activeCount === 1) {
         for (idx = 0; idx < fingers.length; idx++) {
           if (fingers[idx]) break;
         }
@@ -213,6 +307,8 @@ function interactionEvents (opts, callback) {
           ev.theta = 0;
           ev.dtheta = 0;
 
+          interacting = true;
+          queue(ev);
           emitter.emit('interaction', forward(ev, event));
         }
       } else if (activeCount === 2) {
@@ -258,6 +354,8 @@ function interactionEvents (opts, callback) {
           ev.theta = theta1;
           ev.dtheta = dtheta;
 
+          interacting = true;
+          queue(ev);
           emitter.emit('interaction', forward(ev, event));
 
           px0 = x0;
@@ -289,6 +387,7 @@ function interactionEvents (opts, callback) {
     }
 
     if (!ended && activeCount !== 2) {
+      interacting = false;
       ended = true
     }
 
@@ -307,6 +406,7 @@ function interactionEvents (opts, callback) {
       ev.theta = 0;
       ev.dtheta = 0;
 
+      interacting = false;
       emitter.emit('interactionend', forward(ev, event));
     }
   }
@@ -318,12 +418,13 @@ function interactionEvents (opts, callback) {
     changeListener.enabled = true;
     element.addEventListener('wheel', onWheel, false);
     element.addEventListener('mousedown', onMouseDown, false);
-    element.addEventListener('mousemove', onMouseMove, false);
+    window.addEventListener('mousemove', onMouseMove, false);
+    window.addEventListener('mouseup', onMouseUp, false);
 
     element.addEventListener('touchstart', onTouchStart, false);
-    element.addEventListener('touchmove', onTouchMove, false);
-    element.addEventListener('touchend', onTouchRemoved, false)
-    element.addEventListener('touchcancel', onTouchRemoved, false)
+    window.addEventListener('touchmove', onTouchMove, false);
+    window.addEventListener('touchend', onTouchRemoved, false)
+    window.addEventListener('touchcancel', onTouchRemoved, false)
   }
 
   function disable () {
@@ -332,12 +433,13 @@ function interactionEvents (opts, callback) {
     changeListener.enabled = false;
     element.removeEventListener('wheel', onWheel, false);
     element.removeEventListener('mousedown', onMouseDown, false);
-    element.removeEventListener('mousemove', onMouseMove, false);
+    window.removeEventListener('mousemove', onMouseMove, false);
+    window.removeEventListener('mouseup', onMouseUp, false);
 
     element.removeEventListener('touchstart', onTouchStart, false);
-    element.removeEventListener('touchmove', onTouchMove, false);
-    element.removeEventListener('touchend', onTouchRemoved, false)
-    element.removeEventListener('touchcancel', onTouchRemoved, false)
+    window.removeEventListener('touchmove', onTouchMove, false);
+    window.removeEventListener('touchend', onTouchRemoved, false)
+    window.removeEventListener('touchcancel', onTouchRemoved, false)
   }
 
   enable();
