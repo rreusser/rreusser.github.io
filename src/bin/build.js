@@ -102,7 +102,10 @@ switch (entryFile.type) {
         author: metadata.author ||  "Ricky Reusser",
       }))
       .pipe(hyperstream({
-        body: {_appendHtml: '<script src="../nav.bundle.js"></script>'}
+        body: {_appendHtml: '<script src="../nav.bundle.js"></script>'},
+        head: {_appendHtml:
+          '<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />'
+        }
       }))
       .pipe(fs.createWriteStream(htmlOutputPath));
 
