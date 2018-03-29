@@ -1147,8 +1147,11 @@ figcaption {
   }
 
   .project__overlay {
+    position: static;
     opacity: 1;
+    text-shadow: none;
   }
+
 }
 @media (max-width:640px) {
   .section-list {
