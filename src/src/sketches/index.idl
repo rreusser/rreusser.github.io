@@ -1,6 +1,11 @@
 [menu fullWidth:true/]
 
-[meta fullWidth:true title:"Sketches"/]
+[meta fullWidth:true
+  title:"Sketches"
+  description:"Mathematical sketches in WebGL"
+  shareImageUrl:"images/thumbnail.jpg"
+  twitterHandle:"rickyreusser"
+/]
 
 [fancyheader
   fullWidth:true

@@ -26,13 +26,20 @@ console.log('Building ', projectDir);
 
 switch (entryFile.type) {
   case 'idl':
+
+    // Check for html template:
+    var templatePath = path.join(__dirname, '..', projectDir, '_index.html');
+    if (!fs.existsSync(templatePath)) {
+      templatePath = path.join(__dirname, '..', 'templates', '_index.html');
+    }
+
     const idyll = Idyll({
       inputFile: path.join(__dirname, '..', projectDir, entryFile.name),
       defaultComponents: path.join(__dirname, '..', 'lib', 'default-idyll-components'),
       components: path.join(__dirname, '..', projectDir, 'components'),
       output: path.join(__dirname, '..', outputDir),
       //css: path.join(__dirname, '..', 'lib', 'css', 'styles.css'),
-      template: path.join(__dirname, '..', 'templates', '_index.html'),
+      template: templatePath,
       watch: false,
       minify: true,
       ssr: true,
