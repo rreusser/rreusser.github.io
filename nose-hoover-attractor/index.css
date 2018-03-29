@@ -1,0 +1,41 @@
+html, body {
+  background-color: #333;
+}
+
+body {
+  text-align: middle;
+}
+
+canvas {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  
+  max-width: 100%;
+
+}
+
+.explanation {
+  max-width: 540px;
+  margin-left: auto;
+  margin-right: auto;
+  color: #ddd;
+  font-family: sans-serif;
+  margin-bottom: 80px;
+}
+
+.explanation p {
+  line-height: 1.6;
+}
+
+.explanation a {
+  color: inherit;
+}
+
+.eqn {
+  margin-left: auto;
+  margin-right: auto;
+  display: block;
+  max-width: 150px;
+  width: 150px;
+}
