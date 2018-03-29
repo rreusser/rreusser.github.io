@@ -3,7 +3,7 @@
 [meta fullWidth:true
   title:"Sketches"
   description:"Mathematical sketches in WebGL"
-  shareImageUrl:"images/thumbnail.jpg"
+  shareImageUrl:"https://raw.githubusercontent.com/rreusser/rreusser.github.io/5516ed49/sketches/images/thumbnail.jpg"
   twitterHandle:"rickyreusser"
 /]
 
