@@ -13,12 +13,18 @@
 A list of books read in recent history, though it's been a rough couple years for actually finishing books. My commentary and opinions ommitted.
 
 [book
+  title:"The Visual Display of Quantitative Information"
+  url:"https://www.edwardtufte.com/tufte/books_vdqi"
+  author:"Edward R. Tufte"
+  dateRead:"03-2018"
+/]
+
+[book
   title:"The Gulag Archipelago, 1918-1956: An Experiment in Literary Investigation I-II"
   url:"https://www.amazon.com/gp/product/0060139145"
   author:"Aleksandr Solzhenitsyn"
   dateRead:"03-2018"
 /]
-
 
 [book
   title:"Great Russian Short Stories of the Twentieth Century"
