@@ -27,7 +27,7 @@ const regl = require('regl')({
 function run (regl) {
   var spline = {
     points: [[0, 0], [1, 1]],
-    degree: 5,
+    degree: 3,
     boundary: 'closed',
   };
 
