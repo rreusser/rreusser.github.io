@@ -59,6 +59,7 @@ module.exports = function makeCamera2D (regl, opts) {
   var mView = identity([]);
   mView[0] = 1 / (xmax - xmin);
   mView[5] = 1 / (xmax - xmin) * aspectRatio * width / height
+  invert(mInvView, mView);
 
   var mViewport = identity([]);
   var mInvViewport = identity([]);
@@ -132,6 +133,7 @@ module.exports = function makeCamera2D (regl, opts) {
     multiply(dViewport, dViewport, mViewport);
     multiply(dViewport, mInvViewport, dViewport);
     multiply(mView, dViewport, mView);
+    invert(mInvView, mView);
     dirty = true;
   });
 
@@ -158,14 +160,18 @@ module.exports = function makeCamera2D (regl, opts) {
     taint: function () {
       dirty = true;
     },
-    matrix: function () {
+    getView: function () {
       return mView;
+    },
+    getInvView: function () {
+      return mInvView;
     },
     resize: function () {
       computeViewport();
 
       // Reapply the aspect ratio:
       mView[5] = mView[0] * aspectRatio * width / height
+      invert(mInvView, mView);
       dirty = true;
     }
   };

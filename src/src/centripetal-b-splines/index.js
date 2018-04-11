@@ -13,8 +13,10 @@ const nurbs = require('nurbs');
 const makebuffer = require('./makebuffer');
 const controlPanel = require('control-panel');
 const polyline = require('./polyline');
+const color = require('./color');
 const regl = require('regl')({
   pixelRatio: Math.min(window.devicePixelRatio, 1.5),
+  extensions: ['oes_standard_derivatives'],
   attributes: {
     depth: false,
     stencil: false,
@@ -44,7 +46,8 @@ function run (regl) {
 
   var state = {
     points: 10,
-    hull: false,
+		degree: 3,
+    hull: true,
     fit: true,
     centripetal: true,
   };
@@ -54,6 +57,7 @@ function run (regl) {
   var cp = document.createElement('div');
   controlPanel([
     {label: 'points', type: 'range', min: 6, max: 20, step: 1, initial: state.points},
+    {label: 'degree', type: 'range', min: 1, max: 7, step: 2, initial: state.degree},
     {label: 'fit', type: 'checkbox', initial: state.fit},
     {label: 'centripetal', type: 'checkbox', initial: state.centripetal},
     {label: 'hull', type: 'checkbox', initial: state.hull},
@@ -62,9 +66,13 @@ function run (regl) {
     width: 350,
   }).on('input', function (data) {
     data.points = parseInt(data.points);
+    data.degree = parseInt(data.degree);
     var needsNewPoints = data.points !== state.points;
     Object.assign(state, data);
-    if (needsNewPoints) spline.points = recomputePoints(state.points);
+    spline.degree = state.degree;
+    if (needsNewPoints) {
+      spline.points = recomputePoints(state.points);
+    }
     remesh();
     camera.taint();
   });
@@ -122,22 +130,22 @@ function run (regl) {
     curve.mesh = meshCurve(curve.mesh, fit, {resolution: 200});
     curve.wire = wireframe(curve.wire, curve.mesh);
     curve.lines = Object.assign(makebuffer(regl, curve.lines, curve.wire), {
-      color: [0.4, 1, 0.3],
-      width: 4,
+      color: color(1, 3),
+      width: 3,
     });
 
     fitHull.mesh = polyline(fitHull.mesh, fit.points, {closed: spline.boundary === 'closed'});
     fitHull.wire = wireframe(fitHull.wire, fitHull.mesh);
     fitHull.lines = Object.assign(makebuffer(regl, fitHull.lines, fitHull.wire), {
-      color: [0.2, 0.4, 0.6],
-      width: 3,
+      color: color(0, 3),
+      width: 2,
     });
 
     controlHull.mesh = polyline(controlHull.mesh, spline.points, {closed: spline.boundary === 'closed'});
     controlHull.wire = wireframe(controlHull.wire, controlHull.mesh);
     controlHull.points = Object.assign(makebuffer(regl, controlHull.points, controlHull.wire), {
-      color: [1, 0.4, 0.3],
-      size: 15
+      color: color(2, 3),
+      size: 12
     });
   }
 
@@ -148,7 +156,7 @@ function run (regl) {
   camera.on('interactionstart', ev => {
     computePosition(mouse, ev);
     var closestPoint = getClosestPoint(mouse, ev);
-    if (closestPoint.distance < 40) {
+    if (closestPoint.distance < 30) {
       ev.capture();
       dragIndex = closestPoint.index;
     }
@@ -165,11 +173,29 @@ function run (regl) {
 
   remesh();
 
+  var bg = require('./bg')(regl);
+
+
   var raf = regl.frame(() => {
     try {
       camera.draw(({dirty}) => {
         if (!dirty) return;
-        regl.clear({color: [0.12, 0.12, 0.12, 1]});
+
+        var logViewSpan = Math.log(camera.getView()[0]) / Math.log(10);
+        var logViewSpanQuant = Math.floor(logViewSpan);
+        var grid1Strength = 1 - (logViewSpan - logViewSpanQuant);
+        var grid2Strength = 1 - grid1Strength;
+        var grid1Density = Math.pow(10, logViewSpanQuant);
+        var grid2Density = Math.pow(10, logViewSpanQuant + 1);
+
+        bg({
+          viewInv: camera.getInvView(),
+          width: 0.75,
+          grid1Density: grid1Density,
+          grid2Density: grid2Density,
+          grid1Strength: grid1Strength,
+          grid2Strength: grid2Strength,
+        });
 
         if (state.hull) drawLines(fitHull.lines);
         drawLines(curve.lines);
