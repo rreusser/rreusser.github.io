@@ -57,7 +57,7 @@ function run (regl) {
   var cp = document.createElement('div');
   controlPanel([
     {label: 'points', type: 'range', min: 6, max: 20, step: 1, initial: state.points},
-    {label: 'degree', type: 'range', min: 1, max: 7, step: 2, initial: state.degree},
+    {label: 'degree', type: 'range', min: 1, max: 9, step: 2, initial: state.degree},
     {label: 'fit', type: 'checkbox', initial: state.fit},
     {label: 'centripetal', type: 'checkbox', initial: state.centripetal},
     {label: 'hull', type: 'checkbox', initial: state.hull},
@@ -134,14 +134,18 @@ function run (regl) {
       width: 3,
     });
 
-    fitHull.mesh = polyline(fitHull.mesh, fit.points, {closed: spline.boundary === 'closed'});
+    fitHull.mesh = polyline(fitHull.mesh, fit.points, {
+      closed: spline.boundary === 'closed'
+    });
     fitHull.wire = wireframe(fitHull.wire, fitHull.mesh);
     fitHull.lines = Object.assign(makebuffer(regl, fitHull.lines, fitHull.wire), {
       color: color(0, 3),
       width: 2,
     });
 
-    controlHull.mesh = polyline(controlHull.mesh, spline.points, {closed: spline.boundary === 'closed'});
+    controlHull.mesh = polyline(controlHull.mesh, spline.points, {
+      closed: spline.boundary === 'closed'
+    });
     controlHull.wire = wireframe(controlHull.wire, controlHull.mesh);
     controlHull.points = Object.assign(makebuffer(regl, controlHull.points, controlHull.wire), {
       color: color(2, 3),
@@ -184,17 +188,13 @@ function run (regl) {
         var logViewSpan = Math.log(camera.getView()[0]) / Math.log(10);
         var logViewSpanQuant = Math.floor(logViewSpan);
         var grid1Strength = 1 - (logViewSpan - logViewSpanQuant);
-        var grid2Strength = 1 - grid1Strength;
-        var grid1Density = Math.pow(10, logViewSpanQuant);
-        var grid2Density = Math.pow(10, logViewSpanQuant + 1);
+        var grid1Density = Math.pow(10, logViewSpanQuant) * 5.0;
 
         bg({
           viewInv: camera.getInvView(),
-          width: 0.75,
+          width: 0.5,
           grid1Density: grid1Density,
-          grid2Density: grid2Density,
           grid1Strength: grid1Strength,
-          grid2Strength: grid2Strength,
         });
 
         if (state.hull) drawLines(fitHull.lines);

@@ -18,11 +18,10 @@ module.exports = function (regl) {
       #pragma glslify: grid = require(glsl-solid-wireframe/cartesian/scaled)
       varying vec2 uv;
       uniform float width;
-      uniform float grid1Strength, grid2Strength;
-      uniform float grid1Density, grid2Density;
+      uniform float grid1Strength, grid1Density;
       void main () {
-        float gridFactor1 = grid1Strength * (1.0 - grid(uv * grid1Density * 2.0, width, 1.0));
-        float gridFactor2 = grid2Strength * (1.0 - grid(uv * grid2Density * 2.0, width, 1.0));
+        float gridFactor1 = grid1Strength * (1.0 - grid(uv * grid1Density, width, 1.5));
+        float gridFactor2 = (1.0 - grid1Strength) * (1.0 - grid(uv * grid1Density * 10.0, width, 1.5));
         gl_FragColor = vec4(mix(
           vec3(0.93, 0.97, 1.0),
           vec3(0.8, 0.84, 0.9),
@@ -35,9 +34,7 @@ module.exports = function (regl) {
       viewInv: regl.prop('viewInv'),
       width: (ctx, props) => props.width * ctx.pixelRatio,
       grid1Density: regl.prop('grid1Density'),
-      grid2Density: regl.prop('grid2Density'),
       grid1Strength: regl.prop('grid1Strength'),
-      grid2Strength: regl.prop('grid2Strength'),
     },
     depth: {enable: false},
     count: 3

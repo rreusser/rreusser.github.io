@@ -120,8 +120,8 @@ module.exports = function makeCamera2D (regl, opts) {
         taint();
         break;
       case 'pinch':
-        var x0 = ((ev.x0 / getWidth()) * 2.0 - 1.0) * state.distance;
-        var y0 = -((ev.y0 / getHeight()) * 2.0 - 1.0) * state.distance;
+        var x0 = ((ev.x / getWidth()) * 2.0 - 1.0) * state.distance;
+        var y0 = -((ev.y / getHeight()) * 2.0 - 1.0) * state.distance;
         identity(dView);
         mat4.translate(dView, dView, [-x0 * 0.5, -y0 * 0.5, 0]);
         mat4.scale(dView, dView, [ev.dsx, ev.dsy, 1]);
