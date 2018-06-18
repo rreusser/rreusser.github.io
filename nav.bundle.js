@@ -72,6 +72,9 @@ exitBtn.innerHTML = '×';
 exitBtn.addEventListener('click', function (e) {
   nav.classList.add('sketch-nav--hidden');
 });
+exitBtn.addEventListener('touchstart', function (e) {
+  nav.classList.add('sketch-nav--hidden');
+});
 
 var nav = h('nav.sketch-nav', [
   h('h1', meta.title),
