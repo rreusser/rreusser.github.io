@@ -86,6 +86,7 @@ var nav = h('nav.sketch-nav', [
   ]),
 ]);
 
+nav.addEventListener('click', e => e.stopPropagation());
 nav.addEventListener('touchstart', e => e.stopPropagation());
 nav.addEventListener('touchmove', e => e.stopPropagation());
 nav.addEventListener('touchend', e => e.stopPropagation());

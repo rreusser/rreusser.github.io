@@ -360,18 +360,11 @@ function run (regl) {
         float rootDarkness = 1.0 - rootDarkening * rootDarkeningFactor;
         float poleLighteningFactor = 1.0 - pow(2.0, -zpolar.y / poleLighteningSharpness);
         float poleLightness = 1.0 - poleLightening * poleLighteningFactor;
-        //float polarGridFactor = wireframe((vec2(carg, logmag) / polarGridSpacing), lineWidth, 1.0);
         float polarGridFactor = wireframe((carg/ polarGridSpacing.x), lineWidth, 1.0);
         float polarGrid = mix(1.0 - polarGridStrength, 1.0, polarGridFactor);
-        float rectGridFactor = 1.0 - (1.0 - wireframe((z / rectGridSpacing), lineWidth, 1.0));
-        float rectGrid = mix(1.0 - rectGridStrength, 1.0, rectGridFactor);
         return mix(
           vec3(1.0),
-          mix(
-            vec3(0.0),
-            mix(vec3(1.0), cubehelixRainbow(carg + 0.25) * rootDarkness, poleLightness),
-            mix(rectGrid, max(rectGrid, 1.0 - polarGridFactor), polarGridStrength)
-          ),
+          mix(vec3(1.0), cubehelixRainbow(carg + 0.25) * rootDarkness, poleLightness),
           polarGrid
         );
       }
