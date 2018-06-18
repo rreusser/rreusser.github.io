@@ -69,7 +69,6 @@ css(`
 var exitBtn = h('a', {href: 'javascript:void(0);'}, 'x');
 exitBtn.innerHTML = '×';
 exitBtn.addEventListener('click', function (e) {
-  e.preventDefault();
   nav.classList.add('sketch-nav--hidden');
 });
 
