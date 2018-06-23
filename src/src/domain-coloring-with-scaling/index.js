@@ -3,7 +3,7 @@ const invertMat4 = require('gl-mat4/invert');
 const Complex = require('complex.js');
 const ResetTimer = require('./reset-timer');
 const regl = require('regl')({
-  pixelRatio: Math.min(1.5, window.devicePixelRatio),
+  pixelRatio: Math.min(2.0, window.devicePixelRatio),
   extensions: ['oes_standard_derivatives'],
   attributes: {antialias: false, depth: false, alpha: false, stencil: false},
   onDone: require('fail-nicely')(run)
@@ -19,10 +19,10 @@ function run (regl) {
   var w = 20.0;
   var viscoelasticity = 0.12;
   var w2c2 = [];
-  var magBase = 10.0;
-  var phaseBase = 10.0;
-  var magStrength = 0.15;
-  var phaseStrength = 0.15;
+  var magBase = 6.0;
+  var phaseBase = 6.0;
+  var magStrength = 0.12;
+  var phaseStrength = 0.12;
   var scale = 0.0;
 
   require('control-panel')([
@@ -33,7 +33,7 @@ function run (regl) {
     {type: 'range', label: 'phaseBase', min: 1, max: 10, initial: phaseBase, step: 1},
     {type: 'range', label: 'magStrength', min: 0, max: 1, initial: magStrength, step: 0.01},
     {type: 'range', label: 'phaseStrength', min: 0, max: 1, initial: phaseStrength, step: 0.01},
-    {type: 'range', label: 'scale', min: -1, max: 1, initial: scale, step: 0.1},
+    {type: 'range', label: 'scale', min: -1, max: 1, initial: scale, step: 0.01},
   ], {
 		width: 350
 	}).on('input', computeConstants);
@@ -321,10 +321,11 @@ function run (regl) {
 				value = pow(base.x, n);
 
 				c += magStrength * (
+					smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.x) +
           loop(value) +
-					smoothstep(logtier + 1.0, logtier, logspacing) * loop(value * base.x) +
-					smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.x)
-        ) / 3.0;
+					loop(value * base.x) +
+					smoothstep(logtier + 1.0, logtier, logspacing) * loop(value * base.x * base.x)
+        ) / 3.5;
 
 				if (true) {
           invlog2base = 1.0 / log2(base.y);
@@ -337,13 +338,14 @@ function run (regl) {
           value = pow(base.y, n);
 
           c += phaseStrength * (
+            smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.y) +
             loop(value) +
-            smoothstep(logtier + 1.0, logtier, logspacing) * loop(value * base.y) +
-            smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.y)
-          ) / 3.0;
+            loop(value * base.y) +
+            smoothstep(logtier + 1.0, logtier, logspacing) * loop(value * base.y * base.y)
+          ) / 3.5;
         }
 
-				return (0.2 + 0.8 * cubehelixRainbow(carg)) * (1.0 - (magStrength + phaseStrength) * 0.75 + c);
+				return (0.25 + 0.72 * cubehelixRainbow(carg)) * (0.9 - (magStrength + phaseStrength) * 0.7 + c);
       }
 
 
