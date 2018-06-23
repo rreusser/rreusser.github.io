@@ -19,21 +19,23 @@ function run (regl) {
   var w = 20.0;
   var viscoelasticity = 0.12;
   var w2c2 = [];
-  var magnitudeSteps = 6.0;
-  var phaseSteps = 6.0;
-  var magnitudeStrength = 0.12;
-  var phaseStrength = 0.12;
-  var contourScale = 0.0;
+  var magnitudeSteps = 3.0;
+  var phaseSteps = 3.0;
+  var magnitudeStrength = 0.11;
+  var phaseStrength = 0.11;
+  var magnitudeScale = -1.0;
+  var phaseScale = -1.0;
 
   require('control-panel')([
     {type: 'range', label: 'ω', min: 0.05, max: 100.0, initial: w, step: 0.01},
     {type: 'range', label: 'ν', min: 0, max: 0.49, initial: nu, step: 0.01},
     {type: 'range', label: 'viscoelasticity', min: 0, max: Math.PI * 2, initial: viscoelasticity, steps: 400},
-    {type: 'range', label: 'magnitudeSteps', min: 1, max: 10, initial: magnitudeSteps, step: 1},
-    {type: 'range', label: 'phaseSteps', min: 1, max: 10, initial: phaseSteps, step: 1},
     {type: 'range', label: 'magnitudeStrength', min: 0, max: 1, initial: magnitudeStrength, step: 0.01},
+    {type: 'range', label: 'magnitudeSteps', min: 1, max: 10, initial: magnitudeSteps, step: 1},
+    {type: 'range', label: 'magnitudeScale', min: -1, max: 1, initial: magnitudeScale, step: 0.01},
     {type: 'range', label: 'phaseStrength', min: 0, max: 1, initial: phaseStrength, step: 0.01},
-    {type: 'range', label: 'contourScale', min: -1, max: 1, initial: contourScale, step: 0.01},
+    {type: 'range', label: 'phaseSteps', min: 1, max: 10, initial: phaseSteps, step: 1},
+    {type: 'range', label: 'phaseScale', min: -1, max: 1, initial: phaseScale, step: 0.01},
   ], {
 		width: 350
 	}).on('input', computeConstants);
@@ -77,7 +79,8 @@ function run (regl) {
     phaseStrength = state.phaseStrength;
     magnitudeSteps = state.magnitudeSteps;
     phaseSteps = state.phaseSteps;
-    contourScale = Math.pow(10, -state.contourScale);
+    magnitudeScale = Math.pow(10, -state.magnitudeScale);
+    phaseScale = Math.pow(10, -state.phaseScale);
     E = Complex(Math.cos(state.viscoelasticity), Math.sin(state.viscoelasticity));
     var cl = E.sqrt().mul(Math.sqrt((1 - nu) / rho / (1 + nu) / (1 - 2 * nu)));
     var ct = E.sqrt().div(Math.sqrt(2 * rho * (1 + nu)));
@@ -98,7 +101,8 @@ function run (regl) {
     magnitudeSteps: magnitudeSteps,
     magnitudeStrength: magnitudeStrength,
     phaseStrength: phaseStrength,
-    contourScale: contourScale
+    magnitudeScale: magnitudeScale,
+    phaseScale: phaseScale
   });
 
   const mViewInv = new Float32Array(16);
@@ -283,7 +287,7 @@ function run (regl) {
         ));
       }
 
-      uniform float w, lineWidth, viewportWidth, viewportHeight, magnitudeSteps, phaseSteps, magnitudeStrength, phaseStrength, contourScale;
+      uniform float w, lineWidth, viewportWidth, viewportHeight, magnitudeSteps, phaseSteps, magnitudeStrength, phaseStrength, magnitudeScale, phaseScale;
       varying vec2 z;
       uniform vec4 w2c2;
 
@@ -302,10 +306,10 @@ function run (regl) {
         //return sqrt(0.5 + 0.5 * cos(fract(x) * PI * 2.0));
       }
 
-      vec3 domainColoring (vec2 z, vec2 base, float magnitudeStrength, float phaseStrength, float contourScale) {
+      vec3 domainColoring (vec2 z, vec2 base, float magnitudeStrength, float phaseStrength, float magnitudeScale, float phaseScale) {
 				float carg = atan(z.y, z.x) * HALF_PI_INV;
         float cmag = hypot(z);
-				float dx = contourScale * 10.0 / viewportHeight;
+				float dx = 10.0 / viewportHeight;
 
 				float c = 0.0;
 
@@ -313,7 +317,7 @@ function run (regl) {
 
 				invlog2base = 1.0 / log2(base.x);
 
-				logspacing = (log2(fwidth(cmag)) - log2(dx)) * invlog2base;
+				logspacing = (log2(fwidth(cmag)) - log2(dx * magnitudeScale)) * invlog2base;
         logspacing = max(-2e1, min(1e10, logspacing));
 
 				logtier = floor(logspacing);
@@ -321,16 +325,18 @@ function run (regl) {
 				value = pow(base.x, n);
 
 				c += magnitudeStrength * (
-					smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.x) +
-          loop(value) +
-					loop(value * base.x) +
-					smoothstep(logtier + 1.0, logtier, logspacing) * loop(value * base.x * base.x)
-        ) / 3.5;
+					smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.x / base.x / base.x / base.x) +
+          loop(value / base.x / base.x / base.x) +
+					loop(value / base.x / base.x) +
+					loop(value / base.x) +
+					loop(value) +
+					smoothstep(logtier + 1.0, logtier, logspacing) * loop(value * base.x)
+        ) / 5.0;
 
 				if (true) {
           invlog2base = 1.0 / log2(base.y);
 
-          logspacing = (log2(fwidth(carg)) - log2(dx)) * invlog2base;
+          logspacing = (log2(fwidth(carg)) - log2(dx * phaseScale)) * invlog2base;
           logspacing = max(-2e1, min(1e10, logspacing));
 
           logtier = floor(logspacing);
@@ -338,11 +344,11 @@ function run (regl) {
           value = pow(base.y, n);
 
           c += phaseStrength * (
-            smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.y) +
+            smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.y / base.y) +
+            loop(value / base.y) +
             loop(value) +
-            loop(value * base.y) +
-            smoothstep(logtier + 1.0, logtier, logspacing) * loop(value * base.y * base.y)
-          ) / 3.5;
+            smoothstep(logtier + 1.0, logtier, logspacing) * loop(value * base.y)
+          ) / 3.0;
         }
 
 				return (0.24 + 0.76 * cubehelixRainbow(carg)) * (0.9 - (magnitudeStrength + phaseStrength) * 0.7 + c);
@@ -400,7 +406,8 @@ function run (regl) {
           vec2(magnitudeSteps, phaseSteps),
           magnitudeStrength,
           phaseStrength,
-          contourScale
+          magnitudeScale,
+          phaseScale
         ), 1.0);
       }
     `,
@@ -416,7 +423,8 @@ function run (regl) {
       phaseSteps: () => phaseSteps,
       magnitudeStrength: () => magnitudeStrength,
       phaseStrength: () => phaseStrength,
-      contourScale: () => contourScale,
+      magnitudeScale: () => magnitudeScale,
+      phaseScale: () => phaseScale,
     },
     framebuffer: regl.prop('dst'),
     depth: {enable: false},
