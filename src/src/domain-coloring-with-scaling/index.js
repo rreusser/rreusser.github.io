@@ -19,21 +19,21 @@ function run (regl) {
   var w = 20.0;
   var viscoelasticity = 0.12;
   var w2c2 = [];
-  var magBase = 6.0;
-  var phaseBase = 6.0;
-  var magStrength = 0.12;
+  var magnitudeSteps = 6.0;
+  var phaseSteps = 6.0;
+  var magnitudeStrength = 0.12;
   var phaseStrength = 0.12;
-  var scale = 0.0;
+  var contourScale = 0.0;
 
   require('control-panel')([
     {type: 'range', label: 'ω', min: 0.05, max: 100.0, initial: w, step: 0.01},
     {type: 'range', label: 'ν', min: 0, max: 0.49, initial: nu, step: 0.01},
     {type: 'range', label: 'viscoelasticity', min: 0, max: Math.PI * 2, initial: viscoelasticity, steps: 400},
-    {type: 'range', label: 'magBase', min: 1, max: 10, initial: magBase, step: 1},
-    {type: 'range', label: 'phaseBase', min: 1, max: 10, initial: phaseBase, step: 1},
-    {type: 'range', label: 'magStrength', min: 0, max: 1, initial: magStrength, step: 0.01},
+    {type: 'range', label: 'magnitudeSteps', min: 1, max: 10, initial: magnitudeSteps, step: 1},
+    {type: 'range', label: 'phaseSteps', min: 1, max: 10, initial: phaseSteps, step: 1},
+    {type: 'range', label: 'magnitudeStrength', min: 0, max: 1, initial: magnitudeStrength, step: 0.01},
     {type: 'range', label: 'phaseStrength', min: 0, max: 1, initial: phaseStrength, step: 0.01},
-    {type: 'range', label: 'scale', min: -1, max: 1, initial: scale, step: 0.01},
+    {type: 'range', label: 'contourScale', min: -1, max: 1, initial: contourScale, step: 0.01},
   ], {
 		width: 350
 	}).on('input', computeConstants);
@@ -73,11 +73,11 @@ function run (regl) {
   function computeConstants (state) {
     nu = state.ν;
     w = state.ω;
-    magStrength = state.magStrength;
+    magnitudeStrength = state.magnitudeStrength;
     phaseStrength = state.phaseStrength;
-    magBase = state.magBase;
-    phaseBase = state.phaseBase;
-    scale = Math.pow(10, -state.scale);
+    magnitudeSteps = state.magnitudeSteps;
+    phaseSteps = state.phaseSteps;
+    contourScale = Math.pow(10, -state.contourScale);
     E = Complex(Math.cos(state.viscoelasticity), Math.sin(state.viscoelasticity));
     var cl = E.sqrt().mul(Math.sqrt((1 - nu) / rho / (1 + nu) / (1 - 2 * nu)));
     var ct = E.sqrt().div(Math.sqrt(2 * rho * (1 + nu)));
@@ -94,11 +94,11 @@ function run (regl) {
     ω: w,
     viscoelasticity: viscoelasticity,
     ν: nu,
-    phaseBase: phaseBase,
-    magBase: magBase,
-    magStrength: magStrength,
+    phaseSteps: phaseSteps,
+    magnitudeSteps: magnitudeSteps,
+    magnitudeStrength: magnitudeStrength,
     phaseStrength: phaseStrength,
-    scale: scale
+    contourScale: contourScale
   });
 
   const mViewInv = new Float32Array(16);
@@ -283,7 +283,7 @@ function run (regl) {
         ));
       }
 
-      uniform float w, lineWidth, viewportWidth, viewportHeight, magBase, phaseBase, magStrength, phaseStrength, scale;
+      uniform float w, lineWidth, viewportWidth, viewportHeight, magnitudeSteps, phaseSteps, magnitudeStrength, phaseStrength, contourScale;
       varying vec2 z;
       uniform vec4 w2c2;
 
@@ -302,10 +302,10 @@ function run (regl) {
         //return sqrt(0.5 + 0.5 * cos(fract(x) * PI * 2.0));
       }
 
-      vec3 domainColoring (vec2 z, vec2 base, float magStrength, float phaseStrength, float scale) {
+      vec3 domainColoring (vec2 z, vec2 base, float magnitudeStrength, float phaseStrength, float contourScale) {
 				float carg = atan(z.y, z.x) * HALF_PI_INV;
         float cmag = hypot(z);
-				float dx = scale * 10.0 / viewportHeight;
+				float dx = contourScale * 10.0 / viewportHeight;
 
 				float c = 0.0;
 
@@ -320,7 +320,7 @@ function run (regl) {
 				n = log2(cmag) * invlog2base - logtier;
 				value = pow(base.x, n);
 
-				c += magStrength * (
+				c += magnitudeStrength * (
 					smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.x) +
           loop(value) +
 					loop(value * base.x) +
@@ -345,7 +345,7 @@ function run (regl) {
           ) / 3.5;
         }
 
-				return (0.25 + 0.72 * cubehelixRainbow(carg)) * (0.9 - (magStrength + phaseStrength) * 0.7 + c);
+				return (0.24 + 0.76 * cubehelixRainbow(carg)) * (0.9 - (magnitudeStrength + phaseStrength) * 0.7 + c);
       }
 
 
@@ -397,10 +397,10 @@ function run (regl) {
 					//ctan(cdiv((z + C_ONE), cmul(C_I, csqr(z - C_ONE)))),
           fz,
           //csin(cdiv(cmul(z, z + C_ONE), cmul(csqr(z - C_I), z + C_I))),
-          vec2(magBase, phaseBase),
-          magStrength,
+          vec2(magnitudeSteps, phaseSteps),
+          magnitudeStrength,
           phaseStrength,
-          scale
+          contourScale
         ), 1.0);
       }
     `,
@@ -412,11 +412,11 @@ function run (regl) {
       w2c2: () => w2c2,
       w: () => w,
       lineWidth: (ctx, props) => (props.loRes ? 0.1 : 0.5) * ctx.pixelRatio,
-      magBase: () => magBase,
-      phaseBase: () => phaseBase,
-      magStrength: () => magStrength,
+      magnitudeSteps: () => magnitudeSteps,
+      phaseSteps: () => phaseSteps,
+      magnitudeStrength: () => magnitudeStrength,
       phaseStrength: () => phaseStrength,
-      scale: () => scale,
+      contourScale: () => contourScale,
     },
     framebuffer: regl.prop('dst'),
     depth: {enable: false},
