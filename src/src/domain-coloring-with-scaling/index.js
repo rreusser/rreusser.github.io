@@ -5,12 +5,12 @@ const ResetTimer = require('./reset-timer');
 const regl = require('regl')({
   pixelRatio: Math.min(2.0, window.devicePixelRatio),
   extensions: ['oes_standard_derivatives'],
-  attributes: {antialias: false, depth: false, alpha: false, stencil: false},
+  attributes: {antialias: true, depth: false, alpha: false, stencil: false},
   onDone: require('fail-nicely')(run)
 });
 
 function run (regl) {
-  const camera = require('./camera-2d')(regl, {xmin: -20.0, xmax: 20.0});
+  const camera = require('./camera-2d')(regl, {xmin: -2.0, xmax: 2.0});
 
   var E = Complex(1, 0);
   var rho = 1.0;
@@ -21,10 +21,18 @@ function run (regl) {
   var w2c2 = [];
   var magnitudeSteps = 3.0;
   var phaseSteps = 3.0;
-  var magnitudeStrength = 0.11;
-  var phaseStrength = 0.11;
+  var magnitudeStrength = 0.09;
+  var phaseStrength = 0.09;
   var magnitudeScale = -1.0;
   var phaseScale = -1.0;
+
+  var n = 300000;
+  var x = new Array(n).fill(0).map((d, i) => i /(n - 1) * 2.0 - 1.0);
+  var pow = 5.0;
+  var y = x.map(x => Math.exp(pow * x));
+  var dy = x.map(x => pow * Math.exp(pow * x));
+
+  console.log('x, y, dy:', x, y, dy);
 
   require('control-panel')([
     {type: 'range', label: 'ω', min: 0.05, max: 100.0, initial: w, step: 0.01},
@@ -32,7 +40,7 @@ function run (regl) {
     {type: 'range', label: 'viscoelasticity', min: 0, max: Math.PI * 2, initial: viscoelasticity, steps: 400},
     {type: 'range', label: 'magnitudeStrength', min: 0, max: 1, initial: magnitudeStrength, step: 0.01},
     {type: 'range', label: 'magnitudeSteps', min: 1, max: 10, initial: magnitudeSteps, step: 1},
-    {type: 'range', label: 'magnitudeScale', min: -1, max: 1, initial: magnitudeScale, step: 0.01},
+    {type: 'range', label: 'magnitudeScale', min: -5, max: 1, initial: magnitudeScale, step: 0.01},
     {type: 'range', label: 'phaseStrength', min: 0, max: 1, initial: phaseStrength, step: 0.01},
     {type: 'range', label: 'phaseSteps', min: 1, max: 10, initial: phaseSteps, step: 1},
     {type: 'range', label: 'phaseScale', min: -1, max: 1, initial: phaseScale, step: 0.01},
@@ -106,6 +114,109 @@ function run (regl) {
   });
 
   const mViewInv = new Float32Array(16);
+
+  const drawPoints = regl({
+    vert: glsl`
+      precision highp float;
+
+      #pragma glslify: ease = require(glsl-easings/cubic-in-out)
+
+      uniform mat4 mViewInv;
+      uniform float w, lineWidth, viewportWidth, viewportHeight, steps, strength, scale;
+      attribute float x, y, dy;
+
+      #define PHI 2.39996322972865332
+      #define PI 3.141592653589793238
+      #define HALF_PI 1.57079632679
+      #define HALF_PI_INV 0.15915494309
+      #define LOG_2 0.69314718056
+      #define C_ONE (vec2(1.0, 0.0))
+      #define C_I (vec2(0.0, 1.0))
+      #define TO_RADIANS 0.01745329251
+
+      float sqr (float x) {
+        return x * x;
+      }
+
+      float ramp (float x) {
+        return ease(x);
+      }
+
+      float loop (float x) {
+        return fract(x);
+        //return sqrt(0.5 + 0.5 * cos(fract(x) * PI * 2.0));
+      }
+
+      float lerp (float edge0, float edge1, float x) {
+        return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+      }
+
+      float domainColoring (float z, float dz, float base, float scale) {
+				float dx = 10.0 / viewportHeight;
+				float c = 0.0;
+				float invlog2base, logspacing, logtier, n, value;
+				invlog2base = 1.0 / log2(base);
+				logspacing = (log2(dz) - log2(dx * scale)) * invlog2base;
+        logspacing = max(-2e1, min(1e10, logspacing));
+
+				logtier = floor(logspacing);
+				n = log2(z) * invlog2base - logtier;
+				value = pow(base, n);
+
+        float fadeIn = lerp(logtier, logtier + 1.0, logspacing);
+        float fadeOut = lerp(logtier + 1.0, logtier, logspacing);
+
+				c += (
+					fadeIn * loop(value / base / base / base / base) +
+          loop(value / base / base / base) +
+					loop(value / base / base) +
+					loop(value / base) +
+					loop(value) +
+					fadeOut * loop(value * base)
+        ) / 5.0;
+
+				return c;
+      }
+
+
+      void main () {
+        gl_Position = vec4(x * scale, domainColoring(
+          y,
+          dy / viewportHeight,
+          steps,
+          scale
+        ), 0.0, 1.0);
+
+        gl_PointSize = 2.0;
+      }
+    `,
+    frag: glsl`
+      precision highp float;
+      void main () {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+      }
+    `,
+    attributes: {
+      x: x,
+      y: y,
+      dy: dy,
+    },
+    primitive: 'points',
+    uniforms: {
+			viewportWidth: regl.context('viewportWidth'),
+			viewportHeight: regl.context('viewportHeight'),
+      mViewInv: ({view}) => invertMat4(mViewInv, view),
+      w2c2: () => w2c2,
+      w: () => w,
+      lineWidth: (ctx, props) => (props.loRes ? 0.1 : 0.5) * ctx.pixelRatio,
+      steps: () => magnitudeSteps,
+      strength: () => magnitudeStrength,
+      scale: () => magnitudeScale,
+    },
+    framebuffer: regl.prop('dst'),
+    depth: {enable: false},
+    count: x.length,
+  });
   const draw = regl({
     vert: `
       precision highp float;
@@ -302,7 +413,7 @@ function run (regl) {
       }
 
       float loop (float x) {
-        return fract(x);
+        return sqr(fract(x));
         //return sqrt(0.5 + 0.5 * cos(fract(x) * PI * 2.0));
       }
 
@@ -324,8 +435,9 @@ function run (regl) {
 				n = log2(cmag) * invlog2base - logtier;
 				value = pow(base.x, n);
 
+        float fadeIn = smoothstep(logtier, logtier + 1.0, logspacing);
 				c += magnitudeStrength * (
-					smoothstep(logtier, logtier + 1.0, logspacing) * loop(value / base.x / base.x / base.x / base.x) +
+					fadeIn * loop(value / base.x / base.x / base.x / base.x) +
           loop(value / base.x / base.x / base.x) +
 					loop(value / base.x / base.x) +
 					loop(value / base.x) +
@@ -387,7 +499,8 @@ function run (regl) {
 
         vec2 fz = cmul(k2q22, cospsinq) + cmul(k24pq, cosqsinp);
 
-        /*vec2 f = C_ONE;
+        /*
+        vec2 f = C_ONE;
         for (int i = 0; i < 100; i++) {
           float theta = float(i) * 2.0 * PI / PHI / PHI;
           float r = sqrt(float(i));
@@ -396,13 +509,18 @@ function run (regl) {
           } else {
             f = cdiv(f, z - vec2(cos(theta), sin(theta)) * r);
           }
-        }*/
+        }
+        */
 
         gl_FragColor = vec4(domainColoring(
           //clog(f),
 					//ctan(cdiv((z + C_ONE), cmul(C_I, csqr(z - C_ONE)))),
-          fz,
+          //fz,
           //csin(cdiv(cmul(z, z + C_ONE), cmul(csqr(z - C_I), z + C_I))),
+          cdiv(
+            cdiv(z + C_I, z - C_I),
+            cdiv(z + C_ONE, z - C_ONE)
+          ),
           vec2(magnitudeSteps, phaseSteps),
           magnitudeStrength,
           phaseStrength,
@@ -411,7 +529,9 @@ function run (regl) {
         ), 1.0);
       }
     `,
-    attributes: {xy: [-4, -4, 0, 4, 4, -4]},
+    attributes: {
+      xy: [-4, -4, 0, 4, 4, -4]
+    },
     uniforms: {
 			viewportWidth: regl.context('viewportWidth'),
 			viewportHeight: regl.context('viewportHeight'),
@@ -449,6 +569,7 @@ function run (regl) {
   var prevTime;
   var framerate = 1 / 60;
 
+
   regl.frame(({time}) => {
     camera.draw(({dirty}) => {
       if (!dirty) {
@@ -470,6 +591,9 @@ function run (regl) {
           }
         }
         draw({});
+
+        drawPoints({});
+
         prevTime = time;
       }
     });
