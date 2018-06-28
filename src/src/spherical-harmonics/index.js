@@ -111,7 +111,7 @@ function run (regl, assets) {
 
   const drawHarmonic = regl({
     vert: `
-      precision mediump float;
+      precision highp float;
       attribute vec3 position, normal;
       uniform mat4 projection, view, viewinv;
       attribute float Y;
@@ -121,7 +121,7 @@ function run (regl, assets) {
       varying vec3 vN, vEyeDirection;
       void main () {
         vY = Y;
-        vec4 p = vec4(position * scale, 1.0) + viewinv * vec4(m * xfov, -l, 0.0, 0.0);
+        vec4 p = vec4(position * scale, 1.0) + viewinv * vec4(m, -l, 0.0, 0.0);
         vEyeDirection = normalize(p.xyz - eye);
         vN = mat3(view) * normal;
         vEyeDirection = mat3(view) * vEyeDirection;
@@ -129,7 +129,7 @@ function run (regl, assets) {
       }
     `,
     frag: glsl`
-      precision mediump float;
+      precision highp float;
       #pragma glslify: matcap = require(matcap)
       uniform sampler2D image;
       varying float vY;
@@ -149,7 +149,7 @@ function run (regl, assets) {
       Y: regl.prop('Y'),
     },
     uniforms: {
-      m: (ctx, props) => props.m / 5,
+      m: (ctx, props) => props.m / 5 * 2.0,
       l: (ctx, props) => (props.l - 2.5) / 2.5 * 1.65,
       scale: 0.38,
       xfov: (ctx, props) => Math.atan(camera.params.fovY * 0.5) * 2.0 * 2.3 * ctx.viewportWidth / ctx.viewportHeight,
