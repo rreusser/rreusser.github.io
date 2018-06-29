@@ -34,6 +34,7 @@ function factorial(num) {
 }
 
 function Y (l, m, theta, phi) {
+  if (m < 0) phi += Math.PI * 0.5;
   var N = Math.sqrt((2.0 * l + 1.0) * 0.25 / Math.PI * factorial(l - m) / factorial(l + m));
   return N * P(l, m, Math.cos(theta)) * Math.cos(m * phi);
 }
