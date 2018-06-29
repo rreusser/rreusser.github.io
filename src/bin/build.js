@@ -98,16 +98,24 @@ switch (entryFile.type) {
       .pipe(minifyStream({sourceMap: false}))
       .pipe(fs.createWriteStream(bundleOutputPath));
 
+    var metaForInject = {
+      name: metadata.title,
+      description: metadata.description,
+      author: metadata.author ||  "Ricky Reusser",
+    };
+
+    if (metadata.image) {
+      metaForInject.image = metadata.image;
+    }
+
+    console.log('metaForInject:', metaForInject);
+
     simpleHtmlIndex({
         entry: 'bundle.js',
         title: metadata.title,
         css: cssExists ? 'index.css' : null
       })
-      .pipe(htmlInjectMeta({
-        name: metadata.title,
-        description: metadata.description,
-        author: metadata.author ||  "Ricky Reusser",
-      }))
+      .pipe(htmlInjectMeta(metaForInject))
       .pipe(hyperstream({
         body: {_appendHtml: '<script src="../nav.bundle.js"></script>'},
         head: {_appendHtml:
