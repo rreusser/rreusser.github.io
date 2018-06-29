@@ -14,7 +14,7 @@ module.exports = function (regl, camera) {
       if (ev.mods.shift) {
         camera.pan(ev.dx, ev.dy);
       } else if (ev.mods.meta) {
-        camera.pivot(ev.dx, ev.dy);
+        camera.pan(ev.dx, ev.dy);
       } else {
         camera.rotate(
           -ev.dx * radiansPerHalfScreenWidth,

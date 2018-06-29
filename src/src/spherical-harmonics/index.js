@@ -1,11 +1,19 @@
+const katex = require('katex');
 const flatten = require('lodash/flatten');
 const attachInteractions = require('./interactions');
 const glsl = require('glslify');
 const createCamera = require('inertial-turntable-camera');
 const icosphere = require('icosphere')(5);
 const vec3scale = require('gl-vec3/scale');
+const vec3transformMat4 = require('gl-vec3/transformMat4');
+const vec4transformMat4 = require('gl-vec4/transformMat4');
 const pack = require('array-pack-2d');
 const normals = require('angle-normals');
+const fs = require('fs');
+
+var css = fs.readFileSync(__dirname + '/../../node_modules/katex/dist/katex.min.css', 'utf8');
+
+require('insert-css')(css);
 
 require('resl')({
   manifest: {matcap: {type: 'image', src: 'images/matcap-grey-skin.jpg'}},
@@ -29,6 +37,32 @@ function Y (l, m, theta, phi) {
   var N = Math.sqrt((2.0 * l + 1.0) * 0.25 / Math.PI * factorial(l - m) / factorial(l + m));
   return N * P(l, m, Math.cos(theta)) * Math.cos(m * phi);
 }
+
+var eqnDiv = document.createElement('a');
+eqnDiv.href = "https://en.wikipedia.org/wiki/Spherical_harmonics";
+eqnDiv.style.position = 'fixed';
+eqnDiv.style.top = '10px';
+eqnDiv.style.left = '10px';
+eqnDiv.style.zIndex = 10;
+eqnDiv.style.fontSize = '16px';
+eqnDiv.style.color = '#fff';
+eqnDiv.style.textShadow = '0px 0px 2px rgba(0, 0, 0,1.0)';
+document.body.appendChild(eqnDiv);
+
+eqnDiv.innerHTML = katex.renderToString('Y_{\\ell }^{m}(\\theta ,\\varphi )={\\sqrt {{(2\\ell +1) \\over 4\\pi }{(\\ell -m)! \\over (\\ell +m)!}}}\\,P_{\\ell }^{m}(\\cos {\\theta })\\,e^{im\\varphi }');
+
+
+
+var textDiv = document.createElement('div');
+textDiv.style.position = 'fixed';
+textDiv.style.top = '0';
+textDiv.style.left = '0';
+textDiv.style.width = '100%';
+textDiv.style.height = '100%';
+textDiv.style.zIndex = 10;
+textDiv.style.pointerEvents = 'none';
+textDiv.style.userSelect = 'none';
+document.body.appendChild(textDiv);
 
 function P (l, m, x) {
   var x2 = x * x;
@@ -93,7 +127,7 @@ function P (l, m, x) {
 function run (regl, assets) {
   const camera = createCamera({
     aspectRatio: window.innerWidth / window.innerHeight,
-    distance: 5,
+    distance: 6,
     center: [0, 0, 0],
   });
 
@@ -105,6 +139,75 @@ function run (regl, assets) {
       eye: (ctx, camera) => camera.state.eye,
     }
   });
+
+  function createText (l, m, str, styles) {
+    var span = document.createElement('span');
+    textDiv.appendChild(span);
+    span.innerHTML = str;
+    span.style.position = 'absolute';
+    span.style.transform = 'translate(50%, 50%)';
+    span.style.fontSize = '14px';
+    span.style.color = '#fff';
+    span.style.textShadow = '0px 0px 2px rgba(0, 0, 0,1.0)';
+    Object.assign(span.style, styles || {});
+    return span;
+  }
+
+  function createLabels () {
+    var labels = [];
+    for (var m = -5; m <= 5; m++) {
+      labels.push({
+        el: createText(5, m, katex.renderToString('m = ' + m)),
+        l: 5.85,
+        m: m,
+        justify: 'translate3d(-20%, -50%, 0) rotate(30deg)',
+      });
+    }
+    for (var l = 0; l <= 5; l++) {
+      labels.push({
+        el: createText(l, m, katex.renderToString('l = ' + l)),
+        l: l,
+        m: l + 1,
+        justify: 'translate3d(0, -50%, 0)',
+      });
+    }
+    return labels;
+  }
+
+  function transformM (m) {
+    return m / 5.0 * 2.0;
+  }
+
+  function transformL (l) {
+    return (l - 2.5) / 2.5 * 1.65;
+  }
+
+  function toScreen (xy, l, m) {
+    xy[0] = transformM(m);
+    xy[1] = transformL(5 - l);
+    xy[2] = 0;
+    xy[3] = 0;
+    vec4transformMat4(xy, xy, camera.state.viewInv);
+    xy[3] = 1;
+    vec4transformMat4(xy, xy, camera.state.view);
+    vec3transformMat4(xy, xy, camera.state.projection);
+  }
+
+  function placeLabels (labels) {
+    var xy = [0, 0, 0];
+    for (var i = 0; i < labels.length; i++) {
+      toScreen(xy, labels[i].l, labels[i].m);
+      labels[i].el.style.transform = 'translate3d('+(
+          (0.5 + 0.5 * xy[0]) * window.innerWidth
+        )+'px,'+(
+          (0.5 - 0.5 * xy[1]) * window.innerHeight
+        )+'px, 0) ' + labels[i].justify;
+    }
+  }
+
+  var labels = createLabels();
+  placeLabels(labels);
+
 
   attachInteractions(regl, camera);
   window.camera = camera;
@@ -149,8 +252,8 @@ function run (regl, assets) {
       Y: regl.prop('Y'),
     },
     uniforms: {
-      m: (ctx, props) => props.m / 5 * 2.0,
-      l: (ctx, props) => (props.l - 2.5) / 2.5 * 1.65,
+      m: (ctx, props) => transformM(props.m),
+      l: (ctx, props) => transformL(props.l),
       scale: 0.38,
       xfov: (ctx, props) => Math.atan(camera.params.fovY * 0.5) * 2.0 * 2.3 * ctx.viewportWidth / ctx.viewportHeight,
       image: regl.texture({data: assets.matcap, flipY: true}),
@@ -209,6 +312,7 @@ function run (regl, assets) {
     setCameraUniforms(camera, () => {
       if (!camera.state.dirty) return;
 
+      placeLabels(labels);
       regl.clear({color: [0.12, 0.12, 0.12, 1], depth: 1});
       drawBg();
       drawHarmonic(harmonics);
