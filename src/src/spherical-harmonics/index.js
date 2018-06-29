@@ -40,7 +40,7 @@ function Y (l, m, theta, phi) {
 }
 
 var attr = document.createElement('a');
-attr.textContent = 'Recreated from Inigo Quizles\' figure on Wikipedia';
+attr.textContent = 'Recreated from Inigo Quizles\' figure on Wikipedia. See README in source directory for more details.';
 attr.href = 'https://en.wikipedia.org/wiki/Spherical_harmonics#/media/File:Spherical_Harmonics.png';
 attr.style.position = 'fixed';
 attr.style.bottom = '5px';
