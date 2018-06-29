@@ -39,6 +39,18 @@ function Y (l, m, theta, phi) {
   return N * P(l, m, Math.cos(theta)) * Math.cos(m * phi);
 }
 
+var attr = document.createElement('a');
+attr.textContent = 'Recreated from Inigo Quizles\' figure on Wikipedia';
+attr.href = 'https://en.wikipedia.org/wiki/Spherical_harmonics#/media/File:Spherical_Harmonics.png';
+attr.style.position = 'fixed';
+attr.style.bottom = '5px';
+attr.style.left = '5px';
+attr.style.zIndex = 10;
+attr.style.fontSize = '12px';
+attr.style.color = '#fff';
+attr.style.textShadow = '0px 0px 2px rgba(0, 0, 0,1.0)';
+document.body.appendChild(attr);
+
 if (window.innerWidth > 640) {
   var eqnDiv = document.createElement('a');
   eqnDiv.href = "https://en.wikipedia.org/wiki/Spherical_harmonics";
