@@ -118,7 +118,7 @@ function P (l, m, x) {
       case 2: return -105.0 * 0.5 * x * (x - 1.0) * (x + 1.0) * (3.0 * x2 - 1.0);
       case 3: return 105.0 * 0.5 * (x - 1.0) * (x + 1.0) * (3.0 * x - 1.0) * (3.0 * x + 1.0) * Math.sqrt(1 - x2);
       case 4: return 945.0 * (x - 1.0) * (x - 1.0) * x * (x + 1.0) * (x + 1.0);
-			case 5: return -945.0 * Math.pow(x - 1.0, 2) * Math.pow(x + 1.0, 2.0) * Math.sqrt(1 - x2);
+      case 5: return -945.0 * Math.pow(x - 1.0, 2) * Math.pow(x + 1.0, 2.0) * Math.sqrt(1 - x2);
     }
   default:
     throw new Error('Associated Legendre polynomial P(m, l, x) not implemented for m > 5');
@@ -285,7 +285,7 @@ function run (regl, assets) {
     count: 3
   });
 
-	window.addEventListener('resize', function () {
+  window.addEventListener('resize', function () {
     width = window.innerWidth;
     height = window.innerHeight;
     camera.resize(width / height);
@@ -318,7 +318,7 @@ function run (regl, assets) {
       drawBg();
       drawHarmonic(harmonics);
     });
-	});
+  });
   
 }
 
