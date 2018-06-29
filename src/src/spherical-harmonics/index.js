@@ -38,7 +38,7 @@ function Y (l, m, theta, phi) {
   return N * P(l, m, Math.cos(theta)) * Math.cos(m * phi);
 }
 
-if (false) {
+if (window.innerWidth > 640) {
   var eqnDiv = document.createElement('a');
   eqnDiv.href = "https://en.wikipedia.org/wiki/Spherical_harmonics";
   eqnDiv.style.position = 'fixed';
@@ -146,7 +146,7 @@ function run (regl, assets) {
     span.innerHTML = str;
     span.style.position = 'absolute';
     span.style.transform = 'translate(50%, 50%)';
-    span.style.fontSize = '14px';
+    span.style.fontSize = window.innerWidth > 640 ? '14px' : '11px';
     span.style.color = '#fff';
     span.style.textShadow = '0px 0px 2px rgba(0, 0, 0,1.0)';
     Object.assign(span.style, styles || {});
