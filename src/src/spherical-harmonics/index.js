@@ -38,20 +38,20 @@ function Y (l, m, theta, phi) {
   return N * P(l, m, Math.cos(theta)) * Math.cos(m * phi);
 }
 
-var eqnDiv = document.createElement('a');
-eqnDiv.href = "https://en.wikipedia.org/wiki/Spherical_harmonics";
-eqnDiv.style.position = 'fixed';
-eqnDiv.style.top = '10px';
-eqnDiv.style.left = '10px';
-eqnDiv.style.zIndex = 10;
-eqnDiv.style.fontSize = '16px';
-eqnDiv.style.color = '#fff';
-eqnDiv.style.textShadow = '0px 0px 2px rgba(0, 0, 0,1.0)';
-document.body.appendChild(eqnDiv);
+if (false) {
+  var eqnDiv = document.createElement('a');
+  eqnDiv.href = "https://en.wikipedia.org/wiki/Spherical_harmonics";
+  eqnDiv.style.position = 'fixed';
+  eqnDiv.style.top = '10px';
+  eqnDiv.style.left = '10px';
+  eqnDiv.style.zIndex = 10;
+  eqnDiv.style.fontSize = '16px';
+  eqnDiv.style.color = '#fff';
+  eqnDiv.style.textShadow = '0px 0px 2px rgba(0, 0, 0,1.0)';
+  document.body.appendChild(eqnDiv);
 
-eqnDiv.innerHTML = katex.renderToString('Y_{\\ell }^{m}(\\theta ,\\varphi )={\\sqrt {{(2\\ell +1) \\over 4\\pi }{(\\ell -m)! \\over (\\ell +m)!}}}\\,P_{\\ell }^{m}(\\cos {\\theta })\\,e^{im\\varphi }');
-
-
+  eqnDiv.innerHTML = katex.renderToString('Y_{\\ell }^{m}(\\theta ,\\varphi )={\\sqrt {{(2\\ell +1) \\over 4\\pi }{(\\ell -m)! \\over (\\ell +m)!}}}\\,P_{\\ell }^{m}(\\cos {\\theta })\\,e^{im\\varphi }');
+}
 
 var textDiv = document.createElement('div');
 textDiv.style.position = 'fixed';
