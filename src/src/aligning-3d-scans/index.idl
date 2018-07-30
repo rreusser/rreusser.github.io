@@ -128,7 +128,7 @@ As a final bonus, recall—or discover today!—that [the eigenvalues of a symme
 
 ## Does it work?
 
-Wonderfully! Robustly! Efficiently! The only numerically complicated part is the actual eigenvalue computation, but the only dense matrix math is just for a 3x3 matrix.
+Wonderfully! Robustly! Efficiently! The only nontrivial numerical part is the eigenvalue computation, but it's only a small 3x3 matrix you can farm out to any old numerial library.
 
 The main caveat is that eigenvalues are only unique up to a sign so that we need to check for reflections and apply some slightly ad-hoc heuristics to disambiguate the sign. In particular, I'm just using the total summed area vector to see if we can put the open end in a consistent direction. There's room for improvement.
 
