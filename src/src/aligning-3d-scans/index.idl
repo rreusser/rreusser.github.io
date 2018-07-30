@@ -1,6 +1,11 @@
 [menu fullWidth:true/]
 
-[meta fullWidth:true title:"Aligning 3D scans"/]
+[meta
+  fullWidth:true
+  title:"Aligning 3D scans"
+  shareImageUrl:"https://cdn.rawgit.com/rreusser/rreusser.github.io/8cecf0a9/aligning-3d-scans/images/screenshot.png"
+  twitterHandle:"rickyreusser"
+/]
 
 [Header
   title: "Aligning 3D scans"
