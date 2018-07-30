@@ -22,12 +22,22 @@ const host = process.env.host || 'localhost';
 switch (entryFile.type) {
   case 'idl':
     console.log('Serving as Idyll');
+
+    // Check for html template:
+    var templatePath = path.join(__dirname, '..', projectDir, '_index.html');
+    if (!fs.existsSync(templatePath)) {
+      templatePath = path.join(__dirname, '..', 'templates', '_index.html');
+    }
+
+    console.log('templatePath:', templatePath);
+
     const idyll = Idyll({
       inputFile: path.join(__dirname, '..', projectDir, entryFile.name),
       defaultComponents: path.join(__dirname, '..', 'lib', 'default-idyll-components'),
       components: path.join(__dirname, '..', projectDir, 'components'),
       output: path.join(__dirname, '..', outputDir),
       css: path.join(__dirname, '..', 'lib', 'css', 'styles.css'),
+      template: templatePath,
       port: port,
       watch: true,
       minify: false,

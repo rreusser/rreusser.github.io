@@ -68,7 +68,6 @@
     "mouse-event": "^1.0.5",
     "mouse-event-offset": "^3.0.2",
     "mouse-wheel": "^1.2.0",
-    "ndarray-blas-level1": "^1.2.0",
     "ndarray-fft": "^1.0.3",
     "ndarray-fill": "^1.0.2",
     "ndarray-householder-qr": "^2.3.0",

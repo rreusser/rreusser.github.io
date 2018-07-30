@@ -50,7 +50,7 @@ switch (entryFile.type) {
 
     idyll.build();
 
-    ['images', 'fonts'].forEach(dir => {
+    ['images', 'fonts', 'js', 'css', 'fonts'].forEach(dir => {
       var cpInputDir = path.join(__dirname, '..', projectDir, dir);
       var cpOutputDir = path.join(__dirname, '..', outputDir, dir);
 
