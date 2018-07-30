@@ -158,6 +158,8 @@ At the end of the day, I rather suspect I've rederived a pretty standard techniq
 
 There's room for improvement in the final disambiguation of signs, but frankly once we've solved the main problem of figuring out a rough alignment, the subsequent algorithms have a significantly easier time making sense of the scan.
 
+This post uses [idyll](https://idyll-lang.org/) and [regl](https://github.com/regl-project/regl). They're great projects! You should check them out! You can find the source [here](https://github.com/rreusser/rreusser.github.io/tree/master/src/src/aligning-3d-scans).
+
 Questions? Comments? Corrections? Drop me a line [@rickyreusser](https://twitter.com/rickyreusser)!
 
 [footer fullWidth:true/]
