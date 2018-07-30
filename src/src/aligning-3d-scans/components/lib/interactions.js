@@ -120,7 +120,7 @@ function attachCameraControls (camera, opts) {
       ev.originalEvent.preventDefault();
     })
     .on('touchend', function (ev) {
-      ev.originalEvent.preventDefault();
+      //ev.originalEvent.preventDefault();
       resetLocalPreventDefault();
       ev = providePreventDefault(ev);
       onEnd && onEnd(ev);
