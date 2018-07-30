@@ -14,7 +14,7 @@
   fullWidth:true
 /]
 
-At [Standard Cyborg](https://www.standardcyborg.com), we use 3D scans from a number of different sources to design sockets for prosthetic devices (btw [we're always hiring](https://app.standardcyborg.com/careers) if this stuff interests you). Even in the best of circumstances in which we're able to keep track of the physical "up" direction from acquisition through to the design phase, "physical up" isn't really a useful direction since the limb could have been in any orientation during scanning (or any orientation _relative to the scanner_). We'd like to automatically orient incoming scans.
+At [Standard Cyborg](https://www.standardcyborg.com), we use 3D scans from a number of different sources to design sockets for prosthetic devices (btw [we're always hiring](https://app.standardcyborg.com/careers) if this stuff interests you). Even in the best of circumstances in which we're able to keep track of the physical "up" direction from acquisition through to the design phase, "physical up" isn't really a useful direction since the limb could have been in any orientation during scanning (or any orientation _relative to the scanner_). We'd like to automatically orient incoming scans vertically so that they're easy to work with.
 
 [figure]
   [Figure1/]
