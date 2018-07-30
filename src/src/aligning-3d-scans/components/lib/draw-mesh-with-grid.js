@@ -1,7 +1,7 @@
 module.exports = function (regl) {
   return regl({
     vert: `
-      precision mediump float;
+      precision highp float;
       attribute vec3 aPosition, aNormal;
       attribute vec2 aUv;
       uniform mat4 uProjectionView, uView;
@@ -19,7 +19,7 @@ module.exports = function (regl) {
     `,
     frag: `
       #extension GL_OES_standard_derivatives : enable
-      precision mediump float;
+      precision highp float;
 
       vec2 matcap(vec3 eye, vec3 normal) {
         vec3 reflected = reflect(eye, normal);

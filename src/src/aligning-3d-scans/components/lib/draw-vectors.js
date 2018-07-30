@@ -32,7 +32,7 @@ module.exports = function (regl, opts) {
       }
     `,
     frag: `
-      precision mediump float;
+      precision highp float;
       uniform vec4 uColor;
       void main () {
         gl_FragColor = uColor;
