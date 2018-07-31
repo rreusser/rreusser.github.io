@@ -88,6 +88,8 @@
   "dependencies": {
     "complex.js": "^2.0.4",
     "eases": "^1.0.8",
+    "gauss-random": "^1.0.1",
+    "gaussian": "^1.1.0",
     "glsl-diffuse-lambert": "^1.0.0",
     "glsl-domain-coloring": "^2.0.6",
     "glsl-easings": "^1.0.0",

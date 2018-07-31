@@ -12,6 +12,8 @@ const createInteractions = require('./lib/interactions');
 const meshNurbsSurface = require('./lib/mesh-nurbs-surface');
 const createBuffers = require('./lib/create-buffers');
 const align = require('./lib/calculatePrincipalAxesAndCentroid');
+const angleNormals = require('./lib/angle-normals');
+const randn = require('gauss-random');
 
 class ReglComponent extends IdyllComponent {
 
@@ -60,7 +62,7 @@ class ReglComponent extends IdyllComponent {
           computeNormals: true,
           computeUvs: true,
           divisions: [50, 70],
-          unwrapV: true,
+          unwrapV: false,
         });
 
         var model = unindex(this.surface);
@@ -161,17 +163,28 @@ class ReglComponent extends IdyllComponent {
       computeNormals: true,
       computeUvs: true,
       divisions: [50, 70],
-      unwrapV: true,
+      unwrapV: false,
     });
+
+    if (!this.noise) {
+      this.noise = new Float32Array(this.surface.vertices.length).map(() => randn() * 0.02);
+    }
+
+    for (var i = 0; i < this.surface.vertices.length; i++) {
+      this.surface.vertices[i] += this.noise[i] * props.noise;
+    }
+
+    this.surface.normals = angleNormals(this.surface.faces, this.surface.vertices);
+
     this.surface.count = this.surface.faces.length / 3;
 
     var alignment = align([this.surface]);
 
     var m = alignment.matrix;
     var c = alignment.centroid;
-    var s0 = alignment.strengths[0];
-    var s1 = alignment.strengths[1];
-    var s2 = alignment.strengths[2];
+    var s0 = Math.pow(alignment.strengths[0], 2);
+    var s1 = Math.pow(alignment.strengths[1], 2);
+    var s2 = Math.pow(alignment.strengths[2], 2);
 
     var smax = Math.max(s0, s1, s2);
     s0 *= -1.4 / smax;
