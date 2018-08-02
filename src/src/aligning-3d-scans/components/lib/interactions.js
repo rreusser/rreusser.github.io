@@ -94,7 +94,7 @@ function attachCameraControls (camera, opts) {
       ev.originalEvent.preventDefault();
     })
     .on('mouseup', function (ev) {
-      ev.originalEvent.preventDefault();
+      //ev.originalEvent.preventDefault();
       resetLocalPreventDefault();
       ev = providePreventDefault(ev);
       onEnd && onEnd(ev);
