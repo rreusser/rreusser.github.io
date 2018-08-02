@@ -134,6 +134,8 @@ The main caveat is that eigenvalues are only unique up to a sign so that we need
 
 You can see the final result below. Note that the two remaining axes also align the knee!
 
+**Update:** Eric Arnebäck [asked about noise](https://twitter.com/erkaman2/status/1024296231508602881). I've added a noise slider below and have removed a square root in the scaling so that the magnitudes are a bit more separated. The noise is not IID noise so take it with a grain of salt, but it hopefully gives some indication of the approach's ability to reject noise.
+
 [var name:"fig5curvature" value:0.5/]
 [var name:"fig5radius" value:1.0/]
 [var name:"fig5length" value:1.0/]
