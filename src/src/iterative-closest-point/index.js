@@ -84,19 +84,21 @@ function run (regl) {
   var target = new PointCloud([], {pointSize: 6, pointColor: [0.9, 0.3, 0.2, 1.0]});
 
   var previousVariance = Infinity;
-  var lifetime = 20;
+  var lifetime = 30;
   var iteration = 0;
+  var converged = false;
   function restart () {
-    lifetime = 20;
+    lifetime = 30;
     iteration = 0;
     previousVariance = Infinity;
+    converged = false;
     var thetaOffset = Math.PI * 2 * Math.random();
     var ampl = [1, 1, 0.2, 0.2, 0.125, 0.125, 0.125, 0.125, 0.1, 0.1];
     var phase = new Array(ampl.length).fill(0).map(() => Math.random() * Math.PI * 2);
     var randomness = randn() * 0.03;
     var n = Math.floor(50 + 250 * Math.random());
     phase[0] = phase[1] = 0;
-    model.vertices = randomCurve(n, ampl, phase, randomness, thetaOffset);
+    model.vertices = randomCurve(n, ampl, phase, randomness, thetaOffset * 0);
     source.vertices = randomCurve(n, ampl, phase, randomness, thetaOffset);
     target.vertices = [];
     var m = mat3create();
@@ -114,24 +116,26 @@ function run (regl) {
 
   var weight, weightBuffer;
   function iterate () {
-    var temperature = state.simulatedAnnealing ? Math.exp(-iteration / state.simulatedAnnealing) : 0;
-    var correspondence = computeCorrespondence(null, source, model, state.edgeAvoidance, temperature)
-    target.vertices = filterPointCloud(model, correspondence.indices);
-    var ransacThreshold = state.ransacThreshold + 10 * temperature;
-    weight = correspondence.variance.map(v => v > correspondence.avgVariance * Math.pow(ransacThreshold, 2) ? 0 : 1);
-    weightBuffer = (weightBuffer || regl.buffer)(weight);
-    var transform = icp(source, target, weight, temperature);
-    transformPointCloud(source, transform);
+    if (!converged) {
+      var temperature = state.simulatedAnnealing ? Math.exp(-iteration / state.simulatedAnnealing) : 0;
+      var correspondence = computeCorrespondence(null, source, model, state.edgeAvoidance, temperature)
+      target.vertices = filterPointCloud(model, correspondence.indices);
+      var ransacThreshold = state.ransacThreshold + 10 * temperature;
+      weight = correspondence.variance.map(v => v > correspondence.avgVariance * Math.pow(ransacThreshold, 2) ? 0 : 1);
+      weightBuffer = (weightBuffer || regl.buffer)(weight);
+      var transform = icp(source, target, weight, temperature);
+      transformPointCloud(source, transform);
 
-    var error = Math.abs(correspondence.avgVariance - previousVariance) / correspondence.avgVariance;
+      var error = Math.abs(correspondence.avgVariance - previousVariance) / correspondence.avgVariance;
+      errorSpan.textContent = 'Error: ' + error.toExponential(3) + ', Iteration: ' + iteration;
+      if (error < 1e-5 || iteration > 150) converged = true;
+
+      previousVariance = correspondence.avgVariance;
+      iteration++;
+    }
+
     if (error < 1e-3 || isNaN(error)) lifetime--;
-
-    errorSpan.textContent = 'Error: ' + error.toExponential(3) + ', Iteration: ' + iteration;
-
     if (lifetime < 0 && state.autoRestart) restart();
-
-    previousVariance = correspondence.avgVariance;
-    iteration++;
 
     camera.taint();
   }
