@@ -1,6 +1,6 @@
 module.exports = computeCorrespondence;
 
-function computeCorrespondence (correspondence, source, target) {
+function computeCorrespondence (correspondence, source, target, edgeAvoidance, temperature) {
   var targetVertices = target.vertices;
   var targetVerticesLength = target.vertices.length;
   var sourceVertices = source.vertices;
@@ -24,7 +24,7 @@ function computeCorrespondence (correspondence, source, target) {
       var dx = targetVertices[j2] - sourceX;
       var dy = targetVertices[j2 + 1] - sourceY;
 
-      var r2 = dx * dx + dy * dy;
+      var r2 = (dx * dx + dy * dy) * Math.pow(1.0 + 3.0 * temperature, 2);
 
       if (r2 < minR2) {
         minIndex = j;
@@ -32,8 +32,12 @@ function computeCorrespondence (correspondence, source, target) {
       }
     }
 
-    varianceSum += minR2;
-    variance[i] = minR2;
+    if (minIndex >= edgeAvoidance && minIndex < vertexCount - edgeAvoidance) {
+      varianceSum += minR2;
+      variance[i] = minR2;
+    } else {
+      variance[i] = Infinity;
+    }
 
     correspondence[i] = minIndex;
   }

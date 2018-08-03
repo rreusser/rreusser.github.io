@@ -39,11 +39,15 @@ function run (regl) {
   var state = {
     ransacThreshold: 1,
     autoRestart: true,
+    simulatedAnnealing: true,
+    edgeAvoidance: 3,
   };
 
   controlPanel([
+    {label: 'edgeAvoidance', type: 'range', min: 0, max: 10, initial: state.edgeAvoidance, step: 1},
     {label: 'ransacThreshold', type: 'range', initial: state.ransacThreshold, min: 0.1, max: 10, step: 0.1},
     {label: 'autoRestart', type: 'checkbox', initial: state.autoRestart},
+    {label: 'simulatedAnnealing', type: 'checkbox', initial: state.simulatedAnnealing},
     {label: 'restart', type: 'button', action: restart},
   ]).on('input', data => {
     Object.assign(state, data);
@@ -71,8 +75,10 @@ function run (regl) {
 
   var previousVariance = Infinity;
   var lifetime = 20;
+  var iteration = 0;
   function restart () {
     lifetime = 20;
+    iteration = 0;
     previousVariance = Infinity;
     var thetaOffset = Math.PI * 2 * Math.random();
     var ampl = [1, 1, 0.2, 0.2, 0.125, 0.125, 0.125, 0.125, 0.1, 0.1];
@@ -98,21 +104,25 @@ function run (regl) {
 
   var weight, weightBuffer;
   function iterate () {
-    var correspondence = computeCorrespondence(null, source, model)
+    var temperature = state.simulatedAnnealing ? Math.exp(-iteration / 5) : 0;
+    var correspondence = computeCorrespondence(null, source, model, state.edgeAvoidance, temperature)
     target.vertices = filterPointCloud(model, correspondence.indices);
-    weight = correspondence.variance.map(v => v > correspondence.avgVariance * Math.pow(state.ransacThreshold, 2) ? 0 : 1);
+    var ransacThreshold = state.ransacThreshold + 10 * temperature;
+    weight = correspondence.variance.map(v => v > correspondence.avgVariance * Math.pow(ransacThreshold, 2) ? 0 : 1);
     weightBuffer = (weightBuffer || regl.buffer)(weight);
-    var transform = icp(source, target, weight);
+    var transform = icp(source, target, weight, temperature);
     transformPointCloud(source, transform);
 
     var error = Math.abs(correspondence.avgVariance - previousVariance) / correspondence.avgVariance;
-    if (error < 1e-3) lifetime--;
+    if (error < 1e-3 || isNaN(error)) lifetime--;
 
     errorSpan.textContent = 'Error: ' + error.toExponential(3);
 
     if (lifetime < 0 && state.autoRestart) restart();
 
     previousVariance = correspondence.avgVariance;
+    iteration++;
+
     camera.taint();
   }
 
@@ -127,7 +137,7 @@ function run (regl) {
     camera.setUniforms(() => {
       drawBackground({lineWidth: 0.5, grid1Density: 1.0, grid1Strength: 1.0});
 
-      drawPoints([source, model]);
+      drawPoints([model, source]);
 
       if (target.vertices.length) {
         drawCorrespondence({

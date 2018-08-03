@@ -7,7 +7,7 @@ var mlMatrix = require('ml-matrix');
 var Matrix = window.Matrix = mlMatrix.Matrix;
 var SVD = mlMatrix.SVD;
 
-module.exports = function (source, target, weight) {
+module.exports = function (source, target, weight, temperature) {
   var sourceVertices = source.vertices;
   var targetVertices = target.vertices;
   var sourceVerticesLength = sourceVertices.length;
@@ -47,6 +47,8 @@ module.exports = function (source, target, weight) {
 
     var w = weight ? weight[i] : 1;
     weightsum += w;
+
+    w *= (1.0 - temperature) + temperature * Math.random();
 
     H00 += sourceX * targetX * w;
     H10 += sourceY * targetX * w;
