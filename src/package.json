@@ -50,7 +50,7 @@
     "glsl-parser": "^2.0.0",
     "glsl-solid-wireframe": "^1.0.1",
     "glsl-specular-blinn-phong": "^1.0.2",
-    "glslify": "^6.1.1",
+    "glslify": "^6.2.1",
     "hsv2rgb": "^1.1.0",
     "html-inject-github-corner": "^2.1.4",
     "html-inject-meta": "^3.0.0",
@@ -75,7 +75,6 @@
     "ode-midpoint": "^1.0.6",
     "ode45-cash-karp": "^1.1.0",
     "random-normal": "^1.0.0",
-    "regl": "^1.3.1",
     "regl-camera": "^2.1.1",
     "resl": "^1.0.3",
     "rgb-hex": "^2.1.0",
@@ -90,6 +89,8 @@
     "eases": "^1.0.8",
     "gauss-random": "^1.0.1",
     "gaussian": "^1.1.0",
+    "gl-mat2": "^1.0.1",
+    "gl-matrix": "^2.7.1",
     "glsl-diffuse-lambert": "^1.0.0",
     "glsl-domain-coloring": "^2.0.6",
     "glsl-easings": "^1.0.0",
@@ -98,8 +99,10 @@
     "h": "^0.1.0",
     "inertial-turntable-camera": "^2.0.4",
     "insert-css": "^2.0.0",
+    "ml-matrix": "^5.1.1",
     "normalized-interaction-events": "^2.0.1",
     "nurbs": "^1.1.0",
-    "ode-rk4": "^1.1.3"
+    "ode-rk4": "^1.1.3",
+    "regl": "^1.3.7"
   }
 }
