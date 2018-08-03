@@ -1,4 +1,5 @@
 {
-  "title": "Iterative Closest Point",
+  "title": "Rigid Point Cloud Alignment",
+  "description": "Aligning point clouds with the Iterative Closest Point method",
   "order": 350
 }
