@@ -24,7 +24,7 @@ function computeCorrespondence (correspondence, source, target, edgeAvoidance, t
       var dx = targetVertices[j2] - sourceX;
       var dy = targetVertices[j2 + 1] - sourceY;
 
-      var r2 = (dx * dx + dy * dy) * Math.pow(1.0 + 3.0 * temperature, 2);
+      var r2 = (dx * dx + dy * dy);
 
       if (r2 < minR2) {
         minIndex = j;

@@ -30,6 +30,7 @@ require('regl')({
 function run (regl) {
   var camera = require('./regl-turntable-camera')(regl, {
     distance: 6,
+    center: [0, 0.25, 0],
   });
   var interactions = require('./interactions')(camera);
   var drawBackground = require('./draw-background')(regl);
@@ -39,17 +40,21 @@ function run (regl) {
   var state = {
     ransacThreshold: 1,
     autoRestart: true,
-    simulatedAnnealing: true,
+    simulatedAnnealing: 5,
     edgeAvoidance: 3,
+    garbage: 0.1
   };
 
   controlPanel([
     {label: 'edgeAvoidance', type: 'range', min: 0, max: 10, initial: state.edgeAvoidance, step: 1},
-    {label: 'ransacThreshold', type: 'range', initial: state.ransacThreshold, min: 0.1, max: 10, step: 0.1},
+    {label: 'ransacThreshold', type: 'range', initial: state.ransacThreshold, min: 0.1, max: 4, step: 0.1},
+    //{label: 'simulatedAnnealing', type: 'range', initial: state.simulatedAnnealing, min: 0, max: 50, step: 1},
+    {label: 'garbage', type: 'range', initial: state.garbage, min: 0, max: 1, step: 0.01},
     {label: 'autoRestart', type: 'checkbox', initial: state.autoRestart},
-    {label: 'simulatedAnnealing', type: 'checkbox', initial: state.simulatedAnnealing},
     {label: 'restart', type: 'button', action: restart},
-  ]).on('input', data => {
+  ], {
+    width: 350
+  }).on('input', data => {
     Object.assign(state, data);
   });
 
@@ -64,6 +69,11 @@ function run (regl) {
       for (var j = 0, j2 = 0; j2 < ampl.length; j++, j2 += 2) {
         x[i2] += ampl[j2] * Math.cos(theta * (j + 1) - phase[j2]);
         x[i2 + 1] += ampl[j2 + 1] * Math.sin(theta * (j + 1) - phase[j2 + 1]);
+      }
+
+      if (Math.random() < state.garbage * 0.2) {
+        x[i2] += randn() * (0.05 + state.garbage);
+        x[i2 + 1] += randn() * (0.05 + state.garbage);
       }
     }
     return x;
@@ -104,7 +114,7 @@ function run (regl) {
 
   var weight, weightBuffer;
   function iterate () {
-    var temperature = state.simulatedAnnealing ? Math.exp(-iteration / 5) : 0;
+    var temperature = state.simulatedAnnealing ? Math.exp(-iteration / state.simulatedAnnealing) : 0;
     var correspondence = computeCorrespondence(null, source, model, state.edgeAvoidance, temperature)
     target.vertices = filterPointCloud(model, correspondence.indices);
     var ransacThreshold = state.ransacThreshold + 10 * temperature;
@@ -116,7 +126,7 @@ function run (regl) {
     var error = Math.abs(correspondence.avgVariance - previousVariance) / correspondence.avgVariance;
     if (error < 1e-3 || isNaN(error)) lifetime--;
 
-    errorSpan.textContent = 'Error: ' + error.toExponential(3);
+    errorSpan.textContent = 'Error: ' + error.toExponential(3) + ', Iteration: ' + iteration;
 
     if (lifetime < 0 && state.autoRestart) restart();
 
