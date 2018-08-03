@@ -36,8 +36,8 @@ module.exports = function (regl) {
         float gridFactor1 = (1.0 - grid(xy * uGrid1Density, uLineWidth, 1.5));
 
         gl_FragColor = vec4(mix(
-          vec3(1.0),
-          vec3(0.9),
+          vec3(0.92, 0.94, 0.95) * 0.98,
+          vec3(0.85, 0.86, 0.87) * 0.98,
           gridFactor1
         ), 1);
       }

@@ -23,7 +23,7 @@ module.exports = function (regl) {
       precision mediump float;
       varying float vWeight;
       void main () {
-        gl_FragColor = mix(vec4(1, 0, 0, 0.6), vec4(0, 0, 0, 0.75), vWeight);
+        gl_FragColor = mix(vec4(0.7, 0.0, 0.1, 0.7), vec4(0, 0, 0, 0.75), vWeight);
       }
     `,
     attributes: {

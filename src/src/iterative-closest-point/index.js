@@ -79,9 +79,9 @@ function run (regl) {
     return x;
   }
 
-  var model = new PointCloud([], {pointSize: 6, pointColor: [.2, .8, .4, 1]});
-  var source = new PointCloud([], {pointSize: 6, pointColor: [.2, .4, .8, 1]});
-  var target = new PointCloud([], {pointSize: 6, pointColor: [0.9, 0.3, 0.2, 1.0]});
+  var model = new PointCloud([], {pointSize: 6, pointColor: [.2, .8, .6, 0.9]});
+  var source = new PointCloud([], {pointSize: 6, pointColor: [.2, .6, .8, 0.9]});
+  var target = new PointCloud([], {pointSize: 6, pointColor: [0.9, 0.3, 0.2, 0.9]});
 
   var previousVariance = Infinity;
   var lifetime = 30;
