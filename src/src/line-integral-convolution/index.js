@@ -6,8 +6,11 @@ var glsl = require('glslify');
 require('regl')({
   pixelRatio: Math.min(window.devicePixelRatio, 1.5),
   extensions: [
-    'oes_texture_half_float',
+    'oes_texture_float',
     'angle_instanced_arrays'
+  ],
+  optionalExtensions: [
+    'oes_texture_half_float',
   ],
   attributes: {antialias: false},
   onDone: require('fail-nicely')(run)
@@ -31,7 +34,7 @@ function run (regl) {
   var textureLUT = createTextureLUT(w, h, 3);
   for (var i3 = 0; i3 < textureLUT.length; i3 += 3) textureLUT[i3 + 2] = Math.pow(Math.random(), 2);
   var textureLUTBuffer = regl.buffer(textureLUT);
-  var states = new Array(2).fill(0).map(() => regl.texture({type: 'half float', width: w, height: h}));
+  var states = new Array(2).fill(0).map(() => regl.texture({type: regl.hasExtension('oes_texture_half_float') ? 'half float' : 'float', width: w, height: h}));
   var accumulator = regl.texture({width: screenWidth, height: screenHeight});
   var stateFbos = states.map(s => regl.framebuffer({color: s}));
 
