@@ -40,7 +40,7 @@ function run (regl) {
   require('control-panel')([
     {label: 'alpha', type: 'range', min: 0, max: 1, initial: state.alpha, step: 0.01},
     {label: 'steps', type: 'range', min: 2, max: 20, initial: state.steps, step: 1},
-    {label: 'width', type: 'range', min: 0.5, max: 4, initial: state.width, step: 0.1},
+    //{label: 'width', type: 'range', min: 0.5, max: 4, initial: state.width, step: 0.1},
   ]).on('input', data => {
     Object.assign(state, data)
     dt = licRadius / state.steps * 0.2;
