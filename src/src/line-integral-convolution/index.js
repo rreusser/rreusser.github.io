@@ -31,12 +31,15 @@ require('regl')({
 
 function run (regl) {
   var state = {
-    alpha: 0.5,
+    alpha: 0.75,
     steps: 5,
     width: 1.5,
     noiseScale: 1.0,
     noiseSpeed: 1.0,
     resolution: 128,
+    modulation: 0.75,
+    modulationFrequency: 1.2,
+    modulationSpeed: 1,
   };
 
   var screenWidth, screenHeight, h, w, licRadius, dt, alpha;
@@ -85,6 +88,9 @@ function run (regl) {
     {label: 'noiseSpeed', type: 'range', min: 0.1, max: 4, initial: state.noiseSpeed, step: 0.1},
     {label: 'resolution', type: 'range', min: 8, max: 512, initial: state.resolution, step: 1},
     {label: 'width', type: 'range', min: 0.5, max: 4, initial: state.width, step: 0.1},
+    {label: 'modulation', type: 'range', min: 0.0, max: 1, initial: state.modulation, step: 0.01},
+    {label: 'modulationFrequency', type: 'range', min: 0.1, max: 4, initial: state.modulationFrequency, step: 0.1},
+    {label: 'modulationSpeed', type: 'range', min: 0.1, max: 4, initial: state.modulationSpeed, step: 0.1},
   ]).on('input', data => {
     var needsResize = data.resolution !== state.resolution;
     Object.assign(state, data)
@@ -134,7 +140,7 @@ function run (regl) {
       uAspect: () => screenWidth / screenHeight,
       src: regl.prop('src'),
       uResolution: ctx => [1 / ctx.framebufferWidth, 1 / ctx.framebufferHeight],
-      uZ: ctx => ctx.time * 0.4 * state.noiseSpeed,
+      uZ: ctx => ctx.time * 0.2 * state.noiseSpeed,
       uDt: dt,
     },
     framebuffer: regl.prop('dst'),
@@ -178,12 +184,12 @@ function run (regl) {
     vert: `
       precision highp float;
       uniform mat4 uProjectionView;
-      uniform float uLineWidth, uAspect, uDir;
+      uniform float uLineWidth, uAspect, uDir, uPhase;
       uniform sampler2D uState1, uState2;
-      uniform vec2 uIntensity;
+      uniform vec2 uIntensity, uX;
       attribute vec2 aLine;
       attribute vec3 aLUT;
-      varying float vAlpha, vLineX;
+      varying float vAlpha, vLineX, vX;
   
       void main () {
         vAlpha = aLUT.z * mix(uIntensity.x, uIntensity.y, aLine.y);
@@ -194,14 +200,22 @@ function run (regl) {
         gl_Position = vec4(mix(p, n, aLine.y) * 2.0 - 1.0, 0, 1);
         gl_Position.xy += normalize((p.yx - n.yx) * vec2(1, uAspect)) * vec2(-1.0 / uAspect, 1) * aLine.x * uLineWidth * (0.5 + 1.0 * vAlpha);
         vLineX = aLine.x;
+        vX = mix(uX.x, uX.y, mix(1.0 - aLine.y, aLine.y, uDir)) * (uDir * 2.0 - 1.0) - uPhase;
       }
     `,
     frag: `
       precision highp float;
-      varying float vAlpha, vLineX;
-      uniform float uAlpha, uFeather;
+      varying float vAlpha, vLineX, vX;
+      uniform float uAlpha, uFeather, uModulationFreq, uModulation;
+      #define PI 3.14159265
       void main () {
-        gl_FragColor = vec4(vec3(1), uAlpha * vAlpha * (
+        float modulation = 2.0 * mod(vX * uModulationFreq, PI) / PI - 1.0;
+        modulation *= modulation;
+        modulation = 1.0 - modulation;
+        modulation *= modulation;
+        modulation = mix(1.0, modulation, uModulation);
+
+        gl_FragColor = vec4(vec3(1), uAlpha * vAlpha * modulation * (
           smoothstep(1.0, 1.0 - uFeather, vLineX) *
           smoothstep(-1.0, -1.0 + uFeather, vLineX)
         ));
@@ -223,6 +237,10 @@ function run (regl) {
     },
     depth: {enable: false},
     uniforms: {
+      uModulation: () => state.modulation,
+      uModulationFreq: () => state.modulationFrequency,
+      uPhase: ctx => (-ctx.time * state.modulationSpeed * Math.PI * 2) % (Math.PI * 2.0 / state.modulationFrequency),
+      uX: regl.prop('x'),
       uAlpha: () => state.alpha * alpha,
       uDir: regl.prop('dir'),
       uIntensity: regl.prop('intensity'),
@@ -282,10 +300,12 @@ function run (regl) {
 
         drawLines([{
           dir: 0,
+          x: [i + odd, i + even],
           lineWidth: state.width,
           intensity: [i + even, i + odd].map(i => kernel(i / (state.steps - 1)))
         }, {
           dir: 1,
+          x: [i + even, i + odd],
           lineWidth: state.width,
           intensity: [i + even, i + odd].map(i => kernel(i / (state.steps - 1)))
         }]);
