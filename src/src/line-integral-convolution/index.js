@@ -36,11 +36,11 @@ function run (regl) {
     steps: 5,
     width: 2.0,
     noiseScale: 2.0,
-    noiseSpeed: 1.0,
+    noiseSpeed: 0.8,
     resolution: 128,
     modulation: 0.75,
-    modulationFrequency: 1.2,
-    modulationSpeed: 1,
+    modulationFrequency: 1.0,
+    modulationSpeed: 2,
   };
 
   var screenWidth, screenHeight, h, w, licRadius, dt, alpha;
@@ -60,8 +60,11 @@ function run (regl) {
   var stateFbos = [];
 
   function resize () {
-    var textureLUT = createTextureLUT(w, h, 3);
-    for (var i3 = 0; i3 < textureLUT.length; i3 += 3) textureLUT[i3 + 2] = Math.pow(Math.random(), 2);
+    var textureLUT = createTextureLUT(w, h, 4);
+    for (var i4 = 0; i4 < textureLUT.length; i4 += 4) {
+      textureLUT[i4 + 2] = Math.pow(Math.random(), 2);
+      textureLUT[i4 + 3] = Math.random() * 8.0 * Math.PI;
+    }
     textureLUTBuffer = (textureLUTBuffer || regl.buffer)(textureLUT);
     for (var i = 0; i < 2; i++) {
       states[i] = (states[i] || regl.texture)({
@@ -128,7 +131,7 @@ function run (regl) {
         vec2 v = vec2(snoise(vec3(f * 2.5 * uNoiseScale, uZ)), snoise(vec3(f * 2.5 * uNoiseScale + 0.8, uZ)));
         v.x += 0.5;
         v.y += 0.1;
-        float mag = smoothstep(0.0, 0.0003, dot(v, v));
+        float mag = smoothstep(0.0, 0.0005, dot(v, v));
         return mag * normalize(v);
       }
 
@@ -194,7 +197,7 @@ function run (regl) {
       uniform sampler2D uState1, uState2;
       uniform vec2 uIntensity, uX;
       attribute vec2 aLine;
-      attribute vec3 aLUT;
+      attribute vec4 aLUT;
       varying float vAlpha, vLineX, vX;
   
       void main () {
@@ -206,7 +209,7 @@ function run (regl) {
         gl_Position = vec4(mix(p, n, aLine.y) * 2.0 - 1.0, 0, 1);
         gl_Position.xy += normalize((p.yx - n.yx) * vec2(1, uAspect)) * vec2(-1.0 / uAspect, 1) * aLine.x * uLineWidth * (0.5 + 1.0 * vAlpha);
         vLineX = aLine.x;
-        vX = mix(uX.x, uX.y, mix(1.0 - aLine.y, aLine.y, uDir)) * (uDir * 2.0 - 1.0) - uPhase;
+        vX = mix(uX.x, uX.y, mix(1.0 - aLine.y, aLine.y, uDir)) * (uDir * 2.0 - 1.0) - uPhase + aLUT.w;
       }
     `,
     frag: `
