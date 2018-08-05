@@ -1,6 +1,7 @@
 'use strict';
 
 var glsl = require('glslify');
+var explanation = require('./explanation');
 
 function createTextureLUT (w, h, stride) {
   stride = stride || 2;
@@ -81,6 +82,9 @@ function run (regl) {
     resize();
   });
 
+  var controlRoot = document.createElement('div');
+	document.body.appendChild(require('./explanation')(null, controlRoot));
+
   require('control-panel')([
     {label: 'alpha', type: 'range', min: 0, max: 1, initial: state.alpha, step: 0.01},
     {label: 'steps', type: 'range', min: 2, max: 20, initial: state.steps, step: 1},
@@ -91,7 +95,9 @@ function run (regl) {
     {label: 'modulation', type: 'range', min: 0.0, max: 1, initial: state.modulation, step: 0.01},
     {label: 'modulationFrequency', type: 'range', min: 0.1, max: 4, initial: state.modulationFrequency, step: 0.1},
     {label: 'modulationSpeed', type: 'range', min: 0.1, max: 4, initial: state.modulationSpeed, step: 0.1},
-  ]).on('input', data => {
+  ], {
+    root: controlRoot
+  }).on('input', data => {
     var needsResize = data.resolution !== state.resolution;
     Object.assign(state, data)
     computeConstants();
