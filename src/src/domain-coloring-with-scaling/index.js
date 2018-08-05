@@ -34,6 +34,7 @@ function run (regl) {
   var dy = x.map(x => pow * Math.exp(pow * x));
 
   var controlRoot = document.createElement('div');
+  controlRoot.addEventListener('touchstart', e => e.stopPropagation());
 	document.body.appendChild(createControls(null, controlRoot));
   require('control-panel')([
     {type: 'range', label: 'ω', min: 0.05, max: 100.0, initial: w, step: 0.01},
