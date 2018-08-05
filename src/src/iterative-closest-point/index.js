@@ -14,6 +14,7 @@ var computeCorrespondence = require('./compute-correspondence');
 var transformPointCloud = require('./transform-point-cloud');
 var filterPointCloud = require('./filter-point-cloud');
 var controlPanel = require('control-panel');
+var createControls = require('./controls');
 
 require('regl')({
   pixelRatio: Math.min(window.devicePixelRatio, 1.5),
@@ -45,6 +46,9 @@ function run (regl) {
     garbage: 0.1
   };
 
+  var controlRoot = document.createElement('div');
+	document.body.appendChild(createControls(null, controlRoot));
+
   controlPanel([
     {label: 'edgeAvoidance', type: 'range', min: 0, max: 10, initial: state.edgeAvoidance, step: 1},
     {label: 'ransacThreshold', type: 'range', initial: state.ransacThreshold, min: 0.1, max: 4, step: 0.1},
@@ -53,7 +57,8 @@ function run (regl) {
     {label: 'autoRestart', type: 'checkbox', initial: state.autoRestart},
     {label: 'restart', type: 'button', action: restart},
   ], {
-    width: 350
+    width: 350,
+    root: controlRoot,
   }).on('input', data => {
     Object.assign(state, data);
   });

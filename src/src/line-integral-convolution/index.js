@@ -1,7 +1,7 @@
 'use strict';
 
 var glsl = require('glslify');
-var explanation = require('./explanation');
+var createControls = require('./controls');
 
 function createTextureLUT (w, h, stride) {
   stride = stride || 2;
@@ -86,7 +86,7 @@ function run (regl) {
   });
 
   var controlRoot = document.createElement('div');
-	document.body.appendChild(require('./explanation')(null, controlRoot));
+	document.body.appendChild(createControls(null, controlRoot));
 
   require('control-panel')([
     {label: 'alpha', type: 'range', min: 0, max: 1, initial: state.alpha, step: 0.01},
