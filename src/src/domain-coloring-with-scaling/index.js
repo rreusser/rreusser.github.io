@@ -2,6 +2,7 @@ const glsl = require('glslify');
 const invertMat4 = require('gl-mat4/invert');
 const Complex = require('complex.js');
 const ResetTimer = require('./reset-timer');
+const createControls = require('./controls');
 const regl = require('regl')({
   pixelRatio: Math.min(2.0, window.devicePixelRatio),
   extensions: ['oes_standard_derivatives'],
@@ -10,7 +11,7 @@ const regl = require('regl')({
 });
 
 function run (regl) {
-  const camera = require('./camera-2d')(regl, {xmin: -2.0, xmax: 2.0});
+  const camera = require('./camera-2d')(regl, {xmin: -12.0, xmax: 12.0});
 
   var E = Complex(1, 0);
   var rho = 1.0;
@@ -21,8 +22,8 @@ function run (regl) {
   var w2c2 = [];
   var magnitudeSteps = 3.0;
   var phaseSteps = 3.0;
-  var magnitudeStrength = 0.09;
-  var phaseStrength = 0.09;
+  var magnitudeStrength = 0.4;
+  var phaseStrength = 0.0;
   var magnitudeScale = -1.0;
   var phaseScale = -1.0;
 
@@ -32,8 +33,8 @@ function run (regl) {
   var y = x.map(x => Math.exp(pow * x));
   var dy = x.map(x => pow * Math.exp(pow * x));
 
-  console.log('x, y, dy:', x, y, dy);
-
+  var controlRoot = document.createElement('div');
+	document.body.appendChild(createControls(null, controlRoot));
   require('control-panel')([
     {type: 'range', label: 'ω', min: 0.05, max: 100.0, initial: w, step: 0.01},
     {type: 'range', label: 'ν', min: 0, max: 0.49, initial: nu, step: 0.01},
@@ -45,7 +46,8 @@ function run (regl) {
     {type: 'range', label: 'phaseSteps', min: 1, max: 10, initial: phaseSteps, step: 1},
     {type: 'range', label: 'phaseScale', min: -1, max: 1, initial: phaseScale, step: 0.01},
   ], {
-		width: 350
+		width: 350,
+    root: controlRoot,
 	}).on('input', computeConstants);
 
   var loResFbo = regl.framebuffer({
@@ -515,12 +517,12 @@ function run (regl) {
         gl_FragColor = vec4(domainColoring(
           //clog(f),
 					//ctan(cdiv((z + C_ONE), cmul(C_I, csqr(z - C_ONE)))),
-          //fz,
+          fz,
           //csin(cdiv(cmul(z, z + C_ONE), cmul(csqr(z - C_I), z + C_I))),
-          cdiv(
-            cdiv(z + C_I, z - C_I),
-            cdiv(z + C_ONE, z - C_ONE)
-          ),
+          //cdiv(
+            //cdiv(z + C_I, z - C_I),
+            //cdiv(z + C_ONE, z - C_ONE)
+          //),
           vec2(magnitudeSteps, phaseSteps),
           magnitudeStrength,
           phaseStrength,
@@ -592,7 +594,7 @@ function run (regl) {
         }
         draw({});
 
-        drawPoints({});
+        //drawPoints({});
 
         prevTime = time;
       }

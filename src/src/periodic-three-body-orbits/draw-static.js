@@ -1,7 +1,7 @@
 module.exports = function (regl) {
   return regl({
     vert: `
-      precision mediump float;
+      precision highp float;
 
       attribute vec3 xyz, uvw;
       attribute float dir;
@@ -26,7 +26,7 @@ module.exports = function (regl) {
       }
     `,
     frag: `
-      precision mediump float;
+      precision highp float;
       uniform vec3 color;
       uniform float lineHalfWidthPixels;
       varying float v;

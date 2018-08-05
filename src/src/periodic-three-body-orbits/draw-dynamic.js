@@ -1,7 +1,7 @@
 module.exports = function (regl) {
   return regl({
     vert: `
-      precision mediump float;
+      precision highp float;
       uniform mat4 viewproj;
       attribute vec3 xyz;
       attribute vec3 color;
@@ -15,7 +15,7 @@ module.exports = function (regl) {
       }
     `,
     frag: `
-      precision mediump float;
+      precision highp float;
       varying vec3 c;
 
       void main () {

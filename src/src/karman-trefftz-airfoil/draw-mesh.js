@@ -5,7 +5,7 @@ const glsl = require('glslify');
 module.exports = function (regl, mesh) {
   return regl({
     vert: `
-      precision mediump float;
+      precision highp float;
       attribute vec2 rth;
       varying float psi, cp, rgrid;
       varying vec2 b, uv;
@@ -94,7 +94,7 @@ module.exports = function (regl, mesh) {
     `,
     frag: glsl(`
       #extension GL_OES_standard_derivatives : enable
-      precision mediump float;
+      precision highp float;
       #pragma glslify: colormap = require(glsl-colormap/viridis)
       varying float psi, cp, rgrid;
       varying vec2 uv;
