@@ -32,10 +32,10 @@ require('regl')({
 
 function run (regl) {
   var state = {
-    alpha: 0.75,
+    alpha: 0.6,
     steps: 5,
-    width: 1.5,
-    noiseScale: 1.0,
+    width: 2.0,
+    noiseScale: 2.0,
     noiseSpeed: 1.0,
     resolution: 128,
     modulation: 0.75,
