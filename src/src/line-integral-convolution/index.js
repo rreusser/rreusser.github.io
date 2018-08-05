@@ -18,8 +18,8 @@ require('regl')({
 
 function run (regl) {
   var state = {
-    alpha: 0.5,
-    steps: 4,
+    alpha: 0.75,
+    steps: 5,
     width: 1.5,
     noiseScale: 1.0,
     noiseSpeed: 1.0,
@@ -36,7 +36,7 @@ function run (regl) {
     w = Math.floor(h * screenWidth / screenHeight);;
     licRadius = 0.35;
     dt = licRadius / state.steps * 0.2;
-    alpha = 0.4 / w / state.steps / licRadius / state.width * screenWidth;
+    alpha = 0.25 / w / state.steps / licRadius / state.width * screenWidth;
   }
 
   var states = [];
@@ -254,7 +254,6 @@ function run (regl) {
   }
   
   regl.frame(({tick}) => {
-    if (tick % 4 !== 1) return;
     licAccumulatorFbo.use(() => regl.clear({color: [0, 0, 0, 1]}));
     initialize({dst: stateFbos[0]});
 
