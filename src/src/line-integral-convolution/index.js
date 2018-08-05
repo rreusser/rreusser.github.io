@@ -34,13 +34,13 @@ function run (regl) {
   var state = {
     alpha: 0.6,
     steps: 5,
-    width: 2.0,
-    noiseScale: 2.0,
+    width: 2.5,
+    noiseScale: 1.5,
     noiseSpeed: 0.8,
     resolution: 128,
     modulation: 0.75,
-    modulationFrequency: 1.0,
-    modulationSpeed: 2,
+    modulationFrequency: 0.8,
+    modulationSpeed: 1.3,
   };
 
   var screenWidth, screenHeight, h, w, licRadius, dt, alpha;
