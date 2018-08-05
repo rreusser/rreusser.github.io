@@ -19,35 +19,64 @@ require('regl')({
 function run (regl) {
   var state = {
     alpha: 0.5,
-    steps: 6,
-    width: 2.0,
+    steps: 4,
+    width: 1.5,
+    noiseScale: 1.0,
+    noiseSpeed: 1.0,
+    resolution: 128,
   };
 
-  var screenWidth = regl._gl.canvas.width;
-  var screenHeight = regl._gl.canvas.height;
-  var h = 192;
-  var w = Math.floor(h * screenWidth / screenHeight);;
-  var licRadius = 0.35;
-  var dt = licRadius / state.steps * 0.2;
-  var alpha = 0.25 / w / state.steps / licRadius / state.width * screenWidth;
+  var screenWidth, screenHeight, h, w, licRadius, dt, alpha;
+  var textureLUTBuffer, licAccumulator, licAccumulatorFbo;
 
-  var textureLUT = createTextureLUT(w, h, 3);
-  for (var i3 = 0; i3 < textureLUT.length; i3 += 3) textureLUT[i3 + 2] = Math.pow(Math.random(), 2);
-  var textureLUTBuffer = regl.buffer(textureLUT);
-  var states = new Array(2).fill(0).map(() => regl.texture({type: regl.hasExtension('oes_texture_half_float') ? 'half float' : 'float', width: w, height: h}));
-  var accumulator = regl.texture({width: screenWidth, height: screenHeight});
-  var stateFbos = states.map(s => regl.framebuffer({color: s}));
+  function computeConstants () {
+    screenWidth = regl._gl.canvas.width;
+    screenHeight = regl._gl.canvas.height;
+    h = state.resolution;
+    w = Math.floor(h * screenWidth / screenHeight);;
+    licRadius = 0.35;
+    dt = licRadius / state.steps * 0.2;
+    alpha = 0.4 / w / state.steps / licRadius / state.width * screenWidth;
+  }
 
-  var licAccumulatorFbo = regl.framebuffer({color: accumulator});
+  var states = [];
+  var stateFbos = [];
+
+  function resize () {
+    var textureLUT = createTextureLUT(w, h, 3);
+    for (var i3 = 0; i3 < textureLUT.length; i3 += 3) textureLUT[i3 + 2] = Math.pow(Math.random(), 2);
+    textureLUTBuffer = (textureLUTBuffer || regl.buffer)(textureLUT);
+    for (var i = 0; i < 2; i++) {
+      states[i] = (states[i] || regl.texture)({
+        type: regl.hasExtension('oes_texture_half_float') ? 'half float' : 'float',
+        width: w,
+        height: h
+      });
+      stateFbos[i] = (stateFbos[i] || regl.framebuffer)({color: states[i]});
+    }
+    licAccumulator = (licAccumulator || regl.texture)({width: screenWidth, height: screenHeight});
+    licAccumulatorFbo = (licAccumulatorFbo || regl.framebuffer)({color: licAccumulator});
+  }
+  
+  computeConstants();
+  resize();
+  window.addEventListener('resize', function () {
+    computeConstants();
+    resize();
+  });
 
   require('control-panel')([
     {label: 'alpha', type: 'range', min: 0, max: 1, initial: state.alpha, step: 0.01},
     {label: 'steps', type: 'range', min: 2, max: 20, initial: state.steps, step: 1},
-    //{label: 'width', type: 'range', min: 0.5, max: 4, initial: state.width, step: 0.1},
+    {label: 'noiseScale', type: 'range', min: 0.1, max: 4, initial: state.noiseScale, step: 0.1},
+    {label: 'noiseSpeed', type: 'range', min: 0.1, max: 4, initial: state.noiseSpeed, step: 0.1},
+    {label: 'resolution', type: 'range', min: 8, max: 512, initial: state.resolution, step: 1},
+    {label: 'width', type: 'range', min: 0.5, max: 4, initial: state.width, step: 0.1},
   ]).on('input', data => {
+    var needsResize = data.resolution !== state.resolution;
     Object.assign(state, data)
-    dt = licRadius / state.steps * 0.2;
-    alpha = 0.25 / w / state.steps / licRadius / state.width * screenWidth;
+    computeConstants();
+    if (needsResize) resize();
   });
 
   var integrate = regl({
@@ -68,14 +97,13 @@ function run (regl) {
       varying vec2 uv;
       uniform sampler2D src;
       uniform float uZ, uDt;
-      uniform float uAspect;
+      uniform float uAspect, uNoiseScale;
 
       vec2 dfdt (vec2 f) {
-        vec2 v = vec2(snoise(vec3(f * 1.5, uZ)), snoise(vec3(f * 1.5 + 0.8, uZ)));
-        //v += vec2(f.y - 0.5, -(f.x - 0.5 * uAspect)) * 1.5;
+        vec2 v = vec2(snoise(vec3(f * 2.5 * uNoiseScale, uZ)), snoise(vec3(f * 2.5 * uNoiseScale + 0.8, uZ)));
         v.x += 0.5;
         v.y += 0.1;
-        float mag = smoothstep(0.0, 0.0005, dot(v, v));
+        float mag = smoothstep(0.0, 0.0003, dot(v, v));
         return mag * normalize(v);
       }
 
@@ -89,10 +117,11 @@ function run (regl) {
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
     uniforms: {
-      uAspect: screenWidth / screenHeight,
+      uNoiseScale: () => 1.0 / state.noiseScale,
+      uAspect: () => screenWidth / screenHeight,
       src: regl.prop('src'),
       uResolution: ctx => [1 / ctx.framebufferWidth, 1 / ctx.framebufferHeight],
-      uZ: ctx => ctx.time * 0.4,
+      uZ: ctx => ctx.time * 0.4 * state.noiseSpeed,
       uDt: dt,
     },
     framebuffer: regl.prop('dst'),
@@ -141,7 +170,7 @@ function run (regl) {
       uniform vec2 uIntensity;
       attribute vec2 aLine;
       attribute vec3 aLUT;
-      varying float vAlpha;
+      varying float vAlpha, vLineX;
   
       void main () {
         vAlpha = aLUT.z * mix(uIntensity.x, uIntensity.y, aLine.y);
@@ -151,14 +180,18 @@ function run (regl) {
         vec2 n = mix(ndirs.xy, ndirs.zw, uDir);
         gl_Position = vec4(mix(p, n, aLine.y) * 2.0 - 1.0, 0, 1);
         gl_Position.xy += normalize((p.yx - n.yx) * vec2(1, uAspect)) * vec2(-1.0 / uAspect, 1) * aLine.x * uLineWidth * (0.5 + 1.0 * vAlpha);
+        vLineX = aLine.x;
       }
     `,
     frag: `
       precision mediump float;
-      varying float vAlpha;
-      uniform float uAlpha;
+      varying float vAlpha, vLineX;
+      uniform float uAlpha, uFeather;
       void main () {
-        gl_FragColor = vec4(vec3(1), uAlpha * vAlpha);
+        gl_FragColor = vec4(vec3(1), uAlpha * vAlpha * (
+          smoothstep(1.0, 1.0 - uFeather, vLineX) *
+          smoothstep(-1.0, -1.0 + uFeather, vLineX)
+        ));
       }
     `,
     attributes: {
@@ -183,10 +216,11 @@ function run (regl) {
       uState1: states[0],
       uState2: states[1],
       uLineWidth: (ctx, props) => props.lineWidth / ctx.framebufferHeight * ctx.pixelRatio,
+      uFeather: (ctx, props) => 1.0 / Math.max(props.lineWidth, 1.0) * 2.0,
       uAspect: ctx => ctx.framebufferWidth / ctx.framebufferHeight,
     },
     primitive: 'triangle strip',
-    instances: w * h,
+    instances: () => w * h,
     count: 4,
   });
   
@@ -220,8 +254,7 @@ function run (regl) {
   }
   
   regl.frame(({tick}) => {
-    //if (tick % 10 !== 1) return;
-
+    if (tick % 4 !== 1) return;
     licAccumulatorFbo.use(() => regl.clear({color: [0, 0, 0, 1]}));
     initialize({dst: stateFbos[0]});
 
@@ -250,4 +283,5 @@ function run (regl) {
     regl.clear({color: [0, 0, 0, 1]});
     copy({src: licAccumulatorFbo});
   });
+
 }
