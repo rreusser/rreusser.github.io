@@ -32,9 +32,9 @@ require('regl')({
 
 function run (regl) {
   var state = {
-    alpha: 0.6,
+    alpha: 0.4,
     steps: 5,
-    width: 2.5,
+    width: 3.0,
     noiseScale: 1.5,
     noiseSpeed: 0.8,
     resolution: 128,
@@ -131,7 +131,7 @@ function run (regl) {
         vec2 v = vec2(snoise(vec3(f * 2.5 * uNoiseScale, uZ)), snoise(vec3(f * 2.5 * uNoiseScale + 0.8, uZ)));
         v.x += 0.5;
         v.y += 0.1;
-        float mag = smoothstep(0.0, 0.0005, dot(v, v));
+        float mag = smoothstep(0.0, 0.0003, dot(v, v));
         return mag * normalize(v);
       }
 
