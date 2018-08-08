@@ -1,5 +1,7 @@
 'use strict';
 
+var createControls = require('./controls');
+
 var glsl = require('glslify');
 require('regl')({
   pixelRatio: 0.75,
@@ -17,14 +19,85 @@ function run (regl) {
   var textures = []
   var states = []
 
+  var state = {
+    rule: 30,
+    initialization: 'white',
+    speed: 3,
+  };
+  var controlRoot = document.createElement('div');
+	document.body.appendChild(createControls(null, controlRoot));
+
+  require('control-panel')([
+    {label: 'rule', type: 'range', min: 0, max: 255, initial: state.rule, step: 1},
+    {label: 'initialization', type: 'select', options: ['white', 'black', 'random'], initial: state.initialization},
+    {label: 'speed', type: 'range', min: 1, max:10, initial: state.speed, step: 1},
+  ], {
+    root: controlRoot,
+    width: Math.min(400, window.innerWidth),
+  }).on('input', data => {
+    Object.assign(state, data);
+    computeRuleData();
+    resize();
+  });
+
+  var ruleData1 = new Float32Array(4);
+  var ruleData2 = new Float32Array(4);
+
+  computeRuleData();
+
+  function computeRuleData () {
+    var ruleData = new Float32Array(8).fill(-1);
+    var mask = new Array(8).fill(0).map((d, i) => 1 << (7 - i));
+    var ptr = ptr;
+    var value0 = 4 / 7;
+    var value1 = 0;
+    var ones = 0;
+    var zeros = 0;
+
+    for (var i = 0; i < 8; i++) {
+      if (state.rule & mask[i]) {
+        ruleData[i] = 1;
+        ones++;
+      } else {
+        ruleData[i] = 0;
+        zeros++;
+      }
+    }
+    var zeroNum = 0;
+    var oneNum = 1;
+    for (var i = 0; i < 8; i++) {
+      if (ruleData[i] < 0.5) {
+        ruleData[i] = (zeroNum++ / zeros) * 0.5;
+      } else {
+        ruleData[i] = 0.5 + (oneNum++ / ones) * 0.5;
+      }
+    }
+    ruleData1 = ruleData.subarray(0, 4);
+    ruleData2 = ruleData.subarray(4, 8);
+  }
+
   function resize () {
     w = Math.floor(regl._gl.canvas.width);
     h = Math.floor(regl._gl.canvas.height);
 
-    var initial = new Uint8Array(w * h * 4).fill(Math.floor(0.42 * 255));
-    initial[2 * w] = 255;
-    initial[2 * w + 1] = 255;
-    initial[2 * w + 2] = 255;
+    var initial = new Uint8Array(w * h * 4);
+    switch(state.initialization) {
+      case 'white':
+        initial.fill(Math.floor(0));
+        initial[2 * w] = initial[2 * w + 1] = initial[2 * w + 2] = 255;
+        break;
+      case 'black':
+        initial.fill(0);
+        initial.subarray(0, w * 4).fill(255);
+        initial[2 * w] = initial[2 * w + 1] = initial[2 * w + 2] = 0;
+        break;
+      case 'random':
+        initial = initial.fill(0);
+        for (var i = 0; i < w * 4; i++) {
+          initial[i] = Math.max(0, Math.min(255, Math.random() * 256));
+        }
+        break;
+    }
 
     textures = [0, 1].map(i => (textures[i] || regl.texture)({
       data: initial,
@@ -39,12 +112,7 @@ function run (regl) {
 
     scanline = 1;
   }
-  resize();
 
-  window.addEventListener('resize', resize);
-
-  var mouseCoord = new Float32Array(2);
-  var pointBuf = regl.buffer(mouseCoord);
   var pbut = 0;
   require('mouse-change')(regl._gl.canvas, function (buttons, x, y, mods) {
     if (buttons && !pbut) {
@@ -88,7 +156,6 @@ function run (regl) {
       }
     `,
     uniforms: {
-      uDst: states[0],
       uPoint: regl.prop('point'),
       uValue: regl.prop('value'),
     },
@@ -169,6 +236,7 @@ function run (regl) {
       varying vec2 vUv;
       uniform sampler2D uSrc;
       uniform vec2 uResolution;
+      uniform vec4 uRuleData1, uRuleData2;
       void main () {
         float left = texture2D(uSrc, mod(vUv + uResolution * vec2(-1.0, 1.0), vec2(1))).x;
         float center = texture2D(uSrc, mod(vUv + uResolution * vec2(0.0, 1.0), vec2(1))).x;
@@ -177,18 +245,17 @@ function run (regl) {
         float value;
         if (left > 0.5) {
           if (center > 0.5) {
-            value = right > 0.5 ? 0.0 : 0.14;  // 111 110
+            value = right > 0.5 ? uRuleData1.x : uRuleData1.y;  // 111 110
           } else {
-            value = right > 0.5 ? 0.28 : 0.56; // 101 100
+            value = right > 0.5 ? uRuleData1.z : uRuleData1.w; // 101 100
           }
         } else {
           if (center > 0.5) {
-            value = right > 0.5 ? 0.71 : 0.86; // 011 010
+            value = right > 0.5 ? uRuleData2.x: uRuleData2.y; // 011 010
           } else {
-            value = right > 0.5 ? 1.0 : 0.42;  // 001 000
+            value = right > 0.5 ? uRuleData2.z: uRuleData2.w;  // 001 000
           }
         }
-
         gl_FragColor = vec4(vec3(value), 1.0);
       }
     `,
@@ -196,6 +263,8 @@ function run (regl) {
     uniforms: {
       uSrc: regl.prop('src'),
       uResolution: ctx => [1 / ctx.framebufferWidth, 1 / ctx.framebufferHeight],
+      uRuleData1: () => ruleData1,
+      uRuleData2: () => ruleData2,
     },
     scissor: {
       enable: true,
@@ -237,24 +306,27 @@ function run (regl) {
     count: 3
   });
 
+  resize();
+
+  window.addEventListener('resize', resize);
+
   var scanline = 1;
-  var stride = 2;
   var loop = regl.frame(({tick}) => {
     var target = h;
     if (scanline >= h) {
       shift({
         src: states[0],
         dst: states[1],
-        shift: -stride,
+        shift: -state.speed,
       });
 
       var tmp = states[1];
       states[1] = states[0];
       states[0] = tmp;
 
-      scanline -= stride * 2;
+      scanline -= state.speed * 2;
     } else {
-      target = scanline + stride;
+      target = scanline + state.speed;
     }
 
     while (scanline < target) {
