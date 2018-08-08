@@ -29,7 +29,7 @@ function run (regl) {
 	document.body.appendChild(createControls(null, controlRoot));
 
 
-  var rulefield = window.innerWidth < 768 ? {
+  var rulefield = window.innerWidth < 800 ? {
     label: 'rule', type: 'text', initial: state.rule, placeholder: '0-255'
   } : {
     label: 'rule', type: 'range', min: 0, max: 255, step: 1, initial: state.rule,
