@@ -23,6 +23,7 @@ function run (regl) {
     rule: 30,
     initialization: 'white',
     speed: 3,
+    scale: 1,
   };
   var controlRoot = document.createElement('div');
 	document.body.appendChild(createControls(null, controlRoot));
@@ -31,6 +32,7 @@ function run (regl) {
     {label: 'rule', type: 'range', min: 0, max: 255, initial: state.rule, step: 1},
     {label: 'initialization', type: 'select', options: ['white', 'black', 'random'], initial: state.initialization},
     {label: 'speed', type: 'range', min: 1, max:10, initial: state.speed, step: 1},
+    {label: 'scale', type: 'range', min: 1, max:4, initial: state.scale, step: 1},
   ], {
     root: controlRoot,
     width: Math.min(400, window.innerWidth),
@@ -77,8 +79,8 @@ function run (regl) {
   }
 
   function resize () {
-    w = Math.floor(regl._gl.canvas.width);
-    h = Math.floor(regl._gl.canvas.height);
+    w = Math.floor(regl._gl.canvas.width / state.scale);
+    h = Math.floor(regl._gl.canvas.height / state.scale);
 
     var initial = new Uint8Array(w * h * 4);
     switch(state.initialization) {
