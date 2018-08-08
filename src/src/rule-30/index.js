@@ -28,8 +28,14 @@ function run (regl) {
   var controlRoot = document.createElement('div');
 	document.body.appendChild(createControls(null, controlRoot));
 
+
+  var rulefield = window.innerWidth < 640 ? {
+    label: 'rule', type: 'text', initial: state.rule, placeholder: '0-255'
+  } : {
+    label: 'rule', type: 'range', min: 0, max: 255, step: 1, initial: state.rule,
+  }
   require('control-panel')([
-    {label: 'rule', type: 'range', min: 0, max: 255, initial: state.rule, step: 1},
+    rulefield,
     {label: 'initialization', type: 'select', options: ['white', 'black', 'random'], initial: state.initialization},
     {label: 'speed', type: 'range', min: 1, max:10, initial: state.speed, step: 1},
     {label: 'scale', type: 'range', min: 1, max:4, initial: state.scale, step: 1},
@@ -38,6 +44,7 @@ function run (regl) {
     width: Math.min(400, window.innerWidth),
   }).on('input', data => {
     Object.assign(state, data);
+    state.rule = parseInt(data.rule);
     computeRuleData();
     resize();
   });
