@@ -99,6 +99,7 @@
     "h": "^0.1.0",
     "inertial-turntable-camera": "^2.0.4",
     "insert-css": "^2.0.0",
+    "is-mobile": "^1.0.0",
     "ml-matrix": "^5.1.1",
     "normalized-interaction-events": "^2.0.1",
     "nurbs": "^1.1.0",
