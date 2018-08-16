@@ -8,6 +8,8 @@ require('regl')({
   pixelRatio: 0.5,
   extensions: [
     'oes_texture_float',
+  ],
+  optionalExtensions: [
     'oes_texture_half_float'
   ],
   attributes: {
@@ -21,7 +23,6 @@ function run (regl) {
   var h;
   var scale = 1.0;
 
-  var textures = []
   var states = []
 
   var state = {
@@ -51,44 +52,42 @@ function run (regl) {
   });
 
 
+  var xy = new Float32Array(2);
+  var xyBuf = regl.buffer(xy);
+
   function restart () {
     w = Math.floor(regl._gl.canvas.width * scale);
     h = Math.floor(regl._gl.canvas.height * scale);
-    var n = w * h * 4;
-    var initial = new Array(n).fill(0);
-    for (var i = 0; i < n; i += 4) {
-      initial[i] = 1.0 + 0.1 * (Math.random() - 0.5);
-      initial[i + 1] = 0.1 * (Math.random() - 0.5);
-    }
-
-    textures = [0, 1].map(i => (textures[i] || regl.texture)({
-      data: initial,
-      type: regl.hasExtension('oes_texture_half_float') ? 'half float' : 'float',
-      min: 'nearest',
-      mag: 'nearest',
+    states = [0, 1].map(i => (states[i] || regl.framebuffer)({
+      colorType: regl.hasExtension('oes_texture_half_float') ? 'half float' : 'float',
       width: w,
       height: h,
     }));
 
-    states = [0, 1].map(i => (states[i] || regl.framebuffer)({
-      color: textures[i]
-    }));
+    initialize({dst: states[0]});
 
-    dropAPoint([
-      {point: [0.0, 0.0], dst: states[0], value: 0.5},
-    ]);
+    xy[0] = 0.0;
+    xy[1] = 0.0;
+    xyBuf = xyBuf(xy);
+    dropAPoint({dst: states[0]});
   }
 
   require('mouse-change')(regl._gl.canvas, function (buttons, x, y, mods) {
     if (buttons) {
-      dropAPoint({
-        point: [
-          x / regl._gl.canvas.clientWidth * 2.0 - 1.0,
-          (1.0 - y / regl._gl.canvas.clientHeight) * 2.0 - 1.0
-        ],
-        dst: states[0],
-        value: 0.5
-      });
+      xy[0] = x / regl._gl.canvas.clientWidth * 2.0 - 1.0;
+      xy[1] = (1.0 - y / regl._gl.canvas.clientHeight) * 2.0 - 1.0;
+      xyBuf = xyBuf(xy);
+      dropAPoint({dst: states[0]});
+    }
+  });
+
+  regl._gl.canvas.addEventListener('touchmove', function (event) {
+    for (var i = 0; i < event.touches.length; i++) {
+      var t = event.touches[i];
+      xy[0] = t.clientX / regl._gl.canvas.clientWidth * 2.0 - 1.0;
+      xy[1] = (1.0 - t.clientY / regl._gl.canvas.clientHeight) * 2.0 - 1.0;
+      xyBuf = xyBuf(xy);
+      dropAPoint({dst: states[0]});
     }
   });
 
@@ -96,33 +95,29 @@ function run (regl) {
     vert: `
       precision mediump float;
       varying vec2 uv;
-      uniform vec2 uPoint;
+      attribute vec2 xy;
       void main () {
-        uv = uPoint * 0.5 + 0.5;
-        gl_Position = vec4(uPoint, 0, 1);
+        uv = xy * 0.5 + 0.5;
+        gl_Position = vec4(xy, 0, 1);
         gl_PointSize = 20.1;
       }
     `,
     frag: `
       precision mediump float;
       varying vec2 uv;
-      uniform float uValue;
       void main () {
         if (dot(gl_PointCoord.xy - 0.5, gl_PointCoord.xy - 0.5) > 0.25) discard;
         gl_FragColor = vec4(vec3(0.5), 1.0);
       }
     `,
-    uniforms: {
-      uPoint: regl.prop('point'),
-      uValue: regl.prop('value'),
-    },
+    attributes: {xy: xyBuf},
     framebuffer: regl.prop('dst'),
     depth: {enable: false},
     primitive: 'point',
     count: 1
   });
 
-  var drawToScreen = regl({
+  var initialize = regl({
     vert: `
       precision mediump float;
       attribute vec2 xy;
@@ -135,45 +130,17 @@ function run (regl) {
     frag: `
       precision mediump float;
       varying vec2 uv;
-      uniform sampler2D src;
-      uniform vec3 color1;
-      uniform vec3 color2;
       void main () {
-        vec2 value = texture2D(src, uv).xy;
-        gl_FragColor = vec4(
-          vec3(0.4) +
-          ((value.x - 0.2) * color1 +
-          value.y * color2) * 0.6,
-          //value.x * vec3(0.5, 0.25, -0.25) +
-          //value.y * vec3(-0.75, -0.25, 0.25),
-          1.0
-        );
+        gl_FragColor = vec4(1, 0, 0, 0);
       }
     `,
-    uniforms: {
-      color1: () => {
-        var h = (state.hue + 45) * Math.PI / 180;
-        return normalize([], [
-          Math.sin(h + Math.PI * 0.5),
-          Math.sin(h + Math.PI * 0.25),
-          Math.sin(h + Math.PI * -0.25),
-        ]);
-      },
-      color2: () => {
-        var h = (state.hue + 45) * Math.PI / 180;
-        return normalize([], [
-          Math.sin(h + Math.PI * 1.5),
-          Math.sin(h + Math.PI * -0.5),
-          Math.sin(h + Math.PI * 0.25),
-        ]);
-      },
-      src: regl.prop('src'),
-    },
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
+    framebuffer: regl.prop('dst'),
     depth: {enable: false},
     count: 3
   });
   
+
   var compute = regl({
     vert: `
       precision mediump float;
@@ -227,6 +194,43 @@ function run (regl) {
     depth: {enable: false},
     count: 3
   });
+
+  var drawToScreen = regl({
+    vert: `
+      precision mediump float;
+      attribute vec2 xy;
+      varying vec2 uv;
+      void main () {
+        uv = xy * 0.5 + 0.5;
+        gl_Position = vec4(xy, 0, 1);
+      }
+    `,
+    frag: `
+      precision mediump float;
+      varying vec2 uv;
+      uniform sampler2D src;
+      uniform vec3 color1, color2, color3;
+      void main () {
+        vec2 value = texture2D(src, uv).xy;
+        gl_FragColor = vec4(
+          (
+            1.0 * (1.0 - value.x) * color1 +
+            1.0 * (0.5 + 0.5 * value.y) * color2
+          ),
+          1.0
+        );
+      }
+    `,
+    uniforms: {
+      color1: () => [0, 1, 2].map(i => 0.5 + 0.5 * Math.cos((i - 0.5) / 3 * Math.PI * 2 + state.hue * Math.PI / 180)),
+      color2: () => [0, 1, 2].map(i => 0.5 + 0.5 * Math.cos((i + 1.3) / 3 * Math.PI * 2 + state.hue * Math.PI / 180)),
+      src: regl.prop('src'),
+    },
+    attributes: {xy: [-4, -4, 0, 4, 4, -4]},
+    depth: {enable: false},
+    count: 3
+  });
+  
 
   restart();
 
