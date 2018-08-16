@@ -139,7 +139,7 @@ function render (onChange, children) {
     h('p', [
       'This page simulates the ',
       h('a', {href: "https://groups.csail.mit.edu/mac/projects/amorphous/GrayScott/"}, 'Gray-Scott Reaction Diffusion equation'),
-      '. It simulates two reacting species which diffuse at different rates.',
+      '. It simulates reacting species which diffuse at different rates.',
     ]),
     h('p', [
       'The equations are given by',
