@@ -82,6 +82,7 @@ function run (regl) {
   });
 
   regl._gl.canvas.addEventListener('touchmove', function (event) {
+    event.preventDefault();
     for (var i = 0; i < event.touches.length; i++) {
       var t = event.touches[i];
       xy[0] = t.clientX / regl._gl.canvas.clientWidth * 2.0 - 1.0;
