@@ -143,7 +143,7 @@ function run (regl) {
         gl_FragColor = vec4(
           vec3(0.4) +
           ((value.x - 0.2) * color1 +
-          value.y * color2) * 0.4,
+          value.y * color2) * 0.6,
           //value.x * vec3(0.5, 0.25, -0.25) +
           //value.y * vec3(-0.75, -0.25, 0.25),
           1.0
