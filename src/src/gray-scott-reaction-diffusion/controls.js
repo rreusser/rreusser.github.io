@@ -137,16 +137,16 @@ function render (onChange, children) {
   const content = h('div', {class: 'content'}, [
     children,
     h('p', [
-      'This page simulates the ',
+      'This page models reacting species which diffuse at different rates, modeled by the ',
       h('a', {href: "https://groups.csail.mit.edu/mac/projects/amorphous/GrayScott/"}, 'Gray-Scott Reaction Diffusion equation'),
-      '. It simulates reacting species which diffuse at different rates.',
+      '.',
     ]),
     h('p', [
-      'The equations are given by',
+      'The system is modeled by the equations',
       eq1,
       'which lends itself well to iteration on the GPU. To enforce stability, this simulation exposes only a relative diffusion rate, ',
       eq2,
-      '.'
+      '. Try changing the parameters of the model to find different behaviors. For some parameter ranges you may need to tap or click to seed the solution.'
     ]),
   ]);
   const root = h('div', {id: 'panel'}, [title, content]);
