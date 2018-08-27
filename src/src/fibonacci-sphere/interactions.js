@@ -91,7 +91,7 @@ function attachCameraControls (camera, opts) {
       }
     })
     .on('mouseup', function (ev) {
-      ev.originalEvent.preventDefault();
+      //ev.originalEvent.preventDefault();
       resetLocalPreventDefault();
       ev = providePreventDefault(ev);
       onEnd && onEnd(ev);
@@ -103,8 +103,6 @@ function attachCameraControls (camera, opts) {
       onStart && onStart(ev);
     })
     .on('touchmove', function (ev) {
-      ev.originalEvent.preventDefault();
-
       ev = providePreventDefault(ev);
       onMove && onMove(ev);
 
@@ -115,6 +113,7 @@ function attachCameraControls (camera, opts) {
         -ev.dx * RADIANS_PER_HALF_SCREEN_WIDTH,
         -ev.dy * RADIANS_PER_HALF_SCREEN_WIDTH
       );
+      ev.originalEvent.preventDefault();
     })
     .on('touchend', function (ev) {
       ev.originalEvent.preventDefault();
@@ -123,12 +122,12 @@ function attachCameraControls (camera, opts) {
       onEnd && onEnd(ev);
     })
     .on('pinchmove', function (ev) {
-      ev.originalEvent.preventDefault();
-
       if (!ev.active) return;
       transformXY(ev);
       camera.zoom(xy[0], xy[1], 1 - ev.zoomx);
       camera.pan(ev.dx, ev.dy);
+
+      ev.originalEvent.preventDefault();
     })
     .on('pinchstart', function (ev) {
       ev.originalEvent.preventDefault();
