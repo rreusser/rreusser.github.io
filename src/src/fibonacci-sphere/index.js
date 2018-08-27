@@ -66,7 +66,7 @@ function run (regl, assets) {
   //var state = {n: 100};
 
   var controlRoot = document.createElement('div');
-	document.body.appendChild(require('./controls')(null, controlRoot));
+  document.body.appendChild(require('./controls')(null, controlRoot));
 
   /*
   require('control-panel')([
@@ -99,7 +99,7 @@ function run (regl, assets) {
       uniform vec3 uEye;
       uniform mat4 uView;
       uniform mat4 uProjectionView;
-			varying vec3 vVertex, vEyeDir, vNormal;
+      varying vec3 vVertex, vEyeDir, vNormal;
       varying vec2 vBarycentric;
       void main () {
         vVertex = aVertex;
@@ -126,20 +126,20 @@ function run (regl, assets) {
       }
 
       float gridFactor (vec2 vBC, float width, float feather) {
-				float w1 = width - feather * 0.5;
-				vec3 bary = vec3(vBC.x, vBC.y, 1.0 - vBC.x - vBC.y);
-				vec3 d = fwidth(bary);
-				vec3 a3 = smoothstep(d * w1, d * (w1 + feather), bary);
-				return min(min(a3.x, a3.y), a3.z);
-			}
+        float w1 = width - feather * 0.5;
+        vec3 bary = vec3(vBC.x, vBC.y, 1.0 - vBC.x - vBC.y);
+        vec3 d = fwidth(bary);
+        vec3 a3 = smoothstep(d * w1, d * (w1 + feather), bary);
+        return min(min(a3.x, a3.y), a3.z);
+      }
 
       vec3 getNormal() {
-			  #ifndef GL_OES_standard_derivatives
-			    return normalize(vNormal);
-			  #else
-			    return normalize(cross(dFdx(vVertex), dFdy(vVertex)));
-			  #endif
-			}
+        #ifndef GL_OES_standard_derivatives
+          return normalize(vNormal);
+        #else
+          return normalize(cross(dFdx(vVertex), dFdy(vVertex)));
+        #endif
+      }
 
       void main () {
         float wire = gridFactor(vBarycentric, uLineWidth, 1.0);
