@@ -51,7 +51,7 @@ function createSphere (n) {
 
 function run (regl, assets) {
   var camera = createCamera(regl, {
-    distance: 3,
+    distance: 4,
     phi: 0.3
   });
 
@@ -200,9 +200,8 @@ function run (regl, assets) {
   });
   
 
-  remesh(1000);
   regl.frame(({time}) => {
-    //remesh(4 + Math.floor((0.5 - 0.5 * Math.cos(time * 0.1)) * 1000));
+    remesh(4 + Math.floor((0.5 - 0.5 * Math.cos(time * 0.1)) * 1000));
 
     camera.tick({
       dTheta: -0.001
