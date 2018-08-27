@@ -91,13 +91,13 @@ function attachCameraControls (camera, opts) {
       }
     })
     .on('mouseup', function (ev) {
-      //ev.originalEvent.preventDefault();
+      ev.originalEvent.preventDefault();
       resetLocalPreventDefault();
       ev = providePreventDefault(ev);
       onEnd && onEnd(ev);
     })
     .on('touchstart', function (ev) {
-      //ev.originalEvent.preventDefault();
+      ev.originalEvent.preventDefault();
 
       ev = providePreventDefault(ev);
       onStart && onStart(ev);
