@@ -65,8 +65,8 @@ function run (regl, assets) {
   });
   //var state = {n: 100};
 
-  //var controlRoot = document.createElement('div');
-	//document.body.appendChild(require('./controls')(null, controlRoot));
+  var controlRoot = document.createElement('div');
+	document.body.appendChild(require('./controls')(null, controlRoot));
 
   /*
   require('control-panel')([
