@@ -97,7 +97,7 @@ function attachCameraControls (camera, opts) {
       onEnd && onEnd(ev);
     })
     .on('touchstart', function (ev) {
-      ev.originalEvent.preventDefault();
+      //ev.originalEvent.preventDefault();
 
       ev = providePreventDefault(ev);
       onStart && onStart(ev);
