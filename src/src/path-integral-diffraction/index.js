@@ -96,6 +96,7 @@ function run (regl) {
 
   regl._gl.canvas.addEventListener('touchmove', function (ev) {
     if (ev.touches.length !== 1) return;
+    ev.preventDefault();
     var touch = ev.touches[0];
     var i = touch.clientX;
     var j = touch.clientY;
