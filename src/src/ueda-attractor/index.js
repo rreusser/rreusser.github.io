@@ -20,6 +20,7 @@ function start (err, regl) {
 
   var dataType = 'float';
   var supportsWritingFloat = require('./supports-float')(regl);
+  console.log('supportsWritingFloat:', supportsWritingFloat);
 
   if (!supportsWritingFloat) {
     if (regl.hasExtension('oes_texture_half_float')) {
@@ -28,7 +29,7 @@ function start (err, regl) {
       throw new Error('Sorry, can\'t write to floating point textures!');
     }
   }
-  
+
   const floatingPointScale = 1000.0;
   const state = {
     sqrtNumPoints: 512,
@@ -37,6 +38,8 @@ function start (err, regl) {
     μ: 1,
     Ω: 0,
   };
+
+  console.log('dataType:', dataType);
 
   var controlRoot = document.createElement('div');
   document.body.appendChild(require('./controls')(null, controlRoot));
@@ -59,17 +62,54 @@ function start (err, regl) {
 
   function allocate () {
     textures = textures.map(t => (t || regl.texture)({
-      data: new Array(state.sqrtNumPoints * state.sqrtNumPoints * 4).fill(0).map((d, i) => (Math.random() - 0.5) * 3.0 * floatingPointScale),
       radius: state.sqrtNumPoints,
-      type: 'float'
+      type: dataType,
     }));
     fbos = fbos.map((fbo, i) => (fbo || regl.framebuffer)({
       depthStencil: false,
       color: textures[i]
     }));
+
+    fbos[0].use(initialize);
+    fbos[1].use(initialize);
+
     lookup = (lookup || regl.buffer)(particleLookup(state.sqrtNumPoints, state.sqrtNumPoints));
   }
-  allocate();
+
+  const initialize = regl({
+    vert: `
+      precision highp float;
+      attribute vec2 xy;
+      varying vec2 uv;
+      void main () {
+        uv = xy * 0.5 + 0.5;
+        gl_Position = vec4(xy, 0, 1);
+      }
+    `,
+    frag: `
+      precision highp float;
+      varying vec2 uv;
+      float random(vec2 co) {
+					highp float a = 12.9898;
+					highp float b = 78.233;
+					highp float c = 43758.5453;
+					highp float dt = dot(co.xy, vec2(a,b));
+					highp float sn = mod(dt, 3.14);
+					return fract(sin(sn) * c);
+			}
+      void main () {
+        gl_FragColor = vec4(
+          (random(gl_FragCoord.xy + 0.112095) * 2.0 - 1.0) * 1.5 * ${floatingPointScale.toFixed(4)},
+          (random(gl_FragCoord.xy + 0.22910) * 2.0 - 1.0) * 1.5 * ${floatingPointScale.toFixed(4)},
+          random(gl_FragCoord.xy + 0.31920) * 3.14159 * ${floatingPointScale.toFixed(4)},
+          1.0
+				);
+      }
+    `,
+    attributes: {xy: [-4, -4, 0, 4, 4, -4]},
+    depth: {enable: false},
+    count: 3
+  });
   
   const integrate = regl({
     vert: `
@@ -147,7 +187,7 @@ function start (err, regl) {
       }
     `,
     attributes: {
-      aUv: lookup
+      aUv: () => lookup
     },
     uniforms: {
       uPosition: regl.prop('src'),
@@ -164,6 +204,8 @@ function start (err, regl) {
     count: () => state.sqrtNumPoints * state.sqrtNumPoints
   });
   
+  allocate();
+
   regl.frame(({tick}) => {
     integrate({
       src: fbos[tick % 2],
