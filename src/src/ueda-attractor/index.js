@@ -90,20 +90,20 @@ function start (err, regl) {
       precision highp float;
       varying vec2 uv;
       float random(vec2 co) {
-					highp float a = 12.9898;
-					highp float b = 78.233;
-					highp float c = 43758.5453;
-					highp float dt = dot(co.xy, vec2(a,b));
-					highp float sn = mod(dt, 3.14);
-					return fract(sin(sn) * c);
-			}
+          highp float a = 12.9898;
+          highp float b = 78.233;
+          highp float c = 43758.5453;
+          highp float dt = dot(co.xy, vec2(a,b));
+          highp float sn = mod(dt, 3.14);
+          return fract(sin(sn) * c);
+      }
       void main () {
         gl_FragColor = vec4(
           (random(gl_FragCoord.xy + 0.112095) * 2.0 - 1.0) * 1.5 * ${floatingPointScale.toFixed(4)},
           (random(gl_FragCoord.xy + 0.22910) * 2.0 - 1.0) * 1.5 * ${floatingPointScale.toFixed(4)},
           random(gl_FragCoord.xy + 0.31920) * 3.14159 * ${floatingPointScale.toFixed(4)},
           1.0
-				);
+        );
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
