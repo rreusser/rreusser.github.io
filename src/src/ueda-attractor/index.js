@@ -32,12 +32,14 @@ function start (err, regl) {
 
   const floatingPointScale = 1000.0;
   const state = {
-    sqrtNumPoints: 512,
+    sqrtNumPoints: 256,
     F: 7.5,
     h: 0.05,
     μ: 1,
     Ω: 0,
+    integrator: 'Midpoint (RK2)',
   };
+  const dt = 0.03;
 
   console.log('dataType:', dataType);
 
@@ -46,6 +48,7 @@ function start (err, regl) {
 
   require('control-panel')([
     {label: 'sqrtNumPoints', type: 'range', min: 4, max: 2048, initial: state.sqrtNumPoints, step: 1},
+    {label: 'integrator', type: 'select', options: ['Euler', 'Midpoint (RK2)', 'Runge-Kutta (RK4)'], initial: state.integrator},
     {label: 'F', type: 'range', min: 0, max: 16, initial: state.F, step: 0.1},
     {label: 'h', type: 'range', min: 0, max: 1.0, initial: state.h, step: 0.01},
     {label: 'μ', type: 'range', min: 0, max: 1.0, initial: state.μ, step: 0.01},
@@ -89,6 +92,7 @@ function start (err, regl) {
     frag: `
       precision highp float;
       varying vec2 uv;
+
       float random(vec2 co) {
           highp float a = 12.9898;
           highp float b = 78.233;
@@ -97,11 +101,12 @@ function start (err, regl) {
           highp float sn = mod(dt, 3.14);
           return fract(sin(sn) * c);
       }
+
       void main () {
         gl_FragColor = vec4(
           (random(gl_FragCoord.xy + 0.112095) * 2.0 - 1.0) * 1.5 * ${floatingPointScale.toFixed(4)},
           (random(gl_FragCoord.xy + 0.22910) * 2.0 - 1.0) * 1.5 * ${floatingPointScale.toFixed(4)},
-          random(gl_FragCoord.xy + 0.31920) * 3.14159 * ${floatingPointScale.toFixed(4)},
+          random(gl_FragCoord.xy) * 3.14159 * 2.0 * ${floatingPointScale.toFixed(4)},
           1.0
         );
       }
@@ -111,60 +116,82 @@ function start (err, regl) {
     count: 3
   });
   
-  const integrate = regl({
-    vert: `
-      precision highp float;
-      attribute vec2 aXy;
-      varying vec2 vUv;
-      void main () {
-        vUv = 0.5 * aXy + 0.5;
-        gl_Position = vec4(aXy, 0, 1);
-      }
-    `,
-    frag: `
-      precision highp float;
-      varying vec2 vUv;
-      uniform sampler2D uSrc;
-      uniform float uF, uh, umu, uOmega2;
-      const float dt = 0.03;
+  const EULER = `
+    gl_FragColor = vec4(y0 + dt * derivative(t, y0), y0WithPhase.z, 1.0) * ${floatingPointScale.toFixed(4)};
+  `;
 
-      vec3 derivative (vec3 p) {
-        return vec3(
-          p.y,
-          uF * cos(p.z) - 
-            uh * p.y -
-            p.x * (
-              uOmega2 +
-              umu * p.x * p.x
-            ),
-          1.0
-        );
-      }
+  const RK2 = `
+    vec2 k1 = dt * derivative(t, y0);
+    gl_FragColor = vec4(y0 + dt * derivative(t + dt * 0.5, y0 + k1 * 0.5), y0WithPhase.z, 1.0) * ${floatingPointScale.toFixed(4)};
+  `;
 
-      void main () {
-        vec3 y0 = texture2D(uSrc, vUv).xyz / ${floatingPointScale.toFixed(4)};
+  const RK4 = `
+    vec2 k1 = dt * derivative(t, y0);
+    vec2 k2 = dt * derivative(t + dt * 0.5, y0 + 0.5 * k1);
+    vec2 k3 = dt * derivative(t + dt * 0.5, y0 + 0.5 * k2);
+    vec2 k4 = dt * derivative(t + dt, y0 + k3);
+    gl_FragColor = vec4(y0 + 0.16666666666 * (k1 + k4 + 2.0 * (k2 + k3)), y0WithPhase.z, 1.0) * ${floatingPointScale.toFixed(4)};
+  `;
 
-        // Fourth order Runge-Kutta (RK4) integration:
-        vec3 k1 = dt * derivative(y0);
-        vec3 k2 = dt * derivative(y0 + 0.5 * k1);
-        vec3 k3 = dt * derivative(y0 + 0.5 * k2);
-        vec3 k4 = dt * derivative(y0 + k3);
-        gl_FragColor = vec4(y0 + 0.16666666666 * (k1 + k4 + 2.0 * (k2 + k3)), 1.0) * ${floatingPointScale.toFixed(4)};
-      }
-    `,
-    attributes: {aXy: [[-4, -4], [0, 4], [4, -4]]},
-    uniforms: {
-      uSrc: regl.prop('src'),
-      uF: () => state.F,
-      uh: () => state.h,
-      umu: () => state.μ,
-      uh: () => state.h,
-      uOmega2: () => state.Ω * state.Ω,
-    },
-    framebuffer: regl.prop('dst'),
-    depth: {enable: false},
-    count: 3,
-  })
+  function createIntegrator (method) {
+    return regl({
+      vert: `
+        precision highp float;
+        attribute vec2 aXy;
+        varying vec2 vUv;
+        void main () {
+          vUv = 0.5 * aXy + 0.5;
+          gl_Position = vec4(aXy, 0, 1);
+        }
+      `,
+      frag: `
+        precision highp float;
+        varying vec2 vUv;
+        uniform sampler2D uSrc;
+        uniform float uF, uh, umu, uOmega2, uT;
+        const float dt = ${dt.toFixed(3)};
+
+        vec2 derivative (float t, vec2 p) {
+          return vec2(
+            p.y,
+            uF * cos(t) - 
+              uh * p.y -
+              p.x * (
+                uOmega2 +
+                umu * p.x * p.x
+              )
+          );
+        }
+
+        void main () {
+          vec3 y0WithPhase = texture2D(uSrc, vUv).xyz / ${floatingPointScale.toFixed(4)};
+          float t = uT + y0WithPhase.z;
+          vec2 y0 = y0WithPhase.xy;
+
+          ${method}
+        }
+      `,
+      attributes: {aXy: [[-4, -4], [0, 4], [4, -4]]},
+      uniforms: {
+        uSrc: regl.prop('src'),
+        uF: () => state.F,
+        uh: () => state.h,
+        umu: () => state.μ,
+        uh: () => state.h,
+        uT: regl.prop('t'),
+        uOmega2: () => state.Ω * state.Ω,
+      },
+      framebuffer: regl.prop('dst'),
+      depth: {enable: false},
+      count: 3,
+    })
+  }
+
+  var integrator = {
+    'Euler': createIntegrator(EULER),
+    'Midpoint (RK2)': createIntegrator(RK2),
+    'Runge-Kutta (RK4)': createIntegrator(RK4),
+  };
   
   const drawPoints = regl({
     vert: `
@@ -173,17 +200,38 @@ function start (err, regl) {
       uniform float uAspect;
       uniform sampler2D uPosition;
       uniform mat4 projection, view;
+      varying vec3 vColor;
+
+      #define PI 3.1415926535
+      #define PI_2 1.57079633
+
+      float fakeSine (float x) {
+        x = mod(x + (PI * 4.0), PI * 2.0);
+        float sgn = x < PI ? 1.0 : -1.0;
+        float arg = (mod(x, PI) - PI_2) * (1.0 / PI_2);
+        return (1.0 - arg * arg) * sgn;
+      }
+
       void main () {
-        vec3 p = texture2D(uPosition, aUv).xyz;
-        gl_Position = vec4(vec2(p.x * 2.0, p.y * uAspect) / 8.0 / ${floatingPointScale.toFixed(4)}, 0, 1);
+        vec3 p = texture2D(uPosition, aUv).xyz / ${floatingPointScale.toFixed(4)};
+        float phase = p.z;
+
+        vColor = normalize(0.33333333 + 0.3333333 * vec3(
+          fakeSine(phase),
+          fakeSine(phase + (2.0 * 3.14159 / 3.0)),
+          fakeSine(phase + (4.0 * 3.14159 / 3.0))
+        ));
+        
+        gl_Position = vec4(vec2(p.x * 2.0, p.y * uAspect) / 8.0, 0, 1);
         gl_PointSize = 2.0;
       }
     `,
     frag: `
       precision highp float;
       uniform float uAlpha;
+      varying vec3 vColor;
       void main () {
-        gl_FragColor = vec4(0.4, 0.6, 0.8, uAlpha);
+        gl_FragColor = vec4(vColor, uAlpha);
       }
     `,
     attributes: {
@@ -191,7 +239,7 @@ function start (err, regl) {
     },
     uniforms: {
       uPosition: regl.prop('src'),
-      uAlpha: ctx => Math.max(4 / 255, 1.0 / Math.pow(state.sqrtNumPoints / ctx.framebufferWidth * 6, 2)),
+      uAlpha: ctx => Math.max(4 / 255, 1.0 / Math.pow(state.sqrtNumPoints / ctx.framebufferWidth * 6, 2)) * 2.0,
       uAspect: ctx => ctx.framebufferWidth / ctx.framebufferHeight,
     },
     depth: {enable: false},
@@ -206,11 +254,15 @@ function start (err, regl) {
   
   allocate();
 
+  var t = 0.0;
   regl.frame(({tick}) => {
-    integrate({
+    integrator[state.integrator]({
       src: fbos[tick % 2],
-      dst: fbos[(tick + 1) % 2]
+      dst: fbos[(tick + 1) % 2],
+      t: t,
     });
+
+    t = (t + dt) % (Math.PI * 2.0);
     
     regl.clear({color: [0.12, 0.12, 0.12, 1]});
     drawPoints({src: fbos[(tick + 1) % 2]})

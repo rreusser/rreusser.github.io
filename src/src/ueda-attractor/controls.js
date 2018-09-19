@@ -85,7 +85,12 @@ function render (onChange, children) {
 
   const content = h('div', {class: 'content'}, [
     children,
-    h('p', [eq1])
+    h('p', [
+      'The Ueda Attractor, plotted in phase space, colored by the phase of the forcing function.',
+    ]),
+    h('p', [
+      eq1
+    ])
   ]);
   const root = h('div', {id: 'panel'}, [title, content]);
 
