@@ -42,6 +42,7 @@ function run (regl) {
     modulation: 1.0,
     modulationFrequency: 0.4,
     modulationSpeed: 6.0,
+    cylinderRadius: 1.0,
   };
 
   var screenWidth, screenHeight, h, w, licRadius, dt, alpha;
@@ -108,6 +109,12 @@ function run (regl) {
     if (needsResize) resize();
   });
 
+  window.addEventListener('mousewheel', function (ev) {
+    ev.preventDefault();
+    state.cylinderRadius *= Math.exp(-ev.deltaY * 0.01);
+    state.dirty = true;
+  });
+
   function onMouseMove (ev) {
     state.center = [
       ((ev.clientX / window.innerWidth) * 2.0 - 1.0) * window.innerWidth / window.innerHeight,
@@ -153,7 +160,7 @@ function run (regl) {
       varying vec2 uv;
       uniform sampler2D src;
       uniform float uDt;
-      uniform float uAspect, uNoiseScale, uNoiseSpeed, uTime;
+      uniform float uAspect, uNoiseScale, uNoiseSpeed, uTime, uCylinderRadius;
       uniform vec2 uCenter;
 
       vec2 curlNoise(vec3 p) {
@@ -173,8 +180,7 @@ function run (regl) {
         float y0 = f.y;
         f -= uCenter;
 
-        float cylinderRadius = 0.3;
-        float cylinderRadius2 = cylinderRadius * cylinderRadius;
+        float cylinderRadius2 = uCylinderRadius * uCylinderRadius;
 
         float r2 = dot(f, f);
 
@@ -208,7 +214,7 @@ function run (regl) {
           1.0 * flow +
           1.0 * doublet +
           0.5 * uCenter.y * vortex +
-          0.4 * turbulence
+          1.25 * uCylinderRadius * turbulence
         );
         v *= (r2 > cylinderRadius2 ? 1.0 : 0.0);
 
@@ -241,13 +247,14 @@ function run (regl) {
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
     uniforms: {
       uTime: ctx => ctx.time,
-      uNoiseScale: () => 1.0 / state.noiseScale,
+      uNoiseScale: () => 1.0 / (state.noiseScale * state.cylinderRadius),
       uAspect: () => screenWidth / screenHeight,
       src: regl.prop('src'),
       uResolution: ctx => [1 / ctx.framebufferWidth, 1 / ctx.framebufferHeight],
       uNoiseSpeed: () => state.noiseSpeed,
       uDt: dt,
       uCenter: () => state.center,
+      uCylinderRadius: () => state.cylinderRadius * 0.3,
     },
     framebuffer: regl.prop('dst'),
     depth: {enable: false},
