@@ -123,6 +123,13 @@ function run (regl) {
 
   window.addEventListener('touchmove', function (ev) {
     if (ev.touches.length !== 1) return;
+    ev.preventDefault();
+    onMouseMove(ev.touches[0]);
+  });
+
+  window.addEventListener('touchstart', function (ev) {
+    if (ev.touches.length !== 1) return;
+    ev.preventDefault();
     onMouseMove(ev.touches[0]);
   });
 
