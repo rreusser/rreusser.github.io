@@ -121,6 +121,11 @@ function run (regl) {
     clientY: window.innerHeight * 0.5,
   });
 
+  window.addEventListener('touchmove', function (ev) {
+    if (ev.touches.length !== 1) return;
+    onMouseMove(ev.touches[0]);
+  });
+
   window.addEventListener('mousemove', onMouseMove);
 
   var integrate = regl({
