@@ -169,11 +169,14 @@ function run (regl) {
         vec2 dx4 = f - uCenter - vec2(0.0, dy).yx;
         float r2_4 = dot(dx4, dx4);
         
-        return normalize(
+        vec2 force = (
           dx1 / r2_1 +
           -dx2 / r2_2 +
           (dx3 / r2_3 - dx4 / r2_4) / dy * uStrength
         );
+
+        float l = dot(force, force);
+        return force / pow(l, 0.6);
       }
 
       vec4 deriv4 (vec4 f) {
