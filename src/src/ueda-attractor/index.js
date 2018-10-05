@@ -32,7 +32,7 @@ function start (err, regl) {
 
   const floatingPointScale = 1000.0;
   const state = {
-    sqrtNumPoints: 256,
+    sqrtNumPoints: 512,
     F: 7.5,
     h: 0.05,
     μ: 1,
@@ -239,7 +239,7 @@ function start (err, regl) {
     },
     uniforms: {
       uPosition: regl.prop('src'),
-      uAlpha: ctx => Math.max(4 / 255, 1.0 / Math.pow(state.sqrtNumPoints / ctx.framebufferWidth * 6, 2)) * 2.0,
+      uAlpha: ctx => Math.max(4 / 255, 1.0 / Math.pow(state.sqrtNumPoints / ctx.framebufferWidth * 6, 2)) * 1.5,
       uAspect: ctx => ctx.framebufferWidth / ctx.framebufferHeight,
     },
     depth: {enable: false},
