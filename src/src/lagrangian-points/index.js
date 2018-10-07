@@ -249,7 +249,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "If we add a third body, it interacts gravitationally with the other two bodies, complicating things beyond what we can attack with a closed-form solution.",
+    content: "If we add a third body, it interacts gravitationally with the other two bodies, complicating things beyond what we can attack with a closed-form solution. (simulation not yet implemented)",
     state: {
       axisOpacity: [
         {t: -0.4, value: 0.5},
