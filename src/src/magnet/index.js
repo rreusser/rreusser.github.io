@@ -29,8 +29,51 @@ require('regl')({
   attributes: {antialias: false},
   onDone: require('fail-nicely')(run)
 });
+function instrument (f, tracker) {
+  var original = f;
+  return function () {
+    var args = [];
+    for (var i = 0; i < arguments.length; i++) {
+      args[i] = arguments[i];
+    }
+    var result = f.apply(this, args);
+    tracker.call(this, result, args);
+    return result;
+  }
+}
+
+function instrumentGL (gl) {
+  var state = {
+    buffers: [],
+    textures: [],
+  };
+  gl.createBuffer = instrument(gl.createBuffer, function (buffer) {
+    state.buffers.push(buffer);
+  });
+  gl.deleteBuffer = instrument(gl.deleteBuffer, function (buffer) {
+    var idx = state.buffers.indexOf(buffer);
+    if (idx === -1) {
+      console.warn('Attempting to delete untracked or already deleted buffer', buffer);
+    }
+    state.buffers.splice(idx, 1);
+  });
+  gl.createTexture = instrument(gl.createTexture, function (texture) {
+    state.textures.push(texture);
+  });
+  gl.deleteTexture = instrument(gl.deleteTexture, function (texture) {
+    var idx = state.buffers.indexOf(texture);
+    if (idx === -1) {
+      console.warn('Attempting to delete untracked or already deleted texture', texture);
+    }
+    state.buffers.splice(idx, 1);
+  });
+
+  return state;
+}
 
 function run (regl) {
+  window.glState = instrumentGL(regl._gl);
+
   var state = {
     dirty: true,
     alpha: 1.0,
