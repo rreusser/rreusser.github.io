@@ -185,7 +185,7 @@ function run (regl) {
       h('p.frame-text', [
         'On March 30, 2021, the ',
         h('a', {href: "https://www.jwst.nasa.gov/", target: "_blank"}, "James Webb Space Telescope"),
-        ' will be launched into space to supersede the Hubble Space Telescope and observe some of the most distant objects in the universe. To help escape the noisy near-Earth environment and achieve its extreme sensitivity, it will be placed beyond the moon in a halo orbit around the earth-Sun L',
+        ' will be launched into space to supersede the Hubble Space Telescope and observe some of the most distant objects in the universe. To help escape the noisy near-Earth environment and achieve its extreme sensitivity, it will be placed beyond the moon in a halo orbit around a special point in space called the Earth-Sun L',
         h('sub', 2),
         ' Lagrangian point.'
       ]),
