@@ -30,6 +30,7 @@ module.exports = function (regl) {
       uViewInverse: () => mViewInverse,
       uView: () => mView,
       uRotation: regl.prop('rotationSpeed'),
+      uSynodicField: regl.prop('synodicField'),
       uColormap: regl.texture([require('./viridis')]),
       uMu: regl.prop('mu'),
       uM1: (ctx, props) => props.mu,
@@ -79,10 +80,9 @@ module.exports = function (regl) {
 
     // Compute the view matrix
     var aspect = computeAspectRatio(props.framebufferWidth, props.framebufferHeight);
-    var scale = 1.7;
     mat4identity(mViewInverse);
-    mViewInverse[0] = aspect[0] * scale;
-    mViewInverse[5] = aspect[1] * scale;
+    mViewInverse[0] = aspect[0] * props.scale;
+    mViewInverse[5] = aspect[1] * props.scale;
 
     mat4invert(mView, mViewInverse);
 

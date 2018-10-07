@@ -25,7 +25,7 @@ module.exports = function (regl) {
 			}
 
       varying vec2 vXy;
-      uniform float uR1, uR2, uM1, uM2, uRotation;
+      uniform float uR1, uR2, uM1, uM2, uSynodicField;
       uniform sampler2D uColormap;
       uniform float uOpacity;
 
@@ -34,23 +34,32 @@ module.exports = function (regl) {
         float rad2 = dot(vXy, vXy);
 				float dX1 = vXy.x - uR1;
 				float dX2 = vXy.x + uR2;
-        float V = -uM1 / sqrt(dX1 * dX1 + y2) + -uM2 / sqrt(dX2 * dX2 + y2) + -0.5 * rad2 * (1.0 - uRotation);
+        float V = -uM1 / sqrt(dX1 * dX1 + y2) + -uM2 / sqrt(dX2 * dX2 + y2) + -0.5 * rad2 * uSynodicField;
 
 				float grid = gridFactor(V * 16.0, 1.0, 2.0);
         grid = (1.0 - grid) * smoothstep(-10.0, -0.2, V);
 
         float cmin = -4.0;
-        float cmax = -1.0 + uRotation * 1.5;
+        float cmax = -1.0 + (1.0 - uSynodicField) * 1.5;
         vec3 color = texture2D(uColormap, vec2(
           (V - cmin) / (cmax - cmin)
          )).rgb;
 
-        gl_FragColor = vec4(vec3(1.0 - 0.3 * grid) * color * uOpacity, 1);
+        gl_FragColor = vec4(vec3(1.0 - 0.3 * grid) * color, uOpacity);
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
     uniforms: {
       uOpacity: regl.prop('opacity'),
+    },
+    blend: {
+      enable: true,
+      func: {
+        srcRGB: 'src alpha',
+        srcAlpha: 'src alpha',
+        dstRGB: 'one minus src alpha',
+        dstAlpha: 'one minus src alpha'
+      },
     },
     depth: {enable: false},
     count: 3

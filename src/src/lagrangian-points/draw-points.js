@@ -19,11 +19,11 @@ module.exports = function (regl) {
     frag: `
       precision highp float;
       uniform float uPointSize;
-      uniform vec3 uColor;
+      uniform vec4 uColor;
       void main () {
         float r = length(gl_PointCoord.xy - 0.5);
         float alpha = smoothstep(0.5, 0.5 * (uPointSize - 3.0) / uPointSize, r);
-        gl_FragColor = vec4(uColor, alpha);
+        gl_FragColor = vec4(uColor.rgb, alpha * uColor.a);
       }
     `,
     depth: {enable: false},

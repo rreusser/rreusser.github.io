@@ -40,12 +40,13 @@ module.exports = function (regl, strings) {
     frag: `
       precision highp float;
       uniform sampler2D uAtlas;
+      uniform float uOpacity;
       varying vec2 vUv;
       void main () {
         float value = texture2D(uAtlas, vUv).r;
         gl_FragColor = vec4(
           vec3(smoothstep(0.76, 0.72, value)),
-          smoothstep(0.68, 0.71, value)
+          smoothstep(0.68, 0.71, value) * uOpacity
         );
       }
     `,
@@ -71,6 +72,7 @@ module.exports = function (regl, strings) {
       uAtlasScale: (ctx, props) => {
         return [1.0 / strings.length, 1.0];
       },
+      uOpacity: regl.prop('opacity'),
       uPixelRatio: regl.context('pixelRatio'),
       uResolution: ctx => [1.0 / ctx.framebufferWidth, 1.0 / ctx.framebufferHeight],
     },
