@@ -27,7 +27,7 @@ module.exports = function (regl) {
       varying vec2 vXy;
       uniform float uR1, uR2, uM1, uM2, uSynodicField;
       uniform sampler2D uColormap;
-      uniform float uOpacity;
+      uniform float uOpacity, uContourOpacity;
 
       void main () {
         float y2 = vXy.y * vXy.y;
@@ -45,12 +45,13 @@ module.exports = function (regl) {
           (V - cmin) / (cmax - cmin)
          )).rgb;
 
-        gl_FragColor = vec4(vec3(1.0 - 0.3 * grid) * color, uOpacity);
+        gl_FragColor = vec4(vec3(1.0 - uContourOpacity * grid) * color, uOpacity);
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
     uniforms: {
       uOpacity: regl.prop('opacity'),
+      uContourOpacity: regl.prop('contourOpacity'),
     },
     blend: {
       enable: true,

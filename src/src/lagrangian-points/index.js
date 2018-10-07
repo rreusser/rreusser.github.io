@@ -66,21 +66,22 @@ canvas {
   font-weight: 400;
 
   position: relative;
-  top: 15vh;
+  top: 5vh;
   z-index: 1000;
   color: white;
   margin-left: auto;
   margin-right: auto;
 }
 
-.frame-hero {
+.frame-text {
 	color: white;
   text-align: left;
 	max-width: 420px;
 	margin-left: auto;
 	margin-right: auto;
 	position: relative;
-	top: 20vh;
+	top: 10vh;
+  line-height: 1.4;
   padding: 0 15px;
 }
 
@@ -89,8 +90,8 @@ canvas {
   font-size: 16px;
   line-height: 1.5;
 
-  background-color: rgba(255, 255, 255, 0.7);
-  padding: 15px;
+  background-color: rgba(255, 255, 255, 0.8);
+  padding: 10px 12px;
   display: inline-block;
   max-width: 350px;
   position: absolute;
@@ -126,6 +127,7 @@ function run (regl) {
   var drawField = require('./draw-field')(regl);
   var drawAxes = require('./draw-axes')(regl);
   var drawLines = require('./draw-lines')(regl);
+  var drawArrows = require('./draw-vector-field')(regl);
   var drawText = require('./draw-text')(regl, [
     'L1', 'L2', 'L3', 'L4', 'L5'
   ]);
@@ -137,6 +139,7 @@ function run (regl) {
     scale: 1.5,
     synodicFrame: 0,
     synodicField: 0,
+    restrictedThreeBodySynodicWasRunning: false,
     dirty: true
   };
 
@@ -149,19 +152,44 @@ function run (regl) {
   }
   updateLibrationPoints();
 
+  var restrictedThreeBodySynodicIntegrator = require('./restricted-three-body')(state);
+  var restrictedThreeBodySynodicBuffer = regl.buffer(restrictedThreeBodySynodicIntegrator.state);
+
+  function integrateRestrictedThreeBodySynodic (dt) {
+    restrictedThreeBodySynodicIntegrator.step(dt);
+    restrictedThreeBodySynodicBuffer.subdata(restrictedThreeBodySynodicIntegrator.state);
+  }
+
+  var sunGravityVectorField = require('./arrow-field')(function (x, y) {
+    var r = Math.sqrt(x * x + y * y);
+    var r2 = r * r;
+    var G = 0.1;
+    var mag = Math.min(G / r2, 0.2);
+    return [-x * mag / r, -y * mag / r];
+  }, -4, 4, -4, 4, 0.2); 
+  var sunGravityVectorFieldBuffer = regl.buffer(sunGravityVectorField);
+
+  var centrifugalVectorField = require('./arrow-field')(function (x, y) {
+    var r = Math.sqrt(x * x + y * y);
+    var r2 = r * r;
+    var mag = Math.min(0.2 * r2, 0.4);
+    return [x / r * mag, y / r * mag];
+  }, -3, 3, -3, 3, 0.4); 
+  var centrifugalVectorFieldBuffer = regl.buffer(centrifugalVectorField);
+
   window.addEventListener('resize', () => state.dirty = true);
 
   var frames = [{
     raw: h('div', [
       h('h1.frame-title', "Lagrangian Points"),
-      h('p.frame-hero', [
+      h('p.frame-text', [
         'On March 30, 2021, the ',
         h('a', {href: "https://www.jwst.nasa.gov/", target: "_blank"}, "James Webb Space Telescope"),
-        ' will be launched into space in order to supersede the Hubble Telescope and observe some of the most distant objects in the universe. To help escape the noisy environment near Earth and achieve extreme sensitivity, it will be placed beyond the moon in a halo orbit around the Earth-Sun L',
+        ' will be launched into space to supersede the Hubble Space Telescope and observe some of the most distant objects in the universe. To help escape the noisy near-Earth environment and achieve its extreme sensitivity, it will be placed beyond the moon in a halo orbit around the earth-Sun L',
         h('sub', 2),
         ' Lagrangian point.'
       ]),
-      h('p.frame-hero', [
+      h('p.frame-text', [
         "In this walkthrough, I'll describe what Lagrangian points are, why we might want one, and how we can get one!"
       ])
     ]),
@@ -179,7 +207,7 @@ function run (regl) {
       ],
     },
   }, {
-    content: "Consider the earth as it orbits the sun—though not to scale of course since both would be far too small to see here.",
+    content: "Consider the earth as it orbits the sun—though any two gravitating bodies would do.",
     state: {
       orbitOpacity: [
         {t: -0.5, value: 0.0},
@@ -187,9 +215,11 @@ function run (regl) {
       ],
       bgOpacity: [
         {t: -0.5, value: 1},
-        {t: 0.5, value: 0.5}
+        {t: 0.5, value: 0.8}
       ],
     }
+  }, {
+    content: "Of course this diagram is not to scale since both bodies would be far too small to see here."
   }, {
     content: h('span', [
       "The mass of the earth is only about ",
@@ -199,12 +229,12 @@ function run (regl) {
     state: {
       mu: [
         {t: -0.5, value: 0.001},
-        {t: 0.5, value: 0.1},
+        {t: 0.0, value: 0.1},
       ]
     }
   }, {
     content: h('span', [
-      "With this exaggereated mass, you can see that the sun and the earth orbit a common point. This simplified system is called a circular ",
+      "With this exaggerated mass, you can see that the sun and the earth orbit a common point. This simplified system is called a circular ",
       h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "two-body problem"),
       " and is relatively easy to solve."
     ]),
@@ -219,7 +249,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "If we add a third body, it interacts gravitationally with the other two bodies, complicatings things beyond what we can attack with a closed-form solution.",
+    content: "If we add a third body, it interacts gravitationally with the other two bodies, complicating things beyond what we can attack with a closed-form solution.",
     state: {
       axisOpacity: [
         {t: -0.4, value: 0.5},
@@ -230,13 +260,22 @@ function run (regl) {
         {t: 0.0, value: 0.0},
       ]
     }
-    
+  }, {
   }, {
     content: h('span', [
-      "If, however, the third body is a small satellite that does't affect the orbits of the two larger bodies, we can say quite a bit more about the behavior. This is called the ",
+      "If, however, the third body is a small satellite that doesn't affect the orbits of the two larger bodies, we can say quite a bit more about the behavior. This is called the ",
       h('a', {href: "https://ocw.mit.edu/courses/aeronautics-and-astronautics/16-07-dynamics-fall-2009/lecture-notes/MIT16_07F09_Lec18.pdf", target: "_blank"}, "restricted circular three-body problem"),
       "."
-    ])
+    ]),
+    state: {
+      restrictedThreeBodySynodicOpacity: [
+        {t: -0.5, value: 0.0},
+        {t: 0.0, value: 1.0},
+        {t: 1.0, value: 1.0},
+        {t: 1.5, value: 0.0},
+      ],
+    }
+  }, {
   }, {
     content: "To understand how the third body moves in this system, let's first look at the gravitational field of the sun.",
     state: {
@@ -250,19 +289,39 @@ function run (regl) {
       ],
     }
   }, {
-    content: "We can represent the gravitational field of the sun as a potential field which pulls objects inward toward lower potential.",
+    content: "The sun's gravitational field pulls objects inward with strength inversely proportional to the square of distance.",
+    state: {
+      sunVectorFieldOpacity: [
+        {t: -0.5, value: 0.0},
+        {t: 0.0, value: 1.0},
+      ],
+    },
+  }, {
+    content: "We can represent the sun's gravity as a potential field.",
     state: {
       fieldOpacity: [
         {t: -0.5, value: 0.0},
         {t: 0.0, value: 1.0},
       ],
       bgOpacity: [
-        {t: 0.0, value: 0.5},
+        {t: 0.0, value: 0.8},
         {t: 0.1, value: 0.0},
       ]
     }
   }, {
-    content: "The earth orbits in the gravitational potential well of the sun but also has its own potential well (recall here greatly exaggerated in size relative to the sun's).",
+    content: "Objects in this field fall inward toward lower potential. (To be precise, the force of gravity is opposite the gradient of the potential.)",
+    state: {
+      sunVectorFieldOpacity: [
+        {t: -1.0, value: 1.0},
+        {t: -0.5, value: 0.0},
+      ],
+      fieldContourOpacity: [
+        {t: -1.0, value: 0.0},
+        {t: -0.5, value: 0.3},
+      ],
+    }
+  }, {
+    content: "The earth orbits in the gravitational potential well of the sun but also has its own potential well (recall we've greatly exaggerated the earth's mass).",
     state: {
       mu: [
         {t: -0.5, value: 0.0},
@@ -282,7 +341,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Consider what happens though if we, the observer, rotate at the same speed as the Earth-sun system.",
+    content: "Imagine now that we, the observer, rotate at the same speed as the earth-sun system.",
     state: {
       synodicFrame: [
         {t: -0.5, value: 0.0},
@@ -290,21 +349,15 @@ function run (regl) {
       ],
     }
   }, {
-    content: "In our rotating frame of reference, the Earth and Sun stand still and the rest of the universe spins around us.",
+    content: "In this rotating frame of reference, the earth and sun appear to stand still while the rest of the universe spins around us.",
   }, {
-    content: "Nothing has changed about the physical system, but from our rotating viwepoint, the potential field no longer describes the movement of a third body.",
+    content: "Of course nothing has changed about the physical system. The universe is not actually spinning.",
+  }, {
+    content: "However, the potential no longer describes movement as seen from our rotating frame of reference.",
     state: {
       axisOpacity: [
         {t: -0.5, value: 0.6},
         {t: 0.0, value: 0.2},
-      ],
-    }
-  }, {
-    content: "In order to account for our rotation, we add the outward pull of apparent \"centrifugal force\" to our potential, calling the resulting field a \"pseudo-potential\" to clarify that although it now describes the movement of bodies in our rotating frame, it's not the true gravitational potential.",
-    state: {
-      synodicField: [
-        {t: 0.0, value: 0.0},
-        {t: 0.7, value: 1.0},
       ],
       scale: [
         {t: -2.0, value: 1.3},
@@ -312,8 +365,38 @@ function run (regl) {
       ]
     }
   }, {
+    content: "In addition to the pull of the earth and sun, an object in this system will appear to be pulled outward by centrifugal force.",
+    state: {
+      centrifugalVectorFieldOpacity: [
+        {t: -0.5, value: 0.0},
+        {t: 0.0, value: 0.4},
+      ],
+    }
+  }, {
     content: h('span', [
-      "The pseudo-potential has five flat points where objects experience no net force in the rotating frame. These are called the Lagrangian points or libration points, abbreviated L",
+      "People like to argue that centrifugal force is not real, but keep in mind that the universe isn't actually spinning. We, the observer, are spinning, so to talk about movement back in the non-spinning universe, we must add centrifugal force to our calculations ",
+      h('em', "as if"),
+      " it is real."
+    ]),
+    state: {
+      centrifugalVectorFieldOpacity: [
+        {t: 0.0, value: 0.4},
+        {t: 0.5, value: 0.0},
+      ],
+    }
+  }, {
+    content: "We add this apparent outward centrifugal force to to our gravitational potential.",
+    state: {
+      synodicField: [
+        {t: 0.0, value: 0.0},
+        {t: 0.7, value: 1.0},
+      ],
+    }
+  }, {
+    content: "The resulting field is called the \"pseudo-potential\" since although it allows us to calculate the force objects feel as seen from our rotating frame, it's not the true gravitational potential.",
+  }, {
+    content: h('span', [
+      "The pseudo-potential has five equilibrium points at which objects experience no net force in the rotating frame. These are called the Lagrangian points or libration points, abbreviated L",
       h('sub', 1),
       ' through L',
       h('sub', 5),
@@ -327,7 +410,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "In the non-rotating frame, objects at the Lagrangian points orbit in a fixed relative position to the earth and sun and experience no net push away from the respective point.",
+      "Objects at the Lagrangian points orbit in a fixed relative position to the earth and sun and experience no net push away from the respective point.",
     ]),
     state: {
       synodicField: [
@@ -432,13 +515,17 @@ function run (regl) {
   });
   document.body.appendChild(contentElement);
 
-  scrollyteller.onUpdate(position => {
-    sequencer.setPosition(position);
-    //console.log('position:', position);
-  });
+  scrollyteller.onUpdate(sequencer.setPosition);
   sequencer.setPosition(0);
 
+  var prevTime = null;
+  var dt;
   regl.frame(ctx => {
+    if (prevTime !== null) dt = ctx.time - prevTime;
+    prevTime = ctx.time;
+    
+    //if (ctx.tick % 60 !== 1) return;
+
     Object.assign(state, sequencer.getState());
 
     state.dirty = false;
@@ -454,7 +541,8 @@ function run (regl) {
 
       if (state.fieldOpacity > 1e-4) {
         drawField({
-          opacity: state.fieldOpacity
+          opacity: state.fieldOpacity,
+          contourOpacity: state.fieldContourOpacity,
         });
       }
 
@@ -478,6 +566,29 @@ function run (regl) {
         }]);
       }
 
+      if (state.sunVectorFieldOpacity > 1e-4) {
+        drawArrows({
+          points: sunGravityVectorFieldBuffer,
+          count: sunGravityVectorField.length,
+          arrowheadWidth: 8,
+          arrowheadLenth: 10,
+          lineWidth: 2,
+          color: [1.0, 0.95, 0.75, state.sunVectorFieldOpacity],
+        });
+      }
+
+      if (state.centrifugalVectorFieldOpacity > 1e-4) {
+        drawArrows({
+          points: centrifugalVectorFieldBuffer,
+          count: centrifugalVectorField.length,
+          arrowheadWidth: 12,
+          arrowheadLength: 14,
+          lineWidth: 4,
+          color: [0.8, 0.95, 1.0, state.centrifugalVectorFieldOpacity],
+        });
+      }
+
+
       drawPoints([{
         // Draw the sun:
         color: [1.0, 0.9, 0.4, 1],
@@ -491,6 +602,25 @@ function run (regl) {
         pointSize: Math.max(8, Math.sqrt(state.mu) * 30) * (state.mu > 1e-4 ? 1.0 : 0.0),
         count: 1
       }]);
+
+      if (state.restrictedThreeBodySynodicOpacity > 1e-4) {
+        if (!state.restrictedThreeBodySynodicWasRunning) {
+          restrictedThreeBodySynodicIntegrator.initialize();
+          state.restrictedThreeBodySynodicWasRunning = true;
+        }
+
+        // Draw the third body
+        integrateRestrictedThreeBodySynodic(dt);
+
+        drawPoints({
+          color: [0.7, 0.7, 0.7, 1],
+          points: {buffer: restrictedThreeBodySynodicBuffer},
+          pointSize: 10,
+          count: 1
+        });
+      } else {
+          state.restrictedThreeBodySynodicWasRunning = false;
+      }
 
       if (state.librationPointOpacity > 1e-2) {
         drawPoints({
