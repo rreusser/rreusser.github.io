@@ -81,6 +81,7 @@ canvas {
 	margin-right: auto;
 	position: relative;
 	top: 20vh;
+  padding: 0 15px;
 }
 
 .frame-content {
@@ -281,7 +282,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Consider what would happen though if we, the observer, rotate at the same speed as the Earth-sun system.",
+    content: "Consider what happens though if we, the observer, rotate at the same speed as the Earth-sun system.",
     state: {
       synodicFrame: [
         {t: -0.5, value: 0.0},
