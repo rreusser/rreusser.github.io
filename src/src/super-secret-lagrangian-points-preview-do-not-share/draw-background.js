@@ -29,6 +29,15 @@ module.exports = function (regl) {
     uniforms: {
       uOpacity: regl.prop('opacity')
     },
+    blend: {
+      enable: true,
+      func: {
+        srcRGB: 'src alpha',
+        srcAlpha: 'zero',
+        dstRGB: 'one',
+        dstAlpha: 'one'
+      },
+    },
     depth: {enable: false},
     count: 3
   });

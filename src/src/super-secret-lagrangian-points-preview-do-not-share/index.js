@@ -106,7 +106,8 @@ require('regl')({ pixelRatio: Math.min(window.devicePixelRatio, 1.5),
     'angle_instanced_arrays',
   ],
   attributes: {
-    antialias: true
+    antialias: true,
+    alpha: false,
   },
   onDone: require('fail-nicely')(run)
 });
@@ -305,7 +306,7 @@ function run (regl) {
       ],
       bgOpacity: [
         {t: 0.0, value: 0.8},
-        {t: 0.1, value: 0.0},
+        {t: 0.1, value: 0.5},
       ]
     }
   }, {
@@ -359,7 +360,7 @@ function run (regl) {
     state: {
       axisOpacity: [
         {t: -0.5, value: 0.6},
-        {t: 0.0, value: 0.2},
+        {t: 0.0, value: 0.0},
       ],
       scale: [
         {t: -2.0, value: 1.3},
@@ -540,16 +541,16 @@ function run (regl) {
     updateSunMoon(state.mu);
 
     uniforms(Object.assign(state, ctx), () => {
-      if (state.bgOpacity > 1e-4) {
-        drawBackground({
-          opacity: state.bgOpacity
-        });
-      }
-
       if (state.fieldOpacity > 1e-4) {
         drawField({
           opacity: state.fieldOpacity,
           contourOpacity: state.fieldContourOpacity,
+        });
+      }
+
+      if (state.bgOpacity > 1e-4) {
+        drawBackground({
+          opacity: state.bgOpacity
         });
       }
 
