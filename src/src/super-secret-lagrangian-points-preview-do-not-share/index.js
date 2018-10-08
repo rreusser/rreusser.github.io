@@ -352,7 +352,7 @@ function run (regl) {
     content: h('span', [
       "In this rotating frame of reference, called the ",
       h('em', 'synodic frame'),
-      ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course nothing about the system has changed. The universe does not actually spin.",
+      ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course our rotation changes nothing about the system and the universe does not actually spin as a result.",
     ]),
   }, {
     content: "In addition to the pull of the earth and sun, objects moving in the synodic frame are affected by centrifugal and Coriolis forces.",
