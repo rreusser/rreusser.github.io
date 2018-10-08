@@ -234,9 +234,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "With this exaggerated mass, you can see that the sun and the earth orbit their center of mass, called their ",
-      h('em', 'barycenter'), 
-      ". This simplified system is called the circular ",
+      "With this exaggerated mass, you can see that the sun and the earth orbit their center of mass. This simplified system is called the circular ",
       h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "two-body problem"),
       " and is relatively easy to solve."
     ]),
