@@ -391,6 +391,11 @@ function run (regl) {
   }, {
     content: "We account for apparent centrifugal force by building its outward pull into our potential.",
     state: {
+      centrifugalVectorFieldOpacity: [
+        {t: -0.5, value: 0.0},
+        {t: 0.0, value: 1.0},
+        {t: 0.7, value: 0.0},
+      ],
       synodicField: [
         {t: 0.0, value: 0.0},
         {t: 0.7, value: 1.0},
