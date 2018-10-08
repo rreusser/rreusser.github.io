@@ -15,7 +15,7 @@ module.exports = function createArrowField (field, xmin, xmax, ymin, ymax, res) 
       var dir = field(x, y);
       if (isFinite(dir[0]) && !isNaN(dir[0]) && isFinite(dir[1]) && !isNaN(dir[1])) {
         arrowData.push([x, y]);
-        arrowData.push([x + dir[0], y + dir[1]]);
+        arrowData.push([dir[0], dir[1]]);
       }
     }
   }

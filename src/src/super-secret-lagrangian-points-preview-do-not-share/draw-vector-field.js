@@ -14,10 +14,11 @@ module.exports = function (regl, opts) {
       uniform vec2 uArrowheadShape;
       attribute vec2 aVertex, aNextVertex;
       attribute vec4 aLine;
+      uniform vec4 uColor;
 
       void main () {
         vec4 p = uView * vec4(aVertex, 0, 1);
-        vec4 n = uView * vec4(aNextVertex, 0, 1);
+        vec4 n = uView * vec4(aVertex + aNextVertex * uColor.a, 0, 1);
         gl_Position = mix(p, n, aLine.y);
 
         vec2 unitVector = normalize((p.xy / p.w  - n.xy / n.w) * vec2(uAspect, 1));
@@ -66,6 +67,10 @@ module.exports = function (regl, opts) {
     },
     depth: {
       enable: false
+    },
+    cull: {
+      enable: true,
+      face: 'back',
     },
     uniforms: {
       uLineWidth: function (ctx, props) {

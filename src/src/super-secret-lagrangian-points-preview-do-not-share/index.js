@@ -190,7 +190,7 @@ function run (regl) {
         ' Lagrange point.'
       ]),
       h('p.frame-text', [
-        "In this walkthrough, I'll describe what Lagrange points are, why we might want one, and how we can get one!"
+        "In this exploration, I'll describe what Lagrange points are, why we might want one, and how we can get our hands on one!"
       ])
     ]),
     state: {
@@ -329,7 +329,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "So far, we've observed everything from a non-rotating fixed position far above the solar system.",
+    content: "So far, we've observed everything from a fixed position far above the solar system.",
     state: {
       axisOpacity: [
         {t: -0.5, value: 0.0},
@@ -365,27 +365,29 @@ function run (regl) {
       ]
     }
   }, {
-    content: "In addition to the pull of the earth and sun, an object in this system will appear to be pulled outward by centrifugal force.",
+    content: "In addition to the pull of the earth and sun, an object moving in this frame of reference will be affected by centrifugal and Coriolis forces.",
+  }, {
+    content: "Centrifugal force is an apparent force that pulls objects outward.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: -0.5, value: 0.0},
-        {t: 0.0, value: 0.4},
+        {t: 0.0, value: 1.0},
       ],
     }
   }, {
-    content: h('span', [
-      "People like to argue that centrifugal force is not real, but keep in mind that the universe isn't actually spinning. We, the observer, are spinning, so to talk about movement back in the non-spinning universe, we must add centrifugal force to our calculations ",
-      h('em', "as if"),
-      " it is real."
-    ]),
+    content: "People like to argue that centrifugal force is not real. They're not wrong, but in our rotating frame of reference it's a very real acceleration which we must account for.",
     state: {
       centrifugalVectorFieldOpacity: [
-        {t: 0.0, value: 0.4},
-        {t: 0.5, value: 0.0},
+        {t: 0.5, value: 1.0},
+        {t: 1.0, value: 0.0},
       ],
     }
   }, {
-    content: "We add this apparent outward centrifugal force to to our gravitational potential.",
+    content: "Coriolis forces are a bit more complicated and depend on the velocity of the particle through the rotating frame of reference."
+  }, {
+    content: "In what follows, we'll neglect Coriolis forces, which means our results only apply to objects which aren't moving in our rotating frame of reference."
+  }, {
+    content: "We account for centrifugal force by building its outward pull into our potential.",
     state: {
       synodicField: [
         {t: 0.0, value: 0.0},
@@ -393,7 +395,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "The resulting field is called the \"pseudo-potential\" since although it allows us to calculate the force objects feel as seen from our rotating frame, it's not the true gravitational potential.",
+    content: "The resulting field is called the \"pseudo-potential\" since although it allows us to calculate the force on objects which are stationary in our rotating frame.",
   }, {
     content: h('span', [
       "The pseudo-potential has five equilibrium points at which objects experience no net force in the rotating frame. These are called the Lagrange points or libration points, abbreviated L",
@@ -410,7 +412,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "Objects at the Lagrange points orbit in a fixed relative position to the earth and sun and experience no net push away from the respective point.",
+      "Objects at the Lagrange points orbit in a fixed relative position to the earth and sun and experience no net pull away from the respective point.",
     ]),
     state: {
       synodicField: [
