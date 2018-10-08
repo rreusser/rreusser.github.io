@@ -235,7 +235,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "With this exaggerated mass, you can see that the sun and the earth orbit their center of mass. This simplified system is called the circular ",
+      "With this exaggerated mass, you can see that the sun and the earth orbit their center of mass. This system is called the circular ",
       h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "two-body problem"),
       " and is relatively easy to solve."
     ]),
@@ -380,7 +380,7 @@ function run (regl) {
   }, {
     content: "People like to argue that centrifugal forces aren't real. They're not wrong, but in the rotating synodic frame they result in a very real acceleration which we must account for.",
   }, {
-    content: "We can easily account for centrifugal forces by building the outward pull into our potential.",
+    content: "We can account for centrifugal forces by building the outward pull into our potential.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: -0.5, value: 1.0},
