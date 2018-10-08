@@ -181,16 +181,16 @@ function run (regl) {
 
   var frames = [{
     raw: h('div', [
-      h('h1.frame-title', "Lagrangian Points"),
+      h('h1.frame-title', "Lagrange Points"),
       h('p.frame-text', [
         'On March 30, 2021, the ',
         h('a', {href: "https://www.jwst.nasa.gov/", target: "_blank"}, "James Webb Space Telescope"),
         ' will be launched into space to supersede the Hubble Space Telescope and observe some of the most distant objects in the universe. To help escape the noisy near-Earth environment and achieve its extreme sensitivity, it will be placed beyond the moon in a halo orbit around a special point in space called the Earth-Sun L',
         h('sub', 2),
-        ' Lagrangian point.'
+        ' Lagrange point.'
       ]),
       h('p.frame-text', [
-        "In this walkthrough, I'll describe what Lagrangian points are, why we might want one, and how we can get one!"
+        "In this walkthrough, I'll describe what Lagrange points are, why we might want one, and how we can get one!"
       ])
     ]),
     state: {
@@ -396,7 +396,7 @@ function run (regl) {
     content: "The resulting field is called the \"pseudo-potential\" since although it allows us to calculate the force objects feel as seen from our rotating frame, it's not the true gravitational potential.",
   }, {
     content: h('span', [
-      "The pseudo-potential has five equilibrium points at which objects experience no net force in the rotating frame. These are called the Lagrangian points or libration points, abbreviated L",
+      "The pseudo-potential has five equilibrium points at which objects experience no net force in the rotating frame. These are called the Lagrange points or libration points, abbreviated L",
       h('sub', 1),
       ' through L',
       h('sub', 5),
@@ -410,7 +410,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "Objects at the Lagrangian points orbit in a fixed relative position to the earth and sun and experience no net push away from the respective point.",
+      "Objects at the Lagrange points orbit in a fixed relative position to the earth and sun and experience no net push away from the respective point.",
     ]),
     state: {
       synodicField: [
@@ -435,7 +435,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "The location of the Lagrangian points depends only upon the relative masses of the two bodies.",
+      "The location of the Lagrange points depends only upon the relative masses of the two bodies.",
     ]),
     state: {
       mu: [
