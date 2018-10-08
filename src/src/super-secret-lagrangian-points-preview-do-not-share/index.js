@@ -164,7 +164,7 @@ function run (regl) {
     var r = Math.sqrt(x * x + y * y);
     var r2 = r * r;
     var G = 0.1;
-    var mag = Math.min(G / r2, 0.2);
+    var mag = Math.min(G / r2, 0.15);
     return [-x * mag / r, -y * mag / r];
   }, -4, 4, -4, 4, 0.2); 
   var sunGravityVectorFieldBuffer = regl.buffer(sunGravityVectorField);
@@ -185,7 +185,7 @@ function run (regl) {
       h('p.frame-text', [
         'On March 30, 2021, the ',
         h('a', {href: "https://www.jwst.nasa.gov/", target: "_blank"}, "James Webb Space Telescope"),
-        ' will be launched into space to supersede the Hubble Space Telescope and observe some of the most distant objects in the universe. To help escape the noisy near-Earth environment and achieve its extreme sensitivity, it will be placed beyond the moon in a halo orbit around a special point in space called the Earth-Sun L',
+        ' will be launched into space to supersede the Hubble Space Telescope and observe some of the most distant objects in the universe. To help escape the noisy near-Earth environment and achieve its extreme sensitivity, it will be placed beyond the moon in a so-called halo orbit around a special point in space called the Earth-Sun L',
         h('sub', 2),
         ' Lagrange point.'
       ]),
@@ -234,7 +234,9 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "With this exaggerated mass, you can see that the sun and the earth orbit a common point. This simplified system is called a circular ",
+      "With this exaggerated mass, you can see that the sun and the earth orbit their center of mass, called their ",
+      h('em', 'barycenter'), 
+      ". This simplified system is called the circular ",
       h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "two-body problem"),
       " and is relatively easy to solve."
     ]),
@@ -355,7 +357,7 @@ function run (regl) {
       ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course nothing about the system has changed. The universe does not actually spin.",
     ]),
   }, {
-    content: "In addition to the pull of the earth and sun, objects moving in the synodic frame will be affected by centrifugal and Coriolis forces.",
+    content: "In addition to the pull of the earth and sun, objects moving in the synodic frame are affected by centrifugal and Coriolis forces.",
     state: {
       axisOpacity: [
         {t: -0.5, value: 0.6},
@@ -383,7 +385,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Coriolis forces are a bit more complicated and depend on the velocity of the particle through the synodic frame."
+    content: "Coriolis forces are a bit more complicated and depend on the velocity of an object as it moves in the synodic frame. An object stationary in the synodic frame experiences no Coriolis force."
   }, {
     content: "In what follows, we'll neglect Coriolis forces, which means our results will only apply to objects stationary in synodic frame."
   }, {

@@ -29,8 +29,8 @@ module.exports = function restrictedThreeBody (props) {
     time = 0.0;
     integrator.t = 0;
     integrator.dt = 1 / 60;
-    state[0] = 1.08;
-    state[1] = -0.08;
+    state[0] = 1.06;
+    state[1] = -0.11;
     state[2] = 0.0;
     state[3] = -0.8;
   }
