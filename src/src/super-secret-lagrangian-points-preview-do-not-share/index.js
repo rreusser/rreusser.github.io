@@ -421,6 +421,10 @@ function run (regl) {
       "Objects at the Lagrange points orbit in a fixed position relative to the earth and sun and experience no net pull away from the respective Lagrange point.",
     ]),
     state: {
+      fieldOpacity: [
+        {t: -0.5, value: 1.0},
+        {t: 0.0, value: 0.5},
+      ],
       synodicField: [
         {t: -0.5, value: 1.0},
         {t: 0.0, value: 0.0},
@@ -432,6 +436,10 @@ function run (regl) {
     }
   }, {
     state: {
+      fieldOpacity: [
+        {t: 0.0, value: 0.5},
+        {t: 0.5, value: 1.0},
+      ],
       synodicField: [
         {t: 0.0, value: 0.0},
         {t: 0.5, value: 1.0},
