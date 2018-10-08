@@ -311,7 +311,7 @@ function run (regl) {
       ]
     }
   }, {
-    content: "Objects in this field fall inward toward lower potential. (To be precise, the force of gravity is opposite the gradient of the potential.)",
+    content: "Objects in this field fall inward toward lower potential.",
     state: {
       sunVectorFieldOpacity: [
         {t: -1.0, value: 1.0},
@@ -323,7 +323,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "The earth orbits in the gravitational potential well of the sun but also has its own potential well (recall we've greatly exaggerated the earth's mass).",
+    content: "The earth orbits in the gravitational potential well of the sun but also has its own potential well.",
     state: {
       mu: [
         {t: -0.5, value: 0.0},
@@ -419,7 +419,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "Objects at the Lagrange points orbit in a fixed relative position to the earth and sun and experience no net pull away from the respective point.",
+      "Objects at the Lagrange points orbit in a fixed position relative to the earth and sun and experience no net pull away from the respective Lagrange point.",
     ]),
     state: {
       synodicField: [
