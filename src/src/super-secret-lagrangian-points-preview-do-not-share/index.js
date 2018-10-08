@@ -225,7 +225,7 @@ function run (regl) {
     content: h('span', [
       "The mass of the earth is only about ",
       h('a', {href: "http://www.wolframalpha.com/input/?i=(mass+of+the+earth)+%2F+(mass+of+the+sun)+as+a+percent", target: "_blank"}, "0.0003%"),
-      " the mass of the sun, so to make things interesting and a bit easier to see, we'll imagine an earth with 10% the mass of the sun."
+      " the mass of the sun. To make things interesting and a bit easier to see, we'll imagine an earth with 10% the mass of the sun."
     ]),
     state: {
       mu: [
@@ -250,7 +250,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "If we add a third body, it interacts gravitationally with the other two bodies, complicating things beyond what we can attack with a closed-form solution. (simulation not yet implemented)",
+    content: "A third body interacts gravitationally with the other two bodies and complicates things beyond what we can attack with a closed-form solution. (simulation not yet implemented)",
     state: {
       axisOpacity: [
         {t: -0.4, value: 0.5},
@@ -368,7 +368,7 @@ function run (regl) {
       ]
     }
   }, {
-    content: "Coriolis forces are a bit complicated. As it turns out, we won't need them anyway since objects stationary in the synodic frame experience no Coriolis forces. In what follows, we'll neglect them."
+    content: "Coriolis forces are a bit complicated. In what follows, we'll neglect them. As it turns out, we won't need them anyway since objects stationary in the synodic frame experience no Coriolis forces."
   }, {
     content: "Centrifugal forces pull objects outward and are an apparent force seen in rotating frames of reference.",
     state: {
