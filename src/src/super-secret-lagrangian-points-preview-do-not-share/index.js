@@ -229,7 +229,7 @@ function run (regl) {
     state: {
       mu: [
         {t: -0.5, value: 0.001},
-        {t: 0.0, value: 0.1},
+        {t: 0.0, value: 1 / 11},
       ]
     }
   }, {
@@ -280,7 +280,7 @@ function run (regl) {
     content: "To understand how the third body moves in this system, let's first look at the gravitational field of the sun.",
     state: {
       mu: [
-        {t: -0.5, value: 0.1},
+        {t: -0.5, value: 1 / 11},
         {t: 0.0, value: 0.0},
       ],
       orbitOpacity: [
@@ -325,7 +325,7 @@ function run (regl) {
     state: {
       mu: [
         {t: -0.5, value: 0.0},
-        {t: 0.0, value: 0.1},
+        {t: 0.0, value: 1 / 11},
       ],
     }
   }, {
@@ -349,11 +349,13 @@ function run (regl) {
       ],
     }
   }, {
-    content: "In this rotating frame of reference, the earth and sun appear to stand still while the rest of the universe spins around us.",
+    content: h('span', [
+      "In this rotating frame of reference, called the ",
+      h('em', 'synodic frame'),
+      ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course nothing about the system has changed. The universe does not actually spin.",
+    ]),
   }, {
-    content: "Of course nothing has changed about the physical system. The universe is not actually spinning.",
-  }, {
-    content: "However, the potential no longer describes movement as seen from our rotating frame of reference.",
+    content: "In addition to the pull of the earth and sun, objects moving in the synodic frame will be affected by centrifugal and Coriolis forces.",
     state: {
       axisOpacity: [
         {t: -0.5, value: 0.6},
@@ -365,8 +367,6 @@ function run (regl) {
       ]
     }
   }, {
-    content: "In addition to the pull of the earth and sun, an object moving in this frame of reference will be affected by centrifugal and Coriolis forces.",
-  }, {
     content: "Centrifugal force is an apparent force that pulls objects outward.",
     state: {
       centrifugalVectorFieldOpacity: [
@@ -375,7 +375,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "People like to argue that centrifugal force is not real. They're not wrong, but in our rotating frame of reference it's a very real acceleration which we must account for.",
+    content: "People like to argue that centrifugal force is not real. They're not wrong, but in the synodic frame it's a very real acceleration which we must account for.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: 0.5, value: 1.0},
@@ -383,11 +383,11 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Coriolis forces are a bit more complicated and depend on the velocity of the particle through the rotating frame of reference."
+    content: "Coriolis forces are a bit more complicated and depend on the velocity of the particle through the synodic frame."
   }, {
-    content: "In what follows, we'll neglect Coriolis forces, which means our results only apply to objects which aren't moving in our rotating frame of reference."
+    content: "In what follows, we'll neglect Coriolis forces, which means our results will only apply to objects stationary in synodic frame."
   }, {
-    content: "We account for centrifugal force by building its outward pull into our potential.",
+    content: "We account for apparent centrifugal force by building its outward pull into our potential.",
     state: {
       synodicField: [
         {t: 0.0, value: 0.0},
@@ -395,10 +395,10 @@ function run (regl) {
       ],
     }
   }, {
-    content: "The resulting field is called the \"pseudo-potential\" since although it allows us to calculate the force on objects which are stationary in our rotating frame.",
+    content: "The resulting field is called the \"pseudo-potential\". It's not the real gravitational potential, but it allows us to calculate the force on objects stationary in the synodic frame.",
   }, {
     content: h('span', [
-      "The pseudo-potential has five equilibrium points at which objects experience no net force in the rotating frame. These are called the Lagrange points or libration points, abbreviated L",
+      "The pseudo-potential has five equilibrium points at which stationary objects experience no net force. These are called the Lagrange or libration points, abbreviated L",
       h('sub', 1),
       ' through L',
       h('sub', 5),
@@ -441,7 +441,7 @@ function run (regl) {
     ]),
     state: {
       mu: [
-        {t: -0.2, value: 0.1},
+        {t: -0.2, value: 1 / 11},
         {t: 0.4, value: 0.5},
       ],
     }
@@ -455,7 +455,7 @@ function run (regl) {
   }, {
     state: {
       mu: [
-        {t: 0.5, value: 0.1},
+        {t: 0.5, value: 1 / 11},
       ],
     }
   }];
