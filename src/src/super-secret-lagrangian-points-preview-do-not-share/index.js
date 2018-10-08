@@ -369,7 +369,7 @@ function run (regl) {
   }, {
     content: "Coriolis forces are a bit complicated. As it turns out, we won't need them anyway since objects stationary in the synodic frame experience no Coriolis forces. In what follows, we'll neglect them."
   }, {
-    content: "Centrifugal forces which pull objects outward are an apparent force seen in rotating frames of reference.",
+    content: "Centrifugal forces pull objects outward and are an apparent force seen in rotating frames of reference.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: -0.5, value: 0.0},
@@ -377,18 +377,12 @@ function run (regl) {
       ],
     }
   }, {
-    content: "People like to argue that centrifugal forces are not real. They're not wrong, but in the rotating synodic frame they result in a very real acceleration which we must account for.",
-    state: {
-      centrifugalVectorFieldOpacity: [
-        {t: 0.5, value: 1.0},
-        {t: 1.0, value: 0.0},
-      ],
-    }
+    content: "People like to argue that centrifugal forces aren't real. They're not wrong, but in the rotating synodic frame they result in a very real acceleration which we must account for.",
   }, {
-    content: "We can very easily account for apparent centrifugal force by building its outward pull into our potential.",
+    content: "We can easily account for centrifugal forces by building the outward pull into our potential.",
     state: {
       centrifugalVectorFieldOpacity: [
-        {t: -0.5, value: 0.0},
+        {t: -0.5, value: 1.0},
         {t: 0.0, value: 1.0},
         {t: 0.7, value: 0.0},
       ],
@@ -398,10 +392,18 @@ function run (regl) {
       ],
     }
   }, {
-    content: "The resulting is called the \"pseudo-potential\". It's not the real gravitational potential, but we use it to calculate the force on objects stationary in the synodic frame.",
+    content: h('span', [
+      "The result is called a ",
+      h("em", 'pseudo-potential'),
+      ". It's not the real gravitational potential, but we can use it to calculate the force on objects stationary in the synodic frame.",
+    ]),
   }, {
     content: h('span', [
-      "The pseudo-potential has five equilibrium points at which stationary objects experience no net force. These are called the Lagrange or libration points, abbreviated L",
+      "The pseudo-potential has five equilibrium points at which stationary objects experience no net force. These are called the ",
+      h('em', 'Lagrange'),
+      ' or ',
+      h('em', 'libration points'),
+      ", abbreviated L",
       h('sub', 1),
       ' through L',
       h('sub', 5),
