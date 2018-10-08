@@ -321,7 +321,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "The earth orbits in the gravitational potential well of the sun but also has its own potential well.",
+    content: "The earth and sun both have a potential well and fall toward each other as a result.",
     state: {
       mu: [
         {t: -0.5, value: 0.0},
@@ -367,7 +367,9 @@ function run (regl) {
       ]
     }
   }, {
-    content: "Centrifugal force is an apparent force that pulls objects outward.",
+    content: "Coriolis forces are a bit complicated. As it turns out, we won't need them anyway since objects stationary in the synodic frame experience no Coriolis forces. In what follows, we'll neglect them."
+  }, {
+    content: "Centrifugal forces which pull objects outward are an apparent force seen in rotating frames of reference.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: -0.5, value: 0.0},
@@ -375,7 +377,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "People like to argue that centrifugal force is not real. They're not wrong, but in the rotating synodic frame it's a very real acceleration which we must account for.",
+    content: "People like to argue that centrifugal forces are not real. They're not wrong, but in the rotating synodic frame they result in a very real acceleration which we must account for.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: 0.5, value: 1.0},
@@ -383,11 +385,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Coriolis forces are a bit more complicated and depend on the velocity of an object as it moves in the synodic frame. An object stationary in the synodic frame experiences no Coriolis force."
-  }, {
-    content: "In what follows, we'll neglect Coriolis forces, which means our results will only apply to objects stationary in the synodic frame."
-  }, {
-    content: "We account for apparent centrifugal force by building its outward pull into our potential.",
+    content: "We can very easily account for apparent centrifugal force by building its outward pull into our potential.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: -0.5, value: 0.0},
@@ -400,7 +398,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "The resulting field is called the \"pseudo-potential\". It's not the real gravitational potential, but it allows us to calculate the force on objects stationary in the synodic frame.",
+    content: "The resulting is called the \"pseudo-potential\". It's not the real gravitational potential, but we use it to calculate the force on objects stationary in the synodic frame.",
   }, {
     content: h('span', [
       "The pseudo-potential has five equilibrium points at which stationary objects experience no net force. These are called the Lagrange or libration points, abbreviated L",
