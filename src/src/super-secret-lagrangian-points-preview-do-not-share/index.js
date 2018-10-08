@@ -181,7 +181,7 @@ function run (regl) {
 
   var frames = [{
     raw: h('div', [
-      h('h1.frame-title', "Lagrange Points"),
+      h('h1.frame-title', "Lagrange Points and Halo Orbits"),
       h('p.frame-text', [
         'On March 30, 2021, the ',
         h('a', {href: "https://www.jwst.nasa.gov/", target: "_blank"}, "James Webb Space Telescope"),
@@ -377,7 +377,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "People like to argue that centrifugal force is not real. They're not wrong, but in the synodic frame it's a very real acceleration which we must account for.",
+    content: "People like to argue that centrifugal force is not real. They're not wrong, but in the rotating synodic frame it's a very real acceleration which we must account for.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: 0.5, value: 1.0},
