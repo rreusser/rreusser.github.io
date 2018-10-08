@@ -100,7 +100,7 @@ canvas {
 }
 `);
 
-require('regl')({ pixelRatio: Math.min(window.devicePixelRatio, 1.5),
+require('regl')({ pixelRatio: Math.min(window.devicePixelRatio, 1.25),
   extensions: [
     'oes_standard_derivatives',
     'angle_instanced_arrays',
@@ -306,7 +306,7 @@ function run (regl) {
       ],
       bgOpacity: [
         {t: 0.0, value: 0.8},
-        {t: 0.1, value: 0.5},
+        {t: 0.1, value: 0.7},
       ]
     }
   }, {
