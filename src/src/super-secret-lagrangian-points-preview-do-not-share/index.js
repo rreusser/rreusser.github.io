@@ -385,7 +385,7 @@ function run (regl) {
   }, {
     content: "Coriolis forces are a bit more complicated and depend on the velocity of an object as it moves in the synodic frame. An object stationary in the synodic frame experiences no Coriolis force."
   }, {
-    content: "In what follows, we'll neglect Coriolis forces, which means our results will only apply to objects stationary in synodic frame."
+    content: "In what follows, we'll neglect Coriolis forces, which means our results will only apply to objects stationary in the synodic frame."
   }, {
     content: "We account for apparent centrifugal force by building its outward pull into our potential.",
     state: {
