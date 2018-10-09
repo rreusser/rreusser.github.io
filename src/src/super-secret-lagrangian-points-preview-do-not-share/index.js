@@ -191,7 +191,7 @@ function run (regl) {
         ' Lagrange point.'
       ]),
       h('p.frame-text', [
-        "In this exploration, I'll describe what Lagrange points are, why we might want one, and how we can get our hands on one!"
+        "In this exploration, you'll learn what Lagrange points are, why we might want one, and how we can get our hands on one!"
       ])
     ]),
     state: {
@@ -208,7 +208,7 @@ function run (regl) {
       ],
     },
   }, {
-    content: "Consider the earth as it orbits the sun—though any two gravitating bodies would do.",
+    content: "Consider the earth as it orbits the sun (not to scale), though any two gravitating bodies would do.",
     state: {
       orbitOpacity: [
         {t: -0.5, value: 0.0},
@@ -220,29 +220,29 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Of course this diagram is not to scale since both bodies would be far too small to see here."
-  }, {
     content: h('span', [
       "The mass of the earth is only about ",
       h('a', {href: "http://www.wolframalpha.com/input/?i=(mass+of+the+earth)+%2F+(mass+of+the+sun)+as+a+percent", target: "_blank"}, "0.0003%"),
-      " the mass of the sun. To make things interesting and a bit easier to see, we'll imagine an earth with 10% the mass of the sun."
+      " the mass of the sun. To make things interesting and easier to see, we'll imagine the earth has 10% the mass of the sun."
     ]),
     state: {
       mu: [
         {t: -0.5, value: 0.001},
-        {t: 0.0, value: 1 / 11},
+        {t: 0.5, value: 1 / 11},
       ]
     }
   }, {
     content: h('span', [
-      "With this exaggerated mass, you can see that the sun and the earth orbit their center of mass. This system is called the circular ",
-      h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "two-body problem"),
+      "With this exaggerated mass, you can see that the sun and the earth orbit their collective center of mass. This system is called the ",
+      h('em', [
+        h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "circular two-body problem"),
+      ]),
       " and is relatively easy to solve."
     ]),
     state: {
       axisOpacity: [
         {t: -0.5, value: 0.0},
-        {t: 0.4, value: 0.5},
+        {t: 0.5, value: 0.5},
       ],
       orbitOpacity: [
         {t: -0.5, value: 0.5},
@@ -250,7 +250,11 @@ function run (regl) {
       ],
     }
   }, {
-    content: "A third body interacts gravitationally with the other two bodies and complicates things beyond what we can attack with a closed-form solution. (simulation not yet implemented)",
+    content: h('span', [
+      "A third body interacts gravitationally with the other two bodies. This system is called the ",
+      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Three-body_problem", target: "_blank"}, "three-body problem")),
+      " and immediately complicates things beyond our ability to solve directly. (simulation not yet implemented)",
+    ]),
     state: {
       axisOpacity: [
         {t: -0.4, value: 0.5},
@@ -264,8 +268,8 @@ function run (regl) {
   }, {
   }, {
     content: h('span', [
-      "If, however, the third body is a small satellite that doesn't affect the orbits of the two larger bodies, we can say quite a bit more about the behavior. This is called the ",
-      h('a', {href: "https://ocw.mit.edu/courses/aeronautics-and-astronautics/16-07-dynamics-fall-2009/lecture-notes/MIT16_07F09_Lec18.pdf", target: "_blank"}, "restricted circular three-body problem"),
+      "If, however, the third body is a satellite too small to significantly affect the orbits of the two larger bodies, we can say quite a bit about the behavior. This is called the ",
+      h('em', h('a', {href: "https://ocw.mit.edu/courses/aeronautics-and-astronautics/16-07-dynamics-fall-2009/lecture-notes/MIT16_07F09_Lec18.pdf", target: "_blank"}, "restricted circular three-body problem")),
       "."
     ]),
     state: {
@@ -296,13 +300,25 @@ function run (regl) {
         {t: -0.5, value: 0.0},
         {t: 0.0, value: 1.0},
       ],
+      sunVectorFieldLength: [
+        {t: -0.5, value: 0.0},
+        {t: 0.0, value: 1.0},
+      ],
     },
   }, {
     content: "We can represent the sun's gravity as a potential field.",
     state: {
       fieldOpacity: [
-        {t: -0.5, value: 0.0},
+        {t: 0.0, value: 0.0},
+        {t: 0.5, value: 1.0},
+      ],
+      sunVectorFieldOpacity: [
         {t: 0.0, value: 1.0},
+        {t: 1.0, value: 0.0},
+      ],
+      fieldContourOpacity: [
+        {t: 0.0, value: 0.0},
+        {t: 0.5, value: 0.3},
       ],
       bgOpacity: [
         {t: 0.0, value: 0.8},
@@ -311,30 +327,12 @@ function run (regl) {
     }
   }, {
     content: "Objects in this field fall inward toward lower potential.",
-    state: {
-      sunVectorFieldOpacity: [
-        {t: -1.0, value: 1.0},
-        {t: -0.5, value: 0.0},
-      ],
-      fieldContourOpacity: [
-        {t: -1.0, value: 0.0},
-        {t: -0.5, value: 0.3},
-      ],
-    }
   }, {
-    content: "The earth and sun both have a potential well and fall toward each other as a result.",
+    content: "In the circular two-body problem, the earth and sun fall into each other's gravitational fields and sit in circular orbits.",
     state: {
       mu: [
         {t: -0.5, value: 0.0},
         {t: 0.0, value: 1 / 11},
-      ],
-    }
-  }, {
-    content: "So far, we've observed everything from a fixed position far above the solar system.",
-    state: {
-      axisOpacity: [
-        {t: -0.5, value: 0.0},
-        {t: 0.0, value: 0.6},
       ],
       orbitOpacity: [
         {t: -0.5, value: 0.0},
@@ -342,7 +340,17 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Imagine now that we, the observer, rotate at the same speed as the earth-sun system.",
+    content: "We seek to describe how a small third body moves in this potential.",
+  }, {
+    content: "So far, we've observed everything from a fixed position far above the solar system.",
+    state: {
+      axisOpacity: [
+        {t: -0.5, value: 0.0},
+        {t: 0.0, value: 0.6},
+      ],
+    }
+  }, {
+    content: "Imagine instead that we, the observer, rotate at the same speed as the earth-sun system.",
     state: {
       synodicFrame: [
         {t: -0.5, value: 0.0},
@@ -353,10 +361,16 @@ function run (regl) {
     content: h('span', [
       "In this rotating frame of reference, called the ",
       h('em', 'synodic frame'),
-      ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course our rotation changes nothing about the system and the universe does not actually spin as a result.",
+      ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course our rotation changes nothing about the system and does not cause the universe to spin.",
     ]),
   }, {
-    content: "In addition to the pull of the earth and sun, objects moving in the synodic frame are affected by centrifugal and Coriolis forces.",
+    content: h('span', [
+      "A small satellite feels the pull of the earth and sun, but to describe its motion in the synodic frame, we must also add the apparent ",
+      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Centrifugal_force", target: "_blank"}, "centrifugal")),
+      " and ",
+      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Coriolis_force", target: "_blank"}, "Coriolis")),
+      " forces.",
+    ]),
     state: {
       axisOpacity: [
         {t: -0.5, value: 0.6},
@@ -364,40 +378,76 @@ function run (regl) {
       ],
       scale: [
         {t: -2.0, value: 1.3},
-        {t: 1.0, value: 1.7}
       ]
     }
   }, {
-    content: "Coriolis forces are a bit complicated. In what follows, we'll neglect them. As it turns out, we won't need them anyway since objects stationary in the synodic frame experience no Coriolis forces."
+    content: "People like to argue that these forces aren't real. They're not wrong, but we must include them to accurately describe motion from our rotating frame of reference.",
   }, {
-    content: "Centrifugal forces pull objects outward and are an apparent force seen in rotating frames of reference.",
+    content: "The Coriolis force on an object depends on its velocity the synodic frame. In what follows, we won't need it since objects stationary in the synodic frame experience no Coriolis force."
+  }, {
+    content: "The centrifugal force is an apparent outward pull seen in rotating frames.",
     state: {
+      scale: [
+        {t: 1.5, value: 1.7}
+      ],
       centrifugalVectorFieldOpacity: [
-        {t: -0.5, value: 0.0},
-        {t: 0.0, value: 1.0},
+        {t: -0.25, value: 0.0},
+        {t: 0.25, value: 1.0},
+      ],
+      centrifugalVectorFieldLength: [
+        {t: -0.25, value: 0.0},
+        {t: 0.25, value: 1.0},
       ],
     }
   }, {
-    content: "People like to argue that centrifugal forces aren't real. They're not wrong, but in the rotating synodic frame they result in a very real acceleration which we must account for.",
-  }, {
-    content: "We can account for centrifugal forces by building the outward pull into our potential.",
+    content: "We account for it by building centrifugal force into our potential.",
     state: {
       centrifugalVectorFieldOpacity: [
-        {t: -0.5, value: 1.0},
-        {t: 0.0, value: 1.0},
-        {t: 0.7, value: 0.0},
+        {t: -0.25, value: 1.0},
+        {t: 0.5, value: 0.0},
       ],
       synodicField: [
-        {t: 0.0, value: 0.0},
-        {t: 0.7, value: 1.0},
+        {t: -0.25, value: 0.0},
+        {t: 0.5, value: 1.0},
       ],
     }
   }, {
     content: h('span', [
-      "The result is called a ",
+      "The result is called the ",
       h("em", 'pseudo-potential'),
       ". It's not the real gravitational potential, but we can use it to calculate the force on objects stationary in the synodic frame.",
     ]),
+    /*
+  }, {
+    content: "When no other objects are present, the pseudo-potential is flat in a ring around the body.",
+    state: {
+      orbitOpacity: [
+        {t: -0.5, value: 1},
+        {t: 0.0, value: 0},
+      ],
+      mu: [
+        {t: -0.5, value: 1 / 11},
+        {t: 0.0, value: 0},
+      ]
+    }
+  }, {
+    content: "At this radius, small satellites sit in a circular orbit.",
+    state: {
+      synodicFrame: [
+        {t: -0.5, value: 1.0},
+        {t: 0.0, value: 0.0},
+        {t: 0.8, value: 0.0},
+        {t: 1.0, value: 1.0},
+      ],
+      orbitOpacity: [
+        {t: 0.0, value: 1},
+      ],
+      mu: [
+        {t: 0.7, value: 1e-7},
+        {t: 1.1, value: 1 / 11},
+      ]
+    }
+    */
   }, {
     content: h('span', [
       "The pseudo-potential has five equilibrium points at which stationary objects experience no net force. These are called the ",
@@ -412,7 +462,7 @@ function run (regl) {
     ]),
     state: {
       librationPointOpacity: [
-        {t: -0.25, value: 0},
+        {t: -0.15, value: 0},
         {t: 0.15, value: 1.0},
       ]
     }
@@ -422,47 +472,45 @@ function run (regl) {
     ]),
     state: {
       fieldOpacity: [
-        {t: -0.5, value: 1.0},
-        {t: 0.0, value: 0.5},
+        {t: -0.25, value: 1.0},
+        {t: 0.1, value: 0.35},
+        {t: 1.0, value: 0.35},
+        {t: 1.3, value: 1.0},
       ],
-      synodicField: [
+      /*synodicField: [
         {t: -0.5, value: 1.0},
         {t: 0.0, value: 0.0},
-      ],
+      ],*/
       synodicFrame: [
-        {t: -0.5, value: 1.0},
+        {t: -0.3, value: 1.0},
         {t: 0.0, value: 0.0},
       ]
     }
   }, {
     state: {
-      fieldOpacity: [
-        {t: 0.0, value: 0.5},
-        {t: 0.5, value: 1.0},
-      ],
-      synodicField: [
+      /*synodicField: [
         {t: 0.0, value: 0.0},
         {t: 0.5, value: 1.0},
-      ],
+      ],*/
       synodicFrame: [
         {t: 0.0, value: 0.0},
-        {t: 0.5, value: 1.0},
+        {t: 0.3, value: 1.0},
       ]
     }
   }, {
     content: h('span', [
-      "The location of the Lagrange points depends only upon the relative masses of the two bodies.",
+      "The location of the Lagrange points depends only on the relative masses of the two bodies.",
     ]),
     state: {
       mu: [
-        {t: -0.2, value: 1 / 11},
-        {t: 0.4, value: 0.5},
+        {t: 0.5, value: 1 / 11},
+        {t: 1.2, value: 0.5},
       ],
     }
   }, {
     state: {
       mu: [
-        {t: 0.8, value: 1e-3},
+        {t: 1.0, value: 1e-3},
       ],
     }
   }, {
@@ -589,6 +637,7 @@ function run (regl) {
           arrowheadWidth: 8,
           arrowheadLenth: 10,
           lineWidth: 2,
+          lengthMultiplier: state.sunVectorFieldLength,
           color: [1.0, 0.95, 0.75, state.sunVectorFieldOpacity],
         });
       }
@@ -600,6 +649,7 @@ function run (regl) {
           arrowheadWidth: 12,
           arrowheadLength: 14,
           lineWidth: 4,
+          lengthMultiplier: state.centrifugalVectorFieldLength,
           color: [0.8, 0.95, 1.0, state.centrifugalVectorFieldOpacity],
         });
       }
@@ -615,7 +665,7 @@ function run (regl) {
         // Draw the earth:
         color: [0.2, 0.4, 1, 1],
         points: {buffer: sunMoonBuffer, offset: 8},
-        pointSize: Math.max(8, Math.sqrt(state.mu) * 30) * (state.mu > 1e-4 ? 1.0 : 0.0),
+        pointSize: Math.max(8, Math.sqrt(state.mu) * 30) * (state.mu > 1e-8 ? 1.0 : 0.0),
         count: 1
       }]);
 

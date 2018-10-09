@@ -33,6 +33,10 @@ module.exports = function restrictedThreeBody (props) {
     state[1] = -0.11;
     state[2] = 0.0;
     state[3] = -0.8;
+    //state[0] = 0.5;
+    //state[1] = 0.8;
+    //state[2] = 0.0;
+    //state[3] = 0.0;
   }
 
   function step (dt) {
