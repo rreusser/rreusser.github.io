@@ -100,11 +100,11 @@ canvas {
 }
 `);
 
-var preferredPixelRatio = 2;
+var preferredPixelRatio = 1.5;
 if (window.innerWidth > 640) {
-  preferredPixelRatio = 1.5;
-} else if (window.innerWidth > 800) {
   preferredPixelRatio = 1.25;
+} else if (window.innerWidth > 800) {
+  preferredPixelRatio = 1.125;
 } else if (window.innerWidth > 1024) {
   preferredPixelRatio = 1;
 }
