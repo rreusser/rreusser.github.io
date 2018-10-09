@@ -11,7 +11,7 @@ module.exports = function (regl) {
   for (var i = 0, i4 = 0; i < n; i++, i4 += 4) {
     var r =  Math.random();
     r = 1 + (r - 1) * 80;
-    var r = Math.max(0, Math.min(255, Math.floor(256 * Math.pow(r, 3))));
+    var r = Math.max(0, Math.min(255, Math.floor(256 * 0.8 * Math.pow(r, 3))));
     backgroundTextureData[i4] = r;
     backgroundTextureData[i4 + 1] = r;
     backgroundTextureData[i4 + 2] = r;
