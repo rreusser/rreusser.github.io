@@ -3,6 +3,32 @@
 var glsl = require('glslify');
 
 module.exports = function (regl) {
+  var w = 256;
+  var h = 256;
+
+  var backgroundTextureData = new Uint8Array(w * h * 4);
+  var n = w * h;
+  for (var i = 0, i4 = 0; i < n; i++, i4 += 4) {
+    var r =  Math.random();
+    r = 1 + (r - 1) * 80;
+    var r = Math.max(0, Math.min(255, Math.floor(256 * Math.pow(r, 3))));
+    backgroundTextureData[i4] = r;
+    backgroundTextureData[i4 + 1] = r;
+    backgroundTextureData[i4 + 2] = r;
+    backgroundTextureData[i4 + 3] = 255;
+  }
+
+  var backgroundTexture = new regl.texture({
+    data: backgroundTextureData,
+    width: w,
+    height: h,
+    wrapS: 'repeat',
+    wrapT: 'repeat',
+    mag: 'linear',
+    min: 'linear',
+  });
+
+
   return regl({
     vert: `
       precision highp float;
@@ -16,17 +42,22 @@ module.exports = function (regl) {
     `,
     frag: glsl`
       precision highp float;
-      #pragma glslify: random = require(glsl-noise/simplex/2d)
       uniform vec2 uResolution;
       uniform float uOpacity;
+      uniform sampler2D uBackground;
+      uniform vec2 uTextureScale;
       varying vec2 uv;
       void main () {
-        float r = random(uv / uResolution / 35.0);
-        gl_FragColor = vec4(vec3(smoothstep(0.85, 1.0, r)) * uOpacity, 1);
+        gl_FragColor = vec4(texture2D(uBackground, uv * uTextureScale).rgb, uOpacity);
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
     uniforms: {
+      uBackground: backgroundTexture,
+      uTextureScale: ctx => [
+        Math.min(ctx.framebufferHeight, ctx.framebufferWidth) / w / 6,
+        Math.min(ctx.framebufferHeight, ctx.framebufferWidth) / h / 6,
+      ],
       uOpacity: regl.prop('opacity')
     },
     blend: {

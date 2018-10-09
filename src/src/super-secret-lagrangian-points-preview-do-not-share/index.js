@@ -49,7 +49,7 @@ canvas {
 
 .frame {
 	font-family: 'Open Sans', sans-serif;
-  height: 100vh;
+  height: 110vh;
   position: relative;
   text-align: center;
 }
@@ -100,7 +100,17 @@ canvas {
 }
 `);
 
-require('regl')({ pixelRatio: Math.min(window.devicePixelRatio, 1.25),
+var preferredPixelRatio = 2;
+if (window.innerWidth > 640) {
+  preferredPixelRatio = 1.5;
+} else if (window.innerWidth > 800) {
+  preferredPixelRatio = 1.25;
+} else if (window.innerWidth > 1024) {
+  preferredPixelRatio = 1;
+}
+
+require('regl')({
+  pixelRatio: Math.min(window.devicePixelRatio, preferredPixelRatio),
   extensions: [
     'oes_standard_derivatives',
     'angle_instanced_arrays',
@@ -165,9 +175,9 @@ function run (regl) {
     var r = Math.sqrt(x * x + y * y);
     var r2 = r * r;
     var G = 0.1;
-    var mag = Math.min(G / r2, 0.15);
+    var mag = Math.min(G / r2, 0.2);
     return [-x * mag / r, -y * mag / r];
-  }, -4, 4, -4, 4, 0.2); 
+  }, -4, 4, -4, 4, 0.25); 
   var sunGravityVectorFieldBuffer = regl.buffer(sunGravityVectorField);
 
   var centrifugalVectorField = require('./arrow-field')(function (x, y) {
@@ -191,7 +201,7 @@ function run (regl) {
         ' Lagrange point.'
       ]),
       h('p.frame-text', [
-        "In this exploration, you'll learn what Lagrange points are, why we might want one, and how we can get our hands on one!"
+        "This exploration will walk through what Lagrange points are, how they relate to halo orbits, and how we can get our hands on one! (copy needs work)"
       ])
     ]),
     state: {
@@ -298,7 +308,7 @@ function run (regl) {
     state: {
       sunVectorFieldOpacity: [
         {t: -0.5, value: 0.0},
-        {t: 0.0, value: 1.0},
+        {t: 0.0, value: 0.5},
       ],
       sunVectorFieldLength: [
         {t: -0.5, value: 0.0},
@@ -313,7 +323,7 @@ function run (regl) {
         {t: 0.5, value: 1.0},
       ],
       sunVectorFieldOpacity: [
-        {t: 0.0, value: 1.0},
+        {t: 0.0, value: 0.5},
         {t: 1.0, value: 0.0},
       ],
       fieldContourOpacity: [
@@ -340,7 +350,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "We seek to describe how a small third body moves in this potential.",
+    content: "We seek to say what we can about how a small third body moves in this potential.",
   }, {
     content: "So far, we've observed everything from a fixed position far above the solar system.",
     state: {
@@ -361,11 +371,11 @@ function run (regl) {
     content: h('span', [
       "In this rotating frame of reference, called the ",
       h('em', 'synodic frame'),
-      ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course our rotation changes nothing about the system and does not cause the universe to spin.",
+      ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course our rotation changes nothing about the system. The universe does actually spin as a result.",
     ]),
   }, {
     content: h('span', [
-      "A small satellite feels the pull of the earth and sun, but to describe its motion in the synodic frame, we must also add the apparent ",
+      "A small satellite feels the pull of the earth and sun, but to describe its motion in the rotating frame, we must also add the apparent ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Centrifugal_force", target: "_blank"}, "centrifugal")),
       " and ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Coriolis_force", target: "_blank"}, "Coriolis")),
@@ -383,7 +393,7 @@ function run (regl) {
   }, {
     content: "People like to argue that these forces aren't real. They're not wrong, but we must include them to accurately describe motion from our rotating frame of reference.",
   }, {
-    content: "The Coriolis force on an object depends on its velocity the synodic frame. In what follows, we won't need it since objects stationary in the synodic frame experience no Coriolis force."
+    content: "The Coriolis force on an object depends on its velocity the rotating frame. For now, we'll neglect it since objects stationary in the synodic frame experience no Coriolis force."
   }, {
     content: "The centrifugal force is an apparent outward pull seen in rotating frames.",
     state: {
@@ -450,7 +460,7 @@ function run (regl) {
     */
   }, {
     content: h('span', [
-      "The pseudo-potential has five equilibrium points at which stationary objects experience no net force. These are called the ",
+      "In fact the pseudo-potential has five equilibrium points at which stationary objects experience no net force. These are called the ",
       h('em', 'Lagrange'),
       ' or ',
       h('em', 'libration points'),
@@ -462,8 +472,8 @@ function run (regl) {
     ]),
     state: {
       librationPointOpacity: [
-        {t: -0.15, value: 0},
-        {t: 0.15, value: 1.0},
+        {t: -0.25, value: 0},
+        {t: 0.05, value: 1.0},
       ]
     }
   }, {
@@ -474,52 +484,42 @@ function run (regl) {
       fieldOpacity: [
         {t: -0.25, value: 1.0},
         {t: 0.1, value: 0.35},
-        {t: 1.0, value: 0.35},
-        {t: 1.3, value: 1.0},
+        {t: 0.5, value: 0.35},
+        {t: 0.7, value: 1.0},
       ],
-      /*synodicField: [
-        {t: -0.5, value: 1.0},
-        {t: 0.0, value: 0.0},
-      ],*/
       synodicFrame: [
         {t: -0.3, value: 1.0},
         {t: 0.0, value: 0.0},
-      ]
-    }
-  }, {
-    state: {
-      /*synodicField: [
-        {t: 0.0, value: 0.0},
-        {t: 0.5, value: 1.0},
-      ],*/
-      synodicFrame: [
-        {t: 0.0, value: 0.0},
-        {t: 0.3, value: 1.0},
-      ]
+      ],
     }
   }, {
     content: h('span', [
       "The location of the Lagrange points depends only on the relative masses of the two bodies.",
     ]),
     state: {
+      synodicFrame: [
+        {t: -0.5, value: 0.0},
+        {t: -0.3, value: 1.0},
+      ],
       mu: [
         {t: 0.5, value: 1 / 11},
-        {t: 1.2, value: 0.5},
       ],
     }
   }, {
     state: {
       mu: [
-        {t: 1.0, value: 1e-3},
+        {t: 0.2, value: 0.5},
       ],
     }
-  }, {
   }, {
     state: {
       mu: [
+        {t: -0.1, value: 1e-3},
+        {t: 0.1, value: 1e-3},
         {t: 0.5, value: 1 / 11},
       ],
     }
+  }, {
   }];
 
   var sequencer = createSequencer(mergeFrameSequences(frames));
