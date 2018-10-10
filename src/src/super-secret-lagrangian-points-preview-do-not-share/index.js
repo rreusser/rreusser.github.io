@@ -350,14 +350,14 @@ function run (regl) {
       ],
     }
   }, {
-    content: "We seek to say what we can about how a small third body moves in this potential.",
+    content: "Let's now look at how a small third body moves in this potential.",
   }, {
     content: "So far, we've observed everything from a fixed position far above the solar system.",
     state: {
-      axisOpacity: [
+      /*axisOpacity: [
         {t: -0.5, value: 0.0},
         {t: 0.0, value: 0.6},
-      ],
+      ],*/
     }
   }, {
     content: "Imagine instead that we, the observer, rotate at the same speed as the earth-sun system.",
@@ -382,10 +382,10 @@ function run (regl) {
       " forces.",
     ]),
     state: {
-      axisOpacity: [
+      /*axisOpacity: [
         {t: -0.5, value: 0.6},
         {t: 0.0, value: 0.0},
-      ],
+      ],*/
       scale: [
         {t: -2.0, value: 1.3},
       ]
@@ -393,7 +393,7 @@ function run (regl) {
   }, {
     content: "People like to argue that these forces aren't real. They're not wrong, but we must include them to accurately describe motion from our rotating frame of reference.",
   }, {
-    content: "The Coriolis force on an object depends on its velocity the rotating frame. For now, we'll neglect it since objects stationary in the synodic frame experience no Coriolis force."
+    content: "The Coriolis force on an object depends on its velocity in the rotating frame. For now, we'll neglect it since objects stationary in the synodic frame experience no Coriolis force."
   }, {
     content: "The centrifugal force is an apparent outward pull seen in rotating frames.",
     state: {
@@ -484,8 +484,8 @@ function run (regl) {
       fieldOpacity: [
         {t: -0.25, value: 1.0},
         {t: 0.1, value: 0.35},
-        {t: 0.5, value: 0.35},
-        {t: 0.7, value: 1.0},
+        {t: 0.8, value: 0.35},
+        {t: 1.0, value: 1.0},
       ],
       synodicFrame: [
         {t: -0.3, value: 1.0},
