@@ -16,15 +16,15 @@ function run (regl) {
   var drawToScreen = require('./draw-to-screen')(regl);
   var createStates = require('./create-state')(regl);
   var createFFT = require('./fft')(regl);
-  var normalize = require('./normalize')(regl);
   var step = require('./step')(regl);
+  var swap = require('./swap');
 
   var scales = [
-    { activatorRadius: 200,  inhibitorRadius: 400,  amount: 0.03,  weight: 1 },
-    { activatorRadius: 50,  inhibitorRadius: 100,  amount: 0.03,  weight: 1 },
-    { activatorRadius: 10,  inhibitorRadius: 20,  amount: 0.03,  weight: 1 },
-    { activatorRadius: 5,   inhibitorRadius: 10,  amount: 0.02,  weight: 1 },
-    { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.01,  weight: 1 }
+    { activatorRadius: 200, inhibitorRadius: 400,  amount: 0.05,  weight: 1 },
+    { activatorRadius: 40,  inhibitorRadius: 80,   amount: 0.04,  weight: 1 },
+    { activatorRadius: 20,  inhibitorRadius: 40,   amount: 0.03,  weight: 1 },
+    { activatorRadius: 5,   inhibitorRadius: 10,   amount: 0.02,  weight: 1 },
+    { activatorRadius: 1,   inhibitorRadius: 2,    amount: 0.01,  weight: 1 }
   ];
 
   var maxAmount = Math.max.apply(null, scales.map(s => s.amount));
@@ -70,7 +70,7 @@ function run (regl) {
 
   regl.frame(({tick}) => {
     //if (tick % 20 !== 1) return;
-    if (iteration++ > 400) {
+    if (iteration++ > 100) {
       if (!dirty) return;
       drawToScreen({input: y[0]});
       dirty = false;
@@ -101,14 +101,10 @@ function run (regl) {
       input: y[0],
       output: y[1],
       dt: dt,
-    });
-
-    normalize({
-      input: y[1],
-      output: y[0],
-      dt: dt,
       maxAmount: maxAmount,
     });
+
+    swap(y);
 
     drawToScreen({input: y[0]});
   });

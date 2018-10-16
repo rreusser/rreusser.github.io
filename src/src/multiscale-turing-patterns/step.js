@@ -15,6 +15,7 @@ module.exports = function (regl) {
       precision highp float;
       varying vec2 uv;
       uniform float uDt;
+      uniform vec2 uRange;
       uniform sampler2D uInput;
       uniform sampler2D uVariation0;
       uniform sampler2D uVariation1;
@@ -54,7 +55,7 @@ module.exports = function (regl) {
         if (var4 < minVariation) { minVariation = var4; step = step4; }
 
         float y = texture2D(uInput, uv).x;
-        gl_FragColor = vec4(y + step * uDt, 0, 0, 0).xyxy;
+        gl_FragColor = vec4((y + step * uDt - uRange.x) / (uRange.y - uRange.x) * 2.0 - 1.0, 0, 0, 0).xyxy;
       }
     `,
     attributes: {
@@ -73,6 +74,10 @@ module.exports = function (regl) {
       uAmount4: regl.prop('scales[4].amount'),
       uInput: regl.prop('input.texture'),
       uDt: regl.prop('dt'),
+      uRange: (ctx, props) => [
+        -1.0 - props.maxAmount * props.dt,
+        1.0 + props.maxAmount * props.dt
+      ]
     },
     framebuffer: regl.prop('output.fbo'),
     depth: {enable: false},
