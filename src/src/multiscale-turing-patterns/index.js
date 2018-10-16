@@ -3,6 +3,7 @@
 require('regl')({
   pixelRatio: Math.min(window.devicePixelRatio, 1.0),
   extensions: ['oes_texture_float'],
+  optionalExtensions: ['oes_texture_half_float'],
   attributes: {
     antialias: false,
     depthStencil: false,
@@ -12,16 +13,18 @@ require('regl')({
 });
 
 function run (regl) {
+  var supportsFloat = require('./supports-float')(regl);
+
   var convolve = require('./convolve')(regl);
   var initializeState = require('./initialize')(regl);
   var initializeKernel = require('./initialize-kernel')(regl);
   var drawToScreen = require('./draw-to-screen')(regl);
-  var createStates = require('./create-state')(regl, 'float');
+  var createStates = require('./create-state')(regl, supportsFloat ? 'float' : 'float16');
   var createFFT = require('./fft')(regl);
   var swap = require('./swap');
 
-  var w = 512;
-  var h = 512;
+  var w = supportsFloat ? 512 : 256;
+  var h = supportsFloat ? 512 : 256;
 
   var scales = [
     { activatorRadius: 100, inhibitorRadius: 200,  amount: 0.05,  weight: 1 },
@@ -30,6 +33,13 @@ function run (regl) {
     { activatorRadius: 5,   inhibitorRadius: 10,   amount: 0.02,  weight: 1 },
     { activatorRadius: 2,   inhibitorRadius: 4,    amount: 0.01,  weight: 1 }
   ];
+
+  if (!supportsFloat) {
+    scales[0].activatorRadius /= 2;
+    scales[0].inhibitorRadius /= 2;
+    scales[1].activatorRadius /= 1.5;
+    scales[1].inhibitorRadius /= 1.5;
+  }
 
   var step = require('./step')(regl, scales.length);
 
