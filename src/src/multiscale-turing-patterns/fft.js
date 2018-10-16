@@ -47,10 +47,10 @@ module.exports = function (regl) {
 
         #pragma glslify: fft = require(glsl-fft)
 
-				uniform sampler2D uInput;
-				uniform vec2 resolution;
-				uniform float subtransformSize, normalization;
-				uniform bool horizontal, forward;
+        uniform sampler2D uInput;
+        uniform vec2 resolution;
+        uniform float subtransformSize, normalization;
+        uniform bool horizontal, forward;
 
         void main () {
           gl_FragColor = fft(
