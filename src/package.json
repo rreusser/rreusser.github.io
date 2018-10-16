@@ -98,6 +98,7 @@
     "glsl-fast-gaussian-blur": "^1.0.2",
     "glsl-fft": "^1.0.2",
     "glsl-random": "0.0.5",
+    "glsl-rfft": "^1.0.2",
     "h": "^0.1.0",
     "inertial-turntable-camera": "^2.0.4",
     "insert-css": "^2.0.0",

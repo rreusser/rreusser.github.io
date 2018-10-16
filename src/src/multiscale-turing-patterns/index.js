@@ -1,7 +1,7 @@
 'use strict';
 
 require('regl')({
-  pixelRatio: Math.min(window.devicePixelRatio, 2.0),
+  pixelRatio: Math.min(window.devicePixelRatio, 1.0),
   extensions: ['oes_texture_float'],
   attributes: {
     antialias: false,
@@ -18,19 +18,20 @@ function run (regl) {
   var drawToScreen = require('./draw-to-screen')(regl);
   var createStates = require('./create-state')(regl, 'float');
   var createFFT = require('./fft')(regl);
-  var step = require('./step')(regl);
   var swap = require('./swap');
 
-  var w = 1024;
-  var h = 1024;
+  var w = 512;
+  var h = 512;
 
   var scales = [
-    { activatorRadius: 200, inhibitorRadius: 400,  amount: 0.05,  weight: 1 },
+    { activatorRadius: 100, inhibitorRadius: 200,  amount: 0.05,  weight: 1 },
     { activatorRadius: 40,  inhibitorRadius: 80,   amount: 0.04,  weight: 1 },
     { activatorRadius: 20,  inhibitorRadius: 40,   amount: 0.03,  weight: 1 },
     { activatorRadius: 5,   inhibitorRadius: 10,   amount: 0.02,  weight: 1 },
-    { activatorRadius: 1,   inhibitorRadius: 2,    amount: 0.01,  weight: 1 }
+    { activatorRadius: 2,   inhibitorRadius: 4,    amount: 0.01,  weight: 1 }
   ];
+
+  var step = require('./step')(regl, scales.length);
 
   var y = createStates(2, w, h);
   var yFFT = createStates(2, w, h);
@@ -39,6 +40,8 @@ function run (regl) {
   var scratch = createStates(2, w, h);
   var variations = createStates(scales.length, w, h);
   var maxAmount = Math.max.apply(null, scales.map(s => s.amount));
+
+  console.log('maxAmount:', maxAmount);
 
   var fft = createFFT(w, h, scratch[0].fbo, scratch[1].fbo);
 
