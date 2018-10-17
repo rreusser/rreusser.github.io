@@ -31,7 +31,6 @@ function run (regl) {
   var drawToScreen = require('./draw-to-screen')(regl);
   var createStates = require('./create-state')(regl, 'float');
   var createFFT = require('./fft')(regl);
-  var initializeColor = require('./initialize-color')(regl);
   var swap = require('./swap');
 
   var w = 512;
