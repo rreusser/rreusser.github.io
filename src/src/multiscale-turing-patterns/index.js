@@ -48,7 +48,7 @@ function run (regl) {
 
   function computeColors (scales, phaseShift) {
     for (var i = 0; i < scales.length; i++) {
-      scales[i].color = hsl2rgb([((-30 + i / scales.length * 360 + 360 + (phaseShift % 360)) %  360) / 360, 0.4, 0.7]);
+      scales[i].color = hsl2rgb([((-30 + i * 130 + 360 + (phaseShift % 360)) %  360) / 360, 0.6, 0.7]);
     }
   }
 
