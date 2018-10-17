@@ -5,7 +5,7 @@
 //document.body.appendChild(div);
 
 require('regl')({
-  pixelRatio: Math.min(window.devicePixelRatio, 2.0),
+  pixelRatio: Math.min(window.devicePixelRatio, 1.0),
   extensions: ['oes_texture_float'],
   //container: div,
   optionalExtensions: ['oes_texture_half_float'],
