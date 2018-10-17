@@ -1,8 +1,13 @@
 'use strict';
+//var div = document.createElement('div');
+//div.style.width = '2048px';
+//div.style.height = '2048px';
+//document.body.appendChild(div);
 
 require('regl')({
-  pixelRatio: Math.min(window.devicePixelRatio, 1.0),
+  pixelRatio: Math.min(window.devicePixelRatio, 2.0),
   extensions: ['oes_texture_float'],
+  //container: div,
   optionalExtensions: ['oes_texture_half_float'],
   attributes: {
     antialias: false,
@@ -13,33 +18,26 @@ require('regl')({
 });
 
 function run (regl) {
-  var supportsFloat = require('./supports-float')(regl);
-
   var convolve = require('./convolve')(regl);
   var initializeState = require('./initialize')(regl);
   var initializeKernel = require('./initialize-kernel')(regl);
   var drawToScreen = require('./draw-to-screen')(regl);
-  var createStates = require('./create-state')(regl, supportsFloat ? 'float' : 'float16');
+  var createStates = require('./create-state')(regl, 'float');
   var createFFT = require('./fft')(regl);
   var swap = require('./swap');
 
-  var w = supportsFloat ? 512 : 256;
-  var h = supportsFloat ? 512 : 256;
+  var w = 512;
+  var h = 512;
 
   var scales = [
-    { activatorRadius: 100, inhibitorRadius: 200,  amount: 0.05,  weight: 1 },
-    { activatorRadius: 40,  inhibitorRadius: 80,   amount: 0.04,  weight: 1 },
-    { activatorRadius: 20,  inhibitorRadius: 40,   amount: 0.03,  weight: 1 },
-    { activatorRadius: 5,   inhibitorRadius: 10,   amount: 0.02,  weight: 1 },
-    { activatorRadius: 2,   inhibitorRadius: 4,    amount: 0.01,  weight: 1 }
+    //{ activatorRadius: 600, inhibitorRadius: 1200, amount: 0.05 },
+    //{ activatorRadius: 300,  inhibitorRadius: 600,  amount: 0.03 },
+    { activatorRadius: 100,  inhibitorRadius: 200,  amount: 0.04 },
+    { activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.04 },
+    { activatorRadius: 20,  inhibitorRadius: 40,  amount: 0.03 },
+    { activatorRadius: 5,   inhibitorRadius: 10,  amount: 0.02 },
+    { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.01 }
   ];
-
-  if (!supportsFloat) {
-    scales[0].activatorRadius /= 2;
-    scales[0].inhibitorRadius /= 2;
-    scales[1].activatorRadius /= 1.5;
-    scales[1].inhibitorRadius /= 1.5;
-  }
 
   var step = require('./step')(regl, scales.length);
 
@@ -50,8 +48,6 @@ function run (regl) {
   var scratch = createStates(2, w, h);
   var variations = createStates(scales.length, w, h);
   var maxAmount = Math.max.apply(null, scales.map(s => s.amount));
-
-  console.log('maxAmount:', maxAmount);
 
   var fft = createFFT(w, h, scratch[0].fbo, scratch[1].fbo);
 
@@ -78,19 +74,24 @@ function run (regl) {
       output: kernelFFT[i]
     });
   }
+  kernel.fbo.destroy();
+  kernel.texture.destroy();
 
-  initialize(0);
+  initialize(Math.random());
 
   var dirty = false;
   var dt = 1.0;
 
   regl.frame(({tick}) => {
-    if (iteration++ > 10000) {
+    //if (tick % 5 !== 1) return;
+    /*
+    if (iteration++ > 200) {
       if (!dirty) return;
       drawToScreen({input: y[0]});
       dirty = false;
       return;
     }
+    */
 
     // Compute the fft of the current state
     fft.forward({

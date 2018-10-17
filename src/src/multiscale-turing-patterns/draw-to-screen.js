@@ -1,5 +1,7 @@
 'use strict';
 
+var glsl = require('glslify');
+
 module.exports = function (regl) {
   return regl({
     vert: `
@@ -12,13 +14,14 @@ module.exports = function (regl) {
         gl_Position = vec4(xy, 0, 1);
       }
     `,
-    frag: `
+    frag: glsl`
       precision highp float;
+      #pragma glslify: colormap = require(glsl-colormap/bone)
       varying vec2 uv;
       uniform sampler2D uInput;
       void main () {
         gl_FragColor = vec4(vec3(
-          (texture2D(uInput, uv).x - 0.5) + 0.5
+          colormap((texture2D(uInput, uv).x - 0.5) + 0.5).rgb
         ), 1.0);
       }
     `,
