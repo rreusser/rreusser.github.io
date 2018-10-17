@@ -1,4 +1,7 @@
 'use strict';
+
+var hsl2rgb = require('float-hsl2rgb');
+
 //var div = document.createElement('div');
 //div.style.width = '2048px';
 //div.style.height = '2048px';
@@ -6,9 +9,13 @@
 
 require('regl')({
   pixelRatio: Math.min(window.devicePixelRatio, 1.0),
-  extensions: ['oes_texture_float'],
+  extensions: [
+    'oes_texture_float',
+  ],
+  optionalExtensions: [
+    'webgl_draw_buffers',
+  ],
   //container: div,
-  optionalExtensions: ['oes_texture_half_float'],
   attributes: {
     antialias: false,
     depthStencil: false,
@@ -24,6 +31,7 @@ function run (regl) {
   var drawToScreen = require('./draw-to-screen')(regl);
   var createStates = require('./create-state')(regl, 'float');
   var createFFT = require('./fft')(regl);
+  var initializeColor = require('./initialize-color')(regl);
   var swap = require('./swap');
 
   var w = 512;
@@ -32,16 +40,33 @@ function run (regl) {
   var scales = [
     //{ activatorRadius: 600, inhibitorRadius: 1200, amount: 0.05 },
     //{ activatorRadius: 300,  inhibitorRadius: 600,  amount: 0.03 },
-    { activatorRadius: 100,  inhibitorRadius: 200,  amount: 0.04 },
-    { activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.04 },
-    { activatorRadius: 20,  inhibitorRadius: 40,  amount: 0.03 },
-    { activatorRadius: 5,   inhibitorRadius: 10,  amount: 0.02 },
-    { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.01 }
+    { activatorRadius: 100, inhibitorRadius: 200, amount: 0.04, },
+    { activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.04, },
+    { activatorRadius: 20,  inhibitorRadius: 40,  amount: 0.03, },
+    { activatorRadius: 5,   inhibitorRadius: 10,  amount: 0.02, },
+    { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.01, }
   ];
+
+  function computeColors (scales, phaseShift) {
+    for (var i = 0; i < scales.length; i++) {
+      scales[i].color = hsl2rgb([((-30 + i / scales.length * 360 + 360 + (phaseShift % 360)) %  360) / 360, 0.4, 0.7]);
+    }
+  }
 
   var step = require('./step')(regl, scales.length);
 
-  var y = createStates(2, w, h);
+  var y = new Array(2).fill(0).map(() => {
+    var simulationData = regl.texture({width: w, height: h, type: 'float', wrapS: 'repeat', wrapT: 'repeat'});
+    var result = {width: w, height: h, texture: simulationData};
+    if (regl.hasExtension('webgl_draw_buffers')) {
+      result.color = regl.texture({width: w, height: h, type: 'float', wrapS: 'repeat', wrapT: 'repeat'});
+      result.fbo = regl.framebuffer({colors: [simulationData, result.color]});
+    } else {
+      result.fbo = regl.framebuffer({color: simulationData});
+    }
+    return result;
+  });
+
   var yFFT = createStates(2, w, h);
   var kernel = createStates(1, w, h)[0];
   var kernelFFT = createStates(scales.length, w, h);
@@ -55,10 +80,8 @@ function run (regl) {
   var iteration;
   function initialize (seed) {
     iteration = 0;
-    initializeState({
-      output: y[0],
-      seed: seed
-    });
+    initializeState({output: y[0], seed: seed});
+    computeColors(scales, 0);
   }
 
   // Precompute the kernels
@@ -83,9 +106,11 @@ function run (regl) {
   var dt = 1.0;
 
   regl.frame(({tick}) => {
-    //if (tick % 5 !== 1) return;
+    iteration++;
+    //if (tick % 30 !== 1) return;
+
     /*
-    if (iteration++ > 200) {
+    if (iteration > 200) {
       if (!dirty) return;
       drawToScreen({input: y[0]});
       dirty = false;
@@ -125,6 +150,8 @@ function run (regl) {
 
     // Swap states and draw
     swap(y);
+
+    computeColors(scales, iteration);
     drawToScreen({input: y[0]});
   });
 

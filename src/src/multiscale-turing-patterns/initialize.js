@@ -14,14 +14,19 @@ module.exports = function (regl) {
       }
     `,
     frag: glsl`
+      ${regl.hasExtension('webgl_draw_buffers') ? `
+        #extension GL_EXT_draw_buffers : enable
+      ` : ''}
+
       precision highp float;
-
       #pragma glslify: random = require(glsl-random)
-
       uniform float uSeed;
       varying vec2 uv;
       void main () {
-        gl_FragColor = vec4(random(gl_FragCoord.xy + uSeed) * 2.0 - 1.0);
+        gl_FragData[0] = vec4(random(gl_FragCoord.xy + uSeed) * 2.0 - 1.0);
+        ${regl.hasExtension('webgl_draw_buffers') ? `
+          gl_FragData[1] = vec4(1);
+        ` : ''}
       }
     `,
     attributes: {

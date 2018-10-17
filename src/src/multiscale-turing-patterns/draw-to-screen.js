@@ -3,6 +3,18 @@
 var glsl = require('glslify');
 
 module.exports = function (regl) {
+  var uniforms = {
+    uInput: (ctx, props) => props.input.texture,
+    textureScale: (ctx, props) => [
+      props.input.width / ctx.framebufferWidth,
+      props.input.height / ctx.framebufferHeight
+    ],
+  };
+
+  if (regl.hasExtension('webgl_draw_buffers')) {
+    uniforms.uColor = (ctx, props) => props.input.color;
+  }
+
   return regl({
     vert: `
       precision highp float;
@@ -19,20 +31,20 @@ module.exports = function (regl) {
       #pragma glslify: colormap = require(glsl-colormap/bone)
       varying vec2 uv;
       uniform sampler2D uInput;
+      ${regl.hasExtension('webgl_draw_buffers') ? `uniform sampler2D uColor;` : ''}
+
       void main () {
         gl_FragColor = vec4(vec3(
           colormap((texture2D(uInput, uv).x - 0.5) + 0.5).rgb
         ), 1.0);
+
+        ${regl.hasExtension('webgl_draw_buffers') ? `
+          gl_FragColor.rgb *= texture2D(uColor, uv).rgb;
+        ` : ''}
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
-    uniforms: {
-      uInput: (ctx, props) => props.input.texture,
-      textureScale: (ctx, props) => [
-        props.input.width / ctx.framebufferWidth,
-        props.input.height / ctx.framebufferHeight
-      ],
-    },
+    uniforms: uniforms,
     depth: {enable: false},
     count: 3
   });
