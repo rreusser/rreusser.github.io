@@ -39,20 +39,20 @@ function run (regl) {
   var h = 512;
 
   var scales = [
-    { activatorRadius: 100, inhibitorRadius: 200, amount: 0.05 },
+    { activatorRadius: 80, inhibitorRadius: 140, amount: 0.05 },
     //{ activatorRadius: 80, inhibitorRadius: 160, amount: 0.04 },
     //{ activatorRadius: 60, inhibitorRadius: 120, amount: 0.04, },
     //{ activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.04, },
     { activatorRadius: 20,  inhibitorRadius: 40,  amount: 0.03, },
     { activatorRadius: 5,   inhibitorRadius: 10,  amount: 0.02, },
-    { activatorRadius: 1.5,   inhibitorRadius: 3,   amount: 0.01, }
+    { activatorRadius: 1.5,   inhibitorRadius: 3,   amount: 0.02, }
   ];
 
   function computeColors (scales, phaseShift) {
     for (var i = 0; i < scales.length; i++) {
       var phase = ((-120 + ((1 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 270 + 360 + (phaseShift % 360)) %  360) / 360;
       //var phase = ((((2 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 220 + 360 - 40 + (phaseShift % 360)) % 360) / 360;
-      scales[i].color = hsl2rgb([phase, 0.9, 0.83]);
+      scales[i].color = hsl2rgb([phase, 0.9, 0.80]);
     }
   }
 

@@ -34,12 +34,13 @@ module.exports = function (regl) {
       ${regl.hasExtension('webgl_draw_buffers') ? `uniform sampler2D uColor;` : ''}
 
       void main () {
+        float f = texture2D(uInput, uv).x;
         gl_FragColor = vec4(vec3(
-          colormap((texture2D(uInput, uv).x - 0.5) + 0.5).rgb
+          colormap(f).rgb
         ), 1.0);
 
         ${regl.hasExtension('webgl_draw_buffers') ? `
-          gl_FragColor.rgb *= texture2D(uColor, uv).rgb;
+          gl_FragColor.rgb = mix(f * texture2D(uColor, uv).rgb, gl_FragColor.rgb, (f - 0.5) * (f - 0.5) * 4.0);
         ` : ''}
       }
     `,
