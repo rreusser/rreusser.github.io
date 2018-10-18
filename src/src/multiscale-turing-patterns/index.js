@@ -39,13 +39,14 @@ function run (regl) {
   var h = 512;
 
   var scales = [
-    { activatorRadius: 80, inhibitorRadius: 140, amount: 0.05 },
+    { activatorRadius: 90, inhibitorRadius: 160, amount: 0.05 },
     //{ activatorRadius: 80, inhibitorRadius: 160, amount: 0.04 },
     //{ activatorRadius: 60, inhibitorRadius: 120, amount: 0.04, },
     //{ activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.04, },
+    { activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.03, },
     { activatorRadius: 20,  inhibitorRadius: 40,  amount: 0.03, },
     { activatorRadius: 5,   inhibitorRadius: 10,  amount: 0.02, },
-    { activatorRadius: 1.5,   inhibitorRadius: 3,   amount: 0.02, }
+    { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.02, }
   ];
 
   function computeColors (scales, phaseShift) {
