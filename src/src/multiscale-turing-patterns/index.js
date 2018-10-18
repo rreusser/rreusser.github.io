@@ -2,13 +2,15 @@
 
 var hsl2rgb = require('float-hsl2rgb');
 
-//var div = document.createElement('div');
-//div.style.width = '2048px';
-//div.style.height = '2048px';
-//document.body.appendChild(div);
+/*
+var div = document.createElement('div');
+div.style.width = '1024px';
+div.style.height = '1024px';
+document.body.appendChild(div);
+*/
 
 require('regl')({
-  pixelRatio: Math.min(window.devicePixelRatio, 1.0),
+  pixelRatio: 1.0,//Math.min(window.devicePixelRatio, 4.0),
   extensions: [
     'oes_texture_float',
   ],
@@ -37,18 +39,20 @@ function run (regl) {
   var h = 512;
 
   var scales = [
-    //{ activatorRadius: 600, inhibitorRadius: 1200, amount: 0.05 },
-    //{ activatorRadius: 300,  inhibitorRadius: 600,  amount: 0.03 },
-    { activatorRadius: 100, inhibitorRadius: 200, amount: 0.04, },
-    { activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.04, },
+    { activatorRadius: 100, inhibitorRadius: 200, amount: 0.05 },
+    //{ activatorRadius: 80, inhibitorRadius: 160, amount: 0.04 },
+    //{ activatorRadius: 60, inhibitorRadius: 120, amount: 0.04, },
+    //{ activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.04, },
     { activatorRadius: 20,  inhibitorRadius: 40,  amount: 0.03, },
     { activatorRadius: 5,   inhibitorRadius: 10,  amount: 0.02, },
-    { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.01, }
+    { activatorRadius: 1.5,   inhibitorRadius: 3,   amount: 0.01, }
   ];
 
   function computeColors (scales, phaseShift) {
     for (var i = 0; i < scales.length; i++) {
-      scales[i].color = hsl2rgb([((-30 + i * 130 + 360 + (phaseShift % 360)) %  360) / 360, 0.6, 0.7]);
+      var phase = ((-120 + ((1 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 180 + 360 + (phaseShift % 360)) %  360) / 360;
+      //var phase = ((((2 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 220 + 360 - 40 + (phaseShift % 360)) % 360) / 360;
+      scales[i].color = hsl2rgb([phase, 1.0, 0.88]);
     }
   }
 
@@ -105,11 +109,11 @@ function run (regl) {
   var dt = 1.0;
 
   regl.frame(({tick}) => {
+    if (tick % 2 !== 1) return;
     iteration++;
-    //if (tick % 30 !== 1) return;
 
     /*
-    if (iteration > 200) {
+    if (iteration > 100) {
       if (!dirty) return;
       drawToScreen({input: y[0]});
       dirty = false;
