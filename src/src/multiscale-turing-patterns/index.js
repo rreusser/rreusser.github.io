@@ -50,9 +50,9 @@ function run (regl) {
 
   function computeColors (scales, phaseShift) {
     for (var i = 0; i < scales.length; i++) {
-      var phase = ((-120 + ((1 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 180 + 360 + (phaseShift % 360)) %  360) / 360;
+      var phase = ((-120 + ((1 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 270 + 360 + (phaseShift % 360)) %  360) / 360;
       //var phase = ((((2 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 220 + 360 - 40 + (phaseShift % 360)) % 360) / 360;
-      scales[i].color = hsl2rgb([phase, 1.0, 0.88]);
+      scales[i].color = hsl2rgb([phase, 0.9, 0.83]);
     }
   }
 
