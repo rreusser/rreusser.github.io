@@ -110,7 +110,7 @@ function run (regl) {
   var dt = 1.0;
 
   regl.frame(({tick}) => {
-    if (tick % 2 !== 1) return;
+    //if (tick % 2 !== 1) return;
     iteration++;
 
     /*
