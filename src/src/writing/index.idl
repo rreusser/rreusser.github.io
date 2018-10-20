@@ -8,12 +8,18 @@
 /]
 
 [Article
+  title:"Multi-Scale Turing Patterns"
+  summary:`A high-resolution gallery of multi-scale Turing patterns.`
+  date:"October 19, 2018"
+  path:"multiscale-turing-pattern-gallery"
+/]
+
+[Article
   title:"Aligning 3D Models"
   summary:`"At Standard Cyborg, we use 3D scans from a number of different sources to design sockets for prosthetic devices. Even in the best of circumstances in which we're able to keep track of the physical \"up\" direction from acquisition through to the design phase, \"physical up\" isn't really a useful direction. We'd like to automatically orient incoming scans."`
   date:"July 29, 2018"
   path:"aligning-3d-scans"
 /]
-
 
 [Article
   title:"From Nothing to Something in WebGL Using regl"
