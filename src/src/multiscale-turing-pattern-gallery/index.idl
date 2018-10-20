@@ -9,7 +9,7 @@
 
 [header
   fullWidth:true
-  title:"Multiscale Turing Patterns"
+  title:"Multi-Scale Turing Patterns"
   bgImageSrc:"images/header.jpg"
 /]
 
@@ -45,7 +45,7 @@ Based on my approach to coloring, I'm thrilled that Jason has also tried it out 
 [a rel:"license" href:"http://creativecommons.org/licenses/by-nc/4.0/"][img alt:"Creative Commons License" style:`{borderWidth:"0"}` src:"https://i.creativecommons.org/l/by-nc/4.0/88x31.png"/][/a][br/]This work is licensed under a [a rel:"license" href:"http://creativecommons.org/licenses/by-nc/4.0/"]Creative Commons Attribution-NonCommercial 4.0 International License[/a].
 
 [small]
-(Realistically, shoot me a message at [@rickyreusser](https://twitter.com/rickyreusser) and I'd probably let you do just about anything with these images, but I've made the high resolution originals available out of good will and good intentions, and since I'm deeply indebted to the people whose work has enabled me to create these, I've licensed these explicitly only as a small step beyond simply asking politely that you not, like, find some way I don't even know exists and turn around and sell them for profit or something. ❤️)
+(Realistically, shoot me a message at [@rickyreusser](https://twitter.com/rickyreusser) and I'd probably let you do just about anything with these images my implementation which generates them, but I've made the code and high resolution originals (well, compressed to jpeg—let me know if you want a 30MB png) available out of good will and good intentions, and since I'm deeply indebted to the people whose work has enabled me to create these, I've licensed these explicitly only as a small step beyond simply asking politely that you not, like, find some way I don't even know exists and turn around and sell them for profit or something. ❤️)
 [/small]
 
 [footer fullWidth:true/]
