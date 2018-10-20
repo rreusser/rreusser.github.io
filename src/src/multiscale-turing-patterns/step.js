@@ -7,7 +7,7 @@ module.exports = function (regl, numScales) {
     uInput: regl.prop('input.texture'),
     uDt: regl.prop('dt'),
     uRange: (ctx, props) => [
-      -(1.0 + props.maxAmount * props.dt * 2.5),
+      -(1.0 + props.maxAmount * props.dt * 2.2),
       1.0 + props.maxAmount * props.dt * 1.1
     ]
   };

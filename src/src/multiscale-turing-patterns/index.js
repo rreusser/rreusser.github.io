@@ -2,22 +2,23 @@
 
 var hsl2rgb = require('float-hsl2rgb');
 
-/*
+var pixelRatio = 4;
+var size = 4096;
+
 var div = document.createElement('div');
-div.style.width = '1024px';
-div.style.height = '1024px';
+div.style.width = (size / pixelRatio) + 'px';
+div.style.height = (size / pixelRatio) + 'px';
 document.body.appendChild(div);
-*/
 
 require('regl')({
-  pixelRatio: 1.0,//Math.min(window.devicePixelRatio, 4.0),
+  pixelRatio: pixelRatio,//Math.min(window.devicePixelRatio, 4.0),
   extensions: [
     'oes_texture_float',
   ],
   optionalExtensions: [
     'webgl_draw_buffers',
   ],
-  //container: div,
+  container: div,
   attributes: {
     antialias: false,
     depthStencil: false,
@@ -35,26 +36,37 @@ function run (regl) {
   var createFFT = require('./fft')(regl);
   var swap = require('./swap');
 
-  var w = 512;
-  var h = 512;
+  var w = size;
+  var h = size;
 
   var scales = [
-    { activatorRadius: 90, inhibitorRadius: 160, amount: 0.05 },
-    //{ activatorRadius: 80, inhibitorRadius: 160, amount: 0.04 },
-    //{ activatorRadius: 60, inhibitorRadius: 120, amount: 0.04, },
-    //{ activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.04, },
-    { activatorRadius: 40,  inhibitorRadius: 80,  amount: 0.03, },
-    { activatorRadius: 20,  inhibitorRadius: 40,  amount: 0.03, },
-    { activatorRadius: 5,   inhibitorRadius: 10,  amount: 0.02, },
-    { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.02, }
+    { activatorRadius: 250, inhibitorRadius: 500, amount: 0.05 },
+    { activatorRadius: 45,  inhibitorRadius: 90,  amount: 0.04, },
+    { activatorRadius: 20,  inhibitorRadius: 40,  amount: -0.03, },
+    { activatorRadius: 10,   inhibitorRadius: 20,  amount: 0.02, },
+    { activatorRadius: 3,   inhibitorRadius: 6,  amount: 0.02, },
+    { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.01, }
   ];
 
+  for (var i = 0; i < scales.length; i++) {
+    var factor = size / 1024;
+    scales[i].activatorRadius *= factor;
+    scales[i].inhibitorRadius *= factor;
+  }
+
   function computeColors (scales, phaseShift) {
-    for (var i = 0; i < scales.length; i++) {
-      var phase = ((-120 + ((1 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 270 + 360 + (phaseShift % 360)) %  360) / 360;
+    scales[0].color = hsl2rgb([230 / 360, 0.7, 0.6]);
+    scales[1].color = hsl2rgb([240 / 360, 0.7, 0.5]);
+    scales[2].color = hsl2rgb([208 / 360, 0.8, 0.5]);
+    scales[3].color = hsl2rgb([210 / 360, 0.8, 0.5]);
+    scales[4].color = hsl2rgb([270 / 360, 0.7, 0.5]);
+    scales[5].color = hsl2rgb([0 / 360, 1, 0.8]);
+    //scales[5].color = hsl2rgb([0 / 360, 1, 0.5]);
+    //for (var i = 0; i < scales.length; i++) {
+      //var phase = ((-120 + ((1 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 270 + 360 + (phaseShift % 360)) %  360) / 360;
       //var phase = ((((2 + i * Math.floor(scales.length / 2 + 1)) % scales.length) / scales.length * 220 + 360 - 40 + (phaseShift % 360)) % 360) / 360;
-      scales[i].color = hsl2rgb([phase, 0.9, 0.80]);
-    }
+      //scales[i].color = hsl2rgb([phase, 0.9, 0.80]);
+    //}
   }
 
   var step = require('./step')(regl, scales.length);
@@ -110,17 +122,15 @@ function run (regl) {
   var dt = 1.0;
 
   regl.frame(({tick}) => {
-    //if (tick % 2 !== 1) return;
+    if (tick % 20 !== 1) return;
     iteration++;
 
-    /*
-    if (iteration > 100) {
+    if (iteration > 150) {
       if (!dirty) return;
       drawToScreen({input: y[0]});
       dirty = false;
       return;
     }
-    */
 
     // Compute the fft of the current state
     fft.forward({

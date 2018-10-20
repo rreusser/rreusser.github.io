@@ -33,13 +33,36 @@ module.exports = function (regl) {
       uniform sampler2D uInput;
       ${regl.hasExtension('webgl_draw_buffers') ? `uniform sampler2D uColor;` : ''}
 
+      vec3 yuv2rgb (vec3 yuv) {
+        yuv.gb -= 0.5;
+        return vec3(
+          yuv.x * 1.0 + yuv.z * 1.4,
+          yuv.x * 1.0 + yuv.y * -0.343 + yuv.z * -0.711,
+          yuv.x * 1.0 + yuv.y * 1.765
+        );
+      }
+
+      vec3 rgb2yuv (vec3 rgb) {
+        return vec3(
+        	rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114,
+          rgb.r * -0.169 + rgb.g * -0.331 + rgb.b * 0.5 + 0.5,
+          rgb.r * 0.5 + rgb.g * -0.419 + rgb.b * -0.081 + 0.5
+        );
+      }
+
       void main () {
         float f = texture2D(uInput, uv).x;
         gl_FragColor = vec4(vec3(
           colormap(f).rgb
         ), 1.0);
 
+        //vec3 color = rgb2yuv(texture2D(uColor, uv).rgb);
+        //color *= ;
+        //color = yuv2rgb(color);
+        //gl_FragColor = vec4(color, 1);
+
         ${regl.hasExtension('webgl_draw_buffers') ? `
+          //gl_FragColor.rgb = texture2D(uColor, uv).rgb * f;
           gl_FragColor.rgb = mix(f * texture2D(uColor, uv).rgb, gl_FragColor.rgb, (f - 0.5) * (f - 0.5) * 4.0);
         ` : ''}
       }
