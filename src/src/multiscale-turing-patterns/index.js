@@ -201,13 +201,18 @@ function run (regl) {
     swap(y);
 
     drawToScreen({input: y[0]});
+
+    if (iteration > 350) randomizeIt();
   });
 
-  window.addEventListener('click', function () {
+  function randomizeIt () {
     randomizeScales();
     randomizeColors();
-    initialize(Math.random());
-  });
+    iteration = 0;
+    initializeKernels();
+  }
+
+  window.addEventListener('click', randomizeIt);
 
   window.addEventListener('resize', function () {
     dirty = true;
