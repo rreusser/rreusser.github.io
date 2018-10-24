@@ -78,7 +78,7 @@ module.exports = function (regl, numScales) {
         (y + step * uDt - uRange.x) / (uRange.y - uRange.x) * 2.0 - 1.0, 0, 0, 0).xyxy;
 
       ${regl.hasExtension('webgl_draw_buffers') ? `
-        gl_FragData[1] = vec4(outputColor, 1);
+        gl_FragData[1] = vec4(max(vec3(-2), min(vec3(3), outputColor)), 1);
       ` : ''}
     }
   `;

@@ -62,7 +62,7 @@ function run (regl) {
           break;
         case 1:
           scales[i].amount = -0.02 + 0.05 * Math.random();
-          radius = w * (0.125 + 0.125 * Math.random() * Math.random());
+          radius = w * (0.25 * Math.random() * Math.random());
           break;
         default:
           scales[i].amount = -0.01 + 0.04 * Math.random();
@@ -70,7 +70,7 @@ function run (regl) {
           break;
       }
       scales[i].activatorRadius = radius;
-      scales[i].inhibitorRadius = radius * 0.5;
+      scales[i].inhibitorRadius = radius * 2.0;
     }
     maxAmount = Math.max.apply(null, scales.map(s => s.amount));
   }
