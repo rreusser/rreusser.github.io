@@ -84,7 +84,8 @@ module.exports = function (regl, numScales) {
         `).join('\n')}
 
         float y = texture2D(uInput, uv).x;
-        gl_FragData[0] = vec4((y + step * uDt - uRange.x) / (uRange.y - uRange.x) * 2.0 - 1.0, 0, 0, 0).xyxy;
+        gl_FragData[0] = vec4(
+          (y + step * uDt - uRange.x) / (uRange.y - uRange.x) * 2.0 - 1.0, 0, 0, 0).xyxy;
 
         ${regl.hasExtension('webgl_draw_buffers') ? `
           gl_FragData[1] = vec4(outputColor, 1);

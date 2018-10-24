@@ -2,8 +2,8 @@
 
 var hsl2rgb = require('float-hsl2rgb');
 
-var pixelRatio = 4;
-var size = 4096;
+var pixelRatio = 1;
+var size = 512;
 
 var div = document.createElement('div');
 div.style.width = (size / pixelRatio) + 'px';
