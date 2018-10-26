@@ -25,13 +25,12 @@ module.exports = function (regl, numScales) {
 
   for (var i = 0; i < n.length; i++) {
     uniforms[`uAmount${i}`] = regl.prop(`scales[${i}].amount`);
+    uniforms[`uActivatorRadius${i}`] = regl.prop(`scales[${i}].activatorRadius`);
     if (regl.hasExtension('webgl_draw_buffers')) {
       uniforms[`uColor${i}`] = regl.prop(`scales[${i}].color`);
     }
   }
 
-  console.log('uniforms:', uniforms);
-  
   var frag = `
     ${regl.hasExtension('webgl_draw_buffers') ? `
       #extension GL_EXT_draw_buffers : enable
@@ -47,6 +46,7 @@ module.exports = function (regl, numScales) {
 
     ${nMultiplexed.map(i => `uniform sampler2D uVariation${i};`).join('\n    ')}
     ${n.map(i => `uniform float uAmount${i};`).join('\n    ')}
+    ${n.map(i => `uniform float uActivatorRadius${i};`).join('\n    ')}
     ${n.map(i => regl.hasExtension('webgl_draw_buffers') ? `uniform vec3 uColor${i};` : '').join('\n    ')}
 
     void main () {
@@ -66,7 +66,7 @@ module.exports = function (regl, numScales) {
       vec3 outputColor = mix(color, uColor0, uAmount0);` : ''}
 
       ${n.slice(1).map(i => `
-        if (var${i} < minVariation) {
+        if (uActivatorRadius${i} > 0.0 && var${i} < minVariation) {
           minVariation = var${i};
           step = step${i};
           ${regl.hasExtension('webgl_draw_buffers') ? `outputColor = mix(color, uColor${i}, uAmount${i});` : ''}
@@ -75,7 +75,8 @@ module.exports = function (regl, numScales) {
 
       float y = texture2D(uInput, uv).x;
       gl_FragData[0] = vec4(
-        (y + step * uDt - uRange.x) / (uRange.y - uRange.x) * 2.0 - 1.0, 0, 0, 0).xyxy;
+        (y + step * uDt - uRange.x) / (uRange.y - uRange.x) * 2.0 - 1.0,
+      0, 0, 0).xyxy;
 
       ${regl.hasExtension('webgl_draw_buffers') ? `
         gl_FragData[1] = vec4(max(vec3(-2), min(vec3(3), outputColor)), 1);

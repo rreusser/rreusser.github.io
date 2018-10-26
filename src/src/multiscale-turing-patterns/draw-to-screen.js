@@ -51,7 +51,7 @@ module.exports = function (regl) {
       }
 
       void main () {
-        float f = texture2D(uInput, uv).x;
+        float f = max(0.0, min(1.0, texture2D(uInput, uv).x));
         gl_FragColor = vec4(vec3(
           colormap(f).rgb
         ), 1.0);
