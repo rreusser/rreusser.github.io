@@ -200,7 +200,7 @@ function run (regl, assets) {
   });
   
   regl.frame(({time}) => {
-    remesh(4 + Math.floor((0.5 - 0.5 * Math.cos(time * 0.1)) * 1000));
+    remesh(4 + Math.floor((0.5 - 0.5 * Math.cos(time * 0.1)) * 10000));
 
     camera.tick({
       dTheta: -0.001

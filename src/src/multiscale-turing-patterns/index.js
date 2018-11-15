@@ -7,7 +7,7 @@ var colorStringify = require('color-stringify');
 var colorRgba = require('color-rgba');
 
 var pixelRatio = 1.0;
-var size = 512;
+var size = 1024;
 
 var inDiv = false;
 
