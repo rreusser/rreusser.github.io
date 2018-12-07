@@ -2,5 +2,5 @@
   "title": "Rule 30",
   "description": "Stephen Wolfram's 1D cellular automata",
   "order": 1600,
-  "image": "https://cdn.rawgit.com/rreusser/rreusser.github.io/6a2ff1af/src/src/rule-30/thumbnail.png"
+  "image": "https://cdn.jsdelivr.net/gh/rreusser/rreusser.github.io@6a2ff1af/src/src/rule-30/thumbnail.png"
 }
