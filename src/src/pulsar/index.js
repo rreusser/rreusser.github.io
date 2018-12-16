@@ -41,7 +41,7 @@ function run (regl) {
 
   var dataType = regl.hasExtension('oes_texture_half_float') ? 'half float' : 'float';
 
-  // Signals to hold the data and 
+  // Framebuffers to hold the signal and noise
   var signalTmp = regl.framebuffer({width: n, height: n, colorType: dataType});
   var signalFbo = regl.framebuffer({width: n, height: n, colorType: dataType});
   var noiseFbo = regl.framebuffer({colorType: dataType, width: n, height: numSignals});
