@@ -2,8 +2,13 @@
 
 var glsl = require('glslify');
 
+var maxPixelRatio = 1.5;
+if (window.innerWidth * window.innerHeight < 1024 * 768) {
+  maxPixelRatio = 2;
+}
+
 require('regl')({
-  pixelRatio: Math.min(window.devicePixelRatio, 2),
+  pixelRatio: Math.min(window.devicePixelRatio, maxPixelRatio),
   extensions: ['oes_standard_derivatives', 'oes_texture_float', 'oes_texture_float_linear'],
   optionalExtensions: ['oes_texture_half_float', 'oes_texture_half_float_linear'],
   attributes: {
