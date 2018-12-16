@@ -3,7 +3,7 @@
 var glsl = require('glslify');
 
 require('regl')({
-  pixelRatio: Math.min(window.devicePixelRatio, 2.0),
+  pixelRatio: Math.min(window.devicePixelRatio, 1.5),
   extensions: ['oes_standard_derivatives', 'oes_texture_float', 'oes_texture_float_linear'],
   optionalExtensions: ['oes_texture_half_float', 'oes_texture_half_float_linear'],
   attributes: {
