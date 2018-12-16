@@ -19,7 +19,7 @@ function run (regl) {
   var n = 128;
 
   // number of signals
-  var numSignals = 72;
+  var numSignals = 64;
 
   // construct data with which to mesh this. each line is acutally a fully filled set of triangles
   // down below its axis. The line is simply a shader which draws the top part white and the rest
@@ -187,10 +187,10 @@ function run (regl) {
         float noise = texture2D(uInput, aVertex.xy).x;
         float signal = min(texture2D(uSignal, aVertex.xy).x, 1.2);
         v = aVertex.z;
-        float y = noise + 1.5 * signal;
+        float y = noise + 1.7 * signal;
         gl_Position = vec4(
           mix(windowScale.x, windowScale.z, aVertex.x),
-          (0.07 * y * y) * v + (v - 1.0) * 0.02 - mix(windowScale.y, windowScale.w, aVertex.y),
+          (0.04 * y * y) * v + (v - 1.0) * 0.02 - mix(windowScale.y, windowScale.w, aVertex.y),
           0, 1);
       }
     `,
@@ -262,24 +262,12 @@ function run (regl) {
   window.addEventListener('mousemove', brushPoint);
   window.addEventListener('mousedown', brushPoint);
   window.addEventListener('touchstart', function (ev) {
-    for (var i = 0; i < ev.touches.length; i++) {
-      var touch = ev.touches[i];
-      brushPoint({
-        clientX: ev.touches[i].clientX,
-        clientY: ev.touches[i].clientY
-      })
-    }
+    for (var i = 0; i < ev.touches.length; i++) brushPoint(ev.touches[i]);
     ev.stopPropagation();
     ev.preventDefault();
   }, {passive: false});
   window.addEventListener('touchmove', function (ev) {
-    for (var i = 0; i < ev.touches.length; i++) {
-      var touch = ev.touches[i];
-      brushPoint({
-        clientX: ev.touches[i].clientX,
-        clientY: ev.touches[i].clientY
-      })
-    }
+    for (var i = 0; i < ev.touches.length; i++) brushPoint(ev.touches[i]);
     ev.preventDefault();
     ev.stopPropagation();
   }, {passive: false});
