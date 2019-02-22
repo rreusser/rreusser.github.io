@@ -32,6 +32,7 @@ function run (regl) {
 		width: 350,
     root: controlRoot,
 	}).on('input', function (data) {
+    loResNeeded = false;
     Object.assign(state, data);
     camera.taint();
   });
@@ -244,25 +245,33 @@ function run (regl) {
         uniform int iterations;
         uniform bool polar;
 
-        vec2 f(vec2 z) {
+        vec3 f(vec2 z) {
+          int count = 0;
           vec2 c = vec2(0);
           for (int i = 0; i < ${n + 1}; i++) {
             if (i >= iterations) continue;
             c = csqr(c) + z;
+            if (dot(c, c) > 64.0 && count == 0) count = i;
           }
-          return c;
+          return vec3(c, count);
         }
 
         void main () {
-          gl_FragColor = vec4(domainColoring(
-            f(z),
-            polar,           // polar
-            vec2(4, 4),      // steps
-            vec2(16.0, 1.0), // scale
-            vec2(0.5, polar ? 0.0 : 0.5),  // field strength
-            vec2(0.0, polar ? 0.3 : 0.0),  // grid strength
-            viewportHeight
-          ), 1.0);
+          vec3 value = f(z);
+
+          if (value.z != 0.0) {
+            gl_FragColor = vec4(vec3(1.0 - (value.z / (value.z + 10.0))), 1.0);
+          } else {
+            gl_FragColor = vec4(domainColoring(
+              value.xy,
+              polar,           // polar
+              vec2(4, 4),      // steps
+              vec2(16.0, 1.0), // scale
+              vec2(0.5, polar ? 0.0 : 0.5),  // field strength
+              vec2(0.0, polar ? 0.3 : 0.0),  // grid strength
+              viewportHeight
+            ), 1.0);
+          }
         }
       `,
       attributes: {
