@@ -121,9 +121,6 @@ function render (onChange, children) {
   title.addEventListener('touchmove', function (e) {
     e.stopPropagation();
   });
-  title.addEventListener('mousedown', function (e) {
-    e.stopPropagation();
-  });
   title.addEventListener('touchend', function (e) {
     e.stopPropagation();
   });
