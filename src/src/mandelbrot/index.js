@@ -145,7 +145,7 @@ function run (regl) {
         }
 
         float loop (float x) {
-          float y = 1.0 - fract(x);
+          float y = fract(x);
           y *= y;
           return 1.0 - y * y;
         }
