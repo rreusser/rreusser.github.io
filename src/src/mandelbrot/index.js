@@ -25,7 +25,7 @@ function run (regl) {
   var controlRoot = document.createElement('div');
   controlRoot.addEventListener('touchstart', e => e.stopPropagation());
 	document.body.appendChild(createControls(null, controlRoot));
-  var maxIters = 300;
+  var maxIters = 200;
   require('control-panel')([
     {label: 'iterations', type: 'range', min: 1, max: maxIters, step: 1, initial: state.iterations},
     {label: 'polar', type: 'checkbox', initial: state.polar},
@@ -71,7 +71,7 @@ function run (regl) {
   const mViewInv = new Float32Array(16);
 
   var commands = new Array(Math.floor(maxIters / 10) + 1).fill(0).map(function (d, i) {
-    return i * 10;
+    return (i + 1) * 10;
   }).map(makeCommand);
 
   function getDraw (n) {
