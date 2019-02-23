@@ -271,7 +271,9 @@ function run (regl) {
           vec3 value = f(z);
 
           if (value.z != 0.0) {
-            gl_FragColor = vec4(vec3(1.0 - (value.z / (value.z + 10.0))), 1.0);
+            float level = (value.z / (value.z + 10.0));
+            level *= level;
+            gl_FragColor = vec4(vec3(1.0 - level), 1.0);
           } else {
             gl_FragColor = vec4(domainColoring(
               value.xy,
