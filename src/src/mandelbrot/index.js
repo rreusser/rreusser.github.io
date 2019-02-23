@@ -26,7 +26,7 @@ function run (regl) {
   controlRoot.addEventListener('touchstart', e => e.stopPropagation());
 	document.body.appendChild(createControls(null, controlRoot));
   require('control-panel')([
-    {label: 'iterations', type: 'range', min: 1, max: 100, step: 1, initial: state.iterations},
+    {label: 'iterations', type: 'range', min: 1, max: 200, step: 1, initial: state.iterations},
     {label: 'polar', type: 'checkbox', initial: state.polar},
   ], {
 		width: 350,
@@ -69,10 +69,9 @@ function run (regl) {
 
   const mViewInv = new Float32Array(16);
 
-  var commands = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110].map(makeCommand);
+  var commands = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210].map(makeCommand);
 
   function getDraw (n) {
-    console.log(Math.floor((n - 1) / 10));
     return commands[Math.floor((n - 1) / 10)];
   }
 
@@ -221,7 +220,7 @@ function run (regl) {
           ) / 3.0;
 
 
-          vec3 color = (0.24 + 0.76 * cubehelixRainbow(carg)) * (0.9 - (fieldStrength.x + fieldStrength.y) * 0.7 + c);
+          vec3 color = (0.24 + 0.74 * cubehelixRainbow(carg)) * (0.9 - (fieldStrength.x + fieldStrength.y) * 0.7 + c);
 
           float magGrid = 1.0 - gridStrength.x * (
             mix(0.0, gridFactor(magOctave0), magFadeIn) +
@@ -242,17 +241,26 @@ function run (regl) {
 
         varying vec2 z;
         uniform float viewportHeight;
-        uniform int iterations;
+        uniform float iterations;
         uniform bool polar;
+
+        vec2 cpow (vec2 z, float x) {
+          float r = hypot(z);
+          float theta = atan(z.y, z.x) * x;
+          return vec2(cos(theta), sin(theta)) * pow(r, x);
+        }
 
         vec3 f(vec2 z) {
           int count = 0;
+          int iiter = int(iterations);
           vec2 c = vec2(0);
           for (int i = 0; i < ${n + 1}; i++) {
-            if (i >= iterations) continue;
+            if (i >= iiter) continue;
             c = csqr(c) + z;
             if (dot(c, c) > 64.0 && count == 0) count = i;
           }
+          //float frac = iterations - float(iiter);
+          //c = cpow(c, 1.0 + frac) + frac * z;
           return vec3(c, count);
         }
 
@@ -267,7 +275,7 @@ function run (regl) {
               polar,           // polar
               vec2(4, 4),      // steps
               vec2(16.0, 1.0), // scale
-              vec2(0.5, polar ? 0.0 : 0.5),  // field strength
+              vec2(polar ? 0.5 : 0.3, polar ? 0.0 : 0.3),  // field strength
               vec2(0.0, polar ? 0.3 : 0.0),  // grid strength
               viewportHeight
             ), 1.0);
@@ -319,9 +327,9 @@ function run (regl) {
       } else {
         if (prevTime !== undefined) {
           framerate = 0.9 * framerate + 0.1 * (time - prevTime);
-          if (framerate > (1 / 60) * 2.0) {
+          if (framerate > (1 / 60) * 3.0) {
             loResNeeded = true;
-          } else if (framerate < (1 / 60) * 1.1) {
+          } else if (framerate < (1 / 60) * 2.0) {
             loResNeeded = false;
           }
         }

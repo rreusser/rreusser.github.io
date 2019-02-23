@@ -115,13 +115,13 @@ function render (onChange, children) {
     }
   });
 
-  title.addEventListener('touchstart', function (e) {
+  root.addEventListener('touchstart', function (e) {
     e.stopPropagation();
   });
-  title.addEventListener('touchmove', function (e) {
+  root.addEventListener('touchmove', function (e) {
     e.stopPropagation();
   });
-  title.addEventListener('touchend', function (e) {
+  root.addEventListener('touchend', function (e) {
     e.stopPropagation();
   });
 
