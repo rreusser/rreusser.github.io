@@ -2,4 +2,5 @@
 src/docs
 src/src/tmp
 dev
-
+node_modules
+src/src/unused
