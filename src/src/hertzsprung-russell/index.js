@@ -65,20 +65,21 @@ function start (regl, stars) {
   }
 
   var initialAxis = {
-    xmin: -0.4,
+    xmin: -0.8,
     xmax: 2.5,
-    ymin: -18,
-    ymax: 11
+    ymin: -20,
+    ymax: 11,
+    aspectRatio: 0.13,
   };
 
   var camera = createCamera(regl, initialAxis);
   var grid = new Grid(regl);
 
   var padding = {
-    left: 40,
+    left: 50,
     right: 10,
     top: 10,
-    bottom: 25,
+    bottom: 45,
   };
   var scissor = regl({
     scissor: {
@@ -189,6 +190,40 @@ function start (regl, stars) {
     },
     count: points.length / 2,
   });
+
+  var xlabel = document.createElement('span');
+  document.body.appendChild(xlabel);
+  xlabel.textContent = 'B-V Color Index';
+  xlabel.style.zIndex = 1;
+  xlabel.style.position = 'fixed';
+  xlabel.style.top = 0;
+  xlabel.style.left = 0;
+  xlabel.style.color = 'white';
+  xlabel.style.fontFamily = '"Helvetica", sans-serif';
+  xlabel.style.fontWeight = 200;
+  xlabel.style.fontSize = '0.95em';
+
+  var ylabel = document.createElement('span');
+  document.body.appendChild(ylabel);
+  ylabel.textContent = 'Absolute Magnitude';
+  ylabel.style.zIndex = 1;
+  ylabel.style.position = 'fixed';
+  ylabel.style.top = 0;
+  ylabel.style.left = 0;
+  ylabel.style.color = 'white';
+  ylabel.style.fontFamily = '"Helvetica", sans-serif';
+  ylabel.style.fontWeight = 200;
+  ylabel.style.fontSize = '0.95em';
+
+  function positionLabels () {
+    var w = window.innerWidth;
+    var h = window.innerHeight;
+    xlabel.style.transform = 'translate3d(-50%,0,0) translate3d('+(w * 0.5)+'px,'+(h - 22)+'px,0)';
+    ylabel.style.transform = 'translate3d('+(17)+'px,'+(h * 0.5)+'px,0) translate(-50%, -50%) rotate(-90deg)';
+  }
+
+  positionLabels();
+  window.addEventListener('resize', positionLabels);
 
   var frame = regl.frame(function () {
     try {

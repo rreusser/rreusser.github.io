@@ -47,6 +47,12 @@ module.exports = function makeCamera2D (regl, opts) {
   var xmax = opts.xmax === undefined ? 1 : opts.xmax;
   var ymin = opts.ymin === undefined ? -1 : opts.ymin;
   var ymax = opts.ymax === undefined ? 1 : opts.ymax;
+
+  var xcen = 0.5 * (xmin + xmax);
+  var ycen = 0.5 * (ymin + ymax);
+
+  console.log('(ymax - ymin) / (xmax - xmin):', (ymax - ymin) / (xmax - xmin));
+
   var aspectRatio = opts.aspectRatio === undefined ? 1 : opts.aspectRatio;
 
   var width = getWidth();
@@ -62,6 +68,36 @@ module.exports = function makeCamera2D (regl, opts) {
   mView[5] = 1.0 / ys;
   mView[12] = -xc / xs;
   mView[13] = -yc / ys;
+
+  function enforceAR () {
+    var xs = 1.0 / mView[0];
+    var xc = -mView[12] / mView[0];
+    var ys = 1.0 / mView[5];
+    var yc = -mView[13] / mView[5];
+
+    var h = window.innerHeight;
+    var w = window.innerWidth;
+    var ar = xs / ys * window.innerWidth / window.innerHeight;
+    console.log('ar:', ar);
+    if (ar > aspectRatio) {
+      xmin = xc - ys * w / h * aspectRatio;;
+      xmax = xc + ys * w / h * aspectRatio;;
+    } else {
+      ymin = yc - xs * h / w / aspectRatio;;
+      ymax = yc + xs * h / w / aspectRatio;;
+    }
+
+    var xs = 0.5 * (xmax - xmin);
+    var ys = 0.5 * (ymax - ymin);
+    var xc = 0.5 * (xmax + xmin);
+    var yc = 0.5 * (ymax + ymin);
+
+    mView[0] = 1.0 / xs;
+    mView[5] = 1.0 / ys;
+    mView[12] = -xc / xs;
+    mView[13] = -yc / ys;
+  }
+  enforceAR();
 
   var mViewport = identity([]);
   var mInvViewport = identity([]);
@@ -157,6 +193,7 @@ module.exports = function makeCamera2D (regl, opts) {
     },
     resize: function () {
       computeViewport();
+      enforceAR();
 
       // Reapply the aspect ratio:
       dirty = true;

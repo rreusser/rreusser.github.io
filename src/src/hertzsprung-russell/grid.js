@@ -44,7 +44,7 @@ function Grid (regl) {
     el.style.transform = 'translate3d(0,0,0)'
     el.style.fontFamily = '"Helvetica", sans-serif';
     el.style.fontWeight = 200;
-    el.style.fontSize = '0.85em';
+    el.style.fontSize = '0.75em';
 
     el = document.createElement('span');
     labelContainer.appendChild(el);
@@ -58,7 +58,7 @@ function Grid (regl) {
     el.style.transform = 'translate3d(0,0,0)'
     el.style.fontFamily = '"Helvetica", sans-serif';
     el.style.fontWeight = 200;
-    el.style.fontSize = '0.85em';
+    el.style.fontSize = '0.75em';
   }
 
 
@@ -171,7 +171,7 @@ Grid.prototype = {
       var y = (props.offset + i) * props.step;
       var yn = h * (0.5 - 0.5 * (mView[13] + mView[5] * y));
       var number = this.yNumbers[i];
-      var s = y.toFixed(3);
+      var s = (-y).toFixed(3);
       s = s.replace(/\.0*$/, '');
       if (/\./.test(s)) s = s.replace(/0+$/, '');
       number.textContent = s;
