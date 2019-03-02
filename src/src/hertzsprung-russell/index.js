@@ -156,12 +156,12 @@ function start (regl, stars) {
     uniforms: {
       pointSize: ctx => {
         var m = camera.matrix();
-        var pointSize = Math.min(30, Math.max(1, Math.pow(m[0] * m[5], 0.25) * 7.0)) * ctx.pixelRatio;
+        var pointSize = Math.min(30, Math.max(1, Math.pow(m[0] * m[5], 0.25) * 5.0)) * ctx.pixelRatio;
         return pointSize;
       },
       opacity: function (ctx, props) {
         var m = camera.matrix();
-        var pointSize = Math.min(30, Math.max(1, Math.pow(m[0] * m[5], 0.25) * 7.0)) * ctx.pixelRatio;
+        var pointSize = Math.min(30, Math.max(1, Math.pow(m[0] * m[5], 0.25) * 5.0)) * ctx.pixelRatio;
 
         return Math.min(1, Math.max(3/255, 
           0.5 *
