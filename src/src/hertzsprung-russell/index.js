@@ -98,20 +98,11 @@ function start (regl, stars) {
       precision highp float;
       attribute vec2 position;
       attribute float temp;
-      varying float vTemp;
+      varying vec3  vColor;
       uniform mat4 view;
       uniform float pointSize;
-      void main () {
-        vTemp = temp;
-        gl_Position = view * vec4(position, 0, 1);
-        gl_PointSize = pointSize;
-      }
-    `,
-    frag: `
-      precision highp float;
-      varying float vTemp;
-      uniform float opacity;
 
+      // Code adapted somewhat naively from: http://www.tannerhelland.com/4435/convert-temperature-rgb-algorithm-code/
       vec3 kelvinToRGB(float temperatureInKelvins) {
         vec3 retColor;
 
@@ -138,14 +129,24 @@ function start (regl, stars) {
       }
 
       void main () {
+        vColor = kelvinToRGB(temp);
+        vColor.x = pow(vColor.x, 2.2);
+        vColor.y = pow(vColor.y, 2.2);
+        vColor.z = pow(vColor.z, 2.2);
+        gl_Position = view * vec4(position, 0, 1);
+        gl_PointSize = pointSize;
+      }
+    `,
+    frag: `
+      precision highp float;
+      varying vec3 vColor;
+      uniform float opacity;
+
+      void main () {
         vec2 xy = gl_PointCoord.xy - 0.5;
         float fac = dot(xy, xy) * 4.0;
         float alpha = max(0.0, 1.0 - fac * fac);
-        vec3 rgb = kelvinToRGB(vTemp);
-        rgb.x = pow(rgb.x, 2.2);
-        rgb.y = pow(rgb.y, 2.2);
-        rgb.z = pow(rgb.z, 2.2);
-        gl_FragColor = vec4(vec3(rgb), alpha * opacity);
+        gl_FragColor = vec4(vColor, alpha * opacity);
       }
     `,
     blend: {

@@ -51,8 +51,6 @@ module.exports = function makeCamera2D (regl, opts) {
   var xcen = 0.5 * (xmin + xmax);
   var ycen = 0.5 * (ymin + ymax);
 
-  console.log('(ymax - ymin) / (xmax - xmin):', (ymax - ymin) / (xmax - xmin));
-
   var aspectRatio = opts.aspectRatio === undefined ? 1 : opts.aspectRatio;
 
   var width = getWidth();
@@ -78,7 +76,6 @@ module.exports = function makeCamera2D (regl, opts) {
     var h = window.innerHeight;
     var w = window.innerWidth;
     var ar = xs / ys * window.innerWidth / window.innerHeight;
-    console.log('ar:', ar);
     if (ar > aspectRatio) {
       xmin = xc - ys * w / h * aspectRatio;;
       xmax = xc + ys * w / h * aspectRatio;;
