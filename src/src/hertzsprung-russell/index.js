@@ -79,7 +79,7 @@ function start (regl, stars) {
     left: 50,
     right: 20,
     top: 30,
-    bottom: 50,
+    bottom: 55,
   };
   var scissor = regl({
     scissor: {
@@ -243,7 +243,7 @@ function start (regl, stars) {
   function positionLabels () {
     var w = window.innerWidth;
     var h = window.innerHeight;
-    xlabel.style.transform = 'translate3d(-50%,0,0) translate3d('+(w * 0.5)+'px,'+(h - padding.bottom + 20)+'px,0)';
+    xlabel.style.transform = 'translate3d(-50%,0,0) translate3d('+(w * 0.5)+'px,'+(h - padding.bottom + 23)+'px,0)';
     ylabel.style.transform = 'translate3d('+(17)+'px,'+(h * 0.5)+'px,0) translate(-50%, -50%) rotate(-90deg)';
   }
 
