@@ -78,8 +78,8 @@ function start (regl, stars) {
   var padding = {
     left: 50,
     right: 20,
-    top: 40,
-    bottom: 45,
+    top: 30,
+    bottom: 50,
   };
   var scissor = regl({
     scissor: {
@@ -203,6 +203,27 @@ function start (regl, stars) {
   xlabel.style.fontWeight = 200;
   xlabel.style.fontSize = '0.95em';
 
+  var attrib = document.createElement('span');
+  document.body.appendChild(attrib);
+  var text = document.createElement('span');
+  text.textContent = 'Data from ';
+  var link = document.createElement('a');
+  link.textContent = 'http://astrosci.scimuze.com/stellar_data.htm';
+  link.href = 'http://astrosci.scimuze.com/stellar_data.htm';
+  link.style.color = 'white';
+  link.target = '_blank';
+  attrib.appendChild(text);
+  attrib.appendChild(link);
+  attrib.style.zIndex = 1;
+  attrib.style.position = 'fixed';
+  attrib.style.left = '2px';
+  attrib.style.bottom = '2px';
+  attrib.style.color = 'white';
+  attrib.style.fontFamily = '"Helvetica", sans-serif';
+  attrib.style.fontWeight = 200;
+  attrib.style.fontSize = '0.65em';
+  attrib.style.opacity = 0.7;
+
   var ylabel = document.createElement('span');
   document.body.appendChild(ylabel);
   ylabel.textContent = 'Absolute Magnitude';
@@ -218,7 +239,7 @@ function start (regl, stars) {
   function positionLabels () {
     var w = window.innerWidth;
     var h = window.innerHeight;
-    xlabel.style.transform = 'translate3d(-50%,0,0) translate3d('+(w * 0.5)+'px,'+(h - 22)+'px,0)';
+    xlabel.style.transform = 'translate3d(-50%,0,0) translate3d('+(w * 0.5)+'px,'+(h - padding.bottom + 20)+'px,0)';
     ylabel.style.transform = 'translate3d('+(17)+'px,'+(h * 0.5)+'px,0) translate(-50%, -50%) rotate(-90deg)';
   }
 
