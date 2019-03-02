@@ -48,7 +48,7 @@ function Grid (regl) {
       precision highp float;
       uniform float opacity;
       void main () {
-        gl_FragColor = vec4(vec3(1), 0.3 * opacity);
+        gl_FragColor = vec4(vec3(1), 0.2 * opacity);
       }
     `,
     depth: {

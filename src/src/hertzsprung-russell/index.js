@@ -15,9 +15,9 @@ html, body {
 
 require('regl')({
   extensions: [],
-  pixelRatio: Math.min(1.5, window.devicePixelRatio),
+  pixelRatio: Math.min(2, window.devicePixelRatio),
   attributes: {
-    antialias: false,
+    antialias: true,
     depthStencil: false,
   },
   onDone: require('fail-nicely')(parseStars)
@@ -70,15 +70,15 @@ function start (regl, stars) {
   var camera = createCamera(regl, initialAxis);
   var grid = new Grid(regl);
 
-  var padding = 50;
+  var padding = 20;
   var scissor = regl({
     scissor: {
       enable: true,
       box: {
-        x: () => padding,
-        y: () => padding,
-        width: ctx => ctx.viewportWidth - 2 * padding,
-        height: ctx => ctx.viewportHeight - 2 * padding
+        x: ctx => Math.floor(padding * ctx.pixelRatio),
+        y: ctx => Math.floor(padding * ctx.pixelRatio),
+        width: ctx => ctx.viewportWidth - 2 * Math.floor(padding * ctx.pixelRatio),
+        height: ctx => ctx.viewportHeight - 2 * Math.floor(padding * ctx.pixelRatio)
       }
     },
   });
@@ -154,22 +154,23 @@ function start (regl, stars) {
     depth: {enable: false},
     primitive: 'points',
     uniforms: {
-      pointSize: () => {
+      pointSize: ctx => {
         var m = camera.matrix();
-        var pointSize = Math.min(20, Math.max(1, Math.pow(m[0] * m[5], 0.25) * 10.0));
+        var pointSize = Math.min(30, Math.max(1, Math.pow(m[0] * m[5], 0.25) * 7.0)) * ctx.pixelRatio;
         return pointSize;
       },
       opacity: function (ctx, props) {
         var m = camera.matrix();
-        var pointSize = Math.min(20, Math.max(1, Math.pow(m[0] * m[5], 0.25) * 10.0));
+        var pointSize = Math.min(30, Math.max(1, Math.pow(m[0] * m[5], 0.25) * 7.0)) * ctx.pixelRatio;
 
-        return Math.min(1, Math.max(5/255, 
-          0.6 *
+        return Math.min(1, Math.max(3/255, 
+          0.5 *
             (ctx.viewportWidth / 1024) *
             (ctx.viewportHeight / 1024) * 
             m[0] * (initialAxis.xmax - initialAxis.xmin) *
             m[5] * (initialAxis.ymax - initialAxis.ymin) /
-            Math.pow(pointSize, 2)
+            Math.pow(pointSize, 2) /
+            Math.pow(ctx.pixelRatio, 0.25)
           ));
       }
     },
