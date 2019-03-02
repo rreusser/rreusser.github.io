@@ -5,7 +5,7 @@ var path = require('path');
 var csvParser = require('csv-parser');
 var createCamera = require('./camera-2d');
 var Grid = require('./grid');
-var starData = fs.readFileSync(path.join(__dirname, 'stars.csv'), 'utf8');
+var starData = fs.readFileSync(path.join(__dirname, 'shortstars.csv'), 'utf8');
 
 require('insert-css')(`
 html, body {
