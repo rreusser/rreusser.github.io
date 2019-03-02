@@ -35,7 +35,7 @@ function parseStars (regl) {
 }
 
 function basePointSize (ctx) {
-  return ctx.viewportWidth / 200;
+  return Math.sqrt(ctx.viewportWidth * ctx.viewportHeight) / 200;
 }
 
 
@@ -74,15 +74,20 @@ function start (regl, stars) {
   var camera = createCamera(regl, initialAxis);
   var grid = new Grid(regl);
 
-  var padding = 20;
+  var padding = {
+    left: 40,
+    right: 10,
+    top: 10,
+    bottom: 25,
+  };
   var scissor = regl({
     scissor: {
       enable: true,
       box: {
-        x: ctx => Math.floor(padding * ctx.pixelRatio),
-        y: ctx => Math.floor(padding * ctx.pixelRatio),
-        width: ctx => ctx.viewportWidth - 2 * Math.floor(padding * ctx.pixelRatio),
-        height: ctx => ctx.viewportHeight - 2 * Math.floor(padding * ctx.pixelRatio)
+        x: ctx => Math.floor(padding.left * ctx.pixelRatio),
+        y: ctx => Math.floor(padding.bottom * ctx.pixelRatio),
+        width: ctx => ctx.viewportWidth - Math.floor((padding.left + padding.right) * ctx.pixelRatio),
+        height: ctx => ctx.viewportHeight - Math.floor((padding.top + padding.bottom) * ctx.pixelRatio)
       }
     },
   });
@@ -185,17 +190,22 @@ function start (regl, stars) {
     count: points.length / 2,
   });
 
-  regl.frame(function () {
-    camera.draw(state => {
-      if (!state.dirty) return;
+  var frame = regl.frame(function () {
+    try {
+      camera.draw(state => {
+        if (!state.dirty) return;
 
-      regl.clear({color: [0.06, 0.06, 0.06, 1]});
+        regl.clear({color: [0.06, 0.06, 0.06, 1]});
 
-      scissor(() => {
-        grid.draw(camera.matrix());
-        drawPoints();
+        scissor(() => {
+          grid.draw(camera.matrix(), padding);
+          drawPoints();
+        });
       });
-    });
+    } catch (e) {
+      frame.cancel();
+      throw e;
+    }
   });
 
   window.addEventListener('resize', camera.resize);

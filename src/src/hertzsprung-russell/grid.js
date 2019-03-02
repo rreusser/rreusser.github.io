@@ -24,6 +24,44 @@ function Grid (regl) {
     };
   }
 
+  var el;
+  this.xNumbers = [];
+  this.yNumbers = [];
+  var labelContainer = document.createElement('div');
+  labelContainer.zIndex = 1;
+  labelContainer.position = 'fixed';
+  document.body.appendChild(labelContainer);
+  for (var i = 0; i < 40; i++) {
+    el = document.createElement('span');
+    labelContainer.appendChild(el);
+    this.xNumbers.push(el);
+    el.style.position = 'fixed';
+    el.style.opacity = 0;
+    el.style.top = 0;
+    el.style.left = 0;
+    el.style.color = 'white';
+    el.textContent = '';
+    el.style.transform = 'translate3d(0,0,0)'
+    el.style.fontFamily = '"Helvetica", sans-serif';
+    el.style.fontWeight = 200;
+    el.style.fontSize = '0.85em';
+
+    el = document.createElement('span');
+    labelContainer.appendChild(el);
+    this.yNumbers.push(el);
+    el.style.position = 'fixed';
+    el.style.opacity = 0;
+    el.style.top = 0;
+    el.style.left = 0;
+    el.style.color = 'white';
+    el.textContent = '';
+    el.style.transform = 'translate3d(0,0,0)'
+    el.style.fontFamily = '"Helvetica", sans-serif';
+    el.style.fontWeight = 200;
+    el.style.fontSize = '0.85em';
+  }
+
+
   this.drawLines = regl({
     vert: `
       precision highp float;
@@ -77,7 +115,9 @@ function Grid (regl) {
       opacity: regl.prop('opacity'),
     },
     primitive: 'lines',
-    count: regl.prop('count'),
+    count: function (ctx, props) {
+      return props.count * 2;
+    },
   });
 }
 
@@ -90,7 +130,10 @@ function step (i1, i2, i) {
 }
 
 Grid.prototype = {
-  draw: function (mView) {
+  draw: function (mView, padding) {
+    var w = window.innerWidth;
+    var h = window.innerHeight;
+
     var i1, i2, props;
     var xr = 1.0 / mView[0];
     var yr = 1.0 / mView[5];
@@ -109,7 +152,7 @@ Grid.prototype = {
       i1 = Math.floor((yc - yr) / div);
       i2 = Math.ceil((yc + yr) / div);
       props.offset = i1;
-      props.count = Math.max(0, Math.min((i2 - i1), 1000)) * 2;
+      props.count = Math.max(0, Math.min((i2 - i1), 1000));
       props.swap = false;
     
       if (i === 0) {
@@ -123,6 +166,23 @@ Grid.prototype = {
       div /= base;
     }
 
+    var props = this.props[1];
+    for (var i = 1; i < Math.min(props.count, 40); i++) {
+      var y = (props.offset + i) * props.step;
+      var yn = h * (0.5 - 0.5 * (mView[13] + mView[5] * y));
+      var number = this.yNumbers[i];
+      var s = y.toFixed(3);
+      s = s.replace(/\.0*$/, '');
+      if (/\./.test(s)) s = s.replace(/0+$/, '');
+      number.textContent = s;
+      number.style.transform = 'translate3d(-100%,-50%,0) translate3d('+(padding.left - 5)+'px,' + yn + 'px,0)';
+      number.style.opacity = (yn < padding.top || yn > h - padding.bottom) ? 0 : 1;
+    }
+
+    for(; i<40; i++) {
+      this.yNumbers[i].style.opacity = 0;
+    }
+
     var scale = this.regl._gl.canvas.width / this.referenceSize;
     var pow = Math.log(xr * 2 * base / scale) / Math.log(base);
     var powFloor = Math.floor(pow);
@@ -134,7 +194,7 @@ Grid.prototype = {
       i2 = Math.ceil((xc + xr) / div);
       props.offset = i1;
       props.step = div;
-      props.count = Math.max(0, Math.min((i2 - i1), 1000)) * 2;
+      props.count = Math.max(0, Math.min((i2 - i1), 1000));
       props.swap = true;
 
       var i0 = i - this.octaves;
@@ -147,6 +207,23 @@ Grid.prototype = {
       }
 
       div /= base;
+    }
+
+    var props = this.props[this.octaves + 1];
+    for (var i = 1; i < Math.min(props.count, 40); i++) {
+      var x = (props.offset + i) * props.step;
+      var xn = w * (0.5 + 0.5 * (mView[12] + mView[0] * x));
+      var number = this.xNumbers[i];
+      var s = x.toFixed(3);
+      s = s.replace(/\.0*$/, '');
+      if (/\./.test(s)) s = s.replace(/0+$/, '');
+      number.textContent = s;
+      number.style.transform = 'translate3d(-50%,0,0) translate3d(' + xn + 'px,'+(window.innerHeight - (padding.bottom - 5))+'px,0)';
+      number.style.opacity = (xn < padding.left || xn > w - padding.right) ? 0 : 1;
+    }
+
+    for(; i<40; i++) {
+      this.xNumbers[i].style.opacity = 0;
     }
 
     this.drawLines(this.props);
