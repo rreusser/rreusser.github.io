@@ -171,12 +171,15 @@ Grid.prototype = {
       var y = (props.offset + i) * props.step;
       var yn = h * (0.5 - 0.5 * (mView[13] + mView[5] * y));
       var number = this.yNumbers[i];
-      var s = (-y).toFixed(3);
-      s = s.replace(/\.0*$/, '');
-      if (/\./.test(s)) s = s.replace(/0+$/, '');
-      number.textContent = s;
-      number.style.transform = 'translate3d(-100%,-50%,0) translate3d('+(padding.left - 5)+'px,' + yn + 'px,0)';
-      number.style.opacity = (yn < padding.top || yn > h - padding.bottom) ? 0 : 1;
+      var opacity = (yn < padding.top || yn > h - padding.bottom) ? 0 : 1;
+      if (opacity) {
+        var s = (-y).toFixed(3);
+        s = s.replace(/\.0*$/, '');
+        if (/\./.test(s)) s = s.replace(/0+$/, '');
+        number.textContent = s;
+        number.style.transform = 'translate3d(-100%,-50%,0) translate3d('+(padding.left - 5)+'px,' + yn + 'px,0)';
+      }
+      number.style.opacity = opacity;
     }
 
     for(; i<40; i++) {
@@ -214,12 +217,15 @@ Grid.prototype = {
       var x = (props.offset + i) * props.step;
       var xn = w * (0.5 + 0.5 * (mView[12] + mView[0] * x));
       var number = this.xNumbers[i];
-      var s = x.toFixed(3);
-      s = s.replace(/\.0*$/, '');
-      if (/\./.test(s)) s = s.replace(/0+$/, '');
-      number.textContent = s;
-      number.style.transform = 'translate3d(-50%,0,0) translate3d(' + xn + 'px,'+(window.innerHeight - (padding.bottom - 5))+'px,0)';
-      number.style.opacity = (xn < padding.left || xn > w - padding.right) ? 0 : 1;
+      var opacity = (xn < padding.left || xn > w - padding.right) ? 0 : 1;
+      if (opacity) {
+        var s = x.toFixed(3);
+        s = s.replace(/\.0*$/, '');
+        if (/\./.test(s)) s = s.replace(/0+$/, '');
+        number.textContent = s;
+        number.style.transform = 'translate3d(-50%,0,0) translate3d(' + xn + 'px,'+(window.innerHeight - (padding.bottom - 5))+'px,0)';
+      }
+      number.style.opacity = opacity;
     }
 
     for(; i<40; i++) {
