@@ -212,6 +212,10 @@ function start (regl, stars) {
   link.href = 'http://astrosci.scimuze.com/stellar_data.htm';
   link.style.color = 'white';
   link.target = '_blank';
+  link.addEventListener('click', event => event.stopPropagation());
+  link.addEventListener('touchstart', event => event.stopPropagation());
+  link.addEventListener('touchmove', event => event.stopPropagation());
+  link.addEventListener('touchend', event => event.stopPropagation());
   attrib.appendChild(text);
   attrib.appendChild(link);
   attrib.style.zIndex = 1;
