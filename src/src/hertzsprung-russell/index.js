@@ -69,7 +69,7 @@ function start (regl, stars) {
     xmax: 2.5,
     ymin: -20,
     ymax: 11,
-    aspectRatio: 0.13,
+    aspectRatio: 0.14,
   };
 
   var camera = createCamera(regl, initialAxis);
@@ -77,8 +77,8 @@ function start (regl, stars) {
 
   var padding = {
     left: 50,
-    right: 10,
-    top: 10,
+    right: 20,
+    top: 40,
     bottom: 45,
   };
   var scissor = regl({
