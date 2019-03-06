@@ -2,7 +2,7 @@
 
 var glsl = require('glslify');
 
-var maxPixelRatio = 1.5;
+var maxPixelRatio = 1.0;
 if (window.innerWidth * window.innerHeight < 1024 * 768) {
   maxPixelRatio = 2;
 }
@@ -134,7 +134,7 @@ function run (regl) {
     frag: `
       precision highp float;
       void main () {
-        gl_FragColor = vec4(1, 1, 1, max(0.0, 1.0 - dot(gl_PointCoord.xy - 0.5, gl_PointCoord.xy) * 4.0) * 0.15);
+        gl_FragColor = vec4(1, 1, 1, max(0.0, 1.0 - dot(gl_PointCoord.xy - 0.5, gl_PointCoord.xy - 0.5) * 4.0) * 0.15);
       }`,
     blend: {
       enable: true,
