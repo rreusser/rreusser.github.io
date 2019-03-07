@@ -11,8 +11,7 @@ const cross = require('gl-vec3/cross');
 const normalize = require('gl-vec3/normalize');
 const sub = require('gl-vec3/subtract');
 const nurbs = require('nurbs');
-const path = require('path');
-const fs = require('fs');
+const h = require('h');
 
 require('regl/dist/regl.min.js')({
   pixelRatio: Math.min(window.devicePixelRatio, 1.25),
@@ -262,4 +261,32 @@ function run(regl) {
       }
     });
   });
+
+  var helper = h('div', '➟', {
+    style: {
+      transition: 'opacity 0.5s',
+      opacity: 0,
+      position: 'absolute',
+      top: '100vh',
+      left: '50%',
+      zIndex: 1,
+      'font-size': '4em',
+      color: '#fff',
+      transform: 'translate3d(-50%, -150%, 0) rotate(90deg)',
+      'text-shadow': `1px  1px 0 #000, -0px  1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px  0px 0 #000, 1px  0px 0 #000, 0px -1px 0 #000, 0px  1px 0 #000`
+    }
+  });
+
+  document.body.append(helper);
+
+  function onscroll () {
+    if (window.scrollY <= 0) {
+      helper.style.opacity = 1;
+    } else {
+      helper.style.opacity = 0;
+    }
+  }
+
+  window.addEventListener('scroll', onscroll, false);
+  onscroll();
 }
