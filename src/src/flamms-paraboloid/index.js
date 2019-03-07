@@ -267,7 +267,7 @@ function run(regl) {
       transition: 'opacity 0.5s',
       opacity: 0,
       position: 'absolute',
-      top: '950vh',
+      top: '95vh',
       left: '50%',
       zIndex: 1,
       'font-size': '4em',
