@@ -267,12 +267,12 @@ function run(regl) {
       transition: 'opacity 0.5s',
       opacity: 0,
       position: 'absolute',
-      top: '100vh',
+      top: '950vh',
       left: '50%',
       zIndex: 1,
       'font-size': '4em',
       color: '#fff',
-      transform: 'translate3d(-50%, -150%, 0) rotate(90deg)',
+      transform: 'translate3d(-50%, -180%, 0) rotate(90deg)',
       'text-shadow': `1px  1px 0 #000, -0px  1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px  0px 0 #000, 1px  0px 0 #000, 0px -1px 0 #000, 0px  1px 0 #000`
     }
   });
