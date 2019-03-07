@@ -37,7 +37,7 @@ function run (regl, assets) {
 
   const drawBg =  regl({
     vert: `
-      precision mediump float;
+      precision highp float;
       attribute vec2 xy;
       varying vec2 uv;
       void main () {
@@ -46,7 +46,7 @@ function run (regl, assets) {
       }
     `,
     frag: `
-      precision mediump float;
+      precision highp float;
       varying vec2 uv;
       uniform sampler2D src;
       void main () {
@@ -60,7 +60,7 @@ function run (regl, assets) {
 
   const drawMesh = regl({
     vert: `
-      precision mediump float;
+      precision highp float;
       attribute vec3 position, normal;
       attribute vec2 uv;
       uniform mat4 projection, view;
@@ -75,7 +75,7 @@ function run (regl, assets) {
       }
     `,
     frag: glsl`
-      precision mediump float;
+      precision highp float;
       #extension GL_OES_standard_derivatives : enable
       #pragma glslify: cartesian = require(glsl-solid-wireframe/cartesian/scaled)
       #pragma glslify: matcap = require(matcap)
