@@ -28,19 +28,15 @@ module.exports = function restrictedThreeBody (props) {
   function initialize () {
     time = 0.0;
     integrator.t = 0;
-    integrator.dt = 1 / 60;
-    state[0] = 1.06;
-    state[1] = -0.11;
-    state[2] = 0.0;
-    state[3] = -0.8;
-    //state[0] = 0.5;
-    //state[1] = 0.8;
-    //state[2] = 0.0;
-    //state[3] = 0.0;
+    integrator.dt = 1 / 60 * props.omega;
+    if (!props.restrictedThreeBodyInitialConditions) return;
+    for (var i = 0; i < 4; i++) {
+      state[i] = props.restrictedThreeBodyInitialConditions[i];
+    }
   }
 
   function step (dt) {
-    time += dt;
+    time += dt * props.omega;
     integrator.steps(1000, time);
     return integrator.y;
   }

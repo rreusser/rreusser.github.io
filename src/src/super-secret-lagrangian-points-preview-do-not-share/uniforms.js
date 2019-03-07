@@ -48,9 +48,9 @@ module.exports = function (regl) {
 
     if (tPrev !== null) {
       var dt = t - tPrev;
-      props.rotationSpeed = 1.0 - props.synodicFrame;
-      modelTheta += props.rotationSpeed * dt;
-      worldTheta -= (1.0 - props.rotationSpeed) * dt;
+      props.rotationSpeed = (1.0 - props.synodicFrame) * props.omega;
+      modelTheta += (props.rotationSpeed * dt);
+      worldTheta -= (props.omega - props.rotationSpeed) * dt;
     }
 
     tPrev = t;

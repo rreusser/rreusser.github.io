@@ -194,7 +194,15 @@ function run (regl) {
     raw: h('div', [
       h('h1.frame-title', "Lagrange Points and Halo Orbits"),
       h('p.frame-text', [
-        'On March 30, 2021, the ',
+        "It only takes the smallest jump into the air to remind ourselves why we're so familiar with the pull of gravity. From the pull of Earth on our bodies to the pull of the sun on Earth, we all have at least some sense of what it means for one object to pull on another.",
+      ]),
+      h('p.frame-text', [
+      
+      ]),
+      h('p.frame-text', [
+        "In this exploration, we'll take one step further and consider what it means for two objects to pull on another object."
+      ]),
+        /*'On March 30, 2021, the ',
         h('a', {href: "https://www.jwst.nasa.gov/", target: "_blank"}, "James Webb Space Telescope"),
         ' will be launched into space to supersede the Hubble Space Telescope and observe some of the most distant objects in the universe. To help escape the noisy near-Earth environment and achieve its extreme sensitivity, it will be placed beyond the moon in a so-called halo orbit around a special point in space called the Earth-Sun L',
         h('sub', 2),
@@ -202,9 +210,12 @@ function run (regl) {
       ]),
       h('p.frame-text', [
         "This exploration will walk through what Lagrange points are, how they relate to halo orbits, and how we can get our hands on one! (copy needs work)"
-      ])
+      ])*/
     ]),
     state: {
+      omega: [
+        {t: -1, value: 1.0},
+      ],
       scale: [
         {t: -1.0, value: 1.7},
         {t: 1.0, value: 1.3},
@@ -283,11 +294,21 @@ function run (regl) {
       "."
     ]),
     state: {
+      thirdBodyColor: [
+        {t: -0.5, value: [0.7, 0.7, 0.7, 0]},
+        {t: -0.25, value: [0.7, 0.7, 0.7, 1]},
+      ],
+      restrictedThreeBodyInitialConditions: [
+        {t: -1.0, value: [1.13, 0, 0, -0.935]},
+        {t: 2.0, value: [1.13, 0, 0, -0.935]},
+      ],
       restrictedThreeBodySynodicOpacity: [
         {t: -0.5, value: 0.0},
         {t: 0.0, value: 1.0},
         {t: 1.0, value: 1.0},
         {t: 1.5, value: 0.0},
+        {t: 1.25, value: [0.7, 0.7, 0.7, 1]},
+        {t: 1.5, value: [0.7, 0.7, 0.7, 0]},
       ],
     }
   }, {
@@ -318,6 +339,10 @@ function run (regl) {
   }, {
     content: "We can represent the sun's gravity as a potential field.",
     state: {
+      omega: [
+        {t: -1, value: 1.0},
+        {t: 0, value: 0.4},
+      ],
       fieldOpacity: [
         {t: 0.0, value: 0.0},
         {t: 0.5, value: 1.0},
@@ -350,9 +375,23 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Let's now look at how a small third body moves in this potential.",
+    content: "Let's now consider how a small third body moves in this potential.",
+    state: {
+      restrictedThreeBodyInitialConditions: [
+        {t: -1.0, value: [1.00, 0, 0, -1.0]},
+        {t: 4.0, value: [1.00, 0, 0, -1.0]},
+      ],
+      thirdBodyColor: [
+        {t: -1, value: [1.0, 1.0, 1.0, 1]},
+        {t: 4, value: [1.0, 1.0, 1.0, 1]},
+      ],
+      restrictedThreeBodySynodicOpacity: [
+        {t: 0.0, value: 0.0},
+        {t: 0.5, value: 1.0},
+      ],
+    }
   }, {
-    content: "So far, we've observed everything from a fixed position far above the solar system.",
+    content: "Unfortunately, it's fairly difficult to analyze moving objects in moving gravitational fields.",
     state: {
       /*axisOpacity: [
         {t: -0.5, value: 0.0},
@@ -360,7 +399,7 @@ function run (regl) {
       ],*/
     }
   }, {
-    content: "Imagine instead that we, the observer, rotate at the same speed as the earth-sun system.",
+    content: "To simplify the math, imagine that we, the observer, rotate at the same speed as the earth-sun system.",
     state: {
       synodicFrame: [
         {t: -0.5, value: 0.0},
@@ -371,11 +410,13 @@ function run (regl) {
     content: h('span', [
       "In this rotating frame of reference, called the ",
       h('em', 'synodic frame'),
-      ", the earth and sun appear to stand still while the rest of the universe spins around us. Of course our rotation changes nothing about the system. The universe does actually spin as a result.",
+      ", the earth and sun ",
+      h('em', 'appear'),
+      " to stand still while the rest of the universe spins around us.",
     ]),
   }, {
     content: h('span', [
-      "A small satellite feels the pull of the earth and sun, but to describe its motion in the rotating frame, we must also add the apparent ",
+      "To describe the motion of the third body from our rotating frame, we must also add the apparent ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Centrifugal_force", target: "_blank"}, "centrifugal")),
       " and ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Coriolis_force", target: "_blank"}, "Coriolis")),
@@ -388,14 +429,14 @@ function run (regl) {
       ],*/
       scale: [
         {t: -2.0, value: 1.3},
-      ]
+      ],
     }
+  //}, {
+    //content: "People like to argue that these forces aren't real. They're not wrong, but we must include them to accurately describe motion from our rotating frame of reference.",
   }, {
-    content: "People like to argue that these forces aren't real. They're not wrong, but we must include them to accurately describe motion from our rotating frame of reference.",
+    content: "Coriolis force depends on the velocity of an object in the rotating frame which makes it a bit complicated. For now, we'll neglect it since objects stationary in the synodic frame experience no Coriolis force."
   }, {
-    content: "The Coriolis force on an object depends on its velocity in the rotating frame. For now, we'll neglect it since objects stationary in the synodic frame experience no Coriolis force."
-  }, {
-    content: "The centrifugal force is an apparent outward pull seen in rotating frames.",
+    content: "Centrifugal force is an apparent outward pull seen in rotating frames.",
     state: {
       scale: [
         {t: 1.5, value: 1.7}
@@ -410,7 +451,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "We account for it by building centrifugal force into our potential.",
+    content: "Since centrifugal force only depends on position, we're easily able to account for it by building it into our potential.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: -0.25, value: 1.0},
@@ -423,10 +464,20 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "The result is called the ",
+      "Since we neglected forces on ",
+      h("em", "moving"),
+      " objects, the resulting field is called the ",
       h("em", 'pseudo-potential'),
-      ". It's not the real gravitational potential, but we can use it to calculate the force on objects stationary in the synodic frame.",
+      "."
     ]),
+  }, {
+    content: "It's not the real gravitational potential but allows us to calculate the force on objects stationary in the synodic frame.",
+    state: {
+      restrictedThreeBodySynodicOpacity: [
+        {t: 0.0, value: 1.0},
+        {t: 0.5, value: 0.0},
+      ],
+    },
     /*
   }, {
     content: "When no other objects are present, the pseudo-potential is flat in a ring around the body.",
@@ -460,7 +511,7 @@ function run (regl) {
     */
   }, {
     content: h('span', [
-      "In fact the pseudo-potential has five equilibrium points at which stationary objects experience no net force. These are called the ",
+      "In fact the pseudo-potential has five equilibrium points at which stationary objects remain stationary. These are called the ",
       h('em', 'Lagrange'),
       ' or ',
       h('em', 'libration points'),
@@ -498,8 +549,8 @@ function run (regl) {
     ]),
     state: {
       synodicFrame: [
-        {t: -0.5, value: 0.0},
-        {t: -0.3, value: 1.0},
+        {t: -0.25, value: 0.0},
+        {t: -0.05, value: 1.0},
       ],
       mu: [
         {t: 0.5, value: 1 / 11},
@@ -509,13 +560,20 @@ function run (regl) {
     state: {
       mu: [
         {t: 0.2, value: 0.5},
+        {t: 1.0, value: 0.5},
       ],
+    }
+  }, {
+  }, {
+    state: {
+      mu: [
+        {t: 0.0, value: 1e-3},
+        {t: 1.0, value: 1e-3},
+      ]
     }
   }, {
     state: {
       mu: [
-        {t: -0.1, value: 1e-3},
-        {t: 0.1, value: 1e-3},
         {t: 0.5, value: 1 / 11},
       ],
     }
@@ -679,7 +737,7 @@ function run (regl) {
         integrateRestrictedThreeBodySynodic(dt);
 
         drawPoints({
-          color: [0.7, 0.7, 0.7, 1],
+          color: state.thirdBodyColor,
           points: {buffer: restrictedThreeBodySynodicBuffer},
           pointSize: 10,
           count: 1
