@@ -10,6 +10,18 @@ canvas {
   position: fixed !important;
 }
 
+.control-panel input[type=range]::-webkit-slider-thumb {
+  width: 20px !important;
+}
+
+.control-panel input[type=range]::-moz-range-thumb {
+  width: 20px !important;
+}
+
+.control-panel input[type=range]::-ms-thumb {
+  width: 20px !important;
+}
+
 #panel {
   font-family: ${font}, 'Helvetica', sans-serif;
   z-index: 20000;
