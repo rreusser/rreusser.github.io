@@ -115,12 +115,18 @@ function render (onChange, children) {
     }
   });
 
+  root.addEventListener('mousemove', function (e) {
+    e.stopPropagation();
+  });
+
   root.addEventListener('touchstart', function (e) {
     e.stopPropagation();
   });
+
   root.addEventListener('touchmove', function (e) {
     e.stopPropagation();
   });
+
   root.addEventListener('touchend', function (e) {
     e.stopPropagation();
   });
