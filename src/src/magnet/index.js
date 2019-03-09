@@ -163,19 +163,19 @@ function run (regl) {
     clientY: window.innerHeight * 0.5,
   });
 
-  window.addEventListener('touchmove', function (ev) {
+  regl._gl.canvas.addEventListener('touchmove', function (ev) {
     if (ev.touches.length !== 1) return;
     ev.preventDefault();
     onMouseMove(ev.touches[0]);
   });
 
-  window.addEventListener('touchstart', function (ev) {
+  regl._gl.canvas.addEventListener('touchstart', function (ev) {
     if (ev.touches.length !== 1) return;
     ev.preventDefault();
     onMouseMove(ev.touches[0]);
   });
 
-  window.addEventListener('mousemove', onMouseMove);
+  regl._gl.canvas.addEventListener('mousemove', onMouseMove);
 
   var integrate = regl({
     vert: `
