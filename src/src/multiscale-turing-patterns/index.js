@@ -115,7 +115,7 @@ function run (regl) {
 
   scaleScales();
 
-  var maxSize = w / 3;
+  var maxSize = 100;
   var controls = createControls(
     [
       {name: 'res', type: 'range', min: 8, max: 13, initial: Math.round(Math.log(size) / Math.log(2))},
@@ -126,7 +126,7 @@ function run (regl) {
     ].concat(
     new Array(scales.length).fill(0).map((d, i) => [
       {type: 'heading', label: 'Scale ' + (i + 1)},
-      {name: 'radius' + i, label: 'Radius', type: 'range', min: 0, max: maxSize, step: 1, initial: scales[i].activatorRadius},
+      {name: 'radius' + i, label: 'Radius', type: 'range', min: 0.05, max: maxSize, step: 0.05, initial: scales[i].activatorRadius},
       {name: 'amount' + i, label: 'Amount', type: 'range', min: -0.03, max: 0.05, step: 0.001, initial: scales[i].amount},
       {name: 'kernel' + i, label: 'Kernel', type: 'select', options: ['gaussian', 'circular'], initial: scales[i].kernel},
       {name: 'color' + i,  label: 'Color',  type: 'color', min: 0, max: 360, step: 1, initial: stringifyColor(scales[i].color, 'hex')},
