@@ -13,6 +13,7 @@ var size = queryparams.s || 256;
 var scaleFactor = Math.round(Math.log(size / 256) / Math.log(2));
 var haltAt = parseInt(queryparams.halt || 0);
 var inDiv = queryparams.div === 'yes' ? true : false;
+var seed = parseInt(queryparams.seed || 0);
 
 if (inDiv) {
   var container = document.createElement('div');
@@ -66,6 +67,7 @@ function run (regl) {
       c: scales.map(s => stringifyColor(s.color)),
       halt: haltAt,
       div: inDiv ? 'yes' : 'no',
+      seed: seed,
     };
   }
 
@@ -103,12 +105,15 @@ function run (regl) {
   if (queryparams.ar) queryparams.ar.forEach((ar, i) => scales[i].activatorRadius = parseFloat(ar));
   if (queryparams.a) queryparams.a.forEach((a, i) => scales[i].amount = parseFloat(a));
   if (queryparams.k) queryparams.k.forEach((k, i) => scales[i].kernel = k);
-  if (queryparams.c) queryparams.c.forEach((c, i) => {
-    scales[i].color = parseColor(c)
-  });
+  if (queryparams.c) {
+    queryparams.c.forEach((c, i) => {
+      scales[i].color = parseColor(c)
+    });
+  } else {
+    computeColors(scales, 0);
+  }
 
   scaleScales();
-  computeColors(scales, 0);
 
   var maxSize = w / 3;
   var controls = createControls(
@@ -183,12 +188,12 @@ function run (regl) {
       kernel3: scales[3].kernel,
       kernel4: scales[4].kernel,
       kernel5: scales[5].kernel,
-      color0: stringifyColor(scales[0].color),
-      color1: stringifyColor(scales[1].color),
-      color2: stringifyColor(scales[2].color),
-      color3: stringifyColor(scales[3].color),
-      color4: stringifyColor(scales[4].color),
-      color5: stringifyColor(scales[5].color),
+      color0: stringifyColor(scales[0].color, 'hex'),
+      color1: stringifyColor(scales[1].color, 'hex'),
+      color2: stringifyColor(scales[2].color, 'hex'),
+      color3: stringifyColor(scales[3].color, 'hex'),
+      color4: stringifyColor(scales[4].color, 'hex'),
+      color5: stringifyColor(scales[5].color, 'hex'),
     });
   }
 
@@ -274,9 +279,11 @@ function run (regl) {
     iteration = 0;
     initializeState({output: y[0], seed: seed});
     initializeKernels();
+    window.location.hash = qs.stringify(toqs());
+    seed++;
   }
 
-  initialize(Math.random());
+  initialize(seed);
 
   var dirty = false;
   var dt = 1.0;
@@ -338,6 +345,7 @@ function run (regl) {
     iteration = 0;
     initializeKernels();
     updatePanel();
+
     window.location.hash = qs.stringify(toqs());
   }
 
