@@ -42,7 +42,7 @@ function run (regl) {
     modulation: 1.0,
     modulationFrequency: 0.4,
     modulationSpeed: 6.0,
-    cylinderRadius: 1.0 * window.innerWidth / 1600,
+    cylinderRadius: 1.0 * window.innerWidth / 1200,
   };
 
   var screenWidth, screenHeight, h, w, licRadius, dt, alpha;
