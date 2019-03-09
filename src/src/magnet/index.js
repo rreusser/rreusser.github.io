@@ -219,7 +219,7 @@ function run (regl) {
         );
 
         float l = dot(force, force);
-        return force / pow(l, 0.6) * (0.2 + 0.8 * smoothstep(0.0, 0.3, l));
+        return force / pow(l, 0.6);
       }
 
       vec4 deriv4 (vec4 f) {
