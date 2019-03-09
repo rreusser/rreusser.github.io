@@ -32,6 +32,7 @@ module.exports = function (fields, options) {
     range: require('./fields/range'),
     heading: require('./fields/heading'),
     select: require('./fields/select'),
+    button: require('./fields/button'),
   };
 
   var fieldNames = Object.keys(fieldTypes);
@@ -44,7 +45,7 @@ module.exports = function (fields, options) {
 
   css(`
     .${className()} {
-      position: fixed;
+      position: absolute;
       top: 0;
       left: 0;
       background-color: #444;

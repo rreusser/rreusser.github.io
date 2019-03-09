@@ -10,6 +10,7 @@ var qs = require('query-string');
 var queryparams = qs.parse(window.location.hash);
 var pixelRatio = parseFloat(queryparams.pr || 1.0);
 var size = queryparams.s || 256;
+var scaleKnob = parseInt(queryparams.scale2 || 0);
 var scaleFactor = Math.round(Math.log(size / 256) / Math.log(2));
 var haltAt = parseInt(queryparams.halt || 0);
 var inDiv = queryparams.div === 'yes' ? true : false;
@@ -44,6 +45,8 @@ require('regl')({
 });
 
 function run (regl) {
+  if (!inDiv) regl._gl.canvas.style.position = 'fixed';
+
   var convolve = require('./convolve')(regl);
   var initializeState = require('./initialize')(regl);
   var initializeKernel = require('./initialize-kernel')(regl);
@@ -68,6 +71,8 @@ function run (regl) {
       halt: haltAt,
       div: inDiv ? 'yes' : 'no',
       seed: seed,
+      scale: scaleFactor,
+      scale2: scaleKnob,
     };
   }
 
@@ -121,8 +126,12 @@ function run (regl) {
       {name: 'res', type: 'range', min: 8, max: 13, initial: Math.round(Math.log(size) / Math.log(2))},
       {name: 'pixelRat', type: 'range', min: 0.5, max: 4, step: 0.5, initial: parseFloat(pixelRatio)},
       {name: 'scale', type: 'range', min: -8, max: 8, step: 1, initial: scaleFactor},
-      {name: 'halt', type: 'range', min: 0, max: 10000, step: 1, initial: haltAt},
+      {name: 'scale2', type: 'range', min: -8, max: 8, step: 1, initial: scaleKnob},
+      {name: 'halt', type: 'range', min: 0, max: 1000, step: 1, initial: haltAt},
       {name: 'inDiv', type: 'select', options: ['yes', 'no'], initial: inDiv ? 'yes' : 'no'},
+      {name: 'seed', type: 'button', action: () => { seed = Math.random(); initialize(seed); }},
+      {name: 'randomize', type: 'button', action: randomizeIt},
+      {name: 'randomize color', type: 'button', action: randomizeColor},
     ].concat(
     new Array(scales.length).fill(0).map((d, i) => [
       {type: 'heading', label: 'Scale ' + (i + 1)},
@@ -141,9 +150,10 @@ function run (regl) {
       }
       inDiv = state.inDiv === 'yes';
       var needsInitialize = false;
-      if (state.scale !== scaleFactor) {
+      if (state.scale !== scaleFactor || scaleKnob !== state.scale2) {
         needsInitialize = true;
       }
+      scaleKnob = state.scale2;
       scaleFactor = state.scale;
       for (var i = 0; i < scales.length; i++) {
         if (scales[i].activatorRadius !== state['radius'+i] ||
@@ -200,18 +210,19 @@ function run (regl) {
   function randomizeScales () {
     for (var i = 0; i < scales.length; i++) {
       var radius;
+      var ref = 256;
       switch(i) {
         case 0:
           scales[i].amount = 0.03 + 0.02 * Math.random();
-          radius = w * (0.125 + 0.375 * Math.random()) * 0.6;
+          radius = ref * (0.125 + 0.375 * Math.random()) * 0.6;
           break;
         case 1:
           scales[i].amount = -0.01 + 0.05 * Math.random();
-          radius = Math.max(2, w * (0.25 * Math.random() * Math.random()));
+          radius = Math.max(0.01, ref * (0.25 * Math.random() * Math.random()));
           break;
         default:
           scales[i].amount = 0.01 + 0.02 * Math.random();
-          radius = Math.max(2, w * (0.125 * Math.random() * Math.random()));
+          radius = Math.max(0.01, ref * (0.125 * Math.random() * Math.random()));
           break;
       }
       scales[i].kernel = Math.random() > 0.5 ? 'circular' : 'gaussian';
@@ -264,7 +275,7 @@ function run (regl) {
   // Precompute the kernels
   function initializeKernels () {
     for (var i = 0, i2 = 0; i < multiplexedScalesCount; i++, i2+=2) {
-      initializeKernel(Object.assign({output: kernel}, {scale1: scales[i2], scale2: scales[i2 + 1], scaleFactor: Math.pow(2, scaleFactor)}));
+      initializeKernel(Object.assign({output: kernel}, {scale1: scales[i2], scale2: scales[i2 + 1], scaleFactor: Math.pow(2, scaleFactor + scaleKnob)}));
 
       fft.forward({
         input: kernel,
@@ -280,7 +291,6 @@ function run (regl) {
     initializeState({output: y[0], seed: seed});
     initializeKernels();
     window.location.hash = qs.stringify(toqs());
-    seed++;
   }
 
   initialize(seed);
@@ -339,17 +349,24 @@ function run (regl) {
     //if (iteration > 350) randomizeIt();
   });
 
+  function randomizeColor () {
+    randomizeColors();
+    iteration = 0;
+    initializeKernels();
+    updatePanel();
+    window.location.hash = qs.stringify(toqs());
+  }
+
   function randomizeIt () {
     randomizeScales();
     randomizeColors();
     iteration = 0;
     initializeKernels();
     updatePanel();
-
     window.location.hash = qs.stringify(toqs());
   }
 
-  window.addEventListener('click', randomizeIt);
+  //window.addEventListener('click', randomizeIt);
 
   window.addEventListener('resize', function () {
     dirty = true;

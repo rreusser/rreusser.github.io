@@ -73,6 +73,7 @@ module.exports = {
         border: none;
         color: white;
         padding: 0 5px;
+        border-radius: 0;
       }
       .${className('input')}:focus {
         outline: none;
