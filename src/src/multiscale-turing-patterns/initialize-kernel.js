@@ -58,10 +58,10 @@ module.exports = function (regl) {
       xy: [-4, -4, 0, 4, 4, -4]
     },
     uniforms: {
-      uActivatorRadius1: regl.prop('scale1.activatorRadius'),
-      uInhibitorRadius1: regl.prop('scale1.inhibitorRadius'),
-      uActivatorRadius2: regl.prop('scale2.activatorRadius'),
-      uInhibitorRadius2: regl.prop('scale2.inhibitorRadius'),
+      uActivatorRadius1: (ctx, props) => props.scale1.activatorRadius * props.scaleFactor,
+      uInhibitorRadius1: (ctx, props) => props.scale1.inhibitorRadius * props.scaleFactor,
+      uActivatorRadius2: (ctx, props) => props.scale2.activatorRadius * props.scaleFactor,
+      uInhibitorRadius2: (ctx, props) => props.scale2.inhibitorRadius * props.scaleFactor,
       uCircular1: (ctx, props) => props.scale1.kernel === 'circular',
       uCircular2: (ctx, props) => props.scale2.kernel === 'circular',
       uResolution: ctx => [

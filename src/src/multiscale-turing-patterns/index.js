@@ -5,17 +5,24 @@ var rgb2hsl = require('float-rgb2hsl');
 var createControls = require('./control-panel');
 var colorStringify = require('color-stringify');
 var colorRgba = require('color-rgba');
+var qs = require('query-string');
 
-var pixelRatio = 1.0;
-var size = 1024;
-
-var inDiv = false;
+var queryparams = qs.parse(window.location.hash);
+var pixelRatio = parseFloat(queryparams.pr || 1.0);
+var size = queryparams.s || 256;
+var scaleFactor = Math.round(Math.log(size / 256) / Math.log(2));
+var haltAt = parseInt(queryparams.halt || 0);
+var inDiv = queryparams.div === 'yes' ? true : false;
 
 if (inDiv) {
+  var container = document.createElement('div');
+  container.style.textAlign = 'center'
   var div = document.createElement('div');
+  div.style.display = 'inline-block';
   div.style.width = (size / pixelRatio) + 'px';
   div.style.height = (size / pixelRatio) + 'px';
-  document.body.appendChild(div);
+  container.appendChild(div);
+  document.body.appendChild(container);
 }
 
 require('regl')({
@@ -47,6 +54,21 @@ function run (regl) {
   var w = size;
   var h = size;
 
+  function toqs () {
+    var factor = size / 1024;
+    return {
+      pr: pixelRatio,
+      s: size,
+      ar: scales.map(s => s.activatorRadius / factor),
+      ir: scales.map(s => s.inhibitorRadius / factor),
+      k: scales.map(s => s.kernel),
+      a: scales.map(s => s.amount),
+      c: scales.map(s => stringifyColor(s.color)),
+      halt: haltAt,
+      div: inDiv ? 'yes' : 'no',
+    };
+  }
+
   var scales = [
     { activatorRadius: 250, inhibitorRadius: 500, amount: 0.05,  kernel: 'circular'},
     { activatorRadius: 45,  inhibitorRadius: 90,  amount: 0.04,  kernel: 'circular'},
@@ -56,16 +78,13 @@ function run (regl) {
     { activatorRadius: 1,   inhibitorRadius: 2,   amount: 0.01,  kernel: 'circular'}
   ];
 
-  function scaleScales () {
+  function scaleScales (factor) {
+    factor = factor || (size / 1024);
     for (var i = 0; i < scales.length; i++) {
-      var factor = size / 1024;
       scales[i].activatorRadius *= factor;
       scales[i].inhibitorRadius *= factor;
     }
   }
-
-  scaleScales();
-  computeColors(scales, 0);
 
   function stringifyColor (color) {
     return colorStringify([
@@ -80,19 +99,47 @@ function run (regl) {
     return colorRgba(color).slice(0, 3).map(x => x / 255);
   }
 
+  if (queryparams.ir) queryparams.ir.forEach((ir, i) => scales[i].inhibitorRadius = parseFloat(ir));
+  if (queryparams.ar) queryparams.ar.forEach((ar, i) => scales[i].activatorRadius = parseFloat(ar));
+  if (queryparams.a) queryparams.a.forEach((a, i) => scales[i].amount = parseFloat(a));
+  if (queryparams.k) queryparams.k.forEach((k, i) => scales[i].kernel = k);
+  if (queryparams.c) queryparams.c.forEach((c, i) => {
+    scales[i].color = parseColor(c)
+  });
+
+  scaleScales();
+  computeColors(scales, 0);
+
   var maxSize = w / 3;
   var controls = createControls(
+    [
+      {name: 'res', type: 'range', min: 8, max: 13, initial: Math.round(Math.log(size) / Math.log(2))},
+      {name: 'pixelRat', type: 'range', min: 0.5, max: 4, step: 0.5, initial: parseFloat(pixelRatio)},
+      {name: 'scale', type: 'range', min: -8, max: 8, step: 1, initial: scaleFactor},
+      {name: 'halt', type: 'range', min: 0, max: 10000, step: 1, initial: haltAt},
+      {name: 'inDiv', type: 'select', options: ['yes', 'no'], initial: inDiv ? 'yes' : 'no'},
+    ].concat(
     new Array(scales.length).fill(0).map((d, i) => [
       {type: 'heading', label: 'Scale ' + (i + 1)},
       {name: 'radius' + i, label: 'Radius', type: 'range', min: 0, max: maxSize, step: 1, initial: scales[i].activatorRadius},
       {name: 'amount' + i, label: 'Amount', type: 'range', min: -0.03, max: 0.05, step: 0.001, initial: scales[i].amount},
       {name: 'kernel' + i, label: 'Kernel', type: 'select', options: ['gaussian', 'circular'], initial: scales[i].kernel},
       {name: 'color' + i,  label: 'Color',  type: 'color', min: 0, max: 360, step: 1, initial: stringifyColor(scales[i].color, 'hex')},
-    ]).flat()
+    ]).flat())
   , {
     onInput: function (state) {
-      console.log('state:', state);
+      haltAt = state.halt;
+      var needsReload = false;
+      if (Math.pow(2, state.res) !== parseInt(size) || state.pixelRat !== pixelRatio || (state.inDiv === 'yes') !== inDiv) {
+        needsReload = true;
+        scaleScales(Math.pow(2, state.res) / size);
+      }
+      inDiv = state.inDiv === 'yes';
       var needsInitialize = false;
+      if (state.scale !== scaleFactor) {
+        needsInitialize = true;
+      }
+      scaleFactor = state.scale;
       for (var i = 0; i < scales.length; i++) {
         if (scales[i].activatorRadius !== state['radius'+i] ||
           scales[i].kernel !== state['kernel'+i]
@@ -106,6 +153,13 @@ function run (regl) {
         scales[i].kernel = state['kernel' + i];
         if (needsInitialize) initializeKernels();
       }
+      size = Math.round(Math.pow(2, state.res));
+      pixelRatio = state.pixelRat;
+      window.location.hash = qs.stringify(toqs());
+
+      if (needsReload) setTimeout(function () {
+        window.location.reload();
+      }, 500);
     }
   });
 
@@ -205,7 +259,7 @@ function run (regl) {
   // Precompute the kernels
   function initializeKernels () {
     for (var i = 0, i2 = 0; i < multiplexedScalesCount; i++, i2+=2) {
-      initializeKernel(Object.assign({output: kernel}, {scale1: scales[i2], scale2: scales[i2 + 1]}));
+      initializeKernel(Object.assign({output: kernel}, {scale1: scales[i2], scale2: scales[i2 + 1], scaleFactor: Math.pow(2, scaleFactor)}));
 
       fft.forward({
         input: kernel,
@@ -228,15 +282,16 @@ function run (regl) {
   var dt = 1.0;
 
   regl.frame(({tick}) => {
-    //if (tick % 4 !== 1) return;
-    iteration++;
 
-    if (iteration > 10000) {
+    if (haltAt > 0 && iteration > haltAt) {
       if (!dirty) return;
       drawToScreen({input: y[0]});
       dirty = false;
       return;
     }
+
+    //if (tick % 4 !== 1) return;
+    iteration++;
 
     // Compute the fft of the current state
     fft.forward({
@@ -283,6 +338,7 @@ function run (regl) {
     iteration = 0;
     initializeKernels();
     updatePanel();
+    window.location.hash = qs.stringify(toqs());
   }
 
   window.addEventListener('click', randomizeIt);
