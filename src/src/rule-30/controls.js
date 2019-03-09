@@ -10,6 +10,18 @@ canvas {
   position: fixed !important;
 }
 
+.control-panel input[type=range]::-webkit-slider-thumb {
+  width: 20px !important;
+}
+
+.control-panel input[type=range]::-moz-range-thumb {
+  width: 20px !important;
+}
+
+.control-panel input[type=range]::-ms-thumb {
+  width: 20px !important;
+}
+
 #panel {
   font-family: ${font}, 'Helvetica', sans-serif;
   z-index: 20000;
@@ -115,7 +127,19 @@ function render (onChange, children) {
     }
   });
 
-  title.addEventListener('touchstart', function (e) {
+  root.addEventListener('mousemove', function (e) {
+    e.stopPropagation();
+  });
+
+  root.addEventListener('touchstart', function (e) {
+    e.stopPropagation();
+  });
+
+  root.addEventListener('touchmove', function (e) {
+    e.stopPropagation();
+  });
+
+  root.addEventListener('touchend', function (e) {
     e.stopPropagation();
   });
 

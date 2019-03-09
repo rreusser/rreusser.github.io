@@ -140,7 +140,7 @@ function run (regl) {
         })[0] / 255;
       });
       dropAPoint({point: [xx, yy], dst: states[0], value: 1.0 - value});
-      scanline = Math.floor(y / height * canvas.height) + 1;
+      scanline = Math.floor(y / height * canvas.height / state.scale) + 1;
     }
     pbut = buttons;
   });
@@ -153,7 +153,7 @@ function run (regl) {
       void main () {
         uv = uPoint * 0.5 + 0.5;
         gl_Position = vec4(uPoint, 0, 1);
-        gl_PointSize = 2.0;
+        gl_PointSize = 1.0;
       }
     `,
     frag: `
@@ -318,6 +318,18 @@ function run (regl) {
   resize();
 
   window.addEventListener('resize', resize);
+
+  regl._gl.canvas.addEventListener('touchmove', function (ev) {
+    ev.preventDefault();
+  });
+
+  regl._gl.canvas.addEventListener('touchstart', function (ev) {
+    ev.preventDefault();
+  });
+
+  regl._gl.canvas.addEventListener('mousemove', function (ev) {
+    ev.preventDefault();
+  });
 
   var scanline = 1;
   var loop = regl.frame(({tick}) => {
