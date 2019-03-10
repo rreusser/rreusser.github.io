@@ -195,10 +195,10 @@ function run (regl) {
     raw: h('div', [
       h('h1.frame-title', "The Three-Body Problem"),
       h('p.frame-text', [
-        "From the earth resisting our best attempts at jumping to the sun pulling the earth around in its orbit, we all have some sense of what it means for objects to pull on each other gravitationally. Still, even though everything pulls on everything simultaneously, we don't typically consider more than two objects at a time.",
+        "Just as the earth resists our best attempts at jumping or the sun pulls the earth around in its orbit, we all have some sense of what it means for objects to pull on each other gravitationally. Still, even though everything pulls on everything simultaneously, we don't typically consider more than two objects at a time.",
       ]),
       h('p.frame-text', [
-        "In this exploration, we'll go one small step further and consider what it means for two bodies to pull on a third."
+        "In this exploration, we'll go a step further and consider what it means for two bodies to pull on a third."
       ]),
         /*'On March 30, 2021, the ',
         h('a', {href: "https://www.jwst.nasa.gov/", target: "_blank"}, "James Webb Space Telescope"),
@@ -242,7 +242,7 @@ function run (regl) {
     content: [
       "The orbit isn't perfectly circular, but at ",
       //h('a', {href: "https://www.wolframalpha.com/input/?i=earth+orbit", target: "_blank"}, "147,100,000 km from the sun at it closest approach to 152,100,000 km at its furthest"),
-      "147,100,000 km from the sun at it closest approach (",
+      "147,100,000 km from the sun at Earth's closest approach (",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "perihelion")),
       ") to 152,100,000 km at its farthest (",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "aphelion")),
