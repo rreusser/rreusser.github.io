@@ -443,7 +443,7 @@ function run (regl) {
     ]),
   }, {
     content: h('span', [
-      "We have our gravitational potential, but to correctly describe the motion from our rotating frame, we must also add the apparent ",
+      "We can still use our potential field to compute the force of gravity, but to correctly describe the motion from our rotating frame, we must also add the apparent ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Centrifugal_force", target: "_blank"}, "centrifugal")),
       " and ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Coriolis_force", target: "_blank"}, "Coriolis")),
@@ -496,7 +496,7 @@ function run (regl) {
       "."
     ]),
   }, {
-    content: "It's not the real gravitational potential but allows us to calculate the force on objects stationary in the synodic frame.",
+    content: "It's not a full gravitational potential for our rotating frame, but does work for objects stationary in the synodic frame.",
     state: {
       restrictedThreeBodySynodicOpacity: [
         {t: 0.0, value: 1.0},
