@@ -192,15 +192,12 @@ function run (regl) {
 
   var frames = [{
     raw: h('div', [
-      h('h1.frame-title', "Lagrange Points and Halo Orbits"),
+      h('h1.frame-title', "The Three-Body Problem"),
       h('p.frame-text', [
-        "It only takes the smallest jump into the air to remind ourselves why we're so familiar with the pull of gravity. From the pull of Earth on our bodies to the pull of the sun on Earth, we all have at least some sense of what it means for one object to pull on another.",
+        "From the earth resisting our best attempts at jumping to the sun pulling the earth around in its orbit, we all have some sense of what it means for objects to pull on each other gravitationally. Although everything pulls on everything simultaneously, we don't typically consider more than two objects at a time.",
       ]),
       h('p.frame-text', [
-      
-      ]),
-      h('p.frame-text', [
-        "In this exploration, we'll take one step further and consider what it means for two objects to pull on another object."
+        "In this exploration, we'll go one small step further and consider what it means for two bodies to pull on a third."
       ]),
         /*'On March 30, 2021, the ',
         h('a', {href: "https://www.jwst.nasa.gov/", target: "_blank"}, "James Webb Space Telescope"),
@@ -214,7 +211,7 @@ function run (regl) {
     ]),
     state: {
       omega: [
-        {t: -1, value: 1.0},
+        {t: -1, value: 0.8},
       ],
       scale: [
         {t: -1.0, value: 1.7},
@@ -241,10 +238,20 @@ function run (regl) {
       ],
     }
   }, {
+    content: [
+      "The orbit isn't perfectly circular, but at ",
+      //h('a', {href: "https://www.wolframalpha.com/input/?i=earth+orbit", target: "_blank"}, "147,100,000 km from the sun at it closest approach to 152,100,000 km at its furthest"),
+      "147,100,000 km from the sun at it closest approach (",
+      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "perihelion")),
+      ") to 152,100,000 km at its furthest (",
+      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "aphelion")),
+      "), it's close enough that we'll treat it as such.",
+    ]
+  }, {
     content: h('span', [
-      "The mass of the earth is only about ",
+      "Additionally, the mass of the earth is only about ",
       h('a', {href: "http://www.wolframalpha.com/input/?i=(mass+of+the+earth)+%2F+(mass+of+the+sun)+as+a+percent", target: "_blank"}, "0.0003%"),
-      " the mass of the sun. To make things interesting and easier to see, we'll imagine the earth has 10% the mass of the sun."
+      " the mass of the sun. To make things interesting and easier to see, we'll imagine an Earth with 10% the mass of the sun."
     ]),
     state: {
       mu: [
@@ -254,9 +261,9 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "With this exaggerated mass, you can see that the sun and the earth orbit their collective center of mass. This system is called the ",
+      "With this exaggerated mass, we can see that the sun and the earth orbit their collective center of mass. This system is called the ",
       h('em', [
-        h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "circular two-body problem"),
+        h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "two-body problem"),
       ]),
       " and is relatively easy to solve."
     ]),
@@ -272,24 +279,46 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "A third body interacts gravitationally with the other two bodies. This system is called the ",
+      "A third body interacts gravitationally with the other two. This system is called the ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Three-body_problem", target: "_blank"}, "three-body problem")),
       " and immediately complicates things beyond our ability to solve directly. (simulation not yet implemented)",
     ]),
     state: {
       axisOpacity: [
-        {t: -0.4, value: 0.5},
+        {t: -0.25, value: 0.5},
         {t: 0.0, value: 0.0},
       ],
       orbitOpacity: [
-        {t: -0.4, value: 0.4},
+        {t: -0.25, value: 0.4},
         {t: 0.0, value: 0.0},
-      ]
+      ],
+      synodicPointsOpacity: [
+        {t: -0.25, value: 1.0},
+        {t: -0.0, value: 0.0},
+      ],
+      generalThreeBodyOpacity: [
+        {t: -0.25, value: 0.0},
+        {t: 0.0, value: 1.0},
+        {t: 1.0, value: 1.0},
+        {t: 1.5, value: 0.0},
+        {t: 1.25, value: [0.7, 0.7, 0.7, 1]},
+        {t: 1.5, value: [0.7, 0.7, 0.7, 0]},
+      ],
     }
   }, {
+    state: {
+      orbitOpacity: [
+        {t: 0.5, value: 0.0},
+        {t: 0.75, value: 0.4},
+      ],
+      synodicPointsOpacity: [
+        {t: 0.5, value: 0.0},
+        {t: 0.75, value: 1.0},
+      ],
+    },
   }, {
     content: h('span', [
-      "If, however, the third body is a satellite too small to significantly affect the orbits of the two larger bodies, we can say quite a bit about the behavior. This is called the ",
+      "If, however, the mass of the third body is insignificant relative to the two larger bodies, we can say quite a bit about the behavior. This is called the ",
       h('em', h('a', {href: "https://ocw.mit.edu/courses/aeronautics-and-astronautics/16-07-dynamics-fall-2009/lecture-notes/MIT16_07F09_Lec18.pdf", target: "_blank"}, "restricted circular three-body problem")),
       "."
     ]),
@@ -307,8 +336,6 @@ function run (regl) {
         {t: 0.0, value: 1.0},
         {t: 1.0, value: 1.0},
         {t: 1.5, value: 0.0},
-        {t: 1.25, value: [0.7, 0.7, 0.7, 1]},
-        {t: 1.5, value: [0.7, 0.7, 0.7, 0]},
       ],
     }
   }, {
@@ -340,8 +367,8 @@ function run (regl) {
     content: "We can represent the sun's gravity as a potential field.",
     state: {
       omega: [
-        {t: -1, value: 1.0},
-        {t: 0, value: 0.4},
+        {t: -1, value: 0.8},
+        {t: 0, value: 0.3},
       ],
       fieldOpacity: [
         {t: 0.0, value: 0.0},
@@ -367,15 +394,15 @@ function run (regl) {
     state: {
       mu: [
         {t: -0.5, value: 0.0},
-        {t: 0.0, value: 1 / 11},
+        {t: 0.25, value: 1 / 11},
       ],
       orbitOpacity: [
         {t: -0.5, value: 0.0},
-        {t: 0.0, value: 1.0},
+        {t: 0.25, value: 1.0},
       ],
     }
   }, {
-    content: "Let's now consider how a small third body moves in this potential.",
+    content: "Let's consider how a small third body moves in this potential.",
     state: {
       restrictedThreeBodyInitialConditions: [
         {t: -1.0, value: [1.00, 0, 0, -1.0]},
@@ -416,7 +443,7 @@ function run (regl) {
     ]),
   }, {
     content: h('span', [
-      "To describe the motion of the third body from our rotating frame, we must also add the apparent ",
+      "We have our gravitational potential, but to correctly describe the motion from our rotating frame, we must also add the apparent ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Centrifugal_force", target: "_blank"}, "centrifugal")),
       " and ",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Coriolis_force", target: "_blank"}, "Coriolis")),
@@ -434,9 +461,9 @@ function run (regl) {
   //}, {
     //content: "People like to argue that these forces aren't real. They're not wrong, but we must include them to accurately describe motion from our rotating frame of reference.",
   }, {
-    content: "Coriolis force depends on the velocity of an object in the rotating frame which makes it a bit complicated. For now, we'll neglect it since objects stationary in the synodic frame experience no Coriolis force."
+    content: "Any object seen from a rotating frame appears to experience the Coriolis force. Since it depends on the velocity of the object, it's a bit complicated. For now, we'll neglect it with the caveat that we'll only be able to talk about objects stationary in the synodic frame."
   }, {
-    content: "Centrifugal force is an apparent outward pull seen in rotating frames.",
+    content: "Centrifugal force is simpler. It's an apparent outward pull seen in rotating frames.",
     state: {
       scale: [
         {t: 1.5, value: 1.7}
@@ -451,7 +478,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Since centrifugal force only depends on position, we're easily able to account for it by building it into our potential.",
+    content: "We account for centrifugal force by building it into our potential as an outward pull that counteracts gravity's inward pull.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: -0.25, value: 1.0},
@@ -464,9 +491,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "Since we neglected forces on ",
-      h("em", "moving"),
-      " objects, the resulting field is called the ",
+      "Since we neglected forces on moving objects, the resulting field is called the ",
       h("em", 'pseudo-potential'),
       "."
     ]),
@@ -478,40 +503,33 @@ function run (regl) {
         {t: 0.5, value: 0.0},
       ],
     },
-    /*
   }, {
-    content: "When no other objects are present, the pseudo-potential is flat in a ring around the body.",
+    content: "The pseudo-potential of a single gravitating body is flat in a ring around the body.",
     state: {
-      orbitOpacity: [
-        {t: -0.5, value: 1},
-        {t: 0.0, value: 0},
-      ],
       mu: [
         {t: -0.5, value: 1 / 11},
         {t: 0.0, value: 0},
       ]
     }
   }, {
-    content: "At this radius, small satellites sit in a circular orbit.",
+    content: "Satellites with negligible mass can sit in a circular orbit anywhere in this ring.",
     state: {
-      synodicFrame: [
-        {t: -0.5, value: 1.0},
-        {t: 0.0, value: 0.0},
-        {t: 0.8, value: 0.0},
-        {t: 1.0, value: 1.0},
-      ],
-      orbitOpacity: [
-        {t: 0.0, value: 1},
-      ],
       mu: [
-        {t: 0.7, value: 1e-7},
-        {t: 1.1, value: 1 / 11},
+        {t: -0.25, value: 0},
+        {t: 0.25, value: 1e-7},
       ]
     }
-    */
+  }, {
+    content: "If both bodies are massive, however, the pseudo-potential is more complicated.",
+    state: {
+      mu: [
+        {t: -0.25, value: 1e-7},
+        {t: 0.25, value: 1/11},
+      ]
+    }
   }, {
     content: h('span', [
-      "In fact the pseudo-potential has five equilibrium points at which stationary objects remain stationary. These are called the ",
+      "In fact the pseudo-potential for two bodies has five separate equilibrium points at which stationary objects remain stationary. These are called the ",
       h('em', 'Lagrange'),
       ' or ',
       h('em', 'libration points'),
@@ -529,7 +547,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "Objects at the Lagrange points orbit in a fixed position relative to the earth and sun and experience no net pull away from the respective Lagrange point.",
+      "Objects at the Lagrange points orbit together with the earth and sun and experience no net pull away from the respective Lagrange point.",
     ]),
     state: {
       fieldOpacity: [
@@ -557,6 +575,7 @@ function run (regl) {
       ],
     }
   }, {
+    content: "For two equal objects, the Lagrange points are symmetric.",
     state: {
       mu: [
         {t: 0.2, value: 0.5},
@@ -565,6 +584,7 @@ function run (regl) {
     }
   }, {
   }, {
+    content: "For the earth and sun, the behavior is much closer to this.",
     state: {
       mu: [
         {t: 0.0, value: 1e-3},
@@ -715,13 +735,13 @@ function run (regl) {
 
       drawPoints([{
         // Draw the sun:
-        color: [1.0, 0.9, 0.4, 1],
+        color: [1.0, 0.9, 0.4, 1 * state.synodicPointsOpacity],
         points: {buffer: sunMoonBuffer},
         pointSize: Math.max(8, Math.sqrt(1.0 - state.mu) * 30),
         count: 1
       }, {
         // Draw the earth:
-        color: [0.2, 0.4, 1, 1],
+        color: [0.2, 0.4, 1, 1 * state.synodicPointsOpacity],
         points: {buffer: sunMoonBuffer, offset: 8},
         pointSize: Math.max(8, Math.sqrt(state.mu) * 30) * (state.mu > 1e-8 ? 1.0 : 0.0),
         count: 1
