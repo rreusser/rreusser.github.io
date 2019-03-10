@@ -13,17 +13,21 @@ module.exports = function (regl) {
       void main () {
         vec2 xy = (uView * uModel * vec4(aPoint, 0, 1)).xy;
         gl_Position = vec4(xy, 0, 1);
-        gl_PointSize = uPointSize;
+        gl_PointSize = uPointSize * 2.0;
       }
     `,
     frag: `
       precision highp float;
-      uniform float uPointSize;
+      uniform float uPointSize, uHalo;
       uniform vec4 uColor;
       void main () {
-        float r = length(gl_PointCoord.xy - 0.5);
+        float r = length(gl_PointCoord.xy - 0.5) * 2.0;
         float alpha = smoothstep(0.5, 0.5 * (uPointSize - 3.0) / uPointSize, r);
-        gl_FragColor = vec4(uColor.rgb, alpha * uColor.a);
+        gl_FragColor = vec4(mix(
+          mix(vec3(1), uColor.rgb, 0.5),
+          uColor.rgb,
+          alpha
+        ), (1.0 / r - 1.0) * mix(uHalo, 1.0, alpha));
       }
     `,
     depth: {enable: false},
@@ -42,6 +46,7 @@ module.exports = function (regl) {
     uniforms: {
       uPointSize: (ctx, props) => (props.pointSize === undefined ? DEFAULT_POINT_SIZE : props.pointSize) * ctx.pixelRatio,
       uColor: regl.prop('color'),
+      uHalo: regl.prop('halo'),
     },
     primitive: 'points',
     count: regl.prop('count'),

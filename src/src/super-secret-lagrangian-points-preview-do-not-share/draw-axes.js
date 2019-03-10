@@ -2,7 +2,7 @@
 
 module.exports = function (regl) {
   var pointData = [];
-  for (var i = -10; i <= 10; i++) {
+  for (var i = 0; i <= 0; i++) {
     pointData.push([-200, i, 200, i]);
     pointData.push([i, -200, i, 200]);
   }

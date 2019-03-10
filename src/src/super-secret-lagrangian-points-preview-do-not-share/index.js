@@ -71,6 +71,7 @@ canvas {
   color: white;
   margin-left: auto;
   margin-right: auto;
+  padding: 0 15px;
 }
 
 .frame-text {
@@ -194,7 +195,7 @@ function run (regl) {
     raw: h('div', [
       h('h1.frame-title', "The Three-Body Problem"),
       h('p.frame-text', [
-        "From the earth resisting our best attempts at jumping to the sun pulling the earth around in its orbit, we all have some sense of what it means for objects to pull on each other gravitationally. Although everything pulls on everything simultaneously, we don't typically consider more than two objects at a time.",
+        "From the earth resisting our best attempts at jumping to the sun pulling the earth around in its orbit, we all have some sense of what it means for objects to pull on each other gravitationally. Still, even though everything pulls on everything simultaneously, we don't typically consider more than two objects at a time.",
       ]),
       h('p.frame-text', [
         "In this exploration, we'll go one small step further and consider what it means for two bodies to pull on a third."
@@ -243,13 +244,13 @@ function run (regl) {
       //h('a', {href: "https://www.wolframalpha.com/input/?i=earth+orbit", target: "_blank"}, "147,100,000 km from the sun at it closest approach to 152,100,000 km at its furthest"),
       "147,100,000 km from the sun at it closest approach (",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "perihelion")),
-      ") to 152,100,000 km at its furthest (",
+      ") to 152,100,000 km at its farthest (",
       h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "aphelion")),
-      "), it's close enough that we'll treat it as such.",
+      "), it's close enough that we'll treat it as circular.",
     ]
   }, {
     content: h('span', [
-      "Additionally, the mass of the earth is only about ",
+      "The mass of the earth is only about ",
       h('a', {href: "http://www.wolframalpha.com/input/?i=(mass+of+the+earth)+%2F+(mass+of+the+sun)+as+a+percent", target: "_blank"}, "0.0003%"),
       " the mass of the sun. To make things interesting and easier to see, we'll imagine an Earth with 10% the mass of the sun."
     ]),
@@ -261,7 +262,7 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "With this exaggerated mass, we can see that the sun and the earth orbit their collective center of mass. This system is called the ",
+      "With this exaggerated mass, we see that the sun and the earth orbit their collective center of mass. This system is called the ",
       h('em', [
         h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "two-body problem"),
       ]),
@@ -301,8 +302,6 @@ function run (regl) {
         {t: 0.0, value: 1.0},
         {t: 1.0, value: 1.0},
         {t: 1.5, value: 0.0},
-        {t: 1.25, value: [0.7, 0.7, 0.7, 1]},
-        {t: 1.5, value: [0.7, 0.7, 0.7, 0]},
       ],
     }
   }, {
@@ -318,7 +317,7 @@ function run (regl) {
     },
   }, {
     content: h('span', [
-      "If, however, the mass of the third body is insignificant relative to the two larger bodies, we can say quite a bit about the behavior. This is called the ",
+      "If, however, we add the restriction that the the mass of the third body is insignificant relative to the two larger bodies, we can say quite a bit about the behavior. This is called the ",
       h('em', h('a', {href: "https://ocw.mit.edu/courses/aeronautics-and-astronautics/16-07-dynamics-fall-2009/lecture-notes/MIT16_07F09_Lec18.pdf", target: "_blank"}, "restricted circular three-body problem")),
       "."
     ]),
@@ -402,15 +401,15 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Let's consider how a small third body moves in this potential.",
+    content: "Let's now consider a small third body moving in this potential.",
     state: {
       restrictedThreeBodyInitialConditions: [
         {t: -1.0, value: [1.00, 0, 0, -1.0]},
         {t: 4.0, value: [1.00, 0, 0, -1.0]},
       ],
       thirdBodyColor: [
-        {t: -1, value: [1.0, 1.0, 1.0, 1]},
-        {t: 4, value: [1.0, 1.0, 1.0, 1]},
+        {t: -1, value: [0.7, 0.7, 0.7, 1]},
+        {t: 4, value: [0.7, 0.7, 0.7, 1]},
       ],
       restrictedThreeBodySynodicOpacity: [
         {t: 0.0, value: 0.0},
@@ -437,8 +436,8 @@ function run (regl) {
     content: h('span', [
       "In this rotating frame of reference, called the ",
       h('em', 'synodic frame'),
-      ", the earth and sun ",
-      h('em', 'appear'),
+      ", the earth and sun appear",
+      //h('em', 'appear'),
       " to stand still while the rest of the universe spins around us.",
     ]),
   }, {
@@ -461,7 +460,9 @@ function run (regl) {
   //}, {
     //content: "People like to argue that these forces aren't real. They're not wrong, but we must include them to accurately describe motion from our rotating frame of reference.",
   }, {
-    content: "Any object seen from a rotating frame appears to experience the Coriolis force. Since it depends on the velocity of the object, it's a bit complicated. For now, we'll neglect it with the caveat that we'll only be able to talk about objects stationary in the synodic frame."
+    content: "Seen from a rotating frame, objects moving in a straight line appear to get deflected. This is called the Coriolis effect."
+  }, {
+    content: "It's nothing more than a patch to help account for our rotation, but since it depends on the velocity of the object, it's a bit inconvenient. We'll neglect the Coriolis force with the caveat that we'll only be able to talk about objects stationary in the synodic frame."
   }, {
     content: "Centrifugal force is simpler. It's an apparent outward pull seen in rotating frames.",
     state: {
@@ -478,7 +479,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "We account for centrifugal force by building it into our potential as an outward pull that counteracts gravity's inward pull.",
+    content: "We can easily build centrifugal force into our potential as an outward pull that counteracts gravity's inward pull.",
     state: {
       centrifugalVectorFieldOpacity: [
         {t: -0.25, value: 1.0},
@@ -491,12 +492,12 @@ function run (regl) {
     }
   }, {
     content: h('span', [
-      "Since we neglected forces on moving objects, the resulting field is called the ",
+      "Since we neglected the Coriolis force, the resulting field is called the ",
       h("em", 'pseudo-potential'),
       "."
     ]),
   }, {
-    content: "It's not a full gravitational potential for our rotating frame, but does work for objects stationary in the synodic frame.",
+    content: "It's not a full gravitational potential for our rotating frame, but it does work for objects stationary in the synodic frame.",
     state: {
       restrictedThreeBodySynodicOpacity: [
         {t: 0.0, value: 1.0},
@@ -504,7 +505,7 @@ function run (regl) {
       ],
     },
   }, {
-    content: "The pseudo-potential of a single gravitating body is flat in a ring around the body.",
+    content: "For a single gravitating body and a given rotational speed, there's a radius at which the pseudo-potential is simply flat.",
     state: {
       mu: [
         {t: -0.5, value: 1 / 11},
@@ -575,7 +576,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "For two equal objects, the Lagrange points are symmetric.",
+    content: "For two equally massive bodies, the Lagrange points are symmetric.",
     state: {
       mu: [
         {t: 0.2, value: 0.5},
@@ -584,7 +585,7 @@ function run (regl) {
     }
   }, {
   }, {
-    content: "For the earth and sun, the behavior is much closer to this.",
+    content: "For the earth and sun, the Lagrange points look more like this.",
     state: {
       mu: [
         {t: 0.0, value: 1e-3},
@@ -738,12 +739,14 @@ function run (regl) {
         color: [1.0, 0.9, 0.4, 1 * state.synodicPointsOpacity],
         points: {buffer: sunMoonBuffer},
         pointSize: Math.max(8, Math.sqrt(1.0 - state.mu) * 30),
+        halo: 0.3,
         count: 1
       }, {
         // Draw the earth:
         color: [0.2, 0.4, 1, 1 * state.synodicPointsOpacity],
         points: {buffer: sunMoonBuffer, offset: 8},
-        pointSize: Math.max(8, Math.sqrt(state.mu) * 30) * (state.mu > 1e-8 ? 1.0 : 0.0),
+        pointSize: Math.max(10, Math.sqrt(state.mu) * 30) * (state.mu > 1e-8 ? 1.0 : 0.0),
+        halo: 0.1,
         count: 1
       }]);
 
@@ -760,6 +763,7 @@ function run (regl) {
           color: state.thirdBodyColor,
           points: {buffer: restrictedThreeBodySynodicBuffer},
           pointSize: 10,
+          halo: 0.2,
           count: 1
         });
       } else {
@@ -768,8 +772,9 @@ function run (regl) {
 
       if (state.librationPointOpacity > 1e-2) {
         drawPoints({
-          color: [0.8, 0, 0.1, state.librationPointOpacity],
+          color: [1.0, 0, 0.1, state.librationPointOpacity],
           points: librationPointBuffer,
+          halo: 0.2,
           count: 5,
         });
 
