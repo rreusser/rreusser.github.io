@@ -143,10 +143,15 @@ function run (regl) {
   , {
     onInput: function (state) {
       haltAt = state.halt;
+      var resChanged = state.res !== scaleFactor;
       var needsReload = false;
       if (Math.pow(2, state.res) !== parseInt(size) || state.pixelRat !== pixelRatio || (state.inDiv === 'yes') !== inDiv) {
-        needsReload = true;
-        scaleScales(Math.pow(2, state.res) / size);
+        var newSize = Math.pow(2, state.res);
+        if (state.res === scaleFactor || state.res < 11 || window.confirm('This resolution ('+ newSize +'x'+newSize+') may lock up your browser or worse. Are you sure you want to continue?')) {
+          needsReload = true;
+          scaleScales(Math.pow(2, state.res) / size);
+          size = Math.round(Math.pow(2, state.res));
+        }
       }
       inDiv = state.inDiv === 'yes';
       var needsInitialize = false;
@@ -168,7 +173,6 @@ function run (regl) {
         scales[i].kernel = state['kernel' + i];
         if (needsInitialize) initializeKernels();
       }
-      size = Math.round(Math.pow(2, state.res));
       pixelRatio = state.pixelRat;
       window.location.hash = qs.stringify(toqs());
 
