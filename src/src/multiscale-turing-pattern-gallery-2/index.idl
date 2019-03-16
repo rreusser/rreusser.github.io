@@ -24,7 +24,7 @@ With this batch, I feel like I've explored a fair amount of the parameter space 
 
 - brute-force convolutions with localized kernels to avoid unnecessary FFT passes.
 - try kernels that are neither circular nor gaussian
-- convolve the "variation" parameter with a kernel to explore smoother patterns
+- these patterns work by computing the local variation for a number of different scales (as determined by convolution with two different sized kernels). I might try convolving the computed local variation with another kernel to explore smoother patterns.
 - add rotational symmetry in the style of Jonathan McCabe's paper, [Cyclic Symmetric Multi-Scale Turing Patterns](http://www.jonathanmccabe.com/Cyclic_Symmetric_Multi-Scale_Turing_Patterns.pdf).
 
 But until then, enjoy! And feel free to [drop me a line via twitter](https://twitter.com/rickyreusser/)
