@@ -16,7 +16,7 @@
   bgImageSrc:"images/header.jpg"
 /]
 
-The time has come for another batch of multiscale turing patterns (see the part one [here](http://rreusser.github.io/multiscale-turing-pattern-gallery/)). These are all generated with my [multiscale turing pattern implementation](https://github.com/rreusser/rreusser.github.io/tree/master/src/src/multiscale-turing-patterns). 
+The time has come for another batch of multiscale turing patterns (see part one [here](http://rreusser.github.io/multiscale-turing-pattern-gallery/)). These are all generated with my [multiscale turing pattern implementation](https://github.com/rreusser/rreusser.github.io/tree/master/src/src/multiscale-turing-patterns). 
 
 New in recent history is persisting configuration in the URL. You can generate the first pattern with [this link](http://rreusser.github.io/multiscale-turing-patterns/#a=0.02&a=-0.004191623139758196&a=0.02787590270253998&a=0.018220321296595794&a=0.018790004787078346&a=0.026333612601954076&ar=0.15&ar=6.996028134004862&ar=18.785052809027924&ar=4.046739437301417&ar=5.50890793445462&ar=0.55&c=%23f988e9&c=%2341f542&c=%23fcedd6&c=%235ec9f7&c=%23453af5&c=%23d0acfb&div=no&halt=0&ir=0.3&ir=13.992056268009724&ir=37.57010561805585&ir=8.093478874602834&ir=11.01781586890924&ir=1.1&k=circular&k=gaussian&k=gaussian&k=circular&k=circular&k=circular&pr=1.5&s=1024&scale=2&scale2=0&seed=0). I generally experiment at low resolution, then constrain it to a single tile (`inDiv = yes`), then set the pixel ratio to 4 (`pixelRat = 4`) and the resolution to [equation]2^{12}[/equation] (`res = 12`) and . The configuration setup leaves a lot to be desired, but such is the way of things when trying to crank out interesting things in your spare moments.
 
