@@ -8,7 +8,7 @@ module.exports = function (regl, mesh) {
       precision highp float;
       attribute vec2 rth;
       varying float psi, cp, rgrid;
-      varying vec2 b, uv;
+      varying vec2 uv, xy;
       uniform mat4 modelview;
       uniform vec2 mu, gridSize;
       uniform float r0, theta0, n, circulation, scale, rsize, alpha, colorScale;
@@ -40,12 +40,13 @@ module.exports = function (regl, mesh) {
         uv *= gridSize;
         uv.y *= OPI2;
 
-        //b = barycentric;
         rgrid = rth.x;
         float r = 1.0 + rgrid * rsize;
         float theta = rth.y + theta0;
         vec2 rot = vec2(cos(alpha), sin(alpha));
         vec2 zeta = r * vec2(cos(theta), sin(theta));
+
+        xy = (mu + r0 * zeta) - vec2(1, 0);
 
         // Compute 1 + 1 / zeta and 1 - 1 / zeta:
         vec2 oz = cinv(r0 * zeta + mu);
@@ -97,20 +98,21 @@ module.exports = function (regl, mesh) {
       precision highp float;
       #pragma glslify: colormap = require(glsl-colormap/viridis)
       varying float psi, cp, rgrid;
-      varying vec2 uv;
+      varying vec2 uv, xy;
       uniform float cpAlpha, streamAlpha, gridAlpha;
+      uniform vec2 mu;
       #pragma glslify: grid = require(glsl-solid-wireframe/cartesian/scaled)
       const float feather = 1.0;
-      const float streamWidth = 1.0;
-      const float pressureWidth = 1.0;
+      const float streamWidth = 0.75;
+      const float pressureWidth = 0.75;
       const float boundaryWidth = 3.0;
       void main () {
         float boundary = grid(rgrid, boundaryWidth, feather);
         float pressure = 1.0 - (1.0 - grid(cp * 20.0, pressureWidth, feather)) * cpAlpha;
-        float stream = (1.0 - grid(5.0 * psi, streamWidth, feather)) * streamAlpha;
+        float stream = ((1.0 - grid(1.5 * psi, streamWidth, feather)) + 0.4 * (1.0 - grid(15.0 * psi, streamWidth, feather))) * streamAlpha;
         vec3 color = colormap(max(0.0, min(1.0, cp))).xyz;
 
-        float gridLines = (1.0 - grid(uv, 1.0, feather)) * gridAlpha;
+        float gridLines = ((1.0 - grid(xy, 0.75, feather)) + 0.4 * (1.0 - grid(xy * 10.0, 0.75, feather))) * gridAlpha;
         color *= 1.0 - gridLines;
 
         gl_FragColor = vec4((color * pressure + stream) * boundary, 1);

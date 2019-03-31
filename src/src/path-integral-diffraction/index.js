@@ -74,7 +74,7 @@ function run (regl) {
   var j0 = window.innerHeight / 2;
 
   function taint () { dirty = true; }
-  var state = window.state = Controls({
+  var state = Controls({
     hbar: Controls.Slider(5e-3, {min: 1e-4, max: 0.1, step: 0.0001}).onChange(taint),
     aperture: Controls.Slider(0.2, {min: 1e-3, max: 1, step: 0.001}).onChange(taint),
   });
