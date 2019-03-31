@@ -319,7 +319,7 @@ function run (regl) {
           h('p', null, `
             An interesting result of fluid dynamics called `,
             h('a', {href: 'https://en.wikipedia.org/wiki/D%27Alembert%27s_paradox', title: "D'Alambert's Paradox"}, `D'Alambert's paradox`),
-            ` is that even though inviscid, irrotational potential flow closely models what we observe in many fluid flows, objects in such a flows generate neither lift nor drag. We know however that airfoils generate both lift and drag.
+            ` is that even though inviscid, irrotational potential flow closely models what we observe in many real flows, objects in such a flow generate neither lift nor drag. We know however that airfoils generate both lift and drag.
 
           `),
           h('p', null, `
