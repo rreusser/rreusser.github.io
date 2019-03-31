@@ -323,7 +323,7 @@ function run (regl) {
 
           `),
           h('p', null, `
-            Change the angle of attack and observe flow which passes all the way back and around the sharp trailing edge. In the real world, viscosity prevents this from happening. In fact, the only physically valid flow is the one with just the right amount of overall circulation such that the flow leaves the trailing edge smoothly. This constraint is called the `, h('a', {href: "https://en.wikipedia.org/wiki/Kutta_condition", title: "Kutta condition"}, "Kutta condition"), ` and resolves D'Alambert's paradox by enforcing a just the right amount of circulation—which in turn creates a pressure distribution that generates both lift and drag.
+            Change the angle of attack and observe flow which passes all the way back and around the sharp trailing edge. In the real world, viscosity prevents this from happening. In fact, the only physically valid flow is the one with just the right amount of overall circulation such that the flow leaves the trailing edge smoothly. This constraint is called the `, h('a', {href: "https://en.wikipedia.org/wiki/Kutta_condition", title: "Kutta condition"}, "Kutta condition"), ` and resolves D'Alambert's paradox by enforcing just the right amount of circulation—which in turn creates a pressure distribution that generates both lift and drag.
           `)
         );
       }),
