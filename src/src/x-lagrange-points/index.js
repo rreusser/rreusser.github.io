@@ -227,7 +227,17 @@ function run (regl) {
       ],
     },
   }, {
-    content: "Consider the earth as it orbits the sun (not to scale), though any two gravitating bodies would do.",
+    content: h('span', [
+      "Consider the earth as it orbits the sun (not to scale), though any two gravitating bodies would do.",
+      ], h('br'), h('br'),
+      "The orbit isn't perfectly circular, but at ",
+      //h('a', {href: "https://www.wolframalpha.com/input/?i=earth+orbit", target: "_blank"}, "147,100,000 km from the sun at it closest approach to 152,100,000 km at its furthest"),
+      "147,100,000 km from the sun at Earth's closest approach (",
+      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "perihelion")),
+      ") to 152,100,000 km at its farthest (",
+      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "aphelion")),
+      "), it's close enough we'll treat it as circular.",
+    ),
     state: {
       orbitOpacity: [
         {t: -0.5, value: 0.0},
@@ -238,16 +248,6 @@ function run (regl) {
         {t: 0.5, value: 0.8}
       ],
     }
-  }, {
-    content: [
-      "The orbit isn't perfectly circular, but at ",
-      //h('a', {href: "https://www.wolframalpha.com/input/?i=earth+orbit", target: "_blank"}, "147,100,000 km from the sun at it closest approach to 152,100,000 km at its furthest"),
-      "147,100,000 km from the sun at Earth's closest approach (",
-      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "perihelion")),
-      ") to 152,100,000 km at its farthest (",
-      h('em', h('a', {href: "https://en.wikipedia.org/wiki/Apsis", target: "_blank"}, "aphelion")),
-      "), it's close enough that we'll treat it as circular.",
-    ]
   }, {
     content: h('span', [
       "The mass of the earth is only about ",
@@ -266,7 +266,7 @@ function run (regl) {
       h('em', [
         h('a', {href: "https://en.wikipedia.org/wiki/Two-body_problem", target: "_blank"}, "two-body problem"),
       ]),
-      " and is relatively easy to solve."
+      " and is very straightforward to solve."
     ]),
     state: {
       axisOpacity: [
@@ -363,7 +363,7 @@ function run (regl) {
       ],
     },
   }, {
-    content: "We can represent the sun's gravity as a potential field.",
+    content: "We can represent the sun's gravity as a potential field. Objects in this field fall inward toward lower potential.",
     state: {
       omega: [
         {t: -1, value: 0.8},
@@ -387,8 +387,6 @@ function run (regl) {
       ]
     }
   }, {
-    content: "Objects in this field fall inward toward lower potential.",
-  }, {
     content: "In the circular two-body problem, the earth and sun fall into each other's gravitational fields and sit in circular orbits.",
     state: {
       mu: [
@@ -401,7 +399,7 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Let's now consider a small third body moving in this potential.",
+    content: "We now want to consider a small third body moving in this potential. Unfortunately, it's a bit too difficult for us to analyze moving objects in moving gravitational fields.",
     state: {
       restrictedThreeBodyInitialConditions: [
         {t: -1.0, value: [1.00, 0, 0, -1.0]},
@@ -417,29 +415,23 @@ function run (regl) {
       ],
     }
   }, {
-    content: "Unfortunately, it's fairly difficult to analyze moving objects in moving gravitational fields.",
-    state: {
-      /*axisOpacity: [
-        {t: -0.5, value: 0.0},
-        {t: 0.0, value: 0.6},
-      ],*/
-    }
-  }, {
-    content: "To simplify the math, imagine that we, the observer, rotate at the same speed as the earth-sun system.",
+    content: h('span', [
+      "To simplify things, imagine that we, the observer, rotate at the same speed as the earth-sun system.",
+      h('br'), h('br'),
+      h('span', [
+        "In this rotating frame of reference, called the ",
+        h('em', 'synodic frame'),
+        ", the earth and sun appear",
+        //h('em', 'appear'),
+        " to stand still while the rest of the universe spins around us.",
+      ]),
+    ]),
     state: {
       synodicFrame: [
         {t: -0.5, value: 0.0},
         {t: 0.5, value: 1.0},
       ],
     }
-  }, {
-    content: h('span', [
-      "In this rotating frame of reference, called the ",
-      h('em', 'synodic frame'),
-      ", the earth and sun appear",
-      //h('em', 'appear'),
-      " to stand still while the rest of the universe spins around us.",
-    ]),
   }, {
     content: h('span', [
       "We can still use our potential field to compute the force of gravity, but to correctly describe the motion from our rotating frame, we must also add the apparent ",
@@ -460,9 +452,11 @@ function run (regl) {
   //}, {
     //content: "People like to argue that these forces aren't real. They're not wrong, but we must include them to accurately describe motion from our rotating frame of reference.",
   }, {
-    content: "Seen from a rotating frame, objects moving in a straight line appear to get deflected. This is called the Coriolis effect."
-  }, {
-    content: "It's nothing more than a patch to help account for our rotation, but since it depends on the velocity of the object, it's a bit inconvenient. We'll neglect the Coriolis force with the caveat that we'll only be able to talk about objects stationary in the synodic frame."
+    content: h('span', [
+      "Objects moving in a straight line appear to get deflected when seen from a rotating frame. This is called the Coriolis effect.",
+      h('br'), h('br'),
+      "It's nothing more than a fictitious force to help account for our rotation, but since it depends on the velocity of the object, it's a bit inconvenient. We'll neglect the Coriolis force with the caveat that we'll only be able to talk about objects stationary in the synodic frame."
+    ]),
   }, {
     content: "Centrifugal force is simpler. It's an apparent outward pull seen in rotating frames.",
     state: {
@@ -494,10 +488,10 @@ function run (regl) {
     content: h('span', [
       "Since we neglected the Coriolis force, the resulting field is called the ",
       h("em", 'pseudo-potential'),
-      "."
+      ".",
+      h('br'), h('br'),
+      "It's not a full gravitational potential for our rotating frame, but it does work for objects stationary in the synodic frame.",
     ]),
-  }, {
-    content: "It's not a full gravitational potential for our rotating frame, but it does work for objects stationary in the synodic frame.",
     state: {
       restrictedThreeBodySynodicOpacity: [
         {t: 0.0, value: 1.0},
