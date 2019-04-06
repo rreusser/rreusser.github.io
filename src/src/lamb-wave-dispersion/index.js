@@ -1,6 +1,16 @@
 const glsl = require('glslify');
 const invertMat4 = require('gl-mat4/invert');
 const Complex = require('complex.js');
+const css = require('insert-css');
+
+css(`
+@import url('https://fonts.googleapis.com/css?family=Fira+Sans+Condensed');
+
+.sketch-nav {
+  right: auto !important;
+  left: 0 !important;
+}
+`);
 
 const regl = require('regl')({
   pixelRatio: Math.min(1.5, window.devicePixelRatio),

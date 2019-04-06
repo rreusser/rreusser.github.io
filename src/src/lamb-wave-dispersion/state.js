@@ -1,8 +1,9 @@
 const State = require('controls-state');
 const GUI = require('controls-gui');
 const Eqn = require('./equation')(GUI.preact);
+const fontFamily = 'Fira Sans Condensed';
 
-module.exports = function () {
+module.exports = function (opts) {
   return GUI(State({
     tabs: State.Tabs({
       Introduction: State.Section({
@@ -59,6 +60,9 @@ module.exports = function () {
       }, {label: 'Visualization'})
     })
   }), {
-    containerCSS: "position:fixed; top:0; right:8px; min-width:275px; max-width:100%; min-width:300px"
+    containerCSS: "position:fixed; top:0; right:8px; min-width:275px; max-width:100%; min-width:300px",
+    theme: {
+      fontFamily: `'Fira Sans Condensed', sans-serif`,
+    }
   }).tabs;
 };
