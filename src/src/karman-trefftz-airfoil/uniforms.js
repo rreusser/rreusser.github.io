@@ -9,7 +9,7 @@ module.exports = function (regl) {
   }
 
   function alpha (ctx, props) {
-    return -(props.aerodynamics.alpha + ctx.time * props.rotation) * Math.PI / 180;
+    return -(props.aerodynamics.alpha) * Math.PI / 180;
   }
 
   function muy (ctx, props) {
