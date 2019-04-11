@@ -68,8 +68,8 @@ function start (err, regl) {
       `It's colored in an ad-hoc manner using the distance moved by the previous few iterates.`
     )),
     u: Controls.Slider(0.9, {min: 0, max: 1, step: 0.005}),
-    numPoints: Controls.Slider(100000, {min: 100, max: 4e6, step: 100}).onChange(allocate),
-    alpha: Controls.Slider(0.3, {min: 0, max: 1, step: 0.01}),
+    numPoints: Controls.Slider(400000, {min: 100, max: 4e6, step: 100}).onChange(allocate),
+    alpha: Controls.Slider(0.4, {min: 0, max: 1, step: 0.01}),
     decay: Controls.Slider(0.3, {min: 0, max: 1, step: 0.01}),
     restart: initialize,
   }), {
