@@ -70,7 +70,7 @@ function start (err, regl) {
     u: Controls.Slider(0.9, {min: 0, max: 1, step: 0.0001}),
     numPoints: Controls.Slider(400000, {min: 100, max: 4e6, step: 100}).onChange(allocate),
     alpha: Controls.Slider(0.4, {min: 0, max: 1, step: 0.01}),
-    decay: Controls.Slider(0.3, {min: 0, max: 1, step: 0.01}),
+    persistance: Controls.Slider(0.3, {min: 0, max: 1, step: 0.01}),
     restart: initialize,
   }), {
     containerCSS: "position:absolute; top:0; right:8px; min-width:300px; max-width:100%",
@@ -106,6 +106,7 @@ function start (err, regl) {
   }
 
   function initialize () {
+    allocateDrawing();
     if (dataType === 'float') {
       var n = radius * radius * 4;
       var randomData = new Float32Array(n);
@@ -142,7 +143,7 @@ function start (err, regl) {
   var drawAxis = require('./axis')(regl);
   
   allocate();
-  allocateDrawing();
+  //allocateDrawing();
 
   var ping = 0;
 
@@ -166,7 +167,7 @@ function start (err, regl) {
       screenFbos[tick % 2].use(() => {
         drawDecay({
           src: screenFbos[(tick + 1) % 2],
-          factor: state.decay
+          factor: state.persistance
         });
 
         drawPoints({
@@ -195,7 +196,7 @@ function start (err, regl) {
           * Math.sqrt(500000 / state.numPoints)
           / radius
           * 20.0
-          / (1 / (1 - state.decay))
+          / (1 / (1 - (state.persistance === 1 ? 0.99 : state.persistance)))
           * view[0],
       });
 
