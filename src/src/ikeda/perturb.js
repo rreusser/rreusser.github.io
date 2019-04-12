@@ -27,7 +27,7 @@ module.exports = function (regl) {
           random(gl_FragCoord.xy + 1.0),
           random(gl_FragCoord.xy + 2.0),
           random(gl_FragCoord.xy + 3.0)
-        ) * 2.0 - 1.0) * 0.001;
+        ) * 2.0 - 1.0) * 0.0001;
       }
     `,
     attributes: {aXy: [[-4, -4], [0, 4], [4, -4]]},

@@ -79,7 +79,7 @@ function start (err, regl) {
     }
   });
 
-  var textures = [null, null];
+  var particleTextures = [null, null];
   var particleFbos = [null, null];
   var screenFbos = [null, null]
   var lookup = null;
@@ -99,15 +99,25 @@ function start (err, regl) {
 
   function allocate () {
     radius = Math.ceil(Math.sqrt(state.numPoints / 2));
-    textures = textures.map(t => (t || regl.texture)({radius: radius, type: dataType}));
-    particleFbos = particleFbos.map((fbo, i) => (fbo || regl.framebuffer)({depthStencil: false, color: textures[i]}));
+    particleTextures = particleTextures.map(t => (t || regl.texture)({radius: radius, type: dataType}));
+    particleFbos = particleFbos.map((fbo, i) => (fbo || regl.framebuffer)({depthStencil: false, color: particleTextures[i]}));
     initialize();
     lookup = (lookup || regl.buffer)(particleLUT(radius, radius));
   }
 
   function initialize () {
-    particleFbos[0].use(drawInitialize);
-    particleFbos[1].use(drawInitialize);
+    if (dataType === 'float') {
+      var n = radius * radius * 4;
+      var randomData = new Float32Array(n);
+      for (var i = 0; i < n; i++) {
+        randomData[i] = (Math.random() * 2 - 1) * 0.01;
+      }
+      particleTextures[0].subimage(randomData);
+      particleTextures[1].subimage(randomData);
+    } else {
+      particleFbos[0].use(drawInitialize);
+      particleFbos[1].use(drawInitialize);
+    }
   }
 
   // Initialize particle positions
