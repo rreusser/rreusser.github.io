@@ -57,14 +57,17 @@ require('regl')({
     function onmove (event) {
       var mousex = (2 * event.clientX - window.innerWidth) * 2;
       var mousey = (-2 * event.clientY + window.innerHeight) * 2;
+      console.log(event);
       ax += (mousex - px) * 2.0;
       ay += (mousey - py) * 2.0;
-      event.preventDefault();
     }
 
     window.addEventListener('mousemove', onmove, false);
-    window.addEventListener('touchmove', onmove, false);
     window.addEventListener('resize', camera.resize);
+    window.addEventListener('touchstart', function () {
+      vx += (Math.random() - 0.5) * 2000.0;
+      vy += (Math.random() - 0.5) * 2000.0;
+    });
 
     regl.frame(({tick}) => {
       ax += -px;
