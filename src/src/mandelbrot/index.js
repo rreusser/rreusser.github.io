@@ -2,6 +2,7 @@ const glsl = require('glslify');
 const invertMat4 = require('gl-mat4/invert');
 const ResetTimer = require('./reset-timer');
 const createControls = require('./controls');
+const ease = require('eases/cubic-in-out');
 const regl = require('regl')({
   pixelRatio: Math.min(2.0, window.devicePixelRatio),
   extensions: ['oes_standard_derivatives'],
@@ -11,10 +12,14 @@ const regl = require('regl')({
 
 function run (regl) {
   const camera = require('./camera-2d')(regl, {
-    xmin: -1.0,
+    //xmin: -1.25,
+    //xmax: 0.75,
+    //ymin: -0.5,
+    //ymax: 1.5,
+    xmin: -1.5,
     xmax: 1.0,
-    ymin: -1,
-    ymax: 1,
+    ymin: -1.0,
+    ymax: 1.0,
   });
 
   var state = {
@@ -22,12 +27,12 @@ function run (regl) {
     polar: true
   };
 
+  var maxIters = 80;
   var controlRoot = document.createElement('div');
   controlRoot.addEventListener('touchstart', e => e.stopPropagation());
 	document.body.appendChild(createControls(null, controlRoot));
-  var maxIters = 2000;
   require('control-panel')([
-    {label: 'iterations', type: 'range', min: 1, max: maxIters, step: 1, initial: state.iterations},
+    {label: 'iterations', type: 'range', min: 1, max: maxIters, step: 0.01, initial: state.iterations},
     {label: 'polar', type: 'checkbox', initial: state.polar},
   ], {
 		width: 350,
@@ -75,7 +80,8 @@ function run (regl) {
   }).map(makeCommand);
 
   function getDraw (n) {
-    return commands[Math.floor((n - 1) / 10)];
+    n += 10
+    return commands[Math.min(commands.length - 1, Math.floor((n - 1) / 10))];
   }
 
   function makeCommand (n) {
@@ -253,14 +259,19 @@ function run (regl) {
           return vec2(cos(theta), sin(theta)) * pow(r, x);
         }
 
+        float easing (float x, float ref) {
+          return 1.0 / (1.0 + exp((x - ref) * 2.0));
+          return smoothstep(ref + 4.0, ref, x);
+        }
+
         vec3 f(vec2 z) {
           int count = 0;
           int iiter = int(iterations);
           vec2 c = vec2(0);
           for (int i = 0; i < ${n + 1}; i++) {
-            if (i >= iiter) continue;
-            c = csqr(c) + z;
-            if (dot(c, c) > 64.0 && count == 0) count = i;
+            //if (i >= iiter) continue;
+            c = mix(csqr(c) + z, c, easing(iterations, float(i)));
+            if (dot(c, c) > 1e10 && count == 0) count = i;
           }
           //float frac = iterations - float(iiter);
           //c = cpow(c, 1.0 + frac) + frac * z;
@@ -295,7 +306,7 @@ function run (regl) {
         viewportHeight: regl.context('viewportHeight'),
         mViewInv: ({view}) => invertMat4(mViewInv, view),
         lineWidth: (ctx, props) => (props.loRes ? 0.1 : 0.5) * ctx.pixelRatio,
-        iterations: () => state.iterations,
+        iterations: regl.prop('iterations'),
         polar: () => state.polar
       },
       framebuffer: regl.prop('dst'),
@@ -319,14 +330,33 @@ function run (regl) {
   });
 
   regl.frame(({time}) => {
+    /*
+    time *= 1.0;
+    var bullshit = 2.0
+    var range = Math.exp(-time * 1.25) * 20.0 + 0.75;
+    camera.setBounds({
+      xmin: - range - 0.5,
+      xmax: + range - 0.5,
+      ymin: - range,
+      ymax: + range,
+    });
+    */
+
     camera.draw(({dirty}) => {
       if (!dirty) {
         prevTime = undefined;
-        return;
+        //return;
       }
 
+      //var iterations = time;
+      var iterations = state.iterations - 1;
+
       if (loRes) {
-        getDraw(state.iterations)({dst: loResFbo, loRes: true});
+        getDraw(state.iterations)({
+          dst: loResFbo,
+          loRes: true,
+          iterations: iterations
+        });
         transfer({src: loResFbo});
         prevTime = undefined;
       } else {
@@ -338,7 +368,8 @@ function run (regl) {
             loResNeeded = false;
           }
         }
-        getDraw(state.iterations)({});
+        //var iterations = Math.min(maxIters, Math.exp(time * 0.2) - 1);
+        getDraw(iterations)({iterations: iterations});
 
         prevTime = time;
       }

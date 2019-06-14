@@ -57,6 +57,7 @@ module.exports = function makeCamera2D (regl, opts) {
   mView[0] = 1 / (xmax - xmin);
   mView[5] = 1 / (xmax - xmin) * aspectRatio * width / height;
   mView[12] = -0.5 * (xmax + xmin);
+  mView[13] = -0.5 * (ymax + ymin);
 
   var mViewport = identity([]);
   var mInvViewport = identity([]);
@@ -149,6 +150,12 @@ module.exports = function makeCamera2D (regl, opts) {
     },
     matrix: function () {
       return mView;
+    },
+    setBounds: function (bounds) {
+      mView[0] = 1 / (bounds.xmax - bounds.xmin);
+      mView[5] = 1 / (bounds.xmax - bounds.xmin) * aspectRatio * width / height;
+      mView[12] = -0.5 * (bounds.xmax + bounds.xmin);
+      mView[13] = -0.5 * (bounds.ymax + bounds.ymin);
     },
     resize: function () {
       computeViewport();
