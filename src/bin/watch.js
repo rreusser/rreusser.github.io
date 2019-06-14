@@ -5,16 +5,18 @@ const hyperstream = require('hyperstream');
 const glslify = require('glslify');
 const es2040 = require('es2040');
 const assert = require('assert');
+const mkdirp = require('mkdirp');
 const Idyll = require('idyll');
 const path = require('path');
 const budo = require('budo');
 const brfs = require('brfs');
+const rmrf = require('rimraf');
 const fs = require('fs');
+const cp = require('cp');
 
 var projectDir = process.argv[2];
 if (!/^src\//.test(projectDir)) projectDir = path.join('src', projectDir);
 const entryFile = getEntryFile(projectDir);
-const outputDir = projectDir.replace(/^src\//, 'docs/');
 
 const port = process.env.port || 9966;
 const host = process.env.host || 'localhost';
@@ -31,13 +33,21 @@ switch (entryFile.type) {
 
     console.log('templatePath:', templatePath);
 
+    const outputDir = path.join(__dirname, '..', projectDir.replace(/^src\//, 'build/'));
+    rmrf.sync(outputDir);
+    mkdirp.sync(outputDir);
+
+    cp.sync(path.join(__dirname, '..', 'lib', 'css', 'styles.css'), path.join(outputDir, 'styles.css'));
+    cp.sync(path.join(__dirname, '..', 'lib', 'css', 'styles.css'), path.join(outputDir, '..', 'styles.css'));
+    console.log(path.join(__dirname, '..', 'lib', 'css', 'styles.css'), path.join(outputDir, 'styles.css'));
+
     const idyll = Idyll({
       inputFile: path.join(__dirname, '..', projectDir, entryFile.name),
       defaultComponents: path.join(__dirname, '..', 'lib', 'default-idyll-components'),
       components: path.join(__dirname, '..', projectDir, 'components'),
-      output: path.join(__dirname, '..', outputDir),
-      css: path.join(__dirname, '..', 'lib', 'css', 'styles.css'),
+      output: outputDir,
       template: templatePath,
+      outputJS: '../index.js',
       port: port,
       watch: true,
       minify: false,

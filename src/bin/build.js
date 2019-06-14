@@ -13,6 +13,7 @@ const assert = require('assert');
 const es2040 = require('es2040');
 const Idyll = require('idyll');
 const path = require('path');
+const rmrf = require('rimraf');
 const brfs = require('brfs');
 const cpr = require('cpr');
 const fs = require('fs');
@@ -38,6 +39,7 @@ switch (entryFile.type) {
       defaultComponents: path.join(__dirname, '..', 'lib', 'default-idyll-components'),
       components: path.join(__dirname, '..', projectDir, 'components'),
       output: path.join(__dirname, '..', outputDir),
+      outputJS: '../index.js',
       //css: path.join(__dirname, '..', 'lib', 'css', 'styles.css'),
       template: templatePath,
       watch: false,
@@ -46,6 +48,10 @@ switch (entryFile.type) {
       theme: 'none',
       layout: 'none',
       transform: ['glslify']
+    });
+
+    idyll.on('complete', function () {
+      rmrf.sync(path.join(__dirname, '..', outputDir, 'static'))
     });
 
     idyll.build();
@@ -59,6 +65,8 @@ switch (entryFile.type) {
         cpr(cpInputDir, cpOutputDir, {});
       }
     });
+
+    //rmrf.sync(path.join(__dirname, '..', outputDir, 'static'));
 
     fs.createReadStream(path.join(__dirname, '..', 'lib', 'css', 'styles.css'))
       .pipe(fs.createWriteStream(path.join(outputDir, '..', 'styles.css')));
