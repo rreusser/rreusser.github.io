@@ -12,20 +12,18 @@ const regl = require('regl')({
 
 function run (regl) {
   const camera = require('./camera-2d')(regl, {
-    //xmin: -1.25,
-    //xmax: 0.75,
-    //ymin: -0.5,
-    //ymax: 1.5,
-    xmin: -1.5,
-    xmax: 1.0,
-    ymin: -1.0,
-    ymax: 1.0,
+    xmin: -1.25,
+    xmax: 0.1,
+    ymin: -0.5,
+    ymax: 0.5,
   });
 
   var state = {
     iterations: 20,
     polar: true
   };
+
+  var easedIterations = state.iterations;
 
   var maxIters = 80;
   var controlRoot = document.createElement('div');
@@ -260,8 +258,7 @@ function run (regl) {
         }
 
         float easing (float x, float ref) {
-          return 1.0 / (1.0 + exp((x - ref) * 2.0));
-          return smoothstep(ref + 4.0, ref, x);
+          return 1.0 / (1.0 + exp((x - ref) * 10.0));
         }
 
         vec3 f(vec2 z) {
@@ -269,12 +266,9 @@ function run (regl) {
           int iiter = int(iterations);
           vec2 c = vec2(0);
           for (int i = 0; i < ${n + 1}; i++) {
-            //if (i >= iiter) continue;
             c = mix(csqr(c) + z, c, easing(iterations, float(i)));
             if (dot(c, c) > 1e10 && count == 0) count = i;
           }
-          //float frac = iterations - float(iiter);
-          //c = cpow(c, 1.0 + frac) + frac * z;
           return vec3(c, count);
         }
 
@@ -329,30 +323,67 @@ function run (regl) {
     loResTimer.reset();
   });
 
-  regl.frame(({time}) => {
+  var iterationDecay = 0.1; // seconds
+  var previousTime = null;
+  var previousEasedIterations = state.iterations;
+
+  function setCameraState (tval) {
+    var a = 15;
+    var t = 1 - (Math.exp(-a * tval) - Math.exp(-a)) / (1 - Math.exp(-a));
+    var xcen0 = -1;
+    var ycen0 = 0;
+    var dx0 = 2;
+    var dy0 = 2;
+
+    var xcen1 = -8507.544798055096 / 11831.90031975708;
+    var ycen1 = 2932.8570328085225 / 11831.90031975708;
+    var dx1 = 1 / 11831.90031975708 * 0.1;
+    var dy1 = 1 / 11831.90031975708 * 0.1;
+
+    function ease(a, b) {
+      return t * b + (1 - t) * a;
+    }
+
+    var data = {
+      xmin: ease(xcen0, xcen1) - ease(dx0, dx1),
+      xmax: ease(xcen0, xcen1) + ease(dx0, dx1),
+      ymin: ease(ycen0, ycen1) - ease(dy0, dy1),
+      ymax: ease(ycen0, ycen1) + ease(dy0, dy1),
+    };
+    camera.setBounds(data);
+  }
+
+  regl.frame(({time, tick}) => {
     /*
-    time *= 1.0;
-    var bullshit = 2.0
-    var range = Math.exp(-time * 1.25) * 20.0 + 0.75;
-    camera.setBounds({
-      xmin: - range - 0.5,
-      xmax: + range - 0.5,
-      ymin: - range,
-      ymax: + range,
-    });
+    state.iterations = Math.max(1, time * 1.8 + 0.5);
+    if (state.iterations < maxIters) {
+      setCameraState(state.iterations / (maxIters + 10));
+    }
     */
+    if (time) {
+      var dt = time - previousTime;
+      var decay = Math.exp(-dt / iterationDecay);
+      easedIterations = decay * easedIterations + (1 - decay) * state.iterations;
+    }
+    
+    if (Math.abs(easedIterations - previousEasedIterations) > 0.00001) {
+      camera.taint();
+    }
+
+    previousTime = time;
+    previousEasedIterations = easedIterations;
 
     camera.draw(({dirty}) => {
       if (!dirty) {
         prevTime = undefined;
-        //return;
+        return;
       }
 
-      //var iterations = time;
-      var iterations = state.iterations - 1;
+      //var iterations = Math.min(maxIters, Math.exp(time * 0.2)) - 1;
+      var iterations = easedIterations - 0.5;
 
       if (loRes) {
-        getDraw(state.iterations)({
+        getDraw(Math.ceil(easedIterations))({
           dst: loResFbo,
           loRes: true,
           iterations: iterations

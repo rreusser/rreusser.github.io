@@ -154,8 +154,8 @@ module.exports = function makeCamera2D (regl, opts) {
     setBounds: function (bounds) {
       mView[0] = 1 / (bounds.xmax - bounds.xmin);
       mView[5] = 1 / (bounds.xmax - bounds.xmin) * aspectRatio * width / height;
-      mView[12] = -0.5 * (bounds.xmax + bounds.xmin);
-      mView[13] = -0.5 * (bounds.ymax + bounds.ymin);
+      mView[12] = -0.5 * (bounds.xmax + bounds.xmin) * mView[0];
+      mView[13] = -0.5 * (bounds.ymax + bounds.ymin) * mView[5];
     },
     resize: function () {
       computeViewport();
