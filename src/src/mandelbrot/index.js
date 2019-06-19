@@ -25,12 +25,12 @@ function run (regl) {
 
   var easedIterations = state.iterations;
 
-  var maxIters = 80;
+  var maxIters = 128
   var controlRoot = document.createElement('div');
   controlRoot.addEventListener('touchstart', e => e.stopPropagation());
 	document.body.appendChild(createControls(null, controlRoot));
   require('control-panel')([
-    {label: 'iterations', type: 'range', min: 1, max: maxIters, step: 0.01, initial: state.iterations},
+    {label: 'iterations', type: 'range', min: 1, max: maxIters, step: 1, initial: state.iterations},
     {label: 'polar', type: 'checkbox', initial: state.polar},
   ], {
 		width: 350,
@@ -258,7 +258,10 @@ function run (regl) {
         }
 
         float easing (float x, float ref) {
-          return 1.0 / (1.0 + exp((x - ref) * 10.0));
+          float t = ref - x + 0.5;
+          float p = 2.0 * t * t;
+          return t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : ((t < 0.5 ? p : -p + (4.0 * t) - 1.0)));
+          //return 1.0 / (1.0 + exp((x - ref) * 10.0));
         }
 
         vec3 f(vec2 z) {
@@ -323,7 +326,7 @@ function run (regl) {
     loResTimer.reset();
   });
 
-  var iterationDecay = 0.1; // seconds
+  var iterationDecay = 0.12; // seconds
   var previousTime = null;
   var previousEasedIterations = state.iterations;
 
@@ -366,7 +369,7 @@ function run (regl) {
       easedIterations = decay * easedIterations + (1 - decay) * state.iterations;
     }
     
-    if (Math.abs(easedIterations - previousEasedIterations) > 0.00001) {
+    if (Math.abs(easedIterations - previousEasedIterations) > 1e-12) {
       camera.taint();
     }
 
