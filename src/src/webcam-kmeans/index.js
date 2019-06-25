@@ -498,7 +498,7 @@ function run (regl, video) {
   var previousTime = -1 / 60;
   var loop = regl.frame(({tick, time}) => {
     try {
-      if (tick % 2 !== 1) return;
+      //if (tick % 2 !== 1) return;
       var k = means.length;
       var shaders = getShaders(k, state.colorSpace);
       var dt = time - previousTime
