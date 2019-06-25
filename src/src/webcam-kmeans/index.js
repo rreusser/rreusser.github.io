@@ -8,6 +8,10 @@ var getWebcam = require('./get-webcam');
 var Controls = require('controls-state');
 var GUI = require('controls-gui');
 
+if (window.location.host === "rreusser.github.io" && window.location.protocol !== 'https:') {
+  window.location = 'https://rreusser.github.io/webcam-kmeans/';
+}
+
 var yuv2rgb = `
   vec3 fromColorspace (vec3 yuv, float uvScale) {
     // Careful. I fudged the colorspace to get things geometrically nice.
