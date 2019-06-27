@@ -324,7 +324,7 @@ function run (regl, video) {
         uniforms: Object.assign({
           uAspect: (ctx) => {
             var videoAR = videoWidth / videoHeight;
-            var pageAR = ctx.framebufferWidth / ctx.framebufferHeight;
+            var pageAR = window.innerWidth / (window.innerHeight - 100)
             if (videoAR > pageAR) {
               return [1, pageAR / videoAR];
             } else {
