@@ -655,7 +655,7 @@ function run (regl, video) {
           src: videoTexture,
           means: means,
           labelOpacity: 1,
-          scale: 1.1,
+          scale: 0.75,
         });
         shaders.drawVideo({
           shift: [0, -1],
@@ -663,7 +663,7 @@ function run (regl, video) {
           src: videoTexture,
           means: means,
           labelOpacity: 0,
-          scale: 1.1,
+          scale: 0.75,
         });
       }
 
