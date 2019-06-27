@@ -8,6 +8,7 @@ var getWebcam = require('./get-webcam');
 var Controls = require('controls-state');
 var GUI = require('controls-gui');
 
+// Force https when deployed since http doesn't allow video (localhost is fine)
 if (window.location.host === "rreusser.github.io" && window.location.protocol !== 'https:') {
   window.location = 'https://rreusser.github.io/webcam-kmeans/';
 }
@@ -71,21 +72,10 @@ body, html {
   overflow: hidden;
   background-color: rgba(20, 20, 20, 1);
 }
-
-#container {
-  margin-left: auto;
-  margin-right: auto;
-  border: 1px solid #111;
-  overflow: hidden;
-  position: relative;
-  top: 50vh;
-  transform: translate(0, -50%);
-}
 `);
 
 require('regl')({
-  pixelRatio: 1,
-  container: container,
+  pixelRatio: Math.min(window.devicePixelRatio, 1.5, 2),
   extensions: [
     'ANGLE_instanced_arrays',
     'OES_texture_float',
@@ -99,33 +89,28 @@ require('regl')({
 });
 
 function run (regl, video) {
-  var drawAabbs = require('./draw-aabbs')(regl);
   var width = regl._gl.canvas.width;
   var height = regl._gl.canvas.height;
+  var videoWidth = 640;
+  var videoHeight = 480;
 
   var state = GUI(Controls({
     hi: Controls.Raw(h => h('p', {style: 'max-width: 270px'},
-      'K-means in WebGL using ',
-      h('a', {href: 'https://en.wikipedia.org/wiki/Lloyd%27s_algorithm'}, "Lloyd's Algorithm"),
-      '.'
+      'K-means in WebGL using ', h('a', {href: 'https://en.wikipedia.org/wiki/Lloyd%27s_algorithm'}, "Lloyd's Algorithm"), '.'
     )),
     k: Controls.Slider(5, {min: 2, max: 20, label: 'k'}).onChange(props => resize(state.k, state.colorSpace)),
     colorSpace: Controls.Select('YUV', {options: ['YUV', 'RGB'], label: 'Color space'}).onChange(props => resize(state.k, state.colorSpace)),
     uvScale: Controls.Slider(0.5, {min: 0.01, max: 1.0, step: 0.01, label: 'Y scale'}),
     labelOpacity: Controls.Slider(0.4, {min: 0.0, max: 1.0, step: 0.01, label: 'Label opacity'}),
-    displayVideo: Controls.Checkbox(false, {label: 'Video'}),
-    //iterate: true,
+    fullPageVideo: Controls.Checkbox(false, {label: 'Full size video'}),
   }), {
     containerCSS: "position:absolute; top:0; right:8px; min-width:300px; max-width:100%",
-    theme: {
-      fontFamily: "'Fira Sans Condensed', sans-serif",
-    }
+    theme: {fontFamily: "'Fira Sans Condensed', sans-serif"}
   });
-  state.iterate = true;
 
   function targetState (state) {
     return {
-      displayVideo: state.displayVideo ? 1 : 0,
+      fullPageVideo: state.fullPageVideo ? 1 : 0,
       labelOpacity: state.labelOpacity,
     };
   }
@@ -135,14 +120,24 @@ function run (regl, video) {
   function easeState (easedState, state, dt) {
     var decay = Math.exp(-dt / 0.15);
     if (!easedState) easedState = targetState(state);
-    easedState.displayVideo = easedState.displayVideo * decay + state.displayVideo * (1.0 - decay);
+    easedState.fullPageVideo = easedState.fullPageVideo * decay + state.fullPageVideo * (1.0 - decay);
     easedState.labelOpacity = easedState.labelOpacity * decay + state.labelOpacity * (1.0 - decay);
   }
 
-  var camera = createCamera(regl, {center: [0, 0.5, 0.5], distance: 2.5, phi: 0.3});
+  var camera = createCamera(regl, {
+    center: [0, 0.5, 0.5],
+    distance: 1.5,
+    phi: 0.3,
+    theta: 0.3
+  });
   createInteractions(camera);
 
-  var videoTexture = regl.texture({data: video, flipY: true});
+  var videoTexture = regl.texture({
+    data: video,
+    flipY: true,
+    width: videoWidth,
+    height: videoHeight,
+  });
 
   var createMeans = function (k) {
     return new Array(k).fill(0).map((d, i) => [Math.random(), Math.random(), Math.random()]);
@@ -190,10 +185,10 @@ function run (regl, video) {
   }
 
   var means = createMeans(state.k);
-  var lookup = createTextureLookupTable(width, height);
+  var lookup = createTextureLookupTable(videoWidth, videoHeight);
   var aabb = regl.buffer([-0.5, 0, 0, 0.5, 1, 1]);
 
-  function splitDegenerateMeans (data) {
+  function reseedDegenerateMeans (data) {
     var k = data.length / 4;
 
     /*
@@ -245,10 +240,12 @@ function run (regl, video) {
     }
   }
 
-  var clip = regl({
-    viewport: {x: 0, y: 60, width: 640, height: 480},
-    scissor: {enable: true, box: {x: 0, y: 60, width: 640, height: 480}},
+  var clipViewport = regl({
+    viewport: {y: 100},
+    scissor: {enable: true, box: {y: 100}},
   });
+
+  var drawAabbs = require('./draw-aabbs')(regl);
 
   var rgbShaderCache = {};
   var yuvShaderCache = {};
@@ -264,6 +261,7 @@ function run (regl, video) {
           uniform sampler2D src;//, uColorscale;
           uniform mat4 uProjectionView;
           uniform float uvScale, uLabel, uPointSize;
+          uniform vec2 uAspect;
           uniform float uDisplayVideo;
           varying vec3 vRGB, vMeanRGB;
           ${new Array(newK).fill(0).map((d, k) => `uniform vec3 mean${k};`).join('\n')}
@@ -280,24 +278,29 @@ function run (regl, video) {
             vRGB = texture2D(src, aUV).xyz;
             vec3 yuv = toColorspace(vRGB, uvScale);
 
+            vec3 meanYUV = vec3(0);
             float minLength = 10000.0;
             float minIndex = -1.0;
             float l;
 
             ${new Array(newK).fill(0).map((d, k) => `
               if ((l = len(yuv, mean${k})) < minLength) {
-                vMeanRGB = fromColorspace(mean${k}, uvScale);
+                meanYUV = mean${k};
                 minLength = l;
                 minIndex = ${k}.0;
               }
             `).join('')}
 
-            //vec3 tabColor = texture2D(uColorscale, vec2((minIndex + 0.5) / 18.0, 0.5)).rgb;
+            vMeanRGB = fromColorspace(meanYUV, uvScale);
+
             vRGB = mix(vRGB, vMeanRGB, uLabel);
 
             gl_Position = mix(
               uProjectionView * vec4(yuv, 1),
-              vec4(vec2(-1, 1) * (aUV * 2.0 - 1.0), 0.99, 1),
+              vec4(
+                (vec2(-1, 1) * (aUV * 2.0 - 1.0)) * uAspect,
+                0.99, 1
+              ),
               uDisplayVideo
             );
             gl_PointSize = uPointSize;
@@ -319,16 +322,25 @@ function run (regl, video) {
           equation: {rgb: 'add', alpha: 'add'}
         },
         uniforms: Object.assign({
+          uAspect: (ctx) => {
+            var videoAR = videoWidth / videoHeight;
+            var pageAR = ctx.framebufferWidth / ctx.framebufferHeight;
+            if (videoAR > pageAR) {
+              return [1, pageAR / videoAR];
+            } else {
+              return [videoAR / pageAR, 1];
+            }
+
+          },
           uPointSize: ctx => 2.0 * ctx.pixelRatio,
-          //uColorscale: colorscale,
           src: regl.prop('video'),
-          uDisplayVideo: regl.prop('displayVideo'),
+          uDisplayVideo: regl.prop('fullPageVideo'),
           uvScale: () => 1 / state.uvScale,
           uLabel: () => easedState.labelOpacity,
         }, createMeansProps(newK)),
         primitive: 'points',
         depth: {enable: true},
-        count: width * height,
+        count: videoWidth * videoHeight,
       }),
 
       accumulate: regl({
@@ -384,7 +396,7 @@ function run (regl, video) {
         primitive: 'points',
         framebuffer: accumulatorFbos[0],
         depth: {enable: false},
-        count: width * height,
+        count: videoWidth * videoHeight,
       }),
 
       drawMeansToScreen: regl({
@@ -435,7 +447,7 @@ function run (regl, video) {
         },
         uniforms: {
           uPointSize: ctx => 15.0 * ctx.pixelRatio,
-          uDisplayVideo: regl.prop('displayVideo'),
+          uDisplayVideo: regl.prop('fullPageVideo'),
           uvScale: () => 1 / state.uvScale,
         },
         primitive: 'points',
@@ -489,57 +501,137 @@ function run (regl, video) {
         depth: {enable: false},
         instances: newK,
         count: 4,
-        viewport: {x: 0, y: 0, width: 640, height: 60},
-        scissor: {enable: true, box: {x: 0, y: 0, width: 640, height: 60}},
+        viewport: {height: 100},
+        scissor: {enable: true, box: {height: 100}},
+      }),
+      drawVideo: regl({
+        vert: `
+          precision highp float;
+          attribute vec2 aUV;
+          varying vec2 vUV;
+          uniform vec2 uAspect;
+          uniform vec2 uShift;
+          uniform float uScale;
+          void main () {
+            vUV = aUV ;
+            gl_Position = vec4((aUV + uShift) * uAspect * uScale - vec2(1, -1), 0, 1);
+          }
+        `,
+        frag: `
+          precision highp float;
+          varying vec2 vUV;
+          uniform sampler2D src;
+          uniform float uvScale, uLabel;
+          uniform float uOpacity;
+
+          ${new Array(newK).fill(0).map((d, k) => `uniform vec3 mean${k};`).join('\n')}
+
+          ${colorSpace === 'YUV' ? rgb2yuv : toNoop}
+          ${colorSpace === 'YUV' ? yuv2rgb : fromNoop}
+
+          float len (vec3 a, vec3 b) {
+            vec3 dx = a - b;
+            return dot(dx, dx);
+          }
+
+          void main () {
+            vec3 rgb = texture2D(src, vec2(1.0 - vUV.x, vUV.y)).xyz;
+            vec3 yuv = toColorspace(rgb, uvScale);
+
+            float minLength = 10000.0;
+            float minIndex = -1.0;
+            vec3 meanYUV = vec3(0);
+            float l;
+
+            ${new Array(newK).fill(0).map((d, k) => `
+              if ((l = len(yuv, mean${k})) < minLength) {
+                meanYUV = mean${k};
+                minLength = l;
+                minIndex = ${k}.0;
+              }
+            `).join('')}
+
+            vec3 meanRGB = fromColorspace(meanYUV, uvScale);
+
+            rgb = mix(rgb, meanRGB, uLabel);
+
+            gl_FragColor = vec4(rgb, uOpacity);
+          }
+        `,
+        attributes: {
+          aUV: [1, 0, 1, 1, 0, 0, 0, 1]
+        },
+        blend: {
+          enable: true,
+          func: {
+            srcRGB: 'src alpha',
+            srcAlpha: 1,
+            dstRGB: 'one minus src alpha',
+            dstAlpha: 1,
+          },
+          equation: {
+            rgb: 'add',
+            alpha: 'add',
+          }
+        },
+        uniforms: Object.assign({
+          uShift: regl.prop('shift'),
+          uAspect: (ctx, props) => [window.innerHeight / window.innerWidth, videoHeight / videoWidth],
+          src: regl.prop('src'),
+          uPointSize: ctx => 2.0 * ctx.pixelRatio,
+          uOpacity: (ctx, props) => 1 - props.fullPageVideo,
+          uvScale: () => 1 / state.uvScale,
+          uLabel: regl.prop('labelOpacity'),
+          uScale: regl.prop('scale'),
+        }, createMeansProps(newK)),
+        primitive: 'triangle strip',
+        depth: {enable: false},
+        count: 4
       })
     };
     return cache[newK];
   }
-  var colorscale = regl.texture(require('./colorscale'));
-
+  
   var meansData = new Float32Array(state.k * 4);
   var meansBuffer = regl.buffer(meansData);
   var previousTime = -1 / 60;
   var loop = regl.frame(({tick, time}) => {
     try {
-      //if (tick % 2 !== 1) return;
+      //if (tick % 8 !== 1) return;
       var k = means.length;
       var shaders = getShaders(k, state.colorSpace);
       var dt = time - previousTime
       easeState(easedState, state, dt);
 
-      if (state.iterate) {
-        videoTexture.subimage(video);
+      videoTexture.subimage(video);
 
-        accumulatorFbos[0].use(() => {
-          regl.clear({color: [0, 0, 0, 0]});
-          shaders.accumulate({
-            video: videoTexture,
-            means: means
-          });
-          regl.read(meansData);
+      accumulatorFbos[0].use(() => {
+        regl.clear({color: [0, 0, 0, 0]});
+        shaders.accumulate({
+          video: videoTexture,
+          means: means
         });
+        regl.read(meansData);
+      });
 
-        splitDegenerateMeans(meansData);
-        var decay = Math.exp(-dt / 0.01);
+      reseedDegenerateMeans(meansData);
+      var decay = Math.exp(-dt / 0.01);
 
-        for (var i = 0, i4 = 0; i < k; i++, i4 += 4) {
-          meansData[i4    ] = means[i][0] = decay * means[i][0] + (1.0 - decay) * meansData[i4    ];
-          meansData[i4 + 1] = means[i][1] = decay * means[i][1] + (1.0 - decay) * meansData[i4 + 1];
-          meansData[i4 + 2] = means[i][2] = decay * means[i][2] + (1.0 - decay) * meansData[i4 + 2];
-        }
-        meansBuffer.subdata(meansData);
+      for (var i = 0, i4 = 0; i < k; i++, i4 += 4) {
+        meansData[i4    ] = means[i][0] = decay * means[i][0] + (1.0 - decay) * meansData[i4    ];
+        meansData[i4 + 1] = means[i][1] = decay * means[i][1] + (1.0 - decay) * meansData[i4 + 1];
+        meansData[i4 + 2] = means[i][2] = decay * means[i][2] + (1.0 - decay) * meansData[i4 + 2];
       }
+      meansBuffer.subdata(meansData);
 
       camera.tick();
       camera.setUniforms(() => {
-        if (!state.iterate && !camera.state.dirty) return;
-        clip(() => {
+        clipViewport(() => {
           regl.clear({color: [0.12, 0.12, 0.12, 1]});
 
           shaders.drawToScreen({
             video: videoTexture,
-            displayVideo: easedState.displayVideo,
+            fullPageVideo: easedState.fullPageVideo,
             means: means,
           });
 
@@ -555,6 +647,25 @@ function run (regl, video) {
 
         shaders.debugMeans({means: meansBuffer})
       });
+
+      if (easedState.fullPageVideo < 0.99999) {
+        shaders.drawVideo({
+          shift: [0, -2],
+          fullPageVideo: easedState.fullPageVideo,
+          src: videoTexture,
+          means: means,
+          labelOpacity: 1,
+          scale: 1.1,
+        });
+        shaders.drawVideo({
+          shift: [0, -1],
+          fullPageVideo: easedState.fullPageVideo,
+          src: videoTexture,
+          means: means,
+          labelOpacity: 0,
+          scale: 1.1,
+        });
+      }
 
       previousTime = time;
     } catch (err) {

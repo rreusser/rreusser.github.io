@@ -2,7 +2,10 @@ var getUserMedia = require('getusermedia')
 
 module.exports = function getWebcam(cb) {
   getUserMedia({
-    video: true,
+    video: {
+      width: 640,
+      height: 480,
+    },
     audio: false
   }, function (err, stream) {
     if (err) return cb && cb(err);
