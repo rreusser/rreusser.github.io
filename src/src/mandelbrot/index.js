@@ -105,6 +105,23 @@ function run (regl) {
           );
         }
 
+        vec2 cmul (vec2 a, vec2 b) {
+          return vec2(
+            a.x * b.x - a.y * b.y,
+            a.y * b.x + a.x * b.y
+          );
+        }
+
+        vec2 csqrt (vec2 z) {
+          float t = sqrt(2.0 * (length(z) + (z.x >= 0.0 ? z.x : -z.x)));
+          vec2 f = vec2(0.5 * t, abs(z.y) / t);
+
+          if (z.x < 0.0) f.xy = f.yx;
+          if (z.y < 0.0) f.y = -f.y;
+
+          return f;
+        }
+
         #define PI 3.141592653589793238
         #define HALF_PI 1.57079632679
         #define HALF_PI_INV 0.15915494309
@@ -247,6 +264,7 @@ function run (regl) {
         }
 
         varying vec2 z;
+        //uniform vec2 mouse;
         uniform float viewportHeight;
         uniform float iterations;
         uniform bool polar;
@@ -257,10 +275,9 @@ function run (regl) {
           return vec2(cos(theta), sin(theta)) * pow(r, x);
         }
 
-        float easing (float x, float ref) {
-          float t = ref - x + 0.5;
+        float easing (float t) {
           float p = 2.0 * t * t;
-          return t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : ((t < 0.5 ? p : -p + (4.0 * t) - 1.0)));
+          return t < 0.5 ? p : -p + (4.0 * t) - 1.0;
           //return 1.0 / (1.0 + exp((x - ref) * 10.0));
         }
 
@@ -269,7 +286,10 @@ function run (regl) {
           int iiter = int(iterations);
           vec2 c = vec2(0);
           for (int i = 0; i < ${n + 1}; i++) {
-            c = mix(csqr(c) + z, c, easing(iterations, float(i)));
+            float t = easing(clamp(iterations - float(i), 0.0, 1.0));
+
+            c = mix(c, csqr(c) + z, easing(t));
+
             if (dot(c, c) > 1e10 && count == 0) count = i;
           }
           return vec3(c, count);
@@ -304,6 +324,7 @@ function run (regl) {
         mViewInv: ({view}) => invertMat4(mViewInv, view),
         lineWidth: (ctx, props) => (props.loRes ? 0.1 : 0.5) * ctx.pixelRatio,
         iterations: regl.prop('iterations'),
+        //mouse: () => mouse,
         polar: () => state.polar
       },
       framebuffer: regl.prop('dst'),
@@ -311,6 +332,15 @@ function run (regl) {
       count: 3
     });
   }
+
+  /*
+  mouse = [0, 0];
+  window.addEventListener('mousemove', function (event) {
+    mouse[0] = (event.clientX / window.innerWidth - 0.5) * 2.0;
+    mouse[1] = (1.0 - event.clientY / window.innerHeight - 0.5) * 2.0;
+    camera.taint();
+  });
+  */
 
   var loResNeeded = false;
   var prevTime;
@@ -383,7 +413,7 @@ function run (regl) {
       }
 
       //var iterations = Math.min(maxIters, Math.exp(time * 0.2)) - 1;
-      var iterations = easedIterations - 0.5;
+      var iterations = easedIterations;
 
       if (loRes) {
         getDraw(Math.ceil(easedIterations))({

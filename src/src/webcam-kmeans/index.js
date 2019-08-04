@@ -100,7 +100,7 @@ function run (regl, video) {
     )),
     k: Controls.Slider(5, {min: 2, max: 20, label: 'k'}).onChange(props => resize(state.k, state.colorSpace)),
     colorSpace: Controls.Select('YUV', {options: ['YUV', 'RGB'], label: 'Color space'}).onChange(props => resize(state.k, state.colorSpace)),
-    uvScale: Controls.Slider(0.5, {min: 0.01, max: 1.0, step: 0.01, label: 'Y scale'}),
+    uvScale: Controls.Slider(0.5, {min: 0.01, max: 2.0, step: 0.01, label: 'Y scale'}),
     labelOpacity: Controls.Slider(0.4, {min: 0.0, max: 1.0, step: 0.01, label: 'Label opacity'}),
     fullPageVideo: Controls.Checkbox(false, {label: 'Full size video'}),
   }), {
