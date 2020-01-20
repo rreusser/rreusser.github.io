@@ -1,0 +1,168 @@
+[menu fullWidth:true/]
+
+[meta
+  title:"Things I Learned the Hard Way Using React Native"
+  description:"A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."
+  fullWidth:true
+/]
+
+[Header
+  title: "Things I Learned the Hard Way Using React Native"
+  author: "Ricky Reusser"
+  authorLink: "https://github.com/rreusser" date: "May 5, 2016"
+  fullWidth:true
+/]
+
+## the tl;dr:
+This post exists because I wish someone had sat me down and told me half of these things on Day One of using React Native.
+
+## The kinda long; might read:
+
+I am decidedly not an expert in [React Native](http://facebook.github.io/react-native/), but that doesn't mean I haven't learned a lot of difficult lessons over the last [eight months](http://www.thefoodstand.com). And earlier today I had the chance to introduce a couple developers to React Native. They had JavaScript experience and knew their way around mobile apps, but React Native was a new beast. It made me recall what a foreign set of concepts [React](https://facebook.github.io/react/) and [React Native](facebook.github.io/react-native) were when we started out.
+
+This post is a loose collection of the things I wish someone had just told me from the beginning. Some are obvious; some aren't. The original gist is [here](https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3). I've surely missed a lot of good information. So it's not everything, but hopefully it's mostly valid information that can save someone else some of the time it took us to discover all of these things. If there's something that's changed your life (dev-wise), please let me know in the comments section and I'd be glad to add it to the list!
+
+*Update:* Great recommendations based on twitter replies/searches (Thanks, [sseraphini](https://twitter.com/sseraphini)!):
+
+- [redux-saga](https://github.com/yelouafi/redux-saga)
+- [redux-thunk](https://github.com/gaearon/redux-thunk)
+- [react-native-mock](https://github.com/lelandrichardson/react-native-mock)
+- [enzyme](https://github.com/airbnb/enzyme)
+- [Sentry and Crashlytics](https://twitter.com/JI/status/728696866343243777)
+
+## The thoughts:
+
+**Set up your environment carefully**: It's important to have *one* canonical source of truth per environment, per platform. (i.e. iOS Development, iOS Testflight, iOS Production, ditto Android.) Every time you build, your config should propagate values from one input source (per env) to either Java/JavaScript or Objective-C/JavaScript. [Here's what we did for Android](https://gist.github.com/rreusser/77c18ca38a6848876c22a00d3fed99a9) and [here's what we did for iOS](https://gist.github.com/rreusser/283e032fb1bb5f59256fd5b96f8b8e6c). I don't doubt that you can do better. *Please do better.* But you can't say that we didn't have one canonical source of truth that worked very simply and effectively throughout the development process.
+
+**Don't wait until the end to develop Android and iOS concurrently:** Even if you're not actively focusing on both platforms, don't assume that "RN is cross platform… we can develop iOS and flip the Android switch when we're done." It's mostly cross-platform. But there's lots of little stuff like iOS and Android handling margins on text differently. Small quirks, but not the sort of stuff you want to completely refactor at the end.
+
+**Use a linter:** I like [semistandard](https://github.com/Flet/semistandard). We ran into lots of frustrating issues where we had duplicate keys in hashes that didn't fail until we moved to the web platform. A linter can be annoying, but it's not so bad if you get on board early. Prevents you from doing lots of stupid invalid stuff that doesn't actually cause errors.
+
+**Learning Redux**: If you use it. It was useful to read the source itself. It's actually relatively concise. [Here's Dan Abramov deconstructing it](https://gist.github.com/gaearon/1d19088790e70ac32ea636c025ba424e#file-connect-js). It helped clear up my understanding of what's going on. Understanding exactly why components get updated helped us improve performance dramatically. [I think these are the lines that do it in redux](https://github.com/reactjs/react-redux/blob/master/src/components/connect.js#L283). (*<-- fixed this link because hadn't looked at this in a while and so didn't look deep enough*). As for connecting components, we debated whether to connect giant parts of the state tree or lots of little values. Also whether to connect tons of little components or just the big components. Short answer: understand why things get re-rendered and a happy medium is probably best because either extreme has tradeoffs. Connecting **every** component seems silly and expensive, and it's probably overkill and unnecessarily verbose to unpack tons of values in every `mapStateToProps`. Happy medium, I think.
+
+**But what's the right data store???** *The right data store is one that you understand.* We stored our stuff in some weird key-value store (for historical reasons, a glorified `{users: {...}, ...}` object). It worked pretty well, but what would have made it better would have been either to understand better what triggers updates from the start or maybe to take the plunge and get on board with immutablejs from the start. But there's no one true answer. Ours worked fine. If you use a library for your datastore, mainly try to understand *why* it does what it does (which doesn't necessarily include worrying about the internal workings). So just pick one. Don't worry. [You'll be fine](http://techcrunch.com/2014/10/18/you-too-may-be-a-victim-of-developaralysis/).
+
+**Put `console.logs` in your render statements and figure out just how often things are getting rendered.** You can get away with a lot for a while using react. It's magic. Until it feels laggy. The second major release of our iOS app was mainly a giant audit of why there was so much extra rendering going on. Performance increased dramatically.
+
+**Follow people on twitter:** [@dan\_abramov](https://twitter.com/dan_abramov), [@JI](https://twitter.com/JI), [@ReactJSNews](https://twitter.com/ReactJSNews), [@Vjeux](https://twitter.com/Vjeux). Lots more. A good way to be a fly on the wall and find out about trendy stuff without getting sucked into a hacker-news sort of rabbit hole.
+
+**React universal template** The future is upon us. Web, iOS, Android, Server. One codebase. And Windows Phone, soonish. [este/este.js](https://github.com/este/este)
+
+**My template** which isn't great but maybe has a couple things going for it regarding redux + immutable setup. Generally speaking, don't just copy the setup blindly though. Understand it. [react-native-with-everything](https://github.com/rreusser/react-native-with-everything)
+
+**Live on the bleeding edge**: It's a calculated risk when you're trying to run a business, but we never got bitten by upgrading early and often. On the contrary, the bugfixes and frequent updates prevented our code from getting stale. It meant submitting lots of little PRs to different repos, but it was time well spent. When the community indicates the direction they're going, take a hint. So yeah, it's probably all NavigatorExperimental moving forward.
+
+**This stuff is outstanding**:
+
+- [oblador/react-native-animatable](https://github.com/oblador/react-native-animatable)
+- [oblador/react-native-vector-icons](https://github.com/oblador/react-native-vector-icons)
+
+[strong]Corollary[/strong]: [icomoon.io](https://icomoon.io/) is the best thing ever for managing icons.
+
+**We didn't do much testing.** There. I said it. We didn't do much testing. It felt horrible. I'm embarrassed. There are some little unit tests for tricky logic, and the server-side code has pretty good coverage, but there's not really any mobile integration testing. Honestly, good redux middleware made debugging and reasoning about state so easy that there was just never a time when it was a top priority to lock down functionality with tests before we ripped features out and replaced them. We had a couple minor regressions, but 80% of the challenges we had were obscure, untestable things like a weird layering bug with the twitter native share dialog. (And once we hooked up [CodePush](https://microsoft.github.io/code-push/), we could [do it live](https://www.youtube.com/watch?v=O_HyZ5aW76c) anyway.) That said, you should always test your code. 😊👍🏼
+
+**Keyboard spacer**: I *highly* recommend a single keyboard spacer at the bottom of your top-level view. Or at least very few as high up in the DOM as possible. No need to add them all over the place (it's a mess), and best to avoid fixing the height of anything to the height of the viewport (Android and the in-call status bar will make your life unpleasant).
+[react-native-keyboard-spacer](https://www.npmjs.com/package/react-native-keyboard-spacer)
+
+**Steer clear of negative margins.** On iOS it's the same useful trick you web devs are used to. On Android (unless there's a trick I wasn't able to find), they all get clipped. If you want content to sit outside its parent container, use a larger parent container with [`pointerEvents="box-none"`](http://facebook.github.io/react-native/docs/view.html#pointerevents).
+
+**Margins and padding on text components** more or less don't have much of an effect on Android, so really try to avoid them if you start with iOS!
+
+**Higher order components** (enhancing behavior without mixins or class inheritance):
+[https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775](https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775)
+
+**This is useful**: Premature optimization is bad, but good to get a handle on what optimization means: [garbles/why-did-you-update](https://github.com/garbles/why-did-you-update)
+
+[strong][Stateless functional components](https://facebook.github.io/react/blog/2015/10/07/react-v0.14.html#stateless-functional-components)[/strong]: Good for components that can have no internal state.
+
+```javascript
+var Button = (props) => {
+  return <View><Text>{props.label}</Text></View>
+}
+```
+
+**But be careful with those because:** An interesting discussion on avoiding re-rendering the entire app on every state update: [Pure Render Performance Anti-Pattern](https://medium.com/@esamatti/react-js-pure-render-performance-anti-pattern-fb88c101332f#.u3tqgdf47)
+
+**Or just forget understanding optimization and use this:** 😄
+
+- [thejameskyle/babel-react-optimize](https://github.com/thejameskyle/babel-react-optimize)
+
+[strong]A trivial optimization that may actually be noticable[/strong]:
+
+Instead of this:
+
+```javascript
+return <TextInput onChange={() => { do something inline}}/>
+```
+
+Do this:
+
+```javascript
+_handleChange = () => {
+  same thing but not inline
+};
+
+render () {
+  return <TextInput onChange={this._handleChange}/>
+}
+```
+
+Subtle, but (and thanks, Scott Kyle for correcting my obvious oversight on this one!!) in the first version, the `TextInput` gets a new callback every time and so gets re-rendered. The second passes the reference to the same callback, hence no re-render.
+
+**Rendering arrays:**
+
+Except for the final `render` which needs to return a single node, you can always deal with arrays of keyed nodes instead of jamming everything together into wrapper views all over the place, e.g.:
+
+```javascript
+renderSomePart = () => {
+  return [
+    <View key="item-1"/>,
+    <View key="item-2"/>
+  ];
+};
+```
+
+Or:
+
+```javascript
+renderItem = (item, i) => (
+  <View key=`item-${i}`> ... </View>
+)
+
+renderSomePart = () => {
+  return this.props.someDataItems.map(this.renderItem);
+};
+```
+
+And text nodes can contain other text nodes. Our first attempt at a paragraph with mentions was to split text by whitespace and lay out nodes with flexbox. That's crazy. You can just nest text nodes and make some of them pressable. Sounds obscure, but it wasn't immediately obvious, and if you need it, it's life-changing.
+
+```javascript
+render () {
+  return <View>{[
+    <Text key="1">Hello, </Text>,
+    <Text key="2">{[
+      <Text key="3" onPress={...}>this is a link</Text>,
+      <Text key="4">, and this is just regular text</Text>
+    ]}</Text>
+  ]}</View>;
+}
+```
+
+**Loading overlays and z-ordering:**
+Absolutely position the overlay top/right/left/bottom: 0 and make sure it’s *after* the rest of the content it needs to overlay. Draw order is last-on-top:
+
+```javascript
+<View>
+  <...>
+  <LoadingOverlay>
+</View>
+```
+
+**Android installation (Genymotion)**
+Ommitted for brevity, but you can see it in the original gist [here](https://gist.github.com/rreusser/c673bb3ec5316cf3bd46a18d4777eff3). Android Studio 2.0 seems better these days though. Great emulator.
+
+## Conclusion
+
+That's all for now! At the end here, I'm clearly kinda scraping the bottom of the barrel. There's nothing profound here, but talking to new React Native devs made me realize how much time we could have saved if someone had been there to walk us through a few basics and warn us ahead of time where we'd dig the deepest holes for ourselves. Overall we had nothing but good fortune to have taken a gamble and found ourselves working among an oustanding, welcoming, active community of developers. If you need a mobile platform, I highly recomend that you [give it a try!](http://facebook.github.io/react-native/)
+
+[footer fullWidth:true/]

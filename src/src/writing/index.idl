@@ -1,0 +1,54 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true title:"Writing"/]
+
+[Header
+  fullWidth:true
+  title:"Writing"
+/]
+
+[Article
+  title:"Multi-Scale Turing Patterns 2"
+  summary:`"Another gallery of high-resolution multi-scale Turing patterns."`
+  date:"March 15, 2019"
+  path:"multiscale-turing-pattern-gallery-2"
+/]
+
+[Article
+  title:"Multi-Scale Turing Patterns"
+  summary:`"A gallery of high-resolution multi-scale Turing patterns."`
+  date:"October 19, 2018"
+  path:"multiscale-turing-pattern-gallery"
+/]
+
+[Article
+  title:"Aligning 3D Models"
+  summary:`"At Standard Cyborg, we use 3D scans from a number of different sources to design sockets for prosthetic devices. Even in the best of circumstances in which we're able to keep track of the physical \"up\" direction from acquisition through to the design phase, \"physical up\" isn't really a useful direction. We'd like to automatically orient incoming scans."`
+  date:"July 29, 2018"
+  path:"aligning-3d-scans"
+/]
+
+[Article
+  title:"From Nothing to Something in WebGL Using regl"
+  summary:"I've been telling all my friends how great and easy it is, but the truth is it's only easy if you already know the ins and outs of setting up a modern development environment in the first place. Which really sounds like way more than it is."
+  date:"Dec 7, 2016"
+  path:"from-nothing-to-something-in-webgl-with-regl"
+/]
+
+[Article
+  title:"Things I Learned the Hard Way Using React Native"
+  summary:"A post which exists because I wish someone had sat me down and told me half of these things on Day One of using React Native."
+  date:"May 5, 2016"
+  path:"things-i-learned-the-hard-way-using-react-native"
+/]
+
+
+[Article
+  title:"A Series of Unfortunate Things I Programmed One Time
+"
+  summary:"In which I try to communicate the regrets that surfaced last weekend when I plugged in my old laptop and sifted through a decade-old folder called `projects`."
+  date:"March 16, 2015"
+  path:"a-series-of-unfortunate-things-i-programmed-one-time"
+/]
+
+[footer fullWidth:true/]

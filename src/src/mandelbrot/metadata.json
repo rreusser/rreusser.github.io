@@ -1,0 +1,6 @@
+{
+  "title": "Mandelbrot",
+  "description": "Drawing the first iterations of the Mandelbrot set as a complex function",
+  "order": 2500,
+  "image": "http://rreusser.github.io/src/src/mandelbrot/thumbnail.jpg"
+}

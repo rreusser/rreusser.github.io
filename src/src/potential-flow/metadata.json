@@ -1,0 +1,6 @@
+{
+  "title": "Potential Flow",
+  "description": "Procedural (almost) potential flow with curl noise",
+  "order": 2100,
+  "image": "https://cdn.rawgit.com/rreusser/rreusser.github.io/779ebefc/src/src/potential-flow/thumbnail.jpg"
+}

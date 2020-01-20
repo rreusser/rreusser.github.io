@@ -1,0 +1,23 @@
+[meta
+  fullWidth:true
+  title:"ricky reusser"
+/]
+
+[menu fullWidth:true/]
+
+[header
+  fullWidth:true
+  title: "ricky reusser"
+  bgImageSrc:"images/splash.jpg"
+/]
+
+[div className:"section-list"]
+  [div className:"section-list__item"][Sketches](/sketches)[/div]
+  [div className:"section-list__item"][Writing](/writing)[/div]
+[/div]
+
+Hi! I studied Aerospace Engineering, but now I'm a software developer. My primary interests are numerical computing, visualization, and figuring out how to close the gap between the tools that do exist for communicating about technical concepts and the tools that I believe could exist.
+
+This site though is just side projects and diversions as I try to learn tools and improve. 🚀
+
+[footer fullWidth:true/]

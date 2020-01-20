@@ -1,0 +1,5 @@
+{
+  "title": "Kuramoto-Sivashinsky",
+  "description": "Integrating the 2D Kuramoto-Sivashinsky Equation, ∂u/∂t + ∇⁴u + ∇²u + ½ |∇u|² = 0",
+  "order": 900
+}

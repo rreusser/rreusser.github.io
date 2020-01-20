@@ -1,0 +1,34 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true title:"Guided Waves and Complex Analysis"/]
+
+[Header
+  title: "Guided Waves and Complex Analysis"
+  author: "Ricky Reusser"
+  authorLink: "https://github.com/rreusser"
+  date: "March 21, 2018"
+  fullWidth:true
+/]
+
+This is a post about guided waves, but I also plan to use it as a vehicle for talking about complex analysis. Of course it will take a bit of algebra to do that. The goal is to explain visually and conceptally how the pieces fit together so that, while knowledge of calculus and complex analysis will help, it's not required.
+
+## Guided waves
+
+Sound and light are two common examples of waves all around us. To an excellent approximation, they travel at a single, constant speed and obey the principle of superposition, meaning waves simply pass over one another without interacting.
+
+When waves travel through open space, we refer to them as waves in an _infinite_ medium. When the medium is uniform as well, they travel with wave fronts like a flat sheet advancing forward. We call these [plane waves](https://en.wikipedia.org/wiki/Plane_wave).
+
+When we seek to describe waves mathematically, plane waves represent the most basic building block we can combine to describe any and every other type of wave. Quite simply, they're the only type of waves such a medium knows how to support, and if you encounter something like waves emanating from a point that don't look very much like a plane wave, they can still always be described as a combination of plane waves.
+
+On the other hand, [standing waves](https://en.wikipedia.org/wiki/Standing_wave) result when waves are fully constrained locally. When you play the guitar, the length of the string permits only particular wavelengths: the longest wavelength, called the fundamental frequency, and whole number multiples of this frequency, called the harmonics. Standing waves oscilllate without moving—or in a different sense, they may be described as two identical waves moving in _opposite_ directions with no _net_ transport of energy.
+
+Guided waves lie halfway between waves in an infinite domain and waves in a bounded medium. If you've tapped on a railing and listened to the waves ring back and forth, then you're intuitively familiar with guided waves. A domain that partially constrains waves is called a [wave guide](https://en.wikipedia.org/wiki/Waveguide).
+
+
+## Elastodynamics
+
+[Elastodynamics](https://en.wikipedia.org/wiki/Linear_elasticity#Elastodynamics_–_the_wave_equation).
+
+
+
+[footer fullWidth:true/]

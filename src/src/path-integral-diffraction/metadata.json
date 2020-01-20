@@ -1,0 +1,6 @@
+{
+  "title": "Single-slit diffraction",
+  "description": "Diffraction of a 1D wavefunction through a slit using Feynman's path integral approach",
+  "order": 1900,
+  "image": "https://cdn.rawgit.com/rreusser/rreusser.github.io/2d5d1398/src/src/path-integral-diffraction/thumbnail.jpg"
+}

@@ -1,0 +1,6 @@
+{
+  "title": "Karman-Trefftz Airfoil",
+  "description": "Flow over an airfoil, computed with the Karman-Trefftz conformal map and visualized on the GPU",
+  "order": 700,
+  "image": "http://rreusser.github.io/sketches/images/karman-trefftz-airfoil-thumbnail.jpg"
+}

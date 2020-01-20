@@ -1,0 +1,6 @@
+{
+  "title": "K-Means",
+  "description": "Live k-means on a video feed with Lloyd's algorithm",
+  "order": 2900,
+  "image": "http://rreusser.github.io/src/src/webcam-kmeans/thumbnail.jpg"
+}

@@ -1,0 +1,21 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true
+  title:"Sketches"
+  description:"Mathematical sketches in WebGL"
+  shareImageUrl:"https://raw.githubusercontent.com/rreusser/rreusser.github.io/5516ed49/sketches/images/thumbnail.jpg"
+  twitterHandle:"rickyreusser"
+/]
+
+[fancyheader
+  fullWidth:true
+  title:"Sketches"
+/]
+
+A set of experiments and explorations, mostly using the [regl](https://github.com/regl-project/regl) WebGL library, some computed on the GPU and some on the CPU. The source for all content and projects on this site can be found [here](https://github.com/rreusser/rreusser.github.io/tree/master/src/src).
+
+Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusser).
+
+[ProjectIndex fullWidth:true/]
+
+[footer fullWidth:true/]

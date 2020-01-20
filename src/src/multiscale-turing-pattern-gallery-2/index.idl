@@ -1,0 +1,50 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true
+  title:"Multi-Scale Turing Patterns 2"
+  description:"Another gallery of multi-scale Turing patterns"
+  shareImageUrl:"https://raw.githubusercontent.com/rreusser/rreusser.github.io/master/src/src/multiscale-turing-pattern-gallery-2/images/ogimage.jpg"
+  twitterHandle:"rickyreusser"
+/]
+
+[header
+  fullWidth:true
+  title:"Multi-Scale Turing Patterns 2"
+  author: "Ricky Reusser"
+  authorLink: "https://twitter.com/rickyreusser"
+  date: "March 15, 2019"
+  bgImageSrc:"images/header.jpg"
+/]
+
+The time has come for another batch of multiscale turing patterns (see part one [here](http://rreusser.github.io/multiscale-turing-pattern-gallery/)). These are all generated with my [multiscale turing pattern implementation](https://github.com/rreusser/rreusser.github.io/tree/master/src/src/multiscale-turing-patterns). 
+
+New in recent history is persisting configuration in the URL. You can generate the first pattern with [this link](http://rreusser.github.io/multiscale-turing-patterns/#a=0.02&a=-0.004191623139758196&a=0.02787590270253998&a=0.018220321296595794&a=0.018790004787078346&a=0.026333612601954076&ar=0.15&ar=6.996028134004862&ar=18.785052809027924&ar=4.046739437301417&ar=5.50890793445462&ar=0.55&c=%23f988e9&c=%2341f542&c=%23fcedd6&c=%235ec9f7&c=%23453af5&c=%23d0acfb&div=no&halt=0&ir=0.3&ir=13.992056268009724&ir=37.57010561805585&ir=8.093478874602834&ir=11.01781586890924&ir=1.1&k=circular&k=gaussian&k=gaussian&k=circular&k=circular&k=circular&pr=1.5&s=1024&scale=2&scale2=0&seed=0). I generally experiment at low resolution, then constrain it to a single tile (`inDiv = yes`), then set the pixel ratio to 4 (`pixelRat = 4`) and the resolution to [equation]2^{12}[/equation] (`res = 12`) and . The configuration setup leaves a lot to be desired, but such is the way of things when trying to crank out interesting things in your spare moments.
+
+With this batch, I feel like I've explored a fair amount of the parameter space of my current implementation—which is to say I sat there watching a movie hitting the "randomize" button over and over—so that it'd be fun to try some other features. If I were to modify my implementation, I'd do the following:
+
+- brute-force convolutions with localized kernels to avoid unnecessary FFT passes.
+- try kernels that are neither circular nor gaussian
+- these patterns work by computing the local variation for a number of different scales (as determined by convolution with two different sized kernels). I might try convolving the computed local variation with another kernel to explore smoother patterns.
+- add rotational symmetry in the style of Jonathan McCabe's paper, [Cyclic Symmetric Multi-Scale Turing Patterns](http://www.jonathanmccabe.com/Cyclic_Symmetric_Multi-Scale_Turing_Patterns.pdf).
+
+But until then, enjoy! And feel free to [drop me a line via twitter](https://twitter.com/rickyreusser/)
+
+[Gallery
+  fullWidth:true
+  basePath:"https://s3.amazonaws.com/images.rickyreusser.com/multiscale-turing-patterns-2/"
+  contents:`[
+    {href:"turing15.jpg"},
+    {href:"turing16.jpg"},
+    {href:"turing17.jpg"},
+    {href:"turing18.jpg"},
+    {href:"turing19.jpg"},
+    {href:"turing20.jpg"},
+    {href:"turing21.jpg"},
+    {href:"turing22.jpg"},
+    {href:"turing23.jpg"},
+  ]`
+/]
+
+[a rel:"license" href:"http://creativecommons.org/licenses/by-nc/4.0/"][img alt:"Creative Commons License" style:`{borderWidth:"0"}` src:"https://i.creativecommons.org/l/by-nc/4.0/88x31.png"/][/a][br/]This work is licensed under a [a rel:"license" href:"http://creativecommons.org/licenses/by-nc/4.0/"]Creative Commons Attribution-NonCommercial 4.0 International License[/a].
+
+[footer fullWidth:true/]

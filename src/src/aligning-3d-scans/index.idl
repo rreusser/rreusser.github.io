@@ -1,0 +1,169 @@
+[menu fullWidth:true/]
+
+[meta
+  fullWidth:true
+  title:"Aligning 3D scans"
+  shareImageUrl:"https://cdn.rawgit.com/rreusser/rreusser.github.io/8cecf0a9/aligning-3d-scans/images/screenshot.png"
+  twitterHandle:"rickyreusser"
+/]
+
+[Header
+  title: "Aligning 3D scans"
+  author: "Ricky Reusser"
+  authorLink: "https://github.com/rreusser" date: "July 28, 2018"
+  fullWidth:true
+/]
+
+At [Standard Cyborg](https://www.standardcyborg.com), we use 3D scans from a number of different sources to design sockets for prosthetic devices (btw [we're always hiring](https://app.standardcyborg.com/careers) if this stuff interests you). Even in the best of circumstances in which we're able to keep track of the physical "up" direction from acquisition through to the design phase, "physical up" isn't really a useful direction since the limb could have been in any orientation during scanning (or any orientation _relative to the scanner_). We'd like to automatically orient incoming scans vertically so that they're easy to work with.
+
+[figure]
+  [Figure1/]
+  [figcaption]
+    Not an actual scan of a knee, but the below the knee (BK) scans users process tend to look very similar and tend to enter the system in no particular orientation.    
+  [/figcaption]
+[/figure]
+
+Working with 3D models isn't exactly new territory. Before throwing math at this, we should stop to consider whether a nice [arcball camera](https://en.wikibooks.org/wiki/OpenGL_Programming/Modern_OpenGL_Tutorial_Arcball) (or—*shudder*—x/y/z rotation handles!) would allow users to orient scans as they see fit, removing orientation as any concern of ours. We know so much about this problem though! In a broad sense, we know what the scans look like and how users will be modifying them, and we know that even the most grizzled power users find extra degrees of rotational freedom cumbersome and frustrating when they're not required for the task at hand. At the very worst, we find automatic alignment a great preprocessing step that helps users, doesn't hurt what's already arbitrary, and in many cases nails it right away.
+
+The question remains then what alignment could possibly mean. There are an infinite number of valid meanings and corresponding solutions. The solution I describe here only addresses a particular meaning that happens to solve our little micro-problem quite well. It's not new or novel—an alternate title for this article was "In which I discover the ellipsoid!"—and I'm only taking the trouble to describe it because I was so delighted to pick a heuristic out of the sky, find cause to break out some math, and actually end up with a function which runs robustly in a couple milliseconds.
+
+## Choosing an axis
+
+Most of the scans for which people use our software (and limbs in general, really) are basically cylindrical tubes so that the longest axis makes a decent first cut for orienting the scan.
+
+[figure]
+  [Figure2/]
+  [figcaption]
+    Orienting a scan by the longest axis isn't entirely without merit, but it's not very robust.
+  [/figcaption]
+[/figure]
+
+This orientation seems friendlier than what we started with, but it doesn't take long to spot some problems. For one, we haven't said anything about how to actually compute the longest axis ([Principal Component Analysis](https://en.wikipedia.org/wiki/Principal_component_analysis) (PCA) feels relevant?). More importantly though, if the scan had roughly equal proportions, the longest axis would be entirely arbitrary even for a cylinder with plainly obvious orientation.
+
+[var name:"fig3length" value:0.3/]
+[var name:"fig3width" value:0.7/]
+[var name:"fig3depth" value:0.5/]
+
+[figure fullWidth:true]
+  [Figure3 length:`fig3length` width:`fig3width` depth:`fig3depth` style:`{display: 'inline-block', verticalAlign:'middle'}`/]
+  [div style:`{textAlign:'left', marginLeft:'auto', marginRight:'auto', display:'inline-block', minWidth:'280px', verticalAlign:'middle'}`]
+    [range value:fig3length min:0.1 max:1.3 step:0.01/][equation latex:`"length = " + fig3length`/][br/]
+    [range value:fig3width min:0.1 max:1.3 step:0.01/][equation latex:`"width = " + fig3width`/][br/]
+    [range value:fig3depth min:0.1 max:1.3 step:0.01/][equation latex:`"depth = " + fig3depth`/][br/]
+  [/div]
+  [figcaption]
+    We'd like it if our algorithm always picked the axis of the cylinder, but the longest axis doesn't accomplish that.
+  [/figcaption]
+[/figure]
+
+Failure of this basic sanity check suggests the overall orientation of these scans isn't so much defined by the position of the surface as by its orientation. Without agonizing over why, I decided a better option would be to select an alignment axis as perpendicular as possible to the surface normals. Hazarding a guess at stating that mathematically, I'd call that the axis which minimizes the sum of the squares of the dot products of the alignment axis with the surface normal vectors.
+
+[figure]
+  [Figure6/]
+  [figcaption]
+    As an educated guess, we instead aim to find an [span style:`{color:'#cc334b'}`]alignment axis[/span] as perpendicular as possible to the [span style:`{color:'#384e73'}`]surface normal vectors[/span].
+  [/figcaption]
+[/figure]
+
+## As perpendicular as possible
+
+The statement above is a mouthful which requires a bit of unpacking. If we're going to tackle this as a minimization problem, we at least know we'll need to roll up the ideas above into an objective function. 
+
+Let's start with the dot products. Recall the dot product between vectors [equation latex:"\vec{a}"/] and [equation latex:"\vec{b}"/] is equal to [equation display:true latex:"\vec{a} \cdot \vec{b} = a b \cos \theta,"/] where [equation latex:"a"/] and [equation latex:"b"/] are the magnitudes of the two vectors, respectively, and [equation latex:"\theta"/] is the angle between them. All we really need to know here is that if two vectors are perpendicular, their dot product is zero.
+
+We can talk about a single surface normal vector, but somehow we need to aggregate information across all faces. Let's call a surface normal vector of the [equation latex:"i^{th}"/] mesh face [equation latex:"\vec{n}_i"/] and a candidate axis of alignment [equation latex:"\vec{\xi}"/] (the Greek letter "xi", pronounced "*ksee*", which I'm selecting because it's fun to write, isn't likely to get confused with anything, and is fun to call "tornado" instead). My supposition is that if we dot the two, square the result, sum over the faces and call it [equation latex:"f(\vec{\xi})"/], i.e. [equation display:true latex:"f(\vec{\xi}) = \sum_{i = 1}^{n_{faces}} \left(\vec{\xi} \cdot \vec{n}_i\right)^2,"/] then the best alignment is the one which minimizes [equation latex:"f(\vec{\xi})"/].
+
+We might have a reasonable objective function here, but to see why it feels like it should work, consider a cylinder. The axis of the cylinder is always perpendicular to the surface normal vectors. Assuming for simplicity that the vectors are all normalized, then the magnitudes drop out and [equation latex:"f(\vec{\xi}) = \sum \cos^2(90^\circ)"/] [equation latex:"= \sum 0 = 0"/]. The axis of a cylinder minimizes [equation latex:"f(\vec{\xi})"/] even when it's not the longest axis, thus fixing the failed sanity check above. (If you want to be fancy, I think you could say we're solving the same principal axis problem but in the tangent space instead, though I don't think that interpretation is likely to help most people.)
+
+(Why the square? On a strictly mathematical basis, the dot product may be either positive or negative which would cause the minimization to diverge to [equation latex:"-\infty"/]. The square keeps [equation latex:"f(\vec{\xi})"/] non-negative so that we can meaningfully minimize it.)
+
+[figure]
+  [Figure4/]
+  [figcaption]
+    The surface normal vectors of a cylinder are everywhere perpendicular to its axis so that [equation latex:"f(\vec{\xi}) = 0"/]. A cylinder passes the test!
+  [/figcaption]
+[/figure]
+
+A bit more precisely, if the faces comprising the mesh aren't uniformly distributed, the sum will be biased toward clusters of vertices and their associated normals. Instead of a sum over normal vectors [equation latex:"\vec{n}_i"/], what we really want is an area-weighted sum. In fact what we _really_ want is just an integral over the surface (call it [equation latex:"S"/]) with respect to the differential area vector (call it [equation latex:"d\vec{A}"/]). We define [equation latex:"d\vec{A} \equiv \vec{n} dA"/] as parallel to the surface normal but with magnitude equal to the area of a differential surface element. The continuous limit of [equation latex:"f(\vec{\xi})"/] is then [equation display:true latex:"f(\vec{\xi}) = \int_S \left(\vec{\xi} \cdot d\vec{A}\right)^2."/]
+
+While we're being precise, we assumed implicity that the axis of alignment was a nonzero vector, but let's now make that explicit in order to avoid the trivial solution [equation latex:"\vec{\xi} = \vec{0} = (0, 0, 0)"/] which *always* minimizes [equation latex:"f(\vec{\xi}) = 0"/]. Constraining [equation latex:"\vec{\xi}"/] to be a unit vector will do just fine.
+
+Fully stating our problem, we want to find the argument [equation latex:"\vec{\xi}"/] which minimizes [equation latex:"f(\vec{\xi})"/] subject to the constraint that [equation latex:"\vec{\xi}"/] is a unit vector: [equation display:true latex:"\begin{array}{l} \begin{array}{c} \phantom{\small{0}} \\ \mathrm{argmin} \\ \small{\vec{\xi} \in \mathbb{R}^3} \end{array} \displaystyle \! \! \int_S \left(\vec{\xi} \cdot d\vec{A}\right)^2 \\ \phantom{\small 0} \\ \;\; \mathrm{subject\;to} \;\; |\vec{\xi}| = 1.\end{array}"/]
+
+For piecewise constant faces with surface normal [equation latex:"d\vec{A}_i"/] (magnitude equal to the face's area, recall), we can recast this as a discrete summation and arrive at our final problem statement, [equation display:true latex:"\begin{array}{l} \begin{array}{c} \phantom{\small{0}} \\ \mathrm{argmin} \\ \small{\vec{\xi} \in \mathbb{R}^3} \end{array} \displaystyle \! \! \sum \limits_{i = 1}^{n_{faces}} \left(\xi_x dA_{i, x} + \xi_y dA_{i, y} + \xi_z dA_{i, z}\right)^2 \\ \phantom{\small 0} \\ \;\; \mathrm{subject\; to} \; \xi_x^2 + \xi_y^2 + \xi_z^2 = 1.\end{array}"/]
+
+As for the areas, Eric Arnebäck has a nice article about [Computing the Area of a Convex Polygon](https://erkaman.github.io/posts/area_convex_polygon.html). It covers triangles. And for you geometry sorcerers and sorceresses, the answer is yes. We're fitting an ellipsoid now. The rest of the article is me realizing I'm looking for an ellipsoid.
+
+## Computing it
+
+The problem above is a [constrained optimization problem](https://en.wikipedia.org/wiki/Constrained_optimization). Those can be a bit challenging to solve since you often only want to explore the solution space in directions which keep the constraints satisfied. It took me a while to recall, but if I learned one thing about constrained optimization in engineering (sadly I didn't learn much more), I learned that [the method of Lagrange multipliers](https://en.wikipedia.org/wiki/Lagrange_multiplier) exists to transform constrained optimization problems into unconstrained problems. The method works like this. Instead solving the problem [equation display:true latex:"\begin{array}{l}\mathrm{minimize} \; f(\vec{\xi}) \\ \mathrm{subject\;to} \; g(\vec{\xi}) = \vec{0},\end{array}"/] we solve the problem [equation display:true latex:"\mathrm{minimize} \; \mathcal{L}(\vec{\xi}, \lambda) = f(\vec{\xi}) - \lambda \cdot g(\vec{\xi})"/] where [equation latex:"\lambda"/] is an auxiliary parameter (the "Lagrange multiplier") that drives objective function toward satisfying the constraint. With just a bit of handwaving, we can demonstrate that setting the partial derivatives of [equation latex:"\mathcal{L}"/] equal to zero yields [equation display:true latex:"0 = \frac{\partial \mathcal{L}(\vec{\xi}, \lambda)}{\partial \lambda} = - g(\vec{\xi})"/] [equation display:true latex:"0 = g(\vec{\xi})"/] which confirms the constraint is satisfied, and [equation display:true latex:"\vec{0} = \nabla \mathcal{L}(\vec{\xi}, \lambda) = \nabla f(\vec{\xi}) - \lambda \nabla g(\vec{\xi})"/] [equation display:true latex:"\nabla f(\vec{\xi})  = \lambda \nabla g(\vec{\xi}) = \vec{0},"/] with the final leap of faith equality to zero taken since [equation latex:"g(\vec{\xi}) = 0"/] is a [stationary point](https://en.wikipedia.org/wiki/Stationary_point). This step then enforces the original objective function, though I haven't adequately justified it here. [Wikipedia actually has a pretty good explanation](https://en.wikipedia.org/wiki/Lagrange_multiplier) which I'd be foolish to try to outdo.
+
+It only takes the tiniest modification to state our problem in the canonical form of a Lagrange-multiplier-ready problem, [equation display:true latex:"\begin{array}{l} \begin{array}{c} \phantom{\small{0}} \\ \mathrm{argmin} \\ \small{\vec{\xi} \in \mathbb{R}^3} \end{array} \displaystyle \! \! \sum \limits_{i = 1}^{n_{faces}} \left(\xi_x dA_{i, x} + \xi_y dA_{i, y} + \xi_z dA_{i, z}\right)^2 \\ \phantom{\small 0} \\ \;\; \mathrm{subject\;to} \; g(\vec{\xi}) = \xi_x^2 + \xi_y^2 + \xi_z^2 - 1 = 0.\end{array}"/] Applying the method, we arrive at the unconstrained problem [equation display:true latex:"\begin{array}{c} \phantom{\small{0}} \\ \small{\phantom{0}} \\ \mathrm{argmin} \\ \small{\vec{\xi} \in \mathbb{R}^3} \\ \small{\lambda \in \mathbb{R}} \end{array} \displaystyle \! \! \sum \limits_{i = 1}^{n_{faces}} \left(\xi_x dA_{i, x} + \xi_y dA_{i, y} + \xi_z dA_{i, z}\right)^2 - \lambda(\xi_x^2 + \xi_y^2 + \xi_z^2 - 1)."/]
+
+Taking the partial derivatives with respect to [equation latex:"\xi_x"/], [equation latex:"\xi_y"/], and [equation latex:"\xi_z"/] as well as [equation latex:"\lambda"/] and equating to zero isn't particularly tedious. The result is a system of four simultaneous equations, [equation display:true latex:"\left\{\begin{array}{l}
+0 = \xi_x \sum dA_{i,x} dA_{i,x} + \xi_y \sum dA_{i,y} dA_{i,x} + \xi_z \sum dA_{i,z} dA_{i,x}  - \lambda \xi_x \\
+0 = \xi_x \sum dA_{i,x} dA_{i,y} + \xi_y \sum dA_{i,y} dA_{i,y} + \xi_z \sum dA_{i,z} dA_{i,y} - \lambda \xi_y  \\
+0 = \xi_x \sum dA_{i,x} dA_{i,z} + \xi_y \sum dA_{i,y} dA_{i,z} + \xi_z \sum dA_{i,z} dA_{i,z} - \lambda \xi_z  \\
+0 = \xi_x^2 + \xi_y^2  + \xi_z^2 - 1 \end{array}\right."/]
+
+It suddenly feels hopeless, especially since the fourth equation is a bit nonlinear in [equation latex:"\vec{\xi}"/]. Let's cut down on the visual noise by defining [equation display:true latex:"A_{xy} = \sum \limits_{i = 1}^{n_{faces}} dA_{i, x} dA_{i, y}"/] as well as the analogous definitions for all pairwise combinations of axes. With these definitions, the above equation looks a bit more manageable, yielding [equation display:true latex:"\left\{\begin{array}{l}
+0 = \xi_x A_{xx} + \xi_y A_{yx} + \xi_z A_{zx} - \lambda \xi_x \\
+0 = \xi_x A_{xy} + \xi_y A_{yy} + \xi_z A_{zy} - \lambda \xi_y \\
+0 = \xi_x A_{xz} + \xi_y A_{yz} + \xi_z A_{zz} - \lambda \xi_z \\
+0 = \xi_x^2 + \xi_y^2  + \xi_z^2 - 1. \end{array}\right."/]
+
+Neglecting the last equation for a moment, we can state the first three as a matrix multiplication, [equation display:true latex:"
+\left[\begin{array}{ccc}
+A_{xx} & A_{yx} & A_{zx} \\
+A_{xy} & A_{yy} & A_{zy} \\
+A_{xz} & A_{yz} & A_{zz} \\
+\end{array}\right] 
+\left[\begin{array}{c}\xi_x \\ \xi_y \\ \xi_z \end{array}\right] = \lambda
+\left[\begin{array}{c}\xi_x \\ \xi_y \\ \xi_z \end{array}\right].
+"/]
+
+This is just the standard form of an [eigenvalue problem](https://en.wikipedia.org/wiki/Eigenvalues_and_eigenvectors), [equation display:true latex:"\mathbf{A} \vec{\xi} = \lambda \vec{\xi},"/] and what's more, its eigenvectors [equation latex:"\vec{\xi}"/] are normalized by convention, which implicitly satisfies the constraint [equation latex:"|\vec{\xi}| = 1"/]. Eigenvalues are simple and easy to compute, [even in JavaScript](https://github.com/mljs/matrix). We've solved it! Upon solving, we get three eigenvalues and corresponding unit eigenvectors which are identically the model axes and associated inverse strengths along the respective eigenvectors.
+
+As a final bonus, recall—or discover today!—that [the eigenvalues of a symmetric positive-definite matrix are real and orthogonal](https://en.wikipedia.org/wiki/Positive-definite_matrix#Characterizations), i.e. mutually perpendicular. And there are three of them. So we don't just get unit vectors out of this, we get a three dimensional rotation matrix which can be applied directly to the model.
+
+## Does it work?
+
+Wonderfully! Robustly! Efficiently! The only nontrivial numerical part is the eigenvalue computation, but it's only a small 3x3 matrix you can farm out to any old numerial library.
+
+The main caveat is that eigenvalues are only unique up to a sign so that we need to check for reflections and apply some slightly ad-hoc heuristics to disambiguate the sign. In particular, I'm just using the total summed area vector to see if we can put the open end in a consistent direction. There's room for improvement.
+
+You can see the final result below. Note that the two remaining axes also align the knee!
+
+**Update:** Eric Arnebäck [asked about noise](https://twitter.com/erkaman2/status/1024296231508602881). I've added a noise slider below and have removed a square root in the scaling so that the magnitudes are a bit more separated. The noise is not IID noise so take it with a grain of salt, but it hopefully gives some indication of the approach's ability to reject noise.
+
+[var name:"fig5curvature" value:0.5/]
+[var name:"fig5radius" value:1.0/]
+[var name:"fig5length" value:1.0/]
+[var name:"fig5aspect" value:1.0/]
+[var name:"fig5noise" value:0.1/]
+
+[figure fullWidth:true]
+  [Figure5 curvature:`fig5curvature` radius:`fig5radius` length:`fig5length` aspect:`fig5aspect` noise:`fig5noise` style:`{display: 'inline-block', verticalAlign:'middle'}`/]
+  [div style:`{textAlign:'left', marginLeft:'auto', marginRight:'auto', display:'inline-block', minWidth:'300px', verticalAlign:'middle'}`]
+    [range value:fig5curvature min:0.0 max:1.0 step:0.01/][equation latex:`"curvature = " + fig5curvature`/][br/]
+    [range value:fig5radius min:0.5 max:1.3 step:0.01/][equation latex:`"radius = " + fig5radius`/][br/]
+    [range value:fig5length min:0.3 max:1.2 step:0.01/][equation latex:`"length = " + fig5length`/][br/]
+    [range value:fig5noise min:0.0 max:1.0 step:0.01/][equation latex:`"noise = " + fig5noise`/][br/]
+  [/div]
+
+  [figcaption]
+    Adjust the sliders and observe the effect it has upon the computed alignment.
+  [/figcaption]
+[/figure]
+
+## Conclusions
+
+At the end of the day, I rather suspect I've rederived a pretty standard technique for talking about the shape of a surface. I hope you'll forgive me if my satisfaction isn't diminished though since opportunities to legitimately break out Lagrange multipliers are so rare! And as part of my day job no less.
+
+There's room for improvement in the final disambiguation of signs, but frankly once we've solved the main problem of figuring out a rough alignment, the subsequent algorithms have a significantly easier time making sense of the scan.
+
+This post uses [idyll](https://idyll-lang.org/) and [regl](https://github.com/regl-project/regl). They're great projects! You should check them out! You can find the article source [here](https://github.com/rreusser/rreusser.github.io/tree/master/src/src/aligning-3d-scans) and an implementation of the algorithm [here](https://github.com/rreusser/rreusser.github.io/blob/2a00ca2bd31615a6e936bc4aafb8098036fdbfc4/src/src/aligning-3d-scans/components/lib/calculatePrincipalAxesAndCentroid.js).
+
+Questions? Comments? Corrections? Drop me a line [@rickyreusser](https://twitter.com/rickyreusser)!
+
+[footer fullWidth:true/]

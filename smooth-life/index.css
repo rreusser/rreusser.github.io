@@ -1,0 +1,22 @@
+@import url(https://fonts.googleapis.com/css?family=Open+Sans:300);
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: black;
+  text-align: center;
+  font-family: 'Open Sans', 'Helvetica', sans-serif;
+  font-weight: 300;
+  color: white;
+}
+body > pre {
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.control-panel {
+  position: 'absolute;
+  top: 0 !important;
+  left: 0 !important;
+}

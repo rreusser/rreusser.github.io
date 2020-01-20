@@ -1,0 +1,7 @@
+body {
+  background-color: rgb(25, 25, 25);
+}
+
+canvas {
+  position: fixed !important;
+}
