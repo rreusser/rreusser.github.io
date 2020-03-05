@@ -1,0 +1,14 @@
+{
+  "name": "@rreusser/instanced-webgl-circles",
+  "main": "5f7ba4d775a49df0@213.js",
+  "version": "213.0.0",
+  "homepage": "https://observablehq.com/@rreusser/instanced-webgl-circles",
+  "author": {
+    "name": "Ricky Reusser",
+    "url": "https://observablehq.com/@rreusser"
+  },
+  "type": "module",
+  "peerDependencies": {
+    "@observablehq/runtime": "4"
+  }
+}
