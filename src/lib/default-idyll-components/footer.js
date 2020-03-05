@@ -5,7 +5,7 @@ class Footer extends React.PureComponent {
     return (
       <footer className="footer">
         <div className="footer__content">
-          <div className="footer_copy">© 2018 Ricky Reusser</div>
+          <div className="footer_copy">© 2020 Ricky Reusser</div>
         </div>
       </footer>
     );
