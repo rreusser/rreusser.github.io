@@ -9,7 +9,7 @@ function scriptWithCode (source) {
 
 function createNotebook (identifier) {
   const script = document.createElement('script');
-  script.src = '/static/loader.js';
+  script.src = './static/loader.js';
   script.type = 'module';
 
   document.body.appendChild(script);
