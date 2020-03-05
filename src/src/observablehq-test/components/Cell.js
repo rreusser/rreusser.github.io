@@ -1,12 +1,5 @@
 const React = require('react');
 
-function scriptWithCode (source) {
-  var s = document.createElement('script');
-  s.type = 'module';
-  s.src = `data:text/javascript;base64,${btoa(source)}`;
-  return s;
-}
-
 function createNotebook (identifier) {
   const script = document.createElement('script');
   script.src = './static/loader.js';
