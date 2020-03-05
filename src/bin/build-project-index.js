@@ -12,7 +12,7 @@ const ignorePattern = /(\.DS_Store|sketches|projects|about|books)/;
 const projectDirListing = fs.readdirSync(projectsRoot).filter(path => !ignorePattern.test(path));
 
 const projectsSrcPath = path.join(projectsRoot, 'sketches');
-const thumbnailsPath = path.join(projectsSrcPath, 'images');
+const thumbnailsPath = path.join(projectsSrcPath, 'static');
 
 var projects = [];
 
@@ -44,7 +44,7 @@ projectDirListing.map(function (projectPath) {
     const thumbnailOutputFilename = projectPath + '-' + thumbnailFilename
     const thumbnailOutputPath = path.join(thumbnailsPath, thumbnailOutputFilename);
     fs.createReadStream(thumbnailPath).pipe(fs.createWriteStream(thumbnailOutputPath));
-    projectMetadata.thumbnailPath = path.join('images', thumbnailOutputFilename);
+    projectMetadata.thumbnailPath = path.join('static', thumbnailOutputFilename);
   }
 
   projects.push(projectMetadata);

@@ -50,13 +50,9 @@ switch (entryFile.type) {
       transform: ['glslify']
     });
 
-    idyll.on('complete', function () {
-      rmrf.sync(path.join(__dirname, '..', outputDir, 'static'))
-    });
-
     idyll.build();
 
-    ['images', 'fonts', 'js', 'css', 'fonts'].forEach(dir => {
+    ['static', 'fonts', 'js', 'css', 'fonts'].forEach(dir => {
       var cpInputDir = path.join(__dirname, '..', projectDir, dir);
       var cpOutputDir = path.join(__dirname, '..', outputDir, dir);
 
@@ -65,8 +61,6 @@ switch (entryFile.type) {
         cpr(cpInputDir, cpOutputDir, {});
       }
     });
-
-    //rmrf.sync(path.join(__dirname, '..', outputDir, 'static'));
 
     fs.createReadStream(path.join(__dirname, '..', 'lib', 'css', 'styles.css'))
       .pipe(fs.createWriteStream(path.join(outputDir, '..', 'styles.css')));
@@ -132,7 +126,7 @@ switch (entryFile.type) {
       }))
       .pipe(fs.createWriteStream(htmlOutputPath));
 
-    ['images', 'fonts'].forEach(dir => {
+    ['static', 'fonts'].forEach(dir => {
       var cpInputDir = path.join(__dirname, '..', projectDir, dir);
       var cpOutputDir = path.join(__dirname, '..', outputDir, dir);
 

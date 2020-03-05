@@ -45,6 +45,7 @@ switch (entryFile.type) {
       inputFile: path.join(__dirname, '..', projectDir, entryFile.name),
       defaultComponents: path.join(__dirname, '..', 'lib', 'default-idyll-components'),
       components: path.join(__dirname, '..', projectDir, 'components'),
+      static: path.join(__dirname, '..', projectDir, 'static'),
       output: outputDir,
       template: templatePath,
       outputJS: '../index.js',

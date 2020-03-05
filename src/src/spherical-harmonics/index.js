@@ -16,7 +16,7 @@ var css = fs.readFileSync(__dirname + '/../../node_modules/katex/dist/katex.min.
 require('insert-css')(css);
 
 require('resl')({
-  manifest: {matcap: {type: 'image', src: 'images/matcap-grey-skin.jpg'}},
+  manifest: {matcap: {type: 'image', src: 'static/matcap-grey-skin.jpg'}},
   onError: console.error,
   onDone: function (assets) {
     require('regl')({

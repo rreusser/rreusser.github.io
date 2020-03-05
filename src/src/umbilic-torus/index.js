@@ -2,7 +2,7 @@ const glsl = require('glslify');
 const meshSurface = require('../../lib/mesh-surface');
 
 require('resl')({
-  manifest: {matcap: {type: 'image', src: 'images/00029.png'}},
+  manifest: {matcap: {type: 'image', src: 'static/00029.png'}},
   onError: console.error,
   onDone: function (assets) {
     require('regl')({

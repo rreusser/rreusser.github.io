@@ -16,7 +16,7 @@ createREGL({
   onDone: require('fail-nicely')(function (regl) {
     createRESL({
       manifest: {
-        matcap: {src: 'images/crane-glossy.jpg', type: 'image'}
+        matcap: {src: 'static/crane-glossy.jpg', type: 'image'}
       },
       onDone: assets => run(regl, assets),
       onError: require('fail-nicely')()

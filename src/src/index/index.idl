@@ -8,7 +8,7 @@
 [header
   fullWidth:true
   title: "ricky reusser"
-  bgImageSrc:"images/splash.jpg"
+  bgImageSrc:"static/splash.jpg"
 /]
 
 [div className:"section-list"]

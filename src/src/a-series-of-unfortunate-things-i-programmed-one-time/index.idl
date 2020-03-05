@@ -96,7 +96,7 @@ In 2006, I got my Incomplete LU-Preconditioned Bi-Conjugate Gradient Stabilized 
 I found the complexity I was looking for, but it didn't have the meaning I'd hoped for.
 
 [figure]
-[img src:"images/homework-soln.jpg" alt:"Finite Volume Homework"/]
+[img src:"static/homework-soln.jpg" alt:"Finite Volume Homework"/]
 [/figure]
 
 ## So did I learn anything?

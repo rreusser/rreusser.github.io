@@ -1,0 +1,13 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true title:"Test"/]
+
+[Header
+  fullWidth:true
+  title:"Test"
+/]
+
+
+[Test/]
+
+[footer fullWidth:true/]

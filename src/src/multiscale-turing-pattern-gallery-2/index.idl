@@ -13,7 +13,7 @@
   author: "Ricky Reusser"
   authorLink: "https://twitter.com/rickyreusser"
   date: "March 15, 2019"
-  bgImageSrc:"images/header.jpg"
+  bgImageSrc:"static/header.jpg"
 /]
 
 The time has come for another batch of multiscale turing patterns (see part one [here](http://rreusser.github.io/multiscale-turing-pattern-gallery/)). These are all generated with my [multiscale turing pattern implementation](https://github.com/rreusser/rreusser.github.io/tree/master/src/src/multiscale-turing-patterns). 

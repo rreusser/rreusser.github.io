@@ -61,7 +61,7 @@ $ npm start
 ```
 
 [figure]
-  [img alt:"Hello!" src:"images/hello.png" width:"532"/]
+  [img alt:"Hello!" src:"static/hello.png" width:"532"/]
   [figcaption]Hello![/figcaption]
 [/figure]
 
