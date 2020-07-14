@@ -174,9 +174,12 @@ function Sim3 (regl) {
         vec4 p = p1 - p2 * p1.z / p2.z;
         p / p.w;
 
-        vec2 q = vec2(p.y * 2.5 - 8.0 * t, p.x * 2.5 * 0.5);
-        float sqr = 0.5 + 0.5 * cos(2.8515 * floor(q.x / 3.1415926) + 2.11295 * floor(q.y / 3.1415926));
+        vec2 q = vec2(p.y * 1.25 - 4.0 * t, p.x * 1.25 * 0.5);
+        float sqr = 0.5 + 0.5 * cos(2.8515 * floor(q.x / 3.1415926) + 2.11295 * floor(q.y / 3.1415926) - 2.0 * t);
         float f = sin(q.x) * sin(q.y) * sqr;
+        f *= f;
+        f = sin(3.0 * f);
+        f *= f;
         f *= f;
         
         gl_FragColor = vec4(mix(bgColor, vec3(1), f), 1);
@@ -188,7 +191,7 @@ function Sim3 (regl) {
         mat4perspective(mProjection, Math.PI / 4, ctx.viewportWidth / ctx.viewportHeight, 0.1, 20.0);
         return mat4multiply(mProjectionView, mProjection, mView);
       },
-      t: regl.context('time'),
+      t: regl.prop('time'),
       bgColor: bgColor,
       aspectRatio: ctx => [ctx.viewportWidth / ctx.viewportHeight, 1],
     },
@@ -196,8 +199,8 @@ function Sim3 (regl) {
     count: 3,
   });
 
-  return function () {
-    draw();
+  return function (ctx) {
+    draw(ctx);
   };
 }
 
@@ -229,7 +232,7 @@ class FancyHeader extends React.Component {
             sim = (sim + 1) % sims.length;
             lastSwitch = ctx.time;
           }
-          sims[sim](ctx);
+          sims[sim](Object.assign(ctx, {time: ctx.time - lastSwitch}));
         });
 
         window.addEventListener('resize', function () {
