@@ -37,7 +37,7 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 ]
   [span className:"projectDesc__date"]June 29, 2020[/span]
   [h2]Sphere Eversion[/h2]
-  [p]For reasons which aren't necessarily obvious, it's a bit surprising that a sphere can be smoothly turned inside-out. An interactive walkthrough to help visualize the eversion of Bednorz and Bednorz.[/p]
+  [p]While a circle in two dimensions cannot, a sphere in three dimensions can be smoothly turned inside-out! An interactive walkthrough to help visualize the eversion of Bednorz and Bednorz.[/p]
 [/Project]
 
 
