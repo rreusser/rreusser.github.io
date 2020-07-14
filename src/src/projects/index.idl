@@ -1,21 +1,404 @@
 [menu fullWidth:true/]
 
 [meta fullWidth:true
-  title:"Sketches"
-  description:"Mathematical sketches in WebGL"
+  title:"Projects"
+  description:"Assorted small projects and notebooks"
   shareImageUrl:"https://raw.githubusercontent.com/rreusser/rreusser.github.io/5516ed49/sketches/images/thumbnail.jpg"
   twitterHandle:"rickyreusser"
 /]
 
 [fancyheader
   fullWidth:true
-  title:"Sketches"
+  title:"Projects"
 /]
-
-A set of experiments and explorations, mostly using the [regl](https://github.com/regl-project/regl) WebGL library, some computed on the GPU and some on the CPU. The source for all content and projects on this site can be found [here](https://github.com/rreusser/rreusser.github.io/tree/master/src/src).
 
 Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusser).
 
-[ProjectIndex fullWidth:true/]
+[div className:"projectDesc__container" fullWidth:true]
+
+[Project
+  url:"https://observablehq.com/@rreusser/gpu-voronoi-diagrams-using-the-jump-flooding-algorithm?collection=@rreusser/writeups"
+  image:"static/jump-flooding.jpg"
+]
+  [span className:"projectDesc__date"]July 8, 2020[/span]
+  [h2]GPU Voronoi Diagrams using the Jump Flooding Algorithm[/h2]
+  [p]There are many good reasons to compute Voronoi diagrams in the geometric manner, but it's also fun and useful to compute it as a raster image effect. This notebook computes Voronoi diagram images in [Equation latex:"\log_2(size)"/] passes using the Jump Flooding algorithm.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://rreusser.github.io/explorations/sphere-eversion/"
+  image:"static/eversion.jpg"
+]
+  [span className:"projectDesc__date"]June 29, 2020[/span]
+  [h2]Sphere Eversion[/h2]
+  [p]For reasons which aren't necessarily obvious, it's a bit surprising that a sphere can be smoothly turned inside-out. An interactive walkthrough to help visualize the eversion of Bednorz and Bednorz.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/dispersion-in-water-surface-waves"
+  image:"static/wake-angle.jpg"
+]
+  [span className:"projectDesc__date"]June 18, 2020[/span]
+  [h2]Dispersion in Water Surface Waves[/h2]
+  [p]I was quite surprised recently to think I understood Mach angles and then learn that surface waves in water work differently and show a wak e which doesn't depend on the speed of the object![/p]
+[/Project]
+
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/faking-transparency-for-3d-surfaces?collection=@rreusser/writeups"
+  image:"static/bakers-map.jpg"
+]
+  [span className:"projectDesc__date"]June 12, 2020[/span]
+  [h2]Baker's Map[/h2]
+  [p]The chaotic baker's map results when you cut and fold dough. This notebook performs the process and allows to explore different maps.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/faking-transparency-for-3d-surfaces?collection=@rreusser/writeups"
+  image:"static/transparency.jpg"
+]
+  [span className:"projectDesc__date"]June 12, 2020[/span]
+  [h2]Fake Transparency for 3D Surfaces[/h2]
+  [p]Transparency is not something which comes easily when rendering models on a GPU. This notebook illustrates a simple shortcut toward displaying transparent 3D surfaces with a two-pass rendering technique.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/equally-distributing-points-on-a-sphere"
+  image:"static/sphere-points.jpg"
+]
+  [span className:"projectDesc__date"]May 29, 2020[/span]
+  [h2]Uniformly Distributed Points on a Sphere[/h2]
+  [p]A quick check to verify visually that random points are distributed evenly on the surface of a sphere.[/p]
+[/Project]
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/gpgpu-boids?collection=@rreusser/writeups"
+  image:"static/boids.jpg"
+]
+  [span className:"projectDesc__date"]May 28, 2020[/span]
+  [h2]GPU Boids[/h2]
+  [p]Classic boids requires some sort of strategy for nearest-neighbor lookup, whether that's a tree or brute-force pairwise interactions. This notebook follows a Particle Mesh method strategy and uses a grid to transmit locally averaged properties to neighboring boids.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://www.shadertoy.com/view/wdffWj"
+  image:"static/monte-carlo-geometry.jpg"
+]
+  [span className:"projectDesc__date"]May 10, 2020[/span]
+  [h2]Figure Reproduction: Monte-Carlo Geometry Processing[/h2]
+  [p]A reproduction of Figure 2 Sawhney and Crane's oustanding paper, Monte Carlo Geometry Processing. My very first foray into SDF rendering with sphere-tracing![/p]
+[/Project]
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/toiletpaperfullerenes-and-charmin-nanotubes?collection=@rreusser/writeups"
+  image:"static/toiletpaper.jpg"
+]
+  [span className:"projectDesc__date"]April 28, 2020[/span]
+  [h2]Toiletpaperfullerenes and Charmin Nanotubes[/h2]
+  [p]Toilet paper tubes have the curious property that you can flatten them, cut out loops, and link the loops together without fasteners. This notebook provides some instructions and implements a simple point and click editor to construct your own![/p]
+[/Project]
+
+
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/3d-reaction-diffusion?collection=@rreusser/writeups"
+  image:"static/reaction-diffusion.jpg"
+]
+  [span className:"projectDesc__date"]March 15, 2020[/span]
+  [h2]3D Reaction-Diffusion[/h2]
+  [p]A 3D WebGL simulation of Gray-Scott reaction-diffusion.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/3d-reaction-diffusion?collection=@rreusser/writeups"
+  image:"static/pca.jpg"
+]
+  [span className:"projectDesc__date"]March 15, 2020[/span]
+  [h2]Grouping Points with Principal Component Analysis[/h2]
+  [p]A response to a question about the quickest way to separate a cloud of points into two two groups. Power iteration would be a bit quicker, but Principal Component Analysis (PCA) is a good start.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/compound-double-pendulums?collection=@rreusser/writeups"
+  image:"static/pendula.jpg"
+]
+  [span className:"projectDesc__date"]February 23, 2020[/span]
+  [h2]Double Compound Pendulums[/h2]
+  [p]One million double pendulums![/p]
+[/Project]
+
+[Project
+  url:"https://observablehq.com/@rreusser/integers-in-single-precision-floating-point"
+  image:"static/float.jpg"
+]
+  [span className:"projectDesc__date"]February 9, 2020[/span]
+  [h2]Integers in Single-Precision Floating-Point[/h2]
+  [p]All of the single-precision floating point numbers in scrollable form![/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/half-precision-floating-point-visualized"
+  image:"static/half-float.jpg"
+]
+  [span className:"projectDesc__date"]February 9, 2020[/span]
+  [h2]Half-Precision Floating-Point, Visualized[/h2]
+  [p]Half-precision floating-point can be surprisingly difficult to work with. This notebook plots all possible numbers with the special cases illustrated clearly.[/p]
+[/Project]
+
+
+
+
+[Project
+  url:"https://www.shadertoy.com/view/wld3zl"
+  image:"static/rect-domain-coloring-shadertoy.jpg"
+]
+  [span className:"projectDesc__date"]December 26, 2019[/span]
+  [h2]Shadertoy: Rectangular Adaptive Domain Coloring[/h2]
+  [p]A Shadertoy implementation of my domain coloring technique using rectangular contours.[/p]
+[/Project]
+
+
+[Project
+  url:"https://www.shadertoy.com/view/tlcGzf"
+  image:"static/polar-domain-coloring-shadertoy.jpg"
+]
+  [span className:"projectDesc__date"]December 22, 2019[/span]
+  [h2]Shadertoy: Polar Adaptive Domain Coloring[/h2]
+  [p]A Shadertoy implementation of my domain coloring technique using polar contours.[/p]
+[/Project]
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/binary-input"
+  image:"static/binary-input.jpg"
+]
+  [span className:"projectDesc__date"]December 12, 2019[/span]
+  [h2]Binary Input[/h2]
+  [p]An input field for Observable notebooks which allows you to toggle the bits.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/eigen"
+  image:"static/eigen.jpg"
+]
+  [span className:"projectDesc__date"]December 10, 2019[/span]
+  [h2]Linear Algebra via Eigen and WebAssembly: A proof of concept[/h2]
+  [p]Numerical computing in JavaScript remains difficult due to the lack of robust, complete libraries. This notebook explores compiling a subset of the Eigen linear algebra library to WebAssembly using Emscripten and tries to remedy some of the ergonomic memory management issues which result.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/2d-n-body-gravity-with-poissons-equation?collection=@rreusser/writeups"
+  image:"static/gravity.jpg"
+]
+  [span className:"projectDesc__date"]October 30, 2019[/span]
+  [h2]2D (Non-physical) N-body Gravity with Poisson's Equation[/h2]
+  [p]N-body simulations get expensive very quickly, with the number of interactions growing with [Equation latex:"O(n^2)"/]. This notebook takes a shortcut and uses the somewhat inaccurate Particle-Mesh method to simulate 2D Newtonian gravity on a grid. It solves Poisson's equation via an FFT and plots the results entirely on the GPU.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/periodic-planar-three-body-orbits?collection=@rreusser/writeups"
+  image:"static/periodic-three-body-orbits.jpg"
+]
+  [span className:"projectDesc__date"]October 18, 2019[/span]
+  [h2]Periodic Planar Three-Body Orbits[/h2]
+  [p]This notebook collects over 2200 periodic, planar three-body orbits and explains one of the normal topological ways to classify them.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/quick-miterless-lines-in-webgl?collection=@rreusser/writeups"
+  image:"static/miterless-lines.jpg"
+]
+  [span className:"projectDesc__date"]September 25, 2019[/span]
+  [h2]Quick (miterless) Lines in WebGL[/h2]
+  [p]Drawing lines is indeed hard. This notebook uses instanced rendering to turn simple vertex data into a continuous line. To simplify things, and since for many cases miters are not necessary, we simply draw a two-triangle rectangle per line segment.[/p]
+[/Project]
+
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/finding-roots-in-the-complex-plane?collection=@rreusser/writeups"
+  image:"static/complex-roots.jpg"
+]
+  [span className:"projectDesc__date"]August 18, 2019[/span]
+  [h2]Finding Roots in the Complex Plane[/h2]
+  [p]Students of complex analysis will recall that a path integral quickly tells you how many roots are inside a given contour, but this notebook walks through the method of Delves and Lyness which transforms integrals around a contour into a polynomial whose roots are exactly the encircled roots![/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/adaptive-domain-coloring?collection=@rreusser/writeups"
+  image:"static/domain-coloring.jpg"
+]
+  [span className:"projectDesc__date"]July 26, 2019[/span]
+  [h2]Domain Coloring with Adaptive Contouring[/h2]
+  [p]Domain coloring for complex-valued functions is tricky since the function and rate of change may vary over many orders of magnitude. This notebook iterates on the previous technique and tries out automatic differentiation and screen-space derivatives to compute the rate of change and automatically scale contours.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/instanced-webgl-circles?collection=@rreusser/writeups"
+  image:"static/instanced-circles.jpg"
+]
+  [span className:"projectDesc__date"]July 12, 2019[/span]
+  [h2]Instanced WebGL Circles[/h2]
+  [p]This notebook explains how to use the `ANGLE_instanced_arrays` WebGL extension to draw a *lot* of circles to the screen in a very performant manner.[/p]
+[/Project]
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/simulating-the-1-d-schrodinger-equation-in-webgl?collection=@rreusser/writeups"
+  image:"static/schrodinger-1d.jpg"
+]
+  [span className:"projectDesc__date"]July 5, 2019[/span]
+  [h2]GPUs, FFTs, and the 1-D Schrödinger Equation[/h2]
+  [p]This notebook solves the 1D Schrödinger Equation by trivially stepping it in the frequency domain and plotting the result in the physical space. The main goal is to an exercise in computing and plotting result from start to finish entirely on the GPU.[/p]
+[/Project]
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/control-panel-2-prototype-test"
+  image:"static/control-panel.jpg"
+]
+  [span className:"projectDesc__date"]March 25, 2019[/span]
+  [h2]Control Panel Prototype[/h2]
+  [p]Dat.gui is the gold standard in simple control GUIs. This notebook illustrates a prototype libary based on Preact and with the goal of being simple and extensible.[/p]
+[/Project]
+
+
+
+
+[Project
+  url:"http://rreusser.github.io/multiscale-turing-pattern-gallery-2/"
+  image:"static/turing-2.jpg"
+]
+  [span className:"projectDesc__date"]March 15, 2019[/span]
+  [h2]Multi-Scale Turing Patterns 2[/h2]
+  [p]A second set of multi-scale Turing patterns[/p]
+[/Project]
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/debugging-normals-without-duplicating-geometry-data?collection=@rreusser/writeups"
+  image:"static/bunny-normals.jpg"
+]
+  [span className:"projectDesc__date"]December 17, 2018[/span]
+  [h2]Drawing indexed mesh data as screen-space normals without duplicating data[/h2]
+  [p]We typically just send triangles to the GPU and draw them on the screen. This notebook uses instanced rendering to draw plain, unadorned mesh data as normals with arrowheads and foreshortening.[/p]
+[/Project]
+
+
+
+[Project
+  url:"http://rreusser.github.io/multiscale-turing-pattern-gallery/"
+  image:"static/turing-1.jpg"
+]
+  [span className:"projectDesc__date"]October 19, 2018[/span]
+  [h2]Multi-Scale Turing Patterns 1[/h2]
+  [p]An implementation of multi-scale Turing patterns following the method of Jonathan McCabe.[/p]
+[/Project]
+
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/contour-plots-with-d3-regl-and-observable?collection=@rreusser/writeups"
+  image:"static/contours.jpg"
+]
+  [span className:"projectDesc__date"]June 20, 2018[/span]
+  [h2]Contour plots with D3, regl, and Observable[/h2]
+  [p]My favorite WebGL extension is `OES_standard_derivatives`, used for computing screen-space derivatives. This notebook illustrates its utility in drawing constant-screen-width contour lines of any sort in a fragment shader.[/p]
+[/Project]
+
+
+
+[Project
+  url:"http://rreusser.github.io/aligning-3d-scans/"
+  image:"static/aligning-scans.jpg"
+]
+  [span className:"projectDesc__date"]July 28, 2018[/span]
+  [h2]Aligning 3D scans[/h2]
+  [p]In which I have fun rediscovering Principal Component Analysis by stating what I want from a problem, realizing Lagrange multipliers actually work, then finding out it's just Principla Component Analysis on the normal vectors.[/p]
+[/Project]
+
+
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/domain-coloring-for-complex-functions?collection=@rreusser/writeups"
+  image:"static/domain-coloring-old.jpg"
+]
+  [span className:"projectDesc__date"]June 17, 2018[/span]
+  [h2]Domain Coloring for Complex Functions[/h2]
+  [p]This notebook represents an early attempt at the domain coloring technique for complex analytic functions. It uses the contour line technique but depends a great deal on the particular scale of the functions plotted.[/p]
+[/Project]
+
+
+
+[Project
+  url:"http://rreusser.github.io/from-nothing-to-something-in-webgl-with-regl/"
+  image:"static/hello-regl.jpg"
+]
+  [span className:"projectDesc__date"]December 7, 2016[/span]
+  [h2]From Nothing to Something in WebGL Using regl[/h2]
+  [p]A pretty good portion of the material on this site is implemented in WebGL using Mikola Lysenko's oustanding regl library. This post walks through my still-favorite method of getting off of the ground in and into regl.[/p]
+[/Project]
+
+
+[Project
+  url:"http://rreusser.github.io/things-i-learned-the-hard-way-using-react-native/"
+  image:"static/react-for-some-reason.jpg"
+]
+  [span className:"projectDesc__date"]May 5, 2016[/span]
+  [h2]Things I Learned the Hard Way Using React Native[/h2]
+  [p]This post exists because I wish someone had sat me down and told me half of these things on Day One of using React Native.[/p]
+[/Project]
+
+
+[Project
+  url:"http://rreusser.github.io/a-series-of-unfortunate-things-i-programmed-one-time/"
+  image:"static/hard-things.jpg"
+]
+  [span className:"projectDesc__date"]March 16, 2015[/span]
+  [h2]A Series of Unfortunate Things I Programmed One Time[/h2]
+  [p]A walkthrough of how I got started and what motivates me to seek better ways to communicate.[/p]
+[/Project]
+
+[/div]
+
+[div/]
 
 [footer fullWidth:true/]
