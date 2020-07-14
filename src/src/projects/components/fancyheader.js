@@ -175,7 +175,7 @@ function Sim3 (regl) {
         p / p.w;
 
         vec2 q = vec2(p.y * 2.5 - 8.0 * t, p.x * 2.5 * 0.5);
-        float sqr = 0.5 + 0.5 * cos(128.45 * floor(q.x / 3.1415926) + 2.11295 * floor(q.y / 3.1415926));
+        float sqr = 0.5 + 0.5 * cos(2.8515 * floor(q.x / 3.1415926) + 2.11295 * floor(q.y / 3.1415926));
         float f = sin(q.x) * sin(q.y) * sqr;
         f *= f;
         
