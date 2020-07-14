@@ -1,0 +1,6 @@
+{
+  "title": "Clifford Torus",
+  "description": "3D sterographic projection of a 4D Clifford torus",
+  "order": 3000,
+  "image": "http://rreusser.github.io/src/src/clifford-torus/thumbnail.jpg"
+}
