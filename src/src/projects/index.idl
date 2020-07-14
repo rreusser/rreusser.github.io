@@ -103,7 +103,7 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 ]
   [span className:"projectDesc__date"]May 10, 2020[/span]
   [h2]Figure Reproduction: Monte-Carlo Geometry Processing[/h2]
-  [p]A reproduction of Figure 2 Sawhney and Crane's oustanding paper, Monte Carlo Geometry Processing. My very first foray into SDF rendering with sphere-tracing![/p]
+  [p]A reproduction of Figure 2 from Sawhney and Crane's oustanding paper, Monte Carlo Geometry Processing. My very first foray into SDF rendering with sphere-tracing![/p]
 [/Project]
 
 
@@ -137,7 +137,7 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 ]
   [span className:"projectDesc__date"]March 15, 2020[/span]
   [h2]Grouping Points with Principal Component Analysis[/h2]
-  [p]A response to a question about the quickest way to separate a cloud of points into two two groups. Power iteration would be a bit quicker, but Principal Component Analysis (PCA) is a good start.[/p]
+  [p]A response to a question about the quickest way to separate a cloud of points into two groups. Power iteration would be a bit quicker, but Principal Component Analysis (PCA) is a good start.[/p]
 [/Project]
 
 
