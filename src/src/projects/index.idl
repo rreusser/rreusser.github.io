@@ -12,6 +12,10 @@
   title:"Projects"
 /]
 
+This page contains a wide variety of small projects and writeups I've created over the years. The intent is to focus not only on the math and implementation but also on finding ways to more effectively communicate how these things work. As a result, a pretty good share of these writeups are found on [Observable](https://observablehq.com/) since it's quite simply the best environment I've found for exploring and communicating JavaScript.
+
+I hope you find something interesting!
+
 Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusser).
 
 [div className:"projectDesc__container" fullWidth:true]
@@ -122,7 +126,7 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 ]
   [span className:"projectDesc__date"]March 15, 2020[/span]
   [h2]3D Reaction-Diffusion[/h2]
-  [p]A 3D WebGL simulation of Gray-Scott reaction-diffusion.[/p]
+  [p]A 3D WebGL simulation of Gray-Scott reaction-diffusion. Even though WebGL 1 only has two-dimensional textures, with enough bookkeeping, they work perfectly well for three-dimensional simulations of modest size.[/p]
 [/Project]
 
 
