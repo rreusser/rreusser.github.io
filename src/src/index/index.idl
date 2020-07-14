@@ -13,11 +13,12 @@
 
 [div className:"section-list"]
   [div className:"section-list__item"][Sketches](/sketches)[/div]
-  [div className:"section-list__item"][Notebooks](/notebooks)[/div]
   [div className:"section-list__item"][Projects](/projects)[/div]
 [/div]
 
 Hi! I studied Aerospace Engineering, but now I'm a software developer. My primary interests are numerical computing, visualization, and figuring out how to close the gap between the tools that do exist for communicating about technical concepts and the tools that I believe could exist.
+
+You can find me online on [GitHub](https://github.com/rreusser), [Twitter](https://twitter.com/rickyreusser), or [Observable](https://observablehq.com/@rreusser).
 
 This site though is just side projects and diversions as I try to learn tools and improve. 🚀
 
