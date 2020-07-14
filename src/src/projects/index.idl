@@ -157,7 +157,7 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 ]
   [span className:"projectDesc__date"]February 9, 2020[/span]
   [h2]Integers in Single-Precision Floating-Point[/h2]
-  [p]All of the single-precision floating point numbers in scrollable form![/p]
+  [p]Representing integers in floating-point gets a bad wrap since it actually represents most perfectly well. Scroll through all of the integers representable in single-precision floating point![/p]
 [/Project]
 
 
