@@ -156,12 +156,20 @@ function createDrawBoysSurface (regl, res, state) {
       vec2 a2 = smoothstep(d * w1, d * (w1 + feather), looped);
       return min(a2.x, a2.y);
     }
+    float gridFactor (float parameter, float width, float feather) {
+      float w1 = width - feather * 0.5;
+      float d = fwidth(parameter);
+      float looped = 0.5 - abs(mod(parameter, 1.0) - 0.5);
+      return smoothstep(d * w1, d * (w1 + feather), looped);
+    }
 
     #define PI 3.14159265358979
     uniform float strips, fill;
+    uniform vec2 rrange;
 
     void main () {
-      if (2.0 * abs(fract(vUV.y * strips / (2.0 * PI) + 0.5) - 0.5) < fill) discard;
+      float strip = 2.0 * abs(fract(vUV.y * strips / (2.0 * PI) + 0.5) - 0.5);
+      if (strip < fill) discard;
 
       vec3 normal = normalize(vNormal);
 
@@ -173,9 +181,17 @@ function createDrawBoysSurface (regl, res, state) {
       // pixel right at glancing angles. i.e. cartoon edges!
       float cartoonEdge = smoothstep(0.75, 1.25, vDotN / fwidth(vDotN) / (cartoonEdgeWidth * pixelRatio));
 
+      float stripEdge = fill > 0.02 ? gridFactor(strip - fill, 0.5 * cartoonEdgeWidth * pixelRatio, 1.0) : 1.0;
+      float rmin = min(rrange.x, rrange.y);
+      float rmax = max(rrange.x, rrange.y);
+      rmin = rmin > 0.001 ? rmin : -1.0;
+      rmax = rmax < 0.999 ? rmax : 2.0;
+      float rEdge = gridFactor((vUV.x - rmin) / (rmax - rmin), 0.5 * cartoonEdgeWidth * pixelRatio, 1.0);
+
       // Combine the gridlines and cartoon edges
       float grid = gridFactor(vUV * vec2(12.0, 12.0 / PI), 0.5 * gridWidth * pixelRatio, 1.0);
-      float combinedGrid = max(cartoonEdgeOpacity * (1.0 - cartoonEdge), gridOpacity * (1.0 - grid));
+      float combinedGrid = max(cartoonEdgeOpacity * (1.0 - rEdge * stripEdge * cartoonEdge), gridOpacity * (1.0 - grid));
+
 
       if (solidPass) {
         // If the surface pass, we compute some shading
@@ -208,14 +224,14 @@ function createDrawBoysSurface (regl, res, state) {
     uniforms: {
       solidPass: regl.prop('solidPass'),
       pixelRatio: regl.context('pixelRatio'),
-      rrange: () => [state.rmin, state.rmax],
-      strips: () => state.strips,
-      fill: () => 1.0 - state.fill,
-      cartoonEdgeOpacity: () => state.cartoonEdgeOpacity,
-      cartoonEdgeWidth: () => state.cartoonEdgeWidth,
-      gridWidth: () => state.gridWidth,
-      gridOpacity: () => state.gridOpacity,
-      opacity: () => state.opacity,
+      rrange: () => [state.Surface.rmin, state.Surface.rmax],
+      strips: () => state.Rendering.strips,
+      fill: () => 1.0 - state.Rendering.fill,
+      cartoonEdgeOpacity: () => state.Rendering.cartoonEdgeOpacity,
+      cartoonEdgeWidth: () => state.Rendering.cartoonEdgeWidth,
+      gridWidth: () => state.Rendering.gridWidth,
+      gridOpacity: () => state.Rendering.gridOpacity,
+      opacity: () => state.Rendering.opacity,
       specular: 1.0,
     },
     attributes: {uv: mesh.positions},
@@ -272,21 +288,21 @@ class Explanation extends Preact.Component {
 }
 
 const state = State({
-  Info: State.Section({
+  Surface: State.Section({
     raw: State.Raw(h => {
       return h(Explanation);
-    })
-  }, {expanded: window.innerWidth > 500}),
-  Rendering: State.Section({
+    }),
     rmin: State.Slider(0, {min: 0, max: 1, step: 1e-3, label: 'inner radius, r1'}),
     rmax: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'outer radius, r2'}),
+  }, {expanded: window.innerWidth > 500}),
+  Rendering: State.Section({
     opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'surface opacity'}),
     gridWidth: State.Slider(1.0, {min: 0.5, max: 3, step: 1e-3, label: 'grid width'}),
     gridOpacity: State.Slider(0.4, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
     cartoonEdgeOpacity: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'edge opacity'}),
     cartoonEdgeWidth: State.Slider(3.0, {min: 0, max: 5, step: 1e-3, label: 'edge width'}),
     strips: State.Slider(12, {min: 1, max: 24, step: 1, label: 'strip count'}),
-    fill: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
+    fill: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
   }, {expanded: window.innerWidth > 500}),
 });
 GUI(state, {
@@ -303,7 +319,7 @@ const camera = createCamera(regl, {
 
 state.$onChange(camera.taint);
 
-const drawTorus = createDrawBoysSurface(regl, 255, state.Rendering);
+const drawTorus = createDrawBoysSurface(regl, 255, state);
 
 let frame = regl.frame(({tick, time}) => {
   camera(({dirty}) => {
