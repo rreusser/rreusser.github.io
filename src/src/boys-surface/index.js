@@ -281,7 +281,7 @@ const state = State({
     rmin: State.Slider(0, {min: 0, max: 1, step: 1e-3, label: 'disc inner radius'}),
     rmax: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'disc outer radius'}),
     opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'surface opacity'}),
-    gridWidth: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'grid width'}),
+    gridWidth: State.Slider(1.0, {min: 0.5, max: 3, step: 1e-3, label: 'grid width'}),
     gridOpacity: State.Slider(0.4, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
     cartoonEdgeOpacity: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'edge opacity'}),
     cartoonEdgeWidth: State.Slider(3.0, {min: 0, max: 5, step: 1e-3, label: 'edge width'}),
