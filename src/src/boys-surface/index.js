@@ -266,7 +266,7 @@ class Explanation extends Preact.Component {
           {\\begin{pmatrix}g_{1}\\\\g_{2}\\\\g_{3}\\end{pmatrix}}.
         }
       `, {style: {display: 'block', margin: '0.5em auto', textAlign: 'center'}}),
-      'For complex ',eqn(`w`),', input a disc in the complex plane where ',eqn(`\\|w\\| \\leq 1`), '.'
+      'For complex ',eqn(`w`),', input a circular annulus in the complex plane where ',eqn(`r_1 \\leq \\|w\\| \\leq r_2`), '.'
     )
   }
 }
@@ -278,8 +278,8 @@ const state = State({
     })
   }, {expanded: window.innerWidth > 500}),
   Rendering: State.Section({
-    rmin: State.Slider(0, {min: 0, max: 1, step: 1e-3, label: 'disc inner radius'}),
-    rmax: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'disc outer radius'}),
+    rmin: State.Slider(0, {min: 0, max: 1, step: 1e-3, label: 'inner radius, r1'}),
+    rmax: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'outer radius, r2'}),
     opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'surface opacity'}),
     gridWidth: State.Slider(1.0, {min: 0.5, max: 3, step: 1e-3, label: 'grid width'}),
     gridOpacity: State.Slider(0.4, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
