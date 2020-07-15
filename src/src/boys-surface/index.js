@@ -298,7 +298,7 @@ const state = State({
   Rendering: State.Section({
     opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'surface opacity'}),
     gridWidth: State.Slider(1.0, {min: 0.5, max: 3, step: 1e-3, label: 'grid width'}),
-    gridOpacity: State.Slider(0.4, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
+    gridOpacity: State.Slider(0.25, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
     cartoonEdgeOpacity: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'edge opacity'}),
     cartoonEdgeWidth: State.Slider(3.0, {min: 0, max: 5, step: 1e-3, label: 'edge width'}),
     strips: State.Slider(12, {min: 1, max: 24, step: 1, label: 'strip count'}),
