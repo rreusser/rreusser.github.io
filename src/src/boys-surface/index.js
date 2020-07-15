@@ -164,11 +164,13 @@ function createDrawBoysSurface (regl, res, state) {
     }
 
     #define PI 3.14159265358979
-    uniform float strips, fill;
+    uniform float strips, fill, time;
     uniform vec2 rrange;
+    uniform bool animateStrips;
 
     void main () {
-      float strip = 2.0 * abs(fract(vUV.y * strips / (2.0 * PI) + 0.5) - 0.5);
+      float t = animateStrips ? time * 0.3 : 0.0;
+      float strip = 2.0 * abs(fract((vUV.y - t) * strips / (2.0 * PI) + 0.5) - 0.5);
       if (strip < fill) discard;
 
       vec3 normal = normalize(vNormal);
@@ -190,7 +192,7 @@ function createDrawBoysSurface (regl, res, state) {
 
       // Combine the gridlines and cartoon edges
       float grid = gridFactor(vUV * vec2(12.0, 12.0 / PI), 0.5 * gridWidth * pixelRatio, 1.0);
-      float combinedGrid = max(cartoonEdgeOpacity * (1.0 - rEdge * stripEdge * cartoonEdge), gridOpacity * (1.0 - grid));
+      float combinedGrid = max(cartoonEdgeOpacity * (1.0 - min(min(rEdge, stripEdge), cartoonEdge)), gridOpacity * (1.0 - grid));
 
 
       if (solidPass) {
@@ -222,6 +224,7 @@ function createDrawBoysSurface (regl, res, state) {
     }
     `,
     uniforms: {
+      time: regl.context('time'),
       solidPass: regl.prop('solidPass'),
       pixelRatio: regl.context('pixelRatio'),
       rrange: () => [state.Surface.rmin, state.Surface.rmax],
@@ -231,6 +234,7 @@ function createDrawBoysSurface (regl, res, state) {
       cartoonEdgeWidth: () => state.Rendering.cartoonEdgeWidth,
       gridWidth: () => state.Rendering.gridWidth,
       gridOpacity: () => state.Rendering.gridOpacity,
+      animateStrips: () => state.Rendering.animateStrips,
       opacity: () => state.Rendering.opacity,
       specular: 1.0,
     },
@@ -301,8 +305,9 @@ const state = State({
     gridOpacity: State.Slider(0.25, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
     cartoonEdgeOpacity: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'edge opacity'}),
     cartoonEdgeWidth: State.Slider(3.0, {min: 0, max: 5, step: 1e-3, label: 'edge width'}),
-    strips: State.Slider(12, {min: 1, max: 24, step: 1, label: 'strip count'}),
+    strips: State.Slider(12, {min: 1, max: 48, step: 1, label: 'strip count'}),
     fill: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
+    animateStrips: State.Checkbox(false, {label: 'animate strips'}),
   }, {expanded: false}),
 });
 GUI(state, {
@@ -323,7 +328,7 @@ const drawTorus = createDrawBoysSurface(regl, 255, state);
 
 let frame = regl.frame(({tick, time}) => {
   camera(({dirty}) => {
-    if (!dirty) return;
+    if (!dirty && !state.Rendering.animateStrips) return;
     regl.clear({color: [1, 1, 1, 1]});
 
     // Perform two drawing passes, first for the solid surface, then for the wireframe overlayed on top
