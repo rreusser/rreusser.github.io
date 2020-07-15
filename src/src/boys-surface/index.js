@@ -196,7 +196,7 @@ function createDrawBoysSurface (regl, res, state) {
       if (solidPass) {
         // If the surface pass, we compute some shading
         float shade = 0.2 + mix(1.2, specular * pow(vDotN, 3.0), 0.5);
-        vec3 colorFromNormal = (0.5 - (gl_FrontFacing ? 1.0 : -1.0) * 0.5 * normal);
+        vec3 colorFromNormal = (0.5 + (gl_FrontFacing ? 1.0 : -1.0) * 0.5 * normal);
         vec3 baseColor = gl_FrontFacing ? vec3(0.1, 0.4, 0.8) : vec3(0.9, 0.2, 0.1);
 
         vec3 color = shade * mix(
@@ -303,7 +303,7 @@ const state = State({
     cartoonEdgeWidth: State.Slider(3.0, {min: 0, max: 5, step: 1e-3, label: 'edge width'}),
     strips: State.Slider(12, {min: 1, max: 24, step: 1, label: 'strip count'}),
     fill: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
-  }, {expanded: window.innerWidth > 500}),
+  }, {expanded: false}),
 });
 GUI(state, {
   containerCSS: "position:absolute; top:0; right:10px; width:350px",
@@ -312,8 +312,8 @@ GUI(state, {
 const camera = createCamera(regl, {
   distance: 5,
   center: [0, -0.5, 0],
-  theta: -0.5,
-  phi: 0.1,
+  theta: 0.2,
+  phi: -0.1,
   far: 100,
 });
 
