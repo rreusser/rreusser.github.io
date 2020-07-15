@@ -161,7 +161,7 @@ function createDrawBoysSurface (regl, res, state) {
     uniform float strips, fill;
 
     void main () {
-      if (fract(vUV.y * strips / (2.0 * PI)) < fill) discard;
+      if (2.0 * abs(fract(vUV.y * strips / (2.0 * PI) + 0.5) - 0.5) < fill) discard;
 
       vec3 normal = normalize(vNormal);
 
@@ -243,11 +243,11 @@ class Explanation extends Preact.Component {
     return h('p', {},
       'A plot of ',
       h('a', {href: 'https://en.wikipedia.org/wiki/Boy%27s_surface'}, 'Boy\'s Surface'),
-      ', a immersion of the non-orientable ',
+      ', an immersion of the non-orientable ',
       h('a', {href: 'https://en.wikipedia.org/wiki/Real_projective_plane'}, 'real projective plane'),
-      ' into ',
+      ' in ',
       eqn(`\\mathbb{R}^3`),
-      '. Based on the parameterization',
+      ', based on the parameterization',
       h('br'),
       eqn(`
         \\displaystyle{
@@ -266,7 +266,7 @@ class Explanation extends Preact.Component {
           {\\begin{pmatrix}g_{1}\\\\g_{2}\\\\g_{3}\\end{pmatrix}}.
         }
       `, {style: {display: 'block', margin: '0.5em auto', textAlign: 'center'}}),
-      'For complex ',eqn(`w`),', we plot a disc in the complex plane where ',eqn(`\\|w\\| \\leq 1`), '.'
+      'For complex ',eqn(`w`),', input a disc in the complex plane where ',eqn(`\\|w\\| \\leq 1`), '.'
     )
   }
 }
