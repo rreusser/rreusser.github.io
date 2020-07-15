@@ -1,6 +1,6 @@
 {
   "title": "Boy's Surface",
-  "description": "An immersion of the real projective plan in 3D space",
+  "description": "An immersion of the real projective plane in 3D space",
   "order": 3100,
   "image": "http://rreusser.github.io/src/src/boys-surface/thumbnail.jpg"
 }
