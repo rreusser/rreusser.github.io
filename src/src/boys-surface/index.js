@@ -68,7 +68,7 @@ function createDrawBoysSurface (regl, res, state) {
       precision highp float;
       attribute vec2 uv;
       uniform mat4 uProjection, uView;
-      uniform float rmax;
+      uniform vec2 rrange;
       varying vec3 vPosition, vNormal;
       varying vec2 vUV;
 
@@ -117,11 +117,12 @@ function createDrawBoysSurface (regl, res, state) {
         float g2 = -1.5 * cdiv(cmul(w, cadd(vec2(1, 0), w4)), denom).x;
         float g3 = cdiv(cadd(vec2(1, 0), w6), csub(w6 + sqrt(5.0) * w3, vec2(1, 0))).y - 0.5;
 
-        return vec3(g1, g3, g2) / (g1 * g1 + g2 * g2 + g3 * g3);
+        return vec3(g2, g3, g1) / (g1 * g1 + g2 * g2 + g3 * g3);
       }
 
       void main () {
-        vUV = uv * vec2(rmax, 1.0);
+        vUV = uv;
+        vUV.x = mix(rrange.x, rrange.y, uv.x);
         vPosition = f(vUV);
 
         // Compute the normal via numerical differentiation
@@ -135,59 +136,92 @@ function createDrawBoysSurface (regl, res, state) {
       }
     `,
     frag: `
+
       #extension GL_OES_standard_derivatives : enable
-      precision highp float;
-      varying vec3 vPosition, vNormal;
-      uniform vec3 uEye;
-      uniform bool wire;
-      varying vec2 vUV;
-      uniform float pixelRatio, strips, fill;
+    precision highp float;
+    varying vec3 vPosition, vNormal;
+    uniform vec3 uEye;
+    uniform bool solidPass;
+    varying vec2 vUV;
+    uniform float pixelRatio, opacity, cartoonEdgeWidth, gridOpacity, specular, cartoonEdgeOpacity, gridWidth;
 
-      #define PI 3.141592653589
+    // This function implements a constant-width grid as a function of
+    // a two-dimensional input. This makes it possible to draw a grid
+    // which does not line up with the triangle edges.
+    // from: https://github.com/rreusser/glsl-solid-wireframe
+    float gridFactor (vec2 parameter, float width, float feather) {
+      float w1 = width - feather * 0.5;
+      vec2 d = fwidth(parameter);
+      vec2 looped = 0.5 - abs(mod(parameter, 1.0) - 0.5);
+      vec2 a2 = smoothstep(d * w1, d * (w1 + feather), looped);
+      return min(a2.x, a2.y);
+    }
 
-      // From https://github.com/rreusser/glsl-solid-wireframe
-      float gridFactor (vec2 parameter, float width, float feather) {
-        float w1 = width - feather * 0.5;
-        vec2 d = fwidth(parameter);
-        vec2 looped = 0.5 - abs(mod(parameter, 1.0) - 0.5);
-        vec2 a2 = smoothstep(d * w1, d * (w1 + feather), looped);
-        return min(a2.x, a2.y);
+    #define PI 3.14159265358979
+    uniform float strips, fill;
+
+    void main () {
+      if (fract(vUV.y * strips / (2.0 * PI)) < fill) discard;
+
+      vec3 normal = normalize(vNormal);
+
+      // The dot product of the view direction and surface normal.
+      float vDotN = abs(dot(normal, normalize(vPosition - uEye)));
+
+      // We divide vDotN by its gradient magnitude in screen space to
+      // give a function which goes roughly from 0 to 1 over a single
+      // pixel right at glancing angles. i.e. cartoon edges!
+      float cartoonEdge = smoothstep(0.75, 1.25, vDotN / fwidth(vDotN) / (cartoonEdgeWidth * pixelRatio));
+
+      // Combine the gridlines and cartoon edges
+      float grid = gridFactor(vUV * vec2(12.0, 12.0 / PI), 0.5 * gridWidth * pixelRatio, 1.0);
+      float combinedGrid = max(cartoonEdgeOpacity * (1.0 - cartoonEdge), gridOpacity * (1.0 - grid));
+
+      if (solidPass) {
+        // If the surface pass, we compute some shading
+        float shade = 0.2 + mix(1.2, specular * pow(vDotN, 3.0), 0.5);
+        vec3 colorFromNormal = (0.5 - (gl_FrontFacing ? 1.0 : -1.0) * 0.5 * normal);
+        vec3 baseColor = gl_FrontFacing ? vec3(0.1, 0.4, 0.8) : vec3(0.9, 0.2, 0.1);
+
+        vec3 color = shade * mix(
+            baseColor,
+            colorFromNormal,
+            0.4
+          );
+        // Apply the gridlines
+        color = mix(color, vec3(0), opacity * combinedGrid);
+        gl_FragColor = vec4(pow(color, vec3(0.454)), 1.0);
+      } else {
+        // If the wireframe pass, we just draw black lines with some alpha
+        gl_FragColor = vec4(
+          // To get the opacity to mix ~correctly, we use reverse-add blending mode
+          // so that white here shows up as black gridlines. This could be simplified
+          // by doing a bit more math to get the mixing right with just additive blending.
+          vec3(1),
+          (1.0 - opacity) * combinedGrid
+        );
+
+        if (gl_FragColor.a < 1e-3) discard;
       }
-
-      void main () {
-        if (fract(vUV.y * strips / (2.0 * PI)) < fill) discard;
-        // Shading technique adapted/simplified/customized from: https://observablehq.com/@rreusser/faking-transparency-for-3d-surfaces
-        vec3 normal = normalize(vNormal);
-        float vDotN = abs(dot(normal, normalize(vPosition - uEye)));
-        float vDotNGrad = fwidth(vDotN);
-        float cartoonEdge = smoothstep(0.75, 1.25, vDotN / vDotNGrad / 3.0 / pixelRatio);
-        float sgn = gl_FrontFacing ? 1.0 : -1.0;
-        float grid = gridFactor(vUV * vec2(12.0, 12.0 / PI), 0.45 * pixelRatio, 1.0);
-        vec3 baseColor = gl_FrontFacing ? vec3(0.9, 0.2, 0.1) : vec3(0.1, 0.4, 0.8);
-        float shade = mix(1.0, pow(vDotN, 3.0), 0.5) + 0.2;
-
-        if (wire) {
-          gl_FragColor.rgb = vec3(1);
-          gl_FragColor.a = mix(0.15, (1.0 - grid) * 0.055, cartoonEdge);
-        } else {
-          gl_FragColor = vec4(pow(
-            mix(baseColor, (0.5 + sgn * 0.5 * normal), 0.4) * cartoonEdge * mix(1.0, 0.6, 1.0 - grid) * shade,
-            vec3(0.454)),
-            1.0);
-        }
-      }
+    }
     `,
     uniforms: {
-      wire: regl.prop('wire'),
+      solidPass: regl.prop('solidPass'),
       pixelRatio: regl.context('pixelRatio'),
-      rmax: () => state.r,
+      rrange: () => [state.rmin, state.rmax],
       strips: () => state.strips,
       fill: () => 1.0 - state.fill,
+      cartoonEdgeOpacity: () => state.cartoonEdgeOpacity,
+      cartoonEdgeWidth: () => state.cartoonEdgeWidth,
+      gridWidth: () => state.gridWidth,
+      gridOpacity: () => state.gridOpacity,
+      opacity: () => state.opacity,
+      specular: 1.0,
     },
     attributes: {uv: mesh.positions},
-    depth: {enable: (ctx, props) => props.wire ? false : true},
+    depth: {enable: (ctx, props) => props.solidPass ? true : false},
     blend: {
-      enable: (ctx, props) => props.wire ? true : false,
+      enable: (ctx, props) => props.solidPass ? false : true,
       func: {srcRGB: 'src alpha', srcAlpha: 1, dstRGB: 1, dstAlpha: 1},
       equation: {rgb: 'reverse subtract', alpha: 'add'}
     },
@@ -242,12 +276,18 @@ const state = State({
     raw: State.Raw(h => {
       return h(Explanation);
     })
-  }),
+  }, {expanded: window.innerWidth > 500}),
   Rendering: State.Section({
-    r: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'disc radius'}),
+    rmin: State.Slider(0, {min: 0, max: 1, step: 1e-3, label: 'disc inner radius'}),
+    rmax: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'disc outer radius'}),
+    opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'surface opacity'}),
+    gridWidth: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'grid width'}),
+    gridOpacity: State.Slider(0.4, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
+    cartoonEdgeOpacity: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'edge opacity'}),
+    cartoonEdgeWidth: State.Slider(3.0, {min: 0, max: 5, step: 1e-3, label: 'edge width'}),
     strips: State.Slider(12, {min: 1, max: 24, step: 1, label: 'strip count'}),
     fill: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
-  })
+  }, {expanded: window.innerWidth > 500}),
 });
 GUI(state, {
   containerCSS: "position:absolute; top:0; right:10px; width:350px",
@@ -273,8 +313,8 @@ let frame = regl.frame(({tick, time}) => {
     // Perform two drawing passes, first for the solid surface, then for the wireframe overlayed on top
     // to give a fake transparency effect
     drawTorus([
-      {wire: false},
-      {wire: true}
+      {solidPass: true},
+      {solidPass: false},
     ]);
   });
 });
