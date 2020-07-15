@@ -286,7 +286,7 @@ class Explanation extends Preact.Component {
           {\\begin{pmatrix}g_{1}\\\\g_{2}\\\\g_{3}\\end{pmatrix}}.
         }
       `, {style: {display: 'block', margin: '0.5em auto', textAlign: 'center'}}),
-      'For complex ',eqn(`w`),', input a circular annulus in the complex plane where ',eqn(`r_1 \\leq \\|w\\| \\leq r_2`), '.'
+      'For complex ',eqn(`w`),', the input is a circular annulus in the complex plane with ',eqn(`a \\leq \\|w\\| \\leq b`), '.'
     )
   }
 }
@@ -296,8 +296,8 @@ const state = State({
     raw: State.Raw(h => {
       return h(Explanation);
     }),
-    rmin: State.Slider(0, {min: 0, max: 1, step: 1e-3, label: 'inner radius, r1'}),
-    rmax: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'outer radius, r2'}),
+    rmin: State.Slider(0, {min: 0, max: 1, step: 1e-3, label: 'a'}),
+    rmax: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'b'}),
   }, {expanded: window.innerWidth > 500}),
   Rendering: State.Section({
     opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'surface opacity'}),
