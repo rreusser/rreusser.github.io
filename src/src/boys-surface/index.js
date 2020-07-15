@@ -232,7 +232,7 @@ class Explanation extends Preact.Component {
           {\\begin{pmatrix}g_{1}\\\\g_{2}\\\\g_{3}\\end{pmatrix}}.
         }
       `, {style: {display: 'block', margin: '0.5em auto', textAlign: 'center'}}),
-      'For complex ',eqn(`w`),', we plot a disc in the complex plane for ',eqn(`\\|w\\| \\leq 1`), '.'
+      'For complex ',eqn(`w`),', we plot a disc in the complex plane where ',eqn(`\\|w\\| \\leq 1`), '.'
     )
   }
 }
@@ -244,8 +244,8 @@ const state = State({
     })
   }),
   Rendering: State.Section({
-    r: State.Slider(1, {min: 0, max: 1, step: 1e-3}),
-    strips: State.Slider(5, {min: 1, max: 24, step: 1, label: 'strip count'}),
+    r: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'disc radius'}),
+    strips: State.Slider(12, {min: 1, max: 24, step: 1, label: 'strip count'}),
     fill: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
   })
 });
@@ -254,9 +254,10 @@ GUI(state, {
 });
 
 const camera = createCamera(regl, {
-  distance: 8,
-  theta: 0.0,
-  phi: 0.0,
+  distance: 5,
+  center: [0, -0.5, 0],
+  theta: -0.5,
+  phi: 0.1,
   far: 100,
 });
 
