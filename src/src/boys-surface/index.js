@@ -122,7 +122,8 @@ function createDrawBoysSurface (regl, res, state) {
 
       void main () {
         vUV = uv;
-        vUV.x = mix(rrange.x, rrange.y, uv.x);
+        vec2 clampedRange = clamp(rrange, vec2(0), vec2(1));
+        vUV.x = mix(clampedRange.x, clampedRange.y, uv.x);
         vPosition = f(vUV);
 
         // Compute the normal via numerical differentiation
@@ -227,15 +228,15 @@ function createDrawBoysSurface (regl, res, state) {
       time: regl.context('time'),
       solidPass: regl.prop('solidPass'),
       pixelRatio: regl.context('pixelRatio'),
-      rrange: () => [state.Surface.rmin, state.Surface.rmax],
-      strips: () => state.Rendering.strips,
-      fill: () => 1.0 - state.Rendering.fill,
-      cartoonEdgeOpacity: () => state.Rendering.cartoonEdgeOpacity,
-      cartoonEdgeWidth: () => state.Rendering.cartoonEdgeWidth,
-      gridWidth: () => state.Rendering.gridWidth,
-      gridOpacity: () => state.Rendering.gridOpacity,
-      animateStrips: () => state.Rendering.animateStrips,
-      opacity: () => state.Rendering.opacity,
+      rrange: () => [state.surface.rmin, state.surface.rmax],
+      strips: () => state.rendering.strips,
+      fill: () => 1.0 - state.rendering.fill,
+      cartoonEdgeOpacity: () => state.rendering.cartoonEdgeOpacity,
+      cartoonEdgeWidth: () => state.rendering.cartoonEdgeWidth,
+      gridWidth: () => state.rendering.gridWidth,
+      gridOpacity: () => state.rendering.gridOpacity,
+      animateStrips: () => state.rendering.animateStrips,
+      opacity: () => state.rendering.opacity,
       specular: 1.0,
     },
     attributes: {uv: mesh.positions},
@@ -292,14 +293,15 @@ class Explanation extends Preact.Component {
 }
 
 const state = State({
-  Surface: State.Section({
+  surface: State.Section({
     raw: State.Raw(h => {
       return h(Explanation);
     }),
     rmin: State.Slider(0, {min: 0, max: 1, step: 1e-3, label: 'a'}),
     rmax: State.Slider(1, {min: 0, max: 1, step: 1e-3, label: 'b'}),
-  }, {expanded: window.innerWidth > 500}),
-  Rendering: State.Section({
+    rmean: State.Slider(0.5, {min: 0, max: 1, step: 1e-3, label: '(a + b)/2'}),
+  }, {expanded: window.innerWidth > 500, label: 'Surface'}),
+  rendering: State.Section({
     opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'surface opacity'}),
     gridWidth: State.Slider(1.0, {min: 0.5, max: 3, step: 1e-3, label: 'grid width'}),
     gridOpacity: State.Slider(0.25, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
@@ -308,11 +310,24 @@ const state = State({
     strips: State.Slider(12, {min: 1, max: 48, step: 1, label: 'strip count'}),
     fill: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
     animateStrips: State.Checkbox(false, {label: 'animate strips'}),
-  }, {expanded: false}),
+  }, {expanded: false, label: 'Rendering'}),
 });
 GUI(state, {
   containerCSS: "position:absolute; top:0; right:10px; width:350px",
 });
+
+state.surface.$onChanges(function (updates) {
+  if (updates.rmin !== undefined || updates.rmax !== undefined) {
+    state.surface.rmean = 0.5 * (state.surface.rmin + state.surface.rmax);
+  } else if (updates.rmean !== undefined) {
+    const dx = updates.rmean.value - updates.rmean.oldValue;
+    state.surface.rmin = state.surface.rmin + dx;
+    state.surface.rmax = state.surface.rmax + dx;
+  }
+});
+
+
+window.state = state;
 
 const camera = createCamera(regl, {
   distance: 5,
@@ -327,8 +342,10 @@ state.$onChange(camera.taint);
 const drawTorus = createDrawBoysSurface(regl, 255, state);
 
 let frame = regl.frame(({tick, time}) => {
+  //camera.params.theta = time * 0.125
   camera(({dirty}) => {
-    if (!dirty && !state.Rendering.animateStrips) return;
+    //state.surface.rmin = 0.49 + 0.49 * Math.cos(time * 0.25)
+    if (!dirty && !state.rendering.animateStrips) return;
     regl.clear({color: [1, 1, 1, 1]});
 
     // Perform two drawing passes, first for the solid surface, then for the wireframe overlayed on top
