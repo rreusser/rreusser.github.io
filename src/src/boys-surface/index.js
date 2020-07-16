@@ -59,7 +59,7 @@ function createDrawBoysSurface (regl, res, state) {
     out[1] = v;
   }, {
     resolution: [70, 400],
-    uDomain: [0, 1],
+    uDomain: [1e-6, 1 - 1e-6],
     vDomain: [-Math.PI, Math.PI],
   });
 
