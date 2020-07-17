@@ -104,7 +104,7 @@ function Sim2 (regl) {
     }, originUniforms),
   });
 
-  return function (ctx) {
+  return function (ctx, reset) {
     for (i = 0; i < nOrigins; i++) {
       var t = originUniforms['t0[' + i + ']']();
       var standoff = 6.0;
