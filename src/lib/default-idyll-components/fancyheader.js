@@ -347,7 +347,6 @@ class FancyHeader extends React.Component {
         }
 
         regl._gl.canvas.addEventListener('click', next);
-        regl._gl.canvas.addEventListener('touchstart', next);
 
         regl.frame((ctx) => {
           t = ctx.time;
