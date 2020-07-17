@@ -160,13 +160,19 @@ function createDrawBoysSurface (regl, res, state) {
     float gridFactor (float parameter, float width, float feather) {
       float w1 = width - feather * 0.5;
       float d = fwidth(parameter);
+      return smoothstep(d * w1, d * (w1 + feather), parameter);
+    }
+
+    float loopedGridFactor (float parameter, float width, float feather) {
+      float w1 = width - feather * 0.5;
+      float d = fwidth(parameter);
       float looped = 0.5 - abs(mod(parameter, 1.0) - 0.5);
       return smoothstep(d * w1, d * (w1 + feather), looped);
     }
 
     #define PI 3.14159265358979
     uniform float strips, fill, time;
-    uniform vec2 rrange;
+    uniform vec2 rrange, gridlines;
     uniform bool animateStrips;
 
     void main () {
@@ -189,10 +195,10 @@ function createDrawBoysSurface (regl, res, state) {
       float rmax = max(rrange.x, rrange.y);
       rmin = rmin > 0.001 ? rmin : -1.0;
       rmax = rmax < 0.999 ? rmax : 2.0;
-      float rEdge = gridFactor((vUV.x - rmin) / (rmax - rmin), 0.5 * cartoonEdgeWidth * pixelRatio, 1.0);
+      float rEdge = loopedGridFactor((vUV.x - rmin) / (rmax - rmin), 0.5 * cartoonEdgeWidth * pixelRatio, 1.0);
 
       // Combine the gridlines and cartoon edges
-      float grid = gridFactor(vUV * vec2(12.0, 12.0 / PI), 0.5 * gridWidth * pixelRatio, 1.0);
+      float grid = gridFactor(vUV * gridlines * 0.5 * vec2(1.0, 1.0 / PI), 0.5 * gridWidth * pixelRatio, 1.0);
       float combinedGrid = max(cartoonEdgeOpacity * (1.0 - min(min(rEdge, stripEdge), cartoonEdge)), gridOpacity * (1.0 - grid));
 
 
@@ -229,14 +235,14 @@ function createDrawBoysSurface (regl, res, state) {
       solidPass: regl.prop('solidPass'),
       pixelRatio: regl.context('pixelRatio'),
       rrange: () => [state.surface.rmin, state.surface.rmax],
-      strips: () => state.rendering.strips,
-      fill: () => 1.0 - state.rendering.fill,
-      cartoonEdgeOpacity: () => state.rendering.cartoonEdgeOpacity,
-      cartoonEdgeWidth: () => state.rendering.cartoonEdgeWidth,
-      gridWidth: () => state.rendering.gridWidth,
-      gridOpacity: () => state.rendering.gridOpacity,
-      animateStrips: () => state.rendering.animateStrips,
-      opacity: () => state.rendering.opacity,
+      strips: () => state.rendering.strips.count,
+      fill: () => 1.0 - state.rendering.strips.fill,
+      cartoonEdgeOpacity: () => state.rendering.edges.opacity,
+      cartoonEdgeWidth: () => state.rendering.edges.width,
+      gridWidth: () => state.rendering.gridlines.width,
+      gridlines: () => [state.rendering.gridlines.uCount, state.rendering.gridlines.vCount], gridOpacity: () => state.rendering.gridlines.opacity,
+      animateStrips: () => state.rendering.strips.animate,
+      opacity: () => state.rendering.surface.opacity,
       specular: 1.0,
     },
     attributes: {uv: mesh.positions},
@@ -302,18 +308,29 @@ const state = State({
     rmean: State.Slider(0.5, {min: 0, max: 1, step: 1e-3, label: '(a + b)/2'}),
   }, {expanded: window.innerWidth > 500, label: 'Surface'}),
   rendering: State.Section({
-    opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'surface opacity'}),
-    gridWidth: State.Slider(1.0, {min: 0.5, max: 3, step: 1e-3, label: 'grid width'}),
-    gridOpacity: State.Slider(0.25, {min: 0, max: 1, step: 1e-3, label: 'grid opacity'}),
-    cartoonEdgeOpacity: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'edge opacity'}),
-    cartoonEdgeWidth: State.Slider(3.0, {min: 0, max: 5, step: 1e-3, label: 'edge width'}),
-    strips: State.Slider(12, {min: 1, max: 48, step: 1, label: 'strip count'}),
-    fill: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
-    animateStrips: State.Checkbox(false, {label: 'animate strips'}),
+    surface: {
+      opacity: State.Slider(0.85, {min: 0, max: 1, step: 1e-3, label: 'opacity'}),
+    },
+    gridlines: {
+      width: State.Slider(0.5, {min: 0.5, max: 3, step: 1e-3}),
+      opacity: State.Slider(0.4, {min: 0, max: 1, step: 1e-3}),
+
+      uCount: State.Slider(24, {min: 1, max: 100, step: 1, label: 'u count'}),
+      vCount: State.Slider(24, {min: 1, max: 100, step: 1, label: 'v count'}),
+    },
+    edges: {
+      opacity: State.Slider(1.0, {min: 0, max: 1, step: 1e-3}),
+      width: State.Slider(3.0, {min: 0, max: 5, step: 1e-3}),
+    },
+    strips: {
+      count: State.Slider(12, {min: 1, max: 48, step: 1, label: 'strip count'}),
+      fill: State.Slider(1.0, {min: 0, max: 1, step: 1e-3, label: 'strip fill'}),
+      animate: State.Checkbox(false, {label: 'animate strips'}),
+    }
   }, {expanded: false, label: 'Rendering'}),
 });
 GUI(state, {
-  containerCSS: "position:absolute; top:0; right:10px; width:350px",
+  containerCSS: "position:absolute; top:0; right:10px; width:350px; margin-bottom: 500px",
 });
 
 state.surface.$onChanges(function (updates) {
@@ -345,7 +362,7 @@ let frame = regl.frame(({tick, time}) => {
   //camera.params.theta = time * 0.125
   camera(({dirty}) => {
     //state.surface.rmin = 0.49 + 0.49 * Math.cos(time * 0.25)
-    if (!dirty && !state.rendering.animateStrips) return;
+    if (!dirty && !state.rendering.strips.animate) return;
     regl.clear({color: [1, 1, 1, 1]});
 
     // Perform two drawing passes, first for the solid surface, then for the wireframe overlayed on top
