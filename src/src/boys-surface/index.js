@@ -51,6 +51,16 @@ canvas {
   display: inline-block;
   position: fixed !important;
 }
+
+.control-panel {
+  pointer-events: none;
+  padding-bottom: 500px;
+}
+
+.control-panel > .control-panel__section {
+  pointer-events: all;
+}
+
 `)
 
 function createDrawBoysSurface (regl, res, state) {
@@ -330,7 +340,8 @@ const state = State({
   }, {expanded: false, label: 'Rendering'}),
 });
 GUI(state, {
-  containerCSS: "position:absolute; top:0; right:10px; width:350px; margin-bottom: 500px",
+  className: 'control-panel',
+  containerCSS: "position:absolute; top:0; right:10px; width:350px; margin-bottom: 500px; overflow: hidden",
 });
 
 state.surface.$onChanges(function (updates) {
