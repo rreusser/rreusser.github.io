@@ -337,7 +337,7 @@ class FancyHeader extends React.Component {
         ];
 
         let sim = Math.floor(Math.random() * sims.length);
-        let lastSwitch = 0.0;
+        let lastSwitch = -1000;
 
         let t = 0.0;
         function next () {
@@ -350,6 +350,7 @@ class FancyHeader extends React.Component {
 
         regl.frame((ctx) => {
           t = ctx.time;
+          if (lastSwitch < 0) lastSwitch = t - 1.0;
           if (t - lastSwitch > 10.0) next();
           const alpha = ease(t - lastSwitch);
 
