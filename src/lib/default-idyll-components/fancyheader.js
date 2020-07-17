@@ -193,7 +193,7 @@ function Sim4 (regl) {
           vec3(1),
           0.8 * mix(
             0.0,
-            pow(0.5 + 0.5 * sin(8.0 * (1.0 / (1e-5 + r) + 2.5 * t)), 2.0),
+            pow(0.5 + 0.5 * sin(8.0 * (1.0 / (1e-3 + r) + 2.5 * t)), 2.0),
             smoothstep(0.2, 1.0, r)
           )
         ), 1);
@@ -201,7 +201,6 @@ function Sim4 (regl) {
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
     uniforms: {
-      t: regl.prop('time'),
       bgColor: bgColor,
       aspectRatio: ctx => [ctx.viewportWidth / ctx.viewportHeight, 1],
     },
@@ -245,7 +244,7 @@ function Sim5 (regl) {
       // LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
       // NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
       // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-      float random(vec2 co) { return fract(sin(dot(co.xy,vec2(12.9898,78.233))) * 43758.5453); }
+      float random(vec2 co) { return fract(sin(dot(co.xy,vec2(1.9898,7.233))) * 4.5453); }
 
       void main () {
         vec2 uvs = uv * 2.0;
