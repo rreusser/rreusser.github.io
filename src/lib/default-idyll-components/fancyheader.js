@@ -281,7 +281,7 @@ function Sim5 (regl) {
 
 class FancyHeader extends React.Component {
   attachRegl (c) {
-    const pixelRatio = 0.25;
+    const pixelRatio = window.innerWidth < 500 ? 0.5 : 0.25;
     const getSize = () => ({
       width: () => c.clientWidth * pixelRatio,
       height: () => c.clientHeight * pixelRatio
@@ -306,7 +306,7 @@ class FancyHeader extends React.Component {
           `,
           attributes: {xy: [-4, -4, 0, 4, 4, -4]},
           uniforms: {
-            t: regl.context('time'),
+            t: regl.prop('time'),
             bgColor: bgColor,
             aspectRatio: ctx => [ctx.viewportWidth / ctx.viewportHeight, 1],
           },
@@ -337,11 +337,13 @@ class FancyHeader extends React.Component {
         ];
 
         let sim = Math.floor(Math.random() * sims.length);
-        let lastSwitch = -1000;
+        let lastSwitch = null;
+        let prevLastSwitch = null;
 
         let t = 0.0;
         function next () {
           sim = (sim + 1) % sims.length;
+          prevLastSwitch = lastSwitch;
           lastSwitch = t;
         }
 
@@ -350,16 +352,16 @@ class FancyHeader extends React.Component {
 
         regl.frame((ctx) => {
           t = ctx.time;
-          if (lastSwitch < 0) lastSwitch = t - 1.0;
+          if (lastSwitch == null) lastSwitch = prevLastSwitch = -1;
           if (t - lastSwitch > 10.0) next();
           const alpha = ease(t - lastSwitch);
 
           if (alpha < 1.0) {
-            configure({alpha: 1}, () => {
+            configure({alpha: 1, time: t - prevLastSwitch}, () => {
               sims[sim](ctx);
             })
           }
-          configure({alpha}, () => {
+          configure({alpha, time: t - lastSwitch}, () => {
             sims[(sim + 1) % sims.length](ctx);
           });
         });
