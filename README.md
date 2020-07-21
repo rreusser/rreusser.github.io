@@ -5,7 +5,7 @@ Hi! Perhaps you're here because you found something interesting on my [sketches 
 1. `git clone https://github.com/rreusser/rreusser.github.io.git` 
 2. `cd rreusser.github.io/src`
 3. `npm install` (fsevents might fail to build, but things still seem to work?)
-4. Now start a project in the `src/` subdirectory (that's `src/src` from the project root), e.g. `npm start clifford-torus`
+4. Now start a project in the `src/` subdirectory (that's `src/src` from the project root) by typing, e.g. `npm start clifford-torus`
 
 First of all, why a `src` directory within `src`? Because I wanted to deploy the master branch and not worry about a `docs` directory of `gh-pages` branch for github pages. TBH I don't totally remember the rationale and I kinda wonder whether `docs/` was an option when I set this up, becuase I feel like I should have definitely chosen that insetad.
 
