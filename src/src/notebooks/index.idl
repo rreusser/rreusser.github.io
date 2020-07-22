@@ -1,0 +1,21 @@
+[menu fullWidth:true/]
+
+[meta fullWidth:true
+  title:"Notebooks"
+  description:"Mathematical sketches in WebGL"
+  shareImageUrl:"https://raw.githubusercontent.com/rreusser/rreusser.github.io/5516ed49/sketches/images/thumbnail.jpg"
+  twitterHandle:"rickyreusser"
+/]
+
+[fancyheader
+  fullWidth:true
+  title:"Notebooks"
+/]
+
+This page links to my [Observable](https://observablehq.com/) notebooks. They're experiements 
+
+Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusser).
+
+[ProjectIndex fullWidth:true/]
+
+[footer fullWidth:true/]
