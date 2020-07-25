@@ -1,6 +1,6 @@
-# Boy's Surface
+# Calabi-Yau Manifolds
 
-This directory contains the source to the [Boy's Surface](https://rreusser.github.io/boys-surface/).
+This directory contains the source to the [Calabi-Yau manifolds](https://rreusser.github.io/calabi-yau/).
 
 ## License
 
