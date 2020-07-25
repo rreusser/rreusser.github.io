@@ -267,7 +267,38 @@ class Explanation extends Preact.Component {
       'A plot of ',
       h('a', {href: 'https://en.wikipedia.org/wiki/Calabi%E2%80%93Yau_manifold'}, 'Calabi-Yau manifolds'),
       ' based on ',
-      h('a', {href: 'https://observablehq.com/@sw1227/calabi-yau-manifold-3d)'}, 'this notebook of @sw1227.')
+      h('a', {href: 'https://observablehq.com/@sw1227/calabi-yau-manifold-3d'}, 'this notebook of @sw1227'),
+      '. We define ',
+      h('br'),
+      eqn(`
+        \\displaystyle {
+          \\left\\{
+          \\begin{aligned}
+           z_1 &= e^{i \\phi_1} \\left[ cos(x+iy) \\right]^{2/n} \\\\
+           z_2 &= e^{i \\phi_2} \\left[ sin(x+iy) \\right]^{2/n}
+          \\end{aligned}
+        \\right.
+        }
+      `, {style: {display: 'block', margin: '0.5em auto', textAlign: 'center'}}),
+      'with ', eqn('x'),' and ',eqn('y'),' in the range ',
+      eqn(`0 \\leq  x  \\lt \\pi /2`), ' and ', eqn(`-\\pi/2 \\leq y \\lt \\pi/2`), ', while ',
+      eqn('k_1'), ' and ', eqn('k_2'), ' vary over the ranges ',
+      eqn(`
+      \\left\\{
+        \\begin{aligned}
+          \\phi_1 &= \\frac{2 \\pi k_1}{n} \\;\\;\\;\\;\\;\\;\\;\\;\\;k_1 = 0, 1, ..., n-1 \\\\
+          \\phi_2 &= \\frac{2 \\pi k_2}{n} \\;\\;\\;\\;\\;\\;\\;\\;\\;k_2 = 0, 1, ..., n-1
+        \\end{aligned}
+      \\right.
+      `, {style: {display: 'block', margin: '0.5em auto', textAlign: 'center'}}),
+      'Together these satisfy the condition ',
+      eqn(`
+        z_1^n + z_2^n = 1.
+      `, {style: {display: 'block', margin: '0.5em auto', textAlign: 'center'}}),
+      'We therefore plot the surface in ', eqn('n^2'), ' patches and project into three dimensional space, with',
+      eqn(`
+        (\\mathrm{Re}(z_1), \\; \\mathrm{Re}(z_2), \\; \\mathrm{Im}(z_1) \\cos (\\alpha) + \\mathrm{Im}(z_2) \\sin(\\alpha)).
+      `, {style: {display: 'block', margin: '0.5em auto', textAlign: 'center'}}),
     )
   }
 }
@@ -277,8 +308,8 @@ const state = State({
     raw: State.Raw(h => {
       return h(Explanation);
     }),
-    n: State.Slider(3, {min: 2, max: 8, step: 1}),
-    a: State.Slider(0, {min: 0, max: Math.PI * 2 + 1e-4, step: Math.PI / 100}),
+    n: State.Slider(3, {min: 2, max: 8, step: 1, label: 'exponent, n'}),
+    a: State.Slider(0, {min: 0, max: Math.PI * 2 + 1e-4, step: Math.PI / 100, label: 'projection, α'}),
   }, {expanded: window.innerWidth > 500, label: 'Surface'}),
   rendering: State.Section({
     surface: {
@@ -289,13 +320,13 @@ const state = State({
     },
     gridlines: {
       width: State.Slider(0.5, {min: 0.5, max: 3, step: 1e-3}),
-      opacity: State.Slider(0.6, {min: 0, max: 1, step: 1e-3}),
-      uCount: State.Slider(20, {min: 1, max: 100, step: 1, label: 'u count'}),
-      vCount: State.Slider(20, {min: 1, max: 100, step: 1, label: 'v count'}),
+      opacity: State.Slider(0.4, {min: 0, max: 1, step: 1e-3}),
+      uCount: State.Slider(10, {min: 1, max: 100, step: 1, label: 'u count'}),
+      vCount: State.Slider(10, {min: 1, max: 100, step: 1, label: 'v count'}),
     },
     boundary: {
       width: State.Slider(1.0, {min: 0.5, max: 3, step: 1e-3}),
-      opacity: State.Slider(0.9, {min: 0, max: 1, step: 1e-3}),
+      opacity: State.Slider(0.7, {min: 0, max: 1, step: 1e-3}),
       color: State.Color('#883322'),
     },
     edges: {
