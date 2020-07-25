@@ -200,8 +200,8 @@ function createDrawBoysSurface (regl, res, state) {
         vec3 color = shade * mix(baseColor, colorFromNormal, normals);
         // Apply the gridlines
         color = mix(color, vec3(0), opacity * combinedGrid);
-        color = mix(color, boundaryColor, boundaryOpacity * (1.0 - boundaryEdge));
         gl_FragColor = vec4(pow(color, vec3(0.454)), 1.0);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, boundaryColor, boundaryOpacity * (1.0 - boundaryEdge));
       } else {
         // If the wireframe pass, we just draw black lines with some alpha
         gl_FragColor = vec4(
@@ -212,7 +212,7 @@ function createDrawBoysSurface (regl, res, state) {
           (1.0 - opacity) * combinedGrid
         );
 
-        gl_FragColor = mix(gl_FragColor, vec4(boundaryColor, boundaryOpacity), 1.0 - boundaryEdge);
+        gl_FragColor = mix(gl_FragColor, vec4(boundaryColor, boundaryOpacity), (1.0 - boundaryEdge) * (1.0 - opacity));
 
         if (gl_FragColor.a < 1e-3) discard;
       }
