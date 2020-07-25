@@ -63,13 +63,14 @@ canvas {
 `)
 
 function createDrawBoysSurface (regl, res, state) {
+  const EPS = 1e-7
   const mesh = meshSurface({}, (out, u, v) => {
     out[0] = u;
     out[1] = v;
   }, {
     resolution: [70, 70],
-    uDomain: [0.0, Math.PI / 2],
-    vDomain: [-Math.PI / 2, Math.PI / 2],
+    uDomain: [0.0 + EPS, Math.PI / 2 - EPS],
+    vDomain: [-Math.PI / 2 + EPS, Math.PI / 2 - EPS],
   });
 
   return regl({
