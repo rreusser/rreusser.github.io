@@ -21,6 +21,18 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 [div className:"projectDesc__container" fullWidth:true]
 
 [Project
+  url:"kttps://observablehq.com/@rreusser/complex-function-plotter?collection=@rreusser/writeups"
+  image:"static/domain-coloring-3.jpg"
+]
+  [span className:"projectDesc__date"]July 29, 2020[/span]
+  [h2]Complex Function Plotter[/h2]
+  [p]The [Equation latex:"n+1^{th}"/] iteration of my approach to domain coloring for complex functions, this time with a function parser to automatically turn a mathematical expression into GLSL code.[/p]
+[/Project]
+
+
+
+
+[Project
   url:"https://observablehq.com/@rreusser/gpu-voronoi-diagrams-using-the-jump-flooding-algorithm?collection=@rreusser/writeups"
   image:"static/jump-flooding.jpg"
 ]
