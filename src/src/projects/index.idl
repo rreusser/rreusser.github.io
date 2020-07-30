@@ -21,7 +21,7 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 [div className:"projectDesc__container" fullWidth:true]
 
 [Project
-  url:"kttps://observablehq.com/@rreusser/complex-function-plotter?collection=@rreusser/writeups"
+  url:"https://observablehq.com/@rreusser/complex-function-plotter?collection=@rreusser/writeups"
   image:"static/domain-coloring-3.jpg"
 ]
   [span className:"projectDesc__date"]July 29, 2020[/span]
