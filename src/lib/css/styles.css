@@ -821,7 +821,7 @@ hr {
 }
 
 .article-header--has-image h1 {
-  text-shadow: 0 0 30px rgba(0, 0, 0, 1.0);
+  text-shadow: 0 0 30px rgba(0, 0, 0, 1.0), 0 0 5px #000000;
 }
 
 .article-header--has-image-preview h1 {
@@ -902,7 +902,7 @@ figcaption {
 .menu__item {
   padding: 5px 10px;
   font-size: 0.9em;
-  text-shadow: 0 0 1px #000;
+  text-shadow: 0 0 1px #000, 0 0 2px #000;
   color: white;
 }
 

@@ -9,7 +9,7 @@ class Header extends React.PureComponent {
       styleProps.backgroundImage = 'url('+this.props.bgImageSrc+')';
     }
     return (
-      <div className={classNames('article-header')}>
+      <div className={classNames('article-header', {'article-header--has-image': !!styleProps.backgroundImage})}>
         {this.props.bgImageSrc && (<div className="article-header__image" style={styleProps}/>)}
         <div className={'article-header__content'}>
           <h1 className={'hed'}>
