@@ -47,7 +47,7 @@ switch (entryFile.type) {
       ssr: true,
       theme: 'none',
       layout: 'none',
-      transform: ['glslify']
+      transform: [],//['glslify']
     });
 
     idyll.build();
@@ -56,7 +56,7 @@ switch (entryFile.type) {
       var cpInputDir = path.join(__dirname, '..', projectDir, dir);
       var cpOutputDir = path.join(__dirname, '..', outputDir, dir);
 
-      if (fs.existsSync(cpInputDir)) {
+      if (cpInputDir && fs.existsSync(cpInputDir)) {
         console.log('copying', dir);
         cpr(cpInputDir, cpOutputDir, {});
       }
@@ -130,7 +130,7 @@ switch (entryFile.type) {
       var cpInputDir = path.join(__dirname, '..', projectDir, dir);
       var cpOutputDir = path.join(__dirname, '..', outputDir, dir);
 
-      if (fs.existsSync(cpInputDir)) {
+      if (cpInputDir && fs.existsSync(cpInputDir)) {
         console.log('copying', dir);
         cpr(cpInputDir, cpOutputDir, {});
       }
