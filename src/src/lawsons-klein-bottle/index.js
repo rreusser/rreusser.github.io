@@ -8,6 +8,14 @@ const mat4lookAt = require('gl-mat4/lookAt');
 const State = require('controls-state');
 const GUI = require('controls-gui');
 
+require('insert-css')(`
+.sketch-nav {
+  left: 0;
+  right: auto;
+  text-align: left;
+}
+`);
+
 const state = GUI(State({
   tau: State.Slider(1, {min: 0, max: 2.0, step: 0.01, label: 'τ'}),
   uRange: State.Slider(1, {min: 0, max: 2.0, step: 0.01, label: 'uRange'}),
@@ -55,7 +63,9 @@ function createDrawThingy (regl, res) {
           sin(uv.y) * vec2(cos(tx), sin(tx))
         );
 
-        //p.xyz = mat3(uView) * p.xzy;
+        //vec4 q = vec4(-1, -1, 1, -1);
+        //q = normalize(q);
+        //p = quatMult(p, q / normalize(q));
 
         // Compute the stereographic projection
         return p.yzx / (1.0 - p.w);
