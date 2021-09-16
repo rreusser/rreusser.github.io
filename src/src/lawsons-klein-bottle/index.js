@@ -10,9 +10,9 @@ const GUI = require('controls-gui');
 
 require('insert-css')(`
 .sketch-nav {
-  left: 0;
-  right: auto;
-  text-align: left;
+  left: 0 !important;
+  right: auto !important;
+  text-align: left !important;
 }
 `);
 
@@ -118,7 +118,7 @@ function createDrawThingy (regl, res) {
         vec3 normal = normalize(vNormal);
         float vDotN = abs(dot(normal, normalize(vPosition - uEye)));
         float vDotNGrad = fwidth(vDotN);
-        float cartoonEdge = smoothstep(0.75, 1.25, vDotN / (vDotNGrad * 3.0 * pixelRatio));
+        float cartoonEdge = smoothstep(0.75, 1.25, vDotN / (vDotNGrad * 2.0 * pixelRatio));
         float sgn = gl_FrontFacing ? 1.0 : -1.0;
         float grid = gridFactor(vUV * vec2(2.0, 2.0) * 4.0 / PI, 0.25 * pixelRatio, 1.0);
         vec3 baseColor = gl_FrontFacing ? vec3(0.9, 0.2, 0.1) : vec3(0.1, 0.4, 0.8);
