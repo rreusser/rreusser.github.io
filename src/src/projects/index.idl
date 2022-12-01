@@ -12,13 +12,72 @@
   title:"Projects"
 /]
 
-This page contains a wide variety of small projects and writeups I've created over the years. They mostly ride the line between mathematics and graphics. Though I wouldn't necessarily consider it a success, the intent has been to focus not only on the math and pushing the boundaries of visualization on the web, but also on finding ways to more effectively communicate the underlying concepts. As a result, a pretty good share of these writeups are found on [Observable](https://observablehq.com/) since it's quite simply the best environment I've found for exploring and communicating interactive technical content on the web.
-
-I hope you find something interesting!
-
-Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusser).
-
 [div className:"projectDesc__container" fullWidth:true]
+
+[Project
+  url:"https://observablehq.com/collection/@rreusser/writeups"
+  image:"static/observable.jpg"
+]
+  [span className:"projectDesc__date"]December 1, 2022[/span]
+  [h2]Observable Notebooks[/h2]
+  [p]A collection of Observable notebooks covering a wide range of topics and visualizations, spanning the gamut from half-baked experiements to detailed writeups.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://rreusser.github.io/maps/night-and-day/"
+  image:"static/night-and-day.jpg"
+]
+  [span className:"projectDesc__date"]November 1, 2022[/span]
+  [h2]Night and Day[/h2]
+  [p]Using the `CustomRasterSource` API and Volodymyr Agafonkin's [SunCalc](https://github.com/mourner/suncalc) library to render a solar terminator on a Mapbox map.[/p]
+[/Project]
+
+
+[Project
+  url:"https://rreusser.github.io/trains-and-trails/"
+  image:"static/trains-and-trails.jpg"
+]
+  [span className:"projectDesc__date"]August 30, 2022[/span]
+  [h2]Trains and Trails[/h2]
+  [p]An interactive map-based exploration, In which I run Bay Area trails via public transportation.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://github.com/rreusser/regl-gpu-lines"
+  image:"static/regl-gpu-lines.png"
+]
+  [span className:"projectDesc__date"]February 15, 2022[/span]
+  [h2]`regl-gpu-lines`[/h2]
+  [p]A small library to facilitate rendering vertex or texture data as lines using instanced rendering.[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-1?collection=@rreusser/writeups"
+  image:"static/strange-attractors.jpg"
+]
+  [span className:"projectDesc__date"]November 17, 2021[/span]
+  [h2]Strange Attractors on the GPU[/h2]
+  [p]A walkthrough of how to organize data on the GPU to iterate and render strange attractors as lines, without data leaving the GPU. See [Part 1: Implementation](https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-1?collection=@rreusser/writeups) and [Part 2: Fun](https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-2?collection=@rreusser/writeups)[/p]
+[/Project]
+
+
+
+[Project
+  url:"https://observablehq.com/@rreusser/locally-scaled-domain-coloring-part-1-contour-plots?collection=@rreusser/writeups"
+  image:"static/adaptive-contouring.jpg"
+]
+  [span className:"projectDesc__date"]December 14, 2020[/span]
+  [h2]Adaptive Contouring in Fragment Shaders[/h2]
+  [p]A detailed walkthrough of how to draw adaptively-scaled contours in a fragment shader without prior knowledge of the range of data.[/p]
+[/Project]
+
+
 
 [Project
   url:"https://observablehq.com/@rreusser/complex-function-plotter?collection=@rreusser/writeups"
@@ -31,18 +90,6 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 
 
 
-
-[Project
-  url:"https://observablehq.com/@rreusser/gpu-voronoi-diagrams-using-the-jump-flooding-algorithm?collection=@rreusser/writeups"
-  image:"static/jump-flooding.jpg"
-]
-  [span className:"projectDesc__date"]July 8, 2020[/span]
-  [h2]GPU Voronoi Diagrams using the Jump Flooding Algorithm[/h2]
-  [p]There are many good reasons to compute Voronoi diagrams in the geometric manner, but it's also fun and useful to compute it as a raster image effect. This notebook computes Voronoi diagram images in [Equation latex:"\log_2(size)"/] passes using the Jump Flooding algorithm.[/p]
-[/Project]
-
-
-
 [Project
   url:"https://rreusser.github.io/explorations/sphere-eversion/"
   image:"static/eversion.jpg"
@@ -50,51 +97,6 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
   [span className:"projectDesc__date"]June 29, 2020[/span]
   [h2]Sphere Eversion[/h2]
   [p]While a circle in two dimensions cannot, a sphere in three dimensions can be smoothly turned inside-out! An interactive walkthrough to help visualize the eversion of Bednorz and Bednorz.[/p]
-[/Project]
-
-
-
-[Project
-  url:"https://observablehq.com/@rreusser/dispersion-in-water-surface-waves"
-  image:"static/wake-angle.jpg"
-]
-  [span className:"projectDesc__date"]June 18, 2020[/span]
-  [h2]Dispersion in Water Surface Waves[/h2]
-  [p]I was quite surprised to learn that while Mach angles depend on an object's speed, surface waves in water work differently and form a wake which doesn't depend on the speed![/p]
-[/Project]
-
-
-
-
-[Project
-  url:"https://observablehq.com/@rreusser/bakers-map?collection=@rreusser/writeups"
-  image:"static/bakers-map.jpg"
-]
-  [span className:"projectDesc__date"]June 12, 2020[/span]
-  [h2]Baker's Map[/h2]
-  [p]The chaotic baker's map results when you cut and fold dough. This notebook performs the process and allows to explore different maps.[/p]
-[/Project]
-
-
-
-[Project
-  url:"https://observablehq.com/@rreusser/faking-transparency-for-3d-surfaces?collection=@rreusser/writeups"
-  image:"static/transparency.jpg"
-]
-  [span className:"projectDesc__date"]June 12, 2020[/span]
-  [h2]Fake Transparency for 3D Surfaces[/h2]
-  [p]Transparency is not something which comes easily when rendering models on a GPU. This notebook illustrates a simple shortcut toward displaying transparent 3D surfaces with a two-pass rendering technique.[/p]
-[/Project]
-
-
-
-[Project
-  url:"https://observablehq.com/@rreusser/equally-distributing-points-on-a-sphere"
-  image:"static/sphere-points.jpg"
-]
-  [span className:"projectDesc__date"]May 29, 2020[/span]
-  [h2]Uniformly Distributed Points on a Sphere[/h2]
-  [p]A quick check to verify visually that random points are distributed evenly on the surface of a sphere.[/p]
 [/Project]
 
 
@@ -130,38 +132,16 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 
 
 
-
-
 [Project
   url:"https://observablehq.com/@rreusser/3d-reaction-diffusion?collection=@rreusser/writeups"
   image:"static/reaction-diffusion.jpg"
 ]
   [span className:"projectDesc__date"]March 15, 2020[/span]
   [h2]3D Reaction-Diffusion[/h2]
-  [p]A 3D WebGL simulation of Gray-Scott reaction-diffusion. Even though WebGL 1 only has two-dimensional textures, with enough bookkeeping, they work perfectly well for three-dimensional simulations of modest size.[/p]
+  [p]A 3D WebGL simulation of Gray-Scott reaction-diffusion, implementing using two-dimensional WebGL 1 textures and a bit of clever bookkeeping.[/p]
 [/Project]
 
 
-
-[Project
-  url:"https://observablehq.com/@rreusser/3d-reaction-diffusion?collection=@rreusser/writeups"
-  image:"static/pca.jpg"
-]
-  [span className:"projectDesc__date"]March 15, 2020[/span]
-  [h2]Grouping Points with Principal Component Analysis[/h2]
-  [p]A response to a question about the quickest way to separate a cloud of points into two groups. Power iteration would be a bit quicker, but Principal Component Analysis (PCA) is a good start.[/p]
-[/Project]
-
-
-
-[Project
-  url:"https://observablehq.com/@rreusser/compound-double-pendulums?collection=@rreusser/writeups"
-  image:"static/pendula.jpg"
-]
-  [span className:"projectDesc__date"]February 23, 2020[/span]
-  [h2]Double Compound Pendulums[/h2]
-  [p]One million double pendulums![/p]
-[/Project]
 
 [Project
   url:"https://observablehq.com/@rreusser/integers-in-single-precision-floating-point"
@@ -191,18 +171,8 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
   image:"static/rect-domain-coloring-shadertoy.jpg"
 ]
   [span className:"projectDesc__date"]December 26, 2019[/span]
-  [h2]Shadertoy: Rectangular Adaptive Domain Coloring[/h2]
-  [p]A Shadertoy implementation of my domain coloring technique using rectangular contours.[/p]
-[/Project]
-
-
-[Project
-  url:"https://www.shadertoy.com/view/tlcGzf"
-  image:"static/polar-domain-coloring-shadertoy.jpg"
-]
-  [span className:"projectDesc__date"]December 22, 2019[/span]
-  [h2]Shadertoy: Polar Adaptive Domain Coloring[/h2]
-  [p]A Shadertoy implementation of my domain coloring technique using polar contours.[/p]
+  [h2]Shadertoy: Adaptive Domain Coloring[/h2]
+  [p]A Shadertoy implementation of my domain coloring technique using [rectangular contours](https://www.shadertoy.com/view/wld3zl) or alternatively, [polar contours](https://www.shadertoy.com/view/tlcGzf).[/p]
 [/Project]
 
 
@@ -212,7 +182,7 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 ]
   [span className:"projectDesc__date"]December 12, 2019[/span]
   [h2]Binary Input[/h2]
-  [p]An input field for Observable notebooks which allows you to toggle the bits.[/p]
+  [p]My favorite feature of Observable is the ease with which you can create surprisingly sophisticated ad-hoc user interfaces. This notebook implements an input field which allows you to toggle the bits of various numerical types.[/p]
 [/Project]
 
 
@@ -250,17 +220,6 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 
 
 
-[Project
-  url:"https://observablehq.com/@rreusser/quick-miterless-lines-in-webgl?collection=@rreusser/writeups"
-  image:"static/miterless-lines.jpg"
-]
-  [span className:"projectDesc__date"]September 25, 2019[/span]
-  [h2]Quick (miterless) Lines in WebGL[/h2]
-  [p]Drawing lines is indeed hard. This notebook uses instanced rendering to turn simple vertex data into a continuous line. To simplify things, and since for many cases miters are not necessary, we simply draw a two-triangle rectangle per line segment.[/p]
-[/Project]
-
-
-
 
 [Project
   url:"https://observablehq.com/@rreusser/finding-roots-in-the-complex-plane?collection=@rreusser/writeups"
@@ -280,27 +239,6 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
   [span className:"projectDesc__date"]July 26, 2019[/span]
   [h2]Domain Coloring with Adaptive Contouring[/h2]
   [p]Domain coloring for complex-valued functions is tricky since the function and rate of change may vary over many orders of magnitude. This notebook iterates on the previous technique and tries out automatic differentiation and screen-space derivatives to compute the rate of change and automatically scale contours.[/p]
-[/Project]
-
-
-
-[Project
-  url:"https://observablehq.com/@rreusser/instanced-webgl-circles?collection=@rreusser/writeups"
-  image:"static/instanced-circles.jpg"
-]
-  [span className:"projectDesc__date"]July 12, 2019[/span]
-  [h2]Instanced WebGL Circles[/h2]
-  [p]This notebook explains how to use the `ANGLE_instanced_arrays` WebGL extension to draw a *lot* of circles to the screen in a very performant manner.[/p]
-[/Project]
-
-
-[Project
-  url:"https://observablehq.com/@rreusser/simulating-the-1-d-schrodinger-equation-in-webgl?collection=@rreusser/writeups"
-  image:"static/schrodinger-1d.jpg"
-]
-  [span className:"projectDesc__date"]July 5, 2019[/span]
-  [h2]GPUs, FFTs, and the 1-D Schrödinger Equation[/h2]
-  [p]This notebook solves the 1D Schrödinger Equation by trivially stepping it in the frequency domain and plotting the result in the physical space. The main goal is to an exercise in computing and plotting result from start to finish entirely on the GPU.[/p]
 [/Project]
 
 
@@ -350,17 +288,6 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
 
 
 [Project
-  url:"https://observablehq.com/@rreusser/contour-plots-with-d3-regl-and-observable?collection=@rreusser/writeups"
-  image:"static/contours.jpg"
-]
-  [span className:"projectDesc__date"]June 20, 2018[/span]
-  [h2]Contour plots with D3, regl, and Observable[/h2]
-  [p]My favorite WebGL extension is `OES_standard_derivatives`, used for computing screen-space derivatives. This notebook illustrates its utility in drawing constant-screen-width contour lines of any sort in a fragment shader.[/p]
-[/Project]
-
-
-
-[Project
   url:"http://rreusser.github.io/aligning-3d-scans/"
   image:"static/aligning-scans.jpg"
 ]
@@ -368,20 +295,6 @@ Comments? Questions? Let me know [@rickyreusser](https://twitter.com/rickyreusse
   [h2]Aligning 3D scans[/h2]
   [p]In which I have fun rediscovering Principal Component Analysis by stating what I want from a problem, realizing Lagrange multipliers actually work, then finding out it's just Principla Component Analysis on the normal vectors.[/p]
 [/Project]
-
-
-
-
-
-[Project
-  url:"https://observablehq.com/@rreusser/domain-coloring-for-complex-functions?collection=@rreusser/writeups"
-  image:"static/domain-coloring-old.jpg"
-]
-  [span className:"projectDesc__date"]June 17, 2018[/span]
-  [h2]Domain Coloring for Complex Functions[/h2]
-  [p]This notebook represents an early attempt at the domain coloring technique for complex analytic functions. It uses the contour line technique but depends a great deal on the particular scale of the functions plotted.[/p]
-[/Project]
-
 
 
 [Project
