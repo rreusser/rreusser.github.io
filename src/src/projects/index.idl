@@ -23,6 +23,16 @@
   [p]A collection of Observable notebooks covering a wide range of topics and visualizations, spanning the gamut from half-baked experiements to detailed writeups.[/p]
 [/Project]
 
+[Project
+  url:"https://observablehq.com/@rreusser/eqn?collection=@rreusser/writeups"
+  image:"static/eqn.png"
+]
+  [span className:"projectDesc__date"]December 25, 2022[/span]
+  [h2]`eqn`[/h2]
+  [p]An experimental equation parser which turns text like `y = m * x + b` into an [Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree) (AST) and then plugs into the [Stdlib](https://stdlib.io/) library to expose a wide variety of special math functions, at the end of the day wrapped up as a sort of drop-in replacement for Observable's `tex` helper.[/p]
+[/Project]
+
+
 
 
 [Project
@@ -33,6 +43,7 @@
   [h2]Night and Day[/h2]
   [p]Using the `CustomRasterSource` API and Volodymyr Agafonkin's [SunCalc](https://github.com/mourner/suncalc) library to render a solar terminator on a Mapbox map.[/p]
 [/Project]
+
 
 
 [Project
