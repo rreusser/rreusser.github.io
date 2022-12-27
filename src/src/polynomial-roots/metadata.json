@@ -1,5 +1,5 @@
 {
-  "title": "Centripetal B-Splines",
-  "description": "Experimenting with centripetal parameterization for B-splines",
-  "order": 80 
+  "title": "Cubic Polynomial ↔︎ Equilateral Triangle",
+  "description": "An interactive reproduction of a diagram by Freya Holmér",
+  "order": 3300 
 }
