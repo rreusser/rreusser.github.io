@@ -10,8 +10,9 @@ const browserify = require('browserify');
 const glslify = require('glslify');
 const mkdirp = require('mkdirp');
 const assert = require('assert');
-const es2040 = require('es2040');
-const Idyll = require('idyll');
+const babelify = require('babelify');
+//const es2040 = require('es2040');
+//const Idyll = require('idyll');
 const path = require('path');
 const rmrf = require('rimraf');
 const brfs = require('brfs');
@@ -90,7 +91,7 @@ switch (entryFile.type) {
     var b = browserify(path.join(__dirname, '..', projectDir, entryFile.name), {
       transform: [
         glslify,
-        es2040,
+        [babelify, {presets: ["@babel/preset-env"]}],
         brfs
       ],
       debug: false

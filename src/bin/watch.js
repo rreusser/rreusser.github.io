@@ -3,10 +3,10 @@
 const getEntryFile = require('./util/get-entry-file');
 const hyperstream = require('hyperstream');
 const glslify = require('glslify');
-const es2040 = require('es2040');
+const babelify = require('babelify');
 const assert = require('assert');
 const mkdirp = require('mkdirp');
-const Idyll = require('idyll');
+//const Idyll = require('idyll');
 const path = require('path');
 const budo = require('budo');
 const brfs = require('brfs');
@@ -81,14 +81,14 @@ switch (entryFile.type) {
       dir: path.join(__dirname, '..', projectDir),
       live: true,
       open: true,
-      //host: host,
+      host: 'localhost',
       port: port,
       css: hasCss ? 'index.css' : null,
       stream: process.stdout,
       browserify: {
         transform: [
-          glslify,
-          es2040,
+          [glslify],
+          [babelify, {presets: ["@babel/preset-env"]}],
           brfs
         ]
       }
