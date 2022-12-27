@@ -4,7 +4,6 @@ const createResize = require('./resize');
 const color = require('./color');
 const d3 = require('./d3.min.js');
 
-
 const container = document.createElement('div');
 document.body.appendChild(container);
 container.style.cssText = `
@@ -161,7 +160,7 @@ function run (regl) {
     ]);
 
     const centerHandle = {x: state.center, y: yScale.invert(state.yOffset), color: inflectionColor, type: 'center' };
-    const rootHandles = computeRoots(state).map(x => ({x, y: 0, type: 'root', color: mainColor}));
+    const rootHandles = computeRoots(state).map(x => ({x, y: 0, type: 'root', color: rootColor}));
     const extremaHandles = [
       {x: state.center - state.radius / 2, y: f(state.center - state.radius / 2), color: extremaColor, type: 'extremum' },
       {x: state.center + state.radius / 2, y: f(state.center + state.radius / 2), color: extremaColor, type: 'extremum' }
@@ -251,24 +250,109 @@ function run (regl) {
               const a = 1;
               const b = -(x0 + x1 + x2);
               const c = x1 * x2 + x0 * x2 + x0 * x1;
-              const d = -x0 * x1 * x2 + dy
+              const d = -x0 * x1 * x2 + dy;
+
+              const A = b / a;
+              const B = c / a;
+              const C = d / a;
+
+              const Q = Math.min(0, (3 * B - A ** 2) / 9);
+              const R = (9 * A * B - 27 * C - 2 * A ** 3) / 54;
+              const D = Math.min(0, Q ** 3 + R ** 2);
+
+              const theta = Math.acos(Math.max(-0.99999, Math.min(0.99999, R / (-Q) ** 1.5)));
+
+              state.center = x;
+              state.radius = 2 * Math.sqrt(-Q);
+              state.alpha = theta / 3;
+
+              break;
             }
-          }
-        })
-      );
+          case 'tri':
+            const dy = y - yScale.invert(state.yOffset);
+            const dx = x - state.center;
+            state.alpha = Math.atan2(dy, dx);
+            break;
+          case 'center':
+            state.center = x;
+            state.yOffset = yScale(y);
+            break;
+        }
+        updatePoints();
+        repaint();
+      })
+    );
+  }
+  updatePoints();
+
+  function positionCircle (roots) {
+    const [x0, x1, x2] = roots;
+
+    const a = 1;
+    const b = -(x0 + x1 + x2);
+    const c = x1 * x2 + x0 * x2 + x0 * x1;
+    const d = -x0 * x1 * x2;
+
+    const A = b / a;
+    const B = c / a;
+    const C = d / a;
+
+    const Q = Math.min(0, (3 * B - A ** 2) / 9);
+    const R = (9 * A * B - 27 * C - 2 * A ** 3) / 54;
+    const D = Math.min(0, Q ** 3 + R ** 2);
+
+    const theta = Math.acos(Math.max(-0.99999, Math.min(0.99999, R / (-Q) ** 1.5)));
+
+    return {
+      center: -A / 3,
+      radius: 2 * Math.sqrt(-Q),
+      alpha: theta / 3
+    };
+  }
+
+  function onZoom () {
+    updatePoints();
+    repaint();
+  }
+
+  function onResize () {
+    svg.attr('width', window.innerWidth).attr('height', window.innerHeight);
+    updatePoints();
+    repaint();
+  }
+  
+  const resize = createResize(container, xScale, yScale, onResize);
+  resize();
+  window.addEventListener('resize', resize);
+
+  let frame = regl.frame(() => {
+    try {
+      if (!dirty) return;
+      dirty = false;
+
+      configureViewport({}, () => {
+        configureLinearScales(xScale, yScale, ({view3}) => {
+          drawBackground({view3, width: 1});
+
+          drawLines([
+            {...axis, width: 1.5, color: mainColor },
+            {...poly, width: 3, color: mainColor },
+            {...innerCircle, width: 3, color: extremaColor },
+            {...outerCircle, width: 1.5, color: mainColor },
+          ]);
+          drawLinesWithColor([
+            {...dropLines, width: 3 },
+          ]);
+          drawLines([
+            {...triangle, width: 3, color: mainColor },
+          ]);
+        });
+      });
+
+    } catch (e) {
+      console.error(e);
+      frame.cancel();
+      frame = null;
     }
-
-    let frame = regl.frame(() => {
-      try {
-        if (!dirty) return;
-        dirty = false;
-
-        drawBackground();
-
-      } catch (e) {
-        frame.cancel();
-        frame = null;
-      }
-    })
   });
 }
