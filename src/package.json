@@ -112,6 +112,7 @@
     "glsl-random": "0.0.5",
     "glsl-rfft": "^1.0.2",
     "h": "^0.1.0",
+    "idyll": "^6.0.0-alpha.6",
     "inertial-turntable-camera": "^2.0.4",
     "insert-css": "^2.0.0",
     "is-mobile": "^1.0.0",

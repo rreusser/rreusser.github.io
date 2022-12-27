@@ -199,10 +199,14 @@ function run (regl) {
       )
       .call(d3.drag()
         .on('start', function (event) {
+          event.sourceEvent.stopPropagation();
         })
         .on('drag', function (event, d) {
-          const x = xScale.invert(event.sourceEvent.clientX);
-          const y = yScale.invert(event.sourceEvent.clientY);
+          event.sourceEvent.stopPropagation();
+          event.sourceEvent.preventDefault();
+          const src = event.sourceEvent.touches ? event.sourceEvent.touches[0] : event.sourceEvent;
+          const x = xScale.invert(src.clientX);
+          const y = yScale.invert(src.clientY);
           switch(d.type) {
             case 'root': {
               d.x = x;
