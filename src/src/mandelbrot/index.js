@@ -20,7 +20,7 @@ function run (regl) {
 
   var state = {
     iterations: 20,
-    polar: true
+    //polar: true
   };
 
   const domainColoring = createDomainColoring({
@@ -37,7 +37,7 @@ function run (regl) {
 	document.body.appendChild(createControls(null, controlRoot));
   require('control-panel')([
     {label: 'iterations', type: 'range', min: 1, max: maxIters, step: 1, initial: state.iterations},
-    {label: 'polar', type: 'checkbox', initial: state.polar},
+    //{label: 'polar', type: 'checkbox', initial: state.polar},
   ], {
 		width: 350,
     root: controlRoot,
