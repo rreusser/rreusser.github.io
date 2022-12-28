@@ -310,6 +310,8 @@ function run (regl) {
             case 'tri':
               const dy = y - yScale.invert(state.yOffset);
               const dx = x - state.center;
+              const rad = Math.hypot(dx, dy);
+              state.radius = rad;
               state.alpha = Math.atan2(dy, dx);
               break;
             case 'center':
