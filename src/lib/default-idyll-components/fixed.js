@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 
 class Fixed extends React.PureComponent {
   render() {

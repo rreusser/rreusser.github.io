@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 
 class Slide extends React.PureComponent {
   render() {

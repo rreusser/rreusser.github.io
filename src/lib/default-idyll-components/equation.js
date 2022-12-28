@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 const ReactDOM = require('react-dom');
 const Latex = require('react-latex-patched');
 const select = require('d3-selection').select;

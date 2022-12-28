@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 const ReactDOM = require('react-dom');
 const Format = require('d3-format');
 const Drag = require('d3-drag');

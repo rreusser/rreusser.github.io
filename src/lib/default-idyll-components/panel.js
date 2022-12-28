@@ -1,5 +1,4 @@
-
-import React from 'react';
+const React = require('react');
 const ReactDOM = require('react-dom');
 
 class Panel extends React.PureComponent {

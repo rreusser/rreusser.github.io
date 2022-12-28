@@ -1,5 +1,5 @@
-import React from 'react';
-import classNames from 'classnames';
+const React = require('react');
+const classNames = require('classnames');
 
 class Menu extends React.Component {
   constructor (props) {

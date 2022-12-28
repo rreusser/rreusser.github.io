@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 import InlineSVG from 'react-inlinesvg';
 
 class SVG extends React.PureComponent {

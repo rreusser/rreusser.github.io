@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 import regl from 'regl';
 import mat4lookAt from 'gl-mat4/lookAt'
 import mat4perspective from 'gl-mat4/perspective'

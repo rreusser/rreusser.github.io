@@ -21,6 +21,24 @@ const regl = require('regl')({
   onDone: require('fail-nicely')(run)
 });
 
+const exp = document.createElement('div');
+exp.innerHTML = `
+A reproduction of a <a href="https://mathstodon.xyz/@acegikmo@mastodon.social/109404591773876307">diagram by Freya Holmér</a> showing the relation between cubic polynomials and an equilateral triangle.
+`;
+document.body.appendChild(exp);
+exp.style.cssText = `
+position: absolute;
+bottom: 0;
+left: 0;
+padding: 5px;
+pointer-events: none;
+background-color: rgb(237 247 255/50%);
+width: 450px;
+max-width: 100%;
+font-family: sans-serif;
+line-height: 1.4;
+`;
+
 
 function run (regl) {
   let dirty = true;
@@ -117,10 +135,10 @@ function run (regl) {
     return state.scale * (x - x0) * (x - x1) * (x - x2);
   }
 
-  function updatePoints () {
+  function updatePoints (newEvents=true) {
     const yInflec = f(state.center);
     const [x0, x1, x2] = computeRoots(state);
-    const { center } = state;
+    const { center, scale } = state;
 
     poly.vertexAttributes.xy.subdata([...Array(poly.vertexCount).keys()].map(i => {
       const x = xScale.invert((i - 1) / (poly.vertexCount - 3) * window.innerWidth);
@@ -179,7 +197,7 @@ function run (regl) {
       inflectionHandle
     ];
 
-    pointGrp
+    const join = pointGrp
       .selectAll('circle')
       .data(handles)
       .join(  
@@ -196,96 +214,104 @@ function run (regl) {
           .attr('cx', ({x}) => xScale(x))
           .attr('cy', ({y}) => yScale(y)),
         exit => exit.remove()
-      )
-      .call(d3.drag()
-        .on('start', function (event) {
-          event.sourceEvent.stopPropagation();
-        })
-        .on('drag', function (event, d) {
-          event.sourceEvent.stopPropagation();
-          event.sourceEvent.preventDefault();
-          const src = event.sourceEvent.touches ? event.sourceEvent.touches[0] : event.sourceEvent;
-          const x = xScale.invert(src.clientX);
-          const y = yScale.invert(src.clientY);
-          switch(d.type) {
-            case 'root': {
-              d.x = x;
-              Object.assign(state, positionCircle(rootHandles.map(({x}) => x)));
+      );
+
+    if (newEvents) {
+      join.call(
+        d3.drag()
+          .on('start', function (event) {
+            event.sourceEvent.stopPropagation();
+          })
+          .on('drag', function (event, d) {
+            event.sourceEvent.stopPropagation();
+            event.sourceEvent.preventDefault();
+            const src = event.sourceEvent.touches ? event.sourceEvent.touches[0] : event.sourceEvent;
+            const x = xScale.invert(src.clientX);
+            const y = yScale.invert(src.clientY);
+            switch(d.type) {
+              case 'root': {
+                d.x = x;
+                Object.assign(state, positionCircle(rootHandles.map(({x}) => x)));
+                break;
+              }
+              case 'extremum': {
+                const e1 = d;
+                const e2 = extremaHandles[0] === d ? extremaHandles[1] : extremaHandles[0];
+
+                e1.x = x;
+                e1.y = y;
+
+                const r = 0.5 * (e1.y - e2.y);
+                const p = 0.5 * (e1.x - e2.x);
+                const x0 = 0.5 * (e1.x + e2.x);
+                const y0 = 0.5 * (e1.y + e2.y);
+
+                const a = -r / (2 * p ** 3);
+                const b = 0;
+                const c = 1.5 * r / p;
+                const dd = y0;
+
+                const A = b / a;
+                const B = c / a;
+                const C = dd / a;
+
+                const Q = Math.min(0, (3 * B - A ** 2) / 9);
+                const R = (9 * A * B - 27 * C - 2 * A ** 3) / 54;
+                const D = Math.min(0, Q ** 3 + R ** 2);
+
+                const theta = Math.acos(Math.max(-0.99999, Math.min(0.99999, R / (-Q) ** 1.5)));
+
+                state.center = x0;
+                state.radius = 2 * Math.sqrt(-Q);
+                state.alpha = theta / 3;
+                state.scale = a;
+
+                break;
+              }
+              case 'inflection': {
+                const dx = x - center;
+                const dy = (y - yInflec) / scale;
+
+                const a = 1;
+                const b = -(x0 + x1 + x2);
+                const c = x1 * x2 + x0 * x2 + x0 * x1;
+                const d = -x0 * x1 * x2 + dy;
+
+                const A = b / a;
+                const B = c / a;
+                const C = d / a;
+
+                const Q = Math.min(0, (3 * B - A ** 2) / 9);
+                const R = (9 * A * B - 27 * C - 2 * A ** 3) / 54;
+                const D = Math.min(0, Q ** 3 + R ** 2);
+
+                const theta = Math.acos(Math.max(-0.99999, Math.min(0.99999, R / (-Q) ** 1.5)));
+
+                state.center = x;
+                state.radius = 2 * Math.sqrt(-Q);
+                state.alpha = theta / 3;
+
+                break;
+              }
+            case 'tri':
+              const dy = y - yScale.invert(state.yOffset);
+              const dx = x - state.center;
+              state.alpha = Math.atan2(dy, dx);
               break;
-            }
-            case 'extremum': {
-              const e1 = d;
-              const e2 = extremaHandles[0] === d ? extremaHandles[1] : extremaHandles[0];
-
-              e1.x = x;
-              e1.y = y;
-
-              const r = 0.5 * (e1.y - e2.y);
-              const p = 0.5 * (e1.x - e2.x);
-              const x0 = 0.5 * (e1.x + e2.x);
-              const y0 = 0.5 * (e1.y + e2.y);
-
-              const a = -r / (2 * p ** 3);
-              const b = 0;
-              const c = 1.5 * r / p;
-              const dd = y0;
-
-              const A = b / a;
-              const B = c / a;
-              const C = dd / a;
-
-              const Q = Math.min(0, (3 * B - A ** 2) / 9);
-              const R = (9 * A * B - 27 * C - 2 * A ** 3) / 54;
-              const D = Math.min(0, Q ** 3 + R ** 2);
-
-              const theta = Math.acos(Math.max(-0.99999, Math.min(0.99999, R / (-Q) ** 1.5)));
-
-              state.center = x0;
-              state.radius = 2 * Math.sqrt(-Q);
-              state.alpha = theta / 3;
-              state.scale = a;
-
-              break;
-            }
-            case 'inflection': {
-              const dx = x - center;
-              const dy = y - yInflec;
-
-              const a = 1;
-              const b = -(x0 + x1 + x2);
-              const c = x1 * x2 + x0 * x2 + x0 * x1;
-              const d = -x0 * x1 * x2 + dy;
-
-              const A = b / a;
-              const B = c / a;
-              const C = d / a;
-
-              const Q = Math.min(0, (3 * B - A ** 2) / 9);
-              const R = (9 * A * B - 27 * C - 2 * A ** 3) / 54;
-              const D = Math.min(0, Q ** 3 + R ** 2);
-
-              const theta = Math.acos(Math.max(-0.99999, Math.min(0.99999, R / (-Q) ** 1.5)));
-
+            case 'center':
               state.center = x;
-              state.radius = 2 * Math.sqrt(-Q);
-              state.alpha = theta / 3;
-
+              state.yOffset = yScale(y);
               break;
-            }
-          case 'tri':
-            const dy = y - yScale.invert(state.yOffset);
-            const dx = x - state.center;
-            state.alpha = Math.atan2(dy, dx);
-            break;
-          case 'center':
-            state.center = x;
-            state.yOffset = yScale(y);
-            break;
-        }
-        updatePoints();
-        repaint();
-      })
-    );
+          }
+          updatePoints(false);
+          repaint();
+        })
+        .on('end', function () {
+          updatePoints();
+          repaint();
+        })
+      )
+    }
   }
   updatePoints();
 

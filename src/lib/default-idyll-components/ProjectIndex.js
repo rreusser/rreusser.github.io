@@ -1,5 +1,5 @@
-import React from 'react';
-import projectsIndex from '../../src/sketches/index.json';
+const React = require('react');
+const projectsIndex = require('../../src/sketches/index.json');
 
 class ProjectIndex extends React.Component {
   render () {

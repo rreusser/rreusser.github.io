@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 
 class Range extends React.PureComponent {
   constructor(props) {

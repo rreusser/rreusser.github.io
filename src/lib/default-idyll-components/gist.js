@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 const PropTypes = require('prop-types');
 
 class EmbeddedGist extends React.PureComponent {

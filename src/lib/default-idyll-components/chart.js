@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 const V = require('victory');
 const d3Arr = require('d3-array');
 

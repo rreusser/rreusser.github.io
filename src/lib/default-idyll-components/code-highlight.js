@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 import SyntaxHighlighter from "react-syntax-highlighter/dist/light";
 import style from 'react-syntax-highlighter/dist/styles/atom-one-dark';
 

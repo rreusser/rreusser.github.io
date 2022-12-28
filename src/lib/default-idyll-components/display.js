@@ -1,4 +1,4 @@
-import React from 'react';
+const React = require('react');
 const Format = require('d3-format');
 
 class Display extends React.PureComponent {
