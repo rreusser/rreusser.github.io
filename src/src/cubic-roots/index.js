@@ -27,10 +27,10 @@ A reproduction of a <a href="https://mathstodon.xyz/@acegikmo@mastodon.social/10
 document.body.appendChild(exp);
 exp.style.cssText = `
 position: absolute;
+z-index: 100;
 bottom: 0;
 left: 0;
 padding: 5px;
-pointer-events: none;
 background-color: rgb(237 247 255/50%);
 width: 450px;
 max-width: 100%;
