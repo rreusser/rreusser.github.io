@@ -1,5 +1,4 @@
 const hexRgbToFloat = require('./hex-rgb-to-float.js');
-const makebuffer = require('./makebuffer');
 const createResize = require('./resize');
 const color = require('./color');
 const d3 = require('./d3.min.js');
