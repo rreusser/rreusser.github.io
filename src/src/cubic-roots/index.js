@@ -23,7 +23,7 @@ const regl = require('regl')({
 
 const exp = document.createElement('div');
 exp.innerHTML = `
-A reproduction of a <a href="https://mathstodon.xyz/@acegikmo@mastodon.social/109404591773876307">diagram by Freya Holmér</a> showing the relation between cubic polynomials and an equilateral triangle.
+A reproduction of a <a href="https://mathstodon.xyz/@acegikmo@mastodon.social/109404591773876307">diagram by Freya Holmér</a> showing the relationship between cubic polynomials and an equilateral triangle.
 `;
 document.body.appendChild(exp);
 exp.classList.add('explanation');
