@@ -2,6 +2,7 @@ const hexRgbToFloat = require('./hex-rgb-to-float.js');
 const createResize = require('./resize');
 const color = require('./color');
 const d3 = require('./d3.min.js');
+const css = require('insert-css');
 
 const container = document.createElement('div');
 document.body.appendChild(container);
@@ -25,19 +26,33 @@ exp.innerHTML = `
 A reproduction of a <a href="https://mathstodon.xyz/@acegikmo@mastodon.social/109404591773876307">diagram by Freya Holmér</a> showing the relation between cubic polynomials and an equilateral triangle.
 `;
 document.body.appendChild(exp);
-exp.style.cssText = `
-position: absolute;
-z-index: 100;
-bottom: 0;
-left: 0;
-padding: 5px;
-background-color: rgb(237 247 255/50%);
-width: 450px;
-max-width: 100%;
-font-family: sans-serif;
-line-height: 1.4;
-`;
+exp.classList.add('explanation');
 
+css(`
+.explanation {
+  position: absolute;
+  z-index: 100;
+  bottom: 0;
+  left: 0;
+  padding: 5px 10px;
+  background-color: rgb(237 247 255/50%);
+  width: 350px;
+  max-width: 100%;
+  font-family: sans-serif;
+  line-height: 1.2;
+  font-size: 0.7em;
+  color: #555;
+}
+.explanation a {
+  color: #96c;
+}
+@media (min-width: 800px) {
+  .explanation {
+    font-size: 1.0em;
+    width: 450px;
+  }
+}
+`);
 
 function run (regl) {
   let dirty = true;
@@ -359,21 +374,23 @@ function run (regl) {
       if (!dirty) return;
       dirty = false;
 
+      const width = window.innerWidth > 640 ? 3 : 2;
+
       configureViewport({}, () => {
         configureLinearScales(xScale, yScale, ({view3}) => {
           drawBackground({view3, width: 1});
 
           drawLines([
-            {...axis, width: 1.5, color: mainColor },
-            {...poly, width: 3, color: mainColor },
-            {...innerCircle, width: 3, color: extremaColor },
-            {...outerCircle, width: 1.5, color: mainColor },
+            {...axis, width: width * 0.5, color: mainColor },
+            {...poly, width, color: mainColor },
+            {...innerCircle, width, color: extremaColor },
+            {...outerCircle, width: width * 0.5, color: mainColor },
           ]);
           drawLinesWithColor([
-            {...dropLines, width: 3 },
+            {...dropLines, width},
           ]);
           drawLines([
-            {...triangle, width: 3, color: mainColor },
+            {...triangle, width, color: mainColor },
           ]);
         });
       });
