@@ -11,9 +11,9 @@ const css = require('insert-css');
 css(`
 canvas { cursor: move; }
 .sketch-nav {
-  left: 0;
-  right: auto;
-  text-align: left;
+  left: 0 !important;
+  right: auto !important;
+  text-align: left !important;
 }`);
 
 const State = require('controls-state');
