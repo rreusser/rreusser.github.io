@@ -20,6 +20,7 @@ class Menu extends React.Component {
         <a className="menu__item" href="/">rreusser.github.io</a>
         <a className="menu__item" href="/sketches/">sketches</a>
         <a className="menu__item" href="/projects/">projects</a>
+        <a className="menu__item" href="/trains-and-trails/">running</a>
       </nav>
     );
   }

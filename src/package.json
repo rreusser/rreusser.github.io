@@ -89,6 +89,7 @@
     "util-extend": "^1.0.3"
   },
   "dependencies": {
+    "@babel/core": "^7.22.9",
     "@babel/preset-react": "^7.18.6",
     "color-parse": "^1.3.7",
     "color-rgba": "^2.1.0",
@@ -113,7 +114,7 @@
     "glsl-random": "0.0.5",
     "glsl-rfft": "^1.0.2",
     "h": "^0.1.0",
-    "idyll": "^6.0.0-alpha.6",
+    "idyll": "^5.7.6",
     "inertial-turntable-camera": "^2.0.4",
     "insert-css": "^2.0.0",
     "is-mobile": "^1.0.0",
