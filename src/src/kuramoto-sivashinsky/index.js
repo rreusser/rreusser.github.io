@@ -8,7 +8,13 @@ const mat4fromScaling = require('gl-mat4/fromScaling');
 const explanation = require('./explanation.js');
 const css = require('insert-css');
 
-css(`canvas { cursor: move; }`);
+css(`
+canvas { cursor: move; }
+.sketch-nav {
+  left: 0;
+  right: auto;
+  text-align: left;
+}`);
 
 const State = require('controls-state');
 const GUI = require('controls-gui');
