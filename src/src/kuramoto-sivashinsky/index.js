@@ -7,6 +7,8 @@ const mat4invert = require('gl-mat4/invert');
 const mat4fromScaling = require('gl-mat4/fromScaling');
 const explanation = require('./explanation.js');
 const css = require('insert-css');
+const canWriteToFBO = require('./can-write-to-fbo.js');
+const failIfNot = require('fail-nicely');
 
 css(`
 canvas { cursor: move; }
@@ -23,11 +25,15 @@ const regl = require('regl')({
   attributes: {antialias: false},
   pixelRatio: 1,
   extensions: [
-    'oes_texture_float',
-    'oes_texture_float_linear',
     'oes_standard_derivatives',
   ],
-  onDone: require('fail-nicely')(run),
+  optionalExtensions: [
+    'oes_texture_float',
+    'oes_texture_half_float',
+    'oes_texture_float_linear',
+    'oes_texture_half_float_linear',
+  ],
+  onDone: failIfNot(run),
 });
 
 function lut(interpolator, n = 256) {
@@ -37,6 +43,17 @@ function lut(interpolator, n = 256) {
 }
 
 function run (regl) {
+  let colorType = 'float';
+  let interpType = regl.hasExtension('oes_texture_float_linear') ? 'linear' : 'nearest';
+  if (!canWriteToFBO(regl, 'float')) {
+    if (canWriteToFBO(regl, 'half float')) {
+      colorType = 'half float';
+      interpType = regl.hasExtension('oes_texture_float_half_linear') ? 'linear' : 'nearest';
+    } else {
+      return failIfNot()(new Error('Writing to float or half float textures is not supported by the current WebGL context, try upgrading your system or a different browser'));
+    }
+  }
+
   const N = [256, 256];
 
   const state = GUI(State({
@@ -76,7 +93,7 @@ function run (regl) {
   onResize();
   window.addEventListener('resize', onResize);
 
-  const pde = new KS(regl, {colorscale, N});
+  const pde = new KS(regl, {colorscale, N, colorType, interpType});
 
   const configureViewport = require('./configure-viewport.js')(regl);
   const configureLinearScales = require('./configure-linear-scales.js')(regl);
