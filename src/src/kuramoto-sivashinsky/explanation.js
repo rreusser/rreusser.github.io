@@ -15,7 +15,7 @@ module.exports = function (h) {
         if (!c) return;
         c.innerHTML = katex.renderToString(`u_t + \\nabla^4 u + \\nabla^2 u + \\frac{1}{2}| \\nabla u |^2 = 0,`)
       }}),
-      "in two dimensions. It's notable as a chaotic partial differential equation of ",
+      "in two dimensions on a 256 × 256 grid. It's notable as a chaotic partial differential equation of ",
       h('em', {}, 'one variable'),
       '. (Contrast with the ',
       h('a', {href: 'https://en.wikipedia.org/wiki/Lorenz_system'}, 'Lorenz attractor'),
