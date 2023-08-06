@@ -30,8 +30,8 @@ module.exports = function (regl) {
       rsize: (ctx, props) => {
         return /*props.visualization.size*/ 10 / Math.sqrt(/*props.geometry.radius*/ 1) / r0(ctx, props);
       },
-      cpAlpha: (ctx, props) => props.aerodynamics.cpAlpha ? 0.7 : 0,
-      streamAlpha: (ctx, props) => props.aerodynamics.streamAlpha ? (props.aerodynamics.cpAlpha ? 0.2 : 0.7) : 0,
+      cpAlpha: (ctx, props) => props.aerodynamics.cpAlpha ? 1.0 : 0,
+      streamAlpha: (ctx, props) => props.aerodynamics.streamAlpha ? (props.aerodynamics.cpAlpha ? 0.3 : 1.0) : 0,
       colorScale: 0.42,//(ctx, props) => props.visualization.colorScale,
       gridAlpha: (ctx, props) => (props.aerodynamics.streamAlpha || props.aerodynamics.cpAlpha) ? 0.0 : 1.0,
       gridSize: (ctx, props) => [60, 140],
