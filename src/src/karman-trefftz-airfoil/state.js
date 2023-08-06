@@ -277,10 +277,10 @@ module.exports = function () {
           );
         }),
         streamAlpha: State.Checkbox(false, {label: 'streamlines'}),
-        alpha: State.Slider(15.0, {min: -45, max: 45, step: 0.1, label: 'angle of attack'}),
+        alpha: State.Slider(0, {min: -45, max: 45, step: 0.1, label: 'angle of attack'}),
         circulation: State.Slider(0.0, {min: -10, max: 10, step: 0.01}),
-        kutta: State.Checkbox(true, {label: 'Kutta condition'}),
-        forces: State.Checkbox(true, {label: 'force distribution'}),
+        kutta: State.Checkbox(false, {label: 'Kutta condition'}),
+        forces: State.Checkbox(false, {label: 'force distribution'}),
         cpAlpha: State.Checkbox(false, {label: 'pressure coeff.'}),
       }, {
         label: 'Aerodynamics',
