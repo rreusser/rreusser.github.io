@@ -36,7 +36,10 @@ svg.axes {
   z-index: 1;
   position: fixed;
   pointer-events: none;
-};
+}
+.controls__section {
+  pointer-events: all;
+}
 `);
 
 const glslComplex = fs.readFileSync(path.join(__dirname, 'complex.glsl'), 'utf8');
@@ -290,7 +293,7 @@ function run (regl) {
         alpha: State.Slider(10, {min: -90, max: 90, step: 0.01, label: 'Angle of attack, α'}),
         circulation: State.Slider(0, {min: -Math.PI * 4, max: 4 * Math.PI, step: 0.01, label: 'circulation, Γ'}),
         kuttaCondition: State.Checkbox(true, {label: 'Kutta condition'}),
-        relativeRotation: State.Checkbox(true, {label: 'rotate display by -α'}),
+        relativeRotation: State.Checkbox(true, {label: 'rotate display by α'}),
       }, { label: 'Airfoil configuration', expanded: true }),
       plot: State.Section({
         colorscale: State.Select('Magma', {options: COLORSCALES}),
@@ -301,7 +304,7 @@ function run (regl) {
 
         lic: State.Section({
           animate: true,
-          count: State.Slider(30000, {min: 1000, max: MAX_POINTS, step: 1}),
+          count: State.Slider(window.innerWidth > 640 ? 30000 : 20000, {min: 1000, max: MAX_POINTS, step: 1}),
           steps: State.Slider(20, {min: 5, max: 40, step: 1, label: 'integration steps'}),
           zrange: State.Slider(3, {min: 2, max: 5, step: 1, label: 'octaves'}),
           length: State.Slider(0.6, {min: 0, max: 1, step: 0.01, label: 'line length'}),
@@ -320,13 +323,17 @@ function run (regl) {
         }),
       }, { label: 'Plot'}),
     })
-  }), {
+  }, {expanded: window.innerWidth > 640}), {
+    expanded: false,
     containerCSS: `
       position: absolute;
       width: 300px;
       right: 5px;
       z-index: 10;
-    `
+      padding-bottom: 400px;
+      pointer-events: none;
+    `,
+    className: 'controls'
   });
 
   let smoothedCirculation = state.t.field.circulation;
@@ -388,7 +395,7 @@ function run (regl) {
 
   const canvas = regl._gl.canvas;
 
-  const extent = 3;
+  const extent = canvas.width > canvas.height ? 3 : 6;
   const aspect = canvas.width / canvas.height;
   const scales = {
     x: d3.scaleLinear().domain([-aspect, aspect]),
