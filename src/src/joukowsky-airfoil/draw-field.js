@@ -33,7 +33,7 @@ module.exports = function (regl, field, fieldColor) {
           if (speed == 0.0) {
             gl_FragColor = vec4(vec3(0.3), 1);
           } else {
-            gl_FragColor = fieldColor(speed);
+            gl_FragColor = fieldColor(speed, 0.0);
           }
 
           float grid = gridFactor(xy, 1.0, 1.0);
@@ -44,7 +44,7 @@ module.exports = function (regl, field, fieldColor) {
       },
       uniforms: {
         viewInverse: regl.context("inverseView"),
-        gridOpacity: regl.prop('plot.grid'),
+        gridOpacity: regl.prop('t.plot.grid'),
       },
       count: 3,
       depth: { enable: false }

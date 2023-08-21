@@ -95,8 +95,7 @@ module.exports = function (regl, field, fieldColor) {
           float window = (1.0 - blending * t * t) * linearstep(abs(y), lineWidth + 0.5, lineWidth - 0.5);
           float stripe = sin((stripePosition - 20.0 * time * speed) * frequency - (rand * ${2.0 * Math.PI}));
 
-          float colorParam = localSpeed + 2.0 * (rand - 0.5) * texture + stripe * striping;
-          vec4 color = fieldColor(colorParam);
+          vec4 color = fieldColor(localSpeed, 2.0 * (rand - 0.5) * texture + stripe * striping);
 
           gl_FragColor = color;
           gl_FragColor.a *= opacity * window;
@@ -112,7 +111,7 @@ module.exports = function (regl, field, fieldColor) {
         }
       },
       uniforms: {
-        time: ({time}, {lic: {animation: {animate}}}) => animate ? time : 0,
+        time: ({time}, {t: {plot: {lic: {animate}}}}) => animate ? time : 0,
         pixelRatio: regl.context('pixelRatio'),
         pointSize: regl.prop('pointSize'),
         offset: regl.prop('offset'),
@@ -123,19 +122,19 @@ module.exports = function (regl, field, fieldColor) {
         xDomain: regl.prop('xDomain'),
         yDomain: regl.prop('yDomain'),
         domain: (_, {xDomain, yDomain}) => [xDomain[0], yDomain[0], xDomain[1], yDomain[1]],
-        zrange: regl.prop('lic.appearance.zrange'),
-        zblend: 1,//regl.prop('lic.appearance.zblend'),
-        blending: regl.prop('lic.appearance.blending'),
-        texture: regl.prop('lic.appearance.texture'),
-        licLength: regl.prop('lic.integration.length'),
-        fadeOutStart: 0.75,//regl.prop('lic.appearance.fadeOutStart'),
-        fadeInEnd: 0.25,//regl.prop('lic.appearance.fadeInEnd'),
-        countFactor: (_, {lic: {integration: {count}}}) => 1 / count,
-        steps: regl.prop('lic.integration.steps'),
-        frequency: regl.prop('lic.animation.frequency'),
-        speed: regl.prop('lic.animation.speed'),
-        striping: regl.prop('lic.appearance.striping'),
-        lineWidth: ({pixelRatio}, {lic: {appearance: {lineWidth}}}) => lineWidth * pixelRatio,
+        zrange: regl.prop('t.plot.lic.zrange'),
+        zblend: 1,//regl.prop('t.plot.lic.zblend'),
+        blending: regl.prop('t.plot.lic.blending'),
+        texture: regl.prop('t.plot.lic.texture'),
+        licLength: regl.prop('t.plot.lic.length'),
+        fadeOutStart: 0.75,//regl.prop('t.plot.lic.fadeOutStart'),
+        fadeInEnd: 0.25,//regl.prop('t.plot.lic.fadeInEnd'),
+        countFactor: (_, {t: {plot: {lic: {count}}}}) => 1 / count,
+        steps: regl.prop('t.plot.lic.steps'),
+        frequency: regl.prop('t.plot.lic.frequency'),
+        speed: regl.prop('t.plot.lic.speed'),
+        striping: regl.prop('t.plot.lic.striping'),
+        lineWidth: ({pixelRatio}, {t: {plot: {lic: {lineWidth}}}}) => lineWidth * pixelRatio,
       },
       blend: {
         enable: true,
@@ -154,8 +153,8 @@ module.exports = function (regl, field, fieldColor) {
         enable: false
       },
       primitive: 'triangle strip',
-      count: (_, {lic: {integration: {steps}}}) => steps * 2,
-      instances: regl.prop('lic.integration.count'),
+      count: (_, {t: {plot: {lic: {steps}}}}) => steps * 2,
+      instances: regl.prop('t.plot.lic.count'),
     });
   }
 

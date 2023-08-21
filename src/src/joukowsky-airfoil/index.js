@@ -32,7 +32,7 @@ canvas {
 .domain {
   stroke: white !important;
 }
-svg {
+svg.axes {
   z-index: 1;
   position: fixed;
   pointer-events: none;
@@ -46,7 +46,7 @@ function createCylinderGLSL(joukowsky=true) {
   ${glslComplex}
 
   uniform float circulation, R2;
-  uniform vec2 ealpha;
+  uniform vec2 ealpha, rotation;
   uniform vec2 mu;
 
   vec2 joukowsky(vec2 z) {
@@ -62,7 +62,7 @@ function createCylinderGLSL(joukowsky=true) {
   }
 
   vec2 derivative(vec2 z, float t) {
-    z = cmul(z, ealpha);
+    z = cmul(z, vec2(rotation.x, -rotation.y));
     ${joukowsky ? 'vec2 zeta = inverseJoukowsky(z);' : 'vec2 zeta = z;'}
     vec2 zetamu = zeta - mu;
     if (dot(zetamu, zetamu) < R2) return vec2(0);
@@ -73,9 +73,9 @@ function createCylinderGLSL(joukowsky=true) {
 
     ${joukowsky ? `
     vec2 W = cdiv_fast(Wt, vec2(1, 0) - cinvsqr_fast(zeta));
-    return cmul(vec2(W.x, -W.y), vec2(ealpha.x, -ealpha.y));
+    return cmul(vec2(W.x, -W.y), rotation);
     ` : `
-    return cmul(vec2(Wt.x, -Wt.y), vec2(ealpha.x, -ealpha.y));
+    return cmul(vec2(Wt.x, -Wt.y), rotation);
     `}
 
   }`;
@@ -83,13 +83,13 @@ function createCylinderGLSL(joukowsky=true) {
 
 const fieldColor = `
 uniform sampler2D colorscale;
-uniform float invert;
+uniform float invert, contrast;
 const float a = 0.0;
 const float b = 2.0;
-vec4 fieldColor(float value) {
+vec4 fieldColor(float value, float adjustment) {
   value = (value - a) / (b - a);
-  value = 0.5 + invert * atan(2.0 * (value * 2.0 - 1.0)) * ${1 / Math.PI};
-  return texture2D(colorscale, vec2(value, 0.5));
+  value = 0.5 + invert * atan(contrast * (value * 2.0 - 1.0)) * ${1 / Math.PI};
+  return texture2D(colorscale, vec2(value + adjustment, 0.5));
 }`;
 
 function mod(n, m) {
@@ -126,46 +126,200 @@ function lut(interpolator, n = 256) {
 function run (regl) {
   const MAX_POINTS = 100000;
 
-  const state = GUI(State({
-    field: State.Section({
-      joukowskyTransform: State.Checkbox(true, {label: 'Joukowsky transform'}),
-      mux: State.Slider(-0.08, {min: -0.5, max: 0, step: 0.001, label: 'µx'}),
-      muy: State.Slider(0.08, {min: -0.5, max: 0.5, step: 0.001, label: 'µy'}),
-      alpha: State.Slider(10, {min: -90, max: 90, step: 0.01}),
-      circulation: State.Slider(0, {min: -Math.PI * 4, max: 4 * Math.PI, step: 0.01}),
-      kuttaCondition: true
-    }, { label: 'Airfoil configuration', expanded: true }),
-    plot: State.Section({
-      colorscale: State.Select('Magma', {options: COLORSCALES}),
-      invert: false,
-      grid: State.Slider(0, {min: 0, max: 1, step: 0.01}),
-      //debug: State.Slider(0, {min: 0, max: 3, step: 0.01}),
-    }, { label: 'Field', expanded: false }),
-    lic: State.Section({
-      integration: State.Section({
-        count: State.Slider(50000, {min: 1000, max: MAX_POINTS, step: 1}),
-        steps: State.Slider(20, {min: 5, max: 40, step: 1}),
-        length: State.Slider(0.5, {min: 0, max: 1, step: 0.01}),
-      }, {label: 'Integration', expanded: false}),
-      appearance: State.Section({
-        zrange: State.Slider(3, {min: 2, max: 6, step: 0.1}),
-        blending: State.Slider(1, {min: 0, max: 1, step: 0.01}),
-        texture: State.Slider(0.15, {min: 0, max: 1, step: 0.01}),
-        striping: State.Slider(0.04, {min: 0, max: 0.5, step: 0.01}),
-        lineWidth: State.Slider(3, {min: 1, max: 10, step: 0.1}),
-        //zblend: State.Slider(0, {min: 0, max: 1, step: 0.1}),
-        //fadeInEnd: State.Slider(0.25, {min: 0, max: 1, step: 0.01}),
-        //fadeOutStart: State.Slider(0.75, {min: 0, max: 1, step: 0.01}),
-      }, {label: 'Appearance', expanded: false}),
-      animation: State.Section({
-        animate: true,
-        frequency: State.Slider(1.0, {min: 0, max: 4, step: 0.01}),
-        speed: State.Slider(2.0, {min: 0, max: 10, step: 0.01}),
-      }, {label: 'Animation', expanded: false})
-    }, {
-      label: 'Line Integral Convolution',
-      expanded: false
-    }),
+  const state = window.state = GUI(State({
+    t: State.Tabs({
+      field: State.Section({
+        explanation: State.Raw(h => [
+          h('p', {},
+            'This page visualizes flow over an airfoil using the ',
+            h('a', {href: 'https://en.wikipedia.org/wiki/Joukowsky_transform'}, 'Joukowsky transform'),
+            ', z = ζ + 1/ζ. This conformal map has the remarkable property that it transforms flow over a cylinder into flow over an airfoil.'
+          ),
+          h('p', {},
+            'Adjust the parameters below and observe that flow leaves the trailing edge smoothly when the ',
+            h('a', {href: 'https://en.wikipedia.org/wiki/Kutta_condition'}, 'Kutta condition'),
+            ' is enforced, resulting in a flow field which generates lift.'
+          )
+        ]),
+        diagram: State.Raw((h, {state}) => {
+          var aspectRatio = 1.5;
+          var width = 278;
+          var height= width / aspectRatio;
+          var margin = 1;
+          var x = d3.scaleLinear().domain([-2 * aspectRatio, 2 * aspectRatio]).range([margin, width - margin]);
+          var y = d3.scaleLinear().domain([-2, 2]).range([height - margin, margin]);
+          var mux = x(state.t.field.mux);
+          var muy = y(state.t.field.muy);
+          var r0 = Math.sqrt(Math.pow(1 - state.t.field.mux, 2) + Math.pow(state.t.field.muy, 2)) * 1;//state.t.field.radius;
+          var radius = x(state.t.field.mux + r0) - mux;
+          var theta = Math.atan2(state.t.field.muy, 1 - state.t.field.mux);
+
+          return h('div', {className: 'rawContent'}, h('svg', {
+            style: {display: 'block', margin: '5px auto'},
+            width: width,
+            height: height
+          },
+            // horizontal gridlines
+            [-3, -2, -1, 0, 1, 2, 3].map(i => h('line', {
+              x1: x(i),
+              x2: x(i),
+              y1: y(-10),
+              y2: y(10),
+              stroke: 'rgba(255,255,255,'+(i === 0 ? 0.8 : 0.3)+')',
+              'stroke-dasharray': i === 0 ? 2 : 2,
+              'stroke-width': 1,
+            })),
+
+            // vertical gridlines
+            [-2, -1, 0, 1, 2].map(i => h('line', {
+              x1: x(-10),
+              x2: x(10),
+              y1: y(i),
+              y2: y(i),
+              stroke: 'rgba(255,255,255,'+(i === 0 ? 0.8 : 0.3)+')',
+              'stroke-dasharray': i === 0 ? 2 : 2,
+              'stroke-width': 1,
+            })),
+
+            // (1, 0) reticle
+            h('line', {
+              x1: x(1) - 4,
+              x2: x(1) + 4,
+              y1: y(0) - 4,
+              y2: y(0) + 4,
+              stroke: 'rgba(255,80,50,1)',
+              'stroke-width': 2
+            }),
+            h('line', {
+              x1: x(1) - 4,
+              x2: x(1) + 4,
+              y1: y(0) + 4,
+              y2: y(0) - 4,
+              stroke: 'rgba(255,80,50,1)',
+              'stroke-width': 2
+            }),
+
+            // (-1, 0) reticle
+            h('line', {
+              x1: x(-1) - 4,
+              x2: x(-1) + 4,
+              y1: y(0) - 4,
+              y2: y(0) + 4,
+              stroke: 'rgba(255,80,50,1)',
+              'stroke-width': 2
+            }),
+            h('line', {
+              x1: x(-1) - 4,
+              x2: x(-1) + 4,
+              y1: y(0) + 4,
+              y2: y(0) - 4,
+              stroke: 'rgba(255,80,50,1)',
+              'stroke-width': 2
+            }),
+            h('circle', {
+              cx: x(state.t.field.mux),
+              cy: y(state.t.field.muy),
+              r: radius,
+              stroke: 'white',
+              fill: 'rgba(255, 255, 255, 0.05)',
+              'stroke-width': 1
+            }),
+
+            // mu center reticle
+            h('line', {
+              x1: mux - 6,
+              x2: mux + 6,
+              y1: muy,
+              y2: muy,
+              stroke: 'rgba(255,255,255,1)',
+              'stroke-width': 2
+            }),
+            h('line', {
+              x1: mux,
+              x2: mux,
+              y1: muy - 6,
+              y2: muy + 6,
+              stroke: 'rgba(255,255,255,1)',
+              'stroke-width': 2
+            }),
+
+            // (1, 0) label
+            h('text', {
+              x: x(1) + 3,
+              y: y(0) + 13,
+              fill: 'white',
+              style: {'text-shadow': '0 0 2px black', 'font-style': 'italic', 'font-family': 'serif'}},
+              '1 + 0i'
+            ),
+
+            // (-1, 0) label
+            h('text', {
+              x: x(-1) + 3,
+              y: y(0) + 13,
+              fill: 'white',
+              'text-anchor': 'start',
+              style: {'text-shadow': '0 0 2px black', 'font-style': 'italic', 'font-family': 'serif'}},
+              '-1 + 0i'
+            ),
+
+            // mu label
+            h('text', {
+              x: mux - 3,
+              y: muy - 3,
+              fill: 'white',
+              'text-anchor': 'end',
+              style: {'text-shadow': '0 0 2px black', 'font-style': 'italic', 'font-family': 'serif'}},
+              'µ'
+            ),
+
+            // radius line
+            h('line', {
+              x1: mux,
+              y1: muy,
+              x2: mux + radius * Math.cos(theta),
+              y2: muy + radius * Math.sin(theta),
+              stroke: 'rgba(255,255,255,1)',
+              'stroke-width': 1,
+            }),
+
+          ));
+        }),
+        joukowskyTransform: State.Checkbox(true, {label: 'Joukowsky transform'}),
+        mux: State.Slider(-0.1, {min: -0.5, max: 0, step: 0.001, label: 'µx'}),
+        muy: State.Slider(0.08, {min: -0.5, max: 0.5, step: 0.001, label: 'µy'}),
+        alpha: State.Slider(10, {min: -90, max: 90, step: 0.01, label: 'Angle of attack, α'}),
+        circulation: State.Slider(0, {min: -Math.PI * 4, max: 4 * Math.PI, step: 0.01, label: 'circulation, Γ'}),
+        kuttaCondition: State.Checkbox(true, {label: 'Kutta condition'}),
+        relativeRotation: State.Checkbox(true, {label: 'rotate display by -α'}),
+      }, { label: 'Airfoil configuration', expanded: true }),
+      plot: State.Section({
+        colorscale: State.Select('Magma', {options: COLORSCALES}),
+        contrast: State.Slider(0.7, {min: 0, max: 1, step: 0.001, label: 'contrast'}),
+        invert: false,
+        grid: State.Slider(0, {min: 0, max: 1, step: 0.01}),
+        //debug: State.Slider(0, {min: 0, max: 3, step: 0.01}),
+
+        lic: State.Section({
+          animate: true,
+          count: State.Slider(30000, {min: 1000, max: MAX_POINTS, step: 1}),
+          steps: State.Slider(20, {min: 5, max: 40, step: 1, label: 'integration steps'}),
+          zrange: State.Slider(3, {min: 2, max: 5, step: 1, label: 'octaves'}),
+          length: State.Slider(0.5, {min: 0, max: 1, step: 0.01, label: 'line length'}),
+          lineWidth: State.Slider(3, {min: 1, max: 10, step: 0.1, label: 'line width'}),
+          blending: State.Slider(1, {min: 0, max: 1, step: 0.01, label: 'line blending'}),
+          texture: State.Slider(0.1, {min: 0, max: 1, step: 0.01}),
+          striping: State.Slider(0.04, {min: 0, max: 0.5, step: 0.01, label: 'stripe strength'}),
+          frequency: State.Slider(1.0, {min: 0, max: 4, step: 0.01, label: 'stripe frequency'}),
+          speed: State.Slider(2.0, {min: 0, max: 10, step: 0.01}),
+          //zblend: State.Slider(0, {min: 0, max: 1, step: 0.1}),
+          //fadeInEnd: State.Slider(0.25, {min: 0, max: 1, step: 0.01}),
+          //fadeOutStart: State.Slider(0.75, {min: 0, max: 1, step: 0.01}),
+        }, {
+          label: 'Line Integral Convolution',
+          expanded: true
+        }),
+      }, { label: 'Plot'}),
+    })
   }), {
     containerCSS: `
       position: absolute;
@@ -175,27 +329,27 @@ function run (regl) {
     `
   });
 
-  let smoothedCirculation = state.field.circulation;
+  let smoothedCirculation = state.t.field.circulation;
 
   function setCirculation () {
-    if (!state.field.kuttaCondition) return;
-    const R = Math.sqrt((1 - state.field.mux)**2 + state.field.muy**2);
-    state.field.circulation = 4 * Math.PI * R * Math.sin((state.field.alpha * Math.PI / 180) + Math.asin(state.field.muy / R));
+    if (!state.t.field.kuttaCondition) return;
+    const R = Math.sqrt((1 - state.t.field.mux)**2 + state.t.field.muy**2);
+    state.t.field.circulation = 4 * Math.PI * R * Math.sin((state.t.field.alpha * Math.PI / 180) + Math.asin(state.t.field.muy / R));
   }
-  state.$path.field.muy.onChange(setCirculation);
-  state.$path.field.kuttaCondition.onChange(({value}) => {
+  state.$path.t.field.muy.onChange(setCirculation);
+  state.$path.t.field.kuttaCondition.onChange(({value}) => {
     if (value) {
       setCirculation();
     } else {
-      state.field.circulation = 0;
+      state.t.field.circulation = 0;
     }
   });
-  state.field.$onChanges((updates) => {
-    if (!state.field.kuttaCondition) return;
+  state.t.field.$onChanges((updates) => {
+    if (!state.t.field.kuttaCondition) return;
     if (updates.circulation !== undefined) {
-      const R = Math.sqrt((1 - state.field.mux)**2 + state.field.muy**2);
-      state.field.alpha = 180 / Math.PI * (
-        Math.asin(state.field.circulation / (4 * Math.PI * R)) - Math.asin(state.field.muy / R)
+      const R = Math.sqrt((1 - state.t.field.mux)**2 + state.t.field.muy**2);
+      state.t.field.alpha = 180 / Math.PI * (
+        Math.asin(state.t.field.circulation / (4 * Math.PI * R)) - Math.asin(state.t.field.muy / R)
       );
     } else if (updates.alpha !== undefined) {
       setCirculation();
@@ -212,7 +366,7 @@ function run (regl) {
     data: lut(d3.interpolateMagma)
   });
 
-  state.$path.plot.colorscale.onChange(({value}) => {
+  state.$path.t.plot.colorscale.onChange(({value}) => {
     colorscale({
       width: 256,
       height: 1,
@@ -246,7 +400,7 @@ function run (regl) {
     l: 50, r: 20, t: 20, b: 30
   };
 
-  const svg = d3.create('svg');
+  const svg = d3.create('svg').attr('class', 'axes');
   const xaxis = svg.append('g');
   const yaxis = svg.append('g');
   document.body.append(svg.node());
@@ -285,19 +439,18 @@ function run (regl) {
     try {
       configureViewport({margin}, () => {
         configureLinearScales(scales, ({dirty, xDomain, yDomain, viewportWidth, viewportHeight}) => {
-          const circulationChanged = Math.abs(state.field.circulation - smoothedCirculation) > 1e-2;
-          const type = state.field.joukowskyTransform ? 'joukowsky' : 'cylinder';
-          const animate = state.lic.animation.animate && state.lic.appearance.striping > 0;
+          const circulationChanged = Math.abs(state.t.field.circulation - smoothedCirculation) > 1e-2;
+          const type = state.t.field.joukowskyTransform ? 'joukowsky' : 'cylinder';
+          const animate = state.t.plot.lic.animate && state.t.plot.lic.striping > 0;
 
           if (!dirty && !animate && !circulationChanged) return;
 
-          smoothedCirculation = 0.9 * smoothedCirculation + 0.1 * state.field.circulation;
-          console.log(smoothedCirculation);
+          smoothedCirculation = 0.9 * smoothedCirculation + 0.1 * state.t.field.circulation;
 
           regl.clear({color: [0.1, 0.1, 0.1, 1]});
           configureUniforms({...state, colorscale, smoothedCirculation}, () => {
             drawField[type]({...state});
-            for (let z = 0; z < Math.floor(state.lic.appearance.zrange /*+ state.lic.appearance.zblend*/); z++) {
+            for (let z = 0; z < Math.floor(state.t.plot.lic.zrange /*+ state.t.plot.lic.zblend*/); z++) {
               drawLIC[type]({
                 ...state,
                 xy,
@@ -306,7 +459,7 @@ function run (regl) {
                 z,
               });
             }
-            if (state.field.kuttaCondition) drawPoint();
+            drawPoint();
             //if (state.plot.debug) drawBox();
           });
           if (dirty) updateAxis();
@@ -318,4 +471,3 @@ function run (regl) {
     }
   });
 }
-
