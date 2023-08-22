@@ -13,7 +13,8 @@ module.exports = function (regl, field, fieldColor) {
         precision highp float;
         attribute vec4 uv;
         attribute vec2 i;
-        uniform float pixelRatio, pointSize, z, aspect, zblend, zrange, globalScale, scalePoints, fadeOutStart, fadeInEnd, countFactor, steps, licLength, lineWidth;
+        uniform bool fixToView;
+        uniform float pixelRatio, pointSize, z, aspect, zblend, zrange, globalScale, fadeOutStart, fadeInEnd, countFactor, steps, licLength, lineWidth;
         uniform vec2 xDomain, yDomain;
         uniform vec4 domain;
         uniform mat4 inverseView, view;
@@ -34,17 +35,20 @@ module.exports = function (regl, field, fieldColor) {
           float zp = z + param * zblend;
           float scale = pow(2.0, zp);
 
-          vec2 cen = (domain.zw + domain.xy) * 0.5;
           vec2 rng = (domain.zw - domain.xy) * vec2(1, aspect) * (0.5 * scale);
-
           vec2 base = pow(vec2(2.0), ceil(log2(2.0 * rng)));
-          vec2 offset = base * floor(0.5 * domain.xy / base) * 2.0;
-          vec2 offset2 = base * floor(domain.xy / base);
-          vec2 shift = mod(offset2 / base, 2.0);
 
           vec2 xy = uv.xy;
-          xy += shift * vec2(lessThan(xy, vec2(0.5)));
-          xy = xy * (2.0 * base) + offset;
+
+          if (fixToView) {
+            xy = (inverseView * vec4(uv.xy * 2.0 - 1.0, 0, 1)).xy;
+          } else {
+            vec2 offset = base * floor(0.5 * domain.xy / base) * 2.0;
+            vec2 offset2 = base * floor(domain.xy / base);
+            vec2 shift = mod(offset2 / base, 2.0);
+            xy += shift * vec2(lessThan(xy, vec2(0.5)));
+            xy = xy * (2.0 * base) + offset;
+          }
 
           float zfrac = 1.0 - fract(log2(rng.x)) + z;
           float sc = zrange / 3.0;
@@ -134,6 +138,7 @@ module.exports = function (regl, field, fieldColor) {
         frequency: regl.prop('t.plot.lic.frequency'),
         speed: regl.prop('t.plot.lic.speed'),
         striping: regl.prop('t.plot.lic.striping'),
+        fixToView: regl.prop('t.plot.lic.fixToView'),
         lineWidth: ({pixelRatio}, {t: {plot: {lic: {lineWidth}}}}) => lineWidth * pixelRatio,
       },
       blend: {
@@ -159,7 +164,7 @@ module.exports = function (regl, field, fieldColor) {
   }
 
   return {
-    joukowsky: createCommand(true),
-    cylinder: createCommand(false)
+    joukowsky: createCommand(true, true),
+    cylinder: createCommand(false, true)
   };
 };

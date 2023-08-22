@@ -44,6 +44,30 @@ svg.axes {
 
 const glslComplex = fs.readFileSync(path.join(__dirname, 'complex.glsl'), 'utf8');
 
+function createAirfoilGLSL(joukowsky=true) {
+  return `
+  uniform float R2;
+  uniform vec2 mu, ealpha;
+  uniform mat4 view;
+
+  ${glslComplex}
+
+  vec2 joukowsky(vec2 z) {
+    ${joukowsky ? `
+    return z + cinv(z);
+    ` : `
+    return z;
+    `}
+  }
+  vec2 airfoil(float theta) {
+    return cmul(
+      vec2(ealpha.x, -ealpha.y),
+      joukowsky(mu + sqrt(R2) * vec2(cos(theta), sin(theta)))
+    );
+  }
+  `;
+}
+
 function createCylinderGLSL(joukowsky=true) {
   return `
   ${glslComplex}
@@ -128,6 +152,7 @@ function lut(interpolator, n = 256) {
 
 function run (regl) {
   const MAX_POINTS = 100000;
+  const isNarrow = window.innerWidth < 640;
 
   const state = window.state = GUI(State({
     t: State.Tabs({
@@ -304,7 +329,8 @@ function run (regl) {
 
         lic: State.Section({
           animate: true,
-          count: State.Slider(window.innerWidth > 640 ? 30000 : 20000, {min: 1000, max: MAX_POINTS, step: 1}),
+          fixToView: false,
+          count: State.Slider(isNarrow ? 20000 : 30000, {min: 1000, max: MAX_POINTS, step: 1}),
           steps: State.Slider(20, {min: 5, max: 40, step: 1, label: 'integration steps'}),
           zrange: State.Slider(3, {min: 2, max: 5, step: 1, label: 'octaves'}),
           length: State.Slider(0.6, {min: 0, max: 1, step: 0.01, label: 'line length'}),
@@ -323,7 +349,7 @@ function run (regl) {
         }),
       }, { label: 'Plot'}),
     })
-  }, {expanded: window.innerWidth > 640}), {
+  }, {expanded: !isNarrow}), {
     expanded: false,
     containerCSS: `
       position: absolute;
@@ -389,6 +415,7 @@ function run (regl) {
 
   const configureUniforms = require('./configure-uniforms.js')(regl);
   const drawPoints = require('./draw-points.js')(regl);
+  const drawAirfoil = require('./draw-airfoil.js')(regl, {createAirfoilGLSL});
   const drawPoint = require('./draw-point.js')(regl);
   const drawLIC = require('./draw-lic.js')(regl, createCylinderGLSL, fieldColor);
   const drawField = require('./draw-field.js')(regl, createCylinderGLSL, fieldColor);
@@ -397,8 +424,9 @@ function run (regl) {
 
   const extent = canvas.width > canvas.height ? 3 : 6;
   const aspect = canvas.width / canvas.height;
+  const viewShift = isNarrow ? 0 : 1;
   const scales = {
-    x: d3.scaleLinear().domain([-aspect, aspect]),
+    x: d3.scaleLinear().domain([-aspect + viewShift, aspect + viewShift]),
     y: d3.scaleLinear().domain([-extent, extent]),
     dirty: true
   };
@@ -457,7 +485,9 @@ function run (regl) {
           regl.clear({color: [0.1, 0.1, 0.1, 1]});
           configureUniforms({...state, colorscale, smoothedCirculation}, () => {
             drawField[type]({...state});
-            for (let z = 0; z < Math.floor(state.t.plot.lic.zrange /*+ state.t.plot.lic.zblend*/); z++) {
+            const zmax = state.t.plot.lic.fixToView ? 1 : Math.floor(state.t.plot.lic.zrange /*+ state.t.plot.lic.zblend*/);
+            for (let z = 0; z < zmax; z++) {
+              if (z > 5) break;
               drawLIC[type]({
                 ...state,
                 xy,
@@ -466,6 +496,7 @@ function run (regl) {
                 z,
               });
             }
+            drawAirfoil[type]();
             drawPoint();
             //if (state.plot.debug) drawBox();
           });
