@@ -97,9 +97,9 @@ module.exports = function (regl, field, fieldColor) {
 
         void main () {
           float window = (1.0 - blending * t * t) * linearstep(abs(y), lineWidth + 0.5, lineWidth - 0.5);
-          float stripe = sin((stripePosition - 20.0 * time * speed) * frequency - (rand * ${2.0 * Math.PI}));
+          float stripe = sin((stripePosition - 20.0 * time * speed) * frequency - rand * ${Math.PI});
 
-          vec4 color = fieldColor(localSpeed, 2.0 * (rand - 0.5) * texture + stripe * striping);
+          vec4 color = fieldColor(localSpeed, rand * texture + stripe * striping);
 
           gl_FragColor = color;
           gl_FragColor.a *= opacity * window;

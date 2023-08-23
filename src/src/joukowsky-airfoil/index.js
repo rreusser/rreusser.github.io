@@ -13,41 +13,14 @@ const rand = require('@stdlib/random-base-uniform');
 const COLORSCALES = ["Blues","BrBG","BuGn","BuPu","Cool","CubehelixDefault","GnBu","Greens","Greys","Inferno","Magma","OrRd","Oranges","PRGn","PiYG","Plasma","PuBu","PuBuGn","PuOr","PuRd","Purples","Rainbow","RdBu","RdGy","RdPu","RdYlBu","RdYlGn","Reds","Sinebow","Spectral","Viridis","Warm","YlGn","YlGnBu","YlOrBr","YlOrRd"];
 
 
-css(`
-canvas {
-  position: fixed !important;
-  cursor: move;
-}
-.sketch-nav {
-  left: 0 !important;
-  right: auto !important;
-  text-align: left !important;
-}
-.tick line {
-  stroke: white;
-}
-.tick text {
-  fill: white;
-}
-.domain {
-  stroke: white !important;
-}
-svg.axes {
-  z-index: 1;
-  position: fixed;
-  pointer-events: none;
-}
-.controls__section {
-  pointer-events: all;
-}
-`);
+css(fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8'));
 
 const glslComplex = fs.readFileSync(path.join(__dirname, 'complex.glsl'), 'utf8');
 
 function createAirfoilGLSL(joukowsky=true) {
   return `
   uniform float R2;
-  uniform vec2 mu, ealpha;
+  uniform vec2 mu, ealpha, rotation;
   uniform mat4 view;
 
   ${glslComplex}
@@ -61,7 +34,7 @@ function createAirfoilGLSL(joukowsky=true) {
   }
   vec2 airfoil(float theta) {
     return cmul(
-      vec2(ealpha.x, -ealpha.y),
+      rotation,
       joukowsky(mu + sqrt(R2) * vec2(cos(theta), sin(theta)))
     );
   }
@@ -329,14 +302,14 @@ function run (regl) {
 
         lic: State.Section({
           animate: true,
-          fixToView: false,
-          count: State.Slider(isNarrow ? 20000 : 30000, {min: 1000, max: MAX_POINTS, step: 1}),
+          fixToView: true,
+          count: State.Slider(7000, {min: 1000, max: MAX_POINTS, step: 1}),
           steps: State.Slider(20, {min: 5, max: 40, step: 1, label: 'integration steps'}),
           zrange: State.Slider(3, {min: 2, max: 5, step: 1, label: 'octaves'}),
           length: State.Slider(0.6, {min: 0, max: 1, step: 0.01, label: 'line length'}),
-          lineWidth: State.Slider(3, {min: 1, max: 10, step: 0.1, label: 'line width'}),
+          lineWidth: State.Slider(2, {min: 1, max: 10, step: 0.1, label: 'line width'}),
           blending: State.Slider(1, {min: 0, max: 1, step: 0.01, label: 'line blending'}),
-          texture: State.Slider(0.08, {min: 0, max: 0.5, step: 0.01}),
+          texture: State.Slider(0.15, {min: 0, max: 0.5, step: 0.01}),
           striping: State.Slider(0.04, {min: 0, max: 0.5, step: 0.01, label: 'stripe strength'}),
           frequency: State.Slider(0.4, {min: 0, max: 4, step: 0.01, label: 'stripe frequency'}),
           speed: State.Slider(4.0, {min: 0, max: 10, step: 0.01}),
@@ -364,12 +337,13 @@ function run (regl) {
 
   let smoothedCirculation = state.t.field.circulation;
 
-  function setCirculation () {
+  function setCirculation (immediate=false) {
     if (!state.t.field.kuttaCondition) return;
     const R = Math.sqrt((1 - state.t.field.mux)**2 + state.t.field.muy**2);
     state.t.field.circulation = 4 * Math.PI * R * Math.sin((state.t.field.alpha * Math.PI / 180) + Math.asin(state.t.field.muy / R));
+    if (immediate) smootheCirculation = state.t.field.circulation;
   }
-  state.$path.t.field.muy.onChange(setCirculation);
+  state.$path.t.field.muy.onChange(() => setCirculation(true));
   state.$path.t.field.kuttaCondition.onChange(({value}) => {
     if (value) {
       setCirculation();
@@ -384,8 +358,9 @@ function run (regl) {
       state.t.field.alpha = 180 / Math.PI * (
         Math.asin(state.t.field.circulation / (4 * Math.PI * R)) - Math.asin(state.t.field.muy / R)
       );
+      smoothedCirculation = state.t.field.circulation;
     } else if (updates.alpha !== undefined) {
-      setCirculation();
+      setCirculation(true);
     }
   });
   setCirculation();
@@ -410,8 +385,9 @@ function run (regl) {
   });
 
   const random = rand.factory({seed: 1});
+  const maxMag = (x, mag) => Math.sign(x) * Math.max(Math.abs(x), mag);
 
-  const xy = regl.buffer([...Array(MAX_POINTS).keys()].map(i => qrand2d(i).concat(i, random(0, 1))));
+  const xy = regl.buffer([...Array(MAX_POINTS).keys()].map(i => qrand2d(i).concat(i, random(-1, 1))));
 
   const configureUniforms = require('./configure-uniforms.js')(regl);
   const drawPoints = require('./draw-points.js')(regl);

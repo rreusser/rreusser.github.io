@@ -1,0 +1,26 @@
+canvas {
+  position: fixed !important;
+  cursor: move;
+}
+.sketch-nav {
+  left: 0 !important;
+  right: auto !important;
+  text-align: left !important;
+}
+.tick line {
+  stroke: white;
+}
+.tick text {
+  fill: white;
+}
+.domain {
+  stroke: white !important;
+}
+svg.axes {
+  z-index: 1;
+  position: fixed;
+  pointer-events: none;
+}
+.controls__section {
+  pointer-events: all;
+}
