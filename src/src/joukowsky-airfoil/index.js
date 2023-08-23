@@ -341,7 +341,7 @@ function run (regl) {
     if (!state.t.field.kuttaCondition) return;
     const R = Math.sqrt((1 - state.t.field.mux)**2 + state.t.field.muy**2);
     state.t.field.circulation = 4 * Math.PI * R * Math.sin((state.t.field.alpha * Math.PI / 180) + Math.asin(state.t.field.muy / R));
-    if (immediate) smootheCirculation = state.t.field.circulation;
+    if (immediate) smoothedCirculation = state.t.field.circulation;
   }
   state.$path.t.field.muy.onChange(() => setCirculation(true));
   state.$path.t.field.kuttaCondition.onChange(({value}) => {
