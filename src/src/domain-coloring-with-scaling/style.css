@@ -1,0 +1,25 @@
+canvas {
+  position: fixed !important;
+  cursor: move;
+}
+.controls__section {
+  pointer-events: all;
+}
+.tick line {
+  stroke: white;
+}
+.tick text {
+  fill: white;
+}
+.domain {
+  stroke: white !important;
+}
+svg.axes {
+  z-index: 1;
+  position: fixed;
+  left: 0;
+  width: 100%;
+  top: 0;
+  height: 100%;
+  pointer-events: none;
+}

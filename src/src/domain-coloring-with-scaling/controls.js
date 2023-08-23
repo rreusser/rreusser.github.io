@@ -42,31 +42,6 @@ canvas {
   user-select: none;
 }
 
-ul {
-  margin: 0;
-  padding: 10px;
-  margin-left: -5px;
-  display: block;
-  overflow: hidden;
-}
-
-li {
-  list-style: none;
-  float: left;
-  width: 33%;
-}
-
-li a {
-  min-width: 75px;
-  display: inline-block;
-  padding: 5px;
-  transition: background-color 0.05s ease-in-out;
-}
-
-li a:hover {
-  background-color: rgba(0, 0, 0, 0.3);
-}
-
 .section {
   padding: 15px;
   margin-bottom: 1em;
