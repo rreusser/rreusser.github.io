@@ -427,8 +427,6 @@ function run (regl) {
       .call(d3.axisLeft(scales.y));
   }
 
-  const pixelRatio = regl._gl.canvas.width / regl._gl.canvas.offsetWidth;
-
   function onResize () {
     const {innerWidth: w, innerHeight: h} = window;
     scales.x.range([margin.l, w - margin.r]);
