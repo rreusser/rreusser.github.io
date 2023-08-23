@@ -40,8 +40,8 @@ function run (regl) {
   const state = GUI(State({
     t: State.Tabs({
       config: State.Section({
-        omega: State.Slider(20.0, {min: 0.05, max: 100.0, step: 0.001, label: 'Frequency, ω'}),
-        nu: State.Slider(0.33, {min: 0, max: 0.49, step: 0.001, label: 'Poisson ratio, ν'}),
+        omega: State.Slider(20.0, {min: 0.05, max: 100.0, step: 0.01, label: 'Frequency, ω'}),
+        nu: State.Slider(0.33, {min: 0, max: 0.49, step: 0.01, label: 'Poisson ratio, ν'}),
         lossTangent: State.Slider(0.12, {min: 0, max: Math.PI * 2 + 1e-8, step: Math.PI / 1000, label: 'Loss tangent'}),
       }, {label: 'Config'}),
       dc: State.Section({
