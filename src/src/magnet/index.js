@@ -13,25 +13,27 @@ css(`
   border-radius: 20px;
   transform: translate(-50%, -50%);
   text-align: center;
-  line-height: 17px;
   vertical-align: middle;
   color: white;
   cursor: move;
-  font-size: 25px;
   user-select: none;
   box-shadow: 0 0 5px rgb(255 255 255/100%);
 }
 .charge.positive:before {
-  content: '+';
+  content: '×';
 }
 .charge.positive {
   background-color: #35f;
+  line-height: 17px;
+  font-size: 25px;
 }
 .charge.negative:before {
-  content: '-';
+  content: '●';
 }
 .charge.negative {
   background-color: #f35;
+  line-height: 20px;
+  font-size: 15px;
 }
 `);
 
