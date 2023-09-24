@@ -2,6 +2,38 @@
 
 var glsl = require('glslify');
 var createControls = require('./controls');
+const css = require('insert-css');
+
+css(`
+.charge {
+  position: fixed;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 20px;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  line-height: 17px;
+  vertical-align: middle;
+  color: white;
+  cursor: move;
+  font-size: 25px;
+  user-select: none;
+  box-shadow: 0 0 5px rgb(255 255 255/100%);
+}
+.charge.positive:before {
+  content: '+';
+}
+.charge.positive {
+  background-color: #35f;
+}
+.charge.negative:before {
+  content: '-';
+}
+.charge.negative {
+  background-color: #f35;
+}
+`);
 
 function createTextureLUT (w, h, stride) {
   stride = stride || 2;
@@ -29,58 +61,14 @@ require('regl')({
   attributes: {antialias: false},
   onDone: require('fail-nicely')(run)
 });
-function instrument (f, tracker) {
-  var original = f;
-  return function () {
-    var args = [];
-    for (var i = 0; i < arguments.length; i++) {
-      args[i] = arguments[i];
-    }
-    var result = f.apply(this, args);
-    tracker.call(this, result, args);
-    return result;
-  }
-}
-
-function instrumentGL (gl) {
-  var state = {
-    buffers: [],
-    textures: [],
-  };
-  gl.createBuffer = instrument(gl.createBuffer, function (buffer) {
-    state.buffers.push(buffer);
-  });
-  gl.deleteBuffer = instrument(gl.deleteBuffer, function (buffer) {
-    var idx = state.buffers.indexOf(buffer);
-    if (idx === -1) {
-      console.warn('Attempting to delete untracked or already deleted buffer', buffer);
-    }
-    state.buffers.splice(idx, 1);
-  });
-  gl.createTexture = instrument(gl.createTexture, function (texture) {
-    state.textures.push(texture);
-  });
-  gl.deleteTexture = instrument(gl.deleteTexture, function (texture) {
-    var idx = state.buffers.indexOf(texture);
-    if (idx === -1) {
-      console.warn('Attempting to delete untracked or already deleted texture', texture);
-    }
-    state.buffers.splice(idx, 1);
-  });
-
-  return state;
-}
 
 function run (regl) {
-  window.glState = instrumentGL(regl._gl);
-
   var state = {
     dirty: true,
     alpha: 1.0,
     steps: 4,
-    width: 2.8,
-    strength: 1.0,
-    resolution: 96
+    width: 3.5,
+    resolution: 128 
   };
 
   var screenWidth, screenHeight, h, w, licRadius, dt, alpha;
@@ -92,7 +80,7 @@ function run (regl) {
     h = state.resolution;
     w = Math.floor(h * screenWidth / screenHeight);;
     licRadius = 0.35;
-    dt = licRadius / state.steps * 0.2;
+    dt = licRadius / state.steps * 0.13;
     alpha = 0.6 / w / state.steps / licRadius / state.width * screenWidth;
   }
 
@@ -133,7 +121,7 @@ function run (regl) {
     {label: 'alpha', type: 'range', min: 0, max: 2, initial: state.alpha, step: 0.01},
     {label: 'steps', type: 'range', min: 2, max: 20, initial: state.steps, step: 1},
     {label: 'resolution', type: 'range', min: 8, max: 512, initial: state.resolution, step: 1},
-    {label: 'width', type: 'range', min: 0.5, max: 4, initial: state.width, step: 0.1},
+    {label: 'width', type: 'range', min: 1.0, max: 4, initial: state.width, step: 0.1},
   ], {
     root: controlRoot
   }).on('input', data => {
@@ -142,12 +130,6 @@ function run (regl) {
     Object.assign(state, data)
     computeConstants();
     if (needsResize) resize();
-  });
-
-  window.addEventListener('mousewheel', function (ev) {
-    ev.preventDefault();
-    state.strength *= Math.exp(-ev.deltaY * 0.01);
-    state.dirty = true;
   });
 
   function onMouseMove (ev) {
@@ -177,6 +159,70 @@ function run (regl) {
 
   regl._gl.canvas.addEventListener('mousemove', onMouseMove);
 
+  const charges = [];
+  const chargeUniforms = [];
+  const NUM_CHARGES = 16;
+  const chargeDivs = [];
+  for (let i = 0; i < NUM_CHARGES; i++) {
+    const position = [
+      (Math.floor(i / 2) / (0.5 * NUM_CHARGES - 1) - 0.5) * 0.7,
+      (i % 2 ? -0.15 : 0.15),
+    ];
+
+    const charge = i % 2 ? 1 : -1;
+    charges.push([...position, charge]);
+    chargeUniforms[`charges[${i}]`] = regl.prop(`charges[${i}]`);
+
+    const aspect = window.innerWidth / window.innerHeight;
+    const div = document.createElement('div');
+    div.classList.add('charge');
+    div.classList.add(charge > 0 ? 'positive' : 'negative');
+    div.style.left = `${(0.5 + 0.5 * position[0] / aspect) * window.innerWidth}px`;
+    div.style.top = `${(0.5 - 0.5 * position[1]) * window.innerHeight}px`;
+    div.setAttribute('data-charge-index', i);
+    document.body.appendChild(div);
+    chargeDivs.push(div);
+  }
+
+  let curIndex = -1;
+  function onDragStart (event) {
+    if (!event.target.classList.contains('charge')) return;
+    curIndex = event.target.getAttribute('data-charge-index');
+    window.addEventListener('mousemove', onDragMove);
+    window.addEventListener('mouseup', onDragEnd);
+  }
+
+  window.addEventListener('resize', function () {
+    for (let i = 0; i < NUM_CHARGES; i++) {
+      positionCharge(i);
+    }
+  });
+
+  function positionCharge(index) {
+    const div = chargeDivs[index];
+    const aspect = window.innerWidth / window.innerHeight;
+    div.style.left = `${(0.5 + 0.5 * charges[index][0] / aspect) * window.innerWidth}px`;
+    div.style.top = `${(0.5 - 0.5 * charges[index][1]) * window.innerHeight}px`;
+  }
+
+  function onDragMove (event) {
+    console.log(event);
+    const aspect = window.innerWidth / window.innerHeight;
+    charges[curIndex][0] = (event.clientX / window.innerWidth * 2 - 1) * aspect;
+    charges[curIndex][1] = 1 - 2 * event.clientY / window.innerHeight;
+    positionCharge(curIndex);
+    state.dirty = true;
+  }
+
+  function onDragEnd (event) {
+    curIndex = -1;
+
+    window.removeEventListener('mouseup', onDragEnd);
+    window.removeEventListener('mousemove', onDragMove);
+  }
+
+  window.addEventListener('mousedown', onDragStart);
+
   var integrate = regl({
     vert: `
       precision mediump float;
@@ -187,39 +233,25 @@ function run (regl) {
         gl_Position = vec4(xy, 0, 1);
       }
     `,
-    frag: glsl`
+    frag: `
       precision highp float;
 
       varying vec2 uv;
       uniform sampler2D src;
       uniform float uDt;
-      uniform float uAspect, uNoiseScale, uNoiseSpeed, uTime, uCylinderRadius, uStrength;
+      uniform float uAspect, uNoiseScale, uNoiseSpeed, uTime, uCylinderRadius;
       uniform vec2 uCenter;
+      uniform vec3 charges[${NUM_CHARGES}];
 
       vec2 dfdt (vec2 f) {
-        vec2 p1 = vec2(0.0, -0.5);
-        vec2 p2 = vec2(0.0, 0.5);
-
-        vec2 dx1 = f - p1;
-        vec2 dx2 = f - p2;
-        float r2_1 = dot(dx1, dx1);
-        float r2_2 = dot(dx2, dx2);
-
-        // A dipole
-        float dy = 0.01;
-        vec2 dx3 = f - uCenter + vec2(0.0, dy).yx;
-        float r2_3 = dot(dx3, dx3);
-        vec2 dx4 = f - uCenter - vec2(0.0, dy).yx;
-        float r2_4 = dot(dx4, dx4);
-        
-        vec2 force = (
-          dx1 / r2_1 +
-          -dx2 / r2_2 +
-          (dx3 / r2_3 - dx4 / r2_4) / dy * uStrength
-        );
-
+        vec2 force = vec2(0);
+        for (int i = 0; i < ${NUM_CHARGES}; i++) {
+          vec2 dx = f - charges[i].xy;
+          float r2 = dot(dx, dx);
+          force += charges[i].z * vec2(dx.y, -dx.x) / r2;
+        }
         float l = dot(force, force);
-        return force / pow(l, 0.6);
+        return force / pow(l, 0.4) * 0.7;
       }
 
       vec4 deriv4 (vec4 f) {
@@ -243,15 +275,14 @@ function run (regl) {
       }
     `,
     attributes: {xy: [-4, -4, 0, 4, 4, -4]},
-    uniforms: {
+    uniforms: Object.assign({
       uTime: ctx => ctx.time,
       uAspect: () => screenWidth / screenHeight,
       src: regl.prop('src'),
       uResolution: ctx => [1 / ctx.framebufferWidth, 1 / ctx.framebufferHeight],
       uDt: dt,
       uCenter: () => state.center,
-      uStrength: () => state.strength,
-    },
+    }, chargeUniforms),
     framebuffer: regl.prop('dst'),
     depth: {enable: false},
     count: 3
@@ -399,41 +430,46 @@ function run (regl) {
     return Math.exp(-Math.pow(x / 0.5, 2.0) * 0.5);
   }
   
-  regl.frame(({tick}) => {
-    if (!state.dirty) return;
-    //if (tick % 3 !== 1) return;
-    //if (!state.dirty) return;
-    licAccumulatorFbo.use(() => regl.clear({color: [0, 0, 0, 1]}));
-    initialize({dst: stateFbos[0]});
+  let loop = regl.frame(({tick}) => {
+    try {
+      if (!state.dirty) return;
+      //if (tick % 3 !== 1) return;
+      //if (!state.dirty) return;
+      licAccumulatorFbo.use(() => regl.clear({color: [0, 0, 0, 1]}));
+      initialize({dst: stateFbos[0]});
 
-    licAccumulatorFbo.use(() => {
-      for (var i = 0; i < state.steps; i++) {
-        var even = i % 2;
-        var odd = (i + 1) % 2;
+      licAccumulatorFbo.use(() => {
+        for (var i = 0; i < state.steps; i++) {
+          var even = i % 2;
+          var odd = (i + 1) % 2;
 
-        integrate({
-          src: states[even],
-          dst: stateFbos[odd]
-        });
+          integrate({
+            src: states[even],
+            dst: stateFbos[odd],
+            charges
+          });
 
-        drawLines([{
-          dir: 0,
-          x: [i + odd, i + even],
-          lineWidth: state.width,
-          intensity: [i + even, i + odd].map(i => kernel(i / (state.steps - 1)))
-        }, {
-          dir: 1,
-          x: [i + even, i + odd],
-          lineWidth: state.width,
-          intensity: [i + even, i + odd].map(i => kernel(i / (state.steps - 1)))
-        }]);
-      }
-    });
-  
-    regl.clear({color: [0, 0, 0, 1]});
-    copy({src: licAccumulatorFbo});
+          drawLines([{
+            dir: 0,
+            x: [i + odd, i + even],
+            lineWidth: state.width,
+            intensity: [i + even, i + odd].map(i => kernel(i / (state.steps - 1)))
+          }, {
+            dir: 1,
+            x: [i + even, i + odd],
+            lineWidth: state.width,
+            intensity: [i + even, i + odd].map(i => kernel(i / (state.steps - 1)))
+          }]);
+        }
+      });
+    
+      regl.clear({color: [0, 0, 0, 1]});
+      copy({src: licAccumulatorFbo});
 
-    state.dirty = false;
+      state.dirty = false;
+    } catch (e) {
+      loop.cancel();
+      console.error(e);
+    }
   });
-
 }
