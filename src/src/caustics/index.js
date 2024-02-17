@@ -33,7 +33,7 @@ body > canvas {
 }
 `);
 
-const regl = createREGL({
+createREGL({
   extensions: [
     'OES_element_index_uint',
     'OES_texture_half_float',
@@ -43,74 +43,77 @@ const regl = createREGL({
     antialias: false,
     depthStencil: false,
     alpha: false
-  }
+  },
+  onDone: require('fail-nicely')(run)
 });
 
-const n = 200;
-const drawBlur = require('./draw-blur.js')(regl);
-const drawMesh = require('./draw-mesh.js')(regl, n);
-const transfer = require('./transfer.js')(regl);
-const transferToScreen = require('./transfer-to-screen.js')(regl);
+function run (regl) {
+  const n = 200;
+  const drawBlur = require('./draw-blur.js')(regl);
+  const drawMesh = require('./draw-mesh.js')(regl, n);
+  const transfer = require('./transfer.js')(regl);
+  const transferToScreen = require('./transfer-to-screen.js')(regl);
 
-const fbo = [0, 1].map(() => regl.framebuffer({
-  color: regl.texture({
-    width: regl._gl.canvas.width,
-    height: regl._gl.canvas.height,
-    type: 'float16'
-  })
-}));
+  const fbo = [0, 1].map(() => regl.framebuffer({
+    color: regl.texture({
+      width: regl._gl.canvas.width,
+      height: regl._gl.canvas.height,
+      type: 'float16'
+    })
+  }));
 
-const downsize = 8;
-const bloomFbo = [0, 1].map(() => regl.framebuffer({
-  color: regl.texture({
-    width: (regl._gl.canvas.width / downsize) | 0,
-    height: (regl._gl.canvas.height / downsize) | 0,
-    type: 'float16',
-    min: 'linear',
-    mag: 'linear',
-  })
-}));
+  const downsize = 8;
+  const bloomFbo = [0, 1].map(() => regl.framebuffer({
+    color: regl.texture({
+      width: (regl._gl.canvas.width / downsize) | 0,
+      height: (regl._gl.canvas.height / downsize) | 0,
+      type: 'float16',
+      min: 'linear',
+      mag: 'linear',
+    })
+  }));
 
-const loop = regl.frame(() => {
-  try {
-    fbo.forEach(fbo => fbo.resize(regl._gl.canvas.width, regl._gl.canvas.height));
-    bloomFbo.forEach(fbo => fbo.resize((regl._gl.canvas.width / downsize) | 0, (regl._gl.canvas.height / downsize) | 0));
+  const loop = regl.frame(() => {
+    try {
+      fbo.forEach(fbo => fbo.resize(regl._gl.canvas.width, regl._gl.canvas.height));
+      bloomFbo.forEach(fbo => fbo.resize((regl._gl.canvas.width / downsize) | 0, (regl._gl.canvas.height / downsize) | 0));
 
-    fbo[0].use(() => {
-      regl.clear({color: [0, 0, 0, 0]});
-      drawMesh({alpha: 0.5, ...PARAMS});
-    });
-
-    if (PARAMS.bloom) {
-      bloomFbo[0].use(() => {
+      fbo[0].use(() => {
         regl.clear({color: [0, 0, 0, 0]});
-        drawMesh({
-          ...PARAMS,
-          alpha: 0.1 * PARAMS.bloom * PARAMS.alpha,
-        });
+        drawMesh({alpha: 0.5, ...PARAMS});
       });
 
-      for (let i = 0; i < 2; i++) {
-        bloomFbo[1].use(() => {
-          regl.clear({color: [0, 0, 0, 0]});
-          drawBlur({src: bloomFbo[0], direction: [1, 0]});
-        });
+      if (PARAMS.bloom) {
         bloomFbo[0].use(() => {
           regl.clear({color: [0, 0, 0, 0]});
-          drawBlur({src: bloomFbo[1], direction: [0, 1]});
+          drawMesh({
+            ...PARAMS,
+            alpha: 0.1 * PARAMS.bloom * PARAMS.alpha,
+          });
         });
+
+        for (let i = 0; i < 2; i++) {
+          bloomFbo[1].use(() => {
+            regl.clear({color: [0, 0, 0, 0]});
+            drawBlur({src: bloomFbo[0], direction: [1, 0]});
+          });
+          bloomFbo[0].use(() => {
+            regl.clear({color: [0, 0, 0, 0]});
+            drawBlur({src: bloomFbo[1], direction: [0, 1]});
+          });
+        }
       }
+
+      fbo[1].use(() => {
+        regl.clear({color: [PARAMS.background.r, PARAMS.background.g, PARAMS.background.b, 1]});
+        transfer({src: fbo[0]});
+        if (PARAMS.bloom) transfer({src: bloomFbo[0] });
+      });
+
+      transferToScreen({src: fbo[1], ...PARAMS})
+    } catch (e) {
+      console.error(e);
+      loop.cancel();
     }
-
-    fbo[1].use(() => {
-      regl.clear({color: [PARAMS.background.r, PARAMS.background.g, PARAMS.background.b, 1]});
-      transfer({src: fbo[0]});
-      if (PARAMS.bloom) transfer({src: bloomFbo[0] });
-    });
-
-    transferToScreen({src: fbo[1], ...PARAMS})
-  } catch (e) {
-    console.error(e);
-    loop.cancel();
-  }
-});
+  });
+}
