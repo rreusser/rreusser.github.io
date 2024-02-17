@@ -26,6 +26,11 @@ html, body {
 body > canvas {
   z-index: -1;
 }
+
+.sketch-nav {
+  right: auto !important;
+  left: 0 !important;
+}
 `);
 
 const regl = createREGL({
