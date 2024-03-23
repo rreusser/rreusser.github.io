@@ -1,0 +1,6 @@
+{
+  "title": "Kuramoto",
+  "description": "The Kuramoto model for a system of spatially coupled oscillators",
+  "order": 3700,
+  "image": "http://rreusser.github.io/src/src/kuramoto/thumbnail.jpg"
+}
