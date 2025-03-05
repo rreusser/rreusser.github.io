@@ -1,5 +1,5 @@
 const React = require('react');
-import regl from 'regl';
+import regl from 'regl/dist/regl.js';
 import mat4lookAt from 'gl-mat4/lookAt'
 import mat4perspective from 'gl-mat4/perspective'
 import mat4multiply from 'gl-mat4/multiply'
@@ -45,74 +45,48 @@ function Sim1 (regl) {
 }
 
 function Sim2 (regl) {
-  var nOrigins = 9;
-  var originUniforms = {};
-  var x0 = [];
-  var t0 = [];
-  function randomizeOrigin (i, t, ar) {
-    var y = Math.random() * 2 - 1;
-    x0[i] = [(Math.random() * 2 - 1) * ar, Math.sign(y) * Math.sqrt(Math.abs(y))];
-    t0[i] = t;
-  }
-
-  for (var i = 0; i < nOrigins; i++) {
-    randomizeOrigin(i, 1 + Math.sqrt(i * 5), 1);
-    (function (ii) {
-      originUniforms['origin[' + ii + ']'] = () => x0[ii];
-      originUniforms['t0[' + ii + ']'] = () => t0[ii];
-    })(i);
-  }
-
-  const draw = regl({
+  return regl({
     frag: `
       precision mediump float;
       varying vec2 uv;
-      uniform float t;
       uniform vec3 bgColor;
-      uniform vec2 origin[${nOrigins}];
-      uniform float t0[${nOrigins}];
+      uniform float t;
+      #define PI ${Math.PI}
+
+      const mat2 a = mat2(sqrt(3.0) * 0.5, 0, 0.5, 1) * (2.0 / sqrt(3.0));
+      const mat2 ai = mat2(2.0 / sqrt(3.0), 0, -1.0 / sqrt(3.0), 1) * (sqrt(3.0) / 2.0);
+      const float c = cos(30. * PI / 180.);
+      const float s = sin(30. * PI / 180.);
+
+      float hex (vec2 xy) {
+        xy = mat2(c, s, -s, c) * xy;
+        vec2 p = a * xy;
+        vec2 pd = fract(p + 0.5) - 0.5;
+        float r = length(ai * pd);
+        return min(r, 0.5 * sqrt(3.0) / 2.0);
+      }
+
       void main () {
-        float v = 2.0;
-        float k = 10.0;
-        float w = v * k;
-        float wt = w * t;
-        float totalMag = 0.0;
-
-        float r, kwt, mag, falloff, phase, roll;
-
-        for (int i = 0; i < ${nOrigins}; i++) {
-          r = length(uv - origin[i]);
-          phase = k * r - w * (t - t0[i]);
-          roll = smoothstep(0.0, -2.0, phase) * smoothstep(-80.0, -30.0, phase) * exp(-(-phase - 5.0) / 80.0);
-          mag = sin(phase) * roll;
-
-          totalMag += mag;
+        float f = 0.0;
+        for (int i = 0; i < 3; i++) {
+          float th = float(i) * (2.0 * PI / 3.0) * (0.5 + 0.12358 * float(i));
+          vec2 v = vec2(cos(th), sin(th));
+          f += 0.3 * smoothstep(0.4, 0.3, hex(uv - t * v));
         }
-
-        totalMag *= totalMag;
+        f *= f;
 
         gl_FragColor = mix(
-          vec4(1, 1, 1, 1),
           vec4(bgColor, 1),
-          smoothstep(6.0, 0.3, totalMag)
+          vec4(1, 1, 1, 1),
+          f
         );
       }
     `,
-    uniforms: Object.assign({
+    uniforms: {
       heightwiseAspect: ctx => [ctx.viewportWidth / ctx.viewportHeight, 1],
       widthwiseAspect: ctx => [1, ctx.viewportHeight / ctx.viewportWidth]
-    }, originUniforms),
+    },
   });
-
-  return function (ctx, reset) {
-    for (i = 0; i < nOrigins; i++) {
-      var t = originUniforms['t0[' + i + ']']();
-      var standoff = 6.0;
-      if (ctx.time > 3.0 && ctx.time > t + standoff) {
-        randomizeOrigin(i, ctx.time + standoff * Math.random(), ctx.framebufferWidth / ctx.framebufferHeight); }
-    }
-    draw();
-  }
 }
 
 function Sim3 (regl) {
