@@ -173,7 +173,7 @@ function updateNestedSquares() {
     }
 
     if (squareSize < threshold) {
-      if (Math.abs(squareSize) < 1e-8) {
+      if (Math.abs(squareSize) < 1e-10) {
         terms.push(0);
       }
       break;
