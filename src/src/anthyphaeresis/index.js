@@ -28,7 +28,7 @@ aspectRatioContainer.appendChild(aspectRatioLabel);
 const aspectRatioInput = document.createElement("input");
 aspectRatioInput.style.pointerEvents = "all";
 aspectRatioInput.type = "text";
-aspectRatioInput.value = "sqrt(3)"; // Initial value
+aspectRatioInput.value = "sqrt(2)"; // Initial value
 aspectRatioInput.style.background = "rgba(255,255,255,0.05)";
 aspectRatioInput.style.border = "1px solid rgba(255, 255, 255, 0.5)";
 aspectRatioInput.style.borderRadius = "5px";
