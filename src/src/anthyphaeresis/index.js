@@ -41,6 +41,18 @@ aspectRatioContainer.appendChild(aspectRatioInput);
 
 document.body.appendChild(aspectRatioContainer);
 
+const termsDisplay = document.createElement("div");
+termsDisplay.style.position = "absolute";
+termsDisplay.style.bottom = "10px";
+termsDisplay.style.right = "10px";
+termsDisplay.style.color = "white";
+termsDisplay.style.fontSize = "20px";
+termsDisplay.style.zIndex = "1000";
+termsDisplay.style.pointerEvents = "none";
+termsDisplay.style.fontFamily = "serif";
+termsDisplay.style.textShadow = "0 0 5px black";
+document.body.appendChild(termsDisplay);
+
 let width = window.innerWidth;
 let height = window.innerHeight;
 
@@ -65,7 +77,7 @@ let k = 1;
 // Define the zoom behavior
 const zoom = d3
   .zoom()
-  .scaleExtent([0.5, 100000]) // Set zoom scale limits
+  .scaleExtent([0.1, 100000]) // Set zoom scale limits
   .on("zoom", (event) => {
     const transform = event.transform;
     k = transform.k;
@@ -123,23 +135,26 @@ aspectRatioInput.addEventListener("input", (event) => {
   try {
     const value = new Function(`
       const { ${Object.getOwnPropertyNames(Math).join(", ")} } = Math;
-      return (${event.target.value})
+      return Math.abs(${event.target.value});
     `)();
     if (isNaN(value) || value <= 0) return;
     setAspectRatio(value);
   } catch (e) {
+    console.log(e);
     return;
   }
 });
 
 // Function to draw nested squares
 function updateNestedSquares() {
-  const threshold = 0.01; // Minimum size of squares to stop nesting
+  const threshold = 0.00001; // Minimum size of squares to stop nesting
   const squares = [];
   let remainingVertices = [...vertices];
 
   let depth = -1;
   let curSize = Infinity;
+  let cnt = 0;
+  let terms = [];
   while (true) {
     const [topLeft, topRight, bottomRight, bottomLeft] = remainingVertices;
 
@@ -149,13 +164,21 @@ function updateNestedSquares() {
 
     // Determine the size of the largest square that can fit
     const squareSize = Math.min(rectWidth, rectHeight);
+    cnt++;
 
     if (squareSize < curSize) {
       depth++;
+      if (depth > 0) terms.push(cnt);
+      cnt = 0;
       curSize = squareSize;
     }
 
-    if (squareSize < threshold) break;
+    if (squareSize < threshold) {
+      if (Math.abs(squareSize) < 1e-8) {
+        terms.push(0);
+      }
+      break;
+    }
 
     // Add the square to the data array
     squares.push({
@@ -183,6 +206,12 @@ function updateNestedSquares() {
         bottomLeft,
       ];
     }
+  }
+  if (terms[terms.length - 1] === 0) {
+    terms.pop();
+    termsDisplay.innerText = `[${terms[0]}; ${terms.slice(1).join(", ")}]`;
+  } else {
+    termsDisplay.innerText = `[${terms[0]}; ${terms.slice(1).join(", ")}, ...]`;
   }
 
   // Bind the data to the squares
