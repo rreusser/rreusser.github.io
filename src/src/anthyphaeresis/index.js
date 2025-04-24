@@ -120,9 +120,16 @@ function setAspectRatio(aspectRatio) {
 }
 
 aspectRatioInput.addEventListener("input", (event) => {
-  const value = parseFloat(event.target.value);
-  if (isNaN(value) || value <= 0) return;
-  setAspectRatio(value);
+  try {
+    const value = new Function(`
+      const { ${Object.getOwnPropertyNames(Math).join(", ")} } = Math;
+      return (${event.target.value})
+    `)();
+    if (isNaN(value) || value <= 0) return;
+    setAspectRatio(value);
+  } catch (e) {
+    return;
+  }
 });
 
 // Function to draw nested squares
@@ -241,7 +248,7 @@ const circles = zoomableGroup
 // Adjust circle radius on zoom to keep size fixed
 svg.on("zoom", (event) => {
   const transform = event.transform;
-  circles.attr("r", 6 / transform.k); // Scale radius inversely with zoom level
+  circles.attr("r", 12 / transform.k); // Scale radius inversely with zoom level
 });
 
 // Update the rectangle and circles
@@ -250,7 +257,7 @@ function update(feedback = true) {
   circles
     .attr("cx", (d) => d.x)
     .attr("cy", (d) => d.y)
-    .attr("r", 6 / k);
+    .attr("r", 12 / k);
 
   updateNestedSquares();
   circles.raise();
