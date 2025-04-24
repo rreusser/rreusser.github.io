@@ -48,7 +48,7 @@ let k = 1;
 // Define the zoom behavior
 const zoom = d3
   .zoom()
-  .scaleExtent([0.5, 100000]) // Set zoom scale limits
+  .scaleExtent([0.5, 10000]) // Set zoom scale limits
   .on("zoom", (event) => {
     const transform = event.transform;
     k = transform.k;
@@ -92,7 +92,7 @@ function updateAspectRatioDisplay() {
 
 // Function to draw nested squares
 function updateNestedSquares() {
-  const threshold = 0.01; // Minimum size of squares to stop nesting
+  const threshold = 0.001; // Minimum size of squares to stop nesting
   const squares = [];
   let remainingVertices = [...vertices];
 
