@@ -22,7 +22,7 @@ aspectRatioContainer.style.fontFamily = "monospace";
 aspectRatioContainer.style.textShadow = "0 0 5px black";
 
 const aspectRatioLabel = document.createElement("span");
-aspectRatioLabel.innerText = "Aspect Ratio: ";
+aspectRatioLabel.innerText = "Input: ";
 aspectRatioContainer.appendChild(aspectRatioLabel);
 
 const aspectRatioInput = document.createElement("input");
