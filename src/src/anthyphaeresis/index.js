@@ -29,13 +29,14 @@ const aspectRatioInput = document.createElement("input");
 aspectRatioInput.style.pointerEvents = "all";
 aspectRatioInput.type = "text";
 aspectRatioInput.value = "1.4142135623730951"; // Initial value
-aspectRatioInput.style.background = "transparent";
+aspectRatioInput.style.background = "rgba(255,255,255,0.05)";
 aspectRatioInput.style.border = "1px solid rgba(255, 255, 255, 0.5)";
 aspectRatioInput.style.borderRadius = "5px";
 aspectRatioInput.style.padding = "5px";
 aspectRatioInput.style.color = "white";
 aspectRatioInput.style.fontSize = "20px";
 aspectRatioInput.style.fontFamily = "monospace";
+aspectRatioInput.style.textShadow = "0 0 5px black";
 aspectRatioContainer.appendChild(aspectRatioInput);
 
 document.body.appendChild(aspectRatioContainer);
