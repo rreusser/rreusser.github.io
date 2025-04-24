@@ -48,7 +48,7 @@ termsDisplay.style.right = "10px";
 termsDisplay.style.color = "white";
 termsDisplay.style.fontSize = "20px";
 termsDisplay.style.zIndex = "1000";
-termsDisplay.style.pointerEvents = "none";
+//termsDisplay.style.pointerEvents = "none";
 termsDisplay.style.fontFamily = "serif";
 termsDisplay.style.textShadow = "0 0 5px black";
 document.body.appendChild(termsDisplay);
@@ -140,7 +140,6 @@ aspectRatioInput.addEventListener("input", (event) => {
     if (isNaN(value) || value <= 0) return;
     setAspectRatio(value);
   } catch (e) {
-    console.log(e);
     return;
   }
 });
