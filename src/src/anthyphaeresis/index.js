@@ -10,20 +10,36 @@ body {
   background: #333;
 }
 `);
+const aspectRatioContainer = document.createElement("div");
+aspectRatioContainer.style.position = "absolute";
+aspectRatioContainer.style.top = "10px";
+aspectRatioContainer.style.left = "10px";
+aspectRatioContainer.style.color = "white";
+aspectRatioContainer.style.fontSize = "20px";
+aspectRatioContainer.style.zIndex = "1000";
+aspectRatioContainer.style.pointerEvents = "none";
+aspectRatioContainer.style.fontFamily = "monospace";
+aspectRatioContainer.style.textShadow = "0 0 5px black";
 
-const aspectRatioDisplay = document.createElement("div");
-aspectRatioDisplay.style.position = "absolute";
-aspectRatioDisplay.style.top = "10px";
-aspectRatioDisplay.style.left = "10px";
-aspectRatioDisplay.style.color = "white";
-aspectRatioDisplay.style.fontSize = "20px";
-aspectRatioDisplay.style.zIndex = "1000";
-aspectRatioDisplay.style.pointerEvents = "none";
-aspectRatioDisplay.style.fontFamily = "monospace";
-aspectRatioDisplay.style.textShadow = "0 0 5px black";
-document.body.appendChild(aspectRatioDisplay);
+const aspectRatioLabel = document.createElement("span");
+aspectRatioLabel.innerText = "Aspect Ratio: ";
+aspectRatioContainer.appendChild(aspectRatioLabel);
 
-// Set up the SVG canvas
+const aspectRatioInput = document.createElement("input");
+aspectRatioInput.style.pointerEvents = "all";
+aspectRatioInput.type = "text";
+aspectRatioInput.value = "1.4142135623730951"; // Initial value
+aspectRatioInput.style.background = "transparent";
+aspectRatioInput.style.border = "1px solid rgba(255, 255, 255, 0.5)";
+aspectRatioInput.style.borderRadius = "5px";
+aspectRatioInput.style.padding = "5px";
+aspectRatioInput.style.color = "white";
+aspectRatioInput.style.fontSize = "20px";
+aspectRatioInput.style.fontFamily = "monospace";
+aspectRatioContainer.appendChild(aspectRatioInput);
+
+document.body.appendChild(aspectRatioContainer);
+
 let width = window.innerWidth;
 let height = window.innerHeight;
 
@@ -48,7 +64,7 @@ let k = 1;
 // Define the zoom behavior
 const zoom = d3
   .zoom()
-  .scaleExtent([0.5, 10000]) // Set zoom scale limits
+  .scaleExtent([0.5, 100000]) // Set zoom scale limits
   .on("zoom", (event) => {
     const transform = event.transform;
     k = transform.k;
@@ -76,23 +92,41 @@ const rectHeight = rectWidth / Math.sqrt(2);
 const centerX = width / 2;
 const centerY = height / 2;
 
-let vertices = [
-  { x: centerX - rectWidth / 2, y: centerY - rectHeight / 2 },
-  { x: centerX + rectWidth / 2, y: centerY - rectHeight / 2 },
-  { x: centerX + rectWidth / 2, y: centerY + rectHeight / 2 },
-  { x: centerX - rectWidth / 2, y: centerY + rectHeight / 2 },
-];
+let vertices = (window.vertices = [
+  { x: centerX - rectWidth / 2, y: centerY - rectHeight / 2 }, // Top-left
+  { x: centerX + rectWidth / 2, y: centerY - rectHeight / 2 }, // Top-right
+  { x: centerX + rectWidth / 2, y: centerY + rectHeight / 2 }, // Bottom-right
+  { x: centerX - rectWidth / 2, y: centerY + rectHeight / 2 }, // Bottom-left
+]);
 
 function updateAspectRatioDisplay() {
   const width = Math.abs(vertices[1].x - vertices[0].x);
   const height = Math.abs(vertices[3].y - vertices[0].y);
   const aspectRatio = (width / height).toFixed(14);
-  aspectRatioDisplay.innerText = `Aspect Ratio: ${aspectRatio}`;
+  aspectRatioInput.value = aspectRatio;
 }
+
+function setAspectRatio(aspectRatio) {
+  const width = Math.abs(vertices[1].x - vertices[0].x);
+  const height = width / aspectRatio;
+  vertices[1].x = vertices[0].x + width;
+  vertices[1].y = vertices[0].y;
+  vertices[2].x = vertices[0].x + width;
+  vertices[2].y = vertices[0].y + height;
+  vertices[3].x = vertices[0].x;
+  vertices[3].y = vertices[0].y + height;
+  update(false);
+}
+
+aspectRatioInput.addEventListener("input", (event) => {
+  const value = parseFloat(event.target.value);
+  if (isNaN(value) || value <= 0) return;
+  setAspectRatio(value);
+});
 
 // Function to draw nested squares
 function updateNestedSquares() {
-  const threshold = 0.001; // Minimum size of squares to stop nesting
+  const threshold = 0.01; // Minimum size of squares to stop nesting
   const squares = [];
   let remainingVertices = [...vertices];
 
@@ -210,17 +244,16 @@ svg.on("zoom", (event) => {
 });
 
 // Update the rectangle and circles
-function update() {
+function update(feedback = true) {
   rect.attr("points", vertices.map((d) => `${d.x},${d.y}`).join(" "));
   circles
     .attr("cx", (d) => d.x)
     .attr("cy", (d) => d.y)
-    .attr("r", 6 / k); // Adjust radius based on zoom level
+    .attr("r", 6 / k);
 
   updateNestedSquares();
   circles.raise();
-
-  updateAspectRatioDisplay();
+  if (feedback) updateAspectRatioDisplay();
 }
 
 // Initial update
