@@ -44,7 +44,7 @@ document.body.appendChild(aspectRatioContainer);
 const termsDisplay = document.createElement("div");
 termsDisplay.style.position = "absolute";
 termsDisplay.style.bottom = "10px";
-termsDisplay.style.right = "10px";
+termsDisplay.style.left = "10px";
 termsDisplay.style.color = "white";
 termsDisplay.style.fontSize = "20px";
 termsDisplay.style.zIndex = "1000";
@@ -165,7 +165,7 @@ function updateNestedSquares() {
     const squareSize = Math.min(rectWidth, rectHeight);
     cnt++;
 
-    if (squareSize < curSize) {
+    if (squareSize < curSize - 1e-11) {
       depth++;
       if (depth > 0) terms.push(cnt);
       cnt = 0;
