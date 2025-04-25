@@ -77,7 +77,7 @@ let k = 1;
 // Define the zoom behavior
 const zoom = d3
   .zoom()
-  .scaleExtent([0.1, 100000]) // Set zoom scale limits
+  .scaleExtent([0.1, 10000]) // Set zoom scale limits
   .on("zoom", (event) => {
     const transform = event.transform;
     k = transform.k;
@@ -134,8 +134,8 @@ function setAspectRatio(aspectRatio) {
 aspectRatioInput.addEventListener("input", (event) => {
   try {
     const value = new Function(`
-      const { ${Object.getOwnPropertyNames(Math).join(", ")} } = Math;
-      return Math.abs(${event.target.value});
+      const { ${Object.getOwnPropertyNames(Math).map(name => `${name}: ${name.toLowerCase()}`).join(", ")} } = Math;
+      return Math.abs(${event.target.value.toLowerCase()});
     `)();
     if (isNaN(value) || value <= 0) return;
     setAspectRatio(value);
