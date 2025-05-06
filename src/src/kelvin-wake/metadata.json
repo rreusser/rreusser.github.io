@@ -1,6 +1,6 @@
 {
-  "title": "Kuramoto",
-  "description": "The Kuramoto model for a system of spatially coupled oscillators",
-  "order": 3700,
-  "image": "http://rreusser.github.io/src/src/kuramoto/thumbnail.jpg"
+  "title": "Kelvin Wake Pattern",
+  "description": "Visualizing the velocity-independent wake angle in deep water waves",
+  "order": 3900,
+  "image": "http://rreusser.github.io/src/src/kelvin-wake/thumbnail.jpg"
 }

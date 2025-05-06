@@ -8,20 +8,21 @@ const mat4fromScaling = require('gl-mat4/fromScaling');
 const { Pane } = require('../../lib/tweakpane.js');
 
 const PARAMS = window.p = {
-  kCenter: 0.67,
-  kRange: 0.0,
+  lCenter: 0.5,
+  lRange: 0.5,
   speed: 1.0,
 };
 
 const pane = window.pane = new Pane({title: 'Parameters'});
-pane.addBinding(PARAMS, 'kCenter', {min: 0, max: 1});
-pane.addBinding(PARAMS, 'kRange', {min: 0, max: 1});
-pane.addBinding(PARAMS, 'speed', {min: 0, max: 2});
+pane.addBinding(PARAMS, 'lRange', {min: 0.01, max: 1, label: 'wavelength spread, ∆λ', step: 0.01});
+pane.addBinding(PARAMS, 'lCenter', {min: 0, max: 1, label: 'wavelength center, λ₀', step: 0.01});
+pane.addBinding(PARAMS, 'speed', {min: 0.5, max: 2, step: 0.01});
 
 require('insert-css')(`
 html, body { background: #333; }
 body > canvas { z-index: -1; }
 .sketch-nav { right: auto !important; left: 0 !important;
+.tp-dfwv { position: fixed !important; }
 }`);
 
 createREGL({
@@ -79,9 +80,9 @@ function run (regl) {
 
       precision highp float;
       varying vec2 xy;
-      uniform float kCenter, kRange, speed;
+      uniform float lCenter, lRange, speed;
 
-      vec3 COL = vec3(51, 107, 207) / 255. * 1.25;
+      vec3 COL = vec3(0, 107, 227) / 255. * 1.25;
       vec3 GAMMA = vec3(2.2);
 
       vec3 tanh(vec3 x) {
@@ -100,28 +101,30 @@ function run (regl) {
         float km = ${Math.PI * 2} * 4.0;
         float weightSum = 0.0;
 
-        float fracMin = max(0.0, kCenter - kRange);
-        float fracMax = min(kCenter + kRange, 1.0);
+        float fracMin = lCenter - lRange;
+        float fracMax = lCenter + lRange;
         const float fracStationary = 2.0 / 3.0;
 
-        vp = w/k = sqrt(g/k)
-
         const int N = 64;
-        vec2 computeFrac = vec2(fracMin, (fracMax - fracMin) / float(N - 1));
+        vec2 computeFrac = vec2(fracMin, (fracMax - fracMin)) / speed;
         for (int i = 0; i < N; i++) {
-          float frac = dot(vec2(1.0, float(i)), computeFrac);
+          float t = float(i) / float(N-1);
+          //float frac = dot(vec2(1.0, t), computeFrac);
+          float frac = t;
+          float strength = exp(-pow((frac - lCenter / speed) / lRange, 2.0));
 
-          float weight = exp(-pow(frac-kCenter, 2.0) * 8.0);
+          if (frac > 1.0) continue;
 
-          frac *= speed;
           vec2 k = (km/frac) * vec2(sqrt(frac), sqrt(1.0 - frac));
+          k /= speed;
 
+          float weight = frac * strength* (0.1 + 0.9 * t * (1.0 - t));
           f += weight * sin(min(dot(k, r), 0.0));
           weightSum += weight;
         }
-        f /= weightSum;
+        if (weightSum > 0.0) f /= weightSum;
 
-        vec3 col = pow(COL, GAMMA) + f * 1.5;
+        vec3 col = pow(COL, GAMMA) + f * 2.5;
         col = 0.5 + 0.5 * tanh(col - 0.5);
         gl_FragColor = vec4(pow(col, 1.0/GAMMA), 1);
 
@@ -130,12 +133,12 @@ function run (regl) {
         const vec2 kKelvin = vec2(sin(thetaKelvin), cos(thetaKelvin));
         float fIdeal = dot(kKelvin, r);
         fIdeal /= fwidth(fIdeal);
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1, 0, 0), linearstep(1.5, 0.5, abs(fIdeal)));
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1, 0, 0), 0.5 * linearstep(2.5, 1.5, abs(fIdeal)));
       }`,
     attributes: { uv: [-4, -4, 4, -4, 0, 4] },
     uniforms: {
-      kCenter: regl.prop('kCenter'),
-      kRange: regl.prop('kRange'),
+      lCenter: regl.prop('lCenter'),
+      lRange: regl.prop('lRange'),
       speed: regl.prop('speed'),
     },
     depth: {enable: false},
