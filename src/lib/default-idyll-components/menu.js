@@ -18,6 +18,7 @@ class Menu extends React.Component {
     return (
       <nav className="menu">
         <a className="menu__item" href="/">rreusser.github.io</a>
+        <a className="menu__item" href="/notebooks/">notebooks</a>
         <a className="menu__item" href="/sketches/">sketches</a>
         <a className="menu__item" href="/projects/">projects</a>
         <a className="menu__item" href="/trains-and-trails/">running</a>
