@@ -28,7 +28,7 @@ aspectRatioContainer.appendChild(aspectRatioLabel);
 const aspectRatioInput = document.createElement("input");
 aspectRatioInput.style.pointerEvents = "all";
 aspectRatioInput.type = "text";
-aspectRatioInput.value = "sqrt(2)"; // Initial value
+aspectRatioInput.value = "2 / (sqrt(5) - 1)"; // Initial value
 aspectRatioInput.style.background = "rgba(255,255,255,0.05)";
 aspectRatioInput.style.border = "1px solid rgba(255, 255, 255, 0.5)";
 aspectRatioInput.style.borderRadius = "5px";
@@ -101,7 +101,7 @@ svg.call(zoom);
 
 // Initial rectangle vertices
 const rectWidth = 0.8 * width;
-const rectHeight = rectWidth / Math.sqrt(2);
+const rectHeight = rectWidth / (2 / (Math.sqrt(5) - 1));
 const centerX = width / 2;
 const centerY = height / 2;
 
