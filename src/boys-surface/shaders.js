@@ -75,7 +75,7 @@ fn surfaceF(rv: vec2f) -> vec3f {
 @vertex
 fn vs(@location(0) uv: vec2f) -> VertexOutput {
   var out: VertexOutput;
-  let r = mix(u.rmin, u.rmax, uv.x);
+  let r = uv.x;
   let rv = vec2f(r, uv.y);
   out.vUV = rv;
   let pos = surfaceF(rv);
@@ -132,7 +132,7 @@ fn computeShading(pos: vec3f, normal: vec3f, frontFacing: bool) -> vec3f {
 
   let normalSign = select(-1.0, 1.0, frontFacing);
   let colorFromNormal = 0.5 + normalSign * 0.5 * normal;
-  let baseColor = select(vec3f(0.9, 0.2, 0.1), vec3f(0.1, 0.4, 0.8), frontFacing);
+  let baseColor = select(vec3f(0.1, 0.4, 0.8), vec3f(0.9, 0.2, 0.1), frontFacing);
   let albedo = mix(baseColor, colorFromNormal, 0.4);
 
   let ambient = 0.35;

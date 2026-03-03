@@ -12,6 +12,7 @@ struct Uniforms {
   gridWidth: f32,
   specular: f32,
   solidPass: u32,
+  bgColor: vec3f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -99,13 +100,15 @@ fn fsSolid(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @locat
   let combinedGrid = max(u.cartoonEdgeOpacity * (1.0 - cartoonEdge), u.gridOpacity * (1.0 - grid));
 
   let color = computeShading(in.vPosition, normal, frontFacing);
-  let gridded = mix(color, vec3f(0.0), u.opacity * combinedGrid);
-  let finalColor = mix(vec3f(1.0), gridded, u.opacity);
+  let bgLinear = pow(u.bgColor, vec3f(2.2));
+  let surfaceBlended = mix(bgLinear, color, u.opacity);
+  let finalColor = mix(surfaceBlended, vec3f(0.0), combinedGrid);
   return vec4f(pow(finalColor, vec3f(0.454)), 1.0);
 }
 
 @fragment
 fn fsWire(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
+  if (frontFacing) { discard; }
   let normal = normalize(in.vNormal);
   let vDotN = abs(dot(normal, normalize(in.vPosition - u.eye)));
   let cartoonEdge = smoothstep(0.75, 1.25, vDotN / fwidth(vDotN) / (u.cartoonEdgeWidth * u.pixelRatio));
@@ -116,7 +119,7 @@ fn fsWire(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @locati
   if (a < 1e-3) {
     discard;
   }
-  return vec4f(vec3f(1.0), a);
+  return vec4f(vec3f(0.0), a);
 }
 `;
 
@@ -228,15 +231,16 @@ fn fsOIT(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> OITOutpu
   var color = computeShading(in.vPosition, normal, frontFacing);
   color = pow(color, vec3f(0.454));
 
-  color = mix(color, vec3f(0.0), combinedGrid);
-  let alpha = clamp(u.opacity + (1.0 - u.opacity) * combinedGrid, 0.0, 1.0);
+  // Grid is a black opaque overlay; surface contributes color * opacity masked where grid is.
+  let alpha = clamp(combinedGrid + (1.0 - combinedGrid) * u.opacity, 0.0, 1.0);
+  let premulRgb = color * u.opacity * (1.0 - combinedGrid);
 
   let z_ndc = in.position.z;
   let oneMinusZ = 1.0 - z_ndc;
   let w = alpha * max(1e-2, 3e3 * oneMinusZ * oneMinusZ * oneMinusZ);
 
   var out: OITOutput;
-  out.accum = vec4f(color * alpha * w, alpha * w);
+  out.accum = vec4f(premulRgb * w, alpha * w);
   out.revealage = alpha;
   return out;
 }

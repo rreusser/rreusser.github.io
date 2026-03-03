@@ -56,8 +56,9 @@ const state = {
   </script>
 
   <script id="update-params" type="text/x-typescript">
-state.renderParams.rmin = rRange.range[0];
-state.renderParams.rmax = rRange.range[1];
+state.renderParams.uClipMin = rRange.range[0];
+state.renderParams.uClipMax = rRange.range[1];
+state.renderParams.invertClipU = rRange.invert ? 1 : 0;
 state.renderParams.opacity = opacity;
 state.renderParams.gridOpacity = gridOpacity;
 state.renderParams.cartoonEdgeOpacity = cartoonEdgeOpacity;

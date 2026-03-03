@@ -10,9 +10,9 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
   const peelCompositeModule = device.createShaderModule({ label: 'peel-composite-shader', code: shaderCodes.peelComposite });
   const dualPeelModule = device.createShaderModule({ label: 'dual-peel-shader', code: shaderCodes.dualPeel });
 
-  // Uniform buffer (176 bytes)
+  // Uniform buffer (192 bytes)
   const uniformBuffer = device.createBuffer({
-    size: 176,
+    size: 192,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -85,7 +85,11 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
   const solidPipeline = device.createRenderPipeline({
     layout: surfacePipelineLayout,
     vertex: { module: surfaceModule, entryPoint: 'vs', buffers: vertexBufferLayout },
-    fragment: { module: surfaceModule, entryPoint: 'fsSolid', targets: [{ format: canvasFormat }] },
+    fragment: {
+      module: surfaceModule,
+      entryPoint: 'fsSolid',
+      targets: [{ format: canvasFormat }]
+    },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     multisample: { count: MSAA_SAMPLES }
@@ -100,8 +104,8 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       targets: [{
         format: canvasFormat,
         blend: {
-          color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'reverse-subtract' },
-          alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
         }
       }]
     },
@@ -468,7 +472,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
   }
 
   function writeUniforms(projection, view, eye, p, timestamp, startTime) {
-    const uniformData = new ArrayBuffer(176);
+    const uniformData = new ArrayBuffer(192);
     const f32 = new Float32Array(uniformData);
     const u32 = new Uint32Array(uniformData);
     f32.set(projection, 0);
@@ -485,6 +489,10 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     f32[41] = p.gridWidth;
     f32[42] = 0;
     u32[43] = 0;
+    const bg = p.bgColor || [1, 1, 1];
+    f32[44] = bg[0];
+    f32[45] = bg[1];
+    f32[46] = bg[2];
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
   }
 

@@ -11,6 +11,7 @@ import { createWebGPUContext } from './lib/webgpu-canvas.js';
 import { createCameraController } from './lib/camera-controller.js';
 import { expandable } from './lib/expandable.js';
 import { createFrameLoop } from './lib/frame-loop.js';
+import { observeTheme } from './lib/theme.js';
 import { meshFromFunction } from './mesh.js';
 import {
   surfaceShaderCode, oitShaderCode, oitCompositeShaderCode,
@@ -82,6 +83,10 @@ updateDisabled();
 display(controlsContainer);
   </script>
 
+  <script id="theme" type="text/x-typescript">
+const theme = Generators.observe(observeTheme);
+  </script>
+
   <script id="state" type="text/x-typescript">
 const state = {
   initialized: false,
@@ -101,7 +106,8 @@ const state = {
     gridWidth: 0.5,
     cartoonEdgeWidth: 2.5,
     cartoonEdgeOpacity: 1,
-    animate: false
+    animate: false,
+    bgColor: [1, 1, 1]
   }
 };
   </script>
@@ -116,6 +122,7 @@ state.renderParams.gridWidth = gridWidth;
 state.renderParams.cartoonEdgeWidth = cartoonEdgeWidth;
 state.renderParams.cartoonEdgeOpacity = cartoonEdgeOpacity;
 state.renderParams.animate = animate;
+state.renderParams.bgColor = theme.background;
 state.dirty = true;
   </script>
 
