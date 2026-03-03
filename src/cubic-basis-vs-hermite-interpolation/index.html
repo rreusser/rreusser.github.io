@@ -128,15 +128,16 @@
         .append("path")
         .attr("class", "nearest1")
         .attr("fill", "none")
-        .attr("stroke", "grey")
+        .attr("stroke", "currentColor")
         .attr("stroke-dasharray", "4 4")
+        .attr("stroke-opacity", 0.4)
         .attr("stroke-width", 1);
 
       svg
         .append("path")
         .attr("class", "nearest2")
         .attr("fill", "none")
-        .attr("stroke", "black")
+        .attr("stroke", "currentColor")
         .attr("stroke-width", 2);
 
       svg
@@ -164,7 +165,8 @@
           .append("path")
           .attr("class", "axis")
           .attr("fill", "none")
-          .attr("stroke", "gray")
+          .attr("stroke", "currentColor")
+          .attr("stroke-opacity", 0.4)
           .attr("stroke-dasharray", "2 2")
           .attr("stroke-width", 2)
           .datum([
@@ -217,7 +219,7 @@
             g
               .append("circle")
               .attr("r", 0)
-              .attr("stroke", "black")
+              .attr("stroke", "currentColor")
               .attr("stroke-width", 1.5)
               .transition()
               .duration(750)
@@ -227,7 +229,7 @@
           .merge(circle)
           .attr("transform", (d) => `translate(${xScale(d[0])},${yScale(d[1])})`)
           .select("circle:last-child")
-          .attr("fill", (d) => (d === selected ? "lightblue" : "black"));
+          .attr("fill", (d) => (d === selected ? "lightblue" : "currentColor"));
 
         circle.exit().remove();
       }

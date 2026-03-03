@@ -55,12 +55,13 @@
 
       .scrollyteller__caption {
         position: absolute;
-        background: rgba(255, 255, 255, 0.85);
+        background: color-mix(in srgb, var(--theme-background) 88%, transparent);
+        color: var(--theme-foreground);
         padding: 12px 16px;
         font-size: 1.1em;
         line-height: 1.5;
         max-width: 300px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         border-radius: 4px;
         pointer-events: auto;
       }
@@ -214,7 +215,7 @@ We start with a full presentation of the sphere eversion of Bednorz and Bednorz 
       canvas.height = Math.floor(canvasContainer.offsetHeight * dpi);
 
       const gpuContext = canvas.getContext('webgpu');
-      gpuContext.configure({ device, format: canvasFormat });
+      gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
       const camera = createCameraController(canvas, { distance: 6, near: 0.1, far: 10.0, theta: 0.7, phi: 0.1, wheel: false, touch: false });
       const renderer = createRenderer(device, canvasFormat, shaderCodes);
@@ -332,7 +333,7 @@ The variable ${tex`\phi`} parameterizes the polar angle of the cylinder from ${t
       canvas.height = Math.floor(containerHeight * dpi);
 
       const gpuContext = canvas.getContext('webgpu');
-      gpuContext.configure({ device, format: canvasFormat });
+      gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
       const camera = createCameraController(canvas, { distance: 6, near: 0.1, far: 100.0, theta: 0.4, phi: 0.1, wheel: false });
       const renderer = createRenderer(device, canvasFormat, shaderCodes);
@@ -470,7 +471,7 @@ Of course we want to evert a full sphere and not just a cylindrical band, so the
       canvas.height = Math.floor(canvasContainer.offsetHeight * dpi);
 
       const gpuContext = canvas.getContext('webgpu');
-      gpuContext.configure({ device, format: canvasFormat });
+      gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
       const camera = createCameraController(canvas, { distance: 6, near: 0.1, far: 10.0, theta: 0.4, phi: 0.1, wheel: false, touch: false });
       const renderer = createRenderer(device, canvasFormat, shaderCodes);

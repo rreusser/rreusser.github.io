@@ -124,7 +124,9 @@ export function createMeshRenderer(regl, icosphere) {
         cameraPosition = [0, 0, 20],
         depthFalloff = false,
         depthFalloffWidth = 7,
-        focusCenter = [0, 0, 0]
+        focusCenter = [0, 0, 0],
+        background = [1, 1, 1],
+        foreground = [0, 0, 0]
       } = opts;
 
       const depthParams = {
@@ -172,6 +174,8 @@ export function createMeshRenderer(regl, icosphere) {
           selectedIndex: selectedEdgeIndex,
           hoverIndex: hoverEdgeIndex,
           faceShading,
+          background,
+          foreground,
           ...depthParams
         });
       }
@@ -184,6 +188,7 @@ export function createMeshRenderer(regl, icosphere) {
         pointSize,
         selectedIndex: selectedVertexIndex,
         hoverIndex: hoverVertexIndex,
+        background,
         ...depthParams
       });
 
@@ -291,8 +296,7 @@ function createDrawFaces(regl) {
       void main() {
         vec3 color = getFaceColor(vEdgeCount);
         float falloff = depthFalloffFactor();
-        // For reverse subtract: output what to subtract from white
-        gl_FragColor = vec4(1.0 - color, opacity * falloff);
+        gl_FragColor = vec4(color, opacity * falloff);
       }
     `,
     attributes: faceAttributes,
@@ -305,8 +309,8 @@ function createDrawFaces(regl) {
     },
     blend: {
       enable: true,
-      equation: { rgb: 'reverse subtract', alpha: 'add' },
-      func: { srcRGB: 'src alpha', srcAlpha: 'src alpha', dstRGB: 'one', dstAlpha: 'one' }
+      equation: 'add',
+      func: { srcRGB: 'src alpha', dstRGB: 'one minus src alpha', srcAlpha: 'one', dstAlpha: 'one minus src alpha' }
     },
     depth: { enable: true, mask: false },
     cull: { enable: false },
@@ -445,6 +449,7 @@ function createDrawVertices(regl, icosphere) {
     frag: `
       precision highp float;
       uniform float uDepthFalloff, uDepthFalloffWidth, uMinOpacity;
+      uniform vec3 uBackground;
       varying float vIsSelected, vIsHover;
       varying float vRadialDist;
 
@@ -463,8 +468,8 @@ function createDrawVertices(regl, icosphere) {
         vec3 highlightColor = mix(hoverColor, selectColor, vIsSelected);
         vec3 color = mix(baseColor, highlightColor, isHighlighted);
         float falloff = mix(depthFalloffFactor(), 1.0, isHighlighted);
-        // Fade toward white (background) based on radial distance
-        color = mix(vec3(1.0), color, falloff);
+        // Fade toward background color based on radial distance
+        color = mix(uBackground, color, falloff);
         gl_FragColor = vec4(color, 1.0);
       }
     `,
@@ -488,7 +493,8 @@ function createDrawVertices(regl, icosphere) {
       uDepthFalloff: (_, props) => props.depthFalloff ?? 0,
       uFocusCenter: (_, props) => props.focusCenter ?? [0, 0, 0],
       uDepthFalloffWidth: (_, props) => props.depthFalloffWidth ?? 3,
-      uMinOpacity: (_, props) => props.minOpacity ?? 0.2
+      uMinOpacity: (_, props) => props.minOpacity ?? 0.2,
+      uBackground: (_, props) => props.background ?? [1, 1, 1]
     },
     primitive: 'triangles',
     count: icosphere.cells.length * 3,
@@ -508,6 +514,7 @@ function createDrawEdges(regl) {
       uniform vec3 uFocusCenter;
       uniform float uAspect, uScaleFactor, uPixelRatio, uL0, uStrainColoring;
       uniform float uBorderWidth, uLineWidth;
+      uniform vec4 uForeground;
       uniform float uSelectedIndex, uHoverIndex;
       attribute vec3 aPosition, aNextPosition;
       attribute vec2 aLinePosition;
@@ -546,7 +553,8 @@ function createDrawEdges(regl) {
         vRadialDist = length(midpoint - uFocusCenter);
 
         float strain = (length(aNextPosition - aPosition) / uL0 - 1.0);
-        vColor = colormap(0.5 + strain * uStrainColoring * 2.0) * 0.8 * (uStrainColoring > 0.0 ? 1.0 : 0.0);
+        vec3 strainColor = colormap(0.5 + strain * uStrainColoring * 2.0) * 0.8;
+        vColor = uStrainColoring > 0.0 ? strainColor : uForeground.rgb;
 
         // Increase width for selected/hovered edges
         float widthMultiplier = 1.0 + vIsSelected * 0.5 + vIsHover * 0.25;
@@ -565,6 +573,7 @@ function createDrawEdges(regl) {
       precision highp float;
 
       uniform vec4 uBorderColor;
+      uniform vec4 uForeground;
       uniform float uDepthFalloff, uDepthFalloffWidth, uMinOpacity;
       varying float vOffset;
       varying vec3 vColor;
@@ -593,7 +602,7 @@ function createDrawEdges(regl) {
         vec3 innerColor = mix(baseColor, highlightColor, isHighlighted);
 
         vec3 color = mix(uBorderColor.rgb, innerColor, t);
-        float alpha = mix(uBorderColor.a, 1.0, t) * falloff;
+        float alpha = mix(uBorderColor.a, uForeground.a, t) * falloff;
         gl_FragColor = vec4(color, alpha);
       }
     `,
@@ -642,7 +651,8 @@ function createDrawEdges(regl) {
     uniforms: {
       uL0: (_, props) => props.l0 ?? 1,
       uStrainColoring: (_, props) => props.strainColoring ?? 0,
-      uBorderColor: [1, 1, 1, 0.8],
+      uBorderColor: (_, props) => [...(props.background ?? [1, 1, 1]), 0.8],
+      uForeground: (_, props) => props.foreground ?? [0, 0, 0, 1],
       uLineWidth: (_, props) => props.edgeWidth ?? 2,
       uBorderWidth: (_, props) => props.faceShading ? 0 : 1,
       uAspect: ctx => ctx.viewportWidth / ctx.viewportHeight,

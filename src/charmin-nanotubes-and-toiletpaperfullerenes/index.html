@@ -107,6 +107,7 @@ import { createOrbitCameraController } from './lib/orbit-camera-controller.js';
 import { createMeshRenderer } from './lib/mesh-renderer.js';
 import { MeshInteractions } from './lib/mesh-interactions.js';
 import { expandable } from './shared-lib/expandable.js';
+import { observeTheme } from './lib/theme.js';
   </script>
 
   <script id="preset-graphs" type="text/x-typescript">
@@ -260,6 +261,8 @@ const state: {
     faceOpacity: number;
     faceShading: boolean;
     depthFalloffWidth: number;
+    background: [number, number, number];
+    foreground: [number, number, number, number];
   };
 } = {
   mesh: null,
@@ -285,7 +288,9 @@ const state: {
     showFaces: true,
     faceOpacity: 0.3,
     faceShading: false,
-    depthFalloffWidth: 7
+    depthFalloffWidth: 7,
+    background: [1, 1, 1] as [number, number, number],
+    foreground: [0, 0, 0, 1] as [number, number, number, number]
   }
 };
   </script>
@@ -343,6 +348,17 @@ state.renderParams.showFaces = faceOpacity > 0;
 state.renderParams.faceOpacity = faceOpacity;
 state.renderParams.faceShading = faceShading;
 state.renderParams.depthFalloffWidth = depthFalloffWidth * l0;
+state.dirty = true;
+  </script>
+
+  <script id="theme" type="text/x-typescript">
+const theme = Generators.observe(observeTheme);
+  </script>
+
+  <script id="update-theme" type="text/x-typescript">
+// Update render colors reactively when theme changes
+state.renderParams.background = theme.background;
+state.renderParams.foreground = [...theme.foreground, theme.isDark ? 0.6 : 1.0] as [number, number, number, number];
 state.dirty = true;
   </script>
 
@@ -546,7 +562,7 @@ state.frame = state.regl.frame(() => {
   }
 
   // Clear and render
-  state.regl!.clear({ color: [1, 1, 1, 1], depth: 1 });
+  state.regl!.clear({ color: [0, 0, 0, 0], depth: 1 });
 
   const selectedVertexIdx = state.interactions?.selectedVertexIndex ?? -1;
   const selectedEdgeIdx = state.interactions?.selectedEdgeIndex ?? -1;
@@ -580,7 +596,9 @@ state.frame = state.regl.frame(() => {
       hoverEdgeIndex: state.interactions?.hoverEdgeIndex ?? -1,
       depthFalloff: hasFocus,
       depthFalloffWidth: state.renderParams.depthFalloffWidth,
-      focusCenter
+      focusCenter,
+      background: state.renderParams.background,
+      foreground: state.renderParams.foreground
     });
   });
 

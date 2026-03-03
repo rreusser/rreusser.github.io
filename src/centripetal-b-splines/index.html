@@ -1,0 +1,322 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Periodic B-Splines and the Even-Degree Singularity</title>
+
+  <script id="title" type="text/markdown">
+# Periodic B-Splines and the Even-Degree Singularity
+  </script>
+
+  <script id="intro-1" type="text/markdown">
+When fitting a closed B-spline through n data points, you solve a linear system ${tex`A\mathbf{p} = \mathbf{q}`}, where A is the n × n *interpolation matrix* whose (i, j) entry is the j-th B-spline basis function evaluated at the parameter assigned to the i-th data point. For a periodic spline with uniform parameterization, this matrix is *circulant*: each row is a cyclic shift of the row above it.
+  </script>
+
+  <script id="intro-2" type="text/markdown">
+A circulant matrix is diagonalized by the discrete Fourier transform, and its eigenvalues are the DFT of the generating sequence — the first row of the matrix. For odd polynomial degrees, all these eigenvalues are nonzero and the interpolation problem has a unique solution. For even degrees, the DFT of the generating B-spline sequence vanishes at certain frequencies, making the matrix singular.
+
+This means there is an entire family of splines — parameterized by the **null space** of A — that all interpolate the same data points but produce visibly different curve shapes between samples. The data points below are draggable. Use the α slider (visible for even degree) to add a null-space perturbation: the red curve passes through every data point the blue one does, with a different shape in between.
+  </script>
+
+  <script id="imports" type="module">
+import nurbs from 'npm:nurbs'
+import numeric from 'npm:numeric'
+  </script>
+
+  <script id="controls" type="module">
+const n = view(Inputs.range([4, 16], {step: 1, value: 8, label: "n (data points)"}));
+const degree = view(Inputs.range([1, 7], {step: 1, value: 3, label: "Degree"}));
+  </script>
+
+  <script id="spline-math" type="module">
+// Clamp degree to avoid degenerate cases where degree >= n
+const d = Math.min(degree, n - 1);
+
+// Uniform periodic knot vector: n+1 knots at integer positions [0, 1, ..., n]
+const knots = Array.from({length: n + 1}, (_, i) => i);
+
+// Build the interpolation matrix M where M[i][j] = N_j(t_i), t_i = i
+// N_j is the j-th periodic B-spline basis function
+const placeholder = nurbs({size: n, degree: d, boundary: 'closed', knots});
+const basisEval = placeholder.evaluator(0, true);
+const M = Array.from({length: n}, (_, i) =>
+  Array.from({length: n}, (_, j) => basisEval(i, j)));
+
+// SVD: M = U * diag(S) * V^T
+const {U, S, V} = numeric.svd(M);
+
+// Threshold for identifying near-zero singular values
+const maxS = Math.max(...S);
+const EPS = maxS * 1e-7;
+
+// Null space vectors: columns of V with near-zero singular values
+const nullIndices = S.map((s, i) => i).filter(i => S[i] < EPS);
+const nullVecs = nullIndices.map(k => V.map(row => row[k]));
+const nullDim = nullVecs.length;
+
+// Pseudo-inverse solve: x = V * diag(1/S) * U^T * b (min-norm solution)
+function pseudoSolve(b) {
+  const c = Array.from({length: n}, (_, k) =>
+    U.reduce((sum, row, i) => sum + row[k] * b[i], 0));
+  const dv = c.map((v, k) => S[k] > EPS ? v / S[k] : 0);
+  return V.map(row => row.reduce((sum, v, k) => sum + v * dv[k], 0));
+}
+  </script>
+
+  <script id="params" type="module">
+// Mutable params — written by update-null-scale, read by figure's render function.
+// Using an object avoids re-running the figure cell when nullScale changes.
+const params = { nullScale: 0 };
+  </script>
+
+  <script id="renderState" type="module">
+// Shared render function reference, set by figure, called by update-null-scale.
+const renderState = { render: null };
+  </script>
+
+  <script id="figure" type="module">
+// Mutable data points — reset when n changes (cell re-runs), updated in place on drag.
+const Q = Array.from({length: n}, (_, i) => {
+  const theta = (2 * Math.PI * i) / n;
+  const r = 1.0 + 0.4 * Math.cos(3 * theta);
+  return [r * Math.cos(theta), r * Math.sin(theta)];
+});
+
+const W = Math.min(Math.max(width, 300), 480);
+const H = W;
+const mTop = 20, mRight = 20, mBottom = 30, mLeft = 40;
+
+// d3 scales matching Plot's margins exactly
+const xs = d3.scaleLinear([-2.5, 2.5], [mLeft, W - mRight]);
+const ys = d3.scaleLinear([-2.5, 2.5], [H - mBottom, mTop]);
+const line = d3.line().x(p => xs(p[0])).y(p => ys(p[1]));
+
+// Container div for stacked Plot + SVG layers
+const container = html`<div style="position: relative; width: ${W}px; height: ${H}px;"></div>`;
+
+// Observable Plot provides axes; transparent background, positioned as base layer
+container.appendChild(Plot.plot({
+  width: W, height: H,
+  marginTop: mTop, marginRight: mRight, marginBottom: mBottom, marginLeft: mLeft,
+  style: { backgroundColor: "transparent", maxWidth: "none", display: "block" },
+  x: { domain: [-2.5, 2.5], tickSpacing: 80 },
+  y: { domain: [-2.5, 2.5], tickSpacing: 80 },
+  marks: [
+    Plot.ruleX([0], { stroke: "#ccc", strokeWidth: 1 }),
+    Plot.ruleY([0], { stroke: "#ccc", strokeWidth: 1 })
+  ]
+}));
+
+// SVG overlay for curves and interactive points.
+// pointer-events: none on the SVG itself; pointer-events: all on the circles.
+const svg = d3.create("svg")
+  .attr("width", W).attr("height", H)
+  .attr("viewBox", `0 0 ${W} ${H}`)
+  .style("position", "absolute").style("top", "0").style("left", "0")
+  .style("overflow", "hidden").style("pointer-events", "none");
+
+container.appendChild(svg.node());
+
+const gControlPolygon = svg.append("g");
+const gPerturbedCurve = svg.append("g");
+const gFittedCurve = svg.append("g");
+const gControlPoints = svg.append("g");
+const gDataPoints = svg.append("g");
+const captionEl = html`<figcaption></figcaption>`;
+
+// Centripetal parameterization: t_i proportional to sqrt of chord lengths (closed).
+function centripetalParams(pts) {
+  const m = pts.length;
+  const chords = pts.map((q, i) => {
+    const p = pts[(i - 1 + m) % m];
+    return Math.sqrt(Math.hypot(q[0] - p[0], q[1] - p[1]));
+  });
+  const total = chords.reduce((a, b) => a + b, 0);
+  const t = [0];
+  for (let i = 1; i < m; i++) t.push(t[i - 1] + chords[i] / total * m);
+  return t;
+}
+
+function sampleSpline(pts, nSamples = 300) {
+  const sp = nurbs({points: pts, degree: d, boundary: 'closed', knots});
+  const [t0, t1] = sp.domain[0];
+  const samples = Array.from({length: nSamples}, (_, i) => {
+    const t = t0 + (t1 - t0) * i / nSamples;
+    return sp.evaluate([], t);
+  });
+  samples.push(samples[0]);
+  return samples;
+}
+
+function render() {
+  const alpha = params.nullScale;
+
+  // Centripetal parameter assignments for current Q
+  const tParams = centripetalParams(Q);
+  const basisEval = nurbs({size: n, degree: d, boundary: 'closed', knots}).evaluator(0, true);
+  const Mloc = tParams.map(ti => Array.from({length: n}, (_, j) => basisEval(ti, j)));
+  const {U: Ul, S: Sl, V: Vl} = numeric.svd(Mloc);
+  const eps = Math.max(...Sl) * 1e-7;
+
+  function solve(b) {
+    const c = Array.from({length: n}, (_, k) => Ul.reduce((s, row, i) => s + row[k] * b[i], 0));
+    const dv = c.map((v, k) => Sl[k] > eps ? v / Sl[k] : 0);
+    return Vl.map(row => row.reduce((s, v, k) => s + v * dv[k], 0));
+  }
+
+  const Px = solve(Q.map(p => p[0]));
+  const Py = solve(Q.map(p => p[1]));
+  const P = Px.map((x, i) => [x, Py[i]]);
+
+  // Perturb using null vectors from the uniform-param circulant matrix (spline-math cell)
+  const Pp = nullVecs.length > 0 && alpha !== 0
+    ? P.map(([x, y], i) => [x + alpha * nullVecs[0][i], y + alpha * nullVecs[0][i]])
+    : null;
+
+  const fittedCurve = sampleSpline(P);
+  const perturbedCurve = Pp ? sampleSpline(Pp) : null;
+
+  gControlPolygon.selectAll("path").data([0]).join("path")
+    .attr("d", d3.line().x(p => xs(p[0])).y(p => ys(p[1]))([...P, P[0]]))
+    .attr("fill", "none").attr("stroke", "#ccc")
+    .attr("stroke-width", 1).attr("stroke-dasharray", "3 2");
+
+  if (perturbedCurve) {
+    gPerturbedCurve.selectAll("path").data([0]).join("path")
+      .attr("d", line(perturbedCurve))
+      .attr("fill", "none").attr("stroke", "#cc3333")
+      .attr("stroke-width", 2).attr("stroke-dasharray", "7 4").attr("opacity", 0.85);
+  } else {
+    gPerturbedCurve.selectAll("path").remove();
+  }
+
+  gFittedCurve.selectAll("path").data([0]).join("path")
+    .attr("d", line(fittedCurve))
+    .attr("fill", "none").attr("stroke", "#2244cc").attr("stroke-width", 2.5);
+
+  gControlPoints.selectAll("circle").data(P).join("circle")
+    .attr("cx", p => xs(p[0])).attr("cy", p => ys(p[1]))
+    .attr("r", 3).attr("fill", "#bbb").attr("stroke", "#999").attr("stroke-width", 0.5);
+
+  gDataPoints.selectAll("circle").data(Q)
+    .attr("cx", p => xs(p[0])).attr("cy", p => ys(p[1]));
+
+  captionEl.textContent = perturbedCurve
+    ? `Degree ${d}, n = ${n}. Blue: minimum-norm fit. Red dashed: null-space perturbation (α = ${alpha.toFixed(2)}). Both curves pass through every orange data point.`
+    : nullDim > 0
+      ? `Degree ${d}, n = ${n}. Null space dim = ${nullDim}. Adjust α to reveal a second interpolating curve.`
+      : `Degree ${d}, n = ${n}. Matrix is invertible — unique interpolating curve.`;
+}
+
+// Set up draggable data points (done once per cell run).
+// pointer-events: all enables interaction through the pointer-events: none SVG.
+// No .raise() — DOM reordering breaks d3 index-based data binding and resets cursor.
+gDataPoints.selectAll("circle")
+  .data(Q).join("circle")
+  .attr("r", 6)
+  .attr("fill", "#f59e0b")
+  .attr("stroke", "#92400e")
+  .attr("stroke-width", 1.5)
+  .style("cursor", "grab")
+  .style("pointer-events", "all")
+  .call(d3.drag()
+    .on("start", function() { d3.select(this).style("cursor", "grabbing"); })
+    .on("drag", function(event, datum) {
+      datum[0] = xs.invert(event.x);
+      datum[1] = ys.invert(event.y);
+      render();
+    })
+    .on("end", function() { d3.select(this).style("cursor", "grab"); })
+  );
+
+render();
+
+renderState.render = render;
+invalidation.then(() => { renderState.render = null; });
+
+display(html`<figure id="bspline-figure">${container}${captionEl}</figure>`);
+  </script>
+
+  <script id="null-control" type="module">
+// This cell re-runs when nullDim changes (n or degree changes), resetting α to 0.
+const nullScale = view(Inputs.range([-1.5, 1.5], {
+  step: 0.01,
+  value: 0,
+  disabled: nullDim === 0,
+  label: `α — null space scale (dim = ${nullDim})`
+}));
+  </script>
+
+  <script id="update-null-scale" type="module">
+// Update params and trigger a re-render without re-running the figure cell
+// (which would reset the dragged data point positions).
+params.nullScale = nullScale;
+if (renderState.render) renderState.render();
+  </script>
+
+  <script id="sv-chart-explainer" type="text/markdown">
+The bar chart below shows the singular values of the interpolation matrix, sorted largest to smallest. Values below the threshold (dashed line) identify the null space. Switch between odd and even degrees to see singular values drop to zero.
+  </script>
+
+  <script id="sv-chart" type="module">
+const singularData = [...S]
+  .map((s, i) => ({idx: i, s, isNull: s < EPS}))
+  .sort((a, b) => b.s - a.s)
+  .map((row, rank) => ({...row, rank}));
+
+// Log scale requires explicit y1/y2 — barY's default baseline of 0 maps to -∞ on log.
+const logMin = EPS * 0.05;
+display(Plot.plot({
+  width: Math.min(width, 480),
+  height: 200,
+  marginLeft: 60,
+  marginBottom: 40,
+  title: `Singular values of the ${n}×${n} interpolation matrix (degree ${d})`,
+  x: {label: "rank", domain: d3.range(n), tickFormat: d => d},
+  y: {label: "σ", type: "log", grid: true, domain: [logMin, Math.max(...S) * 2]},
+  color: {
+    domain: [false, true],
+    range: ["#2244cc", "#cc3333"],
+    legend: true,
+    tickFormat: b => b ? "null space" : "nonzero"
+  },
+  marks: [
+    Plot.barY(singularData, {
+      x: "rank",
+      y1: logMin,
+      y2: d => Math.max(d.s, EPS * 0.5),
+      fill: "isNull",
+      title: d => `σ = ${d.s.toExponential(4)}`
+    }),
+    Plot.ruleY([EPS], {stroke: "#cc3333", strokeDasharray: "4 2", strokeWidth: 1})
+  ]
+}));
+  </script>
+
+  <script id="math-1" type="text/markdown">
+## Why even-degree periodic B-splines are singular
+
+For a uniform periodic B-spline of degree d with n control points and knots at integers, the basis functions satisfy the shift property ${tex`N_j(t) = N_0(t - j)`}. The interpolation matrix therefore has entries ${tex`M_{ij} = N_0(i - j \bmod n)`}, making it circulant with generating sequence ${tex`c_k = N_0(k)`}.
+  </script>
+
+  <script id="math-2" type="text/markdown">
+Every circulant matrix is diagonalized by the DFT matrix. Its eigenvalues are
+
+${tex.block`\lambda_k = \sum_{j=0}^{n-1} c_j\, \omega^{-jk}, \qquad \omega = e^{2\pi i/n}, \quad k = 0, \ldots, n-1.`}
+
+The matrix is singular whenever any ${tex`\lambda_k = 0`}, which happens when the DFT of the generating sequence ${tex`c`} is zero at frequency k.
+  </script>
+
+  <script id="math-3" type="text/markdown">
+For **odd degree** d, the support of ${tex`N_0`} is ${tex`[0, d+1]`} and the function is symmetric about the half-integer midpoint ${tex`(d+1)/2`}. When sampled at integers, this half-sample symmetry introduces a linear phase factor in the DFT but produces no cancellations — all ${tex`\lambda_k`} remain nonzero.
+
+For **even degree** d, the support is still ${tex`[0, d+1]`} but ${tex`N_0`} is symmetric about the integer ${tex`(d+1)/2`}. The alternating-sign eigenvalue at the Nyquist frequency ${tex`k = n/2`} becomes
+
+${tex.block`\lambda_{n/2} = \sum_{j=0}^{d} N_0(j)\, (-1)^j,`}
+
+and for even-degree uniform B-splines this sum is exactly zero. Physically, the null space consists of an aliased oscillation at frequency ${tex`n/2`} — a control-point pattern that is perfectly invisible at the integer sample positions but produces a real deformation of the curve in between.
+  </script>
+
+  <script id="math-4" type="text/markdown">
+The minimum-norm solution plotted in blue is found via the pseudoinverse ${tex`A^+ = V \Sigma^+ U^\top`}, which ignores the null-space columns of V entirely. Adding any scalar multiple of the null vector to the control point coordinates gives a different curve through the same data — exactly what the α slider demonstrates.
+  </script>
+
+</notebook>

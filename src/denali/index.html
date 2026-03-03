@@ -668,7 +668,7 @@
     // Slope aspect rose: concentric rings for Above/Near/Below treeline
     {
       const ns = 'http://www.w3.org/2000/svg';
-      const size = 180;
+      const size = 200;
       const cx = size / 2, cy = 80;
       const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
       const rings = [
@@ -708,8 +708,6 @@
           }
 
           path.setAttribute('d', d);
-          path.setAttribute('fill', '#fff');
-          path.setAttribute('stroke', '#333');
           path.setAttribute('stroke-width', '0.5');
           path.style.cursor = 'pointer';
           path.style.transition = 'fill 0.1s';
@@ -718,14 +716,14 @@
           const bit = i;
           path.addEventListener('click', () => {
             masks[ringKey] ^= (1 << bit);
-            path.setAttribute('fill', (masks[ringKey] & (1 << bit)) ? '#59D91A' : '#fff');
+            path.style.fill = (masks[ringKey] & (1 << bit)) ? '#59D91A' : '';
             viewer.settings[ringKey] = masks[ringKey];
           });
           path.addEventListener('mouseenter', () => {
-            if (!(masks[ringKey] & (1 << bit))) path.setAttribute('fill', '#eee');
+            if (!(masks[ringKey] & (1 << bit))) path.style.fill = document.documentElement.classList.contains('theme-is-dark') ? '#3d3d3d' : '#eee';
           });
           path.addEventListener('mouseleave', () => {
-            if (!(masks[ringKey] & (1 << bit))) path.setAttribute('fill', '#fff');
+            if (!(masks[ringKey] & (1 << bit))) path.style.fill = '';
           });
 
           svg.appendChild(path);
@@ -741,17 +739,30 @@
         text.setAttribute('dominant-baseline', 'central');
         text.setAttribute('font-size', '10');
         text.setAttribute('font-family', 'system-ui, sans-serif');
-        text.setAttribute('fill', '#333');
+        text.setAttribute('fill', 'currentColor');
         text.setAttribute('pointer-events', 'none');
         text.textContent = dirs[i];
         svg.appendChild(text);
       }
 
       // Legend below the rose, inside the SVG
-      const legendY = 168;
+      const legendY = 185;
       const legendItems = rings.map(r => r.label);
       const legendSpacing = 60;
       const legendStartX = cx - (legendItems.length - 1) * legendSpacing / 2;
+
+      const legendHeader = document.createElementNS(ns, 'text');
+      legendHeader.setAttribute('x', cx.toFixed(1));
+      legendHeader.setAttribute('y', (legendY - 14).toFixed(1));
+      legendHeader.setAttribute('text-anchor', 'middle');
+      legendHeader.setAttribute('dominant-baseline', 'central');
+      legendHeader.setAttribute('font-size', '9');
+      legendHeader.setAttribute('font-family', 'system-ui, sans-serif');
+      legendHeader.setAttribute('fill', 'currentColor');
+      legendHeader.setAttribute('pointer-events', 'none');
+      legendHeader.textContent = 'Treeline zone';
+      svg.appendChild(legendHeader);
+
       for (let i = 0; i < legendItems.length; i++) {
         const lx = legendStartX + i * legendSpacing;
         const rect = document.createElementNS(ns, 'rect');
@@ -759,8 +770,6 @@
         rect.setAttribute('y', legendY - 4);
         rect.setAttribute('width', 8);
         rect.setAttribute('height', 8);
-        rect.setAttribute('fill', '#fff');
-        rect.setAttribute('stroke', '#333');
         rect.setAttribute('stroke-width', '0.5');
         svg.appendChild(rect);
         const text = document.createElementNS(ns, 'text');
@@ -769,13 +778,13 @@
         text.setAttribute('dominant-baseline', 'central');
         text.setAttribute('font-size', '9');
         text.setAttribute('font-family', 'system-ui, sans-serif');
-        text.setAttribute('fill', '#555');
+        text.setAttribute('fill', 'currentColor');
         text.textContent = legendItems[i];
         svg.appendChild(text);
       }
 
       const wrapper = html`<div class="aspect-rose"></div>`;
-      const label = html`<label style="font-size: 12px; font-weight: 500; font-family: system-ui, sans-serif; color: #555;">Slope aspect</label>`;
+      const label = html`<label style="font-size: 12px; font-weight: 500; font-family: system-ui, sans-serif;">Slope aspect</label>`;
       wrapper.appendChild(label);
       wrapper.appendChild(svg);
       analysisContent.appendChild(wrapper);
@@ -1369,6 +1378,55 @@ I mean, let's be clear. This is a totally half-baked one-off ad hoc renderer. It
         width: 100%;
         min-height: 0;
       }
+
+      .aspect-rose path,
+      .aspect-rose rect { fill: #fff; stroke: #333; }
+      html[data-dark] .aspect-rose path,
+      html[data-dark] .aspect-rose rect { fill: #2a2a2a; stroke: #666; }
+
+      html[data-dark] .status { color: #aaa; }
+
+      html[data-dark] .layer-item.open { background: #2a2a2a; }
+      html[data-dark] .layer-chevron { color: #aaa; }
+      html[data-dark] .layer-eye { color: #bbb; }
+      html[data-dark] .layer-eye:hover { background: rgba(255,255,255,0.08); }
+      html[data-dark] .layer-delete { color: #888; }
+      html[data-dark] .layer-prop { color: #bbb; }
+      html[data-dark] .layer-color { border-color: #555; }
+
+      html[data-dark] .layer-download-btn,
+      html[data-dark] .draw-path-btn {
+        background: #333;
+        border-color: #555;
+        color: #ddd;
+      }
+      html[data-dark] .layer-download-btn:hover,
+      html[data-dark] .draw-path-btn:hover { background: #3d3d3d; }
+
+      html[data-dark] .draw-action-btn {
+        border-color: #555;
+        color: #ccc;
+      }
+      html[data-dark] .draw-action-btn:hover { background: #3d3d3d; }
+      html[data-dark] .draw-active { background: rgba(33,150,243,0.2); }
+
+      html[data-dark] .sun-time-btn {
+        background: #333;
+        border-color: #555;
+      }
+      html[data-dark] .sun-time-btn:hover { background: #3d3d3d; }
+      html[data-dark] .sun-time-label { color: #aaa; }
+      html[data-dark] .sun-time-value { color: #eee; }
+
+      html[data-dark] .elevation-profile-panel {
+        background: rgba(30,30,30,0.92);
+      }
+      html[data-dark] .elevation-profile-title { color: #ddd; }
+      html[data-dark] .elevation-profile-close {
+        border-color: #555;
+        color: #ccc;
+      }
+      html[data-dark] .elevation-profile-close:hover { background: #3d3d3d; }
     </style>
   </script>
 </notebook>

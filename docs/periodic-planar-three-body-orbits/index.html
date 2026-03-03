@@ -1,6 +1,19 @@
-<!doctype html><html lang="en"><head>
+<!doctype html><html lang="en" data-notebook-theme="air"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    (function() {
+      const DARK_THEMES = new Set(['ink', 'midnight', 'near-midnight', 'deep-space', 'ocean-floor', 'coffee', 'slate']);
+      const html = document.documentElement;
+      const notebookDark = DARK_THEMES.has(html.dataset.notebookTheme);
+      const saved = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const wantDark = saved === 'dark' || (!saved && prefersDark);
+      if (wantDark && !notebookDark) html.dataset.dark = '';
+      else if (!wantDark && notebookDark) html.dataset.light = '';
+      html.classList.toggle('theme-is-dark', wantDark);
+    })();
+  </script>
   <meta name="author" content="Ricky Reusser">
   <meta property="article:author" content="Ricky Reusser">
   <meta name="twitter:title" content="Periodic Planar Three-Body Orbits">
@@ -1224,7 +1237,8 @@ body {
 }
     nav {
   padding: 2px;
-  display: block;
+  display: flex;
+  align-items: center;
   background: var(--rrtheme-color);
   font-family: "Open Sans", sans-serif;
   font-size: 16px;
@@ -1891,9 +1905,178 @@ a.index__tag:active {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+    /* Smooth theme transitions */
+    html,
+.container,
+.index__item,
+.index-view-btn,
+.index__active-filter {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, filter 0.3s ease;
+}
+    /* Theme toggle button */
+    .theme-toggle {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  color: white;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+    .theme-toggle:hover {
+  opacity: 1;
+}
+    .theme-toggle__moon {
+  display: none;
+}
+    html.theme-is-dark .theme-toggle__moon {
+  display: block;
+}
+    html.theme-is-dark .theme-toggle__sun {
+  display: none;
+}
+    /* SVG files loaded as <img> have hardcoded dark colors designed for light backgrounds.
+   invert(1) flips dark→light; hue-rotate(180deg) compensates so colored elements
+   return approximately to their original hue.
+   html[data-dark]: light notebook forced dark — invert the light SVGs.
+   html[data-light]: dark notebook forced light — the SVG is already dark, leave it alone
+   (no rule needed; the filter only applies when explicitly dark). */
+    html[data-dark] main img[src$=".svg"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+    /* Light mode override — applied to dark-themed notebooks when user wants light */
+    html[data-light] {
+  color-scheme: light;
+
+  /* theme-air.css base colors */
+  --theme-foreground: #1b1e23;
+  --theme-foreground-focus: #3b5fc0;
+  --theme-background-a: #ffffff;
+
+  /* abstract-light.css derived values */
+  --theme-background-b: color-mix(in srgb, var(--theme-foreground) 4%, var(--theme-background-a));
+  --theme-background: var(--theme-background-a);
+  --theme-background-alt: var(--theme-background-b);
+  --theme-foreground-alt: color-mix(in srgb, var(--theme-foreground) 90%, var(--theme-background-a));
+  --theme-foreground-muted: color-mix(in srgb, var(--theme-foreground) 60%, var(--theme-background-a));
+  --theme-foreground-faint: color-mix(in srgb, var(--theme-foreground) 50%, var(--theme-background-a));
+  --theme-foreground-fainter: color-mix(in srgb, var(--theme-foreground) 30%, var(--theme-background-a));
+  --theme-foreground-faintest: color-mix(in srgb, var(--theme-foreground) 14%, var(--theme-background-a));
+
+  /* syntax-light.css overrides */
+  --syntax-keyword: #e36209;
+  --syntax-atom: #032f62;
+  --syntax-literal: #6f42c1;
+  --syntax-string: #22863a;
+  --syntax-definition: #005cc5;
+  --syntax-meta: #d73a49;
+}
+    /* Dark mode override — applied to light-themed notebooks when user wants dark */
+    html[data-dark] {
+  color-scheme: dark;
+
+  /* theme-ink.css base colors */
+  --theme-foreground: #ebebeb;
+  --theme-foreground-focus: oklch(0.712564 0.257662 265.758);
+  --theme-background-b: #212121;
+
+  /* abstract-dark.css derived values */
+  --theme-background-a: color-mix(in srgb, var(--theme-foreground) 4%, var(--theme-background-b));
+  --theme-background: var(--theme-background-a);
+  --theme-background-alt: var(--theme-background-b);
+  --theme-foreground-alt: color-mix(in srgb, var(--theme-foreground) 90%, var(--theme-background-b));
+  --theme-foreground-muted: color-mix(in srgb, var(--theme-foreground) 60%, var(--theme-background-b));
+  --theme-foreground-faint: color-mix(in srgb, var(--theme-foreground) 50%, var(--theme-background-b));
+  --theme-foreground-fainter: color-mix(in srgb, var(--theme-foreground) 30%, var(--theme-background-b));
+  --theme-foreground-faintest: color-mix(in srgb, var(--theme-foreground) 14%, var(--theme-background-b));
+
+  /* syntax-dark.css overrides */
+  --syntax-keyword: #ffa657;
+  --syntax-atom: #a5d6ff;
+  --syntax-literal: #d2a8ff;
+  --syntax-string: #7ee787;
+  --syntax-definition: #79c0ff;
+  --syntax-meta: #ff7b72;
+}
+    html[data-dark] main details[open] {
+  border-left-color: #444;
+}
+    html[data-dark] figcaption,
+html[data-light] figcaption {
+  color: var(--theme-foreground-faint);
+}
+    /* Index page dark overrides */
+    html[data-dark] .index__item {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+    html[data-dark] .index__item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+    html[data-dark] .index__image-container {
+  background: linear-gradient(135deg, #333 0%, #2a2a2a 100%);
+}
+    html[data-dark] .index__placeholder {
+  background: linear-gradient(135deg, #333 0%, #2a2a2a 50%, #222 100%);
+}
+    html[data-dark] .index__placeholder::after {
+  border-color: #555;
+}
+    html[data-dark] .index__title {
+  color: #ddd;
+}
+    html[data-dark] .index__item:hover .index__title-link {
+  color: var(--rrtheme-color);
+}
+    html[data-dark] .index__date {
+  color: #999;
+}
+    html[data-dark] .index__tag {
+  color: #ccc;
+  background: #3a3a3a;
+}
+    html[data-dark] .index__tag:hover {
+  background: #4a4a4a;
+  color: #eee;
+}
+    html[data-dark] a.index__tag,
+html[data-dark] a.index__tag:visited,
+html[data-dark] a.index__tag:active {
+  color: #ccc;
+}
+    html[data-dark] .index__active-filter {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+    html[data-dark] .index__filter-label {
+  color: #aaa;
+}
+    html[data-dark] .index__description {
+  color: #aaa;
+}
+    html[data-dark] .index--list .index__item {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+    html[data-dark] .index-view-btn {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #2a2a2a;
+  color: #aaa;
+}
+    html[data-dark] .index-view-btn:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ddd;
+}
+    html[data-dark] .index-view-btn.active {
+  background: #3a3a3a;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #eee;
+}
   </style>
   <style> main { max-width: 640px; }</style>
-<meta name="generator" content="Observable Notebook Kit v1.5.0"><title>Periodic Planar Three-Body Orbits</title>  <script type="module" crossorigin src="/notebooks/assets/index-CbB9S0TY.js"></script>
+<meta name="generator" content="Observable Notebook Kit v1.5.0"><title>Periodic Planar Three-Body Orbits</title>  <script type="module" crossorigin src="/notebooks/assets/index-gCmCiH7-.js"></script>
   <link rel="modulepreload" crossorigin href="/notebooks/assets/index-ByB2dbry.js">
 </head>
 <body>
@@ -1902,6 +2085,22 @@ a.index__tag:active {
     <a class="menu__item" href="/notebooks/">notebooks</a>
     <a class="menu__item" href="/sketches/">sketches</a>
     <a class="menu__item" href="/trains-and-trails/">running</a>
+    <button id="theme-toggle" class="menu__item theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+      <svg class="theme-toggle__moon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+      <svg class="theme-toggle__sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+    </button>
   </nav>
   <header>
     <h1>Periodic Planar Three-Body Orbits</h1>
@@ -1937,7 +2136,7 @@ a.index__tag:active {
 </div></div><div id="cell-8" class="observablehq observablehq--cell"><div><h2 id="initial-conditions" tabindex="-1"><a href="#initial-conditions">Initial conditions</a></h2>
 </div></div><div id="cell-9" class="observablehq observablehq--cell"></div><div id="cell-11" class="observablehq observablehq--cell"></div><div id="cell-902" class="observablehq observablehq--cell"><div><p>The initial conditions in this notebook are obtained from Milovan Šuvakov’s <a href="http://three-body.ipb.ac.rs/">Three-body Gallery</a> as well as from the listing of <a href="http://numericaltank.sjtu.edu.cn/three-body/three-body.htm">Xiaoming Li and Shijun Liao</a>. The initial conditions presented here fall into a few couple categories but all have zero net translational and angular momentum.</p>
 <p>For more information as well as an excellent and approachable overview of the techniques used to locate the orbits, see Šuvakov and Dmitrašinović’s <a href="https://ui.adsabs.harvard.edu/abs/2014AmJPh..82..609S">A guide to hunting periodic three-body orbits</a>.</p>
-</div></div><div id="cell-102" class="observablehq observablehq--cell"></div><div id="cell-12" class="observablehq observablehq--cell"></div><div id="cell-7" class="observablehq observablehq--cell"></div><div id="cell-202" class="observablehq observablehq--cell"></div><div id="cell-204" class="observablehq observablehq--cell"></div><div id="cell-101" class="observablehq observablehq--cell"></div><div id="cell-103" class="observablehq observablehq--cell"></div><div id="cell-104" class="observablehq observablehq--cell"></div><div id="cell-105" class="observablehq observablehq--cell"></div><div id="cell-106" class="observablehq observablehq--cell"></div><div id="cell-205" class="observablehq observablehq--cell"></div><div id="cell-107" class="observablehq observablehq--cell"></div><div id="cell-904" class="observablehq observablehq--cell"></div><div id="cell-903" class="observablehq observablehq--cell"></div><div id="cell-108" class="observablehq observablehq--cell"></div><div id="cell-1090" class="observablehq observablehq--cell"></div><div id="cell-109" class="observablehq observablehq--cell"></div><div id="cell-200" class="observablehq observablehq--cell"><div><h2 id="orbit-classification" tabindex="-1"><a href="#orbit-classification">Orbit classification</a></h2>
+</div></div><div id="cell-102" class="observablehq observablehq--cell"></div><div id="cell-903" class="observablehq observablehq--cell"></div><div id="cell-904" class="observablehq observablehq--cell"></div><div id="cell-905" class="observablehq observablehq--cell"></div><div id="cell-12" class="observablehq observablehq--cell"></div><div id="cell-7" class="observablehq observablehq--cell"></div><div id="cell-202" class="observablehq observablehq--cell"></div><div id="cell-204" class="observablehq observablehq--cell"></div><div id="cell-101" class="observablehq observablehq--cell"></div><div id="cell-103" class="observablehq observablehq--cell"></div><div id="cell-104" class="observablehq observablehq--cell"></div><div id="cell-105" class="observablehq observablehq--cell"></div><div id="cell-106" class="observablehq observablehq--cell"></div><div id="cell-205" class="observablehq observablehq--cell"></div><div id="cell-107" class="observablehq observablehq--cell"></div><div id="cell-906" class="observablehq observablehq--cell"></div><div id="cell-907" class="observablehq observablehq--cell"></div><div id="cell-108" class="observablehq observablehq--cell"></div><div id="cell-1090" class="observablehq observablehq--cell"></div><div id="cell-109" class="observablehq observablehq--cell"></div><div id="cell-200" class="observablehq observablehq--cell"><div><h2 id="orbit-classification" tabindex="-1"><a href="#orbit-classification">Orbit classification</a></h2>
 <p>It’d be fine to stop right here, but the rest of this notebook will try to communicate how we start to talk about classifying the orbits since without some means of classification, we really just have a large puddle of orbits. We’ll use the topological approach described by Montgomery in <a href="https://ui.adsabs.harvard.edu/abs/1998Nonli..11..363M/abstract">The N-body problem, the braid group, and action-minimizing periodic solutions</a>, though I’ve found <a href="http://three-body.ipb.ac.rs/ref.php">the works of Šuvakov, Dmitrašinović, et al.</a> much more helpful and approachable.</p>
 <p>Since the interesting aspects of a particular orbit are invariant under translation, rotation, and scaling, we seek a representation which removes the uninteresting aspects. We therefore start with a commonly used coordinate system for n-body problems called <a href="https://en.wikipedia.org/wiki/Jacobi_coordinates"><em>Jacobi coordinates</em></a>. To compute Jacobi coordinates, we start with a single body and aggregate the remaining bodies one at a time, computing as each successive Jacobi coordinate the vector from one additional body to the center of mass of the currently aggregated bodies. The final coordinate is the center of mass of the whole system (which we discard since the overall system, at worst, moves with constant velocity).</p>
 </div></div><div id="cell-201" class="observablehq observablehq--cell"><div><h3 id="shape-space" tabindex="-1"><a href="#shape-space">Shape space</a></h3>
@@ -1949,13 +2148,13 @@ a.index__tag:active {
 </ul>
 </div></div><div id="cell-210" class="observablehq observablehq--cell"></div><div id="cell-211" class="observablehq observablehq--cell"><div><p>We return to the  orbit and plot it on the shape sphere below.</p>
 <p>Since all orbits here are collision-free, the trajectory meanders about on the surface of the sphere but never passes through any of the three pairwise collision points. In fact we can imagine continuously deforming a trajectory to find similar nearby orbits just as long as we don’t ever pass over the collision points and create an invalid orbit. In topology, these forbidden missing points are called <em>punctures</em>, and a family of orbits we can obtain through continuous deformation without passing over the punctures corresponds the concept of the <a href="https://en.wikipedia.org/wiki/Fundamental_group"><em>fundamental group</em></a> from algebraic topology. Algebraic topology is a topic well beyond my expertise, so I’ll tread lightly here and not pretend to know more about it.</p>
-</div></div><div id="cell-212" class="observablehq observablehq--cell"></div><div id="cell-213" class="observablehq observablehq--cell"></div><div id="cell-214" class="observablehq observablehq--cell"></div><div id="cell-215" class="observablehq observablehq--cell"></div><div id="cell-216" class="observablehq observablehq--cell"></div><div id="cell-907" class="observablehq observablehq--cell"><div><p>Three dimensional space is still a bit much to work with, so we additionally turn the shape sphere on its side and project the orbit stereographically about one puncture onto a plane below. Two punctures are visible while the third (about which we projected) is removed to infinity.</p>
+</div></div><div id="cell-212" class="observablehq observablehq--cell"></div><div id="cell-213" class="observablehq observablehq--cell"></div><div id="cell-214" class="observablehq observablehq--cell"></div><div id="cell-215" class="observablehq observablehq--cell"></div><div id="cell-216" class="observablehq observablehq--cell"></div><div id="cell-1091" class="observablehq observablehq--cell"><div><p>Three dimensional space is still a bit much to work with, so we additionally turn the shape sphere on its side and project the orbit stereographically about one puncture onto a plane below. Two punctures are visible while the third (about which we projected) is removed to infinity.</p>
 <p>The figure below shows the orbit projected into the two-dimensional plane. Two punctures are visible while the the puncture about which we projected is removed to infinity. The shape trajectory now lies in a flat two dimensional plane, looping around the two projected punctures but never passing through them.</p>
 </div></div><div id="cell-217" class="observablehq observablehq--cell"></div><div id="cell-218" class="observablehq observablehq--cell"></div><div id="cell-219" class="observablehq observablehq--cell"><div><h3 id="free-group-word" tabindex="-1"><a href="#free-group-word">Free group word</a></h3>
 <p>From here, our task is conceptually simple. We walk along the projected shape of the orbit and note every time it completes a loop, either clockwise or counterclockwise, around one of the two punctures. The result is a <a href="https://en.wikipedia.org/wiki/Free_group"><em>free group word</em></a> and (at last!) identifies our orbit in the topological sense. We record an  for clockwise loops around the righthand puncture and  (which we abbreviate as ) for counterclockwise loops. Similarly we record  and , respectively, for counterclockwise and clockwise loops around the lefthand puncture.</p>
 </div></div><div id="cell-220" class="observablehq observablehq--cell"></div><div id="cell-206" class="observablehq observablehq--cell"><div><p>Though conceptually simple, reading these elements is somewhat tedious. In their paper <a href="https://ui.adsabs.harvard.edu/abs/2014AmJPh..82..609S">A guide to hunting periodic three-body orbits</a>, Šuvakov and Dmitrašinović present a “free group word reading algorithm”. Following the algorithm, we track every crossing of the shape sphere equator, which corresponds to collinear configurations (<em>syzygies</em>). We track the direction of each crossing and which body is in the middle, then convert the information via a lookup table into the free group word.</p>
-</div></div><div id="cell-207" class="observablehq observablehq--cell"></div><div id="cell-906" class="observablehq observablehq--cell"><div><h2 id="future-work" tabindex="-1"><a href="#future-work">Future work</a></h2>
-</div></div><div id="cell-905" class="observablehq observablehq--cell"><div><p>In a future notebook, I’d love to implement a search algorithm to actually locate periodic orbits. From the abstract of the paper mentioned above, <a href="https://ui.adsabs.harvard.edu/abs/2014AmJPh..82..609S">A guide to hunting periodic three-body orbits</a>,</p>
+</div></div><div id="cell-207" class="observablehq observablehq--cell"></div><div id="cell-1092" class="observablehq observablehq--cell"><div><h2 id="future-work" tabindex="-1"><a href="#future-work">Future work</a></h2>
+</div></div><div id="cell-1093" class="observablehq observablehq--cell"><div><p>In a future notebook, I’d love to implement a search algorithm to actually locate periodic orbits. From the abstract of the paper mentioned above, <a href="https://ui.adsabs.harvard.edu/abs/2014AmJPh..82..609S">A guide to hunting periodic three-body orbits</a>,</p>
 <blockquote>
 <p>The recent discovery of thirteen new and distinct three-body periodic planar orbits suggests that many more such orbits remain undiscovered. Searches in two-dimensional subspaces of the full four-dimensional space of initial conditions require computing resources that are available to many students, and the required level of computational and numerical expertise is also at the advanced undergraduate level. We discuss the methods for solving the planar three-body equations of motion, as well as some basic strategies and tactics for searches of periodic orbits. Our discussion should allow interested undergraduates to start their own searches. Users can submit new three-body orbits to a wiki-based website.</p>
 </blockquote>
@@ -1974,6 +2173,22 @@ a.index__tag:active {
       RSS
     </a>
   </footer>
+  <script>
+    (function() {
+      const DARK_THEMES = new Set(['ink', 'midnight', 'near-midnight', 'deep-space', 'ocean-floor', 'coffee', 'slate']);
+      const html = document.documentElement;
+      const notebookDark = DARK_THEMES.has(html.dataset.notebookTheme);
+      document.getElementById('theme-toggle').addEventListener('click', function() {
+        const wantDark = !html.classList.contains('theme-is-dark');
+        delete html.dataset.dark;
+        delete html.dataset.light;
+        if (wantDark && !notebookDark) html.dataset.dark = '';
+        else if (!wantDark && notebookDark) html.dataset.light = '';
+        html.classList.toggle('theme-is-dark', wantDark);
+        localStorage.setItem('theme', wantDark ? 'dark' : 'light');
+      });
+    })();
+  </script>
 
 
 <style type="text/css">:root {

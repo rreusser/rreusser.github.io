@@ -414,7 +414,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       }));
     }
 
-    for (let i = 0; i < MAX_PEEL_LAYERS; i++) {
+    for (let i = 0; i <= MAX_PEEL_LAYERS; i++) {
       dualFrontLayerTextures.push(device.createTexture({
         size: [w, h],
         format: 'rgba8unorm',
@@ -436,7 +436,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     }
 
     const compositeBGL = dualPeelCompositePipeline.getBindGroupLayout(0);
-    for (let i = 0; i < MAX_PEEL_LAYERS; i++) {
+    for (let i = 0; i <= MAX_PEEL_LAYERS; i++) {
       dualPeelFrontCompositeBindGroups.push(device.createBindGroup({
         layout: compositeBGL,
         entries: [{ binding: 0, resource: dualFrontLayerTextures[i].createView() }]
@@ -496,7 +496,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       colorAttachments: [{
         view: msaaColorTexture.createView(),
         resolveTarget: colorTexture.createView(),
-        clearValue: { r: 1, g: 1, b: 1, a: 1 },
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
         loadOp: 'clear',
         storeOp: 'discard',
       }],
@@ -562,7 +562,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     const compositePass = encoder.beginRenderPass({
       colorAttachments: [{
         view: colorTexture.createView(),
-        clearValue: { r: 1, g: 1, b: 1, a: 1 },
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
         loadOp: 'clear',
         storeOp: 'store',
       }]
@@ -636,7 +636,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: colorTexture.createView(),
-          clearValue: layer === numLayers - 1 ? { r: 1, g: 1, b: 1, a: 1 } : undefined,
+          clearValue: layer === numLayers - 1 ? { r: 0, g: 0, b: 0, a: 0 } : undefined,
           loadOp: layer === numLayers - 1 ? 'clear' : 'load',
           storeOp: 'store',
         }]
@@ -686,7 +686,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     }
 
     // Peel passes: read previous dual depth, peel inward
-    for (let i = 1; i < numPasses; i++) {
+    for (let i = 1; i <= numPasses; i++) {
       const prevIdx = (i - 1) % 2;
       const currIdx = i % 2;
 
@@ -721,12 +721,12 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       pass.end();
     }
 
-    // Composite back-to-front: back[0..N-1], then front[N-1..0]
+    // Composite back-to-front: back[1..N], then front[N..1]
     const compositeOrder = [];
-    for (let i = 0; i < numPasses; i++) {
+    for (let i = 1; i <= numPasses; i++) {
       compositeOrder.push(dualPeelBackCompositeBindGroups[i]);
     }
-    for (let i = numPasses - 1; i >= 0; i--) {
+    for (let i = numPasses; i >= 1; i--) {
       compositeOrder.push(dualPeelFrontCompositeBindGroups[i]);
     }
 
@@ -734,7 +734,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: colorTexture.createView(),
-          clearValue: j === 0 ? { r: 1, g: 1, b: 1, a: 1 } : undefined,
+          clearValue: j === 0 ? { r: 0, g: 0, b: 0, a: 0 } : undefined,
           loadOp: j === 0 ? 'clear' : 'load',
           storeOp: 'store',
         }]

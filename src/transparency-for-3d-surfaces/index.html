@@ -135,7 +135,7 @@ if (!state.initialized) {
   canvas.style.height = '100%';
 
   const gpuContext = canvas.getContext('webgpu')!;
-  gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+  gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
   state.canvas = canvas;
   state.gpuContext = gpuContext;
@@ -176,7 +176,7 @@ const resizeCanvas = () => {
   if (canvas.width !== newWidth || canvas.height !== newHeight) {
     canvas.width = newWidth;
     canvas.height = newHeight;
-    gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+    gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
     state.dirty = true;
     camera.taint();
   }

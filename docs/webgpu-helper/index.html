@@ -1,6 +1,19 @@
-<!doctype html><html lang="en"><head>
+<!doctype html><html lang="en" data-notebook-theme="air"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    (function() {
+      const DARK_THEMES = new Set(['ink', 'midnight', 'near-midnight', 'deep-space', 'ocean-floor', 'coffee', 'slate']);
+      const html = document.documentElement;
+      const notebookDark = DARK_THEMES.has(html.dataset.notebookTheme);
+      const saved = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const wantDark = saved === 'dark' || (!saved && prefersDark);
+      if (wantDark && !notebookDark) html.dataset.dark = '';
+      else if (!wantDark && notebookDark) html.dataset.light = '';
+      html.classList.toggle('theme-is-dark', wantDark);
+    })();
+  </script>
   <meta name="author" content="Ricky Reusser">
   <meta property="article:author" content="Ricky Reusser">
   <meta name="twitter:title" content="WebGPU Helpers">
@@ -1217,7 +1230,8 @@ body {
 }
     nav {
   padding: 2px;
-  display: block;
+  display: flex;
+  align-items: center;
   background: var(--rrtheme-color);
   font-family: "Open Sans", sans-serif;
   font-size: 16px;
@@ -1884,6 +1898,175 @@ a.index__tag:active {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+    /* Smooth theme transitions */
+    html,
+.container,
+.index__item,
+.index-view-btn,
+.index__active-filter {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, filter 0.3s ease;
+}
+    /* Theme toggle button */
+    .theme-toggle {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  color: white;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+    .theme-toggle:hover {
+  opacity: 1;
+}
+    .theme-toggle__moon {
+  display: none;
+}
+    html.theme-is-dark .theme-toggle__moon {
+  display: block;
+}
+    html.theme-is-dark .theme-toggle__sun {
+  display: none;
+}
+    /* SVG files loaded as <img> have hardcoded dark colors designed for light backgrounds.
+   invert(1) flips dark→light; hue-rotate(180deg) compensates so colored elements
+   return approximately to their original hue.
+   html[data-dark]: light notebook forced dark — invert the light SVGs.
+   html[data-light]: dark notebook forced light — the SVG is already dark, leave it alone
+   (no rule needed; the filter only applies when explicitly dark). */
+    html[data-dark] main img[src$=".svg"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+    /* Light mode override — applied to dark-themed notebooks when user wants light */
+    html[data-light] {
+  color-scheme: light;
+
+  /* theme-air.css base colors */
+  --theme-foreground: #1b1e23;
+  --theme-foreground-focus: #3b5fc0;
+  --theme-background-a: #ffffff;
+
+  /* abstract-light.css derived values */
+  --theme-background-b: color-mix(in srgb, var(--theme-foreground) 4%, var(--theme-background-a));
+  --theme-background: var(--theme-background-a);
+  --theme-background-alt: var(--theme-background-b);
+  --theme-foreground-alt: color-mix(in srgb, var(--theme-foreground) 90%, var(--theme-background-a));
+  --theme-foreground-muted: color-mix(in srgb, var(--theme-foreground) 60%, var(--theme-background-a));
+  --theme-foreground-faint: color-mix(in srgb, var(--theme-foreground) 50%, var(--theme-background-a));
+  --theme-foreground-fainter: color-mix(in srgb, var(--theme-foreground) 30%, var(--theme-background-a));
+  --theme-foreground-faintest: color-mix(in srgb, var(--theme-foreground) 14%, var(--theme-background-a));
+
+  /* syntax-light.css overrides */
+  --syntax-keyword: #e36209;
+  --syntax-atom: #032f62;
+  --syntax-literal: #6f42c1;
+  --syntax-string: #22863a;
+  --syntax-definition: #005cc5;
+  --syntax-meta: #d73a49;
+}
+    /* Dark mode override — applied to light-themed notebooks when user wants dark */
+    html[data-dark] {
+  color-scheme: dark;
+
+  /* theme-ink.css base colors */
+  --theme-foreground: #ebebeb;
+  --theme-foreground-focus: oklch(0.712564 0.257662 265.758);
+  --theme-background-b: #212121;
+
+  /* abstract-dark.css derived values */
+  --theme-background-a: color-mix(in srgb, var(--theme-foreground) 4%, var(--theme-background-b));
+  --theme-background: var(--theme-background-a);
+  --theme-background-alt: var(--theme-background-b);
+  --theme-foreground-alt: color-mix(in srgb, var(--theme-foreground) 90%, var(--theme-background-b));
+  --theme-foreground-muted: color-mix(in srgb, var(--theme-foreground) 60%, var(--theme-background-b));
+  --theme-foreground-faint: color-mix(in srgb, var(--theme-foreground) 50%, var(--theme-background-b));
+  --theme-foreground-fainter: color-mix(in srgb, var(--theme-foreground) 30%, var(--theme-background-b));
+  --theme-foreground-faintest: color-mix(in srgb, var(--theme-foreground) 14%, var(--theme-background-b));
+
+  /* syntax-dark.css overrides */
+  --syntax-keyword: #ffa657;
+  --syntax-atom: #a5d6ff;
+  --syntax-literal: #d2a8ff;
+  --syntax-string: #7ee787;
+  --syntax-definition: #79c0ff;
+  --syntax-meta: #ff7b72;
+}
+    html[data-dark] main details[open] {
+  border-left-color: #444;
+}
+    html[data-dark] figcaption,
+html[data-light] figcaption {
+  color: var(--theme-foreground-faint);
+}
+    /* Index page dark overrides */
+    html[data-dark] .index__item {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+    html[data-dark] .index__item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+    html[data-dark] .index__image-container {
+  background: linear-gradient(135deg, #333 0%, #2a2a2a 100%);
+}
+    html[data-dark] .index__placeholder {
+  background: linear-gradient(135deg, #333 0%, #2a2a2a 50%, #222 100%);
+}
+    html[data-dark] .index__placeholder::after {
+  border-color: #555;
+}
+    html[data-dark] .index__title {
+  color: #ddd;
+}
+    html[data-dark] .index__item:hover .index__title-link {
+  color: var(--rrtheme-color);
+}
+    html[data-dark] .index__date {
+  color: #999;
+}
+    html[data-dark] .index__tag {
+  color: #ccc;
+  background: #3a3a3a;
+}
+    html[data-dark] .index__tag:hover {
+  background: #4a4a4a;
+  color: #eee;
+}
+    html[data-dark] a.index__tag,
+html[data-dark] a.index__tag:visited,
+html[data-dark] a.index__tag:active {
+  color: #ccc;
+}
+    html[data-dark] .index__active-filter {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+    html[data-dark] .index__filter-label {
+  color: #aaa;
+}
+    html[data-dark] .index__description {
+  color: #aaa;
+}
+    html[data-dark] .index--list .index__item {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+    html[data-dark] .index-view-btn {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #2a2a2a;
+  color: #aaa;
+}
+    html[data-dark] .index-view-btn:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ddd;
+}
+    html[data-dark] .index-view-btn.active {
+  background: #3a3a3a;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #eee;
+}
   </style>
   
 <meta name="generator" content="Observable Notebook Kit v1.5.0"><title>WebGPU Helpers</title>  <script type="module" crossorigin src="/notebooks/assets/index-CBQSIPsH.js"></script>
@@ -1895,6 +2078,22 @@ a.index__tag:active {
     <a class="menu__item" href="/notebooks/">notebooks</a>
     <a class="menu__item" href="/sketches/">sketches</a>
     <a class="menu__item" href="/trains-and-trails/">running</a>
+    <button id="theme-toggle" class="menu__item theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+      <svg class="theme-toggle__moon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+      <svg class="theme-toggle__sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+    </button>
   </nav>
   <header>
     <h1>WebGPU Helpers</h1>
@@ -1941,6 +2140,22 @@ a.index__tag:active {
       RSS
     </a>
   </footer>
+  <script>
+    (function() {
+      const DARK_THEMES = new Set(['ink', 'midnight', 'near-midnight', 'deep-space', 'ocean-floor', 'coffee', 'slate']);
+      const html = document.documentElement;
+      const notebookDark = DARK_THEMES.has(html.dataset.notebookTheme);
+      document.getElementById('theme-toggle').addEventListener('click', function() {
+        const wantDark = !html.classList.contains('theme-is-dark');
+        delete html.dataset.dark;
+        delete html.dataset.light;
+        if (wantDark && !notebookDark) html.dataset.dark = '';
+        else if (!wantDark && notebookDark) html.dataset.light = '';
+        html.classList.toggle('theme-is-dark', wantDark);
+        localStorage.setItem('theme', wantDark ? 'dark' : 'light');
+      });
+    })();
+  </script>
 
 
 <style type="text/css">:root {

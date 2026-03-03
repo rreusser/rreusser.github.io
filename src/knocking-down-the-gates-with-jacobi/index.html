@@ -45,26 +45,27 @@
         .create("svg")
         .attr("width", w)
         .attr("height", h + hForce)
-        .attr("style", "border:1px solid #eee;cursor:move");
+        .attr("style", "border:1px solid var(--theme-foreground-faintest);cursor:move;fill:currentColor");
       const gPendula = svg
         .append("g")
         .attr("transform", `translate(${w / 2},${h / 2})`);
       gPendula
         .append("line")
         .attr("y2", 50)
-        .attr("stroke", "#555")
+        .attr("stroke", "currentColor")
         .attr("stroke-dasharray", "3,3");
 
       const resolvedColor = showLinearized ? "#ccc" : "#25e";
       const linearizedColor = showLinearized ? "#25e" : "#ccc";
-      const angle = gPendula.append("path").attr("fill", "#555");
+      const angle = gPendula.append("path").attr("fill", "currentColor");
       const circle = gPendula
         .append("circle")
         .attr("r", (h / 2) * l * 0.9)
-        .style("stroke", "#aaa")
+        .style("stroke", "currentColor")
         .style("fill", "none")
-        .style("stroke-dasharray", "4,4");
-      const thetaArrow = gPendula.append("path").attr("fill", "#555");
+        .style("stroke-dasharray", "4,4")
+        .style("opacity", "0.3");
+      const thetaArrow = gPendula.append("path").attr("fill", "currentColor");
       const thetaLabel = gPendula
         .append("text")
         .text("θ")
@@ -77,7 +78,7 @@
           line: gPendula
             .append("line")
             .attr("y2", (h / 2) * l * 0.9)
-            .style("stroke", theta === thetaAnalytical ? "#444" : "#ccc")
+            .style("stroke", theta === thetaAnalytical ? "currentColor" : "#ccc")
             .style("stroke-width", 3)
             .style("stroke-linecap", "round"),
           mass: gPendula

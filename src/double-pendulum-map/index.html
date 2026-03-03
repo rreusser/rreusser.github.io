@@ -164,7 +164,7 @@
         id: 'regl',
         element: reglElement(createREGL, {
           optionalExtensions: ['OES_texture_half_float', 'OES_texture_float', 'OES_texture_float_linear', 'OES_texture_half_float_linear', 'ANGLE_instanced_arrays'],
-          attributes: { antialias: true, alpha: false, depthStencil: false, preserveDrawingBuffer: true }
+          attributes: { antialias: true, depthStencil: false, preserveDrawingBuffer: true }
         })
       }, {
         id: 'plot',
@@ -321,7 +321,7 @@
     const frame = regl.frame(() => {
       blit(() => {
         if (regl.dirty || run) {
-          regl.clear({ color: [1, 1, 1, 1] });
+          regl.clear({ color: [0, 0, 0, 0] });
         }
 
         // Step the simulation if running (disabled in debug mode)
@@ -631,7 +631,7 @@
 
           // Check if UV is outside texture bounds - show solid color
           if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-            gl_FragColor = vec4(0.95, 0.95, 0.95, 1.0); // Light gray for out of bounds
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0); // Transparent for out of bounds (page background shows through)
             return;
           }
 

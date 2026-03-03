@@ -5,7 +5,7 @@ const FUDGE = 1.0 - 1e-4;
 const MAX_PEEL_LAYERS = 8;
 const UNIFORM_BUFFER_SIZE = 240;
 
-export function createRenderer(device, canvasFormat, shaderCodes, resolution = 150) {
+export function createRenderer(device, canvasFormat, shaderCodes, resolution = 200) {
   const peelModule = device.createShaderModule({ label: 'peel-shader', code: shaderCodes.peel });
   const compositeModule = device.createShaderModule({ label: 'peel-composite-shader', code: shaderCodes.peelComposite });
 
@@ -274,7 +274,7 @@ export function createRenderer(device, canvasFormat, shaderCodes, resolution = 1
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: colorTexture.createView(),
-          clearValue: layer === numLayers - 1 ? { r: 1, g: 1, b: 1, a: 1 } : undefined,
+          clearValue: layer === numLayers - 1 ? { r: 0, g: 0, b: 0, a: 0 } : undefined,
           loadOp: layer === numLayers - 1 ? 'clear' : 'load',
           storeOp: 'store',
         }]

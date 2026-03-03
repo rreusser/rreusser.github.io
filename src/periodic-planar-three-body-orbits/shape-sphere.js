@@ -104,6 +104,7 @@ varying vec3 vNormal;
 uniform float gridDensity;
 uniform float lineAlpha;
 uniform float fillAlpha;
+uniform vec3 uForeground;
 
 float gridFactor(vec2 parameter, float width, float feather) {
   float w1 = width - feather * 0.5;
@@ -119,7 +120,7 @@ void main() {
   vec2 gridCoord = vec2(lat, lon) * gridDensity / 3.14159265;
   float grid = gridFactor(gridCoord, 0.5, 1.0);
   float alpha = mix(lineAlpha, fillAlpha, grid);
-  gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+  gl_FragColor = vec4(uForeground, alpha);
 }`,
     attributes: {
       position: regl.prop('positions')
@@ -131,7 +132,8 @@ void main() {
       gridRotation: (ctx, props) => props.gridRotation || identityMat3,
       gridDensity: (ctx, props) => props.gridDensity || 4,
       lineAlpha: (ctx, props) => props.lineAlpha || 0.18,
-      fillAlpha: (ctx, props) => props.fillAlpha || 0.06
+      fillAlpha: (ctx, props) => props.fillAlpha || 0.06,
+      uForeground: (ctx, props) => props.foreground || [0, 0, 0]
     },
     blend: {
       enable: true,
@@ -192,6 +194,10 @@ export function createShapeSphere(regl, opts = {}) {
   let phi = opts.phi || 0.3;
   let distance = opts.distance || 3.5;
   let dirty = true;
+
+  // Theme colors
+  let background = opts.background || [1, 1, 1];
+  let foreground = opts.foreground || [0, 0, 0];
 
   // Arrow mesh data - defines the shape of the arrow (tail + head)
   // Components: x=perpendicular offset, y=along-line interpolation, z=arrowhead length offset, w=arrowhead width offset
@@ -320,11 +326,12 @@ export function createShapeSphere(regl, opts = {}) {
     `,
     frag: `
       precision highp float;
+      uniform vec3 uBackground;
       varying vec4 vColor;
       void main() {
         float r = length(gl_PointCoord * 2.0 - 1.0);
         if (r > 1.0) discard;
-        vec3 c = r > 0.7 ? vec3(1) : vColor.rgb;
+        vec3 c = r > 0.7 ? uBackground : vColor.rgb;
         gl_FragColor = vec4(c, vColor.a);
       }
     `,
@@ -336,7 +343,8 @@ export function createShapeSphere(regl, opts = {}) {
       projection: regl.prop('projection'),
       view: regl.prop('view'),
       pointSize: regl.prop('pointSize'),
-      pixelRatio: regl.context('pixelRatio')
+      pixelRatio: regl.context('pixelRatio'),
+      uBackground: regl.prop('background')
     },
     primitive: 'points',
     count: regl.prop('count'),
@@ -358,6 +366,12 @@ export function createShapeSphere(regl, opts = {}) {
   return {
     theta, phi, distance,
     dirty,
+
+    setTheme(bg, fg) {
+      background = bg;
+      foreground = fg;
+      dirty = true;
+    },
 
     setShape(shapeVec) {
       // Shape vector to sphere: (nx, ny, nz) -> (ny, nz, nx) to match original orientation
@@ -436,11 +450,14 @@ export function createShapeSphere(regl, opts = {}) {
 
       regl.clear({ color: [0, 0, 0, 0], depth: 1 });
 
+      const lineColor = [...foreground, 0.6];
+
       // Draw sphere
       drawGlobe({
         projectionView,
         positions: { buffer: spherePositions, stride: 12 },
-        elements: sphereElements
+        elements: sphereElements,
+        foreground
       });
 
       // Draw equator
@@ -448,7 +465,7 @@ export function createShapeSphere(regl, opts = {}) {
         ...uniforms,
         positions: equatorPositions,
         count: 101,
-        color: [0.6, 0.6, 0.6, 1]
+        color: lineColor
       });
 
       // Draw projection line (from origin to equator projection)
@@ -456,7 +473,7 @@ export function createShapeSphere(regl, opts = {}) {
         ...uniforms,
         positions: projectionLineBuffer,
         count: 2,
-        color: [0.6, 0.6, 0.6, 1]
+        color: lineColor
       });
 
       // Draw elevation arc
@@ -464,7 +481,7 @@ export function createShapeSphere(regl, opts = {}) {
         ...uniforms,
         positions: elevationArcBuffer,
         count: arcDivisions + 1,
-        color: [0.6, 0.6, 0.6, 1]
+        color: lineColor
       });
 
       // Draw shape arrow with proper arrowhead
@@ -485,7 +502,8 @@ export function createShapeSphere(regl, opts = {}) {
         positions: punctureBuffer,
         colors: punctureColors,
         count: 3,
-        pointSize: 12
+        pointSize: 12,
+        background
       });
     },
 
@@ -631,6 +649,10 @@ export function createOrbitShapeSphere(regl, shapeTrajectory, masses, opts = {},
   let distance = opts.distance || 5;
   let dirty = true;
 
+  // Theme colors
+  let background = opts.background || [1, 1, 1];
+  let foreground = opts.foreground || [0, 0, 0];
+
   // Display rotation to tip the grid - rotate 90° around X so equator appears vertical
   const displayTilt = [
     1, 0, 0,
@@ -706,11 +728,12 @@ export function createOrbitShapeSphere(regl, shapeTrajectory, masses, opts = {},
     `,
     frag: `
       precision highp float;
+      uniform vec3 uBackground;
       varying vec4 vColor;
       void main() {
         float r = length(gl_PointCoord * 2.0 - 1.0);
         if (r > 1.0) discard;
-        vec3 c = r > 0.7 ? vec3(1) : vColor.rgb;
+        vec3 c = r > 0.7 ? uBackground : vColor.rgb;
         gl_FragColor = vec4(c, vColor.a);
       }
     `,
@@ -721,7 +744,8 @@ export function createOrbitShapeSphere(regl, shapeTrajectory, masses, opts = {},
     uniforms: {
       projectionView: regl.prop('projectionView'),
       pointSize: regl.prop('pointSize'),
-      pixelRatio: regl.context('pixelRatio')
+      pixelRatio: regl.context('pixelRatio'),
+      uBackground: regl.prop('background')
     },
     primitive: 'points',
     count: regl.prop('count'),
@@ -743,6 +767,12 @@ export function createOrbitShapeSphere(regl, shapeTrajectory, masses, opts = {},
 
     taint() { dirty = true; },
 
+    setTheme(bg, fg) {
+      background = bg;
+      foreground = fg;
+      dirty = true;
+    },
+
     render(width, height) {
       if (!dirty) return;
       dirty = false;
@@ -755,6 +785,15 @@ export function createOrbitShapeSphere(regl, shapeTrajectory, masses, opts = {},
 
       regl.clear({ color: [0, 0, 0, 0], depth: 1 });
 
+      const lineColor = [...foreground, 0.6];
+      // Mix 20% toward foreground at full opacity to avoid accumulation with dense overlapping lines
+      const dimColor = [
+        foreground[0] * 0.2 + background[0] * 0.8,
+        foreground[1] * 0.2 + background[1] * 0.8,
+        foreground[2] * 0.2 + background[2] * 0.8,
+        1.0
+      ];
+
       // Draw sphere with rotation applied for correct grid orientation
       drawGlobe({
         projectionView,
@@ -762,11 +801,12 @@ export function createOrbitShapeSphere(regl, shapeTrajectory, masses, opts = {},
         elements: sphereElements,
         rotation: rotationMatrix,
         gridRotation: displayTilt,
-        gridDensity: 4
+        gridDensity: 4,
+        foreground
       });
 
       // Draw equator
-      drawThinLines({ projectionView, positions: equatorBuffer, count: 201, color: [0.6, 0.6, 0.6, 1] });
+      drawThinLines({ projectionView, positions: equatorBuffer, count: 201, color: lineColor });
 
       // Draw trajectory on sphere (use thick lines if available)
       if (drawThickLines) {
@@ -791,18 +831,18 @@ export function createOrbitShapeSphere(regl, shapeTrajectory, masses, opts = {},
           vertexAttributes: {
             position: { buffer: projectedBuffer, stride: 12, offset: 0 }
           },
-          color: [0.5, 0.5, 0.5, 1],
+          color: dimColor,
           lineWidth: 1.7
         });
       } else {
-        drawThinLines({ projectionView, positions: projectedBuffer, count: trajectoryCount, color: [0.5, 0.5, 0.5, 1] });
+        drawThinLines({ projectionView, positions: projectedBuffer, count: trajectoryCount, color: dimColor });
       }
 
       // Draw reference line
-      drawThinLines({ projectionView, positions: referenceLineBuffer, count: 3, color: [0.5, 0.5, 0.5, 1] });
+      drawThinLines({ projectionView, positions: referenceLineBuffer, count: 3, color: dimColor });
 
       // Draw puncture points
-      drawPoints({ projectionView, positions: punctureBuffer, colors: punctureColorsBuffer, count: 5, pointSize: 12 });
+      drawPoints({ projectionView, positions: punctureBuffer, colors: punctureColorsBuffer, count: 5, pointSize: 12, background });
     },
 
     destroy() {

@@ -733,7 +733,7 @@
     const regl = canvas2d.value;
     canvas2d.width = w;
     canvas2d.height = h;
-    canvas2d.style.border = '1px solid #ccc';
+    //canvas2d.style.border = '1px solid #ccc';
     canvas2d.style.width = '512px';
     canvas2d.style.maxWidth = '100%';
     canvas2d.style.height = 'auto';
@@ -1155,7 +1155,7 @@ Finally, ${tex`f = uk/(1-u)`} gives the Hopf curve parametrized by ${tex`k`}.
     turingCanvas.style.maxWidth = '100%';
     turingCanvas.style.height = 'auto';
     turingCanvas.style.aspectRatio = '512 / 150';
-    turingCanvas.style.border = '1px solid #ccc';
+    //turingCanvas.style.border = '1px solid #ccc';
     turingCanvas.style.cursor = 'crosshair';
 
     const turingCtx = turingCanvas.getContext('2d');
@@ -1371,7 +1371,7 @@ Finally, ${tex`f = uk/(1-u)`} gives the Hopf curve parametrized by ${tex`k`}.
     import { createTuring2D } from './turing-2d.js';
 
     if (!isWebGPUAvailable()) {
-      display(html`<div style="color: #666; padding: 12px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; font-size: 13px;">WebGPU is not available.</div>`);
+      display(html`<div style="color: #666; padding: 12px; background: #f9f9f9; border-radius: 4px; font-size: 13px;">WebGPU is not available.</div>`);
     } else {
       const { device: turing2dDevice, canvasFormat: turing2dCanvasFormat } = await createWebGPUContext();
 
@@ -1407,7 +1407,7 @@ Finally, ${tex`f = uk/(1-u)`} gives the Hopf curve parametrized by ${tex`k`}.
         turing2dCanvas.style.maxWidth = '100%';
         turing2dCanvas.style.height = 'auto';
         turing2dCanvas.style.aspectRatio = '1 / 1';
-        turing2dCanvas.style.border = '1px solid #ccc';
+        //turing2dCanvas.style.border = '1px solid #ccc';
         turing2dCanvas.style.cursor = 'crosshair';
 
         const turing2dCtx = turing2dCanvas.getContext('webgpu');
@@ -1601,7 +1601,7 @@ Finally, ${tex`f = uk/(1-u)`} gives the Hopf curve parametrized by ${tex`k`}.
     import { createTuring2Scale } from './turing-2scale.js';
 
     if (!isWebGPUAvailable()) {
-      display(html`<div style="color: #666; padding: 12px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; font-size: 13px;">WebGPU is not available.</div>`);
+      display(html`<div style="color: #666; padding: 12px; background: #f9f9f9; border-radius: 4px; font-size: 13px;">WebGPU is not available.</div>`);
     } else {
       const { device: twoScaleDevice, canvasFormat: twoScaleCanvasFormat } = await createWebGPUContext();
 
@@ -1628,7 +1628,7 @@ Finally, ${tex`f = uk/(1-u)`} gives the Hopf curve parametrized by ${tex`k`}.
         twoScaleCanvas.style.maxWidth = '100%';
         twoScaleCanvas.style.height = 'auto';
         twoScaleCanvas.style.aspectRatio = '1 / 1';
-        twoScaleCanvas.style.border = '1px solid #ccc';
+        //twoScaleCanvas.style.border = '1px solid #ccc';
         twoScaleCanvas.style.cursor = 'crosshair';
 
         const twoScaleCtx = twoScaleCanvas.getContext('webgpu');

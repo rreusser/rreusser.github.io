@@ -5,8 +5,16 @@
     <link>https://rreusser.github.io/notebooks/</link>
     <description>Interactive notebooks on graphics, math, and creative coding</description>
     <language>en-us</language>
-    <lastBuildDate>Sun, 01 Mar 2026 04:00:30 GMT</lastBuildDate>
+    <lastBuildDate>Tue, 03 Mar 2026 04:34:23 GMT</lastBuildDate>
     <atom:link href="https://rreusser.github.io/notebooks/feed.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Boy&apos;s Surface</title>
+      <link>https://rreusser.github.io/notebooks/boys-surface/</link>
+      <guid isPermaLink="true">https://rreusser.github.io/notebooks/boys-surface/</guid>
+      <pubDate>Sat, 28 Feb 2026 08:00:00 GMT</pubDate>
+      <description>Boy&apos;s surface, an immersion of the real projective plane in three-dimensional Euclidean space</description>
+      <media:content url="https://rreusser.github.io/notebooks/meta/boys-surface.jpg" medium="image" />
+    </item>
     <item>
       <title>Denali Terrain</title>
       <link>https://rreusser.github.io/notebooks/denali/</link>
@@ -214,6 +222,14 @@
       <pubDate>Sat, 26 Feb 2022 08:00:00 GMT</pubDate>
       <description>Animating periodic three-body orbits using pure CSS keyframe animations generated from Fourier decomposition.</description>
       <media:content url="https://rreusser.github.io/notebooks/meta/pure-css-periodic-three-body-orbits.jpg" medium="image" />
+    </item>
+    <item>
+      <title>Lawson&apos;s Klein Bottle</title>
+      <link>https://rreusser.github.io/notebooks/lawsons-klein-bottle/</link>
+      <guid isPermaLink="true">https://rreusser.github.io/notebooks/lawsons-klein-bottle/</guid>
+      <pubDate>Sat, 18 Sep 2021 07:00:00 GMT</pubDate>
+      <description>Lawson&apos;s Klein bottle, a generalization of the Clifford torus in 4D space rendered via stereographic projection into 3D</description>
+      <media:content url="https://rreusser.github.io/notebooks/meta/lawsons-klein-bottle.jpg" medium="image" />
     </item>
     <item>
       <title>Computing π with the Bailey-Borwein-Plouffe Formula</title>

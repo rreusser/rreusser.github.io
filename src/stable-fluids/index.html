@@ -5,10 +5,31 @@
     # Fluid Instability with Stable Fluids
   </script>
   <script id="1" type="text/markdown">
-    This page came about after an online discussion of what Claude Code was capable of, or perhaps not capable of. I feared it might actually do an alright job of implementing [Stable Fluids](https://www.dgp.toronto.edu/public_user/stam/reality/Research/pdf/ns.pdf), so I pretty blindly threw Claude Code at the task, giving it the `pdftotext`-extracted text of the Stable Fluids paper. I connected my [mcp-observable-notebookkit-debug](https://github.com/rreusser/mcp-observable-notebookkit-debug) tool so that it would be able to interact with the simulation and analyze the `<canvas>` content. After some finagling over parameter calibration to get things in the ballpark, I asked that it implement some initial conditions for fluid instabilities and sharpen things up a little with the monotonic cubic interpolation scheme from Fedkiw, Stam, and Jensen’s [Visual Simulation of Smoke](https://web.stanford.edu/class/cs237d/smoke.pdf). To instruct it about the method, I took a screenshot of the Appendix of the paper and dropped it into the terminal window.
+    This page came about after an online discussion of what Claude Code was capable of, or perhaps not capable of. I feared it might actually do an alright job of implementing [Stable Fluids](https://www.dgp.toronto.edu/public_user/stam/reality/Research/pdf/ns.pdf), so I pretty blindly threw Claude Code at the task, giving it the `pdftotext`-extracted text of the Stable Fluids paper. I connected my [mcp-observable-notebookkit-debug](https://github.com/rreusser/mcp-observable-notebookkit-debug) tool so that it would be able to interact with the simulation and analyze the `<canvas>` content. I asked it to sharpen things up a little with the monotonic cubic interpolation scheme from Fedkiw, Stam, and Jensen’s [Visual Simulation of Smoke](https://web.stanford.edu/class/cs237d/smoke.pdf). To instruct it about the method, I took a screenshot of the Appendix of the paper and dropped it into the terminal window.
   </script>
   <script id="24" type="text/markdown">
-    I want to reject AI, but I politely decline to be religious about it, either supporting it unconditionally or rejecting it out of hat. I view it as a tool, nothing more, nothing less. You can produce good things with it, and you can produce bad things with it. Honestly it seems to have done a decent job here. The FFT isn’t an appropriate fit given our application of walls, so the boundaries leak fluid as a result of the projection step. Memory usage could be optimized. I think I’d have organized the shaders a little differently, maybe consolidating some force computation or something. I think the FFT could be reworked to perform better. But gosh overall it’s just not terrible.
+    After some finagling with parameters, it came together pretty quickly. It has issues. The FFT isn't a good solver for non-periodic walls, so the boundaries leak fluid as a result of the projection step. Memory usage could be optimized. I'd have organized the shaders differently, probably consolidated some of the force computation. The FFT could be reworked to perform better. But overall it's honestly not terrible, and that's the unsettling part.
+  </script>
+  <script id="29" type="text/markdown">
+    ## Reflecting on the results
+  </script>
+  <script id="25" type="text/markdown">
+    The creation of other notebooks on this site involved varying degrees of toil. I worked quite hard on some of them, slowly building tools and techniques over the course of years. But this notebook I vaguely willed into existence while making dinner. I certainly feel conflicted about the result. On one hand, I want to believe that the result is judged by the *result*. On the other hand, I want to believe that meaning arises from the *process*.
+  </script>
+  <script id="30" type="text/markdown">
+    In an ideal world, this would be moot because of the value this site has for other people. Truth is though, I’m not sure this site has much meaning to other people, and I’m definitely not sure it’s useful.
+  </script>
+  <script id="26" type="text/markdown">
+    Most of the notebooks on this on this site link to original notebooks on observablehq.com which were definitely created by manual, human labor. I translated them to Observable Notebook Kit largely by way of AI. I improve many things along the way. The camera interactions are better. I translated a number of notebooks from WebGPU to WebGL. The presentation is cleaned up. I added explanatory figures which I definitely would not have taken the time to hand-craft with SVG.
+  </script>
+  <script id="32" type="text/markdown">
+    Does this retroactively cheapen the hard work I put into these notebooks? I don’t know. Probably. Am I more pleased than I’ve ever been before about creating things with limited time and resources, but in a way that match my vision for them? Yeah, definitely.
+  </script>
+  <script id="33" type="text/markdown">
+    The future is going to get weird. The view that AI worthless nonsense because it doesn’t work is, I think, wildly outdated and only becoming more so. The view that it’s destructive is probably right. But it’s creative as well and enables ideas and approaches that could not have existed before. I’m not saying just vibe-code everything and pump out garbage. But there are things I can do now that I simply would not have done a year ago becuase I’m willing to devote entire weekends to messing around with low-level click handlers. Maybe constructing worlds that match your vision will become a new norm. This feels more old-school geocities-style to me than like an apocalyptic vibe-coded hellscape.
+  </script>
+  <script id="35" type="text/markdown">
+    So I don't know. I’m fearful but hopeful.
   </script>
   <script id="22" type="text/markdown">
     ---
@@ -894,7 +915,7 @@
 
     invalidation.then(() => loop.cancel());
   </script>
-  <script id="18b" type="module">
+  <script id="28" type="module">
     // Download button with WebGPU readback
     render; canvas; gpuContext; device; canvasFormat; interpolation; simParams;
 
@@ -991,7 +1012,7 @@
     3. **Diffuse**: Apply viscous diffusion (done in frequency domain as multiplication)
     4. **Project**: Make velocity divergence-free by subtracting the gradient of pressure
 
-    The key insight is that projection can be done efficiently in frequency domain. The velocity ${tex`\hat{\mathbf{u}}(\mathbf{k})`} is decomposed into components parallel and perpendicular to the wavenumber ${tex`\mathbf{k}`}. The divergence-free projection removes the parallel component:
+    Projection can be done efficiently in frequency domain. The velocity ${tex`\hat{\mathbf{u}}(\mathbf{k})`} is decomposed into components parallel and perpendicular to the wavenumber ${tex`\mathbf{k}`}. The divergence-free projection removes the parallel component:
 
     ${tex.block`\hat{\mathbf{u}}_{\perp} = \hat{\mathbf{u}} - \mathbf{k}\frac{\mathbf{k} \cdot \hat{\mathbf{u}}}{|\mathbf{k}|^2}`}
 

@@ -1,6 +1,19 @@
-<!doctype html><html lang="en"><head>
+<!doctype html><html lang="en" data-notebook-theme="air"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    (function() {
+      const DARK_THEMES = new Set(['ink', 'midnight', 'near-midnight', 'deep-space', 'ocean-floor', 'coffee', 'slate']);
+      const html = document.documentElement;
+      const notebookDark = DARK_THEMES.has(html.dataset.notebookTheme);
+      const saved = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const wantDark = saved === 'dark' || (!saved && prefersDark);
+      if (wantDark && !notebookDark) html.dataset.dark = '';
+      else if (!wantDark && notebookDark) html.dataset.light = '';
+      html.classList.toggle('theme-is-dark', wantDark);
+    })();
+  </script>
   <meta name="author" content="Ricky Reusser">
   <meta property="article:author" content="Ricky Reusser">
   <meta name="twitter:title" content="Toiletpaperfullerenes and Charmin Nanotubes">
@@ -1224,7 +1237,8 @@ body {
 }
     nav {
   padding: 2px;
-  display: block;
+  display: flex;
+  align-items: center;
   background: var(--rrtheme-color);
   font-family: "Open Sans", sans-serif;
   font-size: 16px;
@@ -1891,9 +1905,178 @@ a.index__tag:active {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+    /* Smooth theme transitions */
+    html,
+.container,
+.index__item,
+.index-view-btn,
+.index__active-filter {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, filter 0.3s ease;
+}
+    /* Theme toggle button */
+    .theme-toggle {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  color: white;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+    .theme-toggle:hover {
+  opacity: 1;
+}
+    .theme-toggle__moon {
+  display: none;
+}
+    html.theme-is-dark .theme-toggle__moon {
+  display: block;
+}
+    html.theme-is-dark .theme-toggle__sun {
+  display: none;
+}
+    /* SVG files loaded as <img> have hardcoded dark colors designed for light backgrounds.
+   invert(1) flips dark→light; hue-rotate(180deg) compensates so colored elements
+   return approximately to their original hue.
+   html[data-dark]: light notebook forced dark — invert the light SVGs.
+   html[data-light]: dark notebook forced light — the SVG is already dark, leave it alone
+   (no rule needed; the filter only applies when explicitly dark). */
+    html[data-dark] main img[src$=".svg"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+    /* Light mode override — applied to dark-themed notebooks when user wants light */
+    html[data-light] {
+  color-scheme: light;
+
+  /* theme-air.css base colors */
+  --theme-foreground: #1b1e23;
+  --theme-foreground-focus: #3b5fc0;
+  --theme-background-a: #ffffff;
+
+  /* abstract-light.css derived values */
+  --theme-background-b: color-mix(in srgb, var(--theme-foreground) 4%, var(--theme-background-a));
+  --theme-background: var(--theme-background-a);
+  --theme-background-alt: var(--theme-background-b);
+  --theme-foreground-alt: color-mix(in srgb, var(--theme-foreground) 90%, var(--theme-background-a));
+  --theme-foreground-muted: color-mix(in srgb, var(--theme-foreground) 60%, var(--theme-background-a));
+  --theme-foreground-faint: color-mix(in srgb, var(--theme-foreground) 50%, var(--theme-background-a));
+  --theme-foreground-fainter: color-mix(in srgb, var(--theme-foreground) 30%, var(--theme-background-a));
+  --theme-foreground-faintest: color-mix(in srgb, var(--theme-foreground) 14%, var(--theme-background-a));
+
+  /* syntax-light.css overrides */
+  --syntax-keyword: #e36209;
+  --syntax-atom: #032f62;
+  --syntax-literal: #6f42c1;
+  --syntax-string: #22863a;
+  --syntax-definition: #005cc5;
+  --syntax-meta: #d73a49;
+}
+    /* Dark mode override — applied to light-themed notebooks when user wants dark */
+    html[data-dark] {
+  color-scheme: dark;
+
+  /* theme-ink.css base colors */
+  --theme-foreground: #ebebeb;
+  --theme-foreground-focus: oklch(0.712564 0.257662 265.758);
+  --theme-background-b: #212121;
+
+  /* abstract-dark.css derived values */
+  --theme-background-a: color-mix(in srgb, var(--theme-foreground) 4%, var(--theme-background-b));
+  --theme-background: var(--theme-background-a);
+  --theme-background-alt: var(--theme-background-b);
+  --theme-foreground-alt: color-mix(in srgb, var(--theme-foreground) 90%, var(--theme-background-b));
+  --theme-foreground-muted: color-mix(in srgb, var(--theme-foreground) 60%, var(--theme-background-b));
+  --theme-foreground-faint: color-mix(in srgb, var(--theme-foreground) 50%, var(--theme-background-b));
+  --theme-foreground-fainter: color-mix(in srgb, var(--theme-foreground) 30%, var(--theme-background-b));
+  --theme-foreground-faintest: color-mix(in srgb, var(--theme-foreground) 14%, var(--theme-background-b));
+
+  /* syntax-dark.css overrides */
+  --syntax-keyword: #ffa657;
+  --syntax-atom: #a5d6ff;
+  --syntax-literal: #d2a8ff;
+  --syntax-string: #7ee787;
+  --syntax-definition: #79c0ff;
+  --syntax-meta: #ff7b72;
+}
+    html[data-dark] main details[open] {
+  border-left-color: #444;
+}
+    html[data-dark] figcaption,
+html[data-light] figcaption {
+  color: var(--theme-foreground-faint);
+}
+    /* Index page dark overrides */
+    html[data-dark] .index__item {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+    html[data-dark] .index__item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+    html[data-dark] .index__image-container {
+  background: linear-gradient(135deg, #333 0%, #2a2a2a 100%);
+}
+    html[data-dark] .index__placeholder {
+  background: linear-gradient(135deg, #333 0%, #2a2a2a 50%, #222 100%);
+}
+    html[data-dark] .index__placeholder::after {
+  border-color: #555;
+}
+    html[data-dark] .index__title {
+  color: #ddd;
+}
+    html[data-dark] .index__item:hover .index__title-link {
+  color: var(--rrtheme-color);
+}
+    html[data-dark] .index__date {
+  color: #999;
+}
+    html[data-dark] .index__tag {
+  color: #ccc;
+  background: #3a3a3a;
+}
+    html[data-dark] .index__tag:hover {
+  background: #4a4a4a;
+  color: #eee;
+}
+    html[data-dark] a.index__tag,
+html[data-dark] a.index__tag:visited,
+html[data-dark] a.index__tag:active {
+  color: #ccc;
+}
+    html[data-dark] .index__active-filter {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+    html[data-dark] .index__filter-label {
+  color: #aaa;
+}
+    html[data-dark] .index__description {
+  color: #aaa;
+}
+    html[data-dark] .index--list .index__item {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+    html[data-dark] .index-view-btn {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #2a2a2a;
+  color: #aaa;
+}
+    html[data-dark] .index-view-btn:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ddd;
+}
+    html[data-dark] .index-view-btn.active {
+  background: #3a3a3a;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #eee;
+}
   </style>
   <style> main { max-width: 640px; }</style>
-<meta name="generator" content="Observable Notebook Kit v1.5.0"><title>Toiletpaperfullerenes and Charmin Nanotubes</title>  <script type="module" crossorigin src="/notebooks/assets/index-CB1oDWg7.js"></script>
+<meta name="generator" content="Observable Notebook Kit v1.5.0"><title>Toiletpaperfullerenes and Charmin Nanotubes</title>  <script type="module" crossorigin src="/notebooks/assets/index-BTWEakyz.js"></script>
   <link rel="modulepreload" crossorigin href="/notebooks/assets/index-ByB2dbry.js">
 </head>
 <body>
@@ -1902,6 +2085,22 @@ a.index__tag:active {
     <a class="menu__item" href="/notebooks/">notebooks</a>
     <a class="menu__item" href="/sketches/">sketches</a>
     <a class="menu__item" href="/trains-and-trails/">running</a>
+    <button id="theme-toggle" class="menu__item theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+      <svg class="theme-toggle__moon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+      <svg class="theme-toggle__sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+    </button>
   </nav>
   <header>
     <h1>Toiletpaperfullerenes and Charmin Nanotubes</h1>
@@ -1955,33 +2154,33 @@ a.index__tag:active {
 <li>The genus 3 torus comes from the lovely <a href="https://twitter.com/alisonmartin57/status/1254050723077279745">construction of Alison Martin</a>, whose work has certainly inspired a lot of this exploration to begin with!</li>
 <li>Most of the other constructions come from the paper listed above, <a href="https://onlinelibrary.wiley.com/doi/full/10.1002/wcms.1207">“The Topology of Fullerenes”</a> by Schwerdtfeger, Wirz, and Avery.</li>
 </ul>
-</div></div><div id="cell-11" class="observablehq observablehq--cell"></div><div id="cell-12" class="observablehq observablehq--cell"></div><div id="cell-13" class="observablehq observablehq--cell"></div><div id="cell-14" class="observablehq observablehq--cell"></div><div id="cell-15" class="observablehq observablehq--cell"></div><div id="cell-16" class="observablehq observablehq--cell"></div><div id="cell-17" class="observablehq observablehq--cell"></div><div id="cell-18" class="observablehq observablehq--cell"></div><div id="cell-19" class="observablehq observablehq--cell"></div><div id="cell-20" class="observablehq observablehq--cell"></div><div id="cell-21" class="observablehq observablehq--cell"></div><div id="cell-22" class="observablehq observablehq--cell"></div><div id="cell-23" class="observablehq observablehq--cell"><div><h2 id="physical-model" tabindex="-1"><a href="#physical-model">Physical model</a></h2>
+</div></div><div id="cell-11" class="observablehq observablehq--cell"></div><div id="cell-12" class="observablehq observablehq--cell"></div><div id="cell-13" class="observablehq observablehq--cell"></div><div id="cell-14" class="observablehq observablehq--cell"></div><div id="cell-15" class="observablehq observablehq--cell"></div><div id="cell-16" class="observablehq observablehq--cell"></div><div id="cell-17" class="observablehq observablehq--cell"></div><div id="cell-18" class="observablehq observablehq--cell"></div><div id="cell-19" class="observablehq observablehq--cell"></div><div id="cell-20" class="observablehq observablehq--cell"></div><div id="cell-21" class="observablehq observablehq--cell"></div><div id="cell-22" class="observablehq observablehq--cell"></div><div id="cell-23" class="observablehq observablehq--cell"></div><div id="cell-24" class="observablehq observablehq--cell"></div><div id="cell-25" class="observablehq observablehq--cell"><div><h2 id="physical-model" tabindex="-1"><a href="#physical-model">Physical model</a></h2>
 <p>The sections below outline how the simulation works. We take a simple approach to computing physical configuration in three dimensions. We write down an energy function that’s minimized by nice, physically pleasant configurations, then directly minimize the energy via <a href="https://en.wikipedia.org/wiki/Gradient_descent">gradient descent</a> on the vertex positions.</p>
 <p>The concept of gradient descent is simple. We compute the change in energy with respect to independent changes in each vertex position, then move each vertex slightly downhill, opposite the direction of the gradient. There are more efficient ways to minimize energy, but we simply take a simultaneous small step for all vertices.</p>
-</div></div><div id="cell-24" class="observablehq observablehq--cell"></div><div id="cell-25" class="observablehq observablehq--cell"><div><h3 id="mathematical-statement" tabindex="-1"><a href="#mathematical-statement">Mathematical Statement</a></h3>
+</div></div><div id="cell-26" class="observablehq observablehq--cell"></div><div id="cell-27" class="observablehq observablehq--cell"><div><h3 id="mathematical-statement" tabindex="-1"><a href="#mathematical-statement">Mathematical Statement</a></h3>
 <p>We write an arbitrary energy function for our graph that maps the configuration to a single real number,</p>
 <p>where  and  are the  vertex and  edge of the graph, respectively.  here is any useful function, picked out of the sky, such that it’s minimized when the graph reaches a desirable configuration. We compute the gradient with respect to the <em>x-y-z</em> coordinates of all  vertex positions,</p>
 <p>In the sense of rolling down a hill, this gradient points uphill so that we update the solution in the direction of a small downhill step. We compute the  step of vertex  as</p>
 <p>where  is some small number.</p>
 <p>It’s no more complicated than that, but we must now select a function .</p>
-</div></div><div id="cell-26" class="observablehq observablehq--cell"><div><h2 id="axial-stiffness" tabindex="-1"><a href="#axial-stiffness">Axial stiffness</a></h2>
+</div></div><div id="cell-28" class="observablehq observablehq--cell"><div><h2 id="axial-stiffness" tabindex="-1"><a href="#axial-stiffness">Axial stiffness</a></h2>
 <p>We start simple and add lengthwise (axial) stiffness to enforce uniform length. Given an edge connecting vertices  and , we denote the length of the edge  and the equilibrium length .</p>
-</div></div><div id="cell-27" class="observablehq observablehq--cell"></div><div id="cell-28" class="observablehq observablehq--cell"><div><p>The minimum-energy configuration occurs when , so we construct an energy function</p>
+</div></div><div id="cell-29" class="observablehq observablehq--cell"></div><div id="cell-30" class="observablehq observablehq--cell"><div><p>The minimum-energy configuration occurs when , so we construct an energy function</p>
 <p>where  is the axial stiffness. Note that  when . Since  is strictly non-negative, this is just fancy way of saying that the energy can’t get any lower than when the length is equal to the desired length; it’s the bottom of the hill.</p>
 <p>If we differentiate this function with respect to the position of the two endpoints, then we obtain the gradient. For example, the energy gradient with respect to the coordinates of vertex  is</p>
 <p>The gradient with respect to the coordinates of vertex  are equal and opposite.</p>
-</div></div><div id="cell-29" class="observablehq observablehq--cell"></div><div id="cell-30" class="observablehq observablehq--cell"></div><div id="cell-31" class="observablehq observablehq--cell"><div><h2 id="dihedral-stiffness" tabindex="-1"><a href="#dihedral-stiffness">Dihedral stiffness</a></h2>
-</div></div><div id="cell-32" class="observablehq observablehq--cell"></div><div id="cell-33" class="observablehq observablehq--cell"><div><p>Axial stiffness alone clearly does not accomplish our goal of maintaining pleasant configurations. We now add an additional type of stiffness: <em>dihedral stiffness</em>. The rationale is that edges meet at a preferred angle, . We therefore define the energy function</p>
+</div></div><div id="cell-31" class="observablehq observablehq--cell"></div><div id="cell-32" class="observablehq observablehq--cell"></div><div id="cell-33" class="observablehq observablehq--cell"><div><h2 id="dihedral-stiffness" tabindex="-1"><a href="#dihedral-stiffness">Dihedral stiffness</a></h2>
+</div></div><div id="cell-34" class="observablehq observablehq--cell"></div><div id="cell-35" class="observablehq observablehq--cell"><div><p>Axial stiffness alone clearly does not accomplish our goal of maintaining pleasant configurations. We now add an additional type of stiffness: <em>dihedral stiffness</em>. The rationale is that edges meet at a preferred angle, . We therefore define the energy function</p>
 <p>I’m sure chemistry has a lot to say about this topic, but it seems to be the case based on the structures produced that  is the desired pairwise dihedral angle, and that angles of  are simply the resulting compromise wherever three edges meet a vertex and result in three pairwise dihedral angles.</p>
-</div></div><div id="cell-34" class="observablehq observablehq--cell"></div><div id="cell-35" class="observablehq observablehq--cell"></div><div id="cell-36" class="observablehq observablehq--cell"><div><h2 id="torsional-stiffness" tabindex="-1"><a href="#torsional-stiffness">Torsional stiffness</a></h2>
+</div></div><div id="cell-36" class="observablehq observablehq--cell"></div><div id="cell-37" class="observablehq observablehq--cell"></div><div id="cell-38" class="observablehq observablehq--cell"><div><h2 id="torsional-stiffness" tabindex="-1"><a href="#torsional-stiffness">Torsional stiffness</a></h2>
 <p>Finally we tackle torsion about an edge.</p>
-</div></div><div id="cell-37" class="observablehq observablehq--cell"></div><div id="cell-38" class="observablehq observablehq--cell"><div><p>The figure above shows six adjacent vertices connected by an edge. Torsional stiffness of the cardboard produces a rotational force which causes vertices , , , and  to rotate toward flat.</p>
-</div></div><div id="cell-39" class="observablehq observablehq--cell"><div><p>Without the sort of physical justification required for a scientifically valid molecular dynamics simulation, we simply pick an energy function that’s minimized when the outer vertices are not twisted. We therefore define the unit vectors , , and :</p>
+</div></div><div id="cell-39" class="observablehq observablehq--cell"></div><div id="cell-40" class="observablehq observablehq--cell"><div><p>The figure above shows six adjacent vertices connected by an edge. Torsional stiffness of the cardboard produces a rotational force which causes vertices , , , and  to rotate toward flat.</p>
+</div></div><div id="cell-41" class="observablehq observablehq--cell"><div><p>Without the sort of physical justification required for a scientifically valid molecular dynamics simulation, we simply pick an energy function that’s minimized when the outer vertices are not twisted. We therefore define the unit vectors , , and :</p>
 <p>and define the energy function:</p>
 <p>Due to the square, this function takes the value  when  is either parallel <em>or</em> antiparallel to . In words, this means that the value is minimized when vertices , , , and  exhibit no rotation relative to the central edge, .</p>
 <p>Note importantly that if we did not normalize vectors , , and , then  would depend upon the distance between the vertices, and the simulation would either blow up or collapse to a point, depending on the sign of . As it stands though, the constraint that , , and  are unit vectors produces a strictly torsional force.</p>
 <p>Computing the gradient of the above function without an explosion of terms is a bit challenging. I spent a couple sheets of paper giving it a try before recalling why <a href="https://en.wikipedia.org/wiki/Einstein_notation">Einstein summation notation</a> is so useful in vector calculus.</p>
-</div></div><div id="cell-40" class="observablehq observablehq--cell"><div><details>
+</div></div><div id="cell-42" class="observablehq observablehq--cell"><div><details>
 <summary>Full derivation of the torsional energy gradient</summary>
 <h3 id="setup" tabindex="-1"><a href="#setup">Setup</a></h3>
 <p>Consider an edge connecting vertices  and , with additional vertices ,  adjacent to , and vertices ,  adjacent to :</p>
@@ -2024,7 +2223,7 @@ a.index__tag:active {
 <p>Since , we have :</p>
 <h3 id="summary" tabindex="-1"><a href="#summary">Summary</a></h3>
 <p>These eighteen gradient components (three spatial coordinates for each of six vertices) drive the simulation toward configurations where the branches on either side of each edge are coplanar. The normalization of , , and  ensures that these forces are purely torsional and do not depend on edge lengths.</p>
-</details></div></div><div id="cell-41" class="observablehq observablehq--cell"></div><div id="cell-42" class="observablehq observablehq--cell"></div><div id="cell-43" class="observablehq observablehq--cell"></div></main>
+</details></div></div><div id="cell-43" class="observablehq observablehq--cell"></div><div id="cell-44" class="observablehq observablehq--cell"></div><div id="cell-45" class="observablehq observablehq--cell"></div></main>
   </div>
   <footer>
     <div class="footer__attrib">© 2026 Ricky Reusser</div>
@@ -2037,6 +2236,22 @@ a.index__tag:active {
       RSS
     </a>
   </footer>
+  <script>
+    (function() {
+      const DARK_THEMES = new Set(['ink', 'midnight', 'near-midnight', 'deep-space', 'ocean-floor', 'coffee', 'slate']);
+      const html = document.documentElement;
+      const notebookDark = DARK_THEMES.has(html.dataset.notebookTheme);
+      document.getElementById('theme-toggle').addEventListener('click', function() {
+        const wantDark = !html.classList.contains('theme-is-dark');
+        delete html.dataset.dark;
+        delete html.dataset.light;
+        if (wantDark && !notebookDark) html.dataset.dark = '';
+        else if (!wantDark && notebookDark) html.dataset.light = '';
+        html.classList.toggle('theme-is-dark', wantDark);
+        localStorage.setItem('theme', wantDark ? 'dark' : 'light');
+      });
+    })();
+  </script>
 
 
 <style type="text/css">:root {

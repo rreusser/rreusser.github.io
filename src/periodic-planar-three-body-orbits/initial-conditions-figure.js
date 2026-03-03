@@ -13,7 +13,7 @@ export function createArrowhead(opts = {}) {
       .attr('orient', 'auto')
       .append('path')
       .attr('d', `M0,-${width/2}L${length},0L0,${width/2}`)
-      .attr('fill', opts.fill || 'black');
+      .attr('fill', opts.fill || 'currentColor');
   };
 }
 
@@ -31,7 +31,7 @@ export function createArrowheadReversed(opts = {}) {
       .attr('orient', 'auto')
       .append('path')
       .attr('d', `M${length},-${width/2}L0,0L${length},${width/2}`)
-      .attr('fill', opts.fill || 'black');
+      .attr('fill', opts.fill || 'currentColor');
   };
 }
 
@@ -49,6 +49,7 @@ export function createInitialConditionsFigure(d3, initialConditions, drawingPara
   const svg = d3.create('svg')
     .attr('width', w)
     .attr('height', h)
+    .attr('fill', 'currentColor')
     .style('max-width', '100%')
     .style('height', 'auto');
 
@@ -109,7 +110,7 @@ export function createInitialConditionsFigure(d3, initialConditions, drawingPara
     ])
     .join('path')
     .attr('d', line)
-    .attr('stroke', 'black')
+    .attr('stroke', 'currentColor')
     .attr('fill', 'none')
     .attr('stroke-width', 1)
     .attr('marker-start', `url(#${arrowheadStartId})`)
@@ -128,6 +129,7 @@ export function createInitialConditionsFigure(d3, initialConditions, drawingPara
   const pointSize = initialConditions.pointSize.map(d => Math.max(2.5, d * 8));
   const colors = drawingParams.color;
   const strokeColor = drawingParams.strokeColor || [[1,1,1], [1,1,1], [1,1,1]];
+  const strokeCss = opts.strokeCss || null;
 
   // Draw velocity arrows
   svg.append('g')
@@ -143,7 +145,7 @@ export function createInitialConditionsFigure(d3, initialConditions, drawingPara
     )
     .join('path')
     .attr('d', line)
-    .attr('stroke', 'black')
+    .attr('stroke', 'currentColor')
     .attr('fill', 'none')
     .attr('stroke-width', 1.5)
     .attr('marker-end', `url(#${arrowheadId})`);
@@ -158,7 +160,7 @@ export function createInitialConditionsFigure(d3, initialConditions, drawingPara
     .attr('cy', d => y(d[1]))
     .attr('r', (d, i) => pointSize[i])
     .attr('fill', (d, i) => floatRgbToHex(colors[i]))
-    .attr('stroke', (d, i) => floatRgbToHex(strokeColor[i]))
+    .attr('stroke', (d, i) => strokeCss || floatRgbToHex(strokeColor[i]))
     .attr('stroke-width', 2);
 
   // Axis labels

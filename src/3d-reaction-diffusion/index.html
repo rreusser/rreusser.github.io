@@ -148,7 +148,7 @@
     gpuContext.configure({
       device,
       format: canvasFormat,
-      alphaMode: 'opaque'
+      alphaMode: 'premultiplied'
     });
 
     // Mutable state for screen-size-dependent resources
@@ -177,7 +177,7 @@
       gpuContext.configure({
         device,
         format: canvasFormat,
-        alphaMode: 'opaque'
+        alphaMode: 'premultiplied'
       });
 
       // Recreate screen-size-dependent textures
@@ -518,10 +518,12 @@
 
       @fragment
       fn fragmentMain(@location(0) uv: vec2f) -> @location(0) vec4f {
-        let color = textureSample(inputTex, texSampler, uv).rgb;
-        let inverted = clamp(1.0 - color, vec3f(0.0), vec3f(1.0));
+        let sample = textureSample(inputTex, texSampler, uv);
+        let a = sample.a;
+        let inverted = clamp(1.0 - sample.rgb, vec3f(0.0), vec3f(1.0));
         let gamma = 1.0 / 2.2;
-        return vec4f(pow(inverted, vec3f(gamma)), 1.0);
+        let finalColor = pow(inverted, vec3f(gamma));
+        return vec4f(finalColor * a, a);
       }
     `;
   </script>
@@ -555,7 +557,7 @@
           format: 'rgba16float',
           blend: {
             color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
           }
         }]
       },
@@ -856,7 +858,7 @@
           view: screenResources.offscreenTexture.createView(),
           loadOp: 'clear',
           storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 }
+          clearValue: { r: 0, g: 0, b: 0, a: 0 }
         }]
       });
       volumePass.setPipeline(renderPipeline);
@@ -870,7 +872,7 @@
           view: gpuContext.getCurrentTexture().createView(),
           loadOp: 'clear',
           storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 }
+          clearValue: { r: 0, g: 0, b: 0, a: 0 }
         }]
       });
       screenPass.setPipeline(postPipeline);

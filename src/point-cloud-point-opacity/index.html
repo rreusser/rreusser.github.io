@@ -212,8 +212,8 @@
         x: { domain: xDomain, tickSpacing: 100 },
         y: { domain: yDomain, tickSpacing: 100 },
         marks: [
-          Plot.ruleX([0], { stroke: "#0002" }),
-          Plot.ruleY([0], { stroke: "#0002" })
+          Plot.ruleX([0], { stroke: "currentColor", strokeOpacity: 0.12 }),
+          Plot.ruleY([0], { stroke: "currentColor", strokeOpacity: 0.12 })
         ]
       });
     }
@@ -434,7 +434,9 @@
         ${GLSL_SRGB_GAMMA}
         void main () {
           vec4 color = texture2D(src, gl_FragCoord.xy / framebufferResolution);
-          gl_FragColor = vec4(linearToSRGB(color.rgb), 1);
+          float alpha = min(color.a, 1.0);
+          vec3 rgb = alpha > 0.0 ? color.rgb / alpha : vec3(0.0);
+          gl_FragColor = vec4(linearToSRGB(rgb) * alpha, alpha);
         }`,
       attributes: { xy: [-4, -4, 4, -4, 0, 4] },
       uniforms: {
@@ -459,7 +461,7 @@
         frag: `
           precision highp float;
           uniform float opacity, pointSize;
-          uniform vec3 invertedPointColor;
+          uniform vec3 pointColor;
 
           float linearstep(float edge0, float edge1, float x) {
             return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
@@ -474,17 +476,17 @@
             float sdf = max(abs(c.x), abs(c.y));
             #endif
             alpha *= linearstep(pointSize + 0.5, pointSize - 0.5, sdf * pointSize);
-            gl_FragColor = vec4(invertedPointColor, alpha);
+            gl_FragColor = vec4(pointColor, alpha);
           }`,
         attributes: { xy: regl.prop('pointsBuffer') },
         blend: {
           enable: true,
           func: { srcRGB: 'src alpha', dstRGB: 1, srcAlpha: 1, dstAlpha: 1 },
-          equation: { rgb: 'reverse subtract', alpha: 'add' }
+          equation: { rgb: 'add', alpha: 'add' }
         },
         uniforms: {
           view: regl.prop('view'),
-          invertedPointColor: regl.prop('invertedPointColor'),
+          pointColor: regl.prop('pointColor'),
           minimumPointDeviceSize: regl.prop('minimumPointDeviceSize'),
           opacity: regl.prop('opacity'),
           pointSize: regl.prop('pointSize')
@@ -585,16 +587,12 @@
 
       // Render to framebuffer
       fbo.use(() => {
-        regl.clear({ color: [1, 1, 1, 1] });
+        regl.clear({ color: [0, 0, 0, 0] });
         drawPoints({
           view: axes.view,
           pointsBuffer,
           N,
-          invertedPointColor: [
-            1 - pointColorLinear[0],
-            1 - pointColorLinear[1],
-            1 - pointColorLinear[2]
-          ],
+          pointColor: pointColorLinear,
           minimumPointDeviceSize,
           opacity: pointOpacity(ctx, props),
           pointSize: pointSizeDevicePixels(ctx, props),

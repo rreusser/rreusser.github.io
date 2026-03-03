@@ -75,4 +75,14 @@
     regl.poll();
     regl.clear({color: [0.8, 0.9, 1, 1]});
   </script>
+  <script id="900" type="module">
+    display(html`<style>
+      /* Make graphviz diagrams theme-aware. CSS overrides SVG presentation attributes. */
+      .graph text { fill: currentColor; }
+      .graph path { stroke: currentColor; }
+      .graph ellipse { stroke: currentColor; }
+      .graph polygon[fill="black"] { fill: currentColor; stroke: currentColor; }
+      .graph polygon[fill="white"] { fill: var(--theme-background); stroke: currentColor; }
+    </style>`);
+  </script>
 </notebook>

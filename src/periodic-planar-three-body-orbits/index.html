@@ -24,6 +24,7 @@
     import { createJacobiCoordsFigure, computeShapeFromPositions } from './jacobi-coords-figure.js';
     import { createShapeSphere, createOrbitShapeSphere, createIcosphere, getCollisionPoints } from './shape-sphere.js';
     import { createShapeProjection2D, computeProjectedBounds } from './shape-projection.js';
+    import { observeTheme } from './lib/theme.js';
   </script>
   <script id="3" type="text/x-typescript">
     import { ode45 } from 'observable:@rreusser/integration';
@@ -70,7 +71,8 @@
       figure.style.maxWidth = '350px';
       figure.style.margin = '0 auto';
       const svg = createInitialConditionsFigure(d3, initialConditions, drawingParams, {
-        width: Math.min(width, 350)
+        width: Math.min(width, 350),
+        strokeCss: 'var(--theme-background)'
       });
       figure.appendChild(svg);
       const caption = document.createElement('figcaption');
@@ -191,6 +193,32 @@
       strokeColor: [[1, 1, 1], [1, 1, 1], [1, 1, 1]]
     };
   </script>
+  <script id="theme" type="text/x-typescript">
+    const theme = Generators.observe(observeTheme);
+  </script>
+  <script id="theme-state" type="text/x-typescript">
+    // Mutable registry for theme-aware WebGL components
+    const themeState: {
+      background: number[];
+      foreground: number[];
+      rerenders: Array<{ setTheme: (bg: number[], fg: number[]) => void; rerender: () => void }>;
+    } = {
+      background: [1, 1, 1],
+      foreground: [0, 0, 0],
+      rerenders: []
+    };
+  </script>
+  <script id="update-theme" type="text/x-typescript">
+    themeState.background = theme.background;
+    themeState.foreground = theme.foreground;
+    drawingParams.borderColor = [theme.background, theme.background, theme.background];
+    drawingParams.strokeColor = [theme.background, theme.background, theme.background];
+    for (const entry of themeState.rerenders) {
+      entry.setTheme(theme.background, theme.foreground);
+      entry.rerender();
+    }
+    if (stack?.elements?.regl?.value) stack.elements.regl.value.dirty = true;
+  </script>
   <script id="12" type="text/x-typescript">
     const initialConditions = (() => {
       const { group, sequence, orbit } = selectedConditions;
@@ -255,8 +283,8 @@
         x: { domain: xDomain, tickSpacing: 100 },
         y: { domain: yDomain, tickSpacing: 100 },
         marks: [
-          Plot.ruleX([0], { stroke: '#0002' }),
-          Plot.ruleY([0], { stroke: '#0002' })
+          Plot.ruleX([0], { stroke: 'currentColor', strokeOpacity: 0.12 }),
+          Plot.ruleY([0], { stroke: 'currentColor', strokeOpacity: 0.12 })
         ]
       });
     }
@@ -558,7 +586,7 @@
       const container = html`<div class="orbit-metadata">
         <details>
           <summary style="cursor:pointer;font-size:0.85em;color:#666;">Orbit details</summary>
-          <div style="border:1px solid #ccc;padding:0 10px;margin-top:0.5em;box-sizing:border-box;max-width:100%;">
+          <div style="border:1px solid color-mix(in srgb, var(--theme-foreground) 20%, transparent);padding:0 10px;margin-top:0.5em;box-sizing:border-box;max-width:100%;">
             <small><dl class="inline-flex">
               <dt>Sequence</dt><dd><a href="${sequenceUrls[group]?.[sequence] || '#'}">${seqName}${isUnequalMass ? ' (unequal mass)' : ''}</a></dd>
               <dt>Orbit</dt><dd>${conditions.url ? html`<a href="${conditions.url}">${tex`${initialConditions.name}`}</a>` : tex`${initialConditions.name}`}</dd>
@@ -623,7 +651,8 @@
       const jacobiW = figWidth;
       const jacobiFig = createJacobiCoordsFigure(d3, initialConditions, drawingParams, {
         width: jacobiW,
-        height: jacobiW * 0.7
+        height: jacobiW * 0.7,
+        strokeCss: 'var(--theme-background)'
       });
 
       const jacobiWrapper = document.createElement('figure');
@@ -658,7 +687,15 @@
       // Initialize
       shapeSphere.setPunctures(initialConditions.m);
       shapeSphere.setShape(jacobiFig.getShape());
+      shapeSphere.setTheme(themeState.background, themeState.foreground);
       shapeSphere.render(sphereW, sphereH);
+
+      // Register with theme system
+      const themeEntry = {
+        setTheme: (bg: number[], fg: number[]) => shapeSphere.setTheme(bg, fg),
+        rerender: () => shapeSphere.render(sphereW, sphereH)
+      };
+      themeState.rerenders.push(themeEntry);
 
       // Link Jacobi figure to shape sphere
       jacobiFig.addEventListener('input', () => {
@@ -690,6 +727,8 @@
 
       // Cleanup
       invalidation.then(() => {
+        const idx = themeState.rerenders.indexOf(themeEntry);
+        if (idx !== -1) themeState.rerenders.splice(idx, 1);
         shapeSphere.destroy();
         sphereRegl.destroy();
       });
@@ -733,7 +772,15 @@
         phi: 0.1
       }, createDrawLines);
 
+      orbitSphere.setTheme(themeState.background, themeState.foreground);
       orbitSphere.render(figWidth, figHeight);
+
+      // Register with theme system
+      const orbitThemeEntry = {
+        setTheme: (bg: number[], fg: number[]) => orbitSphere.setTheme(bg, fg),
+        rerender: () => orbitSphere.render(figWidth, figHeight)
+      };
+      themeState.rerenders.push(orbitThemeEntry);
 
       // Drag to rotate
       let isDragging = false, lastX = 0, lastY = 0;
@@ -758,6 +805,8 @@
       display(figure);
 
       invalidation.then(() => {
+        const idx = themeState.rerenders.indexOf(orbitThemeEntry);
+        if (idx !== -1) themeState.rerenders.splice(idx, 1);
         orbitSphere.destroy();
         orbitRegl.destroy();
       });
@@ -791,8 +840,8 @@
         x: { domain: xDomain, tickSpacing: 80, label: 'n₁ / (1 - n₂)' },
         y: { domain: yDomain, tickSpacing: 80, label: 'n₃ / (1 - n₂)' },
         marks: [
-          Plot.ruleX([0], { stroke: '#0002' }),
-          Plot.ruleY([0], { stroke: '#0002' })
+          Plot.ruleX([0], { stroke: 'currentColor', strokeOpacity: 0.12 }),
+          Plot.ruleY([0], { stroke: 'currentColor', strokeOpacity: 0.12 })
         ]
       });
     }
@@ -897,11 +946,11 @@
         .attr('id', 'free-group-elements')
         .attr('width', w)
         .attr('height', h)
+        .attr('fill', 'currentColor')
         .style('max-width', '100%')
         .style('height', 'auto');
 
       const lineColor = '#49a1c9';
-      const axisColor = '#666';
 
       // Create arrowheads
       const arrowId = `arrow-fg-${Math.random().toString(36).slice(2)}`;
@@ -927,10 +976,10 @@
         .attr('refY', 0)
         .attr('markerWidth', 10)
         .attr('markerHeight', 8)
-        .attr('orient', 'auto')
+        .attr('orient', 'auto-start-reverse')
         .append('path')
         .attr('d', 'M0,-4L10,0L0,4')
-        .attr('fill', axisColor);
+        .attr('fill', 'currentColor');
 
       const xrange = 3;
       const axisExtent = 0.9;
@@ -947,13 +996,14 @@
         ])
         .join('path')
         .attr('d', line)
-        .attr('stroke', axisColor)
+        .attr('stroke', 'currentColor')
+        .attr('stroke-opacity', 0.4)
         .attr('fill', 'none')
         .attr('stroke-width', 1)
         .attr('marker-start', `url(#${axisArrowId})`)
         .attr('marker-end', `url(#${axisArrowId})`);
 
-      // Circle strokes (white background)
+      // Circle strokes (background-colored outline for contrast)
       svg.append('g')
         .selectAll('circle')
         .data([[-1, 0], [1, 0]])
@@ -961,7 +1011,7 @@
         .attr('cx', d => x(d[0]))
         .attr('cy', d => y(d[1]))
         .attr('r', x(1) - x(0))
-        .attr('stroke', 'white')
+        .attr('stroke', 'var(--theme-background)')
         .attr('stroke-width', 5)
         .attr('fill', 'none');
 
@@ -986,7 +1036,7 @@
         .attr('cy', d => y(d[1]))
         .attr('r', 6)
         .attr('fill', (d, i) => i === 0 ? '#e6332a' : '#33cc55')
-        .attr('stroke', 'white')
+        .attr('stroke', 'var(--theme-background)')
         .attr('stroke-width', 2);
 
       // Center point

@@ -168,7 +168,7 @@ fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {
   let normal = normalize(in.vNormal);
   let vDotN = abs(dot(normal, normalize(in.vPosition - u.eye)));
   let vDotNGrad = fwidth(vDotN);
-  let cartoonEdge = smoothstep(0.75, 1.25, vDotN / vDotNGrad / 3.0 / u.pixelRatio);
+  let cartoonEdge = smoothstep(0.75, 1.25, vDotN / vDotNGrad / 1.5 / u.pixelRatio);
 
   let gridParam = in.vUV * vec2f(2.0, 1.0) * 8.0 / PI;
   let grid = gridFactor2(gridParam, 0.45 * u.pixelRatio, 1.0);
@@ -190,16 +190,22 @@ fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {
 
   surfaceColor = pow(surfaceColor, vec3f(0.454));
 
-  // Grid overlay: darken where grid lines are
+  // Cartoon silhouette outline: 1.0 at silhouette edges, 0.0 in interior
+  let cartoonOutline = 1.0 - cartoonEdge;
+
+  // Grid overlay: darken where grid lines are (suppressed at silhouette edges)
   let gridAlpha = (1.0 - grid) * cartoonEdge * 0.15;
-  surfaceColor = mix(surfaceColor, vec3f(0.0), gridAlpha);
+
+  // Combined: dark lines at silhouette edges and at grid lines
+  let lineAlpha = max(cartoonOutline, gridAlpha);
+  surfaceColor = mix(surfaceColor, vec3f(0.0), lineAlpha);
 
   // Fat edge coloring
   let fatColor = select(vec3f(0.4, 0.2, 1.0), vec3f(1.0, 0.1, 0.2), in.vUV.x > 0.0);
   surfaceColor = mix(fatColor, surfaceColor, fatGrid);
 
   let surfaceAlpha = u.opacity;
-  let alpha = surfaceAlpha + gridAlpha * (1.0 - surfaceAlpha);
+  let alpha = lineAlpha + surfaceAlpha * (1.0 - lineAlpha);
   let color = surfaceColor;
 
   return vec4f(color, alpha);

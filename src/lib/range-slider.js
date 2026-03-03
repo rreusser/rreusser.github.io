@@ -12,7 +12,7 @@ function cssLength(v) {
 const theme_Flat = `
 /* Options */
 :scope {
-  color: #3b99fc;
+  color: var(--theme-foreground-focus, #3b99fc);
   width: 240px;
 }
 
@@ -29,9 +29,10 @@ const theme_Flat = `
   box-sizing: border-box;
   position: relative;
   height: 7px;
-  background-color: hsl(0, 0%, 80%);
+  background-color: var(--theme-foreground-faintest, hsl(0, 0%, 80%));
   overflow: visible;
   border-radius: 4px;
+  border: 1px solid var(--theme-foreground-fainter, hsl(0, 0%, 60%));
   padding: 0 var(--thumb-radius);
 }
 :scope .range-track-zone {
@@ -67,21 +68,32 @@ const theme_Flat = `
   width: var(--thumb-size);
   height: var(--thumb-size);
 
-  background: #fcfcfc;
+  background: var(--theme-foreground-focus, #3b99fc);
   top: -4px;
   border-radius: 100%;
-  border: 1px solid hsl(0,0%,55%);
+  border: none;
   cursor: default;
   margin: 0;
 }
-:scope .thumb:active {
-  box-shadow: inset 0 var(--thumb-size) #0002;
+:scope .thumb:hover,
+:scope .range-select:hover {
+  filter: brightness(1.2);
+}
+:scope .thumb:active,
+:scope .range-select:active {
+  filter: brightness(0.85);
 }
 :scope .thumb-min {
   left: calc(-1px - var(--thumb-radius));
 }
 :scope .thumb-max {
   right: calc(-1px - var(--thumb-radius));
+}
+:scope.range-inverted .range-track {
+  background-color: currentColor;
+}
+:scope.range-inverted .range-select {
+  background: var(--theme-foreground-faintest, hsl(0, 0%, 80%));
 }
 `;
 
@@ -296,7 +308,14 @@ export function interval(range = [], options = {}) {
   const [min = 0, max = 1] = range;
   const step = options.step ?? 0.001;
   const precision = options.precision ?? precisionFromStep(step);
-  const defaultFormat = ([start, end]) => `${start.toFixed(precision)} … ${end.toFixed(precision)}`;
+  let invertState = false;
+  const defaultFormat = (val) => {
+    const [start, end] = val.range;
+    if (val.invert) {
+      return `(-∞, ${start.toFixed(precision)}] ∪ [${end.toFixed(precision)}, ∞)`;
+    }
+    return `[${start.toFixed(precision)}, ${end.toFixed(precision)}]`;
+  };
   const {
     label = null,
     value = [min, max],
@@ -306,6 +325,7 @@ export function interval(range = [], options = {}) {
     theme,
     transform = null,
     invert = null,
+    invertible = false,
     __ns__ = randomScope(),
   } = options;
 
@@ -331,19 +351,31 @@ export function interval(range = [], options = {}) {
   flex-shrink: 0;
 }
 #${__ns__} .form {
-  display: flex;
-  width: 100%;
-}
-#${__ns__} .range {
   display: block;
   width: 100%;
 }
 #${__ns__} .range-slider {
   width: 100%;
 }
+#${__ns__} .range-footer {
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+  margin-bottom: 8px;
+}
 #${__ns__} .range-output {
   font-variant-numeric: tabular-nums;
-  margin-top: 2px;
+  white-space: nowrap;
+}
+#${__ns__} .invert-label {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  margin-right: 1em;
+  cursor: pointer;
+}
+#${__ns__} .invert-label input {
+  margin: 0 3px 0 0;
 }
   `;
 
@@ -378,12 +410,28 @@ export function interval(range = [], options = {}) {
   rangeDiv.className = 'range';
   rangeDiv.appendChild($range);
 
+  formDiv.appendChild(rangeDiv);
+
+  const footerDiv = document.createElement('div');
+  footerDiv.className = 'range-footer';
+
+  let $checkbox = null;
+  if (invertible) {
+    const invertLabel = document.createElement('label');
+    invertLabel.className = 'invert-label';
+    $checkbox = document.createElement('input');
+    $checkbox.type = 'checkbox';
+    invertLabel.appendChild($checkbox);
+    invertLabel.appendChild(document.createTextNode('Invert'));
+    footerDiv.appendChild(invertLabel);
+  }
+
   const outputDiv = document.createElement('div');
   outputDiv.className = 'range-output';
   outputDiv.appendChild($output);
-  rangeDiv.appendChild(outputDiv);
+  footerDiv.appendChild(outputDiv);
 
-  formDiv.appendChild(rangeDiv);
+  formDiv.appendChild(footerDiv);
   $view.appendChild(formDiv);
 
   const style = document.createElement('style');
@@ -391,7 +439,7 @@ export function interval(range = [], options = {}) {
   $view.appendChild(style);
 
   const update = () => {
-    const content = format([$range.value[0], $range.value[1]]);
+    const content = format({ range: [$range.value[0], $range.value[1]], invert: invertState });
     if (typeof content === 'string') {
       $output.value = content;
     } else {
@@ -401,12 +449,27 @@ export function interval(range = [], options = {}) {
   };
 
   $range.oninput = update;
+
+  if ($checkbox) {
+    $checkbox.addEventListener('input', () => {
+      invertState = $checkbox.checked;
+      $range.classList.toggle('range-inverted', invertState);
+      update();
+      $view.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
   update();
 
   return Object.defineProperty($view, 'value', {
-    get: () => $range.value,
-    set: ([a, b]) => {
-      $range.value = [a, b];
+    get: () => ({ range: $range.value, invert: invertState }),
+    set: (v) => {
+      $range.value = v.range;
+      invertState = !!v.invert;
+      if ($checkbox) {
+        $checkbox.checked = invertState;
+        $range.classList.toggle('range-inverted', invertState);
+      }
       update();
     },
   });

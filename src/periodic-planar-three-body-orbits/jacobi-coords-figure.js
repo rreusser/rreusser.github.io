@@ -67,6 +67,7 @@ export function createJacobiCoordsFigure(d3, initialConditions, drawingParams, o
   const svg = d3.create('svg')
     .attr('width', w)
     .attr('height', h)
+    .attr('fill', 'currentColor')
     .style('max-width', '100%')
     .style('height', 'auto');
 
@@ -108,7 +109,7 @@ export function createJacobiCoordsFigure(d3, initialConditions, drawingParams, o
     ])
     .join('path')
     .attr('d', line)
-    .attr('stroke', 'black')
+    .attr('stroke', 'currentColor')
     .attr('fill', 'none')
     .attr('stroke-width', 1)
     .attr('marker-start', `url(#${arrowheadStartId})`)
@@ -116,6 +117,7 @@ export function createJacobiCoordsFigure(d3, initialConditions, drawingParams, o
 
   const colors = drawingParams.color;
   const strokeColor = drawingParams.strokeColor || [[1,1,1], [1,1,1], [1,1,1]];
+  const strokeCss = opts.strokeCss || null;
   const pointSize = initialConditions.pointSize.map(d => Math.max(2.5, d * 8));
 
   // Groups for different elements
@@ -184,7 +186,7 @@ export function createJacobiCoordsFigure(d3, initialConditions, drawingParams, o
       .attr('cy', d => y(d[1]))
       .attr('r', (d, i) => pointSize[i])
       .attr('fill', (d, i) => floatRgbToHex(colors[i]))
-      .attr('stroke', (d, i) => floatRgbToHex(strokeColor[i]))
+      .attr('stroke', (d, i) => strokeCss || floatRgbToHex(strokeColor[i]))
       .attr('stroke-width', 2);
 
     // Update Jacobi arrows
@@ -192,7 +194,7 @@ export function createJacobiCoordsFigure(d3, initialConditions, drawingParams, o
       .data(endpoints.map((l, i) => shorten(l, shortenAmounts[i][0], shortenAmounts[i][1])))
       .join('path')
       .attr('d', d => line(d))
-      .attr('stroke', 'black')
+      .attr('stroke', 'currentColor')
       .attr('fill', 'none')
       .attr('stroke-width', 1.5)
       .attr('marker-end', `url(#${arrowheadId})`);

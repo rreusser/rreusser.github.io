@@ -1,5 +1,5 @@
 <!doctype html>
-<notebook theme="coffee">
+<notebook theme="ink">
   <title>Visualizing Sloan Digital Sky Survey Data</title>
   <script id="intro" type="text/markdown">
     I got inspired this evening after learning about the [Boötes Void](https://en.wikipedia.org/wiki/Bo%C3%B6tes_Void), also known as the Great Nothing. It's a huge empty region in the distribution of galaxies, nearly 200 million light years across, with only about 60 galaxies where we would expect roughly 2,000. I was a bit annoyed that the image I saw appeared to be an artist’s conception without being labeled as such, so I thought it would be interesting to visualize real data instead.
@@ -195,7 +195,7 @@ canvas.style.height = `${initialHeight}px`;
 canvas.style.maxWidth = 'none';
 canvas.style.height = 'auto';
 canvas.style.aspectRatio = `${initialWidth} / ${initialHeight}`;
-canvas.style.background = '#1B1714';
+canvas.style.background = 'var(--theme-background)';
 
 const gpuContext = canvas.getContext('webgpu');
 gpuContext.configure({
@@ -378,7 +378,7 @@ const UNIVERSE_AGE = 13.8;  // Gyr
 // Reactive display
 redshiftRange;  // Dependency
 
-const [zLo, zHi] = redshiftRange;
+const [zLo, zHi] = redshiftRange.range;
 const dLo = zToComovingDistance(zLo);
 const dHi = zToComovingDistance(zHi);
 const tLo = zToLookbackTime(zLo);
@@ -396,7 +396,7 @@ display(html`<p style="font-size: 14px; color: var(--theme-foreground-muted); li
   <script id="lazy-load-trigger" type="module">
 // When redshift range changes, trigger loading of additional chunks
 redshiftRange;  // Reactive dependency
-loadChunksForRedshift(redshiftRange[1]);  // Load based on max value
+loadChunksForRedshift(redshiftRange.range[1]);  // Load based on max value
   </script>
   <script id="loading-progress" type="module">
 const progressEl = html`<div style="font-size: 14px; color: var(--theme-foreground-muted); margin-top: 8px;"></div>`;
@@ -996,8 +996,8 @@ const loop = createFrameLoop(() => {
   uniformF32[19] = cameraController.state.distance;
   uniformF32[20] = referenceDistance;
   uniformF32[21] = 2.0 * dpr;  // Reference point size (default value)
-  uniformF32[22] = redshiftRange[0];  // minRedshift (actual z value)
-  uniformF32[23] = redshiftRange[1];  // maxRedshift (actual z value)
+  uniformF32[22] = redshiftRange.range[0];  // minRedshift (actual z value)
+  uniformF32[23] = redshiftRange.range[1];  // maxRedshift (actual z value)
   uniformF32[24] = galaxyZMin;        // For decoding galaxy color_param
   uniformF32[25] = galaxyZMax;
   uniformF32[26] = qsoZMin;           // For decoding QSO color_param
@@ -1025,7 +1025,7 @@ const loop = createFrameLoop(() => {
 
   // Draw chunks that overlap the selected redshift range
   // Skip chunks entirely outside range (CPU-side culling)
-  const [zMin, zMax] = redshiftRange;
+  const [zMin, zMax] = redshiftRange.range;
   const showGalaxies = objectTypes.includes('Galaxies');
   const showQSOs = objectTypes.includes('QSOs');
 

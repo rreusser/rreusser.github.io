@@ -1,0 +1,232 @@
+<!doctype html>
+<notebook theme="ink">
+  <title>Lawson's Klein Bottle</title>
+
+  <script id="title" type="text/markdown">
+# Lawson's Klein Bottle
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+import { createWebGPUContext } from './lib/webgpu-canvas.js';
+import { createCameraController } from './lib/camera-controller.js';
+import { expandable } from './lib/expandable.js';
+import { createFrameLoop } from './lib/frame-loop.js';
+import { meshFromFunction } from './mesh.js';
+import { peelShaderCode, compositeShaderCode } from './shaders.js';
+import { createRenderer } from './renderer.js';
+import { interval } from './lib/range-slider.js';
+  </script>
+
+  <script id="intro" type="text/markdown">
+Based on the equations described in [Lawson's Minimal Surfaces and the Sudanese Mobius Band](http://wordpress.discretization.de/ddg2019/2019/04/29/tutorial-3-lawsons-minimal-surfaces-and-the-sudanese-mobius-band/). This notebook is modified after receiving some help from Dan Piker in [this notebook](https://observablehq.com/d/2cb69c9cdda31ed9), which is in turn a modification of [my original attempt](https://observablehq.com/d/7f3a7829668597a2), after inspiration by [Dan Piker's tweet](https://twitter.com/KangarooPhysics/status/1437478868156358667).
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+const { device, canvasFormat } = await createWebGPUContext();
+  </script>
+
+  <script id="state" type="text/x-typescript">
+const state = {
+  initialized: false,
+  canvas: null as HTMLCanvasElement | null,
+  gpuContext: null as GPUCanvasContext | null,
+  camera: null as ReturnType<typeof createCameraController> | null,
+  frame: null as { cancel: () => void } | null,
+  dirty: true,
+  expandedState: { expanded: false },
+  renderer: null as ReturnType<typeof createRenderer> | null,
+  renderParams: {
+    tau: 2,
+    rotationPhi: Math.PI * 0.5,
+    opacity: 0.95,
+    gridOpacity: 0.6,
+    gridWidth: 0.5,
+    cartoonEdgeWidth: 1.5,
+    cartoonEdgeOpacity: 1,
+    specular: 1,
+    uClipMin: -3.15,
+    uClipMax: 3.15,
+    vClipMin: -1.575,
+    vClipMax: 1.575,
+    invertClipU: 0,
+    invertClipV: 0,
+    peelLayers: 4,
+  }
+};
+  </script>
+
+  <script id="update-params" type="text/x-typescript">
+state.renderParams.tau = tau;
+state.renderParams.rotationPhi = rotationPhi;
+state.renderParams.opacity = opacity;
+state.renderParams.gridOpacity = gridOpacity;
+state.renderParams.cartoonEdgeOpacity = cartoonEdgeOpacity;
+state.renderParams.uClipMin = uClip.range[0];
+state.renderParams.uClipMax = uClip.range[1];
+state.renderParams.vClipMin = vClip.range[0];
+state.renderParams.vClipMax = vClip.range[1];
+state.renderParams.invertClipU = uClip.invert ? 1 : 0;
+state.renderParams.invertClipV = vClip.invert ? 1 : 0;
+state.dirty = true;
+  </script>
+
+  <script id="main" type="text/x-typescript">
+controlsContainer;
+
+const mesh = meshFromFunction((u, v) => [u * 0.99999, v * 0.99999], {
+  resolution: [301, 301],
+  uDomain: [-Math.PI, Math.PI],
+  vDomain: [-Math.PI * 0.5, Math.PI * 0.5]
+});
+
+if (!state.initialized) {
+  const canvas = document.createElement('canvas');
+  canvas.id = 'surface-canvas';
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+
+  const gpuContext = canvas.getContext('webgpu')!;
+  gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+
+  state.canvas = canvas;
+  state.gpuContext = gpuContext;
+  state.camera = createCameraController(canvas, {
+    distance: 10,
+    phi: 3.5,
+    theta: 0.2
+  });
+
+  state.renderer = createRenderer(device, canvasFormat, {
+    peel: peelShaderCode,
+    composite: compositeShaderCode
+  });
+  state.renderer.initMesh(mesh);
+
+  state.initialized = true;
+}
+
+const canvas = state.canvas!;
+const gpuContext = state.gpuContext!;
+const camera = state.camera!;
+const renderer = state.renderer!;
+const container = html`<div id="surface-container" style="position: relative; width: 100%; height: 100%;"></div>`;
+container.appendChild(canvas);
+
+const resizeCanvas = () => {
+  const rect = container.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+  const dpr = devicePixelRatio;
+  const newWidth = Math.floor(rect.width * dpr);
+  const newHeight = Math.floor(rect.height * dpr);
+  if (canvas.width !== newWidth || canvas.height !== newHeight) {
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+    gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+    state.dirty = true;
+    camera.taint();
+  }
+};
+
+const resizeObserver = new ResizeObserver(resizeCanvas);
+resizeObserver.observe(container);
+
+let visible = true;
+const intersectionObserver = new IntersectionObserver(entries => {
+  visible = entries[0].intersectionRatio > 0;
+});
+intersectionObserver.observe(container);
+
+if (state.frame) {
+  state.frame.cancel();
+  state.frame = null;
+}
+camera.taint();
+
+state.frame = createFrameLoop((timestamp) => {
+  if (!visible) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  if (w === 0 || h === 0) return;
+
+  const rendered = renderer.render(gpuContext, state.renderParams, camera, w, h, state.dirty);
+  if (rendered) {
+    state.dirty = false;
+  }
+});
+
+invalidation.then(() => {
+  if (state.frame) {
+    state.frame.cancel();
+    state.frame = null;
+  }
+  resizeObserver.disconnect();
+  intersectionObserver.disconnect();
+});
+
+const figure = html`
+  <figure id="main-figure" style="max-width: 100%; margin: 0; height: 100%;">
+    ${container}
+  </figure>
+`;
+
+const figureWidth = Math.min(width, 640);
+const figureHeight = Math.round(Math.max(500, figureWidth * 1.0));
+
+display(expandable(figure, {
+  wide: true,
+  width: figureWidth,
+  height: figureHeight,
+  controls: '#surface-controls',
+  state: state.expandedState,
+  onResize: (content, w, h, expanded) => {
+    container.style.width = `${w}px`;
+    container.style.height = `${h}px`;
+    resizeCanvas();
+  }
+}));
+  </script>
+
+  <script id="controls" type="text/x-typescript">
+const controlsContainer = html`<div id="surface-controls" class="controls-panel"></div>`;
+
+function ctrl(input: HTMLElement) {
+  controlsContainer.appendChild(input);
+  return Generators.input(input);
+}
+
+const tau = ctrl(Inputs.range([0, 3], { label: "τ", value: 2, step: 0.1 }));
+const rotationPhi = ctrl(Inputs.range([0, Math.PI + 1e-4], { label: "φ", value: 1.1, step: Math.PI / 100 }));
+const gridOpacity = 0.25;
+const cartoonEdgeOpacity = 1;
+const uClipInput = interval([-3.15, 3.15], { label: "u range", value: [-3.15, 3.15], step: 0.01, invertible: true });
+controlsContainer.appendChild(uClipInput);
+const uClip = Generators.input(uClipInput);
+
+const vClipInput = interval([-1.575, 1.575], { label: "v range", value: [-1.575, 1.575], step: 0.01, invertible: true });
+controlsContainer.appendChild(vClipInput);
+const vClip = Generators.input(vClipInput);
+const opacity = ctrl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.9, step: 0.01 }));
+
+display(controlsContainer);
+  </script>
+
+  <script id="equations" type="text/markdown">
+We start with a generalization of a Clifford torus in 4D space. ${tex`\tau`} below is a parameter of this surface, while ${tex`\phi`} applies a four-dimensional rotation before the final stereographic projection into 3D space.
+
+${tex.block`\mathbf{p}(u, v) = \begin{pmatrix} \cos v \cos u \\ \cos v \sin u \\ \sin v \cos \tau u \\ \sin v \sin \tau u \end{pmatrix}`}
+
+When ${tex`\tau = 1`} this is the standard Clifford torus. When ${tex`\tau = 2`} it is Lawson's Klein bottle. A rotation by ${tex`\phi`} is applied in the ${tex`(p_1, p_4)`}-plane to yield ${tex`\mathbf{q}`}:
+
+${tex.block`\mathbf{q} = \begin{pmatrix} p_2 \\ p_3 \\ p_1 \cos\phi - p_4 \sin\phi \\ p_1 \sin\phi + p_4 \cos\phi \end{pmatrix}`}
+
+The result is then projected stereographically into three dimensions:
+
+${tex.block`(x,\, y,\, z) = \frac{(q_2,\, q_1,\, q_3)}{1 - q_4}`}
+  </script>
+
+  <script id="notes" type="text/markdown">
+The vertex shader receives a surface in ${tex`(u, v)`} coordinates and evaluates the parametric surface function, computing the 4D Clifford torus, applying a 4D rotation parameterized by ${tex`\phi`}, and projecting stereographically into 3D.
+  </script>
+
+</notebook>

@@ -38,7 +38,7 @@ const gpuContext = canvas.getContext('webgpu');
 gpuContext.configure({
   device,
   format: canvasFormat,
-  alphaMode: 'opaque'
+  alphaMode: 'premultiplied'
 });
 
 display(html`<figure style="margin: 0;" id="torus-figure">${canvas}</figure>`);
@@ -682,11 +682,12 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   // Apply outline with hard cutoff
   var finalColor = color.rgb;
   if (isBackground) {
-    finalColor = vec3f(0.95); // Light gray background
     if (inOutline) {
       // Use hover color if this outline belongs to hovered object
       let baseOutline = select(outlineColor, hoverOutlineColor, isNearHoveredObject);
       finalColor = baseOutline * bandShade;
+    } else {
+      return vec4f(0.0, 0.0, 0.0, 0.0); // transparent background
     }
   } else {
     // Darken edges where objects meet
@@ -1052,7 +1053,7 @@ const loop = createFrameLoop((timestamp) => {
       view: gpuContext.getCurrentTexture().createView(),
       loadOp: 'clear',
       storeOp: 'store',
-      clearValue: { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }
+      clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
     }]
   });
 

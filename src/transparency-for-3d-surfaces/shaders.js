@@ -271,15 +271,13 @@ fn fs(in: VSOutput) -> @location(0) vec4f {
   let accum = textureLoad(accumTex, coords, 0);
   let revealage = textureLoad(revealTex, coords, 0).r;
 
-  let bg = vec3f(1.0, 1.0, 1.0);
-
   if (accum.a < 1e-4) {
-    return vec4f(bg, 1.0);
+    return vec4f(0.0, 0.0, 0.0, 0.0);
   }
 
   let avgColor = accum.rgb / max(accum.a, 1e-4);
-  let finalColor = avgColor * (1.0 - revealage) + bg * revealage;
-  return vec4f(finalColor, 1.0);
+  let alpha = 1.0 - revealage;
+  return vec4f(avgColor * alpha, alpha);
 }
 `;
 
