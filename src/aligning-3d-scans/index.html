@@ -14,6 +14,13 @@
         margin: 0 auto;
         text-align: left;
       }
+      :root[data-dark] figcaption {
+        color: var(--theme-foreground);
+      }
+      .label-alignment-axis { color: #cc334b; }
+      .label-normal-vectors { color: #384e73; }
+      :root[data-dark] .label-alignment-axis { color: #e8657a; }
+      :root[data-dark] .label-normal-vectors { color: #6b9bd2; }
     </style>
   </script>
 
@@ -71,7 +78,7 @@ Failure of this basic sanity check suggests the overall orientation of these sca
   <script id="figure6-container" type="text/x-typescript">
     const figure6Container = html`<figure id="figure6" style="width: 100%; max-width: none;">
       <div id="figure6-canvas" style="position: relative; overflow: hidden; width: 100%; max-width: 500px; height: 400px; margin: 0 auto;"></div>
-      <figcaption>As an educated guess, we instead aim to find an <span style="color:#cc334b">alignment axis</span> as perpendicular as possible to the <span style="color:#384e73">surface normal vectors</span>.</figcaption>
+      <figcaption>As an educated guess, we instead aim to find an <span class="label-alignment-axis">alignment axis</span> as perpendicular as possible to the <span class="label-normal-vectors">surface normal vectors</span>.</figcaption>
     </figure>`;
     display(figure6Container);
   </script>
@@ -214,6 +221,7 @@ There's room for improvement in the final disambiguation of signs, but frankly o
     import { unindex, meshNurbsSurface, createBuffers } from './lib/mesh-utils.js'
     import { calculatePrincipalAxesAndCentroid } from './lib/calculate-principal-axes.js'
     import { angleNormals } from './lib/angle-normals.js'
+    import { observeTheme } from './lib/theme.js'
 
     // Helper to add scroll-based rotation effect
     function addScrollRotation(camera, rotationFactor = 0.0008) {
@@ -570,6 +578,9 @@ There's room for improvement in the final disambiguation of signs, but frankly o
         scale: 0.2,
         lineColor: [0.22, 0.31, 0.45, 1],
       };
+      observeTheme(({ isDark }) => {
+        normalData.lineColor = isDark ? [0.55, 0.70, 0.88, 1] : [0.22, 0.31, 0.45, 1];
+      });
 
       // Vertical axis line
       const axisData = {
@@ -666,6 +677,9 @@ There's room for improvement in the final disambiguation of signs, but frankly o
         scale: 0.2,
         lineColor: [0.22, 0.31, 0.45, 1],
       };
+      observeTheme(({ isDark }) => {
+        normalData.lineColor = isDark ? [0.55, 0.70, 0.88, 1] : [0.22, 0.31, 0.45, 1];
+      });
 
       // Vertical axis line (alignment axis)
       const axisData = {
