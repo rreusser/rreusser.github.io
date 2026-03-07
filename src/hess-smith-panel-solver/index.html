@@ -143,6 +143,7 @@
   </script>
   <script id="55" type="text/x-typescript">
     // Create a simple diagram showing a panelized NACA 2412 airfoil
+    {
     const w = 400;
     const margin = { left: 30, right: 30, top: 25, bottom: 25 };
     const plotW = w - margin.left - margin.right;
@@ -213,7 +214,8 @@
     const pathData = points.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${xScale(pt[0])} ${yScale(pt[1])}`).join(' ') + ' Z';
     svg.append("path")
       .attr("d", pathData)
-      .attr("fill", "#ddd")
+      .attr("fill", "var(--theme-foreground)")
+      .attr("fill-opacity", 0.15)
       .attr("stroke", "none");
 
     // Draw panel edges
@@ -225,7 +227,7 @@
         .attr("y1", yScale(p1[1]))
         .attr("x2", xScale(p2[0]))
         .attr("y2", yScale(p2[1]))
-        .attr("stroke", "#333")
+        .attr("stroke", "currentColor")
         .attr("stroke-width", 2);
     }
 
@@ -235,7 +237,7 @@
         .attr("cx", xScale(pt[0]))
         .attr("cy", yScale(pt[1]))
         .attr("r", 4)
-        .attr("fill", "#333");
+        .attr("fill", "currentColor");
     }
 
     display(html`<figure style="margin: 1em auto; max-width: 420px;">
@@ -244,6 +246,7 @@
         A NACA 2412 airfoil discretized into panels.
       </figcaption>
     </figure>`);
+    }
   </script>
   <script id="56" type="text/markdown">
     The essence of the method is to construct the fluid flow we want through superposition of simpler fluid flows. We can superimpose fluid flows because, to a reasonable approximation, the flow is both *inviscid* and *irrotational*. Inviscid means that, away from surfaces at least, the flow is dominated by momentum forces and that viscous forces are negligible. Irrotational means that, even though the fluid may move in curved arcs, an individual parcel of fluid does not actually rotate. The upshot of these conditions, called the [potential flow](https://en.wikipedia.org/wiki/Potential_flow) approximation, is that we can superimpose simple fluid flow solutions to construct a more complicated flow.
@@ -252,271 +255,10 @@
     To compute flow around the airfoil, we use two potential flow features as our building blocks. First, **source panels** push fluid perpendicular to the respective panel surfaces.
   </script>
   <script id="6" type="text/x-typescript">
-    // Compute velocity induced by a single panel at point (x, y)
-    // Panel goes from (x1, y1) to (x2, y2)
-    // sigma = source strength, gamma = vortex strength (per unit length)
-    function panelVelocity(x, y, x1, y1, x2, y2, sigma, gamma) {
-      // Vectors from panel endpoints to field point
-      const r1x = x - x1, r1y = y - y1;
-      const r2x = x - x2, r2y = y - y2;
-
-      const r1sq = r1x * r1x + r1y * r1y;
-      const r2sq = r2x * r2x + r2y * r2y;
-
-      // Avoid singularity at panel endpoints
-      if (r1sq < 1e-10 || r2sq < 1e-10) return { vx: 0, vy: 0 };
-
-      // Panel tangent and normal
-      const dx = x2 - x1, dy = y2 - y1;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      const tx = dx / len, ty = dy / len;
-      const nx = -ty, ny = tx;
-
-      // Geometric quantities
-      const lambda = 0.5 * Math.log(r2sq / r1sq);
-      const det = r1x * r2y - r2x * r1y;
-      const dot = r1x * r2x + r1y * r2y;
-      const beta = Math.atan2(det, dot);
-
-      // Velocity contributions (equation from panel method)
-      const c = 0.5 / Math.PI;
-      const vx = c * (sigma * (-lambda * tx + beta * nx) + gamma * (beta * tx + lambda * nx));
-      const vy = c * (sigma * (-lambda * ty + beta * ny) + gamma * (beta * ty + lambda * ny));
-
-      return { vx, vy };
-    }
-
-    // Trace a streamline from starting point using RK4 integration
-    function traceStreamline(x0, y0, x1, y1, x2, y2, sigma, gamma, dt, steps, bounds) {
-      const points = [];
-      let x = x0, y = y0;
-
-      // Helper to get normalized velocity direction
-      function velocityDir(px, py) {
-        const { vx, vy } = panelVelocity(px, py, x1, y1, x2, y2, sigma, gamma);
-        const vmag = Math.sqrt(vx * vx + vy * vy);
-        if (vmag < 1e-10) return { dx: 0, dy: 0, valid: false };
-        return { dx: vx / vmag, dy: vy / vmag, valid: true };
-      }
-
-      for (let i = 0; i < steps; i++) {
-        if (x < bounds.xmin || x > bounds.xmax || y < bounds.ymin || y > bounds.ymax) break;
-        points.push([x, y]);
-
-        // RK4 integration
-        const k1 = velocityDir(x, y);
-        if (!k1.valid) break;
-
-        const k2 = velocityDir(x + 0.5 * dt * k1.dx, y + 0.5 * dt * k1.dy);
-        if (!k2.valid) break;
-
-        const k3 = velocityDir(x + 0.5 * dt * k2.dx, y + 0.5 * dt * k2.dy);
-        if (!k3.valid) break;
-
-        const k4 = velocityDir(x + dt * k3.dx, y + dt * k3.dy);
-        if (!k4.valid) break;
-
-        x += (dt / 6) * (k1.dx + 2 * k2.dx + 2 * k3.dx + k4.dx);
-        y += (dt / 6) * (k1.dy + 2 * k2.dy + 2 * k3.dy + k4.dy);
-      }
-
-      return points;
-    }
-
-    // Create SVG diagram for panel-induced flow
-    function createPanelDiagram(title, sigma, gamma, isVortex = false) {
-      const w = 380, h = 300;
-      const margin = { top: 35, right: 25, bottom: 25, left: 25 };
-      const innerW = w - margin.left - margin.right;
-      const innerH = h - margin.top - margin.bottom;
-
-      // Panel endpoints (horizontal panel centered at origin)
-      const panelX1 = -0.5, panelY1 = 0;
-      const panelX2 = 0.5, panelY2 = 0;
-
-      // Domain
-      const bounds = { xmin: -1.5, xmax: 1.5, ymin: -1.2, ymax: 1.2 };
-
-      const xScale = d3.scaleLinear().domain([bounds.xmin, bounds.xmax]).range([0, innerW]);
-      const yScale = d3.scaleLinear().domain([bounds.ymin, bounds.ymax]).range([innerH, 0]);
-
-      const svg = d3.create("svg")
-        .attr("width", w)
-        .attr("height", h)
-        .attr("viewBox", `0 0 ${w} ${h}`)
-        .style("max-width", "100%")
-        .style("background", "transparent")
-        .style("border-radius", "4px");
-
-      // Title
-      svg.append("text")
-        .attr("x", w / 2)
-        .attr("y", 22)
-        .attr("text-anchor", "middle")
-        .attr("font-family", "var(--sans-serif)")
-        .attr("font-size", "15px")
-        .attr("font-weight", "600")
-        .text(title);
-
-      const g = svg.append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-
-      // Draw streamlines - different seeding for source vs vortex
-      const streamlineSeeds = [];
-
-      if (isVortex) {
-        // For vortex: seed along a vertical line to get concentric loops
-        // Fewer seeds at well-spaced distances from center
-        for (let r = 0.15; r <= 1.1; r += 0.18) {
-          streamlineSeeds.push([0, r]);
-        }
-      } else {
-        // For source: seeds around the edges (reduced density)
-        for (let i = -6; i <= 6; i += 2) {
-          if (Math.abs(i) >= 1) {
-            streamlineSeeds.push([-1.4, i * 0.15]);
-            streamlineSeeds.push([1.4, i * 0.15]);
-          }
-        }
-        // Seeds above and below
-        for (let i = -4; i <= 4; i += 2) {
-          streamlineSeeds.push([i * 0.25, 1.1]);
-          streamlineSeeds.push([i * 0.25, -1.1]);
-        }
-      }
-
-      const line = d3.line()
-        .x(d => xScale(d[0]))
-        .y(d => yScale(d[1]));
-
-      // Trace all streamlines first
-      const allStreamlines = [];
-      for (const [sx, sy] of streamlineSeeds) {
-        const fwd = traceStreamline(sx, sy, panelX1, panelY1, panelX2, panelY2, sigma, gamma, 0.03, 200, bounds);
-        const bwd = traceStreamline(sx, sy, panelX1, panelY1, panelX2, panelY2, sigma, gamma, -0.03, 200, bounds);
-        const combined = [...bwd.reverse(), ...fwd.slice(1)];
-        if (combined.length > 3) {
-          allStreamlines.push(combined);
-        }
-      }
-
-      // Draw streamlines
-      for (const streamline of allStreamlines) {
-        g.append("path")
-          .attr("d", line(streamline))
-          .attr("fill", "none")
-          .attr("stroke", "#4a90d9")
-          .attr("stroke-width", 2)
-          .attr("stroke-opacity", 0.75);
-      }
-
-      // Place arrowheads with minimum spacing
-      const arrowheads = [];  // List of placed arrowhead positions
-      const minDist = 0.28;   // Minimum distance between arrowheads (in data coords)
-      const arrowSize = 7;    // Arrow size in pixels
-
-      function canPlaceArrow(x, y) {
-        for (const [ax, ay] of arrowheads) {
-          const dist = Math.sqrt((x - ax) ** 2 + (y - ay) ** 2);
-          if (dist < minDist) return false;
-        }
-        return true;
-      }
-
-      // Walk along each streamline and place arrows
-      for (const streamline of allStreamlines) {
-        for (let i = 2; i < streamline.length - 2; i += 3) {
-          const [x, y] = streamline[i];
-          if (canPlaceArrow(x, y)) {
-            arrowheads.push([x, y]);
-
-            // Get direction from neighboring points
-            const [x0, y0] = streamline[i - 1];
-            const [x1, y1] = streamline[i + 1];
-            const angle = Math.atan2(y1 - y0, x1 - x0);
-
-            // Draw arrowhead as a small triangle
-            const sx = xScale(x), sy = yScale(y);
-            const cos = Math.cos(angle), sin = Math.sin(angle);
-            // Scale sin for y since yScale is inverted
-            const sinY = -sin;
-
-            // Triangle points: tip, and two back corners
-            const tipX = sx + arrowSize * cos;
-            const tipY = sy + arrowSize * sinY;
-            const backL_X = sx - arrowSize * 0.5 * cos - arrowSize * 0.5 * (-sinY);
-            const backL_Y = sy - arrowSize * 0.5 * sinY - arrowSize * 0.5 * cos;
-            const backR_X = sx - arrowSize * 0.5 * cos + arrowSize * 0.5 * (-sinY);
-            const backR_Y = sy - arrowSize * 0.5 * sinY + arrowSize * 0.5 * cos;
-
-            g.append("path")
-              .attr("d", `M${tipX},${tipY} L${backL_X},${backL_Y} L${backR_X},${backR_Y} Z`)
-              .attr("fill", "#4a90d9")
-              .attr("stroke", "none");
-          }
-        }
-      }
-
-      // Draw the panel (thick line)
-      g.append("line")
-        .attr("x1", xScale(panelX1))
-        .attr("y1", yScale(panelY1))
-        .attr("x2", xScale(panelX2))
-        .attr("y2", yScale(panelY2))
-        .attr("stroke", "#333")
-        .attr("stroke-width", 4)
-        .attr("stroke-linecap", "round");
-
-      // Panel endpoints
-      g.append("circle")
-        .attr("cx", xScale(panelX1))
-        .attr("cy", yScale(panelY1))
-        .attr("r", 4)
-        .attr("fill", "#e74c3c");
-
-      g.append("circle")
-        .attr("cx", xScale(panelX2))
-        .attr("cy", yScale(panelY2))
-        .attr("r", 4)
-        .attr("fill", "#e74c3c");
-
-      // Labels
-      // Helper to add text with white shadow for legibility
-      function addLabelWithShadow(x, y, anchor, text) {
-        // White shadow (stroke behind)
-        g.append("text")
-          .attr("x", x)
-          .attr("y", y)
-          .attr("text-anchor", anchor)
-          .attr("font-family", "var(--serif)")
-          .attr("font-size", "14px")
-          .attr("font-style", "italic")
-          .attr("fill", "white")
-          .attr("stroke", "white")
-          .attr("stroke-width", 3)
-          .attr("stroke-linejoin", "round")
-          .text(text);
-        // Foreground text
-        g.append("text")
-          .attr("x", x)
-          .attr("y", y)
-          .attr("text-anchor", anchor)
-          .attr("font-family", "var(--serif)")
-          .attr("font-size", "14px")
-          .attr("font-style", "italic")
-          .attr("fill", "#333")
-          .text(text);
-      }
-
-      addLabelWithShadow(xScale(panelX1) - 10, yScale(panelY1) + 5, "end", "(xⱼ, yⱼ)");
-      addLabelWithShadow(xScale(panelX2) + 10, yScale(panelY2) + 5, "start", "(xⱼ₊₁, yⱼ₊₁)");
-
-      return svg.node();
-    }
-
+    // createPanelDiagram imported from panel-flow-diagram.js above
   </script>
   <script id="7" type="text/x-typescript">
-    const sourceDiagram = createPanelDiagram("Source Panel (σ = 1)", 1, 0, false);
+    const sourceDiagram = createPanelDiagram(d3, "Source Panel (σ = 1)", 1, 0, false);
 
     display(html`<figure style="margin: 1em auto; max-width: 400px;">
       ${sourceDiagram}
@@ -529,7 +271,7 @@
     Second, **vortex panels** create circulation around panel surfaces.
   </script>
   <script id="8" type="text/x-typescript">
-    const vortexDiagram = createPanelDiagram("Vortex Panel (γ = 1)", 0, 1, true);
+    const vortexDiagram = createPanelDiagram(d3, "Vortex Panel (γ = 1)", 0, 1, true);
 
     display(html`<figure style="margin: 1em auto; max-width: 400px;">
       ${vortexDiagram}
@@ -562,6 +304,7 @@
   </script>
   <script id="57" type="text/x-typescript">
     // Create a simple diagram illustrating the non-penetration condition
+    {
     const w = 280, h = 140;
     const svg = d3.create("svg")
       .attr("width", w)
@@ -591,7 +334,8 @@
                   L ${x2} ${y2}
                   L ${x2 + shadeDepth * nx} ${y2 + shadeDepth * ny}
                   L ${x1 + shadeDepth * nx} ${y1 + shadeDepth * ny} Z`)
-      .attr("fill", "#ddd")
+      .attr("fill", "var(--theme-foreground)")
+      .attr("fill-opacity", 0.15)
       .attr("stroke", "none");
 
     // Surface face stroke only
@@ -600,7 +344,7 @@
       .attr("y1", y1)
       .attr("x2", x2)
       .attr("y2", y2)
-      .attr("stroke", "#333")
+      .attr("stroke", "currentColor")
       .attr("stroke-width", 2);
 
     // Arrow styling
@@ -617,7 +361,8 @@
       .attr("orient", "auto")
       .append("path")
       .attr("d", "M 0 0 L 10 5 L 0 10 Z")
-      .attr("fill", arrowColor);
+      .attr("fill", arrowColor)
+      .attr("stroke", "none");
 
     // Flow arrow parallel to surface, offset above
     const arrowOffset = 12; // distance above panel
@@ -643,7 +388,7 @@
       .attr("font-family", "var(--serif)")
       .attr("font-size", "14px")
       .attr("font-style", "italic")
-      .attr("fill", arrowColor)
+      .attr("fill", "currentColor")
       .text("v");
 
     display(html`<figure style="margin: 1em auto; max-width: 300px;">
@@ -652,12 +397,14 @@
         Flow velocity is tangent to the panel surface.
       </figcaption>
     </figure>`);
+    }
   </script>
   <script id="47" type="text/markdown">
     Second, the **Kutta condition** states that fluid must leave an airfoil's trailing edge smoothly. The logic is straightforward. The potential flow approximation indicates that any transverse velocity at the sharp cusp of the trailing edge would require the flow to have infinite velocity at that point. Viscosity, even though we've neglected it, becomes important at this point and would cause the airfoil to shed a vortex to prevent this unphysical infinite-velocity state. This vortex shedding would continue until smooth flow is obtained, so we assume the flow has already equilibriated and smooth flow has been obtained, therefore the transverse velocity component at the trailing edge is precisely zero.
   </script>
   <script id="48" type="text/x-typescript">
     // Create a simple diagram illustrating the Kutta condition
+    {
     const w = 320, h = 200;
     const svg = d3.create("svg")
       .attr("width", w)
@@ -677,7 +424,8 @@
       .attr("d", `M ${backX} ${tipY - halfHeight}
                   L ${tipX} ${tipY}
                   L ${backX} ${tipY + halfHeight} Z`)
-      .attr("fill", "#ddd")
+      .attr("fill", "var(--theme-foreground)")
+      .attr("fill-opacity", 0.15)
       .attr("stroke", "none");
 
     // Top and bottom edges only (not left side)
@@ -686,7 +434,7 @@
       .attr("y1", tipY - halfHeight)
       .attr("x2", tipX)
       .attr("y2", tipY)
-      .attr("stroke", "#333")
+      .attr("stroke", "currentColor")
       .attr("stroke-width", 2);
 
     svg.append("line")
@@ -694,7 +442,7 @@
       .attr("y1", tipY + halfHeight)
       .attr("x2", tipX)
       .attr("y2", tipY)
-      .attr("stroke", "#333")
+      .attr("stroke", "currentColor")
       .attr("stroke-width", 2);
 
     // Arrow styling
@@ -748,7 +496,8 @@
       .attr("text-anchor", "middle")
       .attr("font-family", "var(--sans-serif)")
       .attr("font-size", "13px")
-      .attr("fill", "#666")
+      .attr("fill", "currentColor")
+      .attr("fill-opacity", 0.6)
       .text("trailing edge");
 
     display(html`<figure style="margin: 1em auto; max-width: 350px;">
@@ -757,6 +506,7 @@
         The Kutta condition requires flow from the upper and lower surfaces to leave the trailing edge smoothly, meeting at the same velocity.
       </figcaption>
     </figure>`);
+    }
   </script>
   <script id="150" type="text/markdown">
     Moreover, since the flow here is subsonic, this circulation generated by the Kutta condition propagates back upstream, adjusting the flow over the airfoil until we meet the classic description of an airfoil with flow circulating over the top faster than underneath, therefore generating lift by way of [Bernoulli's principle](https://en.wikipedia.org/wiki/Bernoulli%27s_principle).
@@ -905,8 +655,12 @@
       createRenderer,
       quantizeColorscale,
       preparePanelData,
-      triangulateAirfoil
+      triangulateAirfoil,
+      mat4mul,
+      makeRotation
     } from './webgpu-renderer.js'
+    import { computePanelCp, computeCenterOfPressure } from './compute-pressure.js'
+    import { createPanelDiagram } from './panel-flow-diagram.js'
   </script>
   <script id="18" type="text/x-typescript">
     const { device, canvasFormat } = await createWebGPUContext();
@@ -1263,136 +1017,7 @@
     const liftCoeff = liftState.value;
   </script>
   <script id="33" type="text/x-typescript">
-    import computeWinding from './compute-winding.js';
-
-    // Compute pressure coefficient at each panel midpoint
-    // Uses tangential velocity computation matching the solver formulas
-    function computePanelCp(geom, sol, vInfMag, alphaDegs) {
-      const { x, y } = geom;
-      const n = x.length - 1;
-      const al = alphaDegs * Math.PI / 180;
-      const gamma = sol.shape[0] > n ? sol.get(n) : 0;
-
-      const cpValues = [];
-      const midpoints = [];
-      const normals = [];
-      const theta = [];  // Panel angles
-
-      // Precompute panel angles (same as solver)
-      for (let i = 0; i < n; i++) {
-        const ty = y[i + 1] - y[i];
-        const tx = x[i + 1] - x[i];
-        theta[i] = Math.atan2(ty, tx);
-      }
-
-      const winding = computeWinding(x, y);
-
-      for (let i = 0; i < n; i++) {
-        // Panel midpoint
-        const xi = 0.5 * (x[i] + x[i + 1]);
-        const yi = 0.5 * (y[i] + y[i + 1]);
-        midpoints.push([xi, yi]);
-
-        // Panel tangent and normal
-        const thi = theta[i];
-        const nx = -Math.sin(thi), ny = Math.cos(thi);  // Outward normal
-        normals.push([nx, ny]);
-
-        // Compute tangential velocity at panel midpoint (matching solver formulas)
-        let vt = vInfMag * Math.cos(thi - al);  // Freestream tangential component
-
-        for (let j = 0; j < n; j++) {
-          const sigma = sol.get(j);
-          const thj = theta[j];
-
-          const rij = Math.sqrt((xi - x[j]) ** 2 + (yi - y[j]) ** 2);
-          const rij1 = Math.sqrt((xi - x[j + 1]) ** 2 + (yi - y[j + 1]) ** 2);
-
-          let bij = Math.PI * winding;
-          if (i !== j) {
-            const dx1 = xi - x[j];
-            const dx2 = xi - x[j + 1];
-            const dy1 = yi - y[j];
-            const dy2 = yi - y[j + 1];
-            const det = dx1 * dy2 - dx2 * dy1;
-            const dot = dx2 * dx1 + dy2 * dy1;
-            bij = Math.atan2(det, dot);
-          }
-
-          const sij = Math.sin(thi - thj);
-          const cij = Math.cos(thi - thj);
-          const lij = Math.log(rij1 / rij);
-          const c = 0.5 / Math.PI;
-
-          // Tangential velocity contribution (from solver's Kutta condition formula)
-          vt += c * sigma * (sij * bij - cij * lij);
-          vt += c * gamma * (sij * lij + cij * bij);
-        }
-
-        // Pressure coefficient: Cp = 1 - (V_t/V_inf)^2
-        // At the surface, velocity is purely tangential (normal = 0 by boundary condition)
-        const cp = 1 - (vt / vInfMag) ** 2;
-        cpValues.push(cp);
-      }
-
-      return { cpValues, midpoints, normals };
-    }
-
-    // Compute center of pressure from panel Cp values
-    // Returns {x, y} in airfoil coordinates
-    function computeCenterOfPressure(geom, cpData, alphaDegs) {
-      const { x, y } = geom;
-      const n = x.length - 1;
-      const al = alphaDegs * Math.PI / 180;
-
-      // Lift direction (perpendicular to freestream, pointing "up" for positive lift)
-      const liftDirX = -Math.sin(al);
-      const liftDirY = Math.cos(al);
-
-      let totalLift = 0;
-      let momentX = 0;  // Moment about x = 0
-      let momentY = 0;  // Moment about y = 0
-
-      for (let i = 0; i < n; i++) {
-        const cp = cpData.cpValues[i];
-        const [mx, my] = cpData.midpoints[i];
-        const [nx, ny] = cpData.normals[i];
-
-        // Panel length
-        const dx = x[i + 1] - x[i];
-        const dy = y[i + 1] - y[i];
-        const panelLen = Math.sqrt(dx * dx + dy * dy);
-
-        // Force on panel (points inward, so opposite to normal)
-        // F = -Cp * panelLen * (-normal) = Cp * panelLen * normal
-        // But for pressure force: F = -Cp * ds * n (pressure pushes inward when Cp > 0... actually no)
-        // Pressure coefficient: Cp = (p - p_inf) / q_inf
-        // Force per unit span: dF = -Cp * q_inf * ds * n (negative because pressure acts opposite to outward normal)
-        // For our purposes, we just need the relative distribution
-        const forceMag = -cp * panelLen;  // Force magnitude in normal direction (into surface)
-        const forceX = forceMag * nx;
-        const forceY = forceMag * ny;
-
-        // Lift component (projection onto lift direction)
-        const lift = forceX * liftDirX + forceY * liftDirY;
-
-        totalLift += lift;
-        momentX += mx * lift;
-        momentY += my * lift;
-      }
-
-      // Center of pressure
-      if (Math.abs(totalLift) < 1e-10) {
-        return { x: 0.25, y: 0 };  // Default to quarter chord if no lift
-      }
-
-      return {
-        x: momentX / totalLift,
-        y: momentY / totalLift
-      };
-    }
-
-    // Compute and store panel Cp data
+    // computePanelCp and computeCenterOfPressure imported from compute-pressure.js above
     panelCpState.data = computePanelCp(geometryState, solution, vInf, alpha);
     panelCpState.centerOfPressure = computeCenterOfPressure(geometryState, panelCpState.data, alpha);
     const panelCpData = panelCpState.data;
@@ -1489,32 +1114,7 @@
         const vInfAlpha = alpha * Math.PI / 180;
         const vInfVec = [vInf * Math.cos(vInfAlpha), vInf * Math.sin(vInfAlpha)];
 
-        // Helper: multiply two 4x4 matrices (column-major)
-        function mat4mul(a, b) {
-          const out = new Float32Array(16);
-          for (let i = 0; i < 4; i++) {
-            for (let j = 0; j < 4; j++) {
-              out[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] +
-                               a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
-            }
-          }
-          return out;
-        }
-
-        // Build rotation matrix for angle θ around point (cx, cy)
-        function makeRotation(theta, cx, cy) {
-          const c = Math.cos(theta), s = Math.sin(theta);
-          const tx = cx * (1 - c) + cy * s;
-          const ty = cy * (1 - c) - cx * s;
-          // Column-major 4x4
-          return new Float32Array([
-            c, s, 0, 0,
-            -s, c, 0, 0,
-            0, 0, 1, 0,
-            tx, ty, 0, 1
-          ]);
-        }
-
+        // mat4mul and makeRotation imported from webgpu-renderer.js above
         const alphaRad = -alpha * Math.PI / 180;
         const cx = 0.5, cy = 0;
 

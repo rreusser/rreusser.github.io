@@ -1,6 +1,12 @@
 <!doctype html>
 <notebook theme="air">
   <title>Computing π with the Bailey-Borwein-Plouffe Formula</title>
+  <script id="pi-styles" type="text/html">
+    <style>
+      :root { --pi-context-color: #888; }
+      .theme-is-dark { --pi-context-color: #666; }
+    </style>
+  </script>
   <script id="301" type="text/markdown">
     # Computing π with the Bailey-Borwein-Plouffe Formula
   </script>
@@ -80,7 +86,7 @@
             ? ref[0] + "." + ref.slice(1, offset)
             : ref.slice(0, offset);
         out.appendChild(leading);
-        out.style.color = "#ccc";
+        out.style.color = "var(--pi-context-color)";
 
         for (let i = 0; i < ref.length - offset; i++) {
           const s = document.createElement("span");
@@ -100,7 +106,7 @@
         const trailing = document.createElement("span");
         trailing.textContent = ref.slice(offset + digits, ref.length);
         out.appendChild(trailing);
-        out.style.color = "#bbb";
+        out.style.color = "var(--pi-context-color)";
 
         return out;
       }
@@ -110,7 +116,7 @@
       for (let i = startingDigit; i < startingDigit + ref.length; i += 4) {
         const line = document.createElement("code");
         line.style.fontSize = "inherit";
-        line.style.color = "#ccc";
+        line.style.color = "var(--pi-context-color)";
         line.textContent = refStr;
         lines.push(line);
       }

@@ -5,7 +5,7 @@
     <link>https://rreusser.github.io/notebooks/</link>
     <description>Interactive notebooks on graphics, math, and creative coding</description>
     <language>en-us</language>
-    <lastBuildDate>Wed, 04 Mar 2026 02:23:55 GMT</lastBuildDate>
+    <lastBuildDate>Sat, 07 Mar 2026 20:59:10 GMT</lastBuildDate>
     <atom:link href="https://rreusser.github.io/notebooks/feed.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Boy&apos;s Surface</title>
@@ -374,6 +374,13 @@
       <pubDate>Mon, 16 Mar 2015 07:00:00 GMT</pubDate>
       <description>Reflections on a decade of programming projects and the search for meaning in complexity</description>
       <media:content url="https://rreusser.github.io/notebooks/meta/a-series-of-unfortunate-things-i-programmed-one-time.jpg" medium="image" />
+    </item>
+    <item>
+      <title>WebGPU Utils</title>
+      <link>https://rreusser.github.io/notebooks/webgpu-utils/</link>
+      <guid isPermaLink="true">https://rreusser.github.io/notebooks/webgpu-utils/</guid>
+      <pubDate></pubDate>
+      <description></description>
     </item>
     <item>
       <title>WebGPU Text Rendering</title>

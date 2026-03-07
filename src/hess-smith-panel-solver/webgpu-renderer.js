@@ -1268,6 +1268,31 @@ export function preparePanelData(geometry, solution) {
   return data;
 }
 
+// Multiply two 4x4 column-major matrices
+export function mat4mul(a, b) {
+  const out = new Float32Array(16);
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      out[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] +
+                       a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
+    }
+  }
+  return out;
+}
+
+// Build a 4x4 column-major rotation matrix for angle theta around point (cx, cy)
+export function makeRotation(theta, cx, cy) {
+  const c = Math.cos(theta), s = Math.sin(theta);
+  const tx = cx * (1 - c) + cy * s;
+  const ty = cy * (1 - c) - cx * s;
+  return new Float32Array([
+    c, s, 0, 0,
+    -s, c, 0, 0,
+    0, 0, 1, 0,
+    tx, ty, 0, 1
+  ]);
+}
+
 // Helper to triangulate airfoil for solid fill
 export function triangulateAirfoil(geometry) {
   const { x, y } = geometry;

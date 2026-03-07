@@ -1,0 +1,1163 @@
+<!doctype html>
+<notebook theme="air">
+  <title>WebGPU Utils</title>
+  <script id="0" type="text/markdown">
+    # WebGPU Utils
+  </script>
+  <script id="13" type="text/markdown">
+    ## `createShaderModule(device, opts)`
+  </script>
+  <script id="10" type="text/markdown">
+    A pass-through for creating a shader which throw errors so that Observable prints them to the notebook page (rather than silently logging to the console on error).
+  </script>
+  <script id="3" type="application/vnd.observable.javascript">
+    async function createShaderModule(
+      device,
+      { label, code, compilationHints = [] } = {}
+    ) {
+      const module = device.createShaderModule({ label, code, compilationHints });
+      const info = await module.getCompilationInfo();
+      const messages = info.messages;
+      if (messages.length) {
+        const lines = code.split("\n");
+        const errors = [];
+        for (let i = 0; i < messages.length; i++) {
+          const { message, lineNum, linePos, length } = messages[i];
+          errors.push(
+            `:${lineNum}:${linePos} error: ${message}\n${lines[lineNum - 1]}\n${""
+              .padStart(length, "^")
+              .padStart(linePos + length - 1, " ")}`
+          );
+        }
+        const error = new Error("\n" + errors.join("\n\n"));
+        error.name = "Error while parsing WGSL";
+        throw error;
+      }
+      return module;
+    }
+  </script>
+  <script id="1124" type="text/markdown">
+    ## `queuePasses(device, passes)`
+  </script>
+  <script id="1125" type="text/markdown">
+    A helper to streamline passing an encoder to multiple passes, then submitting to the queue.
+  </script>
+  <script id="19" type="application/vnd.observable.javascript">
+    function queuePasses(device, cb) {
+      const encoder = device.createCommandEncoder();
+      if (Array.isArray(cb)) {
+        cb.forEach((c) => c(encoder));
+      } else {
+        cb(encoder);
+      }
+      device.queue.submit([encoder.finish()]);
+    }
+  </script>
+  <script id="1131" type="text/markdown">
+    ## `reflect(code)`
+  </script>
+  <script id="1133" type="text/markdown">
+    Use [wgsl_reflect](https://github.com/brendan-duncan/wgsl_reflect) to compute reflection metadata about provided WGSL shader code.
+  </script>
+  <script id="1111" type="application/vnd.observable.javascript">
+    WgslReflect = import(
+      "https://unpkg.com/wgsl_reflect@1.2.3/wgsl_reflect.module.js"
+    )
+  </script>
+  <script id="1113" type="application/vnd.observable.javascript">
+    reflect = (code) => new WgslReflect.WgslReflect(code)
+  </script>
+  <script id="1136" type="text/markdown">
+    ## `visualizeStruct(code, {width, indent})`
+  </script>
+  <script id="1143" type="text/markdown">
+    A helper for visualizing memory layout of a WGSL struct.
+  </script>
+  <script id="1170" type="application/vnd.observable.javascript">
+    function visualizeStruct(
+      structs,
+      { width: wid = Math.min(640, width), indent = 35, spacing = 40 } = {}
+    ) {
+      const byteHeight = 32;
+      const colors = d3.schemeTableau10;
+      const svg = d3.create("svg");
+      let yOffset = 0;
+      let colorIndex = 0;
+
+      const topLevelColor = {};
+
+      function getColor(topLevelName) {
+        if (!topLevelColor[topLevelName]) {
+          topLevelColor[topLevelName] = colors[colorIndex++ % colors.length];
+        }
+        return topLevelColor[topLevelName];
+      }
+
+      function flattenMembers(members, baseOffset = 0, path = [], topLevel = null) {
+        const flat = [];
+        for (const member of members) {
+          const offset = baseOffset + (member.offset || 0);
+          const name = [...path, member.name].join(".");
+
+          // Remember top-level owner
+          const owner = member.name; //topLevel ?? member.name;
+
+          if (member.type?.name === "array" && member.type.format?.members) {
+            const count = member.type.count || 1;
+            const stride = member.type.stride || member.type.format.size || 0;
+            for (let i = 0; i < count; i++) {
+              const label = `${member.name}[${i}]`;
+              const elOffset = offset + i * stride;
+              flat.push(
+                ...flattenMembers(
+                  member.type.format.members,
+                  elOffset,
+                  [...path, `${member.name}[${i}]`],
+                  member.name
+                )
+              );
+            }
+          } else if (member.type?.members) {
+            flat.push(
+              ...flattenMembers(
+                member.type.members,
+                offset,
+                [...path, member.name],
+                member.name
+              )
+            );
+          } else {
+            flat.push({
+              name,
+              type: member.type?.name || "?",
+              offset,
+              size: member.size,
+              topLevel: owner
+            });
+          }
+        }
+        return flat;
+      }
+
+      function drawStruct(struct, yOffset) {
+        const align = 16; //struct.align ?? 16;
+        const size = struct.size ?? align;
+        const byteWidth = (wid - indent - 1) / align;
+
+        const flatMembers = flattenMembers(struct.members || []);
+        const group = svg.append("g").attr("transform", `translate(0,${yOffset})`);
+        const labelsToDraw = [];
+
+        flatMembers.forEach((member) => {
+          const color = getColor(member.topLevel);
+          const end = member.offset + member.size;
+          let offset = member.offset;
+
+          while (offset < end) {
+            const r = Math.floor(offset / align);
+            const c = offset % align;
+            const span = Math.min(align - c, end - offset);
+
+            group
+              .append("rect")
+              .attr("x", c * byteWidth + indent)
+              .attr("y", r * byteHeight + 20)
+              .attr("width", span * byteWidth)
+              .attr("height", byteHeight)
+              .attr("fill", color)
+              .attr("stroke", "black")
+              .attr("stroke-width", 1)
+              .attr("opacity", 0.8);
+
+            labelsToDraw.push({
+              name: member.name,
+              type: member.type,
+              x: (c + span / 2) * byteWidth + indent,
+              y: r * byteHeight + 20 + byteHeight / 2
+            });
+
+            offset += span;
+          }
+        });
+
+        const rowCount = Math.ceil(size / align);
+
+        // grid
+        for (let r = 0; r <= rowCount; r++) {
+          group
+            .append("line")
+            .attr("x1", indent)
+            .attr("y1", r * byteHeight + 20)
+            .attr("x2", align * byteWidth + indent)
+            .attr("y2", r * byteHeight + 20)
+            .style(
+              "stroke",
+              r === 0 || r === rowCount ? "black" : "rgb(0 0 0 / 30%)"
+            );
+        }
+
+        for (let r = 0; r < rowCount; r++) {
+          for (let c = 0; c <= align; c++) {
+            group
+              .append("line")
+              .attr("x1", c * byteWidth + indent)
+              .attr("y1", r * byteHeight + 20)
+              .attr("x2", c * byteWidth + indent)
+              .attr("y2", (r + 1) * byteHeight + 20)
+              .style(
+                "stroke",
+                c === 0 || c === align ? "black" : "rgb(0 0 0 / 8%)"
+              );
+          }
+        }
+
+        // field labels
+        labelsToDraw.forEach((label) => {
+          group
+            .append("text")
+            .attr("x", label.x)
+            .attr("y", label.y - 6)
+            .text(label.name)
+            .style("fill", "black")
+            .style("font-size", 12)
+            .style("font-weight", "bold")
+            .style("text-anchor", "middle")
+            .style("font-family", "monospace")
+            .style("dominant-baseline", "middle")
+            .style("pointer-events", "none");
+
+          group
+            .append("text")
+            .attr("x", label.x)
+            .attr("y", label.y + 10)
+            .text(label.type)
+            .style("fill", "#222")
+            .style("font-size", 10)
+            .style("font-style", "italic")
+            .style("text-anchor", "middle")
+            .style("font-family", "monospace")
+            .style("dominant-baseline", "middle")
+            .style("pointer-events", "none");
+        });
+
+        // byte offset labels
+        for (let i = 0; i < size; i += align) {
+          const row = i / align;
+          group
+            .append("text")
+            .attr("x", 10)
+            .attr("y", row * byteHeight + 20 + byteHeight / 2)
+            .attr("dominant-baseline", "middle")
+            .style("font-family", "monospace")
+            .style("font-size", 12)
+            .text(i);
+        }
+
+        // struct name label
+        group
+          .append("text")
+          .attr("x", indent)
+          .attr("y", 14)
+          .text(struct.name)
+          .style("font-family", "monospace")
+          .style("font-size", 14)
+          .style("font-weight", "bold");
+
+        return rowCount * byteHeight + spacing;
+      }
+
+      for (const struct of structs) {
+        yOffset += drawStruct(struct, yOffset);
+      }
+
+      svg.attr("height", yOffset);
+      svg.attr("width", wid);
+
+      return svg.node();
+    }
+  </script>
+  <script id="1118" type="application/vnd.observable.javascript">
+    visualizeStruct(
+      reflect(`
+    struct PointLight {
+      position: vec3f,
+      color: vec4f,
+    }
+
+    struct Uniforms {
+      xyz: vec3u,
+      tileSize: u32,
+      toXY: vec3f,
+      terrainBuffer: u32,
+      terrainSize: vec2u,
+      globalDimension: u32,
+      pixelSize: f32,
+      lights: array<PointLight, 2>,
+    }`).structs
+    )
+  </script>
+  <script id="1151" type="application/vnd.observable.javascript">
+    writeStruct = {
+      function writeScalar(dv, t, offset, value) {
+        switch (t) {
+          case "u":
+            dv.setUint32(offset, value, true);
+            break;
+          case "i":
+            dv.setInt32(offset, value, true);
+            break;
+          case "f":
+            dv.setFloat32(offset, value, true);
+            break;
+          case "h":
+            dv.setUint16(offset, toFloat16(value), true);
+            break;
+          default:
+            throw new Error(`Unknown scalar type: ${t}`);
+        }
+      }
+
+      function parseTypeName(name) {
+        const vecMatch = name.match(/^vec([2-4])([uifh])$/);
+        const matMatch = name.match(/^mat([2-4])x([2-4])([fh])$/);
+        if (vecMatch) {
+          return {
+            kind: "vec",
+            len: parseInt(vecMatch[1]),
+            scalarType: vecMatch[2]
+          };
+        } else if (matMatch) {
+          return {
+            kind: "mat",
+            cols: parseInt(matMatch[1]),
+            rows: parseInt(matMatch[2]),
+            scalarType: matMatch[3]
+          };
+        } else if (/^(u32|i32|f32|f16)$/.test(name)) {
+          const typeMap = { u32: "u", i32: "i", f32: "f", f16: "h" };
+          return { kind: "scalar", scalarType: typeMap[name] };
+        } else {
+          throw new Error(`Unsupported type name: ${name}`);
+        }
+      }
+
+      return function writeStruct(buffer, values, struct) {
+        const dv = new DataView(buffer);
+
+        for (const member of struct.members) {
+          const offset = member.offset;
+          const value = values[member.name];
+          if (value === undefined) continue;
+
+          const typeInfo = parseTypeName(member.type.name);
+          let currentOffset = offset;
+
+          if (typeInfo.kind === "scalar") {
+            writeScalar(dv, typeInfo.scalarType, currentOffset, value);
+          } else if (typeInfo.kind === "vec") {
+            const stride = typeInfo.scalarType === "h" ? 2 : 4;
+            for (let i = 0; i < typeInfo.len; i++) {
+              writeScalar(
+                dv,
+                typeInfo.scalarType,
+                currentOffset + i * stride,
+                value[i]
+              );
+            }
+          } else if (typeInfo.kind === "mat") {
+            const stride = typeInfo.scalarType === "h" ? 2 : 4;
+            for (let c = 0; c < typeInfo.cols; c++) {
+              for (let r = 0; r < typeInfo.rows; r++) {
+                const i = c * typeInfo.rows + r;
+                writeScalar(
+                  dv,
+                  typeInfo.scalarType,
+                  currentOffset + i * stride,
+                  value[i]
+                );
+              }
+            }
+          }
+        }
+      };
+    }
+  </script>
+  <script id="1330" type="text/markdown">
+    ## `WgslStruct(code)`
+
+    A `viewof` helper function for defining a WGSL shader in an Observable cell.
+  </script>
+  <script id="1264" type="application/vnd.observable.javascript">
+    WgslStruct = {
+      class Struct {
+        constructor(code) {
+          this.code = code;
+          this.meta = reflect(code).structs;
+        }
+        toString() {
+          return this.code;
+        }
+        repr() {
+          return visualizeStruct(this.meta);
+        }
+      }
+      return function WgslStruct(code) {
+        const struct = new Struct(code);
+        const repr = struct.repr();
+        repr.value = struct;
+        return repr;
+      };
+    }
+  </script>
+  <script id="1267" type="application/vnd.observable.javascript" pinned="">
+    viewof struct = WgslStruct(`struct Point { x: f32, y: f32, z: f32 }`)
+  </script>
+  <script id="1333" type="application/vnd.observable.javascript" pinned="">
+    `
+    // My shader code
+    ${struct}
+    `
+  </script>
+  <script id="1145" type="text/markdown">
+    ## Scratch space
+  </script>
+  <script id="1146" type="text/markdown">
+    Below are scattered experiments, including a full standalone parser for WGSL struct definitions.
+  </script>
+  <script id="823" type="application/vnd.observable.javascript">
+    function calculateLayout(ast) {
+      const alignUp = (offset, alignment) =>
+        Math.ceil(offset / alignment) * alignment;
+
+      const typeInfo = (type) => {
+        if (typeof type.size === "number") {
+          // Scalars or vectors
+          const base = type.type;
+          let baseAlign = base === "f16" ? 2 : 4;
+          let baseSize = base === "f16" ? 2 : 4;
+
+          if (type.size === 1) {
+            return { align: baseAlign, size: baseSize };
+          } else if (type.size === 2) {
+            return { align: baseAlign * 2, size: baseSize * 2 };
+          } else if (type.size === 3) {
+            return { align: baseAlign * 4, size: baseSize * 4 }; // vec3 padded to vec4
+          } else if (type.size === 4) {
+            return { align: baseAlign * 4, size: baseSize * 4 };
+          }
+        } else if (Array.isArray(type.size)) {
+          // Matrices: size = columns × size of vecM<T>, alignment = alignment of vecM<T>
+          const [cols, rows] = type.size;
+          let baseAlign = 4; // only f32 supported for matrices
+          let vecAlign = baseAlign * 4;
+          let vecSize = baseAlign * 4;
+          return {
+            align: vecAlign,
+            size: cols * vecSize
+          };
+        }
+        throw new Error("Unhandled type: " + JSON.stringify(type));
+      };
+
+      let offset = 0;
+      let structAlign = 1;
+      const result = [];
+
+      for (const member of ast.members) {
+        let { align, size } = typeInfo(member.type);
+
+        for (const attr of member.attrs) {
+          if (attr.value.value % 2 !== 0) continue; // ignore malformed attrs
+          if (attr.value.value >= align) align = attr.value.value;
+          if (attr.value.value >= size) size = attr.value.value;
+        }
+
+        offset = alignUp(offset, align);
+        result.push({
+          name: member.name.value,
+          offset,
+          size,
+          align
+        });
+
+        offset += size;
+        if (align > structAlign) structAlign = align;
+      }
+
+      const totalSize = alignUp(offset, structAlign);
+      return { layout: result, size: totalSize, align: structAlign };
+    }
+  </script>
+  <script id="32" type="application/vnd.observable.javascript">
+    Struct = {
+      class Token {
+        constructor(value) {
+          this.value = value;
+        }
+        match() {
+          return this.value.match(this.constructor.pattern);
+        }
+        isMatch(tokenTypes = null, tokenValues = null) {
+          tokenTypes = wrap(tokenTypes);
+          tokenValues = wrap(tokenValues);
+          return (
+            (!tokenTypes.length || tokenTypes.includes(this.constructor)) &&
+            (!tokenValues.length || tokenValues.includes(this.value))
+          );
+        }
+      }
+      class CommentToken extends Token {
+        static pattern = /^\/\/.*/;
+        static name = "Comment";
+      }
+      class KeywordToken extends Token {
+        static pattern =
+          /^(struct|size|align|array|bool|i32|u32|f32|f16|vec[234][iufh]?|mat[234]x[234][fh]?)\b/;
+        static name = "Keyword";
+      }
+      class DecimalIntToken extends Token {
+        static pattern = /^(0[iu]?|[1-9][0-9]*[iu]?)/;
+        static name = "DecimalInt";
+      }
+      class IdentifierToken extends Token {
+        static pattern = /^[a-zA-Z_][a-zA-Z0-9_]*/;
+        static name = "Identifier";
+      }
+      class PunctuatorToken extends Token {
+        static pattern = /^(\:|\,|\{|\}|@|\(|\)|>|<)/;
+        static name = "Punctuator";
+      }
+      class UnknownToken extends Token {
+        static pattern = /^\S/;
+        static name = "Unknown";
+      }
+      const TOKENS = [
+        CommentToken,
+        KeywordToken,
+        DecimalIntToken,
+        IdentifierToken,
+        PunctuatorToken,
+        UnknownToken
+      ];
+      const WHITESPACE = /^\s+/;
+      function tokenize(input) {
+        const tokens = [];
+        let currentIndex = 0;
+        while (currentIndex < input.length) {
+          const whitespaceMatch = input.slice(currentIndex).match(WHITESPACE);
+          if (whitespaceMatch) currentIndex += whitespaceMatch[0].length;
+          if (currentIndex >= input.length) break;
+          const remainingInput = input.slice(currentIndex);
+          let matched = false;
+          for (const TokenType of TOKENS) {
+            const match = remainingInput.match(TokenType.pattern);
+            if (match && match.index === 0) {
+              const value = match[0];
+              if (TokenType !== CommentToken) tokens.push(new TokenType(value));
+              currentIndex += value.length;
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) {
+            throw new Error(
+              `Unrecognized token at index ${currentIndex}: "${remainingInput}"`
+            );
+          }
+        }
+        return tokens;
+      }
+
+      class ASTNode {
+        constructor() {
+          if (this.constructor == ASTNode) {
+            throw new Error("Abstract ASTNode class can't be instantiated.");
+          }
+        }
+      }
+
+      class StructDeclNode extends ASTNode {
+        constructor(name, members) {
+          super();
+          this.name = name;
+          this.members = members;
+        }
+        toString() {
+          return `struct ${this.name} {
+      ${this.members.join("\n  ")}
+    }`;
+        }
+        computeLayout() {
+          return calculateLayout(this);
+        }
+      }
+
+      class AlignAttrNode extends ASTNode {
+        constructor(value) {
+          super();
+          this.value = value;
+        }
+        toString() {
+          return `@align(${this.value})`;
+        }
+      }
+
+      class SizeAttrNode extends ASTNode {
+        constructor(value) {
+          super();
+          this.value = value;
+        }
+        toString() {
+          return `@size(${this.value})`;
+        }
+      }
+
+      class RuntimeSizeArrayTypeSpecifierNode extends ASTNode {
+        constructor(value) {
+          super();
+          this.value = value;
+        }
+        toString() {
+          return `array<${this.value}>`;
+        }
+      }
+
+      class FixedSizedArrayTypeSpecifierNode extends ASTNode {
+        constructor(value, size) {
+          super();
+          this.value = value;
+          this.size = size;
+        }
+        toString() {
+          return `array<${this.value},${this.size}>`;
+        }
+      }
+
+      class StructMemberNode extends ASTNode {
+        constructor(name, type, attrs = attrs) {
+          super();
+          this.name = name;
+          this.type = type;
+          this.attrs = attrs;
+        }
+        toString() {
+          return `${
+            this.attrs.length
+              ? `${this.attrs.map((a) => a.toString()).join(" ")} `
+              : ""
+          }${this.name}: ${this.type},`;
+        }
+      }
+
+      class IdentifierNode extends ASTNode {
+        constructor(value) {
+          super();
+          this.value = value;
+        }
+        toString() {
+          return this.value;
+        }
+      }
+
+      class StructReferenceNode extends ASTNode {
+        constructor(type) {
+          super();
+          this.type = type;
+        }
+        toString() {
+          return this.type.name.toString();
+        }
+      }
+
+      // See: https://www.w3.org/TR/WGSL/#alignment-and-size
+      class ScalarTypeSpecifierNode extends ASTNode {
+        constructor(type) {
+          super();
+          this.type = type;
+        }
+        toString() {
+          return this.type;
+        }
+        get alignOf() {
+          switch (this.type) {
+            case "bool":
+            case "i32":
+            case "u32":
+            case "f32":
+              return 4;
+            case "f16":
+              return 2;
+          }
+        }
+        get sizeOf() {
+          switch (this.type) {
+            case "bool":
+            case "i32":
+            case "u32":
+            case "f32":
+              return 4;
+            case "f16":
+              return 2;
+          }
+        }
+      }
+
+      class VectorTypeSpecifierNode extends ASTNode {
+        constructor(type, size) {
+          super();
+          this.type = type;
+          this.size = size;
+        }
+        toString() {
+          return `vec${this.size}<${this.type}>`;
+        }
+      }
+
+      class MatrixTypeSpecifierNode extends ASTNode {
+        constructor(type, size) {
+          super();
+          this.type = type;
+          this.size = size;
+        }
+        toString() {
+          return `mat${this.size[0]}x${this.size[1]}<${this.type}>`;
+        }
+      }
+
+      class DecimalIntNode extends ASTNode {
+        constructor(decimalIntToken) {
+          super();
+          this.value = parseInt(decimalIntToken.value.replace(/[ui]$/, ""));
+        }
+        toString() {
+          return this.value;
+        }
+      }
+      function wrap(value) {
+        if (value === null) return [];
+        if (Array.isArray(value)) return value;
+        return [value];
+      }
+
+      class ParserState {
+        constructor(tokens, knownTypes = []) {
+          this.currentIndex = 0;
+          this.tokens = tokens;
+          this.knownTypes = new Map();
+          for (const type of knownTypes) {
+            this.knownTypes.set(type.name.value, type);
+          }
+        }
+        get next() {
+          return this.tokens[this.currentIndex];
+        }
+        peek(expectedType = null, expectedValue = null) {
+          const token = this.tokens[this.currentIndex];
+          if (!token.isMatch(expectedType, expectedValue)) return null;
+          return token;
+        }
+        consume(expectedType = null, expectedValue = null) {
+          const token = this.tokens[this.currentIndex++];
+          if (!token) throw new Error("Unexpected end of input");
+          if (token.isMatch(expectedType, expectedValue)) return token;
+          if (expectedValue?.length) {
+            throw new Error(
+              `Expected ${wrap(expectedType)
+                .map((t) => t.name)
+                .join(", ")} ${wrap(expectedValue)
+                .map((v) => JSON.stringify(v))
+                .join(", ")} but found ${token.constructor.name} "${token?.value}"`
+            );
+          } else {
+            throw new Error(
+              `Expected ${wrap(expectedType)
+                .map((t) => t.name)
+                .join(", ")} but found ${token.constructor.name} "${token?.value}"`
+            );
+          }
+          return token;
+        }
+      }
+
+      function matches(token, tokenTypes = null, tokenValues = null) {
+        return (
+          (!tokenTypes.length || tokenTypes.includes(token?.constructor)) &&
+          (!tokenValues.length || tokenValues.includes(token?.value))
+        );
+      }
+
+      function parseStruct(state) {
+        if (state.peek(KeywordToken, "struct")) state.consume();
+        const name = state.consume(IdentifierToken);
+        state.consume(PunctuatorToken, "{");
+        const members = [];
+        while (true) {
+          const decl = parseMemberDeclaration(state);
+          if (!decl) break;
+          members.push(decl);
+          if (state.peek(PunctuatorToken, ",")) {
+            state.consume();
+          } else {
+            break;
+          }
+        }
+        state.consume(PunctuatorToken, "}");
+        return new StructDeclNode(new IdentifierNode(name.value), members);
+      }
+
+      function parseMemberAttributes(state) {
+        const attrs = [];
+        while (true) {
+          if (!state.peek(PunctuatorToken, "@")) break;
+          state.consume();
+          const keyword = state.consume(KeywordToken, ["align", "size"]);
+          state.consume(PunctuatorToken, "(");
+          switch (keyword.value) {
+            case "align":
+              attrs.push(new AlignAttrNode(parseExpression(state)));
+              break;
+            case "size":
+              attrs.push(new SizeAttrNode(parseExpression(state)));
+              break;
+          }
+          state.consume(PunctuatorToken, ")");
+        }
+        return attrs;
+      }
+
+      function parseExpression(state) {
+        // Currently only parses integer constants.
+        return new DecimalIntNode(state.consume(DecimalIntToken));
+      }
+
+      function parseMemberDeclaration(state) {
+        const attrs = parseMemberAttributes(state);
+        if (!state.peek(IdentifierToken)) return null;
+        const name = state.consume();
+        state.consume(PunctuatorToken, ":");
+        const typeSpecifier = parseTypeSpecifier(state);
+        return new StructMemberNode(
+          new IdentifierNode(name.value),
+          typeSpecifier,
+          attrs
+        );
+      }
+
+      const SCALAR_TYPE_PATTERN = /^(bool|i32|u32|f32|f16\b)/;
+      const VECTOR_TYPE_PATTERN = /^(vec([234])([iufh])?)\b/;
+      const MATRIX_TYPE_PATTERN = /^(mat([234])x([234])([fh])?)\b/;
+      const SHORTHAND_TO_TYPE = { h: "f16", f: "f32", i: "i32", u: "u32" };
+      const VECTOR_TYPE_SHORTHANDS = ["h", "f", "i", "u"];
+      const MATRIX_TYPE_SHORTHANDS = ["h", "f"];
+
+      function parseTemplateTypeSpecifier(state) {
+        state.consume(PunctuatorToken, "<");
+        const type = parseTypeSpecifier(state);
+        state.consume(PunctuatorToken, ">");
+        return type;
+      }
+
+      function parseArrayTypeSpecifier(state) {
+        state.consume(PunctuatorToken, "<");
+        const type = parseTypeSpecifier(state);
+        if (state.peek(PunctuatorToken, ",")) {
+          state.consume();
+          const size = new DecimalIntNode(state.consume(DecimalIntToken));
+          state.consume(PunctuatorToken, ">");
+          return new FixedSizedArrayTypeSpecifierNode(type, size);
+        } else {
+          state.consume(PunctuatorToken, ">");
+          return new RuntimeSizeArrayTypeSpecifierNode(type);
+        }
+      }
+
+      function parseTypeSpecifier(state) {
+        let dataType, match;
+        const token = state.consume([KeywordToken, IdentifierToken]);
+
+        if (token instanceof KeywordToken) {
+          if (token.value === "array") {
+            return parseArrayTypeSpecifier(state);
+          } else if ((match = token.value.match(SCALAR_TYPE_PATTERN))) {
+            return new ScalarTypeSpecifierNode(match[0]);
+          } else if ((match = token.value.match(VECTOR_TYPE_PATTERN))) {
+            const size = parseInt(match[2]);
+            if (match[3]) {
+              if (!VECTOR_TYPE_SHORTHANDS.includes(match[3]))
+                throw new Error(`Invalid vector type specifier "${token.value}"`);
+              dataType = new ScalarTypeSpecifierNode(SHORTHAND_TO_TYPE[match[3]]);
+            } else {
+              dataType = parseTemplateTypeSpecifier(state);
+            }
+            return new VectorTypeSpecifierNode(dataType, size);
+          } else if ((match = token.value.match(MATRIX_TYPE_PATTERN))) {
+            const size = [parseInt(match[2]), parseInt(match[3])];
+            if (match[4]) {
+              if (!MATRIX_TYPE_SHORTHANDS.includes(match[4]))
+                throw new Error(`Invalid matrix type specifier "${token.value}"`);
+              dataType = new ScalarTypeSpecifierNode(SHORTHAND_TO_TYPE[match[4]]);
+            } else {
+              dataType = parseTemplateTypeSpecifier(state);
+            }
+            return new MatrixTypeSpecifierNode(dataType, size);
+          }
+        } else if (token instanceof IdentifierToken) {
+          const foundType = state.knownTypes.get(token.value);
+          if (!foundType) {
+            throw new Error(
+              `Unknown type "${token.value}" in type specifier. Did you supply it as a known type?`
+            );
+          }
+          return new StructReferenceNode(foundType);
+        }
+      }
+
+      function Struct(def, knownTypes = []) {
+        return parseStruct(new ParserState(tokenize(def), knownTypes));
+      }
+      Struct.TOKENS = TOKENS;
+      return Struct;
+    }
+  </script>
+  <script id="412" type="application/vnd.observable.javascript">
+    toFloat16 = {
+      var floatView = new Float32Array(1);
+      var int32View = new Int32Array(floatView.buffer);
+
+      return function toHalf(value) {
+        floatView[0] = value;
+        var fbits = int32View[0];
+        var sign = (fbits >> 16) & 0x8000; // sign only
+        var val = (fbits & 0x7fffffff) + 0x1000; // rounded value
+
+        if (val >= 0x47800000) {
+          // might be or become NaN/Inf
+          if ((fbits & 0x7fffffff) >= 0x47800000) {
+            // is or must become NaN/Inf
+            if (val < 0x7f800000) {
+              // was value but too large
+              return sign | 0x7c00; // make it +/-Inf
+            }
+            return (
+              sign |
+              0x7c00 | // remains +/-Inf or NaN
+              ((fbits & 0x007fffff) >> 13)
+            ); // keep NaN (and Inf) bits
+          }
+          return sign | 0x7bff; // unrounded not quite Inf
+        }
+        if (val >= 0x38800000) {
+          // remains normalized value
+          return sign | ((val - 0x38000000) >> 13); // exp - 127 + 15
+        }
+        if (val < 0x33000000) {
+          // too small for subnormal
+          return sign; // becomes +/-0
+        }
+        val = (fbits & 0x7fffffff) >> 23; // tmp exp for subnormal calc
+        return (
+          sign |
+          ((((fbits & 0x7fffff) | 0x800000) + // add subnormal bit
+            (0x800000 >>> (val - 102))) >> // round depending on cut off
+            (126 - val))
+        ); // div by 2^(1-(exp-127+15)) and >> 13 | exp=0
+      };
+    }
+  </script>
+  <script id="441" type="application/vnd.observable.javascript">
+    scalarUniforms = Struct(`struct Uniforms {
+      a: bool,
+      b: u32,
+      c: i32,
+      d: f32,
+      e: f16
+    }`).toString()
+  </script>
+  <script id="1020" type="application/vnd.observable.javascript">
+    arrayUniforms = Struct(`Uniforms {
+      a: array<array<f32,2>>
+    }`).toString()
+  </script>
+  <script id="362" type="application/vnd.observable.javascript">
+    vectorShorthandUnsignedUniforms = Struct(`Uniforms {
+      b: vec3u,
+      a: vec2<f16>,
+      c: mat4x4f,
+    }`).toString()
+  </script>
+  <script id="405" type="application/vnd.observable.javascript">
+    vectorShorthandUnsignedUniforms.toString()
+  </script>
+  <script id="378" type="application/vnd.observable.javascript">
+    vectorUnsignedUniforms = Struct(`Uniforms {
+      a: vec2<u32>,
+      b: vec3<u32>,
+      c: vec4<u32>,
+    }`)
+  </script>
+  <script id="360" type="application/vnd.observable.javascript" pinned="">
+    vectorShorthandSignedUniforms = Struct(`Uniforms {
+      a: vec2i,
+      b: vec3i,
+      c: vec4i,
+    }`).members[0]
+  </script>
+  <script id="386" type="application/vnd.observable.javascript" pinned="">
+    vectorSignedUniforms = Struct(`Uniforms {
+      a: vec2<i32>,
+      b: vec3<i32>,
+      c: vec4<i32>,
+    }`).members[0]
+  </script>
+  <script id="352" type="application/vnd.observable.javascript" pinned="">
+    vectorShorthandFloatUniforms = Struct(`struct Uniforms {
+      a: vec2f,
+      b: vec3f,
+      c: vec4f,
+    }`)
+  </script>
+  <script id="389" type="application/vnd.observable.javascript" pinned="">
+    vectorFloatUniforms = Struct(`struct Uniforms {
+      a: vec2<f32>,
+      b: vec3<f32>,
+      c: vec4<f32>,
+    }`)
+  </script>
+  <script id="357" type="application/vnd.observable.javascript" pinned="">
+    vectorShorthandHalfFloatUniforms = Struct(`struct Uniforms {
+      a: vec2h,
+      b: vec3h,
+      c: vec4h,
+    }`)
+  </script>
+  <script id="392" type="application/vnd.observable.javascript" pinned="">
+    vectorHalfFloatUniforms = Struct(`struct Uniforms {
+      a: vec2<f16>,
+      b: vec3<f16>,
+      c: vec4<f16>,
+    }`)
+  </script>
+  <script id="33" type="application/vnd.observable.javascript" pinned="">
+    matrixShorthandFloatUniforms = Struct(`struct Uniforms {
+      a: mat2x2f,
+      b: mat2x3f,
+      c: mat3x4f,
+      d: mat3x2f,
+      e: mat3x3f,
+      f: mat3x4f,
+      g: mat4x2f,
+      h: mat4x3f,
+      i: mat4x4f,
+    }`)
+  </script>
+  <script id="395" type="application/vnd.observable.javascript" pinned="">
+    matrixFloatUniforms = Struct(`struct Uniforms {
+      a: mat2x2<f32>,
+      b: mat2x3<f32>,
+      c: mat3x4<f32>,
+      d: mat3x2<f32>,
+      e: mat3x3<f32>,
+      f: mat3x4<f32>,
+      g: mat4x2<f32>,
+      h: mat4x3<f32>,
+      i: mat4x4<f32>,
+    }`)
+  </script>
+  <script id="350" type="application/vnd.observable.javascript" pinned="">
+    matrixShorthandHalfFloatUniforms = Struct(`struct Uniforms {
+      a: mat2x2h,
+      b: mat2x3h,
+      c: mat3x4h,
+      d: mat3x2h,
+      e: mat3x3h,
+      f: mat3x4h,
+      g: mat4x2h,
+      h: mat4x3h,
+      i: mat4x4h,
+    }`)
+  </script>
+  <script id="399" type="application/vnd.observable.javascript" pinned="">
+    matrixHalfFloatUniforms = Struct(`struct Uniforms {
+      a: mat2x2<f16>,
+      b: mat2x3<f16>,
+      c: mat3x4<f16>,
+      d: mat3x2<f16>,
+      e: mat3x3<f16>,
+      f: mat3x4<f16>,
+      g: mat4x2<f16>,
+      h: mat4x3<f16>,
+      i: mat4x4<f16>,
+    }`)
+  </script>
+  <script id="585" type="application/vnd.observable.javascript" pinned="">
+    PointLight = Struct(`struct PointLight {
+      position: vec3f,
+      color: vec3f,
+    }`)
+  </script>
+  <script id="1092" type="application/vnd.observable.javascript" pinned="">
+    myShader = `
+    ${PointLight}
+    ${Lighting}
+    ...
+    `
+  </script>
+  <script id="1082" type="application/vnd.observable.javascript" pinned="">
+    Lighting = Struct(
+      `struct Lighting {
+      ambientColor: vec3f,
+      pointLights: array<PointLight>,
+    }`,
+      [PointLight]
+    )
+  </script>
+  <script id="592" type="application/vnd.observable.javascript" pinned="">
+    A = Struct(`struct A {
+      u: f32,         // offset(0)   align(4)  size(4)
+      v: f32,         // offset(4)   align(4)  size(4)
+      w: vec2<f32>,   // offset(8)   align(8)  size(8)
+      x: f32 
+    }`)
+  </script>
+  <script id="600" type="application/vnd.observable.javascript" pinned="">
+    B = Struct(
+      `
+    struct B {                                   //             align(16) size(160)
+      a: vec2<f32>,                              // offset(0)   align(8)  size(8)
+      // -- implicit member alignment padding -- // offset(8)             size(8)
+      b: vec3<f32>,                              // offset(16)  align(16) size(12)
+      c: f32,                                    // offset(28)  align(4)  size(4)
+      d: f32,                                    // offset(32)  align(4)  size(4)
+      // -- implicit member alignment padding -- // offset(36)            size(4)
+      e: A,                                      // offset(40)  align(8)  size(24)
+      f: vec3<f32>,                              // offset(64)  align(16) size(12)
+      // -- implicit member alignment padding -- // offset(76)            size(4)
+      g: array<A, 3>,    // element stride 24       offset(80)  align(8)  size(72)
+      h: i32                                     // offset(152) align(4)  size(4)
+      // -- implicit struct size padding --      // offset(156)           size(4)
+    }`,
+      [A]
+    )
+  </script>
+  <script id="639" type="application/vnd.observable.javascript" pinned="">
+    B.toString()
+  </script>
+  <script id="1096" type="application/vnd.observable.javascript" pinned="">
+    {
+      const PointLight = Struct(`PointLight {
+      position: vec3f,
+      color: vec3f,
+    }`);
+
+      const Lighting = Struct(
+        `struct Lighting {
+      ambient: vec3f,
+      pointLights: array<PointLight>,
+    }`,
+        [PointLight]
+      );
+
+      return Lighting;
+    }
+  </script>
+</notebook>

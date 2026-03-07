@@ -1814,26 +1814,38 @@ a.index__tag:active {
   transition: opacity 0.2s ease;
   z-index: 9998;
 }
-    .expandable-toggle {
+    /* Button bar container */
+    .expandable-button-bar {
   position: absolute;
+  display: flex;
+  gap: 0;
+  z-index: 1000;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+    .expandable-toggle {
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--theme-foreground-muted, #666);
+  border-radius: 0;
+  background: var(--theme-background-alt);
+  color: var(--theme-foreground-muted);
   font-size: 16px;
   cursor: pointer;
-  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  transition: background 0.2s ease, box-shadow 0.2s ease;
+  transition: background 0.15s ease, color 0.15s ease;
+  border-right: 1px solid var(--theme-foreground-faintest);
+}
+    .expandable-toggle:last-child {
+  border-right: none;
 }
     .expandable-toggle:hover {
-  background: rgba(255, 255, 255, 1);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  background: var(--theme-foreground-faintest);
+  color: var(--theme-foreground);
 }
     /* Floating controls panel */
     .expandable-controls-panel {
@@ -2076,7 +2088,7 @@ html[data-dark] a.index__tag:active {
 }
   </style>
   <style> main { max-width: 640px; }</style>
-<meta name="generator" content="Observable Notebook Kit v1.5.0"><title>WebGPU Voronoi Diagrams using the Jump Flooding Algorithm</title>  <script type="module" crossorigin src="/notebooks/assets/index-CGJI4Amp.js"></script>
+<meta name="generator" content="Observable Notebook Kit v1.5.0"><title>WebGPU Voronoi Diagrams using the Jump Flooding Algorithm</title>  <script type="module" crossorigin src="/notebooks/assets/index-uodXjKuI.js"></script>
   <link rel="modulepreload" crossorigin href="/notebooks/assets/index-ByB2dbry.js">
 </head>
 <body>

@@ -1814,26 +1814,38 @@ a.index__tag:active {
   transition: opacity 0.2s ease;
   z-index: 9998;
 }
-    .expandable-toggle {
+    /* Button bar container */
+    .expandable-button-bar {
   position: absolute;
+  display: flex;
+  gap: 0;
+  z-index: 1000;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+    .expandable-toggle {
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--theme-foreground-muted, #666);
+  border-radius: 0;
+  background: var(--theme-background-alt);
+  color: var(--theme-foreground-muted);
   font-size: 16px;
   cursor: pointer;
-  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  transition: background 0.2s ease, box-shadow 0.2s ease;
+  transition: background 0.15s ease, color 0.15s ease;
+  border-right: 1px solid var(--theme-foreground-faintest);
+}
+    .expandable-toggle:last-child {
+  border-right: none;
 }
     .expandable-toggle:hover {
-  background: rgba(255, 255, 255, 1);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  background: var(--theme-foreground-faintest);
+  color: var(--theme-foreground);
 }
     /* Floating controls panel */
     .expandable-controls-panel {
@@ -2076,7 +2088,7 @@ html[data-dark] a.index__tag:active {
 }
   </style>
   <style> main { max-width: 640px; }</style>
-<meta name="generator" content="Observable Notebook Kit v1.5.0"><title>Strange Attractors in WebGPU</title>  <script type="module" crossorigin src="/notebooks/assets/index-Bgu6ypTC.js"></script>
+<meta name="generator" content="Observable Notebook Kit v1.5.0"><title>Strange Attractors in WebGPU</title>  <script type="module" crossorigin src="/notebooks/assets/index-Dts0IRbw.js"></script>
   <link rel="modulepreload" crossorigin href="/notebooks/assets/index-ByB2dbry.js">
 </head>
 <body>
@@ -2128,10 +2140,10 @@ html[data-dark] a.index__tag:active {
 
     <main><div id="cell-1" class="observablehq observablehq--cell"><div><p><em>This notebook is a 2026 WebGPU update of my 2021 post, <a href="https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-1">Strange Attractors on the GPU, Part 1: Implementation</a>.</em></p>
 <p>This notebook walks through simulating a strange attractor on the GPU and then rendering particle tracks as lines. The essential feature of this notebook is that it accomplishes both particle updates and rendering to the screen without data ever touching the CPU.</p>
-</div></div><div id="cell-2" class="observablehq observablehq--cell"></div><div id="cell-3" class="observablehq observablehq--cell"></div><div id="cell-4" class="observablehq observablehq--cell"></div><div id="cell-5" class="observablehq observablehq--cell"><div><h3 id="the-attractor" tabindex="-1"><a href="#the-attractor">The Attractor</a></h3>
+</div></div><div id="cell-2" class="observablehq observablehq--cell"></div><div id="cell-3" class="observablehq observablehq--cell"></div><div id="cell-4" class="observablehq observablehq--cell"></div><div id="cell-5" class="observablehq observablehq--cell"></div><div id="cell-6" class="observablehq observablehq--cell"><div><h3 id="the-attractor" tabindex="-1"><a href="#the-attractor">The Attractor</a></h3>
 <p>A strange attractor is a set of states toward which a dynamical system evolves over time. The <a href="https://en.wikipedia.org/wiki/Lorenz_system">Lorenz System</a> is the canonical example. The particular attractor we’re simulating here is the <em>Bouali Attractor</em>, described by Safieddine Bouali in <a href="https://arxiv.org/abs/1311.6128">A 3D Strange Attractor with a Distinctive Silhouette. The Butterfly Effect Revisited</a>. It is defined by the system of ordinary differential equations:</p>
 <p>with parameters , , , . These equations exhibit chaotic behavior; nearby trajectories diverge exponentially but remain bounded within the attractor’s basin.</p>
-</div></div><div id="cell-6" class="observablehq observablehq--cell"><div><h2 id="from-web-gl-to-web-gpu" tabindex="-1"><a href="#from-web-gl-to-web-gpu">From WebGL to WebGPU</a></h2>
+</div></div><div id="cell-7" class="observablehq observablehq--cell"><div><h2 id="from-web-gl-to-web-gpu" tabindex="-1"><a href="#from-web-gl-to-web-gpu">From WebGL to WebGPU</a></h2>
 <p><a href="https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-1">The original WebGL version of this simulation</a> stored particle state in a floating-point texture. Each row represented a particle’s history as a ring buffer. The simulation was designed around the limitations of WebGL, in particular the lack of compute shaders and inability to read and write to the same texture (WebGL 2’s <a href="https://webgl2fundamentals.org/webgl/lessons/webgl-gpgpu.html#now-lets-do-it-with-transform-feedback">transform feedback</a> notwithstanding).</p>
 <p>A naive WebGPU port would preserve this texture-based approach, replacing fragment shader hacks with proper compute shaders. That would require <strong>three GPU operations per frame</strong>:</p>
 <ol>
@@ -2146,19 +2158,19 @@ html[data-dark] a.index__tag:active {
 <li><strong>Draw</strong> all line segments, joins, and caps using instanced triangle strip geometry.</li>
 </ol>
 <p>For line rendering, we use the <a href="https://github.com/rreusser/webgpu-instanced-lines">webgpu-instanced-lines</a> module. Lines are difficult to render well. The built-in line primitive in graphics APIs is typically limited to single-pixel width. To get smooth, variable-width lines with proper joins and caps, we build geometry from triangles in the vertex shader. The module handles this complexity, requiring only that we provide a function to compute vertex positions from our data.</p>
-</div></div><div id="cell-7" class="observablehq observablehq--cell"><div><p><strong>A note on performance</strong>: For reasons I don’t understand, this WebGPU implementation performs slightly worse than the <a href="https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-1">original WebGL 1 version</a> despite using almost identically the same logic and line rendering implementation. It’s relatively unclear to me why that is, though I take it as a lesson that new technology can unlock new techniques, algorithms, and capabilities, but just blindly throwing it at the stuff you’re already doing isn’t necessarily going to lead to magic improvements.</p>
-</div></div><div id="cell-8" class="observablehq observablehq--cell"><div><h2 id="state-layout" tabindex="-1"><a href="#state-layout">State Layout</a></h2>
+</div></div><div id="cell-8" class="observablehq observablehq--cell"><div><p><strong>A note on performance</strong>: For reasons I don’t understand, this WebGPU implementation performs slightly worse than the <a href="https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-1">original WebGL 1 version</a> despite using almost identically the same logic and line rendering implementation. It’s relatively unclear to me why that is, though I take it as a lesson that new technology can unlock new techniques, algorithms, and capabilities, but just blindly throwing it at the stuff you’re already doing isn’t necessarily going to lead to magic improvements.</p>
+</div></div><div id="cell-9" class="observablehq observablehq--cell"><div><h2 id="state-layout" tabindex="-1"><a href="#state-layout">State Layout</a></h2>
 <p>The state of our ordinary differential equation (ODE) is represented by the three-component vector . We store these in a flat storage buffer as <code>vec3f</code> elements. The  time step of the  particle is represented by the vector:</p>
 <p>We use <strong>particle-major ordering</strong>: all time steps for particle 0 come first, then all time steps for particle 1, and so on. The buffer index for a given particle and step is <code>particle * stepCount + step</code>.</p>
 <p>As we step the ODE, we compute one new history point for each particle track. To avoid shifting the entire history on every iteration, we treat each particle’s slice as a <strong>ring buffer</strong>. At each time step , we use the previous position, , to compute the next, . When we reach the end of the slice, we loop back to the start, overwriting the oldest time step with the newest.</p>
-</div></div><div id="cell-9" class="observablehq observablehq--cell"></div><div id="cell-10" class="observablehq observablehq--cell"><div><h2 id="computation" tabindex="-1"><a href="#computation">Computation</a></h2>
+</div></div><div id="cell-10" class="observablehq observablehq--cell"></div><div id="cell-11" class="observablehq observablehq--cell"><div><h2 id="computation" tabindex="-1"><a href="#computation">Computation</a></h2>
 <p>Unlike fragment shaders which operate on pixels being rasterized, <strong>compute shaders</strong> dispatch a grid of threads which can read from and write to arbitrary locations in GPU resources.</p>
 <h3 id="initialization" tabindex="-1"><a href="#initialization">Initialization</a></h3>
 <p>For historical reasons which I didn’t see it necessary to change, we initialize particles with a compute shader, although we could write data from the CPU to a buffer just fine.</p>
 <p>We start by initializing particle positions within a sphere centered near the attractor. Generating good pseudorandom numbers on a GPU is tricky, so we use a low-discrepancy quasirandom number generator described by Martin Roberts in <em><a href="http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/">The Unreasonable Effectiveness of Quasirandom Sequences</a></em>.</p>
-</div></div><div id="cell-11" class="observablehq observablehq--cell"></div><div id="cell-12" class="observablehq observablehq--cell"><div><h3 id="integration" tabindex="-1"><a href="#integration">Integration</a></h3>
+</div></div><div id="cell-12" class="observablehq observablehq--cell"></div><div id="cell-13" class="observablehq observablehq--cell"><div><h3 id="integration" tabindex="-1"><a href="#integration">Integration</a></h3>
 <p>To step the ODE, we use the <a href="https://en.wikipedia.org/wiki/Runge%E2%80%93Kutta_methods#The_Runge%E2%80%93Kutta_method">fourth-order Runge-Kutta</a> (RK4) method. The integration shader reads from index <code>particle * stepCount + srcColumn</code> and writes to <code>particle * stepCount + dstColumn</code>. Since these are different indices (no particle reads what another particle writes), there are no data races.</p>
-</div></div><div id="cell-13" class="observablehq observablehq--cell"></div><div id="cell-14" class="observablehq observablehq--cell"></div><div id="cell-15" class="observablehq observablehq--cell"><div><h2 id="line-rendering" tabindex="-1"><a href="#line-rendering">Line Rendering</a></h2>
+</div></div><div id="cell-14" class="observablehq observablehq--cell"></div><div id="cell-15" class="observablehq observablehq--cell"><div><h2 id="line-rendering" tabindex="-1"><a href="#line-rendering">Line Rendering</a></h2>
 <p>In the timeless words of Matt DesLauriers, <em><a href="https://mattdesl.svbtle.com/drawing-lines-is-hard">Drawing Lines is Hard</a></em>. Browsers limit the built-in line primitive to a single pixel width, so for any reasonably well-rendered lines, we need to build our own geometry.</p>
 <p>The <a href="https://github.com/rreusser/webgpu-instanced-lines">webgpu-instanced-lines</a> module renders lines as instanced triangle strips, with one instance per line segment. Each instance draws the segment itself plus half of the adjacent joins. A four-point sliding window (previous, start, end, next) provides the context needed to compute join geometry.</p>
 <p>We don’t pass vertex positions directly. Instead, we provide a vertex function which uses the integer vertex ID to read particle buffer data. To handle the ring buffer, we add an offset to the step index that shifts based on which column was most recently written. The oldest data is always at the “start” of the rendered line, and the newest at the end.</p>
