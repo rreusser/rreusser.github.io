@@ -8,9 +8,9 @@
 
   <script id="imports" type="text/x-typescript">
 import { createWebGPUContext } from './lib/webgpu-canvas.js';
-import { createCameraController } from './lib/camera-controller.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
 import { expandable } from './lib/expandable.js';
-import { createFrameLoop } from './lib/frame-loop.js';
+import { cameraButtons } from './lib/camera-buttons.js';
 import { meshFromFunction } from './mesh.js';
 import { peelShaderCode, compositeShaderCode } from './shaders.js';
 import { createRenderer } from './renderer.js';
@@ -27,14 +27,8 @@ const { device, canvasFormat } = await createWebGPUContext();
 
   <script id="state" type="text/x-typescript">
 const state = {
-  initialized: false,
-  canvas: null as HTMLCanvasElement | null,
-  gpuContext: null as GPUCanvasContext | null,
-  camera: null as ReturnType<typeof createCameraController> | null,
-  frame: null as { cancel: () => void } | null,
   dirty: true,
   expandedState: { expanded: false },
-  renderer: null as ReturnType<typeof createRenderer> | null,
   renderParams: {
     tau: 2,
     rotationPhi: Math.PI * 0.5,
@@ -68,6 +62,7 @@ state.renderParams.vClipMax = vClip.range[1];
 state.renderParams.invertClipU = uClip.invert ? 1 : 0;
 state.renderParams.invertClipV = vClip.invert ? 1 : 0;
 state.dirty = true;
+camera.triggerRepaint();
   </script>
 
   <script id="main" type="text/x-typescript">
@@ -79,90 +74,50 @@ const mesh = meshFromFunction((u, v) => [u * 0.99999, v * 0.99999], {
   vDomain: [-Math.PI * 0.5, Math.PI * 0.5]
 });
 
-if (!state.initialized) {
-  const canvas = document.createElement('canvas');
-  canvas.id = 'surface-canvas';
-  canvas.style.width = '100%';
-  canvas.style.height = '100%';
+const canvas = document.createElement('canvas');
+canvas.id = 'surface-canvas';
+canvas.width = 800;
+canvas.height = 600;
+canvas.style.width = '100%';
+canvas.style.height = '100%';
 
-  const gpuContext = canvas.getContext('webgpu')!;
-  gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+const gpuContext = canvas.getContext('webgpu')!;
+gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
-  state.canvas = canvas;
-  state.gpuContext = gpuContext;
-  state.camera = createCameraController(canvas, {
-    distance: 10,
-    phi: 3.5,
-    theta: 0.2
-  });
+const renderer = createRenderer(device, canvasFormat, {
+  peel: peelShaderCode,
+  composite: compositeShaderCode
+});
+renderer.initMesh(mesh);
 
-  state.renderer = createRenderer(device, canvasFormat, {
-    peel: peelShaderCode,
-    composite: compositeShaderCode
-  });
-  state.renderer.initMesh(mesh);
-
-  state.initialized = true;
-}
-
-const canvas = state.canvas!;
-const gpuContext = state.gpuContext!;
-const camera = state.camera!;
-const renderer = state.renderer!;
 const container = html`<div id="surface-container" style="position: relative; width: 100%; height: 100%;"></div>`;
 container.appendChild(canvas);
 
-const resizeCanvas = () => {
-  const rect = container.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
-  const dpr = devicePixelRatio;
-  const newWidth = Math.floor(rect.width * dpr);
-  const newHeight = Math.floor(rect.height * dpr);
-  if (canvas.width !== newWidth || canvas.height !== newHeight) {
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
-    state.dirty = true;
-    camera.taint();
-  }
-};
-
-const resizeObserver = new ResizeObserver(resizeCanvas);
-resizeObserver.observe(container);
-
-let visible = true;
-const intersectionObserver = new IntersectionObserver(entries => {
-  visible = entries[0].intersectionRatio > 0;
+const camera = createUnifiedCamera(canvas, {
+  mode: 'orbit',
+  distance: 10,
+  phi: 3.5,
+  theta: 0.2,
+  renderContinuously: false,
+  observeResize: true,
 });
-intersectionObserver.observe(container);
 
-if (state.frame) {
-  state.frame.cancel();
-  state.frame = null;
-}
-camera.taint();
+camera.on('render', () => {
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, state.dirty);
+  state.dirty = false;
+});
 
-state.frame = createFrameLoop((timestamp) => {
-  if (!visible) return;
-
-  const w = canvas.width;
-  const h = canvas.height;
-  if (w === 0 || h === 0) return;
-
-  const rendered = renderer.render(gpuContext, state.renderParams, camera, w, h, state.dirty);
-  if (rendered) {
-    state.dirty = false;
+canvas.addEventListener('mousedown', () => {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
   }
 });
 
 invalidation.then(() => {
-  if (state.frame) {
-    state.frame.cancel();
-    state.frame = null;
-  }
-  resizeObserver.disconnect();
-  intersectionObserver.disconnect();
+  camera.destroy();
 });
+
+camera.triggerRepaint();
 
 const figure = html`
   <figure id="main-figure" style="max-width: 100%; margin: 0; height: 100%;">
@@ -173,18 +128,26 @@ const figure = html`
 const figureWidth = Math.min(width, 640);
 const figureHeight = Math.round(Math.max(500, figureWidth * 1.0));
 
-display(expandable(figure, {
+let expandableContainer;
+expandableContainer = expandable(figure, {
   wide: true,
   width: figureWidth,
   height: figureHeight,
   controls: '#surface-controls',
   state: state.expandedState,
+  buttons: cameraButtons({
+    camera,
+    canvas,
+    filename: 'lawsons-klein-bottle.png',
+    getContainer: () => expandableContainer,
+  }),
   onResize: (content, w, h, expanded) => {
     container.style.width = `${w}px`;
     container.style.height = `${h}px`;
-    resizeCanvas();
   }
-}));
+});
+
+display(expandableContainer);
   </script>
 
   <script id="controls" type="text/x-typescript">

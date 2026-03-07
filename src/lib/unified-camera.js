@@ -36,6 +36,8 @@ import * as quat from './quaternion.js';
  * @param {boolean} [opts.wheel=true] - Enable wheel zoom
  * @param {boolean} [opts.touch=true] - Enable touch interactions
  * @param {boolean} [opts.deferEvents=false] - Don't attach events immediately (call attachEvents() later)
+ * @param {Function} [opts.onCapture] - Callback to render frame for capture: (camera) => void
+ * @param {HTMLCanvasElement|Function} [opts.canvas] - Canvas element or function returning canvas for capture
  */
 export function createUnifiedCamera(element, opts = {}) {
   const state = {
@@ -65,12 +67,30 @@ export function createUnifiedCamera(element, opts = {}) {
     drag: opts.drag !== undefined ? opts.drag : true,
     wheel: opts.wheel !== undefined ? opts.wheel : true,
     touch: opts.touch !== undefined ? opts.touch : true,
+    renderContinuously: opts.renderContinuously !== undefined ? opts.renderContinuously : false,
+    observeResize: opts.observeResize !== undefined ? opts.observeResize : true,
+  };
+
+  const onCaptureCallback = opts.onCapture;
+  const canvasGetter = opts.canvas;
+
+  // Event listeners
+  const listeners = {
+    render: [],
+    capture: [],  // Fired when capture is requested
+  };
+  
+  // One-time event listeners
+  const onceListeners = {
+    render: [],
+    capture: [],
   };
 
   // Pre-allocate matrices
   const _view = new Float32Array(16);
   const _proj = new Float32Array(16);
   const _projView = new Float32Array(16);
+  const _eye = new Float32Array(3);
 
   let dirty = true;
   let lastAspectRatio = null;
@@ -80,6 +100,9 @@ export function createUnifiedCamera(element, opts = {}) {
   let isDragging = false;
   let dragMode = null; // 'orbit' | 'pan' | 'pivot' | 'zoom'
   let lastX = 0, lastY = 0;
+
+  // ResizeObserver for canvas size tracking
+  let resizeObserver = null;
   let dragStartX = 0, dragStartY = 0;
   
   // For arcball
@@ -94,9 +117,14 @@ export function createUnifiedCamera(element, opts = {}) {
   let lastTouchCenterY = 0;
 
   // Mode-specific backends
+  const markDirty = () => {
+    dirty = true;
+    emitRender();
+  };
+  
   const backends = {
-    orbit: createOrbitBackend(state, speeds, () => dirty = true),
-    arcball: createArcballBackend(state, speeds, () => dirty = true),
+    orbit: createOrbitBackend(state, speeds, markDirty),
+    arcball: createArcballBackend(state, speeds, markDirty),
   };
 
   /**
@@ -111,7 +139,7 @@ export function createUnifiedCamera(element, opts = {}) {
 
     const wasDirty = dirty;
     if (dirty) {
-      backends[state.mode].computeMatrices(aspectRatio, _view, _proj, _projView);
+      backends[state.mode].computeMatrices(aspectRatio, _view, _proj, _projView, _eye);
       dirty = false;
     }
     return {
@@ -119,6 +147,7 @@ export function createUnifiedCamera(element, opts = {}) {
       projection: _proj,
       projView: _projView,
       projectionView: _projView, // Alias for compatibility
+      eye: _eye,
       dirty: wasDirty,
     };
   }
@@ -128,6 +157,55 @@ export function createUnifiedCamera(element, opts = {}) {
    */
   function taint() {
     dirty = true;
+    emitRender();
+  }
+
+  /**
+   * Event emitter methods
+   */
+  function on(event, callback) {
+    if (listeners[event]) {
+      listeners[event].push(callback);
+    }
+  }
+
+  function once(event, callback) {
+    if (!onceListeners[event]) return;
+    
+    // If no callback, return a promise
+    if (!callback) {
+      return new Promise(resolve => {
+        onceListeners[event].push(resolve);
+      });
+    }
+    
+    // Otherwise, add callback to listeners
+    onceListeners[event].push(callback);
+  }
+
+  function off(event, callback) {
+    if (listeners[event]) {
+      const index = listeners[event].indexOf(callback);
+      if (index > -1) {
+        listeners[event].splice(index, 1);
+      }
+    }
+  }
+
+  function emitRender() {
+    if (config.renderContinuously) return; // Don't emit if rendering continuously
+    
+    // Call regular listeners
+    listeners.render.forEach(cb => cb());
+    
+    // Call and clear one-time listeners
+    const once = onceListeners.render.slice();
+    onceListeners.render = [];
+    once.forEach(cb => cb());
+  }
+
+  function triggerRepaint() {
+    markDirty();
   }
 
   /**
@@ -197,7 +275,7 @@ export function createUnifiedCamera(element, opts = {}) {
 
     lastX = event.clientX;
     lastY = event.clientY;
-    dirty = true;
+    markDirty();
     event.preventDefault();
   }
 
@@ -218,7 +296,7 @@ export function createUnifiedCamera(element, opts = {}) {
   function onWheel(event) {
     const delta = event.deltaY;
     zoomAboutCursor(delta, event.clientX, event.clientY, element);
-    dirty = true;
+    markDirty();
     event.preventDefault();
   }
 
@@ -264,7 +342,7 @@ export function createUnifiedCamera(element, opts = {}) {
       lastY = event.touches[0].clientY;
 
       backends[state.mode].rotate(dx, dy, element, event.touches[0]);
-      dirty = true;
+      markDirty();
     } else if (event.touches.length === 2) {
       // Two finger pinch zoom + pan
       const dx = event.touches[1].clientX - event.touches[0].clientX;
@@ -286,7 +364,7 @@ export function createUnifiedCamera(element, opts = {}) {
         const panDy = centerY - lastTouchCenterY;
         pan(panDx, panDy, element);
 
-        dirty = true;
+        markDirty();
       }
       lastTouchDist = dist;
       lastTouchCenterX = centerX;
@@ -308,7 +386,7 @@ export function createUnifiedCamera(element, opts = {}) {
    */
   function pan(dx, dy, targetElement) {
     backends[state.mode].pan(dx, dy, targetElement);
-    dirty = true;
+    markDirty();
   }
 
   /**
@@ -316,7 +394,7 @@ export function createUnifiedCamera(element, opts = {}) {
    */
   function pivot(dx, dy, targetElement, clientX, clientY) {
     backends[state.mode].pivot(dx, dy, targetElement || element, clientX, clientY);
-    dirty = true;
+    markDirty();
   }
 
   /**
@@ -325,7 +403,7 @@ export function createUnifiedCamera(element, opts = {}) {
   function zoom(delta) {
     const factor = 1 + delta * speeds.zoom;
     state.distance = Math.max(0.01, state.distance * factor);
-    dirty = true;
+    markDirty();
   }
 
   /**
@@ -434,7 +512,7 @@ export function createUnifiedCamera(element, opts = {}) {
     state.center[2] = newEye[2] + forward[2] * newDistance;
     state.distance = newDistance;
 
-    dirty = true;
+    markDirty();
   }
 
   /**
@@ -461,7 +539,7 @@ export function createUnifiedCamera(element, opts = {}) {
     // Convert state from current mode to new mode
     convertState(state, state.mode, newMode);
     state.mode = newMode;
-    dirty = true;
+    markDirty();
   }
 
   /**
@@ -483,7 +561,7 @@ export function createUnifiedCamera(element, opts = {}) {
    */
   function setState(newState) {
     Object.assign(state, newState);
-    dirty = true;
+    markDirty();
   }
 
   /**
@@ -526,8 +604,75 @@ export function createUnifiedCamera(element, opts = {}) {
       element.removeEventListener('touchmove', onTouchMove);
       element.removeEventListener('touchend', onTouchEnd);
     }
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
     
     eventsAttached = false;
+  }
+
+  /**
+   * Capture canvas content as base64 data URL
+   * Emits 'capture' event - listeners should render and ensure work is complete
+   * @param {Object} [opts] - Capture options
+   * @param {string} [opts.format='image/png'] - Image format
+   * @param {number} [opts.quality=0.95] - Image quality (0-1)
+   * @returns {Promise<string>} Promise resolving to base64 data URL
+   */
+  async function capture(opts = {}) {
+    const { format = 'image/png', quality = 0.95 } = opts;
+    
+    // Get canvas
+    const canvasEl = typeof canvasGetter === 'function' ? canvasGetter() : canvasGetter;
+    
+    if (!canvasEl || !(canvasEl instanceof HTMLCanvasElement)) {
+      throw new Error('Camera capture: no canvas configured or invalid canvas element');
+    }
+
+    // Emit capture event - listeners should render and wait for completion
+    const capturePromises = [];
+    listeners.capture.forEach(cb => {
+      const result = cb();
+      if (result && typeof result.then === 'function') {
+        capturePromises.push(result);
+      }
+    });
+    onceListeners.capture.forEach(cb => {
+      const result = cb();
+      if (result && typeof result.then === 'function') {
+        capturePromises.push(result);
+      }
+    });
+    onceListeners.capture = [];
+
+    // Wait for all capture handlers to complete
+    if (capturePromises.length > 0) {
+      await Promise.all(capturePromises);
+    }
+
+    // Now capture the canvas
+    return canvasEl.toDataURL(format, quality);
+  }
+
+  // Set up ResizeObserver for canvas if it's a canvas element
+  if (config.observeResize && element instanceof HTMLCanvasElement) {
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const rect = entry.contentRect;
+        const newWidth = Math.floor(rect.width * devicePixelRatio);
+        const newHeight = Math.floor(rect.height * devicePixelRatio);
+        
+        // Only update if size is valid and changed
+        if (newWidth > 0 && newHeight > 0 && (newWidth !== element.width || newHeight !== element.height)) {
+          element.width = newWidth;
+          element.height = newHeight;
+          markDirty();
+          emitRender();
+        }
+      }
+    });
+    resizeObserver.observe(element);
   }
 
   // Attach events unless deferred
@@ -548,6 +693,11 @@ export function createUnifiedCamera(element, opts = {}) {
     zoomAboutCursor,
     attachEvents,
     destroy,
+    on,
+    once,
+    off,
+    triggerRepaint,
+    capture,
     
     // Compatibility properties
     get state() { return state; },
@@ -559,13 +709,18 @@ export function createUnifiedCamera(element, opts = {}) {
  * Create Orbit backend (spherical coordinates)
  */
 function createOrbitBackend(state, speeds, markDirty) {
-  function computeMatrices(aspectRatio, view, proj, projView) {
+  function computeMatrices(aspectRatio, view, proj, projView, eye) {
     const { phi, theta, distance, center, fov, near, far } = state;
 
     // Camera position in spherical coordinates
     const x = center[0] + distance * Math.cos(theta) * Math.cos(phi);
     const y = center[1] + distance * Math.sin(theta);
     const z = center[2] + distance * Math.cos(theta) * Math.sin(phi);
+    
+    // Store eye position
+    eye[0] = x;
+    eye[1] = y;
+    eye[2] = z;
 
     // View matrix (lookAt)
     let fwdX = center[0] - x, fwdY = center[1] - y, fwdZ = center[2] - z;
@@ -707,14 +862,14 @@ function createOrbitBackend(state, speeds, markDirty) {
  * Create Arcball backend (quaternion trackball)
  */
 function createArcballBackend(state, speeds, markDirty) {
-  function computeMatrices(aspectRatio, view, proj, projView) {
+  function computeMatrices(aspectRatio, view, proj, projView, eye) {
     // Get view matrix from quaternion
     const forward = quat.getForwardVector(state.orientation);
-    const eye = [
-      state.center[0] - forward[0] * state.distance,
-      state.center[1] - forward[1] * state.distance,
-      state.center[2] - forward[2] * state.distance,
-    ];
+    
+    // Compute and store eye position
+    eye[0] = state.center[0] - forward[0] * state.distance;
+    eye[1] = state.center[1] - forward[1] * state.distance;
+    eye[2] = state.center[2] - forward[2] * state.distance;
 
     const right = quat.getRightVector(state.orientation);
     const up = quat.getUpVector(state.orientation);
@@ -749,31 +904,56 @@ function createArcballBackend(state, speeds, markDirty) {
   }
 
   function rotate(dx, dy, element, event) {
-    // Arcball rotation using virtual trackball
+    // Arcball rotation - based on Ken Shoemake's algorithm
     const rect = element.getBoundingClientRect();
-    const currNormX = (2 * (event.clientX - rect.left) / rect.width) - 1;
-    const currNormY = 1 - (2 * (event.clientY - rect.top) / rect.height);
 
-    // Project onto sphere
-    const prevP = projectToSphere(event.clientX - dx - rect.left, event.clientY - dy - rect.top, rect.width, rect.height);
-    const currP = projectToSphere(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height);
+    // Project mouse positions onto virtual sphere
+    // projectToSphere uses a right-handed system (X-right, Y-up, Z-out-of-screen)
+    const va = projectToSphere(event.clientX - dx - rect.left, event.clientY - dy - rect.top, rect.width, rect.height);
+    const vb = projectToSphere(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height);
 
-    // Compute rotation axis and angle
-    const axis = cross(prevP, currP);
+    // Compute rotation axis (perpendicular to the plane containing va and vb)
+    // cross(va, vb) gives an axis such that rotating the camera orientation by
+    // a positive angle orbits the camera in the direction opposite to the drag,
+    // making the model appear to follow the mouse.
+    const axis = cross(va, vb);
     const axisLen = Math.sqrt(axis[0]*axis[0] + axis[1]*axis[1] + axis[2]*axis[2]);
     
-    if (axisLen < 0.0001) return; // No rotation
+    if (axisLen < 0.0001) return; // No rotation needed
     
-    axis[0] /= axisLen;
-    axis[1] /= axisLen;
-    axis[2] /= axisLen;
+    // Normalize the axis
+    const axisNorm = [axis[0] / axisLen, axis[1] / axisLen, axis[2] / axisLen];
 
-    const angle = Math.asin(Math.min(1, axisLen)) * speeds.rotate;
+    // Compute rotation angle
+    const angle = Math.acos(Math.min(1.0, va[0]*vb[0] + va[1]*vb[1] + va[2]*vb[2])) * speeds.rotate;
 
-    // Create rotation quaternion
-    const rotation = quat.fromAxisAngle(axis, angle);
+    // The axis from the arcball is in the virtual sphere's coordinate system
+    // (X-right, Y-up, Z-out-of-screen). We need to transform it to world space
+    // so that pre-multiplying the camera orientation (q_new = q_rot * q_old)
+    // produces rotation where the model follows the mouse.
+    //
+    // The screen-to-world mapping that achieves this is:
+    //   screen X  →  -right
+    //   screen Y  →  -up
+    //   screen Z  →  +forward
+    // All three axes are negated relative to the naive camera basis mapping.
+    // This is because pre-multiplying the camera quaternion (q_new = q_rot * q_old)
+    // rotates the camera's own basis vectors, and we need the model to follow
+    // the mouse rather than the camera.
+    const right = quat.getRightVector(state.orientation);
+    const up = quat.getUpVector(state.orientation);
+    const forward = quat.getForwardVector(state.orientation);
+    
+    const worldAxis = [
+      -right[0] * axisNorm[0] - up[0] * axisNorm[1] + forward[0] * axisNorm[2],
+      -right[1] * axisNorm[0] - up[1] * axisNorm[1] + forward[1] * axisNorm[2],
+      -right[2] * axisNorm[0] - up[2] * axisNorm[1] + forward[2] * axisNorm[2]
+    ];
 
-    // Apply rotation
+    // Create rotation quaternion and apply: q_new = q_rotation * q_old
+    // Pre-multiplication applies the rotation in world space, which is correct
+    // since we already transformed the axis to world space.
+    const rotation = quat.fromAxisAngle(worldAxis, angle);
     state.orientation = quat.normalize(quat.multiply(rotation, state.orientation));
     markDirty();
   }
@@ -850,21 +1030,22 @@ function createArcballBackend(state, speeds, markDirty) {
  * Project screen coordinates onto virtual trackball sphere
  */
 function projectToSphere(x, y, width, height) {
-  // Normalize to [-1, 1]
-  const nx = (2 * x / width) - 1;
-  const ny = 1 - (2 * y / height);
+  // Normalize to [-1, 1], with Y inverted so that the virtual sphere
+  // uses a right-handed coordinate system (X-right, Y-up, Z-out-of-screen)
+  const scale = 2.5;
+  const nx = ((2 * x / width) - 1) * scale;
+  const ny = (1 - (2 * y / height)) * scale;
 
-  const r = Math.sqrt(nx*nx + ny*ny);
-  
-  if (r <= 1.0) {
-    // On sphere
-    const z = Math.sqrt(1 - r*r);
-    return [nx, ny, z];
-  } else {
-    // Outside sphere, project to edge
-    const scale = 1.0 / r;
-    return [nx * scale, ny * scale, 0];
-  }
+  // Smooth trackball surface using inverse stereographic-like projection.
+  // Near the center (r ≈ 0), this behaves like a sphere: z ≈ 1 - r²/2.
+  // Far from center (r → ∞), z decays as 1/r, smoothly transitioning from
+  // tilt rotation to twist rotation with no hard boundary or derivative
+  // discontinuity. The scale factor above makes the virtual sphere smaller
+  // relative to the viewport, increasing rotation speed.
+  const r2 = nx * nx + ny * ny;
+  const s = 1 / Math.sqrt(1 + r2 * 0.5);
+  const len = Math.sqrt(r2 * s * s + s * s);
+  return [nx * s / len, ny * s / len, s / len];
 }
 
 /**
@@ -883,8 +1064,45 @@ function cross(a, b) {
  */
 function convertState(state, fromMode, toMode) {
   if (fromMode === 'orbit' && toMode === 'arcball') {
-    // Orbit → Arcball: Convert spherical to quaternion
-    state.orientation = quat.fromSpherical(state.phi, state.theta);
+    // Orbit → Arcball: Build quaternion from orbit camera's orientation
+    const { phi, theta, distance, center } = state;
+    
+    // VALIDATION: Compute orbit camera's eye position and basis vectors
+    const orbitEye = [
+      center[0] + distance * Math.cos(theta) * Math.cos(phi),
+      center[1] + distance * Math.sin(theta),
+      center[2] + distance * Math.cos(theta) * Math.sin(phi)
+    ];
+    
+    // Orbit forward direction (from eye to center, normalized)
+    let orbitFwd = [
+      center[0] - orbitEye[0],
+      center[1] - orbitEye[1],
+      center[2] - orbitEye[2]
+    ];
+    const flen = Math.sqrt(orbitFwd[0]**2 + orbitFwd[1]**2 + orbitFwd[2]**2);
+    orbitFwd[0] /= flen; orbitFwd[1] /= flen; orbitFwd[2] /= flen;
+    
+    // Orbit right = forward × [0,1,0]
+    let orbitRight = [
+      orbitFwd[1] * 0 - orbitFwd[2] * 1,
+      orbitFwd[2] * 0 - orbitFwd[0] * 0,
+      orbitFwd[0] * 1 - orbitFwd[1] * 0
+    ];
+    const rlen = Math.sqrt(orbitRight[0]**2 + orbitRight[1]**2 + orbitRight[2]**2);
+    if (rlen > 0.0001) {
+      orbitRight[0] /= rlen; orbitRight[1] /= rlen; orbitRight[2] /= rlen;
+    }
+    
+    // Orbit up = right × forward
+    const orbitUp = [
+      orbitRight[1] * orbitFwd[2] - orbitRight[2] * orbitFwd[1],
+      orbitRight[2] * orbitFwd[0] - orbitRight[0] * orbitFwd[2],
+      orbitRight[0] * orbitFwd[1] - orbitRight[1] * orbitFwd[0]
+    ];
+    
+    // Build quaternion from rotation matrix
+    state.orientation = quat.fromRotationMatrix(orbitRight, orbitUp, orbitFwd);
   } else if (fromMode === 'arcball' && toMode === 'orbit') {
     // Arcball → Orbit: Convert quaternion to spherical
     // Get camera position from quaternion

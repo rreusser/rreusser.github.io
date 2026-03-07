@@ -35,11 +35,18 @@ export function fromAxisAngle(axis, angle) {
  * @returns {number[]} Quaternion [x, y, z, w]
  */
 export function fromSpherical(phi, theta) {
-  // Rotation around Y axis (phi), then around right axis (theta)
-  const cy = Math.cos(phi / 2);
-  const sy = Math.sin(phi / 2);
-  const cp = Math.cos(theta / 2);
-  const sp = Math.sin(theta / 2);
+  // Convert spherical coordinates (phi=azimuth, theta=elevation) to quaternion
+  // that matches orbit camera's coordinate system
+  // Orbit forward: -cos(theta)*cos(phi), -sin(theta), -cos(theta)*sin(phi)
+  
+  // Rotate around Y axis by (phi - PI/2), then around right axis by -theta
+  const halfPhi = (phi - Math.PI / 2) / 2;
+  const halfTheta = -theta / 2;
+  
+  const cy = Math.cos(halfPhi);
+  const sy = Math.sin(halfPhi);
+  const cp = Math.cos(halfTheta);
+  const sp = Math.sin(halfTheta);
 
   return [
     cy * sp,
@@ -47,6 +54,52 @@ export function fromSpherical(phi, theta) {
     -sy * sp,
     cy * cp
   ];
+}
+
+/**
+ * Create quaternion from rotation matrix (right, up, forward vectors)
+ */
+export function fromRotationMatrix(right, up, forward) {
+  // Matrix columns are: right, up, -forward (OpenGL convention)
+  const m00 = right[0], m01 = up[0], m02 = -forward[0];
+  const m10 = right[1], m11 = up[1], m12 = -forward[1];
+  const m20 = right[2], m21 = up[2], m22 = -forward[2];
+  
+  const trace = m00 + m11 + m22;
+  
+  if (trace > 0) {
+    const s = 0.5 / Math.sqrt(trace + 1.0);
+    return [
+      (m21 - m12) * s,
+      (m02 - m20) * s,
+      (m10 - m01) * s,
+      0.25 / s
+    ];
+  } else if (m00 > m11 && m00 > m22) {
+    const s = 2.0 * Math.sqrt(1.0 + m00 - m11 - m22);
+    return [
+      0.25 * s,
+      (m01 + m10) / s,
+      (m02 + m20) / s,
+      (m21 - m12) / s
+    ];
+  } else if (m11 > m22) {
+    const s = 2.0 * Math.sqrt(1.0 + m11 - m00 - m22);
+    return [
+      (m01 + m10) / s,
+      0.25 * s,
+      (m12 + m21) / s,
+      (m02 - m20) / s
+    ];
+  } else {
+    const s = 2.0 * Math.sqrt(1.0 + m22 - m00 - m11);
+    return [
+      (m02 + m20) / s,
+      (m12 + m21) / s,
+      0.25 * s,
+      (m10 - m01) / s
+    ];
+  }
 }
 
 /**

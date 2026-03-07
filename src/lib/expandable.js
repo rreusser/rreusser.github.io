@@ -16,9 +16,34 @@
  * @param {boolean} [options.wide=false] - When true, figure expands beyond article bounds with negative margins.
  * @param {number} [options.maxWidth] - Maximum width when using wide layout (default: 1200).
  * @param {number} [options.aspectRatio] - Aspect ratio (width/height) to maintain when using wide layout.
+ * @param {Array<Object>} [options.buttons] - Custom buttons to add next to expand button.
+ *   Each button: { icon: string, title: string, onClick: (content, expanded) => void }
  * @returns {HTMLElement} The expandable container
  */
-export function expandable(content, { width, height, toggleOffset = [8, 8], margin = 0, padding = 0, onResize, controls, state, wide = false, maxWidth = 1200, aspectRatio }) {
+const svgIcon = (d, {viewBox = '0 0 16 16', strokeWidth = 1.5} = {}) =>
+  `<svg width="16" height="16" viewBox="${viewBox}" fill="none" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+
+const ICON_EXPAND = svgIcon(
+  '<polyline points="10 2 14 2 14 6"/><polyline points="6 14 2 14 2 10"/><line x1="14" y1="2" x2="9" y2="7"/><line x1="2" y1="14" x2="7" y2="9"/>'
+);
+
+const ICON_CLOSE = svgIcon(
+  '<line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>'
+);
+
+export const ICON_CAMERA = svgIcon(
+  '<rect x="2" y="4" width="12" height="9" rx="1"/><circle cx="8" cy="8.5" r="2.5"/><path d="M5.5 4 L6.5 2 L9.5 2 L10.5 4"/>'
+);
+
+export const ICON_ORBIT = svgIcon(
+  '<ellipse cx="8" cy="8" rx="6" ry="6"/><ellipse cx="8" cy="8" rx="6" ry="2.5"/><ellipse cx="8" cy="8" rx="2.5" ry="6" transform="rotate(90 8 8)"/>'
+, {strokeWidth: 1.25});
+
+export const ICON_ARCBALL = svgIcon(
+  '<circle cx="8" cy="8" r="6"/><path d="M4 5.5 Q8 8.5 12 5.5"/><path d="M4 10.5 Q8 7.5 12 10.5"/><path d="M5.5 4 Q8.5 8 5.5 12"/><path d="M10.5 4 Q7.5 8 10.5 12"/>'
+, {strokeWidth: 1.25});
+
+export function expandable(content, { width, height, toggleOffset = [8, 8], margin = 0, padding = 0, onResize, controls, state, wide = false, maxWidth = 1200, aspectRatio, buttons = [] }) {
   // Use external state if provided, otherwise local state
   let expanded = state?.expanded ?? false;
   let currentWidth = width;
@@ -264,13 +289,34 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     }
   }
 
+  // Button container for grouped styling
+  const buttonBar = document.createElement('div');
+  buttonBar.className = 'expandable-button-bar';
+  buttonBar.style.top = `${-toggleOffset[1]}px`;
+  buttonBar.style.right = `${-toggleOffset[0]}px`;
+
   // Toggle button
   const toggleBtn = document.createElement('button');
   toggleBtn.className = 'expandable-toggle';
-  toggleBtn.innerHTML = '⤢';
+  toggleBtn.innerHTML = ICON_EXPAND;
   toggleBtn.title = 'Expand';
-  toggleBtn.style.top = `${-toggleOffset[1]}px`;
-  toggleBtn.style.right = `${-toggleOffset[0]}px`;
+
+  // Custom buttons
+  const customButtons = buttons.map((btn) => {
+    const button = document.createElement('button');
+    button.className = 'expandable-toggle expandable-custom-button';
+    button.innerHTML = btn.icon;
+    button.title = btn.title;
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();
+      btn.onClick(content, expanded);
+    });
+    return button;
+  });
+
+  // Add all buttons to the bar (custom buttons first, then toggle)
+  customButtons.forEach(btn => buttonBar.appendChild(btn));
+  buttonBar.appendChild(toggleBtn);
 
   // Handle function content (call it to get the element)
   if (typeof content === 'function') {
@@ -284,7 +330,7 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
   }
 
   contentWrapper.appendChild(content);
-  contentWrapper.appendChild(toggleBtn);
+  contentWrapper.appendChild(buttonBar);
   container.appendChild(contentWrapper);
 
   // Wide/breakout layout: expand figure beyond article bounds
@@ -345,10 +391,10 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     expanded = false;
     if (state) state.expanded = false;
     container.classList.remove('expandable-expanded');
-    toggleBtn.innerHTML = '⤢';
+    toggleBtn.innerHTML = ICON_EXPAND;
     toggleBtn.title = 'Expand';
-    toggleBtn.style.top = `${-toggleOffset[1]}px`;
-    toggleBtn.style.right = `${-toggleOffset[0]}px`;
+    buttonBar.style.top = `${-toggleOffset[1]}px`;
+    buttonBar.style.right = `${-toggleOffset[0]}px`;
 
     // Remove overlay from DOM entirely (iOS Safari caches overscroll appearance)
     if (overlay.parentNode) {
@@ -458,10 +504,10 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     expanded = true;
     if (state) state.expanded = true;
     container.classList.add('expandable-expanded');
-    toggleBtn.innerHTML = '✕';
+    toggleBtn.innerHTML = ICON_CLOSE;
     toggleBtn.title = 'Collapse';
-    toggleBtn.style.top = '8px';
-    toggleBtn.style.right = '8px';
+    buttonBar.style.top = '8px';
+    buttonBar.style.right = '8px';
 
     // Show overlay
     if (!overlay.parentNode) {

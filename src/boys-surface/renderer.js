@@ -174,27 +174,21 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     texHeight = h;
   }
 
-  function computeClipPlanes(camera) {
+  function computeClipPlanes(eye) {
     const boundingSphereRadius = 10;
-    const { phi, theta, distance, center } = camera.state;
-    const eye = [
-      center[0] + distance * Math.cos(theta) * Math.cos(phi),
-      center[1] + distance * Math.sin(theta),
-      center[2] + distance * Math.cos(theta) * Math.sin(phi)
-    ];
     const eyeDist = Math.sqrt(eye[0] * eye[0] + eye[1] * eye[1] + eye[2] * eye[2]);
     const smoothMax = (a, b, k) => 0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k));
     const near = smoothMax(eyeDist - boundingSphereRadius, 0.01, 0.5);
     const far = eyeDist + boundingSphereRadius;
-    return { eye, near, far };
+    return { near, far };
   }
 
   function render(gpuContext, params, camera, w, h, dirty) {
     const aspectRatio = w / h;
-    const { view, projection, dirty: cameraDirty } = camera.update(aspectRatio);
+    const { view, projection, eye, dirty: cameraDirty } = camera.update(aspectRatio);
     if (!cameraDirty && !dirty) return false;
 
-    const { eye, near, far } = computeClipPlanes(camera);
+    const { near, far } = computeClipPlanes(eye);
     // Patch projection for WebGPU [0,1] depth range
     const rangeInv = 1 / (near - far);
     projection[10] = far * rangeInv;
