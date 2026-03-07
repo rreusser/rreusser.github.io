@@ -4,7 +4,7 @@
  * Sets up all compute and render pipelines used in the simulation.
  */
 
-import { FFTPipelines, createFFTPipelines } from './fft.js';
+import { FFTPipelines, createFFTPipelines } from './lib/webgpu-fft/fft.js';
 
 // Import shaders as raw strings at build time
 import initializeSource from './shaders/initialize.wgsl?raw';
