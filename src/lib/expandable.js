@@ -309,7 +309,7 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     button.title = btn.title;
     button.addEventListener('click', (e) => {
       e.stopPropagation();
-      btn.onClick(content, expanded);
+      btn.onClick(content, expanded, button);
     });
     return button;
   });

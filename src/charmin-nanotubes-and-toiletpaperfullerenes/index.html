@@ -98,15 +98,15 @@ This rule is enough to constrain the topology, though it says nothing about the 
   </script>
 
   <script id="imports" type="text/x-typescript">
-import createREGL from 'npm:regl@2.1.1';
 import createIcosphere from 'npm:icosphere@1.0.0';
+import { createWebGPUContext } from './lib/webgpu-canvas.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
+import { cameraButtons } from './lib/camera-buttons.js';
 import { Mesh } from './lib/mesh.js';
 import { MeshPhysics } from './lib/mesh-physics.js';
-import { OrbitCamera } from './shared-lib/orbit-camera.js';
-import { createOrbitCameraController } from './lib/orbit-camera-controller.js';
-import { createMeshRenderer } from './lib/mesh-renderer.js';
+import { createMeshRenderer } from './lib/mesh-renderer-webgpu.js';
 import { MeshInteractions } from './lib/mesh-interactions.js';
-import { expandable } from './shared-lib/expandable.js';
+import { expandable, ICON_CAMERA } from './shared-lib/expandable.js';
 import { observeTheme } from './lib/theme.js';
   </script>
 
@@ -212,19 +212,19 @@ const pointSize = ctrl2(Inputs.range([0.5, 5], {
 
 const edgeWidth = ctrl2(Inputs.range([0, 6], {
   label: "Edge width",
-  value: 2,
+  value: 3,
   step: 0.5
 }));
 
 const faceOpacity = ctrl2(Inputs.range([0, 1], {
   label: "Face opacity",
-  value: 0.3,
+  value: 0.75,
   step: 0.05
 }));
 
 const faceShading = ctrl2(Inputs.toggle({
   label: "Face shading",
-  value: false
+  value: true
 }));
 
 const depthFalloffWidth = ctrl2(Inputs.range([1, 20], {
@@ -241,9 +241,11 @@ const state: {
   physics: MeshPhysics | null;
   interactions: MeshInteractions | null;
   renderer: ReturnType<typeof createMeshRenderer> | null;
-  controller: ReturnType<typeof createOrbitCameraController> | null;
-  setCamera: ((callback: () => void) => void) | null;
-  regl: ReturnType<typeof createREGL> | null;
+  camera: ReturnType<typeof createUnifiedCamera> | null;
+  device: GPUDevice | null;
+  context: GPUCanvasContext | null;
+  canvasFormat: GPUTextureFormat | null;
+  canvas: HTMLCanvasElement | null;
   frame: { cancel: () => void } | null;
   dirty: boolean;
   presetName: string;
@@ -269,9 +271,11 @@ const state: {
   physics: null,
   interactions: null,
   renderer: null,
-  controller: null,
-  setCamera: null,
-  regl: null,
+  camera: null,
+  device: null,
+  context: null,
+  canvasFormat: null,
+  canvas: null,
   frame: null,
   dirty: true,
   presetName: "",
@@ -286,8 +290,8 @@ const state: {
     edgeWidth: 2,
     strainColoring: 0,
     showFaces: true,
-    faceOpacity: 0.3,
-    faceShading: false,
+    faceOpacity: 0.75,
+    faceShading: true,
     depthFalloffWidth: 7,
     background: [1, 1, 1] as [number, number, number],
     foreground: [0, 0, 0, 1] as [number, number, number, number]
@@ -413,32 +417,47 @@ const container = html`<div id="mesh-canvas" style="position: relative; width: 1
   ${deleteButton}
 </div>`;
 
-// Initialize WebGL context if needed
-if (!state.regl) {
-  state.regl = createREGL({
-    container,
-    pixelRatio: devicePixelRatio,
-    extensions: ['ANGLE_instanced_arrays'],
-    attributes: { preserveDrawingBuffer: true }
+// Initialize WebGPU context if needed
+if (!state.device) {
+  // Create WebGPU context
+  const { device, canvasFormat } = await createWebGPUContext();
+  state.device = device;
+  state.canvasFormat = canvasFormat;
+
+  // Create canvas
+  const canvas = document.createElement('canvas');
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.display = 'block';
+  container.insertBefore(canvas, container.firstChild);
+  state.canvas = canvas;
+
+  // Configure canvas context
+  const context = canvas.getContext('webgpu');
+  if (!context) throw new Error('Failed to get WebGPU canvas context');
+  context.configure({
+    device,
+    format: canvasFormat,
+    alphaMode: 'premultiplied'
   });
+  state.context = context;
 
   const icosphere = createIcosphere(1);
-  const canvas = state.regl._gl.canvas;
-  const camera = new OrbitCamera([0, 1, -20], [0, 0, 0], [0, 1, 0]);
-  // Create controller without attaching event listeners yet
-  state.controller = createOrbitCameraController(canvas, camera, {
+
+  // Create unified camera with deferred events
+  state.camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
+    center: [0, 0, 0],
+    distance: 20,
+    phi: 0,
+    theta: Math.PI / 6,
     fov: Math.PI / 4,
     near: 0.1,
     far: 200.0,
     deferEvents: true  // Don't attach events yet
   });
-  // Create regl scope for camera uniforms
-  state.setCamera = state.regl({
-    uniforms: {
-      projectionView: () => state.controller!.projectionView
-    }
-  });
-  state.renderer = createMeshRenderer(state.regl, icosphere);
+
+  state.renderer = createMeshRenderer(device, canvasFormat, icosphere);
   state.physics = new MeshPhysics(state.mesh!);
   // Helper to update touch button states
   const updateTouchButtons = (hasSelection: boolean) => {
@@ -451,10 +470,20 @@ if (!state.regl) {
   };
 
   // Create interactions FIRST so its event listeners are registered first
+  // MeshInteractions expects controller.projectionView and controller.camera.center.
+  // Provide a shim; projectionView is updated each frame in the render loop.
+  state.cameraShim = {
+    projectionView: new Float32Array(16),
+    camera: {
+      center: state.camera.state.center,
+      taint: () => state.camera.taint(),
+    },
+  };
+
   state.interactions = new MeshInteractions(
     canvas,
     state.mesh!,
-    state.controller,
+    state.cameraShim,
     {
       onChange: () => {
         state.dirty = true;
@@ -464,8 +493,8 @@ if (!state.regl) {
       }
     }
   );
-  // Now attach camera controller events (after interactions)
-  state.controller.attachEvents();
+  // Now attach camera events (after interactions)
+  state.camera.attachEvents();
 
   // Delete button click handler
   deleteButton.addEventListener('click', (e) => {
@@ -504,8 +533,8 @@ if (!state.regl) {
 
 // Resize canvas to match container
 const resizeCanvas = () => {
-  if (!state.regl) return;
-  const canvas = state.regl._gl.canvas as HTMLCanvasElement;
+  if (!state.canvas) return;
+  const canvas = state.canvas;
   const rect = container.getBoundingClientRect();
   const dpr = devicePixelRatio;
   const newWidth = Math.floor(rect.width * dpr);
@@ -514,7 +543,7 @@ const resizeCanvas = () => {
     canvas.width = newWidth;
     canvas.height = newHeight;
     state.dirty = true;
-    state.controller?.taint();
+    state.camera?.taint();
   }
 };
 
@@ -532,14 +561,22 @@ if (state.frame) {
   state.frame.cancel();
   state.frame = null;
 }
-state.frame = state.regl.frame(() => {
-  if (!visible || !state.mesh || !state.controller) return;
 
-  const gl = state.regl!._gl;
-  const aspectRatio = gl.canvas.width / gl.canvas.height;
-  const { dirty: controllerDirty } = state.controller.update(aspectRatio);
+// Render function
+const render = () => {
+  if (!visible || !state.mesh || !state.camera || !state.device || !state.context || !state.canvas) return;
 
-  const shouldRender = state.renderParams.simulate || state.dirty || controllerDirty || state.interactions?.dirty;
+  const aspectRatio = state.canvas.width / state.canvas.height;
+  const cameraUpdate = state.camera.update(aspectRatio);
+  const { dirty: cameraDirty } = cameraUpdate;
+
+  // Keep interactions in sync with the current projection matrix
+  if (state.interactions && state.cameraShim) {
+    state.interactions.projectionView = cameraUpdate.projectionView;
+    state.cameraShim.projectionView = cameraUpdate.projectionView;
+  }
+
+  const shouldRender = state.renderParams.simulate || state.dirty || cameraDirty || state.interactions?.dirty;
   if (!shouldRender) return;
 
   // Run physics simulation
@@ -561,9 +598,6 @@ state.frame = state.regl.frame(() => {
     }
   }
 
-  // Clear and render
-  state.regl!.clear({ color: [0, 0, 0, 0], depth: 1 });
-
   const selectedVertexIdx = state.interactions?.selectedVertexIndex ?? -1;
   const selectedEdgeIdx = state.interactions?.selectedEdgeIndex ?? -1;
 
@@ -581,30 +615,74 @@ state.frame = state.regl.frame(() => {
     focusCenter = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, (p0[2] + p1[2]) / 2];
   }
 
-  state.setCamera!(() => {
-    state.renderer?.render(state.mesh!, state.physics!, {
-      pointSize: state.renderParams.pointSize,
-      edgeWidth: state.renderParams.edgeWidth,
-      strainColoring: state.renderParams.strainColoring,
-      showFaces: state.renderParams.showFaces,
-      faceOpacity: state.renderParams.faceOpacity,
-      faceShading: state.renderParams.faceShading,
-      cameraPosition: state.controller!.camera.eye(),
-      selectedVertexIndex: selectedVertexIdx,
-      hoverVertexIndex: state.interactions?.hoverVertexIndex ?? -1,
-      selectedEdgeIndex: selectedEdgeIdx,
-      hoverEdgeIndex: state.interactions?.hoverEdgeIndex ?? -1,
-      depthFalloff: hasFocus,
-      depthFalloffWidth: state.renderParams.depthFalloffWidth,
-      focusCenter,
-      background: state.renderParams.background,
-      foreground: state.renderParams.foreground
-    });
+  // Render the mesh
+  state.renderer?.render({
+    device: state.device,
+    context: state.context,
+    projectionView: cameraUpdate.projectionView,
+    eye: cameraUpdate.eye,
+    mesh: state.mesh!,
+    physics: state.physics!,
+    pointSize: state.renderParams.pointSize,
+    edgeWidth: state.renderParams.edgeWidth,
+    strainColoring: state.renderParams.strainColoring,
+    showFaces: state.renderParams.showFaces,
+    faceOpacity: state.renderParams.faceOpacity,
+    faceShading: state.renderParams.faceShading,
+    selectedVertexIndex: selectedVertexIdx,
+    hoverVertexIndex: state.interactions?.hoverVertexIndex ?? -1,
+    selectedEdgeIndex: selectedEdgeIdx,
+    hoverEdgeIndex: state.interactions?.hoverEdgeIndex ?? -1,
+    depthFalloff: hasFocus,
+    depthFalloffWidth: state.renderParams.depthFalloffWidth,
+    focusCenter,
+    background: state.renderParams.background,
+    foreground: state.renderParams.foreground
   });
 
   state.dirty = false;
   if (state.interactions) state.interactions.dirty = false;
+};
+
+// Set up camera render callback
+state.camera.on('render', render);
+
+// Create frame loop with error handling
+let frameId: number | null = null;
+let renderError = false;
+let errorCount = 0;
+const MAX_ERRORS = 5;
+
+// Set up WebGPU error listener to stop loop on errors
+state.device.addEventListener('uncapturederror', (event) => {
+  errorCount++;
+  if (errorCount >= MAX_ERRORS) {
+    console.error(`Stopping render loop after ${MAX_ERRORS} WebGPU errors. Last error:`, event.error.message);
+    renderError = true;
+    if (frameId !== null) {
+      cancelAnimationFrame(frameId);
+      frameId = null;
+    }
+  }
 });
+
+const frameLoop = () => {
+  if (renderError) return; // Stop loop if render failed
+  
+  try {
+    render();
+    frameId = requestAnimationFrame(frameLoop);
+  } catch (error) {
+    console.error('Render loop error:', error);
+    renderError = true;
+    if (frameId !== null) {
+      cancelAnimationFrame(frameId);
+      frameId = null;
+    }
+  }
+};
+frameId = requestAnimationFrame(frameLoop);
+state.frame = { cancel: () => { if (frameId !== null) cancelAnimationFrame(frameId); } };
 
 invalidation.then(() => {
   if (state.frame) {
@@ -646,12 +724,21 @@ const figure = html`
 const figureWidth = Math.min(width, 640);
 const figureHeight = Math.round(figureWidth * 576 / 640);
 
-display(expandable(figure, {
+// Store reference to expandable container for button updates
+let expandableContainer: HTMLElement | null = null;
+
+const expandableElement = expandable(figure, {
   width: figureWidth,
   height: figureHeight,
   padding: [0, 0],
   controls: ['#primary-controls', '#secondary-controls'],
   state: state.expandedState,
+  buttons: cameraButtons({
+    camera: state.camera!,
+    canvas: state.canvas!,
+    filename: 'charmin-nanotube.png',
+    getContainer: () => expandableContainer
+  }),
   onResize: (content, w, h, expanded) => {
     // Size the container and trigger canvas resize
     container.style.width = `${w}px`;
@@ -660,7 +747,10 @@ display(expandable(figure, {
     figcaption.style.display = expanded ? 'none' : 'block';
     resizeCanvas();
   }
-}));
+});
+expandableContainer = expandableElement;
+
+display(expandableElement);
   </script>
 
   <script id="display-secondary-controls" type="text/x-typescript">

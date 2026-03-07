@@ -722,6 +722,7 @@ export class MeshInteractions {
           const centroid = this.mesh.computeCentroid();
           vec3.copy(this.camera.center, centroid);
         }
+        this.camera.taint?.();
         this.dirty = true;
         event.preventDefault();
         event.stopPropagation();

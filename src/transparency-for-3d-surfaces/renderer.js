@@ -456,19 +456,13 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
   }
 
   // Helpers
-  function computeClipPlanes(camera) {
+  function computeClipPlanes(eye) {
     const boundingSphereRadius = Math.sqrt(10);
-    const { phi, theta, distance, center } = camera.state;
-    const eye = [
-      center[0] + distance * Math.cos(theta) * Math.cos(phi),
-      center[1] + distance * Math.sin(theta),
-      center[2] + distance * Math.cos(theta) * Math.sin(phi)
-    ];
     const eyeDist = Math.sqrt(eye[0] * eye[0] + eye[1] * eye[1] + eye[2] * eye[2]);
     const smoothMax = (a, b, k) => 0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k));
     const near = smoothMax(eyeDist - boundingSphereRadius, 0.01, 0.5);
     const far = eyeDist + boundingSphereRadius;
-    return { eye, near, far };
+    return { near, far };
   }
 
   function writeUniforms(projection, view, eye, p, timestamp, startTime) {
@@ -757,10 +751,9 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
   // Main render function
   function render(gpuContext, params, camera, w, h, timestamp, startTime, dirty) {
     const aspectRatio = w / h;
-    const { view, projection, dirty: cameraDirty } = camera.update(aspectRatio);
-    if (!cameraDirty && !dirty && !params.animate) return false;
+    const { view, projection, eye } = camera.update(aspectRatio);
 
-    const { eye, near, far } = computeClipPlanes(camera);
+    const { near, far } = computeClipPlanes(eye);
     const rangeInv = 1 / (near - far);
     projection[10] = far * rangeInv;
     projection[14] = near * far * rangeInv;

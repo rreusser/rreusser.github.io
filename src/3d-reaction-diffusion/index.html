@@ -132,6 +132,8 @@
   </script>
   <script id="canvas-setup" type="module">
     import { expandable } from './lib/expandable.js';
+    import { createUnifiedCamera } from './lib/unified-camera.js';
+    import { cameraButtons } from './lib/camera-buttons.js';
 
     const defaultWidth = Math.min(width, 800);
     const defaultHeight = defaultWidth;
@@ -162,6 +164,18 @@
 
     // Expandable state persists across re-renders
     const expandableState = { expanded: false };
+
+    // Create unified camera
+    const camera = createUnifiedCamera(canvas, {
+      mode: 'orbit',
+      center: [0.5, 0.5, 0.5],
+      distance: 1.25,
+      phi: 0,
+      theta: 0.4,
+      near: 0.001,
+      far: 10,
+      renderContinuously: false
+    });
 
     function handleResize(content, w, h, isExpanded) {
       const newWidth = Math.round(w * dpr);
@@ -203,12 +217,20 @@
       screenResources.dirty = true;
     }
 
-    const container = expandable(canvas, {
+    const canvasContainer = html`<div id="rd-container" style="width: 100%; height: 100%;">${canvas}</div>`;
+
+    const container = expandable(canvasContainer, {
       width: defaultWidth,
       height: defaultHeight,
       onResize: handleResize,
       controls: ['#rd-params', '#rd-render', '#rd-controls'],
-      state: expandableState
+      state: expandableState,
+      buttons: cameraButtons({
+        camera,
+        canvas,
+        filename: 'reaction-diffusion-3d.png',
+        getContainer: () => canvasContainer
+      })
     });
 
     display(container);
@@ -320,7 +342,7 @@
     // Render parameters uniform buffer
     const renderParamsBuffer = device.createBuffer({
       label: 'renderParams',
-      size: 128, // view matrix (64) + alpha, exponent, sliceDir, sliceSign, shape (remaining)
+      size: 192, // projection (64) + view (64) + eye, alpha, exponent, sliceDir, sliceSign, numSlices
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
   </script>
@@ -409,7 +431,8 @@
     // Render shader for volume slices
     const renderShaderCode = /* wgsl */ `
       struct RenderParams {
-        viewProjection: mat4x4f,
+        projection: mat4x4f,
+        view: mat4x4f,
         eye: vec3f,
         alpha: f32,
         exponent: f32,
@@ -465,7 +488,7 @@
         }
 
         var output: VertexOutput;
-        output.position = params.viewProjection * vec4f(pos3d, 1.0);
+        output.position = params.projection * params.view * vec4f(pos3d, 1.0);
         output.texCoord = pos3d;
         output.sliceNormal = normal;
         return output;
@@ -512,7 +535,7 @@
         let pos = positions[vertexIndex];
         var output: VertexOutput;
         output.position = vec4f(pos, 0.0, 1.0);
-        output.uv = pos * 0.5 + 0.5;
+        output.uv = vec2f(pos.x * 0.5 + 0.5, 0.5 - pos.y * 0.5);
         return output;
       }
 
@@ -667,74 +690,8 @@
     });
   </script>
   <script id="camera" type="module">
-    import { mat4, vec3 } from 'npm:gl-matrix@3.4.3';
-
-    // Simple orbit camera state
-    const cameraState = {
-      phi: 0.4,
-      theta: 0,
-      distance: 1.25,
-      center: [0.5, 0.5, 0.5],
-      dirty: true
-    };
-
-    // Mouse interaction for camera
-    let isDragging = false;
-    let lastMouse = [0, 0];
-
-    canvas.addEventListener('mousedown', (e) => {
-      isDragging = true;
-      lastMouse = [e.clientX, e.clientY];
-    });
-
-    window.addEventListener('mouseup', () => { isDragging = false; });
-
-    canvas.addEventListener('mousemove', (e) => {
-      if (!isDragging) return;
-      const dx = e.clientX - lastMouse[0];
-      const dy = e.clientY - lastMouse[1];
-      lastMouse = [e.clientX, e.clientY];
-
-      cameraState.theta -= dx * 0.01;
-      cameraState.phi -= dy * 0.01;  // Negated for intuitive controls
-      cameraState.phi = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, cameraState.phi));
-      cameraState.dirty = true;
-    });
-
-    canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      cameraState.distance *= Math.exp(e.deltaY * 0.001);
-      cameraState.distance = Math.max(0.5, Math.min(5, cameraState.distance));
-      cameraState.dirty = true;
-    });
-
-    function getCameraEye() {
-      const d = cameraState.distance;
-      const phi = cameraState.phi;
-      const theta = cameraState.theta;
-      return [
-        cameraState.center[0] + d * Math.cos(phi) * Math.sin(theta),
-        cameraState.center[1] + d * Math.sin(phi),
-        cameraState.center[2] + d * Math.cos(phi) * Math.cos(theta)
-      ];
-    }
-
-    function getViewProjectionMatrix(aspectRatio) {
-      const eye = getCameraEye();
-      const view = mat4.create();
-      const projection = mat4.create();
-      const viewProjection = mat4.create();
-
-      mat4.lookAt(view, eye, cameraState.center, [0, 1, 0]);
-      mat4.perspective(projection, Math.PI / 4, aspectRatio, 0.001, 10);
-      mat4.multiply(viewProjection, projection, view);
-
-      return { viewProjection, eye };
-    }
-
     // Determine best slice axis based on view direction
-    function getSliceAxis(eye) {
-      const center = cameraState.center;
+    function getSliceAxis(eye, center) {
       const dx = Math.abs(eye[0] - center[0]);
       const dy = Math.abs(eye[1] - center[1]);
       const dz = Math.abs(eye[2] - center[2]);
@@ -809,31 +766,37 @@
 
     function render() {
       const aspectRatio = canvas.width / canvas.height;
-      const { viewProjection, eye } = getViewProjectionMatrix(aspectRatio);
-      const { axis, sign } = getSliceAxis(eye);
+      const cameraData = camera.update(aspectRatio);
+      const eye = cameraData.eye;
+      const projection = cameraData.projection;
+      const view = cameraData.view;
+      const center = camera.state.center;
+      const { axis, sign } = getSliceAxis(eye, center);
 
       // Update render params
       const numSlices = shape[axis];
-      const paramsData = new ArrayBuffer(128);
+      const paramsData = new ArrayBuffer(192);
       const floatView = new Float32Array(paramsData);
       const uintView = new Uint32Array(paramsData);
 
-      // View projection matrix (16 floats = 64 bytes)
-      floatView.set(viewProjection, 0);
-      // Eye position (3 floats at offset 16)
-      floatView[16] = eye[0];
-      floatView[17] = eye[1];
-      floatView[18] = eye[2];
-      // Alpha (float at offset 19)
-      floatView[19] = alpha;
-      // Exponent (float at offset 20)
-      floatView[20] = exponent;
-      // Slice axis (uint at offset 21)
-      uintView[21] = axis;
-      // Slice sign (float at offset 22)
-      floatView[22] = sign;
-      // Num slices (uint at offset 23)
-      uintView[23] = numSlices;
+      // Projection matrix (16 floats = 64 bytes, offset 0)
+      floatView.set(projection, 0);
+      // View matrix (16 floats = 64 bytes, offset 16)
+      floatView.set(view, 16);
+      // Eye position (3 floats at offset 32)
+      floatView[32] = eye[0];
+      floatView[33] = eye[1];
+      floatView[34] = eye[2];
+      // Alpha (float at offset 35)
+      floatView[35] = alpha;
+      // Exponent (float at offset 36)
+      floatView[36] = exponent;
+      // Slice axis (uint at offset 37)
+      uintView[37] = axis;
+      // Slice sign (float at offset 38)
+      floatView[38] = sign;
+      // Num slices (uint at offset 39)
+      uintView[39] = numSlices;
 
       device.queue.writeBuffer(renderParamsBuffer, 0, paramsData);
 
@@ -883,29 +846,29 @@
       device.queue.submit([encoder.finish()]);
     }
 
-    const loop = createFrameLoop(() => {
-      if (gpuErrorState.hasError) {
-        console.error('Stopping due to WebGPU error:', gpuErrorState.errorMessage);
-        loop.cancel();
-        return;
-      }
+    // Render on camera events (handles drag, zoom, param changes)
+    camera.on('render', render);
 
-      // Handle resize
-      if (screenResources.dirty) {
-        screenResources.dirty = false;
-      }
-
-      // Step simulation if running
-      if (simulate) {
-        for (let i = 0; i < stepsPerFrame; i++) {
-          step();
+    // Simulation frame loop - only runs when simulate is enabled
+    let loop = null;
+    if (simulate) {
+      loop = createFrameLoop(() => {
+        if (gpuErrorState.hasError) {
+          console.error('Stopping due to WebGPU error:', gpuErrorState.errorMessage);
+          loop.cancel();
+          return;
         }
-      }
-
-      // Always render (so param changes are visible even when paused)
+        for (let i = 0; i < stepsPerFrame; i++) step();
+        render();
+      });
+    } else {
+      // Render once to show current state
       render();
-    });
+    }
 
-    invalidation.then(() => loop.cancel());
+    invalidation.then(() => {
+      camera.off('render', render);
+      if (loop) loop.cancel();
+    });
   </script>
 </notebook>

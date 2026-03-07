@@ -8,9 +8,9 @@
 
   <script id="imports" type="text/x-typescript">
 import { createWebGPUContext } from './lib/webgpu-canvas.js';
-import { createCameraController } from './lib/camera-controller.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
+import { cameraButtons } from './lib/camera-buttons.js';
 import { expandable } from './lib/expandable.js';
-import { createFrameLoop } from './lib/frame-loop.js';
 import { observeTheme } from './lib/theme.js';
 import { meshFromFunction } from './mesh.js';
 import {
@@ -92,11 +92,11 @@ const state = {
   initialized: false,
   canvas: null as HTMLCanvasElement | null,
   gpuContext: null as GPUCanvasContext | null,
-  camera: null as ReturnType<typeof createCameraController> | null,
-  frame: null as { cancel: () => void } | null,
+  camera: null as ReturnType<typeof createUnifiedCamera> | null,
   dirty: true,
   expandedState: { expanded: false },
   renderer: null as ReturnType<typeof createRenderer> | null,
+  updateAnimationLoop: null as (() => void) | null,
   renderParams: {
     method: 'Fake transparency',
     opacity: 0.85,
@@ -124,6 +124,12 @@ state.renderParams.cartoonEdgeOpacity = cartoonEdgeOpacity;
 state.renderParams.animate = animate;
 state.renderParams.bgColor = theme.background;
 state.dirty = true;
+if (state.updateAnimationLoop) {
+  state.updateAnimationLoop();
+}
+if (state.camera) {
+  state.camera.triggerRepaint();
+}
   </script>
 
   <script id="main" type="text/x-typescript">
@@ -146,10 +152,12 @@ if (!state.initialized) {
 
   state.canvas = canvas;
   state.gpuContext = gpuContext;
-  state.camera = createCameraController(canvas, {
+  state.camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
     distance: 4,
     phi: 0.4,
-    theta: 0.2
+    theta: 0.2,
+    renderContinuously: false
   });
 
   state.renderer = createRenderer(device, canvasFormat, {
@@ -185,7 +193,7 @@ const resizeCanvas = () => {
     canvas.height = newHeight;
     gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
     state.dirty = true;
-    camera.taint();
+    camera.triggerRepaint();
   }
 };
 
@@ -198,14 +206,10 @@ const intersectionObserver = new IntersectionObserver(entries => {
 });
 intersectionObserver.observe(container);
 
-if (state.frame) {
-  state.frame.cancel();
-  state.frame = null;
-}
-camera.taint();
-
 const startTime = performance.now();
-state.frame = createFrameLoop((timestamp) => {
+
+// Event-driven rendering triggered by camera or parameter changes
+const render = (timestamp: number) => {
   if (!visible) return;
 
   const w = canvas.width;
@@ -217,12 +221,35 @@ state.frame = createFrameLoop((timestamp) => {
     figcaption.textContent = state.renderParams.method;
     state.dirty = false;
   }
-});
+};
+
+// Render when camera moves or when animate is enabled
+camera.on('render', render);
+
+// When animate is enabled, render continuously
+let animationFrameId: number | null = null;
+state.updateAnimationLoop = () => {
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+  
+  if (state.renderParams.animate) {
+    const loop = (timestamp: number) => {
+      render(timestamp);
+      animationFrameId = requestAnimationFrame(loop);
+    };
+    animationFrameId = requestAnimationFrame(loop);
+  }
+};
+state.updateAnimationLoop();
+
+// Trigger initial render
+camera.triggerRepaint();
 
 invalidation.then(() => {
-  if (state.frame) {
-    state.frame.cancel();
-    state.frame = null;
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
   }
   resizeObserver.disconnect();
   intersectionObserver.disconnect();
@@ -244,6 +271,12 @@ display(expandable(figure, {
   height: figureHeight,
   controls: '#surface-controls',
   state: state.expandedState,
+  buttons: cameraButtons({
+    camera,
+    canvas,
+    filename: 'transparency-surface.png',
+    getContainer: () => container
+  }),
   onResize: (content, w, h, expanded) => {
     container.style.width = `${w}px`;
     container.style.height = `${h}px`;

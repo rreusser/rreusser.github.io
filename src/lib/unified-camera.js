@@ -105,6 +105,10 @@ export function createUnifiedCamera(element, opts = {}) {
   let resizeObserver = null;
   let dragStartX = 0, dragStartY = 0;
   
+  // Dead zone for distinguishing clicks from drags
+  let exitedDeadZone = false;
+  const deadZoneRadius = 5;
+  
   // For arcball
   let prevNormX = 0, prevNormY = 0;
 
@@ -115,6 +119,7 @@ export function createUnifiedCamera(element, opts = {}) {
   let lastTouchDist = 0;
   let lastTouchCenterX = 0;
   let lastTouchCenterY = 0;
+  let touchDragMode = null; // 'rotate' | 'pinch'
 
   // Mode-specific backends
   const markDirty = () => {
@@ -227,12 +232,15 @@ export function createUnifiedCamera(element, opts = {}) {
       return;
     }
 
+    // Don't preventDefault here - allow clicks to focus/blur elements naturally
+    // We'll preventDefault in onMouseMove once we know it's a drag
     dragMode = getDragMode(event);
     isDragging = true;
     lastX = event.clientX;
     lastY = event.clientY;
     dragStartX = event.clientX;
     dragStartY = event.clientY;
+    exitedDeadZone = false;
 
     // For arcball, store normalized coordinates
     if (state.mode === 'arcball' && dragMode === 'orbit') {
@@ -248,7 +256,6 @@ export function createUnifiedCamera(element, opts = {}) {
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-    event.preventDefault();
   }
 
   /**
@@ -256,6 +263,18 @@ export function createUnifiedCamera(element, opts = {}) {
    */
   function onMouseMove(event) {
     if (!isDragging) return;
+
+    // Check dead zone to distinguish clicks from drags
+    if (!exitedDeadZone) {
+      const distX = event.clientX - dragStartX;
+      const distY = event.clientY - dragStartY;
+      if (Math.sqrt(distX * distX + distY * distY) < deadZoneRadius) {
+        return; // Still in dead zone, don't rotate yet
+      }
+      exitedDeadZone = true;
+      // Now we know it's a drag, prevent text selection etc.
+      event.preventDefault();
+    }
 
     const dx = event.clientX - lastX;
     const dy = event.clientY - lastY;
@@ -314,12 +333,21 @@ export function createUnifiedCamera(element, opts = {}) {
     event.preventDefault();
     if (event.touches.length === 1) {
       // Single finger - rotate
+      touchDragMode = 'rotate';
       isDragging = true;
       dragMode = 'orbit';
       lastX = event.touches[0].clientX;
       lastY = event.touches[0].clientY;
+      
+      // For arcball, store normalized coordinates
+      if (state.mode === 'arcball') {
+        const rect = element.getBoundingClientRect();
+        prevNormX = (2 * (event.touches[0].clientX - rect.left) / rect.width) - 1;
+        prevNormY = 1 - (2 * (event.touches[0].clientY - rect.top) / rect.height);
+      }
     } else if (event.touches.length === 2) {
       // Two fingers - prepare for pinch zoom and pan
+      touchDragMode = 'pinch';
       const dx = event.touches[1].clientX - event.touches[0].clientX;
       const dy = event.touches[1].clientY - event.touches[0].clientY;
       lastTouchDist = Math.sqrt(dx * dx + dy * dy);
@@ -334,7 +362,7 @@ export function createUnifiedCamera(element, opts = {}) {
   function onTouchMove(event) {
     event.preventDefault();
 
-    if (event.touches.length === 1 && isDragging && dragMode === 'orbit') {
+    if (event.touches.length === 1 && touchDragMode === 'rotate') {
       // Single finger rotate
       const dx = event.touches[0].clientX - lastX;
       const dy = event.touches[0].clientY - lastY;
@@ -343,7 +371,7 @@ export function createUnifiedCamera(element, opts = {}) {
 
       backends[state.mode].rotate(dx, dy, element, event.touches[0]);
       markDirty();
-    } else if (event.touches.length === 2) {
+    } else if (event.touches.length === 2 && touchDragMode === 'pinch') {
       // Two finger pinch zoom + pan
       const dx = event.touches[1].clientX - event.touches[0].clientX;
       const dy = event.touches[1].clientY - event.touches[0].clientY;
@@ -376,9 +404,28 @@ export function createUnifiedCamera(element, opts = {}) {
    * Touch end handler
    */
   function onTouchEnd(event) {
-    isDragging = false;
-    dragMode = null;
-    lastTouchDist = 0;
+    if (event.touches.length === 0) {
+      // All fingers lifted
+      isDragging = false;
+      dragMode = null;
+      touchDragMode = null;
+      lastTouchDist = 0;
+    } else if (event.touches.length === 1) {
+      // Transitioned from 2 fingers to 1 - switch to rotate mode
+      touchDragMode = 'rotate';
+      isDragging = true;
+      dragMode = 'orbit';
+      lastX = event.touches[0].clientX;
+      lastY = event.touches[0].clientY;
+      lastTouchDist = 0;
+      
+      // Reinitialize rotation state with remaining finger
+      if (state.mode === 'arcball') {
+        const rect = element.getBoundingClientRect();
+        prevNormX = (2 * (event.touches[0].clientX - rect.left) / rect.width) - 1;
+        prevNormY = 1 - (2 * (event.touches[0].clientY - rect.top) / rect.height);
+      }
+    }
   }
 
   /**

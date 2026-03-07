@@ -19,15 +19,13 @@ export function cameraButtons({ camera, canvas, filename = 'snapshot.png', getCo
     {
       icon: camera.getMode() === 'orbit' ? ICON_ORBIT : ICON_ARCBALL,
       title: 'Toggle camera mode (orbit/arcball)',
-      onClick: () => {
+      onClick: (content, expanded, button) => {
         const currentMode = camera.getMode();
         const newMode = currentMode === 'orbit' ? 'arcball' : 'orbit';
         camera.setMode(newMode);
         camera.triggerRepaint();
-        const container = getContainer && getContainer();
-        if (container) {
-          const btn = container.querySelector('[title="Toggle camera mode (orbit/arcball)"]');
-          if (btn) btn.innerHTML = newMode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
+        if (button) {
+          button.innerHTML = newMode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
         }
       }
     },
