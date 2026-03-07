@@ -17,7 +17,6 @@ invalidation.then(() => device.destroy());
   </script>
   <script id="main-canvas" type="module">
 import { createElementStack } from './lib/element-stack.js'
-import { expandable } from './lib/expandable.js'
 
 const dpr = window.devicePixelRatio || 1;
 const canvasWidth = Math.min(800, width);
@@ -81,11 +80,24 @@ const renderState = { dirty: true, depthTexture, msaaColorTexture, sampleCount }
 const figure = html`<figure style="margin: 0;" id="main-figure">
   ${stack.element}
 </figure>`;
+  </script>
+  <script id="expandable-display" type="module">
+import { expandable } from './lib/expandable.js'
+import { cameraButtons } from './lib/camera-buttons.js'
 
-display(expandable(figure, {
+camera; canvas; figure; stack; renderState; canvasWidth; canvasHeight; device; canvasFormat; dpr;
+
+let expandableContainer;
+expandableContainer = expandable(figure, {
   width: canvasWidth,
   height: canvasHeight,
   controls: '.attractor-controls',
+  buttons: cameraButtons({
+    camera,
+    canvas,
+    filename: 'strange-attractors.png',
+    getContainer: () => expandableContainer,
+  }),
   onResize(el, w, h) {
     stack.resize(w, h);
     canvas.width = Math.floor(w * dpr);
@@ -110,7 +122,9 @@ display(expandable(figure, {
     renderState.dirty = true;
     stack.dispatchEvent(new CustomEvent('update'));
   }
-}));
+});
+
+display(expandableContainer);
   </script>
   <script id="controls" type="module">
 const controlsContainer = html`<div class="attractor-controls"></div>`;
@@ -395,6 +409,8 @@ invalidation.then(() => gpuLines.destroy());
   <script id="camera-setup" type="module">
 import { createUnifiedCamera } from './lib/unified-camera.js';
 
+renderState; // Dependency
+
 const camera = createUnifiedCamera(stack.elements.svg, {
   mode: 'orbit',
   phi: 0.8,
@@ -403,7 +419,13 @@ const camera = createUnifiedCamera(stack.elements.svg, {
   center: [0, 2, 0],
   fov: Math.PI / 4,
   near: 0.01,
-  far: 100
+  far: 100,
+  renderContinuously: false,
+});
+
+// Mark dirty when camera moves so render loop draws
+camera.on('render', () => {
+  renderState.dirty = true;
 });
 
 invalidation.then(() => camera.destroy());
