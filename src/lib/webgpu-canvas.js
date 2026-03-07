@@ -164,3 +164,131 @@ export function webgpuAxesViewport(axes, pixelRatio, canvasHeight) {
 
   return { x, y, width, height };
 }
+
+/**
+ * Create a storage buffer with common usage flags.
+ * By default includes STORAGE, COPY_SRC, and COPY_DST flags.
+ *
+ * @param {GPUDevice} device - The WebGPU device
+ * @param {string} label - Debug label for the buffer
+ * @param {number} size - Size in bytes
+ * @param {Object} [options] - Additional options
+ * @param {boolean} [options.vertex=false] - Add VERTEX usage flag
+ * @param {boolean} [options.index=false] - Add INDEX usage flag
+ * @param {boolean} [options.uniform=false] - Add UNIFORM usage flag
+ * @param {boolean} [options.indirect=false] - Add INDIRECT usage flag
+ * @param {GPUBufferUsageFlags} [options.usage] - Additional usage flags to OR in
+ * @returns {GPUBuffer}
+ */
+export function createStorageBuffer(device, label, size, options = {}) {
+  let usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+  
+  if (options.vertex) usage |= GPUBufferUsage.VERTEX;
+  if (options.index) usage |= GPUBufferUsage.INDEX;
+  if (options.uniform) usage |= GPUBufferUsage.UNIFORM;
+  if (options.indirect) usage |= GPUBufferUsage.INDIRECT;
+  if (options.usage) usage |= options.usage;
+
+  return device.createBuffer({
+    label,
+    size,
+    usage,
+  });
+}
+
+/**
+ * Create a uniform buffer and optionally write initial data.
+ *
+ * @param {GPUDevice} device - The WebGPU device
+ * @param {string} label - Debug label for the buffer
+ * @param {number|TypedArray|ArrayBuffer} sizeOrData - Size in bytes, or data to write
+ * @param {Object} [options] - Additional options
+ * @param {boolean} [options.vertex=false] - Add VERTEX usage flag
+ * @param {GPUBufferUsageFlags} [options.usage] - Additional usage flags to OR in
+ * @returns {GPUBuffer}
+ */
+export function createUniformBuffer(device, label, sizeOrData, options = {}) {
+  let usage = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+  
+  if (options.vertex) usage |= GPUBufferUsage.VERTEX;
+  if (options.usage) usage |= options.usage;
+
+  const size = typeof sizeOrData === 'number' ? sizeOrData : sizeOrData.byteLength;
+  
+  const buffer = device.createBuffer({
+    label,
+    size,
+    usage,
+  });
+
+  // Write initial data if provided
+  if (typeof sizeOrData !== 'number') {
+    device.queue.writeBuffer(buffer, 0, sizeOrData);
+  }
+
+  return buffer;
+}
+
+/**
+ * Create a vertex buffer and optionally write initial data.
+ *
+ * @param {GPUDevice} device - The WebGPU device
+ * @param {string} label - Debug label for the buffer
+ * @param {number|TypedArray|ArrayBuffer} sizeOrData - Size in bytes, or data to write
+ * @param {Object} [options] - Additional options
+ * @param {boolean} [options.storage=false] - Add STORAGE usage flag
+ * @param {GPUBufferUsageFlags} [options.usage] - Additional usage flags to OR in
+ * @returns {GPUBuffer}
+ */
+export function createVertexBuffer(device, label, sizeOrData, options = {}) {
+  let usage = GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
+  
+  if (options.storage) usage |= GPUBufferUsage.STORAGE;
+  if (options.usage) usage |= options.usage;
+
+  const size = typeof sizeOrData === 'number' ? sizeOrData : sizeOrData.byteLength;
+  
+  const buffer = device.createBuffer({
+    label,
+    size,
+    usage,
+  });
+
+  // Write initial data if provided
+  if (typeof sizeOrData !== 'number') {
+    device.queue.writeBuffer(buffer, 0, sizeOrData);
+  }
+
+  return buffer;
+}
+
+/**
+ * Create an index buffer and optionally write initial data.
+ *
+ * @param {GPUDevice} device - The WebGPU device
+ * @param {string} label - Debug label for the buffer
+ * @param {number|TypedArray|ArrayBuffer} sizeOrData - Size in bytes, or data to write
+ * @param {Object} [options] - Additional options
+ * @param {GPUBufferUsageFlags} [options.usage] - Additional usage flags to OR in
+ * @returns {GPUBuffer}
+ */
+export function createIndexBuffer(device, label, sizeOrData, options = {}) {
+  let usage = GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST;
+  
+  if (options.usage) usage |= options.usage;
+
+  const size = typeof sizeOrData === 'number' ? sizeOrData : sizeOrData.byteLength;
+  
+  const buffer = device.createBuffer({
+    label,
+    size,
+    usage,
+  });
+
+  // Write initial data if provided
+  if (typeof sizeOrData !== 'number') {
+    device.queue.writeBuffer(buffer, 0, sizeOrData);
+  }
+
+  return buffer;
+}

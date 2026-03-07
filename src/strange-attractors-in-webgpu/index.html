@@ -236,45 +236,7 @@ We start by initializing particle positions within a sphere centered near the at
   </script>
   <script id="init-shader" type="module">
 // Compute shader to initialize particle state (writes to buffer)
-const initShaderCode = /* wgsl */`
-@group(0) @binding(0) var<storage, read_write> state: array<vec4f>;
-
-struct Uniforms {
-  origin: vec3f,
-  scale: f32,
-  stepCount: u32,
-  particleCount: u32,
-}
-@group(0) @binding(1) var<uniform> uniforms: Uniforms;
-
-// Quasirandom sequence: http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
-fn quasirandom(n: f32) -> vec3f {
-  let g = 1.22074408460575947536;
-  return fract(0.5 + n * vec3f(1.0 / g, 1.0 / (g * g), 1.0 / (g * g * g))).zyx;
-}
-
-fn sphericalRandom(n: f32) -> vec3f {
-  let rand = quasirandom(n);
-  let u = rand.x * 2.0 - 1.0;
-  let theta = 6.283185307179586 * rand.y;
-  let r = sqrt(1.0 - u * u);
-  return vec3f(r * cos(theta), r * sin(theta), u) * sqrt(rand.z);
-}
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let particle = gid.x;
-  if (particle >= uniforms.particleCount) { return; }
-
-  // Initialize all steps for this particle with the same position
-  let pos = uniforms.origin + uniforms.scale * sphericalRandom(f32(particle) + 0.5);
-  for (var step = 0u; step < uniforms.stepCount; step++) {
-    // Buffer index: particle * stepCount + step
-    let idx = particle * uniforms.stepCount + step;
-    state[idx] = vec4f(pos, 1.0);
-  }
-}
-`;
+import initShaderCode from './shaders/init.wgsl?raw';
 
 const initShaderModule = device.createShaderModule({
   label: 'init-shader',
@@ -343,73 +305,10 @@ invalidation.then(() => {
 
 To step the ODE, we use the [fourth-order Runge-Kutta](https://en.wikipedia.org/wiki/Runge%E2%80%93Kutta_methods#The_Runge%E2%80%93Kutta_method) (RK4) method. The integration shader reads from index `particle * stepCount + srcColumn` and writes to `particle * stepCount + dstColumn`. Since these are different indices (no particle reads what another particle writes), there are no data races.
   </script>
-  <script id="attractor-wgsl" type="module">
-// The strange attractor equations
-const attractorWGSL = /* wgsl */`
-fn derivative(x: f32, y: f32, z: f32, t: f32) -> vec3f {
-  let alpha = 3.0;
-  let beta = 2.20;
-  let gamma = 1.0;
-  let mu = 1.510;
-  return vec3f(
-    alpha * x * (1.0 - y) - beta * z,
-    -gamma * y * (1.0 - x * x),
-    mu * x
-  );
-}
-`;
-  </script>
   <script id="integrate-shader" type="module">
 // Integration shader: reads from and writes to storage buffer directly
 // With read_write access, no ping-pong needed - just read src step and write dst step
-const integrateShaderCode = /* wgsl */`
-@group(0) @binding(0) var<storage, read_write> state: array<vec4f>;
-
-struct Uniforms {
-  dt: f32,
-  t: f32,
-  srcStep: u32,
-  dstStep: u32,
-  stepCount: u32,
-  particleCount: u32,
-}
-@group(0) @binding(1) var<uniform> uniforms: Uniforms;
-
-${attractorWGSL}
-
-fn deriv(p: vec3f, t: f32) -> vec3f {
-  return derivative(p.x, p.y, p.z, t);
-}
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let particle = gid.x;
-  if (particle >= uniforms.particleCount) { return; }
-
-  // Read current state from source step
-  let srcIdx = particle * uniforms.stepCount + uniforms.srcStep;
-  let p = state[srcIdx].xyz;
-
-  // RK4 integration
-  let dt = uniforms.dt;
-  let t = uniforms.t;
-  let k1 = deriv(p, t);
-  let k2 = deriv(p + 0.5 * dt * k1, t + 0.5 * dt);
-  let k3 = deriv(p + 0.5 * dt * k2, t + 0.5 * dt);
-  let k4 = deriv(p + dt * k3, t + dt);
-
-  var newP = p + (dt / 6.0) * (k1 + k4 + 2.0 * (k2 + k3));
-
-  // If particle diverges, reset near origin
-  if (dot(newP, newP) > 1e6) {
-    newP = newP * 0.0001;
-  }
-
-  // Write to destination step
-  let dstIdx = particle * uniforms.stepCount + uniforms.dstStep;
-  state[dstIdx] = vec4f(newP, 1.0);
-}
-`;
+import integrateShaderCode from './shaders/integrate.wgsl?raw';
 
 const integrateShaderModule = device.createShaderModule({
   label: 'integrate-shader',
@@ -494,9 +393,10 @@ invalidation.then(() => gpuLines.destroy());
   </script>
 
   <script id="camera-setup" type="module">
-import { createCameraController } from './lib/camera-controller.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
 
-const camera = createCameraController(stack.elements.svg, {
+const camera = createUnifiedCamera(stack.elements.svg, {
+  mode: 'orbit',
   phi: 0.8,
   theta: 0.3,
   distance: 7,
@@ -509,113 +409,9 @@ const camera = createCameraController(stack.elements.svg, {
 invalidation.then(() => camera.destroy());
   </script>
   <script id="line-rendering" type="module">
-// Vertex shader that loads from the state buffer
-const vertexShaderBody = /* wgsl */`// vertexShaderBody:
-
-@group(1) @binding(0) var<storage, read> state: array<vec4f>;
-@group(1) @binding(1) var<uniform> projViewMatrix: mat4x4f;
-
-struct LineUniforms {
-  stepOffset: u32,  // Ring buffer offset
-  stepCount: u32,
-  particleCount: u32,
-  width: f32,
-}
-@group(1) @binding(2) var<uniform> lineUniforms: LineUniforms;
-
-struct Vertex {
-  position: vec4f,
-  width: f32,
-  t: f32,
-  velocity: f32,
-  lineWidth: f32,
-}
-
-// Bouali attractor derivative for velocity computation
-fn attractorDerivative(pos: vec3f) -> vec3f {
-  let alpha = 3.0;
-  let beta = 2.2;
-  let gamma = 1.0;
-  let mu = 1.51;
-  return vec3f(
-    alpha * pos.x * (1.0 - pos.y) - beta * pos.z,
-    -gamma * pos.y * (1.0 - pos.x * pos.x),
-    mu * pos.x
-  );
-}
-
-fn getVertex(index: u32) -> Vertex {
-  // Decode buffer index from vertex index
-  let pointsPerParticle = lineUniforms.stepCount + 1u; // +1 for line break
-  let particle = index / pointsPerParticle;
-  let step = index % pointsPerParticle;
-
-  // Check if this is a line break point
-  if (step >= lineUniforms.stepCount) {
-    return Vertex(vec4f(0), 0.0, 0.0, 0.0, 0.0);
-  }
-
-  // Compute buffer index with ring buffer offset (modular arithmetic for wrap-around)
-  let bufferStep = (step + lineUniforms.stepOffset) % lineUniforms.stepCount;
-  let bufferIdx = particle * lineUniforms.stepCount + bufferStep;
-
-  // Load position from state buffer
-  let pos = state[bufferIdx].xyz;
-
-  // Compute velocity from attractor derivative
-  let speed = length(attractorDerivative(pos));
-  let normalizedVelocity = clamp(speed / 10.0, 0.0, 1.0);
-
-  // Progress along the track (0 = oldest, 1 = newest)
-  let t = f32(step) / f32(lineUniforms.stepCount - 1u);
-
-  // Project to clip space
-  let projected = projViewMatrix * vec4f(pos, 1.0);
-
-  // Line width tapers from thin (old) to thick (new)
-  let lineWidth = lineUniforms.width * (0.3 + 0.7 * t);
-
-  return Vertex(projected, lineWidth, t, normalizedVelocity, lineWidth);
-}
-`;
-
-const fragmentShaderBody = /* wgsl */`
-// Rainbow color palette from webgpu-instanced-lines lorenz example
-fn rainbow(p: vec2f) -> vec3f {
-  let theta = p.x * 6.283185;
-  let c = cos(theta);
-  let s = sin(theta);
-  let m1 = mat3x3f(
-    0.5230851,  0.56637411, 0.46725319,
-    0.12769652, 0.14082407, 0.13691271,
-   -0.25934743,-0.12121582, 0.2348705
-  );
-  let m2 = mat3x3f(
-    0.3555664, -0.11472876,-0.01250831,
-    0.15243126,-0.03668075, 0.0765231,
-   -0.00192128,-0.01350681,-0.0036526
-  );
-  return m1 * vec3f(1.0, p.y * 2.0 - 1.0, s) +
-         m2 * vec3f(c, s * c, c * c - s * s);
-}
-
-fn getColor(lineCoord: vec2f, t: f32, velocity: f32, lineWidth: f32) -> vec4f {
-  let sdf = length(lineCoord) * lineWidth;
-  let isCap = abs(lineCoord.x) > 0.0;
-
-  // Rainbow color based on velocity, with saturation from track progress
-  var color = rainbow(vec2f(velocity, t));
-
-  if (isCap && dot(lineCoord, lineCoord) > 1.0) { discard; }
-
-  // Dark border effect
-  let borderWidth = 4.0;
-  let borderMask = smoothstep(lineWidth - borderWidth - 0.75, lineWidth - borderWidth + 0.75, sdf);
-  color = mix(color, vec3f(0.0), borderMask * 0.8);
-
-  return vec4f(color, 1.0);
-}
-`;
+// Vertex and fragment shader bodies for line rendering
+import vertexShaderBody from './shaders/vertex.wgsl?raw';
+import fragmentShaderBody from './shaders/fragment.wgsl?raw';
   </script>
   <script id="line-buffers" type="module">
 // Create buffers for line rendering
@@ -708,8 +504,8 @@ const loop = createFrameLoop(() => {
 
   // Render
   const aspectRatio = canvas.width / canvas.height;
-  const { projectionView: projView, dirty: cameraDirty } = camera.update(aspectRatio);
-  if (renderState.dirty || cameraDirty) {
+  const { projView } = camera.update(aspectRatio);
+  if (renderState.dirty) {
     device.queue.writeBuffer(projViewBuffer, 0, projView);
 
     // Update line uniforms (stepOffset, stepCount, particleCount, width)

@@ -18,6 +18,8 @@ This repository publishes Observable notebooks as a static website using Observa
 
 ## Debugging techniques
 
+- The base URL for notebooks is http://localhost:5173/notebooks/{notebook-name}/. In general, a server will already be running so you do not need to start it.
+
 - Assign unique and useful IDs to HTML elements and plot elements to make them easier to find and query.
 
 - Use the Notebook MCP server to aid debugging. If it reports that the notebook disconnects while working, the most likely reason is a recent syntax error which prevents vite from building. Stop immediately and locate the syntax error, then refresh.

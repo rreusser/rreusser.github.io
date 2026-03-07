@@ -8,7 +8,7 @@
 
   <script id="imports" type="text/x-typescript">
 import { createWebGPUContext } from './lib/webgpu-canvas.js';
-import { createCameraController } from './lib/camera-controller.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
 import { expandable } from './lib/expandable.js';
 import { createFrameLoop } from './lib/frame-loop.js';
 import { meshFromFunction } from './mesh.js';
@@ -30,7 +30,7 @@ const state = {
   initialized: false,
   canvas: null as HTMLCanvasElement | null,
   gpuContext: null as GPUCanvasContext | null,
-  camera: null as ReturnType<typeof createCameraController> | null,
+  camera: null as ReturnType<typeof createUnifiedCamera> | null,
   frame: null as { cancel: () => void } | null,
   dirty: true,
   expandedState: { expanded: false },
@@ -88,7 +88,8 @@ if (!state.initialized) {
 
   state.canvas = canvas;
   state.gpuContext = gpuContext;
-  state.camera = createCameraController(canvas, {
+  state.camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
     distance: 5,
     phi: 5.5,
     theta: 0.2,
