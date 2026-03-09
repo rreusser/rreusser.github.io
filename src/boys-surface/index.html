@@ -134,22 +134,30 @@ display(expandableContainer);
   <script id="controls" type="text/x-typescript">
 const controlsContainer = html`<div id="surface-controls"></div>`;
 
-function ctrl(input: HTMLElement) {
+function addControl(input: HTMLElement) {
   controlsContainer.appendChild(input);
-  return Generators.input(input);
+  return input;
 }
 
-const rRangeInput = interval([0, 1], { label: "r range", value: [0, 1], step: 0.001, invertible: true });
-controlsContainer.appendChild(rRangeInput);
-const rRange = Generators.input(rRangeInput);
+const rRangeInput = addControl(interval([0, 1], { label: "r range", value: [0, 1], step: 0.001, invertible: true }));
+const vClipInput = addControl(interval([-3.15, 3.15], { label: "θ range", value: [-3.15, 3.15], step: 0.01, invertible: true }));
+const opacityInput = addControl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.9, step: 0.01 }));
 
-const vClipInput = interval([-3.15, 3.15], { label: "θ range", value: [-3.15, 3.15], step: 0.01, invertible: true });
-controlsContainer.appendChild(vClipInput);
-const vClip = Generators.input(vClipInput);
+function syncParams() {
+  const rRange = rRangeInput.value as { range: [number, number]; invert: boolean };
+  const vClip = vClipInput.value as { range: [number, number]; invert: boolean };
+  state.renderParams.uClipMin = rRange.range[0];
+  state.renderParams.uClipMax = rRange.range[1];
+  state.renderParams.invertClipU = rRange.invert ? 1 : 0;
+  state.renderParams.vClipMin = vClip.range[0];
+  state.renderParams.vClipMax = vClip.range[1];
+  state.renderParams.invertClipV = vClip.invert ? 1 : 0;
+  state.renderParams.opacity = opacityInput.value as number;
+  camera.triggerRepaint();
+}
 
-const opacity = ctrl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.9, step: 0.01 }));
-const gridOpacity = 0.25;
-const cartoonEdgeOpacity = 0.7;
+controlsContainer.addEventListener('input', syncParams);
+syncParams();
 
 display(controlsContainer);
   </script>
