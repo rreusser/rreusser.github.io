@@ -58,79 +58,6 @@ const state = {
 
 
 
-  <script id="main" type="text/x-typescript">
-const mesh = meshFromFunction((u, v) => [u, v], {
-  resolution: [401, 401],
-  uDomain: [1e-4, 1 - 1e-4],
-  vDomain: [-Math.PI, Math.PI]
-});
-
-const canvas = document.createElement('canvas');
-canvas.width = 800;
-canvas.height = 600;
-canvas.style.width = '100%';
-canvas.style.height = '100%';
-
-const gpuContext = canvas.getContext('webgpu')!;
-gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
-
-const renderer = createRenderer(device, canvasFormat, {
-  peel: peelShaderCode,
-  composite: compositeShaderCode
-});
-renderer.initMesh(mesh);
-
-const container = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
-container.appendChild(canvas);
-
-// Create camera AFTER canvas is in DOM - it will handle ResizeObserver automatically
-const camera = createUnifiedCamera(canvas, {
-  mode: 'orbit',
-  distance: 5,
-  phi: 5.5,
-  theta: 0.2,
-  center: [0, -1, 0],
-  renderContinuously: false,
-  observeResize: true, // Camera will auto-resize canvas and emit render events
-});
-
-// Set up event-driven rendering
-camera.on('render', () => {
-  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, false);
-});
-
-// Defocus buttons when interacting with canvas
-canvas.addEventListener('mousedown', () => {
-  if (document.activeElement instanceof HTMLElement) {
-    document.activeElement.blur();
-  }
-});
-
-// Cleanup on cell invalidation
-invalidation.then(() => {
-  camera.destroy();
-});
-
-// Trigger initial render via camera
-camera.triggerRepaint();
-
-// Wrap in expandable
-let expandableContainer;
-expandableContainer = expandable(container, {
-  width: 640,
-  height: 480,
-  state: state.expandedState,
-  buttons: cameraButtons({
-    camera,
-    canvas,
-    filename: 'boys-surface.png',
-    getContainer: () => expandableContainer,
-  }),
-});
-
-display(expandableContainer);
-  </script>
-
   <script id="controls" type="text/x-typescript">
 const controlsContainer = html`<div id="surface-controls"></div>`;
 
@@ -143,6 +70,32 @@ const rRangeInput = addControl(interval([0, 1], { label: "r range", value: [0, 1
 const vClipInput = addControl(interval([-3.15, 3.15], { label: "θ range", value: [-3.15, 3.15], step: 0.01, invertible: true }));
 const opacityInput = addControl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.9, step: 0.01 }));
 
+display(controlsContainer);
+  </script>
+
+  <script id="camera" type="text/x-typescript">
+const canvas = document.createElement('canvas');
+canvas.width = 800;
+canvas.height = 600;
+canvas.style.width = '100%';
+canvas.style.height = '100%';
+
+const camera = createUnifiedCamera(canvas, {
+  mode: 'orbit',
+  distance: 5,
+  phi: 5.5,
+  theta: 0.2,
+  center: [0, -1, 0],
+  renderContinuously: false,
+  observeResize: true,
+});
+
+invalidation.then(() => {
+  camera.destroy();
+});
+  </script>
+
+  <script id="sync-params" type="text/x-typescript">
 function syncParams() {
   const rRange = rRangeInput.value as { range: [number, number]; invert: boolean };
   const vClip = vClipInput.value as { range: [number, number]; invert: boolean };
@@ -158,8 +111,54 @@ function syncParams() {
 
 controlsContainer.addEventListener('input', syncParams);
 syncParams();
+  </script>
 
-display(controlsContainer);
+  <script id="main" type="text/x-typescript">
+const mesh = meshFromFunction((u, v) => [u, v], {
+  resolution: [401, 401],
+  uDomain: [1e-4, 1 - 1e-4],
+  vDomain: [-Math.PI, Math.PI]
+});
+
+const gpuContext = canvas.getContext('webgpu')!;
+gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+
+const renderer = createRenderer(device, canvasFormat, {
+  peel: peelShaderCode,
+  composite: compositeShaderCode
+});
+renderer.initMesh(mesh);
+
+const container = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
+container.appendChild(canvas);
+
+camera.on('render', () => {
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, false);
+});
+
+canvas.addEventListener('mousedown', () => {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+});
+
+camera.triggerRepaint();
+
+let expandableContainer;
+expandableContainer = expandable(container, {
+  width: 640,
+  height: 480,
+  controls: controlsContainer,
+  state: state.expandedState,
+  buttons: cameraButtons({
+    camera,
+    canvas,
+    filename: 'boys-surface.png',
+    getContainer: () => expandableContainer,
+  }),
+});
+
+display(expandableContainer);
   </script>
 
   <script id="equations" type="text/markdown">
