@@ -174,6 +174,7 @@ export default defineConfig(async ({ command }) => {
             authorUrl: "https://rreusser.github.io",
             canonicalUrl,
             currentYear: new Date().getFullYear(),
+            isRootIndex,
             ...notebook,
             ...metadata,
           };
