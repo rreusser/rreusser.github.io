@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = join(__dirname, "..");
 const NOTEBOOKS_DIR = join(ROOT_DIR, "src");
-const OUTPUT_PATH = join(ROOT_DIR, "docs/feed.xml");
+const OUTPUT_PATH = join(ROOT_DIR, "www/feed.xml");
 
 const SITE_URL = "https://rreusser.github.io/notebooks";
 const META_IMAGE_BASE_URL = `${SITE_URL}/meta`;

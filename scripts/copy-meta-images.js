@@ -8,7 +8,7 @@ const projectRoot = join(__dirname, "..");
 
 async function copyMetaImages() {
   const srcDir = join(projectRoot, "src");
-  const metaDir = join(projectRoot, "docs", "meta");
+  const metaDir = join(projectRoot, "www", "meta");
 
   // Find all meta image files
   const metaFiles = await glob(join(srcDir, "**", "meta.{png,jpg,webp}"), {
@@ -34,7 +34,7 @@ async function copyMetaImages() {
     console.log(`Copied ${dirName}/meta${ext} → meta/${dirName}${ext}`);
   }
 
-  console.log(`\nCopied ${metaFiles.length} meta image(s) to docs/meta/`);
+  console.log(`\nCopied ${metaFiles.length} meta image(s) to www/meta/`);
 }
 
 copyMetaImages().catch((err) => {

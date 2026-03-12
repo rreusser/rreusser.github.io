@@ -4,3 +4,4 @@ icebox
 .notebookkit-debug
 src/webgpu-lines/regl-gpu-lines
 src/denali/data
+.janus

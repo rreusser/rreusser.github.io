@@ -126,7 +126,7 @@ function copyStaticAssets(patterns) {
         const files = glob.sync(join(NOTEBOOKS_DIR, pattern), { nodir: true, absolute: true });
         for (const file of files) {
           const rel = relative(NOTEBOOKS_DIR, file);
-          const dest = join(__dirname, 'docs', rel);
+          const dest = join(__dirname, 'www', rel);
           await mkdir(dirname(dest), { recursive: true });
           await copyFile(file, dest);
         }
@@ -199,7 +199,7 @@ export default defineConfig(({ command }) => {
       }),
     ],
     build: {
-      outDir: join(__dirname, "docs"),
+      outDir: join(__dirname, "www"),
       emptyOutDir: true,
       rollupOptions: {
         input: notebookPaths,
