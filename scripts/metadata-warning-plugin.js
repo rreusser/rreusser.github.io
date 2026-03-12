@@ -27,6 +27,7 @@ export function metadataWarningPlugin({ rootDir }) {
       if (!notebookDir) return html;
 
       const metadataPath = join(rootDir, notebookDir, 'metadata.yml');
+      const metaWebpPath = join(rootDir, notebookDir, 'meta.webp');
       const metaJpgPath = join(rootDir, notebookDir, 'meta.jpg');
       const metaPngPath = join(rootDir, notebookDir, 'meta.png');
 
@@ -40,8 +41,8 @@ export function metadataWarningPlugin({ rootDir }) {
       }
 
       // Check for meta image file
-      const hasMetaImage = await fileExists(metaJpgPath) || await fileExists(metaPngPath);
-      if (!hasMetaImage) warnings.push('missing meta.jpg or meta.png');
+      const hasMetaImage = await fileExists(metaWebpPath) || await fileExists(metaJpgPath) || await fileExists(metaPngPath);
+      if (!hasMetaImage) warnings.push('missing meta.webp (or meta.jpg/png)');
 
       if (warnings.length === 0) return html;
 

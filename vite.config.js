@@ -81,9 +81,13 @@ async function readMetadata(filename) {
 
   // Auto-detect meta image and construct URL from file existence
   delete meta.image;
+  const webpPath = join(notebookDir, "meta.webp");
   const jpgPath = join(notebookDir, "meta.jpg");
   const pngPath = join(notebookDir, "meta.png");
-  if (await fileExists(jpgPath)) {
+  if (await fileExists(webpPath)) {
+    meta.image = `${META_IMAGE_BASE_URL}/${notebookSlug}.webp`;
+    meta.imageType = "image/webp";
+  } else if (await fileExists(jpgPath)) {
     meta.image = `${META_IMAGE_BASE_URL}/${notebookSlug}.jpg`;
     meta.imageType = "image/jpeg";
   } else if (await fileExists(pngPath)) {
@@ -180,7 +184,7 @@ export default defineConfig(async ({ command }) => {
             // In dev: ./slug/meta.ext, in build: ./meta/slug.ext
             data.index = data.index.map((nb) => {
               const slug = nb.path.replace(/\/$/, '');
-              const imageExt = nb.image ? (nb.image.endsWith('.jpg') ? 'jpg' : 'png') : null;
+              const imageExt = nb.image ? nb.image.split('.').pop() : null;
               let imageUrl = null;
               if (imageExt) {
                 imageUrl = isDev ? `./${slug}/meta.${imageExt}` : `./meta/${slug}.${imageExt}`;

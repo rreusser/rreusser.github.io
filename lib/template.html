@@ -21,10 +21,9 @@
   <meta property="og:type" content="{{#if publishedAt}}article{{else}}website{{/if}}" />
   <meta property="article:author" content="Ricky Reusser" />
   {{#if publishedAt}}<meta property="article:published_time" content="{{publishedAtDate}}" />{{/if}}
-  {{#if title}}
-  <meta name="twitter:title" content="{{title}}" />
-  <meta property="og:title" content="{{title}}" />
-  {{/if}}
+  <meta name="twitter:card" content="{{#if image}}summary_large_image{{else}}summary{{/if}}" />
+  <meta name="twitter:title" content="{{#if title}}{{title}}{{else}}Ricky Reusser's Notebooks{{/if}}" />
+  <meta property="og:title" content="{{#if title}}{{title}}{{else}}Ricky Reusser's Notebooks{{/if}}" />
   {{#if description}}
   <meta name="twitter:description" content="{{description}}" />
   <meta name="description" content="{{description}}" />
@@ -32,7 +31,6 @@
   {{/if}}
   {{#if image}}
   <meta name="twitter:image" content="{{image}}">
-  <meta name="twitter:card" content="summary_large_image">
   <meta property="og:image" content="{{image}}">
   <meta property="og:image:type" content="{{imageType}}">
   <meta property="og:image:width" content="1200">
@@ -69,6 +67,10 @@
     @import "@fontsource/inter/500-italic.css";
     @import "@fontsource/inter/600-italic.css";
     @import "@fontsource/inter/700-italic.css";
+    @import "@fontsource/open-sans/300.css";
+    @import "@fontsource/open-sans/400.css";
+    @import "@fontsource/open-sans/700.css";
+    @import "@fontsource/open-sans/400-italic.css";
     @import "/styles.css";
   </style>
   {{#if maxWidth}}<style> main { max-width: {{maxWidth}}; }</style>{{/if}}
@@ -98,7 +100,7 @@
     </button>
   </nav>
   <header>
-    <h1>{{title}}</h1>
+    {{#if title}}<h1>{{title}}</h1>{{/if}}
     <div class="byline">
       {{#if author}}<address class="author"><a rel="author" href="{{authorUrl}}">{{author}}</a></address>{{/if}}
       {{#if publishedAt}}<time datetime="{{publishedAtDate}}">{{publishedAt}}</time>{{/if}}
@@ -150,7 +152,7 @@
       </div>
       <ul class="index" id="index-list">
         {{#each index}}
-        <li class="index__item"{{#if tags}} data-tags="{{#each tags}}{{this}}{{#unless @last}},{{/unless}}{{/each}}"{{/if}} data-path="{{path}}">
+        <li class="index__item"{{#if tags}} data-tags="{{#each tags}}{{this}}{{#unless @last}},{{/unless}}{{/each}}"{{/if}}>
           <div class="index__image-container">
             {{#if imageUrl}}
             <img class="index__image" src="{{imageUrl}}" alt="" loading="lazy" />
@@ -161,7 +163,7 @@
           <div class="index__content">
             <h2 class="index__title"><a href="{{path}}" class="index__title-link">{{title}}</a></h2>
             <div class="index__meta">
-              {{#if publishedAt}}<time class="index__date">{{publishedAt}}</time>{{/if}}
+              {{#if publishedAt}}<time class="index__date" datetime="{{publishedAtDate}}">{{publishedAt}}</time>{{/if}}
               {{#if tags}}
               <div class="index__tags">
                 {{#each tags}}
@@ -221,8 +223,7 @@
 
             // Filter items (case-insensitive)
             const activeTagLower = activeTag.toLowerCase();
-            const items = document.querySelectorAll('.index__item');
-            items.forEach(item => {
+            document.querySelectorAll('.index__item').forEach(item => {
               const tags = (item.dataset.tags || '').split(',').filter(Boolean);
               if (!tags.some(t => t.toLowerCase() === activeTagLower)) {
                 item.style.display = 'none';

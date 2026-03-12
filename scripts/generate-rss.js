@@ -38,9 +38,12 @@ async function readMetadata(filename) {
   const meta = yaml.parse(metadataYAML) || {};
 
   // Auto-detect meta image
+  const webpPath = join(notebookDir, "meta.webp");
   const jpgPath = join(notebookDir, "meta.jpg");
   const pngPath = join(notebookDir, "meta.png");
-  if (await fileExists(jpgPath)) {
+  if (await fileExists(webpPath)) {
+    meta.image = `${META_IMAGE_BASE_URL}/${notebookSlug}.webp`;
+  } else if (await fileExists(jpgPath)) {
     meta.image = `${META_IMAGE_BASE_URL}/${notebookSlug}.jpg`;
   } else if (await fileExists(pngPath)) {
     meta.image = `${META_IMAGE_BASE_URL}/${notebookSlug}.png`;

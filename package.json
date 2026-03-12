@@ -27,6 +27,7 @@
     "yaml": "^2.8.0"
   },
   "dependencies": {
+    "@fontsource/open-sans": "^5.2.7",
     "@observablehq/notebook-kit": "^1.5.0",
     "jsdom": "^26.1.0",
     "next-pow-2": "^1.0.0",
