@@ -22,7 +22,10 @@ const fs = require('fs');
 var projectDir = process.argv[2];
 if (!/^src\//.test(projectDir)) projectDir = path.join('src', projectDir);
 const entryFile = getEntryFile(projectDir);
-const outputDir = projectDir.replace(/^src\//, '../');
+// The sketches index is served from the repo root (top-level index), not /sketches/
+const outputDir = projectDir === 'src/sketches'
+  ? '../'
+  : projectDir.replace(/^src\//, '../');
 
 console.log('Building ', projectDir);
 
@@ -63,8 +66,9 @@ switch (entryFile.type) {
       }
     });
 
+    const stylesRootDir = outputDir === '../' ? outputDir : path.join(outputDir, '..');
     fs.createReadStream(path.join(__dirname, '..', 'lib', 'css', 'styles.css'))
-      .pipe(fs.createWriteStream(path.join(outputDir, '..', 'styles.css')));
+      .pipe(fs.createWriteStream(path.join(stylesRootDir, 'styles.css')));
 
     break;
   case 'html':

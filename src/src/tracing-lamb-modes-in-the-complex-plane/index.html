@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Tracing Lamb Wave Modes in the Complex Plane</title>
+<link rel="stylesheet" type="text/css" href="./inspector.css">
+<link rel="stylesheet" type="text/css" href="./styles.css">
+<body>
+
+<div id="notebook"></div>
+
+<script type="module">
+
+import define from "./index.js";
+import {Runtime, Library, Inspector} from "./runtime.js";
+
+const runtime = window.runtime = new Runtime(Object.assign(new Library, {figureWidth: window.innerWidth}));
+const main = window.main = runtime.module(define, Inspector.into(document.getElementById('notebook')));
+
+function onResize () {
+  const figureWidth = window.innerWidth;
+  main.redefine('figureWidth', figureWidth);
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+</script>
+
+</body>

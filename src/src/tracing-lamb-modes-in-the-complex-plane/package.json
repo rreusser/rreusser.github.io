@@ -1,0 +1,14 @@
+{
+  "name": "@rreusser/tracing-lamb-modes-in-the-complex-plane",
+  "main": "ec0ff5b7ac9913a4@3159.js",
+  "version": "3159.0.0",
+  "homepage": "https://observablehq.com/@rreusser/tracing-lamb-modes-in-the-complex-plane",
+  "author": {
+    "name": "Ricky Reusser",
+    "url": "https://observablehq.com/@rreusser"
+  },
+  "type": "module",
+  "peerDependencies": {
+    "@observablehq/runtime": "4 - 5"
+  }
+}

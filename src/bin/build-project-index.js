@@ -33,7 +33,7 @@ projectDirListing.map(function (projectPath) {
   var meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
   var projectMetadata = {
     id: projectPath,
-    path: '../' + projectPath + '/',
+    path: projectPath + '/',
     title: meta.title,
     order: meta.order,
     description: meta.description || meta.title,
@@ -44,7 +44,7 @@ projectDirListing.map(function (projectPath) {
     const thumbnailOutputFilename = projectPath + '-' + thumbnailFilename
     const thumbnailOutputPath = path.join(thumbnailsPath, thumbnailOutputFilename);
     fs.createReadStream(thumbnailPath).pipe(fs.createWriteStream(thumbnailOutputPath));
-    projectMetadata.thumbnailPath = path.join('static', thumbnailOutputFilename);
+    projectMetadata.thumbnailPath = path.join('sketches', 'static', thumbnailOutputFilename);
   }
 
   projects.push(projectMetadata);
