@@ -1,6 +1,6 @@
 # Notebook Anatomy
 
-Notebooks are plain HTML files stored in `src/<notebook-name>/index.html`. They use a custom `<notebook>` element (not standard HTML) whose cells are `<script>` elements. The Observable Notebook Kit runtime interprets this format and provides reactive execution, built-in globals, and a set of standard library functions.
+Notebooks are plain HTML files stored in `src/notebooks/<notebook-name>/index.html`. They use a custom `<notebook>` element (not standard HTML) whose cells are `<script>` elements. The Observable Notebook Kit runtime interprets this format and provides reactive execution, built-in globals, and a set of standard library functions.
 
 ## File structure
 
@@ -139,7 +139,7 @@ import createREGL from 'npm:regl@2.1.1'
 Local shared utilities live in `src/lib/`. Because of Vite's module resolution, do not import using `../lib/`. Instead, symlink `src/lib` into the notebook directory and import from `./lib/`:
 
 ```bash
-ln -s ../lib src/my-notebook/lib
+ln -s ../../lib src/notebooks/my-notebook/lib
 ```
 
 Then import normally:

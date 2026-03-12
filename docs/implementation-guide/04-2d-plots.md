@@ -1,6 +1,6 @@
 # 2D Plots
 
-The reference implementation for multi-layer 2D plots is `src/plot-with-zoom/index.html`. It layers a regl WebGL canvas, an Observable Plot element, and an SVG overlay into a single interactive zoomable figure.
+The reference implementation for multi-layer 2D plots is `src/notebooks/plot-with-zoom/index.html`. It layers a regl WebGL canvas, an Observable Plot element, and an SVG overlay into a single interactive zoomable figure.
 
 ## Stack architecture
 

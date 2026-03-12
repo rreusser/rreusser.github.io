@@ -8,7 +8,7 @@
     },
     "notebook": {
       "type": "local",
-      "command": ["mcp-notebookkit-debug"],
+      "command": ["./node_modules/.bin/mcp-notebook-kit-debug"],
       "enabled": true
     }
   }

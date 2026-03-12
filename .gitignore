@@ -1,7 +1,7 @@
 node_modules
 .DS_Store
 icebox
-.notebookkit-debug
+.notebook-kit-debug
 src/notebooks/webgpu-lines/regl-gpu-lines
 src/notebooks/denali/data
 .janus

@@ -19,11 +19,11 @@ For implementation patterns, see the [implementation guide](docs/implementation-
 
 ## Quick reference
 
-- Dev server: `http://localhost:5173/notebooks/{notebook-name}/` — normally already running
+- Dev server: `http://localhost:5173/{notebook-name}/` — normally already running
 - Import shared code via `./lib/` (symlink `src/lib` into the notebook directory; never use `../lib/`)
 - Do not import npm packages inside lib files — import them in the notebook and inject as arguments
 - Mutable state shared across cells must be wrapped in an object; properties can be mutated freely but the variable itself cannot be reassigned from another cell
 - Always clean up animations, timers, and event listeners in `invalidation.then()`
 - Use `src/lib/webgpu-canvas.js` for WebGPU context creation (patches shader error reporting)
 - Use `src/lib/frame-loop.js` for render loops
-- Reference notebooks: `src/plot-with-zoom/index.html` (2D), `src/boys-surface/index.html` (3D/WebGPU)
+- Reference notebooks: `src/notebooks/plot-with-zoom/index.html` (2D), `src/notebooks/boys-surface/index.html` (3D/WebGPU)

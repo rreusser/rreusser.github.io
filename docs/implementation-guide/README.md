@@ -15,6 +15,6 @@ A reference for building notebooks in this repository. Notebooks are written as 
 
 ## Quick orientation
 
-Notebooks live in `src/<notebook-name>/index.html`. Shared code lives in `src/lib/`. Symlink `src/lib` into your notebook directory and import from `./lib/` (not `../lib/`).
+Notebooks live in `src/notebooks/<notebook-name>/index.html`. Shared code lives in `src/lib/`. Symlink `src/lib` into your notebook directory and import from `./lib/` (not `../lib/`).
 
-The canonical reference for interactive 2D plots is `src/plot-with-zoom/index.html`. The canonical reference for 3D notebooks is `src/boys-surface/index.html`.
+The canonical reference for interactive 2D plots is `src/notebooks/plot-with-zoom/index.html`. The canonical reference for 3D notebooks is `src/notebooks/boys-surface/index.html`.

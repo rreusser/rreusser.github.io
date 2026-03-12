@@ -12,7 +12,7 @@
   "license": "ISC",
   "description": "",
   "optionalDependencies": {
-    "@rreusser/mcp-observable-notebookkit-debugger": "file:../mcp-observable-notebookkit-debug"
+    "@rreusser/mcp-observable-notebook-kit-debug": "^1.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.1.3",

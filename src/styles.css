@@ -1008,6 +1008,28 @@ html[data-dark] {
   --syntax-meta: #ff7b72;
 }
 
+html[data-dark] main a[href] {
+  color: #e07070;
+}
+
+html[data-dark] main h1 a[href],
+html[data-dark] main h2 a[href],
+html[data-dark] main h3 a[href],
+html[data-dark] main h4 a[href],
+html[data-dark] main h5 a[href],
+html[data-dark] main h6 a[href] {
+  color: #ebebeb;
+}
+
+html[data-dark] main h1,
+html[data-dark] main h2,
+html[data-dark] main h3,
+html[data-dark] main h4,
+html[data-dark] main h5,
+html[data-dark] main h6 {
+  color: #ebebeb;
+}
+
 html[data-dark] main details[open] {
   border-left-color: #444;
 }

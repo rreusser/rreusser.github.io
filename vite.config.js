@@ -148,7 +148,7 @@ export default defineConfig(async ({ command }) => {
   const isDev = command === 'serve';
 
   const { debugNotebook } = isDev
-    ? await import("@rreusser/mcp-observable-notebookkit-debugger").catch(() => ({}))
+    ? await import("@rreusser/mcp-observable-notebook-kit-debug").catch(() => ({}))
     : {};
 
   return {

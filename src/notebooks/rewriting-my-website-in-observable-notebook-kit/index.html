@@ -1,0 +1,117 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Rewriting My Website in Observable Notebook Kit</title>
+  <script id="1" type="text/markdown">
+    # Rewriting My Website in Observable Notebook Kit
+  </script>
+  <script id="10" type="text/markdown">
+    This website was originally built with [Idyll](https://idyll-lang.org/), a reactive document framework I was pretty excited about in 2018. It worked well for a while (and I’m a big fan of [Matthew Conlen](https://mathisonian.com/)’s work), but the component library structure was always fragile for me, and the dependency tree eventually stopped installing. I ended up afraid to touch my own site.
+  </script>
+  <script id="2" type="text/markdown">
+    When [Observable Notebook Kit](https://observablehq.com/notebook-kit/kit) was announced in late 2024, I casually poked around at it and immediately realized it was the path forward. I've been a heavy [Observable](https://observablehq.com/) user since its public beta, but I’d always wanted to go a bit farther than the hosted interface would take me.
+  </script>
+  <script id="11" type="text/markdown">
+    ## Observable Notebook Kit
+  </script>
+  <script id="12" type="text/markdown">
+    [Observable](https://observablehq.com/) is a browser-based notebook environment built around reactive, cell-based execution. Each cell is a node in a dependency graph, so that when a value changes, any cell that depends on it re-runs automatically. Observable spoke to me immediately since I've always found the hidden internal state of Jupyter notebooks terrible to reason about.
+  </script>
+  <script id="15" type="text/markdown">
+    [Notebook Kit](https://observablehq.com/notebook-kit/) is a self-hostable version of an Observable 2.0 runtime. A Notebook Kit notebook is a plain HTML file:
+
+    ```html
+    <!doctype html>
+    <notebook theme="air">
+      <title>My Notebook</title>
+
+      <script id="intro" type="text/markdown">
+        # Introduction
+      <\/script>
+
+      <script id="figure" type="text/x-typescript">
+        display(document.createElement('canvas'));
+      <\/script>
+    </notebook>
+    ```
+
+  </script>
+  <script id="3" type="text/markdown">
+    The Notebook Kit runtime interprets the `<notebook>` element, compiling it to a web page by way of [Vite](https://vite.dev/). The companion [Observable Desktop](https://observablehq.com/notebook-kit/desktop) app provides a GUI editor, but most of my notebooks involve WebGPU which isn't available in the Desktop environment, so I ended up working with the Vite dev server and a regular browser tab instead.
+  </script>
+  <script id="4" type="text/markdown">
+    ## Migration
+
+    My goal therefore was to migrate about fifty or sixty old and sometimes elaborate notebooks from hosting on observablehq.com to hosting on my own site, migrating from Observable Runtime 1.0 to Notebook Kit and from WebGL to WebGPU along the way. This migration was somewhat mechanical but overall very tedious.
+
+    This is where AI entered the picture. I won't wring my hands about ethical dilemmas. I stayed up until 3am refining many of my notebooks, and I definitely wasn't going to do it all over again just to modernize reams of my own code. Translation like this is something Claude Code is particularly good at, but only in the presence of a closed feedback loop. Since WebGPU prevented me from using the desktop editor and its AI capabilities, I slowly established my own feedback loop by way of a MCP server.
+  </script>
+  <script id="5" type="text/markdown">
+    ## MCP FTW
+
+    [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) is an open standard for connecting AI assistants to external tools. During a session, the assistant can call tools exposed by an MCP server to interact with external systems. I wrote [`@rreusser/mcp-observable-notebook-kit-debug`](https://github.com/rreusser/mcp-observable-notebook-kit-debug) to give agents direct access to a Notebook Kit notebook running in a browser.
+
+    Using it requires connecting the MCP server to your assistant and adding a single line to `vite.config.js`.
+
+    ```javascript
+    // vite.config.js
+    import { defineConfig } from 'vite';
+    import { observable, config } from '@observablehq/notebook-kit/vite';
+    import { debugNotebook } from '@rreusser/mcp-observable-notebook-kit-debug';
+
+    export default defineConfig({
+      ...config(),
+      plugins: [debugNotebook(), observable()],
+    });
+    ```
+  </script>
+  <script id="6" type="text/markdown">
+    This one-liner injects a client script which connects the dev preview to the MCP server over a WebSocket, giving the assistant a range of tools to work with.
+
+    At the session level, the assistant can connect to one or more browser tabs, navigate between pages, refresh the page, and wait for the runtime to initialize. When multiple notebooks are open, each tab is addressable individually.
+
+    For notebook inspection, the assistant can query the Observable reactive graph by variable name, retrieving the current value, state (fulfilled, pending, or rejected), and dependency edges. Input widgets can be set programmatically to trigger downstream reactive updates, and arbitrary expressions can be evaluated in the runtime context with access to all notebook variables. As a lower-level fallback, the assistant can also execute raw JavaScript in the page context.
+
+    Return values come back through a unified serialization layer: plain objects and primitives as JSON, canvas and SVG elements as base64-encoded PNG images which can be processed visually by the assistant.
+
+    Error visibility was one of the trickier parts to get right, because errors in a Notebook Kit project come from several places. Observable runtime errors are surfaced by querying the runtime directly. Syntax errors were more tricky since they crash the Vite build, leaving no runtime to query. To resolve this, the server patches into Vite's error page and forwards build errors over the WebSocket. Console messages are captured by wrapping the browser's console methods (very early!) during page load.
+
+    The server also exposes an in-page overlay showing a live log of MCP tool calls and their responses, which was useful while building it and occasionally while debugging.
+
+    ${await FileAttachment("widget.webp").image({ alt: "The MCP debug overlay showing a GetErrors tool call and its response" })}
+
+    Two implementation details were non-obvious. To access the Observable runtime from inside the injected client script, the package needs to import `@observablehq/notebook-kit` as a *peer* dependency—unusual for an MCP server, but it's always present since any project using this is a Notebook Kit project. The more stubborn issue was WebSocket stability: running a second connection alongside Vite's HMR connection caused unpredictable disconnections. The fix was to multiplex both HMR and MCP traffic over the same connection. 🤷‍♂️
+  </script>
+  <script id="7" type="text/markdown">
+    ## Vite configuration
+
+    Vite's multi-page support made it straightforward to build the whole site from a single config. To work the output into a template, [I submitted](https://github.com/observablehq/notebook-kit/pull/30) a [couple PRs](https://github.com/observablehq/notebook-kit/pull/39) to allow hooking into the Vite build process. The notebook-kit Vite plugin now accepts two transform hooks that handle most of the site-specific logic. `transformTemplate` runs per-page at build time, receiving the parsed notebook object and the page path and returning a rendered HTML template. I use [Handlebars](https://handlebarsjs.com/):
+
+    ```javascript
+    transformTemplate: async function(template, { filename, path }) {
+      const notebook = deserialize(await readFile(filename, 'utf8'), { parser });
+      const metadata = await readMetadata(filename);
+      return Handlebars.compile(template)({
+        title: notebook.title,
+        author: 'Ricky Reusser',
+        ...metadata,
+        ...notebook,
+      });
+    }
+    ```
+
+    This is how author, publish date, Open Graph image tags, and the "View source" link end up in the page `<head>` without any of that information living in the notebook source itself.
+
+    `transformNotebook` allows mutating the notebook at build time—I use it to strip the leading `# h1` from each notebook so it doesn't appear twice when the page template also renders the title. You can read the full [vite.config.js](https://github.com/rreusser/notebooks/blob/main/vite.config.js) yourself; it's grown over time but not unmanageably.
+  </script>
+  <script id="9" type="text/markdown">
+    ## Result
+
+    The site hot-reloads on save and even builds in a GitHub action. I just love it. The source is [on GitHub](https://github.com/rreusser/notebooks).
+
+    The MCP approach has been quite effective overall, though a few things needed ironing out. Getting Claude to reliably understand Notebook Kit's variable-level reactive model took some prompt refinement. Capturing WebGPU canvas output is tricky and not quite there yet. It requires synchronous capture since WebGPU is not double-buffered, so I still have some work to do to establish the write wrappers to make this succeed consistently.
+
+    That said, some notebooks I expected to be painful turned out to be easy. [sphere-eversion](/notebooks/sphere-eversion/) is a fancy scrollyteller thing, but it pretty much Just Worked.
+
+    The MCP server is at [github.com/rreusser/mcp-observable-notebook-kit-debug](https://github.com/rreusser/mcp-observable-notebook-kit-debug). It isn't on NPM yet, so install from GitHub for now. The API may still change.
+  </script>
+</notebook>
