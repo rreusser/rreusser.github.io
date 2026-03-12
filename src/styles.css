@@ -961,7 +961,7 @@ html[data-dark] .index__title {
   color: #ddd;
 }
 html[data-dark] .index__item:hover .index__title-link {
-  color: var(--rrtheme-color);
+  color: #e07070;
 }
 html[data-dark] .index__date {
   color: #999;

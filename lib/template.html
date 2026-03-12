@@ -155,7 +155,7 @@
         <li class="index__item"{{#if tags}} data-tags="{{#each tags}}{{this}}{{#unless @last}},{{/unless}}{{/each}}"{{/if}}>
           <div class="index__image-container">
             {{#if imageUrl}}
-            <img class="index__image" src="{{imageUrl}}" alt="" loading="lazy" />
+            <img class="index__image" src="{{imageUrl}}" alt="" width="1200" height="630" {{#if @first}}fetchpriority="high"{{else}}loading="lazy"{{/if}} />
             {{else}}
             <div class="index__placeholder"></div>
             {{/if}}
