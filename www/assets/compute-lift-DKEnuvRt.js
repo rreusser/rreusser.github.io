@@ -1,1 +1,0 @@
-function g({geometry:{x:n,y:o},solution:c,vInf:f}){let a=1/0,i=-1/0;const e=n.length-1,r=c.shape[0]>e?c.get(e):0;let l=0;for(let t=0;t<e;t++)i=Math.max(i,n[t]),a=Math.min(a,n[t]);const h=i-a;for(let t=0;t<e-1;t++){const m=n[t+1]-n[t],s=o[t+1]-o[t];l+=Math.sqrt(m*m+s*s)}return 2*r*l/h/f}export{g as default};

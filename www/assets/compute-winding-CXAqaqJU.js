@@ -1,1 +1,0 @@
-function o(t,e){if(t.length!==e.length||t.length<3)throw new Error("Input arrays must have the same length and contain at least 3 points.");const r=t.length;let a=0;for(let n=0;n<r;n++){const i=(n+1)%r;a+=(t[i]-t[n])*(e[i]+e[n])}return Math.sign(a)}export{o as c};

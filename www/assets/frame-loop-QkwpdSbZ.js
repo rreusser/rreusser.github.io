@@ -1,1 +1,0 @@
-function l(t){let e=null,r=!1;function o(n){if(!r){try{t(n)}catch(a){r=!0,console.error("Frame loop error:",a);return}r||(e=requestAnimationFrame(o))}}try{t(performance.now())}catch(n){r=!0,console.error("Frame loop error:",n)}return r||(e=requestAnimationFrame(o)),{cancel(){r||(r=!0,e!==null&&(cancelAnimationFrame(e),e=null))}}}export{l as createFrameLoop};

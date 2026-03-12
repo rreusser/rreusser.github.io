@@ -207,6 +207,7 @@ export default defineConfig(async ({ command }) => {
       emptyOutDir: true,
       rollupOptions: {
         input: notebookPaths,
+        external: ['@zappar/msdf-generator'],
       },
     },
     root: "src",
