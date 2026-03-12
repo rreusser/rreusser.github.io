@@ -79,7 +79,7 @@
 
     <figure>${await FileAttachment("widget.webp").image({ alt: "The MCP debug overlay showing a GetErrors tool call and its response" })}<figcaption>The in-page MCP debug overlay, showing a <code>GetErrors</code> tool call and its response.</figcaption></figure>
 
-    Two implementation details were non-obvious. To access the Observable runtime from inside the injected client script, the package needs to import `@observablehq/notebook-kit` as a *peer* dependency. The most stubborn issue was WebSocket stability: running a second connection alongside Vite's HMR connection caused unpredictable disconnections. The fix was to multiplex both HMR and MCP traffic over the same connection. 🤷‍♂️
+    Two implementation details were non-obvious. To access the Observable runtime from inside the injected client script, the package needs to import `@observablehq/notebook-kit` as a *peer* dependency. But the most stubborn issue was WebSocket stability: running a second connection alongside Vite's HMR connection caused unpredictable disconnections. The fix was to multiplex both HMR and MCP traffic over the same connection. 🤷‍♂️
   </script>
   <script id="7" type="text/markdown">
     ## Vite configuration
@@ -108,7 +108,7 @@
 
     The site hot-reloads on save and even builds in a GitHub action. I just love it. The source is [on GitHub](https://github.com/rreusser/rreusser.github.io).
 
-    The MCP approach has been quite effective overall, though a few things needed ironing out. Getting Claude to reliably understand Notebook Kit's variable-level reactive model took some prompt refinement. Capturing WebGPU canvas output is tricky and not quite there yet. It requires synchronous capture since WebGPU is not double-buffered, so I still have some work to do to establish the write wrappers to make this succeed consistently.
+    The MCP approach has been quite effective overall, though a few things needed ironing out. Getting Claude to reliably understand Notebook Kit's variable-level reactive model took some prompt refinement. Capturing WebGPU canvas output is tricky and not quite there yet. It requires synchronous capture since WebGPU is not double-buffered, so I still have some work to do to establish the right wrappers to make this succeed consistently.
 
     That said, some notebooks I expected to be painful turned out to be easy. [sphere-eversion](/notebooks/sphere-eversion/) is a fancy scrollyteller thing, but it pretty much Just Worked.
 
