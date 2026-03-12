@@ -20,7 +20,7 @@ const __dirname = dirname(new URL(import.meta.url).pathname);
 
 const TEMPLATE_PATH = join(__dirname, "lib/template.html");
 const GITHUB_BASE_URL = "https://github.com/rreusser/notebooks/tree/main/src";
-const META_IMAGE_BASE_URL = "https://rreusser.github.io/notebooks/meta";
+const META_IMAGE_BASE_URL = "https://rreusser.github.io/meta";
 const NOTEBOOKS_DIR = join(__dirname, "src/notebooks");
 const SRC_DIR = join(__dirname, "src");
 
@@ -191,7 +191,7 @@ export default defineConfig(async ({ command }) => {
               const imageExt = nb.image ? nb.image.split('.').pop() : null;
               let imageUrl = null;
               if (imageExt) {
-                imageUrl = isDev ? `./${slug}/meta.${imageExt}` : `./meta/${slug}.${imageExt}`;
+                imageUrl = isDev ? `./${slug}/meta.${imageExt}` : `/meta/${slug}.${imageExt}`;
               }
               return {
                 ...nb,
