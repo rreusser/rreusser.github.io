@@ -191,15 +191,18 @@ header.has-image {
   padding: 120px 20px;
 }
 
-header.has-image::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.175);
-}
-
 header.has-image > * {
   position: relative;
+}
+
+header.has-image h1 {
+  display: inline-block;
+  padding: 6px 16px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
 }
 
 header.has-image,
@@ -207,8 +210,14 @@ header.has-image * {
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
 }
 
+nav:has(+ header.has-image) .menu__item {
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
 nav:has(+ header.has-image) {
-  background: transparent;
+  background: rgba(0, 0, 0, 0);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   position: absolute;
   width: 100%;
   z-index: 1;
@@ -921,6 +930,7 @@ html,
   align-items: center;
   color: white;
   flex-shrink: 0;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
 }
 .theme-toggle__moon {
   display: none;
