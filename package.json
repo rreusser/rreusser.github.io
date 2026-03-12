@@ -29,6 +29,7 @@
   "dependencies": {
     "@fontsource/open-sans": "^5.2.7",
     "@observablehq/notebook-kit": "^1.5.0",
+    "@zappar/msdf-generator": "^1.2.4",
     "jsdom": "^26.1.0",
     "next-pow-2": "^1.0.0",
     "regl": "^2.1.1"
