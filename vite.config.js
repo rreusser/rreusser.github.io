@@ -75,7 +75,8 @@ async function readMetadata(filename) {
 
   if (meta.publishedAt) {
     const pub = new Date(meta.publishedAt);
-    meta.publishedAtNumeric = pub.toISOString().slice(0, 10).replace(/-/g, "");
+    meta.publishedAtDate = pub.toISOString().slice(0, 10);
+    meta.publishedAtNumeric = meta.publishedAtDate.replace(/-/g, "");
   }
 
   // Auto-detect meta image and construct URL from file existence
@@ -84,8 +85,10 @@ async function readMetadata(filename) {
   const pngPath = join(notebookDir, "meta.png");
   if (await fileExists(jpgPath)) {
     meta.image = `${META_IMAGE_BASE_URL}/${notebookSlug}.jpg`;
+    meta.imageType = "image/jpeg";
   } else if (await fileExists(pngPath)) {
     meta.image = `${META_IMAGE_BASE_URL}/${notebookSlug}.png`;
+    meta.imageType = "image/png";
   }
 
   return meta;
@@ -157,10 +160,13 @@ export default defineConfig(async ({ command }) => {
           });
           const metadata = await readMetadata(filename);
           const isIndex = path === "/index.html";
+          const canonicalUrl = `https://rreusser.github.io/notebooks${path.replace(/index\.html$/, "")}`;
           const data = {
             sourceUrl: `${GITHUB_BASE_URL}/${path.replace(/^\//, "")}`,
             author: "Ricky Reusser",
             authorUrl: "https://rreusser.github.io",
+            canonicalUrl,
+            currentYear: new Date().getFullYear(),
             ...notebook,
             ...metadata,
           };

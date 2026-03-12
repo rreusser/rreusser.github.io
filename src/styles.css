@@ -4,6 +4,23 @@
   --rrtheme-color: #ca4747;
 }
 
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  padding: 8px 16px;
+  background: var(--rrtheme-color);
+  color: white;
+  font-family: "Open Sans", sans-serif;
+  font-size: 14px;
+  text-decoration: none;
+  z-index: 9999;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
 html,
 body {
   display: flex;
@@ -345,7 +362,7 @@ footer {
   background: #f8f8f8;
   border: 1px solid rgba(0, 0, 0, 0.06);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  cursor: pointer;
+  position: relative;
 }
 
 .index__item:hover {
@@ -410,6 +427,12 @@ footer {
   text-decoration: none;
 }
 
+.index__title-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
 .index__item:hover .index__title-link {
   color: var(--rrtheme-color);
   text-decoration: underline;
@@ -448,6 +471,8 @@ footer {
   text-decoration: none;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
+  position: relative;
+  z-index: 1;
 }
 
 .index__tag:hover {

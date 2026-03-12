@@ -17,14 +17,16 @@
     })();
   </script>
   <meta name="author" content="Ricky Reusser" />
+  <meta property="og:site_name" content="Ricky Reusser's Notebooks" />
+  <meta property="og:type" content="{{#if publishedAt}}article{{else}}website{{/if}}" />
   <meta property="article:author" content="Ricky Reusser" />
+  {{#if publishedAt}}<meta property="article:published_time" content="{{publishedAtDate}}" />{{/if}}
   {{#if title}}
   <meta name="twitter:title" content="{{title}}" />
   <meta property="og:title" content="{{title}}" />
   {{/if}}
   {{#if description}}
   <meta name="twitter:description" content="{{description}}" />
-  <meta name="subject" content="{{description}}" />
   <meta name="description" content="{{description}}" />
   <meta property="og:description" content="{{description}}" />
   {{/if}}
@@ -32,7 +34,17 @@
   <meta name="twitter:image" content="{{image}}">
   <meta name="twitter:card" content="summary_large_image">
   <meta property="og:image" content="{{image}}">
+  <meta property="og:image:type" content="{{imageType}}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   {{/if}}
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ca4747" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#ca4747" />
+  <link rel="icon" type="image/svg+xml" href="/notebooks/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/notebooks/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/notebooks/apple-touch-icon.png" />
+  <link rel="canonical" href="{{canonicalUrl}}" />
+  <meta property="og:url" content="{{canonicalUrl}}" />
   {{#if silent}}
   <meta name="robots" content="noindex" />
   {{/if}}
@@ -62,7 +74,8 @@
   {{#if maxWidth}}<style> main { max-width: {{maxWidth}}; }</style>{{/if}}
 </head>
 <body>
-  <nav class="menu">
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <nav class="menu" aria-label="Site navigation">
     <a class="menu__item" href="/">rreusser.github.io</a>
     <a class="menu__item" href="/notebooks/">notebooks</a>
     <a class="menu__item" href="/sketches/">sketches</a>
@@ -88,7 +101,7 @@
     <h1>{{title}}</h1>
     <div class="byline">
       {{#if author}}<address class="author"><a rel="author" href="{{authorUrl}}">{{author}}</a></address>{{/if}}
-      {{#if publishedAt}}<time pubdate datetime={{publishedAtNumeric}}>{{publishedAt}}</time>{{/if}}
+      {{#if publishedAt}}<time datetime="{{publishedAtDate}}">{{publishedAt}}</time>{{/if}}
     </div>
     <div class="resource-links">
       {{#if observableUrl}}
@@ -193,17 +206,6 @@
             });
           });
 
-          // Add click handlers to cards
-          const items = document.querySelectorAll('.index__item');
-          items.forEach(item => {
-            item.addEventListener('click', function(e) {
-              // Don't navigate if clicking a tag link
-              if (e.target.closest('.index__tag')) return;
-              const path = item.dataset.path;
-              if (path) window.location.href = path;
-            });
-          });
-
           if (activeTag) {
             // Show filter indicator
             const filterContainer = document.getElementById('index-filter-container');
@@ -219,6 +221,7 @@
 
             // Filter items (case-insensitive)
             const activeTagLower = activeTag.toLowerCase();
+            const items = document.querySelectorAll('.index__item');
             items.forEach(item => {
               const tags = (item.dataset.tags || '').split(',').filter(Boolean);
               if (!tags.some(t => t.toLowerCase() === activeTagLower)) {
@@ -230,7 +233,7 @@
       </script>
     {{/if}}
 
-    <main></main>
+    <main id="main-content"></main>
     {{#if mastodonPostId}}
       <script src="../comments.js" type="module"></script>
       <style>
@@ -243,7 +246,7 @@
     {{/if}}
   </div>
   <footer>
-    <div class="footer__attrib">&copy; 2026 Ricky Reusser</div>
+    <div class="footer__attrib">&copy; {{currentYear}} Ricky Reusser</div>
     <a href="/notebooks/feed.xml" class="footer__rss">
       <svg class="icon" viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
         <circle cx="6.5" cy="17.5" r="2.5"/>
