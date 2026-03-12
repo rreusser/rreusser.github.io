@@ -48,7 +48,7 @@
   <script id="5" type="text/markdown">
     ## MCP FTW
 
-    [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) is an open standard for connecting AI assistants to external tools. During a session, the assistant can call tools exposed by an MCP server to interact with external systems. I wrote [`@rreusser/mcp-observable-notebook-kit-debug`](https://github.com/rreusser/mcp-observable-notebook-kit-debug) to give agents direct access to a Notebook Kit notebook running in a browser.
+    [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) is an open standard for connecting AI assistants to external tools. During a session, the assistant can call tools exposed by an MCP server to interact with external systems. I wrote [`@rreusser/mcp-observable-notebook-kit-debug`](https://www.npmjs.com/package/@rreusser/mcp-observable-notebook-kit-debug) to give agents direct access to a Notebook Kit notebook running in a browser.
 
     Using it requires connecting the MCP server to your assistant and adding a single line to `vite.config.js`.
 
@@ -77,7 +77,7 @@
 
     The server also exposes an in-page overlay showing a live log of MCP tool calls and their responses, which was useful while building it and occasionally while debugging.
 
-    ${await FileAttachment("widget.webp").image({ alt: "The MCP debug overlay showing a GetErrors tool call and its response" })}
+    <figure>${await FileAttachment("widget.webp").image({ alt: "The MCP debug overlay showing a GetErrors tool call and its response" })}<figcaption>The in-page MCP debug overlay, showing a <code>GetErrors</code> tool call and its response.</figcaption></figure>
 
     Two implementation details were non-obvious. To access the Observable runtime from inside the injected client script, the package needs to import `@observablehq/notebook-kit` as a *peer* dependency. The most stubborn issue was WebSocket stability: running a second connection alongside Vite's HMR connection caused unpredictable disconnections. The fix was to multiplex both HMR and MCP traffic over the same connection. 🤷‍♂️
   </script>
@@ -112,6 +112,6 @@
 
     That said, some notebooks I expected to be painful turned out to be easy. [sphere-eversion](/notebooks/sphere-eversion/) is a fancy scrollyteller thing, but it pretty much Just Worked.
 
-    The MCP server is at [github.com/rreusser/mcp-observable-notebook-kit-debug](https://github.com/rreusser/mcp-observable-notebook-kit-debug). It isn't on NPM yet, so install from GitHub for now. The API may still change.
+    The MCP server is available on NPM as [`@rreusser/mcp-observable-notebook-kit-debug`](https://www.npmjs.com/package/@rreusser/mcp-observable-notebook-kit-debug). The API may still change.
   </script>
 </notebook>
