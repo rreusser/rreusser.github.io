@@ -21,10 +21,11 @@ const __dirname = dirname(new URL(import.meta.url).pathname);
 const TEMPLATE_PATH = join(__dirname, "lib/template.html");
 const GITHUB_BASE_URL = "https://github.com/rreusser/notebooks/tree/main/src";
 const META_IMAGE_BASE_URL = "https://rreusser.github.io/notebooks/meta";
-const NOTEBOOKS_DIR = join(__dirname, "src");
+const NOTEBOOKS_DIR = join(__dirname, "src/notebooks");
+const SRC_DIR = join(__dirname, "src");
 
 
-// Tile URLs for src/denali
+// Tile URLs for src/notebooks/denali
 const S3_BASE = "https://s3.us-east-1.amazonaws.com/tilesets.rreusser.github.io";
 
 const tileUrls = {
@@ -130,9 +131,9 @@ function copyStaticAssets(patterns) {
     apply: 'build',
     async closeBundle() {
       for (const pattern of patterns) {
-        const files = glob.sync(join(NOTEBOOKS_DIR, pattern), { nodir: true, absolute: true });
+        const files = glob.sync(join(SRC_DIR, pattern), { nodir: true, absolute: true });
         for (const file of files) {
-          const rel = relative(NOTEBOOKS_DIR, file);
+          const rel = relative(SRC_DIR, file);
           const dest = join(__dirname, 'www', rel);
           await mkdir(dirname(dest), { recursive: true });
           await copyFile(file, dest);
@@ -141,6 +142,7 @@ function copyStaticAssets(patterns) {
     },
   };
 }
+
 
 export default defineConfig(async ({ command }) => {
   const isDev = command === 'serve';
@@ -154,7 +156,7 @@ export default defineConfig(async ({ command }) => {
     plugins: [
       useHttps && basicSsl(),
       metadataWarningPlugin({ rootDir: NOTEBOOKS_DIR }),
-      copyStaticAssets(['**/*.geojson', '**/fonts/*.json', '**/fonts/*.png']),
+      copyStaticAssets(['static/**/*', 'notebooks/**/*.geojson', 'notebooks/**/fonts/*.json', 'notebooks/**/fonts/*.png']),
       isDev && debugNotebook?.(),
       observable({
         template: TEMPLATE_PATH,
@@ -163,10 +165,11 @@ export default defineConfig(async ({ command }) => {
             parser,
           });
           const metadata = await readMetadata(filename);
-          const isIndex = path === "/index.html";
-          const canonicalUrl = `https://rreusser.github.io/notebooks${path.replace(/index\.html$/, "")}`;
+          const isRootIndex = path === "/index.html";
+          const isNotebooksIndex = path === "/notebooks/index.html";
+          const canonicalUrl = `https://rreusser.github.io${path.replace(/index\.html$/, "")}`;
           const data = {
-            sourceUrl: `${GITHUB_BASE_URL}/${path.replace(/^\//, "")}`,
+            sourceUrl: `${GITHUB_BASE_URL}${path}`,
             author: "Ricky Reusser",
             authorUrl: "https://rreusser.github.io",
             canonicalUrl,
@@ -174,10 +177,11 @@ export default defineConfig(async ({ command }) => {
             ...notebook,
             ...metadata,
           };
-          if (isIndex) {
+          if (isRootIndex || isNotebooksIndex) {
             delete data.sourceUrl;
             delete data.author;
-
+          }
+          if (isNotebooksIndex) {
             // Add notebook links
             data.index = await computeIndex();
             // Add image URLs for template rendering
@@ -199,14 +203,25 @@ export default defineConfig(async ({ command }) => {
           return Handlebars.compile(template)(data);
         },
         transformNotebook: async function (notebook, { filename }) {
-          // Remove the leading h1, preserving additional cell content, if present.
+          // Find the first markdown cell whose first non-empty line is an h1,
+          // and remove that line. Warn if it isn't cell 0 (title buried after
+          // other cells, e.g. a style cell).
           if (!notebook.cells.length) return notebook;
-          const lines = notebook.cells[0].value.split("\n") || [];
-          if (lines[0].startsWith("# ")) lines.splice(0, 1);
+          const idx = notebook.cells.findIndex((cell) => {
+            const first = cell.value.split("\n").find((l) => l.trim());
+            return first && first.startsWith("# ");
+          });
+          if (idx === -1) return notebook;
+          if (idx > 0) {
+            console.warn(`[transformNotebook] h1 title found in cell ${idx} (not cell 0) in ${filename}`);
+          }
+          const lines = notebook.cells[idx].value.split("\n");
+          const h1Line = lines.findIndex((l) => l.trim().startsWith("# "));
+          lines.splice(h1Line, 1);
           if (lines.filter(Boolean).length) {
-            notebook.cells[0].value = lines.join("\n");
+            notebook.cells[idx].value = lines.join("\n");
           } else {
-            notebook.cells.splice(0, 1);
+            notebook.cells.splice(idx, 1);
           }
           return notebook;
         },
@@ -216,12 +231,15 @@ export default defineConfig(async ({ command }) => {
       outDir: join(__dirname, "www"),
       emptyOutDir: true,
       rollupOptions: {
-        input: notebookPaths,
+        input: [
+          join(SRC_DIR, "index.html"),
+          ...notebookPaths,
+        ],
         external: ['@zappar/msdf-generator'],
       },
     },
     root: "src",
-    base: "/notebooks/",
+    base: "/",
     server: {
       host: true,
       hmr: {

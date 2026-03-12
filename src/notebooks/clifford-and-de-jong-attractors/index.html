@@ -1,0 +1,960 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Clifford and de Jong Attractors</title>
+  <script id="975" type="text/markdown">
+    # Clifford and de Jong Attractors
+  </script>
+  <script id="1251" type="text/markdown">
+    This notebook visualizes the strange attractors of [Clifford Pickover](http://paulbourke.net/fractals/clifford/) and [Peter de Jong](http://paulbourke.net/fractals/peterdejong/). You can pan and zoom with the mouse or a touch screen. Clifford attractors are defined by
+
+    ${tex.block`\begin{aligned}
+    x_{n + 1} &= \sin(a y_n) + c \cos(a x_n) \\
+    y_{n + 1} &= \sin(b x_n) + d \cos(b y_n)
+    \end{aligned}`}
+
+    while de Jong attractors are defined by
+
+    ${tex.block`\begin{aligned}
+    x_{n + 1} &= \sin(a y_n) - c \cos(b x_n) \\
+    y_{n + 1} &= \sin(c x_n) - d \cos(d y_n).
+    \end{aligned}`}
+
+    A grid of points is randomly offset and iterated many times. The results are accumulated onto a WebGL texture, effectively computing a histogram of the attractor. Single precision isn't quite adequate, so you can switch to CPU mode for a final render if you're willing to wait a bit longer for it to converge. Point density is computed using the formula in [this notebook](https://observablehq.com/@rreusser/selecting-the-right-opacity-for-2d-point-clouds?collection=@rreusser/writeups).
+
+    Color comes from the distance traveled by the most recent iteration. Each pixel accumulates both the RGB color and a hit count. Lightness is computed in the [YUV color space](https://en.wikipedia.org/wiki/YUV) from the logarithm of the hit count, while the hue comes from the average accumulated color.
+
+    For more on computing attractors in WebGL, Mike Bostock's [Making WebGL Dance](https://observablehq.com/@mbostock/making-webgl-dance) is a great walkthrough. See also his [Clifford Attractor](https://observablehq.com/@mbostock/clifford-attractor) series and Yuri Vishnevsky's [Strange Attractors](https://observablehq.com/@twitter/strange-attractors).
+  </script>
+  <script id="1252" type="text/x-typescript">
+    import { reglCanvas } from './lib/regl-canvas.js'
+    import FineRange from './lib/fine-range.js'
+    import createREGL from 'npm:regl@2.1.1'
+    import * as d3 from 'npm:d3@7'
+  </script>
+  <script id="365" type="application/vnd.observable.javascript">
+    tex`\mathrm{accumulated\;points} = ${(
+      accumulateCount *
+      stateSize *
+      stateSize
+    ).toLocaleString()}`
+  </script>
+  <script id="81" type="text/x-typescript">
+    const type = view(Inputs.radio(["Clifford", "de Jong"], {
+      label: "Type",
+      value: parsedURL.has("type") ? parsedURL.get("type") : "Clifford"
+    }));
+    const a = view(FineRange(Inputs.range, [-2.5, 2.5], {
+      value: parsedURL.has("a") ? +parsedURL.get("a") : -1.85,
+      label: "a",
+      step: 0.001,
+      width: 400
+    }));
+    const b = view(FineRange(Inputs.range, [-2.5, 2.5], {
+      value: parsedURL.has("b") ? +parsedURL.get("b") : -2.5,
+      label: "b",
+      step: 0.001,
+      width: 400
+    }));
+    const c = view(FineRange(Inputs.range, [-2.5, 2.5], {
+      value: parsedURL.has("c") ? +parsedURL.get("c") : -1.05,
+      label: "c",
+      step: 0.001,
+      width: 400
+    }));
+    const d = view(FineRange(Inputs.range, [-2.5, 2.5], {
+      value: parsedURL.has("d") ? +parsedURL.get("d") : 0.585,
+      label: "d",
+      step: 0.001,
+      width: 400
+    }));
+    const simulate = view(Inputs.checkbox(["Simulate"], { value: ["Simulate"] }));
+  </script>
+  <script id="1253" type="text/x-typescript">
+    const _regl = view(reglCanvas(createREGL, {
+      attributes: {
+        antialias: false,
+        depthStencil: false,
+        preserveDrawingBuffer: true
+      },
+      extensions: ["OES_texture_float", "OES_texture_half_float"]
+    }))
+  </script>
+  <script id="1254" type="text/x-typescript">
+    const regl = (function() {
+      const canvas = _regl._gl.canvas;
+      const regl = _regl.attachResize(viewport.width, viewport.height);
+      // Apply styles AFTER attachResize, since it sets explicit width/height
+      canvas.style.maxWidth = "100%";
+      canvas.style.height = "auto";
+      canvas.style.aspectRatio = `${viewport.width} / ${viewport.height}`;
+      canvas.style.cursor = "move";
+      canvas.style.border = "1px solid #ccc";
+      return regl;
+    })();
+  </script>
+  <script id="649" type="text/x-typescript">
+    const opts = view(Inputs.checkbox(["Invert", "Flip colorscale"], {
+      value: [
+        ...(parsedURL.get("invert") === "true" ? ["Invert"] : []),
+        ...(parsedURL.get("flip") === "true" ? ["Flip colorscale"] : [])
+      ]
+    }));
+    const brightness = view(Inputs.range([-0.5, 1.5], {
+      value: parsedURL.has("brightness") ? +parsedURL.get("brightness") : 0.3,
+      label: "Brightness"
+    }));
+    const contrast = view(Inputs.range([0.1, 2], {
+      value: parsedURL.has("contrast") ? +parsedURL.get("contrast") : 1,
+      label: "Contrast"
+    }));
+    const saturation = view(Inputs.range([0, 1], {
+      value: parsedURL.has("saturation") ? +parsedURL.get("saturation") : 0.8,
+      label: "Saturation"
+    }));
+    const dynamicRange = view(Inputs.range([0.1, 1.0], {
+      value: parsedURL.has("dynamicRange") ? +parsedURL.get("dynamicRange") : 0.2,
+      label: "Dynamic range compression",
+      transform: Math.log
+    }));
+    const colorSpeed = view(Inputs.range([0.1, 2], {
+      value: parsedURL.has("colorSpeed") ? +parsedURL.get("colorSpeed") : 0.22,
+      label: "Color speed",
+      transform: Math.log
+    }));
+    const colorPhase = view(Inputs.range([0, 360], {
+      value: parsedURL.has("colorPhase") ? +parsedURL.get("colorPhase") : 180,
+      label: "Color phase"
+    }));
+    const gamma = view(Inputs.range([0.1, 10], {
+      value: parsedURL.has("gamma") ? +parsedURL.get("gamma") : 2.2,
+      label: "Gamma",
+      transform: Math.log
+    }));
+    const batchSize = view(Inputs.range([500000, 4000000], {
+      value: 500000,
+      label: "Batch size",
+      transform: Math.log,
+      step: 2
+    }));
+    const iterations = view(Inputs.range([1, 50], {
+      value: 25,
+      label: "Iterations",
+      step: 1
+    }));
+    const jitter = view(Inputs.range([0, 3], {
+      value: 1.5,
+      label: "AA Jitter (pixels)",
+      step: 0.1
+    }));
+    const sizeInput = Inputs.select(
+      ["256 × 256", "512 × 512", "1024 × 1024", "2048 × 2048", "1680 × 1050", "page width"],
+      { value: "page width", label: `Size (dpi = ${window.devicePixelRatio})` }
+    );
+    const size = view(sizeInput);
+    const mode = view(Inputs.radio(["cpu", "gpu"], {
+      value: "gpu",
+      label: "Computation mode"
+    }));
+  </script>
+  <script id="650" type="text/x-typescript">
+    const supportedFormats = ["float", "half float"].filter(fmt => canWriteToFBOOfType(regl, fmt));
+    const floatFormat = supportedFormats.length > 0
+      ? view(Inputs.radio(supportedFormats, {
+          value: supportedFormats[0],
+          label: "Float format"
+        }))
+      : (() => { throw new Error("Neither float nor half-float framebuffers are supported on this device"); })();
+  </script>
+  <script id="651" type="application/vnd.observable.javascript">
+    floatFormat === "half float"
+      ? html`<p><em><small>Note: Half-float precision may cause color banding in high-density regions. For best results, view on a device that supports single-precision float.</small></em></p>`
+      : null
+  </script>
+  <script id="1753" type="application/vnd.observable.javascript">
+    link = {
+      const url = new URL(document.baseURI);
+      const q = url.searchParams;
+      q.set("type", type);
+      q.set("a", a);
+      q.set("b", b);
+      q.set("c", c);
+      q.set("d", d);
+      q.set("brightness", brightness);
+      q.set("contrast", contrast);
+      q.set("gamma", gamma);
+      q.set("saturation", saturation);
+      q.set("colorSpeed", colorSpeed);
+      q.set("colorPhase", colorPhase);
+      q.set("invert", !!~opts.indexOf("Invert"));
+      q.set("flip", !!~opts.indexOf("Flip colorscale"));
+
+      return html`<a href="${url.toString()}">🔗 Link to this configuration</a>`;
+    }
+  </script>
+  <script id="1594" type="application/vnd.observable.javascript">
+    {
+      const btn = Inputs.button("Download PNG");
+      const sig = `${type === "Clifford" ? "clifford" : "de-jong"}_a${a.toFixed(
+        4
+      )}_b${b.toFixed(4)}_c${c.toFixed(4)}_d${d.toFixed(4)}.png`;
+
+      btn.addEventListener("input", () => {
+        downloadURI(regl._gl.canvas.toDataURL(), sig);
+      });
+      return btn;
+    }
+  </script>
+  <script id="162" type="application/vnd.observable.javascript">
+    viewof restart = Inputs.button("Restart")
+  </script>
+  <script id="157" type="application/vnd.observable.javascript">
+    mutable accumulateCount = 0
+  </script>
+  <script id="865" type="application/vnd.observable.javascript">
+    mutable dirty = true
+  </script>
+  <script id="1767" type="text/x-typescript">
+    const parsedURL = new Map(Object.entries(parseQueryString(document.location.search)))
+  </script>
+  <script id="1702" type="text/x-typescript">
+    const shape = size === "page width"
+      ? [width, width]
+      : size.split("×").map((str) => parseInt(str.trim(), 10))
+  </script>
+  <script id="1288" type="application/vnd.observable.javascript">
+    {
+      opts;
+      brightness, contrast;
+      gamma;
+      saturation;
+      dynamicRange;
+      mutable dirty = true;
+    }
+  </script>
+  <script id="1478" type="text/x-typescript">
+    const iterationArray = new Array(batchSize * 4).fill(0)
+  </script>
+  <script id="1485" type="text/x-typescript">
+    const cpuPositionBuffer = (function() {
+      const buffer = regl.buffer(iterationArray);
+      invalidation.then(() => buffer.destroy());
+      return buffer;
+    })();
+  </script>
+  <script id="1473" type="text/x-typescript">
+    function iterate(array) {
+      let a1, a2, a3, b1, b2, b3;
+      if (type === "Clifford") {
+        a1 = a; a2 = c; a3 = a;
+        b1 = b; b2 = d; b3 = b;
+      } else {
+        a1 = a; a2 = -1; a3 = b;
+        b1 = c; b2 = -1; b3 = d;
+      }
+      for (let i = 0; i < array.length; i += 4) {
+        let x = array[i];
+        let y = array[i + 1];
+        let x2 = Math.sin(a1 * y) + a2 * Math.cos(a3 * x);
+        let y2 = Math.sin(b1 * x) + b2 * Math.cos(b3 * y);
+        let dx = x2 - x;
+        let dy = y2 - y;
+        array[i] = x2;
+        array[i + 1] = y2;
+        array[i + 2] = Math.sqrt(dx * dx + dy * dy);
+        array[i + 3] = i >> 2;
+      }
+    }
+  </script>
+  <script id="1515" type="text/x-typescript">
+    function cpuInitialize(array) {
+      let ox = Math.random() * 2 - 1;
+      let oy = Math.random() * 2 - 1;
+      let w = Math.sqrt(batchSize);
+      let a1, a2, a3, b1, b2, b3;
+      if (type === "Clifford") {
+        a1 = a; a2 = c; a3 = a;
+        b1 = b; b2 = d; b3 = b;
+      } else {
+        a1 = a; a2 = -1; a3 = b;
+        b1 = c; b2 = -1; b3 = d;
+      }
+      for (let i = 0; i < array.length; i += 4) {
+        let ii = array.length * Math.random();
+        let x = (4 * ((ii / 2) % w)) / w + ox;
+        let y = (4 * ii) / 2 / w / w + oy;
+        for (let j = 0; j < 15; j++) {
+          let x2 = Math.sin(a1 * y) + a2 * Math.cos(a3 * x);
+          let y2 = Math.sin(b1 * x) + b2 * Math.cos(b3 * y);
+          x = x2;
+          y = y2;
+        }
+        array[i] = x;
+        array[i + 1] = y;
+      }
+    }
+  </script>
+  <script id="1496" type="text/x-typescript">
+    const cpuAccumulate = regl({
+      vert: `
+      precision highp float;
+      attribute vec4 position;
+      uniform mat3 view3;
+      uniform float colorSpeed, colorPhase, pointSize, colorSign, jitter;
+      uniform vec2 resolution;
+      varying vec3 color;
+      #define PI ${Math.PI}
+
+      vec3 colorscale (float t) {
+        return 0.5 + 0.5 * vec3(
+          cos((2.0 * PI) * t - colorPhase),
+          cos((2.0 * PI) * (t - 1.0 / 3.0) - colorPhase),
+          cos((2.0 * PI) * (t - 2.0 / 3.0) - colorPhase)
+        );
+      }
+
+      const float g = 1.32471795724474602596;
+      const vec2 q = vec2(1.0 / g, 1.0/(g*g));
+      vec2 qrand2(float n) {
+        return fract(0.5 + q * n);
+      }
+
+      void main () {    
+        color = colorscale(position.z * colorSpeed * colorSign);
+        vec2 xy = (view3 * vec3(position.xy, 1)).xy;
+        gl_Position = vec4(xy, 0, 1);
+        gl_PointSize = pointSize;
+
+        gl_Position.xy += jitter * (qrand2(position.w) - 0.5) / resolution;
+      }`,
+      frag: `
+      precision lowp float;
+      varying vec3 color;
+      uniform highp float pointSize;
+      void main () {
+        gl_FragColor = vec4(1, color) / (pointSize * pointSize);
+      }`,
+      attributes: {
+        position: regl.prop("cpuBuffer")
+      },
+      uniforms: {
+        resolution: ({ framebufferWidth: w, framebufferHeight: h }) => [w, h],
+        colorSpeed: regl.prop("colorSpeed"),
+        colorPhase: regl.prop("colorPhase"),
+        colorSign: regl.prop("colorSign"),
+        pointSize: regl.prop("pointSize"),
+        jitter: regl.prop("jitter")
+      },
+      blend: {
+        enable: true,
+        func: {
+          srcRGB: 1,
+          srcAlpha: 1,
+          dstRGB: 1,
+          dstAlpha: 1
+        },
+        equation: {
+          rgb: "add",
+          alpha: "add"
+        }
+      },
+      framebuffer: regl.prop("dst"),
+      primitive: "points",
+      depth: { enable: false },
+      count: batchSize
+    })
+  </script>
+  <script id="906" type="text/x-typescript">
+    const scales = (function() {
+      const ar = viewport.width / viewport.height;
+      const x = d3
+        .scaleLinear()
+        .range([0, regl._gl.canvas.offsetWidth])
+        .domain([-2.2 * ar, 2.2 * ar]);
+      const y = d3
+        .scaleLinear()
+        .range([regl._gl.canvas.offsetWidth, 0])
+        .domain([-2.2, 2.2]);
+      return { x, y, xOriginal: x.copy(), yOriginal: y.copy() };
+    })();
+  </script>
+  <script id="824" type="text/x-typescript">
+    const attachZoom = (function() {
+      function persistentZoom(
+        xScale,
+        yScale,
+        originalXScale,
+        originalYScale,
+        callback
+      ) {
+        return d3.zoom().on("zoom", function ({ transform }) {
+          let range;
+
+          range = xScale.range().map(transform.invertX, transform);
+          xScale.domain(originalXScale.domain());
+          xScale.domain(range.map(xScale.invert, xScale));
+
+          range = yScale.range().map(transform.invertY, transform);
+          yScale.domain(originalYScale.domain());
+          yScale.domain(range.map(yScale.invert, yScale));
+        });
+      }
+      d3.select(regl._gl.canvas).call(
+        persistentZoom(scales.x, scales.y, scales.xOriginal, scales.yOriginal).on(
+          "zoom.clearAccumulator",
+          () => {
+            regl.poll();
+            clearAccumulator();
+          }
+        )
+      );
+    })();
+  </script>
+  <script id="41" type="text/x-typescript">
+    const stateSize = Math.floor(Math.sqrt(batchSize))
+  </script>
+  <script id="754" type="text/x-typescript">
+    const viewport = ({
+      width: shape[0],
+      height: shape[1],
+      dpi: devicePixelRatio,
+      margin: { t: 0, r: 0, b: 0, l: 0 }
+    });
+  </script>
+  <script id="934" type="text/x-typescript">
+    function scaleFactor(scales) {
+      const X = scales.x.domain()[1] - scales.x.domain()[0];
+      const X0 = scales.xOriginal.domain()[1] - scales.xOriginal.domain()[0];
+      const Y = scales.y.domain()[1] - scales.y.domain()[0];
+      const Y0 = scales.yOriginal.domain()[1] - scales.yOriginal.domain()[0];
+      return (X * Y) / (X0 * Y0);
+    }
+  </script>
+  <script id="875" type="application/vnd.observable.javascript">
+    function clearAccumulator() {
+      accumulator.use(() => regl.clear({ color: [0, 0, 0, 0] }));
+      mutable accumulateCount = 0;
+    }
+  </script>
+  <script id="166" type="application/vnd.observable.javascript">
+    performInitialization = {
+      restart;
+      iterations;
+      batchSize;
+      jitter;
+      type;
+      a, b, c, d;
+      colorSpeed;
+      colorPhase;
+      if (mode === "cpu") {
+        cpuInitialize(iterationArray);
+      }
+      regl.poll();
+      clearAccumulator();
+    }
+  </script>
+  <script id="71" type="application/vnd.observable.javascript">
+    performIteration = {
+      const loop = regl.frame(({ tick }) => {
+        try {
+          if (~simulate.indexOf("Simulate") || mutable accumulateCount === 0) {
+            if (mutable accumulateCount === 1) {
+              accumulator.use(() => regl.clear({ color: [0, 0, 0, 0] }));
+            }
+            if (mode === "cpu") {
+              if ((mutable accumulateCount + 1) % iterations === 0) {
+                cpuInitialize(iterationArray);
+              }
+              iterate(iterationArray);
+              cpuPositionBuffer.subdata(iterationArray);
+            }
+            configureViewport(viewport, (ctx) => {
+              configureScales(scales.x, scales.y, (ctx) => {
+                (mode === "cpu" ? cpuAccumulate : gpuAccumulate)({
+                  a,
+                  b,
+                  c,
+                  d,
+                  cpuBuffer: cpuPositionBuffer,
+                  dst: accumulator,
+                  colorSpeed,
+                  jitter,
+                  colorPhase: (colorPhase * Math.PI) / 180,
+                  colorSign: !!~opts.indexOf("Flip colorscale") ? -1 : 1,
+                  pointSize: mutable accumulateCount === 0 ? 2 : 1
+                });
+              });
+            });
+            mutable dirty = true;
+            mutable accumulateCount = mutable accumulateCount + 1;
+          }
+          if (mutable dirty) {
+            copyToScreen({
+              src: accumulator,
+              opacity: 1,
+              brightness,
+              contrast,
+              accumulatorCount: Math.max(1, mutable accumulateCount),
+              batchSize: stateSize * stateSize,
+              gamma,
+              dynamicRange,
+              scaleFactor: scaleFactor(scales),
+              invert: !!~opts.indexOf("Invert"),
+              saturation
+            });
+            mutable dirty = false;
+          }
+        } catch (e) {
+          console.error(e);
+          loop.cancel();
+        }
+      });
+      invalidation.then(() => loop.cancel());
+    }
+  </script>
+  <script id="1365" type="text/x-typescript">
+    const randobuffer = (function() {
+      const data = Float32Array.from(Array.from(Array(batchSize).keys()));
+      const buffer = regl.buffer(data);
+      invalidation.then(() => buffer.destroy());
+      return buffer;
+    })();
+  </script>
+  <script id="59" type="text/x-typescript">
+    const gpuAccumulate = regl({
+      vert: `
+      precision highp float;
+      attribute float n;
+      uniform mat3 view3;
+      uniform float a, b, c, d, jitter;
+      uniform float colorSpeed, colorPhase, pointSize, sqrtBatchSize, colorSign;
+      uniform vec2 offset, resolution;
+      varying vec3 color;
+      #define PI ${Math.PI}
+
+    ${
+      type === "Clifford"
+        ? `
+          vec2 iterate (vec2 state) {
+            return vec2(
+              sin(a * state.y) + c * cos(a * state.x),
+              sin(b * state.x) + d * cos(b * state.y)
+            );
+          }
+    `
+        : `
+          vec2 iterate (vec2 state) {
+            return vec2(
+              sin(a * state.y) - cos(b * state.x),
+              sin(c * state.x) - cos(d * state.y)
+            );
+          }
+    `
+    }
+
+      vec3 colorscale (float t) {
+        return 0.5 + 0.5 * vec3(
+          cos((2.0 * PI) * t - colorPhase),
+          cos((2.0 * PI) * (t - 1.0 / 3.0) - colorPhase),
+          cos((2.0 * PI) * (t - 2.0 / 3.0) - colorPhase)
+        );
+      }
+
+      const float g = 1.32471795724474602596;
+      const vec2 q = vec2(1.0 / g, 1.0/(g*g));
+      vec2 qrand2(float n) {
+        return fract(0.5 + q * n);
+      }
+
+
+      void main () {
+        vec2 p = 4.0 * vec2(mod(n, sqrtBatchSize), floor(n / sqrtBatchSize)) / sqrtBatchSize + offset;
+
+        for (int i = 0; i < ${iterations - 1}; i++) {
+          p = iterate(p);
+        }
+        vec2 pn = iterate(p);
+        float dist = length(p - pn);
+
+        color = colorscale(dist * colorSpeed * colorSign);
+        vec2 xy = (view3 * vec3(pn, 1)).xy;
+        gl_Position = vec4(xy, 0, 1);
+        gl_PointSize = pointSize;
+        gl_Position.xy += jitter * (qrand2(n) - 0.5) / resolution;
+      }`,
+      frag: `
+      precision lowp float;
+      varying vec3 color;
+      uniform highp float pointSize;
+      void main () {
+        gl_FragColor = vec4(1, color) / (pointSize * pointSize);
+      }`,
+      attributes: {
+        n: randobuffer
+      },
+      uniforms: {
+        resolution: ({ framebufferWidth: w, framebufferHeight: h }) => [w, h],
+        offset: () => [Math.random() * 2 - 1, Math.random() * 2 - 1],
+        colorSpeed: regl.prop("colorSpeed"),
+        colorPhase: regl.prop("colorPhase"),
+        pointSize: regl.prop("pointSize"),
+        colorSign: regl.prop("colorSign"),
+        a: regl.prop("a"),
+        b: regl.prop("b"),
+        c: regl.prop("c"),
+        d: regl.prop("d"),
+        jitter: regl.prop("jitter"),
+        sqrtBatchSize: Math.floor(Math.sqrt(batchSize))
+      },
+      blend: {
+        enable: true,
+        func: {
+          srcRGB: 1,
+          srcAlpha: 1,
+          dstRGB: 1,
+          dstAlpha: 1
+        },
+        equation: {
+          rgb: "add",
+          alpha: "add"
+        }
+      },
+      framebuffer: regl.prop("dst"),
+      primitive: "points",
+      depth: { enable: false },
+      count: batchSize
+    })
+  </script>
+  <script id="90" type="text/x-typescript">
+    const copyToScreen = regl({
+      vert: `
+      precision highp float;
+      varying vec2 uv;
+      attribute vec2 xy;
+      void main () {
+        uv = 0.5 + 0.5 * xy;
+        gl_Position = vec4(xy, 0, 1);
+      }`,
+      frag: `
+      precision highp float;
+      varying vec2 uv;
+      uniform sampler2D src;
+      uniform float opacity, brightness, contrast, gamma, scale, saturation, dynamicRange;
+      uniform bool invert;
+
+      vec3 rgb2yuv(vec3 rgb) {
+        float y = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+        return vec3(y, 0.493 * (rgb.b - y), 0.877 * (rgb.r - y));
+      }
+
+      vec3 yuv2rgb(vec3 yuv) {
+        return vec3(
+          yuv.x + (1.0 / 0.877) * yuv.z,
+          yuv.x - 0.39393 * yuv.y - 0.58081 * yuv.z,
+          yuv.x + (1.0 / 0.493) * yuv.y
+        );
+      }
+
+      // power smooth min (k=8)
+      float smoothLimit(float x, float k) {
+          x = 2.0 * x - 1.0;
+          float a = pow(abs(x), 1.0 / k);
+          return sign(x) * pow(a / (a + 1.0), k) * 0.5 + 0.5;
+      }
+
+
+      void main () {
+        vec4 state = texture2D(src, uv);
+        float density = state.r / scale;
+
+        float v = density == 0.0 ? -20.0 : (log(density) - log(1.0)) / (log(1000.0) - log(1.0));
+        float value = contrast * v + brightness;
+        value = smoothLimit(value, dynamicRange);
+        if (!invert) value = 1.0 - value;
+
+        vec3 rgb = state.gba / max(state.r, 1.0);
+        vec3 yuv = rgb2yuv(rgb);
+
+        // Use the lightness from the overall density
+        yuv.x = value;
+
+        // Fade the saturation to zero at white and black:
+        yuv.yz *= saturation * value * (1.0 - value) * 4.0;
+
+        rgb = yuv2rgb(yuv);
+
+        gl_FragColor = vec4(pow(rgb, vec3(1.0 / gamma)), 1.0);
+      }`,
+      attributes: {
+        xy: [-4, -4, 4, -4, 0, 4]
+      },
+      uniforms: {
+        src: regl.prop("src"),
+        scale: (ctx, props) => {
+          const WH = ctx.framebufferWidth * ctx.framebufferHeight;
+          const N = props.accumulatorCount * props.batchSize;
+          return (N / WH) * props.scaleFactor;
+        },
+        brightness: (ctx, props) =>
+          props.invert ? props.brightness : 1.0 - props.brightness,
+        dynamicRange: regl.prop("dynamicRange"),
+        contrast: regl.prop("contrast"),
+        opacity: regl.prop("opacity"),
+        gamma: regl.prop("gamma"),
+        invert: regl.prop("invert"),
+        saturation: regl.prop("saturation")
+      },
+      count: 3,
+      depth: { enable: false }
+    })
+  </script>
+  <script id="10" type="text/x-typescript">
+    const accumulator = regl.framebuffer({
+      width: regl._gl.canvas.width,
+      height: regl._gl.canvas.height,
+      colorType: floatFormat,
+      colorFormat: "rgba",
+      depthStencil: false
+    })
+  </script>
+  <script id="752" type="text/x-typescript">
+    const configureViewport = createReglViewportConfiguration(regl)
+  </script>
+  <script id="748" type="text/x-typescript">
+    const configureScales = createReglLinearScaleConfiguration(regl)
+  </script>
+  <script id="21" type="text/x-typescript">
+    function createTextureLookupTable(w, h, stride) {
+      stride = stride || 2;
+      var n = w * h * stride;
+
+      var out = new Float32Array(n);
+
+      for (var i = 0, iStride = 0; iStride < n; i++, iStride += stride) {
+        out[iStride] = ((i % w) + 0.5) / w;
+        out[iStride + 1] = (((i / w) | 0) + 0.5) / h;
+      }
+
+      return out;
+    }
+  </script>
+  <script id="790" type="text/x-typescript">
+    function createReglLinearScaleConfiguration(regl) {
+      const matrices = {
+        view3: mat3create(),
+        inverseView3: mat3create(),
+        view: mat4create(),
+        inverseView: mat4create()
+      };
+      const command = regl({
+        context: {
+          view3: regl.prop("view3"),
+          inverseView3: regl.prop("inverseView3"),
+          view: regl.prop("view"),
+          inverseView: regl.prop("inverseView")
+        },
+        uniforms: {
+          view3: regl.prop("view3"),
+          inverseView3: regl.prop("inverseView3"),
+          view: regl.prop("view"),
+          inverseView: regl.prop("inverseView")
+        }
+      });
+
+      return function (xScale, yScale, clbk) {
+        mat3fromLinearScales(matrices.view3, xScale, yScale);
+        mat3invert(matrices.inverseView3, matrices.view3);
+        mat4fromMat3(matrices.view, matrices.view3);
+        mat4fromMat3(matrices.inverseView, matrices.inverseView3);
+        command(matrices, clbk);
+      };
+    }
+  </script>
+  <script id="780" type="text/x-typescript">
+    function createReglViewportConfiguration(regl) {
+      const viewport3 = mat3create();
+
+      let command = regl({
+        scissor: {
+          enable: true,
+          box: {
+            x: (ctx, props) => ctx.pixelRatio * props.margin.l,
+            y: (ctx, props) => ctx.pixelRatio * props.margin.b,
+            width: (ctx, props) =>
+              ctx.framebufferWidth -
+              ctx.pixelRatio * (props.margin.r + props.margin.l),
+            height: (ctx, props) =>
+              ctx.framebufferHeight -
+              ctx.pixelRatio * (props.margin.t + props.margin.b)
+          }
+        },
+        viewport: {
+          x: (ctx, props) => ctx.pixelRatio * props.margin.l,
+          y: (ctx, props) => ctx.pixelRatio * props.margin.b,
+          width: (ctx, props) =>
+            ctx.framebufferWidth -
+            ctx.pixelRatio * (props.margin.r + props.margin.l),
+          height: (ctx, props) =>
+            ctx.framebufferHeight -
+            ctx.pixelRatio * (props.margin.t + props.margin.b)
+        },
+        uniforms: {
+          viewportResolution: (ctx, props) => [
+            ctx.viewportWidth,
+            ctx.viewportHeight
+          ],
+          framebufferResolution: (ctx) => [
+            ctx.framebufferWidth,
+            ctx.framebufferHeight
+          ],
+          inverseViewportResolution: (ctx, props) => [
+            1 / ctx.viewportWidth,
+            1 / ctx.viewportHeight
+          ],
+          inverseFramebufferResolution: (ctx) => [
+            1 / ctx.framebufferWidth,
+            1 / ctx.framebufferHeight
+          ]
+        }
+      });
+      return function (viewport, callback) {
+        command(viewport, callback);
+      };
+    }
+  </script>
+  <script id="2118" type="text/x-typescript">
+    function mat3create() {
+      return new Float32Array([1,0,0, 0,1,0, 0,0,1]);
+    }
+    function mat3invert(out, a) {
+      const a00=a[0],a01=a[1],a02=a[2],a10=a[3],a11=a[4],a12=a[5],a20=a[6],a21=a[7],a22=a[8];
+      const b01=a22*a11-a12*a21, b11=-a22*a10+a12*a20, b21=a21*a10-a11*a20;
+      let det=a00*b01+a01*b11+a02*b21;
+      if(!det) return null;
+      det=1/det;
+      out[0]=b01*det; out[1]=(-a22*a01+a02*a21)*det; out[2]=(a12*a01-a02*a11)*det;
+      out[3]=b11*det; out[4]=(a22*a00-a02*a20)*det; out[5]=(-a12*a00+a02*a10)*det;
+      out[6]=b21*det; out[7]=(-a21*a00+a01*a20)*det; out[8]=(a11*a00-a01*a10)*det;
+      return out;
+    }
+    function mat4create() {
+      return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+    }
+    function mat4fromMat3(out, a) {
+      out[0]=a[0]; out[1]=a[1]; out[2]=a[2]; out[3]=0;
+      out[4]=a[3]; out[5]=a[4]; out[6]=a[5]; out[7]=0;
+      out[8]=a[6]; out[9]=a[7]; out[10]=a[8]; out[11]=0;
+      out[12]=0; out[13]=0; out[14]=0; out[15]=1;
+      return out;
+    }
+    function mat3fromLinearScales(out, xScale, yScale) {
+      let xDomain = xScale.domain();
+      let yDomain = yScale.domain();
+      let xs = 2 / (xDomain[1] - xDomain[0]);
+      let ys = 2 / (yDomain[1] - yDomain[0]);
+      out[0]=xs; out[1]=0; out[2]=0;
+      out[3]=0; out[4]=ys; out[5]=0;
+      out[6]=-1-xs*xDomain[0]; out[7]=-1-ys*yDomain[0]; out[8]=1;
+      return out;
+    }
+  </script>
+  <script id="2119" type="text/x-typescript">
+    function downloadURI(uri, name) {
+      const link = document.createElement("a");
+      link.download = name;
+      link.href = uri;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    function parseQueryString(str) {
+      if (!str) return {};
+      return Object.fromEntries(new URLSearchParams(str.startsWith('?') ? str.slice(1) : str));
+    }
+    function canWriteToFBOOfType(regl, type) {
+      type = type || "float";
+      if (!regl.hasExtension(`oes_texture_${type.replace(" ", "_")}`)) return false;
+      let floatFBO, uintFBO, draw, transfer;
+      try {
+        floatFBO = regl.framebuffer({
+          colorType: type,
+          colorFormat: "rgba",
+          radius: 1,
+          depthStencil: false
+        });
+
+        uintFBO = regl.framebuffer({
+          colorType: "uint8",
+          colorFormat: "rgba",
+          radius: 1,
+          depthStencil: false
+        });
+
+        // Use full-screen triangle with blending (like the actual visualization)
+        draw = regl({
+          vert: `
+          precision highp float;
+          attribute vec2 aXY;
+          void main () {
+            gl_Position = vec4(aXY, 0, 1);
+          }`,
+          frag: `
+          precision highp float;
+          void main () {
+            gl_FragColor = vec4(0.5, 0, 0, 0.5);
+          }`,
+          primitive: "triangles",
+          count: 3,
+          attributes: { aXY: [-4, -4, 4, -4, 0, 4] },
+          framebuffer: regl.prop("dst"),
+          depth: { enable: false },
+          // Test additive blending - this is what the visualization uses
+          blend: {
+            enable: true,
+            func: { srcRGB: 1, srcAlpha: 1, dstRGB: 1, dstAlpha: 1 },
+            equation: { rgb: "add", alpha: "add" }
+          }
+        });
+
+        transfer = regl({
+          vert: `
+          precision highp float;
+          attribute vec2 aXY;
+          void main () {
+            gl_Position = vec4(aXY, 0, 1);
+          }`,
+          frag: `
+          precision highp float;
+          uniform sampler2D src;
+          void main () {
+            gl_FragColor = texture2D(src, vec2(0.5));
+          }`,
+          attributes: { aXY: [-4, -4, 4, -4, 0, 4] },
+          uniforms: { src: regl.prop("src") },
+          framebuffer: regl.prop("dst"),
+          count: 3,
+          primitive: "triangles",
+          depth: { enable: false }
+        });
+
+        floatFBO.use(() => regl.clear({ color: [0, 0, 0, 0] }));
+        // Draw twice to test additive blending (0.5 + 0.5 = 1.0)
+        draw({ dst: floatFBO });
+        draw({ dst: floatFBO });
+        transfer({ src: floatFBO, dst: uintFBO });
+        const data = regl.read({ framebuffer: uintFBO });
+
+        // After two blended draws of 0.5, we expect >150 (showing blending accumulated)
+        // A single draw would give ~127, so >150 proves blending worked
+        const success = data[0] > 150 && data[3] > 150;
+        return success;
+      } catch (e) {
+        return false;
+      } finally {
+        if (floatFBO) floatFBO.destroy();
+        if (uintFBO) uintFBO.destroy();
+        if (draw) draw.destroy();
+        if (transfer) transfer.destroy();
+      }
+    }
+  </script>
+</notebook>

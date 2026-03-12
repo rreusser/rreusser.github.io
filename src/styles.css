@@ -133,6 +133,43 @@ hr {
   margin: 3em 0;
 }
 
+/* Landing page section links */
+#cell-10 ul {
+  list-style: none;
+  display: flex;
+  flex-direction: row;
+  gap: 32px;
+  justify-content: center;
+  flex-wrap: nowrap;
+  padding: 8px 0;
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  #cell-10 ul {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+}
+
+#cell-10 ul li {
+  padding: 0;
+}
+
+#cell-10 ul li a {
+  font-size: 1.4rem;
+  font-weight: 300;
+  font-family: "Open Sans", sans-serif;
+  -webkit-font-smoothing: auto;
+  text-decoration: none;
+  color: var(--rrtheme-color);
+}
+
+#cell-10 ul li a:hover {
+  text-decoration: underline;
+}
+
 header {
   color: white;
   font-weight: 200;
@@ -145,6 +182,39 @@ header {
   font-family: "Open Sans", sans-serif;
   -webkit-font-smoothing: auto;
   box-sizing: border-box;
+}
+
+header.has-image {
+  background-size: cover;
+  background-position: center 30%;
+  padding: 120px 20px;
+}
+
+header.has-image::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.175);
+}
+
+header.has-image > * {
+  position: relative;
+}
+
+header.has-image,
+header.has-image * {
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+nav:has(+ header.has-image) {
+  background: transparent;
+  position: absolute;
+  width: 100%;
+  z-index: 1;
+}
+
+body:has(header.has-image) {
+  background-color: var(--rrtheme-color);
 }
 
 header h1 {

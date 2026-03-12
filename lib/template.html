@@ -38,15 +38,16 @@
   {{/if}}
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ca4747" />
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#ca4747" />
-  <link rel="icon" type="image/svg+xml" href="/notebooks/favicon.svg" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/notebooks/favicon-32x32.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/notebooks/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <link rel="canonical" href="{{canonicalUrl}}" />
   <meta property="og:url" content="{{canonicalUrl}}" />
   {{#if silent}}
   <meta name="robots" content="noindex" />
   {{/if}}
   <link rel="alternate" type="application/rss+xml" title="Ricky Reusser's Notebooks" href="/notebooks/feed.xml" />
+  <meta name="google-site-verification" content="KXGAL2Z3EABwICzkx8zUwRndwyFy1xusXRNM4TiCSWA" />
   <style type="text/css">
     @import url("observable:styles/index.css");
     @import "@fontsource/spline-sans-mono/400.css";
@@ -99,7 +100,7 @@
       </svg>
     </button>
   </nav>
-  <header>
+  <header{{#if headerImage}} class="has-image" style="background-image: url('{{headerImage}}')"{{/if}}>
     {{#if title}}<h1>{{title}}</h1>{{/if}}
     <div class="byline">
       {{#if author}}<address class="author"><a rel="author" href="{{authorUrl}}">{{author}}</a></address>{{/if}}
@@ -236,7 +237,7 @@
 
     <main id="main-content"></main>
     {{#if mastodonPostId}}
-      <script src="../comments.js" type="module"></script>
+      <script src="/comments.js" type="module"></script>
       <style>
         #comment-root {
           margin: auto;

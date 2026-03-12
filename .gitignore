@@ -2,7 +2,7 @@ node_modules
 .DS_Store
 icebox
 .notebookkit-debug
-src/webgpu-lines/regl-gpu-lines
-src/denali/data
+src/notebooks/webgpu-lines/regl-gpu-lines
+src/notebooks/denali/data
 .janus
 www

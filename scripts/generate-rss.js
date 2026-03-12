@@ -8,11 +8,12 @@ import { JSDOM } from "jsdom";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = join(__dirname, "..");
-const NOTEBOOKS_DIR = join(ROOT_DIR, "src");
+const NOTEBOOKS_DIR = join(ROOT_DIR, "src/notebooks");
 const OUTPUT_PATH = join(ROOT_DIR, "www/feed.xml");
 
-const SITE_URL = "https://rreusser.github.io/notebooks";
-const META_IMAGE_BASE_URL = `${SITE_URL}/meta`;
+const SITE_URL = "https://rreusser.github.io";
+const NOTEBOOKS_URL = `${SITE_URL}/notebooks`;
+const META_IMAGE_BASE_URL = `${NOTEBOOKS_URL}/meta`;
 
 const window = new JSDOM().window;
 const parser = new window.DOMParser();
@@ -106,7 +107,7 @@ function generateRss(notebooks) {
 
   const items = notebooks
     .map((notebook) => {
-      const link = `${SITE_URL}/${notebook.path}`;
+      const link = `${NOTEBOOKS_URL}/${notebook.path}`;
       const pubDate = formatRFC822Date(notebook.publishedAt);
 
       let imageTag = "";
@@ -130,11 +131,11 @@ function generateRss(notebooks) {
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
     <title>Ricky Reusser's Notebooks</title>
-    <link>${SITE_URL}/</link>
+    <link>${NOTEBOOKS_URL}/</link>
     <description>Interactive notebooks on graphics, math, and creative coding</description>
     <language>en-us</language>
     <lastBuildDate>${now}</lastBuildDate>
-    <atom:link href="${SITE_URL}/feed.xml" rel="self" type="application/rss+xml" />${items}
+    <atom:link href="${NOTEBOOKS_URL}/feed.xml" rel="self" type="application/rss+xml" />${items}
   </channel>
 </rss>
 `;

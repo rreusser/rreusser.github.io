@@ -7,7 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, "..");
 
 async function copyMetaImages() {
-  const srcDir = join(projectRoot, "src");
+  const srcDir = join(projectRoot, "src/notebooks");
   const metaDir = join(projectRoot, "www", "meta");
 
   // Find all meta image files

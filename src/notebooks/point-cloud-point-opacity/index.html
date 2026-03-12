@@ -1,0 +1,620 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Selecting the Right Opacity for 2D Point Clouds</title>
+  <script id="1" type="text/markdown">
+    # Selecting the Right Opacity for 2D Point Clouds
+    This notebook is a response to the question from [Benjamin Schmidt](https://benschmidt.org)'s notebook, [Dot-density election maps with Webgl](https://observablehq.com/@bmschmidt/dot-density-election-maps-with-webgl). Benjamin points out in the section **Dynamic sizes and opacities**,
+
+    <blockquote>
+    For this to look good, the opacity and size needs to change with the zoom level. See my notes on the right way to increase point sizes on zoom here.. It seems clear that opacity needs a similar strategy, but I don't yet know what that formula should be.
+    </blockquote>
+
+    I've run into this so many times, and it's agonizing every single time! My goal in this notebook is to hopefully just answer the question, *what should the point opacity be when you render a lot of points*?
+
+    Please do note: _the best answer does not involve directly drawing millions of points of data at the same time_. It's unlikely you're actually processing that much information at one time, whether that's because you're only looking at a small subset or because you're looking at aggregate statistics like the density. There are lots of ways to extract meaning from large datasets; this notebook just happens to concern itself with the particular case where you do, for a variety of legitimate reasons, want to directly render many points.
+
+    ***Update***: Kari Lavikka has [contributed a wonderful SDF fix](https://twitter.com/KariLavikka/status/1335928770423910400) for varying the point opacity at the edge to accomplish better antialiasing.
+  </script>
+  <script id="2" type="text/markdown">
+    ## First, CSS versus device pixels
+
+    First, let's recall the difference between [*CSS pixels*](https://developer.mozilla.org/en-US/docs/Glossary/CSS_pixel) and *device pixels*. A single CSS pixel corresponds to a nicely sized single dot on a screen, as seen by a human. Until retina displays became common, there was generally no confusion and a pixel was a pixel. In a retina display with a *device pixel ratio* of 2, however, each CSS pixel corresponds to a block of ${tex`2 \times 2`} *device pixels*.
+
+    Therefore, so that WebGL points have a consistent CSS pixel size for everyone, we must multiply our \`gl_PointSize\` by the pixel ratio (which we may select slightly differently than the true *device* pixel ratio in case we want to downsample the canvas resolution just a bit and help things render a bit more quickly).
+  </script>
+  <script id="3" type="text/markdown">
+    ## Selecting a point size
+
+    We start with an arbitrary function to select a point size. The function below implements a possible function with the following rules:
+
+    - We select a point size in y-axis units.
+    - We apply a the minimum and maximum size, specified in CSS pixels
+
+    Remember that these rules are arbitrary and the opacity function we'll come up with below will happily use whatever size we give it.
+  </script>
+  <script id="4" type="text/x-typescript" pinned="">
+    // Compute the point size, in device pixels
+    function pointSizeDevicePixels(ctx, props) {
+      // Get the y range from the orthographic view matrix
+      const yAxisRange = 2.0 / ctx.view[5];
+
+      // The height as a fraction of the current y range, then converted to device pixels
+      const heightFraction = props.pointYAxisSize / yAxisRange;
+      const deviceSize = heightFraction * ctx.viewportHeight;
+
+      return clamp(
+        deviceSize,
+        props.pointScreenSize[0] * ctx.pixelRatio,
+        props.pointScreenSize[1] * ctx.pixelRatio
+      );
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+  </script>
+  <script id="5" type="text/markdown">
+    ## Computing the opacity
+
+    Now we get to the fun part. If we view drawing points as depositing opacity, then in order to produce a constant look, we desire some consistent average fill of opacity per screen area. Let's call this fill density ${tex`\rho`} and measure it in units of ${tex`\mathrm{fill} / \mathrm{pixel}`}, where ${tex`\mathrm{fill} = 1.0`} corresponds to a single full-opacity pixel.
+
+    Consider a single ${tex`p \times p`}-pixel rasterized point with opacity ${tex`\alpha`}. We'll assume for simplicity that all of our pixels have the same size and opacity. Then the total fill ${tex`f_i`} of this point is ${tex.block`f_i = \alpha p^2,`} and the total fill ${tex`F`} of ${tex`N`} such rasterized points is ${tex.block`F \equiv \sum_{i = 1}^N f_i = N \alpha p^2.`}
+
+    If we have a canvas of size ${tex`W \times H`} device pixels, then average fill is ${tex.block`\rho = \frac{F}{W H} = \frac{N \alpha p^2}{W H}.`}
+
+    Solving for ${tex`\alpha`}, we obtain ${tex.block`\alpha = \frac{\rho W H}{N p^2}.`}
+
+    As we zoom in or out, consider that we see a smaller or larger fraction of the points. To account for this, we finally scale the density by the zoom factors ${tex`Y_0 / Y`} and ${tex`X_0 / X`} where ${tex`X_0`} and ${tex`Y_0`} are the initial axis dimensions while ${tex`X`} and ${tex`Y`} are the current axis dimensions. Thus our final expression for opacity is ${tex.block`
+    \alpha = \left(\frac{\rho W H}{N p^2}\right)\left(\frac{X_0}{X}\right)\left(\frac{Y_0}{Y}\right)
+    `}
+
+    Note: One might think to simplify this using ${tex`H^2`} instead of ${tex`W H`} to eliminate aspect ratio dependence. However, when the plot maintains equal scaling in data units per pixel (aspect ratio = 1), resizing the container causes the data domain to adjust. The ${tex`W H`} form correctly accounts for this and keeps opacity stable across resize operations.
+
+    Finally, we do some additional bookeeping in the function below to switch over to adjusting the opacity rather than the point size once we reach the minimum point size with respect to device pixels. These adjustments work together with corresponding modifications in the vertex and fragment shaders in the [\`drawPoints\`](#drawPoints) function below. The additional factors are:
+
+    - If we render circles rather than squares, adjust the opacity to account for the fact that the unit circle only covers 78% of the unit square.
+    - If the point size is smaller than the minimum permissible size, we multiply opacity by the square of the ratio between desired size and actual size so that we accumulate the correct amount of fill.
+  </script>
+  <script id="6" type="text/x-typescript" pinned="">
+    function pointOpacity(ctx, props) {
+      // We use the above function for the point size. This means we can plug
+      // in any function, even nonlinear, as long as we compute the opacity
+      // correctly.
+      var p = pointSizeDevicePixels(ctx, props);
+
+      // Compute the plot's x and y range from the orthographic view matrix
+      const X = 2.0 / ctx.view[0];
+      const Y = 2.0 / ctx.view[5];
+      const X0 = props.initialAxisDimensions[0];
+      const Y0 = props.initialAxisDimensions[1];
+
+      // Viewport size, in device pixels
+      const W = ctx.viewportWidth;
+      const H = ctx.viewportHeight;
+
+      // Number of points
+      const N = props.N;
+
+      let alpha = ((props.rho * W * H) / (N * p * p)) * (X0 / X) * (Y0 / Y);
+
+      // If it's a circle, only (pi r^2) of the unit square is filled so we
+      // slightly increase the alpha accordingly.
+      alpha *= props.circularPoints ? 1.0 / (0.25 * Math.PI) : 1.0;
+
+      // If the pixels shrink below the minimum permitted size, then we adjust
+      // the opacity instead and apply clamping of the point size in the vertex
+      // shader. Note that we add 0.5 since we slightly inrease the size of
+      // points during rendering to accommodate SDF-style antialiasing.
+      const clampedPointDeviceSize =
+        Math.max(props.minimumPointDeviceSize, p) + 0.5;
+
+      // We square this since we're concerned with the ratio of *areas*.
+      alpha *= Math.pow(p / clampedPointDeviceSize, 2.0);
+
+      // And finally, we clamp to the range [0, 1]. We should really clamp this
+      // to 1 / precision on the low end, depending on the data type of the
+      // destination so that we never render *nothing*.
+      return clamp(alpha, 0.0, 1.0);
+    }
+  </script>
+  <script id="7" type="text/markdown">
+    ## Additional considerations
+
+    ### Data types
+
+    There are a few extra considerations. First, the data type. If we render ten million points, the opacity of each point may be tiny, perhaps just ${tex`\alpha = 0.001`}. For RGBA channels of type \`uint8\`, the smallest representable opacity is ${tex`1 / 255 = ${(1 / 255).toFixed(4)}`}. If our opacities are barely representable, we expect heavy quantization of the colors at best and perhaps nothing on the screen at worst. A simple solution is to render to an offscreen \`float16\` or \`float32\` framebuffer, then transfer the colors to the screen.
+
+    ### Gamma
+
+    Whether or not we render to a framebuffer with higher precision, since we've computed our colors in a linear colorspace by simply adding them up, we should convert to sRGB by applying gamma as a separate step. The input color from the color picker is in sRGB, so we convert it to linear for blending, then convert the accumulated result back to sRGB for display. I've used the standard sRGB gamma approximation of 2.2.
+
+    ### Antialiasing
+
+    ***Update***: I wasn't thinking! Thanks to [Kari Lavikka](https://twitter.com/KariLavikka) for [varying the opacity to accomplish antialiasing](https://observablehq.com/@tuner/selecting-the-right-opacity-for-2d-point-clouds-with-sdf-ant) and also clamping the minimum point size to a single pixel and then varying the opacity instead.
+
+    ### Blending
+
+    I've used additive blending to overlay the points, with one exception. Since the points accumulate *toward black from white*, I've used \`reverse subtract\` with the color inverted so that we start with 1.0 and accumulate toward 0.0. This is equivalent to rendering the inverted image and then un-inverting at the end. [This tool helps me reason through it](https://www.andersriggelsen.dk/glblendfunc.php).
+
+    ### Rendering optimization
+
+    [@dy has pointed out based on his regl-scatter2d module](https://twitter.com/DimaYv/status/1335914283406856192) that sorting the points, either with a space-filling curve or even just along a single axis, can also have a significant performance impact.
+
+    ### Axes and interactions
+
+    Finally, I've used D3 for the linear scales and zoom interaction. This notebook uses the same zooming and Plot-based axis rendering approach as other notebooks in this collection.
+  </script>
+  <script id="8" type="text/markdown">
+    ## Observations
+
+    Adjust the sliders below and observe that the plot maintains its appearance as you zoom or as the number of points or even window size changes. Also observe the wild colors if you zoom out with a \`uint8\` framebuffer.
+  </script>
+  <script id="100" type="text/x-typescript">
+    const figure = html`<figure>
+      ${stack.element}
+      <figcaption>Drag to pan, scroll to zoom.</figcaption>
+    </figure>`;
+
+    display(expandable(figure, {
+      width: Math.min(width, 640),
+      height: Math.min(480, width),
+      toggleOffset: [-6, -33],
+      controls: '#point-cloud-controls',
+      onResize(el, w, h) {
+        stack.resize(w, h);
+        axes.updateScales(
+          stack.elements.plot.scale("x"),
+          stack.elements.plot.scale("y")
+        );
+        render.dirty = true;
+      }
+    }));
+  </script>
+  <script id="101" type="text/x-typescript">
+    import createREGL from 'npm:regl@2.1.1'
+    import { createElementStack } from './lib/element-stack.js'
+    import { reglElement, reglAxesViewport } from './lib/regl-canvas.js'
+    import { createZoomableAxes } from './lib/zoomable-axes.js'
+    import { expandable } from './lib/expandable.js'
+  </script>
+  <script id="102" type="text/x-typescript">
+    const stack = createElementStack({
+      layers: [{
+        id: 'regl',
+        element: reglElement(createREGL, {
+          optionalExtensions: ['OES_texture_float', 'OES_texture_half_float'],
+          attributes: { depthStencil: false, preserveDrawingBuffer: true }
+        })
+      }, {
+        id: 'plot',
+        element: ({ width, height }) => createPlot(width, height)
+      }, {
+        id: 'svg',
+        element: ({ current, width, height }) =>
+          (current ? d3.select(current) : d3.create("svg"))
+            .attr("width", width)
+            .attr("height", height)
+            .style("cursor", "grab")
+            .node()
+      }]
+    });
+  </script>
+  <script id="103" type="text/x-typescript">
+    function createPlot(width, height, xDomain = initialXDomain, yDomain = initialYDomain) {
+      return Plot.plot({
+        width,
+        height,
+        marginTop: 5,
+        marginRight: 5,
+        marginLeft: 40,
+        marginBottom: 25,
+        style: { backgroundColor: "transparent", maxWidth: "none", position: "absolute", pointerEvents: "none" },
+        x: { domain: xDomain, tickSpacing: 100 },
+        y: { domain: yDomain, tickSpacing: 100 },
+        marks: [
+          Plot.ruleX([0], { stroke: "currentColor", strokeOpacity: 0.12 }),
+          Plot.ruleY([0], { stroke: "currentColor", strokeOpacity: 0.12 })
+        ]
+      });
+    }
+  </script>
+  <script id="104" type="text/x-typescript">
+    const initialXDomain = [-12.5, 12.5];
+    const initialYDomain = [-12.5, 12.5];
+    const initialAxisDimensions = [initialXDomain[1] - initialXDomain[0], initialYDomain[1] - initialYDomain[0]];
+  </script>
+  <script id="105" type="text/x-typescript">
+    const axes = createZoomableAxes({
+      d3,
+      element: stack.elements.svg,
+      xScale: stack.elements.plot.scale("x"),
+      yScale: stack.elements.plot.scale("y"),
+      aspectRatio: 1,
+      scaleExtent: [0.01, 10000],
+      onChange: ({ xDomain, yDomain }) => {
+        render.dirty = true;
+        const newPlot = createPlot(stack.width, stack.height, xDomain, yDomain);
+        stack.elements.plot.replaceWith(newPlot);
+        stack.elements.plot = newPlot;
+        stack.dispatchEvent(new CustomEvent('update'));
+      }
+    });
+  </script>
+  <script id="200" type="text/x-typescript">
+    function canWriteToFBOOfType(regl, type) {
+      try {
+        const fbo = regl.framebuffer({ width: 1, height: 1, colorType: type });
+        fbo.destroy();
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    const regl = stack.elements.regl.value;
+    const colorTypeOptions = ['uint8'];
+    if (canWriteToFBOOfType(regl, 'half float')) colorTypeOptions.unshift('half float');
+    if (canWriteToFBOOfType(regl, 'float')) colorTypeOptions.unshift('float');
+
+    const viewofPlotData = Inputs.select(
+      ["Rössler attractor", "Nose-Hoover attractor", "TSUCS 2 attractor", "Uniform grid", "Random"],
+      { label: "Plot data", value: "Rössler attractor" }
+    );
+    const viewofN = Inputs.range([1000, 4000000], { step: 1000, value: 1000000, label: "Point count (N)" });
+    const viewofRho = Inputs.range([0, 1], { step: 0.01, value: 0.15, label: "Fill density (ρ)" });
+    const viewofPointYAxisSize = Inputs.range([0.0001, 0.1], { step: 0.0001, value: 0.03, label: "Point size (y-axis units)" });
+    const viewofPointScreenSizeMin = Inputs.range([0.5, 10], { step: 0.1, value: 1.0, label: "Min point size (CSS px)" });
+    const viewofPointScreenSizeMax = Inputs.range([1, 40], { step: 0.1, value: 20.0, label: "Max point size (CSS px)" });
+    const viewofMinimumPointDeviceSize = Inputs.range([1, 4], { step: 0.1, value: 1.5, label: "Min device pixel size" });
+    const viewofPointColor = Inputs.color({ value: "#87aad4", label: "Point color" });
+    const viewofCircularPoints = Inputs.toggle({ value: true, label: "Circular points" });
+    const viewofPixelRatio = Inputs.range([0.5, devicePixelRatio], { step: 0.5, value: devicePixelRatio, label: "Pixel ratio" });
+    const viewofColorType = Inputs.select(colorTypeOptions, { value: colorTypeOptions[0], label: "Framebuffer type" });
+
+    const plotData = Generators.input(viewofPlotData);
+    const N = Generators.input(viewofN);
+    const rho = Generators.input(viewofRho);
+    const pointYAxisSize = Generators.input(viewofPointYAxisSize);
+    const pointScreenSizeMin = Generators.input(viewofPointScreenSizeMin);
+    const pointScreenSizeMax = Generators.input(viewofPointScreenSizeMax);
+    const minimumPointDeviceSize = Generators.input(viewofMinimumPointDeviceSize);
+    const pointColor = Generators.input(viewofPointColor);
+    const circularPoints = Generators.input(viewofCircularPoints);
+    const pixelRatio = Generators.input(viewofPixelRatio);
+    const colorType = Generators.input(viewofColorType);
+
+    display(html`<div id="point-cloud-controls">
+      ${viewofPlotData}
+      ${viewofN}
+      ${viewofRho}
+      ${viewofPointYAxisSize}
+      ${viewofPointScreenSizeMin}
+      ${viewofPointScreenSizeMax}
+      ${viewofMinimumPointDeviceSize}
+      ${viewofPointColor}
+      ${viewofCircularPoints}
+      ${viewofPixelRatio}
+      ${viewofColorType}
+    </div>`);
+  </script>
+  <script id="300" type="text/markdown">
+    ## WebGL Implementation
+  </script>
+  <script id="301" type="text/x-typescript">
+    const render = { dirty: true };
+
+    function hexToRgb(hex) {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? [
+        parseInt(result[1], 16) / 255,
+        parseInt(result[2], 16) / 255,
+        parseInt(result[3], 16) / 255
+      ] : [0, 0, 0];
+    }
+
+    const SRGB_GAMMA = 2.2;
+
+    function sRGBToLinear(rgb) {
+      return [
+        Math.pow(rgb[0], SRGB_GAMMA),
+        Math.pow(rgb[1], SRGB_GAMMA),
+        Math.pow(rgb[2], SRGB_GAMMA)
+      ];
+    }
+  </script>
+  <script id="302" type="text/x-typescript">
+    function generatePoints(plotData, N, bounds) {
+      const xyData = new Float32Array(N * 2);
+      const [xMin, xMax] = bounds.x;
+      const [yMin, yMax] = bounds.y;
+      const xRange = xMax - xMin;
+      const yRange = yMax - yMin;
+
+      switch (plotData) {
+        case 'Uniform grid': {
+          const w = Math.floor(Math.sqrt(N));
+          for (let i = 0; i < N; i++) {
+            xyData[i * 2] = ((i % w) / w - 0.5) * xRange;
+            xyData[i * 2 + 1] = (Math.floor(i / w) / w - 0.5) * yRange;
+          }
+          break;
+        }
+        case 'Random': {
+          for (let i = 0; i < N; i++) {
+            xyData[i * 2] = (Math.random() - 0.5) * xRange;
+            xyData[i * 2 + 1] = (Math.random() - 0.5) * yRange;
+          }
+          break;
+        }
+        case 'Rössler attractor': {
+          let xn = 2.644838333129883, yn = 4.060488700866699, zn = 2.8982460498809814;
+          const a = 0.2, b = 0.2, c = 5.7, dt = 0.006;
+          for (let i = 0; i < N; i++) {
+            let dx = -yn - zn;
+            let dy = xn + a * yn;
+            let dz = b + zn * (xn - c);
+            const xh = xn + 0.5 * dt * dx;
+            const yh = yn + 0.5 * dt * dy;
+            const zh = zn + 0.5 * dt * dz;
+            dx = -yh - zh;
+            dy = xh + a * yh;
+            dz = b + zh * (xh - c);
+            xn = xn + dt * dx;
+            yn = yn + dt * dy;
+            zn = zn + dt * dz;
+            xyData[i * 2] = xn;
+            xyData[i * 2 + 1] = yn;
+          }
+          break;
+        }
+        case 'Nose-Hoover attractor': {
+          let xn = 2.644838333129883, yn = 4.060488700866699, zn = 2.8982460498809814;
+          const dt = 0.01;
+          for (let i = 0; i < N; i++) {
+            let dx = yn;
+            let dy = -xn + yn * zn;
+            let dz = 1.5 - yn * yn;
+            const xh = xn + 0.5 * dt * dx;
+            const yh = yn + 0.5 * dt * dy;
+            const zh = zn + 0.5 * dt * dz;
+            dx = yh;
+            dy = -xh + yh * zh;
+            dz = 1.5 - yh * yh;
+            xn = xn + dt * dx;
+            yn = yn + dt * dy;
+            zn = zn + dt * dz;
+            xyData[i * 2] = xn;
+            xyData[i * 2 + 1] = yn;
+          }
+          break;
+        }
+        case 'TSUCS 2 attractor': {
+          let xn = 5, yn = 5, zn = 5;
+          const dt = 0.001;
+          for (let i = 0; i < N; i++) {
+            let dx = 40.0 * (yn - xn) + 0.16 * xn * zn;
+            let dy = 55.0 * xn - xn * zn + 20.0 * yn;
+            let dz = 1.833 * zn + xn * yn - 0.65 * xn * xn;
+            const xh = xn + 0.5 * dt * dx;
+            const yh = yn + 0.5 * dt * dy;
+            const zh = zn + 0.5 * dt * dz;
+            dx = 40.0 * (yh - xh) + 0.16 * xh * zh;
+            dy = 55.0 * xh - xh * zh + 20.0 * yh;
+            dz = 1.833 * zh + xh * yh - 0.65 * xh * xh;
+            xn = xn + dt * dx;
+            yn = yn + dt * dy;
+            zn = zn + dt * dz;
+            xyData[i * 2] = xn * 0.1;
+            xyData[i * 2 + 1] = zn * 0.1;
+          }
+          break;
+        }
+      }
+      return xyData;
+    }
+  </script>
+  <script id="303" type="text/x-typescript" pinned="">
+    const GLSL_SRGB_GAMMA = `
+      const float SRGB_GAMMA = 2.2;
+      vec3 linearToSRGB(vec3 rgb) {
+        return pow(clamp(rgb, vec3(0), vec3(1)), vec3(1.0 / SRGB_GAMMA));
+      }`;
+
+    const copyToScreen = regl({
+      vert: `
+        precision highp float;
+        attribute vec2 xy;
+        void main () {
+          gl_Position = vec4(xy, 0, 1);
+        }`,
+      frag: `
+        precision highp float;
+        uniform vec2 framebufferResolution;
+        uniform sampler2D src;
+        ${GLSL_SRGB_GAMMA}
+        void main () {
+          vec4 color = texture2D(src, gl_FragCoord.xy / framebufferResolution);
+          float alpha = min(color.a, 1.0);
+          vec3 rgb = alpha > 0.0 ? color.rgb / alpha : vec3(0.0);
+          gl_FragColor = vec4(linearToSRGB(rgb) * alpha, alpha);
+        }`,
+      attributes: { xy: [-4, -4, 4, -4, 0, 4] },
+      uniforms: {
+        src: regl.prop('src'),
+        framebufferResolution: (ctx) => [ctx.framebufferWidth, ctx.framebufferHeight]
+      },
+      count: 3,
+      depth: { enable: false }
+    });
+
+    function createDrawPoints(circularPoints) {
+      return regl({
+        vert: `
+          precision highp float;
+          attribute vec2 xy;
+          uniform float pointSize, minimumPointDeviceSize;
+          uniform mat4 view;
+          void main () {
+            gl_Position = view * vec4(xy, 0, 1);
+            gl_PointSize = max(minimumPointDeviceSize, pointSize) + 0.5;
+          }`,
+        frag: `
+          precision highp float;
+          uniform float opacity, pointSize;
+          uniform vec3 pointColor;
+
+          float linearstep(float edge0, float edge1, float x) {
+            return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+          }
+
+          void main () {
+            float alpha = opacity;
+            vec2 c = gl_PointCoord * 2.0 - 1.0;
+            #if ${circularPoints ? '1' : '0'}
+            float sdf = length(c);
+            #else
+            float sdf = max(abs(c.x), abs(c.y));
+            #endif
+            alpha *= linearstep(pointSize + 0.5, pointSize - 0.5, sdf * pointSize);
+            gl_FragColor = vec4(pointColor, alpha);
+          }`,
+        attributes: { xy: regl.prop('pointsBuffer') },
+        blend: {
+          enable: true,
+          func: { srcRGB: 'src alpha', dstRGB: 1, srcAlpha: 1, dstAlpha: 1 },
+          equation: { rgb: 'add', alpha: 'add' }
+        },
+        uniforms: {
+          view: regl.prop('view'),
+          pointColor: regl.prop('pointColor'),
+          minimumPointDeviceSize: regl.prop('minimumPointDeviceSize'),
+          opacity: regl.prop('opacity'),
+          pointSize: regl.prop('pointSize')
+        },
+        primitive: 'points',
+        count: regl.prop('N'),
+        depth: { enable: false },
+        scissor: { enable: true, box: regl.prop('scissor') },
+        viewport: regl.prop('viewport')
+      });
+    }
+
+    // Mutable state - all in one cell to avoid cross-cell reassignment issues
+    let pointsBuffer = regl.buffer(generatePoints(plotData, N, { x: initialXDomain, y: initialYDomain }));
+    let fbo = regl.framebuffer({
+      width: Math.floor(stack.width * pixelRatio),
+      height: Math.floor(stack.height * pixelRatio),
+      colorType: colorType
+    });
+    let drawPoints = createDrawPoints(circularPoints);
+    let currentPlotData = plotData;
+    let currentN = N;
+    let currentColorType = colorType;
+    let currentPixelRatio = pixelRatio;
+    let currentCircularPoints = circularPoints;
+
+    const loop = regl.frame(() => {
+      // Check for parameter changes that require recreation
+      if (plotData !== currentPlotData || N !== currentN) {
+        pointsBuffer.destroy();
+        pointsBuffer = regl.buffer(generatePoints(plotData, N, { x: initialXDomain, y: initialYDomain }));
+        currentPlotData = plotData;
+        currentN = N;
+        render.dirty = true;
+      }
+
+      if (colorType !== currentColorType || pixelRatio !== currentPixelRatio) {
+        fbo.destroy();
+        fbo = regl.framebuffer({
+          width: Math.floor(stack.width * pixelRatio),
+          height: Math.floor(stack.height * pixelRatio),
+          colorType: colorType
+        });
+        currentColorType = colorType;
+        currentPixelRatio = pixelRatio;
+        render.dirty = true;
+      }
+
+      if (circularPoints !== currentCircularPoints) {
+        drawPoints = createDrawPoints(circularPoints);
+        currentCircularPoints = circularPoints;
+        render.dirty = true;
+      }
+
+      // Check if any rendering parameters changed
+      if (pointYAxisSize || rho || pointScreenSizeMin || pointScreenSizeMax ||
+          minimumPointDeviceSize || pointColor) {
+        render.dirty = true;
+      }
+
+      if (!render.dirty) return;
+
+      // Resize framebuffer if needed
+      const targetWidth = Math.floor(stack.width * pixelRatio);
+      const targetHeight = Math.floor(stack.height * pixelRatio);
+      if (fbo.width !== targetWidth || fbo.height !== targetHeight) {
+        fbo.resize(targetWidth, targetHeight);
+      }
+
+      // Compute viewport bounds from axes
+      const viewport = {
+        x: Math.min(axes.xRange[0], axes.xRange[1]) * pixelRatio,
+        y: targetHeight - Math.max(axes.yRange[0], axes.yRange[1]) * pixelRatio,
+        width: Math.abs(axes.xRange[1] - axes.xRange[0]) * pixelRatio,
+        height: Math.abs(axes.yRange[0] - axes.yRange[1]) * pixelRatio
+      };
+
+      // Create context object for opacity/size calculations
+      const ctx = {
+        view: axes.view,
+        viewportWidth: viewport.width,
+        viewportHeight: viewport.height,
+        pixelRatio: pixelRatio
+      };
+
+      const props = {
+        N,
+        pointYAxisSize,
+        pointScreenSize: [pointScreenSizeMin, pointScreenSizeMax],
+        minimumPointDeviceSize,
+        rho,
+        circularPoints,
+        initialAxisDimensions
+      };
+
+      const pointColorRGB = hexToRgb(pointColor);
+      const pointColorLinear = sRGBToLinear(pointColorRGB);
+
+      // Render to framebuffer
+      fbo.use(() => {
+        regl.clear({ color: [0, 0, 0, 0] });
+        drawPoints({
+          view: axes.view,
+          pointsBuffer,
+          N,
+          pointColor: pointColorLinear,
+          minimumPointDeviceSize,
+          opacity: pointOpacity(ctx, props),
+          pointSize: pointSizeDevicePixels(ctx, props),
+          viewport,
+          scissor: viewport
+        });
+      });
+
+      // Copy to screen with linear → sRGB conversion
+      copyToScreen({ src: fbo });
+
+      render.dirty = false;
+    });
+
+    invalidation.then(() => {
+      loop.cancel();
+      pointsBuffer.destroy();
+      fbo.destroy();
+    });
+  </script>
+  <script id="400" type="text/x-typescript">
+    import { collapseCodeBlocks } from './lib/collapsible-code.js'
+    collapseCodeBlocks({ maxHeight: 1000 });
+  </script>
+</notebook>

@@ -1,1 +1,0 @@
-../../lib/camera-buttons.js

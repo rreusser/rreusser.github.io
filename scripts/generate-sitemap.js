@@ -6,11 +6,11 @@ import yaml from "yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = join(__dirname, "..");
-const NOTEBOOKS_DIR = join(ROOT_DIR, "src");
+const NOTEBOOKS_DIR = join(ROOT_DIR, "src/notebooks");
 const SITEMAP_PATH = join(ROOT_DIR, "www/sitemap.xml");
 const ROBOTS_PATH = join(ROOT_DIR, "www/robots.txt");
 
-const SITE_URL = "https://rreusser.github.io/notebooks";
+const SITE_URL = "https://rreusser.github.io";
 
 async function fileExists(path) {
   try {
@@ -27,7 +27,9 @@ async function getNotebooks() {
     absolute: true,
   });
 
-  const notebooks = [];
+  const notebooks = [
+    { url: `${SITE_URL}/`, lastmod: null, priority: "1.0" },
+  ];
   for (const path of notebookPaths) {
     const relpath = relative(NOTEBOOKS_DIR, path);
     const notebookDir = dirname(path);
@@ -42,15 +44,15 @@ async function getNotebooks() {
     if (meta?.hidden || meta?.silent) continue;
 
     const urlPath = relpath === "index.html"
-      ? "/"
-      : `/${relpath.replace(/index\.html$/, "")}`;
+      ? "/notebooks/"
+      : `/notebooks/${relpath.replace(/index\.html$/, "")}`;
 
     notebooks.push({
       url: `${SITE_URL}${urlPath}`,
       lastmod: meta.publishedAt
         ? new Date(meta.publishedAt).toISOString().slice(0, 10)
         : null,
-      priority: relpath === "index.html" ? "1.0" : "0.8",
+      priority: relpath === "index.html" ? "0.9" : "0.8",
     });
   }
 
@@ -79,7 +81,7 @@ function generateRobots() {
   return `User-agent: *
 Allow: /
 
-Sitemap: ${SITE_URL}/sitemap.xml
+  Sitemap: https://rreusser.github.io/sitemap.xml
 `;
 }
 
