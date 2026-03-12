@@ -24,7 +24,7 @@ invalidation.then(() => device.destroy());
   <script id="load-data" type="module">
 // In production, load from GitHub raw content (avoids copying large files to docs/)
 const dataBaseUrl = location.hostname === 'rreusser.github.io'
-  ? 'https://raw.githubusercontent.com/rreusser/notebooks/main/src/visualizing-sloan-digital-sky-survey-data'
+  ? 'https://raw.githubusercontent.com/rreusser/notebooks/main/src/notebooks/visualizing-sloan-digital-sky-survey-data'
   : '.';
 const metadata = await fetch(`${dataBaseUrl}/objects.json`).then(r => r.json());
 
