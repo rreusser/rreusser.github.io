@@ -75,7 +75,7 @@
 
     Error visibility was one of the trickier parts to get right, because errors in a Notebook Kit project come from several places. Observable runtime errors come from the runtime directly. Syntax errors were more tricky since they crash the Vite build, leaving no runtime to query. To resolve this, the server patches into Vite's error page and forwards build errors over the WebSocket. Console messages are captured by wrapping the browser's console methods (very early!) during page load.
 
-    The server also exposes an in-page overlay showing a live log of MCP tool calls and their responses, which was useful while building it and occasionally while debugging.
+    The server also exposes an in-page overlay showing a live log of MCP tool calls and their responses, which was useful while building it and occasionally while debugging. It can send (and display) clicks, drags, touches, key presses. It can drag to rotate a 3D model and confirm visually that it was rotated. It's wild.
 
     <figure>${await FileAttachment("widget.webp").image({ alt: "The MCP debug overlay showing a GetErrors tool call and its response" })}<figcaption>The in-page MCP debug overlay, showing a <code>GetErrors</code> tool call and its response.</figcaption></figure>
 
