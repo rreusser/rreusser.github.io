@@ -7,7 +7,7 @@ import yaml from "yaml";
 import { glob } from "glob";
 import { deserialize } from "@observablehq/notebook-kit";
 import { JSDOM } from "jsdom";
-import { debugNotebook } from "@rreusser/mcp-observable-notebookkit-debugger";
+
 import { metadataWarningPlugin } from "./scripts/metadata-warning-plugin.js";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 
@@ -135,8 +135,12 @@ function copyStaticAssets(patterns) {
   };
 }
 
-export default defineConfig(({ command }) => {
+export default defineConfig(async ({ command }) => {
   const isDev = command === 'serve';
+
+  const { debugNotebook } = isDev
+    ? await import("@rreusser/mcp-observable-notebookkit-debugger").catch(() => ({}))
+    : {};
 
   return {
     ...config(),
@@ -144,7 +148,7 @@ export default defineConfig(({ command }) => {
       useHttps && basicSsl(),
       metadataWarningPlugin({ rootDir: NOTEBOOKS_DIR }),
       copyStaticAssets(['**/*.geojson', '**/fonts/*.json', '**/fonts/*.png']),
-      debugNotebook(),
+      isDev && debugNotebook?.(),
       observable({
         template: TEMPLATE_PATH,
         transformTemplate: async function (template, { filename, path }) {
