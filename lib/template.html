@@ -236,7 +236,10 @@
       </script>
     {{/if}}
 
-    <main id="main-content"></main>
+    <article>
+      {{#if title}}<h1 class="sr-only">{{title}}</h1>{{/if}}
+      <main id="main-content"></main>
+    </article>
     {{#if mastodonPostId}}
       <script src="/comments.js" type="module"></script>
       <style>
