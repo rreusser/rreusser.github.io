@@ -4,13 +4,14 @@ A reference for building notebooks in this repository. Notebooks are written as 
 
 ## Sections
 
-1. [Notebook Anatomy](./01-notebook-anatomy.md) — HTML structure, cell types, reactive model, `display`, `view`, `invalidation`, and imports
+1. [Notebook Anatomy](./01-notebook-anatomy.md) — HTML structure, cell types, reactive model, `display`, `view`, `invalidation`, imports, debugging
 2. [Figures and Layout](./02-figures-and-layout.md) — `expandable()`, element stack, controls panel, wide layout
 3. [Controls and Inputs](./03-controls-and-inputs.md) — `Inputs`, controls container pattern, dirty-flag pattern, range sliders
 4. [2D Plots](./04-2d-plots.md) — regl + Observable Plot + SVG overlay, zoomable axes, lazy render loop
 5. [3D Cameras](./05-3d-cameras.md) — `createUnifiedCamera`, orbit/arcball modes, camera buttons, snapshot
 6. [WebGPU](./06-webgpu.md) — `createWebGPUContext`, buffer helpers, compute passes, shader debugging
 7. [Utilities](./07-utilities.md) — frame loop, collapsible code, snapshots, theme, dependency injection
+8. [Writing Style](./08-writing-style.md) — prose, equations, cell IDs, TypeScript
 
 ## Quick orientation
 

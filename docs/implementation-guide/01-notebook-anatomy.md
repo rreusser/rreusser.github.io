@@ -149,3 +149,13 @@ import { expandable } from './lib/expandable.js'
 ```
 
 Do not use npm imports inside imported `.js` files. External packages should only be imported at the notebook level, then passed as arguments to library functions if needed.
+
+## Debugging
+
+The dev server runs at `http://localhost:5173/notebooks/{notebook-name}/`. It is normally already running — do not start a new instance.
+
+If the Notebook MCP server reports that the notebook disconnected, the most likely cause is a syntax error that prevents Vite from building. Stop immediately, find the syntax error, fix it, then refresh.
+
+Assign meaningful `id` attributes to DOM elements so the MCP server can locate them by CSS selector. Prefer IDs that describe content (`"surface-controls"`, `"webgpu-canvas"`) over generic names (`"container"`, `"div1"`).
+
+Runtime errors in Observable cells appear in the browser console. Rejected cell values (cells that threw during evaluation) also appear in the MCP server's error list. Check both when a cell appears blank or stuck.
