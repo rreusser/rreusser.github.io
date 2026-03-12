@@ -6,3 +6,4 @@ src/notebooks/webgpu-lines/regl-gpu-lines
 src/notebooks/denali/data
 .janus
 www
+opencode.json
