@@ -6,6 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repository publishes Observable notebooks as a static website using Observable Notebook Kit. Notebooks are written as HTML files with reactive cells and built into static sites using Vite. HTML files in src/ are Observable notebooks, *not* regular HTML files. Use the editing-notebooks skill to understand their composition.
 
+For detailed implementation patterns, see the [implementation guide](docs/implementation-guide/README.md):
+
+- [Notebook anatomy](docs/implementation-guide/01-notebook-anatomy.md) — cell types, reactive model, `display`/`view`, imports
+- [Figures and layout](docs/implementation-guide/02-figures-and-layout.md) — `expandable()`, element stack, controls panel
+- [Controls and inputs](docs/implementation-guide/03-controls-and-inputs.md) — `Inputs`, controls container, dirty-flag pattern
+- [2D plots](docs/implementation-guide/04-2d-plots.md) — regl + Observable Plot + SVG overlay, zoomable axes
+- [3D cameras](docs/implementation-guide/05-3d-cameras.md) — `createUnifiedCamera`, camera buttons, frame loop
+- [WebGPU](docs/implementation-guide/06-webgpu.md) — context setup, buffer helpers, shader debugging
+- [Utilities](docs/implementation-guide/07-utilities.md) — frame loop, collapsible code, snapshots
+
 ## Style guide
 
 - DO NOT use phrases like "key insight" or excessive punctuation like colons and em-dashes.
