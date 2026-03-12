@@ -46,6 +46,7 @@ body {
 
 nav {
   padding: 2px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   background: var(--rrtheme-color);
@@ -919,11 +920,7 @@ html,
   display: flex;
   align-items: center;
   color: white;
-  opacity: 0.75;
   flex-shrink: 0;
-}
-.theme-toggle:hover {
-  opacity: 1;
 }
 .theme-toggle__moon {
   display: none;
