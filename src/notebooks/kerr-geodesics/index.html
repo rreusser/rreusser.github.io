@@ -414,4 +414,91 @@ Each geodesic is characterized by four constants which serve as inputs to the ra
 The Boyer-Lindquist coordinates become singular at the event horizon ${tex`r_+ = M + \sqrt{M^2 - a^2}`} where ${tex`\Delta = 0`}. Integration is terminated when the particle approaches the horizon. The ergosphere boundary is at ${tex`r_\text{ergo} = M + \sqrt{M^2 - a^2\cos^2\theta}`}.
   </script>
 
+  <script id="rt-lensing-intro" type="text/markdown">
+## Gravitational Lensing
+
+The same geodesic equations can be used to render what a Kerr black hole with an accretion disk actually *looks like*. The fragment shader below traces one null geodesic per pixel, following each light ray backward from the camera through the curved spacetime. Rays that cross the equatorial plane within the disk's radial extent (from the ISCO to ${tex`20M`}) are shaded with a temperature profile ${tex`T \propto r^{-3/4}`} and Doppler-beamed by the orbital motion of the accreting matter.
+  </script>
+
+  <script id="rt-canvas" type="text/x-typescript">
+const rtCanvas = document.createElement('canvas');
+rtCanvas.width = 640;
+rtCanvas.height = 480;
+rtCanvas.style.width = '100%';
+rtCanvas.style.height = '100%';
+  </script>
+
+  <script id="rt-camera" type="text/x-typescript">
+const rtCamera = createUnifiedCamera(rtCanvas, {
+  mode: 'orbit',
+  distance: 30,
+  phi: 1.2,
+  theta: 0.3,
+  center: [0, 0, 0],
+  near: 1,
+  far: 200,
+  renderContinuously: false,
+  observeResize: true,
+});
+invalidation.then(() => rtCamera.destroy());
+  </script>
+
+  <script id="rt-controls" type="text/x-typescript">
+const rtControlsContainer = html`<div id="rt-controls"></div>`;
+const rtSpinInput = rtControlsContainer.appendChild(
+  Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 })
+);
+const rtDiskOuterInput = rtControlsContainer.appendChild(
+  Inputs.range([5, 40], { label: 'Disk outer radius', value: 20, step: 0.5 })
+);
+  </script>
+
+  <script id="rt-renderer" type="text/x-typescript">
+import { createRayTracer } from './ray-tracer.js';
+import { rayTracerShaderCode } from './ray-tracer-shaders.js';
+
+const rtGpuContext = rtCanvas.getContext('webgpu')!;
+rtGpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+
+const rayTracer = createRayTracer(device, canvasFormat, rayTracerShaderCode);
+invalidation.then(() => rayTracer.destroy());
+  </script>
+
+  <script id="rt-render-loop" type="text/x-typescript">
+rtCamera.on('render', () => {
+  rayTracer.render(rtGpuContext, {
+    a: rtSpinInput.value,
+    M: 1,
+    diskOuter: rtDiskOuterInput.value,
+  }, rtCamera, rtCanvas.width, rtCanvas.height);
+});
+
+rtControlsContainer.addEventListener('input', () => {
+  rtCamera.triggerRepaint();
+});
+
+rtCamera.triggerRepaint();
+  </script>
+
+  <script id="rt-display" type="text/x-typescript">
+const rtContainer = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
+rtContainer.appendChild(rtCanvas);
+
+let rtExpandable: ReturnType<typeof expandable>;
+rtExpandable = expandable(rtContainer, {
+  width: 640,
+  height: 480,
+  controls: rtControlsContainer,
+  state: { expanded: false },
+  buttons: cameraButtons({
+    camera: rtCamera,
+    canvas: rtCanvas,
+    filename: 'kerr-lensing.png',
+    getContainer: () => rtExpandable,
+  }),
+});
+
+display(rtExpandable);
+  </script>
+
 </notebook>
