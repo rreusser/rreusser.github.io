@@ -195,14 +195,15 @@ struct Derivs {
 fn geodesicDerivs(r: f32, vr: f32, theta: f32, vth: f32, L: f32, Q: f32, M: f32, a: f32) -> Derivs {
   let r2 = r * r;
   let a2 = a * a;
-  // Clamp θ away from poles for derivative evaluation — the L/sin²θ and
-  // L²cosθ/sin³θ terms diverge, corrupting RK4 substeps even when the
-  // post-step guard would catch the final result.
-  let safe_theta = clamp(theta, 0.02, 3.12159);
-  let cth = cos(safe_theta);
-  let sth = sin(safe_theta);
-  let sin2 = sth * sth;
-  let sin3 = sin2 * sth;
+  let cth = cos(theta);
+  let sth = sin(theta);
+  // Guard sin²θ with a small epsilon rather than clamping θ — this keeps
+  // the derivative smooth and accurate everywhere except within ~0.003 rad
+  // of the exact pole, where L²cosθ/sin³θ and L/sin²θ would otherwise blow up.
+  // For rays with small L the terms are tiny anyway; for large L the step-size
+  // shrink near the horizon keeps θ well away from 0 or π.
+  let sin2 = max(sth * sth, 1e-5);
+  let sin3 = sin2 * max(abs(sth), 1e-5);
   let Sigma = r2 + a2 * cth * cth;
   let Delta = r2 - 2.0 * M * r + a2;
   let invSigma = 1.0 / Sigma;
@@ -453,26 +454,20 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
     // falls off as ~1/r², so we can grow the step linearly with r — this
     // lets rays starting at large camera distances sprint through empty
     // space without burning through the step budget.
-    // Near the poles, θ derivatives diverge as 1/sin²θ, so shrink the step
-    // proportionally to prevent overshooting the pole guard and zigzagging.
     let horizonFactor = clamp((s.r - rHorizon) / s.r, 0.02, 1.0);
     let distanceFactor = max(1.0, s.r / 10.0);
-    let polarFactor = clamp(min(s.theta, 3.14159265 - s.theta) / 0.15, 0.05, 1.0);
-    let h = hBase * horizonFactor * distanceFactor * polarFactor;
+    let h = hBase * horizonFactor * distanceFactor;
 
     // RK4 step for (r, vr, θ, vθ, φ)
     s = rk4Step(s, h, L, Q, M, a);
 
-    // Polar crossing: reflect θ symmetrically about the pole guard so the
-    // ray exits at the correct position rather than snapping to the boundary.
-    if (s.theta < 0.02) {
-      s.theta = 0.04 - s.theta;
-      s.vth = abs(s.vth);
-      s.phi += 3.14159265;
-    } else if (s.theta > 3.12159) {
-      s.theta = 6.24318 - s.theta;
-      s.vth = -abs(s.vth);
-      s.phi += 3.14159265;
+    // φ correction on polar crossing: when θ passes through 0 or π the ray
+    // crosses the pole, and the correct Cartesian continuation requires φ → φ+π.
+    // The second-order integrator handles θ and vθ naturally (θ goes slightly
+    // negative and bounces back via Θ'/2), but φ doesn't see the crossing.
+    // Detect a sign change in cos(θ) between steps as a proxy for pole crossing.
+    if (cos(prevTheta) * cos(s.theta) < 0.0) {
+      s.phi += 3.14159265358979;
     }
 
     // Check horizon

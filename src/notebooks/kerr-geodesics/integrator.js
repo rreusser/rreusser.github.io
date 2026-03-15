@@ -216,7 +216,9 @@ export function carterQ(s, params) {
   const pth = vth;
   const costh = Math.cos(theta);
   const sinth = Math.sin(theta);
-  return pth * pth + costh * costh * (a * a * (kappa - E * E) - L * L / (sinth * sinth));
+  // Θ = Q + a²(E²-κ)cos²θ - L²cot²θ, and vth² = Θ, so:
+  // Q = vth² - a²(E²-κ)cos²θ + L²cot²θ
+  return pth * pth - costh * costh * (a * a * (E * E - kappa) - L * L / (sinth * sinth));
 }
 
 // Convert Boyer-Lindquist to Cartesian
@@ -257,15 +259,16 @@ export function integrateGeodesic(config) {
   let actualSteps = nSteps;
 
   for (let i = 0; i < nSteps; i++) {
+    const prevTheta = s[2];
     const { y, hNext } = adaptiveStep(s, h, params, tolerance);
     for (let j = 0; j < 6; j++) s[j] = y[j];
     h = hNext;
 
-    // Polar crossing: reflect θ off the pole and shift φ by π so the
-    // trajectory emerges on the opposite side, matching straight-through
-    // Cartesian motion rather than bouncing back on the same side.
-    if (s[2] < 0.02) { s[2] = 0.02; s[5] = Math.abs(s[5]); s[3] += Math.PI; }
-    if (s[2] > Math.PI - 0.02) { s[2] = Math.PI - 0.02; s[5] = -Math.abs(s[5]); s[3] += Math.PI; }
+    // φ correction on polar crossing: when θ crosses 0 or π the correct
+    // Cartesian continuation requires φ → φ+π. θ and v_θ are handled
+    // naturally by the second-order integrator (θ goes slightly past the
+    // pole and comes back via Θ'/2), but φ doesn't see the crossing.
+    if (Math.cos(prevTheta) * Math.cos(s[2]) < 0) s[3] += Math.PI;
 
     // Terminate near horizon, at large radius, or on any NaN/Inf
     if (s[1] < rPlus * 1.01 || s[1] > 200
