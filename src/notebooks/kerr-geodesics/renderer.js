@@ -299,21 +299,6 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       pass.draw(6);
     }
 
-    // Draw velocity arrow
-    if (arrowVisible && arrowOrigin && arrowDir && arrowLength > 0.01) {
-      _arrowData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
-      _arrowData[16] = arrowOrigin[0]; _arrowData[17] = arrowOrigin[1]; _arrowData[18] = arrowOrigin[2]; _arrowData[19] = 0;
-      _arrowData[20] = arrowDir[0]; _arrowData[21] = arrowDir[1]; _arrowData[22] = arrowDir[2]; _arrowData[23] = arrowLength;
-      // color: bright orange
-      _arrowData[24] = 1.0; _arrowData[25] = 0.5; _arrowData[26] = 0.1; _arrowData[27] = 1.0;
-      // params: shaftRadius, headRadius, headFraction
-      _arrowData[28] = 0.12; _arrowData[29] = 0.3; _arrowData[30] = 0.25; _arrowData[31] = 0;
-      device.queue.writeBuffer(arrowUniformBuffer, 0, _arrowData);
-      pass.setPipeline(arrowPipeline);
-      pass.setBindGroup(0, arrowBindGroup);
-      pass.draw(ARROW_TOTAL_VERTS);
-    }
-
     // Draw geodesic lines
     if (totalVertexCount > 0) {
       device.queue.writeBuffer(projViewBuffer, 0, projView);
@@ -332,6 +317,21 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       };
       gpuLines.updateUniforms(lineDrawProps);
       gpuLines.draw(pass, { ...lineDrawProps, skipUniformUpdate: true }, [lineBindGroup]);
+    }
+
+    // Draw velocity arrow last so it renders on top
+    if (arrowVisible && arrowOrigin && arrowDir && arrowLength > 0.01) {
+      _arrowData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
+      _arrowData[16] = arrowOrigin[0]; _arrowData[17] = arrowOrigin[1]; _arrowData[18] = arrowOrigin[2]; _arrowData[19] = 0;
+      _arrowData[20] = arrowDir[0]; _arrowData[21] = arrowDir[1]; _arrowData[22] = arrowDir[2]; _arrowData[23] = arrowLength;
+      // color: bright orange
+      _arrowData[24] = 1.0; _arrowData[25] = 0.5; _arrowData[26] = 0.1; _arrowData[27] = 1.0;
+      // params: shaftRadius, headRadius, headFraction
+      _arrowData[28] = 0.12; _arrowData[29] = 0.3; _arrowData[30] = 0.25; _arrowData[31] = 0;
+      device.queue.writeBuffer(arrowUniformBuffer, 0, _arrowData);
+      pass.setPipeline(arrowPipeline);
+      pass.setBindGroup(0, arrowBindGroup);
+      pass.draw(ARROW_TOTAL_VERTS);
     }
 
     pass.end();
