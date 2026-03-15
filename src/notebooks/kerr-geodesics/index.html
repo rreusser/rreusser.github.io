@@ -49,8 +49,17 @@ import { integrateGeodesic, PRESETS } from './integrator.js';
 
 const controlsContainer = html`<div id="kerr-controls"></div>`;
 
+const spinInput = controlsContainer.appendChild(
+  Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 })
+);
+
+// Initial conditions in a collapsible details box
+const detailsBox = controlsContainer.appendChild(html`<details style="margin-top: 0.25em;">
+  <summary style="cursor: pointer; font-size: 0.9em; opacity: 0.8;">Initial conditions</summary>
+</details>`);
+
 function addControl(input: HTMLElement) {
-  controlsContainer.appendChild(input);
+  detailsBox.appendChild(input);
   return input;
 }
 
@@ -64,7 +73,6 @@ const kappaInput = addControl(Inputs.select(
   { label: 'Particle type', format: (v: number) => v === 1 ? 'Massive (timelike)' : 'Photon (null)', value: 1 }
 ));
 
-const spinInput = addControl(Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 }));
 const energyInput = addControl(Inputs.range([0.8, 1.2], { label: 'Energy E', value: 0.95, step: 0.0001 }));
 const angMomInput = addControl(Inputs.range([-5, 5], { label: 'Ang. mom. L', value: 3.0, step: 0.001 }));
 const carterInput = addControl(Inputs.range([0, 20], { label: 'Carter Q', value: 2.0, step: 0.01 }));
