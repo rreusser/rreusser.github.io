@@ -19,7 +19,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     multisample: { count: sampleCount },
     join: 'bevel',
-    cap: 'round',
+    cap: 'none',
     vertexShaderBody,
     fragmentShaderBody,
   });

@@ -170,7 +170,7 @@ controlsContainer.addEventListener('input', () => {
   </script>
 
   <script id="velocity-arrow" type="text/x-typescript">
-import { velocityToConstants, constantsToVelocity, blToCartesian, blVelocityToCartesian, cartesianVelocityToBL } from './velocity-utils.js';
+import { velocityToConstants, constantsToVelocity, blToCartesian, blVelocityToCartesian, cartesianVelocityToBL, cartesianToBL } from './velocity-utils.js';
 import { createArrowInteraction } from './arrow-interaction.js';
 
 // Compute initial velocity arrow from current constants of motion
@@ -259,8 +259,39 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
     renderer.setArrow(arrowState.origin, displayDir, true);
     camera.triggerRepaint();
   },
+  onBodyDrag: (newOrigin) => {
+    if (!arrowState) return;
+    const a = spinInput.value as number;
+    const kappa = kappaInput.value as number;
+    const M = 1;
+
+    // Convert new world-space origin to Boyer-Lindquist
+    const bl = cartesianToBL(newOrigin[0], newOrigin[1], newOrigin[2], a);
+
+    // Clamp to slider ranges
+    const newR = Math.max(2, Math.min(30, bl.r));
+    const newTheta = Math.max(0.1, Math.min(3.04, bl.theta));
+
+    // Update sliders silently
+    r0Input.value = newR;
+    theta0Input.value = newTheta;
+
+    // Recompute geodesic with new position, same constants of motion
+    computeAndUpload();
+
+    // Show arrow at new position with current velocity direction
+    const vel = constantsToVelocity(newR, newTheta, energyInput.value, angMomInput.value, carterInput.value, M, a, kappa, state.signR, state.signTheta);
+    if (vel) {
+      const origin = blToCartesian(newR, newTheta, 0, a);
+      const cartVel = blVelocityToCartesian(newR, newTheta, 0, a, vel.ur, vel.utheta, vel.uphi);
+      const speed = Math.sqrt(cartVel[0] ** 2 + cartVel[1] ** 2 + cartVel[2] ** 2);
+      const arrowLen = 5.0;
+      const s = arrowLen / Math.max(speed, 0.01);
+      renderer.setArrow(origin, [cartVel[0] * s, cartVel[1] * s, cartVel[2] * s], true);
+    }
+    camera.triggerRepaint();
+  },
   onDragEnd: () => {
-    // Update arrowState from current constants without snapping the visual arrow
     arrowState = updateArrow();
     camera.triggerRepaint();
   },
@@ -319,7 +350,6 @@ display(controlsContainer);
   <script id="parameter-glossary" type="text/markdown">
 ### Parameters
 
-- **Preset** — a named starting configuration; selecting a preset updates all parameters below
 - **Particle type** — massive particles (${tex`\kappa = 1`}, timelike geodesics) or photons (${tex`\kappa = 0`}, null geodesics)
 - **Spin** ${tex`a/M`} — the black hole's angular momentum per unit mass, ranging from 0 (Schwarzschild) to 1 (extremal Kerr)
 - **Energy** ${tex`E`} — the conserved energy per unit rest mass; ${tex`E < 1`} for bound orbits, ${tex`E = 1`} for marginally bound, ${tex`E > 1`} for unbound

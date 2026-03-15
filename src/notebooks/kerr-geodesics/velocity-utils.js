@@ -106,6 +106,23 @@ export function constantsToVelocity(r, theta, E, L, Q, M, a, kappa, signR, signT
   return { ur, utheta, uphi, vr, vth };
 }
 
+// --- Cartesian → Boyer-Lindquist position ---
+// Inverts the oblate spheroidal transform (y-up convention).
+// x = ρ sinθ cosφ, y = r cosθ, z = ρ sinθ sinφ, ρ = √(r² + a²)
+
+export function cartesianToBL(x, y, z, a) {
+  const R2 = x * x + y * y + z * z;
+  const a2 = a * a;
+  // Solve r⁴ - (R² - a²)r² - a²y² = 0  (quadratic in u = r²)
+  const b = R2 - a2;
+  const disc = b * b + 4 * a2 * y * y;
+  const u = (b + Math.sqrt(disc)) / 2;
+  const r = Math.sqrt(Math.max(0, u));
+  const theta = r > 1e-12 ? Math.acos(Math.max(-1, Math.min(1, y / r))) : Math.PI / 2;
+  const phi = Math.atan2(z, x);
+  return { r, theta, phi };
+}
+
 // --- Boyer-Lindquist ↔ Cartesian position ---
 
 export function blToCartesian(r, theta, phi, a) {
