@@ -261,9 +261,11 @@ export function integrateGeodesic(config) {
     for (let j = 0; j < 6; j++) s[j] = y[j];
     h = hNext;
 
-    // Clamp theta to avoid polar singularities
-    if (s[2] < 0.02) { s[2] = 0.02; s[5] = Math.abs(s[5]); }
-    if (s[2] > Math.PI - 0.02) { s[2] = Math.PI - 0.02; s[5] = -Math.abs(s[5]); }
+    // Polar crossing: reflect θ off the pole and shift φ by π so the
+    // trajectory emerges on the opposite side, matching straight-through
+    // Cartesian motion rather than bouncing back on the same side.
+    if (s[2] < 0.02) { s[2] = 0.02; s[5] = Math.abs(s[5]); s[3] += Math.PI; }
+    if (s[2] > Math.PI - 0.02) { s[2] = Math.PI - 0.02; s[5] = -Math.abs(s[5]); s[3] += Math.PI; }
 
     // Terminate near horizon, at large radius, or on any NaN/Inf
     if (s[1] < rPlus * 1.01 || s[1] > 200

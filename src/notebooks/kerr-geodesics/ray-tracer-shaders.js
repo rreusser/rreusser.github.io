@@ -388,13 +388,17 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
     // RK4 step for (r, vr, θ, vθ, φ)
     s = rk4Step(s, h, L, Q, M, a);
 
-    // Soft polar guard
+    // Polar crossing: when θ overshoots a pole, reflect it and shift φ by π
+    // so the ray emerges on the opposite side — matching the straight-through
+    // Cartesian trajectory rather than bouncing back on the same side.
     if (s.theta < 1e-4) {
       s.theta = 1e-4;
       s.vth = abs(s.vth);
+      s.phi += 3.14159265;
     } else if (s.theta > 3.14149) {
       s.theta = 3.14149;
       s.vth = -abs(s.vth);
+      s.phi += 3.14159265;
     }
 
     // Check horizon
