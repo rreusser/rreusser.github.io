@@ -78,14 +78,17 @@ presetInput.addEventListener('input', () => {
   if (!p) return;
   state.signR = p.signR ?? -1;
   state.signTheta = p.signTheta ?? 1;
-  spinInput.value = p.a; spinInput.dispatchEvent(new Event('input'));
-  energyInput.value = p.E; energyInput.dispatchEvent(new Event('input'));
-  angMomInput.value = p.L; angMomInput.dispatchEvent(new Event('input'));
-  carterInput.value = p.Q; carterInput.dispatchEvent(new Event('input'));
-  r0Input.value = p.r0; r0Input.dispatchEvent(new Event('input'));
-  theta0Input.value = p.theta0; theta0Input.dispatchEvent(new Event('input'));
-  nStepsInput.value = p.nSteps; nStepsInput.dispatchEvent(new Event('input'));
-  kappaInput.value = p.kappa; kappaInput.dispatchEvent(new Event('input'));
+  // Set all values before dispatching to avoid intermediate recomputes
+  spinInput.value = p.a;
+  energyInput.value = p.E;
+  angMomInput.value = p.L;
+  carterInput.value = p.Q;
+  r0Input.value = p.r0;
+  theta0Input.value = p.theta0;
+  nStepsInput.value = p.nSteps;
+  kappaInput.value = p.kappa;
+  // Single dispatch triggers computeAndUpload + updateArrow with all values current
+  controlsContainer.dispatchEvent(new Event('input'));
 });
   </script>
 
