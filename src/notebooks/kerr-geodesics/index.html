@@ -116,13 +116,13 @@ invalidation.then(() => camera.destroy());
   <script id="renderer-init" type="text/x-typescript">
 import { createGPULines } from 'npm:webgpu-instanced-lines';
 import { createRenderer } from './renderer.js';
-import { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode } from './shaders.js';
+import { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode } from './shaders.js';
 
 const gpuContext = canvas.getContext('webgpu')!;
 gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
 const renderer = createRenderer(device, canvasFormat, createGPULines, {
-  vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode
+  vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode
 });
 
 invalidation.then(() => renderer.destroy());
@@ -167,6 +167,108 @@ controlsContainer.addEventListener('input', () => {
   state.renderParams.showHorizon = horizonInput.value as boolean;
   state.renderParams.showErgosphere = ergosphereInput.value as boolean;
 });
+  </script>
+
+  <script id="velocity-arrow" type="text/x-typescript">
+import { velocityToConstants, constantsToVelocity, blToCartesian, blVelocityToCartesian, cartesianVelocityToBL } from './velocity-utils.js';
+import { createArrowInteraction } from './arrow-interaction.js';
+
+// Compute initial velocity arrow from current constants of motion
+function updateArrow() {
+  const M = 1;
+  const a = spinInput.value as number;
+  const kappa = kappaInput.value as number;
+  const E = energyInput.value as number;
+  const L = angMomInput.value as number;
+  const Q = carterInput.value as number;
+  const r0 = r0Input.value as number;
+  const theta0 = theta0Input.value as number;
+  const preset = PRESETS[presetInput.value];
+  const signR = preset?.signR ?? -1;
+  const signTheta = preset?.signTheta ?? 1;
+
+  const vel = constantsToVelocity(r0, theta0, E, L, Q, M, a, kappa, signR, signTheta);
+  if (!vel) return;
+
+  const origin = blToCartesian(r0, theta0, 0, a);
+  const cartVel = blVelocityToCartesian(r0, theta0, 0, a, vel.ur, vel.utheta, vel.uphi);
+
+  // Scale arrow for visibility (proper velocity can be small)
+  const speed = Math.sqrt(cartVel[0] ** 2 + cartVel[1] ** 2 + cartVel[2] ** 2);
+  const arrowScale = 5 / Math.max(speed, 0.01);
+  const dir = [cartVel[0] * arrowScale, cartVel[1] * arrowScale, cartVel[2] * arrowScale];
+
+  renderer.setArrow(origin, dir, true);
+
+  return { origin, dir, cartVel, arrowScale, vel, signR, signTheta };
+}
+
+let arrowState = updateArrow();
+
+const arrowInteraction = createArrowInteraction(canvas, camera, {
+  getArrowState: () => {
+    if (!arrowState) return null;
+    const tip = [
+      arrowState.origin[0] + arrowState.dir[0],
+      arrowState.origin[1] + arrowState.dir[1],
+      arrowState.origin[2] + arrowState.dir[2],
+    ];
+    return { origin: arrowState.origin, tip, visible: true };
+  },
+  onDrag: (newTip) => {
+    if (!arrowState) return;
+    const newDir = [
+      newTip[0] - arrowState.origin[0],
+      newTip[1] - arrowState.origin[1],
+      newTip[2] - arrowState.origin[2],
+    ];
+
+    // Convert back to BL velocity
+    const r0 = r0Input.value as number;
+    const theta0 = theta0Input.value as number;
+    const a = spinInput.value as number;
+    const M = 1;
+    const kappa = kappaInput.value as number;
+
+    // Unscale from arrow display scale
+    const newCartVel = [
+      newDir[0] / arrowState.arrowScale,
+      newDir[1] / arrowState.arrowScale,
+      newDir[2] / arrowState.arrowScale,
+    ];
+
+    const blVel = cartesianVelocityToBL(r0, theta0, 0, a, newCartVel[0], newCartVel[1], newCartVel[2]);
+    const constants = velocityToConstants(r0, theta0, blVel.ur, blVel.utheta, blVel.uphi, M, a, kappa);
+
+    if (constants && isFinite(constants.E) && isFinite(constants.L) && isFinite(constants.Q)) {
+      // Update sliders
+      energyInput.value = Math.max(0.8, Math.min(1.2, constants.E));
+      angMomInput.value = Math.max(-5, Math.min(5, constants.L));
+      carterInput.value = Math.max(0, Math.min(20, constants.Q));
+
+      energyInput.dispatchEvent(new Event('input'));
+      angMomInput.dispatchEvent(new Event('input'));
+      carterInput.dispatchEvent(new Event('input'));
+    }
+
+    // Update arrow visually during drag
+    renderer.setArrow(arrowState.origin, newDir, true);
+    camera.triggerRepaint();
+  },
+  onDragEnd: () => {
+    // Recompute geodesic with new constants
+    diagnostics = computeAndUpload();
+    arrowState = updateArrow();
+    camera.triggerRepaint();
+  },
+});
+
+// Update arrow when controls change
+controlsContainer.addEventListener('input', () => {
+  arrowState = updateArrow();
+});
+
+invalidation.then(() => arrowInteraction.destroy());
   </script>
 
   <script id="render-loop" type="text/x-typescript">

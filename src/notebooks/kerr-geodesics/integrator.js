@@ -19,7 +19,7 @@
 
 // --- Potentials and their derivatives ---
 
-function radialPotential(r, params) {
+export function radialPotential(r, params) {
   const { M, a, E, L, Q, kappa } = params;
   const r2 = r * r;
   const a2 = a * a;
@@ -44,7 +44,7 @@ function radialPotentialDeriv(r, params) {
   return 2 * P * Pp - DeltaP * Cr - Delta * CrP;
 }
 
-function thetaPotential(theta, params) {
+export function thetaPotential(theta, params) {
   const { a, E, L, Q, kappa } = params;
   const cth = Math.cos(theta);
   const sth = Math.sin(theta);

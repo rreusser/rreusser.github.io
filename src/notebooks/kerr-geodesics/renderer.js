@@ -3,7 +3,7 @@
 // standard pipelines for horizon and ergosphere surfaces.
 
 export function createRenderer(device, canvasFormat, createGPULines, shaders) {
-  const { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode } = shaders;
+  const { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode } = shaders;
 
   const sampleCount = 4;
 
@@ -99,6 +99,48 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     entries: [{ binding: 0, resource: { buffer: axesUniformBuffer } }]
   });
   const _axesData = new Float32Array(24); // 96 / 4
+
+  // --- Arrow pipeline ---
+  const arrowModule = device.createShaderModule({ label: 'arrow', code: arrowShaderCode });
+  const arrowBGL = device.createBindGroupLayout({
+    label: 'arrow-bgl',
+    entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }]
+  });
+  const arrowPipeline = device.createRenderPipeline({
+    label: 'arrow',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [arrowBGL] }),
+    vertex: { module: arrowModule, entryPoint: 'vs' },
+    fragment: {
+      module: arrowModule, entryPoint: 'fs',
+      targets: [{
+        format: canvasFormat,
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    multisample: { count: sampleCount },
+  });
+  // Arrow uniforms: projView 64 + origin 16 + direction 16 + color 16 + params 16 = 128 bytes
+  const arrowUniformBuffer = device.createBuffer({ label: 'arrow-uniforms', size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const arrowBindGroup = device.createBindGroup({
+    layout: arrowBGL,
+    entries: [{ binding: 0, resource: { buffer: arrowUniformBuffer } }]
+  });
+  const _arrowData = new Float32Array(32); // 128 / 4
+  const ARROW_SHAFT_SEGS = 12;
+  const ARROW_SHAFT_VERTS = ARROW_SHAFT_SEGS * 6;
+  const ARROW_HEAD_VERTS = ARROW_SHAFT_SEGS * 3;
+  const ARROW_TOTAL_VERTS = ARROW_SHAFT_VERTS + ARROW_HEAD_VERTS;
+
+  // Arrow state
+  let arrowOrigin = null;   // [x, y, z]
+  let arrowDir = null;      // [dx, dy, dz]
+  let arrowLength = 0;
+  let arrowVisible = true;
 
   // Line uniform buffers
   const projViewBuffer = device.createBuffer({ label: 'line-proj-view', size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -260,6 +302,21 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       pass.draw(6);
     }
 
+    // Draw velocity arrow
+    if (arrowVisible && arrowOrigin && arrowDir && arrowLength > 0.01) {
+      _arrowData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
+      _arrowData[16] = arrowOrigin[0]; _arrowData[17] = arrowOrigin[1]; _arrowData[18] = arrowOrigin[2]; _arrowData[19] = 0;
+      _arrowData[20] = arrowDir[0]; _arrowData[21] = arrowDir[1]; _arrowData[22] = arrowDir[2]; _arrowData[23] = arrowLength;
+      // color: bright orange
+      _arrowData[24] = 1.0; _arrowData[25] = 0.5; _arrowData[26] = 0.1; _arrowData[27] = 1.0;
+      // params: shaftRadius, headRadius, headFraction
+      _arrowData[28] = 0.12; _arrowData[29] = 0.3; _arrowData[30] = 0.25; _arrowData[31] = 0;
+      device.queue.writeBuffer(arrowUniformBuffer, 0, _arrowData);
+      pass.setPipeline(arrowPipeline);
+      pass.setBindGroup(0, arrowBindGroup);
+      pass.draw(ARROW_TOTAL_VERTS);
+    }
+
     // Draw geodesic lines
     if (lineBindGroup && totalVertexCount > 0) {
       device.queue.writeBuffer(projViewBuffer, 0, projView);
@@ -294,7 +351,19 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     projViewBuffer.destroy();
     lineUniformBuffer.destroy();
     axesUniformBuffer.destroy();
+    arrowUniformBuffer.destroy();
   }
 
-  return { setGeodesics, render, destroy };
+  function setArrow(origin, direction, visible = true) {
+    arrowOrigin = origin;
+    arrowDir = direction;
+    arrowLength = Math.sqrt(direction[0] ** 2 + direction[1] ** 2 + direction[2] ** 2);
+    arrowVisible = visible;
+  }
+
+  function getArrowVertexCount() {
+    return ARROW_TOTAL_VERTS;
+  }
+
+  return { setGeodesics, setArrow, getArrowVertexCount, render, destroy };
 }

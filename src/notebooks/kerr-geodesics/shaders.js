@@ -284,3 +284,117 @@ struct VertexOutput {
   return vec4f(v.color * alpha, alpha);
 }
 `;
+
+// Arrow shader — renders a 3D velocity arrow (shaft + cone head)
+// Uses vertex_index to procedurally generate geometry.
+export const arrowShaderCode = /* wgsl */`
+
+struct Uniforms {
+  projectionView: mat4x4f,
+  origin: vec4f,        // arrow base position (xyz, w unused)
+  direction: vec4f,     // arrow direction vector (xyz, length in w)
+  color: vec4f,         // rgba
+  params: vec4f,        // shaftRadius, headRadius, headFraction, unused
+};
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) normal: vec3f,
+  @location(1) @interpolate(flat) isHead: f32,
+};
+
+@vertex fn vs(@builtin(vertex_index) vid: u32) -> VertexOutput {
+  let dir = u.direction.xyz;
+  let length = u.direction.w;
+
+  // Build local frame from direction
+  let forward = normalize(dir);
+  var up = vec3f(0.0, 0.0, 1.0);
+  if (abs(dot(forward, up)) > 0.99) { up = vec3f(1.0, 0.0, 0.0); }
+  let right = normalize(cross(forward, up));
+  let localUp = cross(right, forward);
+
+  let shaftR = u.params.x;
+  let headR = u.params.y;
+  let headFrac = u.params.z;
+  let shaftLen = length * (1.0 - headFrac);
+  let headLen = length * headFrac;
+
+  let nSeg = 12u;
+  let shaftQuads = nSeg;
+  let shaftVerts = shaftQuads * 6u;  // 2 triangles per quad
+  let headVerts = nSeg * 3u;         // 1 triangle per segment
+
+  var pos = vec3f(0.0);
+  var normal = vec3f(0.0);
+  var isHead: f32 = 0.0;
+
+  if (vid < shaftVerts) {
+    // Shaft cylinder
+    let quadIdx = vid / 6u;
+    let vertInQuad = vid % 6u;
+
+    var segI: u32; var ringI: u32;
+    switch (vertInQuad) {
+      case 0u: { segI = quadIdx; ringI = 0u; }
+      case 1u: { segI = quadIdx; ringI = 1u; }
+      case 2u: { segI = (quadIdx + 1u) % nSeg; ringI = 0u; }
+      case 3u: { segI = (quadIdx + 1u) % nSeg; ringI = 0u; }
+      case 4u: { segI = quadIdx; ringI = 1u; }
+      case 5u: { segI = (quadIdx + 1u) % nSeg; ringI = 1u; }
+      default: { segI = 0u; ringI = 0u; }
+    }
+
+    let angle = f32(segI) / f32(nSeg) * 6.28318531;
+    let c = cos(angle); let s = sin(angle);
+    let radial = right * c + localUp * s;
+    let t = f32(ringI);
+
+    pos = u.origin.xyz + forward * (t * shaftLen) + radial * shaftR;
+    normal = radial;
+  } else if (vid < shaftVerts + headVerts) {
+    // Cone head
+    let headVid = vid - shaftVerts;
+    let triIdx = headVid / 3u;
+    let vertInTri = headVid % 3u;
+
+    let angle0 = f32(triIdx) / f32(nSeg) * 6.28318531;
+    let angle1 = f32(triIdx + 1u) / f32(nSeg) * 6.28318531;
+
+    let baseCenter = u.origin.xyz + forward * shaftLen;
+    let tip = baseCenter + forward * headLen;
+
+    if (vertInTri == 0u) {
+      pos = tip;
+      normal = forward;
+    } else if (vertInTri == 1u) {
+      let c = cos(angle0); let s = sin(angle0);
+      let radial = right * c + localUp * s;
+      pos = baseCenter + radial * headR;
+      normal = normalize(radial * headLen + forward * headR);
+    } else {
+      let c = cos(angle1); let s = sin(angle1);
+      let radial = right * c + localUp * s;
+      pos = baseCenter + radial * headR;
+      normal = normalize(radial * headLen + forward * headR);
+    }
+    isHead = 1.0;
+  }
+
+  var out: VertexOutput;
+  out.position = u.projectionView * vec4f(pos, 1.0);
+  out.normal = normal;
+  out.isHead = isHead;
+  return out;
+}
+
+@fragment fn fs(v: VertexOutput) -> @location(0) vec4f {
+  let N = normalize(v.normal);
+  let lightDir = normalize(vec3f(1.0, 2.0, 3.0));
+  let diffuse = max(dot(N, lightDir), 0.0) * 0.5 + 0.3;
+  let color = u.color.rgb * diffuse;
+  return vec4f(color * u.color.a, u.color.a);
+}
+`;
