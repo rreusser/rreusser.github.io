@@ -1,124 +1,202 @@
-// Explicit symplectic integrator for Kerr geodesics using the Mino-time
-// transformation and 5-way Hamiltonian split (Wu, Wang, Sun & Liu 2021).
+// Kerr geodesic integrator using the first-order Mino-time equations
+// recast as a smooth second-order system with adaptive Cash-Karp RK4(5).
 //
-// Time transformation: dλ/dw = Σ, giving K = 2ΣH which splits into
-// 5 sub-Hamiltonians each with closed-form analytical flows.
+// Mino time λ: dτ/dλ = Σ, decoupling r and θ motions.
+// State: [t, r, θ, φ, v_r, v_θ] where v_r = dr/dλ, v_θ = dθ/dλ.
+// The "velocities" v_r and v_θ smoothly pass through zero at turning
+// points — no sign tracking needed.
 //
-// Composition: Yoshida 4th-order triple jump of 2nd-order Strang splitting.
+// Equations of motion:
+//   dr/dλ = v_r
+//   dv_r/dλ = R'(r)/2
+//   dθ/dλ = v_θ
+//   dv_θ/dλ = Θ'(θ)/2
+//   dt/dλ = T_r(r) + T_θ(θ)
+//   dφ/dλ = Φ_r(r) + Φ_θ(θ)
 //
-// Phase space: full 8D (t, r, θ, φ, p_t, p_r, p_θ, p_φ) with p_t, p_φ conserved.
+// R(r) = P² - Δ·[κr² + (L-aE)² + Q],  P = E(r²+a²) - aL
+// Θ(θ) = Q + a²(E²-κ)cos²θ - L²cot²θ
 
-// Yoshida 4th-order coefficients
-const CBRT2 = Math.cbrt(2);
-const C1 = 1 / (2 - CBRT2);
-const C2 = -CBRT2 / (2 - CBRT2);
+// --- Potentials and their derivatives ---
 
-// State: [t, r, theta, phi, p_r, p_theta]
-// Constants: p_t = -E, p_phi = L (stored in params)
-
-// --- Sub-Hamiltonian flows ---
-
-// K1 = a²p_r² + p_θ² (double drift)
-// dr/dw = 2a²p_r, dθ/dw = 2p_θ
-function flowK1(s, h, params) {
-  const a2 = params.a * params.a;
-  s[1] += 2 * a2 * s[4] * h; // r
-  s[2] += 2 * s[5] * h;       // theta
-}
-
-// K2 = r²p_r² (exponential flow)
-// r(h) = r₀·exp(2·r₀·p_r₀·h), p_r(h) = p_r₀·exp(-2·r₀·p_r₀·h)
-function flowK2(s, h, params) {
-  const rpr = s[1] * s[4];
-  const e = Math.exp(2 * rpr * h);
-  s[1] *= e;
-  s[4] /= e;
-}
-
-// K3 = -2Mrp_r² (rational flow)
-// p_r(h) = p_r₀/(1 - 2M·p_r₀·h), r(h) = r₀·(1 - 2M·p_r₀·h)²
-function flowK3(s, h, params) {
-  const denom = 1 - 2 * params.M * s[4] * h;
-  s[1] *= denom * denom;
-  s[4] /= denom;
-}
-
-// K4 = -W²/Δ where W = (r²+a²)p_t + a·p_φ
-// r unchanged, p_r kicked, t and φ advanced
-function flowK4(s, h, params) {
-  const { M, a, pt, pphi } = params;
-  const r = s[1];
+function radialPotential(r, params) {
+  const { M, a, E, L, Q, kappa } = params;
   const r2 = r * r;
   const a2 = a * a;
   const r2a2 = r2 + a2;
   const Delta = r2 - 2 * M * r + a2;
-  const W = r2a2 * pt + a * pphi;
-
-  // dp_r = +h · d(W²/Δ)/dr
-  // d(W²/Δ)/dr = [2W·W'·Δ - W²·Δ']/Δ²
-  // W' = 2r·p_t, Δ' = 2r - 2M
-  const Wp = 2 * r * pt;
-  const Dp = 2 * r - 2 * M;
-  s[4] += h * (2 * W * Wp * Delta - W * W * Dp) / (Delta * Delta);
-
-  // dt/dw = -2W(r²+a²)/Δ, dφ/dw = -2Wa/Δ
-  const WoverD = W / Delta;
-  s[0] += h * (-2 * r2a2 * WoverD);
-  s[3] += h * (-2 * a * WoverD);
+  const P = E * r2a2 - a * L;
+  const Cr = kappa * r2 + (L - a * E) ** 2 + Q;
+  return P * P - Delta * Cr;
 }
 
-// K5 = a²p_t²sin²θ + p_φ²/sin²θ
-// θ unchanged, p_θ kicked, t and φ advanced
-function flowK5(s, h, params) {
-  const { a, pt, pphi } = params;
-  const theta = s[2];
-  const sth = Math.sin(theta);
-  const cth = Math.cos(theta);
-  const sth2 = sth * sth;
+function radialPotentialDeriv(r, params) {
+  const { M, a, E, L, Q, kappa } = params;
+  const r2 = r * r;
   const a2 = a * a;
-
-  // dp_θ = -h · dK5/dθ
-  // dK5/dθ = 2a²p_t²sinθcosθ - 2p_φ²cosθ/sin³θ
-  const dK5dth = 2 * a2 * pt * pt * sth * cth - 2 * pphi * pphi * cth / (sth2 * sth);
-  s[5] -= h * dK5dth;
-
-  // dt/dw = 2a²p_t·sin²θ, dφ/dw = 2p_φ/sin²θ
-  s[0] += h * 2 * a2 * pt * sth2;
-  s[3] += h * 2 * pphi / sth2;
+  const r2a2 = r2 + a2;
+  const Delta = r2 - 2 * M * r + a2;
+  const P = E * r2a2 - a * L;
+  const Pp = 2 * r * E;          // dP/dr
+  const DeltaP = 2 * r - 2 * M;  // dΔ/dr
+  const Cr = kappa * r2 + (L - a * E) ** 2 + Q;
+  const CrP = 2 * kappa * r;     // dC_r/dr
+  return 2 * P * Pp - DeltaP * Cr - Delta * CrP;
 }
 
-// --- Strang splitting (2nd order) ---
-function strang(s, h, params) {
-  const h2 = h * 0.5;
-  flowK1(s, h2, params);
-  flowK2(s, h2, params);
-  flowK3(s, h2, params);
-  flowK4(s, h2, params);
-  flowK5(s, h, params);
-  flowK4(s, h2, params);
-  flowK3(s, h2, params);
-  flowK2(s, h2, params);
-  flowK1(s, h2, params);
+function thetaPotential(theta, params) {
+  const { a, E, L, Q, kappa } = params;
+  const cth = Math.cos(theta);
+  const sth = Math.sin(theta);
+  return Q + a * a * (E * E - kappa) * cth * cth - L * L * cth * cth / (sth * sth);
 }
 
-// --- Yoshida 4th-order triple jump ---
-function yoshida4(s, h, params) {
-  strang(s, C1 * h, params);
-  strang(s, C2 * h, params);
-  strang(s, C1 * h, params);
+function thetaPotentialDeriv(theta, params) {
+  const { a, E, L, kappa } = params;
+  const cth = Math.cos(theta);
+  const sth = Math.sin(theta);
+  // dΘ/dθ = -2a²(E²-κ)sinθcosθ + 2L²cosθ/sin³θ
+  return -2 * a * a * (E * E - kappa) * sth * cth + 2 * L * L * cth / (sth * sth * sth);
 }
 
-// --- Hamiltonian for conservation check ---
-function hamiltonian(s, params) {
-  const { M, a, pt, pphi, kappa } = params;
+// --- Equations of motion ---
+
+function kerrDerivatives(s, params) {
+  const { M, a, E, L } = params;
+  const t = s[0], r = s[1], theta = s[2], phi = s[3], vr = s[4], vth = s[5];
+
+  const r2 = r * r;
+  const a2 = a * a;
+  const r2a2 = r2 + a2;
+  const Delta = r2 - 2 * M * r + a2;
+  const P = E * r2a2 - a * L;
+  const sth = Math.sin(theta);
+  const sth2 = sth * sth;
+
+  // Position rates
+  const drdt = vr;
+  const dthetadt = vth;
+
+  // Velocity rates (smooth through turning points)
+  const dvrdt = radialPotentialDeriv(r, params) / 2;
+  const dvthdt = thetaPotentialDeriv(theta, params) / 2;
+
+  // Coordinate time and azimuthal angle
+  const Tr = r2a2 * P / Delta;
+  const Tth = a * (L - a * E * sth2);
+  const dtdt = Tr + Tth;
+
+  const Phir = a * P / Delta;
+  const Phith = L / sth2 - a * E;
+  const dphidt = Phir + Phith;
+
+  return [dtdt, drdt, dthetadt, dphidt, dvrdt, dvthdt];
+}
+
+// --- Cash-Karp RK4(5) adaptive integrator ---
+// Returns { y, err } where err is the max relative error estimate.
+
+const CK_A = [0, 1 / 5, 3 / 10, 3 / 5, 1, 7 / 8];
+const CK_B = [
+  [],
+  [1 / 5],
+  [3 / 40, 9 / 40],
+  [3 / 10, -9 / 10, 6 / 5],
+  [-11 / 54, 5 / 2, -70 / 27, 35 / 27],
+  [1631 / 55296, 175 / 512, 575 / 13824, 44275 / 110592, 253 / 4096],
+];
+// 5th-order weights
+const CK_C5 = [37 / 378, 0, 250 / 621, 125 / 594, 0, 512 / 1771];
+// 4th-order weights
+const CK_C4 = [2825 / 27648, 0, 18575 / 48384, 13525 / 55296, 277 / 14336, 1 / 4];
+
+function rkck45Step(s, h, params) {
+  const n = s.length;
+  const k = new Array(6);
+
+  k[0] = kerrDerivatives(s, params);
+
+  for (let stage = 1; stage < 6; stage++) {
+    const stmp = new Array(n);
+    for (let i = 0; i < n; i++) {
+      let sum = 0;
+      for (let j = 0; j < stage; j++) sum += CK_B[stage][j] * k[j][i];
+      stmp[i] = s[i] + h * sum;
+    }
+    k[stage] = kerrDerivatives(stmp, params);
+  }
+
+  // 5th-order solution (used as the result)
+  const y5 = new Array(n);
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    for (let j = 0; j < 6; j++) sum += CK_C5[j] * k[j][i];
+    y5[i] = s[i] + h * sum;
+  }
+
+  // Error estimate: |y5 - y4|
+  let errMax = 0;
+  for (let i = 0; i < n; i++) {
+    let diff = 0;
+    for (let j = 0; j < 6; j++) diff += (CK_C5[j] - CK_C4[j]) * k[j][i];
+    const scale = Math.max(Math.abs(s[i]), Math.abs(y5[i]), 1e-10);
+    errMax = Math.max(errMax, Math.abs(h * diff) / scale);
+  }
+
+  return { y: y5, err: errMax };
+}
+
+function adaptiveStep(s, h, params, tol) {
+  const SAFETY = 0.9;
+  const HMIN = 1e-12;
+  const HMAX = 2.0;
+  const GROW = 5.0;
+  const SHRINK = 0.1;
+
+  let attempt = 0;
+  while (attempt++ < 50) {
+    const { y, err } = rkck45Step(s, h, params);
+    const ratio = tol / Math.max(err, 1e-30);
+
+    if (err <= tol || Math.abs(h) <= HMIN) {
+      // Accept step; compute next h
+      const hNext = (ratio > 1)
+        ? Math.min(h * Math.min(SAFETY * Math.pow(ratio, 0.2), GROW), HMAX)
+        : h * Math.max(SAFETY * Math.pow(ratio, 0.25), SHRINK);
+      return { y, hNext: Math.max(Math.abs(hNext), HMIN) * Math.sign(h) };
+    }
+
+    // Reject step; shrink h
+    h = h * Math.max(SAFETY * Math.pow(ratio, 0.25), SHRINK);
+    if (Math.abs(h) < HMIN) h = HMIN * Math.sign(h);
+  }
+
+  // Fallback: accept whatever we have
+  const { y } = rkck45Step(s, h, params);
+  return { y, hNext: h };
+}
+
+// --- Conservation diagnostics ---
+
+export function hamiltonian(s, params) {
+  const { M, a, E, L, kappa } = params;
   const r = s[1], theta = s[2];
-  const pr = s[4], pth = s[5];
+  const vr = s[4], vth = s[5];
   const r2 = r * r;
   const a2 = a * a;
   const sth = Math.sin(theta);
   const cth = Math.cos(theta);
   const Sigma = r2 + a2 * cth * cth;
   const Delta = r2 - 2 * M * r + a2;
+
+  // Recover canonical momenta from Mino-time velocities:
+  // dr/dλ = v_r = ±√R,  dr/dτ = v_r/Σ,  p_r = (Σ/Δ)·dr/dτ = v_r/Δ
+  // dθ/dλ = v_θ = ±√Θ,  dθ/dτ = v_θ/Σ,  p_θ = Σ·dθ/dτ = v_θ
+  const pr = vr / Delta;
+  const pth = vth;
+
+  const pt = -E, pphi = L;
+
   const sth2 = sth * sth;
   const r2a2 = r2 + a2;
   const SD = Sigma * Delta;
@@ -132,35 +210,13 @@ function hamiltonian(s, params) {
   return 0.5 * (gtt * pt * pt + 2 * gtphi * pt * pphi + grr * pr * pr + gthth * pth * pth + gphiphi * pphi * pphi);
 }
 
-// Carter constant Q
-function carterQ(s, params) {
-  const { a, pt, pphi, kappa } = params;
-  const E = -pt, L = pphi;
-  const theta = s[2], pth = s[5];
+export function carterQ(s, params) {
+  const { a, E, L, kappa } = params;
+  const theta = s[2], vth = s[5];
+  const pth = vth;
   const costh = Math.cos(theta);
   const sinth = Math.sin(theta);
   return pth * pth + costh * costh * (a * a * (kappa - E * E) - L * L / (sinth * sinth));
-}
-
-// Compute initial momenta from constants of motion (E, L, Q)
-function initialState(r0, theta0, params, signR, signTheta) {
-  const { M, a, kappa } = params;
-  const E = -params.pt, L = params.pphi;
-  const Delta = r0 * r0 - 2 * M * r0 + a * a;
-  const r2a2 = r0 * r0 + a * a;
-
-  // R(r) = [E(r²+a²) - aL]² - Δ[κr² + (L-aE)² + Q]
-  const R = (E * r2a2 - a * L) ** 2 - Delta * (kappa * r0 * r0 + (L - a * E) ** 2 + params.Q);
-  const pr = R > 0 ? signR * Math.sqrt(R) / Delta : 0;
-
-  // Θ(θ) = Q + a²(E²-κ)cos²θ - L²cot²θ
-  const costh = Math.cos(theta0);
-  const sinth = Math.sin(theta0);
-  const Th = params.Q + a * a * (E * E - kappa) * costh * costh - L * L * costh * costh / (sinth * sinth);
-  const pth = Th > 0 ? signTheta * Math.sqrt(Th) : 0;
-
-  // State: [t, r, theta, phi, p_r, p_theta]
-  return [0, r0, theta0, 0, pr, pth];
 }
 
 // Convert Boyer-Lindquist to Cartesian
@@ -170,18 +226,26 @@ function blToCartesian(r, theta, phi, a) {
   return [rho * sth * Math.cos(phi), rho * sth * Math.sin(phi), r * Math.cos(theta)];
 }
 
-// Main integration function
+// --- Main integration function ---
+
 export function integrateGeodesic(config) {
   const {
     M = 1, a = 0.9, E = 0.95, L = 3.0, Q = 2.0, kappa = 1,
     r0 = 10, theta0 = Math.PI / 2, signR = -1, signTheta = 1,
-    h = 0.5, nSteps = 4000,
+    h: h0 = 0.1, nSteps = 8000, tolerance = 1e-8,
   } = config;
 
-  const params = { M, a, pt: -E, pphi: L, Q, kappa };
+  const params = { M, a, E, L, Q, kappa };
   const rPlus = M + Math.sqrt(M * M - a * a);
 
-  const s = initialState(r0, theta0, params, signR, signTheta);
+  // Initial velocities from potentials
+  const R0 = radialPotential(r0, params);
+  const Th0 = thetaPotential(theta0, params);
+  const vr0 = R0 > 0 ? signR * Math.sqrt(R0) : 0;
+  const vth0 = Th0 > 0 ? signTheta * Math.sqrt(Th0) : 0;
+
+  // State: [t, r, θ, φ, v_r, v_θ]
+  const s = [0, r0, theta0, 0, vr0, vth0];
   const H0 = hamiltonian(s, params);
   const Q0 = carterQ(s, params);
 
@@ -189,18 +253,22 @@ export function integrateGeodesic(config) {
   const [x0, y0, z0] = blToCartesian(s[1], s[2], s[3], a);
   positions[0] = x0; positions[1] = y0; positions[2] = z0;
 
+  let h = h0;
   let actualSteps = nSteps;
+
   for (let i = 0; i < nSteps; i++) {
-    yoshida4(s, h, params);
+    const { y, hNext } = adaptiveStep(s, h, params, tolerance);
+    for (let j = 0; j < 6; j++) s[j] = y[j];
+    h = hNext;
 
     // Clamp theta to avoid polar singularities
-    if (s[2] < 0.01) s[2] = 0.01;
-    if (s[2] > Math.PI - 0.01) s[2] = Math.PI - 0.01;
+    if (s[2] < 0.02) { s[2] = 0.02; s[5] = Math.abs(s[5]); }
+    if (s[2] > Math.PI - 0.02) { s[2] = Math.PI - 0.02; s[5] = -Math.abs(s[5]); }
 
-    // Terminate near horizon
-    if (s[1] < rPlus * 1.01 || !isFinite(s[1]) || !isFinite(s[4])) {
+    // Terminate near horizon or at large radius
+    if (s[1] < rPlus * 1.01 || s[1] > 200 || !isFinite(s[1]) || !isFinite(s[4])) {
       actualSteps = i + 1;
-      if (isFinite(s[1])) {
+      if (isFinite(s[1]) && s[1] > 0) {
         const [xf, yf, zf] = blToCartesian(s[1], s[2], s[3], a);
         positions[(i + 1) * 3] = xf; positions[(i + 1) * 3 + 1] = yf; positions[(i + 1) * 3 + 2] = zf;
       }
@@ -231,36 +299,36 @@ export const PRESETS = {
     label: 'Bound orbit',
     M: 1, a: 0.9, E: 0.95, L: 3.0, Q: 2.0, kappa: 1,
     r0: 10, theta0: Math.PI / 2.5, signR: -1, signTheta: 1,
-    h: 0.5, nSteps: 4000,
+    h: 0.1, nSteps: 8000,
   },
   equatorialOrbit: {
     label: 'Equatorial orbit',
     M: 1, a: 0.9, E: 0.96, L: 3.2, Q: 0, kappa: 1,
     r0: 12, theta0: Math.PI / 2, signR: -1, signTheta: 0,
-    h: 0.3, nSteps: 6000,
+    h: 0.1, nSteps: 10000,
   },
   plungingOrbit: {
     label: 'Plunging orbit',
     M: 1, a: 0.5, E: 1.0, L: 1.5, Q: 0.5, kappa: 1,
     r0: 15, theta0: Math.PI / 3, signR: -1, signTheta: 1,
-    h: 0.3, nSteps: 3000,
+    h: 0.1, nSteps: 4000,
   },
   photonOrbit: {
-    label: 'Photon orbit',
+    label: 'Photon scattering',
     M: 1, a: 0.99, E: 1.0, L: 2.0, Q: 8.0, kappa: 0,
-    r0: 6, theta0: Math.PI / 3, signR: -1, signTheta: 1,
-    h: 0.2, nSteps: 5000,
+    r0: 20, theta0: Math.PI / 3, signR: -1, signTheta: 1,
+    h: 0.05, nSteps: 8000,
   },
   schwarzschild: {
     label: 'Schwarzschild (a=0)',
     M: 1, a: 0.001, E: 0.97, L: 4.0, Q: 0, kappa: 1,
     r0: 15, theta0: Math.PI / 2, signR: -1, signTheta: 0,
-    h: 0.5, nSteps: 5000,
+    h: 0.1, nSteps: 10000,
   },
   sphericalOrbit: {
-    label: 'Spherical orbit',
-    M: 1, a: 0.9, E: 0.92, L: 2.5, Q: 5.0, kappa: 1,
-    r0: 8, theta0: Math.PI / 4, signR: 1, signTheta: -1,
-    h: 0.3, nSteps: 6000,
+    label: 'Near-extreme Kerr',
+    M: 1, a: 0.99, E: 0.95, L: 2.5, Q: 3.0, kappa: 1,
+    r0: 8, theta0: Math.PI / 2.5, signR: -1, signTheta: 1,
+    h: 0.1, nSteps: 10000,
   },
 };

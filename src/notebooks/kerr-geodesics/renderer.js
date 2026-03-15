@@ -3,7 +3,7 @@
 // standard pipelines for horizon and ergosphere surfaces.
 
 export function createRenderer(device, canvasFormat, createGPULines, shaders) {
-  const { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode } = shaders;
+  const { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode } = shaders;
 
   const sampleCount = 4;
 
@@ -67,6 +67,38 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     layout: ergosphere.bindGroupLayout,
     entries: [{ binding: 0, resource: { buffer: ergosphereUniformBuffer } }]
   });
+
+  // --- Axes pipeline ---
+  const axesModule = device.createShaderModule({ label: 'axes', code: axesShaderCode });
+  const axesBGL = device.createBindGroupLayout({
+    label: 'axes-bgl',
+    entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }]
+  });
+  const axesPipeline = device.createRenderPipeline({
+    label: 'axes',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [axesBGL] }),
+    vertex: { module: axesModule, entryPoint: 'vs' },
+    fragment: {
+      module: axesModule, entryPoint: 'fs',
+      targets: [{
+        format: canvasFormat,
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        }
+      }]
+    },
+    primitive: { topology: 'line-list' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+    multisample: { count: sampleCount },
+  });
+  // Axes uniforms: projView 64 + color 16 + axisLength 16 = 96 bytes
+  const axesUniformBuffer = device.createBuffer({ label: 'axes-uniforms', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const axesBindGroup = device.createBindGroup({
+    layout: axesBGL,
+    entries: [{ binding: 0, resource: { buffer: axesUniformBuffer } }]
+  });
+  const _axesData = new Float32Array(24); // 96 / 4
 
   // Line uniform buffers
   const projViewBuffer = device.createBuffer({ label: 'line-proj-view', size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -215,6 +247,19 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       pass.draw(32 * 64 * 6);
     }
 
+    // Draw axes
+    if (params.showAxes !== false) {
+      _axesData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
+      const axisAlpha = params.surfaceOpacity * 0.8;
+      const ac = params.surfaceColor || [0.5, 0.5, 0.5];
+      _axesData[16] = ac[0]; _axesData[17] = ac[1]; _axesData[18] = ac[2]; _axesData[19] = axisAlpha;
+      _axesData[20] = 25; // axis length
+      device.queue.writeBuffer(axesUniformBuffer, 0, _axesData);
+      pass.setPipeline(axesPipeline);
+      pass.setBindGroup(0, axesBindGroup);
+      pass.draw(6);
+    }
+
     // Draw geodesic lines
     if (lineBindGroup && totalVertexCount > 0) {
       device.queue.writeBuffer(projViewBuffer, 0, projView);
@@ -248,6 +293,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     ergosphereUniformBuffer.destroy();
     projViewBuffer.destroy();
     lineUniformBuffer.destroy();
+    axesUniformBuffer.destroy();
   }
 
   return { setGeodesics, render, destroy };

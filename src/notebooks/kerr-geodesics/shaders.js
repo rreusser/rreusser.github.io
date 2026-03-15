@@ -238,3 +238,49 @@ struct VertexOutput {
   return vec4f(color * u.color.a, u.color.a);
 }
 `;
+
+// Coordinate axes shader — draws 3 axis lines (RGB = XYZ)
+export const axesShaderCode = /* wgsl */`
+
+struct Uniforms {
+  projectionView: mat4x4f,
+  color: vec4f,
+  axisLength: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+};
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) color: vec3f,
+};
+
+@vertex fn vs(@builtin(vertex_index) vid: u32) -> VertexOutput {
+  let axisIndex = vid / 2u;
+  let isEnd = vid % 2u;
+
+  let L = u.axisLength;
+  var pos = vec3f(0.0);
+  var color = vec3f(0.0);
+
+  switch (axisIndex) {
+    case 0u: { pos = vec3f(L * f32(isEnd), 0.0, 0.0); color = vec3f(0.8, 0.2, 0.2); }
+    case 1u: { pos = vec3f(0.0, L * f32(isEnd), 0.0); color = vec3f(0.2, 0.7, 0.2); }
+    case 2u: { pos = vec3f(0.0, 0.0, L * f32(isEnd)); color = vec3f(0.3, 0.4, 0.9); }
+    default: {}
+  }
+
+  var out: VertexOutput;
+  out.position = u.projectionView * vec4f(pos, 1.0);
+  out.color = color;
+  return out;
+}
+
+@fragment fn fs(v: VertexOutput) -> @location(0) vec4f {
+  let alpha = u.color.a;
+  return vec4f(v.color * alpha, alpha);
+}
+`;

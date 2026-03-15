@@ -1,6 +1,6 @@
 publishedAt: "March 15, 2026"
 maxWidth: 640px
-description: Geodesics of the Kerr metric visualized with WebGPU, integrated using a 4th-order symplectic Gauss-Legendre method
+description: Geodesics of the Kerr metric visualized with WebGPU, integrated in Mino time with adaptive Cash-Karp RK4(5)
 tags:
   - WebGPU
   - Physics
