@@ -475,8 +475,9 @@ invalidation.then(() => rayTracer.destroy());
   <script id="rt-render-loop" type="text/x-typescript">
 let rtDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let rtInteracting = false;
+let rtFrameRequested = false;
 
-function rtRender() {
+function rtRenderActual() {
   const w = rtCanvas.width;
   const h = rtCanvas.height;
   if (w === 0 || h === 0) return;
@@ -490,6 +491,19 @@ function rtRender() {
     renderWidth: Math.max(1, Math.floor(w * scale)),
     renderHeight: Math.max(1, Math.floor(h * scale)),
   }, rtCamera, w, h);
+}
+
+// Coalesce renders: the camera fires emitRender synchronously on every
+// input event, so multiple wheel/pointer events per frame each trigger a
+// render listener call. Gate through rAF so at most one GPU submission
+// per display frame.
+function rtRender() {
+  if (rtFrameRequested) return;
+  rtFrameRequested = true;
+  requestAnimationFrame(() => {
+    rtFrameRequested = false;
+    rtRenderActual();
+  });
 }
 
 rtCamera.on('render', rtRender);
