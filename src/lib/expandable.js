@@ -359,14 +359,6 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     }
   }
 
-  // Call onResize immediately to initialize content at the correct size
-  if (wide) {
-    // For wide layout, defer to updateWideLayout
-    requestAnimationFrame(updateWideLayout);
-  } else if (onResize) {
-    onResize(content, width, height, false);
-  }
-
   // Measure actual content height after it's in the DOM
   let collapsedHeight = null;
   function measureCollapsedHeight() {
@@ -375,8 +367,18 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     }
   }
 
-  // Use requestAnimationFrame to measure after render
+  // Call onResize after first paint so we can measure the actual rendered width.
+  // For wide layout, defer to updateWideLayout. For normal layout, measure the
+  // actual container width so content doesn't overflow on narrow screens.
   requestAnimationFrame(() => {
+    if (wide) {
+      updateWideLayout();
+    } else if (onResize) {
+      const actualWidth = Math.min(width, contentWrapper.offsetWidth || width);
+      const actualHeight = Math.round(height * actualWidth / width);
+      contentWrapper.style.height = `${actualHeight}px`;
+      onResize(content, actualWidth, actualHeight, false);
+    }
     measureCollapsedHeight();
   });
 
@@ -421,8 +423,9 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     contentWrapper.style.top = '';
     contentWrapper.style.left = '';
     contentWrapper.style.transform = '';
-    contentWrapper.style.width = `${width}px`;
-    contentWrapper.style.height = `${height}px`;
+    contentWrapper.style.width = '100%';
+    contentWrapper.style.maxWidth = `${width}px`;
+    contentWrapper.style.height = '';
     contentWrapper.style.marginLeft = '';
     contentWrapper.style.overflow = '';
     contentWrapper.style.boxShadow = '';
@@ -435,7 +438,14 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     if (wide) {
       requestAnimationFrame(updateWideLayout);
     } else {
-      setDimensions(width, height);
+      // Defer until after reflow so we can measure the actual rendered width,
+      // then set height to preserve the original aspect ratio at that width.
+      requestAnimationFrame(() => {
+        const actualWidth = contentWrapper.offsetWidth;
+        const actualHeight = Math.round(height * actualWidth / width);
+        contentWrapper.style.height = `${actualHeight}px`;
+        setDimensions(actualWidth, actualHeight);
+      });
     }
 
     // Dispatch resize event so notebook layout handlers can update
@@ -467,6 +477,7 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     contentWrapper.style.position = 'fixed';
     contentWrapper.style.display = 'block';
     contentWrapper.style.width = `${outerWidth}px`;
+    contentWrapper.style.maxWidth = '';
     contentWrapper.style.height = `${outerHeight}px`;
     contentWrapper.style.overflow = 'hidden';
     contentWrapper.style.zIndex = '9999';
