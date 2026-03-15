@@ -1,8 +1,11 @@
 // Ray-traced Kerr black hole with accretion disk
-// Traces null geodesics per-pixel using first-order Carter equations
-// in affine parameter with sign tracking. RK4 integrates (r, θ, φ)
-// as a coupled 3D system; signs flip at turning points where R or Θ
-// go negative.
+// Traces null geodesics per-pixel using second-order Carter equations
+// in affine parameter. State is (r, vr, θ, vθ, φ) where vr and vθ are
+// Mino-time velocities (±√R, ±√Θ). Dividing by Σ converts to affine
+// time, bounding velocities at large r without explicit velocity scaling.
+// Velocities pass smoothly through zero at turning points — no sign
+// tracking needed. This avoids the stalling issue where first-order
+// sign-tracking with √max(Θ,0) freezes the integrator at θ turning points.
 
 export const rayTracerShaderCode = /* wgsl */`
 
@@ -93,15 +96,15 @@ fn kerrMetric(r: f32, theta: f32, M: f32, a: f32) -> Metric {
 }
 
 // ============================================================
-// Camera ray → conserved quantities
+// Camera ray → conserved quantities and initial velocities
 // ============================================================
 
 struct RayParams {
   E: f32,
   L: f32,
   Q: f32,
-  signR: f32,
-  signTh: f32,
+  vr: f32,
+  vth: f32,
   r0: f32,
   theta0: f32,
   phi0: f32,
@@ -157,78 +160,114 @@ fn computeRayParams(rayDir: vec3f, a: f32, M: f32) -> RayParams {
   let rawQ = ptheta * ptheta + cth * cth * (p.L * p.L * rawE * rawE / sin2 - a * a * rawE * rawE);
   p.Q = rawQ / (rawE * rawE);
 
-  // Initial signs from ray direction
-  p.signR = sign(blVel.x);
-  p.signTh = sign(blVel.y);
+  // Mino-time velocities from potentials
+  let r2 = p.r0 * p.r0;
+  let a2 = a * a;
+  let P = p.E * (r2 + a2) - a * p.L;
+  let LaE = p.L - a * p.E;
+  let R_val = P * P - g.Delta * (LaE * LaE + p.Q);
+  p.vr = sign(blVel.x) * sqrt(max(R_val, 0.0));
+
+  let Theta_val = p.Q + a2 * cth * cth - p.L * p.L * cth * cth / sin2;
+  p.vth = sign(blVel.y) * sqrt(max(Theta_val, 0.0));
 
   p.valid = true;
   return p;
 }
 
 // ============================================================
-// First-order Carter equations (affine parameter, κ=0, E=1)
+// Second-order equations in affine parameter (κ=0, E=1)
 // ============================================================
-// Σ dr/dλ = ±√R,  Σ dθ/dλ = ±√Θ,  Σ dφ/dλ = ...
-// Dividing by Σ keeps velocities naturally bounded at large r.
-// Signs are tracked externally and flipped at turning points.
+// State: (r, vr, θ, vθ, φ) where vr = ±√R, vθ = ±√Θ (Mino-time velocities).
+// Dividing by Σ converts to affine parameter, bounding all rates at large r.
+// The 2nd-order accelerations R'(r)/2 and Θ'(θ)/2 push velocities smoothly
+// through zero at turning points.
 
-fn radialPotential(r: f32, L: f32, Q: f32, M: f32, a: f32) -> f32 {
+struct Derivs {
+  dr: f32,
+  dvr: f32,
+  dth: f32,
+  dvth: f32,
+  dphi: f32,
+};
+
+fn geodesicDerivs(r: f32, vr: f32, theta: f32, vth: f32, L: f32, Q: f32, M: f32, a: f32) -> Derivs {
   let r2 = r * r;
   let a2 = a * a;
-  let P = r2 + a2 - a * L;
-  let Delta = r2 - 2.0 * M * r + a2;
-  let LaE = L - a;
-  return P * P - Delta * (LaE * LaE + Q);
-}
-
-fn polarPotential(theta: f32, L: f32, Q: f32, a: f32) -> f32 {
   let cth = cos(theta);
   let sth = sin(theta);
   let sin2 = max(sth * sth, 1e-10);
-  return Q + cth * cth * (a * a - L * L / sin2);
-}
-
-// Right-hand side: returns (dr/dλ, dθ/dλ, dφ/dλ) in affine parameter
-fn geodesicRHS(r: f32, theta: f32, sr: f32, sth: f32, L: f32, Q: f32, M: f32, a: f32) -> vec3f {
-  let r2 = r * r;
-  let a2 = a * a;
-  let cth = cos(theta);
-  let sth_val = sin(theta);
-  let sin2 = max(sth_val * sth_val, 1e-10);
+  let sin3 = sin2 * max(abs(sth), 1e-5);
   let Sigma = r2 + a2 * cth * cth;
   let Delta = r2 - 2.0 * M * r + a2;
   let invSigma = 1.0 / Sigma;
 
-  // Radial
+  // Radial: dvr/dλ = R'(r)/(2Σ)
+  // R(r) = P² - ΔC, P = r²+a²-aL, C = (L-a)²+Q
   let P = r2 + a2 - a * L;
-  let LaE = L - a;
-  let R = P * P - Delta * (LaE * LaE + Q);
-  let dr = sr * sqrt(max(R, 0.0)) * invSigma;
+  let C = (L - a) * (L - a) + Q;
+  let dR_dr = 4.0 * r * P - (2.0 * r - 2.0 * M) * C;
 
-  // Polar
-  let Th = Q + cth * cth * (a2 - L * L / sin2);
-  let dtheta = sth * sqrt(max(Th, 0.0)) * invSigma;
+  // Polar: dvθ/dλ = Θ'(θ)/(2Σ)
+  // Θ(θ) = Q + a²cos²θ - L²cos²θ/sin²θ
+  // dΘ/dθ = -2a²sinθcosθ + 2L²cosθ/sin³θ
+  let dTh_dth = -2.0 * a2 * sth * cth + 2.0 * L * L * cth / sin3;
 
-  // Azimuthal
-  let dphi = (a * P / max(abs(Delta), 1e-8) + L / sin2 - a) * invSigma;
+  // Azimuthal: dφ/dλ = (aP/Δ + L/sin²θ - a) / Σ
+  let dphi = a * P / max(abs(Delta), 1e-8) + L / sin2 - a;
 
-  return vec3f(dr, dtheta, dphi);
+  var d: Derivs;
+  d.dr = vr * invSigma;
+  d.dvr = 0.5 * dR_dr * invSigma;
+  d.dth = vth * invSigma;
+  d.dvth = 0.5 * dTh_dth * invSigma;
+  d.dphi = dphi * invSigma;
+  return d;
 }
 
 // ============================================================
-// RK4 step for (r, θ, φ)
+// RK4 step for 5D state (r, vr, θ, vθ, φ)
 // ============================================================
 
-fn rk4Step(r: f32, theta: f32, phi: f32, h: f32, sr: f32, sth: f32, L: f32, Q: f32, M: f32, a: f32) -> vec3f {
-  let k1 = geodesicRHS(r, theta, sr, sth, L, Q, M, a);
-  let k2 = geodesicRHS(r + h * 0.5 * k1.x, theta + h * 0.5 * k1.y, sr, sth, L, Q, M, a);
-  let k3 = geodesicRHS(r + h * 0.5 * k2.x, theta + h * 0.5 * k2.y, sr, sth, L, Q, M, a);
-  let k4 = geodesicRHS(r + h * k3.x, theta + h * k3.y, sr, sth, L, Q, M, a);
-  return vec3f(
-    r     + h / 6.0 * (k1.x + 2.0 * k2.x + 2.0 * k3.x + k4.x),
-    theta + h / 6.0 * (k1.y + 2.0 * k2.y + 2.0 * k3.y + k4.y),
-    phi   + h / 6.0 * (k1.z + 2.0 * k2.z + 2.0 * k3.z + k4.z),
+struct GeoState {
+  r: f32,
+  vr: f32,
+  theta: f32,
+  vth: f32,
+  phi: f32,
+};
+
+fn rk4Step(s: GeoState, h: f32, L: f32, Q: f32, M: f32, a: f32) -> GeoState {
+  let k1 = geodesicDerivs(s.r, s.vr, s.theta, s.vth, L, Q, M, a);
+  let k2 = geodesicDerivs(
+    s.r     + h * 0.5 * k1.dr,
+    s.vr    + h * 0.5 * k1.dvr,
+    s.theta + h * 0.5 * k1.dth,
+    s.vth   + h * 0.5 * k1.dvth,
+    L, Q, M, a
   );
+  let k3 = geodesicDerivs(
+    s.r     + h * 0.5 * k2.dr,
+    s.vr    + h * 0.5 * k2.dvr,
+    s.theta + h * 0.5 * k2.dth,
+    s.vth   + h * 0.5 * k2.dvth,
+    L, Q, M, a
+  );
+  let k4 = geodesicDerivs(
+    s.r     + h * k3.dr,
+    s.vr    + h * k3.dvr,
+    s.theta + h * k3.dth,
+    s.vth   + h * k3.dvth,
+    L, Q, M, a
+  );
+
+  var out: GeoState;
+  out.r     = s.r     + h / 6.0 * (k1.dr   + 2.0 * k2.dr   + 2.0 * k3.dr   + k4.dr);
+  out.vr    = s.vr    + h / 6.0 * (k1.dvr  + 2.0 * k2.dvr  + 2.0 * k3.dvr  + k4.dvr);
+  out.theta = s.theta + h / 6.0 * (k1.dth  + 2.0 * k2.dth  + 2.0 * k3.dth  + k4.dth);
+  out.vth   = s.vth   + h / 6.0 * (k1.dvth + 2.0 * k2.dvth + 2.0 * k3.dvth + k4.dvth);
+  out.phi   = s.phi   + h / 6.0 * (k1.dphi + 2.0 * k2.dphi + 2.0 * k3.dphi + k4.dphi);
+  return out;
 }
 
 // ============================================================
@@ -326,11 +365,12 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
   let L = rp.L;
   let Q = rp.Q;
 
-  var r = rp.r0;
-  var theta = rp.theta0;
-  var phi = rp.phi0;
-  var sr = rp.signR;
-  var sth = rp.signTh;
+  var s: GeoState;
+  s.r = rp.r0;
+  s.vr = rp.vr;
+  s.theta = rp.theta0;
+  s.vth = rp.vth;
+  s.phi = rp.phi0;
 
   var color = vec3f(0.0);
   var accumulated: f32 = 0.0;
@@ -338,51 +378,38 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
   let hBase = u.resolution.w;
   let maxSteps = u32(u.resolution.z);
   for (var step = 0u; step < maxSteps; step++) {
-    let prevTheta = theta;
-    let prevR = r;
+    let prevTheta = s.theta;
+    let prevR = s.r;
 
     // Adaptive step size: smaller near horizon, full size far away.
-    // Dividing by Σ in the RHS already bounds velocities at large r.
-    let h = hBase * clamp((r - rHorizon) / r, 0.02, 1.0);
+    // Dividing by Σ in the derivatives already bounds velocities.
+    let h = hBase * clamp((s.r - rHorizon) / s.r, 0.02, 1.0);
 
-    // RK4 step for (r, θ, φ)
-    let state = rk4Step(r, theta, phi, h, sr, sth, L, Q, M, a);
-    r = state.x;
-    theta = state.y;
-    phi = state.z;
+    // RK4 step for (r, vr, θ, vθ, φ)
+    s = rk4Step(s, h, L, Q, M, a);
 
-    // Sign tracking: flip at turning points
-    let R_new = radialPotential(r, L, Q, M, a);
-    if (R_new < 0.0) {
-      sr = -sr;
-    }
-    let Th_new = polarPotential(theta, L, Q, a);
-    if (Th_new < 0.0) {
-      sth = -sth;
-    }
-
-    // Soft polar guard: reflect theta if it overshoots past poles
-    if (theta < 1e-4) {
-      theta = 1e-4;
-      sth = abs(sth);
-    } else if (theta > 3.14149) {
-      theta = 3.14149;
-      sth = -abs(sth);
+    // Soft polar guard
+    if (s.theta < 1e-4) {
+      s.theta = 1e-4;
+      s.vth = abs(s.vth);
+    } else if (s.theta > 3.14149) {
+      s.theta = 3.14149;
+      s.vth = -abs(s.vth);
     }
 
     // Check horizon
-    if (r < rHorizon * 1.01) {
+    if (s.r < rHorizon * 1.01) {
       break;
     }
 
     // Check escape
-    if (r > rEscape) {
-      let bl_sth = sin(theta);
-      let rho = sqrt(r * r + a2);
+    if (s.r > rEscape) {
+      let bl_sth = sin(s.theta);
+      let rho = sqrt(s.r * s.r + a2);
       let escapeDir = normalize(vec3f(
-        rho * bl_sth * cos(phi),
-        r * cos(theta),
-        rho * bl_sth * sin(phi),
+        rho * bl_sth * cos(s.phi),
+        s.r * cos(s.theta),
+        rho * bl_sth * sin(s.phi),
       ));
       color += starfield(escapeDir, pixelSize) * (1.0 - accumulated);
       break;
@@ -390,11 +417,11 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
 
     // Check disk crossing (theta crosses π/2)
     let pi2 = 1.5707963;
-    if ((prevTheta - pi2) * (theta - pi2) < 0.0 && accumulated < 0.99) {
-      let frac = (pi2 - prevTheta) / (theta - prevTheta);
-      let crossR = prevR + frac * (r - prevR);
+    if ((prevTheta - pi2) * (s.theta - pi2) < 0.0 && accumulated < 0.99) {
+      let frac = (pi2 - prevTheta) / (s.theta - prevTheta);
+      let crossR = prevR + frac * (s.r - prevR);
 
-      let dc = diskColor(crossR, phi, rp.E, L, M, a);
+      let dc = diskColor(crossR, s.phi, rp.E, L, M, a);
       if (dc.a > 0.0) {
         let opacity = min(dc.a, 1.0 - accumulated);
         color += dc.rgb * opacity;
