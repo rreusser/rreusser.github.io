@@ -289,9 +289,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     // Draw axes
     if (params.showAxes !== false) {
       _axesData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
-      const axisAlpha = params.surfaceOpacity * 0.8;
-      const ac = params.surfaceColor || [0.5, 0.5, 0.5];
-      _axesData[16] = ac[0]; _axesData[17] = ac[1]; _axesData[18] = ac[2]; _axesData[19] = axisAlpha;
+      _axesData[16] = 0.5; _axesData[17] = 0.5; _axesData[18] = 0.5; _axesData[19] = 0.6;
       _axesData[20] = 25; // axis length
       device.queue.writeBuffer(axesUniformBuffer, 0, _axesData);
       pass.setPipeline(axesPipeline);
