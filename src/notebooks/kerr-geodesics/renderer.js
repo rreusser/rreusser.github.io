@@ -121,7 +121,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       }]
     },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'always' },
     multisample: { count: sampleCount },
   });
   // Arrow uniforms: projView 64 + origin 16 + direction 16 + color 16 + params 16 = 128 bytes
