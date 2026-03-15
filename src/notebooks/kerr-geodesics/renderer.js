@@ -423,7 +423,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       _lineU32[0] = pointsPerLine;
       _lineU32[1] = lineCount;
       _lineF32[2] = params.lineWidth * (devicePixelRatio || 1);
-      _lineF32[3] = 0;
+      _lineF32[3] = params.isDark ? 1.0 : 0.0;
       device.queue.writeBuffer(lineUniformBuffer, 0, _lineData);
 
       const dpr = devicePixelRatio || 1;

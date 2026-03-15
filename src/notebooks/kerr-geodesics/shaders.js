@@ -9,7 +9,7 @@ struct LineUniforms {
   pointCount: u32,
   lineCount: u32,
   width: f32,
-  _pad: f32,
+  isDark: f32,
 };
 @group(1) @binding(2) var<uniform> lineUniforms: LineUniforms;
 
@@ -68,10 +68,11 @@ fn getColor(lineCoord: vec2f, t: f32, velocity: f32, lineWidth: f32) -> vec4f {
   let hue = velocity * 0.7 + 0.55;
   var color = hsl2rgb(hue % 1.0, 0.7, 0.6);
 
-  // Dark border that scales with line width
+  // Border that scales with line width (dark on dark theme, light on light theme)
   let borderWidth = min(3.0, lineWidth * 0.4);
   let borderMask = smoothstep(lineWidth - borderWidth - 0.75, lineWidth - borderWidth + 0.75, sdf);
-  color = mix(color, vec3f(0.0), borderMask * 0.7);
+  let borderColor = select(vec3f(1.0), vec3f(0.0), lineUniforms.isDark > 0.5);
+  color = mix(color, borderColor, borderMask * 0.7);
 
   // Subtle fade along tail, 80% max opacity
   let alpha = (1.0 - 0.4 * t) * 0.8;
