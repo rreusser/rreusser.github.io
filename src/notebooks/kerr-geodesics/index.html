@@ -219,18 +219,21 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
       newTip[2] - arrowState.origin[2],
     ];
 
-    // Convert back to BL velocity
+    // Convert dragged direction to BL velocity, preserving original speed
     const r0 = r0Input.value as number;
     const theta0 = theta0Input.value as number;
     const a = spinInput.value as number;
     const M = 1;
     const kappa = kappaInput.value as number;
 
-    // Unscale from arrow display scale
+    // Use direction only — normalize to original velocity magnitude
+    const dirLen = Math.sqrt(newDir[0] ** 2 + newDir[1] ** 2 + newDir[2] ** 2);
+    if (dirLen < 1e-6) return;
+    const origSpeed = Math.sqrt(arrowState.cartVel[0] ** 2 + arrowState.cartVel[1] ** 2 + arrowState.cartVel[2] ** 2);
     const newCartVel = [
-      newDir[0] / arrowState.arrowScale,
-      newDir[1] / arrowState.arrowScale,
-      newDir[2] / arrowState.arrowScale,
+      newDir[0] / dirLen * origSpeed,
+      newDir[1] / dirLen * origSpeed,
+      newDir[2] / dirLen * origSpeed,
     ];
 
     const blVel = cartesianVelocityToBL(r0, theta0, 0, a, newCartVel[0], newCartVel[1], newCartVel[2]);
@@ -248,9 +251,11 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
       carterInput.value = Math.max(0, Math.min(20, constants.Q));
     }
 
-    // Recompute geodesic and set arrow to dragged position
+    // Recompute geodesic; show arrow at fixed length in dragged direction
     computeAndUpload();
-    renderer.setArrow(arrowState.origin, newDir, true);
+    const arrowLen = 5.0;
+    const displayDir = [newDir[0] / dirLen * arrowLen, newDir[1] / dirLen * arrowLen, newDir[2] / dirLen * arrowLen];
+    renderer.setArrow(arrowState.origin, displayDir, true);
     camera.triggerRepaint();
   },
   onDragEnd: () => {
