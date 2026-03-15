@@ -29,6 +29,8 @@ const state = {
   dirty: true,
   expandedState: { expanded: false },
   diagnostics: { dH: 0, dQ: 0 },
+  signR: -1,
+  signTheta: 1,
   renderParams: {
     M: 1,
     a: 0.9,
@@ -76,6 +78,8 @@ display(controlsContainer);
 presetInput.addEventListener('input', () => {
   const p = PRESETS[presetInput.value];
   if (!p) return;
+  state.signR = p.signR ?? -1;
+  state.signTheta = p.signTheta ?? 1;
   spinInput.value = p.a; spinInput.dispatchEvent(new Event('input'));
   energyInput.value = p.E; energyInput.dispatchEvent(new Event('input'));
   angMomInput.value = p.L; angMomInput.dispatchEvent(new Event('input'));
@@ -139,8 +143,8 @@ function computeAndUpload() {
     kappa,
     r0: r0Input.value as number,
     theta0: theta0Input.value as number,
-    signR: preset?.signR ?? -1,
-    signTheta: preset?.signTheta ?? 1,
+    signR: state.signR,
+    signTheta: state.signTheta,
     h: preset?.h ?? 0.1,
     nSteps: nStepsInput.value as number,
     tolerance: 1e-8,
@@ -178,11 +182,8 @@ function updateArrow() {
   const Q = carterInput.value as number;
   const r0 = r0Input.value as number;
   const theta0 = theta0Input.value as number;
-  const preset = PRESETS[presetInput.value];
-  const signR = preset?.signR ?? -1;
-  const signTheta = preset?.signTheta ?? 1;
 
-  const vel = constantsToVelocity(r0, theta0, E, L, Q, M, a, kappa, signR, signTheta);
+  const vel = constantsToVelocity(r0, theta0, E, L, Q, M, a, kappa, state.signR, state.signTheta);
   if (!vel) return;
 
   const origin = blToCartesian(r0, theta0, 0, a);
@@ -233,6 +234,11 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
     ];
 
     const blVel = cartesianVelocityToBL(r0, theta0, 0, a, newCartVel[0], newCartVel[1], newCartVel[2]);
+
+    // Update signs from dragged velocity direction
+    if (blVel.ur !== 0) state.signR = blVel.ur > 0 ? 1 : -1;
+    if (blVel.utheta !== 0) state.signTheta = blVel.utheta > 0 ? 1 : -1;
+
     const constants = velocityToConstants(r0, theta0, blVel.ur, blVel.utheta, blVel.uphi, M, a, kappa);
 
     if (constants && isFinite(constants.E) && isFinite(constants.L) && isFinite(constants.Q)) {
@@ -248,7 +254,7 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
     camera.triggerRepaint();
   },
   onDragEnd: () => {
-    // Snap arrow to match actual computed constants
+    // Update arrowState from current constants without snapping the visual arrow
     arrowState = updateArrow();
     camera.triggerRepaint();
   },
