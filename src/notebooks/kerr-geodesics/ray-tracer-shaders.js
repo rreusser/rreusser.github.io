@@ -359,8 +359,10 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
 
     // Velocity-scaled step sizing: in Mino time, vr ~ r² at large r,
     // so we scale h by 1/velocity to prevent massive overshoot.
+    // Base step 0.1 keeps |Δθ| ≲ 0.1 rad when vth dominates,
+    // ensuring disk crossings are reliably detected.
     let vel = max(abs(vr), max(abs(vth), 1.0));
-    let h = 0.5 * clamp((r - rHorizon) / r, 0.02, 1.0) / vel;
+    let h = 0.1 * clamp((r - rHorizon) / r, 0.02, 1.0) / vel;
 
     // Independent 2D RK4: radial (trig-free) and polar (polynomial-free)
     let rState = radialRK4(r, vr, h, L, Q, M, a);

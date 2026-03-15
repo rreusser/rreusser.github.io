@@ -87,7 +87,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     // resolution + quality
     _data[24] = width;
     _data[25] = height;
-    _data[26] = params.maxSteps || 600;
+    _data[26] = params.maxSteps || 2000;
     _data[27] = params.tolerance || 1e-6;
 
     device.queue.writeBuffer(uniformBuffer, 0, _data);
