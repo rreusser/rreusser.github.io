@@ -329,9 +329,9 @@ display(controlsContainer);
 
   <script id="diagnostics-display" type="text/x-typescript">
 display(html`<div style="font-size: 0.85em; opacity: 0.6; margin-top: 0.5em;">
-  <strong>Conservation:</strong>
-  ΔH = ${state.diagnostics.dH.toExponential(2)},
-  ΔQ = ${state.diagnostics.dQ.toExponential(2)}
+  <strong>Integration accuracy:</strong>
+  Hamiltonian drift |ΔH| = ${state.diagnostics.dH.toExponential(2)},
+  Carter constant drift |ΔQ| = ${state.diagnostics.dQ.toExponential(2)}
 </div>`);
   </script>
 
