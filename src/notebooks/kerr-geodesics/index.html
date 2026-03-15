@@ -342,11 +342,21 @@ const container = html`<div style="position: relative; width: 100%; height: 100%
 container.appendChild(canvas);
 
 let expandableContainer: ReturnType<typeof expandable>;
+let mainHasExpanded = false;
 expandableContainer = expandable(container, {
   width: 640,
   height: 480,
   controls: controlsContainer,
   state: state.expandedState,
+  onResize: (_content: HTMLElement, w: number, h: number, expanded: boolean) => {
+    if (expanded) mainHasExpanded = true;
+    // Only override the responsive 100% sizing after the first expand,
+    // so initial load stays responsive to article width.
+    if (mainHasExpanded) {
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+    }
+  },
   buttons: cameraButtons({
     camera,
     canvas,
@@ -560,11 +570,19 @@ const rtContainer = html`<div style="position: relative; width: 100%; height: 10
 rtContainer.appendChild(rtCanvas);
 
 let rtExpandable: ReturnType<typeof expandable>;
+let rtHasExpanded = false;
 rtExpandable = expandable(rtContainer, {
   width: 640,
   height: 480,
   controls: rtControlsContainer,
   state: { expanded: false },
+  onResize: (_content: HTMLElement, w: number, h: number, expanded: boolean) => {
+    if (expanded) rtHasExpanded = true;
+    if (rtHasExpanded) {
+      rtCanvas.style.width = `${w}px`;
+      rtCanvas.style.height = `${h}px`;
+    }
+  },
   buttons: cameraButtons({
     camera: rtCamera,
     canvas: rtCanvas,
