@@ -163,7 +163,7 @@ fn computeRayParams(rayDir: vec3f, a: f32, M: f32) -> RayParams {
   let R_val = P * P - g.Delta * (LaE * LaE + p.Q);
   p.vr = sign(blVel.x) * sqrt(max(R_val, 0.0));
 
-  let Theta_val = p.Q + a2 * p.E * p.E * cth * cth - p.L * p.L * cth * cth / max(sth * sth, 1e-10);
+  let Theta_val = p.Q + a2 * p.E * p.E * cth * cth - p.L * p.L * cth * cth / max(sth * sth, 1e-4);
   p.vth = sign(blVel.y) * sqrt(max(Theta_val, 0.0));
 
   p.valid = true;
@@ -197,8 +197,8 @@ fn radialDerivs(r: f32, vr: f32, L: f32, Q: f32, M: f32, a: f32) -> vec2f {
 fn polarDerivs(theta: f32, vth: f32, L: f32, Q: f32, a: f32) -> vec2f {
   let sth = sin(theta);
   let cth = cos(theta);
-  let sin2 = max(sth * sth, 1e-10);
-  let sin3 = sin2 * max(abs(sth), 1e-5);
+  let sin2 = max(sth * sth, 1e-4);
+  let sin3 = sin2 * max(abs(sth), 1e-2);
   // dΘ/dθ = −2a²sinθcosθ + 2L²cosθ/sin³θ
   let dTh_dth = -2.0 * a * a * sth * cth + 2.0 * L * L * cth / sin3;
   return vec2f(vth, 0.5 * dTh_dth);
@@ -244,7 +244,7 @@ fn phiRate(r: f32, theta: f32, L: f32, M: f32, a: f32) -> f32 {
   let Delta = r2 - 2.0 * M * r + a2;
   let P = r2 + a2 - a * L;
   let sth = sin(theta);
-  let sin2 = max(sth * sth, 1e-10);
+  let sin2 = max(sth * sth, 1e-4);
   return a * P / max(Delta, 1e-8) + L / sin2 - a;
 }
 
@@ -311,12 +311,12 @@ fn starfield(dir: vec3f, pixelSize: f32) -> vec3f {
   let cell = floor(uv);
   let h = hash21(cell);
   if (h > 0.97) {
-    let brightness = pow((h - 0.97) * 33.0, 2.0) * 0.3;
+    let brightness = pow((h - 0.97) * 33.0, 1.5) * 0.8;
     // Star position within cell
     let starPos = hash22(cell + vec2f(7.0, 13.0));
     let d = length(uv - cell - starPos);
     // Scale intensity by a sharp Gaussian, width set by pixel footprint
-    let radius = max(pixelSize * 80.0, 0.04);
+    let radius = max(pixelSize * 80.0, 0.15);
     let atten = exp(-0.5 * d * d / (radius * radius));
     // Slight color variation
     let temp = hash21(cell + vec2f(42.0, 17.0));
@@ -375,7 +375,7 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
     vth = thState.y;
 
     // Clamp theta away from poles
-    theta = clamp(theta, 0.02, 3.12159);
+    theta = clamp(theta, 0.05, 3.09);
 
     // Check horizon
     if (r < rHorizon * 1.01) {
