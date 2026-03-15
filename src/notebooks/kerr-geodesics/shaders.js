@@ -73,10 +73,20 @@ fn getColor(lineCoord: vec2f, t: f32, velocity: f32, lineWidth: f32) -> vec4f {
   let borderMask = smoothstep(lineWidth - borderWidth - 0.75, lineWidth - borderWidth + 0.75, sdf);
   color = mix(color, vec3f(0.0), borderMask * 0.7);
 
-  // Subtle fade along tail
-  let alpha = 1.0 - 0.4 * t;
+  // Subtle fade along tail, 80% max opacity
+  let alpha = (1.0 - 0.4 * t) * 0.8;
 
   return vec4f(color * alpha, alpha);
+}
+`;
+
+// Shared surface peel test — discards fragments already rendered in previous layers
+const surfacePeelTest = /* wgsl */`
+@group(1) @binding(0) var peelDepth: texture_depth_2d;
+
+fn peelTest(fragPos: vec4f) {
+  let prevDepth = textureLoad(peelDepth, vec2i(fragPos.xy), 0);
+  if (fragPos.z <= prevDepth + 1e-5) { discard; }
 }
 `;
 
@@ -91,6 +101,7 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
+${surfacePeelTest}
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
@@ -146,6 +157,8 @@ struct VertexOutput {
 }
 
 @fragment fn fs(v: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
+  peelTest(v.position);
+
   var N = normalize(v.normal);
   if (!frontFacing) { N = -N; }
   let V = normalize(u.eye.xyz - v.worldPos);
@@ -173,6 +186,7 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
+${surfacePeelTest}
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
@@ -235,6 +249,8 @@ struct VertexOutput {
 }
 
 @fragment fn fs(v: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
+  peelTest(v.position);
+
   var N = normalize(v.normal);
   if (!frontFacing) { N = -N; }
   let V = normalize(u.eye.xyz - v.worldPos);
@@ -294,6 +310,33 @@ struct VertexOutput {
 @fragment fn fs(v: VertexOutput) -> @location(0) vec4f {
   let alpha = u.color.a;
   return vec4f(v.color * alpha, alpha);
+}
+`;
+
+// Compositing shader — blends depth-peeled layers back-to-front
+export const compositeShaderCode = /* wgsl */`
+
+@group(0) @binding(0) var layer0: texture_2d<f32>;
+@group(0) @binding(1) var layer1: texture_2d<f32>;
+@group(0) @binding(2) var layer2: texture_2d<f32>;
+
+@vertex fn vs(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4f {
+  let x = select(-1.0, 3.0, vid == 1u);
+  let y = select(-1.0, 3.0, vid == 2u);
+  return vec4f(x, y, 0.0, 1.0);
+}
+
+@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let c0 = textureLoad(layer0, vec2i(pos.xy), 0);
+  let c1 = textureLoad(layer1, vec2i(pos.xy), 0);
+  let c2 = textureLoad(layer2, vec2i(pos.xy), 0);
+
+  // Back-to-front compositing (premultiplied alpha over)
+  var result = c2;
+  result = vec4f(c1.rgb + result.rgb * (1.0 - c1.a), c1.a + result.a * (1.0 - c1.a));
+  result = vec4f(c0.rgb + result.rgb * (1.0 - c0.a), c0.a + result.a * (1.0 - c0.a));
+
+  return result;
 }
 `;
 

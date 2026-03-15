@@ -119,13 +119,13 @@ invalidation.then(() => camera.destroy());
   <script id="renderer-init" type="text/x-typescript">
 import { createGPULines } from 'npm:webgpu-instanced-lines';
 import { createRenderer } from './renderer.js';
-import { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode } from './shaders.js';
+import { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode, compositeShaderCode } from './shaders.js';
 
 const gpuContext = canvas.getContext('webgpu')!;
 gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
 const renderer = createRenderer(device, canvasFormat, createGPULines, {
-  vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode
+  vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode, compositeShaderCode
 });
 
 invalidation.then(() => renderer.destroy());

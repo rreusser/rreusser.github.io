@@ -1,13 +1,14 @@
 // Renderer for Kerr geodesic visualization
-// Uses webgpu-instanced-lines for geodesic curves,
-// standard pipelines for horizon and ergosphere surfaces.
+// Uses depth peeling for order-independent transparency of surfaces,
+// webgpu-instanced-lines for geodesic curves.
 
 export function createRenderer(device, canvasFormat, createGPULines, shaders) {
-  const { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode } = shaders;
+  const { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode, compositeShaderCode } = shaders;
 
-  const sampleCount = 4;
+  const PEEL_LAYERS = 3;
+  const depthFormat = 'depth32float';
 
-  // --- Line renderer ---
+  // --- Line renderer (no MSAA — lines have SDF-based antialiasing) ---
   const gpuLines = createGPULines(device, {
     colorTargets: [{
       format: canvasFormat,
@@ -16,24 +17,34 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
         alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
       }
     }],
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
-    multisample: { count: sampleCount },
+    depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' },
+    multisample: { count: 1 },
     join: 'bevel',
     cap: 'none',
     vertexShaderBody,
     fragmentShaderBody,
   });
 
-  // --- Surface pipelines ---
+  // --- Peel depth bind group layout (used by surfaces at group 1) ---
+  const peelDepthBGL = device.createBindGroupLayout({
+    label: 'peel-depth-bgl',
+    entries: [{
+      binding: 0,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: 'depth', viewDimension: '2d', multisampled: false }
+    }]
+  });
+
+  // --- Surface pipelines (with peel depth at group 1) ---
   function createSurfacePipeline(shaderCode, label) {
     const module = device.createShaderModule({ label, code: shaderCode });
-    const bindGroupLayout = device.createBindGroupLayout({
+    const uniformBGL = device.createBindGroupLayout({
       label: `${label}-bgl`,
       entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }]
     });
     const pipeline = device.createRenderPipeline({
       label,
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+      layout: device.createPipelineLayout({ bindGroupLayouts: [uniformBGL, peelDepthBGL] }),
       vertex: { module, entryPoint: 'vs' },
       fragment: {
         module, entryPoint: 'fs',
@@ -46,10 +57,10 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
         }]
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
-      multisample: { count: sampleCount },
+      depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' },
+      multisample: { count: 1 },
     });
-    return { pipeline, bindGroupLayout };
+    return { pipeline, bindGroupLayout: uniformBGL };
   }
 
   const horizon = createSurfacePipeline(horizonShaderCode, 'horizon');
@@ -89,16 +100,15 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       }]
     },
     primitive: { topology: 'line-list' },
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
-    multisample: { count: sampleCount },
+    depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' },
+    multisample: { count: 1 },
   });
-  // Axes uniforms: projView 64 + color 16 + axisLength 16 = 96 bytes
   const axesUniformBuffer = device.createBuffer({ label: 'axes-uniforms', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const axesBindGroup = device.createBindGroup({
     layout: axesBGL,
     entries: [{ binding: 0, resource: { buffer: axesUniformBuffer } }]
   });
-  const _axesData = new Float32Array(24); // 96 / 4
+  const _axesData = new Float32Array(24);
 
   // --- Arrow pipeline ---
   const arrowModule = device.createShaderModule({ label: 'arrow', code: arrowShaderCode });
@@ -121,41 +131,65 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       }]
     },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-    multisample: { count: sampleCount },
+    depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' },
+    multisample: { count: 1 },
   });
-  // Arrow uniforms: projView 64 + origin 16 + direction 16 + color 16 + params 16 = 128 bytes
   const arrowUniformBuffer = device.createBuffer({ label: 'arrow-uniforms', size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const arrowBindGroup = device.createBindGroup({
     layout: arrowBGL,
     entries: [{ binding: 0, resource: { buffer: arrowUniformBuffer } }]
   });
-  const _arrowData = new Float32Array(32); // 128 / 4
+  const _arrowData = new Float32Array(32);
   const ARROW_SHAFT_SEGS = 12;
   const ARROW_SHAFT_VERTS = ARROW_SHAFT_SEGS * 6;
   const ARROW_HEAD_VERTS = ARROW_SHAFT_SEGS * 3;
   const ARROW_TOTAL_VERTS = ARROW_SHAFT_VERTS + ARROW_HEAD_VERTS;
 
   // Arrow state
-  let arrowOrigin = null;   // [x, y, z]
-  let arrowDir = null;      // [dx, dy, dz]
+  let arrowOrigin = null;
+  let arrowDir = null;
   let arrowLength = 0;
   let arrowVisible = true;
+
+  // --- Compositing pipeline ---
+  const compositeModule = device.createShaderModule({ label: 'composite', code: compositeShaderCode });
+  const compositeBGL = device.createBindGroupLayout({
+    label: 'composite-bgl',
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+    ]
+  });
+  const compositePipeline = device.createRenderPipeline({
+    label: 'composite',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [compositeBGL] }),
+    vertex: { module: compositeModule, entryPoint: 'vs' },
+    fragment: {
+      module: compositeModule, entryPoint: 'fs',
+      targets: [{ format: canvasFormat }]  // No blend — shader computes final composite
+    },
+    primitive: { topology: 'triangle-list' },
+    multisample: { count: 1 },
+  });
 
   // Line uniform buffers
   const projViewBuffer = device.createBuffer({ label: 'line-proj-view', size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const lineUniformBuffer = device.createBuffer({ label: 'line-uniforms', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-  // Textures (created on first render / resize)
-  let msaaTexture = null;
-  let depthTexture = null;
+  // --- Dynamic textures (created on first render / resize) ---
+  let peelDepthTextures = [null, null];
+  let peelLayerTextures = [];  // PEEL_LAYERS color textures
+  let peelDepthBindGroups = [null, null];
+  let compositeBindGroup = null;
+  let lineDepthTexture = null;
   let currentWidth = 0;
   let currentHeight = 0;
 
   // Geodesic data — pre-allocated and reused
-  const MAX_POINTS = 20001; // nSteps max (20000) + 1
+  const MAX_POINTS = 20001;
   const MAX_LINES = 4;
-  const positionBufferSize = MAX_LINES * MAX_POINTS * 4 * 4; // vec4f per point
+  const positionBufferSize = MAX_LINES * MAX_POINTS * 4 * 4;
   const positionBuffer = device.createBuffer({
     label: 'geodesic-positions',
     size: positionBufferSize,
@@ -178,33 +212,66 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     currentWidth = width;
     currentHeight = height;
 
-    if (msaaTexture) msaaTexture.destroy();
-    if (depthTexture) depthTexture.destroy();
+    // Destroy old textures
+    for (const t of peelDepthTextures) if (t) t.destroy();
+    for (const t of peelLayerTextures) if (t) t.destroy();
+    if (lineDepthTexture) lineDepthTexture.destroy();
 
-    msaaTexture = device.createTexture({
+    // Create peel depth textures (ping-pong)
+    for (let i = 0; i < 2; i++) {
+      peelDepthTextures[i] = device.createTexture({
+        label: `peel-depth-${i}`,
+        size: [width, height],
+        format: depthFormat,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      });
+    }
+
+    // Create peel layer color textures
+    peelLayerTextures = [];
+    for (let i = 0; i < PEEL_LAYERS; i++) {
+      peelLayerTextures.push(device.createTexture({
+        label: `peel-layer-${i}`,
+        size: [width, height],
+        format: canvasFormat,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      }));
+    }
+
+    // Line depth texture (for line-against-line self-occlusion)
+    lineDepthTexture = device.createTexture({
+      label: 'line-depth',
       size: [width, height],
-      format: canvasFormat,
-      sampleCount,
+      format: depthFormat,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
-    depthTexture = device.createTexture({
-      size: [width, height],
-      format: 'depth24plus',
-      sampleCount,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+
+    // Recreate peel depth bind groups
+    for (let i = 0; i < 2; i++) {
+      peelDepthBindGroups[i] = device.createBindGroup({
+        layout: peelDepthBGL,
+        entries: [{ binding: 0, resource: peelDepthTextures[i].createView() }]
+      });
+    }
+
+    // Recreate composite bind group
+    compositeBindGroup = device.createBindGroup({
+      layout: compositeBGL,
+      entries: [
+        { binding: 0, resource: peelLayerTextures[0].createView() },
+        { binding: 1, resource: peelLayerTextures[1].createView() },
+        { binding: 2, resource: peelLayerTextures[2].createView() },
+      ]
     });
   }
 
-  // Upload geodesic positions. geodesics is an array of Float32Array (each [x,y,z,...])
   function setGeodesics(geodesics) {
-    // Find max points per geodesic
     pointsPerLine = 0;
     for (const g of geodesics) {
       pointsPerLine = Math.max(pointsPerLine, g.length / 3);
     }
     lineCount = geodesics.length;
 
-    // Pack into vec4f buffer (x, y, z, 1.0) with uniform stride
     const data = new Float32Array(lineCount * pointsPerLine * 4);
     for (let i = 0; i < lineCount; i++) {
       const g = geodesics[i];
@@ -220,7 +287,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     }
 
     device.queue.writeBuffer(positionBuffer, 0, data);
-    totalVertexCount = lineCount * (pointsPerLine + 1); // +1 for line breaks
+    totalVertexCount = lineCount * (pointsPerLine + 1);
   }
 
   const _lineData = new ArrayBuffer(16);
@@ -237,64 +304,125 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
 
     const encoder = device.createCommandEncoder();
 
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: msaaTexture.createView(),
-        resolveTarget: gpuContext.getCurrentTexture().createView(),
-        loadOp: 'clear',
-        storeOp: 'store',
-        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 0.0 },
-      }],
-      depthStencilAttachment: {
-        view: depthTexture.createView(),
-        depthClearValue: 1.0,
-        depthLoadOp: 'clear',
-        depthStoreOp: 'store',
-      }
-    });
-
     // Write surface uniforms
     function writeSurfaceUniforms(buffer, color, horizonParamsArr) {
-      // projView: mat4x4f (16 floats)
       _surfaceData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
-      // eye: vec4f
       _surfaceData[16] = eye[0]; _surfaceData[17] = eye[1]; _surfaceData[18] = eye[2]; _surfaceData[19] = 1.0;
-      // color: vec4f
       _surfaceData[20] = color[0]; _surfaceData[21] = color[1]; _surfaceData[22] = color[2]; _surfaceData[23] = color[3];
-      // horizonParams: vec4f
       _surfaceData[24] = horizonParamsArr[0]; _surfaceData[25] = horizonParamsArr[1]; _surfaceData[26] = 0; _surfaceData[27] = 0;
       device.queue.writeBuffer(buffer, 0, _surfaceData);
     }
 
     const rPlus = params.M + Math.sqrt(params.M * params.M - params.a * params.a);
 
-    // Draw transparent surfaces inner-first (horizon then ergosphere)
-    // so alpha blending composites correctly
+    // Prepare surface uniforms once
     if (params.showHorizon) {
       const hc = params.surfaceColor || [0.5, 0.5, 0.5];
       writeSurfaceUniforms(horizonUniformBuffer, [hc[0], hc[1], hc[2], params.surfaceOpacity * 2.5], [rPlus, params.a]);
-      pass.setPipeline(horizon.pipeline);
-      pass.setBindGroup(0, horizonBindGroup);
-      pass.draw(32 * 64 * 6);
     }
-
     if (params.showErgosphere) {
       const ec = params.surfaceColor || [0.5, 0.5, 0.5];
       writeSurfaceUniforms(ergosphereUniformBuffer, [ec[0], ec[1], ec[2], params.surfaceOpacity * 1.5], [params.M, params.a]);
-      pass.setPipeline(ergosphere.pipeline);
-      pass.setBindGroup(0, ergosphereBindGroup);
-      pass.draw(48 * 96 * 6);
     }
+
+    // ============================================================
+    // PHASE 1: Depth peel surfaces (PEEL_LAYERS passes)
+    // ============================================================
+    // Clear peelDepthTextures[0] to 0.0 (initial: all fragments pass peel test)
+    {
+      const clearPass = encoder.beginRenderPass({
+        colorAttachments: [],
+        depthStencilAttachment: {
+          view: peelDepthTextures[0].createView(),
+          depthClearValue: 0.0,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store',
+        }
+      });
+      clearPass.end();
+    }
+
+    for (let layer = 0; layer < PEEL_LAYERS; layer++) {
+      const readDepthIdx = layer % 2;
+      const writeDepthIdx = (layer + 1) % 2;
+
+      const peelPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: peelLayerTextures[layer].createView(),
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        }],
+        depthStencilAttachment: {
+          view: peelDepthTextures[writeDepthIdx].createView(),
+          depthClearValue: 1.0,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store',
+        }
+      });
+
+      // Draw surfaces with peel test
+      if (params.showHorizon) {
+        peelPass.setPipeline(horizon.pipeline);
+        peelPass.setBindGroup(0, horizonBindGroup);
+        peelPass.setBindGroup(1, peelDepthBindGroups[readDepthIdx]);
+        peelPass.draw(32 * 64 * 6);
+      }
+
+      if (params.showErgosphere) {
+        peelPass.setPipeline(ergosphere.pipeline);
+        peelPass.setBindGroup(0, ergosphereBindGroup);
+        peelPass.setBindGroup(1, peelDepthBindGroups[readDepthIdx]);
+        peelPass.draw(48 * 96 * 6);
+      }
+
+      peelPass.end();
+    }
+
+    // ============================================================
+    // PHASE 2: Composite surface layers back-to-front onto canvas
+    // ============================================================
+    const canvasView = gpuContext.getCurrentTexture().createView();
+
+    const compositePass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: canvasView,
+        loadOp: 'clear',
+        storeOp: 'store',
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+      }]
+    });
+    compositePass.setPipeline(compositePipeline);
+    compositePass.setBindGroup(0, compositeBindGroup);
+    compositePass.draw(3);
+    compositePass.end();
+
+    // ============================================================
+    // PHASE 3: Lines + axes on top of composited surfaces
+    // ============================================================
+    const linePass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: canvasView,
+        loadOp: 'load',
+        storeOp: 'store',
+      }],
+      depthStencilAttachment: {
+        view: lineDepthTexture.createView(),
+        depthClearValue: 1.0,
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store',
+      }
+    });
 
     // Draw axes
     if (params.showAxes !== false) {
       _axesData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
       _axesData[16] = 0.5; _axesData[17] = 0.5; _axesData[18] = 0.5; _axesData[19] = 0.6;
-      _axesData[20] = 25; // axis length
+      _axesData[20] = 25;
       device.queue.writeBuffer(axesUniformBuffer, 0, _axesData);
-      pass.setPipeline(axesPipeline);
-      pass.setBindGroup(0, axesBindGroup);
-      pass.draw(6);
+      linePass.setPipeline(axesPipeline);
+      linePass.setBindGroup(0, axesBindGroup);
+      linePass.draw(6);
     }
 
     // Draw geodesic lines
@@ -314,14 +442,14 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
         resolution: [width, height],
       };
       gpuLines.updateUniforms(lineDrawProps);
-      gpuLines.draw(pass, { ...lineDrawProps, skipUniformUpdate: true }, [lineBindGroup]);
+      gpuLines.draw(linePass, { ...lineDrawProps, skipUniformUpdate: true }, [lineBindGroup]);
     }
 
-    pass.end();
+    linePass.end();
 
-    // Draw arrow in a separate pass: clear depth so it renders on top of
-    // all other geometry, but keep normal depth testing so its own faces
-    // are correct.
+    // ============================================================
+    // PHASE 4: Arrow on top (separate pass, depth cleared)
+    // ============================================================
     if (arrowVisible && arrowOrigin && arrowDir && arrowLength > 0.01) {
       _arrowData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
       _arrowData[16] = arrowOrigin[0]; _arrowData[17] = arrowOrigin[1]; _arrowData[18] = arrowOrigin[2]; _arrowData[19] = 0;
@@ -332,13 +460,12 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
 
       const arrowPass = encoder.beginRenderPass({
         colorAttachments: [{
-          view: msaaTexture.createView(),
-          resolveTarget: gpuContext.getCurrentTexture().createView(),
+          view: canvasView,
           loadOp: 'load',
           storeOp: 'store',
         }],
         depthStencilAttachment: {
-          view: depthTexture.createView(),
+          view: lineDepthTexture.createView(),
           depthClearValue: 1.0,
           depthLoadOp: 'clear',
           depthStoreOp: 'store',
@@ -356,8 +483,9 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
   function destroy() {
     gpuLines.destroy();
     positionBuffer.destroy();
-    if (msaaTexture) msaaTexture.destroy();
-    if (depthTexture) depthTexture.destroy();
+    for (const t of peelDepthTextures) if (t) t.destroy();
+    for (const t of peelLayerTextures) if (t) t.destroy();
+    if (lineDepthTexture) lineDepthTexture.destroy();
     horizonUniformBuffer.destroy();
     ergosphereUniformBuffer.destroy();
     projViewBuffer.destroy();
