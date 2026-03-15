@@ -154,20 +154,9 @@ struct VertexOutput {
   let diffuse = max(dot(N, lightDir), 0.0) * 0.4 + 0.2;
   let fresnel = pow(1.0 - NdotV, 3.0) * 0.5;
 
-  // Grid lines in theta/phi space
-  let nLat = 8.0;
-  let nLon = 16.0;
-  let latLine = abs(fract(v.uv.x / 3.14159265 * nLat + 0.5) - 0.5);
-  let lonLine = abs(fract(v.uv.y / 6.28318531 * nLon + 0.5) - 0.5);
-  let latW = fwidth(v.uv.x / 3.14159265 * nLat) * 1.5;
-  let lonW = fwidth(v.uv.y / 6.28318531 * nLon) * 1.5;
-  let grid = 1.0 - min(smoothstep(latW, 0.0, latLine), smoothstep(lonW, 0.0, lonLine));
-
-  let baseAlpha = u.color.a;
-  let surfaceAlpha = baseAlpha * (0.15 + 0.85 * grid);
-
+  let alpha = u.color.a;
   let color = u.color.rgb * diffuse + vec3f(fresnel);
-  return vec4f(color * surfaceAlpha, surfaceAlpha);
+  return vec4f(color * alpha, alpha);
 }
 `;
 
@@ -252,20 +241,9 @@ struct VertexOutput {
   let diffuse = max(dot(N, lightDir), 0.0) * 0.3 + 0.15;
   let fresnel = pow(1.0 - NdotV, 3.0) * 0.4;
 
-  // Grid lines in theta/phi space
-  let nLat = 8.0;
-  let nLon = 16.0;
-  let latLine = abs(fract(v.uv.x / 3.14159265 * nLat + 0.5) - 0.5);
-  let lonLine = abs(fract(v.uv.y / 6.28318531 * nLon + 0.5) - 0.5);
-  let latW = fwidth(v.uv.x / 3.14159265 * nLat) * 1.5;
-  let lonW = fwidth(v.uv.y / 6.28318531 * nLon) * 1.5;
-  let grid = 1.0 - min(smoothstep(latW, 0.0, latLine), smoothstep(lonW, 0.0, lonLine));
-
-  let baseAlpha = u.color.a;
-  let surfaceAlpha = baseAlpha * (0.1 + 0.9 * grid);
-
+  let alpha = u.color.a;
   let color = u.color.rgb * diffuse + vec3f(fresnel);
-  return vec4f(color * surfaceAlpha, surfaceAlpha);
+  return vec4f(color * alpha, alpha);
 }
 `;
 

@@ -252,13 +252,13 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
       carterInput.dispatchEvent(new Event('input'));
     }
 
-    // Update arrow visually during drag
+    // Update arrow and recompute trajectory live
     renderer.setArrow(arrowState.origin, newDir, true);
+    computeAndUpload();
+    arrowState = updateArrow();
     camera.triggerRepaint();
   },
   onDragEnd: () => {
-    // Recompute geodesic with new constants
-    computeAndUpload();
     arrowState = updateArrow();
     camera.triggerRepaint();
   },

@@ -265,8 +265,10 @@ export function integrateGeodesic(config) {
     if (s[2] < 0.02) { s[2] = 0.02; s[5] = Math.abs(s[5]); }
     if (s[2] > Math.PI - 0.02) { s[2] = Math.PI - 0.02; s[5] = -Math.abs(s[5]); }
 
-    // Terminate near horizon or at large radius
-    if (s[1] < rPlus * 1.01 || s[1] > 200 || !isFinite(s[1]) || !isFinite(s[4])) {
+    // Terminate near horizon, at large radius, or on any NaN/Inf
+    if (s[1] < rPlus * 1.01 || s[1] > 200
+      || !isFinite(s[0]) || !isFinite(s[1]) || !isFinite(s[2])
+      || !isFinite(s[3]) || !isFinite(s[4]) || !isFinite(s[5])) {
       actualSteps = i + 1;
       if (isFinite(s[1]) && s[1] > 0) {
         const [xf, yf, zf] = blToCartesian(s[1], s[2], s[3], a);
