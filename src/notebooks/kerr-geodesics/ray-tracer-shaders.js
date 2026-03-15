@@ -388,7 +388,14 @@ fn hash21(p: vec2f) -> f32 {
   return fract(sin(h) * 43758.5453123);
 }
 
-fn starfield(dir: vec3f) -> vec3f {
+fn hash22(p: vec2f) -> vec2f {
+  return vec2f(
+    fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453123),
+    fract(sin(dot(p, vec2f(269.5, 183.3))) * 43758.5453123),
+  );
+}
+
+fn starfield(dir: vec3f, pixelSize: f32) -> vec3f {
   let theta = acos(clamp(dir.y, -1.0, 1.0));
   let phi = atan2(dir.z, dir.x);
   let uv = vec2f(phi * 80.0, theta * 80.0);
@@ -396,10 +403,16 @@ fn starfield(dir: vec3f) -> vec3f {
   let h = hash21(cell);
   if (h > 0.97) {
     let brightness = pow((h - 0.97) * 33.0, 2.0) * 0.3;
+    // Star position within cell
+    let starPos = hash22(cell + vec2f(7.0, 13.0));
+    let d = length(uv - cell - starPos);
+    // Scale intensity by a sharp Gaussian, width set by pixel footprint
+    let radius = max(pixelSize * 80.0, 0.04);
+    let atten = exp(-0.5 * d * d / (radius * radius));
     // Slight color variation
     let temp = hash21(cell + vec2f(42.0, 17.0));
     let col = mix(vec3f(0.8, 0.85, 1.0), vec3f(1.0, 0.9, 0.7), temp);
-    return col * brightness;
+    return col * brightness * atten;
   }
   return vec3f(0.0);
 }
@@ -408,7 +421,7 @@ fn starfield(dir: vec3f) -> vec3f {
 // Main ray tracer
 // ============================================================
 
-fn traceRay(rayDir: vec3f) -> vec4f {
+fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
   let a = u.params.x;
   let M = u.params.y;
 
@@ -473,7 +486,7 @@ fn traceRay(rayDir: vec3f) -> vec4f {
         r * cos(theta),
         rho * bl_sth * sin(bl_phi),
       ));
-      color += starfield(escapeDir) * (1.0 - accumulated);
+      color += starfield(escapeDir, pixelSize) * (1.0 - accumulated);
       break;
     }
 
@@ -527,7 +540,12 @@ fn traceRay(rayDir: vec3f) -> vec4f {
   let far = wFar.xyz / wFar.w;
   let rayDir = normalize(far - near);
 
-  var color = traceRay(rayDir);
+  // Approximate angular pixel footprint using screen-space derivatives
+  let dRdx = dpdx(rayDir);
+  let dRdy = dpdy(rayDir);
+  let pixelSize = max(length(dRdx), length(dRdy));
+
+  var color = traceRay(rayDir, pixelSize);
 
   // Tone mapping (simple Reinhard)
   color = vec4f(color.rgb / (1.0 + color.rgb), 1.0);

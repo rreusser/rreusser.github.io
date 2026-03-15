@@ -465,40 +465,67 @@ invalidation.then(() => rayTracer.destroy());
   </script>
 
   <script id="rt-render-loop" type="text/x-typescript">
-let rtQualityTimer: ReturnType<typeof setTimeout> | null = null;
-let rtHighQuality = true;
+let rtRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+let rtInteracting = false;
 
-rtCamera.on('render', () => {
+function rtRender() {
   rayTracer.render(rtGpuContext, {
     a: rtSpinInput.value,
     M: 1,
     diskOuter: rtDiskOuterInput.value,
-    maxSteps: rtHighQuality ? 600 : 200,
-    tolerance: rtHighQuality ? 1e-6 : 1e-4,
+    maxSteps: rtInteracting ? 200 : 600,
+    tolerance: rtInteracting ? 1e-4 : 1e-6,
   }, rtCamera, rtCanvas.width, rtCanvas.height);
-});
+}
 
-function rtRequestLowQuality() {
-  rtHighQuality = false;
-  if (rtQualityTimer) clearTimeout(rtQualityTimer);
-  rtQualityTimer = setTimeout(() => {
-    rtHighQuality = true;
+rtCamera.on('render', rtRender);
+
+function rtScheduleRestore() {
+  if (rtRestoreTimer) clearTimeout(rtRestoreTimer);
+  rtRestoreTimer = setTimeout(() => {
+    rtInteracting = false;
     rtCamera.triggerRepaint();
   }, 300);
 }
 
-rtCanvas.addEventListener('pointerdown', rtRequestLowQuality);
-rtCanvas.addEventListener('wheel', rtRequestLowQuality, { passive: true });
+function rtOnPointerDown() {
+  rtInteracting = true;
+  rtScheduleRestore();
+}
+
+function rtOnPointerMove(e: PointerEvent) {
+  if (e.buttons === 0) return;
+  rtInteracting = true;
+  rtScheduleRestore();
+}
+
+function rtOnWheel() {
+  rtInteracting = true;
+  rtScheduleRestore();
+}
+
+function rtOnTouchMove() {
+  rtInteracting = true;
+  rtScheduleRestore();
+}
+
+rtCanvas.addEventListener('pointerdown', rtOnPointerDown);
+rtCanvas.addEventListener('pointermove', rtOnPointerMove);
+rtCanvas.addEventListener('wheel', rtOnWheel, { passive: true });
+rtCanvas.addEventListener('touchmove', rtOnTouchMove, { passive: true });
 
 rtControlsContainer.addEventListener('input', () => {
-  rtRequestLowQuality();
+  rtInteracting = true;
+  rtScheduleRestore();
   rtCamera.triggerRepaint();
 });
 
 invalidation.then(() => {
-  if (rtQualityTimer) clearTimeout(rtQualityTimer);
-  rtCanvas.removeEventListener('pointerdown', rtRequestLowQuality);
-  rtCanvas.removeEventListener('wheel', rtRequestLowQuality);
+  if (rtRestoreTimer) clearTimeout(rtRestoreTimer);
+  rtCanvas.removeEventListener('pointerdown', rtOnPointerDown);
+  rtCanvas.removeEventListener('pointermove', rtOnPointerMove);
+  rtCanvas.removeEventListener('wheel', rtOnWheel);
+  rtCanvas.removeEventListener('touchmove', rtOnTouchMove);
 });
 
 rtCamera.triggerRepaint();
