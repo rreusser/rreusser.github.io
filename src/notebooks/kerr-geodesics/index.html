@@ -1,0 +1,243 @@
+<!doctype html>
+<notebook theme="ink">
+  <title>Kerr Geodesics</title>
+
+  <script id="title" type="text/markdown">
+# Kerr Geodesics
+  </script>
+
+  <script id="intro" type="text/markdown">
+Geodesics of the [Kerr metric](https://en.wikipedia.org/wiki/Kerr_metric) describe the paths of particles and light in the spacetime around a rotating black hole. This notebook integrates the geodesic equations using a 4th-order [Gauss–Legendre](https://en.wikipedia.org/wiki/Gauss%E2%80%93Legendre_method) implicit Runge–Kutta method — a symplectic integrator that preserves the Hamiltonian structure without requiring the Hamiltonian to be separable.
+  </script>
+
+  <script id="webgpu-setup" type="text/x-typescript">
+import { createWebGPUContext } from './lib/webgpu-canvas.js';
+
+const { device, canvasFormat } = await createWebGPUContext();
+
+invalidation.then(() => device.destroy());
+  </script>
+
+  <script id="state" type="text/x-typescript">
+const state = {
+  dirty: true,
+  expandedState: { expanded: false },
+  renderParams: {
+    M: 1,
+    a: 0.9,
+    lineWidth: 4,
+    showHorizon: true,
+    showErgosphere: true,
+  },
+};
+  </script>
+
+  <script id="controls" type="text/x-typescript">
+import { integrateGeodesic, PRESETS } from './integrator.js';
+
+const controlsContainer = html`<div id="kerr-controls"></div>`;
+
+function addControl(input: HTMLElement) {
+  controlsContainer.appendChild(input);
+  return input;
+}
+
+const presetInput = addControl(Inputs.select(
+  Object.keys(PRESETS),
+  { label: 'Preset', format: (key: string) => PRESETS[key].label, value: 'boundOrbit' }
+));
+
+const spinInput = addControl(Inputs.range([0, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 }));
+const energyInput = addControl(Inputs.range([0.8, 1.2], { label: 'Energy E', value: 0.95, step: 0.001 }));
+const angMomInput = addControl(Inputs.range([-5, 5], { label: 'Ang. mom. L', value: 3.0, step: 0.01 }));
+const carterInput = addControl(Inputs.range([0, 20], { label: 'Carter Q', value: 2.0, step: 0.1 }));
+const r0Input = addControl(Inputs.range([2, 30], { label: 'Initial r₀', value: 10, step: 0.1 }));
+const theta0Input = addControl(Inputs.range([0.1, 3.04], { label: 'Initial θ₀', value: Math.PI / 2.5, step: 0.01 }));
+const nStepsInput = addControl(Inputs.range([500, 10000], { label: 'Steps', value: 4000, step: 100 }));
+const lineWidthInput = addControl(Inputs.range([1, 12], { label: 'Line width', value: 4, step: 0.5 }));
+const horizonInput = addControl(Inputs.toggle({ label: 'Show horizon', value: true }));
+const ergosphereInput = addControl(Inputs.toggle({ label: 'Show ergosphere', value: true }));
+
+display(controlsContainer);
+  </script>
+
+  <script id="sync-preset" type="text/x-typescript">
+// When preset changes, update controls to match
+presetInput.addEventListener('input', () => {
+  const p = PRESETS[presetInput.value];
+  if (!p) return;
+  spinInput.value = p.a; spinInput.dispatchEvent(new Event('input'));
+  energyInput.value = p.E; energyInput.dispatchEvent(new Event('input'));
+  angMomInput.value = p.L; angMomInput.dispatchEvent(new Event('input'));
+  carterInput.value = p.Q; carterInput.dispatchEvent(new Event('input'));
+  r0Input.value = p.r0; r0Input.dispatchEvent(new Event('input'));
+  theta0Input.value = p.theta0; theta0Input.dispatchEvent(new Event('input'));
+  nStepsInput.value = p.nSteps; nStepsInput.dispatchEvent(new Event('input'));
+});
+  </script>
+
+  <script id="canvas-setup" type="text/x-typescript">
+const canvas = document.createElement('canvas');
+canvas.width = 800;
+canvas.height = 600;
+canvas.style.width = '100%';
+canvas.style.height = '100%';
+  </script>
+
+  <script id="camera" type="text/x-typescript">
+import { createUnifiedCamera } from './lib/unified-camera.js';
+
+const camera = createUnifiedCamera(canvas, {
+  mode: 'orbit',
+  distance: 35,
+  phi: 0.8,
+  theta: 0.4,
+  center: [0, 0, 0],
+  renderContinuously: false,
+  observeResize: true,
+});
+
+invalidation.then(() => camera.destroy());
+  </script>
+
+  <script id="renderer-init" type="text/x-typescript">
+import { createGPULines } from 'npm:webgpu-instanced-lines';
+import { createRenderer } from './renderer.js';
+import { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode } from './shaders.js';
+
+const gpuContext = canvas.getContext('webgpu')!;
+gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+
+const renderer = createRenderer(device, canvasFormat, createGPULines, {
+  vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode
+});
+
+invalidation.then(() => renderer.destroy());
+  </script>
+
+  <script id="compute-geodesic" type="text/x-typescript">
+// Integrate the geodesic and upload to GPU
+function computeAndUpload() {
+  const config = {
+    M: 1,
+    a: spinInput.value as number,
+    E: energyInput.value as number,
+    L: angMomInput.value as number,
+    Q: carterInput.value as number,
+    kappa: 1,
+    r0: r0Input.value as number,
+    theta0: theta0Input.value as number,
+    signR: -1,
+    signTheta: 1,
+    h: 0.3,
+    nSteps: nStepsInput.value as number,
+  };
+
+  const result = integrateGeodesic(config);
+  renderer.setGeodesics([result.positions]);
+
+  state.renderParams.M = config.M;
+  state.renderParams.a = config.a;
+  camera.triggerRepaint();
+
+  return result.diagnostics;
+}
+
+let diagnostics = computeAndUpload();
+
+controlsContainer.addEventListener('input', () => {
+  diagnostics = computeAndUpload();
+  state.renderParams.lineWidth = lineWidthInput.value as number;
+  state.renderParams.showHorizon = horizonInput.value as boolean;
+  state.renderParams.showErgosphere = ergosphereInput.value as boolean;
+});
+  </script>
+
+  <script id="render-loop" type="text/x-typescript">
+camera.on('render', () => {
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height);
+});
+
+canvas.addEventListener('mousedown', () => {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+});
+
+camera.triggerRepaint();
+  </script>
+
+  <script id="main-display" type="text/x-typescript">
+import { expandable } from './lib/expandable.js';
+import { cameraButtons } from './lib/camera-buttons.js';
+
+const container = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
+container.appendChild(canvas);
+
+let expandableContainer: ReturnType<typeof expandable>;
+expandableContainer = expandable(container, {
+  width: 640,
+  height: 480,
+  controls: controlsContainer,
+  state: state.expandedState,
+  buttons: cameraButtons({
+    camera,
+    canvas,
+    filename: 'kerr-geodesics.png',
+    getContainer: () => expandableContainer,
+  }),
+});
+
+display(expandableContainer);
+  </script>
+
+  <script id="diagnostics-display" type="text/x-typescript">
+display(html`<div style="font-size: 0.85em; color: #666; margin-top: 0.5em;">
+  <strong>Conservation diagnostics:</strong>
+  H = ${diagnostics.H.toExponential(4)} (expected ${diagnostics.expectedH.toFixed(1)}),
+  Q = ${diagnostics.Q.toExponential(4)} (expected ${diagnostics.expectedQ.toFixed(2)})
+</div>`);
+  </script>
+
+  <script id="equations" type="text/markdown">
+## The Kerr Hamiltonian
+
+The geodesic Hamiltonian in Boyer–Lindquist coordinates is
+
+${tex.block`H = \frac{1}{2}\,g^{\mu\nu} p_\mu p_\nu`}
+
+with the Kerr metric functions ${tex`\Sigma = r^2 + a^2\cos^2\theta`} and ${tex`\Delta = r^2 - 2Mr + a^2`}. The two Killing symmetries give conserved energy ${tex`E = -p_t`} and angular momentum ${tex`L = p_\varphi`}, reducing the system to a 4-dimensional phase space ${tex`(r, \theta, p_r, p_\theta)`}.
+  </script>
+
+  <script id="integrator-description" type="text/markdown">
+## Symplectic Integration
+
+Because the Kerr Hamiltonian is not separable — the kinetic terms ${tex`(\Delta/\Sigma)\,p_r^2`} and ${tex`p_\theta^2/\Sigma`} couple to both coordinates through ${tex`\Sigma`} — standard explicit symplectic methods (leapfrog, Yoshida) do not apply directly.
+
+Instead we use the **4th-order Gauss–Legendre implicit Runge–Kutta method** (GL4), which is symplectic for *any* Hamiltonian system. Each step requires solving an 8-dimensional nonlinear system via Newton iteration. The method preserves a modified Hamiltonian ${tex`\tilde{H} = H + \mathcal{O}(h^4)`}, so the true Hamiltonian oscillates without secular drift.
+  </script>
+
+  <script id="carter-constant" type="text/markdown">
+## Constants of Motion
+
+Each geodesic is characterized by four constants:
+
+- **Energy** ${tex`E = -p_t`}, conserved by time-translation symmetry
+- **Angular momentum** ${tex`L = p_\varphi`}, conserved by axial symmetry
+- **Carter constant** ${tex`Q = p_\theta^2 + \cos^2\theta\left[a^2(\kappa - E^2) - L^2/\sin^2\theta\right]`}, from a hidden symmetry of the Kerr metric
+- **Mass shell** ${tex`\kappa = -g_{\mu\nu}\dot{x}^\mu\dot{x}^\nu`} (1 for massive particles, 0 for photons)
+
+The radial and polar motions are governed by effective potentials ${tex`R(r)`} and ${tex`\Theta(\theta)`} whose zeros determine turning points:
+
+${tex.block`R(r) = \left[E(r^2 + a^2) - aL\right]^2 - \Delta\left[\kappa r^2 + (L - aE)^2 + Q\right]`}
+
+${tex.block`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\theta - L^2\cot^2\theta`}
+  </script>
+
+  <script id="notes" type="text/markdown">
+The Boyer–Lindquist coordinates become singular at the event horizon ${tex`r_+ = M + \sqrt{M^2 - a^2}`} where ${tex`\Delta = 0`}. Integration is terminated when the particle approaches the horizon.
+
+The event horizon and ergosphere are rendered as surfaces in the visualization. The ergosphere boundary is at ${tex`r_\text{ergo} = M + \sqrt{M^2 - a^2\cos^2\theta}`}, where it bulges outward at the equator for spinning black holes.
+  </script>
+
+</notebook>
