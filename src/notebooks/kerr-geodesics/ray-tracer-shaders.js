@@ -1,6 +1,6 @@
 // Ray-traced Kerr black hole with accretion disk
-// Traces null geodesics per-pixel using the Mino-time formulation
-// with adaptive Cash-Karp RK4(5) integration.
+// Traces null geodesics per-pixel using first-order Carter equations
+// in Mino time with RK4 integration and deterministic step sizing.
 
 export const rayTracerShaderCode = /* wgsl */`
 
@@ -170,173 +170,54 @@ fn computeRayParams(rayDir: vec3f, a: f32, M: f32) -> RayParams {
 }
 
 // ============================================================
-// Geodesic equations of motion (Mino time, kappa=0)
+// First-order Carter equations (Mino time, κ=0, E=1)
 // ============================================================
+// State: (r, θ, φ) with sign_r and sign_θ tracked separately.
+// Coordinate time t is not integrated (unused for rendering).
 
-// State packed as array<f32, 6>: [t, r, theta, phi, vr, vth]
-
-fn derivatives(s: array<f32, 6>, E: f32, L: f32, Q: f32, M: f32, a: f32) -> array<f32, 6> {
-  let r = s[1];
-  let theta = s[2];
-  let vr = s[4];
-  let vth = s[5];
-
+fn minoRHS(r: f32, theta: f32, sr: f32, stheta: f32,
+           L: f32, Q: f32, M: f32, a: f32) -> vec3f {
   let r2 = r * r;
   let a2 = a * a;
-  let r2a2 = r2 + a2;
   let Delta = r2 - 2.0 * M * r + a2;
-  let P = E * r2a2 - a * L;
   let sth = sin(theta);
   let cth = cos(theta);
   let sin2 = max(sth * sth, 1e-10);
+  let cos2 = cth * cth;
 
-  // Radial potential derivative: dR/dr
-  let Pp = 2.0 * E * r;
-  let DeltaP = 2.0 * r - 2.0 * M;
-  let LaE = L - a * E;
-  let Cr = LaE * LaE + Q;  // kappa=0: no r² term
-  let dR_dr = 2.0 * P * Pp - DeltaP * Cr;
+  // Potentials (E=1 throughout)
+  let P = r2 + a2 - a * L;
+  let LaE = L - a;
+  let R = P * P - Delta * (LaE * LaE + Q);
+  let Theta = Q + a2 * cos2 - L * L * cos2 / sin2;
 
-  // Theta potential derivative: dΘ/dθ
-  let dTheta = -2.0 * a2 * E * E * sth * cth + 2.0 * L * L * cth / (sin2 * sth);
+  // Mino-time derivatives (Σ divided out of the affine-parameter form)
+  let dr = sr * sqrt(max(R, 0.0));
+  let dtheta = stheta * sqrt(max(Theta, 0.0));
+  let dphi = a * P / max(Delta, 1e-8) + L / sin2 - a;
 
-  // Time and azimuthal rates
-  let Tr = r2a2 * P / Delta;
-  let Tth = a * (L - a * E * sin2);
-  let Phir = a * P / Delta;
-  let Phith = L / sin2 - a * E;
-
-  return array<f32, 6>(Tr + Tth, vr, vth, Phir + Phith, dR_dr * 0.5, dTheta * 0.5);
+  return vec3f(dr, dtheta, dphi);
 }
 
 // ============================================================
-// Cash-Karp RK4(5) adaptive integrator
+// RK4 integrator
 // ============================================================
 
-fn addScaled(a_arr: array<f32, 6>, b_arr: array<f32, 6>, s: f32) -> array<f32, 6> {
-  return array<f32, 6>(
-    a_arr[0] + b_arr[0] * s,
-    a_arr[1] + b_arr[1] * s,
-    a_arr[2] + b_arr[2] * s,
-    a_arr[3] + b_arr[3] * s,
-    a_arr[4] + b_arr[4] * s,
-    a_arr[5] + b_arr[5] * s,
+fn rk4Step(r: f32, theta: f32, phi: f32, sr: f32, stheta: f32,
+           h: f32, L: f32, Q: f32, M: f32, a: f32) -> vec3f {
+  let k1 = minoRHS(r, theta, sr, stheta, L, Q, M, a);
+  let k2 = minoRHS(r + h * 0.5 * k1.x, theta + h * 0.5 * k1.y,
+                    sr, stheta, L, Q, M, a);
+  let k3 = minoRHS(r + h * 0.5 * k2.x, theta + h * 0.5 * k2.y,
+                    sr, stheta, L, Q, M, a);
+  let k4 = minoRHS(r + h * k3.x, theta + h * k3.y,
+                    sr, stheta, L, Q, M, a);
+
+  return vec3f(
+    r     + h / 6.0 * (k1.x + 2.0 * k2.x + 2.0 * k3.x + k4.x),
+    theta + h / 6.0 * (k1.y + 2.0 * k2.y + 2.0 * k3.y + k4.y),
+    phi   + h / 6.0 * (k1.z + 2.0 * k2.z + 2.0 * k3.z + k4.z),
   );
-}
-
-fn addScaled2(a_arr: array<f32, 6>, k1: array<f32, 6>, s1: f32, k2: array<f32, 6>, s2: f32) -> array<f32, 6> {
-  return array<f32, 6>(
-    a_arr[0] + k1[0] * s1 + k2[0] * s2,
-    a_arr[1] + k1[1] * s1 + k2[1] * s2,
-    a_arr[2] + k1[2] * s1 + k2[2] * s2,
-    a_arr[3] + k1[3] * s1 + k2[3] * s2,
-    a_arr[4] + k1[4] * s1 + k2[4] * s2,
-    a_arr[5] + k1[5] * s1 + k2[5] * s2,
-  );
-}
-
-fn rkck45(
-  state: array<f32, 6>,
-  h: f32,
-  E: f32, L: f32, Q: f32, M: f32, a: f32,
-  tol: f32,
-) -> array<f32, 8> {
-  // Returns [y0..y5, hNext, accepted]
-  let k1 = derivatives(state, E, L, Q, M, a);
-
-  // Stage 2
-  let s2 = addScaled(state, k1, h * 0.2);
-  let k2 = derivatives(s2, E, L, Q, M, a);
-
-  // Stage 3
-  let s3 = array<f32, 6>(
-    state[0] + h * (k1[0] * 0.075 + k2[0] * 0.225),
-    state[1] + h * (k1[1] * 0.075 + k2[1] * 0.225),
-    state[2] + h * (k1[2] * 0.075 + k2[2] * 0.225),
-    state[3] + h * (k1[3] * 0.075 + k2[3] * 0.225),
-    state[4] + h * (k1[4] * 0.075 + k2[4] * 0.225),
-    state[5] + h * (k1[5] * 0.075 + k2[5] * 0.225),
-  );
-  let k3 = derivatives(s3, E, L, Q, M, a);
-
-  // Stage 4
-  let s4 = array<f32, 6>(
-    state[0] + h * (k1[0] * 0.3 - k2[0] * 0.9 + k3[0] * 1.2),
-    state[1] + h * (k1[1] * 0.3 - k2[1] * 0.9 + k3[1] * 1.2),
-    state[2] + h * (k1[2] * 0.3 - k2[2] * 0.9 + k3[2] * 1.2),
-    state[3] + h * (k1[3] * 0.3 - k2[3] * 0.9 + k3[3] * 1.2),
-    state[4] + h * (k1[4] * 0.3 - k2[4] * 0.9 + k3[4] * 1.2),
-    state[5] + h * (k1[5] * 0.3 - k2[5] * 0.9 + k3[5] * 1.2),
-  );
-  let k4 = derivatives(s4, E, L, Q, M, a);
-
-  // Stage 5
-  let s5 = array<f32, 6>(
-    state[0] + h * (k1[0] * (-11.0/54.0) + k2[0] * (5.0/2.0) + k3[0] * (-70.0/27.0) + k4[0] * (35.0/27.0)),
-    state[1] + h * (k1[1] * (-11.0/54.0) + k2[1] * (5.0/2.0) + k3[1] * (-70.0/27.0) + k4[1] * (35.0/27.0)),
-    state[2] + h * (k1[2] * (-11.0/54.0) + k2[2] * (5.0/2.0) + k3[2] * (-70.0/27.0) + k4[2] * (35.0/27.0)),
-    state[3] + h * (k1[3] * (-11.0/54.0) + k2[3] * (5.0/2.0) + k3[3] * (-70.0/27.0) + k4[3] * (35.0/27.0)),
-    state[4] + h * (k1[4] * (-11.0/54.0) + k2[4] * (5.0/2.0) + k3[4] * (-70.0/27.0) + k4[4] * (35.0/27.0)),
-    state[5] + h * (k1[5] * (-11.0/54.0) + k2[5] * (5.0/2.0) + k3[5] * (-70.0/27.0) + k4[5] * (35.0/27.0)),
-  );
-  let k5 = derivatives(s5, E, L, Q, M, a);
-
-  // Stage 6
-  let s6 = array<f32, 6>(
-    state[0] + h * (k1[0] * (1631.0/55296.0) + k2[0] * (175.0/512.0) + k3[0] * (575.0/13824.0) + k4[0] * (44275.0/110592.0) + k5[0] * (253.0/4096.0)),
-    state[1] + h * (k1[1] * (1631.0/55296.0) + k2[1] * (175.0/512.0) + k3[1] * (575.0/13824.0) + k4[1] * (44275.0/110592.0) + k5[1] * (253.0/4096.0)),
-    state[2] + h * (k1[2] * (1631.0/55296.0) + k2[2] * (175.0/512.0) + k3[2] * (575.0/13824.0) + k4[2] * (44275.0/110592.0) + k5[2] * (253.0/4096.0)),
-    state[3] + h * (k1[3] * (1631.0/55296.0) + k2[3] * (175.0/512.0) + k3[3] * (575.0/13824.0) + k4[3] * (44275.0/110592.0) + k5[3] * (253.0/4096.0)),
-    state[4] + h * (k1[4] * (1631.0/55296.0) + k2[4] * (175.0/512.0) + k3[4] * (575.0/13824.0) + k4[4] * (44275.0/110592.0) + k5[4] * (253.0/4096.0)),
-    state[5] + h * (k1[5] * (1631.0/55296.0) + k2[5] * (175.0/512.0) + k3[5] * (575.0/13824.0) + k4[5] * (44275.0/110592.0) + k5[5] * (253.0/4096.0)),
-  );
-  let k6 = derivatives(s6, E, L, Q, M, a);
-
-  // 5th-order solution
-  let c5 = array<f32, 6>(37.0/378.0, 0.0, 250.0/621.0, 125.0/594.0, 0.0, 512.0/1771.0);
-  var y5: array<f32, 6>;
-  for (var i = 0u; i < 6u; i++) {
-    y5[i] = state[i] + h * (c5[0]*k1[i] + c5[2]*k3[i] + c5[3]*k4[i] + c5[5]*k6[i]);
-  }
-
-  // Error estimate (5th - 4th order)
-  let dc = array<f32, 6>(
-    37.0/378.0 - 2825.0/27648.0,
-    0.0,
-    250.0/621.0 - 18575.0/48384.0,
-    125.0/594.0 - 13525.0/55296.0,
-    -277.0/14336.0,
-    512.0/1771.0 - 0.25,
-  );
-  var errMax: f32 = 0.0;
-  for (var i = 0u; i < 6u; i++) {
-    let diff = h * (dc[0]*k1[i] + dc[2]*k3[i] + dc[3]*k4[i] + dc[4]*k5[i] + dc[5]*k6[i]);
-    let scale = max(abs(state[i]), max(abs(y5[i]), 1e-10));
-    errMax = max(errMax, abs(diff) / scale);
-  }
-
-  // Adaptive step control
-  let ratio = tol / max(errMax, 1e-30);
-  var hNext: f32;
-  var accepted: f32 = 0.0;
-
-  if (errMax <= tol || abs(h) <= 1e-10) {
-    accepted = 1.0;
-    if (ratio > 1.0) {
-      hNext = min(h * min(0.9 * pow(ratio, 0.2), 5.0), 5.0);
-    } else {
-      hNext = h * max(0.9 * pow(ratio, 0.25), 0.1);
-    }
-    hNext = max(abs(hNext), 1e-10) * sign(h);
-  } else {
-    hNext = h * max(0.9 * pow(ratio, 0.25), 0.1);
-    hNext = max(abs(hNext), 1e-10) * sign(h);
-  }
-
-  if (accepted > 0.5) {
-    return array<f32, 8>(y5[0], y5[1], y5[2], y5[3], y5[4], y5[5], hNext, 1.0);
-  }
-  return array<f32, 8>(state[0], state[1], state[2], state[3], state[4], state[5], hNext, 0.0);
 }
 
 // ============================================================
@@ -430,45 +311,54 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
 
   let rHorizon = M + sqrt(max(M * M - a * a, 0.0));
   let rEscape = length(u.eye.xyz) * 3.0;
+  let a2 = a * a;
+  let L = rp.L;
+  let Q = rp.Q;
 
-  var state = array<f32, 6>(0.0, rp.r0, rp.theta0, rp.phi0, rp.vr, rp.vth);
-  var h: f32 = 0.5;
-  let tol = u.resolution.w;
+  var r = rp.r0;
+  var theta = rp.theta0;
+  var phi = rp.phi0;
+  var sr = select(1.0, -1.0, rp.vr < 0.0);
+  var stheta = select(1.0, -1.0, rp.vth < 0.0);
 
   var color = vec3f(0.0);
   var accumulated: f32 = 0.0;
 
   let maxSteps = u32(u.resolution.z);
   for (var step = 0u; step < maxSteps; step++) {
-    let prevTheta = state[2];
-    let prevR = state[1];
+    let prevTheta = theta;
+    let prevR = r;
 
-    // Try adaptive step (with retry on rejection)
-    var result: array<f32, 8>;
-    var accepted = false;
-    for (var attempt = 0u; attempt < 8u; attempt++) {
-      result = rkck45(state, h, rp.E, rp.L, rp.Q, M, a, tol);
-      if (result[7] > 0.5) {
-        accepted = true;
-        h = result[6];
-        break;
-      }
-      h = result[6];
-    }
-    if (!accepted) {
-      // Force accept
-      let forced = rkck45(state, h, rp.E, rp.L, rp.Q, M, a, 1.0);
-      result = forced;
-      h = forced[6];
-    }
+    // Deterministic step size: smaller near horizon
+    let h = 0.5 * clamp((r - rHorizon) / r, 0.02, 1.0);
 
-    state = array<f32, 6>(result[0], result[1], result[2], result[3], result[4], result[5]);
+    // RK4 step
+    let next = rk4Step(r, theta, phi, sr, stheta, h, L, Q, M, a);
+    r = next.x;
+    theta = next.y;
+    phi = next.z;
 
     // Clamp theta away from poles
-    state[2] = clamp(state[2], 0.02, 3.12159);
+    theta = clamp(theta, 0.02, 3.12159);
 
-    let r = state[1];
-    let theta = state[2];
+    // Sign-flip detection via potentials
+    let r2 = r * r;
+    let Delta = r2 - 2.0 * M * r + a2;
+    let P = r2 + a2 - a * L;
+    let LaE = L - a;
+    let R_val = P * P - Delta * (LaE * LaE + Q);
+    if (R_val < 0.0) {
+      sr = -sr;
+      r = max(r, rHorizon * 1.01);
+    }
+
+    let sth = sin(theta);
+    let cth = cos(theta);
+    let sin2 = max(sth * sth, 1e-10);
+    let Th_val = Q + a2 * cth * cth - L * L * cth * cth / sin2;
+    if (Th_val < 0.0) {
+      stheta = -stheta;
+    }
 
     // Check horizon
     if (r < rHorizon * 1.01) {
@@ -477,30 +367,25 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
 
     // Check escape
     if (r > rEscape) {
-      // Ray escaped — add starfield
-      let bl_phi = state[3];
       let bl_sth = sin(theta);
-      let rho = sqrt(r * r + a * a);
+      let rho = sqrt(r * r + a2);
       let escapeDir = normalize(vec3f(
-        rho * bl_sth * cos(bl_phi),
+        rho * bl_sth * cos(phi),
         r * cos(theta),
-        rho * bl_sth * sin(bl_phi),
+        rho * bl_sth * sin(phi),
       ));
       color += starfield(escapeDir, pixelSize) * (1.0 - accumulated);
       break;
     }
 
-    // Check disk crossing (theta crosses pi/2)
+    // Check disk crossing (theta crosses π/2)
     let pi2 = 1.5707963;
     if ((prevTheta - pi2) * (theta - pi2) < 0.0 && accumulated < 0.99) {
-      // Interpolate to find crossing point
       let frac = (pi2 - prevTheta) / (theta - prevTheta);
       let crossR = prevR + frac * (r - prevR);
-      let crossPhi = state[3];
 
-      let dc = diskColor(crossR, crossPhi, rp.E, rp.L, M, a);
+      let dc = diskColor(crossR, phi, rp.E, L, M, a);
       if (dc.a > 0.0) {
-        // Semi-transparent accumulation for multiple crossings
         let opacity = min(dc.a, 1.0 - accumulated);
         color += dc.rgb * opacity;
         accumulated += opacity * 0.7;
