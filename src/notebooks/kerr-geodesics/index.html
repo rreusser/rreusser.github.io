@@ -347,10 +347,6 @@ expandableContainer = expandable(container, {
   height: 480,
   controls: controlsContainer,
   state: state.expandedState,
-  onResize: (_content: HTMLElement, w: number, h: number) => {
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-  },
   buttons: cameraButtons({
     camera,
     canvas,
@@ -569,10 +565,6 @@ rtExpandable = expandable(rtContainer, {
   height: 480,
   controls: rtControlsContainer,
   state: { expanded: false },
-  onResize: (_content: HTMLElement, w: number, h: number) => {
-    rtCanvas.style.width = `${w}px`;
-    rtCanvas.style.height = `${h}px`;
-  },
   buttons: cameraButtons({
     camera: rtCamera,
     canvas: rtCanvas,
