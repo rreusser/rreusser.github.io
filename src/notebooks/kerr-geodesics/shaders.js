@@ -313,12 +313,18 @@ struct VertexOutput {
 }
 `;
 
-// Compositing shader — blends depth-peeled layers back-to-front
+// Compositing shader — interleaves depth-peeled surface layers with lines
+// by sorting all fragments by depth and compositing back-to-front
 export const compositeShaderCode = /* wgsl */`
 
 @group(0) @binding(0) var layer0: texture_2d<f32>;
 @group(0) @binding(1) var layer1: texture_2d<f32>;
 @group(0) @binding(2) var layer2: texture_2d<f32>;
+@group(0) @binding(3) var surfaceDepth0: texture_depth_2d;
+@group(0) @binding(4) var surfaceDepth1: texture_depth_2d;
+@group(0) @binding(5) var surfaceDepth2: texture_depth_2d;
+@group(0) @binding(6) var lineTex: texture_2d<f32>;
+@group(0) @binding(7) var lineDepthTex: texture_depth_2d;
 
 @vertex fn vs(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4f {
   let x = select(-1.0, 3.0, vid == 1u);
@@ -327,14 +333,38 @@ export const compositeShaderCode = /* wgsl */`
 }
 
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let c0 = textureLoad(layer0, vec2i(pos.xy), 0);
-  let c1 = textureLoad(layer1, vec2i(pos.xy), 0);
-  let c2 = textureLoad(layer2, vec2i(pos.xy), 0);
+  let coord = vec2i(pos.xy);
 
-  // Back-to-front compositing (premultiplied alpha over)
-  var result = c2;
-  result = vec4f(c1.rgb + result.rgb * (1.0 - c1.a), c1.a + result.a * (1.0 - c1.a));
-  result = vec4f(c0.rgb + result.rgb * (1.0 - c0.a), c0.a + result.a * (1.0 - c0.a));
+  // Load surface peel layers and their depths
+  var colors = array<vec4f, 4>(
+    textureLoad(layer0, coord, 0),
+    textureLoad(layer1, coord, 0),
+    textureLoad(layer2, coord, 0),
+    textureLoad(lineTex, coord, 0),
+  );
+  var depths = array<f32, 4>(
+    textureLoad(surfaceDepth0, coord, 0),
+    textureLoad(surfaceDepth1, coord, 0),
+    textureLoad(surfaceDepth2, coord, 0),
+    textureLoad(lineDepthTex, coord, 0),
+  );
+
+  // Sort by depth descending (farthest first) for back-to-front compositing
+  for (var i = 0u; i < 3u; i++) {
+    for (var j = 0u; j < 3u - i; j++) {
+      if (depths[j] < depths[j + 1u]) {
+        let td = depths[j]; depths[j] = depths[j + 1u]; depths[j + 1u] = td;
+        let tc = colors[j]; colors[j] = colors[j + 1u]; colors[j + 1u] = tc;
+      }
+    }
+  }
+
+  // Composite back-to-front (premultiplied alpha over)
+  var result = vec4f(0);
+  for (var i = 0u; i < 4u; i++) {
+    let c = colors[i];
+    result = vec4f(c.rgb + result.rgb * (1.0 - c.a), c.a + result.a * (1.0 - c.a));
+  }
 
   return result;
 }

@@ -1,6 +1,6 @@
 // Renderer for Kerr geodesic visualization
 // Uses depth peeling for order-independent transparency of surfaces,
-// webgpu-instanced-lines for geodesic curves.
+// with depth-interleaved compositing against geodesic lines.
 
 export function createRenderer(device, canvasFormat, createGPULines, shaders) {
   const { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode, compositeShaderCode } = shaders;
@@ -17,7 +17,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
         alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
       }
     }],
-    depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' },
+    depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' },
     multisample: { count: 1 },
     join: 'bevel',
     cap: 'none',
@@ -66,7 +66,6 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
   const horizon = createSurfacePipeline(horizonShaderCode, 'horizon');
   const ergosphere = createSurfacePipeline(ergosphereShaderCode, 'ergosphere');
 
-  // Uniform buffers for surfaces (projView 64 + eye 16 + color 16 + params 16 = 112 bytes)
   const horizonUniformBuffer = device.createBuffer({ label: 'horizon-uniforms', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const ergosphereUniformBuffer = device.createBuffer({ label: 'ergosphere-uniforms', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
@@ -100,7 +99,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       }]
     },
     primitive: { topology: 'line-list' },
-    depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' },
+    depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' },
     multisample: { count: 1 },
   });
   const axesUniformBuffer = device.createBuffer({ label: 'axes-uniforms', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -145,13 +144,12 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
   const ARROW_HEAD_VERTS = ARROW_SHAFT_SEGS * 3;
   const ARROW_TOTAL_VERTS = ARROW_SHAFT_VERTS + ARROW_HEAD_VERTS;
 
-  // Arrow state
   let arrowOrigin = null;
   let arrowDir = null;
   let arrowLength = 0;
   let arrowVisible = true;
 
-  // --- Compositing pipeline ---
+  // --- Compositing pipeline (depth-interleaved) ---
   const compositeModule = device.createShaderModule({ label: 'composite', code: compositeShaderCode });
   const compositeBGL = device.createBindGroupLayout({
     label: 'composite-bgl',
@@ -159,6 +157,11 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth', viewDimension: '2d' } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth', viewDimension: '2d' } },
+      { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth', viewDimension: '2d' } },
+      { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth', viewDimension: '2d' } },
     ]
   });
   const compositePipeline = device.createRenderPipeline({
@@ -167,13 +170,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     vertex: { module: compositeModule, entryPoint: 'vs' },
     fragment: {
       module: compositeModule, entryPoint: 'fs',
-      targets: [{
-        format: canvasFormat,
-        blend: {
-          color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
-        }
-      }]
+      targets: [{ format: canvasFormat }]
     },
     primitive: { topology: 'triangle-list' },
     multisample: { count: 1 },
@@ -183,22 +180,23 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
   const projViewBuffer = device.createBuffer({ label: 'line-proj-view', size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const lineUniformBuffer = device.createBuffer({ label: 'line-uniforms', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-  // --- Dynamic textures (created on first render / resize) ---
-  let peelDepthTextures = [null, null];
-  let peelLayerTextures = [];  // PEEL_LAYERS color textures
-  let peelDepthBindGroups = [null, null];
-  let compositeBindGroup = null;
+  // --- Dynamic textures ---
+  // 4 peel depth textures: [init=0, pass0_out, pass1_out, pass2_out]
+  let peelDepthTextures = [null, null, null, null];
+  let peelDepthBindGroups = [null, null, null]; // for reading [0], [1], [2]
+  let peelLayerTextures = [];  // 3 color textures
+  let lineColorTexture = null;
   let lineDepthTexture = null;
+  let compositeBindGroup = null;
   let currentWidth = 0;
   let currentHeight = 0;
 
-  // Geodesic data — pre-allocated and reused
+  // Geodesic data
   const MAX_POINTS = 20001;
   const MAX_LINES = 4;
-  const positionBufferSize = MAX_LINES * MAX_POINTS * 4 * 4;
   const positionBuffer = device.createBuffer({
     label: 'geodesic-positions',
-    size: positionBufferSize,
+    size: MAX_LINES * MAX_POINTS * 4 * 4,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
   const lineBindGroup = device.createBindGroup({
@@ -218,13 +216,14 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     currentWidth = width;
     currentHeight = height;
 
-    // Destroy old textures
+    // Destroy old
     for (const t of peelDepthTextures) if (t) t.destroy();
     for (const t of peelLayerTextures) if (t) t.destroy();
+    if (lineColorTexture) lineColorTexture.destroy();
     if (lineDepthTexture) lineDepthTexture.destroy();
 
-    // Create peel depth textures (ping-pong)
-    for (let i = 0; i < 2; i++) {
+    // 4 peel depth textures (no ping-pong — keep each pass's depth for compositing)
+    for (let i = 0; i < 4; i++) {
       peelDepthTextures[i] = device.createTexture({
         label: `peel-depth-${i}`,
         size: [width, height],
@@ -233,7 +232,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       });
     }
 
-    // Create peel layer color textures
+    // 3 peel layer color textures
     peelLayerTextures = [];
     for (let i = 0; i < PEEL_LAYERS; i++) {
       peelLayerTextures.push(device.createTexture({
@@ -244,29 +243,40 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       }));
     }
 
-    // Line depth texture (for line-against-line self-occlusion)
+    // Line offscreen textures
+    lineColorTexture = device.createTexture({
+      label: 'line-color',
+      size: [width, height],
+      format: canvasFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
     lineDepthTexture = device.createTexture({
       label: 'line-depth',
       size: [width, height],
       format: depthFormat,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
-    // Recreate peel depth bind groups
-    for (let i = 0; i < 2; i++) {
+    // Peel depth bind groups (for reading in shader peel test)
+    for (let i = 0; i < 3; i++) {
       peelDepthBindGroups[i] = device.createBindGroup({
         layout: peelDepthBGL,
         entries: [{ binding: 0, resource: peelDepthTextures[i].createView() }]
       });
     }
 
-    // Recreate composite bind group
+    // Composite bind group: 3 layer colors + 3 surface depths + line color + line depth
     compositeBindGroup = device.createBindGroup({
       layout: compositeBGL,
       entries: [
         { binding: 0, resource: peelLayerTextures[0].createView() },
         { binding: 1, resource: peelLayerTextures[1].createView() },
         { binding: 2, resource: peelLayerTextures[2].createView() },
+        { binding: 3, resource: peelDepthTextures[1].createView() },  // pass 0 output depth
+        { binding: 4, resource: peelDepthTextures[2].createView() },  // pass 1 output depth
+        { binding: 5, resource: peelDepthTextures[3].createView() },  // pass 2 output depth
+        { binding: 6, resource: lineColorTexture.createView() },
+        { binding: 7, resource: lineDepthTexture.createView() },
       ]
     });
   }
@@ -299,8 +309,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
   const _lineData = new ArrayBuffer(16);
   const _lineU32 = new Uint32Array(_lineData);
   const _lineF32 = new Float32Array(_lineData);
-
-  const _surfaceData = new Float32Array(28); // 112 / 4
+  const _surfaceData = new Float32Array(28);
 
   function render(gpuContext, params, camera, width, height) {
     ensureTextures(width, height);
@@ -310,7 +319,6 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
 
     const encoder = device.createCommandEncoder();
 
-    // Write surface uniforms
     function writeSurfaceUniforms(buffer, color, horizonParamsArr) {
       _surfaceData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
       _surfaceData[16] = eye[0]; _surfaceData[17] = eye[1]; _surfaceData[18] = eye[2]; _surfaceData[19] = 1.0;
@@ -321,7 +329,6 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
 
     const rPlus = params.M + Math.sqrt(params.M * params.M - params.a * params.a);
 
-    // Prepare surface uniforms once
     if (params.showHorizon) {
       const hc = params.surfaceColor || [0.5, 0.5, 0.5];
       writeSurfaceUniforms(horizonUniformBuffer, [hc[0], hc[1], hc[2], params.surfaceOpacity * 2.5], [rPlus, params.a]);
@@ -332,7 +339,8 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     }
 
     // ============================================================
-    // PHASE 1: Depth peel surfaces (PEEL_LAYERS passes)
+    // PHASE 1: Depth peel surfaces (3 passes)
+    // peelDepthTextures: [init=0] → pass reads [i], writes depth to [i+1]
     // ============================================================
     // Clear peelDepthTextures[0] to 0.0 (initial: all fragments pass peel test)
     {
@@ -349,9 +357,6 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     }
 
     for (let layer = 0; layer < PEEL_LAYERS; layer++) {
-      const readDepthIdx = layer % 2;
-      const writeDepthIdx = (layer + 1) % 2;
-
       const peelPass = encoder.beginRenderPass({
         colorAttachments: [{
           view: peelLayerTextures[layer].createView(),
@@ -360,25 +365,24 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
           clearValue: { r: 0, g: 0, b: 0, a: 0 },
         }],
         depthStencilAttachment: {
-          view: peelDepthTextures[writeDepthIdx].createView(),
+          view: peelDepthTextures[layer + 1].createView(),
           depthClearValue: 1.0,
           depthLoadOp: 'clear',
           depthStoreOp: 'store',
         }
       });
 
-      // Draw surfaces with peel test
       if (params.showHorizon) {
         peelPass.setPipeline(horizon.pipeline);
         peelPass.setBindGroup(0, horizonBindGroup);
-        peelPass.setBindGroup(1, peelDepthBindGroups[readDepthIdx]);
+        peelPass.setBindGroup(1, peelDepthBindGroups[layer]);
         peelPass.draw(32 * 64 * 6);
       }
 
       if (params.showErgosphere) {
         peelPass.setPipeline(ergosphere.pipeline);
         peelPass.setBindGroup(0, ergosphereBindGroup);
-        peelPass.setBindGroup(1, peelDepthBindGroups[readDepthIdx]);
+        peelPass.setBindGroup(1, peelDepthBindGroups[layer]);
         peelPass.draw(48 * 96 * 6);
       }
 
@@ -386,13 +390,11 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     }
 
     // ============================================================
-    // PHASE 2: Lines + axes first (clear canvas, draw lines)
+    // PHASE 2: Render lines + axes to offscreen texture
     // ============================================================
-    const canvasView = gpuContext.getCurrentTexture().createView();
-
     const linePass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: canvasView,
+        view: lineColorTexture.createView(),
         loadOp: 'clear',
         storeOp: 'store',
         clearValue: { r: 0, g: 0, b: 0, a: 0 },
@@ -405,7 +407,6 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       }
     });
 
-    // Draw axes
     if (params.showAxes !== false) {
       _axesData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
       _axesData[16] = 0.5; _axesData[17] = 0.5; _axesData[18] = 0.5; _axesData[19] = 0.6;
@@ -416,7 +417,6 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       linePass.draw(6);
     }
 
-    // Draw geodesic lines
     if (totalVertexCount > 0) {
       device.queue.writeBuffer(projViewBuffer, 0, projView);
 
@@ -439,13 +439,16 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     linePass.end();
 
     // ============================================================
-    // PHASE 3: Composite surfaces on top of lines (alpha blend)
+    // PHASE 3: Composite — sort surface layers + lines by depth
     // ============================================================
+    const canvasView = gpuContext.getCurrentTexture().createView();
+
     const compositePass = encoder.beginRenderPass({
       colorAttachments: [{
         view: canvasView,
-        loadOp: 'load',
+        loadOp: 'clear',
         storeOp: 'store',
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
       }]
     });
     compositePass.setPipeline(compositePipeline);
@@ -491,6 +494,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     positionBuffer.destroy();
     for (const t of peelDepthTextures) if (t) t.destroy();
     for (const t of peelLayerTextures) if (t) t.destroy();
+    if (lineColorTexture) lineColorTexture.destroy();
     if (lineDepthTexture) lineDepthTexture.destroy();
     horizonUniformBuffer.destroy();
     ergosphereUniformBuffer.destroy();
