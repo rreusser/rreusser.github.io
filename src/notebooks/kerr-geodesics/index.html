@@ -163,10 +163,10 @@ function computeAndUpload() {
 computeAndUpload();
 
 controlsContainer.addEventListener('input', () => {
-  computeAndUpload();
   state.renderParams.lineWidth = lineWidthInput.value as number;
   state.renderParams.showHorizon = horizonInput.value as boolean;
   state.renderParams.showErgosphere = ergosphereInput.value as boolean;
+  computeAndUpload();
 });
   </script>
 
@@ -242,23 +242,19 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
     const constants = velocityToConstants(r0, theta0, blVel.ur, blVel.utheta, blVel.uphi, M, a, kappa);
 
     if (constants && isFinite(constants.E) && isFinite(constants.L) && isFinite(constants.Q)) {
-      // Update sliders
+      // Update slider values silently (no dispatch — avoid triggering listener)
       energyInput.value = Math.max(0.8, Math.min(1.2, constants.E));
       angMomInput.value = Math.max(-5, Math.min(5, constants.L));
       carterInput.value = Math.max(0, Math.min(20, constants.Q));
-
-      energyInput.dispatchEvent(new Event('input'));
-      angMomInput.dispatchEvent(new Event('input'));
-      carterInput.dispatchEvent(new Event('input'));
     }
 
-    // Update arrow and recompute trajectory live
-    renderer.setArrow(arrowState.origin, newDir, true);
+    // Recompute geodesic and set arrow to dragged position
     computeAndUpload();
-    arrowState = updateArrow();
+    renderer.setArrow(arrowState.origin, newDir, true);
     camera.triggerRepaint();
   },
   onDragEnd: () => {
+    // Snap arrow to match actual computed constants
     arrowState = updateArrow();
     camera.triggerRepaint();
   },
