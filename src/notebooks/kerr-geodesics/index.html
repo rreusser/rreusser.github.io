@@ -449,9 +449,9 @@ rtCanvas.style.height = '100%';
   <script id="rt-camera" type="text/x-typescript">
 const rtCamera = createUnifiedCamera(rtCanvas, {
   mode: 'orbit',
-  distance: 30,
-  phi: 1.2,
-  theta: 0.3,
+  distance: 25,
+  phi: 1.35,
+  theta: 0.08,
   center: [0, 0, 0],
   near: 1,
   far: 200,
@@ -464,16 +464,16 @@ invalidation.then(() => rtCamera.destroy());
   <script id="rt-controls" type="text/x-typescript">
 const rtControlsContainer = html`<div id="rt-controls"></div>`;
 const rtSpinInput = rtControlsContainer.appendChild(
-  Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 })
+  Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.4, step: 0.001 })
 );
 const rtDiskOuterInput = rtControlsContainer.appendChild(
-  Inputs.range([5, 40], { label: 'Disk outer radius', value: 20, step: 0.5 })
+  Inputs.range([5, 40], { label: 'Disk outer radius', value: 30, step: 0.5 })
 );
 const rtExposureInput = rtControlsContainer.appendChild(
   Inputs.range([0.1, 5.0], { label: 'Exposure', value: 1.0, step: 0.01 })
 );
 const rtBloomInput = rtControlsContainer.appendChild(
-  Inputs.range([0, 2.0], { label: 'Bloom', value: 0.5, step: 0.01 })
+  Inputs.range([0, 5.0], { label: 'Bloom', value: 2.0, step: 0.01 })
 );
 
 // Quality controls in a collapsible section
@@ -481,10 +481,10 @@ const rtQualityBox = rtControlsContainer.appendChild(html`<details style="margin
   <summary style="cursor: pointer; font-size: 0.9em; opacity: 0.8;">Quality</summary>
 </details>`);
 const rtMaxStepsInput = rtQualityBox.appendChild(
-  Inputs.range([500, 5000], { label: 'Max steps', value: 2000, step: 100 })
+  Inputs.range([500, 5000], { label: 'Max steps', value: 2000, step: 100, transform: Math.log })
 );
 const rtStepSizeInput = rtQualityBox.appendChild(
-  Inputs.range([0.02, 0.5], { label: 'Step size', value: 0.1, step: 0.01 })
+  Inputs.range([0.02, 0.5], { label: 'Step size', value: 0.1, step: 0.001, transform: Math.log })
 );
   </script>
 
@@ -593,6 +593,7 @@ let rtHasExpanded = false;
 rtExpandable = expandable(rtContainer, {
   width: 640,
   height: 480,
+  wide: true,
   controls: rtControlsContainer,
   state: { expanded: false },
   onResize: (_content: HTMLElement, w: number, h: number, expanded: boolean) => {
