@@ -308,6 +308,9 @@ invalidation.then(() => arrowInteraction.destroy());
   </script>
 
   <script id="render-loop" type="text/x-typescript">
+// Reference arrowInteraction to ensure velocity-arrow cell runs first
+void arrowInteraction;
+
 camera.on('render', () => {
   renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height);
 });
