@@ -216,35 +216,37 @@ display(html`<div style="font-size: 0.85em; opacity: 0.6; margin-top: 0.5em;">
   </script>
 
   <script id="equations" type="text/markdown">
-## The Kerr Hamiltonian
+## Separated Equations of Motion
 
-The geodesic Hamiltonian in Boyer-Lindquist coordinates is
-
-${tex.block`H = \frac{1}{2}\,g^{\mu\nu} p_\mu p_\nu`}
-
-with the Kerr metric functions ${tex`\Sigma = r^2 + a^2\cos^2\theta`} and ${tex`\Delta = r^2 - 2Mr + a^2`}. The two Killing symmetries give conserved energy ${tex`E = -p_t`} and angular momentum ${tex`L = p_\varphi`}, reducing the system to a 4-dimensional phase space ${tex`(r, \theta, p_r, p_\theta)`}.
-  </script>
-
-  <script id="integrator-description" type="text/markdown">
-## Mino-time Integration
-
-The Mino-time transformation ${tex`d\tau/d\lambda = \Sigma`} decouples the radial and polar motions into first-order equations:
+The Kerr metric in Boyer-Lindquist coordinates has two Killing symmetries giving conserved energy ${tex`E = -p_t`} and angular momentum ${tex`L = p_\varphi`}. A remarkable hidden symmetry yields a third constant, the Carter constant ${tex`Q`}, which fully separates the geodesic equations. The Mino-time transformation ${tex`d\tau/d\lambda = \Sigma`} (where ${tex`\Sigma = r^2 + a^2\cos^2\theta`}) then decouples the radial and polar motions into independent first-order equations:
 
 ${tex.block`\frac{dr}{d\lambda} = \pm\sqrt{R(r)}, \qquad \frac{d\theta}{d\lambda} = \pm\sqrt{\Theta(\theta)}`}
 
-where ${tex`R(r) = P^2 - \Delta[\kappa r^2 + (L - aE)^2 + Q]`} with ${tex`P = E(r^2 + a^2) - aL`}, and ${tex`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\!\theta - L^2\cot^2\!\theta`}.
+where
 
-These are recast as a smooth second-order system ${tex`\dot{v}_r = R'(r)/2`}, ${tex`\dot{v}_\theta = \Theta'(\theta)/2`} where the "velocities" ${tex`v_r, v_\theta`} pass smoothly through zero at turning points. The system is integrated with an adaptive Cash-Karp RK4(5) scheme that adjusts the step size to maintain a tolerance of ${tex`10^{-8}`}.
+${tex.block`R(r) = P^2 - \Delta\!\left[\kappa r^2 + (L - aE)^2 + Q\right], \quad P = E(r^2 + a^2) - aL`}
+
+and ${tex`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\!\theta - L^2\cot^2\!\theta`}, with ${tex`\Delta = r^2 - 2Mr + a^2`}. Coordinate time and azimuthal angle are recovered from known functions of ${tex`r`} and ${tex`\theta`} alone.
+  </script>
+
+  <script id="integrator-description" type="text/markdown">
+## Integration Method
+
+Rather than tracking the signs of ${tex`dr/d\lambda`} and ${tex`d\theta/d\lambda`} through turning points (where ${tex`R`} or ${tex`\Theta`} vanish), we recast the system as smooth second-order equations using velocities ${tex`v_r = dr/d\lambda`}, ${tex`v_\theta = d\theta/d\lambda`}:
+
+${tex.block`\dot{v}_r = \tfrac{1}{2}R'(r), \qquad \dot{v}_\theta = \tfrac{1}{2}\Theta'(\theta)`}
+
+The velocities pass smoothly through zero at turning points, eliminating the need for sign tracking or root-finding. This 6-dimensional system ${tex`(t, r, \theta, \varphi, v_r, v_\theta)`} is integrated with an adaptive Cash-Karp RK4(5) scheme that adjusts the step size to maintain a relative tolerance of ${tex`10^{-8}`}.
   </script>
 
   <script id="carter-constant" type="text/markdown">
 ## Constants of Motion
 
-Each geodesic is characterized by four constants:
+Each geodesic is characterized by four constants which serve as inputs to the radial and polar potentials above:
 
 - **Energy** ${tex`E = -p_t`}, conserved by time-translation symmetry
 - **Angular momentum** ${tex`L = p_\varphi`}, conserved by axial symmetry
-- **Carter constant** ${tex`Q = p_\theta^2 + \cos^2\theta\left[a^2(\kappa - E^2) - L^2/\sin^2\theta\right]`}, from a hidden symmetry of the Kerr metric
+- **Carter constant** ${tex`Q`}, arising from a hidden symmetry (Killing tensor) of the Kerr metric, which enables the separation of ${tex`r`} and ${tex`\theta`}
 - **Mass shell** ${tex`\kappa = -g_{\mu\nu}\dot{x}^\mu\dot{x}^\nu`} (1 for massive particles, 0 for photons)
   </script>
 
