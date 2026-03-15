@@ -393,11 +393,24 @@ export function createUnifiedCamera(element, opts = {}) {
         const panDy = centerY - lastTouchCenterY;
         pan(panDx, panDy, element);
 
-        // Two-finger twist rotation (arcball only)
+        // Two-finger twist rotation (arcball only), pivoted around finger midpoint
         const angle = Math.atan2(dy, dx);
         const dAngle = angle - lastTouchAngle;
         if (backends[state.mode].roll && Math.abs(dAngle) > 0.001) {
+          // Offset of finger midpoint from screen center
+          const rect = element.getBoundingClientRect();
+          const px = centerX - (rect.left + rect.width / 2);
+          const py = centerY - (rect.top + rect.height / 2);
+
+          // After rotating screen content by dAngle around screen center,
+          // the point at (px, py) moves. Pan to bring it back.
+          const cosA = Math.cos(dAngle);
+          const sinA = Math.sin(dAngle);
+          const compensateDx = px - (px * cosA - py * sinA);
+          const compensateDy = py - (px * sinA + py * cosA);
+
           backends[state.mode].roll(dAngle);
+          pan(compensateDx, compensateDy, element);
         }
         lastTouchAngle = angle;
 
