@@ -2,8 +2,24 @@
 // Creates a fragment-shader-based ray tracer that traces null geodesics
 // per pixel with adaptive integration.
 
-export function createRayTracer(device, canvasFormat, shaderCode) {
+export async function createRayTracer(device, canvasFormat, shaderCode) {
   const module = device.createShaderModule({ label: 'ray-tracer', code: shaderCode });
+
+  // Check for shader compilation errors and surface them visibly
+  const compilationInfo = await module.getCompilationInfo();
+  const errors = compilationInfo.messages.filter(m => m.type === 'error');
+  if (errors.length > 0) {
+    const details = errors.map(m => {
+      const loc = m.lineNum ? ` (line ${m.lineNum}:${m.linePos})` : '';
+      return `${m.message}${loc}`;
+    }).join('\n');
+    throw new Error(`Ray tracer shader compilation failed:\n${details}`);
+  }
+  for (const m of compilationInfo.messages) {
+    if (m.type === 'warning') {
+      console.warn(`[ray-tracer shader] warning: ${m.message} (line ${m.lineNum}:${m.linePos})`);
+    }
+  }
 
   const uniformBGL = device.createBindGroupLayout({
     label: 'ray-tracer-bgl',

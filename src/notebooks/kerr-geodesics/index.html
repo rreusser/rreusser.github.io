@@ -460,7 +460,7 @@ import { rayTracerShaderCode } from './ray-tracer-shaders.js';
 const rtGpuContext = rtCanvas.getContext('webgpu')!;
 rtGpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
-const rayTracer = createRayTracer(device, canvasFormat, rayTracerShaderCode);
+const rayTracer = await createRayTracer(device, canvasFormat, rayTracerShaderCode);
 invalidation.then(() => rayTracer.destroy());
   </script>
 
