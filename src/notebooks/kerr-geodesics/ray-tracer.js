@@ -22,7 +22,10 @@ struct Varyings {
 }
 `;
 
-// Downsample shader: 4-tap bilinear box filter with optional brightness threshold
+// Downsample shader: 4-tap bilinear box filter with Karis average firefly suppression.
+// On the first level (threshold > 0) each sample is weighted by 1/(1+luma) before
+// averaging — this is the Karis average, which suppresses single-pixel HDR spikes
+// (fireflies) that would otherwise alias wildly into the bloom pyramid.
 const bloomDownsampleCode = /* wgsl */`
 @group(0) @binding(0) var inputTex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
@@ -30,18 +33,36 @@ const bloomDownsampleCode = /* wgsl */`
 
 ${fullscreenVS}
 
+fn luma(c: vec3f) -> f32 {
+  return dot(c, vec3f(0.2126, 0.7152, 0.0722));
+}
+
 @fragment fn fs(in: Varyings) -> @location(0) vec4f {
   let texSize = vec2f(textureDimensions(inputTex));
   let d = 0.5 / texSize;
-  var color = textureSample(inputTex, samp, in.uv + vec2f(-d.x, -d.y)) * 0.25
-            + textureSample(inputTex, samp, in.uv + vec2f( d.x, -d.y)) * 0.25
-            + textureSample(inputTex, samp, in.uv + vec2f(-d.x,  d.y)) * 0.25
-            + textureSample(inputTex, samp, in.uv + vec2f( d.x,  d.y)) * 0.25;
+  let s0 = textureSample(inputTex, samp, in.uv + vec2f(-d.x, -d.y));
+  let s1 = textureSample(inputTex, samp, in.uv + vec2f( d.x, -d.y));
+  let s2 = textureSample(inputTex, samp, in.uv + vec2f(-d.x,  d.y));
+  let s3 = textureSample(inputTex, samp, in.uv + vec2f( d.x,  d.y));
 
+  var color: vec4f;
   if (threshold > 0.0) {
-    let brightness = max(color.r, max(color.g, color.b));
+    // Karis average: weight by 1/(1+luma) to suppress firefly spikes before
+    // they enter the bloom pyramid, preventing aliasing flicker when bright
+    // features compress to sub-pixel size at large camera distances.
+    let w0 = 1.0 / (1.0 + luma(s0.rgb));
+    let w1 = 1.0 / (1.0 + luma(s1.rgb));
+    let w2 = 1.0 / (1.0 + luma(s2.rgb));
+    let w3 = 1.0 / (1.0 + luma(s3.rgb));
+    let wSum = w0 + w1 + w2 + w3;
+    color = (s0 * w0 + s1 * w1 + s2 * w2 + s3 * w3) / wSum;
+
+    // Brightness threshold with soft knee
+    let brightness = luma(color.rgb);
     let contribution = clamp((brightness - threshold) / max(brightness, 0.001), 0.0, 1.0);
     color = vec4f(color.rgb * contribution, 1.0);
+  } else {
+    color = (s0 + s1 + s2 + s3) * 0.25;
   }
 
   return vec4f(color.rgb, 1.0);
@@ -49,7 +70,8 @@ ${fullscreenVS}
 `;
 
 // Separable Gaussian blur shader: 13-tap kernel (sigma ≈ 5)
-// Direction uniform: (1,0,0,0) for horizontal, (0,1,0,0) for vertical
+// Direction uniform: (1,0,scale,0) for horizontal, (0,1,scale,0) for vertical
+// scale = renderSize / canvasSize keeps blur radius constant regardless of render resolution
 const bloomBlurCode = /* wgsl */`
 @group(0) @binding(0) var inputTex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
@@ -59,7 +81,9 @@ ${fullscreenVS}
 
 @fragment fn fs(in: Varyings) -> @location(0) vec4f {
   let texSize = vec2f(textureDimensions(inputTex));
-  let d = direction.xy / texSize;
+  // direction.z is the render scale (renderDim / canvasDim); multiply so
+  // blur radius stays constant in canvas pixels at any render resolution.
+  let d = direction.xy / texSize * direction.z;
 
   // 13-tap Gaussian, sigma ≈ 5
   var color = textureSample(inputTex, samp, in.uv) * 0.09885;
@@ -113,7 +137,6 @@ fn acesFilmic(x: vec3f) -> vec3f {
 @fragment fn fs(in: Varyings) -> @location(0) vec4f {
   let hdr = textureSample(hdrTex, samp, in.uv).rgb;
 
-  // Blend all bloom pyramid levels — each successively wider and softer
   let b0 = textureSample(bloom0, samp, in.uv).rgb;
   let b1 = textureSample(bloom1, samp, in.uv).rgb;
   let b2 = textureSample(bloom2, samp, in.uv).rgb;
@@ -180,7 +203,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
 
   const uniformBuffer = device.createBuffer({
     label: 'ray-tracer-uniforms',
-    size: 112,
+    size: 128,  // added flags vec4
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -243,8 +266,21 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
 
   const thresholdOnBuffer = makeConstBuffer('threshold-on', [0.8, 0, 0, 0]);
   const thresholdOffBuffer = makeConstBuffer('threshold-off', [0.0, 0, 0, 0]);
-  const blurHBuffer = makeConstBuffer('blur-horizontal', [1, 0, 0, 0]);
-  const blurVBuffer = makeConstBuffer('blur-vertical', [0, 1, 0, 0]);
+
+  // Blur direction buffers are updated each frame to encode the render scale
+  // in .z so the Gaussian kernel stays the same physical size at any resolution.
+  const blurHBuffer = device.createBuffer({
+    label: 'blur-horizontal',
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const blurVBuffer = device.createBuffer({
+    label: 'blur-vertical',
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const _blurH = new Float32Array([1, 0, 1, 0]);
+  const _blurV = new Float32Array([0, 1, 1, 0]);
 
   // ============================================================
   // Tone map pipeline (HDR + bloom → canvas)
@@ -334,7 +370,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
   // Render
   // ============================================================
 
-  const _data = new Float32Array(28);
+  const _data = new Float32Array(32);
 
   function computeISCO(M, a) {
     const am = a / M;
@@ -392,6 +428,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     _data[25] = renderHeight;
     _data[26] = params.maxSteps || 2000;
     _data[27] = params.stepSize || 0.1;
+    _data[28] = params.showStars ? 1.0 : 0.0;  // flags.x
     device.queue.writeBuffer(uniformBuffer, 0, _data);
 
     _toneMapData[0] = params.exposure || 1.0;
@@ -400,6 +437,14 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
 
     ensureHDRTexture(renderWidth, renderHeight);
     ensureBloomTextures(renderWidth, renderHeight);
+
+    // Pack render scale into blur direction .z so the kernel radius is constant
+    // in canvas pixels regardless of reduced-resolution preview rendering.
+    const renderScale = renderWidth / canvasWidth;
+    _blurH[2] = renderScale;
+    _blurV[2] = renderScale;
+    device.queue.writeBuffer(blurHBuffer, 0, _blurH);
+    device.queue.writeBuffer(blurVBuffer, 0, _blurV);
 
     const encoder = device.createCommandEncoder();
 

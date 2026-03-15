@@ -14,6 +14,7 @@ struct Uniforms {
   eye: vec4f,
   params: vec4f,       // a, M, rISCO, diskOuter
   resolution: vec4f,   // width, height, maxSteps, stepSize
+  flags: vec4f,        // showStars, unused, unused, unused
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -329,14 +330,21 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   // Beamed intensity
   let intensity = temp * g * g * g;
 
-  // Turbulent wispy structure via FBM noise
-  // Use log(r) for radial coordinate to get even detail across the disk
-  let noiseCoord = vec2f(phi * 3.0, log(r) * 8.0);
+  // Turbulent wispy structure via FBM noise.
+  // Stretch azimuthally (phi * 6 vs log(r) * 8) to get arc-like features
+  // that follow the orbital shear rather than isotropic blobs.
+  let logR = log(r);
+  let noiseCoord = vec2f(phi * 6.0, logR * 8.0);
+  // Large-scale turbulent rolls
   let turbulence = fbm(noiseCoord + vec2f(3.7, 1.2));
-  // A second layer at different scale for fine wisps
+  // Fine wisps at 2.5× scale
   let wisps = fbm(noiseCoord * 2.5 + vec2f(17.3, 5.1));
-  // Combine: base density modulated by turbulence
-  let density = 0.4 + 0.6 * turbulence + 0.3 * wisps * wisps;
+  // Very fine detail at 6× scale
+  let detail = fbm(noiseCoord * 6.0 + vec2f(5.9, 8.3));
+  // Subtle radial banding: quasi-periodic density rings
+  let bands = 0.5 + 0.5 * sin(logR * 12.0 + turbulence * 2.5);
+  // Combine: base density modulated by all layers
+  let density = (0.3 + 0.5 * turbulence + 0.25 * wisps * wisps + 0.15 * detail) * (0.75 + 0.25 * bands);
 
   // Smooth fade at inner edge (ISCO) and outer edge
   let innerFade = smoothstep(rISCO * 0.95, rISCO * 1.1, r);
@@ -350,9 +358,9 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   // which would make beaming ~g^6 instead of the correct ~g^3).
   let T = temp * clamp(abs(g), 0.3, 3.0);
   let col = vec3f(
-    min(T * 2.5, 1.0 + T * 0.3),                    // red saturates first
-    T * 0.5 + T * T * 0.4,                           // green follows for warm white
-    T * 0.15 + T * T * 0.3,                          // blue rises for white at high T
+    min(T * 2.0, 1.0 + T * 0.3),                    // red saturates first
+    T * 0.7 + T * T * 0.5,                           // green follows for warm white
+    T * 0.3 + T * T * 0.5,                           // blue rises for white at high T
   );
 
   // HDR output — no clamping, let the tone mapper handle it
@@ -413,7 +421,10 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
   if (!rp.valid) { return vec4f(0.0, 0.0, 0.0, 1.0); }
 
   let rHorizon = M + sqrt(max(M * M - a * a, 0.0));
-  let rEscape = max(rHorizon * 20.0, 50.0);
+  // rEscape must exceed the camera radius so rays that start outside the
+  // nominal escape sphere but point inward still get traced. Add a margin
+  // relative to the camera distance (rp.r0) so zooming out never clips.
+  let rEscape = max(rp.r0 * 1.1, max(rHorizon * 20.0, 50.0));
   let a2 = a * a;
   let L = rp.L;
   let Q = rp.Q;
@@ -436,22 +447,28 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
 
     // Adaptive step size: smaller near horizon, full size far away.
     // Dividing by Σ in the derivatives already bounds velocities.
-    let h = hBase * clamp((s.r - rHorizon) / s.r, 0.02, 1.0);
+    // Far from the hole, geodesics approach straight lines and curvature
+    // falls off as ~1/r², so we can grow the step linearly with r — this
+    // lets rays starting at large camera distances sprint through empty
+    // space without burning through the step budget.
+    // Near the poles, θ derivatives diverge as 1/sin²θ, so shrink the step
+    // proportionally to prevent overshooting the pole guard and zigzagging.
+    let horizonFactor = clamp((s.r - rHorizon) / s.r, 0.02, 1.0);
+    let distanceFactor = max(1.0, s.r / 10.0);
+    let polarFactor = clamp(min(s.theta, 3.14159265 - s.theta) / 0.15, 0.05, 1.0);
+    let h = hBase * horizonFactor * distanceFactor * polarFactor;
 
     // RK4 step for (r, vr, θ, vθ, φ)
     s = rk4Step(s, h, L, Q, M, a);
 
-    // Polar crossing: when θ overshoots a pole, reflect it and shift φ by π
-    // so the ray emerges on the opposite side — matching the straight-through
-    // Cartesian trajectory rather than bouncing back on the same side.
-    // The threshold (0.02 rad ≈ 1.1°) must be wide enough that the RK4
-    // substep evaluations never sample the divergent 1/sin³θ regime.
+    // Polar crossing: reflect θ symmetrically about the pole guard so the
+    // ray exits at the correct position rather than snapping to the boundary.
     if (s.theta < 0.02) {
-      s.theta = 0.02;
+      s.theta = 0.04 - s.theta;
       s.vth = abs(s.vth);
       s.phi += 3.14159265;
     } else if (s.theta > 3.12159) {
-      s.theta = 3.12159;
+      s.theta = 6.24318 - s.theta;
       s.vth = -abs(s.vth);
       s.phi += 3.14159265;
     }
@@ -470,7 +487,9 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
         s.r * cos(s.theta),
         rho * bl_sth * sin(s.phi),
       ));
-      color += starfield(escapeDir, pixelSize) * (1.0 - accumulated);
+      if (u.flags.x > 0.5) {
+        color += starfield(escapeDir, pixelSize) * (1.0 - accumulated);
+      }
       break;
     }
 
