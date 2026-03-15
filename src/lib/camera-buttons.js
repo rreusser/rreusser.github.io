@@ -37,6 +37,10 @@ export function cameraButtons({ camera, canvas, filename = 'snapshot.png', getCo
         camera.triggerRepaint();
         await rendered;
 
+        // Wait one animation frame so deferred renders (via rAF coalescing)
+        // complete before we capture the canvas.
+        await new Promise(r => requestAnimationFrame(r));
+
         const dataUrl = canvas.toDataURL();
         const link = document.createElement('a');
         link.download = filename;
