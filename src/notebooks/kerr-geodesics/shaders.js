@@ -86,7 +86,8 @@ const surfacePeelTest = /* wgsl */`
 
 fn peelTest(fragPos: vec4f) {
   let prevDepth = textureLoad(peelDepth, vec2i(fragPos.xy), 0);
-  if (fragPos.z <= prevDepth + 1e-5) { discard; }
+  let eps = max(fragPos.z, prevDepth) * 5e-4 + 1e-6;
+  if (fragPos.z <= prevDepth + eps) { discard; }
 }
 `;
 

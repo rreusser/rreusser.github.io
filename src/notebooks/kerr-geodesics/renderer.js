@@ -460,11 +460,15 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     // PHASE 4: Arrow on top (separate pass, depth cleared)
     // ============================================================
     if (arrowVisible && arrowOrigin && arrowDir && arrowLength > 0.01) {
+      // Scale arrow geometry to maintain consistent screen size
+      const dx = arrowOrigin[0] - eye[0], dy = arrowOrigin[1] - eye[1], dz = arrowOrigin[2] - eye[2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const s = dist / 35; // normalized to reference distance
       _arrowData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
       _arrowData[16] = arrowOrigin[0]; _arrowData[17] = arrowOrigin[1]; _arrowData[18] = arrowOrigin[2]; _arrowData[19] = 0;
       _arrowData[20] = arrowDir[0]; _arrowData[21] = arrowDir[1]; _arrowData[22] = arrowDir[2]; _arrowData[23] = arrowLength;
       _arrowData[24] = 1.0; _arrowData[25] = 0.5; _arrowData[26] = 0.1; _arrowData[27] = 1.0;
-      _arrowData[28] = 0.12; _arrowData[29] = 0.3; _arrowData[30] = 0.25; _arrowData[31] = 0;
+      _arrowData[28] = 0.12 * s; _arrowData[29] = 0.3 * s; _arrowData[30] = 0.25; _arrowData[31] = 0;
       device.queue.writeBuffer(arrowUniformBuffer, 0, _arrowData);
 
       const arrowPass = encoder.beginRenderPass({
