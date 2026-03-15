@@ -57,7 +57,7 @@ export function createUnifiedCamera(element, opts = {}) {
   };
 
   const speeds = {
-    rotate: opts.rotateSpeed !== undefined ? opts.rotateSpeed : 1.0,
+    rotate: opts.rotateSpeed !== undefined ? opts.rotateSpeed : 3.0,
     zoom: opts.zoomSpeed !== undefined ? opts.zoomSpeed : 0.001,
     pan: opts.panSpeed !== undefined ? opts.panSpeed : 1.0,
     pivot: opts.pivotSpeed !== undefined ? opts.pivotSpeed : 1.0,
