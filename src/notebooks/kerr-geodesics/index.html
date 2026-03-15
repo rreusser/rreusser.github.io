@@ -497,7 +497,8 @@ function rtRender() {
     a: rtSpinInput.value,
     M: 1,
     diskOuter: rtDiskOuterInput.value,
-    maxSteps: rtInteracting ? 200 : 2000,
+    maxSteps: rtInteracting ? 600 : 2000,
+    stepSize: rtInteracting ? 0.4 : 0.1,
     renderWidth: Math.max(1, Math.floor(w * scale)),
     renderHeight: Math.max(1, Math.floor(h * scale)),
   }, rtCamera, w, h);
