@@ -194,10 +194,14 @@ struct Derivs {
 fn geodesicDerivs(r: f32, vr: f32, theta: f32, vth: f32, L: f32, Q: f32, M: f32, a: f32) -> Derivs {
   let r2 = r * r;
   let a2 = a * a;
-  let cth = cos(theta);
-  let sth = sin(theta);
-  let sin2 = max(sth * sth, 1e-10);
-  let sin3 = sin2 * max(abs(sth), 1e-5);
+  // Clamp θ away from poles for derivative evaluation — the L/sin²θ and
+  // L²cosθ/sin³θ terms diverge, corrupting RK4 substeps even when the
+  // post-step guard would catch the final result.
+  let safe_theta = clamp(theta, 0.02, 3.12159);
+  let cth = cos(safe_theta);
+  let sth = sin(safe_theta);
+  let sin2 = sth * sth;
+  let sin3 = sin2 * sth;
   let Sigma = r2 + a2 * cth * cth;
   let Delta = r2 - 2.0 * M * r + a2;
   let invSigma = 1.0 / Sigma;
@@ -391,12 +395,14 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
     // Polar crossing: when θ overshoots a pole, reflect it and shift φ by π
     // so the ray emerges on the opposite side — matching the straight-through
     // Cartesian trajectory rather than bouncing back on the same side.
-    if (s.theta < 1e-4) {
-      s.theta = 1e-4;
+    // The threshold (0.02 rad ≈ 1.1°) must be wide enough that the RK4
+    // substep evaluations never sample the divergent 1/sin³θ regime.
+    if (s.theta < 0.02) {
+      s.theta = 0.02;
       s.vth = abs(s.vth);
       s.phi += 3.14159265;
-    } else if (s.theta > 3.14149) {
-      s.theta = 3.14149;
+    } else if (s.theta > 3.12159) {
+      s.theta = 3.12159;
       s.vth = -abs(s.vth);
       s.phi += 3.14159265;
     }

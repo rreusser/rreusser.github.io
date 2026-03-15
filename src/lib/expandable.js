@@ -69,9 +69,16 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
   const container = document.createElement('div');
   container.className = 'expandable-container';
 
-  // Content wrapper - positions the content
+  // Content wrapper - positions the content.
+  // Explicit dimensions prevent a feedback loop: without them, a canvas
+  // child with style "width/height: 100%" resolves to its intrinsic size
+  // (the buffer dimensions), and a ResizeObserver that sets
+  // canvas.width = CSS_width × dpr increases the intrinsic size each
+  // frame, causing unbounded growth.
   const contentWrapper = document.createElement('div');
   contentWrapper.className = 'expandable-content';
+  contentWrapper.style.width = `${width}px`;
+  contentWrapper.style.height = `${height}px`;
 
   // Overlay backdrop for expanded state
   const overlay = document.createElement('div');
