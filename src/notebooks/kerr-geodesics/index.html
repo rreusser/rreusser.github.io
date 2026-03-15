@@ -342,20 +342,15 @@ const container = html`<div style="position: relative; width: 100%; height: 100%
 container.appendChild(canvas);
 
 let expandableContainer: ReturnType<typeof expandable>;
-let mainHasExpanded = false;
 expandableContainer = expandable(container, {
   width: 640,
   height: 480,
   controls: controlsContainer,
   state: state.expandedState,
-  onResize: (_content: HTMLElement, w: number, h: number, expanded: boolean) => {
-    if (expanded) mainHasExpanded = true;
-    // Only override the responsive 100% sizing after the first expand,
-    // so initial load stays responsive to article width.
-    if (mainHasExpanded) {
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-    }
+  onResize: (_content: HTMLElement, w: number, h: number, _expanded: boolean) => {
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    camera.triggerRepaint();
   },
   buttons: cameraButtons({
     camera,
@@ -448,11 +443,10 @@ rtCanvas.style.height = '100%';
 
   <script id="rt-camera" type="text/x-typescript">
 const rtCamera = createUnifiedCamera(rtCanvas, {
-  mode: 'orbit',
+  mode: 'arcball',
   distance: 31.25,
-  phi: 1.35,
-  theta: 0.04,
   center: [0, 0, 0],
+  orientation: [-0.0199, 0.1102, 0.0022, 0.9937],
   near: 1,
   far: 200,
   renderContinuously: false,
@@ -593,19 +587,16 @@ const rtContainer = html`<div style="position: relative; width: 100%; height: 10
 rtContainer.appendChild(rtCanvas);
 
 let rtExpandable: ReturnType<typeof expandable>;
-let rtHasExpanded = false;
 rtExpandable = expandable(rtContainer, {
   width: 640,
   height: 480,
   wide: true,
   controls: rtControlsContainer,
   state: { expanded: false },
-  onResize: (_content: HTMLElement, w: number, h: number, expanded: boolean) => {
-    if (expanded) rtHasExpanded = true;
-    if (rtHasExpanded) {
-      rtCanvas.style.width = `${w}px`;
-      rtCanvas.style.height = `${h}px`;
-    }
+  onResize: (_content: HTMLElement, w: number, h: number, _expanded: boolean) => {
+    rtCanvas.style.width = `${w}px`;
+    rtCanvas.style.height = `${h}px`;
+    rtCamera.triggerRepaint();
   },
   buttons: cameraButtons({
     camera: rtCamera,

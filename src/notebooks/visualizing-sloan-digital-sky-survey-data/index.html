@@ -210,30 +210,12 @@ const figure = html`<figure style="margin: 0; max-width: none;" id="sdss-figure"
   ${canvas}
 </figure>`;
 
-// Expand figure outside article bounds on wide screens
-function updateFigureLayout() {
-  const viewportWidth = window.innerWidth;
-  const figureWidth = Math.min(maxWidth, viewportWidth - 40);
-  const figureHeight = Math.round(figureWidth * 0.7);
-  // Use first cell as stable reference (not affected by this figure's width)
-  const refWidth = document.querySelector('.observablehq--cell')?.offsetWidth || 840;
-  const marginLeft = (refWidth - figureWidth) / 2;
-
-  figure.style.width = figureWidth + 'px';
-  figure.style.marginLeft = marginLeft + 'px';
-
-  // Update canvas to match figure
-  canvas.style.width = figureWidth + 'px';
-  canvas.style.height = figureHeight + 'px';
-}
-
-updateFigureLayout();
-window.addEventListener('resize', updateFigureLayout);
-invalidation.then(() => window.removeEventListener('resize', updateFigureLayout));
-
 display(expandable(figure, {
   width: initialWidth,
   height: initialHeight,
+  wide: true,
+  maxWidth,
+  aspectRatio: initialWidth / initialHeight,
   controls: '.sdss-controls',
   onResize(el, w, h) {
     canvas.width = Math.floor(w * dpr);
@@ -248,28 +230,6 @@ display(expandable(figure, {
     renderState.dirty = true;
   }
 }));
-
-// Handle page resize without re-running the cell
-const resizeObserver = new ResizeObserver((entries) => {
-  for (const entry of entries) {
-    const rect = entry.contentRect;
-    const w = Math.floor(rect.width);
-    const h = Math.floor(rect.height);
-    if (w > 0 && h > 0) {
-      canvas.width = Math.floor(w * dpr);
-      canvas.height = Math.floor(h * dpr);
-      gpuContext.configure({
-        device,
-        format: canvasFormat,
-        alphaMode: 'premultiplied'
-      });
-      renderState.dirty = true;
-    }
-  }
-});
-resizeObserver.observe(canvas);
-
-invalidation.then(() => resizeObserver.disconnect());
   </script>
   <script id="range-slider-import" type="module">
 import { interval } from './lib/range-slider.js';

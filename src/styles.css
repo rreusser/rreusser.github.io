@@ -783,9 +783,11 @@ a.index__tag:active {
 
 .expandable-content {
   position: relative;
-  display: inline-block;
-  max-width: 100%;
   z-index: 1;
+}
+
+.expandable-content figure {
+  margin: 0;
 }
 
 .expandable-content.expanded {

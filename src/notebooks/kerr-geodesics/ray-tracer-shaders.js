@@ -14,7 +14,7 @@ struct Uniforms {
   eye: vec4f,
   params: vec4f,       // a, M, rISCO, diskOuter
   resolution: vec4f,   // width, height, maxSteps, stepSize
-  flags: vec4f,        // showStars, unused, unused, unused
+  flags: vec4f,        // showStars, renderScale, unused, unused
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -343,8 +343,9 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   let detail = fbm(noiseCoord * 6.0 + vec2f(5.9, 8.3));
   // Subtle radial banding: quasi-periodic density rings
   let bands = 0.5 + 0.5 * sin(logR * 12.0 + turbulence * 2.5);
-  // Combine: base density modulated by all layers
-  let density = (0.3 + 0.5 * turbulence + 0.25 * wisps * wisps + 0.15 * detail) * (0.75 + 0.25 * bands);
+  // Combine: wider swing (lower floor, higher peaks) for more contrast.
+  // pow() sharpens the distribution — bright clumps stay bright, dark gaps go darker.
+  let density = pow((0.1 + 0.7 * turbulence + 0.35 * wisps * wisps + 0.15 * detail) * (0.7 + 0.3 * bands), 1.4);
 
   // Smooth fade at inner edge (ISCO) and outer edge
   let innerFade = smoothstep(rISCO * 0.95, rISCO * 1.1, r);
@@ -396,10 +397,11 @@ fn starfield(dir: vec3f, pixelSize: f32) -> vec3f {
     let starPos = hash22(cell + vec2f(7.0, 13.0));
     let d = length(uv - cell - starPos);
     // Scale intensity by a sharp Gaussian, width set by pixel footprint.
-    // Minimum radius is ~1 screen pixel in grid-space units, so stars
-    // stay point-like regardless of figure size.
+    // Multiply pixelSize by renderScale (flags.y) so stars stay point-like
+    // at reduced resolution preview — pixelSize is proportional to 1/renderHeight,
+    // so it blows up at low res; renderScale corrects it back to canvas-pixel units.
     let minRadius = gridScale * 2.0 / max(u.resolution.x, u.resolution.y);
-    let radius = max(pixelSize * gridScale, minRadius);
+    let radius = max(pixelSize * gridScale * u.flags.y, minRadius);
     let atten = exp(-0.5 * d * d / (radius * radius));
     // Slight color variation
     let temp = hash21(cell + vec2f(42.0, 17.0));

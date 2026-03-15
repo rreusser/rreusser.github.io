@@ -15,8 +15,9 @@ export function createElementStack({
   layers = []
 } = {}) {
   container.style.position = "relative";
-  container.style.width = `${width}px`;
-  container.style.height = `${height}px`;
+  // Default to filling the expandable wrapper; explicit pixel size is set via resize()
+  container.style.width = "100%";
+  container.style.height = "100%";
 
   // Store state on container for reuse across reactive updates
   container._width = width;

@@ -211,14 +211,9 @@
       height: 600,
       toggleOffset: [-12, -12],
       controls: '.terrain-controls',
-      onResize(el, w, h, expanded) {
-        if (expanded) {
-          canvas.style.width = `${w}px`;
-          canvas.style.height = `${h}px`;
-        } else {
-          canvas.style.width = '';
-          canvas.style.height = '';
-        }
+      onResize(el, w, h) {
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
         viewer.triggerRedraw();
       }
     }));
