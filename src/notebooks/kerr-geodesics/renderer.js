@@ -167,7 +167,13 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     vertex: { module: compositeModule, entryPoint: 'vs' },
     fragment: {
       module: compositeModule, entryPoint: 'fs',
-      targets: [{ format: canvasFormat }]  // No blend — shader computes final composite
+      targets: [{
+        format: canvasFormat,
+        blend: {
+          color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        }
+      }]
     },
     primitive: { topology: 'triangle-list' },
     multisample: { count: 1 },
@@ -380,31 +386,16 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     }
 
     // ============================================================
-    // PHASE 2: Composite surface layers back-to-front onto canvas
+    // PHASE 2: Lines + axes first (clear canvas, draw lines)
     // ============================================================
     const canvasView = gpuContext.getCurrentTexture().createView();
 
-    const compositePass = encoder.beginRenderPass({
+    const linePass = encoder.beginRenderPass({
       colorAttachments: [{
         view: canvasView,
         loadOp: 'clear',
         storeOp: 'store',
         clearValue: { r: 0, g: 0, b: 0, a: 0 },
-      }]
-    });
-    compositePass.setPipeline(compositePipeline);
-    compositePass.setBindGroup(0, compositeBindGroup);
-    compositePass.draw(3);
-    compositePass.end();
-
-    // ============================================================
-    // PHASE 3: Lines + axes on top of composited surfaces
-    // ============================================================
-    const linePass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: canvasView,
-        loadOp: 'load',
-        storeOp: 'store',
       }],
       depthStencilAttachment: {
         view: lineDepthTexture.createView(),
@@ -446,6 +437,21 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     }
 
     linePass.end();
+
+    // ============================================================
+    // PHASE 3: Composite surfaces on top of lines (alpha blend)
+    // ============================================================
+    const compositePass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: canvasView,
+        loadOp: 'load',
+        storeOp: 'store',
+      }]
+    });
+    compositePass.setPipeline(compositePipeline);
+    compositePass.setBindGroup(0, compositeBindGroup);
+    compositePass.draw(3);
+    compositePass.end();
 
     // ============================================================
     // PHASE 4: Arrow on top (separate pass, depth cleared)
