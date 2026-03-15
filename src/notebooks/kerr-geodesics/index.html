@@ -514,7 +514,7 @@ function rtRenderActual() {
     M: 1,
     diskOuter: rtDiskOuterInput.value,
     exposure: rtExposureInput.value,
-    bloomIntensity: rtBloomInput.value,
+    bloomIntensity: rtInteracting ? 0 : rtBloomInput.value,
     maxSteps: rtInteracting ? 600 : rtMaxStepsInput.value,
     stepSize: rtInteracting ? 0.4 : rtStepSizeInput.value,
     renderWidth: Math.max(1, Math.floor(w * scale)),
