@@ -121,7 +121,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       }]
     },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'always' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     multisample: { count: sampleCount },
   });
   // Arrow uniforms: projView 64 + origin 16 + direction 16 + color 16 + params 16 = 128 bytes
@@ -319,22 +319,39 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       gpuLines.draw(pass, { ...lineDrawProps, skipUniformUpdate: true }, [lineBindGroup]);
     }
 
-    // Draw velocity arrow last so it renders on top
+    pass.end();
+
+    // Draw arrow in a separate pass: clear depth so it renders on top of
+    // all other geometry, but keep normal depth testing so its own faces
+    // are correct.
     if (arrowVisible && arrowOrigin && arrowDir && arrowLength > 0.01) {
       _arrowData.set(new Float32Array(projView.buffer, projView.byteOffset, 16), 0);
       _arrowData[16] = arrowOrigin[0]; _arrowData[17] = arrowOrigin[1]; _arrowData[18] = arrowOrigin[2]; _arrowData[19] = 0;
       _arrowData[20] = arrowDir[0]; _arrowData[21] = arrowDir[1]; _arrowData[22] = arrowDir[2]; _arrowData[23] = arrowLength;
-      // color: bright orange
       _arrowData[24] = 1.0; _arrowData[25] = 0.5; _arrowData[26] = 0.1; _arrowData[27] = 1.0;
-      // params: shaftRadius, headRadius, headFraction
       _arrowData[28] = 0.12; _arrowData[29] = 0.3; _arrowData[30] = 0.25; _arrowData[31] = 0;
       device.queue.writeBuffer(arrowUniformBuffer, 0, _arrowData);
-      pass.setPipeline(arrowPipeline);
-      pass.setBindGroup(0, arrowBindGroup);
-      pass.draw(ARROW_TOTAL_VERTS);
+
+      const arrowPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: msaaTexture.createView(),
+          resolveTarget: gpuContext.getCurrentTexture().createView(),
+          loadOp: 'load',
+          storeOp: 'store',
+        }],
+        depthStencilAttachment: {
+          view: depthTexture.createView(),
+          depthClearValue: 1.0,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store',
+        }
+      });
+      arrowPass.setPipeline(arrowPipeline);
+      arrowPass.setBindGroup(0, arrowBindGroup);
+      arrowPass.draw(ARROW_TOTAL_VERTS);
+      arrowPass.end();
     }
 
-    pass.end();
     device.queue.submit([encoder.finish()]);
   }
 
