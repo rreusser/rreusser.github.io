@@ -1,0 +1,72 @@
+name: Deploy Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: preview-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Deploy to Netlify
+        id: netlify
+        uses: nwtgck/actions-netlify@v3
+        with:
+          publish-dir: www
+          production-deploy: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: "Preview for PR #${{ github.event.pull_request.number }} — ${{ github.event.pull_request.title }}"
+          alias: pr-${{ github.event.pull_request.number }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+
+  cleanup:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete Netlify deploys for this PR
+        run: |
+          # Fetch deploys and delete any with this PR's branch
+          branch="${{ github.head_ref }}"
+          page=1
+          while true; do
+            deploys=$(curl -sf \
+              -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+              "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys?branch=$branch&per_page=100&page=$page")
+            count=$(echo "$deploys" | jq length)
+            if [ "$count" -eq 0 ]; then break; fi
+            echo "$deploys" | jq -r '.[].id' | while read -r id; do
+              echo "Deleting deploy $id"
+              curl -sf -X DELETE \
+                -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+                "https://api.netlify.com/api/v1/deploys/$id"
+            done
+            if [ "$count" -lt 100 ]; then break; fi
+            page=$((page + 1))
+          done
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
