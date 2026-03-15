@@ -99,8 +99,8 @@ test('equatorial orbit stays near equatorial plane', () => {
   const result = integrateGeodesic(PRESETS.equatorialOrbit);
   const pos = result.positions;
   for (let i = 0; i < result.nPoints; i++) {
-    const z = Math.abs(pos[i*3+2]);
-    assert(z < 0.5, `|z| = ${z} at step ${i} should be < 0.5 for equatorial orbit`);
+    const y = Math.abs(pos[i*3+1]);
+    assert(y < 0.5, `|y| = ${y} at step ${i} should be < 0.5 for equatorial orbit`);
   }
 });
 
@@ -147,8 +147,8 @@ test('Schwarzschild orbit stays in equatorial plane', () => {
   const result = integrateGeodesic(PRESETS.schwarzschild);
   const pos = result.positions;
   for (let i = 0; i < result.nPoints; i++) {
-    const z = Math.abs(pos[i*3+2]);
-    assert(z < 0.1, `|z| = ${z} at step ${i} should be < 0.1 for a≈0 equatorial orbit`);
+    const y = Math.abs(pos[i*3+1]);
+    assert(y < 0.1, `|y| = ${y} at step ${i} should be < 0.1 for a≈0 equatorial orbit`);
   }
 });
 

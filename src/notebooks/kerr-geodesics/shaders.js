@@ -132,10 +132,10 @@ struct VertexOutput {
   let rho = sqrt(rPlus * rPlus + a * a);
 
   let x = rho * sth * cos(phi);
-  let y = rho * sth * sin(phi);
-  let z = rPlus * cth;
+  let y = rPlus * cth;
+  let z = rho * sth * sin(phi);
 
-  let n = normalize(vec3f(x / (rho * rho), y / (rho * rho), z / (rPlus * rPlus)));
+  let n = normalize(vec3f(x / (rho * rho), y / (rPlus * rPlus), z / (rho * rho)));
 
   var out: VertexOutput;
   out.position = u.projectionView * vec4f(x, y, z, 1.0);
@@ -224,15 +224,15 @@ struct VertexOutput {
   let rho = sqrt(rErgo * rErgo + a * a);
 
   let x = rho * sth * cos(phi);
-  let y = rho * sth * sin(phi);
-  let z = rErgo * cth;
+  let y = rErgo * cth;
+  let z = rho * sth * sin(phi);
 
   let dth = 0.01;
   let rE2 = M + sqrt(max(M * M - a * a * cos(theta + dth) * cos(theta + dth), 0.0));
   let rho2 = sqrt(rE2 * rE2 + a * a);
-  let p2 = vec3f(rho2 * sin(theta + dth) * cos(phi), rho2 * sin(theta + dth) * sin(phi), rE2 * cos(theta + dth));
+  let p2 = vec3f(rho2 * sin(theta + dth) * cos(phi), rE2 * cos(theta + dth), rho2 * sin(theta + dth) * sin(phi));
   let dph = 0.01;
-  let p3 = vec3f(rho * sth * cos(phi + dph), rho * sth * sin(phi + dph), z);
+  let p3 = vec3f(rho * sth * cos(phi + dph), y, rho * sth * sin(phi + dph));
   let n = normalize(cross(p2 - vec3f(x, y, z), p3 - vec3f(x, y, z)));
 
   var out: VertexOutput;
@@ -298,8 +298,8 @@ struct VertexOutput {
 
   switch (axisIndex) {
     case 0u: { pos = vec3f(L * f32(isEnd), 0.0, 0.0); color = vec3f(0.8, 0.2, 0.2); }
-    case 1u: { pos = vec3f(0.0, L * f32(isEnd), 0.0); color = vec3f(0.2, 0.7, 0.2); }
-    case 2u: { pos = vec3f(0.0, 0.0, L * f32(isEnd)); color = vec3f(0.3, 0.4, 0.9); }
+    case 1u: { pos = vec3f(0.0, L * f32(isEnd), 0.0); color = vec3f(0.3, 0.4, 0.9); }
+    case 2u: { pos = vec3f(0.0, 0.0, L * f32(isEnd)); color = vec3f(0.2, 0.7, 0.2); }
     default: {}
   }
 

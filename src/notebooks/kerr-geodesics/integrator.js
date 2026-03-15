@@ -223,7 +223,7 @@ export function carterQ(s, params) {
 function blToCartesian(r, theta, phi, a) {
   const sth = Math.sin(theta);
   const rho = Math.sqrt(r * r + a * a);
-  return [rho * sth * Math.cos(phi), rho * sth * Math.sin(phi), r * Math.cos(theta)];
+  return [rho * sth * Math.cos(phi), r * Math.cos(theta), rho * sth * Math.sin(phi)];
 }
 
 // --- Main integration function ---

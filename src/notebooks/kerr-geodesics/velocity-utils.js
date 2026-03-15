@@ -111,7 +111,7 @@ export function constantsToVelocity(r, theta, E, L, Q, M, a, kappa, signR, signT
 export function blToCartesian(r, theta, phi, a) {
   const sth = Math.sin(theta);
   const rho = Math.sqrt(r * r + a * a);
-  return [rho * sth * Math.cos(phi), rho * sth * Math.sin(phi), r * Math.cos(theta)];
+  return [rho * sth * Math.cos(phi), r * Math.cos(theta), rho * sth * Math.sin(phi)];
 }
 
 // --- Jacobian ∂(x,y,z)/∂(r,θ,φ) ---
@@ -131,15 +131,15 @@ export function blToCartesianJacobian(r, theta, phi, a) {
   const dx_dth = rho * cth * cphi;
   const dx_dphi = -rho * sth * sphi;
 
-  // y = ρ sinθ sinφ
-  const dy_dr = drho_dr * sth * sphi;
-  const dy_dth = rho * cth * sphi;
-  const dy_dphi = rho * sth * cphi;
+  // y = r cosθ  (spin axis)
+  const dy_dr = cth;
+  const dy_dth = -r * sth;
+  const dy_dphi = 0;
 
-  // z = r cosθ
-  const dz_dr = cth;
-  const dz_dth = -r * sth;
-  const dz_dphi = 0;
+  // z = ρ sinθ sinφ
+  const dz_dr = drho_dr * sth * sphi;
+  const dz_dth = rho * cth * sphi;
+  const dz_dphi = rho * sth * cphi;
 
   return [
     [dx_dr, dx_dth, dx_dphi],
