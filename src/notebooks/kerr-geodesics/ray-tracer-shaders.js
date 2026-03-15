@@ -170,54 +170,66 @@ fn computeRayParams(rayDir: vec3f, a: f32, M: f32) -> RayParams {
 }
 
 // ============================================================
-// First-order Carter equations (Mino time, κ=0, E=1)
+// Decoupled 1D integrators (Mino time, κ=0, E=1)
 // ============================================================
-// State: (r, θ, φ) with sign_r and sign_θ tracked separately.
-// Coordinate time t is not integrated (unused for rendering).
+// In Mino time, dr/dλ = ±√R(r) depends ONLY on r (trig-free),
+// and dθ/dλ = ±√Θ(θ) depends ONLY on θ (polynomial-free).
+// φ is accumulated separately via midpoint rule.
 
-fn minoRHS(r: f32, theta: f32, sr: f32, stheta: f32,
-           L: f32, Q: f32, M: f32, a: f32) -> vec3f {
+// Radial potential R(r) — pure polynomial, zero trig
+fn radialR(r: f32, L: f32, Q: f32, M: f32, a: f32) -> f32 {
   let r2 = r * r;
   let a2 = a * a;
   let Delta = r2 - 2.0 * M * r + a2;
+  let P = r2 + a2 - a * L;
+  let LaE = L - a;
+  return P * P - Delta * (LaE * LaE + Q);
+}
+
+// Polar potential Θ(θ) — no polynomial, only trig
+fn polarTheta(theta: f32, L: f32, Q: f32, a: f32) -> f32 {
   let sth = sin(theta);
   let cth = cos(theta);
   let sin2 = max(sth * sth, 1e-10);
-  let cos2 = cth * cth;
-
-  // Potentials (E=1 throughout)
-  let P = r2 + a2 - a * L;
-  let LaE = L - a;
-  let R = P * P - Delta * (LaE * LaE + Q);
-  let Theta = Q + a2 * cos2 - L * L * cos2 / sin2;
-
-  // Mino-time derivatives (Σ divided out of the affine-parameter form)
-  let dr = sr * sqrt(max(R, 0.0));
-  let dtheta = stheta * sqrt(max(Theta, 0.0));
-  let dphi = a * P / max(Delta, 1e-8) + L / sin2 - a;
-
-  return vec3f(dr, dtheta, dphi);
+  return Q + a * a * cth * cth - L * L * cth * cth / sin2;
 }
 
 // ============================================================
-// RK4 integrator
+// Independent 1D RK4 for r (completely trig-free)
 // ============================================================
 
-fn rk4Step(r: f32, theta: f32, phi: f32, sr: f32, stheta: f32,
-           h: f32, L: f32, Q: f32, M: f32, a: f32) -> vec3f {
-  let k1 = minoRHS(r, theta, sr, stheta, L, Q, M, a);
-  let k2 = minoRHS(r + h * 0.5 * k1.x, theta + h * 0.5 * k1.y,
-                    sr, stheta, L, Q, M, a);
-  let k3 = minoRHS(r + h * 0.5 * k2.x, theta + h * 0.5 * k2.y,
-                    sr, stheta, L, Q, M, a);
-  let k4 = minoRHS(r + h * k3.x, theta + h * k3.y,
-                    sr, stheta, L, Q, M, a);
+fn radialRK4(r: f32, sr: f32, h: f32, L: f32, Q: f32, M: f32, a: f32) -> f32 {
+  let k1 = sr * sqrt(max(radialR(r, L, Q, M, a), 0.0));
+  let k2 = sr * sqrt(max(radialR(r + h * 0.5 * k1, L, Q, M, a), 0.0));
+  let k3 = sr * sqrt(max(radialR(r + h * 0.5 * k2, L, Q, M, a), 0.0));
+  let k4 = sr * sqrt(max(radialR(r + h * k3, L, Q, M, a), 0.0));
+  return r + h / 6.0 * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
+}
 
-  return vec3f(
-    r     + h / 6.0 * (k1.x + 2.0 * k2.x + 2.0 * k3.x + k4.x),
-    theta + h / 6.0 * (k1.y + 2.0 * k2.y + 2.0 * k3.y + k4.y),
-    phi   + h / 6.0 * (k1.z + 2.0 * k2.z + 2.0 * k3.z + k4.z),
-  );
+// ============================================================
+// Independent 1D RK4 for θ (no radial polynomial needed)
+// ============================================================
+
+fn polarRK4(theta: f32, stheta: f32, h: f32, L: f32, Q: f32, a: f32) -> f32 {
+  let k1 = stheta * sqrt(max(polarTheta(theta, L, Q, a), 0.0));
+  let k2 = stheta * sqrt(max(polarTheta(theta + h * 0.5 * k1, L, Q, a), 0.0));
+  let k3 = stheta * sqrt(max(polarTheta(theta + h * 0.5 * k2, L, Q, a), 0.0));
+  let k4 = stheta * sqrt(max(polarTheta(theta + h * k3, L, Q, a), 0.0));
+  return theta + h / 6.0 * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
+}
+
+// ============================================================
+// φ rate in Mino time (depends on both r and θ)
+// ============================================================
+
+fn phiRate(r: f32, theta: f32, L: f32, M: f32, a: f32) -> f32 {
+  let r2 = r * r;
+  let a2 = a * a;
+  let Delta = r2 - 2.0 * M * r + a2;
+  let P = r2 + a2 - a * L;
+  let sth = sin(theta);
+  let sin2 = max(sth * sth, 1e-10);
+  return a * P / max(Delta, 1e-8) + L / sin2 - a;
 }
 
 // ============================================================
@@ -332,30 +344,27 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
     // Deterministic step size: smaller near horizon
     let h = 0.5 * clamp((r - rHorizon) / r, 0.02, 1.0);
 
-    // RK4 step
-    let next = rk4Step(r, theta, phi, sr, stheta, h, L, Q, M, a);
-    r = next.x;
-    theta = next.y;
-    phi = next.z;
+    // Independent 1D RK4 for r (trig-free) and θ (polynomial-free)
+    let rNew = radialRK4(r, sr, h, L, Q, M, a);
+    let thetaNew = polarRK4(theta, stheta, h, L, Q, a);
+
+    // Accumulate φ via midpoint rule (2nd-order, only needs 1 evaluation)
+    phi += h * phiRate(0.5 * (r + rNew), 0.5 * (theta + thetaNew), L, M, a);
+
+    r = rNew;
+    theta = thetaNew;
 
     // Clamp theta away from poles
     theta = clamp(theta, 0.02, 3.12159);
 
-    // Sign-flip detection via potentials
-    let r2 = r * r;
-    let Delta = r2 - 2.0 * M * r + a2;
-    let P = r2 + a2 - a * L;
-    let LaE = L - a;
-    let R_val = P * P - Delta * (LaE * LaE + Q);
+    // Sign-flip detection via potentials (inlined, no redundant computation)
+    let R_val = radialR(r, L, Q, M, a);
     if (R_val < 0.0) {
       sr = -sr;
       r = max(r, rHorizon * 1.01);
     }
 
-    let sth = sin(theta);
-    let cth = cos(theta);
-    let sin2 = max(sth * sth, 1e-10);
-    let Th_val = Q + a2 * cth * cth - L * L * cth * cth / sin2;
+    let Th_val = polarTheta(theta, L, Q, a);
     if (Th_val < 0.0) {
       stheta = -stheta;
     }
