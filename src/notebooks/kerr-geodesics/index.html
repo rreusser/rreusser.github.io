@@ -476,45 +476,31 @@ invalidation.then(() => rayTracer.destroy());
 let rtDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let rtInteracting = false;
 
-// Track the full-resolution canvas size (set by expandable/ResizeObserver)
-let rtFullWidth = rtCanvas.width;
-let rtFullHeight = rtCanvas.height;
-
 const rtResizeObserver = new ResizeObserver((entries) => {
   for (const entry of entries) {
     const { width, height } = entry.contentRect;
     if (width > 0 && height > 0) {
       const dpr = devicePixelRatio;
-      rtFullWidth = Math.floor(width * dpr);
-      rtFullHeight = Math.floor(height * dpr);
-      if (!rtInteracting) {
-        rtCanvas.width = rtFullWidth;
-        rtCanvas.height = rtFullHeight;
-      }
+      rtCanvas.width = Math.floor(width * dpr);
+      rtCanvas.height = Math.floor(height * dpr);
       rtCamera.triggerRepaint();
     }
   }
 });
 rtResizeObserver.observe(rtCanvas);
 
-function rtApplyResolution() {
-  const scale = rtInteracting ? 0.25 : 1;
-  const w = Math.max(1, Math.floor(rtFullWidth * scale));
-  const h = Math.max(1, Math.floor(rtFullHeight * scale));
-  if (rtCanvas.width !== w || rtCanvas.height !== h) {
-    rtCanvas.width = w;
-    rtCanvas.height = h;
-  }
-}
-
 function rtRender() {
-  rtApplyResolution();
+  const w = rtCanvas.width;
+  const h = rtCanvas.height;
+  const scale = rtInteracting ? 0.25 : 1;
   rayTracer.render(rtGpuContext, {
     a: rtSpinInput.value,
     M: 1,
     diskOuter: rtDiskOuterInput.value,
     maxSteps: rtInteracting ? 200 : 2000,
-  }, rtCamera, rtCanvas.width, rtCanvas.height);
+    renderWidth: Math.max(1, Math.floor(w * scale)),
+    renderHeight: Math.max(1, Math.floor(h * scale)),
+  }, rtCamera, w, h);
 }
 
 rtCamera.on('render', rtRender);

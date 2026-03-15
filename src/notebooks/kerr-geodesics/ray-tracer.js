@@ -1,6 +1,24 @@
 // Ray-traced Kerr black hole renderer
 // Creates a fragment-shader-based ray tracer that traces null geodesics
-// per pixel with adaptive integration.
+// per pixel with adaptive integration. Supports rendering at a lower
+// resolution and blitting to the full-size canvas.
+
+const blitShaderCode = /* wgsl */`
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+
+@vertex fn vs(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4f {
+  let x = select(-1.0, 3.0, vid == 1u);
+  let y = select(-1.0, 3.0, vid == 2u);
+  return vec4f(x, y, 0.0, 1.0);
+}
+
+@fragment fn fs(@builtin(position) pos: vec4f, ) -> @location(0) vec4f {
+  let dims = vec2f(textureDimensions(tex));
+  let uv = pos.xy / dims;
+  return textureSample(tex, samp, uv);
+}
+`;
 
 export async function createRayTracer(device, canvasFormat, shaderCode) {
   const module = device.createShaderModule({ label: 'ray-tracer', code: shaderCode });
@@ -55,6 +73,63 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
   });
 
+  // --- Blit pipeline for upscaling offscreen texture to canvas ---
+  const blitModule = device.createShaderModule({ label: 'blit', code: blitShaderCode });
+
+  const blitBGL = device.createBindGroupLayout({
+    label: 'blit-bgl',
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+    ],
+  });
+
+  const blitPipeline = device.createRenderPipeline({
+    label: 'blit',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [blitBGL] }),
+    vertex: { module: blitModule, entryPoint: 'vs' },
+    fragment: {
+      module: blitModule,
+      entryPoint: 'fs',
+      targets: [{ format: canvasFormat }],
+    },
+    primitive: { topology: 'triangle-list' },
+  });
+
+  const blitSampler = device.createSampler({
+    label: 'blit-sampler',
+    magFilter: 'linear',
+    minFilter: 'linear',
+  });
+
+  // Cache offscreen texture to avoid re-creating each frame at the same size
+  let offscreenTex = null;
+  let offscreenView = null;
+  let offscreenBindGroup = null;
+  let offscreenW = 0;
+  let offscreenH = 0;
+
+  function ensureOffscreenTexture(w, h) {
+    if (offscreenW === w && offscreenH === h && offscreenTex) return;
+    if (offscreenTex) offscreenTex.destroy();
+    offscreenTex = device.createTexture({
+      label: 'ray-tracer-offscreen',
+      size: [w, h],
+      format: canvasFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    offscreenView = offscreenTex.createView();
+    offscreenBindGroup = device.createBindGroup({
+      layout: blitBGL,
+      entries: [
+        { binding: 0, resource: offscreenView },
+        { binding: 1, resource: blitSampler },
+      ],
+    });
+    offscreenW = w;
+    offscreenH = h;
+  }
+
   const _data = new Float32Array(28); // 112 bytes / 4
 
   // Compute ISCO radius for prograde circular orbits
@@ -65,8 +140,12 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     return M * (3 + z2 - Math.sqrt((3 - z1) * (3 + z1 + 2 * z2)));
   }
 
-  function render(gpuContext, params, camera, width, height) {
-    const aspectRatio = width / height;
+  function render(gpuContext, params, camera, canvasWidth, canvasHeight) {
+    const renderWidth = params.renderWidth || canvasWidth;
+    const renderHeight = params.renderHeight || canvasHeight;
+    const needsBlit = renderWidth !== canvasWidth || renderHeight !== canvasHeight;
+
+    const aspectRatio = canvasWidth / canvasHeight;
     const { projView, eye } = camera.update(aspectRatio);
 
     // Compute inverse projView
@@ -85,33 +164,67 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     _data[22] = computeISCO(M, a);
     _data[23] = params.diskOuter || 20;
     // resolution + quality
-    _data[24] = width;
-    _data[25] = height;
+    _data[24] = renderWidth;
+    _data[25] = renderHeight;
     _data[26] = params.maxSteps || 2000;
     _data[27] = params.tolerance || 1e-6;
 
     device.queue.writeBuffer(uniformBuffer, 0, _data);
 
     const encoder = device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: gpuContext.getCurrentTexture().createView(),
-        loadOp: 'clear',
-        storeOp: 'store',
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-      }],
-    });
 
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup);
-    pass.draw(3);
-    pass.end();
+    if (needsBlit) {
+      // Render ray tracer to offscreen texture at lower resolution
+      ensureOffscreenTexture(renderWidth, renderHeight);
+
+      const rtPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: offscreenView,
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        }],
+      });
+      rtPass.setPipeline(pipeline);
+      rtPass.setBindGroup(0, bindGroup);
+      rtPass.draw(3);
+      rtPass.end();
+
+      // Blit offscreen texture to canvas with bilinear filtering
+      const blitPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: gpuContext.getCurrentTexture().createView(),
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        }],
+      });
+      blitPass.setPipeline(blitPipeline);
+      blitPass.setBindGroup(0, offscreenBindGroup);
+      blitPass.draw(3);
+      blitPass.end();
+    } else {
+      // Render directly to canvas at full resolution
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: gpuContext.getCurrentTexture().createView(),
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        }],
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(3);
+      pass.end();
+    }
 
     device.queue.submit([encoder.finish()]);
   }
 
   function destroy() {
     uniformBuffer.destroy();
+    if (offscreenTex) offscreenTex.destroy();
   }
 
   return { render, destroy };
