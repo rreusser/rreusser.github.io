@@ -7,7 +7,7 @@
   </script>
 
   <script id="intro" type="text/markdown">
-Geodesics of the [Kerr metric](https://en.wikipedia.org/wiki/Kerr_metric) describe the paths of particles and light in the spacetime around a rotating black hole. This notebook integrates the geodesic equations using a 4th-order [Gauss–Legendre](https://en.wikipedia.org/wiki/Gauss%E2%80%93Legendre_method) implicit Runge–Kutta method — a symplectic integrator that preserves the Hamiltonian structure without requiring the Hamiltonian to be separable.
+Geodesics of the [Kerr metric](https://en.wikipedia.org/wiki/Kerr_metric) describe the paths of particles and light in the spacetime around a rotating black hole. This notebook integrates the geodesic equations using a 4th-order explicit symplectic integrator based on the Mino-time transformation, which splits the Hamiltonian into five sub-systems each with closed-form analytical flows.
   </script>
 
   <script id="webgpu-setup" type="text/x-typescript">
@@ -16,6 +16,12 @@ import { createWebGPUContext } from './lib/webgpu-canvas.js';
 const { device, canvasFormat } = await createWebGPUContext();
 
 invalidation.then(() => device.destroy());
+  </script>
+
+  <script id="theme" type="text/x-typescript">
+import { observeTheme } from './lib/theme.js';
+
+const theme = Generators.observe(observeTheme);
   </script>
 
   <script id="state" type="text/x-typescript">
@@ -28,6 +34,8 @@ const state = {
     lineWidth: 4,
     showHorizon: true,
     showErgosphere: true,
+    surfaceColor: theme.isDark ? [1, 1, 1] : [0, 0, 0],
+    surfaceOpacity: 0.15,
   },
 };
   </script>
@@ -47,13 +55,18 @@ const presetInput = addControl(Inputs.select(
   { label: 'Preset', format: (key: string) => PRESETS[key].label, value: 'boundOrbit' }
 ));
 
-const spinInput = addControl(Inputs.range([0, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 }));
+const kappaInput = addControl(Inputs.select(
+  [1, 0],
+  { label: 'Particle type', format: (v: number) => v === 1 ? 'Massive (timelike)' : 'Photon (null)', value: 1 }
+));
+
+const spinInput = addControl(Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 }));
 const energyInput = addControl(Inputs.range([0.8, 1.2], { label: 'Energy E', value: 0.95, step: 0.001 }));
 const angMomInput = addControl(Inputs.range([-5, 5], { label: 'Ang. mom. L', value: 3.0, step: 0.01 }));
 const carterInput = addControl(Inputs.range([0, 20], { label: 'Carter Q', value: 2.0, step: 0.1 }));
-const r0Input = addControl(Inputs.range([2, 30], { label: 'Initial r₀', value: 10, step: 0.1 }));
-const theta0Input = addControl(Inputs.range([0.1, 3.04], { label: 'Initial θ₀', value: Math.PI / 2.5, step: 0.01 }));
-const nStepsInput = addControl(Inputs.range([500, 10000], { label: 'Steps', value: 4000, step: 100 }));
+const r0Input = addControl(Inputs.range([2, 30], { label: 'Initial r\u2080', value: 10, step: 0.1 }));
+const theta0Input = addControl(Inputs.range([0.1, 3.04], { label: 'Initial \u03b8\u2080', value: Math.PI / 2.5, step: 0.01 }));
+const nStepsInput = addControl(Inputs.range([500, 20000], { label: 'Steps', value: 4000, step: 100 }));
 const lineWidthInput = addControl(Inputs.range([1, 12], { label: 'Line width', value: 4, step: 0.5 }));
 const horizonInput = addControl(Inputs.toggle({ label: 'Show horizon', value: true }));
 const ergosphereInput = addControl(Inputs.toggle({ label: 'Show ergosphere', value: true }));
@@ -62,7 +75,6 @@ display(controlsContainer);
   </script>
 
   <script id="sync-preset" type="text/x-typescript">
-// When preset changes, update controls to match
 presetInput.addEventListener('input', () => {
   const p = PRESETS[presetInput.value];
   if (!p) return;
@@ -73,6 +85,7 @@ presetInput.addEventListener('input', () => {
   r0Input.value = p.r0; r0Input.dispatchEvent(new Event('input'));
   theta0Input.value = p.theta0; theta0Input.dispatchEvent(new Event('input'));
   nStepsInput.value = p.nSteps; nStepsInput.dispatchEvent(new Event('input'));
+  kappaInput.value = p.kappa; kappaInput.dispatchEvent(new Event('input'));
 });
   </script>
 
@@ -116,19 +129,20 @@ invalidation.then(() => renderer.destroy());
   </script>
 
   <script id="compute-geodesic" type="text/x-typescript">
-// Integrate the geodesic and upload to GPU
 function computeAndUpload() {
+  const a = spinInput.value as number;
+  const kappa = kappaInput.value as number;
+  const preset = PRESETS[presetInput.value];
   const config = {
-    M: 1,
-    a: spinInput.value as number,
+    M: 1, a,
     E: energyInput.value as number,
     L: angMomInput.value as number,
     Q: carterInput.value as number,
-    kappa: 1,
+    kappa,
     r0: r0Input.value as number,
     theta0: theta0Input.value as number,
-    signR: -1,
-    signTheta: 1,
+    signR: preset?.signR ?? -1,
+    signTheta: preset?.signTheta ?? 1,
     h: 0.3,
     nSteps: nStepsInput.value as number,
   };
@@ -138,6 +152,7 @@ function computeAndUpload() {
 
   state.renderParams.M = config.M;
   state.renderParams.a = config.a;
+  state.renderParams.surfaceColor = theme.isDark ? [1, 1, 1] : [0, 0, 0];
   camera.triggerRepaint();
 
   return result.diagnostics;
@@ -192,17 +207,17 @@ display(expandableContainer);
   </script>
 
   <script id="diagnostics-display" type="text/x-typescript">
-display(html`<div style="font-size: 0.85em; color: #666; margin-top: 0.5em;">
-  <strong>Conservation diagnostics:</strong>
-  H = ${diagnostics.H.toExponential(4)} (expected ${diagnostics.expectedH.toFixed(1)}),
-  Q = ${diagnostics.Q.toExponential(4)} (expected ${diagnostics.expectedQ.toFixed(2)})
+display(html`<div style="font-size: 0.85em; opacity: 0.6; margin-top: 0.5em;">
+  <strong>Conservation:</strong>
+  \u0394H = ${diagnostics.dH.toExponential(2)},
+  \u0394Q = ${diagnostics.dQ.toExponential(2)}
 </div>`);
   </script>
 
   <script id="equations" type="text/markdown">
 ## The Kerr Hamiltonian
 
-The geodesic Hamiltonian in Boyer–Lindquist coordinates is
+The geodesic Hamiltonian in Boyer-Lindquist coordinates is
 
 ${tex.block`H = \frac{1}{2}\,g^{\mu\nu} p_\mu p_\nu`}
 
@@ -210,11 +225,15 @@ with the Kerr metric functions ${tex`\Sigma = r^2 + a^2\cos^2\theta`} and ${tex`
   </script>
 
   <script id="integrator-description" type="text/markdown">
-## Symplectic Integration
+## Explicit Symplectic Integration
 
-Because the Kerr Hamiltonian is not separable — the kinetic terms ${tex`(\Delta/\Sigma)\,p_r^2`} and ${tex`p_\theta^2/\Sigma`} couple to both coordinates through ${tex`\Sigma`} — standard explicit symplectic methods (leapfrog, Yoshida) do not apply directly.
+The Mino-time transformation ${tex`d\lambda/dw = \Sigma`} converts the Hamiltonian into ${tex`K = 2\Sigma H`}, which separates into five sub-Hamiltonians each with closed-form analytical flows:
 
-Instead we use the **4th-order Gauss–Legendre implicit Runge–Kutta method** (GL4), which is symplectic for *any* Hamiltonian system. Each step requires solving an 8-dimensional nonlinear system via Newton iteration. The method preserves a modified Hamiltonian ${tex`\tilde{H} = H + \mathcal{O}(h^4)`}, so the true Hamiltonian oscillates without secular drift.
+${tex.block`K = \underbrace{a^2 p_r^2 + p_\theta^2}_{K_1} + \underbrace{r^2 p_r^2}_{K_2} + \underbrace{(-2Mr p_r^2)}_{K_3} + \underbrace{\left(-\frac{W^2}{\Delta}\right)}_{K_4} + \underbrace{a^2 p_t^2 \sin^2\!\theta + \frac{p_\varphi^2}{\sin^2\!\theta}}_{K_5}`}
+
+where ${tex`W = (r^2 + a^2)p_t + ap_\varphi`}. ${tex`K_1`} is a free drift. ${tex`K_2`} generates an exponential map ${tex`r \to r\,e^{2rp_r h}`}. ${tex`K_3`} generates a rational map ${tex`p_r \to p_r/(1 - 2Mp_r h)`}. ${tex`K_4`} and ${tex`K_5`} are potential kicks. Each flow requires only arithmetic.
+
+These are composed using 4th-order Yoshida triple-jump of 2nd-order Strang splittings, giving ${tex`\mathcal{O}(h^4)`} global accuracy while preserving the symplectic structure exactly.
   </script>
 
   <script id="carter-constant" type="text/markdown">
@@ -226,18 +245,10 @@ Each geodesic is characterized by four constants:
 - **Angular momentum** ${tex`L = p_\varphi`}, conserved by axial symmetry
 - **Carter constant** ${tex`Q = p_\theta^2 + \cos^2\theta\left[a^2(\kappa - E^2) - L^2/\sin^2\theta\right]`}, from a hidden symmetry of the Kerr metric
 - **Mass shell** ${tex`\kappa = -g_{\mu\nu}\dot{x}^\mu\dot{x}^\nu`} (1 for massive particles, 0 for photons)
-
-The radial and polar motions are governed by effective potentials ${tex`R(r)`} and ${tex`\Theta(\theta)`} whose zeros determine turning points:
-
-${tex.block`R(r) = \left[E(r^2 + a^2) - aL\right]^2 - \Delta\left[\kappa r^2 + (L - aE)^2 + Q\right]`}
-
-${tex.block`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\theta - L^2\cot^2\theta`}
   </script>
 
   <script id="notes" type="text/markdown">
-The Boyer–Lindquist coordinates become singular at the event horizon ${tex`r_+ = M + \sqrt{M^2 - a^2}`} where ${tex`\Delta = 0`}. Integration is terminated when the particle approaches the horizon.
-
-The event horizon and ergosphere are rendered as surfaces in the visualization. The ergosphere boundary is at ${tex`r_\text{ergo} = M + \sqrt{M^2 - a^2\cos^2\theta}`}, where it bulges outward at the equator for spinning black holes.
+The Boyer-Lindquist coordinates become singular at the event horizon ${tex`r_+ = M + \sqrt{M^2 - a^2}`} where ${tex`\Delta = 0`}. Integration is terminated when the particle approaches the horizon. The ergosphere boundary is at ${tex`r_\text{ergo} = M + \sqrt{M^2 - a^2\cos^2\theta}`}.
   </script>
 
 </notebook>

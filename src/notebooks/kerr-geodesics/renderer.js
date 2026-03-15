@@ -45,7 +45,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
           }
         }]
       },
-      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
       multisample: { count: sampleCount },
     });
@@ -172,7 +172,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
         resolveTarget: gpuContext.getCurrentTexture().createView(),
         loadOp: 'clear',
         storeOp: 'store',
-        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 0.0 },
       }],
       depthStencilAttachment: {
         view: depthTexture.createView(),
@@ -197,17 +197,19 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
 
     const rPlus = params.M + Math.sqrt(params.M * params.M - params.a * params.a);
 
-    // Draw ergosphere (translucent, draw first)
+    // Draw ergosphere (translucent)
     if (params.showErgosphere) {
-      writeSurfaceUniforms(ergosphereUniformBuffer, [0.3, 0.5, 0.8, 0.15], [params.M, params.a]);
+      const ec = params.surfaceColor || [0.5, 0.5, 0.5];
+      writeSurfaceUniforms(ergosphereUniformBuffer, [ec[0], ec[1], ec[2], params.surfaceOpacity * 0.4], [params.M, params.a]);
       pass.setPipeline(ergosphere.pipeline);
       pass.setBindGroup(0, ergosphereBindGroup);
       pass.draw(48 * 96 * 6);
     }
 
-    // Draw horizon (opaque black sphere)
+    // Draw horizon
     if (params.showHorizon) {
-      writeSurfaceUniforms(horizonUniformBuffer, [0.05, 0.05, 0.08, 1.0], [rPlus, params.a]);
+      const hc = params.surfaceColor || [0.5, 0.5, 0.5];
+      writeSurfaceUniforms(horizonUniformBuffer, [hc[0], hc[1], hc[2], params.surfaceOpacity], [rPlus, params.a]);
       pass.setPipeline(horizon.pipeline);
       pass.setBindGroup(0, horizonBindGroup);
       pass.draw(32 * 64 * 6);
