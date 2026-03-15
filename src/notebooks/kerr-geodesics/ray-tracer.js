@@ -5,7 +5,14 @@
 const toneMapShaderCode = /* wgsl */`
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
-@group(0) @binding(2) var<uniform> exposure: f32;
+
+struct ToneMapParams {
+  exposure: f32,
+  bloomIntensity: f32,
+  texelW: f32,
+  texelH: f32,
+};
+@group(0) @binding(2) var<uniform> params: ToneMapParams;
 
 struct Varyings {
   @builtin(position) pos: vec4f,
@@ -31,11 +38,46 @@ fn acesFilmic(x: vec3f) -> vec3f {
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3f(0.0), vec3f(1.0));
 }
 
+// Single-pass bloom: sample HDR texture at multiple offsets,
+// accumulate bright contributions with Gaussian falloff
+fn sampleBloom(uv: vec2f) -> vec3f {
+  let bloomThreshold = 1.0;
+  var bloom = vec3f(0.0);
+  var totalWeight = 0.0;
+
+  // Sample at 3 radii with 8 samples each (24 total)
+  let radii = array<f32, 4>(3.0, 8.0, 16.0, 30.0);
+  let sigmas = array<f32, 4>(2.0, 6.0, 12.0, 24.0);
+  let angles = 8;
+
+  for (var r = 0; r < 4; r++) {
+    let radius = radii[r];
+    let sigma = sigmas[r];
+    let w = exp(-0.5 * radius * radius / (sigma * sigma));
+
+    for (var i = 0; i < angles; i++) {
+      let angle = f32(i) * 6.28318 / f32(angles) + f32(r) * 0.3;
+      let offset = vec2f(cos(angle) * radius * params.texelW, sin(angle) * radius * params.texelH);
+      let s = textureSample(tex, samp, uv + offset).rgb;
+      // Only accumulate bright parts above threshold
+      let bright = max(s - vec3f(bloomThreshold), vec3f(0.0));
+      bloom += bright * w;
+      totalWeight += w;
+    }
+  }
+
+  return bloom / totalWeight;
+}
+
 @fragment fn fs(in: Varyings) -> @location(0) vec4f {
   let hdr = textureSample(tex, samp, in.uv).rgb;
 
+  // Bloom: soft glow from bright areas
+  let bloom = sampleBloom(in.uv);
+  let combined = hdr + bloom * params.bloomIntensity;
+
   // Apply exposure
-  let exposed = hdr * exposure;
+  let exposed = combined * params.exposure;
 
   // ACES filmic tone mapping
   let mapped = acesFilmic(exposed);
@@ -132,13 +174,13 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     minFilter: 'linear',
   });
 
-  // Exposure uniform buffer (single f32, padded to 4 bytes)
-  const exposureBuffer = device.createBuffer({
-    label: 'exposure-uniform',
-    size: 4,
+  // Tone map params: exposure, bloomIntensity, texelW, texelH
+  const toneMapBuffer = device.createBuffer({
+    label: 'tone-map-uniform',
+    size: 16,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  const _exposureData = new Float32Array(1);
+  const _toneMapData = new Float32Array(4);
 
   // Cache HDR texture
   let hdrTex = null;
@@ -162,7 +204,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
       entries: [
         { binding: 0, resource: hdrView },
         { binding: 1, resource: toneMapSampler },
-        { binding: 2, resource: { buffer: exposureBuffer } },
+        { binding: 2, resource: { buffer: toneMapBuffer } },
       ],
     });
     hdrW = w;
@@ -209,9 +251,12 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
 
     device.queue.writeBuffer(uniformBuffer, 0, _data);
 
-    // Write exposure
-    _exposureData[0] = params.exposure || 1.0;
-    device.queue.writeBuffer(exposureBuffer, 0, _exposureData);
+    // Write tone map params: exposure, bloomIntensity, texelW, texelH
+    _toneMapData[0] = params.exposure || 1.0;
+    _toneMapData[1] = params.bloomIntensity ?? 0.5;
+    _toneMapData[2] = 1.0 / renderWidth;
+    _toneMapData[3] = 1.0 / renderHeight;
+    device.queue.writeBuffer(toneMapBuffer, 0, _toneMapData);
 
     // Always render to HDR texture first
     ensureHDRTexture(renderWidth, renderHeight);
@@ -251,7 +296,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
 
   function destroy() {
     uniformBuffer.destroy();
-    exposureBuffer.destroy();
+    toneMapBuffer.destroy();
     if (hdrTex) hdrTex.destroy();
   }
 

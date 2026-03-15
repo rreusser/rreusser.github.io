@@ -343,12 +343,13 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   let outerFade = smoothstep(rOuter, rOuter * 0.7, r);
   let fade = innerFade * outerFade;
 
-  // Warm blackbody color ramp: dark red → amber → warm white
+  // Warm blackbody color ramp: dark red/copper → warm white at high intensity
+  // Reference look: blown-out white core, copper/amber at edges
   let I = intensity * density;
   let col = vec3f(
-    min(I * 2.0, 1.0 + I * 0.5),                    // red channel saturates early then goes beyond 1
-    I * I * 0.6 + I * 0.15,                          // green lags behind
-    I * I * I * 0.25 + I * I * 0.05,                 // blue only at high intensity
+    min(I * 1.8, 1.0 + I * 0.8),                    // red saturates first
+    I * 0.45 + I * I * 0.55,                         // green follows closely for warm white
+    I * 0.15 + I * I * 0.4,                          // blue rises for white at high I
   );
 
   // HDR output — no clamping, let the tone mapper handle it
@@ -374,7 +375,8 @@ fn hash22(p: vec2f) -> vec2f {
 fn starfield(dir: vec3f, pixelSize: f32) -> vec3f {
   let theta = acos(clamp(dir.y, -1.0, 1.0));
   let phi = atan2(dir.z, dir.x);
-  let uv = vec2f(phi * 80.0, theta * 80.0);
+  let gridScale = 80.0;
+  let uv = vec2f(phi * gridScale, theta * gridScale);
   let cell = floor(uv);
   let h = hash21(cell);
   if (h > 0.97) {
@@ -382,8 +384,11 @@ fn starfield(dir: vec3f, pixelSize: f32) -> vec3f {
     // Star position within cell
     let starPos = hash22(cell + vec2f(7.0, 13.0));
     let d = length(uv - cell - starPos);
-    // Scale intensity by a sharp Gaussian, width set by pixel footprint
-    let radius = max(pixelSize * 80.0, 0.15);
+    // Scale intensity by a sharp Gaussian, width set by pixel footprint.
+    // Minimum radius is ~1 screen pixel in grid-space units, so stars
+    // stay point-like regardless of figure size.
+    let minRadius = gridScale * 3.14159 / max(u.resolution.x, u.resolution.y);
+    let radius = max(pixelSize * gridScale, minRadius);
     let atten = exp(-0.5 * d * d / (radius * radius));
     // Slight color variation
     let temp = hash21(cell + vec2f(42.0, 17.0));

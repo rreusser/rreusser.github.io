@@ -472,6 +472,20 @@ const rtDiskOuterInput = rtControlsContainer.appendChild(
 const rtExposureInput = rtControlsContainer.appendChild(
   Inputs.range([0.1, 5.0], { label: 'Exposure', value: 1.0, step: 0.01 })
 );
+const rtBloomInput = rtControlsContainer.appendChild(
+  Inputs.range([0, 2.0], { label: 'Bloom', value: 0.5, step: 0.01 })
+);
+
+// Quality controls in a collapsible section
+const rtQualityBox = rtControlsContainer.appendChild(html`<details style="margin-top: 0.25em;">
+  <summary style="cursor: pointer; font-size: 0.9em; opacity: 0.8;">Quality</summary>
+</details>`);
+const rtMaxStepsInput = rtQualityBox.appendChild(
+  Inputs.range([500, 5000], { label: 'Max steps', value: 2000, step: 100 })
+);
+const rtStepSizeInput = rtQualityBox.appendChild(
+  Inputs.range([0.02, 0.5], { label: 'Step size', value: 0.1, step: 0.01 })
+);
   </script>
 
   <script id="rt-renderer" type="text/x-typescript">
@@ -500,8 +514,9 @@ function rtRenderActual() {
     M: 1,
     diskOuter: rtDiskOuterInput.value,
     exposure: rtExposureInput.value,
-    maxSteps: rtInteracting ? 600 : 2000,
-    stepSize: rtInteracting ? 0.4 : 0.1,
+    bloomIntensity: rtBloomInput.value,
+    maxSteps: rtInteracting ? 600 : rtMaxStepsInput.value,
+    stepSize: rtInteracting ? 0.4 : rtStepSizeInput.value,
     renderWidth: Math.max(1, Math.floor(w * scale)),
     renderHeight: Math.max(1, Math.floor(h * scale)),
   }, rtCamera, w, h);
