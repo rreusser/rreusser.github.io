@@ -30,7 +30,7 @@ export function radialPotential(r, params) {
   return P * P - Delta * Cr;
 }
 
-function radialPotentialDeriv(r, params) {
+export function radialPotentialDeriv(r, params) {
   const { M, a, E, L, Q, kappa } = params;
   const r2 = r * r;
   const a2 = a * a;
