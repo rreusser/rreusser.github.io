@@ -7,16 +7,24 @@ const blitShaderCode = /* wgsl */`
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
 
-@vertex fn vs(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4f {
+struct Varyings {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@vertex fn vs(@builtin(vertex_index) vid: u32) -> Varyings {
+  // Oversize triangle covering clip space [-1,1]
   let x = select(-1.0, 3.0, vid == 1u);
   let y = select(-1.0, 3.0, vid == 2u);
-  return vec4f(x, y, 0.0, 1.0);
+  var out: Varyings;
+  out.pos = vec4f(x, y, 0.0, 1.0);
+  // Map clip [-1,1] to UV [0,1], flip Y for texture coordinates
+  out.uv = vec2f((x + 1.0) * 0.5, (1.0 - y) * 0.5);
+  return out;
 }
 
-@fragment fn fs(@builtin(position) pos: vec4f, ) -> @location(0) vec4f {
-  let dims = vec2f(textureDimensions(tex));
-  let uv = pos.xy / dims;
-  return textureSample(tex, samp, uv);
+@fragment fn fs(in: Varyings) -> @location(0) vec4f {
+  return textureSample(tex, samp, in.uv);
 }
 `;
 
