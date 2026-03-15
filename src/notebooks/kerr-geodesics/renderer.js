@@ -468,7 +468,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       _arrowData[16] = arrowOrigin[0]; _arrowData[17] = arrowOrigin[1]; _arrowData[18] = arrowOrigin[2]; _arrowData[19] = 0;
       _arrowData[20] = arrowDir[0]; _arrowData[21] = arrowDir[1]; _arrowData[22] = arrowDir[2]; _arrowData[23] = arrowLength;
       _arrowData[24] = 1.0; _arrowData[25] = 0.5; _arrowData[26] = 0.1; _arrowData[27] = 1.0;
-      _arrowData[28] = 0.12 * s; _arrowData[29] = 0.3 * s; _arrowData[30] = 0.25; _arrowData[31] = 0;
+      _arrowData[28] = 0.12 * s; _arrowData[29] = 0.3 * s; _arrowData[30] = 0.1; _arrowData[31] = 0;
       device.queue.writeBuffer(arrowUniformBuffer, 0, _arrowData);
 
       const arrowPass = encoder.beginRenderPass({
