@@ -343,17 +343,20 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   let outerFade = smoothstep(rOuter, rOuter * 0.7, r);
   let fade = innerFade * outerFade;
 
-  // Warm blackbody color ramp: dark red/copper → warm white at high intensity
-  // Reference look: blown-out white core, copper/amber at edges
-  let I = intensity * density;
+  // Brightness: g^3 beaming × temperature × density
+  let brightness = intensity * density;
+
+  // Color hue from Doppler-shifted temperature (not from beamed intensity,
+  // which would make beaming ~g^6 instead of the correct ~g^3).
+  let T = temp * clamp(abs(g), 0.3, 3.0);
   let col = vec3f(
-    min(I * 1.8, 1.0 + I * 0.8),                    // red saturates first
-    I * 0.45 + I * I * 0.55,                         // green follows closely for warm white
-    I * 0.15 + I * I * 0.4,                          // blue rises for white at high I
+    min(T * 2.5, 1.0 + T * 0.3),                    // red saturates first
+    T * 0.5 + T * T * 0.4,                           // green follows for warm white
+    T * 0.15 + T * T * 0.3,                          // blue rises for white at high T
   );
 
   // HDR output — no clamping, let the tone mapper handle it
-  return vec4f(col * I * 3.0 * fade, fade);
+  return vec4f(col * brightness * 4.0 * fade, fade);
 }
 
 // ============================================================
