@@ -86,8 +86,7 @@ const surfacePeelTest = /* wgsl */`
 
 fn peelTest(fragPos: vec4f) {
   let prevDepth = textureLoad(peelDepth, vec2i(fragPos.xy), 0);
-  let eps = max(fragPos.z, prevDepth) * 5e-4 + 1e-6;
-  if (fragPos.z <= prevDepth + eps) { discard; }
+  if (fragPos.z <= prevDepth + 1e-5) { discard; }
 }
 `;
 
@@ -194,6 +193,7 @@ struct VertexOutput {
   @location(0) normal: vec3f,
   @location(1) worldPos: vec3f,
   @location(2) uv: vec2f,
+  @location(3) radialGap: f32,
 };
 
 @vertex fn vs(@builtin(vertex_index) vid: u32) -> VertexOutput {
@@ -227,6 +227,7 @@ struct VertexOutput {
   let sth = sin(theta);
   let cth = cos(theta);
   let rErgo = M + sqrt(max(M * M - a * a * cth * cth, 0.0));
+  let rPlus = M + sqrt(max(M * M - a * a, 0.0));
   let rho = sqrt(rErgo * rErgo + a * a);
 
   let x = rho * sth * cos(phi);
@@ -246,11 +247,15 @@ struct VertexOutput {
   out.normal = n;
   out.worldPos = vec3f(x, y, z);
   out.uv = vec2f(theta, phi);
+  out.radialGap = (rErgo - rPlus) / rPlus;
   return out;
 }
 
 @fragment fn fs(v: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
   peelTest(v.position);
+
+  // Clip ergosphere where it merges with the horizon at the poles
+  if (v.radialGap < 0.01) { discard; }
 
   var N = normalize(v.normal);
   if (!frontFacing) { N = -N; }
@@ -261,7 +266,9 @@ struct VertexOutput {
   let diffuse = max(dot(N, lightDir), 0.0) * 0.3 + 0.15;
   let fresnel = pow(1.0 - NdotV, 3.0) * 0.4;
 
-  var alpha = u.color.a;
+  // Fade out ergosphere as it approaches the horizon
+  let gapFade = smoothstep(0.01, 0.05, v.radialGap);
+  var alpha = u.color.a * gapFade;
   if (!frontFacing) { alpha *= 0.4; }
   let color = u.color.rgb * diffuse + vec3f(fresnel);
   return vec4f(color * alpha, alpha);
