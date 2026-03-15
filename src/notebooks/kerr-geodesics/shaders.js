@@ -38,10 +38,12 @@ fn getVertex(index: u32) -> Vertex {
   let t = f32(pointIndex) / f32(lineUniforms.pointCount - 1u);
   let lineWidth = lineUniforms.width * (1.0 - 0.7 * smoothstep(0.5, 1.0, t));
 
-  // Pack line index as velocity for coloring
+  // Pack line index + isDark into velocity for coloring/border
+  // lineId in [0,1]; add 2.0 if dark theme
   let lineId = f32(lineIndex) / max(f32(lineUniforms.lineCount - 1u), 1.0);
+  let packed = lineId + select(0.0, 2.0, lineUniforms.isDark > 0.5);
 
-  return Vertex(projected, lineWidth, t, lineId, lineWidth);
+  return Vertex(projected, lineWidth, t, packed, lineWidth);
 }
 `;
 
@@ -64,14 +66,18 @@ fn getColor(lineCoord: vec2f, t: f32, velocity: f32, lineWidth: f32) -> vec4f {
 
   if (abs(lineCoord.x) > 0.0 && dot(lineCoord, lineCoord) > 1.0) { discard; }
 
-  // Color by line index (velocity stores lineId)
-  let hue = velocity * 0.7 + 0.55;
+  // Unpack line index and isDark from velocity
+  let isDark = velocity >= 1.5;
+  let lineId = velocity - select(0.0, 2.0, isDark);
+
+  // Color by line index
+  let hue = lineId * 0.7 + 0.55;
   var color = hsl2rgb(hue % 1.0, 0.7, 0.6);
 
   // Border that scales with line width (dark on dark theme, light on light theme)
   let borderWidth = min(3.0, lineWidth * 0.4);
   let borderMask = smoothstep(lineWidth - borderWidth - 0.75, lineWidth - borderWidth + 0.75, sdf);
-  let borderColor = select(vec3f(1.0), vec3f(0.0), lineUniforms.isDark > 0.5);
+  let borderColor = select(vec3f(1.0), vec3f(0.0), isDark);
   color = mix(color, borderColor, borderMask * 0.7);
 
   // Subtle fade along tail, 80% max opacity
