@@ -68,11 +68,11 @@ export function createRayTracer(device, canvasFormat, shaderCode) {
     _data[21] = M;
     _data[22] = computeISCO(M, a);
     _data[23] = params.diskOuter || 20;
-    // resolution
+    // resolution + quality
     _data[24] = width;
     _data[25] = height;
-    _data[26] = 0;
-    _data[27] = 0;
+    _data[26] = params.maxSteps || 600;
+    _data[27] = params.tolerance || 1e-6;
 
     device.queue.writeBuffer(uniformBuffer, 0, _data);
 

@@ -8,7 +8,7 @@ struct Uniforms {
   invProjView: mat4x4f,
   eye: vec4f,
   params: vec4f,       // a, M, rISCO, diskOuter
-  resolution: vec4f,   // width, height, unused, unused
+  resolution: vec4f,   // width, height, maxSteps, tolerance
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -363,6 +363,11 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   // Beamed intensity
   let intensity = temp * g * g * g;
 
+  // Smooth fade at inner edge (ISCO) and outer edge
+  let innerFade = smoothstep(rISCO * 0.95, rISCO * 1.1, r);
+  let outerFade = smoothstep(rOuter, rOuter * 0.7, r);
+  let fade = innerFade * outerFade;
+
   // Blackbody-ish color mapping
   let t = clamp(intensity, 0.0, 3.0);
   let col = vec3f(
@@ -371,7 +376,7 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
     clamp(t * t * t * 0.15, 0.0, 1.0),
   );
 
-  return vec4f(col * clamp(intensity, 0.0, 5.0), 1.0);
+  return vec4f(col * clamp(intensity, 0.0, 5.0) * fade, fade);
 }
 
 // ============================================================
@@ -415,12 +420,12 @@ fn traceRay(rayDir: vec3f) -> vec4f {
 
   var state = array<f32, 6>(0.0, rp.r0, rp.theta0, rp.phi0, rp.vr, rp.vth);
   var h: f32 = 0.5;
-  let tol: f32 = 1e-6;
+  let tol = u.resolution.w;
 
   var color = vec3f(0.0);
   var accumulated: f32 = 0.0;
 
-  let maxSteps = 600u;
+  let maxSteps = u32(u.resolution.z);
   for (var step = 0u; step < maxSteps; step++) {
     let prevTheta = state[2];
     let prevR = state[1];

@@ -465,16 +465,40 @@ invalidation.then(() => rayTracer.destroy());
   </script>
 
   <script id="rt-render-loop" type="text/x-typescript">
+let rtQualityTimer: ReturnType<typeof setTimeout> | null = null;
+let rtHighQuality = true;
+
 rtCamera.on('render', () => {
   rayTracer.render(rtGpuContext, {
     a: rtSpinInput.value,
     M: 1,
     diskOuter: rtDiskOuterInput.value,
+    maxSteps: rtHighQuality ? 600 : 200,
+    tolerance: rtHighQuality ? 1e-6 : 1e-4,
   }, rtCamera, rtCanvas.width, rtCanvas.height);
 });
 
+function rtRequestLowQuality() {
+  rtHighQuality = false;
+  if (rtQualityTimer) clearTimeout(rtQualityTimer);
+  rtQualityTimer = setTimeout(() => {
+    rtHighQuality = true;
+    rtCamera.triggerRepaint();
+  }, 300);
+}
+
+rtCanvas.addEventListener('pointerdown', rtRequestLowQuality);
+rtCanvas.addEventListener('wheel', rtRequestLowQuality, { passive: true });
+
 rtControlsContainer.addEventListener('input', () => {
+  rtRequestLowQuality();
   rtCamera.triggerRepaint();
+});
+
+invalidation.then(() => {
+  if (rtQualityTimer) clearTimeout(rtQualityTimer);
+  rtCanvas.removeEventListener('pointerdown', rtRequestLowQuality);
+  rtCanvas.removeEventListener('wheel', rtRequestLowQuality);
 });
 
 rtCamera.triggerRepaint();
