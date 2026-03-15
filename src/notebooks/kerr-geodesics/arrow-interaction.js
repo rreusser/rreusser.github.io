@@ -107,31 +107,30 @@ export function createArrowInteraction(canvas, camera, {
     return [near[0] + t * dir[0], near[1] + t * dir[1], near[2] + t * dir[2]];
   }
 
-  function getMousePos(e) {
+  function getClientPos(e) {
+    const touch = e.touches ? e.touches[0] : e;
     const rect = canvas.getBoundingClientRect();
     return [
-      (e.clientX - rect.left) * (canvas.width / rect.width),
-      (e.clientY - rect.top) * (canvas.height / rect.height),
+      (touch.clientX - rect.left) * (canvas.width / rect.width),
+      (touch.clientY - rect.top) * (canvas.height / rect.height),
     ];
   }
 
-  function onMouseDown(e) {
-    if (e.button !== 0) return;
+  function tryStartDrag(sx, sy, e) {
     const state = getArrowState();
-    if (!state || !state.visible) return;
+    if (!state || !state.visible) return false;
 
     const aspectRatio = canvas.width / canvas.height;
     const { projView, eye } = camera.update(aspectRatio);
 
-    const [sx, sy] = getMousePos(e);
     const tipScreen = project(state.tip, projView, canvas.width, canvas.height);
-    if (!tipScreen) return;
+    if (!tipScreen) return false;
 
     const dx = sx - tipScreen[0];
     const dy = sy - tipScreen[1];
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist > hitRadius * (devicePixelRatio || 1)) return;
+    if (dist > hitRadius * (devicePixelRatio || 1)) return false;
 
     // Hit! Start dragging
     dragging = true;
@@ -156,16 +155,16 @@ export function createArrowInteraction(canvas, camera, {
         dragOffset = [state.tip[0] - worldPt[0], state.tip[1] - worldPt[1], state.tip[2] - worldPt[2]];
       }
     }
+    return true;
   }
 
-  function onMouseMove(e) {
+  function doDrag(sx, sy, e) {
     if (!dragging) return;
     e.stopImmediatePropagation();
     e.preventDefault();
 
     const aspectRatio = canvas.width / canvas.height;
     const { projView } = camera.update(aspectRatio);
-    const [sx, sy] = getMousePos(e);
 
     const ray = unproject(sx, sy, 0, projView, canvas.width, canvas.height);
     if (!ray) return;
@@ -182,7 +181,7 @@ export function createArrowInteraction(canvas, camera, {
     onDrag(newTip);
   }
 
-  function onMouseUp(e) {
+  function endDrag(e) {
     if (!dragging) return;
     dragging = false;
     e.stopImmediatePropagation();
@@ -190,15 +189,49 @@ export function createArrowInteraction(canvas, camera, {
     if (onDragEnd) onDragEnd();
   }
 
+  // --- Mouse handlers ---
+  function onMouseDown(e) {
+    if (e.button !== 0) return;
+    const [sx, sy] = getClientPos(e);
+    tryStartDrag(sx, sy, e);
+  }
+
+  function onMouseMove(e) {
+    const [sx, sy] = getClientPos(e);
+    doDrag(sx, sy, e);
+  }
+
+  function onMouseUp(e) { endDrag(e); }
+
+  // --- Touch handlers ---
+  function onTouchStart(e) {
+    if (e.touches.length !== 1) return;
+    const [sx, sy] = getClientPos(e);
+    tryStartDrag(sx, sy, e);
+  }
+
+  function onTouchMove(e) {
+    const [sx, sy] = getClientPos(e);
+    doDrag(sx, sy, e);
+  }
+
+  function onTouchEnd(e) { endDrag(e); }
+
   // Capture phase handlers fire before the camera's bubble-phase handlers
   canvas.addEventListener('mousedown', onMouseDown, { capture: true });
   document.addEventListener('mousemove', onMouseMove, { capture: true });
   document.addEventListener('mouseup', onMouseUp, { capture: true });
+  canvas.addEventListener('touchstart', onTouchStart, { capture: true });
+  document.addEventListener('touchmove', onTouchMove, { capture: true });
+  document.addEventListener('touchend', onTouchEnd, { capture: true });
 
   function destroy() {
     canvas.removeEventListener('mousedown', onMouseDown, { capture: true });
     document.removeEventListener('mousemove', onMouseMove, { capture: true });
     document.removeEventListener('mouseup', onMouseUp, { capture: true });
+    canvas.removeEventListener('touchstart', onTouchStart, { capture: true });
+    document.removeEventListener('touchmove', onTouchMove, { capture: true });
+    document.removeEventListener('touchend', onTouchEnd, { capture: true });
   }
 
   return { destroy };
