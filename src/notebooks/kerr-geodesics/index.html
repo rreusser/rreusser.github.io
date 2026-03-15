@@ -342,11 +342,21 @@ const container = html`<div style="position: relative; width: 100%; height: 100%
 container.appendChild(canvas);
 
 let expandableContainer: ReturnType<typeof expandable>;
+let mainHasExpanded = false;
 expandableContainer = expandable(container, {
   width: 640,
   height: 480,
   controls: controlsContainer,
   state: state.expandedState,
+  onResize: (_content: HTMLElement, w: number, h: number, expanded: boolean) => {
+    if (expanded) mainHasExpanded = true;
+    // Only override the responsive 100% sizing after the first expand,
+    // so initial load stays responsive to article width.
+    if (mainHasExpanded) {
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+    }
+  },
   buttons: cameraButtons({
     camera,
     canvas,
@@ -439,14 +449,14 @@ rtCanvas.style.height = '100%';
   <script id="rt-camera" type="text/x-typescript">
 const rtCamera = createUnifiedCamera(rtCanvas, {
   mode: 'orbit',
-  distance: 30,
-  phi: 1.2,
-  theta: 0.3,
+  distance: 25,
+  phi: 1.35,
+  theta: 0.08,
   center: [0, 0, 0],
   near: 1,
   far: 200,
   renderContinuously: false,
-  observeResize: false, // managed by rt-render-loop for resolution scaling
+  observeResize: true,
 });
 invalidation.then(() => rtCamera.destroy());
   </script>
@@ -454,10 +464,27 @@ invalidation.then(() => rtCamera.destroy());
   <script id="rt-controls" type="text/x-typescript">
 const rtControlsContainer = html`<div id="rt-controls"></div>`;
 const rtSpinInput = rtControlsContainer.appendChild(
-  Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 })
+  Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.4, step: 0.001 })
 );
 const rtDiskOuterInput = rtControlsContainer.appendChild(
-  Inputs.range([5, 40], { label: 'Disk outer radius', value: 20, step: 0.5 })
+  Inputs.range([5, 40], { label: 'Disk outer radius', value: 30, step: 0.5 })
+);
+const rtExposureInput = rtControlsContainer.appendChild(
+  Inputs.range([0.1, 5.0], { label: 'Exposure', value: 1.0, step: 0.01 })
+);
+const rtBloomInput = rtControlsContainer.appendChild(
+  Inputs.range([0, 5.0], { label: 'Bloom', value: 2.0, step: 0.01 })
+);
+
+// Quality controls in a collapsible section
+const rtQualityBox = rtControlsContainer.appendChild(html`<details style="margin-top: 0.25em;">
+  <summary style="cursor: pointer; font-size: 0.9em; opacity: 0.8;">Quality</summary>
+</details>`);
+const rtMaxStepsInput = rtQualityBox.appendChild(
+  Inputs.range([500, 5000], { label: 'Max steps', value: 2000, step: 100, transform: Math.log })
+);
+const rtStepSizeInput = rtQualityBox.appendChild(
+  Inputs.range([0.02, 0.5], { label: 'Step size', value: 0.1, step: 0.001, transform: Math.log })
 );
   </script>
 
@@ -475,33 +502,37 @@ invalidation.then(() => rayTracer.destroy());
   <script id="rt-render-loop" type="text/x-typescript">
 let rtDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let rtInteracting = false;
+let rtFrameRequested = false;
 
-const rtResizeObserver = new ResizeObserver((entries) => {
-  for (const entry of entries) {
-    const { width, height } = entry.contentRect;
-    if (width > 0 && height > 0) {
-      const dpr = devicePixelRatio;
-      rtCanvas.width = Math.floor(width * dpr);
-      rtCanvas.height = Math.floor(height * dpr);
-      rtCamera.triggerRepaint();
-    }
-  }
-});
-rtResizeObserver.observe(rtCanvas);
-
-function rtRender() {
+function rtRenderActual() {
   const w = rtCanvas.width;
   const h = rtCanvas.height;
+  if (w === 0 || h === 0) return;
   const scale = rtInteracting ? 0.25 : 1;
   rayTracer.render(rtGpuContext, {
     a: rtSpinInput.value,
     M: 1,
     diskOuter: rtDiskOuterInput.value,
-    maxSteps: rtInteracting ? 600 : 2000,
-    stepSize: rtInteracting ? 0.4 : 0.1,
+    exposure: rtExposureInput.value,
+    bloomIntensity: rtBloomInput.value,
+    maxSteps: rtInteracting ? 600 : rtMaxStepsInput.value,
+    stepSize: rtInteracting ? 0.4 : rtStepSizeInput.value,
     renderWidth: Math.max(1, Math.floor(w * scale)),
     renderHeight: Math.max(1, Math.floor(h * scale)),
   }, rtCamera, w, h);
+}
+
+// Coalesce renders: the camera fires emitRender synchronously on every
+// input event, so multiple wheel/pointer events per frame each trigger a
+// render listener call. Gate through rAF so at most one GPU submission
+// per display frame.
+function rtRender() {
+  if (rtFrameRequested) return;
+  rtFrameRequested = true;
+  requestAnimationFrame(() => {
+    rtFrameRequested = false;
+    rtRenderActual();
+  });
 }
 
 rtCamera.on('render', rtRender);
@@ -544,7 +575,6 @@ rtControlsContainer.addEventListener('input', () => {
 
 invalidation.then(() => {
   if (rtDebounceTimer) clearTimeout(rtDebounceTimer);
-  rtResizeObserver.disconnect();
   rtCanvas.removeEventListener('pointerdown', rtOnPointerDown);
   rtCanvas.removeEventListener('pointermove', rtOnPointerMove);
   rtCanvas.removeEventListener('wheel', rtOnWheel);
@@ -559,11 +589,20 @@ const rtContainer = html`<div style="position: relative; width: 100%; height: 10
 rtContainer.appendChild(rtCanvas);
 
 let rtExpandable: ReturnType<typeof expandable>;
+let rtHasExpanded = false;
 rtExpandable = expandable(rtContainer, {
   width: 640,
   height: 480,
+  wide: true,
   controls: rtControlsContainer,
   state: { expanded: false },
+  onResize: (_content: HTMLElement, w: number, h: number, expanded: boolean) => {
+    if (expanded) rtHasExpanded = true;
+    if (rtHasExpanded) {
+      rtCanvas.style.width = `${w}px`;
+      rtCanvas.style.height = `${h}px`;
+    }
+  },
   buttons: cameraButtons({
     camera: rtCamera,
     canvas: rtCanvas,
@@ -584,11 +623,11 @@ display(rtControlsContainer);
 
 The ray tracer uses the same Carter equations as the geodesic integrator above, specialized to null rays (${tex`\kappa = 0`}) and normalized so that ${tex`E = 1`}. Each ray is parameterized by its impact parameter ${tex`b = L/E`} and reduced Carter constant ${tex`q^2 = Q/E^2`}, extracted from the camera ray direction via the Jacobian of the Boyer-Lindquist coordinate map and the null condition.
 
-The key difference from the textbook first-order form (${tex`\Sigma\,dr/d\lambda = \pm\sqrt{R}`} with explicit sign tracking) is that the integration is done in **Mino time** using the **second-order form**:
+The integration uses the **second-order Carter equations** in affine parameter ${tex`\lambda`}, with Mino-time velocities ${tex`v_r = \pm\sqrt{R}`} and ${tex`v_\theta = \pm\sqrt{\Theta}`} as state variables:
 
-${tex.block`\dot{v}_r = \tfrac{1}{2}R'(r), \qquad \dot{v}_\theta = \tfrac{1}{2}\Theta'(\theta)`}
+${tex.block`\frac{dv_r}{d\lambda} = \frac{R'(r)}{2\Sigma}, \qquad \frac{dv_\theta}{d\lambda} = \frac{\Theta'(\theta)}{2\Sigma}`}
 
-In Mino time, the radial system ${tex`(r, v_r)`} depends only on ${tex`r`} (a pure polynomial — no trig) and the polar system ${tex`(\theta, v_\theta)`} depends only on ${tex`\theta`} (pure trig — no polynomial in ${tex`r`}). They are integrated as two **independent 2D RK4 systems**, while the azimuthal angle ${tex`\varphi`} is accumulated via the midpoint rule using both. Velocities pass smoothly through zero at turning points, eliminating the need for sign tracking or root-finding.
+The velocities pass smoothly through zero at turning points — the acceleration terms ${tex`R'/2`} and ${tex`\Theta'/2`} push them through without any sign tracking or root-finding. (First-order sign-tracking, where ${tex`\sqrt{\max(\Theta, 0)}`} goes to zero at turning points, stalls the integrator for rays that need to bounce in ${tex`\theta`}.) Dividing by ${tex`\Sigma`} converts to affine time, bounding all rates at large ${tex`r`} so the step size needs only a simple horizon-proximity factor ${tex`h \propto (r - r_+)/r`}. The 5D state ${tex`(r, v_r, \theta, v_\theta, \varphi)`} is advanced with a single **RK4** step per iteration.
   </script>
 
   <script id="rt-doppler" type="text/markdown">

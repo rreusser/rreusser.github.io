@@ -1,37 +1,139 @@
 // Ray-traced Kerr black hole renderer
-// Creates a fragment-shader-based ray tracer that traces null geodesics
-// per pixel with adaptive integration. Supports rendering at a lower
-// resolution and blitting to the full-size canvas.
+// Renders to an HDR (rgba16float) texture, applies multi-level bloom via
+// a downsample pyramid with separable Gaussian blur at each level, then
+// tone maps to the canvas with ACES filmic.
 
-const blitShaderCode = /* wgsl */`
-@group(0) @binding(0) var tex: texture_2d<f32>;
-@group(0) @binding(1) var samp: sampler;
+const BLOOM_LEVELS = 6;
 
+// Full-screen triangle vertex shader (shared by bloom and tone map shaders)
+const fullscreenVS = `
 struct Varyings {
   @builtin(position) pos: vec4f,
   @location(0) uv: vec2f,
 };
 
 @vertex fn vs(@builtin(vertex_index) vid: u32) -> Varyings {
-  // Oversize triangle covering clip space [-1,1]
   let x = select(-1.0, 3.0, vid == 1u);
   let y = select(-1.0, 3.0, vid == 2u);
   var out: Varyings;
   out.pos = vec4f(x, y, 0.0, 1.0);
-  // Map clip [-1,1] to UV [0,1], flip Y for texture coordinates
   out.uv = vec2f((x + 1.0) * 0.5, (1.0 - y) * 0.5);
   return out;
 }
+`;
+
+// Downsample shader: 4-tap bilinear box filter with optional brightness threshold
+const bloomDownsampleCode = /* wgsl */`
+@group(0) @binding(0) var inputTex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var<uniform> threshold: f32;
+
+${fullscreenVS}
 
 @fragment fn fs(in: Varyings) -> @location(0) vec4f {
-  return textureSample(tex, samp, in.uv);
+  let texSize = vec2f(textureDimensions(inputTex));
+  let d = 0.5 / texSize;
+  var color = textureSample(inputTex, samp, in.uv + vec2f(-d.x, -d.y)) * 0.25
+            + textureSample(inputTex, samp, in.uv + vec2f( d.x, -d.y)) * 0.25
+            + textureSample(inputTex, samp, in.uv + vec2f(-d.x,  d.y)) * 0.25
+            + textureSample(inputTex, samp, in.uv + vec2f( d.x,  d.y)) * 0.25;
+
+  if (threshold > 0.0) {
+    let brightness = max(color.r, max(color.g, color.b));
+    let contribution = clamp((brightness - threshold) / max(brightness, 0.001), 0.0, 1.0);
+    color = vec4f(color.rgb * contribution, 1.0);
+  }
+
+  return vec4f(color.rgb, 1.0);
+}
+`;
+
+// Separable Gaussian blur shader: 13-tap kernel (sigma ≈ 5)
+// Direction uniform: (1,0,0,0) for horizontal, (0,1,0,0) for vertical
+const bloomBlurCode = /* wgsl */`
+@group(0) @binding(0) var inputTex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var<uniform> direction: vec4f;
+
+${fullscreenVS}
+
+@fragment fn fs(in: Varyings) -> @location(0) vec4f {
+  let texSize = vec2f(textureDimensions(inputTex));
+  let d = direction.xy / texSize;
+
+  // 13-tap Gaussian, sigma ≈ 5
+  var color = textureSample(inputTex, samp, in.uv) * 0.09885;
+  color += (textureSample(inputTex, samp, in.uv + d * 1.0)
+          + textureSample(inputTex, samp, in.uv - d * 1.0)) * 0.09691;
+  color += (textureSample(inputTex, samp, in.uv + d * 2.0)
+          + textureSample(inputTex, samp, in.uv - d * 2.0)) * 0.09127;
+  color += (textureSample(inputTex, samp, in.uv + d * 3.0)
+          + textureSample(inputTex, samp, in.uv - d * 3.0)) * 0.08259;
+  color += (textureSample(inputTex, samp, in.uv + d * 4.0)
+          + textureSample(inputTex, samp, in.uv - d * 4.0)) * 0.07179;
+  color += (textureSample(inputTex, samp, in.uv + d * 5.0)
+          + textureSample(inputTex, samp, in.uv - d * 5.0)) * 0.05996;
+  color += (textureSample(inputTex, samp, in.uv + d * 6.0)
+          + textureSample(inputTex, samp, in.uv - d * 6.0)) * 0.04814;
+
+  return vec4f(color.rgb, 1.0);
+}
+`;
+
+// Tone map shader: combines HDR with bloom pyramid, applies ACES + exposure
+const toneMapShaderCode = /* wgsl */`
+@group(0) @binding(0) var hdrTex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+
+struct ToneMapParams {
+  exposure: f32,
+  bloomIntensity: f32,
+  pad0: f32,
+  pad1: f32,
+};
+@group(0) @binding(2) var<uniform> params: ToneMapParams;
+@group(0) @binding(3) var bloom0: texture_2d<f32>;
+@group(0) @binding(4) var bloom1: texture_2d<f32>;
+@group(0) @binding(5) var bloom2: texture_2d<f32>;
+@group(0) @binding(6) var bloom3: texture_2d<f32>;
+@group(0) @binding(7) var bloom4: texture_2d<f32>;
+@group(0) @binding(8) var bloom5: texture_2d<f32>;
+
+${fullscreenVS}
+
+fn acesFilmic(x: vec3f) -> vec3f {
+  let a = 2.51;
+  let b = 0.03;
+  let c = 2.43;
+  let d = 0.59;
+  let e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3f(0.0), vec3f(1.0));
+}
+
+@fragment fn fs(in: Varyings) -> @location(0) vec4f {
+  let hdr = textureSample(hdrTex, samp, in.uv).rgb;
+
+  // Blend all bloom pyramid levels — each successively wider and softer
+  let b0 = textureSample(bloom0, samp, in.uv).rgb;
+  let b1 = textureSample(bloom1, samp, in.uv).rgb;
+  let b2 = textureSample(bloom2, samp, in.uv).rgb;
+  let b3 = textureSample(bloom3, samp, in.uv).rgb;
+  let b4 = textureSample(bloom4, samp, in.uv).rgb;
+  let b5 = textureSample(bloom5, samp, in.uv).rgb;
+  let bloom = (b0 + b1 + b2 + b3 + b4 + b5) / 6.0;
+
+  let combined = hdr + bloom * params.bloomIntensity;
+  let exposed = combined * params.exposure;
+  let mapped = acesFilmic(exposed);
+  let gamma = pow(mapped, vec3f(1.0 / 2.2));
+
+  return vec4f(gamma, 1.0);
 }
 `;
 
 export async function createRayTracer(device, canvasFormat, shaderCode) {
   const module = device.createShaderModule({ label: 'ray-tracer', code: shaderCode });
 
-  // Check for shader compilation errors and surface them visibly
   const compilationInfo = await module.getCompilationInfo();
   const errors = compilationInfo.messages.filter(m => m.type === 'error');
   if (errors.length > 0) {
@@ -46,6 +148,13 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
       console.warn(`[ray-tracer shader] warning: ${m.message} (line ${m.lineNum}:${m.linePos})`);
     }
   }
+
+  const hdrFormat = 'rgba16float';
+  const FRAG = GPUShaderStage.FRAGMENT;
+
+  // ============================================================
+  // Ray tracer pipeline (renders to HDR texture)
+  // ============================================================
 
   const uniformBGL = device.createBindGroupLayout({
     label: 'ray-tracer-bgl',
@@ -63,84 +172,170 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     fragment: {
       module,
       entryPoint: 'fs',
-      targets: [{ format: canvasFormat }],
+      targets: [{ format: hdrFormat }],
     },
     primitive: { topology: 'triangle-list' },
     multisample: { count: 1 },
   });
 
-  // Uniform buffer: invProjView(64) + eye(16) + params(16) + resolution(16) = 112
   const uniformBuffer = device.createBuffer({
     label: 'ray-tracer-uniforms',
     size: 112,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
-  const bindGroup = device.createBindGroup({
+  const rtBindGroup = device.createBindGroup({
     layout: uniformBGL,
     entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
   });
 
-  // --- Blit pipeline for upscaling offscreen texture to canvas ---
-  const blitModule = device.createShaderModule({ label: 'blit', code: blitShaderCode });
+  // ============================================================
+  // Bloom: shared bind group layout for downsample + blur
+  // ============================================================
 
-  const blitBGL = device.createBindGroupLayout({
-    label: 'blit-bgl',
+  const bloomBGL = device.createBindGroupLayout({
+    label: 'bloom-bgl',
     entries: [
-      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 0, visibility: FRAG, texture: { sampleType: 'float' } },
+      { binding: 1, visibility: FRAG, sampler: { type: 'filtering' } },
+      { binding: 2, visibility: FRAG, buffer: { type: 'uniform' } },
     ],
   });
 
-  const blitPipeline = device.createRenderPipeline({
-    label: 'blit',
-    layout: device.createPipelineLayout({ bindGroupLayouts: [blitBGL] }),
-    vertex: { module: blitModule, entryPoint: 'vs' },
-    fragment: {
-      module: blitModule,
-      entryPoint: 'fs',
-      targets: [{ format: canvasFormat }],
-    },
+  const bloomLayout = device.createPipelineLayout({ bindGroupLayouts: [bloomBGL] });
+
+  // Downsample pipeline
+  const bloomDownModule = device.createShaderModule({ label: 'bloom-downsample', code: bloomDownsampleCode });
+  const bloomDownPipeline = device.createRenderPipeline({
+    label: 'bloom-downsample',
+    layout: bloomLayout,
+    vertex: { module: bloomDownModule, entryPoint: 'vs' },
+    fragment: { module: bloomDownModule, entryPoint: 'fs', targets: [{ format: hdrFormat }] },
     primitive: { topology: 'triangle-list' },
   });
 
-  const blitSampler = device.createSampler({
-    label: 'blit-sampler',
+  // Gaussian blur pipeline
+  const bloomBlurModule = device.createShaderModule({ label: 'bloom-blur', code: bloomBlurCode });
+  const bloomBlurPipeline = device.createRenderPipeline({
+    label: 'bloom-blur',
+    layout: bloomLayout,
+    vertex: { module: bloomBlurModule, entryPoint: 'vs' },
+    fragment: { module: bloomBlurModule, entryPoint: 'fs', targets: [{ format: hdrFormat }] },
+    primitive: { topology: 'triangle-list' },
+  });
+
+  const bloomSampler = device.createSampler({
+    label: 'bloom-sampler',
     magFilter: 'linear',
     minFilter: 'linear',
   });
 
-  // Cache offscreen texture to avoid re-creating each frame at the same size
-  let offscreenTex = null;
-  let offscreenView = null;
-  let offscreenBindGroup = null;
-  let offscreenW = 0;
-  let offscreenH = 0;
-
-  function ensureOffscreenTexture(w, h) {
-    if (offscreenW === w && offscreenH === h && offscreenTex) return;
-    if (offscreenTex) offscreenTex.destroy();
-    offscreenTex = device.createTexture({
-      label: 'ray-tracer-offscreen',
-      size: [w, h],
-      format: canvasFormat,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+  // Pre-created uniform buffers for threshold and blur direction
+  function makeConstBuffer(label, data) {
+    const buf = device.createBuffer({
+      label,
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    offscreenView = offscreenTex.createView();
-    offscreenBindGroup = device.createBindGroup({
-      layout: blitBGL,
-      entries: [
-        { binding: 0, resource: offscreenView },
-        { binding: 1, resource: blitSampler },
-      ],
-    });
-    offscreenW = w;
-    offscreenH = h;
+    device.queue.writeBuffer(buf, 0, new Float32Array(data));
+    return buf;
   }
 
-  const _data = new Float32Array(28); // 112 bytes / 4
+  const thresholdOnBuffer = makeConstBuffer('threshold-on', [0.8, 0, 0, 0]);
+  const thresholdOffBuffer = makeConstBuffer('threshold-off', [0.0, 0, 0, 0]);
+  const blurHBuffer = makeConstBuffer('blur-horizontal', [1, 0, 0, 0]);
+  const blurVBuffer = makeConstBuffer('blur-vertical', [0, 1, 0, 0]);
 
-  // Compute ISCO radius for prograde circular orbits
+  // ============================================================
+  // Tone map pipeline (HDR + bloom → canvas)
+  // ============================================================
+
+  const toneMapModule = device.createShaderModule({ label: 'tone-map', code: toneMapShaderCode });
+
+  const toneMapBGLEntries = [
+    { binding: 0, visibility: FRAG, texture: { sampleType: 'float' } },
+    { binding: 1, visibility: FRAG, sampler: { type: 'filtering' } },
+    { binding: 2, visibility: FRAG, buffer: { type: 'uniform' } },
+  ];
+  for (let i = 0; i < BLOOM_LEVELS; i++) {
+    toneMapBGLEntries.push({ binding: 3 + i, visibility: FRAG, texture: { sampleType: 'float' } });
+  }
+
+  const toneMapBGL = device.createBindGroupLayout({ label: 'tone-map-bgl', entries: toneMapBGLEntries });
+
+  const toneMapPipeline = device.createRenderPipeline({
+    label: 'tone-map',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [toneMapBGL] }),
+    vertex: { module: toneMapModule, entryPoint: 'vs' },
+    fragment: { module: toneMapModule, entryPoint: 'fs', targets: [{ format: canvasFormat }] },
+    primitive: { topology: 'triangle-list' },
+  });
+
+  const toneMapBuffer = device.createBuffer({
+    label: 'tone-map-uniform',
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const _toneMapData = new Float32Array(4);
+
+  // ============================================================
+  // Cached textures
+  // ============================================================
+
+  let hdrTex = null;
+  let hdrView = null;
+  let hdrW = 0, hdrH = 0;
+
+  // Two arrays for ping-pong blur at each bloom level
+  let bloomA = [];  // views
+  let bloomB = [];  // views (ping-pong target for blur)
+  let bloomTexA = [];
+  let bloomTexB = [];
+  let bloomW = 0, bloomH = 0;
+
+  function ensureHDRTexture(w, h) {
+    if (hdrW === w && hdrH === h && hdrTex) return;
+    if (hdrTex) hdrTex.destroy();
+    hdrTex = device.createTexture({
+      label: 'ray-tracer-hdr',
+      size: [w, h],
+      format: hdrFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    hdrView = hdrTex.createView();
+    hdrW = w;
+    hdrH = h;
+  }
+
+  function ensureBloomTextures(w, h) {
+    if (bloomW === w && bloomH === h && bloomTexA.length === BLOOM_LEVELS) return;
+    for (const t of bloomTexA) t.destroy();
+    for (const t of bloomTexB) t.destroy();
+    bloomTexA = []; bloomTexB = [];
+    bloomA = []; bloomB = [];
+
+    let bw = w, bh = h;
+    for (let i = 0; i < BLOOM_LEVELS; i++) {
+      bw = Math.max(1, Math.floor(bw / 2));
+      bh = Math.max(1, Math.floor(bh / 2));
+      const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+      const tA = device.createTexture({ label: `bloomA-${i}`, size: [bw, bh], format: hdrFormat, usage });
+      const tB = device.createTexture({ label: `bloomB-${i}`, size: [bw, bh], format: hdrFormat, usage });
+      bloomTexA.push(tA);
+      bloomTexB.push(tB);
+      bloomA.push(tA.createView());
+      bloomB.push(tB.createView());
+    }
+    bloomW = w;
+    bloomH = h;
+  }
+
+  // ============================================================
+  // Render
+  // ============================================================
+
+  const _data = new Float32Array(28);
+
   function computeISCO(M, a) {
     const am = a / M;
     const z1 = 1 + Math.cbrt(1 - am * am) * (Math.cbrt(1 + am) + Math.cbrt(1 - am));
@@ -148,91 +343,111 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     return M * (3 + z2 - Math.sqrt((3 - z1) * (3 + z1 + 2 * z2)));
   }
 
+  // Helper: run a fullscreen pass
+  function fullscreenPass(encoder, pipeline, bindGroup, targetView) {
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: targetView,
+        loadOp: 'clear',
+        storeOp: 'store',
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      }],
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(3);
+    pass.end();
+  }
+
+  function makeBloomBG(inputView, uniformBuf) {
+    return device.createBindGroup({
+      layout: bloomBGL,
+      entries: [
+        { binding: 0, resource: inputView },
+        { binding: 1, resource: bloomSampler },
+        { binding: 2, resource: { buffer: uniformBuf } },
+      ],
+    });
+  }
+
   function render(gpuContext, params, camera, canvasWidth, canvasHeight) {
     const renderWidth = params.renderWidth || canvasWidth;
     const renderHeight = params.renderHeight || canvasHeight;
-    const needsBlit = renderWidth !== canvasWidth || renderHeight !== canvasHeight;
 
     const aspectRatio = canvasWidth / canvasHeight;
     const { projView, eye } = camera.update(aspectRatio);
 
-    // Compute inverse projView
     const pv = new Float32Array(projView.buffer, projView.byteOffset, 16);
     const inv = invertMat4(pv);
 
-    // invProjView (16 floats)
     _data.set(inv, 0);
-    // eye (4 floats)
     _data[16] = eye[0]; _data[17] = eye[1]; _data[18] = eye[2]; _data[19] = 0;
-    // params: a, M, rISCO, diskOuter
     const a = params.a || 0.9;
     const M = params.M || 1;
     _data[20] = a;
     _data[21] = M;
     _data[22] = computeISCO(M, a);
     _data[23] = params.diskOuter || 20;
-    // resolution + quality
     _data[24] = renderWidth;
     _data[25] = renderHeight;
     _data[26] = params.maxSteps || 2000;
     _data[27] = params.stepSize || 0.1;
-
     device.queue.writeBuffer(uniformBuffer, 0, _data);
+
+    _toneMapData[0] = params.exposure || 1.0;
+    _toneMapData[1] = params.bloomIntensity ?? 0.5;
+    device.queue.writeBuffer(toneMapBuffer, 0, _toneMapData);
+
+    ensureHDRTexture(renderWidth, renderHeight);
+    ensureBloomTextures(renderWidth, renderHeight);
 
     const encoder = device.createCommandEncoder();
 
-    if (needsBlit) {
-      // Render ray tracer to offscreen texture at lower resolution
-      ensureOffscreenTexture(renderWidth, renderHeight);
+    // Pass 1: Ray trace → HDR
+    fullscreenPass(encoder, pipeline, rtBindGroup, hdrView);
 
-      const rtPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: offscreenView,
-          loadOp: 'clear',
-          storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        }],
-      });
-      rtPass.setPipeline(pipeline);
-      rtPass.setBindGroup(0, bindGroup);
-      rtPass.draw(3);
-      rtPass.end();
+    // Pass 2: Bloom pyramid — downsample + Gaussian blur at each level
+    const doBloom = (params.bloomIntensity ?? 0.5) > 0;
+    if (doBloom) {
+      for (let i = 0; i < BLOOM_LEVELS; i++) {
+        // Downsample: source → bloomA[i]
+        const downSource = i === 0 ? hdrView : bloomA[i - 1];
+        const threshBuf = i === 0 ? thresholdOnBuffer : thresholdOffBuffer;
+        fullscreenPass(encoder, bloomDownPipeline, makeBloomBG(downSource, threshBuf), bloomA[i]);
 
-      // Blit offscreen texture to canvas with bilinear filtering
-      const blitPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: gpuContext.getCurrentTexture().createView(),
-          loadOp: 'clear',
-          storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        }],
-      });
-      blitPass.setPipeline(blitPipeline);
-      blitPass.setBindGroup(0, offscreenBindGroup);
-      blitPass.draw(3);
-      blitPass.end();
-    } else {
-      // Render directly to canvas at full resolution
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: gpuContext.getCurrentTexture().createView(),
-          loadOp: 'clear',
-          storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        }],
-      });
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, bindGroup);
-      pass.draw(3);
-      pass.end();
+        // H-blur: bloomA[i] → bloomB[i]
+        fullscreenPass(encoder, bloomBlurPipeline, makeBloomBG(bloomA[i], blurHBuffer), bloomB[i]);
+
+        // V-blur: bloomB[i] → bloomA[i]
+        fullscreenPass(encoder, bloomBlurPipeline, makeBloomBG(bloomB[i], blurVBuffer), bloomA[i]);
+      }
     }
+
+    // Pass 3: Tone map (HDR + bloom) → canvas
+    const toneMapEntries = [
+      { binding: 0, resource: hdrView },
+      { binding: 1, resource: bloomSampler },
+      { binding: 2, resource: { buffer: toneMapBuffer } },
+    ];
+    for (let i = 0; i < BLOOM_LEVELS; i++) {
+      toneMapEntries.push({ binding: 3 + i, resource: bloomA[i] });
+    }
+    const toneMapBG = device.createBindGroup({ layout: toneMapBGL, entries: toneMapEntries });
+    fullscreenPass(encoder, toneMapPipeline, toneMapBG, gpuContext.getCurrentTexture().createView());
 
     device.queue.submit([encoder.finish()]);
   }
 
   function destroy() {
     uniformBuffer.destroy();
-    if (offscreenTex) offscreenTex.destroy();
+    toneMapBuffer.destroy();
+    thresholdOnBuffer.destroy();
+    thresholdOffBuffer.destroy();
+    blurHBuffer.destroy();
+    blurVBuffer.destroy();
+    if (hdrTex) hdrTex.destroy();
+    for (const t of bloomTexA) t.destroy();
+    for (const t of bloomTexB) t.destroy();
   }
 
   return { render, destroy };
