@@ -1,0 +1,582 @@
+<!doctype html>
+<notebook theme="ink">
+  <title>Kerr Geodesics</title>
+
+  <script id="title" type="text/markdown">
+# Kerr Geodesics
+  </script>
+
+  <script id="intro" type="text/markdown">
+Geodesics of the [Kerr metric](https://en.wikipedia.org/wiki/Kerr_metric) describe the paths of particles and light in the spacetime around a rotating black hole. This notebook integrates the geodesic equations in Mino time using an adaptive Cash-Karp RK4(5) scheme, which adjusts the step size to maintain accuracy near the horizon where Boyer-Lindquist coordinates become singular.
+  </script>
+
+  <script id="webgpu-setup" type="text/x-typescript">
+import { createWebGPUContext } from './lib/webgpu-canvas.js';
+
+const { device, canvasFormat } = await createWebGPUContext();
+
+invalidation.then(() => device.destroy());
+  </script>
+
+  <script id="theme" type="text/x-typescript">
+import { observeTheme } from './lib/theme.js';
+
+const theme = Generators.observe(observeTheme);
+  </script>
+
+  <script id="state" type="text/x-typescript">
+const state = {
+  dirty: true,
+  expandedState: { expanded: false },
+  diagnostics: { dH: 0, dQ: 0 },
+  signR: -1,
+  signTheta: 1,
+  renderParams: {
+    M: 1,
+    a: 0.9,
+    lineWidth: 4,
+    showHorizon: true,
+    showErgosphere: true,
+    surfaceColor: theme.isDark ? [1, 1, 1] : [0.25, 0.25, 0.25],
+    surfaceOpacity: 0.3,
+    isDark: theme.isDark,
+  },
+};
+  </script>
+
+  <script id="controls" type="text/x-typescript">
+import { integrateGeodesic, PRESETS } from './integrator.js';
+
+const controlsContainer = html`<div id="kerr-controls"></div>`;
+
+const spinInput = controlsContainer.appendChild(
+  Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 })
+);
+
+// Initial conditions in a collapsible details box
+const detailsBox = controlsContainer.appendChild(html`<details style="margin-top: 0.25em;">
+  <summary style="cursor: pointer; font-size: 0.9em; opacity: 0.8;">Initial conditions</summary>
+</details>`);
+
+function addControl(input: HTMLElement) {
+  detailsBox.appendChild(input);
+  return input;
+}
+
+const presetInput = addControl(Inputs.select(
+  Object.keys(PRESETS),
+  { label: 'Preset', format: (key: string) => PRESETS[key].label, value: 'boundOrbit' }
+));
+
+const kappaInput = addControl(Inputs.select(
+  [1, 0],
+  { label: 'Particle type', format: (v: number) => v === 1 ? 'Massive (timelike)' : 'Photon (null)', value: 1 }
+));
+
+const energyInput = addControl(Inputs.range([0.8, 1.2], { label: 'Energy E', value: 0.95, step: 0.0001 }));
+const angMomInput = addControl(Inputs.range([-5, 5], { label: 'Ang. mom. L', value: 3.0, step: 0.001 }));
+const carterInput = addControl(Inputs.range([0, 20], { label: 'Carter Q', value: 2.0, step: 0.01 }));
+const r0Input = addControl(Inputs.range([2, 30], { label: 'Initial r\u2080', value: 10, step: 0.01 }));
+const theta0Input = addControl(Inputs.range([0.1, 3.04], { label: 'Initial \u03b8\u2080', value: Math.PI / 2.5, step: 0.001 }));
+const nStepsInput = addControl(Inputs.range([500, 20000], { label: 'Steps', value: 8000, step: 100 }));
+  </script>
+
+  <script id="sync-preset" type="text/x-typescript">
+presetInput.addEventListener('input', () => {
+  const p = PRESETS[presetInput.value];
+  if (!p) return;
+  state.signR = p.signR ?? -1;
+  state.signTheta = p.signTheta ?? 1;
+  // Set all values before dispatching to avoid intermediate recomputes
+  spinInput.value = p.a;
+  energyInput.value = p.E;
+  angMomInput.value = p.L;
+  carterInput.value = p.Q;
+  r0Input.value = p.r0;
+  theta0Input.value = p.theta0;
+  nStepsInput.value = p.nSteps;
+  kappaInput.value = p.kappa;
+  // Single dispatch triggers computeAndUpload + updateArrow with all values current
+  controlsContainer.dispatchEvent(new Event('input'));
+});
+  </script>
+
+  <script id="canvas-setup" type="text/x-typescript">
+const canvas = document.createElement('canvas');
+canvas.width = 800;
+canvas.height = 600;
+canvas.style.width = '100%';
+canvas.style.height = '100%';
+  </script>
+
+  <script id="camera" type="text/x-typescript">
+import { createUnifiedCamera } from './lib/unified-camera.js';
+
+const camera = createUnifiedCamera(canvas, {
+  mode: 'orbit',
+  distance: 35,
+  phi: 0.8,
+  theta: 0.4,
+  center: [0, 0, 0],
+  near: 1,
+  far: 200,
+  renderContinuously: false,
+  observeResize: true,
+});
+
+invalidation.then(() => camera.destroy());
+  </script>
+
+  <script id="renderer-init" type="text/x-typescript">
+import { createGPULines } from 'npm:webgpu-instanced-lines';
+import { createRenderer } from './renderer.js';
+import { vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode, compositeShaderCode } from './shaders.js';
+
+const gpuContext = canvas.getContext('webgpu')!;
+gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+
+const renderer = createRenderer(device, canvasFormat, createGPULines, {
+  vertexShaderBody, fragmentShaderBody, horizonShaderCode, ergosphereShaderCode, axesShaderCode, arrowShaderCode, compositeShaderCode
+});
+
+invalidation.then(() => renderer.destroy());
+  </script>
+
+  <script id="compute-geodesic" type="text/x-typescript">
+function computeAndUpload() {
+  const a = spinInput.value as number;
+  const kappa = kappaInput.value as number;
+  const preset = PRESETS[presetInput.value];
+  const config = {
+    M: 1, a,
+    E: energyInput.value as number,
+    L: angMomInput.value as number,
+    Q: carterInput.value as number,
+    kappa,
+    r0: r0Input.value as number,
+    theta0: theta0Input.value as number,
+    signR: state.signR,
+    signTheta: state.signTheta,
+    h: preset?.h ?? 0.1,
+    nSteps: nStepsInput.value as number,
+    tolerance: 1e-8,
+  };
+
+  const result = integrateGeodesic(config);
+  renderer.setGeodesics([result.positions]);
+
+  state.renderParams.M = config.M;
+  state.renderParams.a = config.a;
+  state.renderParams.surfaceColor = theme.isDark ? [1, 1, 1] : [0.25, 0.25, 0.25];
+  state.renderParams.isDark = theme.isDark;
+  camera.triggerRepaint();
+
+  Object.assign(state.diagnostics, result.diagnostics);
+}
+
+computeAndUpload();
+
+controlsContainer.addEventListener('input', () => {
+  computeAndUpload();
+});
+  </script>
+
+  <script id="velocity-arrow" type="text/x-typescript">
+import { velocityToConstants, constantsToVelocity, blToCartesian, blVelocityToCartesian, cartesianVelocityToBL, cartesianToBL } from './velocity-utils.js';
+import { createArrowInteraction } from './arrow-interaction.js';
+
+// Compute initial velocity arrow from current constants of motion
+function updateArrow() {
+  const M = 1;
+  const a = spinInput.value as number;
+  const kappa = kappaInput.value as number;
+  const E = energyInput.value as number;
+  const L = angMomInput.value as number;
+  const Q = carterInput.value as number;
+  const r0 = r0Input.value as number;
+  const theta0 = theta0Input.value as number;
+
+  const vel = constantsToVelocity(r0, theta0, E, L, Q, M, a, kappa, state.signR, state.signTheta);
+  if (!vel) return;
+
+  const origin = blToCartesian(r0, theta0, 0, a);
+  const cartVel = blVelocityToCartesian(r0, theta0, 0, a, vel.ur, vel.utheta, vel.uphi);
+
+  // Scale arrow for visibility (proper velocity can be small)
+  const speed = Math.sqrt(cartVel[0] ** 2 + cartVel[1] ** 2 + cartVel[2] ** 2);
+  const arrowScale = 5 / Math.max(speed, 0.01);
+  const dir = [cartVel[0] * arrowScale, cartVel[1] * arrowScale, cartVel[2] * arrowScale];
+
+  renderer.setArrow(origin, dir, true);
+
+  return { origin, dir, cartVel, arrowScale, vel };
+}
+
+let arrowState = updateArrow();
+
+const arrowInteraction = createArrowInteraction(canvas, camera, {
+  getArrowState: () => {
+    if (!arrowState) return null;
+    const tip = [
+      arrowState.origin[0] + arrowState.dir[0],
+      arrowState.origin[1] + arrowState.dir[1],
+      arrowState.origin[2] + arrowState.dir[2],
+    ];
+    return { origin: arrowState.origin, tip, visible: true };
+  },
+  onDrag: (newTip) => {
+    if (!arrowState) return;
+    const newDir = [
+      newTip[0] - arrowState.origin[0],
+      newTip[1] - arrowState.origin[1],
+      newTip[2] - arrowState.origin[2],
+    ];
+
+    // Convert dragged direction to BL velocity, preserving original speed
+    const r0 = r0Input.value as number;
+    const theta0 = theta0Input.value as number;
+    const a = spinInput.value as number;
+    const M = 1;
+    const kappa = kappaInput.value as number;
+
+    // Use direction only — normalize to original velocity magnitude
+    const dirLen = Math.sqrt(newDir[0] ** 2 + newDir[1] ** 2 + newDir[2] ** 2);
+    if (dirLen < 1e-6) return;
+    const origSpeed = Math.sqrt(arrowState.cartVel[0] ** 2 + arrowState.cartVel[1] ** 2 + arrowState.cartVel[2] ** 2);
+    const newCartVel = [
+      newDir[0] / dirLen * origSpeed,
+      newDir[1] / dirLen * origSpeed,
+      newDir[2] / dirLen * origSpeed,
+    ];
+
+    const blVel = cartesianVelocityToBL(r0, theta0, 0, a, newCartVel[0], newCartVel[1], newCartVel[2]);
+
+    // Update signs from dragged velocity direction
+    if (blVel.ur !== 0) state.signR = blVel.ur > 0 ? 1 : -1;
+    if (blVel.utheta !== 0) state.signTheta = blVel.utheta > 0 ? 1 : -1;
+
+    const constants = velocityToConstants(r0, theta0, blVel.ur, blVel.utheta, blVel.uphi, M, a, kappa);
+
+    if (constants && isFinite(constants.E) && isFinite(constants.L) && isFinite(constants.Q)) {
+      // Update slider values silently (no dispatch — avoid triggering listener)
+      energyInput.value = Math.max(0.8, Math.min(1.2, constants.E));
+      angMomInput.value = Math.max(-5, Math.min(5, constants.L));
+      carterInput.value = Math.max(0, Math.min(20, constants.Q));
+    }
+
+    // Recompute geodesic; show arrow at fixed length in dragged direction
+    computeAndUpload();
+    const arrowLen = 5.0;
+    const displayDir = [newDir[0] / dirLen * arrowLen, newDir[1] / dirLen * arrowLen, newDir[2] / dirLen * arrowLen];
+    renderer.setArrow(arrowState.origin, displayDir, true);
+    camera.triggerRepaint();
+  },
+  onBodyDrag: (newOrigin) => {
+    if (!arrowState) return;
+    const a = spinInput.value as number;
+    const kappa = kappaInput.value as number;
+    const M = 1;
+
+    // Convert new world-space origin to Boyer-Lindquist
+    const bl = cartesianToBL(newOrigin[0], newOrigin[1], newOrigin[2], a);
+
+    // Clamp to slider ranges
+    const newR = Math.max(2, Math.min(30, bl.r));
+    const newTheta = Math.max(0.1, Math.min(3.04, bl.theta));
+
+    // Update sliders silently
+    r0Input.value = newR;
+    theta0Input.value = newTheta;
+
+    // Recompute geodesic with new position, same constants of motion
+    computeAndUpload();
+
+    // Show arrow at new position with current velocity direction
+    const vel = constantsToVelocity(newR, newTheta, energyInput.value, angMomInput.value, carterInput.value, M, a, kappa, state.signR, state.signTheta);
+    if (vel) {
+      const origin = blToCartesian(newR, newTheta, 0, a);
+      const cartVel = blVelocityToCartesian(newR, newTheta, 0, a, vel.ur, vel.utheta, vel.uphi);
+      const speed = Math.sqrt(cartVel[0] ** 2 + cartVel[1] ** 2 + cartVel[2] ** 2);
+      const arrowLen = 5.0;
+      const s = arrowLen / Math.max(speed, 0.01);
+      renderer.setArrow(origin, [cartVel[0] * s, cartVel[1] * s, cartVel[2] * s], true);
+    }
+    camera.triggerRepaint();
+  },
+  onDragEnd: () => {
+    arrowState = updateArrow();
+    camera.triggerRepaint();
+  },
+});
+
+// Update arrow when controls change
+controlsContainer.addEventListener('input', () => {
+  arrowState = updateArrow();
+});
+
+invalidation.then(() => arrowInteraction.destroy());
+  </script>
+
+  <script id="render-loop" type="text/x-typescript">
+// Reference arrowInteraction to ensure velocity-arrow cell runs first
+void arrowInteraction;
+
+camera.on('render', () => {
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height);
+});
+
+canvas.addEventListener('mousedown', () => {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+});
+
+camera.triggerRepaint();
+  </script>
+
+  <script id="main-display" type="text/x-typescript">
+import { expandable } from './lib/expandable.js';
+import { cameraButtons } from './lib/camera-buttons.js';
+
+const container = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
+container.appendChild(canvas);
+
+let expandableContainer: ReturnType<typeof expandable>;
+expandableContainer = expandable(container, {
+  width: 640,
+  height: 480,
+  controls: controlsContainer,
+  state: state.expandedState,
+  buttons: cameraButtons({
+    camera,
+    canvas,
+    filename: 'kerr-geodesics.png',
+    getContainer: () => expandableContainer,
+  }),
+});
+
+display(expandableContainer);
+  </script>
+
+  <script id="controls-display" type="text/x-typescript">
+display(controlsContainer);
+  </script>
+
+  <script id="parameter-glossary" type="text/markdown">
+### Parameters
+
+- **Particle type** — massive particles (${tex`\kappa = 1`}, timelike geodesics) or photons (${tex`\kappa = 0`}, null geodesics)
+- **Spin** ${tex`a/M`} — the black hole's angular momentum per unit mass, ranging from 0 (Schwarzschild) to 1 (extremal Kerr)
+- **Energy** ${tex`E`} — the conserved energy per unit rest mass; ${tex`E < 1`} for bound orbits, ${tex`E = 1`} for marginally bound, ${tex`E > 1`} for unbound
+- **Ang. mom.** ${tex`L`} — the conserved axial angular momentum per unit rest mass; positive is prograde (co-rotating), negative is retrograde
+- **Carter** ${tex`Q`} — the Carter constant, governing motion out of the equatorial plane; ${tex`Q = 0`} for equatorial orbits, ${tex`Q > 0`} allows polar oscillation
+- **Initial** ${tex`r_0`} — the starting Boyer-Lindquist radial coordinate
+- **Initial** ${tex`\theta_0`} — the starting polar angle; ${tex`\theta = \pi/2`} is the equatorial plane
+- **Steps** — the number of integration steps in Mino time
+  </script>
+
+  <script id="diagnostics-display" type="text/x-typescript">
+display(html`<div style="font-size: 0.85em; opacity: 0.6; margin-top: 0.5em;">
+  <strong>Integration accuracy:</strong>
+  Hamiltonian drift |ΔH| = ${state.diagnostics.dH.toExponential(2)},
+  Carter constant drift |ΔQ| = ${state.diagnostics.dQ.toExponential(2)}
+</div>`);
+  </script>
+
+  <script id="equations" type="text/markdown">
+## Separated Equations of Motion
+
+The Kerr metric in Boyer-Lindquist coordinates has two Killing symmetries giving conserved energy ${tex`E = -p_t`} and angular momentum ${tex`L = p_\varphi`}. A remarkable hidden symmetry yields a third constant, the Carter constant ${tex`Q`}, which fully separates the geodesic equations. The Mino-time transformation ${tex`d\tau/d\lambda = \Sigma`} (where ${tex`\Sigma = r^2 + a^2\cos^2\theta`}) then decouples the radial and polar motions into independent first-order equations:
+
+${tex.block`\frac{dr}{d\lambda} = \pm\sqrt{R(r)}, \qquad \frac{d\theta}{d\lambda} = \pm\sqrt{\Theta(\theta)}`}
+
+where
+
+${tex.block`R(r) = P^2 - \Delta\!\left[\kappa r^2 + (L - aE)^2 + Q\right], \quad P = E(r^2 + a^2) - aL`}
+
+and ${tex`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\!\theta - L^2\cot^2\!\theta`}, with ${tex`\Delta = r^2 - 2Mr + a^2`}. Coordinate time and azimuthal angle are recovered from known functions of ${tex`r`} and ${tex`\theta`} alone.
+  </script>
+
+  <script id="integrator-description" type="text/markdown">
+## Integration Method
+
+Rather than tracking the signs of ${tex`dr/d\lambda`} and ${tex`d\theta/d\lambda`} through turning points (where ${tex`R`} or ${tex`\Theta`} vanish), we recast the system as smooth second-order equations using velocities ${tex`v_r = dr/d\lambda`}, ${tex`v_\theta = d\theta/d\lambda`}:
+
+${tex.block`\dot{v}_r = \tfrac{1}{2}R'(r), \qquad \dot{v}_\theta = \tfrac{1}{2}\Theta'(\theta)`}
+
+The velocities pass smoothly through zero at turning points, eliminating the need for sign tracking or root-finding. This 6-dimensional system ${tex`(t, r, \theta, \varphi, v_r, v_\theta)`} is integrated with an adaptive Cash-Karp RK4(5) scheme that adjusts the step size to maintain a relative tolerance of ${tex`10^{-8}`}.
+  </script>
+
+  <script id="carter-constant" type="text/markdown">
+## Constants of Motion
+
+Each geodesic is characterized by four constants which serve as inputs to the radial and polar potentials above:
+
+- **Energy** ${tex`E = -p_t`}, conserved by time-translation symmetry
+- **Angular momentum** ${tex`L = p_\varphi`}, conserved by axial symmetry
+- **Carter constant** ${tex`Q`}, arising from a hidden symmetry (Killing tensor) of the Kerr metric, which enables the separation of ${tex`r`} and ${tex`\theta`}
+- **Mass shell** ${tex`\kappa = -g_{\mu\nu}\dot{x}^\mu\dot{x}^\nu`} (1 for massive particles, 0 for photons)
+  </script>
+
+  <script id="notes" type="text/markdown">
+The Boyer-Lindquist coordinates become singular at the event horizon ${tex`r_+ = M + \sqrt{M^2 - a^2}`} where ${tex`\Delta = 0`}. Integration is terminated when the particle approaches the horizon. The ergosphere boundary is at ${tex`r_\text{ergo} = M + \sqrt{M^2 - a^2\cos^2\theta}`}.
+  </script>
+
+  <script id="rt-lensing-intro" type="text/markdown">
+## Gravitational Lensing
+
+The same geodesic equations can be used to render what a Kerr black hole with an accretion disk actually *looks like*. The fragment shader below traces one null geodesic per pixel, following each light ray backward from the camera through the curved spacetime. Rays that cross the equatorial plane within the disk's radial extent (from the ISCO to ${tex`20M`}) are shaded with a temperature profile ${tex`T \propto r^{-3/4}`} and Doppler-beamed by the orbital motion of the accreting matter.
+  </script>
+
+  <script id="rt-canvas" type="text/x-typescript">
+const rtCanvas = document.createElement('canvas');
+rtCanvas.width = 640;
+rtCanvas.height = 480;
+rtCanvas.style.width = '100%';
+rtCanvas.style.height = '100%';
+  </script>
+
+  <script id="rt-camera" type="text/x-typescript">
+const rtCamera = createUnifiedCamera(rtCanvas, {
+  mode: 'orbit',
+  distance: 30,
+  phi: 1.2,
+  theta: 0.3,
+  center: [0, 0, 0],
+  near: 1,
+  far: 200,
+  renderContinuously: false,
+  observeResize: false, // managed by rt-render-loop for resolution scaling
+});
+invalidation.then(() => rtCamera.destroy());
+  </script>
+
+  <script id="rt-controls" type="text/x-typescript">
+const rtControlsContainer = html`<div id="rt-controls"></div>`;
+const rtSpinInput = rtControlsContainer.appendChild(
+  Inputs.range([0.001, 0.999], { label: 'Spin a/M', value: 0.9, step: 0.001 })
+);
+const rtDiskOuterInput = rtControlsContainer.appendChild(
+  Inputs.range([5, 40], { label: 'Disk outer radius', value: 20, step: 0.5 })
+);
+  </script>
+
+  <script id="rt-renderer" type="text/x-typescript">
+import { createRayTracer } from './ray-tracer.js';
+import { rayTracerShaderCode } from './ray-tracer-shaders.js';
+
+const rtGpuContext = rtCanvas.getContext('webgpu')!;
+rtGpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+
+const rayTracer = await createRayTracer(device, canvasFormat, rayTracerShaderCode);
+invalidation.then(() => rayTracer.destroy());
+  </script>
+
+  <script id="rt-render-loop" type="text/x-typescript">
+let rtDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let rtInteracting = false;
+
+const rtResizeObserver = new ResizeObserver((entries) => {
+  for (const entry of entries) {
+    const { width, height } = entry.contentRect;
+    if (width > 0 && height > 0) {
+      const dpr = devicePixelRatio;
+      rtCanvas.width = Math.floor(width * dpr);
+      rtCanvas.height = Math.floor(height * dpr);
+      rtCamera.triggerRepaint();
+    }
+  }
+});
+rtResizeObserver.observe(rtCanvas);
+
+function rtRender() {
+  const w = rtCanvas.width;
+  const h = rtCanvas.height;
+  const scale = rtInteracting ? 0.25 : 1;
+  rayTracer.render(rtGpuContext, {
+    a: rtSpinInput.value,
+    M: 1,
+    diskOuter: rtDiskOuterInput.value,
+    maxSteps: rtInteracting ? 600 : 2000,
+    stepSize: rtInteracting ? 0.4 : 0.1,
+    renderWidth: Math.max(1, Math.floor(w * scale)),
+    renderHeight: Math.max(1, Math.floor(h * scale)),
+  }, rtCamera, w, h);
+}
+
+rtCamera.on('render', rtRender);
+
+function rtBeginInteraction() {
+  rtInteracting = true;
+  if (rtDebounceTimer) clearTimeout(rtDebounceTimer);
+  rtDebounceTimer = setTimeout(() => {
+    rtInteracting = false;
+    rtCamera.triggerRepaint();
+  }, 300);
+}
+
+function rtOnPointerDown() {
+  rtBeginInteraction();
+}
+
+function rtOnPointerMove(e: PointerEvent) {
+  if (e.buttons === 0) return;
+  rtBeginInteraction();
+}
+
+function rtOnWheel() {
+  rtBeginInteraction();
+}
+
+function rtOnTouchMove() {
+  rtBeginInteraction();
+}
+
+rtCanvas.addEventListener('pointerdown', rtOnPointerDown);
+rtCanvas.addEventListener('pointermove', rtOnPointerMove);
+rtCanvas.addEventListener('wheel', rtOnWheel, { passive: true });
+rtCanvas.addEventListener('touchmove', rtOnTouchMove, { passive: true });
+
+rtControlsContainer.addEventListener('input', () => {
+  rtBeginInteraction();
+  rtCamera.triggerRepaint();
+});
+
+invalidation.then(() => {
+  if (rtDebounceTimer) clearTimeout(rtDebounceTimer);
+  rtResizeObserver.disconnect();
+  rtCanvas.removeEventListener('pointerdown', rtOnPointerDown);
+  rtCanvas.removeEventListener('pointermove', rtOnPointerMove);
+  rtCanvas.removeEventListener('wheel', rtOnWheel);
+  rtCanvas.removeEventListener('touchmove', rtOnTouchMove);
+});
+
+rtCamera.triggerRepaint();
+  </script>
+
+  <script id="rt-display" type="text/x-typescript">
+const rtContainer = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
+rtContainer.appendChild(rtCanvas);
+
+let rtExpandable: ReturnType<typeof expandable>;
+rtExpandable = expandable(rtContainer, {
+  width: 640,
+  height: 480,
+  controls: rtControlsContainer,
+  state: { expanded: false },
+  buttons: cameraButtons({
+    camera: rtCamera,
+    canvas: rtCanvas,
+    filename: 'kerr-lensing.png',
+    getContainer: () => rtExpandable,
+  }),
+});
+
+display(rtExpandable);
+  </script>
+
+  <script id="rt-controls-display" type="text/x-typescript">
+display(rtControlsContainer);
+  </script>
+
+</notebook>

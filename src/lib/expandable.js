@@ -346,6 +346,7 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     const marginLeft = (refWidth - figureWidth) / 2;
 
     contentWrapper.style.width = `${figureWidth}px`;
+    contentWrapper.style.height = `${figureHeight}px`;
     contentWrapper.style.marginLeft = `${marginLeft}px`;
 
     // Update current dimensions and notify
@@ -421,7 +422,7 @@ export function expandable(content, { width, height, toggleOffset = [8, 8], marg
     contentWrapper.style.left = '';
     contentWrapper.style.transform = '';
     contentWrapper.style.width = '';
-    contentWrapper.style.height = '';
+    contentWrapper.style.height = `${height}px`;
     contentWrapper.style.marginLeft = '';
     contentWrapper.style.overflow = '';
     contentWrapper.style.boxShadow = '';
