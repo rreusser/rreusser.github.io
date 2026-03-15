@@ -66,15 +66,10 @@ fn getColor(lineCoord: vec2f, t: f32, velocity: f32, lineWidth: f32) -> vec4f {
 
   // Color by line index (velocity stores lineId)
   let hue = velocity * 0.7 + 0.55;
-  var color = hsl2rgb(hue % 1.0, 0.7, 0.6);
+  let color = hsl2rgb(hue % 1.0, 0.7, 0.6);
 
   // Fade tail (t=0 is start/bright, t=1 is end/faded)
   let alpha = 1.0 - 0.85 * t;
-
-  // Dark border
-  let borderWidth = 3.0;
-  let borderMask = smoothstep(lineWidth - borderWidth - 0.75, lineWidth - borderWidth + 0.75, sdf);
-  color = mix(color, vec3f(0.0), borderMask * 0.7);
 
   return vec4f(color * alpha, alpha);
 }
