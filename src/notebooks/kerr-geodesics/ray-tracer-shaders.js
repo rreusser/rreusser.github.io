@@ -9,6 +9,9 @@
 
 export const rayTracerShaderCode = /* wgsl */`
 
+const PI: f32 = 3.14159265358979323846;
+
+
 struct Uniforms {
   invProjView: mat4x4f,
   eye: vec4f,
@@ -317,10 +320,16 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
 
   if (r < rISCO * 0.99 || r > rOuter) { return vec4f(0.0); }
 
-  // Temperature profile: T ∝ r^(-3/4), intensity ∝ T^4 ∝ r^(-3)
+  // Rest-frame temperature profile: T_emit ∝ r^(-3/4), standard thin-disk result.
   let temp = pow(rISCO / r, 0.75);
 
-  // Doppler factor for prograde circular orbit
+  // Redshift factor g = f_obs / f_emit for prograde circular Keplerian orbit.
+  // From James et al. (2015) eq. A.16 and §4.1.2:
+  //   g = 1 / (u^t_emit * (1 - Ω·b))
+  // where b = L/E is the ray's impact parameter (= L here since E=1),
+  // Ω = √M / (r^(3/2) + a√M) is the Keplerian angular velocity (BPT 1972),
+  // and u^t_emit = 1/√(1 - 3M/r + 2a√M/r^(3/2)) accounts for gravitational
+  // time dilation plus orbital kinetic energy.
   let sqrtM = sqrt(M);
   let r15 = r * sqrt(r);
   let Omega = sqrtM / (r15 + a * sqrtM);
@@ -328,12 +337,6 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   let ut_em = select(10.0, 1.0 / sqrt(denom), denom > 0.01);
   let g = 1.0 / (ut_em * (1.0 - Omega * L / E));
 
-  // Beamed intensity
-  let intensity = temp * g * g * g;
-
-  // Turbulent wispy structure via FBM noise.
-  // Stretch azimuthally (phi * 6 vs log(r) * 8) to get arc-like features
-  // that follow the orbital shear rather than isotropic blobs.
   let logR = log(r);
   let noiseCoord = vec2f(phi * 6.0, logR * 8.0);
   // Large-scale turbulent rolls
@@ -353,17 +356,21 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   let outerFade = smoothstep(rOuter, rOuter * 0.7, r);
   let fade = innerFade * outerFade;
 
-  // Brightness: g^3 beaming × temperature × density
-  let brightness = intensity * density;
-
-  // Color hue from Doppler-shifted temperature (not from beamed intensity,
-  // which would make beaming ~g^6 instead of the correct ~g^3).
+  // Color hue from Doppler-shifted temperature only (James et al. §4.1.2, fig 15b vs 15c).
+  // The frequency shift scales the observed blackbody temperature: T_obs = g * T_emit.
+  // Clamp g to avoid extreme colors at inner edge instabilities.
   let T = temp * clamp(abs(g), 0.3, 3.0);
   let col = vec3f(
     min(T * 2.0, 1.0 + T * 0.3),                    // red saturates first
     T * 0.7 + T * T * 0.5,                           // green follows for warm white
     T * 0.3 + T * T * 0.5,                           // blue rises for white at high T
   );
+
+  // Intensity: I_obs/I_emit = g^3 from Liouville's theorem (I_ν/ν^3 invariant,
+  // James et al. §4.1.2 and Cunningham 1975). Apply g^3 to brightness only —
+  // color is already handled above via T_obs = g * T_emit. Applying g to both
+  // would give an effective g^4 overcounting.
+  let brightness = temp * g * g * g * density;
 
   // HDR output — no clamping, let the tone mapper handle it
   return vec4f(col * brightness * 4.0 * fade, fade);
@@ -448,17 +455,10 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
     let prevTheta = s.theta;
     let prevR = s.r;
 
-    // Adaptive step size: smaller near horizon, full size far away.
-    // Dividing by Σ in the derivatives already bounds velocities.
-    // Far from the hole, geodesics approach straight lines and curvature
-    // falls off as ~1/r², so we can grow the step linearly with r — this
-    // lets rays starting at large camera distances sprint through empty
-    // space without burning through the step budget.
     let horizonFactor = clamp((s.r - rHorizon) / s.r, 0.02, 1.0);
     let distanceFactor = max(1.0, s.r / 10.0);
     let h = hBase * horizonFactor * distanceFactor;
 
-    // RK4 step for (r, vr, θ, vθ, φ)
     s = rk4Step(s, h, L, Q, M, a);
 
     // φ correction on polar crossing: when θ passes through 0 or π the ray
@@ -467,15 +467,13 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
     // negative and bounces back via Θ'/2), but φ doesn't see the crossing.
     // Detect a sign change in cos(θ) between steps as a proxy for pole crossing.
     if (cos(prevTheta) * cos(s.theta) < 0.0) {
-      s.phi += 3.14159265358979;
+      s.phi += PI;
     }
 
-    // Check horizon
     if (s.r < rHorizon * 1.01) {
       break;
     }
 
-    // Escape: far from hole and moving outward — will never return
     if (s.r > rEscape && s.vr > 0.0) {
       let bl_sth = sin(s.theta);
       let rho = sqrt(s.r * s.r + a2);
@@ -490,17 +488,16 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
       break;
     }
 
-    // Check disk crossing (theta crosses π/2)
-    let pi2 = 1.5707963;
+    // Check disk crossing (theta crosses π/2).
+    let pi2 = PI * 0.5;
     if ((prevTheta - pi2) * (s.theta - pi2) < 0.0 && accumulated < 0.99) {
       let frac = (pi2 - prevTheta) / (s.theta - prevTheta);
       let crossR = prevR + frac * (s.r - prevR);
-
       let dc = diskColor(crossR, s.phi, rp.E, L, M, a);
       if (dc.a > 0.0) {
         let opacity = min(dc.a, 1.0 - accumulated);
         color += dc.rgb * opacity;
-        accumulated += opacity * 0.7;
+        accumulated += opacity;
       }
     }
   }

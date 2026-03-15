@@ -268,7 +268,8 @@ export function integrateGeodesic(config) {
     // Cartesian continuation requires φ → φ+π. θ and v_θ are handled
     // naturally by the second-order integrator (θ goes slightly past the
     // pole and comes back via Θ'/2), but φ doesn't see the crossing.
-    if (Math.cos(prevTheta) * Math.cos(s[2]) < 0) s[3] += Math.PI;
+    // sin(θ) < 0 means θ has gone outside [0,π] — a pole was crossed.
+    if (Math.sin(s[2]) < 0) s[3] += Math.PI;
 
     // Terminate near horizon, at large radius, or on any NaN/Inf
     if (s[1] < rPlus * 1.01 || s[1] > 200
