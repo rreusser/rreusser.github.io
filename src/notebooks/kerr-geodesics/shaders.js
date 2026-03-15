@@ -36,7 +36,7 @@ fn getVertex(index: u32) -> Vertex {
 
   let projected = projViewMatrix * vec4f(pos, 1.0);
   let t = f32(pointIndex) / f32(lineUniforms.pointCount - 1u);
-  let lineWidth = lineUniforms.width * (1.0 - 0.7 * t);
+  let lineWidth = lineUniforms.width * (1.0 - 0.7 * smoothstep(0.5, 1.0, t));
 
   // Pack line index as velocity for coloring
   let lineId = f32(lineIndex) / max(f32(lineUniforms.lineCount - 1u), 1.0);
