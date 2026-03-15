@@ -46,7 +46,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
         }]
       },
       primitive: { topology: 'triangle-list', cullMode: 'back' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
       multisample: { count: sampleCount },
     });
     return { pipeline, bindGroupLayout };
