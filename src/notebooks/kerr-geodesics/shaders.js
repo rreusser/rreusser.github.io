@@ -113,11 +113,11 @@ struct VertexOutput {
   var lonI: u32;
   switch (vertInQuad) {
     case 0u: { latI = latIndex; lonI = lonIndex; }
-    case 1u: { latI = latIndex + 1u; lonI = lonIndex; }
-    case 2u: { latI = latIndex; lonI = lonIndex + 1u; }
+    case 1u: { latI = latIndex; lonI = lonIndex + 1u; }
+    case 2u: { latI = latIndex + 1u; lonI = lonIndex; }
     case 3u: { latI = latIndex; lonI = lonIndex + 1u; }
-    case 4u: { latI = latIndex + 1u; lonI = lonIndex; }
-    case 5u: { latI = latIndex + 1u; lonI = lonIndex + 1u; }
+    case 4u: { latI = latIndex + 1u; lonI = lonIndex + 1u; }
+    case 5u: { latI = latIndex + 1u; lonI = lonIndex; }
     default: { latI = 0u; lonI = 0u; }
   }
 
@@ -145,8 +145,9 @@ struct VertexOutput {
   return out;
 }
 
-@fragment fn fs(v: VertexOutput) -> @location(0) vec4f {
-  let N = normalize(v.normal);
+@fragment fn fs(v: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
+  var N = normalize(v.normal);
+  if (!frontFacing) { N = -N; }
   let V = normalize(u.eye.xyz - v.worldPos);
   let lightDir = normalize(vec3f(1.0, 2.0, 3.0));
 
@@ -154,7 +155,8 @@ struct VertexOutput {
   let diffuse = max(dot(N, lightDir), 0.0) * 0.4 + 0.2;
   let fresnel = pow(1.0 - NdotV, 3.0) * 0.5;
 
-  let alpha = u.color.a;
+  var alpha = u.color.a;
+  if (!frontFacing) { alpha *= 0.4; }
   let color = u.color.rgb * diffuse + vec3f(fresnel);
   return vec4f(color * alpha, alpha);
 }
@@ -193,11 +195,11 @@ struct VertexOutput {
   var lonI: u32;
   switch (vertInQuad) {
     case 0u: { latI = latIndex; lonI = lonIndex; }
-    case 1u: { latI = latIndex + 1u; lonI = lonIndex; }
-    case 2u: { latI = latIndex; lonI = lonIndex + 1u; }
+    case 1u: { latI = latIndex; lonI = lonIndex + 1u; }
+    case 2u: { latI = latIndex + 1u; lonI = lonIndex; }
     case 3u: { latI = latIndex; lonI = lonIndex + 1u; }
-    case 4u: { latI = latIndex + 1u; lonI = lonIndex; }
-    case 5u: { latI = latIndex + 1u; lonI = lonIndex + 1u; }
+    case 4u: { latI = latIndex + 1u; lonI = lonIndex + 1u; }
+    case 5u: { latI = latIndex + 1u; lonI = lonIndex; }
     default: { latI = 0u; lonI = 0u; }
   }
 
@@ -222,7 +224,7 @@ struct VertexOutput {
   let p2 = vec3f(rho2 * sin(theta + dth) * cos(phi), rE2 * cos(theta + dth), rho2 * sin(theta + dth) * sin(phi));
   let dph = 0.01;
   let p3 = vec3f(rho * sth * cos(phi + dph), y, rho * sth * sin(phi + dph));
-  let n = normalize(cross(p2 - vec3f(x, y, z), p3 - vec3f(x, y, z)));
+  let n = normalize(cross(p3 - vec3f(x, y, z), p2 - vec3f(x, y, z)));
 
   var out: VertexOutput;
   out.position = u.projectionView * vec4f(x, y, z, 1.0);
@@ -232,8 +234,9 @@ struct VertexOutput {
   return out;
 }
 
-@fragment fn fs(v: VertexOutput) -> @location(0) vec4f {
-  let N = normalize(v.normal);
+@fragment fn fs(v: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
+  var N = normalize(v.normal);
+  if (!frontFacing) { N = -N; }
   let V = normalize(u.eye.xyz - v.worldPos);
   let lightDir = normalize(vec3f(1.0, 2.0, 3.0));
 
@@ -241,7 +244,8 @@ struct VertexOutput {
   let diffuse = max(dot(N, lightDir), 0.0) * 0.3 + 0.15;
   let fresnel = pow(1.0 - NdotV, 3.0) * 0.4;
 
-  let alpha = u.color.a;
+  var alpha = u.color.a;
+  if (!frontFacing) { alpha *= 0.4; }
   let color = u.color.rgb * diffuse + vec3f(fresnel);
   return vec4f(color * alpha, alpha);
 }
