@@ -498,7 +498,7 @@ const rtResizeObserver = new ResizeObserver((entries) => {
 rtResizeObserver.observe(rtCanvas);
 
 function rtApplyResolution() {
-  const scale = rtInteracting ? 0.5 : 1;
+  const scale = rtInteracting ? 0.25 : 1;
   const w = Math.max(1, Math.floor(rtFullWidth * scale));
   const h = Math.max(1, Math.floor(rtFullHeight * scale));
   if (rtCanvas.width !== w || rtCanvas.height !== h) {
@@ -513,7 +513,7 @@ function rtRender() {
     a: rtSpinInput.value,
     M: 1,
     diskOuter: rtDiskOuterInput.value,
-    maxSteps: rtInteracting ? 400 : 2000,
+    maxSteps: rtInteracting ? 200 : 2000,
   }, rtCamera, rtCanvas.width, rtCanvas.height);
 }
 
