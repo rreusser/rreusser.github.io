@@ -28,6 +28,7 @@ const theme = Generators.observe(observeTheme);
 const state = {
   dirty: true,
   expandedState: { expanded: false },
+  diagnostics: { dH: 0, dQ: 0 },
   renderParams: {
     M: 1,
     a: 0.9,
@@ -156,13 +157,13 @@ function computeAndUpload() {
   state.renderParams.surfaceColor = theme.isDark ? [1, 1, 1] : [0, 0, 0];
   camera.triggerRepaint();
 
-  return result.diagnostics;
+  Object.assign(state.diagnostics, result.diagnostics);
 }
 
-let diagnostics = computeAndUpload();
+computeAndUpload();
 
 controlsContainer.addEventListener('input', () => {
-  diagnostics = computeAndUpload();
+  computeAndUpload();
   state.renderParams.lineWidth = lineWidthInput.value as number;
   state.renderParams.showHorizon = horizonInput.value as boolean;
   state.renderParams.showErgosphere = ergosphereInput.value as boolean;
@@ -257,7 +258,7 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
   },
   onDragEnd: () => {
     // Recompute geodesic with new constants
-    diagnostics = computeAndUpload();
+    computeAndUpload();
     arrowState = updateArrow();
     camera.triggerRepaint();
   },
@@ -312,8 +313,8 @@ display(expandableContainer);
   <script id="diagnostics-display" type="text/x-typescript">
 display(html`<div style="font-size: 0.85em; opacity: 0.6; margin-top: 0.5em;">
   <strong>Conservation:</strong>
-  ΔH = ${diagnostics.dH.toExponential(2)},
-  ΔQ = ${diagnostics.dQ.toExponential(2)}
+  ΔH = ${state.diagnostics.dH.toExponential(2)},
+  ΔQ = ${state.diagnostics.dQ.toExponential(2)}
 </div>`);
   </script>
 
