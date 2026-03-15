@@ -449,9 +449,9 @@ rtCanvas.style.height = '100%';
   <script id="rt-camera" type="text/x-typescript">
 const rtCamera = createUnifiedCamera(rtCanvas, {
   mode: 'orbit',
-  distance: 25,
+  distance: 31.25,
   phi: 1.35,
-  theta: 0.08,
+  theta: 0.04,
   center: [0, 0, 0],
   near: 1,
   far: 200,
@@ -474,6 +474,9 @@ const rtExposureInput = rtControlsContainer.appendChild(
 );
 const rtBloomInput = rtControlsContainer.appendChild(
   Inputs.range([0, 5.0], { label: 'Bloom', value: 2.0, step: 0.01 })
+);
+const rtStarsInput = rtControlsContainer.appendChild(
+  Inputs.toggle({ label: 'Stars', value: false })
 );
 
 // Quality controls in a collapsible section
@@ -515,6 +518,7 @@ function rtRenderActual() {
     diskOuter: rtDiskOuterInput.value,
     exposure: rtExposureInput.value,
     bloomIntensity: rtBloomInput.value,
+    showStars: rtStarsInput.value,
     maxSteps: rtInteracting ? 600 : rtMaxStepsInput.value,
     stepSize: rtInteracting ? 0.4 : rtStepSizeInput.value,
     renderWidth: Math.max(1, Math.floor(w * scale)),
