@@ -438,7 +438,7 @@ const rtCamera = createUnifiedCamera(rtCanvas, {
   near: 1,
   far: 200,
   renderContinuously: false,
-  observeResize: true,
+  observeResize: false, // managed by rt-render-loop for resolution scaling
 });
 invalidation.then(() => rtCamera.destroy());
   </script>
@@ -465,48 +465,76 @@ invalidation.then(() => rayTracer.destroy());
   </script>
 
   <script id="rt-render-loop" type="text/x-typescript">
-let rtRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+let rtDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let rtInteracting = false;
 
+// Track the full-resolution canvas size (set by expandable/ResizeObserver)
+let rtFullWidth = rtCanvas.width;
+let rtFullHeight = rtCanvas.height;
+
+const rtResizeObserver = new ResizeObserver((entries) => {
+  for (const entry of entries) {
+    const { width, height } = entry.contentRect;
+    if (width > 0 && height > 0) {
+      const dpr = devicePixelRatio;
+      rtFullWidth = Math.floor(width * dpr);
+      rtFullHeight = Math.floor(height * dpr);
+      if (!rtInteracting) {
+        rtCanvas.width = rtFullWidth;
+        rtCanvas.height = rtFullHeight;
+      }
+      rtCamera.triggerRepaint();
+    }
+  }
+});
+rtResizeObserver.observe(rtCanvas);
+
+function rtApplyResolution() {
+  const scale = rtInteracting ? 0.5 : 1;
+  const w = Math.max(1, Math.floor(rtFullWidth * scale));
+  const h = Math.max(1, Math.floor(rtFullHeight * scale));
+  if (rtCanvas.width !== w || rtCanvas.height !== h) {
+    rtCanvas.width = w;
+    rtCanvas.height = h;
+  }
+}
+
 function rtRender() {
+  rtApplyResolution();
   rayTracer.render(rtGpuContext, {
     a: rtSpinInput.value,
     M: 1,
     diskOuter: rtDiskOuterInput.value,
-    maxSteps: rtInteracting ? 200 : 600,
-    tolerance: rtInteracting ? 1e-4 : 1e-6,
+    maxSteps: rtInteracting ? 400 : 2000,
   }, rtCamera, rtCanvas.width, rtCanvas.height);
 }
 
 rtCamera.on('render', rtRender);
 
-function rtScheduleRestore() {
-  if (rtRestoreTimer) clearTimeout(rtRestoreTimer);
-  rtRestoreTimer = setTimeout(() => {
+function rtBeginInteraction() {
+  rtInteracting = true;
+  if (rtDebounceTimer) clearTimeout(rtDebounceTimer);
+  rtDebounceTimer = setTimeout(() => {
     rtInteracting = false;
     rtCamera.triggerRepaint();
   }, 300);
 }
 
 function rtOnPointerDown() {
-  rtInteracting = true;
-  rtScheduleRestore();
+  rtBeginInteraction();
 }
 
 function rtOnPointerMove(e: PointerEvent) {
   if (e.buttons === 0) return;
-  rtInteracting = true;
-  rtScheduleRestore();
+  rtBeginInteraction();
 }
 
 function rtOnWheel() {
-  rtInteracting = true;
-  rtScheduleRestore();
+  rtBeginInteraction();
 }
 
 function rtOnTouchMove() {
-  rtInteracting = true;
-  rtScheduleRestore();
+  rtBeginInteraction();
 }
 
 rtCanvas.addEventListener('pointerdown', rtOnPointerDown);
@@ -515,13 +543,13 @@ rtCanvas.addEventListener('wheel', rtOnWheel, { passive: true });
 rtCanvas.addEventListener('touchmove', rtOnTouchMove, { passive: true });
 
 rtControlsContainer.addEventListener('input', () => {
-  rtInteracting = true;
-  rtScheduleRestore();
+  rtBeginInteraction();
   rtCamera.triggerRepaint();
 });
 
 invalidation.then(() => {
-  if (rtRestoreTimer) clearTimeout(rtRestoreTimer);
+  if (rtDebounceTimer) clearTimeout(rtDebounceTimer);
+  rtResizeObserver.disconnect();
   rtCanvas.removeEventListener('pointerdown', rtOnPointerDown);
   rtCanvas.removeEventListener('pointermove', rtOnPointerMove);
   rtCanvas.removeEventListener('wheel', rtOnWheel);
