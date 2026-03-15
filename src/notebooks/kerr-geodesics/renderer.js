@@ -152,9 +152,23 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
   let currentWidth = 0;
   let currentHeight = 0;
 
-  // Geodesic data
-  let positionBuffer = null;
-  let lineBindGroup = null;
+  // Geodesic data — pre-allocated and reused
+  const MAX_POINTS = 20001; // nSteps max (20000) + 1
+  const MAX_LINES = 4;
+  const positionBufferSize = MAX_LINES * MAX_POINTS * 4 * 4; // vec4f per point
+  const positionBuffer = device.createBuffer({
+    label: 'geodesic-positions',
+    size: positionBufferSize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  const lineBindGroup = device.createBindGroup({
+    layout: gpuLines.getBindGroupLayout(1),
+    entries: [
+      { binding: 0, resource: { buffer: positionBuffer } },
+      { binding: 1, resource: { buffer: projViewBuffer } },
+      { binding: 2, resource: { buffer: lineUniformBuffer } },
+    ]
+  });
   let totalVertexCount = 0;
   let lineCount = 0;
   let pointsPerLine = 0;
@@ -183,8 +197,6 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
 
   // Upload geodesic positions. geodesics is an array of Float32Array (each [x,y,z,...])
   function setGeodesics(geodesics) {
-    if (positionBuffer) positionBuffer.destroy();
-
     // Find max points per geodesic
     pointsPerLine = 0;
     for (const g of geodesics) {
@@ -207,22 +219,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       }
     }
 
-    positionBuffer = device.createBuffer({
-      label: 'geodesic-positions',
-      size: data.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
     device.queue.writeBuffer(positionBuffer, 0, data);
-
-    lineBindGroup = device.createBindGroup({
-      layout: gpuLines.getBindGroupLayout(1),
-      entries: [
-        { binding: 0, resource: { buffer: positionBuffer } },
-        { binding: 1, resource: { buffer: projViewBuffer } },
-        { binding: 2, resource: { buffer: lineUniformBuffer } },
-      ]
-    });
-
     totalVertexCount = lineCount * (pointsPerLine + 1); // +1 for line breaks
   }
 
@@ -318,7 +315,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     }
 
     // Draw geodesic lines
-    if (lineBindGroup && totalVertexCount > 0) {
+    if (totalVertexCount > 0) {
       device.queue.writeBuffer(projViewBuffer, 0, projView);
 
       _lineU32[0] = pointsPerLine;
@@ -343,7 +340,7 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
 
   function destroy() {
     gpuLines.destroy();
-    if (positionBuffer) positionBuffer.destroy();
+    positionBuffer.destroy();
     if (msaaTexture) msaaTexture.destroy();
     if (depthTexture) depthTexture.destroy();
     horizonUniformBuffer.destroy();
