@@ -45,8 +45,8 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
           }
         }]
       },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
       multisample: { count: sampleCount },
     });
     return { pipeline, bindGroupLayout };
@@ -268,22 +268,22 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
 
     const rPlus = params.M + Math.sqrt(params.M * params.M - params.a * params.a);
 
-    // Draw ergosphere (translucent)
-    if (params.showErgosphere) {
-      const ec = params.surfaceColor || [0.5, 0.5, 0.5];
-      writeSurfaceUniforms(ergosphereUniformBuffer, [ec[0], ec[1], ec[2], params.surfaceOpacity * 0.4], [params.M, params.a]);
-      pass.setPipeline(ergosphere.pipeline);
-      pass.setBindGroup(0, ergosphereBindGroup);
-      pass.draw(48 * 96 * 6);
-    }
-
-    // Draw horizon
+    // Draw transparent surfaces inner-first (horizon then ergosphere)
+    // so alpha blending composites correctly
     if (params.showHorizon) {
       const hc = params.surfaceColor || [0.5, 0.5, 0.5];
-      writeSurfaceUniforms(horizonUniformBuffer, [hc[0], hc[1], hc[2], params.surfaceOpacity], [rPlus, params.a]);
+      writeSurfaceUniforms(horizonUniformBuffer, [hc[0], hc[1], hc[2], params.surfaceOpacity * 2.5], [rPlus, params.a]);
       pass.setPipeline(horizon.pipeline);
       pass.setBindGroup(0, horizonBindGroup);
       pass.draw(32 * 64 * 6);
+    }
+
+    if (params.showErgosphere) {
+      const ec = params.surfaceColor || [0.5, 0.5, 0.5];
+      writeSurfaceUniforms(ergosphereUniformBuffer, [ec[0], ec[1], ec[2], params.surfaceOpacity * 1.5], [params.M, params.a]);
+      pass.setPipeline(ergosphere.pipeline);
+      pass.setBindGroup(0, ergosphereBindGroup);
+      pass.draw(48 * 96 * 6);
     }
 
     // Draw axes

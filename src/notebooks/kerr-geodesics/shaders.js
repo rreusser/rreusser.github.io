@@ -96,6 +96,7 @@ struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) normal: vec3f,
   @location(1) worldPos: vec3f,
+  @location(2) uv: vec2f,
 };
 
 @vertex fn vs(@builtin(vertex_index) vid: u32) -> VertexOutput {
@@ -140,6 +141,7 @@ struct VertexOutput {
   out.position = u.projectionView * vec4f(x, y, z, 1.0);
   out.normal = n;
   out.worldPos = vec3f(x, y, z);
+  out.uv = vec2f(theta, phi);
   return out;
 }
 
@@ -148,11 +150,24 @@ struct VertexOutput {
   let V = normalize(u.eye.xyz - v.worldPos);
   let lightDir = normalize(vec3f(1.0, 2.0, 3.0));
 
-  let diffuse = max(dot(N, lightDir), 0.0) * 0.4 + 0.15;
-  let fresnel = pow(1.0 - abs(dot(N, V)), 3.0) * 0.35;
+  let NdotV = abs(dot(N, V));
+  let diffuse = max(dot(N, lightDir), 0.0) * 0.4 + 0.2;
+  let fresnel = pow(1.0 - NdotV, 3.0) * 0.5;
+
+  // Grid lines in theta/phi space
+  let nLat = 8.0;
+  let nLon = 16.0;
+  let latLine = abs(fract(v.uv.x / 3.14159265 * nLat + 0.5) - 0.5);
+  let lonLine = abs(fract(v.uv.y / 6.28318531 * nLon + 0.5) - 0.5);
+  let latW = fwidth(v.uv.x / 3.14159265 * nLat) * 1.5;
+  let lonW = fwidth(v.uv.y / 6.28318531 * nLon) * 1.5;
+  let grid = 1.0 - min(smoothstep(latW, 0.0, latLine), smoothstep(lonW, 0.0, lonLine));
+
+  let baseAlpha = u.color.a;
+  let surfaceAlpha = baseAlpha * (0.15 + 0.85 * grid);
 
   let color = u.color.rgb * diffuse + vec3f(fresnel);
-  return vec4f(color, u.color.a);
+  return vec4f(color * surfaceAlpha, surfaceAlpha);
 }
 `;
 
@@ -172,6 +187,7 @@ struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) normal: vec3f,
   @location(1) worldPos: vec3f,
+  @location(2) uv: vec2f,
 };
 
 @vertex fn vs(@builtin(vertex_index) vid: u32) -> VertexOutput {
@@ -223,6 +239,7 @@ struct VertexOutput {
   out.position = u.projectionView * vec4f(x, y, z, 1.0);
   out.normal = n;
   out.worldPos = vec3f(x, y, z);
+  out.uv = vec2f(theta, phi);
   return out;
 }
 
@@ -231,11 +248,24 @@ struct VertexOutput {
   let V = normalize(u.eye.xyz - v.worldPos);
   let lightDir = normalize(vec3f(1.0, 2.0, 3.0));
 
-  let diffuse = max(dot(N, lightDir), 0.0) * 0.3 + 0.1;
-  let fresnel = pow(1.0 - abs(dot(N, V)), 3.0) * 0.25;
+  let NdotV = abs(dot(N, V));
+  let diffuse = max(dot(N, lightDir), 0.0) * 0.3 + 0.15;
+  let fresnel = pow(1.0 - NdotV, 3.0) * 0.4;
+
+  // Grid lines in theta/phi space
+  let nLat = 8.0;
+  let nLon = 16.0;
+  let latLine = abs(fract(v.uv.x / 3.14159265 * nLat + 0.5) - 0.5);
+  let lonLine = abs(fract(v.uv.y / 6.28318531 * nLon + 0.5) - 0.5);
+  let latW = fwidth(v.uv.x / 3.14159265 * nLat) * 1.5;
+  let lonW = fwidth(v.uv.y / 6.28318531 * nLon) * 1.5;
+  let grid = 1.0 - min(smoothstep(latW, 0.0, latLine), smoothstep(lonW, 0.0, lonLine));
+
+  let baseAlpha = u.color.a;
+  let surfaceAlpha = baseAlpha * (0.1 + 0.9 * grid);
 
   let color = u.color.rgb * diffuse + vec3f(fresnel);
-  return vec4f(color * u.color.a, u.color.a);
+  return vec4f(color * surfaceAlpha, surfaceAlpha);
 }
 `;
 
