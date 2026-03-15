@@ -119,6 +119,7 @@ export function createUnifiedCamera(element, opts = {}) {
   let lastTouchDist = 0;
   let lastTouchCenterX = 0;
   let lastTouchCenterY = 0;
+  let lastTouchAngle = 0;
   let touchDragMode = null; // 'rotate' | 'pinch'
 
   // Mode-specific backends
@@ -346,13 +347,14 @@ export function createUnifiedCamera(element, opts = {}) {
         prevNormY = 1 - (2 * (event.touches[0].clientY - rect.top) / rect.height);
       }
     } else if (event.touches.length === 2) {
-      // Two fingers - prepare for pinch zoom and pan
+      // Two fingers - prepare for pinch zoom, pan, and rotation (arcball)
       touchDragMode = 'pinch';
       const dx = event.touches[1].clientX - event.touches[0].clientX;
       const dy = event.touches[1].clientY - event.touches[0].clientY;
       lastTouchDist = Math.sqrt(dx * dx + dy * dy);
       lastTouchCenterX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
       lastTouchCenterY = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+      lastTouchAngle = Math.atan2(dy, dx);
     }
   }
 
@@ -387,10 +389,17 @@ export function createUnifiedCamera(element, opts = {}) {
         zoom(zoomDelta);
 
         // Two-finger pan
-        const rect = element.getBoundingClientRect();
         const panDx = centerX - lastTouchCenterX;
         const panDy = centerY - lastTouchCenterY;
         pan(panDx, panDy, element);
+
+        // Two-finger twist rotation (arcball only)
+        const angle = Math.atan2(dy, dx);
+        const dAngle = angle - lastTouchAngle;
+        if (backends[state.mode].roll && Math.abs(dAngle) > 0.001) {
+          backends[state.mode].roll(dAngle);
+        }
+        lastTouchAngle = angle;
 
         markDirty();
       }
@@ -1070,7 +1079,14 @@ function createArcballBackend(state, speeds, markDirty) {
     markDirty();
   }
 
-  return { computeMatrices, rotate, pan, pivot };
+  function roll(angle) {
+    const forward = quat.getForwardVector(state.orientation);
+    const rotation = quat.fromAxisAngle(forward, -angle * speeds.rotate);
+    state.orientation = quat.normalize(quat.multiply(rotation, state.orientation));
+    markDirty();
+  }
+
+  return { computeMatrices, rotate, pan, pivot, roll };
 }
 
 /**
