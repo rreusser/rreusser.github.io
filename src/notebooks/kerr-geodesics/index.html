@@ -490,8 +490,19 @@ const rtResizeObserver = new ResizeObserver((entries) => {
 rtResizeObserver.observe(rtCanvas);
 
 function rtRender() {
+  // Sync canvas buffer to CSS size (ResizeObserver may lag after expand/collapse)
+  const rect = rtCanvas.getBoundingClientRect();
+  const dpr = devicePixelRatio;
+  const cssW = Math.floor(rect.width * dpr);
+  const cssH = Math.floor(rect.height * dpr);
+  if (cssW > 0 && cssH > 0 && (rtCanvas.width !== cssW || rtCanvas.height !== cssH)) {
+    rtCanvas.width = cssW;
+    rtCanvas.height = cssH;
+  }
+
   const w = rtCanvas.width;
   const h = rtCanvas.height;
+  if (w === 0 || h === 0) return;
   const scale = rtInteracting ? 0.25 : 1;
   rayTracer.render(rtGpuContext, {
     a: rtSpinInput.value,
@@ -584,11 +595,11 @@ display(rtControlsContainer);
 
 The ray tracer uses the same Carter equations as the geodesic integrator above, specialized to null rays (${tex`\kappa = 0`}) and normalized so that ${tex`E = 1`}. Each ray is parameterized by its impact parameter ${tex`b = L/E`} and reduced Carter constant ${tex`q^2 = Q/E^2`}, extracted from the camera ray direction via the Jacobian of the Boyer-Lindquist coordinate map and the null condition.
 
-The key difference from the textbook first-order form (${tex`\Sigma\,dr/d\lambda = \pm\sqrt{R}`} with explicit sign tracking) is that the integration is done in **Mino time** using the **second-order form**:
+The integration uses the **first-order Carter equations** in affine parameter ${tex`\lambda`}:
 
-${tex.block`\dot{v}_r = \tfrac{1}{2}R'(r), \qquad \dot{v}_\theta = \tfrac{1}{2}\Theta'(\theta)`}
+${tex.block`\Sigma\,\frac{dr}{d\lambda} = \pm\sqrt{R(r)}, \qquad \Sigma\,\frac{d\theta}{d\lambda} = \pm\sqrt{\Theta(\theta)}`}
 
-In Mino time, the radial system ${tex`(r, v_r)`} depends only on ${tex`r`} (a pure polynomial — no trig) and the polar system ${tex`(\theta, v_\theta)`} depends only on ${tex`\theta`} (pure trig — no polynomial in ${tex`r`}). They are integrated as two **independent 2D RK4 systems**, while the azimuthal angle ${tex`\varphi`} is accumulated via the midpoint rule using both. Velocities pass smoothly through zero at turning points, eliminating the need for sign tracking or root-finding.
+The ${tex`\pm`} signs are tracked explicitly and flipped whenever the corresponding potential goes negative (indicating the ray has crossed a turning point). Dividing by ${tex`\Sigma`} keeps velocities naturally bounded at large ${tex`r`}, so the step size needs only a simple horizon-proximity factor ${tex`h \propto (r - r_+)/r`}. The state ${tex`(r, \theta, \varphi)`} is integrated as a coupled 3D system with a single **RK4** step per iteration.
   </script>
 
   <script id="rt-doppler" type="text/markdown">

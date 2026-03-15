@@ -1,7 +1,8 @@
 // Ray-traced Kerr black hole with accretion disk
-// Traces null geodesics per-pixel using second-order Carter equations
-// in Mino time with decoupled RK4 integration. Radial system is trig-free,
-// polar system is polynomial-free. Velocities pass smoothly through turning points.
+// Traces null geodesics per-pixel using first-order Carter equations
+// in affine parameter with sign tracking. RK4 integrates (r, θ, φ)
+// as a coupled 3D system; signs flip at turning points where R or Θ
+// go negative.
 
 export const rayTracerShaderCode = /* wgsl */`
 
@@ -99,8 +100,8 @@ struct RayParams {
   E: f32,
   L: f32,
   Q: f32,
-  vr: f32,
-  vth: f32,
+  signR: f32,
+  signTh: f32,
   r0: f32,
   theta0: f32,
   phi0: f32,
@@ -152,100 +153,82 @@ fn computeRayParams(rayDir: vec3f, a: f32, M: f32) -> RayParams {
   let ptheta = g.gthth * blVel.y;
   let cth = cos(p.theta0);
   let sth = sin(p.theta0);
-  let rawQ = ptheta * ptheta + cth * cth * (p.L * p.L * rawE * rawE / (sth * sth) - a * a * rawE * rawE);
+  let sin2 = max(sth * sth, 1e-10);
+  let rawQ = ptheta * ptheta + cth * cth * (p.L * p.L * rawE * rawE / sin2 - a * a * rawE * rawE);
   p.Q = rawQ / (rawE * rawE);
 
-  // Mino-time velocities from potentials
-  let r2 = p.r0 * p.r0;
-  let a2 = a * a;
-  let P = p.E * (r2 + a2) - a * p.L;
-  let LaE = p.L - a * p.E;
-  let R_val = P * P - g.Delta * (LaE * LaE + p.Q);
-  p.vr = sign(blVel.x) * sqrt(max(R_val, 0.0));
-
-  let Theta_val = p.Q + a2 * p.E * p.E * cth * cth - p.L * p.L * cth * cth / max(sth * sth, 1e-4);
-  p.vth = sign(blVel.y) * sqrt(max(Theta_val, 0.0));
+  // Initial signs from ray direction
+  p.signR = sign(blVel.x);
+  p.signTh = sign(blVel.y);
 
   p.valid = true;
   return p;
 }
 
 // ============================================================
-// Decoupled 2nd-order integrators (Mino time, κ=0, E=1)
+// First-order Carter equations (affine parameter, κ=0, E=1)
 // ============================================================
-// In Mino time, the radial system (r, vr) depends ONLY on r (trig-free),
-// and the polar system (θ, vθ) depends ONLY on θ (polynomial-free).
-// Using 2nd-order form so velocities pass smoothly through turning
-// points (where vr or vθ = 0) without stalling.
-// φ is accumulated separately via midpoint rule.
+// Σ dr/dλ = ±√R,  Σ dθ/dλ = ±√Θ,  Σ dφ/dλ = ...
+// Dividing by Σ keeps velocities naturally bounded at large r.
+// Signs are tracked externally and flipped at turning points.
 
-// Radial derivatives: dr/dλ = vr, dvr/dλ = (1/2) dR/dr
-// Completely trig-free — pure polynomial in r.
-fn radialDerivs(r: f32, vr: f32, L: f32, Q: f32, M: f32, a: f32) -> vec2f {
+fn radialPotential(r: f32, L: f32, Q: f32, M: f32, a: f32) -> f32 {
   let r2 = r * r;
   let a2 = a * a;
+  let P = r2 + a2 - a * L;
+  let Delta = r2 - 2.0 * M * r + a2;
+  let LaE = L - a;
+  return P * P - Delta * (LaE * LaE + Q);
+}
+
+fn polarPotential(theta: f32, L: f32, Q: f32, a: f32) -> f32 {
+  let cth = cos(theta);
+  let sth = sin(theta);
+  let sin2 = max(sth * sth, 1e-10);
+  return Q + cth * cth * (a * a - L * L / sin2);
+}
+
+// Right-hand side: returns (dr/dλ, dθ/dλ, dφ/dλ) in affine parameter
+fn geodesicRHS(r: f32, theta: f32, sr: f32, sth: f32, L: f32, Q: f32, M: f32, a: f32) -> vec3f {
+  let r2 = r * r;
+  let a2 = a * a;
+  let cth = cos(theta);
+  let sth_val = sin(theta);
+  let sin2 = max(sth_val * sth_val, 1e-10);
+  let Sigma = r2 + a2 * cth * cth;
+  let Delta = r2 - 2.0 * M * r + a2;
+  let invSigma = 1.0 / Sigma;
+
+  // Radial
   let P = r2 + a2 - a * L;
   let LaE = L - a;
-  let C = LaE * LaE + Q;
-  // dR/dr = 4rP − (2r − 2M)C  where R = P² − ΔC, P = r²+a²−aL, Δ = r²−2Mr+a²
-  let dR_dr = 4.0 * r * P - (2.0 * r - 2.0 * M) * C;
-  return vec2f(vr, 0.5 * dR_dr);
-}
+  let R = P * P - Delta * (LaE * LaE + Q);
+  let dr = sr * sqrt(max(R, 0.0)) * invSigma;
 
-// Polar derivatives: dθ/dλ = vθ, dvθ/dλ = (1/2) dΘ/dθ
-// No radial polynomial needed — only trig.
-fn polarDerivs(theta: f32, vth: f32, L: f32, Q: f32, a: f32) -> vec2f {
-  let sth = sin(theta);
-  let cth = cos(theta);
-  let sin2 = max(sth * sth, 1e-4);
-  let sin3 = sin2 * max(abs(sth), 1e-2);
-  // dΘ/dθ = −2a²sinθcosθ + 2L²cosθ/sin³θ
-  let dTh_dth = -2.0 * a * a * sth * cth + 2.0 * L * L * cth / sin3;
-  return vec2f(vth, 0.5 * dTh_dth);
+  // Polar
+  let Th = Q + cth * cth * (a2 - L * L / sin2);
+  let dtheta = sth * sqrt(max(Th, 0.0)) * invSigma;
+
+  // Azimuthal
+  let dphi = (a * P / max(abs(Delta), 1e-8) + L / sin2 - a) * invSigma;
+
+  return vec3f(dr, dtheta, dphi);
 }
 
 // ============================================================
-// Independent 2D RK4 for (r, vr) — completely trig-free
+// RK4 step for (r, θ, φ)
 // ============================================================
 
-fn radialRK4(r: f32, vr: f32, h: f32, L: f32, Q: f32, M: f32, a: f32) -> vec2f {
-  let k1 = radialDerivs(r, vr, L, Q, M, a);
-  let k2 = radialDerivs(r + h * 0.5 * k1.x, vr + h * 0.5 * k1.y, L, Q, M, a);
-  let k3 = radialDerivs(r + h * 0.5 * k2.x, vr + h * 0.5 * k2.y, L, Q, M, a);
-  let k4 = radialDerivs(r + h * k3.x, vr + h * k3.y, L, Q, M, a);
-  return vec2f(
-    r  + h / 6.0 * (k1.x + 2.0 * k2.x + 2.0 * k3.x + k4.x),
-    vr + h / 6.0 * (k1.y + 2.0 * k2.y + 2.0 * k3.y + k4.y),
+fn rk4Step(r: f32, theta: f32, phi: f32, h: f32, sr: f32, sth: f32, L: f32, Q: f32, M: f32, a: f32) -> vec3f {
+  let k1 = geodesicRHS(r, theta, sr, sth, L, Q, M, a);
+  let k2 = geodesicRHS(r + h * 0.5 * k1.x, theta + h * 0.5 * k1.y, sr, sth, L, Q, M, a);
+  let k3 = geodesicRHS(r + h * 0.5 * k2.x, theta + h * 0.5 * k2.y, sr, sth, L, Q, M, a);
+  let k4 = geodesicRHS(r + h * k3.x, theta + h * k3.y, sr, sth, L, Q, M, a);
+  return vec3f(
+    r     + h / 6.0 * (k1.x + 2.0 * k2.x + 2.0 * k3.x + k4.x),
+    theta + h / 6.0 * (k1.y + 2.0 * k2.y + 2.0 * k3.y + k4.y),
+    phi   + h / 6.0 * (k1.z + 2.0 * k2.z + 2.0 * k3.z + k4.z),
   );
-}
-
-// ============================================================
-// Independent 2D RK4 for (θ, vθ) — no radial polynomial needed
-// ============================================================
-
-fn polarRK4(theta: f32, vth: f32, h: f32, L: f32, Q: f32, a: f32) -> vec2f {
-  let k1 = polarDerivs(theta, vth, L, Q, a);
-  let k2 = polarDerivs(theta + h * 0.5 * k1.x, vth + h * 0.5 * k1.y, L, Q, a);
-  let k3 = polarDerivs(theta + h * 0.5 * k2.x, vth + h * 0.5 * k2.y, L, Q, a);
-  let k4 = polarDerivs(theta + h * k3.x, vth + h * k3.y, L, Q, a);
-  return vec2f(
-    theta + h / 6.0 * (k1.x + 2.0 * k2.x + 2.0 * k3.x + k4.x),
-    vth   + h / 6.0 * (k1.y + 2.0 * k2.y + 2.0 * k3.y + k4.y),
-  );
-}
-
-// ============================================================
-// φ rate in Mino time (depends on both r and θ)
-// ============================================================
-
-fn phiRate(r: f32, theta: f32, L: f32, M: f32, a: f32) -> f32 {
-  let r2 = r * r;
-  let a2 = a * a;
-  let Delta = r2 - 2.0 * M * r + a2;
-  let P = r2 + a2 - a * L;
-  let sth = sin(theta);
-  let sin2 = max(sth * sth, 1e-4);
-  return a * P / max(Delta, 1e-8) + L / sin2 - a;
 }
 
 // ============================================================
@@ -346,36 +329,46 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
   var r = rp.r0;
   var theta = rp.theta0;
   var phi = rp.phi0;
-  var vr = rp.vr;
-  var vth = rp.vth;
+  var sr = rp.signR;
+  var sth = rp.signTh;
 
   var color = vec3f(0.0);
   var accumulated: f32 = 0.0;
 
+  let hBase = u.resolution.w;
   let maxSteps = u32(u.resolution.z);
   for (var step = 0u; step < maxSteps; step++) {
     let prevTheta = theta;
     let prevR = r;
 
-    // Velocity-scaled step sizing: in Mino time, vr ~ r² at large r,
-    // so we scale h by 1/velocity to prevent massive overshoot.
-    let vel = max(abs(vr), max(abs(vth), 1.0));
-    let h = u.resolution.w * clamp((r - rHorizon) / r, 0.02, 1.0) / vel;
+    // Adaptive step size: smaller near horizon, full size far away.
+    // Dividing by Σ in the RHS already bounds velocities at large r.
+    let h = hBase * clamp((r - rHorizon) / r, 0.02, 1.0);
 
-    // Independent 2D RK4: radial (trig-free) and polar (polynomial-free)
-    let rState = radialRK4(r, vr, h, L, Q, M, a);
-    let thState = polarRK4(theta, vth, h, L, Q, a);
+    // RK4 step for (r, θ, φ)
+    let state = rk4Step(r, theta, phi, h, sr, sth, L, Q, M, a);
+    r = state.x;
+    theta = state.y;
+    phi = state.z;
 
-    // Accumulate φ via midpoint rule
-    phi += h * phiRate(0.5 * (r + rState.x), 0.5 * (theta + thState.x), L, M, a);
+    // Sign tracking: flip at turning points
+    let R_new = radialPotential(r, L, Q, M, a);
+    if (R_new < 0.0) {
+      sr = -sr;
+    }
+    let Th_new = polarPotential(theta, L, Q, a);
+    if (Th_new < 0.0) {
+      sth = -sth;
+    }
 
-    r = rState.x;
-    vr = rState.y;
-    theta = thState.x;
-    vth = thState.y;
-
-    // Clamp theta away from poles
-    theta = clamp(theta, 0.05, 3.09);
+    // Soft polar guard: reflect theta if it overshoots past poles
+    if (theta < 1e-4) {
+      theta = 1e-4;
+      sth = abs(sth);
+    } else if (theta > 3.14149) {
+      theta = 3.14149;
+      sth = -abs(sth);
+    }
 
     // Check horizon
     if (r < rHorizon * 1.01) {
