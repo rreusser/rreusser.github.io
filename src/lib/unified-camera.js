@@ -1042,7 +1042,7 @@ function createArcballBackend(state, speeds, markDirty) {
     markDirty();
   }
 
-  function pivot(dx, dy, element, event) {
+  function pivot(dx, dy, element, clientX, clientY) {
     // Get current eye position
     const forward = quat.getForwardVector(state.orientation);
     const eye = [
@@ -1053,8 +1053,8 @@ function createArcballBackend(state, speeds, markDirty) {
 
     // Perspective-corrected pivot scaling for 1:1 mouse tracking across entire viewport
     const rect = element.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
+    const mouseX = clientX - rect.left;
+    const mouseY = clientY - rect.top;
     
     // Normalized device coordinates [-1, 1]
     const ndcX = (2 * mouseX / rect.width) - 1;
@@ -1077,12 +1077,14 @@ function createArcballBackend(state, speeds, markDirty) {
     const right = quat.getRightVector(state.orientation);
     const up = quat.getUpVector(state.orientation);
 
-    const rotX = quat.fromAxisAngle(up, -dx * angularScaleX * speeds.pivot);
-    const rotY = quat.fromAxisAngle(right, -dy * angularScaleY * speeds.pivot);
+    // Pivot rotates in the camera's local frame (yaw about local up, pitch about local right),
+    // so post-multiply: q_new = q_old * q_rot (applies rotation in camera space, not world space).
+    const rotX = quat.fromAxisAngle([0, 1, 0], dx * angularScaleX * speeds.pivot);
+    const rotY = quat.fromAxisAngle([1, 0, 0], dy * angularScaleY * speeds.pivot);
     const rotation = quat.multiply(rotX, rotY);
 
-    // Apply rotation
-    state.orientation = quat.normalize(quat.multiply(rotation, state.orientation));
+    // Apply rotation in camera-local space
+    state.orientation = quat.normalize(quat.multiply(state.orientation, rotation));
 
     // Recompute center to keep eye fixed
     const newForward = quat.getForwardVector(state.orientation);

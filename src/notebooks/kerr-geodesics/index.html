@@ -1,13 +1,13 @@
 <!doctype html>
 <notebook theme="ink">
-  <title>Kerr Geodesics</title>
+  <title>Geodesics around a rotating black hole</title>
 
   <script id="title" type="text/markdown">
-# Kerr Geodesics
+# Geodesics around a rotating black hole
   </script>
 
   <script id="intro" type="text/markdown">
-Geodesics of the [Kerr metric](https://en.wikipedia.org/wiki/Kerr_metric) describe the paths of particles and light in the spacetime around a rotating black hole. This notebook integrates the geodesic equations in Mino time using an adaptive Cash-Karp RK4(5) scheme, which adjusts the step size to maintain accuracy near the horizon where Boyer-Lindquist coordinates become singular.
+Geodesics of the [Kerr metric](https://en.wikipedia.org/wiki/Kerr_metric) describe the paths of particles and light in the spacetime around a rotating black hole. This notebook integrates the geodesic equations in Mino time using an adaptive [Cash–Karp RK4(5)](https://doi.org/10.1145/79505.79507) scheme, which adjusts the step size to maintain accuracy near the horizon where Boyer-Lindquist coordinates become singular.
   </script>
 
   <script id="webgpu-setup" type="text/x-typescript">
@@ -391,7 +391,9 @@ display(html`<div style="font-size: 0.85em; opacity: 0.6; margin-top: 0.5em;">
   <script id="equations" type="text/markdown">
 ## Separated Equations of Motion
 
-The Kerr metric in Boyer-Lindquist coordinates has two Killing symmetries giving conserved energy ${tex`E = -p_t`} and angular momentum ${tex`L = p_\varphi`}. A remarkable hidden symmetry yields a third constant, the Carter constant ${tex`Q`}, which fully separates the geodesic equations. The Mino-time transformation ${tex`d\tau/d\lambda = \Sigma`} (where ${tex`\Sigma = r^2 + a^2\cos^2\theta`}) then decouples the radial and polar motions into independent first-order equations:
+A [Killing symmetry](https://en.wikipedia.org/wiki/Killing_vector_field) is a direction in which the metric looks the same — moving along it costs nothing and therefore gives a conserved quantity. The Kerr metric has two: time-translation (the black hole isn't changing) and rotation about the spin axis (it's axially symmetric). These give conserved energy ${tex`E = -p_t`} and axial angular momentum ${tex`L = p_\varphi`}. That much holds for any axisymmetric spacetime.
+
+What makes the Kerr metric special is a third, hidden conserved quantity. [Carter (1968)](https://doi.org/10.1103/PhysRev.174.1559) discovered that the Kerr metric admits a rank-2 Killing tensor — not a symmetry direction but a more subtle symmetry of the curvature — which yields the Carter constant ${tex`Q`}. Its existence is not obvious from the metric's appearance; Carter found it by attempting to separate the [Hamilton–Jacobi equation](https://en.wikipedia.org/wiki/Hamilton%E2%80%93Jacobi_equation) and discovering it worked. With ${tex`E`}, ${tex`L`}, and ${tex`Q`} all known, the geodesic equations *separate*: the equation for ${tex`r`} involves only ${tex`r`}, and the equation for ${tex`\theta`} involves only ${tex`\theta`}. Each reduces to a single first-order ODE:
 
 ${tex.block`\frac{dr}{d\lambda} = \pm\sqrt{R(r)}, \qquad \frac{d\theta}{d\lambda} = \pm\sqrt{\Theta(\theta)}`}
 
@@ -399,17 +401,21 @@ where
 
 ${tex.block`R(r) = P^2 - \Delta\!\left[\kappa r^2 + (L - aE)^2 + Q\right], \quad P = E(r^2 + a^2) - aL`}
 
-and ${tex`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\!\theta - L^2\cot^2\!\theta`}, with ${tex`\Delta = r^2 - 2Mr + a^2`}. Coordinate time and azimuthal angle are recovered from known functions of ${tex`r`} and ${tex`\theta`} alone.
+and ${tex`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\!\theta - L^2\cot^2\!\theta`}, with ${tex`\Delta = r^2 - 2Mr + a^2`}. Coordinate time and azimuthal angle are then recovered as straightforward integrals of known functions of ${tex`r`} and ${tex`\theta`} alone.
+
+However, there is a subtlety: even though the ${tex`r`} and ${tex`\theta`} equations are individually separated, both are divided by ${tex`\Sigma = r^2 + a^2\cos^2\theta`} when written in affine parameter, which couples them through the step size. [Mino (2003)](https://doi.org/10.1103/PhysRevD.67.084027) introduced a reparameterization ${tex`d\lambda = d\tau/\Sigma`} — now called *Mino time* — that absorbs this factor, making the ${tex`r`} and ${tex`\theta`} equations fully independent and enabling them to be integrated as two separate one-dimensional systems.
   </script>
 
   <script id="integrator-description" type="text/markdown">
 ## Integration Method
 
-Rather than tracking the signs of ${tex`dr/d\lambda`} and ${tex`d\theta/d\lambda`} through turning points (where ${tex`R`} or ${tex`\Theta`} vanish), we recast the system as smooth second-order equations using velocities ${tex`v_r = dr/d\lambda`}, ${tex`v_\theta = d\theta/d\lambda`}:
+The potentials ${tex`R(r)`} and ${tex`\Theta(\theta)`} must be non-negative for physical motion — they are the squares of the radial and polar velocities. Where they reach zero, the particle momentarily stops in that coordinate and reverses: these are *turning points*, the radial or angular extremes of the orbit. At each turning point the sign of ${tex`dr/d\lambda`} or ${tex`d\theta/d\lambda`} must flip. Tracking these sign changes through a numerical integrator is fiddly and fragile near the exact zero.
+
+Instead we differentiate once more and carry the velocities ${tex`v_r = dr/d\lambda`} and ${tex`v_\theta = d\theta/d\lambda`} as state variables, giving smooth second-order equations:
 
 ${tex.block`\dot{v}_r = \tfrac{1}{2}R'(r), \qquad \dot{v}_\theta = \tfrac{1}{2}\Theta'(\theta)`}
 
-The velocities pass smoothly through zero at turning points, eliminating the need for sign tracking or root-finding. This 6-dimensional system ${tex`(t, r, \theta, \varphi, v_r, v_\theta)`} is integrated with an adaptive Cash-Karp RK4(5) scheme that adjusts the step size to maintain a relative tolerance of ${tex`10^{-8}`}.
+Now ${tex`v_r`} and ${tex`v_\theta`} pass smoothly through zero at turning points — the derivative of the potential acts as a restoring force that reverses them automatically, with no sign tracking or root-finding required. This 6-dimensional system ${tex`(t, r, \theta, \varphi, v_r, v_\theta)`} is integrated with an adaptive [Cash–Karp RK4(5)](https://doi.org/10.1145/79505.79507) scheme that adjusts the step size to maintain a relative tolerance of ${tex`10^{-8}`}.
   </script>
 
   <script id="carter-constant" type="text/markdown">
@@ -419,18 +425,20 @@ Each geodesic is characterized by four constants which serve as inputs to the ra
 
 - **Energy** ${tex`E = -p_t`}, conserved by time-translation symmetry
 - **Angular momentum** ${tex`L = p_\varphi`}, conserved by axial symmetry
-- **Carter constant** ${tex`Q`}, arising from a hidden symmetry (Killing tensor) of the Kerr metric, which enables the separation of ${tex`r`} and ${tex`\theta`}
-- **Mass shell** ${tex`\kappa = -g_{\mu\nu}\dot{x}^\mu\dot{x}^\nu`} (1 for massive particles, 0 for photons)
+- **[Carter constant](https://doi.org/10.1103/PhysRev.174.1559)** ${tex`Q`}, arising from the hidden Killing tensor of the Kerr metric. For equatorial orbits ${tex`Q = 0`}; for inclined orbits ${tex`Q > 0`} sets how far the trajectory swings above and below the equatorial plane
+- **Normalization** ${tex`\kappa = -g_{\mu\nu}\dot{x}^\mu\dot{x}^\nu`}: the metric magnitude of the four-velocity, fixed at 1 for massive particles (timelike geodesics) and 0 for photons (null geodesics)
   </script>
 
   <script id="notes" type="text/markdown">
-The Boyer-Lindquist coordinates become singular at the event horizon ${tex`r_+ = M + \sqrt{M^2 - a^2}`} where ${tex`\Delta = 0`}. Integration is terminated when the particle approaches the horizon. The ergosphere boundary is at ${tex`r_\text{ergo} = M + \sqrt{M^2 - a^2\cos^2\theta}`}.
+[Boyer-Lindquist coordinates](https://en.wikipedia.org/wiki/Boyer%E2%80%93Lindquist_coordinates) are the natural generalization of Schwarzschild coordinates to a rotating black hole. They become singular at the event horizon ${tex`r_+ = M + \sqrt{M^2 - a^2}`} where ${tex`\Delta = 0`} — not because spacetime itself is ill-behaved there, but because this coordinate system cannot smoothly extend through the horizon (similar to how polar coordinates break down at the poles). Integration is terminated when the particle approaches ${tex`r_+`}.
+
+The **ergosphere** — bounded by ${tex`r_\text{ergo} = M + \sqrt{M^2 - a^2\cos^2\theta}`} — is a region outside the horizon where the black hole's rotation drags spacetime so strongly that no observer can remain stationary, regardless of how much thrust they apply. Inside the ergosphere, the ${tex`t`}-coordinate becomes spacelike, and it is possible to extract rotational energy from the black hole ([Penrose process](https://en.wikipedia.org/wiki/Penrose_process)).
   </script>
 
   <script id="rt-lensing-intro" type="text/markdown">
 ## Gravitational Lensing
 
-The same geodesic equations can be used to render what a Kerr black hole with an accretion disk actually *looks like*. The fragment shader below traces one null geodesic per pixel, following each light ray backward from the camera through the curved spacetime. Rays that cross the equatorial plane within the disk's radial extent (from the ISCO to ${tex`20M`}) are shaded with a temperature profile ${tex`T \propto r^{-3/4}`} and Doppler-beamed by the orbital motion of the accreting matter.
+The same geodesic equations can be used to render what a Kerr black hole with an accretion disk actually *looks like*. The fragment shader below traces one null geodesic per pixel, following each light ray backward from the camera through the curved spacetime. Rays that cross the equatorial plane within the disk's radial extent (from the [ISCO](https://doi.org/10.1086/151796) to ${tex`20M`}) are shaded with a temperature profile ${tex`T \propto r^{-3/4}`} and Doppler-beamed by the orbital motion of the accreting matter. The approach follows the backwards ray-tracing method described in [James et al. (2015)](https://doi.org/10.1088/0264-9381/32/6/065001) for the *Interstellar* visual effects.
   </script>
 
   <script id="rt-canvas" type="text/x-typescript">
@@ -616,27 +624,34 @@ display(rtControlsContainer);
   <script id="rt-method" type="text/markdown">
 ### Ray tracing method
 
-The ray tracer uses the same Carter equations as the geodesic integrator above, specialized to null rays (${tex`\kappa = 0`}) and normalized so that ${tex`E = 1`}. Each ray is parameterized by its impact parameter ${tex`b = L/E`} and reduced Carter constant ${tex`q^2 = Q/E^2`}, extracted from the camera ray direction via the Jacobian of the Boyer-Lindquist coordinate map and the null condition.
+The ray tracer uses the same Carter equations as the geodesic integrator above, specialized to null rays (${tex`\kappa = 0`}). For null rays the overall energy scale is unobservable — only the ratios ${tex`b = L/E`} (the [impact parameter](https://en.wikipedia.org/wiki/Impact_parameter), roughly the perpendicular distance from the black hole that an undeflected ray would pass at) and ${tex`q^2 = Q/E^2`} matter. We normalize ${tex`E = 1`} and work with ${tex`(b, q^2)`} throughout. Their values are extracted from each camera pixel's ray direction by converting from Cartesian to Boyer-Lindquist coordinates and imposing the null condition ${tex`g_{\mu\nu}\dot{x}^\mu\dot{x}^\nu = 0`} to solve for the time component of the four-velocity.
 
-The integration uses the **second-order Carter equations** in affine parameter ${tex`\lambda`}, with Mino-time velocities ${tex`v_r = \pm\sqrt{R}`} and ${tex`v_\theta = \pm\sqrt{\Theta}`} as state variables:
+The integration uses the same **second-order formulation** as the geodesic integrator, with Mino-time velocities ${tex`v_r`} and ${tex`v_\theta`} as state variables:
 
 ${tex.block`\frac{dv_r}{d\lambda} = \frac{R'(r)}{2\Sigma}, \qquad \frac{dv_\theta}{d\lambda} = \frac{\Theta'(\theta)}{2\Sigma}`}
 
-The velocities pass smoothly through zero at turning points — the acceleration terms ${tex`R'/2`} and ${tex`\Theta'/2`} push them through without any sign tracking or root-finding. (First-order sign-tracking, where ${tex`\sqrt{\max(\Theta, 0)}`} goes to zero at turning points, stalls the integrator for rays that need to bounce in ${tex`\theta`}.) Dividing by ${tex`\Sigma`} converts to affine time, bounding all rates at large ${tex`r`} so the step size needs only a simple horizon-proximity factor ${tex`h \propto (r - r_+)/r`}. The 5D state ${tex`(r, v_r, \theta, v_\theta, \varphi)`} is advanced with a single **RK4** step per iteration.
+This is especially important for the ray tracer: rays that are strongly lensed may bounce many times in ${tex`\theta`} before escaping or falling in, and a first-order scheme that takes ${tex`\sqrt{\max(\Theta,0)}`} stalls at every turning point. The second-order form handles all bounces automatically. The 5D state ${tex`(r, v_r, \theta, v_\theta, \varphi)`} is advanced with a single fixed-step RK4 per iteration; the step size scales as ${tex`h \propto (r - r_+)/r`} to shrink near the horizon.
   </script>
 
   <script id="rt-doppler" type="text/markdown">
 ### Doppler beaming and disk appearance
 
-The characteristic brightness asymmetry arises from the relativistic Doppler effect. Disk gas orbits at the Keplerian angular velocity ${tex`\Omega = \sqrt{M}/(r^{3/2} + a\sqrt{M})`}, and the observed frequency of a photon is shifted by a factor ${tex`g = 1/\bigl(u^t_\text{emit}(1 - \Omega L/E)\bigr)`} that combines gravitational redshift with the orbital Doppler shift. On the approaching side of the disk, ${tex`g > 1`} and photons are blueshifted and beamed brighter; on the receding side, ${tex`g < 1`} and they are dimmed.
+The characteristic brightness asymmetry — one side of the disk glowing far more intensely than the other — arises from the relativistic Doppler effect combined with gravitational redshift. Disk gas orbits at the prograde [Keplerian angular velocity](https://doi.org/10.1086/151796) ${tex`\Omega = \sqrt{M}/(r^{3/2} + a\sqrt{M})`} (the spin-corrected generalization of ${tex`\sqrt{M/r^3}`}). A photon emitted by this moving gas and received by a distant observer is shifted in frequency by a factor ${tex`g = 1/\bigl(u^t_\text{emit}(1 - \Omega b)\bigr)`}, where ${tex`u^t_\text{emit}`} accounts for gravitational time dilation and the ${tex`\Omega b`} term for the orbital Doppler shift. On the approaching side ${tex`g > 1`}: photons are blueshifted and beamed forward, making that side dramatically brighter. On the receding side ${tex`g < 1`} and the disk fades.
 
-The disk temperature follows ${tex`T \propto r^{-3/4}`}, and the observed specific intensity scales as ${tex`g^3`} (the Lorentz-invariant ${tex`I_\nu/\nu^3`}, appropriate since we apply a fixed color ramp rather than integrating a shifted blackbody spectrum). The thin bright ring just outside the black hole shadow is the **photon ring**: light that has completed one or more half-orbits around the black hole before escaping to the camera.
+The observed specific intensity scales as ${tex`g^3`} — a consequence of the [Lorentz-invariant](https://doi.org/10.1086/154033) quantity ${tex`I_\nu/\nu^3`} being conserved along a ray — appropriate here since we apply a fixed color ramp rather than integrating a full shifted blackbody spectrum. The temperature profile follows ${tex`T \propto r^{-3/4}`}, a standard result for a geometrically thin, optically thick disk.
+
+The thin bright ring just outside the black hole shadow is the **photon ring**: light that has orbited the black hole one or more times before escaping. Because these rays spend a long time near the unstable photon orbit (${tex`r \approx 3M`} for a non-spinning hole), small changes in impact parameter lead to exponentially different outcomes, producing a series of increasingly thin and bright sub-rings stacked just outside the shadow edge.
   </script>
 
   <script id="references" type="text/markdown">
 ## References
 
-The geodesic integrator uses the Carter constant and separated equations of motion from [Carter (1968)](https://doi.org/10.1103/PhysRev.174.1559), reparameterized in the Mino time of [Mino (2003)](https://doi.org/10.1103/PhysRevD.67.084027) which decouples the radial and polar systems. The pedagogical derivation in [Bini et al.](https://www.roma1.infn.it/) was a useful reference for the Carter equations and Hamilton-Jacobi separation, while [Garnier (2022)](https://hal.science/hal-03762454) and [Wu et al. (2022)](https://doi.org/10.3847/1538-4357/ac9c5w) informed the choice of integration scheme. The gravitational lensing ray tracer draws on the approach described in [James et al. (2015)](https://arxiv.org/abs/1502.03808) for the Interstellar visual effects, adapted here as a per-pixel null geodesic integrator.
+- [Carter (1968)](https://doi.org/10.1103/PhysRev.174.1559) — discovery of the Carter constant and separation of the Kerr geodesic equations via the Hamilton–Jacobi method
+- [Bardeen, Press & Teukolsky (1972)](https://doi.org/10.1086/151796) — locally non-rotating frames in Kerr spacetime; Keplerian orbital velocity and ISCO formula used in the disk model
+- [Cunningham (1975)](https://doi.org/10.1086/154033) — relativistic transfer function for Kerr accretion disks; source of the ${tex`g^3`} intensity scaling from the Lorentz invariant ${tex`I_\nu/\nu^3`}
+- [Mino (2003)](https://doi.org/10.1103/PhysRevD.67.084027) — Mino-time reparameterization that fully decouples the radial and polar equations
+- [James et al. (2015)](https://doi.org/10.1088/0264-9381/32/6/065001) — null geodesic ray tracing for the *Interstellar* visual effects (DNGR); inspiration for the backwards per-pixel ray tracer here
+- [Cash & Karp (1990)](https://doi.org/10.1145/79505.79507) — the embedded RK4(5) scheme used for adaptive step-size control in the geodesic integrator
   </script>
 
 </notebook>
