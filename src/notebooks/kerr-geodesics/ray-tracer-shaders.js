@@ -387,7 +387,7 @@ fn starfield(dir: vec3f, pixelSize: f32) -> vec3f {
     // Scale intensity by a sharp Gaussian, width set by pixel footprint.
     // Minimum radius is ~1 screen pixel in grid-space units, so stars
     // stay point-like regardless of figure size.
-    let minRadius = gridScale * 3.14159 / max(u.resolution.x, u.resolution.y);
+    let minRadius = gridScale * 2.0 / max(u.resolution.x, u.resolution.y);
     let radius = max(pixelSize * gridScale, minRadius);
     let atten = exp(-0.5 * d * d / (radius * radius));
     // Slight color variation
