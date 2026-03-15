@@ -579,6 +579,26 @@ display(rtExpandable);
 display(rtControlsContainer);
   </script>
 
+  <script id="rt-method" type="text/markdown">
+### Ray tracing method
+
+The ray tracer uses the same Carter equations as the geodesic integrator above, specialized to null rays (${tex`\kappa = 0`}) and normalized so that ${tex`E = 1`}. Each ray is parameterized by its impact parameter ${tex`b = L/E`} and reduced Carter constant ${tex`q^2 = Q/E^2`}, extracted from the camera ray direction via the Jacobian of the Boyer-Lindquist coordinate map and the null condition.
+
+The key difference from the textbook first-order form (${tex`\Sigma\,dr/d\lambda = \pm\sqrt{R}`} with explicit sign tracking) is that the integration is done in **Mino time** using the **second-order form**:
+
+${tex.block`\dot{v}_r = \tfrac{1}{2}R'(r), \qquad \dot{v}_\theta = \tfrac{1}{2}\Theta'(\theta)`}
+
+In Mino time, the radial system ${tex`(r, v_r)`} depends only on ${tex`r`} (a pure polynomial — no trig) and the polar system ${tex`(\theta, v_\theta)`} depends only on ${tex`\theta`} (pure trig — no polynomial in ${tex`r`}). They are integrated as two **independent 2D RK4 systems**, while the azimuthal angle ${tex`\varphi`} is accumulated via the midpoint rule using both. Velocities pass smoothly through zero at turning points, eliminating the need for sign tracking or root-finding.
+  </script>
+
+  <script id="rt-doppler" type="text/markdown">
+### Doppler beaming and disk appearance
+
+The characteristic brightness asymmetry arises from the relativistic Doppler effect. Disk gas orbits at the Keplerian angular velocity ${tex`\Omega = \sqrt{M}/(r^{3/2} + a\sqrt{M})`}, and the observed frequency of a photon is shifted by a factor ${tex`g = 1/\bigl(u^t_\text{emit}(1 - \Omega L/E)\bigr)`} that combines gravitational redshift with the orbital Doppler shift. On the approaching side of the disk, ${tex`g > 1`} and photons are blueshifted and beamed brighter; on the receding side, ${tex`g < 1`} and they are dimmed.
+
+The disk temperature follows ${tex`T \propto r^{-3/4}`}, and the observed specific intensity scales as ${tex`g^3`} (the Lorentz-invariant ${tex`I_\nu/\nu^3`}, appropriate since we apply a fixed color ramp rather than integrating a shifted blackbody spectrum). The thin bright ring just outside the black hole shadow is the **photon ring**: light that has completed one or more half-orbits around the black hole before escaping to the camera.
+  </script>
+
   <script id="references" type="text/markdown">
 ## References
 
