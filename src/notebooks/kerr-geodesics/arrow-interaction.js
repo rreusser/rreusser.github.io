@@ -9,7 +9,7 @@ export function createArrowInteraction(canvas, camera, {
   getArrowState,    // () => { origin: [x,y,z], tip: [x,y,z], visible: boolean }
   onDrag,           // (newTip: [x,y,z]) => void — called during drag with new tip position
   onDragEnd,        // () => void — called when drag ends
-  hitRadius = 20,   // pixel radius for hit-testing the tip
+  hitRadius = 40,   // pixel radius for hit-testing the tip
 }) {
   let dragging = false;
   let dragPlaneNormal = null; // in world space

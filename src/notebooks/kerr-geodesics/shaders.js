@@ -36,7 +36,7 @@ fn getVertex(index: u32) -> Vertex {
 
   let projected = projViewMatrix * vec4f(pos, 1.0);
   let t = f32(pointIndex) / f32(lineUniforms.pointCount - 1u);
-  let lineWidth = lineUniforms.width * (0.3 + 0.7 * t);
+  let lineWidth = lineUniforms.width * (1.0 - 0.7 * t);
 
   // Pack line index as velocity for coloring
   let lineId = f32(lineIndex) / max(f32(lineUniforms.lineCount - 1u), 1.0);
@@ -68,8 +68,8 @@ fn getColor(lineCoord: vec2f, t: f32, velocity: f32, lineWidth: f32) -> vec4f {
   let hue = velocity * 0.7 + 0.55;
   var color = hsl2rgb(hue % 1.0, 0.7, 0.6);
 
-  // Fade old points
-  let alpha = 0.15 + 0.85 * t;
+  // Fade tail (t=0 is start/bright, t=1 is end/faded)
+  let alpha = 1.0 - 0.85 * t;
 
   // Dark border
   let borderWidth = 3.0;
