@@ -70,8 +70,6 @@ const carterInput = addControl(Inputs.range([0, 20], { label: 'Carter Q', value:
 const r0Input = addControl(Inputs.range([2, 30], { label: 'Initial r\u2080', value: 10, step: 0.1 }));
 const theta0Input = addControl(Inputs.range([0.1, 3.04], { label: 'Initial \u03b8\u2080', value: Math.PI / 2.5, step: 0.01 }));
 const nStepsInput = addControl(Inputs.range([500, 20000], { label: 'Steps', value: 8000, step: 100 }));
-
-display(controlsContainer);
   </script>
 
   <script id="sync-preset" type="text/x-typescript">
@@ -309,6 +307,24 @@ expandableContainer = expandable(container, {
 });
 
 display(expandableContainer);
+  </script>
+
+  <script id="controls-display" type="text/x-typescript">
+display(controlsContainer);
+  </script>
+
+  <script id="parameter-glossary" type="text/markdown">
+### Parameters
+
+- **Preset** — a named starting configuration; selecting a preset updates all parameters below
+- **Particle type** — massive particles (${tex`\kappa = 1`}, timelike geodesics) or photons (${tex`\kappa = 0`}, null geodesics)
+- **Spin** ${tex`a/M`} — the black hole's angular momentum per unit mass, ranging from 0 (Schwarzschild) to 1 (extremal Kerr)
+- **Energy** ${tex`E`} — the conserved energy per unit rest mass; ${tex`E < 1`} for bound orbits, ${tex`E = 1`} for marginally bound, ${tex`E > 1`} for unbound
+- **Ang. mom.** ${tex`L`} — the conserved axial angular momentum per unit rest mass; positive is prograde (co-rotating), negative is retrograde
+- **Carter** ${tex`Q`} — the Carter constant, governing motion out of the equatorial plane; ${tex`Q = 0`} for equatorial orbits, ${tex`Q > 0`} allows polar oscillation
+- **Initial** ${tex`r_0`} — the starting Boyer-Lindquist radial coordinate
+- **Initial** ${tex`\theta_0`} — the starting polar angle; ${tex`\theta = \pi/2`} is the equatorial plane
+- **Steps** — the number of integration steps in Mino time
   </script>
 
   <script id="diagnostics-display" type="text/x-typescript">
