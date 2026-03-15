@@ -360,7 +360,7 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
   if (!rp.valid) { return vec4f(0.0, 0.0, 0.0, 1.0); }
 
   let rHorizon = M + sqrt(max(M * M - a * a, 0.0));
-  let rEscape = length(u.eye.xyz) * 3.0;
+  let rEscape = max(rHorizon * 20.0, 50.0);
   let a2 = a * a;
   let L = rp.L;
   let Q = rp.Q;
@@ -402,8 +402,8 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
       break;
     }
 
-    // Check escape
-    if (s.r > rEscape) {
+    // Escape: far from hole and moving outward — will never return
+    if (s.r > rEscape && s.vr > 0.0) {
       let bl_sth = sin(s.theta);
       let rho = sqrt(s.r * s.r + a2);
       let escapeDir = normalize(vec3f(
