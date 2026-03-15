@@ -73,7 +73,10 @@ fn getColor(lineCoord: vec2f, t: f32, velocity: f32, lineWidth: f32) -> vec4f {
   let borderMask = smoothstep(lineWidth - borderWidth - 0.75, lineWidth - borderWidth + 0.75, sdf);
   color = mix(color, vec3f(0.0), borderMask * 0.7);
 
-  return vec4f(color, 1.0);
+  // Subtle fade along tail
+  let alpha = 1.0 - 0.4 * t;
+
+  return vec4f(color * alpha, alpha);
 }
 `;
 
