@@ -469,6 +469,9 @@ const rtSpinInput = rtControlsContainer.appendChild(
 const rtDiskOuterInput = rtControlsContainer.appendChild(
   Inputs.range([5, 40], { label: 'Disk outer radius', value: 20, step: 0.5 })
 );
+const rtExposureInput = rtControlsContainer.appendChild(
+  Inputs.range([0.1, 5.0], { label: 'Exposure', value: 1.0, step: 0.01 })
+);
   </script>
 
   <script id="rt-renderer" type="text/x-typescript">
@@ -496,6 +499,7 @@ function rtRenderActual() {
     a: rtSpinInput.value,
     M: 1,
     diskOuter: rtDiskOuterInput.value,
+    exposure: rtExposureInput.value,
     maxSteps: rtInteracting ? 600 : 2000,
     stepSize: rtInteracting ? 0.4 : 0.1,
     renderWidth: Math.max(1, Math.floor(w * scale)),

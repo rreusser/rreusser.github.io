@@ -275,6 +275,37 @@ fn rk4Step(s: GeoState, h: f32, L: f32, Q: f32, M: f32, a: f32) -> GeoState {
 }
 
 // ============================================================
+// Noise for turbulent disk structure
+// ============================================================
+
+fn hash11(p: f32) -> f32 {
+  return fract(sin(p * 127.1) * 43758.5453);
+}
+
+fn valueNoise(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(hash21(i + vec2f(0.0, 0.0)), hash21(i + vec2f(1.0, 0.0)), u.x),
+    mix(hash21(i + vec2f(0.0, 1.0)), hash21(i + vec2f(1.0, 1.0)), u.x),
+    u.y
+  );
+}
+
+fn fbm(p: vec2f) -> f32 {
+  var val = 0.0;
+  var amp = 0.5;
+  var pos = p;
+  for (var i = 0; i < 5; i++) {
+    val += amp * valueNoise(pos);
+    pos *= 2.1;
+    amp *= 0.5;
+  }
+  return val;
+}
+
+// ============================================================
 // Accretion disk
 // ============================================================
 
@@ -298,20 +329,30 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   // Beamed intensity
   let intensity = temp * g * g * g;
 
+  // Turbulent wispy structure via FBM noise
+  // Use log(r) for radial coordinate to get even detail across the disk
+  let noiseCoord = vec2f(phi * 3.0, log(r) * 8.0);
+  let turbulence = fbm(noiseCoord + vec2f(3.7, 1.2));
+  // A second layer at different scale for fine wisps
+  let wisps = fbm(noiseCoord * 2.5 + vec2f(17.3, 5.1));
+  // Combine: base density modulated by turbulence
+  let density = 0.4 + 0.6 * turbulence + 0.3 * wisps * wisps;
+
   // Smooth fade at inner edge (ISCO) and outer edge
   let innerFade = smoothstep(rISCO * 0.95, rISCO * 1.1, r);
   let outerFade = smoothstep(rOuter, rOuter * 0.7, r);
   let fade = innerFade * outerFade;
 
-  // Blackbody-ish color mapping
-  let t = clamp(intensity, 0.0, 3.0);
+  // Warm blackbody color ramp: dark red → amber → warm white
+  let I = intensity * density;
   let col = vec3f(
-    clamp(t * 1.5, 0.0, 1.0),
-    clamp(t * t * 0.4, 0.0, 1.0),
-    clamp(t * t * t * 0.15, 0.0, 1.0),
+    min(I * 2.0, 1.0 + I * 0.5),                    // red channel saturates early then goes beyond 1
+    I * I * 0.6 + I * 0.15,                          // green lags behind
+    I * I * I * 0.25 + I * I * 0.05,                 // blue only at high intensity
   );
 
-  return vec4f(col * clamp(intensity, 0.0, 5.0) * fade, fade);
+  // HDR output — no clamping, let the tone mapper handle it
+  return vec4f(col * I * 3.0 * fade, fade);
 }
 
 // ============================================================
@@ -477,14 +518,9 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
   let dRdy = dpdy(rayDir);
   let pixelSize = max(length(dRdx), length(dRdy));
 
-  var color = traceRay(rayDir, pixelSize);
+  let color = traceRay(rayDir, pixelSize);
 
-  // Tone mapping (simple Reinhard)
-  color = vec4f(color.rgb / (1.0 + color.rgb), 1.0);
-
-  // Gamma correction
-  color = vec4f(pow(color.rgb, vec3f(1.0 / 2.2)), 1.0);
-
+  // Output linear HDR — tone mapping is applied in a separate pass
   return color;
 }
 `;

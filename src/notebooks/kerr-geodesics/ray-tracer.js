@@ -1,11 +1,11 @@
 // Ray-traced Kerr black hole renderer
-// Creates a fragment-shader-based ray tracer that traces null geodesics
-// per pixel with adaptive integration. Supports rendering at a lower
-// resolution and blitting to the full-size canvas.
+// Renders to an HDR (rgba16float) texture, then tone maps to the canvas
+// using ACES filmic tone mapping with adjustable exposure.
 
-const blitShaderCode = /* wgsl */`
+const toneMapShaderCode = /* wgsl */`
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var<uniform> exposure: f32;
 
 struct Varyings {
   @builtin(position) pos: vec4f,
@@ -13,18 +13,37 @@ struct Varyings {
 };
 
 @vertex fn vs(@builtin(vertex_index) vid: u32) -> Varyings {
-  // Oversize triangle covering clip space [-1,1]
   let x = select(-1.0, 3.0, vid == 1u);
   let y = select(-1.0, 3.0, vid == 2u);
   var out: Varyings;
   out.pos = vec4f(x, y, 0.0, 1.0);
-  // Map clip [-1,1] to UV [0,1], flip Y for texture coordinates
   out.uv = vec2f((x + 1.0) * 0.5, (1.0 - y) * 0.5);
   return out;
 }
 
+// ACES filmic tone mapping (Narkowicz 2015 fit)
+fn acesFilmic(x: vec3f) -> vec3f {
+  let a = 2.51;
+  let b = 0.03;
+  let c = 2.43;
+  let d = 0.59;
+  let e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3f(0.0), vec3f(1.0));
+}
+
 @fragment fn fs(in: Varyings) -> @location(0) vec4f {
-  return textureSample(tex, samp, in.uv);
+  let hdr = textureSample(tex, samp, in.uv).rgb;
+
+  // Apply exposure
+  let exposed = hdr * exposure;
+
+  // ACES filmic tone mapping
+  let mapped = acesFilmic(exposed);
+
+  // Gamma correction
+  let gamma = pow(mapped, vec3f(1.0 / 2.2));
+
+  return vec4f(gamma, 1.0);
 }
 `;
 
@@ -47,6 +66,8 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     }
   }
 
+  const hdrFormat = 'rgba16float';
+
   const uniformBGL = device.createBindGroupLayout({
     label: 'ray-tracer-bgl',
     entries: [{
@@ -63,7 +84,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     fragment: {
       module,
       entryPoint: 'fs',
-      targets: [{ format: canvasFormat }],
+      targets: [{ format: hdrFormat }],
     },
     primitive: { topology: 'triangle-list' },
     multisample: { count: 1 },
@@ -81,61 +102,71 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
   });
 
-  // --- Blit pipeline for upscaling offscreen texture to canvas ---
-  const blitModule = device.createShaderModule({ label: 'blit', code: blitShaderCode });
+  // --- Tone map pipeline: HDR texture → canvas ---
+  const toneMapModule = device.createShaderModule({ label: 'tone-map', code: toneMapShaderCode });
 
-  const blitBGL = device.createBindGroupLayout({
-    label: 'blit-bgl',
+  const toneMapBGL = device.createBindGroupLayout({
+    label: 'tone-map-bgl',
     entries: [
       { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
     ],
   });
 
-  const blitPipeline = device.createRenderPipeline({
-    label: 'blit',
-    layout: device.createPipelineLayout({ bindGroupLayouts: [blitBGL] }),
-    vertex: { module: blitModule, entryPoint: 'vs' },
+  const toneMapPipeline = device.createRenderPipeline({
+    label: 'tone-map',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [toneMapBGL] }),
+    vertex: { module: toneMapModule, entryPoint: 'vs' },
     fragment: {
-      module: blitModule,
+      module: toneMapModule,
       entryPoint: 'fs',
       targets: [{ format: canvasFormat }],
     },
     primitive: { topology: 'triangle-list' },
   });
 
-  const blitSampler = device.createSampler({
-    label: 'blit-sampler',
+  const toneMapSampler = device.createSampler({
+    label: 'tone-map-sampler',
     magFilter: 'linear',
     minFilter: 'linear',
   });
 
-  // Cache offscreen texture to avoid re-creating each frame at the same size
-  let offscreenTex = null;
-  let offscreenView = null;
-  let offscreenBindGroup = null;
-  let offscreenW = 0;
-  let offscreenH = 0;
+  // Exposure uniform buffer (single f32, padded to 4 bytes)
+  const exposureBuffer = device.createBuffer({
+    label: 'exposure-uniform',
+    size: 4,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const _exposureData = new Float32Array(1);
 
-  function ensureOffscreenTexture(w, h) {
-    if (offscreenW === w && offscreenH === h && offscreenTex) return;
-    if (offscreenTex) offscreenTex.destroy();
-    offscreenTex = device.createTexture({
-      label: 'ray-tracer-offscreen',
+  // Cache HDR texture
+  let hdrTex = null;
+  let hdrView = null;
+  let toneMapBindGroup = null;
+  let hdrW = 0;
+  let hdrH = 0;
+
+  function ensureHDRTexture(w, h) {
+    if (hdrW === w && hdrH === h && hdrTex) return;
+    if (hdrTex) hdrTex.destroy();
+    hdrTex = device.createTexture({
+      label: 'ray-tracer-hdr',
       size: [w, h],
-      format: canvasFormat,
+      format: hdrFormat,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
-    offscreenView = offscreenTex.createView();
-    offscreenBindGroup = device.createBindGroup({
-      layout: blitBGL,
+    hdrView = hdrTex.createView();
+    toneMapBindGroup = device.createBindGroup({
+      layout: toneMapBGL,
       entries: [
-        { binding: 0, resource: offscreenView },
-        { binding: 1, resource: blitSampler },
+        { binding: 0, resource: hdrView },
+        { binding: 1, resource: toneMapSampler },
+        { binding: 2, resource: { buffer: exposureBuffer } },
       ],
     });
-    offscreenW = w;
-    offscreenH = h;
+    hdrW = w;
+    hdrH = h;
   }
 
   const _data = new Float32Array(28); // 112 bytes / 4
@@ -151,7 +182,6 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
   function render(gpuContext, params, camera, canvasWidth, canvasHeight) {
     const renderWidth = params.renderWidth || canvasWidth;
     const renderHeight = params.renderHeight || canvasHeight;
-    const needsBlit = renderWidth !== canvasWidth || renderHeight !== canvasHeight;
 
     const aspectRatio = canvasWidth / canvasHeight;
     const { projView, eye } = camera.update(aspectRatio);
@@ -179,60 +209,50 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
 
     device.queue.writeBuffer(uniformBuffer, 0, _data);
 
+    // Write exposure
+    _exposureData[0] = params.exposure || 1.0;
+    device.queue.writeBuffer(exposureBuffer, 0, _exposureData);
+
+    // Always render to HDR texture first
+    ensureHDRTexture(renderWidth, renderHeight);
+
     const encoder = device.createCommandEncoder();
 
-    if (needsBlit) {
-      // Render ray tracer to offscreen texture at lower resolution
-      ensureOffscreenTexture(renderWidth, renderHeight);
+    // Pass 1: Ray tracer → HDR texture
+    const rtPass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: hdrView,
+        loadOp: 'clear',
+        storeOp: 'store',
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      }],
+    });
+    rtPass.setPipeline(pipeline);
+    rtPass.setBindGroup(0, bindGroup);
+    rtPass.draw(3);
+    rtPass.end();
 
-      const rtPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: offscreenView,
-          loadOp: 'clear',
-          storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        }],
-      });
-      rtPass.setPipeline(pipeline);
-      rtPass.setBindGroup(0, bindGroup);
-      rtPass.draw(3);
-      rtPass.end();
-
-      // Blit offscreen texture to canvas with bilinear filtering
-      const blitPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: gpuContext.getCurrentTexture().createView(),
-          loadOp: 'clear',
-          storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        }],
-      });
-      blitPass.setPipeline(blitPipeline);
-      blitPass.setBindGroup(0, offscreenBindGroup);
-      blitPass.draw(3);
-      blitPass.end();
-    } else {
-      // Render directly to canvas at full resolution
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: gpuContext.getCurrentTexture().createView(),
-          loadOp: 'clear',
-          storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        }],
-      });
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, bindGroup);
-      pass.draw(3);
-      pass.end();
-    }
+    // Pass 2: Tone map HDR → canvas (with bilinear upscale if needed)
+    const toneMapPass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: gpuContext.getCurrentTexture().createView(),
+        loadOp: 'clear',
+        storeOp: 'store',
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      }],
+    });
+    toneMapPass.setPipeline(toneMapPipeline);
+    toneMapPass.setBindGroup(0, toneMapBindGroup);
+    toneMapPass.draw(3);
+    toneMapPass.end();
 
     device.queue.submit([encoder.finish()]);
   }
 
   function destroy() {
     uniformBuffer.destroy();
-    if (offscreenTex) offscreenTex.destroy();
+    exposureBuffer.destroy();
+    if (hdrTex) hdrTex.destroy();
   }
 
   return { render, destroy };
