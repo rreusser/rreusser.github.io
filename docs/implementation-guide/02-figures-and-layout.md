@@ -43,6 +43,22 @@ The `width` and `height` options set the collapsed (inline) size. `onResize` is 
 | `wide` | boolean | Break out of the article column when collapsed (for wider figures) |
 | `maxWidth` | number | Maximum width for wide layout (default 1200) |
 | `aspectRatio` | number | Aspect ratio to maintain in wide layout |
+| `id` | string | Hash fragment identifier (e.g. `'my-figure'` → `#my-figure`). Auto-generated as `fig-1`, `fig-2`, etc. if omitted. |
+
+## Hash fragments for deep-linking
+
+When a figure is expanded, `expandable()` sets the URL hash to `#<id>`. When the page is loaded with that hash, the figure starts expanded automatically. When collapsed, the hash is cleared. This lets users share links that open directly to an expanded figure.
+
+```javascript
+display(expandable(figure, {
+  width: 640,
+  height: 480,
+  id: 'phase-portrait',  // URL becomes …#phase-portrait when expanded
+  onResize(el, w, h) { ... }
+}));
+```
+
+If no `id` is provided, a serial counter assigns `fig-1`, `fig-2`, etc. in DOM order. Prefer explicit IDs for figures you expect readers to share links to, since auto-generated IDs are fragile if figures are reordered.
 
 ## Controls panel
 

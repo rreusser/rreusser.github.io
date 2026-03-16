@@ -335,6 +335,7 @@
   </script>
   <script id="107" type="text/x-typescript">
     display(expandable(stack.element, {
+      id: 'orbit-viewer',
       width: Math.min(width, 640),
       height: Math.min(480, width * 0.7),
       controls: ['.orbit-selector', '.orbit-metadata', '.plot-controls'],
@@ -890,6 +891,7 @@
     projFigure.appendChild(projCaption);
 
     display(expandable(projFigure, {
+      id: 'stereographic-projection',
       width: Math.min(width, 640),
       height: Math.min(400, Math.floor(width * 0.625)),
       onResize(el, w, h) {
