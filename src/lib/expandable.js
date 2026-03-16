@@ -90,6 +90,7 @@ export function expandable(content, {
     ? (Array.isArray(controls) ? controls : [controls])
     : [];
   const controlsState = [];
+  let pendingControls = [];
   let controlsObserver = null;
 
   // ============================================================
@@ -312,12 +313,49 @@ export function expandable(content, {
     controlsState.length = 0;
   }
 
+  // Move a single control element into the floating panel, creating a placeholder.
+  function moveControlToPanel(ctrl, panelContent) {
+    const el = typeof ctrl === 'string' ? document.querySelector(ctrl) : ctrl;
+    if (!el || !el.parentNode || panelContent.contains(el)) return null;
+    const placeholder = document.createElement('div');
+    placeholder.className = 'expandable-controls-placeholder';
+    placeholder.style.height = `${el.offsetHeight}px`;
+    placeholder.style.display = 'block';
+    const entry = { element: el, selector: typeof ctrl === 'string' ? ctrl : null, originalParent: el.parentNode, originalNextSibling: el.nextSibling, placeholder };
+    el.parentNode.insertBefore(placeholder, el);
+    panelContent.appendChild(el);
+    return entry;
+  }
+
+  // Ensure the floating panel is visible and configured.
+  function showFloatingPanel() {
+    if (!floatingPanel || controlsState.length === 0) return;
+    if (!floatingPanel.parentNode) document.body.appendChild(floatingPanel);
+    floatingPanel.classList.add('expandable-expanded');
+    floatingPanel.style.display = '';
+    floatingPanel.style.left = `${controlsPanelPosition.x}px`;
+    floatingPanel.style.top = `${controlsPanelPosition.y}px`;
+    const isMobile = window.innerWidth < 640;
+    controlsPanelExpanded = !isMobile;
+    const pc = floatingPanel.querySelector('.expandable-controls-content');
+    const pt = floatingPanel.querySelector('.expandable-controls-toggle');
+    if (controlsPanelExpanded) {
+      if (pc) pc.style.display = 'flex';
+      if (pt) { pt.innerHTML = '▼'; pt.title = 'Collapse controls'; }
+    } else {
+      if (pc) pc.style.display = 'none';
+      if (pt) { pt.innerHTML = '▶'; pt.title = 'Expand controls'; }
+    }
+  }
+
   function startControlsObserver() {
     if (controlsObserver) return;
     controlsObserver = new MutationObserver(() => {
       if (!expanded || !floatingPanel) return;
       const panelContent = floatingPanel.querySelector('.expandable-controls-content');
       if (!panelContent) return;
+
+      // Handle re-rendered controls (existing behavior)
       for (const s of controlsState) {
         if (!s.selector) continue;
         const newEl = document.querySelector(s.selector);
@@ -336,6 +374,19 @@ export function expandable(content, {
           else panelContent.appendChild(newEl);
         }
       }
+
+      // Handle controls that weren't found during initial expand
+      const hadControls = controlsState.length > 0;
+      for (const ctrl of pendingControls) {
+        const entry = moveControlToPanel(ctrl, panelContent);
+        if (entry) controlsState.push(entry);
+      }
+      // Remove successfully moved controls from the pending list
+      pendingControls = pendingControls.filter(ctrl => {
+        const el = typeof ctrl === 'string' ? document.querySelector(ctrl) : ctrl;
+        return !el || !panelContent.contains(el);
+      });
+      if (!hadControls && controlsState.length > 0) showFloatingPanel();
     });
     controlsObserver.observe(document.body, { childList: true, subtree: true });
   }
@@ -403,36 +454,14 @@ export function expandable(content, {
     if (controlsArray.length > 0 && floatingPanel) {
       const panelContent = floatingPanel.querySelector('.expandable-controls-content');
       if (panelContent) {
+        pendingControls = [];
         for (const ctrl of controlsArray) {
-          const el = typeof ctrl === 'string' ? document.querySelector(ctrl) : ctrl;
-          if (!el || !el.parentNode) continue;
-          const placeholder = document.createElement('div');
-          placeholder.className = 'expandable-controls-placeholder';
-          placeholder.style.height = `${el.offsetHeight}px`;
-          placeholder.style.display = 'block';
-          controlsState.push({ element: el, selector: typeof ctrl === 'string' ? ctrl : null, originalParent: el.parentNode, originalNextSibling: el.nextSibling, placeholder });
-          el.parentNode.insertBefore(placeholder, el);
-          panelContent.appendChild(el);
+          const entry = moveControlToPanel(ctrl, panelContent);
+          if (entry) controlsState.push(entry);
+          else pendingControls.push(ctrl);
         }
       }
-      if (controlsState.length > 0) {
-        if (!floatingPanel.parentNode) document.body.appendChild(floatingPanel);
-        floatingPanel.classList.add('expandable-expanded');
-        floatingPanel.style.display = '';
-        floatingPanel.style.left = `${controlsPanelPosition.x}px`;
-        floatingPanel.style.top = `${controlsPanelPosition.y}px`;
-        const isMobile = window.innerWidth < 640;
-        controlsPanelExpanded = !isMobile;
-        const pc = floatingPanel.querySelector('.expandable-controls-content');
-        const pt = floatingPanel.querySelector('.expandable-controls-toggle');
-        if (controlsPanelExpanded) {
-          if (pc) pc.style.display = 'flex';
-          if (pt) { pt.innerHTML = '▼'; pt.title = 'Collapse controls'; }
-        } else {
-          if (pc) pc.style.display = 'none';
-          if (pt) { pt.innerHTML = '▶'; pt.title = 'Expand controls'; }
-        }
-      }
+      showFloatingPanel();
     }
 
     updateExpandedPosition();
@@ -453,6 +482,7 @@ export function expandable(content, {
 
     if (overlay.parentNode) overlay.remove();
     stopControlsObserver();
+    pendingControls = [];
     if (floatingPanel) {
       floatingPanel.classList.remove('expandable-expanded');
       floatingPanel.style.display = 'none';
