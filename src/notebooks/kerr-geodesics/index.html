@@ -343,6 +343,7 @@ container.appendChild(canvas);
 
 let expandableContainer: ReturnType<typeof expandable>;
 expandableContainer = expandable(container, {
+  id: 'geodesics',
   width: 640,
   height: 480,
   wide: true,
@@ -629,6 +630,7 @@ rtContainer.appendChild(rtCanvas);
 
 let rtExpandable: ReturnType<typeof expandable>;
 rtExpandable = expandable(rtContainer, {
+  id: 'ray-tracer',
   width: 640,
   height: 480,
   wide: true,

@@ -220,6 +220,7 @@
     const canvasContainer = html`<div id="rd-container" style="width: 100%; height: 100%;">${canvas}</div>`;
 
     const container = expandable(canvasContainer, {
+      id: 'reaction-diffusion',
       width: defaultWidth,
       height: defaultHeight,
       onResize: handleResize,
