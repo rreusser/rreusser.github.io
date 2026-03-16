@@ -699,29 +699,38 @@ export function createUnifiedCamera(element, opts = {}) {
       throw new Error('Camera capture: no canvas configured or invalid canvas element');
     }
 
-    // Emit capture event - listeners should render and wait for completion
-    const capturePromises = [];
-    listeners.capture.forEach(cb => {
-      const result = cb();
-      if (result && typeof result.then === 'function') {
-        capturePromises.push(result);
-      }
-    });
-    onceListeners.capture.forEach(cb => {
-      const result = cb();
-      if (result && typeof result.then === 'function') {
-        capturePromises.push(result);
-      }
-    });
+    // Fire all 'capture' listeners.  A listener may return a data URL string
+    // directly (the WebGPU pattern: render + toDataURL synchronously before
+    // yielding) or a Promise that resolves to a data URL or undefined.
+    // If any listener returns a data URL we use it; otherwise we call
+    // toDataURL() ourselves after all async handlers have settled.
+    const allListeners = [...listeners.capture, ...onceListeners.capture];
     onceListeners.capture = [];
 
-    // Wait for all capture handlers to complete
-    if (capturePromises.length > 0) {
-      await Promise.all(capturePromises);
+    let dataURL = null;
+    const promises = [];
+
+    for (const cb of allListeners) {
+      const result = cb();
+      if (typeof result === 'string') {
+        // Synchronous data URL from handler (WebGPU pattern)
+        dataURL = result;
+      } else if (result && typeof result.then === 'function') {
+        promises.push(result);
+      }
     }
 
-    // Now capture the canvas
-    return canvasEl.toDataURL(format, quality);
+    if (promises.length > 0) {
+      const resolved = await Promise.all(promises);
+      // Use the last promise that returned a string data URL
+      for (const r of resolved) {
+        if (typeof r === 'string') dataURL = r;
+      }
+    }
+
+    // If a handler already captured the canvas, use that result.
+    // Otherwise fall back to toDataURL() (WebGL / non-GPU path).
+    return dataURL ?? canvasEl.toDataURL(format, quality);
   }
 
   // Set up ResizeObserver for canvas if it's a canvas element

@@ -9,9 +9,9 @@
   <script id="imports" type="text/x-typescript">
 import { createWebGPUContext } from './lib/webgpu-canvas.js';
 import { createUnifiedCamera } from './lib/unified-camera.js';
-import { expandable } from './lib/expandable.js';
-import { cameraButtons } from './lib/camera-buttons.js';
+import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js';
 import { createCameraSnapshotButton } from './lib/snapshot.js';
+import { createWebGPUCaptureHandler } from './lib/webgpu-snapshot.js';
 import { createFrameLoop } from './lib/frame-loop.js';
 import { meshFromFunction } from './mesh.js';
 import { peelShaderCode, compositeShaderCode } from './shaders.js';
@@ -88,6 +88,7 @@ const camera = createUnifiedCamera(canvas, {
   center: [0, -1, 0],
   renderContinuously: false,
   observeResize: true,
+  canvas: canvas,
 });
 
 invalidation.then(() => {
@@ -132,9 +133,18 @@ renderer.initMesh(mesh);
 const container = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
 container.appendChild(canvas);
 
-camera.on('render', () => {
+function renderFrame() {
   renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, false);
-});
+}
+
+camera.on('render', renderFrame);
+
+// Register WebGPU capture handler: renders a frame then immediately calls
+// toDataURL() in the same microtask (before the swap-chain texture is presented).
+camera.on('capture', createWebGPUCaptureHandler({
+  canvas,
+  render: () => renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, true),
+}));
 
 canvas.addEventListener('mousedown', () => {
   if (document.activeElement instanceof HTMLElement) {
@@ -150,12 +160,19 @@ expandableContainer = expandable(container, {
   height: 480,
   controls: controlsContainer,
   state: state.expandedState,
-  buttons: cameraButtons({
-    camera,
-    canvas,
-    filename: 'boys-surface.png',
-    getContainer: () => expandableContainer,
-  }),
+  buttons: [
+    {
+      icon: camera.getMode() === 'orbit' ? ICON_ORBIT : ICON_ARCBALL,
+      title: 'Toggle camera mode (orbit/arcball)',
+      onClick: (content, expanded, button) => {
+        const newMode = camera.getMode() === 'orbit' ? 'arcball' : 'orbit';
+        camera.setMode(newMode);
+        camera.triggerRepaint();
+        if (button) button.innerHTML = newMode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
+      }
+    },
+    createCameraSnapshotButton(camera, { filename: 'boys-surface.png' }),
+  ],
 });
 
 display(expandableContainer);

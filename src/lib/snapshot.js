@@ -1,3 +1,5 @@
+import { ICON_CAMERA } from './expandable.js';
+
 /**
  * Download a data URI as a file
  * @param {string} uri - Data URI or blob URL
@@ -32,7 +34,7 @@ export function createSnapshotButton(canvas, opts = {}) {
   } = opts;
 
   return {
-    icon: '📷',
+    icon: ICON_CAMERA,
     title: 'Download snapshot',
     onClick: (content, expanded) => {
       // Get canvas (may be a function)
@@ -74,7 +76,7 @@ export function createCameraSnapshotButton(camera, opts = {}) {
   const { filename } = opts;
 
   return {
-    icon: '📷',
+    icon: ICON_CAMERA,
     title: 'Download snapshot',
     onClick: async (content, expanded) => {
       if (!camera.capture) {

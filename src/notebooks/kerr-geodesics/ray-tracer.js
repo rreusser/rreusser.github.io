@@ -426,11 +426,12 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     _data[23] = params.diskOuter || 20;
     _data[24] = renderWidth;
     _data[25] = renderHeight;
-    _data[26] = params.maxSteps || 2000;
+    _data[26] = params.maxTime || 500;
     _data[27] = params.stepSize || 0.1;
     const renderScale = renderWidth / canvasWidth;
     _data[28] = params.showStars ? 1.0 : 0.0;  // flags.x
     _data[29] = renderScale;                    // flags.y
+    _data[30] = params.debugDisk ? 1.0 : 0.0;  // flags.z
     device.queue.writeBuffer(uniformBuffer, 0, _data);
 
     _toneMapData[0] = params.exposure || 1.0;

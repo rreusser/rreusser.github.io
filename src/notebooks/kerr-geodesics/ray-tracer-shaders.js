@@ -200,13 +200,6 @@ fn geodesicDerivs(r: f32, vr: f32, theta: f32, vth: f32, L: f32, Q: f32, M: f32,
   let a2 = a * a;
   let cth = cos(theta);
   let sth = sin(theta);
-  // Guard sin²θ with a small epsilon rather than clamping θ — this keeps
-  // the derivative smooth and accurate everywhere except within ~0.003 rad
-  // of the exact pole, where L²cosθ/sin³θ and L/sin²θ would otherwise blow up.
-  // For rays with small L the terms are tiny anyway; for large L the step-size
-  // shrink near the horizon keeps θ well away from 0 or π.
-  let sin2 = max(sth * sth, 1e-5);
-  let sin3 = sin2 * max(abs(sth), 1e-5);
   let Sigma = r2 + a2 * cth * cth;
   let Delta = r2 - 2.0 * M * r + a2;
   let invSigma = 1.0 / Sigma;
@@ -220,10 +213,22 @@ fn geodesicDerivs(r: f32, vr: f32, theta: f32, vth: f32, L: f32, Q: f32, M: f32,
   // Polar: dvθ/dλ = Θ'(θ)/(2Σ)
   // Θ(θ) = Q + a²cos²θ - L²cos²θ/sin²θ
   // dΘ/dθ = -2a²sinθcosθ + 2L²cosθ/sin³θ
+  // Near the pole sin θ → 0 so clamp sin² and sin³ to avoid blowup in the
+  // L²cosθ/sin³θ term. The Θ potential itself → Q at the pole (bounded),
+  // so the clamped value just smooths the transition over a tiny solid angle.
+  let sin2 = max(sth * sth, 1e-6);
+  let sin3 = sin2 * max(abs(sth), 1e-6);
   let dTh_dth = -2.0 * a2 * sth * cth + 2.0 * L * L * cth / sin3;
 
   // Azimuthal: dφ/dλ = (aP/Δ + L/sin²θ - a) / Σ
-  let dphi = a * P / max(abs(Delta), 1e-8) + L / sin2 - a;
+  // L/sin²θ is singular at the poles. Near the pole, sin θ ≈ ρ (cylindrical
+  // radius / r), so L/sin²θ ≈ Lφ r²/ρ² which diverges as ρ→0. Clamp it to
+  // the physical limit: |L/sin²θ| ≤ |L|/sin²θ_min where sin²θ_min = 1e-4
+  // (i.e. θ within ~0.01 rad of the pole). Beyond that the BL coordinate is
+  // singular and we must not let it drive φ.
+  let sin2_clamped = max(sin2, 1e-4);
+  let Lsin2 = L / sin2_clamped;
+  let dphi = a * P / max(abs(Delta), 1e-8) + Lsin2 - a;
 
   var d: Derivs;
   d.dr = vr * invSigma;
@@ -310,6 +315,27 @@ fn fbm(p: vec2f) -> f32 {
   return val;
 }
 
+// fbm that tiles in x with period xPeriod (must be a positive integer for
+// clean tiling). Each octave wraps its x coordinate at the corresponding
+// scaled period so every frequency is seamless.
+// fbm that tiles in x with integer period xPeriod.
+// Uses lacunarity 2.0 (not 2.1) so all octave periods are xPeriod * 2^k —
+// integers throughout — and valueNoise tiles cleanly at every octave.
+fn fbmTileX(p: vec2f, xPeriod: f32) -> f32 {
+  var val = 0.0;
+  var amp = 0.5;
+  var pos = p;
+  var period = xPeriod;
+  for (var i = 0; i < 5; i++) {
+    let px = pos.x - period * floor(pos.x / period);
+    val += amp * valueNoise(vec2f(px, pos.y));
+    pos    *= 2.0;
+    period *= 2.0;
+    amp    *= 0.5;
+  }
+  return val;
+}
+
 // ============================================================
 // Accretion disk
 // ============================================================
@@ -320,59 +346,87 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
 
   if (r < rISCO * 0.99 || r > rOuter) { return vec4f(0.0); }
 
-  // Rest-frame temperature profile: T_emit ∝ r^(-3/4), standard thin-disk result.
-  let temp = pow(rISCO / r, 0.75);
+  // Use sin/cos to wrap phi onto the unit circle — this is exactly periodic
+  // with period 2π and has no branch cut, regardless of how much phi has
+  // accumulated during integration.
+  let sPhi = sin(phi);
+  let cPhi = cos(phi);
 
-  // Redshift factor g = f_obs / f_emit for prograde circular Keplerian orbit.
-  // From James et al. (2015) eq. A.16 and §4.1.2:
-  //   g = 1 / (u^t_emit * (1 - Ω·b))
-  // where b = L/E is the ray's impact parameter (= L here since E=1),
-  // Ω = √M / (r^(3/2) + a√M) is the Keplerian angular velocity (BPT 1972),
-  // and u^t_emit = 1/√(1 - 3M/r + 2a√M/r^(3/2)) accounts for gravitational
-  // time dilation plus orbital kinetic energy.
+  // DEBUG mode: unique hue per phi sector + alternating radial rings.
+  // Any integration error shows as a wrong-colored region.
+  if (u.flags.z > 0.5) {
+    let phiNorm = (atan2(sPhi, cPhi) + PI) / (2.0 * PI);  // [0,1)
+    let sector  = floor(phiNorm * 12.0);
+    let value   = select(0.55, 1.0, fract(r) < 0.5);
+    let h6      = sector / 2.0;
+    let c       = value;
+    let x       = value * (1.0 - abs(h6 % 2.0 - 1.0));
+    var rgb: vec3f;
+    if      (h6 < 1.0) { rgb = vec3f(c, x, 0.0); }
+    else if (h6 < 2.0) { rgb = vec3f(x, c, 0.0); }
+    else if (h6 < 3.0) { rgb = vec3f(0.0, c, x); }
+    else if (h6 < 4.0) { rgb = vec3f(0.0, x, c); }
+    else if (h6 < 5.0) { rgb = vec3f(x, 0.0, c); }
+    else               { rgb = vec3f(c, 0.0, x); }
+    return vec4f(rgb, 1.0);
+  }
+
+  // Real disk: spatially varying density using sines/cosines in phi and r.
+  // sPhi = sin(phi), cPhi = cos(phi) — periodic by construction, no seam.
+  // Combine multiple harmonics for turbulent structure.
+  let logR = log(r);
+
+  // Two fbm samples with seams at opposite azimuths, blended to hide both.
+  // Sample A: seam at φ=0 and φ=π  (uses atan2, branch cut at ±π)
+  // Sample B: seam rotated 90°     (uses atan2(sPhi+cPhi...) — shift φ by π/2,
+  //   i.e. replace (s,c) with (c,-s) so atan2(c,-s) = π/2 - φ, branch cut at φ=±π/2)
+  // Blend weight: wA = sin²φ  (zero at φ=0,π where A's seam is)
+  //               wB = cos²φ  (zero at φ=±π/2 where B's seam is)
+  // Since wA + wB = 1 this is a perfect partition-of-unity blend.
+  let phiA = atan2(sPhi, cPhi);          // [-π, π], seam at ±π
+  let phiB = atan2(cPhi, -sPhi);         // = π/2 - φ, seam at φ = ±π/2
+
+  let noiseA = vec2f(phiA * 3.5, logR * 8.0);
+  let noiseB = vec2f(phiB * 3.5, logR * 8.0);
+
+  let turbA = fbm(noiseA + vec2f(3.7, 1.2));
+  let wispsA = fbm(noiseA * 2.5 + vec2f(17.3, 5.1));
+  let detailA = fbm(noiseA * 6.0 + vec2f(5.9, 8.3));
+
+  let turbB = fbm(noiseB + vec2f(3.7, 1.2));
+  let wispsB = fbm(noiseB * 2.5 + vec2f(17.3, 5.1));
+  let detailB = fbm(noiseB * 6.0 + vec2f(5.9, 8.3));
+
+  let wA = sPhi * sPhi;
+  let wB = cPhi * cPhi;
+
+  let turbulence = (wA * turbA   + wB * turbB);
+  let wisps      = (wA * wispsA  + wB * wispsB);
+  let detail     = (wA * detailA + wB * detailB);
+
+  let bands   = 0.5 + 0.5 * sin(logR * 12.0 + turbulence * 2.5);
+  let density = pow((0.1 + 0.7 * turbulence + 0.35 * wisps * wisps + 0.15 * detail) * (0.7 + 0.3 * bands), 1.4);
+
+  // Redshift factor
   let sqrtM = sqrt(M);
-  let r15 = r * sqrt(r);
+  let r15   = r * sqrt(r);
   let Omega = sqrtM / (r15 + a * sqrtM);
   let denom = 1.0 - 3.0 * M / r + 2.0 * a * sqrtM / r15;
   let ut_em = select(10.0, 1.0 / sqrt(denom), denom > 0.01);
-  let g = 1.0 / (ut_em * (1.0 - Omega * L / E));
+  let g     = 1.0 / (ut_em * (1.0 - Omega * L / E));
 
-  let logR = log(r);
-  let noiseCoord = vec2f(phi * 6.0, logR * 8.0);
-  // Large-scale turbulent rolls
-  let turbulence = fbm(noiseCoord + vec2f(3.7, 1.2));
-  // Fine wisps at 2.5× scale
-  let wisps = fbm(noiseCoord * 2.5 + vec2f(17.3, 5.1));
-  // Very fine detail at 6× scale
-  let detail = fbm(noiseCoord * 6.0 + vec2f(5.9, 8.3));
-  // Subtle radial banding: quasi-periodic density rings
-  let bands = 0.5 + 0.5 * sin(logR * 12.0 + turbulence * 2.5);
-  // Combine: wider swing (lower floor, higher peaks) for more contrast.
-  // pow() sharpens the distribution — bright clumps stay bright, dark gaps go darker.
-  let density = pow((0.1 + 0.7 * turbulence + 0.35 * wisps * wisps + 0.15 * detail) * (0.7 + 0.3 * bands), 1.4);
-
-  // Smooth fade at inner edge (ISCO) and outer edge
   let innerFade = smoothstep(rISCO * 0.95, rISCO * 1.1, r);
   let outerFade = smoothstep(rOuter, rOuter * 0.7, r);
-  let fade = innerFade * outerFade;
+  let fade      = innerFade * outerFade;
 
-  // Color hue from Doppler-shifted temperature only (James et al. §4.1.2, fig 15b vs 15c).
-  // The frequency shift scales the observed blackbody temperature: T_obs = g * T_emit.
-  // Clamp g to avoid extreme colors at inner edge instabilities.
-  let T = temp * clamp(abs(g), 0.3, 3.0);
-  let col = vec3f(
-    min(T * 2.0, 1.0 + T * 0.3),                    // red saturates first
-    T * 0.7 + T * T * 0.5,                           // green follows for warm white
-    T * 0.3 + T * T * 0.5,                           // blue rises for white at high T
+  let temp = pow(rISCO / r, 0.75);
+  let T    = temp * clamp(abs(g), 0.3, 3.0);
+  let col  = vec3f(
+    min(T * 2.0, 1.0 + T * 0.3),
+    T * 0.7 + T * T * 0.5,
+    T * 0.3 + T * T * 0.5,
   );
-
-  // Intensity: I_obs/I_emit = g^3 from Liouville's theorem (I_ν/ν^3 invariant,
-  // James et al. §4.1.2 and Cunningham 1975). Apply g^3 to brightness only —
-  // color is already handled above via T_obs = g * T_emit. Applying g to both
-  // would give an effective g^4 overcounting.
   let brightness = temp * g * g * g * density;
-
-  // HDR output — no clamping, let the tone mapper handle it
   return vec4f(col * brightness * 4.0 * fade, fade);
 }
 
@@ -448,26 +502,61 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
 
   var color = vec3f(0.0);
   var accumulated: f32 = 0.0;
+  var crossedPole: bool = false;
 
   let hBase = u.resolution.w;
-  let maxSteps = u32(u.resolution.z);
+  // resolution.z is max Mino time; derive step count so step size is a pure
+  // quality knob that doesn't affect how far rays travel.
+  let maxTime = u.resolution.z;
+  let maxSteps = u32(ceil(maxTime / hBase));
   for (var step = 0u; step < maxSteps; step++) {
     let prevTheta = s.theta;
     let prevR = s.r;
 
     let horizonFactor = clamp((s.r - rHorizon) / s.r, 0.02, 1.0);
     let distanceFactor = max(1.0, s.r / 10.0);
-    let h = hBase * horizonFactor * distanceFactor;
+    var h = hBase * horizonFactor * distanceFactor;
+    // Limit step size near the poles. dθ/dλ = vθ/Σ, so the affine distance
+    // to move θ by Δθ is Δθ·Σ/|vθ|. Require each step moves θ by at most
+    // 10% of its current distance to the pole, keeping sub-steps well away
+    // from the L/sin²θ singularity. Floor h at hBase*1e-4 to prevent freezing
+    // when θ is exactly zero (which would give poleStep=0).
+    // Limit step size near the poles. Two constraints:
+    // 1. Don't move theta by more than 10% of its distance to the nearest pole.
+    // 2. Don't move theta by more than theta itself (prevents sub-steps crossing zero).
+    // Use max(poleDist, theta) so the limit near the turning point (vth~0) is
+    // governed by the angular distance, not the near-zero velocity.
+    // Floor at hBase*1e-4 to avoid h=0 when theta=0 exactly.
+    // Limit step size near poles on two criteria:
+    // 1. theta step: don't move more than 10% of poleDist per step.
+    // 2. phi step: limit dphi from the L/sin²θ term to 0.1 rad per step.
+    //    dphi ≈ L/sin²θ / Σ * h, so h ≤ 0.1 * Σ * sin²θ / |L|.
+    // Floor at hBase*1e-4 to prevent h=0 when theta=0 exactly.
+    let Sigma_cur = s.r * s.r + a2 * cos(s.theta) * cos(s.theta);
+    let poleDist = min(s.theta, PI - s.theta);
+    let thetaStep = 0.1 * poleDist * Sigma_cur / max(abs(s.vth), 1e-6);
+    let sin2_cur = sin(s.theta) * sin(s.theta);
+    let phiStep = 0.1 * Sigma_cur * sin2_cur / max(abs(L), 1e-6);
+    h = max(min(h, min(thetaStep, phiStep)), hBase * 1e-4);
 
     s = rk4Step(s, h, L, Q, M, a);
 
-    // φ correction on polar crossing: when θ passes through 0 or π the ray
-    // crosses the pole, and the correct Cartesian continuation requires φ → φ+π.
-    // The second-order integrator handles θ and vθ naturally (θ goes slightly
-    // negative and bounces back via Θ'/2), but φ doesn't see the crossing.
-    // Detect a sign change in cos(θ) between steps as a proxy for pole crossing.
-    if (cos(prevTheta) * cos(s.theta) < 0.0) {
+    // φ correction on polar crossing: when the integrator lets θ overshoot
+    // outside [0, π] the ray has crossed the pole. Reflect θ back and shift
+    // φ by π so the Cartesian direction is continuous.
+    // crossedPole gates the disk hit in *this step only* to avoid a spurious
+    // disk sample at the wrong phi; it is cleared immediately after.
+    crossedPole = false;
+    if (s.theta < 0.0) {
+      s.theta = -s.theta;
+      s.vth = -s.vth;
       s.phi += PI;
+      crossedPole = true;
+    } else if (s.theta > PI) {
+      s.theta = 2.0 * PI - s.theta;
+      s.vth = -s.vth;
+      s.phi += PI;
+      crossedPole = true;
     }
 
     if (s.r < rHorizon * 1.01) {
@@ -489,8 +578,10 @@ fn traceRay(rayDir: vec3f, pixelSize: f32) -> vec4f {
     }
 
     // Check disk crossing (theta crosses π/2).
+    // Skip disk hits after a pole crossing: those rays land on the far side
+    // of the disk and produce a bright streak artifact along the pole axis.
     let pi2 = PI * 0.5;
-    if ((prevTheta - pi2) * (s.theta - pi2) < 0.0 && accumulated < 0.99) {
+    if (!crossedPole && (prevTheta - pi2) * (s.theta - pi2) < 0.0 && accumulated < 0.99) {
       let frac = (pi2 - prevTheta) / (s.theta - prevTheta);
       let crossR = prevR + frac * (s.r - prevR);
       let dc = diskColor(crossR, s.phi, rp.E, L, M, a);
