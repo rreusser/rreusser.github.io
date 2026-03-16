@@ -30,6 +30,7 @@
  * @param {number} [options.maxWidth=1200] - Max width for wide layout
  * @param {number} [options.aspectRatio] - Override aspect ratio for wide layout
  * @param {Array} [options.buttons] - Extra buttons: { icon, title, onClick }
+ * @param {string} [options.id] - Hash fragment identifier (e.g. 'my-figure' → #my-figure). Auto-generated as fig-1, fig-2, etc. if omitted.
  * @returns {HTMLElement} The expandable container element
  */
 const svgIcon = (d, {viewBox = '0 0 16 16', strokeWidth = 1.5} = {}) =>
@@ -55,6 +56,8 @@ export const ICON_ARCBALL = svgIcon(
   '<circle cx="8" cy="8" r="6"/><path d="M4 5.5 Q8 8.5 12 5.5"/><path d="M4 10.5 Q8 7.5 12 10.5"/><path d="M5.5 4 Q8.5 8 5.5 12"/><path d="M10.5 4 Q7.5 8 10.5 12"/>'
 , {strokeWidth: 1.25});
 
+let _expandableCounter = 0;
+
 export function expandable(content, {
   width, height,
   toggleOffset = [8, 8],
@@ -66,9 +69,15 @@ export function expandable(content, {
   wide = false,
   maxWidth = 1200,
   aspectRatio,
-  buttons = []
+  buttons = [],
+  id
 }) {
-  let expanded = state?.expanded ?? false;
+  const hashId = id || `fig-${++_expandableCounter}`;
+  const hashFragment = `#${hashId}`;
+
+  // Check if this expandable should start expanded based on the URL hash
+  const hashExpanded = window.location.hash === hashFragment;
+  let expanded = hashExpanded || state?.expanded || false;
   let currentWidth = 0;
   let currentHeight = 0;
   let controlsPanelExpanded = false;
@@ -377,6 +386,7 @@ export function expandable(content, {
   function expand() {
     expanded = true;
     if (state) state.expanded = true;
+    history.replaceState(null, '', hashFragment);
     container.classList.add('expandable-expanded');
     toggleBtn.innerHTML = ICON_CLOSE;
     toggleBtn.title = 'Collapse';
@@ -431,6 +441,9 @@ export function expandable(content, {
   function collapse() {
     expanded = false;
     if (state) state.expanded = false;
+    if (window.location.hash === hashFragment) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
     container.classList.remove('expandable-expanded');
     toggleBtn.innerHTML = ICON_EXPAND;
     toggleBtn.title = 'Expand';
@@ -507,6 +520,9 @@ export function expandable(content, {
       if (overlay.parentNode) overlay.remove();
       restoreControls();
       if (floatingPanel?.parentNode) floatingPanel.remove();
+      if (window.location.hash === hashFragment) {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
       domObserver.disconnect();
     }
   });
@@ -516,7 +532,7 @@ export function expandable(content, {
     get: () => ({ width: currentWidth, height: currentHeight, expanded })
   });
 
-  if (state?.expanded) requestAnimationFrame(() => expand());
+  if (expanded) requestAnimationFrame(() => expand());
 
   return container;
 }
