@@ -104,6 +104,7 @@ export function expandable(content, {
 
   const container = document.createElement('div');
   container.className = 'expandable-container';
+  container.id = hashId;
 
   const contentWrapper = document.createElement('div');
   contentWrapper.className = 'expandable-content';
