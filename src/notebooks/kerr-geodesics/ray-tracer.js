@@ -47,15 +47,21 @@ fn luma(c: vec3f) -> f32 {
 
   var color: vec4f;
   if (threshold > 0.0) {
-    // Karis average: weight by 1/(1+luma) to suppress firefly spikes before
-    // they enter the bloom pyramid, preventing aliasing flicker when bright
-    // features compress to sub-pixel size at large camera distances.
-    let w0 = 1.0 / (1.0 + luma(s0.rgb));
-    let w1 = 1.0 / (1.0 + luma(s1.rgb));
-    let w2 = 1.0 / (1.0 + luma(s2.rgb));
-    let w3 = 1.0 / (1.0 + luma(s3.rgb));
+    // Apply fourth root (two nested sqrts) to compress dynamic range before the
+    // bloom pyramid so that dim regions contribute relatively more bloom and
+    // the single bright photon ring doesn't dominate everything else.
+    let c0 = vec4f(sqrt(sqrt(max(s0.rgb, vec3f(0.0)))), 1.0);
+    let c1 = vec4f(sqrt(sqrt(max(s1.rgb, vec3f(0.0)))), 1.0);
+    let c2 = vec4f(sqrt(sqrt(max(s2.rgb, vec3f(0.0)))), 1.0);
+    let c3 = vec4f(sqrt(sqrt(max(s3.rgb, vec3f(0.0)))), 1.0);
+
+    // Karis average on the sqrt values to suppress remaining firefly spikes.
+    let w0 = 1.0 / (1.0 + luma(c0.rgb));
+    let w1 = 1.0 / (1.0 + luma(c1.rgb));
+    let w2 = 1.0 / (1.0 + luma(c2.rgb));
+    let w3 = 1.0 / (1.0 + luma(c3.rgb));
     let wSum = w0 + w1 + w2 + w3;
-    color = (s0 * w0 + s1 * w1 + s2 * w2 + s3 * w3) / wSum;
+    color = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3) / wSum;
 
     // Brightness threshold with soft knee
     let brightness = luma(color.rgb);
@@ -203,7 +209,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
 
   const uniformBuffer = device.createBuffer({
     label: 'ray-tracer-uniforms',
-    size: 128,  // added flags vec4
+    size: 144,  // flags + flags2 vec4s
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -370,7 +376,7 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
   // Render
   // ============================================================
 
-  const _data = new Float32Array(32);
+  const _data = new Float32Array(36);
 
   function computeISCO(M, a) {
     const am = a / M;
@@ -431,7 +437,9 @@ export async function createRayTracer(device, canvasFormat, shaderCode) {
     const renderScale = renderWidth / canvasWidth;
     _data[28] = params.showStars ? 1.0 : 0.0;  // flags.x
     _data[29] = renderScale;                    // flags.y
-    _data[30] = params.debugDisk ? 1.0 : 0.0;  // flags.z
+    _data[30] = params.diskTime ?? 0.0;         // flags.z
+    _data[31] = params.debugDisk ? 1.0 : 0.0;  // flags.w
+    _data[32] = params.doppler ? 1.0 : 0.0;    // flags2.x
     device.queue.writeBuffer(uniformBuffer, 0, _data);
 
     _toneMapData[0] = params.exposure || 1.0;

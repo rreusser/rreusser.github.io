@@ -7,7 +7,7 @@
   </script>
 
   <script id="intro" type="text/markdown">
-Geodesics of the [Kerr metric](https://en.wikipedia.org/wiki/Kerr_metric) describe the paths of particles and light in the spacetime around a rotating black hole. This notebook integrates the geodesic equations in Mino time using an adaptive [Cash–Karp RK4(5)](https://doi.org/10.1145/79505.79507) scheme, which adjusts the step size to maintain accuracy near the horizon where Boyer-Lindquist coordinates become singular.
+Geodesics in Kerr spacetime are the free-fall paths of particles and light around a spinning black hole. Unlike the Schwarzschild case, they are not confined to a plane: orbits precess and oscillate in latitude, and photons can orbit multiple times before escaping. This notebook integrates those trajectories and renders the gravitational lensing they produce.
   </script>
 
   <script id="webgpu-setup" type="text/x-typescript">
@@ -345,6 +345,7 @@ let expandableContainer: ReturnType<typeof expandable>;
 expandableContainer = expandable(container, {
   width: 640,
   height: 480,
+  wide: true,
   controls: controlsContainer,
   state: state.expandedState,
   onResize: (_content: HTMLElement, w: number, h: number, _expanded: boolean) => {
@@ -375,35 +376,54 @@ display(html`<div style="font-size: 0.85em; opacity: 0.6; margin-top: 0.5em;">
 </div>`);
   </script>
 
-  <script id="equations" type="text/markdown">
-## Separated Equations of Motion
+  <script id="glossary" type="text/markdown">
+<details><summary>Glossary</summary>
 
-The Kerr metric has three conserved quantities along every geodesic: energy ${tex`E = -p_t`} and angular momentum ${tex`L = p_\varphi`} from its two Killing symmetries, plus the [Carter constant](https://doi.org/10.1103/PhysRev.174.1559) ${tex`Q`} from a hidden rank-2 Killing tensor. With all three known the equations *separate* — the ${tex`r`} equation involves only ${tex`r`}, and ${tex`\theta`} only ${tex`\theta`}:
+| Symbol | Meaning |
+|--------|---------|
+| ${tex`M`} | Black hole mass |
+| ${tex`a`} | Spin parameter (${tex`0 \leq a < M`}); ${tex`a = 0`} is Schwarzschild |
+| ${tex`\lambda`} | Mino time (affine parameter rescaled by ${tex`\Sigma`}) |
+| ${tex`E`} | Specific energy (conserved; ${tex`E < 1`} bound, ${tex`E \geq 1`} unbound) |
+| ${tex`L`} | Specific angular momentum (conserved; prograde ${tex`> 0`}, retrograde ${tex`< 0`}) |
+| ${tex`Q`} | Carter constant (conserved; ${tex`0`} for equatorial, ${tex`> 0`} for off-plane) |
+| ${tex`\kappa`} | Normalization: 1 for massive particles, 0 for photons |
+| ${tex`\Delta`} | ${tex`r^2 - 2Mr + a^2`}; vanishes at the horizons |
+| ${tex`\Sigma`} | ${tex`r^2 + a^2\cos^2\theta`}; the oblate scale factor |
+
+</details>
+  </script>
+
+  <script id="equations" type="text/markdown">
+## Equations of Motion
+
+The [Kerr metric](https://en.wikipedia.org/wiki/Kerr_metric) has three conserved quantities along every geodesic: energy ${tex`E`}, angular momentum ${tex`L`}, and the [Carter constant](https://doi.org/10.1103/PhysRev.174.1559) ${tex`Q`}. With all three in hand the equations *separate*, with ${tex`r`} and ${tex`\theta`} decoupling completely:
 
 ${tex.block`\frac{dr}{d\lambda} = \pm\sqrt{R(r)}, \qquad \frac{d\theta}{d\lambda} = \pm\sqrt{\Theta(\theta)}`}
 
-${tex.block`R(r) = P^2 - \Delta\!\left[\kappa r^2 + (L - aE)^2 + Q\right], \quad P = E(r^2 + a^2) - aL`}
+where
 
-${tex`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\!\theta - L^2\cot^2\!\theta`}, with ${tex`\Delta = r^2 - 2Mr + a^2`}. [Mino (2003)](https://doi.org/10.1103/PhysRevD.67.084027) showed that dividing out ${tex`\Sigma = r^2 + a^2\cos^2\theta`} from the affine-parameter equations — *Mino time* — fully decouples them, making both integrable as independent 1D systems.
+${tex.block`R(r) = P^2 - \Delta\!\left[\kappa r^2 + (L - aE)^2 + Q\right]`}
 
-The four constants of motion are:
+${tex.block`P = E(r^2 + a^2) - aL, \qquad \Delta = r^2 - 2Mr + a^2`}
 
-- **Energy** ${tex`E`} — conserved by time-translation symmetry; ${tex`E < 1`} for bound orbits, ${tex`E \geq 1`} for unbound
-- **Angular momentum** ${tex`L`} — conserved by axial symmetry; positive is prograde, negative retrograde
-- **Carter constant** ${tex`Q`} — ${tex`Q = 0`} for equatorial orbits; ${tex`Q > 0`} allows polar oscillation
-- **Normalization** ${tex`\kappa`} — fixed at 1 for massive particles, 0 for photons
+${tex.block`\Theta(\theta) = Q + a^2(E^2 - \kappa)\cos^2\!\theta - L^2\cot^2\!\theta`}
+
+[Mino][mino2003] showed that reparameterizing by *Mino time* — absorbing ${tex`\Sigma = r^2 + a^2\cos^2\theta`} into the affine parameter — fully decouples the ${tex`r`} and ${tex`\theta`} equations, making each an independent 1D problem. Energy ${tex`E`} and angular momentum ${tex`L`} follow from Killing symmetries (time-translation and axial); ${tex`E < 1`} for bound orbits. ${tex`Q = 0`} confines motion to the equatorial plane; ${tex`Q > 0`} allows polar oscillation. The normalization ${tex`\kappa = 1`} for massive particles, ${tex`0`} for photons.
+
+[mino2003]: https://doi.org/10.1103/PhysRevD.67.084027
   </script>
 
   <script id="integrator-description" type="text/markdown">
 ## Integration Method
 
-At *turning points* — where ${tex`R = 0`} or ${tex`\Theta = 0`} — the velocities ${tex`dr/d\lambda`} and ${tex`d\theta/d\lambda`} must reverse sign. Rather than tracking these sign changes explicitly, we differentiate once more and integrate the second-order system directly:
+At *turning points* — where ${tex`R = 0`} or ${tex`\Theta = 0`} — the radial and polar velocities must reverse sign. Rather than tracking sign changes explicitly, we differentiate once more and integrate the second-order system:
 
 ${tex.block`\dot{v}_r = \tfrac{1}{2}R'(r), \qquad \dot{v}_\theta = \tfrac{1}{2}\Theta'(\theta)`}
 
-Now ${tex`v_r`} and ${tex`v_\theta`} pass through zero smoothly — the potential derivatives act as restoring forces — with no root-finding required. The full state ${tex`(r, \theta, \varphi, t, v_r, v_\theta)`} is integrated with an adaptive [Cash–Karp RK4(5)](https://doi.org/10.1145/79505.79507) scheme at relative tolerance ${tex`10^{-8}`}.
+Now ${tex`v_r`} and ${tex`v_\theta`} pass smoothly through zero with no root-finding required. The full state ${tex`(r, \theta, \varphi, t, v_r, v_\theta)`} is integrated with an adaptive [Cash–Karp RK4(5)](https://doi.org/10.1145/79505.79507) scheme at relative tolerance ${tex`10^{-8}`}.
 
-[Boyer-Lindquist coordinates](https://en.wikipedia.org/wiki/Boyer%E2%80%93Lindquist_coordinates) are singular at the event horizon ${tex`r_+ = M + \sqrt{M^2 - a^2}`} (where ${tex`\Delta = 0`}) and integration is terminated there. The shaded surface shows the **ergosphere** ${tex`r_\text{ergo} = M + \sqrt{M^2 - a^2\cos^2\theta}`}, outside the horizon but inside which no observer can remain stationary — rotational energy can be extracted here via the [Penrose process](https://en.wikipedia.org/wiki/Penrose_process).
+[Boyer-Lindquist coordinates](https://en.wikipedia.org/wiki/Boyer%E2%80%93Lindquist_coordinates) become singular at the event horizon (${tex`\Delta = 0`}), so integration stops there. The outer shaded surface is the **ergosphere** — the region inside which frame-dragging is so strong that no observer can remain stationary, and from which rotational energy can be extracted via the [Penrose process](https://en.wikipedia.org/wiki/Penrose_process).
   </script>
 
   <script id="rt-lensing-intro" type="text/markdown">
@@ -443,13 +463,19 @@ const rtDiskOuterInput = rtControlsContainer.appendChild(
   Inputs.range([5, 40], { label: 'Disk outer radius', value: 30, step: 0.5 })
 );
 const rtExposureInput = rtControlsContainer.appendChild(
-  Inputs.range([0.1, 5.0], { label: 'Exposure', value: 1.0, step: 0.01 })
+  Inputs.range([0.1, 5.0], { label: 'Exposure', value: 1.0, step: 0.001, transform: Math.log })
 );
 const rtBloomInput = rtControlsContainer.appendChild(
-  Inputs.range([0, 5.0], { label: 'Bloom', value: 2.0, step: 0.01 })
+  Inputs.range([0.1, 100], { label: 'Bloom', value: 16, step: 0.001, transform: Math.log })
 );
 const rtStarsInput = rtControlsContainer.appendChild(
   Inputs.toggle({ label: 'Stars', value: false })
+);
+const rtDopplerInput = rtControlsContainer.appendChild(
+  Inputs.toggle({ label: 'Doppler beaming', value: true })
+);
+const rtSpeedInput = rtControlsContainer.appendChild(
+  Inputs.range([0, 5], { label: 'Anim. speed', value: 0, step: 0.1 })
 );
 
 // Quality controls in a collapsible section
@@ -485,12 +511,25 @@ invalidation.then(() => rayTracer.destroy());
 let rtDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let rtInteracting = false;
 let rtFrameRequested = false;
+let rtDiskTime = 0.0;
+let rtLastTimestamp: number | null = null;
+let rtAnimFrameId: number | null = null;
 
-function rtRenderActual() {
+function rtRenderActual(timestamp?: number) {
   const w = rtCanvas.width;
   const h = rtCanvas.height;
   if (w === 0 || h === 0) return;
-  const scale = rtInteracting ? 1 / rtDownsampleInput.value : 1;
+
+  // Advance disk time when animating
+  if (rtSpeedInput.value > 0 && timestamp != null) {
+    if (rtLastTimestamp != null) {
+      rtDiskTime += (timestamp - rtLastTimestamp) / 1000 * rtSpeedInput.value;
+    }
+    rtLastTimestamp = timestamp;
+  }
+
+  const animating = rtSpeedInput.value > 0;
+  const scale = (rtInteracting || animating) ? 1 / rtDownsampleInput.value : 1;
   rayTracer.render(rtGpuContext, {
     a: rtSpinInput.value,
     M: 1,
@@ -499,6 +538,8 @@ function rtRenderActual() {
     bloomIntensity: rtBloomInput.value,
     showStars: rtStarsInput.value,
     debugDisk: rtDebugDiskInput.value,
+    doppler: rtDopplerInput.value,
+    diskTime: rtDiskTime,
     maxTime: rtMaxTimeInput.value,
     stepSize: rtInteracting ? Math.min(rtStepSizeInput.value * 4, 0.5) : rtStepSizeInput.value,
     renderWidth: Math.max(1, Math.floor(w * scale)),
@@ -506,20 +547,45 @@ function rtRenderActual() {
   }, rtCamera, w, h);
 }
 
-// Coalesce renders: the camera fires emitRender synchronously on every
-// input event, so multiple wheel/pointer events per frame each trigger a
-// render listener call. Gate through rAF so at most one GPU submission
-// per display frame.
+// Animation loop: runs continuously while speed > 0
+function rtAnimLoop(timestamp: number) {
+  if (rtSpeedInput.value <= 0) {
+    rtAnimFrameId = null;
+    rtLastTimestamp = null;
+    return;
+  }
+  rtRenderActual(timestamp);
+  rtAnimFrameId = requestAnimationFrame(rtAnimLoop);
+}
+
+function rtStartAnimIfNeeded() {
+  if (rtSpeedInput.value > 0 && rtAnimFrameId == null) {
+    rtAnimFrameId = requestAnimationFrame(rtAnimLoop);
+  }
+}
+
+// Coalesce on-demand renders (camera/controls) through rAF
 function rtRender() {
+  if (rtSpeedInput.value > 0) return;  // animation loop handles it
   if (rtFrameRequested) return;
   rtFrameRequested = true;
-  requestAnimationFrame(() => {
+  requestAnimationFrame((ts) => {
     rtFrameRequested = false;
-    rtRenderActual();
+    rtRenderActual(ts);
   });
 }
 
 rtCamera.on('render', rtRender);
+
+// When speed changes, start or stop the loop
+rtSpeedInput.addEventListener('input', () => {
+  if (rtSpeedInput.value > 0) {
+    rtStartAnimIfNeeded();
+  } else {
+    rtLastTimestamp = null;
+    rtCamera.triggerRepaint();
+  }
+});
 
 function rtBeginInteraction() {
   rtInteracting = true;
@@ -530,22 +596,10 @@ function rtBeginInteraction() {
   }, 300);
 }
 
-function rtOnPointerDown() {
-  rtBeginInteraction();
-}
-
-function rtOnPointerMove(e: PointerEvent) {
-  if (e.buttons === 0) return;
-  rtBeginInteraction();
-}
-
-function rtOnWheel() {
-  rtBeginInteraction();
-}
-
-function rtOnTouchMove() {
-  rtBeginInteraction();
-}
+function rtOnPointerDown() { rtBeginInteraction(); }
+function rtOnPointerMove(e: PointerEvent) { if (e.buttons === 0) return; rtBeginInteraction(); }
+function rtOnWheel() { rtBeginInteraction(); }
+function rtOnTouchMove() { rtBeginInteraction(); }
 
 rtCanvas.addEventListener('pointerdown', rtOnPointerDown);
 rtCanvas.addEventListener('pointermove', rtOnPointerMove);
@@ -554,11 +608,12 @@ rtCanvas.addEventListener('touchmove', rtOnTouchMove, { passive: true });
 
 rtControlsContainer.addEventListener('input', () => {
   rtBeginInteraction();
-  rtCamera.triggerRepaint();
+  if (rtSpeedInput.value <= 0) rtCamera.triggerRepaint();
 });
 
 invalidation.then(() => {
   if (rtDebounceTimer) clearTimeout(rtDebounceTimer);
+  if (rtAnimFrameId != null) cancelAnimationFrame(rtAnimFrameId);
   rtCanvas.removeEventListener('pointerdown', rtOnPointerDown);
   rtCanvas.removeEventListener('pointermove', rtOnPointerMove);
   rtCanvas.removeEventListener('wheel', rtOnWheel);

@@ -17,7 +17,8 @@ struct Uniforms {
   eye: vec4f,
   params: vec4f,       // a, M, rISCO, diskOuter
   resolution: vec4f,   // width, height, maxSteps, stepSize
-  flags: vec4f,        // showStars, renderScale, unused, unused
+  flags: vec4f,        // showStars, renderScale, diskTime, debugDisk
+  flags2: vec4f,       // doppler, unused, unused, unused
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -340,21 +341,22 @@ fn fbmTileX(p: vec2f, xPeriod: f32) -> f32 {
 // Accretion disk
 // ============================================================
 
-fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
+// diskColorAt: disk color for a given phi offset (used for animation crossfade).
+// phiOffset is subtracted from phi before noise sampling — animates the pattern.
+fn diskColorAt(r: f32, phi: f32, phiOffset: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   let rISCO = u.params.z;
   let rOuter = u.params.w;
 
   if (r < rISCO * 0.99 || r > rOuter) { return vec4f(0.0); }
 
-  // Use sin/cos to wrap phi onto the unit circle — this is exactly periodic
-  // with period 2π and has no branch cut, regardless of how much phi has
-  // accumulated during integration.
-  let sPhi = sin(phi);
-  let cPhi = cos(phi);
+  // Subtract phiOffset to rotate the noise pattern (simulates disk rotation).
+  // Use sin/cos so the result is periodic regardless of accumulated phi.
+  let sPhi = sin(phi - phiOffset);
+  let cPhi = cos(phi - phiOffset);
 
   // DEBUG mode: unique hue per phi sector + alternating radial rings.
   // Any integration error shows as a wrong-colored region.
-  if (u.flags.z > 0.5) {
+  if (u.flags.w > 0.5) {
     let phiNorm = (atan2(sPhi, cPhi) + PI) / (2.0 * PI);  // [0,1)
     let sector  = floor(phiNorm * 12.0);
     let value   = select(0.55, 1.0, fract(r) < 0.5);
@@ -410,13 +412,15 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   // Redshift factor
   let sqrtM = sqrt(M);
   let r15   = r * sqrt(r);
-  let Omega = sqrtM / (r15 + a * sqrtM);
+  let Omega = -(sqrtM / (r15 + a * sqrtM));
   let denom = 1.0 - 3.0 * M / r + 2.0 * a * sqrtM / r15;
   let ut_em = select(10.0, 1.0 / sqrt(denom), denom > 0.01);
-  let g     = 1.0 / (ut_em * (1.0 - Omega * L / E));
+  // When Doppler is disabled, set g=1 (no beaming, symmetric disk)
+  let g = select(1.0, 1.0 / (ut_em * (1.0 - Omega * L / E)), u.flags2.x > 0.5);
 
   let innerFade = smoothstep(rISCO * 0.95, rISCO * 1.1, r);
-  let outerFade = smoothstep(rOuter, rOuter * 0.7, r);
+  // Outer fade starts at half the disk radius for a long, gradual taper
+  let outerFade = smoothstep(rOuter, rOuter * 0.5, r);
   let fade      = innerFade * outerFade;
 
   let temp = pow(rISCO / r, 0.75);
@@ -428,6 +432,48 @@ fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
   );
   let brightness = temp * g * g * g * density;
   return vec4f(col * brightness * 4.0 * fade, fade);
+}
+
+// Two-layer crossfading disk with differential rotation.
+// Each layer rotates each radius at its own Keplerian rate Omega(r) = r^{-3/2},
+// producing realistic inward-winding shear. Two time offsets are kept half a
+// crossfade period apart; when one layer has wound up and is fading out, the
+// other resets invisibly and fades in.
+fn diskColor(r: f32, phi: f32, E: f32, L: f32, M: f32, a: f32) -> vec4f {
+  let diskTime = u.flags.z;
+  if (diskTime == 0.0) {
+    return diskColorAt(r, phi, 0.0, E, L, M, a);
+  }
+
+  // Keplerian angular velocity at this radius
+  let r15 = r * sqrt(r);
+  let sqrtM = sqrt(M);
+  let OmegaR = sqrtM / r15;  // prograde Keplerian, always positive
+
+  // Scale diskTime to angular units: multiply so the ISCO (~r=6) completes
+  // a full rotation in a few seconds at speed=1. Omega at r=6 ≈ 0.068, so
+  // a scale of 10 gives ~0.68 rad/s there — roughly one orbit per 9 seconds.
+  let t = diskTime * 10.0;
+
+  // Crossfade period T in those scaled units. One full rotation at r=6 is
+  // 2π/0.068 ≈ 92 scaled units, so T=60 gives a reset roughly every orbit.
+  let T = 60.0;
+  let t0 = t % T;
+  let t1 = (t + T * 0.5) % T;
+
+  // Per-radius angular offset for each layer
+  let offset0 = OmegaR * t0;
+  let offset1 = OmegaR * t1;
+
+  // Raised cosine crossfade: w0 = (1 - cos(2π·t0/T)) / 2, which is 0 at t0=0,
+  // peaks at 1 at t0=T/2, and returns to 0 at t0=T. w1 is the exact complement,
+  // so the two layers share time equally and transitions are evenly spaced.
+  let w0 = 0.5 * (1.0 - cos(2.0 * PI * t0 / T));
+  let w1 = 1.0 - w0;
+
+  let c0 = diskColorAt(r, phi, offset0, E, L, M, a);
+  let c1 = diskColorAt(r, phi, offset1, E, L, M, a);
+  return c0 * w0 + c1 * w1;
 }
 
 // ============================================================
