@@ -1027,6 +1027,10 @@ html[data-dark] main a[href] {
   color: #e07070;
 }
 
+html[data-dark] body:has(header.has-image) main .observablehq--cell:first-child ul li a {
+  color: #e07070;
+}
+
 html[data-dark] main h1 a[href],
 html[data-dark] main h2 a[href],
 html[data-dark] main h3 a[href],
