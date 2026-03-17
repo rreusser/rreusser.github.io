@@ -11,6 +11,8 @@ struct Uniforms {
   gridWidth: f32,
   specular: f32,
   clipRadius: f32,
+  domainColor: f32,
+  uvClipRadius: f32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -69,7 +71,7 @@ fn computeShading(pos: vec3f, normal: vec3f, frontFacing: bool) -> vec3f {
 
   let normalSign = select(-1.0, 1.0, frontFacing);
   let colorFromNormal = 0.5 + normalSign * 0.5 * normal;
-  let baseColor = select(vec3f(0.1, 0.4, 0.8), vec3f(0.9, 0.2, 0.1), frontFacing);
+  let baseColor = select(vec3f(0.9, 0.2, 0.1), vec3f(0.1, 0.4, 0.8), frontFacing);
   let albedo = mix(baseColor, colorFromNormal, 0.4);
 
   let ambient = 0.35;
@@ -80,36 +82,90 @@ fn computeShading(pos: vec3f, normal: vec3f, frontFacing: bool) -> vec3f {
   return albedo * (ambient + diffuse) + vec3f(spec + fresnel);
 }
 
-fn shouldClip(pos: vec3f) -> bool {
-  return length(pos) > u.clipRadius;
+// Domain coloring: soft checkerboard in (u,v) torus coordinates.
+// Color A (warm sand) and color B (slate blue), with gentle lighting.
+fn computeDomainColor(in: VertexOutput, frontFacing: bool) -> vec3f {
+  // Two muted checkerboard colors
+  // Four colors cycling (r+c) % 4, matching the SVG diagram
+  // Pre-gamma values targeting: #d4a84b, #3379a6, #7db87d, #b56b9a
+  var palette = array<vec3f, 4>(
+    vec3f(0.65, 0.42, 0.05), // amber
+    vec3f(0.04, 0.21, 0.43), // teal-blue
+    vec3f(0.21, 0.49, 0.21), // sage green
+    vec3f(0.44, 0.14, 0.34), // mauve
+  );
+
+  let uScaled = in.vUV.x * 4.0;
+  let vScaled = (1.0 - in.vUV.y) * 4.0;
+  let ci = u32(floor(uScaled)) % 4u;
+  let ri = u32(floor(vScaled)) % 4u;
+  let baseColor = palette[(ri + ci) % 4u];
+
+  // Soft diffuse shading so depth is readable
+  let V = normalize(u.eye - in.vPosition);
+  let normal = normalize(in.vNormal);
+  let N = select(-normal, normal, dot(normal, V) > 0.0);
+  let lightViewDir = vec3f(1.0, 2.0, 0.5);
+  let L = normalize(vec3f(
+    dot(u.view[0].xyz, lightViewDir),
+    dot(u.view[1].xyz, lightViewDir),
+    dot(u.view[2].xyz, lightViewDir)
+  ));
+  let NdotL = max(dot(N, L), 0.0);
+  let NdotV = max(dot(N, V), 0.0);
+  let H = normalize(L + V);
+  let NdotH = max(dot(N, H), 0.0);
+  let spec = 0.25 * pow(NdotH, 32.0);
+  let fresnel = 0.1 * pow(1.0 - NdotV, 3.0);
+  return baseColor * (0.4 + 0.6 * NdotL) + vec3f(spec + fresnel);
+}
+
+fn shouldClip(pos: vec3f, uv: vec2f) -> bool {
+  if (length(pos) > u.clipRadius) { return true; }
+  return length(uv - vec2f(0.5, 0.5)) > u.uvClipRadius;
 }
 
 fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {
   let normal = normalize(in.vNormal);
   let vDotN = abs(dot(normal, normalize(in.vPosition - u.eye)));
   let cartoonEdge = smoothstep(0.75, 1.25, vDotN / fwidth(vDotN) / (u.cartoonEdgeWidth * u.pixelRatio));
-  let grid = gridFactor(gridlineFunction(in.vUV), 0.5 * u.gridWidth * u.pixelRatio, 0.5);
-  let combinedGrid = max(u.cartoonEdgeOpacity * (1.0 - cartoonEdge), u.gridOpacity * (1.0 - grid));
+  let combinedGrid = u.cartoonEdgeOpacity * (1.0 - cartoonEdge);
 
-  var surfaceColor = computeShading(in.vPosition, normal, frontFacing);
+  var surfaceColor: vec3f;
+  if (u.domainColor > 0.5) {
+    surfaceColor = computeDomainColor(in, frontFacing);
+  } else {
+    let grid = gridFactor(gridlineFunction(in.vUV), 0.5 * u.gridWidth * u.pixelRatio, 0.5);
+    let gridLine = max(combinedGrid, u.gridOpacity * (1.0 - grid));
+    surfaceColor = computeShading(in.vPosition, normal, frontFacing);
+    surfaceColor = pow(surfaceColor, vec3f(0.454));
+
+    let surfaceAlpha = u.opacity;
+    let alpha = gridLine + surfaceAlpha * (1.0 - gridLine);
+    let color = select(
+      vec3f(0.0),
+      surfaceColor * surfaceAlpha * (1.0 - gridLine) / alpha,
+      alpha > 1e-4
+    );
+    return vec4f(color, alpha);
+  }
+
   surfaceColor = pow(surfaceColor, vec3f(0.454));
-
+  let edgeAlpha = combinedGrid;
   let surfaceAlpha = u.opacity;
-  let gridAlpha = combinedGrid;
-  let alpha = gridAlpha + surfaceAlpha * (1.0 - gridAlpha);
+  let alpha = edgeAlpha + surfaceAlpha * (1.0 - edgeAlpha);
   let color = select(
     vec3f(0.0),
-    surfaceColor * surfaceAlpha * (1.0 - gridAlpha) / alpha,
+    surfaceColor * surfaceAlpha * (1.0 - edgeAlpha) / alpha,
     alpha > 1e-4
   );
-
   return vec4f(color, alpha);
 }
 
 @fragment
 fn fsFirst(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
   let result = computeColor(in, frontFacing);
-  if (shouldClip(in.vPosition)) { discard; }
+  if (shouldClip(in.vPosition, in.vUV)) { discard; }
   return result;
 }
 
@@ -122,7 +178,7 @@ fn fsPeel(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @locati
   let coords = vec2i(in.position.xy);
   let prevDepth = textureLoad(prevDepthTex, coords, 0);
   if (in.position.z <= prevDepth + 1e-5) { discard; }
-  if (shouldClip(in.vPosition)) { discard; }
+  if (shouldClip(in.vPosition, in.vUV)) { discard; }
 
   return result;
 }

@@ -1,18 +1,141 @@
+const dotShaderCode = /* wgsl */`
+struct DotUniforms {
+  projection: mat4x4f,
+  view: mat4x4f,
+  worldPos: vec3f,
+  radius: f32,       // fill radius in pixels
+  pixelRatio: f32,
+  screenWidth: f32,
+  screenHeight: f32,
+  visible: f32,      // 0 = hidden, 1 = visible
+};
+
+@group(0) @binding(0) var<uniform> u: DotUniforms;
+@group(1) @binding(0) var prevDepthTex: texture_depth_2d;
+
+struct VSOut {
+  @builtin(position) position: vec4f,
+  @location(0) offset: vec2f, // pixel offset from center, in pixels
+};
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> VSOut {
+  var out: VSOut;
+  if (u.visible < 0.5) {
+    out.position = vec4f(1e9, 1e9, 1e9, 1.0);
+    out.offset = vec2f(0.0);
+    return out;
+  }
+
+  let clip = u.projection * u.view * vec4f(u.worldPos, 1.0);
+  let ndc = clip.xy / clip.w;
+
+  // Quad big enough for fill + stroke (expand by strokeWidth px)
+  let strokeWidth = 2.0;
+  let r = (u.radius + strokeWidth) * u.pixelRatio;
+
+  var corners = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f( 1.0, -1.0), vec2f(1.0,  1.0), vec2f(-1.0, 1.0)
+  );
+  let c = corners[i];
+  let offsetNDC = vec2f(c.x * 2.0 * r / u.screenWidth, c.y * 2.0 * r / u.screenHeight);
+
+  out.position = vec4f(ndc + offsetNDC, clip.z / clip.w, 1.0);
+  out.offset = c * r;
+  return out;
+}
+
+fn dotColor(in: VSOut) -> vec4f {
+  let dist = length(in.offset);
+  let pr = u.pixelRatio;
+  let fillR  = u.radius * pr;
+  let strokeW = 2.0 * pr;
+  let outerR = fillR + strokeW;
+
+  if (dist > outerR) { discard; }
+
+  // Stroke ring: dark, full opacity
+  let strokeAlpha = smoothstep(outerR, outerR - pr, dist) * (1.0 - smoothstep(fillR, fillR - pr, dist));
+  // Fill: white, antialiased
+  let fillAlpha = smoothstep(fillR, fillR - pr, dist);
+
+  let color = mix(vec3f(0.08), vec3f(1.0), fillAlpha / max(fillAlpha + strokeAlpha, 0.001));
+  let alpha = fillAlpha + strokeAlpha;
+  return vec4f(color * alpha, alpha);
+}
+
+@fragment
+fn fsFirst(in: VSOut) -> @location(0) vec4f {
+  return dotColor(in);
+}
+
+@fragment
+fn fsPeel(in: VSOut) -> @location(0) vec4f {
+  let prevDepth = textureLoad(prevDepthTex, vec2i(in.position.xy), 0);
+  if (in.position.z <= prevDepth + 1e-5) { discard; }
+  return dotColor(in);
+}
+`;
+
 export function createRenderer(device, canvasFormat, shaderCodes) {
   const MAX_PEEL_LAYERS = 8;
 
   const peelModule = device.createShaderModule({ label: 'costa-peel-shader', code: shaderCodes.peel });
   const compositeModule = device.createShaderModule({ label: 'costa-composite-shader', code: shaderCodes.composite });
+  const dotModule = device.createShaderModule({ label: 'costa-dot-shader', code: dotShaderCode });
 
-  // Uniform buffer: 12 uniforms = 48 floats for matrices + 12 scalar floats = 240 bytes
-  // Rounded up: mat4x4f(16) + mat4x4f(16) + vec3f(3) + f32(1) + 8 scalars = 44 floats = 176 bytes
-  // Actual: 2*mat4(128) + vec3f+pad(16) + 8*f32(32) = 176
-  const UNIFORM_SIZE = 192; // 48 floats = 192 bytes (padded to 16-byte alignment)
+  // Uniform buffer: 2*mat4(128) + vec3f+pad(16) + 8*f32(32) = 176, padded to 192
+  const UNIFORM_SIZE = 192;
+
+  // Dot uniform buffer: 2*mat4(128) + vec3f+f32(16) + 4*f32(16) = 160 bytes
+  const DOT_UNIFORM_SIZE = 160;
 
   const uniformBuffer = device.createBuffer({
     size: UNIFORM_SIZE,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
+
+  const dotUniformBuffer = device.createBuffer({
+    size: DOT_UNIFORM_SIZE,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  const dotUniformBGL = device.createBindGroupLayout({
+    entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }]
+  });
+  const dotDepthBGL = device.createBindGroupLayout({
+    entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } }]
+  });
+  const dotBindGroup = device.createBindGroup({
+    layout: dotUniformBGL,
+    entries: [{ binding: 0, resource: { buffer: dotUniformBuffer } }]
+  });
+
+  const dotBlendTarget = { format: 'rgba8unorm', blend: {
+    color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    alpha: { srcFactor: 'one',       dstFactor: 'one-minus-src-alpha', operation: 'add' },
+  }};
+  const dotDepthStencil = { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'less' };
+
+  const dotFirstPipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [dotUniformBGL] }),
+    vertex: { module: dotModule, entryPoint: 'vs', buffers: [] },
+    fragment: { module: dotModule, entryPoint: 'fsFirst', targets: [dotBlendTarget] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: dotDepthStencil,
+  });
+
+  const dotPeelPipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [dotUniformBGL, dotDepthBGL] }),
+    vertex: { module: dotModule, entryPoint: 'vs', buffers: [] },
+    fragment: { module: dotModule, entryPoint: 'fsPeel', targets: [dotBlendTarget] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: dotDepthStencil,
+  });
+
+  // Dot depth bind groups (one per peelDepthTexture, created after ensureTextures)
+  let dotDepthBindGroups = [];
 
   const uniformBindGroupLayout = device.createBindGroupLayout({
     entries: [{
@@ -98,6 +221,12 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     primitive: { topology: 'triangle-list' }
   });
 
+  // Pre-allocate uniform staging buffers to avoid per-frame GC pressure
+  const uniformData = new ArrayBuffer(UNIFORM_SIZE);
+  const uniformF32 = new Float32Array(uniformData);
+  const dotData = new ArrayBuffer(DOT_UNIFORM_SIZE);
+  const dotF32 = new Float32Array(dotData);
+
   let vertexBuffer = null;
   let indexBuffer = null;
   let indexCount = 0;
@@ -133,6 +262,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     layerTextures = [];
     peelBindGroups = [];
     compositeBindGroups = [];
+    dotDepthBindGroups = [];
 
     for (let i = 0; i < 2; i++) {
       peelDepthTextures.push(device.createTexture({
@@ -154,6 +284,10 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     for (let i = 0; i < 2; i++) {
       peelBindGroups.push(device.createBindGroup({
         layout: peelDepthBGL,
+        entries: [{ binding: 0, resource: peelDepthTextures[i].createView() }]
+      }));
+      dotDepthBindGroups.push(device.createBindGroup({
+        layout: dotDepthBGL,
         entries: [{ binding: 0, resource: peelDepthTextures[i].createView() }]
       }));
     }
@@ -189,21 +323,21 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     projection[10] = far * rangeInv;
     projection[14] = near * far * rangeInv;
 
-    const uniformData = new ArrayBuffer(UNIFORM_SIZE);
-    const f32 = new Float32Array(uniformData);
-    f32.set(projection, 0);       // 0-15
-    f32.set(view, 16);            // 16-31
-    f32[32] = eye[0];             // 32
-    f32[33] = eye[1];             // 33
-    f32[34] = eye[2];             // 34
-    f32[35] = devicePixelRatio;   // 35
-    f32[36] = params.opacity;     // 36
-    f32[37] = params.cartoonEdgeWidth;   // 37
-    f32[38] = params.cartoonEdgeOpacity; // 38
-    f32[39] = params.gridOpacity;        // 39
-    f32[40] = params.gridWidth;          // 40
-    f32[41] = params.specular;           // 41
-    f32[42] = params.clipRadius;         // 42
+    uniformF32.set(projection, 0);       // 0-15
+    uniformF32.set(view, 16);            // 16-31
+    uniformF32[32] = eye[0];
+    uniformF32[33] = eye[1];
+    uniformF32[34] = eye[2];
+    uniformF32[35] = devicePixelRatio;
+    uniformF32[36] = params.opacity;
+    uniformF32[37] = params.cartoonEdgeWidth;
+    uniformF32[38] = params.cartoonEdgeOpacity;
+    uniformF32[39] = params.gridOpacity;
+    uniformF32[40] = params.gridWidth;
+    uniformF32[41] = params.specular;
+    uniformF32[42] = params.clipRadius;
+    uniformF32[43] = params.domainColor;
+    uniformF32[44] = params.uvClipRadius;
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
     let colorTexture;
@@ -212,6 +346,21 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     } catch (e) {
       return false;
     }
+
+    // Upload dot uniforms
+    const hp = params.hoverPoint;
+    const dotActive = hp && isFinite(hp[0]) && isFinite(hp[1]) && isFinite(hp[2]) ? 1 : 0;
+    dotF32.set(projection, 0);
+    dotF32.set(view, 16);
+    dotF32[32] = dotActive ? hp[0] : 0;
+    dotF32[33] = dotActive ? hp[1] : 0;
+    dotF32[34] = dotActive ? hp[2] : 0;
+    dotF32[35] = 7.0;            // fill radius in pixels
+    dotF32[36] = devicePixelRatio;
+    dotF32[37] = w;
+    dotF32[38] = h;
+    dotF32[39] = dotActive;
+    device.queue.writeBuffer(dotUniformBuffer, 0, dotData);
 
     ensureTextures(w, h);
 
@@ -238,6 +387,10 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       pass.setIndexBuffer(indexBuffer, 'uint32');
       pass.setBindGroup(0, uniformBindGroup);
       pass.drawIndexed(indexCount);
+      // Dot in first layer
+      pass.setPipeline(dotFirstPipeline);
+      pass.setBindGroup(0, dotBindGroup);
+      pass.draw(6);
       pass.end();
     }
 
@@ -265,6 +418,11 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       pass.setBindGroup(0, uniformBindGroup);
       pass.setBindGroup(1, peelBindGroups[prevDepthIdx]);
       pass.drawIndexed(indexCount);
+      // Dot in each peel layer
+      pass.setPipeline(dotPeelPipeline);
+      pass.setBindGroup(0, dotBindGroup);
+      pass.setBindGroup(1, dotDepthBindGroups[prevDepthIdx]);
+      pass.draw(6);
       pass.end();
     }
 
@@ -284,6 +442,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     }
 
     device.queue.submit([encoder.finish()]);
+
     return true;
   }
 

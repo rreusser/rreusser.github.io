@@ -16,7 +16,7 @@ import { weierstrassPZeta, weierstrassPPrime, E1 } from './lib/weierstrass.js';
 //   z = √(2π)/4 · ln| (℘(w) − e₁) / (℘(w) + e₁) |
 //
 // where w = u + iv is in the fundamental domain (0,1)×(0,1).
-function costaPoint(u, v) {
+export function costaPoint(u, v) {
   const { p, zeta } = weierstrassPZeta(u, v);
   const pprime = weierstrassPPrime(u, v);
 
