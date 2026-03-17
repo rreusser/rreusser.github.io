@@ -453,6 +453,45 @@ hitRect.addEventListener('mouseleave', () => {
   camera.triggerRepaint();
 });
 
+// Touch: drag on SVG square updates hover point
+function svgTouchUpdate(e: TouchEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  const rect = svg.getBoundingClientRect();
+  const svgX = (t.clientX - rect.left) * (W / rect.width);
+  const svgY = (t.clientY - rect.top) * (H / rect.height);
+  const u = (svgX - M) / S;
+  const v = 1 - (svgY - M) / S;
+
+  if (u < 0 || u > 1 || v < 0 || v > 1 || nearPuncture(u, v)) {
+    hideSvgDot();
+    state.renderParams.hoverPoint = null;
+    camera.triggerRepaint();
+    return;
+  }
+
+  showSvgDot(u, v);
+  const pt = costaPoint(u, v);
+  if (isFinite(pt[0]) && isFinite(pt[1]) && isFinite(pt[2])) {
+    state.renderParams.hoverPoint = pt as [number, number, number];
+  } else {
+    state.renderParams.hoverPoint = null;
+  }
+  camera.triggerRepaint();
+}
+
+hitRect.addEventListener('touchstart', svgTouchUpdate, { passive: false });
+hitRect.addEventListener('touchmove', svgTouchUpdate, { passive: false });
+hitRect.addEventListener('touchend', (e: TouchEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  hideSvgDot();
+  state.renderParams.hoverPoint = null;
+  camera.triggerRepaint();
+});
+
 invalidation.then(() => {
   state.renderParams.hoverPoint = null;
   state.setSvgHover = null;
