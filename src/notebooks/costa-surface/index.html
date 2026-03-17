@@ -21,9 +21,11 @@ import { buildMeshBVH, raycastMesh, screenToRay } from './lib/ray-mesh.js';
   <script id="intro" type="text/markdown">
 [Costa's minimal surface](https://en.wikipedia.org/wiki/Costa%27s_minimal_surface) is a thrice-punctured torus discovered by Celso José da Costa in 1982. It was the first new example of a complete, embedded minimal surface of finite topology found since the [catenoid](https://en.wikipedia.org/wiki/Catenoid) and [helicoid](https://en.wikipedia.org/wiki/Helicoid) in the 19th century.
 
-Defining terms, a surface is *minimal* if it locally minimizes area, which is equivalent to having zero [mean curvature](https://en.wikipedia.org/wiki/Mean_curvature) everywhere. It is *complete* if every geodesic can be extended indefinitely within the surface (no edges or boundaries are "missing"). It is *embedded* if it does not cross itself, as opposed to an immersed surface which may self-intersect. So basically, Costa's surface is a smoothly self-avoiding, boundaryless minimal surface that lives in ordinary three-dimensional space.
+Defining terms, a surface is *minimal* if it locally minimizes area, which is equivalent to having zero [mean curvature](https://en.wikipedia.org/wiki/Mean_curvature) everywhere. It is *complete* if every geodesic can be extended indefinitely within the surface (no edges or boundaries are "missing"). And it is *embedded* if it does not cross itself, as opposed to an immersed surface which may self-intersect. So basically, Costa's surface is a smoothly self-avoiding, boundaryless minimal surface that lives in ordinary three-dimensional space.
 
 The surface has two catenoidal ends (extending to infinity upward and downward) and a planar end (extending to infinity in the horizontal plane), giving it three "punctures" in its toroidal domain.
+
+Hover the mouse or tap either diagram below to view the corresponding point on the other.
   </script>
 
   <script id="gpu-context" type="text/x-typescript">
@@ -174,26 +176,17 @@ const meshBVH = buildMeshBVH(mesh.vertexData, mesh.indexData);
 
 let dragging = false;
 
-canvas.addEventListener('mousedown', () => { dragging = true; });
-
-window.addEventListener('mouseup', () => { dragging = false; });
-
-canvas.addEventListener('mousemove', (e: MouseEvent) => {
-  if (dragging) return;
+function raycastAndUpdate(clientX: number, clientY: number) {
   const aspectRatio = canvas.width / canvas.height;
   const { view, projection, eye } = camera.update(aspectRatio);
-
-  // Apply the same near/far patch the renderer uses
   const eyeDist = Math.hypot(eye[0], eye[1], eye[2]);
   const smoothMax = (a: number, b: number, k: number) => 0.5 * (a + b + Math.sqrt((a-b)**2 + k*k));
   const near = smoothMax(eyeDist - 15, 0.01, 0.5);
   const far = eyeDist + 15;
-  const rangeInv = 1 / (near - far);
   const proj = new Float32Array(projection);
-  proj[10] = far * rangeInv;
-  proj[14] = near * far * rangeInv;
-
-  const { origin, direction } = screenToRay(e.clientX, e.clientY, canvas, view, proj);
+  proj[10] = far / (near - far);
+  proj[14] = near * far / (near - far);
+  const { origin, direction } = screenToRay(clientX, clientY, canvas, view, proj);
   const hit = raycastMesh(meshBVH, mesh.vertexData, mesh.indexData,
     origin[0], origin[1], origin[2],
     direction[0], direction[1], direction[2],
@@ -203,7 +196,6 @@ canvas.addEventListener('mousemove', (e: MouseEvent) => {
       return Math.sqrt(du*du + dv*dv) <= state.renderParams.uvClipRadius;
     }}
   );
-
   if (hit) {
     state.renderParams.hoverPoint = hit.pos;
     state.setSvgHover?.(hit.uv[0], hit.uv[1]);
@@ -212,13 +204,49 @@ canvas.addEventListener('mousemove', (e: MouseEvent) => {
     state.clearSvgHover?.();
   }
   camera.triggerRepaint();
-});
+}
 
-canvas.addEventListener('mouseleave', () => {
+function clearHover() {
   state.renderParams.hoverPoint = null;
   state.clearSvgHover?.();
   camera.triggerRepaint();
+}
+
+// Mouse: hover while moving, freeze during drag
+canvas.addEventListener('mousedown', () => { dragging = true; });
+window.addEventListener('mouseup', () => { dragging = false; });
+canvas.addEventListener('mousemove', (e: MouseEvent) => {
+  if (!dragging) raycastAndUpdate(e.clientX, e.clientY);
 });
+canvas.addEventListener('mouseleave', clearHover);
+
+// Touch: tap to pick, drag operates camera
+const TOUCH_DEAD_ZONE = 8; // px
+let touchStart: { x: number; y: number } | null = null;
+let touchDragged = false;
+
+canvas.addEventListener('touchstart', (e: TouchEvent) => {
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  touchStart = { x: t.clientX, y: t.clientY };
+  touchDragged = false;
+}, { passive: true });
+
+canvas.addEventListener('touchmove', (e: TouchEvent) => {
+  if (!touchStart || e.touches.length !== 1) return;
+  const t = e.touches[0];
+  const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+  if (Math.sqrt(dx*dx + dy*dy) > TOUCH_DEAD_ZONE) touchDragged = true;
+}, { passive: true });
+
+canvas.addEventListener('touchend', (e: TouchEvent) => {
+  if (!touchStart || touchDragged) { touchStart = null; return; }
+  const t = e.changedTouches[0];
+  raycastAndUpdate(t.clientX, t.clientY);
+  touchStart = null;
+});
+
+canvas.addEventListener('touchcancel', () => { touchStart = null; clearHover(); });
 
 invalidation.then(() => {
   state.renderParams.hoverPoint = null;
