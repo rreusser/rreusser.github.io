@@ -57,7 +57,7 @@ export function createUnifiedCamera(element, opts = {}) {
   };
 
   const speeds = {
-    rotate: opts.rotateSpeed !== undefined ? opts.rotateSpeed : 2.0,
+    rotate: opts.rotateSpeed !== undefined ? opts.rotateSpeed : 1.0,
     zoom: opts.zoomSpeed !== undefined ? opts.zoomSpeed : 0.001,
     pan: opts.panSpeed !== undefined ? opts.panSpeed : 1.0,
     pivot: opts.pivotSpeed !== undefined ? opts.pivotSpeed : 1.0,
@@ -849,9 +849,11 @@ function createOrbitBackend(state, speeds, markDirty) {
   }
 
   function rotate(dx, dy) {
-    state.phi += dx * speeds.rotate * 0.01;
-    state.theta = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, 
-      state.theta + dy * speeds.rotate * 0.01));
+    const rect = element.getBoundingClientRect();
+    const scale = speeds.rotate * Math.PI / rect.height;
+    state.phi += dx * scale;
+    state.theta = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01,
+      state.theta + dy * scale));
     markDirty();
   }
 
