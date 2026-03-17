@@ -40,8 +40,7 @@ const state = {
     cartoonEdgeWidth: 1.5,
     cartoonEdgeOpacity: 1,
     specular: 1,
-    clipHeight: 5,
-    clipRadius: 6,
+    clipRadius: 4,
     peelLayers: 5,
   }
 };
@@ -56,8 +55,7 @@ function addControl(input: HTMLElement) {
 }
 
 const opacityInput = addControl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.85, step: 0.01 }));
-const clipHeightInput = addControl(Inputs.range([1, 10], { label: "Height clip", value: 5, step: 0.1 }));
-const clipRadiusInput = addControl(Inputs.range([1, 10], { label: "Radius clip", value: 6, step: 0.1 }));
+const clipRadiusInput = addControl(Inputs.range([1, 10], { label: "Radius clip", value: 4, step: 0.1 }));
 
 display(controlsContainer);
   </script>
@@ -71,9 +69,9 @@ canvas.style.height = '100%';
 
 const camera = createUnifiedCamera(canvas, {
   mode: 'orbit',
-  distance: 12,
+  distance: 10,
   phi: 5.5,
-  theta: 0.4,
+  theta: 0.5,
   center: [0, 0, 0],
   renderContinuously: false,
   observeResize: true,
@@ -88,7 +86,6 @@ invalidation.then(() => {
   <script id="sync-params" type="text/x-typescript">
 function syncParams() {
   state.renderParams.opacity = opacityInput.value as number;
-  state.renderParams.clipHeight = clipHeightInput.value as number;
   state.renderParams.clipRadius = clipRadiusInput.value as number;
   camera.triggerRepaint();
 }
@@ -98,7 +95,7 @@ syncParams();
   </script>
 
   <script id="main" type="text/x-typescript">
-const mesh = createCostaMesh(300, 8);
+const mesh = createCostaMesh(300, 6);
 
 const gpuContext = canvas.getContext('webgpu')!;
 gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });

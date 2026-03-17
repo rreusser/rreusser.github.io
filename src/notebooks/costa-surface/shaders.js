@@ -10,7 +10,6 @@ struct Uniforms {
   gridOpacity: f32,
   gridWidth: f32,
   specular: f32,
-  clipHeight: f32,
   clipRadius: f32,
 };
 
@@ -82,7 +81,7 @@ fn computeShading(pos: vec3f, normal: vec3f, frontFacing: bool) -> vec3f {
 }
 
 fn shouldClip(pos: vec3f) -> bool {
-  return abs(pos.z) > u.clipHeight || length(pos.xy) > u.clipRadius;
+  return length(pos) > u.clipRadius;
 }
 
 fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {

@@ -203,8 +203,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     f32[39] = params.gridOpacity;        // 39
     f32[40] = params.gridWidth;          // 40
     f32[41] = params.specular;           // 41
-    f32[42] = params.clipHeight;         // 42
-    f32[43] = params.clipRadius;         // 43
+    f32[42] = params.clipRadius;         // 42
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
     let colorTexture;

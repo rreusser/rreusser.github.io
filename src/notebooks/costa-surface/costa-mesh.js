@@ -37,7 +37,8 @@ function costaPoint(u, v) {
   const logRatio = 0.5 * Math.log((amr * amr + ami * ami) / (bpr * bpr + bpi * bpi));
   const z = Math.sqrt(2 * Math.PI) / 4 * logRatio;
 
-  return [x, y, z];
+  // Display on its side: swap y and z so catenoidal ends extend horizontally
+  return [x, z, y];
 }
 
 // Distance from a point (u,v) to the nearest puncture, accounting for
