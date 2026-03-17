@@ -1,0 +1,177 @@
+<!doctype html>
+<notebook theme="ink">
+  <title>Costa's Minimal Surface</title>
+
+  <script id="title" type="text/markdown">
+# Costa's Minimal Surface
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+import { createWebGPUContext } from './lib/webgpu-canvas.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
+import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js';
+import { createCameraSnapshotButton } from './lib/snapshot.js';
+import { createWebGPUCaptureHandler } from './lib/webgpu-snapshot.js';
+import { createCostaMesh } from './costa-mesh.js';
+import { peelShaderCode, compositeShaderCode } from './shaders.js';
+import { createRenderer } from './renderer.js';
+  </script>
+
+  <script id="intro" type="text/markdown">
+Costa's minimal surface is a thrice-punctured torus — a complete, embedded minimal surface discovered by Celso José da Costa in 1982. It was the first new example of a complete embedded minimal surface of finite topology found since the catenoid and helicoid in the 19th century. The surface has two catenoidal ends (extending up and down to infinity) and a planar end (extending to infinity in the horizontal plane).
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+const { device, canvasFormat } = await createWebGPUContext();
+  </script>
+
+  <script id="state" type="text/x-typescript">
+const state = {
+  canvas: null as HTMLCanvasElement | null,
+  gpuContext: null as GPUCanvasContext | null,
+  camera: null as ReturnType<typeof createUnifiedCamera> | null,
+  dirty: true,
+  expandedState: { expanded: false },
+  renderer: null as ReturnType<typeof createRenderer> | null,
+  renderParams: {
+    opacity: 0.85,
+    gridOpacity: 0.25,
+    gridWidth: 0.5,
+    cartoonEdgeWidth: 1.5,
+    cartoonEdgeOpacity: 1,
+    specular: 1,
+    clipHeight: 5,
+    clipRadius: 6,
+    peelLayers: 5,
+  }
+};
+  </script>
+
+  <script id="controls" type="text/x-typescript">
+const controlsContainer = html`<div id="surface-controls"></div>`;
+
+function addControl(input: HTMLElement) {
+  controlsContainer.appendChild(input);
+  return input;
+}
+
+const opacityInput = addControl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.85, step: 0.01 }));
+const clipHeightInput = addControl(Inputs.range([1, 10], { label: "Height clip", value: 5, step: 0.1 }));
+const clipRadiusInput = addControl(Inputs.range([1, 10], { label: "Radius clip", value: 6, step: 0.1 }));
+
+display(controlsContainer);
+  </script>
+
+  <script id="camera" type="text/x-typescript">
+const canvas = document.createElement('canvas');
+canvas.width = 800;
+canvas.height = 600;
+canvas.style.width = '100%';
+canvas.style.height = '100%';
+
+const camera = createUnifiedCamera(canvas, {
+  mode: 'orbit',
+  distance: 12,
+  phi: 5.5,
+  theta: 0.4,
+  center: [0, 0, 0],
+  renderContinuously: false,
+  observeResize: true,
+  canvas: canvas,
+});
+
+invalidation.then(() => {
+  camera.destroy();
+});
+  </script>
+
+  <script id="sync-params" type="text/x-typescript">
+function syncParams() {
+  state.renderParams.opacity = opacityInput.value as number;
+  state.renderParams.clipHeight = clipHeightInput.value as number;
+  state.renderParams.clipRadius = clipRadiusInput.value as number;
+  camera.triggerRepaint();
+}
+
+controlsContainer.addEventListener('input', syncParams);
+syncParams();
+  </script>
+
+  <script id="main" type="text/x-typescript">
+const mesh = createCostaMesh(300, 8);
+
+const gpuContext = canvas.getContext('webgpu')!;
+gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+
+const renderer = createRenderer(device, canvasFormat, {
+  peel: peelShaderCode,
+  composite: compositeShaderCode
+});
+renderer.initMesh(mesh);
+
+const container = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
+container.appendChild(canvas);
+
+function renderFrame() {
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, false);
+}
+
+camera.on('render', renderFrame);
+
+camera.on('capture', createWebGPUCaptureHandler({
+  canvas,
+  render: () => renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, true),
+}));
+
+canvas.addEventListener('mousedown', () => {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+});
+
+camera.triggerRepaint();
+
+let expandableContainer;
+expandableContainer = expandable(container, {
+  id: 'surface-viewer',
+  width: 640,
+  height: 480,
+  controls: controlsContainer,
+  state: state.expandedState,
+  buttons: [
+    {
+      icon: camera.getMode() === 'orbit' ? ICON_ORBIT : ICON_ARCBALL,
+      title: 'Toggle camera mode (orbit/arcball)',
+      onClick: (content, expanded, button) => {
+        const newMode = camera.getMode() === 'orbit' ? 'arcball' : 'orbit';
+        camera.setMode(newMode);
+        camera.triggerRepaint();
+        if (button) button.innerHTML = newMode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
+      }
+    },
+    createCameraSnapshotButton(camera, { filename: 'costa-surface.png' }),
+  ],
+});
+
+display(expandableContainer);
+  </script>
+
+  <script id="equations" type="text/markdown">
+The surface is parameterized on the square torus ${tex`\mathbb{C}/(\mathbb{Z} + i\mathbb{Z})`} with punctures at ${tex`0`}, ${tex`\tfrac{1}{2}`}, and ${tex`\tfrac{i}{2}`}. For ${tex`w = u + iv`} in the fundamental domain, the Weierstrass-Enneper representation gives:
+
+${tex.block`\begin{aligned}
+x &= \frac{\pi u}{2} - \mathrm{Re}\!\left[\frac{\zeta(w)}{2} - \frac{\pi\,\wp(w)}{\wp'(w)}\right] \\[6pt]
+y &= \frac{\pi v}{2} + \mathrm{Im}\!\left[\frac{\zeta(w)}{2} + \frac{\pi\,\wp(w)}{\wp'(w)}\right] \\[6pt]
+z &= \frac{\sqrt{2\pi}}{4} \ln\!\left|\frac{\wp(w) - e_1}{\wp(w) + e_1}\right|
+\end{aligned}`}
+
+where ${tex`\wp`} and ${tex`\zeta`} are the Weierstrass elliptic and zeta functions for the square lattice with half-periods ${tex`\omega_1 = \tfrac{1}{2}`}, ${tex`\omega_2 = \tfrac{i}{2}`}, and ${tex`e_1 = \wp(\omega_1) = \sqrt{g_2}/2 \approx 6.875`}.
+
+The lattice invariants are ${tex`g_2 = \Gamma(\tfrac{1}{4})^8 / (16\pi^2) \approx 189.07`} and ${tex`g_3 = 0`} (the lemniscatic case). The Weierstrass functions are evaluated via Jacobi theta series with nome ${tex`q = e^{-\pi} \approx 0.043`}, which converges in just a few terms.
+  </script>
+
+  <script id="notes" type="text/markdown">
+The mesh is generated on the CPU by evaluating the parametrization on a grid and computing normals via finite differences. Triangles near the three punctures are excluded. Transparency is achieved through depth peeling, allowing the internal structure of the tunnels to be seen.
+  </script>
+
+</notebook>
