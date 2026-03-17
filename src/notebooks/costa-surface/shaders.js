@@ -120,13 +120,14 @@ fn computeDomainColor(in: VertexOutput, frontFacing: bool) -> vec3f {
   return baseColor * (0.4 + 0.6 * NdotL) + vec3f(spec + fresnel);
 }
 
-fn clipAlpha(pos: vec3f, uv: vec2f) -> f32 {
+fn shouldClip(uv: vec2f) -> bool {
+  return length(uv - vec2f(0.5, 0.5)) > u.uvClipRadius;
+}
+
+fn clipAlpha(pos: vec3f) -> f32 {
   let fadeWidth = 0.15;
   let r = length(pos);
-  let rFade = smoothstep(u.clipRadius, u.clipRadius * (1.0 - fadeWidth), r);
-  let uvR = length(uv - vec2f(0.5, 0.5));
-  let uvFade = smoothstep(u.uvClipRadius, u.uvClipRadius * (1.0 - fadeWidth), uvR);
-  return rFade * uvFade;
+  return smoothstep(u.clipRadius, u.clipRadius * (1.0 - fadeWidth), r);
 }
 
 fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {
@@ -168,7 +169,8 @@ fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {
 
 @fragment
 fn fsFirst(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
-  let fade = clipAlpha(in.vPosition, in.vUV);
+  if (shouldClip(in.vUV)) { discard; }
+  let fade = clipAlpha(in.vPosition);
   if (fade < 0.001) { discard; }
   let result = computeColor(in, frontFacing);
   return vec4f(result.rgb, result.a * fade);
@@ -183,7 +185,8 @@ fn fsPeel(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @locati
   let coords = vec2i(in.position.xy);
   let prevDepth = textureLoad(prevDepthTex, coords, 0);
   if (in.position.z <= prevDepth + 1e-5) { discard; }
-  let fade = clipAlpha(in.vPosition, in.vUV);
+  if (shouldClip(in.vUV)) { discard; }
+  let fade = clipAlpha(in.vPosition);
   if (fade < 0.001) { discard; }
 
   return vec4f(result.rgb, result.a * fade);
