@@ -171,7 +171,7 @@ fn fsFirst(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @locat
   let fade = clipAlpha(in.vPosition, in.vUV);
   if (fade < 0.001) { discard; }
   let result = computeColor(in, frontFacing);
-  return vec4f(result.rgb * fade, result.a * fade);
+  return vec4f(result.rgb, result.a * fade);
 }
 
 @group(1) @binding(0) var prevDepthTex: texture_depth_2d;
@@ -186,7 +186,7 @@ fn fsPeel(in: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @locati
   let fade = clipAlpha(in.vPosition, in.vUV);
   if (fade < 0.001) { discard; }
 
-  return vec4f(result.rgb * fade, result.a * fade);
+  return vec4f(result.rgb, result.a * fade);
 }
 `;
 
