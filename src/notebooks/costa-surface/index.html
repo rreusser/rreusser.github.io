@@ -1,0 +1,453 @@
+<!doctype html>
+<notebook theme="ink">
+  <title>Costa's Minimal Surface</title>
+
+  <script id="title" type="text/markdown">
+# Costa's Minimal Surface
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+import { createWebGPUContext } from './lib/webgpu-canvas.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
+import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js';
+import { createCameraSnapshotButton } from './lib/snapshot.js';
+import { createWebGPUCaptureHandler } from './lib/webgpu-snapshot.js';
+import { createCostaMesh, costaPoint } from './costa-mesh.js';
+import { peelShaderCode, compositeShaderCode } from './shaders.js';
+import { createRenderer } from './renderer.js';
+import { buildMeshBVH, raycastMesh, screenToRay } from './lib/ray-mesh.js';
+  </script>
+
+  <script id="intro" type="text/markdown">
+[Costa's minimal surface](https://en.wikipedia.org/wiki/Costa%27s_minimal_surface) is a thrice-punctured torus discovered by Celso José da Costa in 1982. It was the first new example of a complete, embedded minimal surface of finite topology found since the [catenoid](https://en.wikipedia.org/wiki/Catenoid) and [helicoid](https://en.wikipedia.org/wiki/Helicoid) in the 19th century.
+
+Defining terms, a surface is *minimal* if it locally minimizes area, which is equivalent to having zero [mean curvature](https://en.wikipedia.org/wiki/Mean_curvature) everywhere. It is *complete* if every geodesic can be extended indefinitely within the surface (no edges or boundaries are "missing"). It is *embedded* if it does not cross itself, as opposed to an immersed surface which may self-intersect. So basically, Costa's surface is a smoothly self-avoiding, boundaryless minimal surface that lives in ordinary three-dimensional space.
+
+The surface has two catenoidal ends (extending to infinity upward and downward) and a planar end (extending to infinity in the horizontal plane), giving it three "punctures" in its toroidal domain.
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+const { device, canvasFormat } = await createWebGPUContext();
+  </script>
+
+  <script id="state" type="text/x-typescript">
+const state = {
+  canvas: null as HTMLCanvasElement | null,
+  gpuContext: null as GPUCanvasContext | null,
+  camera: null as ReturnType<typeof createUnifiedCamera> | null,
+  dirty: true,
+  expandedState: { expanded: false },
+  renderer: null as ReturnType<typeof createRenderer> | null,
+  renderParams: {
+    opacity: 0.85,
+    gridOpacity: 0.25,
+    gridWidth: 0.5,
+    cartoonEdgeWidth: 1.5,
+    cartoonEdgeOpacity: 1,
+    specular: 1,
+    clipRadius: 4,
+    uvClipRadius: Math.SQRT1_2,
+    peelLayers: 5,
+    domainColor: 1,
+    hoverPoint: null as [number, number, number] | null,
+  },
+  // Callback set by domain-diagram cell so the 3D raycast can update the SVG dot
+  setSvgHover: null as ((u: number, v: number) => void) | null,
+  clearSvgHover: null as (() => void) | null,
+  // Callback to update the clip circle on the SVG diagram
+  setUvClipRadius: null as ((r: number) => void) | null,
+};
+  </script>
+
+  <script id="controls" type="text/x-typescript">
+const controlsContainer = html`<div id="surface-controls"></div>`;
+
+function addControl(input: HTMLElement) {
+  controlsContainer.appendChild(input);
+  return input;
+}
+
+const opacityInput = addControl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.85, step: 0.01 }));
+const uvClipRadiusInput = addControl(Inputs.range([0, Math.SQRT1_2], { label: "Domain clip radius", value: Math.SQRT1_2, step: 0.01 }));
+const domainColorInput = addControl(Inputs.toggle({ label: "Domain coloring", value: true }));
+  </script>
+
+  <script id="camera" type="text/x-typescript">
+const canvas = document.createElement('canvas');
+canvas.width = 800;
+canvas.height = 600;
+canvas.style.width = '100%';
+canvas.style.height = '100%';
+
+const camera = createUnifiedCamera(canvas, {
+  mode: 'orbit',
+  distance: 12,
+  phi: 5.5,
+  theta: 0.5,
+  center: [0, 0, 0],
+  renderContinuously: false,
+  observeResize: true,
+  canvas: canvas,
+});
+
+invalidation.then(() => {
+  camera.destroy();
+});
+  </script>
+
+  <script id="sync-params" type="text/x-typescript">
+function syncParams() {
+  state.renderParams.opacity = opacityInput.value as number;
+  state.renderParams.uvClipRadius = uvClipRadiusInput.value as number;
+  state.renderParams.domainColor = (domainColorInput.value as boolean) ? 1 : 0;
+  state.setUvClipRadius?.(state.renderParams.uvClipRadius);
+  camera.triggerRepaint();
+}
+
+controlsContainer.addEventListener('input', syncParams);
+syncParams();
+  </script>
+
+  <script id="main" type="text/x-typescript">
+const mesh = createCostaMesh(300, 6);
+
+const gpuContext = canvas.getContext('webgpu')!;
+gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+
+const renderer = createRenderer(device, canvasFormat, {
+  peel: peelShaderCode,
+  composite: compositeShaderCode
+});
+renderer.initMesh(mesh);
+
+const container = html`<div style="position: relative; width: 100%; height: 100%;"></div>`;
+container.appendChild(canvas);
+
+function renderFrame() {
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, false);
+}
+
+camera.on('render', renderFrame);
+
+camera.on('capture', createWebGPUCaptureHandler({
+  canvas,
+  render: () => renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, true),
+}));
+
+canvas.addEventListener('mousedown', () => {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+});
+
+camera.triggerRepaint();
+
+let expandableContainer;
+expandableContainer = expandable(container, {
+  id: 'surface-viewer',
+  width: 640,
+  height: 480,
+  controls: controlsContainer,
+  state: state.expandedState,
+  buttons: [
+    {
+      icon: camera.getMode() === 'orbit' ? ICON_ORBIT : ICON_ARCBALL,
+      title: 'Toggle camera mode (orbit/arcball)',
+      onClick: (content, expanded, button) => {
+        const newMode = camera.getMode() === 'orbit' ? 'arcball' : 'orbit';
+        camera.setMode(newMode);
+        camera.triggerRepaint();
+        if (button) button.innerHTML = newMode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
+      }
+    },
+    createCameraSnapshotButton(camera, { filename: 'costa-surface.png' }),
+  ],
+});
+
+display(expandableContainer);
+display(controlsContainer);
+  </script>
+
+  <script id="raycast" type="text/x-typescript">
+// Build BVH over the mesh triangles for fast ray-picking from the 3D canvas.
+const meshBVH = buildMeshBVH(mesh.vertexData, mesh.indexData);
+
+let dragging = false;
+
+canvas.addEventListener('mousedown', () => { dragging = true; });
+
+window.addEventListener('mouseup', () => { dragging = false; });
+
+canvas.addEventListener('mousemove', (e: MouseEvent) => {
+  if (dragging) return;
+  const aspectRatio = canvas.width / canvas.height;
+  const { view, projection, eye } = camera.update(aspectRatio);
+
+  // Apply the same near/far patch the renderer uses
+  const eyeDist = Math.hypot(eye[0], eye[1], eye[2]);
+  const smoothMax = (a: number, b: number, k: number) => 0.5 * (a + b + Math.sqrt((a-b)**2 + k*k));
+  const near = smoothMax(eyeDist - 15, 0.01, 0.5);
+  const far = eyeDist + 15;
+  const rangeInv = 1 / (near - far);
+  const proj = new Float32Array(projection);
+  proj[10] = far * rangeInv;
+  proj[14] = near * far * rangeInv;
+
+  const { origin, direction } = screenToRay(e.clientX, e.clientY, canvas, view, proj);
+  const hit = raycastMesh(meshBVH, mesh.vertexData, mesh.indexData,
+    origin[0], origin[1], origin[2],
+    direction[0], direction[1], direction[2],
+    { doubleSided: true, filter: (h) => {
+      if (Math.hypot(h.pos[0], h.pos[1], h.pos[2]) > state.renderParams.clipRadius) return false;
+      const du = h.uv[0] - 0.5, dv = h.uv[1] - 0.5;
+      return Math.sqrt(du*du + dv*dv) <= state.renderParams.uvClipRadius;
+    }}
+  );
+
+  if (hit) {
+    state.renderParams.hoverPoint = hit.pos;
+    state.setSvgHover?.(hit.uv[0], hit.uv[1]);
+  } else {
+    state.renderParams.hoverPoint = null;
+    state.clearSvgHover?.();
+  }
+  camera.triggerRepaint();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  state.renderParams.hoverPoint = null;
+  state.clearSvgHover?.();
+  camera.triggerRepaint();
+});
+
+invalidation.then(() => {
+  state.renderParams.hoverPoint = null;
+});
+  </script>
+
+  <script id="domain-diagram" type="text/x-typescript">
+// SVG diagram of the fundamental domain of the square torus, shown in controls.
+const S = 200;       // square side length in px
+const M = 36;        // margin for labels
+const W = S + 2*M, H = S + 2*M;
+const colors = ['#d4a84b', '#3379a6', '#7db87d', '#b56b9a'];
+// Arrows are inside the figure: dark, semi-transparent
+const arrowColor = 'rgba(0,0,0,0.55)';
+const pColor = 'var(--theme-background)';
+const NS = 'http://www.w3.org/2000/svg';
+
+function xy(u: number, v: number): [number, number] {
+  return [M + u * S, M + (1 - v) * S];
+}
+
+function svgEl(tag: string, attrs: Record<string, string | number>): SVGElement {
+  const el = document.createElementNS(NS, tag) as SVGElement;
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+const svg = svgEl('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, style: `display:block;margin:0.5em auto;max-width:${W}px` });
+
+// Defs: small arrowhead markers, dark fill
+const defs = svgEl('defs', {});
+for (const [id, d, rx, ry, orient] of [
+  ['arr-h', 'M0,0.5 L0,4.5 L5,2.5 z', 4, 2.5, 'auto'],
+  ['arr-v', 'M0,0.5 L0,4.5 L5,2.5 z', 4, 2.5, '270'],
+] as [string, string, number, number, string][]) {
+  const m = svgEl('marker', { id, markerWidth: 5, markerHeight: 5, refX: rx, refY: ry, orient });
+  m.appendChild(svgEl('path', { d, fill: arrowColor }));
+  defs.appendChild(m);
+}
+// Clip path for the checkerboard
+const [clipCx, clipCy] = xy(0.5, 0.5);
+const clipPathCircle = svgEl('circle', { cx: clipCx, cy: clipCy, r: Math.SQRT1_2 * S });
+const clipPath = svgEl('clipPath', { id: 'uv-clip' });
+clipPath.appendChild(clipPathCircle);
+defs.appendChild(clipPath);
+
+const squareClipPath = svgEl('clipPath', { id: 'square-clip' });
+squareClipPath.appendChild(svgEl('rect', { x: M, y: M, width: S, height: S }));
+defs.appendChild(squareClipPath);
+svg.appendChild(defs);
+
+// Checkerboard — clipped by uv-clip
+const checkerGroup = svgEl('g', { 'clip-path': 'url(#uv-clip)' });
+for (let r = 0; r < 4; r++)
+  for (let c = 0; c < 4; c++)
+    checkerGroup.appendChild(svgEl('rect', { x: M + c*S/4, y: M + r*S/4, width: S/4, height: S/4, fill: colors[(r + c) % 4] }));
+svg.appendChild(checkerGroup);
+
+// Border
+svg.appendChild(svgEl('rect', { x: M, y: M, width: S, height: S, fill: 'none', stroke: 'var(--theme-foreground-muted)', 'stroke-width': 1.5 }));
+
+function addLabel(x: number, y: number, text: string, anchor: string) {
+  for (const attrs of [
+    { stroke: 'var(--theme-background)', 'stroke-width': 4, 'stroke-linejoin': 'round', 'stroke-opacity': 0.5, fill: 'none' },
+    { fill: 'var(--theme-foreground)' },
+  ]) {
+    const t = svgEl('text', { x, y, 'font-size': 14, 'font-family': 'Georgia,serif', 'font-style': 'italic', 'text-anchor': anchor, 'paint-order': 'stroke', ...attrs });
+    t.textContent = text;
+    svg.appendChild(t);
+  }
+}
+
+const g = 8;
+
+// Identification arrows — inside the square, near edges
+const ai = 10;
+const [bx1] = xy(0.2, 0), [bx2] = xy(0.8, 0); const by_arr = M + S - ai;
+const [tx1] = xy(0.2, 1), [tx2] = xy(0.8, 1); const ty_arr = M + ai;
+const [,ly1] = xy(0, 0.2), [,ly2] = xy(0, 0.8); const lx_arr = M + ai;
+const [,ry1] = xy(1, 0.2), [,ry2] = xy(1, 0.8); const rx_arr = M + S - ai;
+
+for (const [x1,y1,x2,y2,mk] of [
+  [bx1, by_arr, bx2, by_arr, 'arr-h'],
+  [tx1, ty_arr, tx2, ty_arr, 'arr-h'],
+  [lx_arr, ly1, lx_arr, ly2, 'arr-v'],
+  [rx_arr, ry1, rx_arr, ry2, 'arr-v'],
+] as [number,number,number,number,string][]) {
+  svg.appendChild(svgEl('line', { x1, y1, x2, y2, stroke: arrowColor, 'stroke-width': 1, 'marker-end': `url(#${mk})` }));
+}
+
+// Axis lines
+const axisExt = 22;
+const axisColor = 'var(--theme-foreground-muted)';
+
+for (const [id, d, rx, ry, orient] of [
+  ['axis-h', 'M0,0.5 L0,4.5 L5,2.5 z', 4, 2.5, 'auto'],
+  ['axis-v', 'M0,0.5 L0,4.5 L5,2.5 z', 4, 2.5, '270'],
+] as [string, string, number, number, string][]) {
+  const m = svgEl('marker', { id, markerWidth: 5, markerHeight: 5, refX: rx, refY: ry, orient });
+  m.appendChild(svgEl('path', { d, fill: axisColor }));
+  defs.appendChild(m);
+}
+
+svg.appendChild(svgEl('line', { x1: M, y1: M+S, x2: M+S+axisExt, y2: M+S, stroke: axisColor, 'stroke-width': 1, 'marker-end': 'url(#axis-h)' }));
+addLabel(M+S+axisExt+5, M+S+5, 'u', 'start');
+svg.appendChild(svgEl('line', { x1: M, y1: M+S, x2: M, y2: M-axisExt, stroke: axisColor, 'stroke-width': 1, 'marker-end': 'url(#axis-v)' }));
+addLabel(M-5, M-axisExt-2, 'v', 'end');
+addLabel(M+S,   M+S+16, '1', 'middle');
+addLabel(M-g,   M+5,    'i', 'end'   );
+
+// Clip circle outline (dashed, on top of axes)
+const clipCircleOutline = svgEl('circle', {
+  cx: clipCx, cy: clipCy,
+  r: Math.SQRT1_2 * S,
+  fill: 'none',
+  stroke: 'var(--theme-foreground)',
+  'stroke-width': 1,
+  'stroke-dasharray': '4 3',
+  opacity: 0.5,
+  'clip-path': 'url(#square-clip)',
+});
+svg.appendChild(clipCircleOutline);
+
+// Punctures — drawn last so they sit on top of everything
+for (const { u, v, label, dx, dy, anchor } of [
+  { u:0,   v:0,   label:'0',   dx:-g,   dy:g+5,  anchor:'end'    },
+  { u:0.5, v:0,   label:'½',   dx:0,    dy:g+13, anchor:'middle' },
+  { u:1,   v:0,   label:'',    dx:0,    dy:0,    anchor:'start'  },
+  { u:0,   v:0.5, label:'i/2', dx:-g-4, dy:4,    anchor:'end'    },
+  { u:1,   v:0.5, label:'i/2', dx:g+4,  dy:4,    anchor:'start'  },
+  { u:0,   v:1,   label:'',    dx:0,    dy:0,    anchor:'end'    },
+  { u:0.5, v:1,   label:'½',   dx:0,    dy:-g,   anchor:'middle' },
+  { u:1,   v:1,   label:'',    dx:0,    dy:0,    anchor:'start'  },
+]) {
+  const [px, py] = xy(u, v);
+  svg.appendChild(svgEl('circle', { cx: px, cy: py, r: 4, fill: pColor, stroke: 'var(--theme-foreground)', 'stroke-width': 1.5 }));
+  if (label) addLabel(px + dx, py + dy, label, anchor);
+}
+
+state.setUvClipRadius = (r: number) => {
+  clipPathCircle.setAttribute('r', String(r * S));
+  clipCircleOutline.setAttribute('r', String(r * S));
+};
+state.setUvClipRadius(state.renderParams.uvClipRadius);
+
+// Hover dot on the SVG
+const hoverDot = svgEl('circle', { r: 5, fill: 'white', stroke: 'rgba(0,0,0,0.6)', 'stroke-width': 1.5, opacity: 0 });
+svg.appendChild(hoverDot);
+
+function showSvgDot(u: number, v: number) {
+  const [sx, sy] = xy(u, v);
+  hoverDot.setAttribute('cx', String(sx));
+  hoverDot.setAttribute('cy', String(sy));
+  hoverDot.setAttribute('opacity', '1');
+}
+function hideSvgDot() {
+  hoverDot.setAttribute('opacity', '0');
+}
+
+// Expose to the raycast cell so 3D → SVG hover works
+state.setSvgHover = showSvgDot;
+state.clearSvgHover = hideSvgDot;
+
+// Clip rect so mousemove only fires inside the square (SVG → 3D direction)
+const hitRect = svgEl('rect', { x: M, y: M, width: S, height: S, fill: 'transparent', style: 'cursor:crosshair' });
+svg.appendChild(hitRect);
+
+const PUNCTURE_EPS = 0.04;
+function nearPuncture(pu: number, pv: number): boolean {
+  for (const [qu, qv] of [[0,0],[0.5,0],[0,0.5],[1,0],[0,1],[1,1],[0.5,1],[1,0.5]]) {
+    if ((pu-qu)*(pu-qu)+(pv-qv)*(pv-qv) < PUNCTURE_EPS*PUNCTURE_EPS) return true;
+  }
+  return false;
+}
+
+hitRect.addEventListener('mousemove', (e: MouseEvent) => {
+  const rect = svg.getBoundingClientRect();
+  const svgX = (e.clientX - rect.left) * (W / rect.width);
+  const svgY = (e.clientY - rect.top) * (H / rect.height);
+  const u = (svgX - M) / S;
+  const v = 1 - (svgY - M) / S;
+
+  if (u < 0 || u > 1 || v < 0 || v > 1 || nearPuncture(u, v)) {
+    hideSvgDot();
+    state.renderParams.hoverPoint = null;
+    camera.triggerRepaint();
+    return;
+  }
+
+  showSvgDot(u, v);
+
+  const pt = costaPoint(u, v);
+  if (isFinite(pt[0]) && isFinite(pt[1]) && isFinite(pt[2])) {
+    state.renderParams.hoverPoint = pt as [number, number, number];
+  } else {
+    state.renderParams.hoverPoint = null;
+  }
+  camera.triggerRepaint();
+});
+
+hitRect.addEventListener('mouseleave', () => {
+  hideSvgDot();
+  state.renderParams.hoverPoint = null;
+  camera.triggerRepaint();
+});
+
+invalidation.then(() => {
+  state.renderParams.hoverPoint = null;
+  state.setSvgHover = null;
+  state.clearSvgHover = null;
+});
+
+controlsContainer.appendChild(svg);
+  </script>
+
+  <script id="equations" type="text/markdown">
+The surface is parameterized on the square torus ${tex`\mathbb{C}/(\mathbb{Z} + i\mathbb{Z})`} (that is, the periodic unit square in the complex plane), with punctures at ${tex`0`}, ${tex`\tfrac{1}{2}`}, and ${tex`\tfrac{i}{2}`} — the three points where the surface extends to infinity, corresponding to the planar end and the two catenoidal ends respectively. For ${tex`w = u + iv`} in the fundamental domain, the [Weierstrass-Enneper representation](https://en.wikipedia.org/wiki/Weierstrass%E2%80%93Enneper_parameterization) gives:
+
+${tex.block`\begin{aligned}
+x &= \frac{\pi u}{2} - \mathrm{Re}\!\left[\frac{\zeta(w)}{2} - \frac{\pi\,\wp(w)}{\wp'(w)}\right] \\[6pt]
+y &= \frac{\pi v}{2} + \mathrm{Im}\!\left[\frac{\zeta(w)}{2} + \frac{\pi\,\wp(w)}{\wp'(w)}\right] \\[6pt]
+z &= \frac{\sqrt{2\pi}}{4} \ln\!\left|\frac{\wp(w) - e_1}{\wp(w) + e_1}\right|
+\end{aligned}`}
+
+where ${tex`\wp`} and ${tex`\zeta`} are the [Weierstrass elliptic](https://en.wikipedia.org/wiki/Weierstrass_elliptic_function) and [zeta](https://en.wikipedia.org/wiki/Weierstrass_functions) functions for the square lattice, and ${tex`e_1 = \wp(\tfrac{1}{2}) \approx 6.875`} is the value of ${tex`\wp`} at the midpoint of a real period. The Weierstrass functions are evaluated via Jacobi theta series in powers of the [nome](https://en.wikipedia.org/wiki/Nome_(mathematics)) ${tex`q = e^{-\pi} \approx 0.043`}, which is small enough that the series converges in just a few terms.
+  </script>
+
+  <script id="notes" type="text/markdown">
+The mesh is generated on the CPU by evaluating the parametrization on a grid and computing normals via finite differences. Triangles near the three punctures are excluded. Transparency is achieved through depth peeling.
+  </script>
+
+</notebook>
