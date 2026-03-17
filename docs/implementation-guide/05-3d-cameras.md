@@ -104,6 +104,8 @@ display(expandableContainer);
 
 `cameraButtons` returns two buttons: one that toggles between orbit and arcball mode (updating its icon to match), and one that captures the canvas to a PNG and downloads it.
 
+> **WebGPU notebooks:** `cameraButtons` uses `camera.once('render')` + `canvas.toDataURL()`, which works for WebGL/regl but **will produce a blank image for WebGPU** because WebGPU command buffers are submitted asynchronously. For WebGPU notebooks, use `camera.capture()` instead. See the [WebGPU snapshots section](./06-webgpu.md#snapshots) for the correct pattern.
+
 ## Camera API
 
 | Method | Description |
@@ -117,7 +119,9 @@ display(expandableContainer);
 | `camera.setState(partial)` | Merge partial state and mark dirty |
 | `camera.on('render', cb)` | Subscribe to render events |
 | `camera.once('render')` | Returns a Promise that resolves after the next render |
-| `camera.off('render', cb)` | Unsubscribe |
+| `camera.on('capture', cb)` | Register a capture handler — called by `camera.capture()`; handler should render a frame and return a Promise that resolves when the GPU is done (required for WebGPU) |
+| `camera.off('render' \| 'capture', cb)` | Unsubscribe |
+| `camera.capture(opts?)` | Emit `'capture'` event, await all handlers, then call `canvas.toDataURL()`. Returns `Promise<dataURL>`. **This is the correct snapshot method for WebGPU.** |
 | `camera.pan(dx, dy, element)` | Programmatic pan |
 | `camera.zoom(delta)` | Programmatic zoom |
 | `camera.attachEvents()` | Attach mouse/touch/wheel listeners (called automatically unless `deferEvents: true`) |

@@ -169,3 +169,66 @@ pass.setScissorRect(vp.x, vp.y, vp.width, vp.height);
 ```
 
 Note: WebGPU uses top-left origin for viewport and scissor, unlike WebGL which uses bottom-left. `webgpuAxesViewport` handles this difference.
+
+## Snapshots
+
+WebGPU swap-chain textures are only valid until the browser presents the frame. After `device.queue.submit()` the canvas reverts to blank, so `canvas.toDataURL()` **must be called synchronously in the same microtask as `submit()`** — before yielding to the event loop.
+
+> **`await device.queue.onSubmittedWorkDone()` then `canvas.toDataURL()` does NOT work.** By the time the promise resolves the texture has been presented and the canvas is blank.
+
+### With a unified camera (standard pattern)
+
+Register a `'capture'` listener on the camera using `createWebGPUCaptureHandler`. The handler calls `render()` then immediately calls `canvas.toDataURL()` synchronously — all before yielding — and returns the data URL. `camera.capture()` uses that returned URL directly instead of calling `toDataURL()` itself.
+
+```javascript
+import { createWebGPUCaptureHandler } from './lib/webgpu-snapshot.js'
+import { createCameraSnapshotButton } from './lib/snapshot.js'
+
+// Register once after device, canvas, and camera are set up.
+camera.on('capture', createWebGPUCaptureHandler({
+  canvas,
+  render: renderFrame,   // must call device.queue.submit() internally
+}));
+
+// Snapshot button for the expandable container:
+buttons: [
+  createCameraSnapshotButton(camera, { filename: 'my-notebook.png' })
+]
+```
+
+> **Do NOT use `cameraButtons` from `./lib/camera-buttons.js` for WebGPU snapshots.** It uses `camera.once('render')` + `canvas.toDataURL()` after a rAF delay — the canvas will be blank by then.
+
+### Without a camera (standalone canvas)
+
+```javascript
+import { captureWebGPUCanvas } from './lib/webgpu-snapshot.js'
+
+const dataURL = captureWebGPUCanvas(canvas, renderFrame);
+```
+
+### The render function
+
+The render function must be **synchronous** and must call `device.queue.submit()` itself. Do not rely on `requestAnimationFrame` or `createFrameLoop` firing — they are not involved in capture.
+
+If your renderer skips drawing when no dirty flag is set, make sure the render call passed to the capture handler forces a draw. The standard approach is to pass `dirty: true` (or equivalent) when calling from the capture context:
+
+```javascript
+function renderFrame() {
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({ ... });
+  // ... draw ...
+  pass.end();
+  device.queue.submit([encoder.finish()]);
+}
+
+// Normal on-demand loop (skips if nothing changed):
+camera.on('render', () => {
+  renderFrame();  // camera dirty flag handled by camera.update() inside render
+});
+
+// Capture — force a draw regardless of dirty state:
+camera.on('capture', createWebGPUCaptureHandler({
+  canvas,
+  render: () => renderer.render(gpuContext, params, camera, w, h, /* dirty */ true),
+}));
+```

@@ -58,7 +58,7 @@ buttons: [
 ]
 ```
 
-**Camera snapshot** (preferred for 3D notebooks using unified-camera):
+**Camera snapshot** (preferred for all 3D notebooks using unified-camera, and **required** for WebGPU):
 
 ```javascript
 import { createCameraSnapshotButton } from './lib/snapshot.js'
@@ -68,9 +68,22 @@ buttons: [
 ]
 ```
 
-The camera snapshot uses `camera.once('render')` to wait for a full render cycle before capturing.
+`createCameraSnapshotButton` calls `await camera.capture()`. `camera.capture()` fires the `'capture'` event, awaits all registered handlers, then calls `canvas.toDataURL()`.
 
-For the `cameraButtons` helper (which bundles the mode-toggle and snapshot buttons together), see the [3D Cameras guide](./05-3d-cameras.md).
+**For WebGPU notebooks**, you must register a `'capture'` handler that renders a frame and immediately captures the canvas — all synchronously before yielding to the event loop. Use `createWebGPUCaptureHandler` from `./lib/webgpu-snapshot.js`:
+
+```javascript
+import { createWebGPUCaptureHandler } from './lib/webgpu-snapshot.js'
+
+// Register once, after canvas + camera are ready:
+camera.on('capture', createWebGPUCaptureHandler({ canvas, render: renderFrame }));
+```
+
+The handler calls `render()` then `canvas.toDataURL()` synchronously and returns the data URL. `camera.capture()` uses that URL directly. Without this handler, `camera.capture()` falls back to calling `toDataURL()` after an async gap — by which point the WebGPU swap-chain texture has been presented and the canvas is blank.
+
+> **Do not use `cameraButtons` from `./lib/camera-buttons.js` for WebGPU snapshots.** It bypasses `camera.capture()` and uses `camera.once('render')` + `canvas.toDataURL()` directly, which does not wait for GPU completion. See the [WebGPU guide](./06-webgpu.md#snapshots) for the full correct pattern.
+
+For the `cameraButtons` helper (which bundles the mode-toggle and snapshot buttons together for WebGL/regl notebooks), see the [3D Cameras guide](./05-3d-cameras.md).
 
 ## theme.js
 
