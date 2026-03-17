@@ -848,8 +848,8 @@ function createOrbitBackend(state, speeds, markDirty) {
     }
   }
 
-  function rotate(dx, dy) {
-    const rect = element.getBoundingClientRect();
+  function rotate(dx, dy, el) {
+    const rect = el.getBoundingClientRect();
     const scale = speeds.rotate * Math.PI / rect.height;
     state.phi += dx * scale;
     state.theta = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01,
