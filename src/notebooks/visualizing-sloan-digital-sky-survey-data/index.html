@@ -178,7 +178,8 @@ invalidation.then(() => {
 });
   </script>
   <script id="main-canvas" type="module">
-import { expandable } from './lib/expandable.js';
+import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js';
+import { createCameraSnapshotButton } from './lib/snapshot.js';
 
 // Initial dimensions based on viewport (don't depend on reactive `width` to avoid re-running on resize)
 const dpr = window.devicePixelRatio || 1;
@@ -218,6 +219,19 @@ display(expandable(figure, {
   maxWidth,
   aspectRatio: initialWidth / initialHeight,
   controls: '.sdss-controls',
+  buttons: [
+    {
+      icon: ICON_ORBIT,
+      title: 'Toggle camera mode (orbit/arcball)',
+      onClick: (content, expanded, button) => {
+        const newMode = camera.getMode() === 'orbit' ? 'arcball' : 'orbit';
+        camera.setMode(newMode);
+        camera.triggerRepaint();
+        if (button) button.innerHTML = newMode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
+      }
+    },
+    createCameraSnapshotButton(camera, { filename: 'sdss.png' }),
+  ],
   onResize(el, w, h) {
     canvas.width = Math.floor(w * dpr);
     canvas.height = Math.floor(h * dpr);
@@ -428,7 +442,7 @@ const histogramInterval = setInterval(() => {
 invalidation.then(() => clearInterval(histogramInterval));
   </script>
   <script id="camera-setup" type="module">
-import { createCameraController } from './lib/camera-controller.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
 
 const bounds = metadata.bounds;
 const dataRange = Math.max(
@@ -440,18 +454,23 @@ const dataRange = Math.max(
 // Earth is at the origin - galaxies radiate outward from us
 const center = [0, 0, 0];
 
-// Create camera controller attached to the canvas
-const cameraController = createCameraController(canvas, {
+// Create unified camera controller attached to the canvas
+const camera = createUnifiedCamera(canvas, {
+  mode: 'orbit',
   center,
   distance: dataRange * 0.1,
   phi: 1.2,
   theta: 0.0,
   fov: Math.PI / 4,
   near: dataRange * 0.001,
-  far: dataRange * 10
+  far: dataRange * 10,
+  renderContinuously: false,
 });
 
-invalidation.then(() => cameraController.destroy());
+camera.on('render', () => { renderState.dirty = true; });
+camera.triggerRepaint();
+
+invalidation.then(() => camera.destroy());
   </script>
   <script id="render-pipeline" type="module">
 import shaderCode from './shaders/galaxy-quad.wgsl?raw';
@@ -660,6 +679,7 @@ invalidation.then(() => {
   </script>
   <script id="render-loop" type="module">
 import { createFrameLoop } from './lib/frame-loop.js';
+import { createWebGPUCaptureHandler } from './lib/webgpu-snapshot.js';
 
 // Reactive dependencies - when these change, this cell re-runs
 pointSize; exposure; whitePoint; redshiftRange; objectTypes;
@@ -681,22 +701,21 @@ const tonemapData = new Float32Array(4);
 // Reference distance for brightness scaling (initial camera distance)
 const referenceDistance = dataRange * 0.8;
 
-const loop = createFrameLoop(() => {
+function render() {
   const aspectRatio = canvas.width / canvas.height;
-  const { projectionView, dirty: cameraDirty } = cameraController.update(aspectRatio);
+  const { projView } = camera.update(aspectRatio);
 
-  if (!renderState.dirty && !cameraDirty) return;
   if (!loadState.chunks.some(c => c !== null)) return;  // Nothing loaded yet
 
   // Ensure HDR texture matches canvas size
   ensureHdrTexture(canvas.width, canvas.height);
 
   // Update uniforms
-  uniformF32.set(projectionView, 0);
+  uniformF32.set(projView, 0);
   uniformF32[16] = pointSize * dpr;
   uniformF32[17] = 0.5;  // Fixed base brightness (exposure controls overall level)
   uniformF32[18] = aspectRatio;
-  uniformF32[19] = cameraController.state.distance;
+  uniformF32[19] = camera.getState().distance;
   uniformF32[20] = referenceDistance;
   uniformF32[21] = 2.0 * dpr;  // Reference point size (default value)
   uniformF32[22] = redshiftRange.range[0];  // minRedshift (actual z value)
@@ -781,6 +800,14 @@ const loop = createFrameLoop(() => {
   device.queue.submit([encoder.finish()]);
 
   renderState.dirty = false;
+}
+
+// Register WebGPU capture handler for snapshot support
+camera.on('capture', createWebGPUCaptureHandler({ canvas, render }));
+
+const loop = createFrameLoop(() => {
+  if (!renderState.dirty) return;
+  render();
 });
 
 invalidation.then(() => loop.cancel());
