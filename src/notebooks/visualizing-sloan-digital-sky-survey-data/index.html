@@ -21,6 +21,9 @@ const { device, canvasFormat } = await createWebGPUContext({
 
 invalidation.then(() => device.destroy());
   </script>
+  <script id="render-state" type="module">
+const renderState = { dirty: true };
+  </script>
   <script id="load-data" type="module">
 // In production, load from GitHub raw content (avoids copying large files to docs/)
 const dataBaseUrl = location.hostname === 'rreusser.github.io'
@@ -205,8 +208,6 @@ gpuContext.configure({
   format: canvasFormat,
   alphaMode: 'premultiplied'
 });
-
-const renderState = { dirty: true };
 
 // Camera setup
 const bounds = metadata.bounds;
