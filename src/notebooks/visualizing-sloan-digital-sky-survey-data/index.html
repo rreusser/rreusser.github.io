@@ -180,6 +180,7 @@ invalidation.then(() => {
   <script id="main-canvas" type="module">
 import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js';
 import { createCameraSnapshotButton } from './lib/snapshot.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
 
 // Initial dimensions based on viewport (don't depend on reactive `width` to avoid re-running on resize)
 const dpr = window.devicePixelRatio || 1;
@@ -206,6 +207,29 @@ gpuContext.configure({
 });
 
 const renderState = { dirty: true };
+
+// Camera setup
+const bounds = metadata.bounds;
+const dataRange = Math.max(
+  bounds.max[0] - bounds.min[0],
+  bounds.max[1] - bounds.min[1],
+  bounds.max[2] - bounds.min[2]
+);
+
+const camera = createUnifiedCamera(canvas, {
+  mode: 'orbit',
+  center: [0, 0, 0],
+  distance: dataRange * 0.1,
+  phi: 1.2,
+  theta: 0.0,
+  fov: Math.PI / 4,
+  near: dataRange * 0.001,
+  far: dataRange * 10,
+  renderContinuously: false,
+});
+
+camera.on('render', () => { renderState.dirty = true; });
+camera.triggerRepaint();
 
 const figure = html`<figure style="margin: 0; max-width: none;" id="sdss-figure">
   ${canvas}
@@ -245,6 +269,8 @@ display(expandable(figure, {
     renderState.dirty = true;
   }
 }));
+
+invalidation.then(() => camera.destroy());
   </script>
   <script id="range-slider-import" type="module">
 import { interval } from './lib/range-slider.js';
@@ -440,37 +466,6 @@ const histogramInterval = setInterval(() => {
 }, 200);
 
 invalidation.then(() => clearInterval(histogramInterval));
-  </script>
-  <script id="camera-setup" type="module">
-import { createUnifiedCamera } from './lib/unified-camera.js';
-
-const bounds = metadata.bounds;
-const dataRange = Math.max(
-  bounds.max[0] - bounds.min[0],
-  bounds.max[1] - bounds.min[1],
-  bounds.max[2] - bounds.min[2]
-);
-
-// Earth is at the origin - galaxies radiate outward from us
-const center = [0, 0, 0];
-
-// Create unified camera controller attached to the canvas
-const camera = createUnifiedCamera(canvas, {
-  mode: 'orbit',
-  center,
-  distance: dataRange * 0.1,
-  phi: 1.2,
-  theta: 0.0,
-  fov: Math.PI / 4,
-  near: dataRange * 0.001,
-  far: dataRange * 10,
-  renderContinuously: false,
-});
-
-camera.on('render', () => { renderState.dirty = true; });
-camera.triggerRepaint();
-
-invalidation.then(() => camera.destroy());
   </script>
   <script id="render-pipeline" type="module">
 import shaderCode from './shaders/galaxy-quad.wgsl?raw';
