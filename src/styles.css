@@ -302,6 +302,10 @@ header h1 {
   header {
     text-align: left;
   }
+
+  .header__tags {
+    justify-content: flex-start;
+  }
 }
 
 main h1,
