@@ -266,6 +266,33 @@ header .byline {
   margin-bottom: 20px;
 }
 
+.header__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.header__tag {
+  font-family: "Open Sans", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.12);
+  padding: 2px 7px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.header__tag:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.22);
+}
+
 header h1 {
   font-size: 34px;
   font-weight: 200;

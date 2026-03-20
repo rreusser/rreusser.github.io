@@ -107,6 +107,11 @@
       {{#if author}}<address class="author"><a rel="author" href="{{authorUrl}}">{{author}}</a></address>{{/if}}
       {{#if publishedAt}}<time datetime="{{publishedAtDate}}">{{publishedAt}}</time>{{/if}}
     </div>
+    {{#if tags}}
+    <div class="header__tags">
+      {{#each tags}}<a href="/notebooks/?tag={{encodeURIComponent this}}" class="header__tag">{{this}}</a>{{/each}}
+    </div>
+    {{/if}}
     <div class="resource-links">
       {{#if observableUrl}}
         <a href="{{observableUrl}}" class="resource-link">
