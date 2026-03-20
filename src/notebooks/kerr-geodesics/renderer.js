@@ -133,16 +133,17 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
     depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' },
     multisample: { count: 1 },
   });
-  const arrowUniformBuffer = device.createBuffer({ label: 'arrow-uniforms', size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const arrowUniformBuffer = device.createBuffer({ label: 'arrow-uniforms', size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const arrowBindGroup = device.createBindGroup({
     layout: arrowBGL,
     entries: [{ binding: 0, resource: { buffer: arrowUniformBuffer } }]
   });
-  const _arrowData = new Float32Array(32);
+  const _arrowData = new Float32Array(36);
   const ARROW_SHAFT_SEGS = 12;
   const ARROW_SHAFT_VERTS = ARROW_SHAFT_SEGS * 6;
   const ARROW_HEAD_VERTS = ARROW_SHAFT_SEGS * 3;
-  const ARROW_TOTAL_VERTS = ARROW_SHAFT_VERTS + ARROW_HEAD_VERTS;
+  const ARROW_CIRCLE_VERTS = 12;  // 2 circles × 6 verts (tip + origin)
+  const ARROW_TOTAL_VERTS = ARROW_SHAFT_VERTS + ARROW_HEAD_VERTS + ARROW_CIRCLE_VERTS;
 
   let arrowOrigin = null;
   let arrowDir = null;
@@ -470,6 +471,12 @@ export function createRenderer(device, canvasFormat, createGPULines, shaders) {
       _arrowData[24] = 1.0; _arrowData[25] = 0.5; _arrowData[26] = 0.1; _arrowData[27] = 1.0;
       const headFrac = Math.min(0.15 * s, 0.4); // view-scaled, clamped so shaft doesn't vanish
       _arrowData[28] = 0.12 * s; _arrowData[29] = 0.3 * s; _arrowData[30] = headFrac; _arrowData[31] = 0;
+      const hintAlpha = params.hintAlpha ?? 1.0;
+      const circleR = 18 * (devicePixelRatio || 1);
+      _arrowData[32] = circleR * 2 / width;   // circleRX in NDC
+      _arrowData[33] = circleR * 2 / height;  // circleRY in NDC
+      _arrowData[34] = hintAlpha;
+      _arrowData[35] = params.hintScale ?? 1.0;
       device.queue.writeBuffer(arrowUniformBuffer, 0, _arrowData);
 
       const arrowPass = encoder.beginRenderPass({

@@ -3,5 +3,5 @@ description: "Interactive simulation of a chaotic mechanical system whose dynami
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/malkus-waterwheel
 tags:
-  - Chaos
-  - Physics
+  - chaos
+  - physics

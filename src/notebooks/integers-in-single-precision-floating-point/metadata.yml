@@ -3,5 +3,5 @@ observableUrl: https://observablehq.com/@rreusser/integers-in-single-precision-f
 description: Interactive bit-level visualization of how IEEE-754 single-precision floats represent integers.
 maxWidth: 640px
 tags:
-  - Math
-  - Numerics
+  - math
+  - numerics

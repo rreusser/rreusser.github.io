@@ -3,6 +3,6 @@ description: Visualizing the phase space of simple and compound double pendulums
 observableUrl: https://observablehq.com/@rreusser/the-double-pendulum-fractal
 maxWidth: 640px
 tags:
-  - Chaos
-  - Physics
-  - WebGL
+  - chaos
+  - physics
+  - webgl

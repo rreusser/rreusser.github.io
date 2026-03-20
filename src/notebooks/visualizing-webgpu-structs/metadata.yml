@@ -4,5 +4,5 @@ maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/webgpu-utils
 hidden: true
 tags:
-  - WebGPU
-  - Tutorial
+  - webgpu
+  - tutorial

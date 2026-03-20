@@ -2,5 +2,4 @@ publishedAt: "October 24, 2022"
 description: "Visualizing Earth's solar terminator on a Mapbox map using NASA Black Marble imagery and WebGL shaders."
 maxWidth: 640px
 tags:
-  - Maps
-  - Graphics
+  - maps

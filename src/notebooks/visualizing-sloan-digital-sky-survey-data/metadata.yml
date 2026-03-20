@@ -2,6 +2,6 @@ publishedAt: "February 1, 2026"
 description: "Visualizing 3.3 million galaxies and quasars from the Sloan Digital Sky Survey"
 maxWidth: 640px
 tags:
-  - WebGPU
-  - Astronomy
-  - Data Visualization
+  - webgpu
+  - astronomy
+  - data visualization

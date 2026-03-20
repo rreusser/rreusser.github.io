@@ -1,8 +1,8 @@
 publishedAt: "January 10, 2026"
-description: "WebGPU implementation of the 2D Kuramoto-Sivashinsky equation solver using compute shaders and Cooley-Tukey FFT for 3-5x performance improvement over WebGL."
+description: "The 2D Kuramoto-Sivashinsky equation, a chaotic PDE modeling pattern formation in combustion fronts and thin films."
 maxWidth: "640px"
 observableUrl: https://observablehq.com/@rreusser/kuramoto-sivashinsky-equation-in-2d
 mastodonPostId: '115880796645265443'
 tags:
-  - WebGPU
-  - PDE
+  - webgpu
+  - pde

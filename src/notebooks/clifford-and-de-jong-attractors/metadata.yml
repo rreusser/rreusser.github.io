@@ -1,6 +1,5 @@
 publishedAt: "May 16, 2025"
-description: "High-resolution visualization of Clifford and de Jong strange attractors with interactive zooming and trajectory-based coloring."
+description: "Clifford and de Jong strange attractors with interactive zooming."
 observableUrl: https://observablehq.com/@rreusser/clifford-and-de-jong-attractors-revised-coloring
 tags:
-  - Chaos
-  - Graphics
+  - chaos

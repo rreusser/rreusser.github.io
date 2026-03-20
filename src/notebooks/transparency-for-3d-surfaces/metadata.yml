@@ -3,5 +3,5 @@ maxWidth: 640px
 description: A comparison of three approaches to rendering transparent 3D surfaces in WebGPU, including a simple two-pass hack that draws gridlines and edges through solid geometry, weighted blended order-independent transparency, and depth peeling.
 observableUrl: https://observablehq.com/@rreusser/faking-transparency-for-3d-surfaces
 tags:
-  - WebGPU
-  - Graphics
+  - webgpu
+  - graphics

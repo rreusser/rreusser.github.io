@@ -4,6 +4,6 @@ maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/magnetic-pendulum
 hidden: true
 tags:
-  - Chaos
-  - Physics
-  - WebGPU
+  - chaos
+  - physics
+  - webgpu

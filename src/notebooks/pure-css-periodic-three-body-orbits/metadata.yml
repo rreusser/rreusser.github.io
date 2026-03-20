@@ -3,6 +3,6 @@ description: "Animating periodic three-body orbits using pure CSS keyframe anima
 maxWidth: 640px
 observableUrl: 'https://observablehq.com/@rreusser/pure-css-periodic-three-body-orbit-spinners'
 tags:
-  - CSS
-  - Physics
-  - Chaos
+  - css
+  - physics
+  - chaos

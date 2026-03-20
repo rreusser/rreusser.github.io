@@ -3,5 +3,5 @@ description: "Deriving the formula for point opacity in large point cloud visual
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/selecting-the-right-opacity-for-2d-point-clouds
 tags:
-  - WebGL
-  - Graphics
+  - webgl
+  - graphics

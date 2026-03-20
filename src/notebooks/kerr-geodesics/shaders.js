@@ -385,7 +385,8 @@ export const compositeShaderCode = /* wgsl */`
 }
 `;
 
-// Arrow shader — renders a 3D velocity arrow (shaft + cone head)
+// Arrow shader — renders a 3D velocity arrow (shaft + cone head) plus
+// screen-space hint circles at the tip and origin that fade after interaction.
 // Uses vertex_index to procedurally generate geometry.
 export const arrowShaderCode = /* wgsl */`
 
@@ -395,6 +396,7 @@ struct Uniforms {
   direction: vec4f,     // arrow direction vector (xyz, length in w)
   color: vec4f,         // rgba
   params: vec4f,        // shaftRadius, headRadius, headFraction, unused
+  circleParams: vec4f,  // circleRX (NDC), circleRY (NDC), hintAlpha, rippleScale
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -403,6 +405,8 @@ struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) normal: vec3f,
   @location(1) @interpolate(flat) isHead: f32,
+  @location(2) uv: vec2f,
+  @location(3) @interpolate(flat) isCircle: f32,
 };
 
 @vertex fn vs(@builtin(vertex_index) vid: u32) -> VertexOutput {
@@ -426,6 +430,48 @@ struct VertexOutput {
   let shaftQuads = nSeg;
   let shaftVerts = shaftQuads * 6u;  // 2 triangles per quad
   let headVerts = nSeg * 3u;         // 1 triangle per segment
+  let arrowVerts = shaftVerts + headVerts;
+
+  var out: VertexOutput;
+  out.uv = vec2f(0.0);
+  out.isCircle = 0.0;
+
+  // Screen-space hint circles: 2 circles × 6 verts (tip + origin)
+  if (vid >= arrowVerts) {
+    let circVid = vid - arrowVerts;
+    let circIdx = circVid / 6u;   // 0 = tip, 1 = origin
+    let vertInQuad = circVid % 6u;
+
+    var local: vec2f;
+    switch (vertInQuad) {
+      case 0u: { local = vec2f(-1.0, -1.0); }
+      case 1u: { local = vec2f( 1.0, -1.0); }
+      case 2u: { local = vec2f(-1.0,  1.0); }
+      case 3u: { local = vec2f( 1.0, -1.0); }
+      case 4u: { local = vec2f( 1.0,  1.0); }
+      default: { local = vec2f(-1.0,  1.0); }
+    }
+
+    var center: vec3f;
+    if (circIdx == 0u) {
+      center = u.origin.xyz + u.direction.xyz;  // tip
+    } else {
+      center = u.origin.xyz;                     // base
+    }
+
+    let clipCenter = u.projectionView * vec4f(center, 1.0);
+    let w = clipCenter.w;
+    let scale = u.circleParams.w;
+    out.position = vec4f(
+      clipCenter.xy + local * vec2f(u.circleParams.x, u.circleParams.y) * scale * w,
+      clipCenter.zw
+    );
+    out.normal = vec3f(0.0, 0.0, 1.0);
+    out.isHead = 0.0;
+    out.uv = local;
+    out.isCircle = 1.0;
+    return out;
+  }
 
   var pos = vec3f(0.0);
   var normal = vec3f(0.0);
@@ -454,7 +500,7 @@ struct VertexOutput {
 
     pos = u.origin.xyz + forward * (t * shaftLen) + radial * shaftR;
     normal = radial;
-  } else if (vid < shaftVerts + headVerts) {
+  } else if (vid < arrowVerts) {
     // Cone head
     let headVid = vid - shaftVerts;
     let triIdx = headVid / 3u;
@@ -483,7 +529,6 @@ struct VertexOutput {
     isHead = 1.0;
   }
 
-  var out: VertexOutput;
   out.position = u.projectionView * vec4f(pos, 1.0);
   out.normal = normal;
   out.isHead = isHead;
@@ -491,6 +536,15 @@ struct VertexOutput {
 }
 
 @fragment fn fs(v: VertexOutput) -> @location(0) vec4f {
+  // Compute circle SDF unconditionally (fwidth requires uniform control flow)
+  let d = length(v.uv);
+  let edge = 0.05;
+  let circleAlpha = u.circleParams.z * smoothstep(1.0 + edge, 1.0 - edge, d) * 0.6;
+
+  if (v.isCircle > 0.5) {
+    if (circleAlpha < 0.005) { discard; }
+    return vec4f(mix(u.color.rgb, vec3f(1.0), 0.25), circleAlpha);  // tinted white; straight alpha
+  }
   let N = normalize(v.normal);
   let lightDir = normalize(vec3f(1.0, 2.0, 3.0));
   let diffuse = max(dot(N, lightDir), 0.0) * 0.5 + 0.3;

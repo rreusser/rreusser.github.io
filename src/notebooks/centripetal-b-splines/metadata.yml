@@ -3,5 +3,5 @@ maxWidth: 640px
 description: Exploring why periodic B-spline fitting is singular for even polynomial degrees, using SVD to visualize the null space
 silent: true
 tags:
-  - Math
-  - Splines
+  - math
+  - splines

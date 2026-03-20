@@ -1,7 +1,7 @@
 publishedAt: "September 18, 2021"
 maxWidth: 640px
-description: Lawson's Klein bottle, a generalization of the Clifford torus in 4D space rendered via stereographic projection into 3D
+description: Lawson's Klein bottle, a generalization of the Clifford torus in 4D space
 observableUrl: https://observablehq.com/@rreusser/lawsons-klein-bottle
 tags:
-  - WebGPU
-  - Graphics
+  - webgpu
+  - math

@@ -3,5 +3,5 @@ description: Approximate pixel redistribution between images using sliced optima
 maxWidth: 640px
 observableUrl: 'https://observablehq.com/@rreusser/sliced-optimal-transport'
 tags:
-  - Algorithms
-  - Image Processing
+  - algorithms
+  - image processing

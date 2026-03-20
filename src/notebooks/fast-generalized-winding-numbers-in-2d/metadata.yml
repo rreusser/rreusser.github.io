@@ -1,7 +1,7 @@
 publishedAt: "September 7, 2022"
-description: "Computing generalized winding numbers in 2D using hierarchical Barnes-Hut approximation for fast inside-outside queries."
+description: "Fast generalized winding numbers in 2D for robust inside-outside queries on arbitrary polygons."
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/fast-generalized-winding-numbers-in-2d
 tags:
-  - Graphics
-  - WebGL
+  - math
+  - webgl

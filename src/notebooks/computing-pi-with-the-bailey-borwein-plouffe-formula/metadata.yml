@@ -3,5 +3,5 @@ description: Computing hexadecimal digits of π at arbitrary positions using the
 observableUrl: https://observablehq.com/@rreusser/computing-with-the-bailey-borwein-plouffe-formula
 maxWidth: 640px
 tags:
-  - Math
-  - Numerics
+  - math
+  - numerics

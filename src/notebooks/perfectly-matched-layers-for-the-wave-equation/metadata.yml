@@ -3,5 +3,5 @@ description: "An explanation and WebGL implementation of Perfectly Matched Layer
 maxWidth: 640px
 observableUrl: https://www.shadertoy.com/view/l3ccRr
 tags:
-  - WebGL
-  - PDE
+  - webgl
+  - pde

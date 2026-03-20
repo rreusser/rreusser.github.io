@@ -1,7 +1,6 @@
 publishedAt: "June 29, 2020"
-description: "An interactive visualization of the Bednorz and Bednorz analytic sphere eversion using scroll-driven animation"
+description: "The Bednorz and Bednorz analytic sphere eversion, a continuous deformation turning a sphere inside out without creasing or tearing"
 maxWidth: 640px
 tags:
   - math
-  - visualization
   - webgl

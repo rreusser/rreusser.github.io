@@ -184,6 +184,17 @@
     ---
     <small><a href="#footnote-1-src" id="footnote-1">[1]</a>: Still is.</small>
   </script>
+  <script id="styles" type="text/html">
+    <style>
+      :is(html[data-dark], html.theme-is-dark:not([data-light])) svg g[fill="#eee"] {
+        fill: #3a3a3a;
+      }
+      :is(html[data-dark], html.theme-is-dark:not([data-light])) svg g[fill="black"] {
+        fill: #bbb;
+      }
+    </style>
+  </script>
+
   <script id="489" type="text/x-typescript">
     import {Calendar} from "observable:@observablehq/calendar-component"
   </script>

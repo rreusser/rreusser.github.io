@@ -4,7 +4,7 @@ maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/magnetic-pendulum
 mastodonPostId: '115869829462565357'
 tags:
-  - Chaos
-  - Physics
-  - WebGL
-  - WebGPU
+  - chaos
+  - physics
+  - webgl
+  - webgpu

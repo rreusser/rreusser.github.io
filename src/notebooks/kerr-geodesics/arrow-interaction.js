@@ -128,6 +128,31 @@ export function createArrowInteraction(canvas, camera, {
     dragPlaneD = -(dragPlaneNormal[0] * anchorPoint[0] + dragPlaneNormal[1] * anchorPoint[1] + dragPlaneNormal[2] * anchorPoint[2]);
   }
 
+  function hitTest(sx, sy) {
+    const state = getArrowState();
+    if (!state || !state.visible) return null;
+    const aspectRatio = canvas.width / canvas.height;
+    const { projView } = camera.update(aspectRatio);
+    const dpr = devicePixelRatio || 1;
+    const threshold = hitRadius * dpr;
+    const tipScreen = project(state.tip, projView, canvas.width, canvas.height);
+    const originScreen = project(state.origin, projView, canvas.width, canvas.height);
+    if (tipScreen) {
+      const dx = sx - tipScreen[0], dy = sy - tipScreen[1];
+      if (Math.sqrt(dx * dx + dy * dy) <= threshold) return 'tip';
+    }
+    if (tipScreen && originScreen) {
+      const shaftDist = pointToSegmentDist(sx, sy, originScreen[0], originScreen[1], tipScreen[0], tipScreen[1]);
+      if (shaftDist <= threshold * 0.6) return 'body';
+    }
+    return null;
+  }
+
+  function updateCursor(sx, sy) {
+    if (dragging) return;
+    canvas.style.cursor = hitTest(sx, sy) ? 'pointer' : 'grab';
+  }
+
   function tryStartDrag(sx, sy, e) {
     const state = getArrowState();
     if (!state || !state.visible) return false;
@@ -146,6 +171,7 @@ export function createArrowInteraction(canvas, camera, {
       if (Math.sqrt(dx * dx + dy * dy) <= threshold) {
         dragging = true;
         dragMode = 'tip';
+        canvas.style.cursor = 'grabbing';
         e.stopImmediatePropagation();
         e.preventDefault();
         setupDragPlane(state.tip, eye);
@@ -164,6 +190,7 @@ export function createArrowInteraction(canvas, camera, {
       if (shaftDist <= threshold * 0.6) {
         dragging = true;
         dragMode = 'body';
+        canvas.style.cursor = 'grabbing';
         e.stopImmediatePropagation();
         e.preventDefault();
         setupDragPlane(state.origin, eye);
@@ -210,6 +237,7 @@ export function createArrowInteraction(canvas, camera, {
     if (!dragging) return;
     dragging = false;
     dragMode = null;
+    canvas.style.cursor = 'grab';
     e.stopImmediatePropagation();
     e.preventDefault();
     if (onDragEnd) onDragEnd();
@@ -222,7 +250,11 @@ export function createArrowInteraction(canvas, camera, {
   }
   function onMouseMove(e) {
     const [sx, sy] = getClientPos(e);
-    doDrag(sx, sy, e);
+    if (dragging) {
+      doDrag(sx, sy, e);
+    } else {
+      updateCursor(sx, sy);
+    }
   }
   function onMouseUp(e) { endDrag(e); }
 

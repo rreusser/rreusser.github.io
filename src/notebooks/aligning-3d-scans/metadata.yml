@@ -1,6 +1,5 @@
 publishedAt: "July 28, 2018"
-description: "Automatically orienting 3D scans by computing principal axes from surface normals using eigenvalue decomposition."
+description: "Automatically orienting 3D scans by computing principal axes from surface normals."
 maxWidth: 640px
 tags:
-  - Math
-  - Graphics
+  - math

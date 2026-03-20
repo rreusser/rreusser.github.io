@@ -1,6 +1,6 @@
 publishedAt: "January 16, 2026"
-description: "GPU-accelerated line rendering for WebGPU with instanced triangle strips"
+description: "GPU-accelerated line rendering for WebGPU"
 maxWidth: 720px
 tags:
-  - WebGPU
-  - Graphics
+  - webgpu
+  - graphics

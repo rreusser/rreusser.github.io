@@ -3,5 +3,4 @@ description: "Visually compare cubic interpolation using different basis functio
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/cubic-basis-vs-hermite-interpolation
 tags:
-  - Math
-  - Graphics
+  - math

@@ -3,6 +3,6 @@ description: "Interactive catalog of periodic three-body orbits with topological
 maxWidth: 640px
 observableUrl: 'https://observablehq.com/@rreusser/periodic-planar-three-body-orbits'
 tags:
-  - Chaos
-  - Physics
-  - WebGL
+  - chaos
+  - physics
+  - webgl

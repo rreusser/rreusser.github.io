@@ -3,5 +3,5 @@ description: "Computing Voronoi diagrams and distance fields on the GPU using th
 maxWidth: 640px
 observableUrl: 'https://observablehq.com/@rreusser/gpu-voronoi-diagrams-using-the-jump-flooding-algorithm'
 tags:
-  - WebGPU
-  - Graphics
+  - webgpu
+  - algorithms

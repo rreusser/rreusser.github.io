@@ -1046,18 +1046,18 @@ html.theme-is-dark:not([data-light]) body:has(header.has-image) main .observable
   color: #d55b5b;
 }
 
-html[data-dark] :is(main, .container) h1 a[href],
-html[data-dark] :is(main, .container) h2 a[href],
-html[data-dark] :is(main, .container) h3 a[href],
-html[data-dark] :is(main, .container) h4 a[href],
-html[data-dark] :is(main, .container) h5 a[href],
-html[data-dark] :is(main, .container) h6 a[href],
-html.theme-is-dark:not([data-light]) :is(main, .container) h1 a[href],
-html.theme-is-dark:not([data-light]) :is(main, .container) h2 a[href],
-html.theme-is-dark:not([data-light]) :is(main, .container) h3 a[href],
-html.theme-is-dark:not([data-light]) :is(main, .container) h4 a[href],
-html.theme-is-dark:not([data-light]) :is(main, .container) h5 a[href],
-html.theme-is-dark:not([data-light]) :is(main, .container) h6 a[href] {
+html[data-dark] :is(main, .container) h1[id] a[href],
+html[data-dark] :is(main, .container) h2[id] a[href],
+html[data-dark] :is(main, .container) h3[id] a[href],
+html[data-dark] :is(main, .container) h4[id] a[href],
+html[data-dark] :is(main, .container) h5[id] a[href],
+html[data-dark] :is(main, .container) h6[id] a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h1[id] a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h2[id] a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h3[id] a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h4[id] a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h5[id] a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h6[id] a[href] {
   color: #ebebeb;
 }
 
@@ -1119,10 +1119,21 @@ html[data-dark] .index__tag:hover {
   background: #4a4a4a;
   color: #eee;
 }
-html[data-dark] a.index__tag,
-html[data-dark] a.index__tag:visited,
-html[data-dark] a.index__tag:active {
+html[data-dark] .container a.index__tag,
+html[data-dark] .container a.index__tag:visited,
+html[data-dark] .container a.index__tag:active,
+html.theme-is-dark:not([data-light]) .container a.index__tag,
+html.theme-is-dark:not([data-light]) .container a.index__tag:visited,
+html.theme-is-dark:not([data-light]) .container a.index__tag:active {
   color: #ccc;
+}
+html[data-dark] .container a.index__filter-remove,
+html[data-dark] .container a.index__filter-remove:visited,
+html[data-dark] .container a.index__filter-remove:active,
+html.theme-is-dark:not([data-light]) .container a.index__filter-remove,
+html.theme-is-dark:not([data-light]) .container a.index__filter-remove:visited,
+html.theme-is-dark:not([data-light]) .container a.index__filter-remove:active {
+  color: #fff;
 }
 html[data-dark] .index__active-filter {
   background: #2a2a2a;

@@ -31,6 +31,7 @@ const state = {
   diagnostics: { dH: 0, dQ: 0 },
   signR: -1,
   signTheta: 1,
+  hintCaption: null as HTMLElement | null,
   renderParams: {
     M: 1,
     a: 0.9,
@@ -40,6 +41,8 @@ const state = {
     surfaceColor: theme.isDark ? [1, 1, 1] : [0.25, 0.25, 0.25],
     surfaceOpacity: 0.3,
     isDark: theme.isDark,
+    hintAlpha: 1.0,
+    hintScale: 1.0,
   },
 };
   </script>
@@ -214,6 +217,31 @@ function updateArrow() {
 
 let arrowState = updateArrow();
 
+// Hint circles fade out after first interaction
+let hintFadeStart: number | null = null;
+let hintFadeFrame: number | null = null;
+
+function startHintFade() {
+  if (state.renderParams.hintAlpha <= 0 || hintFadeStart !== null) return;
+  hintFadeStart = performance.now();
+  function step(now: number) {
+    const t = Math.min((now - hintFadeStart!) / 500, 1.0);
+    const ease = 1 - (1 - t) ** 3;  // ease-out cubic
+    state.renderParams.hintAlpha = 1.0 - ease;
+    state.renderParams.hintScale = 1.0 + ease * 0.6;
+    if (state.hintCaption) state.hintCaption.style.opacity = String((1.0 - ease) * 0.6);
+    camera.triggerRepaint();
+    if (t < 1.0) {
+      hintFadeFrame = requestAnimationFrame(step);
+    } else {
+      hintFadeFrame = null;
+    }
+  }
+  hintFadeFrame = requestAnimationFrame(step);
+}
+
+invalidation.then(() => { if (hintFadeFrame !== null) cancelAnimationFrame(hintFadeFrame); });
+
 const arrowInteraction = createArrowInteraction(canvas, camera, {
   getArrowState: () => {
     if (!arrowState) return null;
@@ -225,6 +253,7 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
     return { origin: arrowState.origin, tip, visible: true };
   },
   onDrag: (newTip) => {
+    startHintFade();
     if (!arrowState) return;
     const newDir = [
       newTip[0] - arrowState.origin[0],
@@ -272,6 +301,7 @@ const arrowInteraction = createArrowInteraction(canvas, camera, {
     camera.triggerRepaint();
   },
   onBodyDrag: (newOrigin) => {
+    startHintFade();
     if (!arrowState) return;
     const a = spinInput.value as number;
     const kappa = kappaInput.value as number;
@@ -325,11 +355,17 @@ camera.on('render', () => {
   renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height);
 });
 
-canvas.addEventListener('mousedown', () => {
-  if (document.activeElement instanceof HTMLElement) {
-    document.activeElement.blur();
-  }
+canvas.style.cursor = 'grab';
+
+canvas.addEventListener('mousedown', (e) => {
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  // Camera drag (arrow-interaction captures arrow hits before this fires)
+  if (e.button === 0) canvas.style.cursor = 'grabbing';
 });
+
+const _restoreGrab = () => { canvas.style.cursor = 'grab'; };
+document.addEventListener('mouseup', _restoreGrab);
+invalidation.then(() => document.removeEventListener('mouseup', _restoreGrab));
 
 camera.triggerRepaint();
   </script>
@@ -363,6 +399,10 @@ expandableContainer = expandable(container, {
 });
 
 display(expandableContainer);
+
+const hintCaption = html`<figcaption style="font-size: 0.8em; opacity: 0.6; margin-top: 0.3em; font-style: italic;">Drag the arrow tip to redirect the trajectory, or the shaft to reposition the starting point.</figcaption>`;
+state.hintCaption = hintCaption;
+display(hintCaption);
   </script>
 
   <script id="controls-display" type="text/x-typescript">

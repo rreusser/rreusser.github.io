@@ -1,8 +1,8 @@
 publishedAt: "January 1, 2026"
-description: "Hierarchical terrain lighting using WebGPU compute shaders with line-sweep ambient occlusion and normal map generation."
+description: "Terrain lighting and ambient occlusion computed on the GPU from map tile elevation data."
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/line-sweep-terrain-lighting
 hidden: true
 tags:
-  - WebGPU
-  - Graphics
+  - webgpu
+  - graphics
