@@ -236,11 +236,14 @@ export default defineConfig(async ({ command }) => {
           join(SRC_DIR, "index.html"),
           ...notebookPaths,
         ],
-        external: ['@zappar/msdf-generator'],
       },
     },
     root: "src",
     base: "/",
+    optimizeDeps: {
+      // Exclude msdf-generator from pre-bundling to preserve worker structure
+      exclude: ['@zappar/msdf-generator'],
+    },
     server: {
       host: true,
       hmr: {
