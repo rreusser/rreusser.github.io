@@ -72,6 +72,9 @@ nav .menu__item {
   font-size: 0.9em;
   text-shadow: 0 0 1px #000;
 }
+nav .menu__item.theme-toggle {
+  padding-right: 12px;
+}
 nav .menu__item[href] {
   color: white;
 }
@@ -935,6 +938,10 @@ html,
 }
 
 /* Theme toggle button */
+.nav-short {
+  display: none;
+}
+
 .theme-toggle {
   margin-left: auto;
   background: none;
@@ -946,6 +953,12 @@ html,
   color: white;
   flex-shrink: 0;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+}
+
+@media (max-width: 480px) {
+  .nav-full { display: none; }
+  .nav-short { display: inline; }
+  nav .menu__item { padding: 5px 5px; }
 }
 .theme-toggle__moon {
   display: none;
@@ -1023,29 +1036,43 @@ html[data-dark] {
   --syntax-meta: #ff7b72;
 }
 
-html[data-dark] main a[href] {
-  color: #e07070;
+html[data-dark] :is(main, .container) a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) a[href] {
+  color: #d55b5b;
 }
 
-html[data-dark] body:has(header.has-image) main .observablehq--cell:first-child ul li a {
-  color: #e07070;
+html[data-dark] body:has(header.has-image) main .observablehq--cell:first-child ul li a,
+html.theme-is-dark:not([data-light]) body:has(header.has-image) main .observablehq--cell:first-child ul li a {
+  color: #d55b5b;
 }
 
-html[data-dark] main h1 a[href],
-html[data-dark] main h2 a[href],
-html[data-dark] main h3 a[href],
-html[data-dark] main h4 a[href],
-html[data-dark] main h5 a[href],
-html[data-dark] main h6 a[href] {
+html[data-dark] :is(main, .container) h1 a[href],
+html[data-dark] :is(main, .container) h2 a[href],
+html[data-dark] :is(main, .container) h3 a[href],
+html[data-dark] :is(main, .container) h4 a[href],
+html[data-dark] :is(main, .container) h5 a[href],
+html[data-dark] :is(main, .container) h6 a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h1 a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h2 a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h3 a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h4 a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h5 a[href],
+html.theme-is-dark:not([data-light]) :is(main, .container) h6 a[href] {
   color: #ebebeb;
 }
 
-html[data-dark] main h1,
-html[data-dark] main h2,
-html[data-dark] main h3,
-html[data-dark] main h4,
-html[data-dark] main h5,
-html[data-dark] main h6 {
+html[data-dark] :is(main, .container) h1,
+html[data-dark] :is(main, .container) h2,
+html[data-dark] :is(main, .container) h3,
+html[data-dark] :is(main, .container) h4,
+html[data-dark] :is(main, .container) h5,
+html[data-dark] :is(main, .container) h6,
+html.theme-is-dark:not([data-light]) :is(main, .container) h1,
+html.theme-is-dark:not([data-light]) :is(main, .container) h2,
+html.theme-is-dark:not([data-light]) :is(main, .container) h3,
+html.theme-is-dark:not([data-light]) :is(main, .container) h4,
+html.theme-is-dark:not([data-light]) :is(main, .container) h5,
+html.theme-is-dark:not([data-light]) :is(main, .container) h6 {
   color: #ebebeb;
 }
 
@@ -1079,7 +1106,7 @@ html[data-dark] .index__title {
   color: #ddd;
 }
 html[data-dark] .index__item:hover .index__title-link {
-  color: #e07070;
+  color: #d55b5b;
 }
 html[data-dark] .index__date {
   color: #999;

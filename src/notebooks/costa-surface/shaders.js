@@ -125,7 +125,7 @@ fn shouldClip(uv: vec2f) -> bool {
 }
 
 fn clipAlpha(pos: vec3f) -> f32 {
-  let fadeWidth = 0.15;
+  let fadeWidth = 0.07;
   let r = length(pos);
   return smoothstep(u.clipRadius, u.clipRadius * (1.0 - fadeWidth), r);
 }
