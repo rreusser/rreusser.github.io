@@ -141,7 +141,7 @@ fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {
     surfaceColor = computeDomainColor(in, frontFacing);
   } else {
     let grid = gridFactor(gridlineFunction(in.vUV), 0.5 * u.gridWidth * u.pixelRatio, 0.5);
-    let gridLine = max(combinedGrid, u.gridOpacity * (1.0 - grid));
+    let gridLine = max(combinedGrid, u.gridOpacity * (1.0 - grid)) * u.opacity;
     surfaceColor = computeShading(in.vPosition, normal, frontFacing);
     surfaceColor = pow(surfaceColor, vec3f(0.454));
 
@@ -156,7 +156,7 @@ fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {
   }
 
   surfaceColor = pow(surfaceColor, vec3f(0.454));
-  let edgeAlpha = combinedGrid;
+  let edgeAlpha = combinedGrid * u.opacity;
   let surfaceAlpha = u.opacity;
   let alpha = edgeAlpha + surfaceAlpha * (1.0 - edgeAlpha);
   let color = select(
