@@ -213,11 +213,7 @@ header.has-image > * {
 header.has-image h1 {
   display: inline-block;
   padding: 6px 16px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8), 0 2px 24px rgba(0, 0, 0, 0.5), 0 0 80px rgba(0, 0, 0, 0.9);
 }
 
 header.has-image,
@@ -851,13 +847,6 @@ a.index__tag:active {
   border-radius: 4px;
   overflow: hidden;
   backdrop-filter: blur(8px);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.expandable-container:hover .expandable-button-bar,
-.expandable-container.expandable-expanded .expandable-button-bar {
-  opacity: 1;
 }
 
 .expandable-toggle {
