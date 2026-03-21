@@ -851,6 +851,13 @@ a.index__tag:active {
   border-radius: 4px;
   overflow: hidden;
   backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.expandable-container:hover .expandable-button-bar,
+.expandable-container.expandable-expanded .expandable-button-bar {
+  opacity: 1;
 }
 
 .expandable-toggle {

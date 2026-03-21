@@ -2,7 +2,7 @@ import { observable, config } from "@observablehq/notebook-kit/vite";
 import { defineConfig } from "vite";
 import { readFile, access, copyFile, mkdir } from "node:fs/promises";
 import Handlebars from "handlebars";
-import { join, dirname, resolve, relative } from "node:path";
+import { join, dirname, resolve, relative, basename } from "node:path";
 import yaml from "yaml";
 import { glob } from "glob";
 import { deserialize } from "@observablehq/notebook-kit";
@@ -68,7 +68,12 @@ async function readMetadata(filename) {
   const notebookSlug = relative(NOTEBOOKS_DIR, notebookDir);
 
   let metadataYAML = "";
-  const metadataPath = join(notebookDir, "metadata.yml");
+  const stem = basename(filename, ".html");
+  const perFileMetadataPath = join(notebookDir, `${stem}.yml`);
+  const directoryMetadataPath = join(notebookDir, "metadata.yml");
+  const metadataPath = (await fileExists(perFileMetadataPath))
+    ? perFileMetadataPath
+    : directoryMetadataPath;
   try {
     metadataYAML = await readFile(metadataPath, "utf8");
   } catch (e) {}
@@ -167,6 +172,7 @@ export default defineConfig(async ({ command }) => {
           const metadata = await readMetadata(filename);
           const isRootIndex = path === "/index.html";
           const isNotebooksIndex = path === "/notebooks/index.html";
+          const is404 = path === "/404.html";
           const canonicalUrl = `https://rreusser.github.io${path.replace(/index\.html$/, "")}`;
           const data = {
             sourceUrl: `${GITHUB_BASE_URL}${path}`,
@@ -178,7 +184,7 @@ export default defineConfig(async ({ command }) => {
             ...notebook,
             ...metadata,
           };
-          if (isRootIndex || isNotebooksIndex) {
+          if (isRootIndex || isNotebooksIndex || is404) {
             delete data.sourceUrl;
             delete data.author;
           }
@@ -234,6 +240,7 @@ export default defineConfig(async ({ command }) => {
       rollupOptions: {
         input: [
           join(SRC_DIR, "index.html"),
+          join(SRC_DIR, "404.html"),
           ...notebookPaths,
         ],
       },
