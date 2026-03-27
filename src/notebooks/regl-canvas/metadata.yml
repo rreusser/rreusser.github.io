@@ -1,6 +1,7 @@
 publishedAt: August 12, 2025
 observableUrl: https://observablehq.com/@rreusser/regl-canvas
 description: Tips and tricks for instantiating and managing a REGL WebGL Canvas in Observable Notebooks 2.0.
+silent: true
 maxWidth: 640px
 tags:
   - tutorial
