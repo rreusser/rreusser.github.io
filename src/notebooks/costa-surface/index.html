@@ -23,7 +23,7 @@ import { buildMeshBVH, raycastMesh, screenToRay } from './lib/ray-mesh.js';
 
 Defining terms, a surface is *minimal* if it locally minimizes area, which is equivalent to having zero [mean curvature](https://en.wikipedia.org/wiki/Mean_curvature) everywhere. It is *complete* if every geodesic can be extended indefinitely within the surface (no edges or boundaries are "missing"). And it is *embedded* if it does not cross itself, as opposed to an immersed surface which may self-intersect. So basically, Costa's surface is a smoothly self-avoiding, boundaryless minimal surface that lives in ordinary three-dimensional space.
 
-The surface has two catenoidal ends (extending to infinity upward and downward) and a planar end (extending to infinity in the horizontal plane), giving it three "punctures" in its toroidal domain.
+The surface has two catenoidal ends (extending to infinity upward and downward) and a planar end (extending to infinity in the horizontal plane), giving it three "punctures" in its toroidal domain. The domain coloring maps each point of the unit square to a unique color so that you can trace how the flat domain wraps into the surface. The colored dots mark the three punctures — <span style="color:#e04040">red</span> for the planar end, <span style="color:#6846e0">violet</span> and <span style="color:#5ed418">green</span> for the two catenoidal ends — and matching bands appear on the surface where it extends to infinity.
 
 Hover the mouse or tap either diagram below to view the corresponding point on the other.
   </script>
@@ -258,7 +258,6 @@ invalidation.then(() => {
 const S = 200;       // square side length in px
 const M = 36;        // margin for labels
 const W = S + 2*M, H = S + 2*M;
-const colors = ['#d4a84b', '#3379a6', '#7db87d', '#b56b9a'];
 // Arrows are inside the figure: dark, semi-transparent
 const arrowColor = 'rgba(0,0,0,0.55)';
 const pColor = 'var(--theme-background)';
@@ -286,7 +285,7 @@ for (const [id, d, rx, ry, orient] of [
   m.appendChild(svgEl('path', { d, fill: arrowColor }));
   defs.appendChild(m);
 }
-// Clip path for the checkerboard
+// Clip path for domain coloring
 const [clipCx, clipCy] = xy(0.5, 0.5);
 const clipPathCircle = svgEl('circle', { cx: clipCx, cy: clipCy, r: Math.SQRT1_2 * S });
 const clipPath = svgEl('clipPath', { id: 'uv-clip' });
@@ -298,12 +297,71 @@ squareClipPath.appendChild(svgEl('rect', { x: M, y: M, width: S, height: S }));
 defs.appendChild(squareClipPath);
 svg.appendChild(defs);
 
-// Checkerboard — clipped by uv-clip
-const checkerGroup = svgEl('g', { 'clip-path': 'url(#uv-clip)' });
-for (let r = 0; r < 4; r++)
-  for (let c = 0; c < 4; c++)
-    checkerGroup.appendChild(svgEl('rect', { x: M + c*S/4, y: M + r*S/4, width: S/4, height: S/4, fill: colors[(r + c) % 4] }));
-svg.appendChild(checkerGroup);
+// Oklab bilinear domain coloring with chroma normalization — clipped by uv-clip
+function rgbToOklab(r: number, g: number, b: number): [number, number, number] {
+  const l = 0.4122214708*r + 0.5363325363*g + 0.0514459929*b;
+  const m = 0.2119034982*r + 0.6806995451*g + 0.1073969566*b;
+  const s = 0.0883024619*r + 0.2817188376*g + 0.6299787005*b;
+  const lg = Math.cbrt(l), mg = Math.cbrt(m), sg = Math.cbrt(s);
+  return [
+    0.2104542553*lg + 0.7936177850*mg - 0.0040720468*sg,
+    1.9779984951*lg - 2.4285922050*mg + 0.4505937099*sg,
+    0.0259040371*lg + 0.7827717662*mg - 0.8086757660*sg,
+  ];
+}
+function oklabToRgb(L: number, a: number, b: number): [number, number, number] {
+  const lg = L + 0.3963377774*a + 0.2158037573*b;
+  const mg = L - 0.1055613458*a - 0.0638541728*b;
+  const sg = L - 0.0894841775*a - 1.2914855480*b;
+  return [
+     4.0767416621*lg**3 - 3.3077115913*mg**3 + 0.2309699292*sg**3,
+    -1.2684380046*lg**3 + 2.6097574011*mg**3 - 0.3413193965*sg**3,
+    -0.0041960863*lg**3 - 0.7034186147*mg**3 + 1.7076147010*sg**3,
+  ];
+}
+
+// Corner colors in Oklab
+const lab00 = rgbToOklab(0.65, 0.42, 0.05); // amber — (0,0)
+const lab10 = rgbToOklab(0.44, 0.14, 0.34); // mauve — (1,0)
+const lab01 = rgbToOklab(0.21, 0.49, 0.21); // sage — (0,1)
+const lab11 = rgbToOklab(0.04, 0.21, 0.43); // teal — (1,1)
+const C00 = Math.hypot(lab00[1], lab00[2]);
+const C10 = Math.hypot(lab10[1], lab10[2]);
+const C01 = Math.hypot(lab01[1], lab01[2]);
+const C11 = Math.hypot(lab11[1], lab11[2]);
+
+function domainColorLin(pu: number, pv: number): [number, number, number] {
+  const L = (1-pv)*((1-pu)*lab00[0]+pu*lab10[0])+pv*((1-pu)*lab01[0]+pu*lab11[0]);
+  const a = (1-pv)*((1-pu)*lab00[1]+pu*lab10[1])+pv*((1-pu)*lab01[1]+pu*lab11[1]);
+  const b = (1-pv)*((1-pu)*lab00[2]+pu*lab10[2])+pv*((1-pu)*lab01[2]+pu*lab11[2]);
+  const targetC = (1-pv)*((1-pu)*C00+pu*C10)+pv*((1-pu)*C01+pu*C11);
+  const actualC = Math.hypot(a, b);
+  const scale = actualC > 1e-6 ? Math.min(targetC / actualC, 2.5) : 0;
+  return oklabToRgb(L, a * scale, b * scale);
+}
+
+const gradSize = 64;
+const gradCanvas = document.createElement('canvas');
+gradCanvas.width = gradSize;
+gradCanvas.height = gradSize;
+const gradCtx = gradCanvas.getContext('2d')!;
+const imgData = gradCtx.createImageData(gradSize, gradSize);
+for (let py = 0; py < gradSize; py++) {
+  for (let px = 0; px < gradSize; px++) {
+    const pu = (px + 0.5) / gradSize;
+    const pv = 1 - (py + 0.5) / gradSize;
+    const [r, g, b] = domainColorLin(pu, pv);
+    const idx = (py * gradSize + px) * 4;
+    imgData.data[idx + 0] = Math.round(Math.pow(Math.max(0, r), 0.454) * 255);
+    imgData.data[idx + 1] = Math.round(Math.pow(Math.max(0, g), 0.454) * 255);
+    imgData.data[idx + 2] = Math.round(Math.pow(Math.max(0, b), 0.454) * 255);
+    imgData.data[idx + 3] = 255;
+  }
+}
+gradCtx.putImageData(imgData, 0, 0);
+const gradGroup = svgEl('g', { 'clip-path': 'url(#uv-clip)' });
+gradGroup.appendChild(svgEl('image', { href: gradCanvas.toDataURL(), x: M, y: M, width: S, height: S, 'image-rendering': 'auto' }));
+svg.appendChild(gradGroup);
 
 // Border
 svg.appendChild(svgEl('rect', { x: M, y: M, width: S, height: S, fill: 'none', stroke: 'var(--theme-foreground-muted)', 'stroke-width': 1.5 }));
@@ -370,19 +428,26 @@ const clipCircleOutline = svgEl('circle', {
 });
 svg.appendChild(clipCircleOutline);
 
+// Distinct marker colors for each puncture equivalence class
+const punctureHex = [
+  '#e04040', // planar end (corners) — red
+  '#6846e0', // catenoid at u=½ — violet
+  '#5ed418', // catenoid at v=½ — lime
+];
+
 // Punctures — drawn last so they sit on top of everything
-for (const { u, v, label, dx, dy, anchor } of [
-  { u:0,   v:0,   label:'0',   dx:-g,   dy:g+5,  anchor:'end'    },
-  { u:0.5, v:0,   label:'½',   dx:0,    dy:g+13, anchor:'middle' },
-  { u:1,   v:0,   label:'',    dx:0,    dy:0,    anchor:'start'  },
-  { u:0,   v:0.5, label:'i/2', dx:-g-4, dy:4,    anchor:'end'    },
-  { u:1,   v:0.5, label:'i/2', dx:g+4,  dy:4,    anchor:'start'  },
-  { u:0,   v:1,   label:'',    dx:0,    dy:0,    anchor:'end'    },
-  { u:0.5, v:1,   label:'½',   dx:0,    dy:-g,   anchor:'middle' },
-  { u:1,   v:1,   label:'',    dx:0,    dy:0,    anchor:'start'  },
+for (const { u, v, label, dx, dy, anchor, cls } of [
+  { u:0,   v:0,   label:'0',   dx:-g,   dy:g+5,  anchor:'end',    cls: 0 },
+  { u:0.5, v:0,   label:'½',   dx:0,    dy:g+13, anchor:'middle', cls: 1 },
+  { u:1,   v:0,   label:'',    dx:0,    dy:0,    anchor:'start',  cls: 0 },
+  { u:0,   v:0.5, label:'i/2', dx:-g-4, dy:4,    anchor:'end',    cls: 2 },
+  { u:1,   v:0.5, label:'i/2', dx:g+4,  dy:4,    anchor:'start',  cls: 2 },
+  { u:0,   v:1,   label:'',    dx:0,    dy:0,    anchor:'end',    cls: 0 },
+  { u:0.5, v:1,   label:'½',   dx:0,    dy:-g,   anchor:'middle', cls: 1 },
+  { u:1,   v:1,   label:'',    dx:0,    dy:0,    anchor:'start',  cls: 0 },
 ]) {
   const [px, py] = xy(u, v);
-  svg.appendChild(svgEl('circle', { cx: px, cy: py, r: 4, fill: pColor, stroke: 'var(--theme-foreground)', 'stroke-width': 1.5 }));
+  svg.appendChild(svgEl('circle', { cx: px, cy: py, r: 5, fill: punctureHex[cls], stroke: 'var(--theme-foreground)', 'stroke-width': 1 }));
   if (label) addLabel(px + dx, py + dy, label, anchor);
 }
 
@@ -439,8 +504,13 @@ hitRect.addEventListener('mousemove', (e: MouseEvent) => {
   showSvgDot(u, v);
 
   const pt = costaPoint(u, v);
-  if (isFinite(pt[0]) && isFinite(pt[1]) && isFinite(pt[2])) {
+  const r = Math.hypot(pt[0], pt[1], pt[2]);
+  const maxR = state.renderParams.clipRadius * 0.93;
+  if (isFinite(r) && r < maxR) {
     state.renderParams.hoverPoint = pt as [number, number, number];
+  } else if (isFinite(r) && r >= maxR) {
+    const s = maxR / r;
+    state.renderParams.hoverPoint = [pt[0]*s, pt[1]*s, pt[2]*s] as [number, number, number];
   } else {
     state.renderParams.hoverPoint = null;
   }
@@ -474,8 +544,13 @@ function svgTouchUpdate(e: TouchEvent) {
 
   showSvgDot(u, v);
   const pt = costaPoint(u, v);
-  if (isFinite(pt[0]) && isFinite(pt[1]) && isFinite(pt[2])) {
+  const r = Math.hypot(pt[0], pt[1], pt[2]);
+  const maxR = state.renderParams.clipRadius * 0.93;
+  if (isFinite(r) && r < maxR) {
     state.renderParams.hoverPoint = pt as [number, number, number];
+  } else if (isFinite(r) && r >= maxR) {
+    const s = maxR / r;
+    state.renderParams.hoverPoint = [pt[0]*s, pt[1]*s, pt[2]*s] as [number, number, number];
   } else {
     state.renderParams.hoverPoint = null;
   }
@@ -514,7 +589,7 @@ where ${tex`\wp`} and ${tex`\zeta`} are the [Weierstrass elliptic](https://en.wi
   </script>
 
   <script id="notes" type="text/markdown">
-The mesh is generated on the CPU by evaluating the parametrization on a grid and computing normals via finite differences. Triangles near the three punctures are excluded. Transparency is achieved through depth peeling.
+The mesh is generated on the CPU by evaluating the parametrization on a grid and computing normals via finite differences. Triangles near the three punctures are excluded. Transparency is achieved through depth peeling. The domain coloring interpolates four corner colors bilinearly in Oklab with chroma normalization to preserve saturation across the unit square.
   </script>
 
 </notebook>
