@@ -2,7 +2,7 @@ publishedAt: August 12, 2025
 description: Visualizing WebGPU struct memory layouts and alignment rules.
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/webgpu-utils
-hidden: true
+hideFromIndex: true
 tags:
   - webgpu
   - tutorial

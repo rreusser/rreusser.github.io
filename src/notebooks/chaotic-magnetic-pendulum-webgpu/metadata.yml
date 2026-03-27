@@ -2,7 +2,7 @@ publishedAt: "August 7, 2024"
 description: "Interactive visualization of a magnetic pendulum demonstrating chaotic dynamics, implemented using WebGPU."
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/magnetic-pendulum
-hidden: true
+hideFromIndex: true
 tags:
   - chaos
   - physics

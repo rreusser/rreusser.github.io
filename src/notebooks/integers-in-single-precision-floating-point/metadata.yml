@@ -2,7 +2,8 @@ publishedAt: February 9, 2020
 observableUrl: https://observablehq.com/@rreusser/integers-in-single-precision-floating-point
 description: Interactive bit-level visualization of how IEEE-754 single-precision floats represent integers.
 maxWidth: 640px
-silent: true
+hideFromIndex: true
+hideFromSearch: true
 tags:
   - math
   - numerics

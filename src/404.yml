@@ -1,3 +1,4 @@
 description: "Page not found."
 maxWidth: 640px
-silent: true
+hideFromIndex: true
+hideFromSearch: true

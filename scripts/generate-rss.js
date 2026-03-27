@@ -67,7 +67,7 @@ async function getNotebooks() {
     const notebook = deserialize(await readFile(path, "utf8"), { parser });
     const meta = await readMetadata(path);
 
-    if (meta?.hidden || meta?.silent) continue;
+    if (meta?.hideFromIndex || meta?.hideFromSearch) continue;
 
     notebooks.push({
       path: relpath.replace(/index\.html$/, ""),

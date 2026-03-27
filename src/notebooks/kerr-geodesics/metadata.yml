@@ -1,6 +1,7 @@
 publishedAt: "March 15, 2026"
 maxWidth: 640px
-silent: true
+hideFromIndex: true
+hideFromSearch: true
 description: Interactive visualization of particle and light paths around a spinning black hole, including a gravitational lensing renderer showing the photon ring and Doppler-beamed accretion disk.
 tags:
   - webgpu

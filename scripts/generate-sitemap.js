@@ -41,7 +41,7 @@ async function getNotebooks() {
     } catch (e) {}
     const meta = yaml.parse(metadataYAML) || {};
 
-    if (meta?.hidden || meta?.silent) continue;
+    if (meta?.hideFromIndex || meta?.hideFromSearch) continue;
 
     const urlPath = relpath === "index.html"
       ? "/notebooks/"

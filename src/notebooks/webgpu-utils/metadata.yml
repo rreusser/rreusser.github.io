@@ -1,4 +1,5 @@
 publishedAt: "March 11, 2026"
 maxWidth: 640px
 description: Testing out webgpu utils
-silent: true
+hideFromIndex: true
+hideFromSearch: true
