@@ -41,14 +41,14 @@ const state = {
   expandedState: { expanded: false },
   renderer: null as ReturnType<typeof createRenderer> | null,
   renderParams: {
-    opacity: 0.85,
+    opacity: 0.9,
     gridOpacity: 0.25,
     gridWidth: 0.5,
     cartoonEdgeWidth: 1.5,
     cartoonEdgeOpacity: 1,
     specular: 1,
     clipRadius: 4,
-    uvClipRadius: Math.SQRT1_2,
+    uvClipRadius: 0.5,
     peelLayers: 3,
     domainColor: 1,
     hoverPoint: null as [number, number, number] | null,
@@ -69,8 +69,8 @@ function addControl(input: HTMLElement) {
   return input;
 }
 
-const opacityInput = addControl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.85, step: 0.01 }));
-const uvClipRadiusInput = addControl(Inputs.range([0, Math.SQRT1_2], { label: "Domain clip radius", value: Math.SQRT1_2, step: 0.01 }));
+const opacityInput = addControl(Inputs.range([0, 1], { label: "Surface opacity", value: 0.9, step: 0.01 }));
+const uvClipRadiusInput = addControl(Inputs.range([0, 0.5], { label: "Domain clip radius", value: 0.5, step: 0.01 }));
 const domainColorInput = addControl(Inputs.toggle({ label: "Domain coloring", value: true }));
   </script>
 
@@ -193,7 +193,7 @@ function raycastAndUpdate(clientX: number, clientY: number) {
     { doubleSided: true, filter: (h) => {
       if (Math.hypot(h.pos[0], h.pos[1], h.pos[2]) > state.renderParams.clipRadius) return false;
       const du = h.uv[0] - 0.5, dv = h.uv[1] - 0.5;
-      return Math.sqrt(du*du + dv*dv) <= state.renderParams.uvClipRadius;
+      return Math.max(Math.abs(du), Math.abs(dv)) <= state.renderParams.uvClipRadius;
     }}
   );
   if (hit) {
@@ -258,8 +258,6 @@ invalidation.then(() => {
 const S = 200;       // square side length in px
 const M = 36;        // margin for labels
 const W = S + 2*M, H = S + 2*M;
-// Arrows are inside the figure: dark, semi-transparent
-const arrowColor = 'rgba(0,0,0,0.55)';
 const pColor = 'var(--theme-background)';
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -275,21 +273,12 @@ function svgEl(tag: string, attrs: Record<string, string | number>): SVGElement 
 
 const svg = svgEl('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, style: `display:block;margin:0.5em auto;max-width:${W}px` });
 
-// Defs: small arrowhead markers, dark fill
 const defs = svgEl('defs', {});
-for (const [id, d, rx, ry, orient] of [
-  ['arr-h', 'M0,0.5 L0,4.5 L5,2.5 z', 4, 2.5, 'auto'],
-  ['arr-v', 'M0,0.5 L0,4.5 L5,2.5 z', 4, 2.5, '270'],
-] as [string, string, number, number, string][]) {
-  const m = svgEl('marker', { id, markerWidth: 5, markerHeight: 5, refX: rx, refY: ry, orient });
-  m.appendChild(svgEl('path', { d, fill: arrowColor }));
-  defs.appendChild(m);
-}
 // Clip path for domain coloring
 const [clipCx, clipCy] = xy(0.5, 0.5);
-const clipPathCircle = svgEl('circle', { cx: clipCx, cy: clipCy, r: Math.SQRT1_2 * S });
+const clipPathRect = svgEl('rect', { x: M, y: M, width: S, height: S });
 const clipPath = svgEl('clipPath', { id: 'uv-clip' });
-clipPath.appendChild(clipPathCircle);
+clipPath.appendChild(clipPathRect);
 defs.appendChild(clipPath);
 
 const squareClipPath = svgEl('clipPath', { id: 'square-clip' });
@@ -363,6 +352,15 @@ const gradGroup = svgEl('g', { 'clip-path': 'url(#uv-clip)' });
 gradGroup.appendChild(svgEl('image', { href: gradCanvas.toDataURL(), x: M, y: M, width: S, height: S, 'image-rendering': 'auto' }));
 svg.appendChild(gradGroup);
 
+// Faint grid lines (matching the 10×10 grid on the 3D surface), clipped to uv-clip
+const gridGroup = svgEl('g', { 'clip-path': 'url(#uv-clip)', opacity: 0.15 });
+for (let i = 1; i < 10; i++) {
+  const pos = M + i * S / 10;
+  gridGroup.appendChild(svgEl('line', { x1: pos, y1: M, x2: pos, y2: M + S, stroke: 'black', 'stroke-width': 0.5 }));
+  gridGroup.appendChild(svgEl('line', { x1: M, y1: pos, x2: M + S, y2: pos, stroke: 'black', 'stroke-width': 0.5 }));
+}
+svg.appendChild(gridGroup);
+
 // Border
 svg.appendChild(svgEl('rect', { x: M, y: M, width: S, height: S, fill: 'none', stroke: 'var(--theme-foreground-muted)', 'stroke-width': 1.5 }));
 
@@ -378,22 +376,6 @@ function addLabel(x: number, y: number, text: string, anchor: string) {
 }
 
 const g = 8;
-
-// Identification arrows — inside the square, near edges
-const ai = 10;
-const [bx1] = xy(0.2, 0), [bx2] = xy(0.8, 0); const by_arr = M + S - ai;
-const [tx1] = xy(0.2, 1), [tx2] = xy(0.8, 1); const ty_arr = M + ai;
-const [,ly1] = xy(0, 0.2), [,ly2] = xy(0, 0.8); const lx_arr = M + ai;
-const [,ry1] = xy(1, 0.2), [,ry2] = xy(1, 0.8); const rx_arr = M + S - ai;
-
-for (const [x1,y1,x2,y2,mk] of [
-  [bx1, by_arr, bx2, by_arr, 'arr-h'],
-  [tx1, ty_arr, tx2, ty_arr, 'arr-h'],
-  [lx_arr, ly1, lx_arr, ly2, 'arr-v'],
-  [rx_arr, ry1, rx_arr, ry2, 'arr-v'],
-] as [number,number,number,number,string][]) {
-  svg.appendChild(svgEl('line', { x1, y1, x2, y2, stroke: arrowColor, 'stroke-width': 1, 'marker-end': `url(#${mk})` }));
-}
 
 // Axis lines
 const axisExt = 22;
@@ -415,10 +397,9 @@ addLabel(M-5, M-axisExt-2, 'v', 'end');
 addLabel(M+S,   M+S+16, '1', 'middle');
 addLabel(M-g,   M+5,    'i', 'end'   );
 
-// Clip circle outline (dashed, on top of axes)
-const clipCircleOutline = svgEl('circle', {
-  cx: clipCx, cy: clipCy,
-  r: Math.SQRT1_2 * S,
+// Clip rect outline (dashed, on top of axes)
+const clipRectOutline = svgEl('rect', {
+  x: M, y: M, width: S, height: S,
   fill: 'none',
   stroke: 'var(--theme-foreground)',
   'stroke-width': 1,
@@ -426,7 +407,7 @@ const clipCircleOutline = svgEl('circle', {
   opacity: 0.5,
   'clip-path': 'url(#square-clip)',
 });
-svg.appendChild(clipCircleOutline);
+svg.appendChild(clipRectOutline);
 
 // Distinct marker colors for each puncture equivalence class
 const punctureHex = [
@@ -452,8 +433,14 @@ for (const { u, v, label, dx, dy, anchor, cls } of [
 }
 
 state.setUvClipRadius = (r: number) => {
-  clipPathCircle.setAttribute('r', String(r * S));
-  clipCircleOutline.setAttribute('r', String(r * S));
+  const size = r * 2 * S;
+  const offset = M + S / 2 - r * S;
+  for (const el of [clipPathRect, clipRectOutline]) {
+    el.setAttribute('x', String(offset));
+    el.setAttribute('y', String(offset));
+    el.setAttribute('width', String(size));
+    el.setAttribute('height', String(size));
+  }
 };
 state.setUvClipRadius(state.renderParams.uvClipRadius);
 

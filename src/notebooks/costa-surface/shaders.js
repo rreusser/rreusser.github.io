@@ -181,7 +181,8 @@ fn nearestPunctureColor(uv: vec2f) -> vec3f {
 }
 
 fn shouldClip(uv: vec2f) -> bool {
-  return length(uv - vec2f(0.5, 0.5)) > u.uvClipRadius;
+  let d = abs(uv - vec2f(0.5, 0.5));
+  return max(d.x, d.y) > u.uvClipRadius;
 }
 
 fn clipAlpha(pos: vec3f) -> f32 {
@@ -215,13 +216,14 @@ fn computeColor(in: VertexOutput, frontFacing: bool) -> vec4f {
     return vec4f(color, alpha);
   }
 
+  let grid = gridFactor(gridlineFunction(in.vUV), 0.5 * u.gridWidth * u.pixelRatio, 0.5);
+  let gridLine = max(combinedGrid, u.gridOpacity * (1.0 - grid)) * u.opacity;
   surfaceColor = pow(surfaceColor, vec3f(0.454));
-  let edgeAlpha = combinedGrid * u.opacity;
   let surfaceAlpha = u.opacity;
-  let alpha = edgeAlpha + surfaceAlpha * (1.0 - edgeAlpha);
+  let alpha = gridLine + surfaceAlpha * (1.0 - gridLine);
   let color = select(
     vec3f(0.0),
-    surfaceColor * surfaceAlpha * (1.0 - edgeAlpha) / alpha,
+    surfaceColor * surfaceAlpha * (1.0 - gridLine) / alpha,
     alpha > 1e-4
   );
   return vec4f(color, alpha);
