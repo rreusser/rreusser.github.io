@@ -12,6 +12,7 @@ A reference for building notebooks in this repository. Notebooks are written as 
 6. [WebGPU](./06-webgpu.md) — `createWebGPUContext`, buffer helpers, compute passes, shader debugging
 7. [Utilities](./07-utilities.md) — frame loop, collapsible code, snapshots, theme, dependency injection
 8. [Writing Style](./08-writing-style.md) — prose, equations, cell IDs, TypeScript
+9. [Translating Notebooks](./09-translating-notebooks.md) — porting Observable notebooks, preserving computation, verifying correctness
 
 ## Quick orientation
 

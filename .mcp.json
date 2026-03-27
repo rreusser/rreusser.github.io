@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "janus": {
+      "command": "/Users/rreusser/gh/divmain/janus/target/release/janus",
+      "args": ["mcp"]
+    },
+    "mcp-notebook-kit-debug": {
+      "command": "./node_modules/.bin/mcp-notebook-kit-debug"
+    }
+  }
+}

@@ -229,7 +229,6 @@ function startHintFade() {
     const ease = 1 - (1 - t) ** 3;  // ease-out cubic
     state.renderParams.hintAlpha = 1.0 - ease;
     state.renderParams.hintScale = 1.0 + ease * 0.6;
-    if (state.hintCaption) state.hintCaption.style.opacity = String((1.0 - ease) * 0.6);
     camera.triggerRepaint();
     if (t < 1.0) {
       hintFadeFrame = requestAnimationFrame(step);
@@ -400,7 +399,7 @@ expandableContainer = expandable(container, {
 
 display(expandableContainer);
 
-const hintCaption = html`<figcaption style="font-size: 0.8em; opacity: 0.6; margin-top: 0.3em; font-style: italic;">Drag the arrow tip to redirect the trajectory, or the shaft to reposition the starting point.</figcaption>`;
+const hintCaption = html`<figcaption style="font-size: 0.8em; margin-top: 0.3em; font-style: italic;">Drag the arrow tip to redirect the trajectory, or the shaft to reposition the starting point.</figcaption>`;
 state.hintCaption = hintCaption;
 display(hintCaption);
   </script>

@@ -248,7 +248,7 @@ export default defineConfig(async ({ command }) => {
     root: "src",
     base: "/",
     optimizeDeps: {
-      // Exclude msdf-generator from pre-bundling to preserve worker structure
+      include: [],
       exclude: ['@zappar/msdf-generator'],
     },
     server: {

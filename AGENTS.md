@@ -16,10 +16,11 @@ For implementation patterns, see the [implementation guide](docs/implementation-
 - [WebGPU](docs/implementation-guide/06-webgpu.md) — context setup, buffer helpers, shader debugging
 - [Utilities](docs/implementation-guide/07-utilities.md) — frame loop, collapsible code, snapshots
 - [Writing style](docs/implementation-guide/08-writing-style.md) — prose, equations, cell IDs, TypeScript
+- [Translating notebooks](docs/implementation-guide/09-translating-notebooks.md) — porting from Observable, preserving computation, verifying correctness
 
 ## Quick reference
 
-- Dev server: `http://localhost:5173/{notebook-name}/` — normally already running
+- Dev server: `http://localhost:5173/notebooks/{notebook-name}/`. Do NOT start the vite dev server, as that is the responsibility of the user.
 - Import shared code via `./lib/` (symlink `src/lib` into the notebook directory; never use `../lib/`)
 - Do not import npm packages inside lib files — import them in the notebook and inject as arguments
 - Mutable state shared across cells must be wrapped in an object; properties can be mutated freely but the variable itself cannot be reassigned from another cell

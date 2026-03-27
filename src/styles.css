@@ -323,6 +323,8 @@ main h3 {
 
 main figcaption {
   margin-top: 1em;
+  opacity: 1;
+  color: var(--theme-foreground-muted);
 }
 
 main .katex-display {
@@ -1107,10 +1109,6 @@ html[data-dark] main details[open] {
   border-left-color: #444;
 }
 
-html[data-dark] figcaption,
-html[data-light] figcaption {
-  color: var(--theme-foreground-faint);
-}
 
 /* Index page dark overrides */
 html[data-dark] .index__item {

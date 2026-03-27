@@ -150,6 +150,22 @@ import { expandable } from './lib/expandable.js'
 
 Do not use npm imports inside imported `.js` files. External packages should only be imported at the notebook level, then passed as arguments to library functions if needed.
 
+### Observable notebook imports
+
+To import from other Observable notebooks:
+
+```javascript
+import { ode45 } from 'observable:@rreusser/integration'
+```
+
+To inspect what an Observable notebook exports and how its functions are implemented, download it with:
+
+```bash
+./node_modules/.bin/notebooks download https://observablehq.com/@user/notebook-name
+```
+
+This prints the notebook as HTML to stdout. The output shows all cells, including function implementations and internal dependencies. This is essential when translating notebooks that import computation code from other notebooks — see [Translating Notebooks](./09-translating-notebooks.md).
+
 ## Debugging
 
 The dev server runs at `http://localhost:5173/notebooks/{notebook-name}/`. It is normally already running — do not start a new instance.
