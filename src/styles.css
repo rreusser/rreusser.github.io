@@ -198,6 +198,7 @@ header {
   font-family: "Open Sans", sans-serif;
   -webkit-font-smoothing: auto;
   box-sizing: border-box;
+  border-bottom: 1px solid rgba(0,0,0,0.3);
 }
 
 header.has-image {
@@ -1107,6 +1108,9 @@ html.theme-is-dark:not([data-light]) :is(main, .container) h6 {
 
 html[data-dark] main details[open] {
   border-left-color: #444;
+}
+html[data-dark] header {
+  border-bottom: 1px solid rgba(255,255,255,0.2);
 }
 
 
