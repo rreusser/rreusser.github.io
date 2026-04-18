@@ -104,7 +104,7 @@ function tilePxSizeM(z, y, N) {
 const SHADER = /* wgsl */ `
 struct Global {
   viewportPx: vec4<f32>,   // xy = viewport size, z = shadingMode (0=lambertian,1=relief), w = reliefStrength
-  sunDir: vec4<f32>,       // xyz = world-space sun direction, w = unused
+  sunDir: vec4<f32>,       // xyz = world-space sun direction, w = aoBoost (zoom-dependent)
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
 };
 
@@ -162,16 +162,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
   let aoContrast = g.params.z;
   let shadowStrength = g.params.w;
-  let shadowMask = 1.0 - shadowStrength * shadow;
+  // Fade shadow to fully shadowed as sun approaches horizon.
+  let horizonShadow = mix(1.0, shadow, saturate(g.sunDir.z / 0.035));
+  let shadowMask = 1.0 - shadowStrength * horizonShadow;
 
   // AO tonemap in sRGB space — matching the LSAO section's atan
   // contrast curve. Applied after sRGB conversion for better
   // perceptual dynamic range.
   // ao was stored as rawAo^2; use directly.
+  // sunDir.w is a zoom-dependent multiplier that amplifies subtle
+  // occlusion at low zoom and tames it at high zoom.
   let aoLin = ao;
   let aoC = clamp(aoContrast, 0.0, 0.999999);
   let aoS = aoC / (1.0 - aoC);
-  let aoShade = 1.0 - aoLin;
+  let aoShade = clamp((1.0 - aoLin) * g.sunDir.w, 0.0, 1.0);
   let aoFactor = 1.0 - (2.0 / 3.14159265) * atan(aoS * aoShade);
 
   let reliefMode = g.viewportPx.z;
@@ -265,6 +269,7 @@ export function createTileViewer(opts) {
 
   function cpuDispatch(tile, msg) {
     return new Promise((resolve) => {
+      if (tile.destroyed) { resolve(null); return; }
       const item = { tile, msg, resolve };
       if (cpuIdle.length > 0) {
         cpuSend(cpuIdle.pop(), item);
@@ -274,9 +279,23 @@ export function createTileViewer(opts) {
     });
   }
   function cpuSend(worker, item) {
+    const t0 = performance.now();
     worker.onmessage = (e) => {
+      const ms = (performance.now() - t0).toFixed(0);
+      const t = item.tile;
+      const dest = t.destroyed ? " (destroyed)" : "";
+      console.log(`[tile] ${item.msg.type} ${t.z}/${t.x}/${t.y} done in ${ms}ms${dest}, queue=${cpuQueue.length}`);
       cpuIdle.push(worker);
       item.resolve(e.data);
+      // Drain destroyed tiles from the front of the queue before
+      // dispatching the next item — avoids wasting a worker on a
+      // tile that has already been panned off screen.
+      let skipped = 0;
+      while (cpuQueue.length > 0 && cpuQueue[0].tile.destroyed) {
+        cpuQueue.shift();
+        skipped++;
+      }
+      if (skipped > 0) console.log(`[tile] skipped ${skipped} destroyed tiles from queue`);
       if (cpuQueue.length > 0) cpuSend(cpuIdle.pop(), cpuQueue.shift());
     };
     worker.postMessage(item.msg, getTransferables(item.msg));
@@ -438,6 +457,7 @@ export function createTileViewer(opts) {
   let viewportH = 1;
   let needsRender = true;
   let sunDirty = true;
+  let sunGeneration = 0;
   let hashTimer = 0;
   function scheduleHashFlush() {
     clearTimeout(hashTimer);
@@ -607,7 +627,7 @@ export function createTileViewer(opts) {
             sunRadiusDeg: Math.max(0, lighting.sunRadiusDeg || 0),
             shadowSamples: Math.max(1, Math.round(lighting.shadowSamples || 1)),
           });
-          if (this.destroyed) {
+          if (!result || this.destroyed) {
             this.texture?.destroy();
             this.elevBuffer?.destroy();
             this.horizonBuffer?.destroy();
@@ -655,6 +675,12 @@ export function createTileViewer(opts) {
 
     destroy() {
       this.destroyed = true;
+      // Cancel any in-flight fetch in the data-prep worker.
+      const key = `${this.z}/${this.x}/${this.y}`;
+      if (pendingTiles.has(key)) {
+        pendingTiles.delete(key);
+        worker.postMessage({ type: "cancel", z: this.z, x: this.x, y: this.y });
+      }
       try {
         this.texture?.destroy();
       } catch (_) {}
@@ -956,6 +982,7 @@ export function createTileViewer(opts) {
     const azDeg = (Math.atan2(lighting.sunY, lighting.sunX) * 180) / Math.PI;
     const sunRadiusDeg = Math.max(0, lighting.sunRadiusDeg || 0);
     const shadowSamples = lighting.sunInteracting ? 1 : Math.max(1, Math.round(lighting.shadowSamples || 1));
+    const gen = sunGeneration;
 
     for (const tile of tiles.values()) {
       if (!tile.ready || tile.destroyed || !tile._cpuNx) continue;
@@ -981,7 +1008,7 @@ export function createTileViewer(opts) {
         cachedAo: new Float32Array(tile._cpuAo),
       }).then((result) => {
         tile._shadowPending = false;
-        if (tile.destroyed) return;
+        if (!result || tile.destroyed) return;
         device.queue.writeTexture(
           { texture: tile.texture },
           result.packed,
@@ -989,9 +1016,8 @@ export function createTileViewer(opts) {
           { width: compN, height: compN },
         );
         needsRender = true;
-        // If the sun moved while this was in flight, re-dispatch.
-        if (sunDirty) {
-          sunDirty = false;
+        // If the sun moved while this tile was in flight, re-dispatch.
+        if (gen !== sunGeneration) {
           rebakeShadowCPU();
         }
       });
@@ -1102,6 +1128,11 @@ export function createTileViewer(opts) {
     globalData[4] = lighting.sunX;
     globalData[5] = lighting.sunY;
     globalData[6] = lighting.sunZ;
+    // Zoom-dependent AO boost: multiplier > 1 at low zoom amplifies
+    // subtle occlusion, < 1 at high zoom tames it.
+    // Reference zoom 11: multiplier = 1 (no change).
+    const aoBoost = Math.pow(2, (11 - zoom) * 0.5);
+    globalData[7] = aoBoost;
     globalData[8] = lighting.kAmbient;
     globalData[9] = lighting.kDirect;
     globalData[10] = lighting.aoStrength;
@@ -1221,7 +1252,7 @@ export function createTileViewer(opts) {
       if (!tile.destroyed && tile._compN) {
         runStaticBake(tile, tile._compN);
         tile.ready = true;
-        sunDirty = true;
+        sunDirty = true; sunGeneration++;
         needsRender = true;
       }
     }
@@ -1335,7 +1366,7 @@ export function createTileViewer(opts) {
   function scheduleHQRebake() {
     clearTimeout(hqTimer);
     hqTimer = setTimeout(() => {
-      sunDirty = true;
+      sunDirty = true; sunGeneration++;
       needsRender = true;
     }, 150);
   }
@@ -1357,7 +1388,7 @@ export function createTileViewer(opts) {
         prevR !== lighting.sunRadiusDeg ||
         prevS !== lighting.shadowSamples
       ) {
-        sunDirty = true;
+        sunDirty = true; sunGeneration++;
       }
       if (wasInteracting && !lighting.sunInteracting) {
         scheduleHQRebake();
@@ -1370,6 +1401,9 @@ export function createTileViewer(opts) {
         updateTiles();
       }
       needsRender = true;
+    },
+    getCenter() {
+      return worldToLatLng(centerWorldX, centerWorldY, baseZoom, tileSize);
     },
     destroy() {
       worker.terminate();

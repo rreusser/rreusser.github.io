@@ -2256,6 +2256,8 @@
   <script id="tile-viewer-helper" type="module">
     import { createTileViewer } from "./tile-viewer.js";
     import { expandable } from "./lib/expandable.js";
+    import SunCalc from "npm:suncalc";
+    import { createSunCalendar } from "./sun-calendar.js";
   </script>
 
   <script id="tile-viewer-controls" type="module">
@@ -2290,12 +2292,19 @@
       value: 6,
       step: 1,
     });
+    let _viewerRef = null;
+    const tileViewerRef = { set: (v) => { _viewerRef = v; } };
+    const sunCalendarEl = createSunCalendar(SunCalc, {
+      getLocation: () => _viewerRef ? _viewerRef.getCenter() : [36.1, -111.99],
+      onChange: (v) => tileViewerSunDirAccessor.set(v),
+    });
     tileViewerControlsDiv.appendChild(bakeModeEl);
     tileViewerControlsDiv.appendChild(strengthEl);
     tileViewerControlsDiv.appendChild(aoEl);
     tileViewerControlsDiv.appendChild(shadowEl);
     tileViewerControlsDiv.appendChild(sunDiameterEl);
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
+    tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
     const tileViewerControls = {
       bakeModeEl,
@@ -2385,6 +2394,7 @@
         zoom: 11,
         center: [36.1, -111.99],
       });
+      tileViewerRef.set(viewer);
       viewerEl.appendChild(sunWrapper);
 
       // Poll the sun mutable and the three sliders each frame; when

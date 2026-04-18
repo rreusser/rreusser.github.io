@@ -7,7 +7,9 @@
 // Protocol:
 //   main → worker:  { type: "init", tileUrl }
 //   main → worker:  { type: "fetch", z, x, y }
+//   main → worker:  { type: "cancel", z, x, y }
 //   worker → main:  { type: "tile", z, x, y, comp, horizon }
+//   worker → main:  { type: "error", z, x, y, message }
 //                    comp = { N, heights (Float32Array), hMin, hMax }
 //                    horizon = { HN, heights (Float32Array) }
 //                    Both Float32Arrays are transferred (zero-copy).
@@ -18,8 +20,49 @@ function buildUrl(z, x, y) {
   return tileUrl.replace("{z}", z).replace("{x}", x).replace("{y}", y);
 }
 
-async function fetchTerrarium(url) {
-  const res = await fetch(url);
+// ------------------------------------------------------------------
+// Fetch cache with reference counting and AbortController support.
+//
+// Each unique z/x/y key maps to { promise, controller, refs }.
+// `refs` counts how many in-flight tile requests depend on this
+// image (either as their own tile or as a parent). When refs drops
+// to 0 the fetch is aborted and removed from the cache.
+// ------------------------------------------------------------------
+const cache = new Map(); // key -> { promise, controller, refs }
+
+function refKey(z, x, y) {
+  return `${z}/${x}/${y}`;
+}
+
+function acquireFetch(z, x, y) {
+  const key = refKey(z, x, y);
+  let entry = cache.get(key);
+  if (entry) {
+    entry.refs++;
+    return entry.promise;
+  }
+  const controller = new AbortController();
+  const promise = fetchTerrarium(buildUrl(z, x, y), controller.signal);
+  // On failure, remove from cache so a retry can start fresh.
+  promise.catch(() => cache.delete(key));
+  entry = { promise, controller, refs: 1 };
+  cache.set(key, entry);
+  return promise;
+}
+
+function releaseFetch(z, x, y) {
+  const key = refKey(z, x, y);
+  const entry = cache.get(key);
+  if (!entry) return;
+  entry.refs--;
+  if (entry.refs <= 0) {
+    entry.controller.abort();
+    cache.delete(key);
+  }
+}
+
+async function fetchTerrarium(url, signal) {
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`tile fetch failed: ${url} (${res.status})`);
   const blob = await res.blob();
   const bitmap = await createImageBitmap(blob);
@@ -44,16 +87,39 @@ async function fetchTerrarium(url) {
   return { N, heights, hMin, hMax };
 }
 
-// Deduping fetch cache — shared across comp and parent requests.
-const cache = new Map();
-function cachedFetch(z, x, y) {
-  const key = `${z}/${x}/${y}`;
-  let p = cache.get(key);
-  if (!p) {
-    p = fetchTerrarium(buildUrl(z, x, y));
-    cache.set(key, p);
+// ------------------------------------------------------------------
+// Parent horizon assembly
+// ------------------------------------------------------------------
+
+// Returns the set of parent tile keys needed for a given tile.
+function parentKeys(z, x, y) {
+  const parentZ = z - 1;
+  if (parentZ < 0) return [];
+  const qx = Math.floor((x - 1) / 2);
+  const qy = Math.floor((y - 1) / 2);
+  const nParent = 1 << parentZ;
+  const keys = [];
+  for (const [px, py] of [[qx, qy], [qx + 1, qy], [qx, qy + 1], [qx + 1, qy + 1]]) {
+    if (px >= 0 && px < nParent && py >= 0 && py < nParent) {
+      keys.push([parentZ, px, py]);
+    }
   }
-  return p;
+  return keys;
+}
+
+function acquireAll(z, x, y) {
+  // Acquire the tile itself + all parents.
+  acquireFetch(z, x, y);
+  for (const [pz, px, py] of parentKeys(z, x, y)) {
+    acquireFetch(pz, px, py);
+  }
+}
+
+function releaseAll(z, x, y) {
+  releaseFetch(z, x, y);
+  for (const [pz, px, py] of parentKeys(z, x, y)) {
+    releaseFetch(pz, px, py);
+  }
 }
 
 function assembleParentHorizon(z, x, y) {
@@ -67,13 +133,21 @@ function assembleParentHorizon(z, x, y) {
   const fetchOrNull = (px, py) =>
     px < 0 || px >= nParent || py < 0 || py >= nParent
       ? Promise.resolve(null)
-      : cachedFetch(parentZ, px, py).catch(() => null);
+      : acquireFetch(px, py, parentZ).catch(() => null);
+
+  // Note: acquireFetch was already called in acquireAll, so this
+  // just gets the existing promise (refs already incremented).
+  // We use the cache entries directly here.
+  const getParent = (px, py) =>
+    px < 0 || px >= nParent || py < 0 || py >= nParent
+      ? Promise.resolve(null)
+      : (cache.get(refKey(parentZ, px, py))?.promise || Promise.resolve(null)).catch(() => null);
 
   return Promise.all([
-    fetchOrNull(qx, qy),
-    fetchOrNull(qx + 1, qy),
-    fetchOrNull(qx, qy + 1),
-    fetchOrNull(qx + 1, qy + 1),
+    getParent(qx, qy),
+    getParent(qx + 1, qy),
+    getParent(qx, qy + 1),
+    getParent(qx + 1, qy + 1),
   ]).then(([p00, p10, p01, p11]) => {
     const ref = p00 || p10 || p01 || p11;
     const PN = ref ? ref.N : 512;
@@ -109,6 +183,9 @@ function assembleParentHorizon(z, x, y) {
   });
 }
 
+// Track in-flight fetch requests so we can cancel them.
+const inFlight = new Set(); // "z/x/y"
+
 self.onmessage = (e) => {
   const msg = e.data;
   switch (msg.type) {
@@ -118,10 +195,15 @@ self.onmessage = (e) => {
 
     case "fetch": {
       const { z, x, y } = msg;
+      const key = refKey(z, x, y);
+      inFlight.add(key);
+      acquireAll(z, x, y);
       Promise.all([
-        cachedFetch(z, x, y),
+        cache.get(key)?.promise,
         assembleParentHorizon(z, x, y),
       ]).then(([comp, horizon]) => {
+        if (!inFlight.has(key)) return; // cancelled
+        inFlight.delete(key);
         // Clone heights so we can transfer without invalidating the cache.
         const compHeights = new Float32Array(comp.heights);
         const horizonHeights = new Float32Array(horizon.heights);
@@ -135,8 +217,20 @@ self.onmessage = (e) => {
           [compHeights.buffer, horizonHeights.buffer],
         );
       }).catch((err) => {
+        if (!inFlight.has(key)) return; // cancelled
+        inFlight.delete(key);
         self.postMessage({ type: "error", z, x, y, message: err.message });
       });
+      break;
+    }
+
+    case "cancel": {
+      const { z, x, y } = msg;
+      const key = refKey(z, x, y);
+      if (inFlight.has(key)) {
+        inFlight.delete(key);
+        releaseAll(z, x, y);
+      }
       break;
     }
   }
