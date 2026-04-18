@@ -1,0 +1,1603 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Line Sweep Terrain Lighting with WebGPU</title>
+  <script id="1" type="text/markdown">
+    # Line Sweep Terrain Lighting with WebGPU
+
+    Hierarchical terrain lighting using WebGPU compute shaders. This demonstrates the complete pipeline from tile fetching through parent buffer assembly to GPU-accelerated LSAO computation.
+
+    Below, you'll see each stage of the implementation:
+    1. **Tile Hierarchy** - Parent tiles needed for boundary data
+    2. **Parent Tile Assembly** - 768×768 buffer for horizon initialization
+    3. **Raw Terrain Tile** - Original Mapbox terrain image
+    4. **Decoded Elevations** - Height map visualization
+    5. **WebGPU Pipeline** - Shader compilation and setup
+    6. **Computed Lighting** - Final shaded result with LSAO
+  </script>
+  <script id="2" type="module">
+    import { getTerrainTile, readImageData, decodeTerrainData } from './terrain/data/main.js';
+    import { getTileSet } from './terrain/data/tile-hierarchy.js';
+    import { createWebGPUContext } from './terrain/compute/webgpu-context.js';
+    import { createLightingPipeline } from './terrain/compute/pipeline.js';
+    import { computeTileLighting } from './terrain/compute/execute.js';
+    import { createSimpleLSAOPipeline } from './terrain/compute/lsao-simple-pipeline.js';
+    import { computeSimpleLSAO } from './terrain/compute/lsao-simple-execute.js';
+    import { computeSimpleLSAOCPU } from './terrain/compute/lsao-simple-cpu.js';
+    import { createLSAOPipeline, calculateLevelInfo } from './terrain/compute/lsao-pipeline.js';
+    import { computeLSAO } from './terrain/compute/lsao-execute.js';
+    import { computeLSAOCPU } from './terrain/compute/lsao-cpu.js';
+    import { createNormalMapPipeline } from './terrain/compute/normal-map-pipeline.js';
+    import { computeNormalMap } from './terrain/compute/normal-map-execute.js';
+  </script>
+  <script id="3" type="text/markdown">
+    ## 1. Tile Hierarchy
+  </script>
+  <script id="4" type="module">
+    const coords = {x: 795, y: 1594, z: 12};
+    coords;
+  </script>
+  <script id="5" type="module">
+    const tiles = getTileSet(coords);
+
+    // Create visual representation
+    const container = html`<div style="font-family: monospace; font-size: 13px;">
+      <strong>Target tile:</strong> ${coords.z}/${coords.x}/${coords.y}<br>
+      <strong>Tiles needed for hierarchical computation:</strong><br>
+      <ul style="margin: 8px 0; padding-left: 20px;">
+        ${tiles.map(t => html`<li>
+          <span style="color: ${t.role === 'target' ? '#ca4747' : '#666'}">
+            ${t.role}
+          </span>: ${t.z}/${t.x}/${t.y}
+        </li>`)}
+      </ul>
+      <em style="color: #666;">Parent tiles at z-1 provide boundary data for edge handling</em>
+    </div>`;
+
+    display(container);
+    tiles;
+  </script>
+  <script id="6" type="text/markdown">
+    ## 2. Multi-Level Parent Tile Assembly
+
+    For proper horizon initialization in line-sweep ambient occlusion, we need terrain data from *outside* the target tile. Instead of loading all 8 adjacent tiles at full resolution, we load 4 parent tiles at coarser zoom levels.
+
+    **Coverage formula:** Assembly size = tileSize × (1 + 2^Δz)
+    - Δz = -1: 512 × 1.5 = 768 pixels (3×3 tile coverage)
+    - Δz = -2: 512 × 1.25 = 640 pixels (5×5 tile coverage)
+    - Δz = -3: 512 × 1.125 = 576 pixels (7×7 tile coverage)
+
+    Use the slider below to explore different parent zoom levels:
+  </script>
+  <script id="7" type="module">
+    const maxDeltaZ = Math.min(coords.z, 4); // Can't go below z=0
+
+    const input = Inputs.range([-maxDeltaZ, -1], {
+      value: -1,
+      step: 1,
+      label: "Δz (parent zoom offset)",
+    });
+
+    const deltaZ = view(input);
+    deltaZ;
+  </script>
+  <script id="8" type="module">
+    import { getParentTilesAtLevel, assembleParentTileBufferMultiLevel } from './terrain/data/parent-tile-assembly-multi-level.js';
+
+    // Get parent tiles at selected zoom level
+    const parentTileCoords = getParentTilesAtLevel(coords, deltaZ);
+    const parentZ = coords.z + deltaZ;
+
+    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
+      <strong>Parent zoom level:</strong> z${parentZ} (Δz = ${deltaZ})<br>
+      <strong>Fetching ${parentTileCoords.length} parent tiles...</strong>
+    </div>`);
+
+    const parentTiles = [];
+    for (const tileCoords of parentTileCoords) {
+      const tile = await getTerrainTile(tileCoords);
+      const imageData = readImageData(tile.img);
+      const elevations = decodeTerrainData(imageData);
+      parentTiles.push({
+        data: elevations,
+        width: tile.width,
+        height: tile.height,
+        tileSize: tile.tileSize,
+        role: tileCoords.role
+      });
+    }
+
+    // Assemble parent buffer
+    const assembled = assembleParentTileBufferMultiLevel({
+      targetTile: coords,
+      parentTiles,
+      deltaZ,
+      tileSize: 512
+    });
+
+    const { buffer: parentBuffer, size: parentSize, targetOffset } = assembled;
+
+    ({ parentBuffer, parentSize, targetOffset });
+  </script>
+  <script id="9" type="module">
+    // Visualize parent buffer assembly
+    const canvas = document.createElement('canvas');
+    canvas.width = parentSize;
+    canvas.height = parentSize;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(parentSize, parentSize);
+
+    // Recalculate scale and targetSizeAtParent from deltaZ
+    const scale = Math.pow(2, Math.abs(deltaZ));
+    const targetSizeAtParent = 512 / scale;
+
+    // Find min/max in parent buffer
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < parentBuffer.length; i++) {
+      if (parentBuffer[i] < min) min = parentBuffer[i];
+      if (parentBuffer[i] > max) max = parentBuffer[i];
+    }
+
+    // Render parent buffer
+    for (let y = 0; y < parentSize; y++) {
+      for (let x = 0; x < parentSize; x++) {
+        const idx = y * parentSize + x;
+        const normalized = (parentBuffer[idx] - min) / (max - min);
+
+        const r = Math.floor(normalized * 180 + 75);
+        const g = Math.floor(normalized * 140 + 80);
+        const b = Math.floor((1 - normalized) * 120 + 60);
+
+        imageData.data[idx * 4] = r;
+        imageData.data[idx * 4 + 1] = g;
+        imageData.data[idx * 4 + 2] = b;
+        imageData.data[idx * 4 + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    // Draw target tile boundary
+    ctx.strokeStyle = '#ca4747';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(targetOffset[0], targetOffset[1], targetSizeAtParent, targetSizeAtParent);
+
+    // Add label
+    ctx.fillStyle = '#ca4747';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('Target Tile', targetOffset[0] + 5, targetOffset[1] + 20);
+
+    // Calculate coverage
+    const tileCoverage = Math.round(parentSize / (512 / scale));
+
+    const container = html`<div>
+      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <strong>Parent Buffer Assembly (${parentSize}×${parentSize} at z${coords.z + deltaZ} resolution)</strong><br>
+        Red box shows target tile region (${targetSizeAtParent.toFixed(0)}×${targetSizeAtParent.toFixed(0)} at parent resolution)<br>
+        Coverage: ${tileCoverage}×${tileCoverage} tiles at z${coords.z} | Scale: ${scale}:1<br>
+        Elevation range: ${min.toFixed(1)}m to ${max.toFixed(1)}m
+      </div>
+      ${canvas}
+      <div style="margin-top: 8px; font-family: sans-serif; font-size: 12px; color: #888;">
+        <strong>Key insight:</strong> The ${parentSize}×${parentSize} parent buffer covers a ${tileCoverage}×${tileCoverage} block of z${coords.z} tiles,
+        providing terrain context for horizon initialization in all sweep directions.
+        As Δz increases (coarser parents), coverage expands but resolution decreases.
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="10" type="module">
+    // Visualize coordinate mapping
+    const diagramCanvas = document.createElement('canvas');
+    diagramCanvas.width = 800;
+    diagramCanvas.height = 400;
+    const ctx = diagramCanvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#f9f9f9';
+    ctx.fillRect(0, 0, 800, 400);
+
+    // Left side: Parent buffer (768×768)
+    ctx.save();
+    ctx.translate(50, 50);
+
+    const scale = 300 / 768;
+    ctx.fillStyle = '#e0e0e0';
+    ctx.fillRect(0, 0, 768 * scale, 768 * scale);
+
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0, 0, 768 * scale, 768 * scale);
+
+    // Target region in parent
+    ctx.fillStyle = 'rgba(202, 71, 71, 0.2)';
+    ctx.fillRect(
+      targetOffset[0] * scale,
+      targetOffset[1] * scale,
+      256 * scale,
+      256 * scale
+    );
+    ctx.strokeStyle = '#ca4747';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(
+      targetOffset[0] * scale,
+      targetOffset[1] * scale,
+      256 * scale,
+      256 * scale
+    );
+
+    // Labels
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('Parent Buffer', 10, -10);
+    ctx.font = '12px sans-serif';
+    ctx.fillText('768×768 @ z-1', 10, -10 + 18);
+
+    ctx.fillStyle = '#ca4747';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(
+      'Target',
+      targetOffset[0] * scale + 5,
+      targetOffset[1] * scale + 20
+    );
+    ctx.font = '11px sans-serif';
+    ctx.fillText(
+      `[${targetOffset[0]}, ${targetOffset[1]}]`,
+      targetOffset[0] * scale + 5,
+      targetOffset[1] * scale + 35
+    );
+
+    ctx.restore();
+
+    // Arrow
+    ctx.fillStyle = '#666';
+    ctx.font = '20px sans-serif';
+    ctx.fillText('→', 370, 230);
+    ctx.font = '12px sans-serif';
+    ctx.fillText('×2 resolution', 350, 250);
+
+    // Right side: Target tile (512×512)
+    ctx.save();
+    ctx.translate(450, 50);
+
+    const targetScale = 300 / 512;
+    ctx.fillStyle = 'rgba(202, 71, 71, 0.3)';
+    ctx.fillRect(0, 0, 512 * targetScale, 512 * targetScale);
+
+    ctx.strokeStyle = '#ca4747';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, 512 * targetScale, 512 * targetScale);
+
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('Target Tile', 10, -10);
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`512×512 @ z${coords.z}`, 10, -10 + 18);
+
+    ctx.restore();
+
+    // Add sweep directions
+    ctx.save();
+    ctx.translate(50 + 768 * scale / 2, 50 + 768 * scale / 2);
+
+    const arrows = [
+      { dx: 1, dy: 0, label: 'E', color: '#e74c3c' },
+      { dx: -1, dy: 0, label: 'W', color: '#3498db' },
+      { dx: 0, dy: 1, label: 'S', color: '#2ecc71' },
+      { dx: 0, dy: -1, label: 'N', color: '#f39c12' }
+    ];
+
+    arrows.forEach(({ dx, dy, label, color }) => {
+      const len = 40;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(dx * len, dy * len);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText(label, dx * (len + 10) - 5, dy * (len + 10) + 5);
+    });
+
+    ctx.restore();
+
+    const container = html`<div>
+      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <strong>Coordinate Mapping & Sweep Directions</strong>
+      </div>
+      ${diagramCanvas}
+      <div style="margin-top: 8px; font-family: sans-serif; font-size: 12px; color: #888;">
+        Each sweep starts at the parent buffer edge, builds the horizon through parent terrain,
+        then continues through the target tile to compute ambient occlusion.
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="11" type="text/markdown">
+    ## 3. Raw Terrain Tile
+  </script>
+  <script id="12" type="module">
+    const targetTile = await getTerrainTile(coords);
+
+    const container = html`<div>
+      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        Mapbox Terrain RGB encoding: ${targetTile.width}×${targetTile.height}
+        (${targetTile.tileSize}×${targetTile.tileSize} + ${targetTile.buffer}px buffer)
+      </div>
+      ${targetTile.img}
+    </div>`;
+
+    display(container);
+    targetTile;
+  </script>
+  <script id="13" type="text/markdown">
+    ## 4. Decoded Elevations
+  </script>
+  <script id="14" type="module">
+    const imageData = readImageData(targetTile.img);
+    const elevations = decodeTerrainData(imageData);
+
+    // Visualize elevation data as heatmap
+    const canvas = document.createElement('canvas');
+    canvas.width = targetTile.tileSize;
+    canvas.height = targetTile.tileSize;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(targetTile.tileSize, targetTile.tileSize);
+
+    // Find min/max for normalization (loop to avoid stack overflow with spread operator)
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < elevations.length; i++) {
+      const v = elevations[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+
+    // Create heatmap (blue=low, red=high)
+    for (let y = 0; y < targetTile.tileSize; y++) {
+      for (let x = 0; x < targetTile.tileSize; x++) {
+        const srcIdx = (y + targetTile.buffer) * targetTile.width + (x + targetTile.buffer);
+        const dstIdx = y * targetTile.tileSize + x;
+        const normalized = (elevations[srcIdx] - min) / (max - min);
+
+        // Terrain color scheme
+        const r = Math.floor(normalized * 180 + 75);
+        const g = Math.floor(normalized * 140 + 80);
+        const b = Math.floor((1 - normalized) * 120 + 60);
+
+        imgData.data[dstIdx * 4] = r;
+        imgData.data[dstIdx * 4 + 1] = g;
+        imgData.data[dstIdx * 4 + 2] = b;
+        imgData.data[dstIdx * 4 + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const container = html`<div>
+      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        Elevation range: ${min.toFixed(1)}m to ${max.toFixed(1)}m
+      </div>
+      ${canvas}
+    </div>`;
+
+    display(container);
+
+    // Prepare buffered data for computation
+    const tileSize = 512;
+    const buffer = 1;
+    const bufferedSize = tileSize + 2 * buffer;
+    const bufferedData = new Float32Array(bufferedSize * bufferedSize);
+
+    // Copy target tile to center with edge replication
+    for (let y = 0; y < tileSize; y++) {
+      for (let x = 0; x < tileSize; x++) {
+        const srcIdx = (y + targetTile.buffer) * targetTile.width + (x + targetTile.buffer);
+        const dstIdx = (y + buffer) * bufferedSize + (x + buffer);
+        bufferedData[dstIdx] = elevations[srcIdx];
+      }
+    }
+
+    // Replicate edges (TODO: use parent tile data)
+    for (let x = 0; x < bufferedSize; x++) {
+      bufferedData[x] = bufferedData[bufferedSize + x];
+      bufferedData[(bufferedSize - 1) * bufferedSize + x] = bufferedData[(bufferedSize - 2) * bufferedSize + x];
+    }
+    for (let y = 0; y < bufferedSize; y++) {
+      bufferedData[y * bufferedSize] = bufferedData[y * bufferedSize + 1];
+      bufferedData[y * bufferedSize + (bufferedSize - 1)] = bufferedData[y * bufferedSize + (bufferedSize - 2)];
+    }
+
+    bufferedData;
+  </script>
+  <script id="15" type="text/markdown">
+    ## 5. WebGPU Pipeline Setup
+  </script>
+  <script id="16" type="module">
+    const { device, adapter } = await createWebGPUContext();
+
+    const info = html`<div style="font-family: monospace; font-size: 13px;">
+      <strong>WebGPU Context:</strong><br>
+      <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
+        <li>✓ Adapter acquired</li>
+        <li>✓ Device created</li>
+        <li>✓ Ready for compute operations</li>
+      </ul>
+    </div>`;
+
+    display(info);
+    invalidation.then(() => device.destroy());
+    device;
+  </script>
+  <script id="17" type="module">
+    const { pipeline, bindGroupLayout } = createLightingPipeline(device, {
+      tileSize: 512,
+      tileBuffer: 1
+    });
+
+    const info = html`<div style="font-family: monospace; font-size: 13px;">
+      <strong>Compute Pipeline:</strong><br>
+      <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
+        <li>✓ WGSL shader compiled</li>
+        <li>✓ Bind group layout created (3 bindings)</li>
+        <li>✓ Compute pipeline ready</li>
+        <li style="margin-top: 4px; color: #666;">→ Workgroup size: 16×16</li>
+        <li style="color: #666;">→ Algorithm: Normal-based directional lighting</li>
+      </ul>
+    </div>`;
+
+    display(info);
+    ({ pipeline, bindGroupLayout });
+  </script>
+  <script id="18" type="text/markdown">
+    ## 6. Computed Lighting
+  </script>
+  <script id="19" type="module">
+    const EARTH_CIRCUMFERENCE = 40075017;
+    const pixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
+
+    const result = await computeTileLighting({
+      device,
+      pipeline,
+      bindGroupLayout,
+      terrainData: bufferedData,
+      tileSize: 512,
+      pixelSize
+    });
+
+    // Compute stats without spread operator (avoid stack overflow)
+    let min = Infinity, max = -Infinity, sum = 0;
+    for (let i = 0; i < result.length; i++) {
+      const v = result[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+    }
+    const stats = { min, max, mean: sum / result.length };
+
+    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+      Lighting values: min=${stats.min.toFixed(3)}, max=${stats.max.toFixed(3)}, mean=${stats.mean.toFixed(3)}<br>
+      Pixel size: ${pixelSize.toFixed(3)}m (zoom ${coords.z})
+    </div>`;
+
+    display(info);
+    result;
+  </script>
+  <script id="20" type="module">
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(512, 512);
+
+    for (let i = 0; i < result.length; i++) {
+      const value = Math.floor(Math.min(Math.max(result[i], 0), 1) * 255);
+      imageData.data[i * 4] = value;
+      imageData.data[i * 4 + 1] = value;
+      imageData.data[i * 4 + 2] = value;
+      imageData.data[i * 4 + 3] = 255;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    const container = html`<div>
+      ${canvas}
+      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <em>Directional lighting from northwest at 45° elevation</em>
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="21" type="text/markdown">
+    ## 7. Line Sweep Ambient Occlusion (LSAO)
+
+    [Line-Sweep Ambient Occlusion](https://karim.naaji.fr/lsao.html) computes ambient occlusion by sweeping across terrain in multiple directions, tracking visible horizons on a convex hull stack. This provides more realistic shadowing than simple normal-based lighting.
+
+    **Algorithm overview:**
+    - Sweep in 4 cardinal directions: East, West, North, South
+    - Each GPU invocation processes one complete scanline (row or column)
+    - Maintain convex hull stack to track horizon visibility
+    - Compute occlusion based on elevation angle to visible horizon
+    - Accumulate contributions from all directions
+
+    Below shows the simplified single-tile implementation (edge replication for boundaries).
+  </script>
+  <script id="22" type="module">
+    const { pipeline: lsaoPipeline, bindGroupLayout: lsaoBindGroupLayout } = createSimpleLSAOPipeline(device, {
+      tileSize: 512,
+      tileBuffer: 1,
+      workgroupSize: 128
+    });
+
+    const info = html`<div style="font-family: monospace; font-size: 13px;">
+      <strong>LSAO Compute Pipeline:</strong><br>
+      <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
+        <li>✓ LSAO shader compiled</li>
+        <li>✓ Bind group layout created</li>
+        <li>✓ Pipeline ready for 4-direction sweep</li>
+        <li style="margin-top: 4px; color: #666;">→ Workgroup size: 128 (scanline parallelism)</li>
+        <li style="color: #666;">→ Algorithm: Line-sweep horizon tracking</li>
+      </ul>
+    </div>`;
+
+    display(info);
+    ({ lsaoPipeline, lsaoBindGroupLayout });
+  </script>
+  <script id="23" type="module">
+    const EARTH_CIRCUMFERENCE = 40075017;
+    const pixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
+
+    const startTime = performance.now();
+
+    const lsaoResult = await computeSimpleLSAO({
+      device,
+      pipeline: lsaoPipeline,
+      bindGroupLayout: lsaoBindGroupLayout,
+      terrainData: bufferedData,
+      tileSize: 512,
+      pixelSize,
+      workgroupSize: 128,
+      directions: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    });
+
+    const elapsed = performance.now() - startTime;
+
+    // Compute stats
+    let min = Infinity, max = -Infinity, sum = 0;
+    for (let i = 0; i < lsaoResult.length; i++) {
+      const v = lsaoResult[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+    }
+    const lsaoStats = { min, max, mean: sum / lsaoResult.length };
+
+    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+      LSAO values: min=${lsaoStats.min.toFixed(3)}, max=${lsaoStats.max.toFixed(3)}, mean=${lsaoStats.mean.toFixed(3)}<br>
+      Computation time: ${elapsed.toFixed(1)}ms (4 direction sweeps)<br>
+      Pixel size: ${pixelSize.toFixed(3)}m
+    </div>`;
+
+    display(info);
+    lsaoResult;
+  </script>
+  <script id="24" type="module">
+    // Display LSAO result (no normalization - values should be in [0,1] range)
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(512, 512);
+
+    for (let i = 0; i < lsaoResult.length; i++) {
+      // Clamp to [0, 1] and convert to grayscale
+      const value = Math.floor(Math.min(Math.max(lsaoResult[i], 0), 1) * 255);
+      imageData.data[i * 4] = value;
+      imageData.data[i * 4 + 1] = value;
+      imageData.data[i * 4 + 2] = value;
+      imageData.data[i * 4 + 3] = 255;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    const container = html`<div>
+      ${canvas}
+      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <em>Simple LSAO result (raw values, no normalization)</em>
+      </div>
+    </div>`;
+
+    display(container);
+    lsaoResult;
+  </script>
+  <script id="25" type="text/markdown">
+    ### LSAO Combined with Elevation
+
+    Multiply the ambient occlusion by normalized elevation to create a shaded relief map:
+  </script>
+  <script id="26" type="module">
+    // Compute elevation min/max from the elevations data
+    let elevMin = Infinity, elevMax = -Infinity;
+    for (let i = 0; i < elevations.length; i++) {
+      const v = elevations[i];
+      if (v < elevMin) elevMin = v;
+      if (v > elevMax) elevMax = v;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(512, 512);
+
+    for (let y = 0; y < 512; y++) {
+      for (let x = 0; x < 512; x++) {
+        const idx = y * 512 + x;
+        const srcIdx = (y + 1) * targetTile.width + (x + 1);
+
+        // Normalize elevation
+        const elevNorm = (elevations[srcIdx] - elevMin) / (elevMax - elevMin);
+
+        // Use raw AO value (should already be in [0,1])
+        const ao = Math.min(Math.max(lsaoResult[idx], 0), 1);
+
+        // Combine: AO × elevation with terrain coloring
+        const combined = elevNorm * ao;
+
+        // Terrain color scheme
+        const r = Math.floor(combined * 180 + 75);
+        const g = Math.floor(combined * 140 + 80);
+        const b = Math.floor((1 - combined) * 120 + 60);
+
+        imageData.data[idx * 4] = r;
+        imageData.data[idx * 4 + 1] = g;
+        imageData.data[idx * 4 + 2] = b;
+        imageData.data[idx * 4 + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    const container = html`<div>
+      ${canvas}
+      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <em>Shaded relief: LSAO × normalized elevation with terrain colors</em>
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="27" type="text/markdown">
+    ## 8. Final Lighting Map (RGB)
+
+    The final output combines surface normals and ambient occlusion into a single RGB image:
+
+    - **Red channel**: Surface normal Y component (fy = 0.5 + 0.5 × ny)
+    - **Green channel**: Ambient occlusion from LSAO
+    - **Blue channel**: Surface normal X component (fx = 0.5 - 0.5 × nx)
+
+    The normals are computed with physically-correct Web Mercator (EPSG:3857) scaling, accounting for latitude-dependent distortion. This allows the lighting map to be used for on-the-fly lighting during rendering.
+  </script>
+  <script id="28" type="module">
+    const { pipeline: normalPipeline, bindGroupLayout: normalBindGroupLayout } = createNormalMapPipeline(device, {
+      tileSize: 512,
+      tileBuffer: 1
+    });
+
+    const info = html`<div style="font-family: monospace; font-size: 13px;">
+      <strong>Normal Map Pipeline:</strong><br>
+      <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
+        <li>✓ Normal map shader compiled</li>
+        <li>✓ Web Mercator distortion correction enabled</li>
+        <li>✓ Physically-correct normal vectors</li>
+        <li style="margin-top: 4px; color: #666;">→ Workgroup size: 16×16</li>
+        <li style="color: #666;">→ Output: RGB (R=ny, G=reserved, B=nx)</li>
+      </ul>
+    </div>`;
+
+    display(info);
+    ({ normalPipeline, normalBindGroupLayout });
+  </script>
+  <script id="29" type="module">
+    // Compute normal map
+    const normalMapData = await computeNormalMap({
+      device,
+      pipeline: normalPipeline,
+      bindGroupLayout: normalBindGroupLayout,
+      terrainData: bufferedData,
+      tileX: coords.x,
+      tileY: coords.y,
+      tileZ: coords.z,
+      tileSize: 512
+    });
+
+    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+      Normal map computed (${normalMapData.length / 4} pixels, vec3 per pixel with 16-byte alignment)
+    </div>`;
+
+    display(info);
+    normalMapData;
+  </script>
+  <script id="30" type="module">
+    // Combine normals (R/B) with LSAO (G) into final RGB image
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(512, 512);
+
+    // Normalize AO to [0, 1]
+    for (let i = 0; i < 512 * 512; i++) {
+      const aoNorm = (lsaoResult[i] - lsaoStats.min) / (lsaoStats.max - lsaoStats.min);
+
+      // normalMapData has vec3<f32> with 16-byte alignment (stride = 4 floats)
+      const r = normalMapData[i * 4 + 0];      // fy (ny component)
+      const b = normalMapData[i * 4 + 2];      // fx (nx component)
+      const g = aoNorm;                         // AO
+
+      imageData.data[i * 4 + 0] = Math.floor(Math.min(Math.max(r, 0), 1) * 255);
+      imageData.data[i * 4 + 1] = Math.floor(Math.min(Math.max(g, 0), 1) * 255);
+      imageData.data[i * 4 + 2] = Math.floor(Math.min(Math.max(b, 0), 1) * 255);
+      imageData.data[i * 4 + 3] = 255;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    const container = html`<div>
+      ${canvas}
+      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <strong>Final Lighting Map</strong><br>
+        R: Normal Y (fy = 0.5 + 0.5×ny) | G: Ambient Occlusion | B: Normal X (fx = 0.5 - 0.5×nx)
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="31" type="text/markdown">
+    ### Channel Breakdown
+
+    Below shows each channel individually for inspection:
+  </script>
+  <script id="32" type="module">
+    const canvases = [];
+
+    // Red channel (ny) - stride is 4 floats due to vec3 alignment
+    const canvasR = document.createElement('canvas');
+    canvasR.width = 512;
+    canvasR.height = 512;
+    let ctx = canvasR.getContext('2d');
+    let imgData = ctx.createImageData(512, 512);
+    for (let i = 0; i < 512 * 512; i++) {
+      const val = Math.floor(normalMapData[i * 4 + 0] * 255);
+      imgData.data[i * 4 + 0] = val;
+      imgData.data[i * 4 + 1] = val;
+      imgData.data[i * 4 + 2] = val;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // Green channel (AO)
+    const canvasG = document.createElement('canvas');
+    canvasG.width = 512;
+    canvasG.height = 512;
+    ctx = canvasG.getContext('2d');
+    imgData = ctx.createImageData(512, 512);
+    for (let i = 0; i < 512 * 512; i++) {
+      const aoNorm = (lsaoResult[i] - lsaoStats.min) / (lsaoStats.max - lsaoStats.min);
+      const val = Math.floor(aoNorm * 255);
+      imgData.data[i * 4 + 0] = val;
+      imgData.data[i * 4 + 1] = val;
+      imgData.data[i * 4 + 2] = val;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // Blue channel (nx) - stride is 4 floats due to vec3 alignment
+    const canvasB = document.createElement('canvas');
+    canvasB.width = 512;
+    canvasB.height = 512;
+    ctx = canvasB.getContext('2d');
+    imgData = ctx.createImageData(512, 512);
+    for (let i = 0; i < 512 * 512; i++) {
+      const val = Math.floor(normalMapData[i * 4 + 2] * 255);
+      imgData.data[i * 4 + 0] = val;
+      imgData.data[i * 4 + 1] = val;
+      imgData.data[i * 4 + 2] = val;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const container = html`<div>
+      <div>
+        ${canvasR}
+        <div style="margin-top: 4px; font-family: sans-serif; font-size: 12px; color: #e74c3c; text-align: center;">
+          <strong>Red Channel</strong><br>
+          Normal Y (fy)
+        </div>
+      </div>
+      <div>
+        ${canvasG}
+        <div style="margin-top: 4px; font-family: sans-serif; font-size: 12px; color: #27ae60; text-align: center;">
+          <strong>Green Channel</strong><br>
+          Ambient Occlusion
+        </div>
+      </div>
+      <div>
+        ${canvasB}
+        <div style="margin-top: 4px; font-family: sans-serif; font-size: 12px; color: #3498db; text-align: center;">
+          <strong>Blue Channel</strong><br>
+          Normal X (fx)
+        </div>
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="33" type="text/markdown">
+    ## 7. Synthetic Test: Validating Multi-Level LSAO
+
+    Before testing on real terrain, let's validate the implementation with synthetic data where we know the expected behavior.
+
+    **Test setup:**
+    - Target tile: Flat at elevation 0
+    - West parent region: Elevated ridge (z=100) that should cast a shadow
+    - Expected result: West edge of target should show occlusion in multi-level LSAO
+  </script>
+  <script id="33a" type="module">
+    // Create synthetic test data
+    function createSyntheticTarget(size) {
+      const data = new Float32Array(size * size);
+      // Flat terrain at z=0
+      data.fill(0);
+      return data;
+    }
+
+    function createSyntheticParent768() {
+      const size = 768;
+      const data = new Float32Array(size * size);
+
+      // Parent buffer covers normalized space [-1, 2] x [-1, 2]
+      // Target is at [0, 1] x [0, 1]
+      // Target center in parent buffer is at pixel (384, 384)
+      // Target occupies pixels [128, 640) in parent buffer
+
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          // Create elevated terrain to the west (x < 128)
+          if (x < 128) {
+            // Elevated ridge at z=100
+            data[y * size + x] = 100;
+          } else if (x < 256) {
+            // Ramp down from ridge to target
+            const t = (x - 128) / 128;
+            data[y * size + x] = 100 * (1 - t);
+          } else {
+            // Flat at z=0 (target and east)
+            data[y * size + x] = 0;
+          }
+        }
+      }
+      return data;
+    }
+
+    const syntheticTarget = createSyntheticTarget(514);
+    const syntheticParent = createSyntheticParent768();
+
+    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
+      ✓ Created synthetic test data<br>
+      • Target: 514×514 flat terrain (z=0)<br>
+      • Parent: 768×768 with elevated ridge to west (z=100)
+    </div>`);
+
+    ({ syntheticTarget, syntheticParent });
+  </script>
+  <script id="33a2" type="module">
+    // Visualize synthetic terrain
+    const canvas = document.createElement('canvas');
+    canvas.width = 768;
+    canvas.height = 200; // Show slice through middle
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(768, 200);
+
+    // Show parent buffer terrain (top 200 rows)
+    for (let y = 0; y < 200; y++) {
+      for (let x = 0; x < 768; x++) {
+        const z = syntheticParent[y * 768 + x];
+        const normalized = z / 100; // Scale 0-100 to 0-1
+        const gray = Math.floor(normalized * 255);
+
+        imageData.data[(y * 768 + x) * 4] = gray;
+        imageData.data[(y * 768 + x) * 4 + 1] = gray;
+        imageData.data[(y * 768 + x) * 4 + 2] = gray;
+        imageData.data[(y * 768 + x) * 4 + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    // Draw target region boundary
+    ctx.strokeStyle = '#ca4747';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(128, 0, 512, 200); // Target region in parent buffer
+
+    display(html`<div>
+      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <strong>Parent Buffer Terrain</strong> (768×768, showing top 200 rows)<br>
+        White = elevated (z=100), Black = flat (z=0), Red box = target tile region
+      </div>
+      ${canvas}
+    </div>`);
+  </script>
+  <script id="33b" type="module">
+    // Run simple LSAO on synthetic data (imports already in cell 2)
+    const { pipeline: synthSimplePipeline, bindGroupLayout: synthSimpleBindGroup } = createSimpleLSAOPipeline(device, {
+      tileSize: 512,
+      tileBuffer: 1,
+      workgroupSize: 128
+    });
+
+    const synthSimpleResult = await computeSimpleLSAO({
+      device,
+      pipeline: synthSimplePipeline,
+      bindGroupLayout: synthSimpleBindGroup,
+      terrainData: syntheticTarget,
+      tileSize: 512,
+      pixelSize: 19.1,
+      workgroupSize: 128,
+      directions: [[1, 0]] // Just east sweep to test west edge
+    });
+
+    // Check west edge values
+    let westEdgeSum = 0;
+    for (let y = 0; y < 512; y++) {
+      westEdgeSum += synthSimpleResult[y * 512]; // x=0 (west edge)
+    }
+    const westEdgeMean = westEdgeSum / 512;
+
+    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666;">
+      <strong>Simple LSAO (no parent data):</strong><br>
+      West edge mean: ${westEdgeMean.toFixed(4)}<br>
+      <em>Should be ~1.0 (no occlusion) since it can't see the elevated parent terrain</em>
+    </div>`);
+
+    // Visualize simple LSAO result
+    const canvasSimple = document.createElement('canvas');
+    canvasSimple.width = 512;
+    canvasSimple.height = 200;
+    const ctxSimple = canvasSimple.getContext('2d');
+    const imgSimple = ctxSimple.createImageData(512, 200);
+
+    for (let y = 0; y < 200; y++) {
+      for (let x = 0; x < 512; x++) {
+        const value = Math.floor(synthSimpleResult[y * 512 + x] * 255);
+        imgSimple.data[(y * 512 + x) * 4] = value;
+        imgSimple.data[(y * 512 + x) * 4 + 1] = value;
+        imgSimple.data[(y * 512 + x) * 4 + 2] = value;
+        imgSimple.data[(y * 512 + x) * 4 + 3] = 255;
+      }
+    }
+
+    ctxSimple.putImageData(imgSimple, 0, 0);
+    display(canvasSimple);
+
+    synthSimpleResult;
+  </script>
+  <script id="33c" type="module">
+    // Run multi-level LSAO on synthetic data
+    const synthLevelInfo = [calculateLevelInfo(-1, 512)];
+
+    const { pipeline: synthMultiPipeline, bindGroupLayout: synthMultiBindGroup } = createLSAOPipeline(device, {
+      tileSize: 512,
+      tileBuffer: 1,
+      numLevels: 1,
+      workgroupSize: 128
+    });
+
+    const synthMultiResult = await computeLSAO({
+      device,
+      pipeline: synthMultiPipeline,
+      bindGroupLayout: synthMultiBindGroup,
+      targetData: syntheticTarget,
+      parentLevels: [syntheticParent],
+      levelInfo: synthLevelInfo,
+      tileSize: 512,
+      pixelSize: 19.1,
+      workgroupSize: 128,
+      directions: [[1, 0]] // Just east sweep to test west edge
+    });
+
+    // Check west edge values
+    let westEdgeSum = 0;
+    for (let y = 0; y < 512; y++) {
+      westEdgeSum += synthMultiResult[y * 512]; // x=0 (west edge)
+    }
+    const westEdgeMean = westEdgeSum / 512;
+
+    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666;">
+      <strong>Multi-Level LSAO (with parent data):</strong><br>
+      West edge mean: ${westEdgeMean.toFixed(4)}<br>
+      <em>Should be significantly &lt; 1.0 (strong occlusion from elevated ridge)</em>
+    </div>`);
+
+    // Visualize multi-level LSAO result
+    const canvasMulti = document.createElement('canvas');
+    canvasMulti.width = 512;
+    canvasMulti.height = 200;
+    const ctxMulti = canvasMulti.getContext('2d');
+    const imgMulti = ctxMulti.createImageData(512, 200);
+
+    for (let y = 0; y < 200; y++) {
+      for (let x = 0; x < 512; x++) {
+        const value = Math.floor(synthMultiResult[y * 512 + x] * 255);
+        imgMulti.data[(y * 512 + x) * 4] = value;
+        imgMulti.data[(y * 512 + x) * 4 + 1] = value;
+        imgMulti.data[(y * 512 + x) * 4 + 2] = value;
+        imgMulti.data[(y * 512 + x) * 4 + 3] = 255;
+      }
+    }
+
+    ctxMulti.putImageData(imgMulti, 0, 0);
+    display(canvasMulti);
+
+    synthMultiResult;
+  </script>
+  <script id="33d" type="module">
+    // Visualize synthetic test results
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 100; // Just show top portion
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(512, 100);
+
+    // Show difference (multi - simple) amplified
+    for (let y = 0; y < 100; y++) {
+      for (let x = 0; x < 512; x++) {
+        const idx = y * 512 + x;
+        const diff = synthSimpleResult[idx] - synthMultiResult[idx];
+        // Red = multi has MORE occlusion (lower value), which is expected on west edge
+        const r = Math.floor(Math.min(Math.max(diff * 2, 0), 1) * 255);
+        // Blue = multi has LESS occlusion (higher value)
+        const b = Math.floor(Math.min(Math.max(-diff * 2, 0), 1) * 255);
+
+        imageData.data[idx * 4] = r;
+        imageData.data[idx * 4 + 1] = 0;
+        imageData.data[idx * 4 + 2] = b;
+        imageData.data[idx * 4 + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    display(html`<div>
+      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <strong>Difference Map (Simple - Multi)</strong> - Top 100 rows<br>
+        <span style="color: #e74c3c;">■</span> Red = Multi-level shows MORE shadow (correct)<br>
+        <span style="color: #3498db;">■</span> Blue = Multi-level shows LESS shadow (incorrect)
+      </div>
+      ${canvas}
+      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <strong>Expected:</strong> West edge (left) should be RED (multi-level sees elevated parent terrain)<br>
+        <strong>If blue on west edge:</strong> Bug - multi-level is not correctly sampling parent data
+      </div>
+    </div>`);
+  </script>
+  <script id="34" type="text/markdown">
+    ## 8. Multi-Level LSAO with Real Terrain
+
+    Now test with actual Mapbox terrain data:
+  </script>
+  <script id="34a" type="module">
+    const numLevelsInput = Inputs.range([1, 3], {
+      value: 2,
+      step: 1,
+      label: "Number of parent levels",
+    });
+
+    const numLevels = view(numLevelsInput);
+    numLevels;
+  </script>
+  <script id="35" type="module">
+    import { getParentTilesAtLevel, assembleParentTileBufferMultiLevel } from './terrain/data/parent-tile-assembly-multi-level.js';
+
+    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
+      <strong>Fetching parent tiles for ${numLevels} level${numLevels > 1 ? 's' : ''}...</strong>
+    </div>`);
+
+    // Fetch parent tiles for each level
+    const parentLevelsData = [];
+    const levelInfo = [];
+
+    for (let i = 1; i <= numLevels; i++) {
+      const deltaZ = -i;
+      const parentTileCoords = getParentTilesAtLevel(coords, deltaZ);
+
+      const parentTiles = [];
+      for (const tileCoords of parentTileCoords) {
+        const tile = await getTerrainTile(tileCoords);
+        const imageData = readImageData(tile.img);
+        const elevations = decodeTerrainData(imageData);
+        parentTiles.push({
+          data: elevations,
+          width: tile.width,
+          height: tile.height,
+          tileSize: tile.tileSize,
+          role: tileCoords.role
+        });
+      }
+
+      // Assemble this level's parent buffer
+      const assembled = assembleParentTileBufferMultiLevel({
+        targetTile: coords,
+        parentTiles,
+        deltaZ,
+        tileSize: 512
+      });
+
+      parentLevelsData.push(assembled.buffer);
+      levelInfo.push(calculateLevelInfo(deltaZ, 512));
+    }
+
+    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
+      ✓ Assembled ${numLevels} parent level${numLevels > 1 ? 's' : ''}:<br>
+      ${levelInfo.map((info, i) => html`
+        <span style="margin-left: 12px;">• Level ${i}: ${info.bufferSize}×${info.bufferSize} (Δz=${-(i+1)})</span><br>
+      `)}
+    </div>`);
+
+    ({ parentLevelsData, levelInfo });
+  </script>
+  <script id="36" type="module">
+    // Create multi-level LSAO pipeline
+    const { pipeline: multiLevelPipeline, bindGroupLayout: multiLevelBindGroupLayout } = createLSAOPipeline(device, {
+      tileSize: 512,
+      tileBuffer: 1,
+      numLevels,
+      workgroupSize: 128
+    });
+
+    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
+      ✓ Created multi-level LSAO pipeline (${numLevels} levels)
+    </div>`);
+
+    ({ multiLevelPipeline, multiLevelBindGroupLayout });
+  </script>
+  <script id="37" type="module">
+    // Compute multi-level LSAO
+    const EARTH_CIRCUMFERENCE = 40075017;
+    const pixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
+
+    const startTime = performance.now();
+
+    const multiLevelResult = await computeLSAO({
+      device,
+      pipeline: multiLevelPipeline,
+      bindGroupLayout: multiLevelBindGroupLayout,
+      targetData: bufferedData,
+      parentLevels: parentLevelsData,
+      levelInfo,
+      tileSize: 512,
+      pixelSize,
+      workgroupSize: 128,
+      directions: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    });
+
+    const elapsed = performance.now() - startTime;
+
+    // Compute stats
+    let min = Infinity, max = -Infinity, sum = 0;
+    for (let i = 0; i < multiLevelResult.length; i++) {
+      const v = multiLevelResult[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+    }
+    const multiLevelStats = { min, max, mean: sum / multiLevelResult.length };
+
+    // Calculate how different this is from simple LSAO
+    let totalDiff = 0;
+    let maxDiff = 0;
+    for (let i = 0; i < multiLevelResult.length; i++) {
+      const diff = Math.abs(multiLevelResult[i] - lsaoResult[i]);
+      totalDiff += diff;
+      maxDiff = Math.max(maxDiff, diff);
+    }
+    const meanDiff = totalDiff / multiLevelResult.length;
+    const meanDiffPercent = (meanDiff / lsaoStats.mean) * 100;
+
+    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+      <strong>Multi-Level LSAO Results:</strong><br>
+      Values: min=${multiLevelStats.min.toFixed(3)}, max=${multiLevelStats.max.toFixed(3)}, mean=${multiLevelStats.mean.toFixed(3)}<br>
+      Computation time: ${elapsed.toFixed(1)}ms (4 direction sweeps × ${numLevels} level${numLevels > 1 ? 's' : ''})<br>
+      Status: ${min >= 0 && max <= 1.1 ? '✓ Values in expected range' : '⚠️ Values outside expected range'}<br>
+      <br>
+      <strong>Comparison to Simple LSAO:</strong><br>
+      Simple LSAO mean: ${lsaoStats.mean.toFixed(3)}<br>
+      Mean difference: ${meanDiff.toFixed(4)} (${meanDiffPercent.toFixed(1)}%)<br>
+      Max difference: ${maxDiff.toFixed(4)}<br>
+      ${meanDiffPercent > 10 ? '<span style="color: #ca4747;">⚠️ Large difference suggests possible bug</span>' : '<span style="color: #27ae60;">✓ Difference within expected range</span>'}
+    </div>`;
+
+    display(info);
+    ({ multiLevelResult, multiLevelStats });
+  </script>
+  <script id="38" type="module">
+    // Visualize multi-level LSAO result (no normalization)
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(512, 512);
+
+    for (let i = 0; i < multiLevelResult.length; i++) {
+      // Clamp to [0, 1] and convert to grayscale
+      const value = Math.floor(Math.min(Math.max(multiLevelResult[i], 0), 1) * 255);
+      imageData.data[i * 4] = value;
+      imageData.data[i * 4 + 1] = value;
+      imageData.data[i * 4 + 2] = value;
+      imageData.data[i * 4 + 3] = 255;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    const container = html`<div>
+      ${canvas}
+      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+        <em>Multi-level LSAO result (${numLevels} parent level${numLevels > 1 ? 's' : ''}, raw values, no normalization)</em><br>
+        <strong>Benefit:</strong> Parent tiles provide proper horizon initialization, eliminating boundary artifacts
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="39" type="text/markdown">
+    ### Comparison: Simple vs Multi-Level LSAO
+
+    Compare the results side-by-side to see the improvement from using parent tile data:
+  </script>
+  <script id="40" type="module">
+    // Create comparison (no normalization - use raw values)
+    const canvasSimple = document.createElement('canvas');
+    canvasSimple.width = 512;
+    canvasSimple.height = 512;
+    let ctx = canvasSimple.getContext('2d');
+    let imgData = ctx.createImageData(512, 512);
+
+    // Simple LSAO - raw values
+    for (let i = 0; i < lsaoResult.length; i++) {
+      const value = Math.floor(Math.min(Math.max(lsaoResult[i], 0), 1) * 255);
+      imgData.data[i * 4] = value;
+      imgData.data[i * 4 + 1] = value;
+      imgData.data[i * 4 + 2] = value;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const canvasMulti = document.createElement('canvas');
+    canvasMulti.width = 512;
+    canvasMulti.height = 512;
+    ctx = canvasMulti.getContext('2d');
+    imgData = ctx.createImageData(512, 512);
+
+    // Multi-level LSAO - raw values
+    for (let i = 0; i < multiLevelResult.length; i++) {
+      const value = Math.floor(Math.min(Math.max(multiLevelResult[i], 0), 1) * 255);
+      imgData.data[i * 4] = value;
+      imgData.data[i * 4 + 1] = value;
+      imgData.data[i * 4 + 2] = value;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // Create difference map
+    const canvasDiff = document.createElement('canvas');
+    canvasDiff.width = 512;
+    canvasDiff.height = 512;
+    ctx = canvasDiff.getContext('2d');
+    imgData = ctx.createImageData(512, 512);
+
+    for (let i = 0; i < lsaoResult.length; i++) {
+      const diff = Math.abs(multiLevelResult[i] - lsaoResult[i]);
+      const value = Math.floor(diff * 512); // Amplify differences for visibility
+      imgData.data[i * 4] = Math.min(value, 255);
+      imgData.data[i * 4 + 1] = Math.min(value, 255);
+      imgData.data[i * 4 + 2] = Math.min(value, 255);
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const container = html`<div style="display: flex; flex-direction: column; gap: 24px;">
+      <div>
+        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+          <strong>Simple LSAO</strong> (target tile only)
+        </div>
+        ${canvasSimple}
+      </div>
+      <div>
+        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+          <strong>Multi-Level LSAO</strong> (${numLevels} parent level${numLevels > 1 ? 's' : ''})
+        </div>
+        ${canvasMulti}
+      </div>
+      <div>
+        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+          <strong>Difference (×2)</strong> - Edge improvements highlighted
+        </div>
+        ${canvasDiff}
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="40a" type="text/markdown">
+    ## 9. CPU vs GPU Validation
+
+    To validate our GPU shader implementations, we've created CPU reference implementations that exactly match the shader logic. This allows us to debug the algorithms more easily and verify correctness.
+
+    Below, we compare CPU and GPU results for both simple and multi-level LSAO:
+  </script>
+  <script id="40b" type="module">
+    // Run simple LSAO on CPU
+    const cpuStartTime = performance.now();
+
+    // Calculate pixelSize locally to avoid ambiguity
+    const EARTH_CIRCUMFERENCE = 40075017;
+    const cpuPixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
+
+    const cpuSimpleResult = computeSimpleLSAOCPU({
+      terrainData: bufferedData,
+      tileSize: 512,
+      pixelSize: cpuPixelSize,
+      directions: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    });
+
+    const cpuElapsed = performance.now() - cpuStartTime;
+
+    // Compute stats
+    let min = Infinity, max = -Infinity, sum = 0;
+    for (let i = 0; i < cpuSimpleResult.length; i++) {
+      const v = cpuSimpleResult[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+    }
+    const cpuStats = { min, max, mean: sum / cpuSimpleResult.length };
+
+    // Compare with GPU result
+    let totalDiff = 0;
+    let maxDiff = 0;
+    let diffCount = 0;
+    for (let i = 0; i < cpuSimpleResult.length; i++) {
+      const diff = Math.abs(cpuSimpleResult[i] - lsaoResult[i]);
+      totalDiff += diff;
+      maxDiff = Math.max(maxDiff, diff);
+      if (diff > 0.001) diffCount++;
+    }
+    const meanDiff = totalDiff / cpuSimpleResult.length;
+
+    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+      <strong>Simple LSAO - CPU Implementation:</strong><br>
+      Values: min=${cpuStats.min.toFixed(3)}, max=${cpuStats.max.toFixed(3)}, mean=${cpuStats.mean.toFixed(3)}<br>
+      Computation time: ${cpuElapsed.toFixed(1)}ms<br>
+      <br>
+      <strong>CPU vs GPU Comparison:</strong><br>
+      Mean absolute difference: ${meanDiff.toFixed(6)}<br>
+      Max absolute difference: ${maxDiff.toFixed(6)}<br>
+      Pixels with diff > 0.001: ${diffCount} (${(diffCount / cpuSimpleResult.length * 100).toFixed(2)}%)<br>
+      ${meanDiff < 0.0001 ? '<span style="color: #27ae60;">✓ Excellent match - implementations are equivalent</span>' :
+        meanDiff < 0.001 ? '<span style="color: #f39c12;">⚠️ Small differences - likely floating-point precision</span>' :
+        '<span style="color: #ca4747;">⚠️ Large differences - possible bug!</span>'}
+    </div>`;
+
+    display(info);
+    cpuSimpleResult;
+  </script>
+  <script id="40c" type="module">
+    // Visualize CPU result and difference map
+    const canvasCPU = document.createElement('canvas');
+    canvasCPU.width = 512;
+    canvasCPU.height = 512;
+    let ctx = canvasCPU.getContext('2d');
+    let imgData = ctx.createImageData(512, 512);
+
+    for (let i = 0; i < cpuSimpleResult.length; i++) {
+      const value = Math.floor(Math.min(Math.max(cpuSimpleResult[i], 0), 1) * 255);
+      imgData.data[i * 4] = value;
+      imgData.data[i * 4 + 1] = value;
+      imgData.data[i * 4 + 2] = value;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // Create difference map (amplified)
+    const canvasDiff = document.createElement('canvas');
+    canvasDiff.width = 512;
+    canvasDiff.height = 512;
+    ctx = canvasDiff.getContext('2d');
+    imgData = ctx.createImageData(512, 512);
+
+    for (let i = 0; i < cpuSimpleResult.length; i++) {
+      const diff = Math.abs(cpuSimpleResult[i] - lsaoResult[i]);
+      // Amplify differences for visibility (×1000)
+      const value = Math.floor(Math.min(diff * 1000, 1) * 255);
+      imgData.data[i * 4] = value;
+      imgData.data[i * 4 + 1] = value;
+      imgData.data[i * 4 + 2] = value;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const container = html`<div style="display: flex; flex-direction: column; gap: 24px;">
+      <div>
+        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+          <strong>CPU Result</strong>
+        </div>
+        ${canvasCPU}
+      </div>
+      <div>
+        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+          <strong>Absolute Difference (×1000)</strong> - White = larger difference
+        </div>
+        ${canvasDiff}
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="40d" type="module">
+    // Run multi-level LSAO on CPU
+    const cpuMultiStartTime = performance.now();
+
+    // Calculate pixelSize locally to avoid ambiguity
+    const EARTH_CIRCUMFERENCE = 40075017;
+    const cpuMultiPixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
+
+    const cpuMultiResult = computeLSAOCPU({
+      targetData: bufferedData,
+      parentLevels: parentLevelsData,
+      levelInfo,
+      tileSize: 512,
+      pixelSize: cpuMultiPixelSize,
+      directions: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    });
+
+    const cpuMultiElapsed = performance.now() - cpuMultiStartTime;
+
+    // Compute stats
+    let min = Infinity, max = -Infinity, sum = 0;
+    for (let i = 0; i < cpuMultiResult.length; i++) {
+      const v = cpuMultiResult[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+    }
+    const cpuMultiStats = { min, max, mean: sum / cpuMultiResult.length };
+
+    // Compare with GPU result
+    let totalDiff = 0;
+    let maxDiff = 0;
+    let diffCount = 0;
+    for (let i = 0; i < cpuMultiResult.length; i++) {
+      const diff = Math.abs(cpuMultiResult[i] - multiLevelResult[i]);
+      totalDiff += diff;
+      maxDiff = Math.max(maxDiff, diff);
+      if (diff > 0.001) diffCount++;
+    }
+    const meanDiff = totalDiff / cpuMultiResult.length;
+
+    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+      <strong>Multi-Level LSAO - CPU Implementation (${numLevels} levels):</strong><br>
+      Values: min=${cpuMultiStats.min.toFixed(3)}, max=${cpuMultiStats.max.toFixed(3)}, mean=${cpuMultiStats.mean.toFixed(3)}<br>
+      Computation time: ${cpuMultiElapsed.toFixed(1)}ms<br>
+      <br>
+      <strong>CPU vs GPU Comparison:</strong><br>
+      Mean absolute difference: ${meanDiff.toFixed(6)}<br>
+      Max absolute difference: ${maxDiff.toFixed(6)}<br>
+      Pixels with diff > 0.001: ${diffCount} (${(diffCount / cpuMultiResult.length * 100).toFixed(2)}%)<br>
+      ${meanDiff < 0.0001 ? '<span style="color: #27ae60;">✓ Excellent match - implementations are equivalent</span>' :
+        meanDiff < 0.001 ? '<span style="color: #f39c12;">⚠️ Small differences - likely floating-point precision</span>' :
+        '<span style="color: #ca4747;">⚠️ Large differences - possible bug!</span>'}
+    </div>`;
+
+    display(info);
+    cpuMultiResult;
+  </script>
+  <script id="40e" type="module">
+    // Visualize CPU multi-level result and difference map
+    const canvasCPU = document.createElement('canvas');
+    canvasCPU.width = 512;
+    canvasCPU.height = 512;
+    let ctx = canvasCPU.getContext('2d');
+    let imgData = ctx.createImageData(512, 512);
+
+    for (let i = 0; i < cpuMultiResult.length; i++) {
+      const value = Math.floor(Math.min(Math.max(cpuMultiResult[i], 0), 1) * 255);
+      imgData.data[i * 4] = value;
+      imgData.data[i * 4 + 1] = value;
+      imgData.data[i * 4 + 2] = value;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // Create difference map (amplified)
+    const canvasDiff = document.createElement('canvas');
+    canvasDiff.width = 512;
+    canvasDiff.height = 512;
+    ctx = canvasDiff.getContext('2d');
+    imgData = ctx.createImageData(512, 512);
+
+    for (let i = 0; i < cpuMultiResult.length; i++) {
+      const diff = Math.abs(cpuMultiResult[i] - multiLevelResult[i]);
+      // Amplify differences for visibility (×1000)
+      const value = Math.floor(Math.min(diff * 1000, 1) * 255);
+      imgData.data[i * 4] = value;
+      imgData.data[i * 4 + 1] = value;
+      imgData.data[i * 4 + 2] = value;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const container = html`<div style="display: flex; flex-direction: column; gap: 24px;">
+      <div>
+        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+          <strong>CPU Result (${numLevels} levels)</strong>
+        </div>
+        ${canvasCPU}
+      </div>
+      <div>
+        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
+          <strong>Absolute Difference (×1000)</strong> - White = larger difference
+        </div>
+        ${canvasDiff}
+      </div>
+    </div>`;
+
+    display(container);
+  </script>
+  <script id="40f" type="text/markdown">
+    ### Performance Comparison
+
+    The CPU implementations are much slower than GPU (typically 100-1000× slower), but they serve an important role:
+
+    - **Debugging**: Easier to step through and debug algorithm logic
+    - **Validation**: Verify GPU shader correctness by comparing outputs
+    - **Reference**: Canonical implementation for testing edge cases
+
+    The small floating-point differences between CPU and GPU are expected due to:
+    - Different floating-point precision (CPU uses double precision in some calculations, GPU uses single precision)
+    - Different order of operations (GPU parallelism vs CPU sequential)
+    - Different rounding modes
+
+    As long as the mean difference is < 0.001, the implementations are considered equivalent.
+  </script>
+  <script id="41" type="text/markdown">
+    ## Summary
+
+    This notebook demonstrates the complete hierarchical terrain lighting pipeline:
+
+    - **Tile Hierarchy**: Identifies parent tiles needed for boundary data
+    - **Multi-Level Parent Assembly**: Configurable parent levels (Δz = -1 to -4) for extended coverage
+    - **Tile Fetching**: Retrieves Mapbox terrain tiles with RGB elevation encoding
+    - **Data Decoding**: Converts RGB values to elevation in meters
+    - **WebGPU Compute**: GPU-accelerated normal calculation and lighting
+    - **Simple LSAO**: Line-sweep ambient occlusion with 4-direction sweeps (target tile only)
+    - **Multi-Level LSAO**: Advanced LSAO with 1-3 parent levels for seamless boundaries
+    - **Normal Map**: Physically-correct surface normals with Web Mercator scaling
+    - **Final Output**: RGB lighting map (R=ny, G=AO, B=nx) for on-the-fly rendering
+    - **LRU Caching**: Manages tile data and GPU buffers efficiently
+
+    ### Key Innovation: Multi-Level LSAO
+
+    The multi-level LSAO implementation extends the horizon visibility stack beyond tile boundaries by:
+    - Using normalized coordinates (target at 0,0 to 1,1)
+    - Sampling from parent tiles with bilinear interpolation
+    - Progressive horizon initialization from coarsest to finest level
+    - Supporting configurable 1-4 parent levels
+
+    This eliminates boundary artifacts and enables seamless multi-tile terrain rendering.
+
+    The infrastructure supports both browser and Node.js environments with platform-specific implementations. Lighting maps can be compressed as WebP and served as tiles for real-time terrain rendering.
+  </script>
+</notebook>

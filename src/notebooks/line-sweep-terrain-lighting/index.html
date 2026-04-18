@@ -1,1603 +1,2433 @@
 <!doctype html>
 <notebook theme="air">
-  <title>Line Sweep Terrain Lighting with WebGPU</title>
-  <script id="1" type="text/markdown">
-    # Line Sweep Terrain Lighting with WebGPU
+  <title>Line Sweep Terrain Lighting</title>
 
-    Hierarchical terrain lighting using WebGPU compute shaders. This demonstrates the complete pipeline from tile fetching through parent buffer assembly to GPU-accelerated LSAO computation.
+  <script id="intro" type="text/markdown">
+    # Line-Sweep Terrain Lighting
 
-    Below, you'll see each stage of the implementation:
-    1. **Tile Hierarchy** - Parent tiles needed for boundary data
-    2. **Parent Tile Assembly** - 768×768 buffer for horizon initialization
-    3. **Raw Terrain Tile** - Original Mapbox terrain image
-    4. **Decoded Elevations** - Height map visualization
-    5. **WebGPU Pipeline** - Shader compilation and setup
-    6. **Computed Lighting** - Final shaded result with LSAO
+    Lighting is often a pretty expensive computation in computer graphics. Diffuse shading is simple, but effects like shadowing and ambient occlusion add significant cost and complexity. This post walks through a simple algorithm for heightfield shading. It's definitely not novel, but the devil is really in the details here.
+
+    One approach for terrain lighting is to shoot rays. [Rye Terrell's terrain shading](https://wwwtyro.net/2019/03/21/advanced-map-shading.html) uses Amanatides-Woo voxel traversal to march rays from each pixel toward the sun — 128 samples per pixel, averaged for soft shadows. The results are beautiful, but the cost is high and it still suffers from tile-boundary discontinuities, which Terrell addresses by brute-force rendering 3×3 tiles (768×768) and extracting the center.
+
+    A much cheaper alternative is a line sweep. [Karim Naaji's Line-Sweep Ambient Occlusion](https://karim.naaji.fr/lsao.html) sweeps entire rows of the grid in a single pass, tracking the horizon with a running maximum. Each pixel is visited exactly once per sweep direction, making the whole operation O(n) per direction. LSAO sweeps at 45° increments and applies an exponential or rational distance falloff to produce soft ambient-occlusion-style shading.
+
+    This article builds on the line-sweep idea and adapts it for direct terrain lighting:
+
+    - generalize the sweep to **arbitrary directions** by reducing any angle to a canonical octant.
+    - replace the distance falloff with a **geometric shadow test** — a pixel is in shadow when intervening terrain blocks the line of sight to the sun — giving physically motivated hard shadows rather than ambient occlusion.
+    - add a **parent-tile pre-pass** that assembles a half-resolution horizon buffer from ancestor tiles, warming up each ray before it enters the computation tile so that shadows from terrain beyond the boundary propagate correctly without rendering oversized tiles.
+    - incorporate the sun's finite angular size to produce a geometric **penumbra**, using a smooth cutoff in altitude and multiple azimuthal samples.
   </script>
-  <script id="2" type="module">
-    import { getTerrainTile, readImageData, decodeTerrainData } from './terrain/data/main.js';
-    import { getTileSet } from './terrain/data/tile-hierarchy.js';
-    import { createWebGPUContext } from './terrain/compute/webgpu-context.js';
-    import { createLightingPipeline } from './terrain/compute/pipeline.js';
-    import { computeTileLighting } from './terrain/compute/execute.js';
-    import { createSimpleLSAOPipeline } from './terrain/compute/lsao-simple-pipeline.js';
-    import { computeSimpleLSAO } from './terrain/compute/lsao-simple-execute.js';
-    import { computeSimpleLSAOCPU } from './terrain/compute/lsao-simple-cpu.js';
-    import { createLSAOPipeline, calculateLevelInfo } from './terrain/compute/lsao-pipeline.js';
-    import { computeLSAO } from './terrain/compute/lsao-execute.js';
-    import { computeLSAOCPU } from './terrain/compute/lsao-cpu.js';
-    import { createNormalMapPipeline } from './terrain/compute/normal-map-pipeline.js';
-    import { computeNormalMap } from './terrain/compute/normal-map-execute.js';
+
+  <script id="horizon-tracking-intro" type="text/markdown">
+    ## Horizon tracking
+
+    The core primitive behind all of this is a 1-D sweep that tracks the upper convex hull of elevations seen so far along each ray. As the sweep advances left to right, each new elevation is compared against the current horizon — the line connecting the convex hull vertices. Any column whose elevation falls below the horizon is in shadow.
   </script>
-  <script id="3" type="text/markdown">
-    ## 1. Tile Hierarchy
-  </script>
-  <script id="4" type="module">
-    const coords = {x: 795, y: 1594, z: 12};
-    coords;
-  </script>
-  <script id="5" type="module">
-    const tiles = getTileSet(coords);
 
-    // Create visual representation
-    const container = html`<div style="font-family: monospace; font-size: 13px;">
-      <strong>Target tile:</strong> ${coords.z}/${coords.x}/${coords.y}<br>
-      <strong>Tiles needed for hierarchical computation:</strong><br>
-      <ul style="margin: 8px 0; padding-left: 20px;">
-        ${tiles.map(t => html`<li>
-          <span style="color: ${t.role === 'target' ? '#ca4747' : '#666'}">
-            ${t.role}
-          </span>: ${t.z}/${t.x}/${t.y}
-        </li>`)}
-      </ul>
-      <em style="color: #666;">Parent tiles at z-1 provide boundary data for edge handling</em>
-    </div>`;
+  <script id="horizon-tracking-anim" type="module">
+    // Animated 1-D horizon-tracking diagram. Generates a smooth random
+    // elevation profile, then sweeps left-to-right tracking the upper
+    // convex hull (running max of heights). The pink line shows the
+    // current horizon; the red dot is the sweep cursor.
+    const htW = 640,
+      htH = 200,
+      htN = 32,
+      htPad = 20;
+    const htStepX = (htW - 2 * htPad) / (htN - 1);
 
-    display(container);
-    tiles;
-  </script>
-  <script id="6" type="text/markdown">
-    ## 2. Multi-Level Parent Tile Assembly
-
-    For proper horizon initialization in line-sweep ambient occlusion, we need terrain data from *outside* the target tile. Instead of loading all 8 adjacent tiles at full resolution, we load 4 parent tiles at coarser zoom levels.
-
-    **Coverage formula:** Assembly size = tileSize × (1 + 2^Δz)
-    - Δz = -1: 512 × 1.5 = 768 pixels (3×3 tile coverage)
-    - Δz = -2: 512 × 1.25 = 640 pixels (5×5 tile coverage)
-    - Δz = -3: 512 × 1.125 = 576 pixels (7×7 tile coverage)
-
-    Use the slider below to explore different parent zoom levels:
-  </script>
-  <script id="7" type="module">
-    const maxDeltaZ = Math.min(coords.z, 4); // Can't go below z=0
-
-    const input = Inputs.range([-maxDeltaZ, -1], {
-      value: -1,
-      step: 1,
-      label: "Δz (parent zoom offset)",
-    });
-
-    const deltaZ = view(input);
-    deltaZ;
-  </script>
-  <script id="8" type="module">
-    import { getParentTilesAtLevel, assembleParentTileBufferMultiLevel } from './terrain/data/parent-tile-assembly-multi-level.js';
-
-    // Get parent tiles at selected zoom level
-    const parentTileCoords = getParentTilesAtLevel(coords, deltaZ);
-    const parentZ = coords.z + deltaZ;
-
-    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
-      <strong>Parent zoom level:</strong> z${parentZ} (Δz = ${deltaZ})<br>
-      <strong>Fetching ${parentTileCoords.length} parent tiles...</strong>
-    </div>`);
-
-    const parentTiles = [];
-    for (const tileCoords of parentTileCoords) {
-      const tile = await getTerrainTile(tileCoords);
-      const imageData = readImageData(tile.img);
-      const elevations = decodeTerrainData(imageData);
-      parentTiles.push({
-        data: elevations,
-        width: tile.width,
-        height: tile.height,
-        tileSize: tile.tileSize,
-        role: tileCoords.role
-      });
+    function makeProfile() {
+      const h = new Float32Array(htN);
+      const nHarm = 4;
+      const amps = [],
+        phases = [],
+        freqs = [];
+      for (let k = 0; k < nHarm; k++) {
+        amps.push((0.5 + 0.5 * Math.random()) / (k + 1));
+        phases.push(Math.random() * Math.PI * 2);
+        freqs.push((k + 1) * (1 + Math.random() * 0.3));
+      }
+      for (let i = 0; i < htN; i++) {
+        let v = 0;
+        for (let k = 0; k < nHarm; k++)
+          v +=
+            amps[k] *
+            Math.cos(((freqs[k] * i) / htN) * Math.PI * 2 + phases[k]);
+        h[i] = v;
+      }
+      let mn = Infinity,
+        mx = -Infinity;
+      for (let i = 0; i < htN; i++) {
+        if (h[i] < mn) mn = h[i];
+        if (h[i] > mx) mx = h[i];
+      }
+      const range = mx - mn || 1;
+      for (let i = 0; i < htN; i++)
+        h[i] = 10 + ((htH - 40) * (h[i] - mn)) / range;
+      return h;
     }
 
-    // Assemble parent buffer
-    const assembled = assembleParentTileBufferMultiLevel({
-      targetTile: coords,
-      parentTiles,
-      deltaZ,
-      tileSize: 512
-    });
+    const svgNS = "http://www.w3.org/2000/svg";
+    const htDispW = Math.min(htW, width);
+    const htDispH = htDispW * (htH / htW);
+    const htSvg = html`<svg
+      width=${htDispW}
+      height=${htDispH}
+      style="display:block; background:#fff; max-width:100%;"
+      viewBox="0 0 ${htW} ${htH}"
+    ></svg>`;
 
-    const { buffer: parentBuffer, size: parentSize, targetOffset } = assembled;
-
-    ({ parentBuffer, parentSize, targetOffset });
-  </script>
-  <script id="9" type="module">
-    // Visualize parent buffer assembly
-    const canvas = document.createElement('canvas');
-    canvas.width = parentSize;
-    canvas.height = parentSize;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(parentSize, parentSize);
-
-    // Recalculate scale and targetSizeAtParent from deltaZ
-    const scale = Math.pow(2, Math.abs(deltaZ));
-    const targetSizeAtParent = 512 / scale;
-
-    // Find min/max in parent buffer
-    let min = Infinity, max = -Infinity;
-    for (let i = 0; i < parentBuffer.length; i++) {
-      if (parentBuffer[i] < min) min = parentBuffer[i];
-      if (parentBuffer[i] > max) max = parentBuffer[i];
+    function pxI(i) {
+      return htPad + i * htStepX;
+    }
+    function pyH(h) {
+      return htH - htPad - h;
     }
 
-    // Render parent buffer
-    for (let y = 0; y < parentSize; y++) {
-      for (let x = 0; x < parentSize; x++) {
-        const idx = y * parentSize + x;
-        const normalized = (parentBuffer[idx] - min) / (max - min);
+    function mkSvgEl(tag, attrs) {
+      const el = document.createElementNS(svgNS, tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    }
 
-        const r = Math.floor(normalized * 180 + 75);
-        const g = Math.floor(normalized * 140 + 80);
-        const b = Math.floor((1 - normalized) * 120 + 60);
+    // Grid lines (rebuilt per profile so they stop at terrain height).
+    const gridGroup = mkSvgEl("g", {});
+    htSvg.appendChild(gridGroup);
 
-        imageData.data[idx * 4] = r;
-        imageData.data[idx * 4 + 1] = g;
-        imageData.data[idx * 4 + 2] = b;
-        imageData.data[idx * 4 + 3] = 255;
+    // Shadow regions (filled below horizon, above terrain).
+    const shadowPath = mkSvgEl("path", {
+      fill: "rgba(0,0,0,0.12)",
+      stroke: "none",
+    });
+    htSvg.appendChild(shadowPath);
+
+    // Terrain polyline.
+    const terrainPath = mkSvgEl("polyline", {
+      fill: "none",
+      stroke: "#222",
+      "stroke-width": 2.5,
+      "stroke-linejoin": "round",
+      "stroke-linecap": "round",
+    });
+    htSvg.appendChild(terrainPath);
+
+    // Horizon line (pink).
+    const horizonPath = mkSvgEl("polyline", {
+      fill: "none",
+      stroke: "rgba(240,140,160,0.7)",
+      "stroke-width": 2.5,
+      "stroke-linejoin": "round",
+      "stroke-linecap": "round",
+    });
+    htSvg.appendChild(horizonPath);
+
+    // Hull vertex dots (pink, drawn at each convex hull point).
+    const hullDotsGroup = mkSvgEl("g", {});
+    htSvg.appendChild(hullDotsGroup);
+
+    // Sweep cursor dot.
+    const cursorDot = mkSvgEl("circle", {
+      r: 4,
+      fill: "#e44",
+      stroke: "#fff",
+      "stroke-width": 1.5,
+    });
+    htSvg.appendChild(cursorDot);
+
+    let profile = makeProfile();
+    let step = 0;
+    let hull = []; // upper convex hull: array of {i, h}
+
+    function reset() {
+      profile = makeProfile();
+      step = 0;
+      hull = [];
+      terrainPath.setAttribute(
+        "points",
+        Array.from(profile)
+          .map((h, i) => `${pxI(i)},${pyH(h)}`)
+          .join(" "),
+      );
+      while (gridGroup.firstChild) gridGroup.removeChild(gridGroup.firstChild);
+      for (let i = 0; i < htN; i++) {
+        gridGroup.appendChild(
+          mkSvgEl("line", {
+            x1: pxI(i),
+            y1: htH,
+            x2: pxI(i),
+            y2: pyH(profile[i]),
+            stroke: "#999",
+            "stroke-width": 0.75,
+            "stroke-dasharray": "2 4",
+          }),
+        );
       }
     }
 
-    ctx.putImageData(imageData, 0, 0);
-
-    // Draw target tile boundary
-    ctx.strokeStyle = '#ca4747';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(targetOffset[0], targetOffset[1], targetSizeAtParent, targetSizeAtParent);
-
-    // Add label
-    ctx.fillStyle = '#ca4747';
-    ctx.font = 'bold 14px sans-serif';
-    ctx.fillText('Target Tile', targetOffset[0] + 5, targetOffset[1] + 20);
-
-    // Calculate coverage
-    const tileCoverage = Math.round(parentSize / (512 / scale));
-
-    const container = html`<div>
-      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <strong>Parent Buffer Assembly (${parentSize}×${parentSize} at z${coords.z + deltaZ} resolution)</strong><br>
-        Red box shows target tile region (${targetSizeAtParent.toFixed(0)}×${targetSizeAtParent.toFixed(0)} at parent resolution)<br>
-        Coverage: ${tileCoverage}×${tileCoverage} tiles at z${coords.z} | Scale: ${scale}:1<br>
-        Elevation range: ${min.toFixed(1)}m to ${max.toFixed(1)}m
-      </div>
-      ${canvas}
-      <div style="margin-top: 8px; font-family: sans-serif; font-size: 12px; color: #888;">
-        <strong>Key insight:</strong> The ${parentSize}×${parentSize} parent buffer covers a ${tileCoverage}×${tileCoverage} block of z${coords.z} tiles,
-        providing terrain context for horizon initialization in all sweep directions.
-        As Δz increases (coarser parents), coverage expands but resolution decreases.
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="10" type="module">
-    // Visualize coordinate mapping
-    const diagramCanvas = document.createElement('canvas');
-    diagramCanvas.width = 800;
-    diagramCanvas.height = 400;
-    const ctx = diagramCanvas.getContext('2d');
-
-    // Background
-    ctx.fillStyle = '#f9f9f9';
-    ctx.fillRect(0, 0, 800, 400);
-
-    // Left side: Parent buffer (768×768)
-    ctx.save();
-    ctx.translate(50, 50);
-
-    const scale = 300 / 768;
-    ctx.fillStyle = '#e0e0e0';
-    ctx.fillRect(0, 0, 768 * scale, 768 * scale);
-
-    ctx.strokeStyle = '#999';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, 768 * scale, 768 * scale);
-
-    // Target region in parent
-    ctx.fillStyle = 'rgba(202, 71, 71, 0.2)';
-    ctx.fillRect(
-      targetOffset[0] * scale,
-      targetOffset[1] * scale,
-      256 * scale,
-      256 * scale
-    );
-    ctx.strokeStyle = '#ca4747';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(
-      targetOffset[0] * scale,
-      targetOffset[1] * scale,
-      256 * scale,
-      256 * scale
-    );
-
-    // Labels
-    ctx.fillStyle = '#333';
-    ctx.font = 'bold 14px sans-serif';
-    ctx.fillText('Parent Buffer', 10, -10);
-    ctx.font = '12px sans-serif';
-    ctx.fillText('768×768 @ z-1', 10, -10 + 18);
-
-    ctx.fillStyle = '#ca4747';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillText(
-      'Target',
-      targetOffset[0] * scale + 5,
-      targetOffset[1] * scale + 20
-    );
-    ctx.font = '11px sans-serif';
-    ctx.fillText(
-      `[${targetOffset[0]}, ${targetOffset[1]}]`,
-      targetOffset[0] * scale + 5,
-      targetOffset[1] * scale + 35
-    );
-
-    ctx.restore();
-
-    // Arrow
-    ctx.fillStyle = '#666';
-    ctx.font = '20px sans-serif';
-    ctx.fillText('→', 370, 230);
-    ctx.font = '12px sans-serif';
-    ctx.fillText('×2 resolution', 350, 250);
-
-    // Right side: Target tile (512×512)
-    ctx.save();
-    ctx.translate(450, 50);
-
-    const targetScale = 300 / 512;
-    ctx.fillStyle = 'rgba(202, 71, 71, 0.3)';
-    ctx.fillRect(0, 0, 512 * targetScale, 512 * targetScale);
-
-    ctx.strokeStyle = '#ca4747';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0, 0, 512 * targetScale, 512 * targetScale);
-
-    ctx.fillStyle = '#333';
-    ctx.font = 'bold 14px sans-serif';
-    ctx.fillText('Target Tile', 10, -10);
-    ctx.font = '12px sans-serif';
-    ctx.fillText(`512×512 @ z${coords.z}`, 10, -10 + 18);
-
-    ctx.restore();
-
-    // Add sweep directions
-    ctx.save();
-    ctx.translate(50 + 768 * scale / 2, 50 + 768 * scale / 2);
-
-    const arrows = [
-      { dx: 1, dy: 0, label: 'E', color: '#e74c3c' },
-      { dx: -1, dy: 0, label: 'W', color: '#3498db' },
-      { dx: 0, dy: 1, label: 'S', color: '#2ecc71' },
-      { dx: 0, dy: -1, label: 'N', color: '#f39c12' }
-    ];
-
-    arrows.forEach(({ dx, dy, label, color }) => {
-      const len = 40;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(dx * len, dy * len);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.fillStyle = color;
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText(label, dx * (len + 10) - 5, dy * (len + 10) + 5);
-    });
-
-    ctx.restore();
-
-    const container = html`<div>
-      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <strong>Coordinate Mapping & Sweep Directions</strong>
-      </div>
-      ${diagramCanvas}
-      <div style="margin-top: 8px; font-family: sans-serif; font-size: 12px; color: #888;">
-        Each sweep starts at the parent buffer edge, builds the horizon through parent terrain,
-        then continues through the target tile to compute ambient occlusion.
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="11" type="text/markdown">
-    ## 3. Raw Terrain Tile
-  </script>
-  <script id="12" type="module">
-    const targetTile = await getTerrainTile(coords);
-
-    const container = html`<div>
-      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        Mapbox Terrain RGB encoding: ${targetTile.width}×${targetTile.height}
-        (${targetTile.tileSize}×${targetTile.tileSize} + ${targetTile.buffer}px buffer)
-      </div>
-      ${targetTile.img}
-    </div>`;
-
-    display(container);
-    targetTile;
-  </script>
-  <script id="13" type="text/markdown">
-    ## 4. Decoded Elevations
-  </script>
-  <script id="14" type="module">
-    const imageData = readImageData(targetTile.img);
-    const elevations = decodeTerrainData(imageData);
-
-    // Visualize elevation data as heatmap
-    const canvas = document.createElement('canvas');
-    canvas.width = targetTile.tileSize;
-    canvas.height = targetTile.tileSize;
-    const ctx = canvas.getContext('2d');
-    const imgData = ctx.createImageData(targetTile.tileSize, targetTile.tileSize);
-
-    // Find min/max for normalization (loop to avoid stack overflow with spread operator)
-    let min = Infinity, max = -Infinity;
-    for (let i = 0; i < elevations.length; i++) {
-      const v = elevations[i];
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-
-    // Create heatmap (blue=low, red=high)
-    for (let y = 0; y < targetTile.tileSize; y++) {
-      for (let x = 0; x < targetTile.tileSize; x++) {
-        const srcIdx = (y + targetTile.buffer) * targetTile.width + (x + targetTile.buffer);
-        const dstIdx = y * targetTile.tileSize + x;
-        const normalized = (elevations[srcIdx] - min) / (max - min);
-
-        // Terrain color scheme
-        const r = Math.floor(normalized * 180 + 75);
-        const g = Math.floor(normalized * 140 + 80);
-        const b = Math.floor((1 - normalized) * 120 + 60);
-
-        imgData.data[dstIdx * 4] = r;
-        imgData.data[dstIdx * 4 + 1] = g;
-        imgData.data[dstIdx * 4 + 2] = b;
-        imgData.data[dstIdx * 4 + 3] = 255;
-      }
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-
-    const container = html`<div>
-      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        Elevation range: ${min.toFixed(1)}m to ${max.toFixed(1)}m
-      </div>
-      ${canvas}
-    </div>`;
-
-    display(container);
-
-    // Prepare buffered data for computation
-    const tileSize = 512;
-    const buffer = 1;
-    const bufferedSize = tileSize + 2 * buffer;
-    const bufferedData = new Float32Array(bufferedSize * bufferedSize);
-
-    // Copy target tile to center with edge replication
-    for (let y = 0; y < tileSize; y++) {
-      for (let x = 0; x < tileSize; x++) {
-        const srcIdx = (y + targetTile.buffer) * targetTile.width + (x + targetTile.buffer);
-        const dstIdx = (y + buffer) * bufferedSize + (x + buffer);
-        bufferedData[dstIdx] = elevations[srcIdx];
-      }
-    }
-
-    // Replicate edges (TODO: use parent tile data)
-    for (let x = 0; x < bufferedSize; x++) {
-      bufferedData[x] = bufferedData[bufferedSize + x];
-      bufferedData[(bufferedSize - 1) * bufferedSize + x] = bufferedData[(bufferedSize - 2) * bufferedSize + x];
-    }
-    for (let y = 0; y < bufferedSize; y++) {
-      bufferedData[y * bufferedSize] = bufferedData[y * bufferedSize + 1];
-      bufferedData[y * bufferedSize + (bufferedSize - 1)] = bufferedData[y * bufferedSize + (bufferedSize - 2)];
-    }
-
-    bufferedData;
-  </script>
-  <script id="15" type="text/markdown">
-    ## 5. WebGPU Pipeline Setup
-  </script>
-  <script id="16" type="module">
-    const { device, adapter } = await createWebGPUContext();
-
-    const info = html`<div style="font-family: monospace; font-size: 13px;">
-      <strong>WebGPU Context:</strong><br>
-      <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
-        <li>✓ Adapter acquired</li>
-        <li>✓ Device created</li>
-        <li>✓ Ready for compute operations</li>
-      </ul>
-    </div>`;
-
-    display(info);
-    invalidation.then(() => device.destroy());
-    device;
-  </script>
-  <script id="17" type="module">
-    const { pipeline, bindGroupLayout } = createLightingPipeline(device, {
-      tileSize: 512,
-      tileBuffer: 1
-    });
-
-    const info = html`<div style="font-family: monospace; font-size: 13px;">
-      <strong>Compute Pipeline:</strong><br>
-      <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
-        <li>✓ WGSL shader compiled</li>
-        <li>✓ Bind group layout created (3 bindings)</li>
-        <li>✓ Compute pipeline ready</li>
-        <li style="margin-top: 4px; color: #666;">→ Workgroup size: 16×16</li>
-        <li style="color: #666;">→ Algorithm: Normal-based directional lighting</li>
-      </ul>
-    </div>`;
-
-    display(info);
-    ({ pipeline, bindGroupLayout });
-  </script>
-  <script id="18" type="text/markdown">
-    ## 6. Computed Lighting
-  </script>
-  <script id="19" type="module">
-    const EARTH_CIRCUMFERENCE = 40075017;
-    const pixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
-
-    const result = await computeTileLighting({
-      device,
-      pipeline,
-      bindGroupLayout,
-      terrainData: bufferedData,
-      tileSize: 512,
-      pixelSize
-    });
-
-    // Compute stats without spread operator (avoid stack overflow)
-    let min = Infinity, max = -Infinity, sum = 0;
-    for (let i = 0; i < result.length; i++) {
-      const v = result[i];
-      if (v < min) min = v;
-      if (v > max) max = v;
-      sum += v;
-    }
-    const stats = { min, max, mean: sum / result.length };
-
-    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-      Lighting values: min=${stats.min.toFixed(3)}, max=${stats.max.toFixed(3)}, mean=${stats.mean.toFixed(3)}<br>
-      Pixel size: ${pixelSize.toFixed(3)}m (zoom ${coords.z})
-    </div>`;
-
-    display(info);
-    result;
-  </script>
-  <script id="20" type="module">
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(512, 512);
-
-    for (let i = 0; i < result.length; i++) {
-      const value = Math.floor(Math.min(Math.max(result[i], 0), 1) * 255);
-      imageData.data[i * 4] = value;
-      imageData.data[i * 4 + 1] = value;
-      imageData.data[i * 4 + 2] = value;
-      imageData.data[i * 4 + 3] = 255;
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-
-    const container = html`<div>
-      ${canvas}
-      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <em>Directional lighting from northwest at 45° elevation</em>
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="21" type="text/markdown">
-    ## 7. Line Sweep Ambient Occlusion (LSAO)
-
-    [Line-Sweep Ambient Occlusion](https://karim.naaji.fr/lsao.html) computes ambient occlusion by sweeping across terrain in multiple directions, tracking visible horizons on a convex hull stack. This provides more realistic shadowing than simple normal-based lighting.
-
-    **Algorithm overview:**
-    - Sweep in 4 cardinal directions: East, West, North, South
-    - Each GPU invocation processes one complete scanline (row or column)
-    - Maintain convex hull stack to track horizon visibility
-    - Compute occlusion based on elevation angle to visible horizon
-    - Accumulate contributions from all directions
-
-    Below shows the simplified single-tile implementation (edge replication for boundaries).
-  </script>
-  <script id="22" type="module">
-    const { pipeline: lsaoPipeline, bindGroupLayout: lsaoBindGroupLayout } = createSimpleLSAOPipeline(device, {
-      tileSize: 512,
-      tileBuffer: 1,
-      workgroupSize: 128
-    });
-
-    const info = html`<div style="font-family: monospace; font-size: 13px;">
-      <strong>LSAO Compute Pipeline:</strong><br>
-      <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
-        <li>✓ LSAO shader compiled</li>
-        <li>✓ Bind group layout created</li>
-        <li>✓ Pipeline ready for 4-direction sweep</li>
-        <li style="margin-top: 4px; color: #666;">→ Workgroup size: 128 (scanline parallelism)</li>
-        <li style="color: #666;">→ Algorithm: Line-sweep horizon tracking</li>
-      </ul>
-    </div>`;
-
-    display(info);
-    ({ lsaoPipeline, lsaoBindGroupLayout });
-  </script>
-  <script id="23" type="module">
-    const EARTH_CIRCUMFERENCE = 40075017;
-    const pixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
-
-    const startTime = performance.now();
-
-    const lsaoResult = await computeSimpleLSAO({
-      device,
-      pipeline: lsaoPipeline,
-      bindGroupLayout: lsaoBindGroupLayout,
-      terrainData: bufferedData,
-      tileSize: 512,
-      pixelSize,
-      workgroupSize: 128,
-      directions: [[1, 0], [-1, 0], [0, 1], [0, -1]]
-    });
-
-    const elapsed = performance.now() - startTime;
-
-    // Compute stats
-    let min = Infinity, max = -Infinity, sum = 0;
-    for (let i = 0; i < lsaoResult.length; i++) {
-      const v = lsaoResult[i];
-      if (v < min) min = v;
-      if (v > max) max = v;
-      sum += v;
-    }
-    const lsaoStats = { min, max, mean: sum / lsaoResult.length };
-
-    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-      LSAO values: min=${lsaoStats.min.toFixed(3)}, max=${lsaoStats.max.toFixed(3)}, mean=${lsaoStats.mean.toFixed(3)}<br>
-      Computation time: ${elapsed.toFixed(1)}ms (4 direction sweeps)<br>
-      Pixel size: ${pixelSize.toFixed(3)}m
-    </div>`;
-
-    display(info);
-    lsaoResult;
-  </script>
-  <script id="24" type="module">
-    // Display LSAO result (no normalization - values should be in [0,1] range)
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(512, 512);
-
-    for (let i = 0; i < lsaoResult.length; i++) {
-      // Clamp to [0, 1] and convert to grayscale
-      const value = Math.floor(Math.min(Math.max(lsaoResult[i], 0), 1) * 255);
-      imageData.data[i * 4] = value;
-      imageData.data[i * 4 + 1] = value;
-      imageData.data[i * 4 + 2] = value;
-      imageData.data[i * 4 + 3] = 255;
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-
-    const container = html`<div>
-      ${canvas}
-      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <em>Simple LSAO result (raw values, no normalization)</em>
-      </div>
-    </div>`;
-
-    display(container);
-    lsaoResult;
-  </script>
-  <script id="25" type="text/markdown">
-    ### LSAO Combined with Elevation
-
-    Multiply the ambient occlusion by normalized elevation to create a shaded relief map:
-  </script>
-  <script id="26" type="module">
-    // Compute elevation min/max from the elevations data
-    let elevMin = Infinity, elevMax = -Infinity;
-    for (let i = 0; i < elevations.length; i++) {
-      const v = elevations[i];
-      if (v < elevMin) elevMin = v;
-      if (v > elevMax) elevMax = v;
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(512, 512);
-
-    for (let y = 0; y < 512; y++) {
-      for (let x = 0; x < 512; x++) {
-        const idx = y * 512 + x;
-        const srcIdx = (y + 1) * targetTile.width + (x + 1);
-
-        // Normalize elevation
-        const elevNorm = (elevations[srcIdx] - elevMin) / (elevMax - elevMin);
-
-        // Use raw AO value (should already be in [0,1])
-        const ao = Math.min(Math.max(lsaoResult[idx], 0), 1);
-
-        // Combine: AO × elevation with terrain coloring
-        const combined = elevNorm * ao;
-
-        // Terrain color scheme
-        const r = Math.floor(combined * 180 + 75);
-        const g = Math.floor(combined * 140 + 80);
-        const b = Math.floor((1 - combined) * 120 + 60);
-
-        imageData.data[idx * 4] = r;
-        imageData.data[idx * 4 + 1] = g;
-        imageData.data[idx * 4 + 2] = b;
-        imageData.data[idx * 4 + 3] = 255;
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-
-    const container = html`<div>
-      ${canvas}
-      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <em>Shaded relief: LSAO × normalized elevation with terrain colors</em>
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="27" type="text/markdown">
-    ## 8. Final Lighting Map (RGB)
-
-    The final output combines surface normals and ambient occlusion into a single RGB image:
-
-    - **Red channel**: Surface normal Y component (fy = 0.5 + 0.5 × ny)
-    - **Green channel**: Ambient occlusion from LSAO
-    - **Blue channel**: Surface normal X component (fx = 0.5 - 0.5 × nx)
-
-    The normals are computed with physically-correct Web Mercator (EPSG:3857) scaling, accounting for latitude-dependent distortion. This allows the lighting map to be used for on-the-fly lighting during rendering.
-  </script>
-  <script id="28" type="module">
-    const { pipeline: normalPipeline, bindGroupLayout: normalBindGroupLayout } = createNormalMapPipeline(device, {
-      tileSize: 512,
-      tileBuffer: 1
-    });
-
-    const info = html`<div style="font-family: monospace; font-size: 13px;">
-      <strong>Normal Map Pipeline:</strong><br>
-      <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
-        <li>✓ Normal map shader compiled</li>
-        <li>✓ Web Mercator distortion correction enabled</li>
-        <li>✓ Physically-correct normal vectors</li>
-        <li style="margin-top: 4px; color: #666;">→ Workgroup size: 16×16</li>
-        <li style="color: #666;">→ Output: RGB (R=ny, G=reserved, B=nx)</li>
-      </ul>
-    </div>`;
-
-    display(info);
-    ({ normalPipeline, normalBindGroupLayout });
-  </script>
-  <script id="29" type="module">
-    // Compute normal map
-    const normalMapData = await computeNormalMap({
-      device,
-      pipeline: normalPipeline,
-      bindGroupLayout: normalBindGroupLayout,
-      terrainData: bufferedData,
-      tileX: coords.x,
-      tileY: coords.y,
-      tileZ: coords.z,
-      tileSize: 512
-    });
-
-    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-      Normal map computed (${normalMapData.length / 4} pixels, vec3 per pixel with 16-byte alignment)
-    </div>`;
-
-    display(info);
-    normalMapData;
-  </script>
-  <script id="30" type="module">
-    // Combine normals (R/B) with LSAO (G) into final RGB image
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(512, 512);
-
-    // Normalize AO to [0, 1]
-    for (let i = 0; i < 512 * 512; i++) {
-      const aoNorm = (lsaoResult[i] - lsaoStats.min) / (lsaoStats.max - lsaoStats.min);
-
-      // normalMapData has vec3<f32> with 16-byte alignment (stride = 4 floats)
-      const r = normalMapData[i * 4 + 0];      // fy (ny component)
-      const b = normalMapData[i * 4 + 2];      // fx (nx component)
-      const g = aoNorm;                         // AO
-
-      imageData.data[i * 4 + 0] = Math.floor(Math.min(Math.max(r, 0), 1) * 255);
-      imageData.data[i * 4 + 1] = Math.floor(Math.min(Math.max(g, 0), 1) * 255);
-      imageData.data[i * 4 + 2] = Math.floor(Math.min(Math.max(b, 0), 1) * 255);
-      imageData.data[i * 4 + 3] = 255;
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-
-    const container = html`<div>
-      ${canvas}
-      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <strong>Final Lighting Map</strong><br>
-        R: Normal Y (fy = 0.5 + 0.5×ny) | G: Ambient Occlusion | B: Normal X (fx = 0.5 - 0.5×nx)
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="31" type="text/markdown">
-    ### Channel Breakdown
-
-    Below shows each channel individually for inspection:
-  </script>
-  <script id="32" type="module">
-    const canvases = [];
-
-    // Red channel (ny) - stride is 4 floats due to vec3 alignment
-    const canvasR = document.createElement('canvas');
-    canvasR.width = 512;
-    canvasR.height = 512;
-    let ctx = canvasR.getContext('2d');
-    let imgData = ctx.createImageData(512, 512);
-    for (let i = 0; i < 512 * 512; i++) {
-      const val = Math.floor(normalMapData[i * 4 + 0] * 255);
-      imgData.data[i * 4 + 0] = val;
-      imgData.data[i * 4 + 1] = val;
-      imgData.data[i * 4 + 2] = val;
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    // Green channel (AO)
-    const canvasG = document.createElement('canvas');
-    canvasG.width = 512;
-    canvasG.height = 512;
-    ctx = canvasG.getContext('2d');
-    imgData = ctx.createImageData(512, 512);
-    for (let i = 0; i < 512 * 512; i++) {
-      const aoNorm = (lsaoResult[i] - lsaoStats.min) / (lsaoStats.max - lsaoStats.min);
-      const val = Math.floor(aoNorm * 255);
-      imgData.data[i * 4 + 0] = val;
-      imgData.data[i * 4 + 1] = val;
-      imgData.data[i * 4 + 2] = val;
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    // Blue channel (nx) - stride is 4 floats due to vec3 alignment
-    const canvasB = document.createElement('canvas');
-    canvasB.width = 512;
-    canvasB.height = 512;
-    ctx = canvasB.getContext('2d');
-    imgData = ctx.createImageData(512, 512);
-    for (let i = 0; i < 512 * 512; i++) {
-      const val = Math.floor(normalMapData[i * 4 + 2] * 255);
-      imgData.data[i * 4 + 0] = val;
-      imgData.data[i * 4 + 1] = val;
-      imgData.data[i * 4 + 2] = val;
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    const container = html`<div>
-      <div>
-        ${canvasR}
-        <div style="margin-top: 4px; font-family: sans-serif; font-size: 12px; color: #e74c3c; text-align: center;">
-          <strong>Red Channel</strong><br>
-          Normal Y (fy)
-        </div>
-      </div>
-      <div>
-        ${canvasG}
-        <div style="margin-top: 4px; font-family: sans-serif; font-size: 12px; color: #27ae60; text-align: center;">
-          <strong>Green Channel</strong><br>
-          Ambient Occlusion
-        </div>
-      </div>
-      <div>
-        ${canvasB}
-        <div style="margin-top: 4px; font-family: sans-serif; font-size: 12px; color: #3498db; text-align: center;">
-          <strong>Blue Channel</strong><br>
-          Normal X (fx)
-        </div>
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="33" type="text/markdown">
-    ## 7. Synthetic Test: Validating Multi-Level LSAO
-
-    Before testing on real terrain, let's validate the implementation with synthetic data where we know the expected behavior.
-
-    **Test setup:**
-    - Target tile: Flat at elevation 0
-    - West parent region: Elevated ridge (z=100) that should cast a shadow
-    - Expected result: West edge of target should show occlusion in multi-level LSAO
-  </script>
-  <script id="33a" type="module">
-    // Create synthetic test data
-    function createSyntheticTarget(size) {
-      const data = new Float32Array(size * size);
-      // Flat terrain at z=0
-      data.fill(0);
-      return data;
-    }
-
-    function createSyntheticParent768() {
-      const size = 768;
-      const data = new Float32Array(size * size);
-
-      // Parent buffer covers normalized space [-1, 2] x [-1, 2]
-      // Target is at [0, 1] x [0, 1]
-      // Target center in parent buffer is at pixel (384, 384)
-      // Target occupies pixels [128, 640) in parent buffer
-
-      for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-          // Create elevated terrain to the west (x < 128)
-          if (x < 128) {
-            // Elevated ridge at z=100
-            data[y * size + x] = 100;
-          } else if (x < 256) {
-            // Ramp down from ridge to target
-            const t = (x - 128) / 128;
-            data[y * size + x] = 100 * (1 - t);
-          } else {
-            // Flat at z=0 (target and east)
-            data[y * size + x] = 0;
-          }
+    // Interpolate the hull line height at a given sample index.
+    function hullAt(idx) {
+      if (hull.length === 0) return 0;
+      if (idx <= hull[0].i) return hull[0].h;
+      if (idx >= hull[hull.length - 1].i) return hull[hull.length - 1].h;
+      for (let k = 0; k < hull.length - 1; k++) {
+        if (idx <= hull[k + 1].i) {
+          const t = (idx - hull[k].i) / (hull[k + 1].i - hull[k].i);
+          return hull[k].h + t * (hull[k + 1].h - hull[k].h);
         }
       }
-      return data;
+      return hull[hull.length - 1].h;
     }
 
-    const syntheticTarget = createSyntheticTarget(514);
-    const syntheticParent = createSyntheticParent768();
+    function advance() {
+      if (step >= htN) {
+        reset();
+        return;
+      }
+      const h = profile[step];
 
-    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
-      ✓ Created synthetic test data<br>
-      • Target: 514×514 flat terrain (z=0)<br>
-      • Parent: 768×768 with elevated ridge to west (z=100)
-    </div>`);
+      // Update the upper convex hull. Pop any vertex that falls on or
+      // below the line from the second-to-last vertex to the new point.
+      while (hull.length >= 2) {
+        const a = hull[hull.length - 2];
+        const b = hull[hull.length - 1];
+        const cross = (b.i - a.i) * (h - a.h) - (step - a.i) * (b.h - a.h);
+        if (cross >= 0) hull.pop();
+        else break;
+      }
+      hull.push({ i: step, h });
 
-    ({ syntheticTarget, syntheticParent });
+      // Horizon polyline through hull vertices.
+      horizonPath.setAttribute(
+        "points",
+        hull.map((v) => `${pxI(v.i)},${pyH(v.h)}`).join(" "),
+      );
+
+      // Hull vertex dots.
+      while (hullDotsGroup.firstChild)
+        hullDotsGroup.removeChild(hullDotsGroup.firstChild);
+      for (const v of hull) {
+        hullDotsGroup.appendChild(
+          mkSvgEl("circle", {
+            cx: pxI(v.i),
+            cy: pyH(v.h),
+            r: 3,
+            fill: "rgba(240,140,160,0.85)",
+            stroke: "#fff",
+            "stroke-width": 1,
+          }),
+        );
+      }
+
+      // Shadow bars: where the hull line is above the terrain.
+      let d = "";
+      for (let i = 0; i <= step; i++) {
+        const hh = hullAt(i);
+        if (hh > profile[i] + 0.5) {
+          d += `M${pxI(i)},${pyH(hh)} L${pxI(i)},${pyH(profile[i])} `;
+        }
+      }
+      shadowPath.setAttribute("d", d);
+
+      cursorDot.setAttribute("cx", pxI(step));
+      cursorDot.setAttribute("cy", pyH(h));
+      step++;
+    }
+
+    reset();
+    const interval = 250;
+    const pauseAfter = 1500;
+    function tick() {
+      advance();
+      if (step >= htN) {
+        setTimeout(() => {
+          reset();
+          advance();
+          tick();
+        }, pauseAfter);
+      } else {
+        setTimeout(tick, interval);
+      }
+    }
+    tick();
+
+    display(
+      html`<figure>
+        ${htSvg}
+        <figcaption>
+          The pink line shows the current horizon; pink dots mark the vertices
+          of the convex hull; the red dot is the sweep cursor.
+        </figcaption>
+      </figure>`,
+    );
   </script>
-  <script id="33a2" type="module">
-    // Visualize synthetic terrain
-    const canvas = document.createElement('canvas');
-    canvas.width = 768;
-    canvas.height = 200; // Show slice through middle
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(768, 200);
 
-    // Show parent buffer terrain (top 200 rows)
-    for (let y = 0; y < 200; y++) {
-      for (let x = 0; x < 768; x++) {
-        const z = syntheticParent[y * 768 + x];
-        const normalized = z / 100; // Scale 0-100 to 0-1
-        const gray = Math.floor(normalized * 255);
+  <script id="traversal-intro" type="text/markdown">
+    ## Arbitrary-direction traversal
 
-        imageData.data[(y * 768 + x) * 4] = gray;
-        imageData.data[(y * 768 + x) * 4 + 1] = gray;
-        imageData.data[(y * 768 + x) * 4 + 2] = gray;
-        imageData.data[(y * 768 + x) * 4 + 3] = 255;
+    The shadow sweep needs to visit every pixel in the grid exactly once for a given direction. The key constraint is **conservation**: regardless of angle, every pixel must receive a total deposit weight of exactly 1.0. Without this, shadows would brighten or darken depending on the sweep direction.
+
+    The idea is to fill the grid with a family of parallel rays, each advancing one pixel at a time along the dominant axis. A ray generally falls _between_ two pixel rows, so I split its contribution: if the ray sits at fractional position `f` between rows, the lower row gets weight `(1−f)` and the upper row gets `f`. Adjacent rays are spaced one pixel apart vertically, so at every column the two rays straddling a given pixel contribute complementary weights that sum to 1 — guaranteeing exact conservation.
+
+    Only a single **canonical octant** needs to be implemented — directions where the ray advances in +x with a slope between 0 and 1. Any other angle reduces to this case by swapping axes (when the y-component dominates) and/or flipping an axis (when a component is negative). The canonical sweep runs over the transformed coordinates; deposits are mapped back to the original buffer.
+  </script>
+
+  <script id="arbitrary-direction-intro" type="text/markdown">
+    ### Traversal visualization
+  </script>
+
+  <script id="controls" type="module">
+    const angleDegMut = Mutable(30);
+    window.__angleDegMut = angleDegMut;
+    const angleDeg = angleDegMut;
+    const gridW = 64;
+    const gridH = 36;
+    const showRayStarts = true;
+  </script>
+
+  <script id="sweep" type="module">
+    import { sweep, hsl2rgb01 } from "./sweep.js";
+    sweep;
+  </script>
+
+  <script id="result" type="module">
+    // Two sweep passes: unweighted (left half) vs weighted (right half).
+    const resultOff = sweep(gridW, gridH, angleDeg, false);
+    const resultOn = sweep(gridW, gridH, angleDeg, true);
+    const result = resultOn; // used by stats cell
+    result;
+  </script>
+
+  <script id="stats" type="module">
+    // Conservation check (computed but not displayed — useful for debugging).
+    let maxDev = 0;
+    for (let i = 0; i < result.accum.length; i++) {
+      const dev = Math.abs(result.accum[i] - 1);
+      if (dev > maxDev) maxDev = dev;
+    }
+    const conserved = maxDev < 1e-5;
+    conserved;
+  </script>
+
+  <script id="canvas-setup" type="module">
+    const cwPx = Math.min(640, width);
+    const chPx = Math.round((cwPx * gridH) / gridW);
+    const canvas = html`<canvas
+      width=${gridW}
+      height=${gridH}
+      style="width:${cwPx}px; height:${chPx}px; image-rendering:pixelated; display:block;"
+    ></canvas>`;
+
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const overlaySvg = document.createElementNS(SVG_NS, "svg");
+    overlaySvg.setAttribute("width", cwPx);
+    overlaySvg.setAttribute("height", chPx);
+    overlaySvg.setAttribute("viewBox", `0 0 ${gridW} ${gridH}`);
+    overlaySvg.style.cssText =
+      "position:absolute; left:0; top:0; pointer-events:none; overflow:visible;";
+    const rayGroup = document.createElementNS(SVG_NS, "g");
+    rayGroup.style.display = "none";
+    overlaySvg.appendChild(rayGroup);
+
+    // Draggable handle — positioned on the circle edge at current angle.
+    // Sizes are in viewBox units; convert from screen pixels.
+    const vbScale = gridW / cwPx;
+    const handleR = Math.min(gridW, gridH) * 0.4;
+    const handleG = document.createElementNS(SVG_NS, "g");
+    handleG.setAttribute("style", "pointer-events:auto; cursor:grab; touch-action:none;");
+    const haloC = document.createElementNS(SVG_NS, "circle");
+    haloC.setAttribute("r", String(24 * vbScale));
+    haloC.setAttribute("fill", "rgba(70,130,220,0.18)");
+    handleG.appendChild(haloC);
+    const hitC = document.createElementNS(SVG_NS, "circle");
+    hitC.setAttribute("r", String(28 * vbScale));
+    hitC.setAttribute("fill", "#000");
+    hitC.setAttribute("fill-opacity", "0");
+    handleG.appendChild(hitC);
+    const dotC = document.createElementNS(SVG_NS, "circle");
+    dotC.setAttribute("r", String(8 * vbScale));
+    dotC.setAttribute("fill", "#4682dc");
+    dotC.setAttribute("stroke", "#fff");
+    dotC.setAttribute("stroke-width", String(3 * vbScale));
+    handleG.appendChild(dotC);
+    overlaySvg.appendChild(handleG);
+
+    function placeHandle(deg) {
+      const rad = (deg * Math.PI) / 180;
+      const hx = gridW / 2 - handleR * Math.cos(rad);
+      const hy = gridH / 2 + handleR * Math.sin(rad);
+      handleG.setAttribute("transform", `translate(${hx}, ${hy})`);
+    }
+    // Don't reference angleDeg here — it would make this cell
+    // reactive, destroying the handle on every angle change.
+
+    let angleDragging = false;
+    function angleFromEvent(e) {
+      const rect = overlaySvg.getBoundingClientRect();
+      const sx = gridW / rect.width;
+      const sy = gridH / rect.height;
+      const mx = (e.clientX - rect.left) * sx;
+      const my = (e.clientY - rect.top) * sy;
+      let deg = (Math.atan2(my - gridH / 2, -(mx - gridW / 2)) * 180) / Math.PI;
+      if (deg < 0) deg += 360;
+      return Math.round(deg * 2) / 2;
+    }
+    handleG.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      angleDragging = true;
+      rayGroup.style.display = "";
+      try { handleG.setPointerCapture(e.pointerId); } catch (_) {}
+      handleG.style.cursor = "grabbing";
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    handleG.addEventListener("pointermove", (e) => {
+      if (!angleDragging) return;
+      const stepped = angleFromEvent(e);
+      const m = window.__angleDegMut;
+      if (m.value !== stepped) m.value = stepped;
+      e.stopPropagation();
+    });
+    const endAngleDrag = (e) => {
+      if (!angleDragging) return;
+      angleDragging = false;
+      rayGroup.style.display = "none";
+      try { handleG.releasePointerCapture(e.pointerId); } catch (_) {}
+      handleG.style.cursor = "grab";
+      e.stopPropagation();
+    };
+    handleG.addEventListener("pointerup", endAngleDrag);
+    handleG.addEventListener("pointercancel", endAngleDrag);
+
+    const container = html`<div style="position:relative; display:inline-block; border:1px solid #888;"></div>`;
+    container.appendChild(canvas);
+    container.appendChild(overlaySvg);
+
+    display(
+      html`<figure>
+        ${container}
+        <figcaption>
+          Drag the yellow handle to sweep through all 360°. The left half shows
+          each ray depositing with uniform weight (visible banding where rays
+          overlap or leave gaps); the right half shows the
+          <code>(1−f, f)</code> interpolation scheme, which produces an even
+          fill. While dragging, thin lines show each ray's traversal path.
+        </figcaption>
+      </figure>`,
+    );
+    canvas;
+  </script>
+
+  <script id="render" type="module">
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(gridW, gridH);
+    const px = img.data;
+    const splitX = Math.floor(gridW / 2);
+
+    for (let y = 0; y < gridH; y++) {
+      for (let x = 0; x < gridW; x++) {
+        const i = y * gridW + x;
+        const j = i * 4;
+        const src = x < splitX ? resultOff : resultOn;
+        let r = Math.max(0, Math.min(255, src.rAcc[i] * 255));
+        let g = Math.max(0, Math.min(255, src.gAcc[i] * 255));
+        let b = Math.max(0, Math.min(255, src.bAcc[i] * 255));
+        if (showRayStarts && resultOn.start[i]) {
+          r = 0;
+          g = 0;
+          b = 0;
+        }
+        px[j] = r;
+        px[j + 1] = g;
+        px[j + 2] = b;
+        px[j + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+
+    // Reposition the drag handle.
+    placeHandle(angleDeg);
+
+    // Rebuild SVG ray lines. Each ray is a straight line in the
+    // canonical reparameterized grid; we map entry/exit back to
+    // original coords and draw a thin line.
+    while (rayGroup.firstChild) rayGroup.removeChild(rayGroup.firstChild);
+    const theta = (angleDeg * Math.PI) / 180;
+    const rdx = Math.cos(theta);
+    const rdy = -Math.sin(theta);
+    const adx = Math.abs(rdx);
+    const ady = Math.abs(rdy);
+    const rswap = ady > adx;
+    const rflipX = rdx < 0;
+    const rflipY = rdy < 0;
+    const rvW = rswap ? gridH : gridW;
+    const rvH = rswap ? gridW : gridH;
+    const rndx = rswap ? ady : adx;
+    const rndy = rswap ? adx : ady;
+    let rm = rndx === 0 ? 0 : rndy / rndx;
+    if (rm < 1e-12) rm = 0;
+    else if (rm > 1 - 1e-12) rm = 1;
+    const rbMin = -Math.ceil(rm * (rvW - 1));
+    const rbMax = rvH - 1;
+    const toXY = (cx, cy) => {
+      let ox = rswap ? cy : cx;
+      let oy = rswap ? cx : cy;
+      if (rflipX) ox = gridW - 1 - ox;
+      if (rflipY) oy = gridH - 1 - oy;
+      return [ox + 0.5, oy + 0.5];
+    };
+    const bCenter = (() => {
+      const oxC = Math.floor(gridW / 2);
+      const oyC = Math.floor(gridH / 2);
+      const oxP = rflipX ? gridW - 1 - oxC : oxC;
+      const oyP = rflipY ? gridH - 1 - oyC : oyC;
+      const cxC = rswap ? oyP : oxP;
+      const cyC = rswap ? oxP : oyP;
+      return Math.round(cyC - rm * cxC);
+    })();
+    for (let b = rbMin; b <= rbMax; b++) {
+      let cxStart = -1;
+      let cxEnd = -1;
+      for (let cx = 0; cx < rvW; cx++) {
+        const y = b + rm * cx;
+        const yi = Math.floor(y);
+        if (yi >= 0 && yi < rvH) {
+          if (cxStart < 0) cxStart = cx;
+          cxEnd = cx;
+        } else if (yi + 1 >= 0 && yi + 1 < rvH) {
+          if (cxStart < 0) cxStart = cx;
+          cxEnd = cx;
+        }
+      }
+      if (cxStart < 0) continue;
+      const [x1, y1] = toXY(cxStart, b + rm * cxStart);
+      const [x2, y2] = toXY(cxEnd, b + rm * cxEnd);
+      const line = document.createElementNS(SVG_NS, "line");
+      const isCenter = b === bCenter;
+      line.setAttribute("x1", x1);
+      line.setAttribute("y1", y1);
+      line.setAttribute("x2", x2);
+      line.setAttribute("y2", y2);
+      line.setAttribute("stroke", isCenter ? "red" : "rgba(0,0,0,0.15)");
+      line.setAttribute("stroke-width", String(gridW / Math.min(640, width)));
+      rayGroup.appendChild(line);
+    }
+  </script>
+
+  <script id="explainer" type="text/markdown"></script>
+
+  <script id="hard-shadow-intro" type="text/markdown">
+    ## Hard-threshold shadows
+
+    With the traversal machinery in place, I can apply it to direct sunlight. Where LSAO applies a distance falloff to produce soft ambient-occlusion-style shading, I replace this with a geometric shadow test: a pixel is in shadow when terrain between it and the sun blocks the line of sight. The result is a binary lit/shadow decision per pixel, appropriate for direct sunlight.
+
+    Each ray sweeps _away_ from the sun (azimuth+180°), so shadows fall along the direction of travel. At each step I interpolate the terrain height at the ray's sub-pixel position and ask: does a ray from the sun at altitude `α` clear all the terrain seen so far? The trick that makes this O(1) per step is to add a height ramp to each elevation — define `G_k = h_k + k·d_step·tan(α)`, where `d_step` is the metric length of one canonical step. In this tilted coordinate system, the sun's line of sight becomes horizontal, and the shadow test reduces to checking whether `G` at the current pixel exceeds the running maximum of `G` over all previous pixels on the ray.
+
+    A few implementation details matter for quality:
+
+    - **Interpolation symmetry.** The terrain sample and the shadow deposit must use the same `(1−f, f)` weights. Any mismatch produces striations on hillsides.
+    - **Pixel size.** At Web Mercator zoom `z` and latitude `lat`, the pixel size in meters is `40075016.686·cos(lat) / (2^z · tileSize)`. The canonical step length is `√(1 + m²) · pixelSize`.
+  </script>
+
+  <script id="simple-sun-dir" type="module">
+    const simpleSunDirMut = Mutable({ az: 314.5, alt: 10 });
+    const simpleSunDir = simpleSunDirMut;
+    const simpleSunDirAccessor = (() => { const m = simpleSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
+  </script>
+
+  <script id="parent-sun-dir" type="module">
+    const parentSunDirMut = Mutable({ az: 314.5, alt: 10 });
+    const parentSunDir = parentSunDirMut;
+    const parentSunDirAccessor = (() => { const m = parentSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
+  </script>
+
+  <script id="sun-controls" type="module">
+    const sunControls = html`<div id="sun-controls-div"></div>`;
+    function sctrl(input) {
+      sunControls.appendChild(input);
+      return Generators.input(input);
+    }
+
+    const sourceEl = Inputs.radio(["terrain", "geometry"], {
+      label: "terrain source",
+      value: "terrain",
+    });
+    window.__sourceInputEl = sourceEl;
+    const source = sctrl(sourceEl);
+
+    display(sunControls);
+  </script>
+
+  <script id="sun-angles" type="module">
+    // Isolated in its own cell so that reacting to parentSunDir changes
+    // doesn't re-run sun-controls (which would rebuild `source` and
+    // cascade down through elevation → shadow-canvas-setup, replacing
+    // the DOM element that holds pointer capture mid-drag).
+    const sunAzimuth = parentSunDir.az;
+    const sunAltitude = parentSunDir.alt;
+  </script>
+
+  <script id="sweep-shadow" type="module">
+    import { sweepShadow } from "./sweep-shadow.js";
+    sweepShadow;
+  </script>
+
+  <script id="sun-handle-helper" type="module">
+    import { mountSunHandle } from "./sun-handle.js";
+    mountSunHandle;
+  </script>
+
+  <script id="source-toggle-helper" type="module">
+    import { createSourceToggleBadge } from "./source-toggle.js";
+    createSourceToggleBadge;
+  </script>
+
+  <script id="srgb-helper" type="module">
+    // Linear → sRGB gamma encoding. All per-pixel rendering below
+    // interprets `tone * lit` (etc.) as a linear radiance and runs the
+    // result through this before writing to the canvas, so what appears
+    // on screen is a correct gamma encoding of the physical computation.
+    const linearToSrgb = (x) => {
+      if (x <= 0) return 0;
+      if (x >= 1) return 1;
+      return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+    };
+    linearToSrgb;
+  </script>
+
+  <script id="shadow-simple-canvas" type="module">
+    const ssN = elevation.N;
+    const ssDisp = Math.max(1, Math.floor(512 / ssN));
+    const ssDispPx = Math.min(ssN * ssDisp, width);
+    const ssCanvas = html`<canvas
+      width=${ssN}
+      height=${ssN}
+      style="display:block; width:${ssDispPx}px; height:${ssDispPx}px; image-rendering:pixelated;"
+    ></canvas>`;
+
+    const ssFigure = mountSunHandle({
+      canvas: ssCanvas,
+      ...simpleSunDirAccessor,
+    });
+    ssFigure.appendChild(createSourceToggleBadge());
+
+    display(
+      html`<figure>
+        ${ssFigure}
+        <figcaption>
+          Drag the yellow handle to change the sun direction.
+        </figcaption>
+      </figure>`,
+    );
+    ssCanvas;
+  </script>
+
+  <script id="shadow-simple-result" type="module">
+    // Shadow computed WITHOUT parent/horizon data — comp tile only.
+    // Uses its own independent sun direction from simpleSunDir.
+    const shadowSimpleResult = sweepShadow(
+      elevation.N,
+      elevation.N,
+      elevation.heights,
+      simpleSunDir.az,
+      simpleSunDir.alt,
+      elevation.pixelSizeM,
+      null,
+      0,
+    );
+    shadowSimpleResult;
+  </script>
+
+  <script id="shadow-simple-render" type="module">
+    const ssCtx = ssCanvas.getContext("2d");
+    const ssImg = ssCtx.createImageData(elevation.N, elevation.N);
+    const ssPx = ssImg.data;
+    const ssH = elevation.heights;
+    const ssMin = elevation.elevMin;
+    const ssRange = elevation.elevMax - elevation.elevMin || 1;
+
+    for (let i = 0; i < ssH.length; i++) {
+      const j = i * 4;
+      const tone = 0.1 + 0.8 * ((ssH[i] - ssMin) / ssRange);
+      const shade = Math.min(1, Math.max(0, shadowSimpleResult[i]));
+      const lit = 1 - 0.94 * shade;
+      const v = Math.round(linearToSrgb(tone * lit) * 255);
+      ssPx[j] = v;
+      ssPx[j + 1] = v;
+      ssPx[j + 2] = v;
+      ssPx[j + 3] = 255;
+    }
+    ssCtx.putImageData(ssImg, 0, 0);
+  </script>
+
+  <script id="parent-tile-intro" type="text/markdown">
+    ## Parent-tile pre-pass
+
+    A fundamental limitation of per-tile line-sweep methods — including LSAO — is that a sweep starting at the tile edge has no knowledge of terrain beyond it. Shadows cast by mountains just outside the boundary are clipped, producing visible seams between tiles.
+
+    I resolve this by assembling a half-resolution horizon buffer from four z−1 ancestor tiles, covering the computation tile and one tile width of surrounding terrain in each direction. Before the main sweep, a pre-pass walks each ray through this coarser buffer, warming up the running maximum so that by the time the ray enters the computation tile, it already carries the horizon contributed by surrounding terrain.
+  </script>
+
+  <script id="tile-coords" type="module">
+    // Reference tile for the interactive shadow / AO / soft-shadow
+    // figures below. Northern Arizona / Grand Canyon area, served
+    // live from https://tiles.mapterhorn.com.
+    const tile = { z: 13, x: 1590, y: 3188 };
+    tile;
+  </script>
+
+  <script id="terrarium-decode" type="module">
+    // Decode a Terrarium-encoded webp tile into a Float32Array of heights.
+    async function fetchTerrarium(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`tile fetch failed: ${url} (${res.status})`);
+      const blob = await res.blob();
+      const bitmap = await createImageBitmap(blob);
+      const N = bitmap.width;
+      const c = document.createElement("canvas");
+      c.width = N;
+      c.height = N;
+      const cctx = c.getContext("2d");
+      cctx.drawImage(bitmap, 0, 0);
+      const bytes = cctx.getImageData(0, 0, N, N).data;
+      const heights = new Float32Array(N * N);
+      let hMin = Infinity,
+        hMax = -Infinity;
+      for (let i = 0; i < N * N; i++) {
+        const r = bytes[i * 4],
+          g = bytes[i * 4 + 1],
+          b = bytes[i * 4 + 2];
+        const h = r * 256 + g + b / 256 - 32768;
+        heights[i] = h;
+        if (h < hMin) hMin = h;
+        if (h > hMax) hMax = h;
+      }
+      return { N, heights, hMin, hMax };
+    }
+    fetchTerrarium;
+  </script>
+
+  <script id="tile-elevation" type="module">
+    const tileElevation = await (async () => {
+      const url = `https://tiles.mapterhorn.com/${tile.z}/${tile.x}/${tile.y}.webp`;
+      const { N, heights, hMin, hMax } = await fetchTerrarium(url);
+      const nMerc = Math.PI * (1 - (2 * (tile.y + 0.5)) / (1 << tile.z));
+      const lat = Math.atan(Math.sinh(nMerc));
+      const pixelSizeM = (40075016.686 * Math.cos(lat)) / ((1 << tile.z) * N);
+      return {
+        label: `mapterhorn ${tile.z}/${tile.x}/${tile.y}`,
+        heights,
+        N,
+        pixelSizeM,
+        elevMin: hMin,
+        elevMax: hMax,
+        lat,
+      };
+    })();
+    tileElevation;
+  </script>
+
+  <script id="tile-horizon" type="module">
+    // Fetch four z-1 parent tiles — guaranteed to physically cover the 3×3
+    // neighbourhood around our computation tile — and assemble them into a
+    // half-resolution horizon buffer of size (3·N/2) × (3·N/2) parent pixels,
+    // centred on the computation tile so that comp pixel (0, 0) lands at
+    // horizon pixel (N/2, N/2).
+    //
+    // The computation tile is at parent pixel offset
+    //   (tile.x mod 2) * (PN/2), (tile.y mod 2) * (PN/2)
+    // within its parent. We extract a 3·PN/2-wide window whose centre aligns
+    // with that offset inside the 2·PN-wide block of four parents.
+    const tileHorizon = await (async () => {
+      const parentZ = tile.z - 1;
+      const qx = Math.floor((tile.x - 1) / 2);
+      const qy = Math.floor((tile.y - 1) / 2);
+
+      // Tolerate missing parents: if one of the four z−1 tiles isn't
+      // in the on-disk pyramid, substitute zero-filled heights. The
+      // figures degrade gracefully — the missing quadrants of the
+      // parent ring just read as flat ground rather than throwing.
+      async function fetchParent(px, py) {
+        try {
+          const url = `https://tiles.mapterhorn.com/${parentZ}/${px}/${py}.webp`;
+          return await fetchTerrarium(url);
+        } catch (_) {
+          return null;
+        }
+      }
+
+      const [p00, p10, p01, p11] = await Promise.all([
+        fetchParent(qx, qy),
+        fetchParent(qx + 1, qy),
+        fetchParent(qx, qy + 1),
+        fetchParent(qx + 1, qy + 1),
+      ]);
+      const ref = p00 || p10 || p01 || p11;
+      if (!ref)
+        throw new Error(
+          `tileHorizon: no z${parentZ} parents downloaded for tile ${tile.z}/${tile.x}/${tile.y}`,
+        );
+      const PN = ref.N;
+      const BN = 2 * PN;
+      const zeroTile = new Float32Array(PN * PN);
+
+      // Assemble the 2×2 parent block into a BN × BN buffer.
+      const block = new Float32Array(BN * BN);
+      function place(p, bx, by) {
+        const ox = bx * PN,
+          oy = by * PN;
+        const h = p ? p.heights : zeroTile;
+        for (let j = 0; j < PN; j++) {
+          const src = j * PN;
+          const dst = (oy + j) * BN + ox;
+          block.set(h.subarray(src, src + PN), dst);
+        }
+      }
+      place(p00, 0, 0);
+      place(p10, 1, 0);
+      place(p01, 0, 1);
+      place(p11, 1, 1);
+
+      // Extract the 3·PN/2 horizon window. Its top-left corner sits half a
+      // parent-tile-width before the computation tile in both axes.
+      const HN = Math.floor((3 * PN) / 2);
+      // Position of the computation tile's top-left corner inside the 2×2 block,
+      // in parent pixels.
+      const compTileXInBlock = (tile.x - 2 * qx) * (PN / 2);
+      const compTileYInBlock = (tile.y - 2 * qy) * (PN / 2);
+      const startX = compTileXInBlock - PN / 2;
+      const startY = compTileYInBlock - PN / 2;
+
+      const heights = new Float32Array(HN * HN);
+      let hMin = Infinity,
+        hMax = -Infinity;
+      for (let j = 0; j < HN; j++) {
+        const srcRow = (startY + j) * BN + startX;
+        const dstRow = j * HN;
+        for (let i = 0; i < HN; i++) {
+          const h = block[srcRow + i];
+          heights[dstRow + i] = h;
+          if (h < hMin) hMin = h;
+          if (h > hMax) hMax = h;
+        }
+      }
+
+      return {
+        label: `mapterhorn parents of ${tile.z}/${tile.x}/${tile.y}`,
+        heights,
+        HN,
+        compTileSize: tileElevation.N,
+        startX,
+        startY,
+        hMin,
+        hMax,
+      };
+    })();
+    tileHorizon;
+  </script>
+
+  <script id="geometry-elevation" type="module">
+    // Three primitives scattered on flat ground inside the comp tile
+    // (cone, cylinder, hemisphere — exercising linear, vertical-wall, and
+    // curved shadow edges), plus a set of tall pillars and cones placed
+    // in the surrounding parent ring so the parent-tile figure's pre-pass
+    // has something to cast shadows from across the tile boundary.
+    const geometryElevation = (() => {
+      const N = 512;
+      const pixelSizeM = 0.5;
+      const ground = 0;
+
+      // Positions and radii given in metres; the comp tile is 256 m × 256 m.
+      const cone = { cx: 80, cy: 92, r: 36 }; // 45° slope, peak == r
+      const cyl = { cx: 184, cy: 72, r: 28, h: 36 };
+      const hemi = { cx: 132, cy: 180, r: 40 };
+
+      const heights = new Float32Array(N * N);
+      let hMax = 0;
+      for (let j = 0; j < N; j++) {
+        const ym = (j + 0.5) * pixelSizeM;
+        for (let i = 0; i < N; i++) {
+          const xm = (i + 0.5) * pixelSizeM;
+          let h = 0;
+
+          const dxc = xm - cone.cx,
+            dyc = ym - cone.cy;
+          const rc = Math.sqrt(dxc * dxc + dyc * dyc);
+          if (rc < cone.r) h = Math.max(h, cone.r - rc);
+
+          const dxl = xm - cyl.cx,
+            dyl = ym - cyl.cy;
+          const rl = Math.sqrt(dxl * dxl + dyl * dyl);
+          // 1-pixel-wide linear ramp at the silhouette.
+          const tl = Math.max(
+            0,
+            Math.min(1, (cyl.r + 0.5 * pixelSizeM - rl) / pixelSizeM),
+          );
+          if (tl > 0) h = Math.max(h, tl * cyl.h);
+
+          const dxh = xm - hemi.cx,
+            dyh = ym - hemi.cy;
+          const d2 = dxh * dxh + dyh * dyh;
+          if (d2 < hemi.r * hemi.r)
+            h = Math.max(h, Math.sqrt(hemi.r * hemi.r - d2));
+
+          heights[j * N + i] = ground + h;
+          if (h > hMax) hMax = h;
+        }
+      }
+
+      // Parent-ring horizon buffer at half resolution. Covers world
+      // [-256, 512] m × [-256, 512] m with HN = 3·N/2 = 768 pixels at
+      // 1 m/px. Comp pixel (0, 0) lands at horizon pixel (N/2, N/2).
+      const HN = Math.floor((3 * N) / 2);
+      const horizonPxSize = pixelSizeM * 2;
+
+      // Tall pillars (cylinders) scattered through the parent ring. Each
+      // drops a hard-edged shadow into the comp tile at low sun angles.
+      const horPillars = [
+        { cx: -80, cy: 60, r: 18, h: 110 },
+        { cx: 140, cy: -90, r: 14, h: 95 },
+        { cx: 330, cy: 90, r: 16, h: 80 },
+        { cx: 60, cy: 330, r: 14, h: 70 },
+        { cx: -100, cy: 280, r: 12, h: 60 },
+        { cx: 380, cy: 360, r: 16, h: 85 },
+      ];
+      // A couple of 45° cones for a softer (linearly tapered) blocker.
+      const horCones = [
+        { cx: 370, cy: -70, r: 70 },
+        { cx: -160, cy: 170, r: 55 },
+      ];
+
+      const horizonHeights = new Float32Array(HN * HN);
+      let horMax = 0;
+      for (let j = 0; j < HN; j++) {
+        const ym = (j - N / 2 + 0.5) * horizonPxSize;
+        for (let i = 0; i < HN; i++) {
+          const xm = (i - N / 2 + 0.5) * horizonPxSize;
+          let h = 0;
+
+          for (const p of horPillars) {
+            const dx = xm - p.cx,
+              dy = ym - p.cy;
+            const r = Math.sqrt(dx * dx + dy * dy);
+            const t = Math.max(
+              0,
+              Math.min(1, (p.r + 0.5 * horizonPxSize - r) / horizonPxSize),
+            );
+            if (t > 0) h = Math.max(h, t * p.h);
+          }
+          for (const c of horCones) {
+            const dx = xm - c.cx,
+              dy = ym - c.cy;
+            const r = Math.sqrt(dx * dx + dy * dy);
+            if (r < c.r) h = Math.max(h, c.r - r);
+          }
+
+          horizonHeights[j * HN + i] = h;
+          if (h > horMax) horMax = h;
+        }
+      }
+
+      return {
+        label: `geometry ${N}×${N}`,
+        heights,
+        N,
+        pixelSizeM,
+        elevMin: ground,
+        elevMax: ground + hMax,
+        lat: 0,
+        horizon: {
+          HN,
+          heights: horizonHeights,
+          hMin: 0,
+          hMax: horMax,
+        },
+      };
+    })();
+    geometryElevation;
+  </script>
+
+  <script id="elevation" type="module">
+    // Switch between sources; reactive on `source`.
+    const elevation = source === "geometry" ? geometryElevation : tileElevation;
+    // (source values: "terrain" | "geometry")
+    elevation;
+  </script>
+
+  <script id="elevation-horizon" type="module">
+    // Pick a horizon buffer matching the active elevation source.
+    //
+    // * For the tile source, use the assembled parent-tile data (tileHorizon).
+    // * For the geometry source, the surrounding physical world is flat
+    //   ground at elevation 0, so a zero-filled buffer of the same shape
+    //   is physically correct.
+    const elevationHorizon = (() => {
+      const N = elevation.N;
+      if (elevation === tileElevation) {
+        return { HN: tileHorizon.HN, heights: tileHorizon.heights };
+      }
+      if (elevation.horizon) {
+        return elevation.horizon;
+      }
+      const HN = Math.floor((3 * N) / 2);
+      return { HN, heights: new Float32Array(HN * HN) };
+    })();
+    elevationHorizon;
+  </script>
+
+  <script id="horizon-visualization" type="module">
+    // Render the computation tile stamped into an HN × HN frame with the
+    // same half-resolution layout as the compute-shader horizon buffer (comp
+    // pixel (0, 0) at horizon pixel (N/2, N/2), red outline around comp-tile
+    // region).
+    const N = elevation.N;
+    const HN = elevationHorizon.HN;
+
+    // Shared hypsometric ramp: use horizon stats for the tile source, comp
+    // tile stats for synthetic sources (where horizon is all zeros).
+    let gMin, gMax;
+    if (elevation === tileElevation) {
+      gMin = Math.min(elevation.elevMin, tileHorizon.hMin);
+      gMax = Math.max(elevation.elevMax, tileHorizon.hMax);
+    } else {
+      gMin = elevation.elevMin;
+      gMax = elevation.elevMax;
+    }
+    const gRange = gMax - gMin || 1;
+    const shade = (h) => {
+      const t = Math.max(0, Math.min(1, (h - gMin) / gRange));
+      return Math.round((0.15 + 0.8 * t) * 255);
+    };
+
+    const horizonImg = new ImageData(HN, HN);
+    const horizonPx = horizonImg.data;
+
+    for (let j = 0; j < HN; j++) {
+      for (let i = 0; i < HN; i++) {
+        const v = shade(elevationHorizon.heights[j * HN + i]);
+        const k = (j * HN + i) * 4;
+        horizonPx[k] = v;
+        horizonPx[k + 1] = v;
+        horizonPx[k + 2] = v;
+        horizonPx[k + 3] = 255;
       }
     }
 
-    ctx.putImageData(imageData, 0, 0);
-
-    // Draw target region boundary
-    ctx.strokeStyle = '#ca4747';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(128, 0, 512, 200); // Target region in parent buffer
-
-    display(html`<div>
-      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <strong>Parent Buffer Terrain</strong> (768×768, showing top 200 rows)<br>
-        White = elevated (z=100), Black = flat (z=0), Red box = target tile region
-      </div>
-      ${canvas}
-    </div>`);
-  </script>
-  <script id="33b" type="module">
-    // Run simple LSAO on synthetic data (imports already in cell 2)
-    const { pipeline: synthSimplePipeline, bindGroupLayout: synthSimpleBindGroup } = createSimpleLSAOPipeline(device, {
-      tileSize: 512,
-      tileBuffer: 1,
-      workgroupSize: 128
-    });
-
-    const synthSimpleResult = await computeSimpleLSAO({
-      device,
-      pipeline: synthSimplePipeline,
-      bindGroupLayout: synthSimpleBindGroup,
-      terrainData: syntheticTarget,
-      tileSize: 512,
-      pixelSize: 19.1,
-      workgroupSize: 128,
-      directions: [[1, 0]] // Just east sweep to test west edge
-    });
-
-    // Check west edge values
-    let westEdgeSum = 0;
-    for (let y = 0; y < 512; y++) {
-      westEdgeSum += synthSimpleResult[y * 512]; // x=0 (west edge)
-    }
-    const westEdgeMean = westEdgeSum / 512;
-
-    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666;">
-      <strong>Simple LSAO (no parent data):</strong><br>
-      West edge mean: ${westEdgeMean.toFixed(4)}<br>
-      <em>Should be ~1.0 (no occlusion) since it can't see the elevated parent terrain</em>
-    </div>`);
-
-    // Visualize simple LSAO result
-    const canvasSimple = document.createElement('canvas');
-    canvasSimple.width = 512;
-    canvasSimple.height = 200;
-    const ctxSimple = canvasSimple.getContext('2d');
-    const imgSimple = ctxSimple.createImageData(512, 200);
-
-    for (let y = 0; y < 200; y++) {
-      for (let x = 0; x < 512; x++) {
-        const value = Math.floor(synthSimpleResult[y * 512 + x] * 255);
-        imgSimple.data[(y * 512 + x) * 4] = value;
-        imgSimple.data[(y * 512 + x) * 4 + 1] = value;
-        imgSimple.data[(y * 512 + x) * 4 + 2] = value;
-        imgSimple.data[(y * 512 + x) * 4 + 3] = 255;
+    // Comp tile stamp: 2×2-average down to the horizon-pixel resolution so
+    // its scale matches the surrounding parent data.
+    const half = N >> 1;
+    const originX = N >> 1;
+    const originY = N >> 1;
+    for (let j = 0; j < half; j++) {
+      for (let i = 0; i < half; i++) {
+        const i0 = 2 * i,
+          j0 = 2 * j;
+        const a = elevation.heights[j0 * N + i0];
+        const b = elevation.heights[j0 * N + i0 + 1];
+        const c = elevation.heights[(j0 + 1) * N + i0];
+        const d = elevation.heights[(j0 + 1) * N + i0 + 1];
+        const v = shade(0.25 * (a + b + c + d));
+        const k = ((originY + j) * HN + (originX + i)) * 4;
+        horizonPx[k] = Math.min(255, v + 8);
+        horizonPx[k + 1] = v;
+        horizonPx[k + 2] = Math.max(0, v - 16);
+        horizonPx[k + 3] = 255;
       }
     }
 
-    ctxSimple.putImageData(imgSimple, 0, 0);
-    display(canvasSimple);
-
-    synthSimpleResult;
-  </script>
-  <script id="33c" type="module">
-    // Run multi-level LSAO on synthetic data
-    const synthLevelInfo = [calculateLevelInfo(-1, 512)];
-
-    const { pipeline: synthMultiPipeline, bindGroupLayout: synthMultiBindGroup } = createLSAOPipeline(device, {
-      tileSize: 512,
-      tileBuffer: 1,
-      numLevels: 1,
-      workgroupSize: 128
-    });
-
-    const synthMultiResult = await computeLSAO({
-      device,
-      pipeline: synthMultiPipeline,
-      bindGroupLayout: synthMultiBindGroup,
-      targetData: syntheticTarget,
-      parentLevels: [syntheticParent],
-      levelInfo: synthLevelInfo,
-      tileSize: 512,
-      pixelSize: 19.1,
-      workgroupSize: 128,
-      directions: [[1, 0]] // Just east sweep to test west edge
-    });
-
-    // Check west edge values
-    let westEdgeSum = 0;
-    for (let y = 0; y < 512; y++) {
-      westEdgeSum += synthMultiResult[y * 512]; // x=0 (west edge)
-    }
-    const westEdgeMean = westEdgeSum / 512;
-
-    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666;">
-      <strong>Multi-Level LSAO (with parent data):</strong><br>
-      West edge mean: ${westEdgeMean.toFixed(4)}<br>
-      <em>Should be significantly &lt; 1.0 (strong occlusion from elevated ridge)</em>
-    </div>`);
-
-    // Visualize multi-level LSAO result
-    const canvasMulti = document.createElement('canvas');
-    canvasMulti.width = 512;
-    canvasMulti.height = 200;
-    const ctxMulti = canvasMulti.getContext('2d');
-    const imgMulti = ctxMulti.createImageData(512, 200);
-
-    for (let y = 0; y < 200; y++) {
-      for (let x = 0; x < 512; x++) {
-        const value = Math.floor(synthMultiResult[y * 512 + x] * 255);
-        imgMulti.data[(y * 512 + x) * 4] = value;
-        imgMulti.data[(y * 512 + x) * 4 + 1] = value;
-        imgMulti.data[(y * 512 + x) * 4 + 2] = value;
-        imgMulti.data[(y * 512 + x) * 4 + 3] = 255;
+    for (let i = 0; i < half; i++) {
+      const edges = [
+        [originX + i, originY],
+        [originX + i, originY + half - 1],
+        [originX, originY + i],
+        [originX + half - 1, originY + i],
+      ];
+      for (const [x, y] of edges) {
+        const k = (y * HN + x) * 4;
+        horizonPx[k] = 220;
+        horizonPx[k + 1] = 40;
+        horizonPx[k + 2] = 40;
+        horizonPx[k + 3] = 255;
       }
     }
 
-    ctxMulti.putImageData(imgMulti, 0, 0);
-    display(canvasMulti);
+    const disp = Math.max(1, Math.floor(512 / HN));
+    const horizonCanvas = html`<canvas
+      width=${HN}
+      height=${HN}
+      style="width:${HN * disp}px; height:${HN *
+      disp}px; image-rendering:pixelated; border:1px solid #888; display:block;"
+    ></canvas>`;
+    horizonCanvas.getContext("2d").putImageData(horizonImg, 0, 0);
 
-    synthMultiResult;
+    // Keep horizonCanvas alive for reactive deps but don't display it
+    // as a separate figure — it's merged into the shadow canvas below.
+    horizonCanvas;
   </script>
-  <script id="33d" type="module">
-    // Visualize synthetic test results
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 100; // Just show top portion
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(512, 100);
 
-    // Show difference (multi - simple) amplified
-    for (let y = 0; y < 100; y++) {
-      for (let x = 0; x < 512; x++) {
-        const idx = y * 512 + x;
-        const diff = synthSimpleResult[idx] - synthMultiResult[idx];
-        // Red = multi has MORE occlusion (lower value), which is expected on west edge
-        const r = Math.floor(Math.min(Math.max(diff * 2, 0), 1) * 255);
-        // Blue = multi has LESS occlusion (higher value)
-        const b = Math.floor(Math.min(Math.max(-diff * 2, 0), 1) * 255);
+  <script id="shadow-result" type="module">
+    const horizonTouched = new Uint8Array(
+      elevationHorizon.HN * elevationHorizon.HN,
+    );
+    const shadowResult = sweepShadow(
+      elevation.N,
+      elevation.N,
+      elevation.heights,
+      sunAzimuth,
+      sunAltitude,
+      elevation.pixelSizeM,
+      elevationHorizon.heights,
+      elevationHorizon.HN,
+      horizonTouched,
+    );
+    shadowResult;
+  </script>
 
-        imageData.data[idx * 4] = r;
-        imageData.data[idx * 4 + 1] = 0;
-        imageData.data[idx * 4 + 2] = b;
-        imageData.data[idx * 4 + 3] = 255;
+  <script id="shadow-canvas-setup" type="module">
+    // Merged figure: HN × HN canvas showing surrounding parent terrain
+    // with the shadow-rendered comp tile in the centre. Displayed at
+    // 640 × 640 CSS pixels.
+    const shadowHN = elevationHorizon.HN;
+    const shadowDispPx = Math.min(640, width);
+    const shadowCanvas = html`<canvas
+      width=${shadowHN}
+      height=${shadowHN}
+      style="display:block; width:${shadowDispPx}px; height:${shadowDispPx}px; image-rendering:pixelated;"
+    ></canvas>`;
+
+    const shadowFigure = mountSunHandle({
+      canvas: shadowCanvas,
+      ...parentSunDirAccessor,
+    });
+    shadowFigure.appendChild(createSourceToggleBadge());
+
+    display(
+      html`<figure>
+        ${shadowFigure}
+        <figcaption>
+          The red outline marks the computation-tile region; blue tinting shows
+          which parent pixels were touched by the warmup. Drag the yellow handle
+          to change the sun direction.
+        </figcaption>
+      </figure>`,
+    );
+    shadowCanvas;
+  </script>
+
+  <script id="shadow-render" type="module">
+    // Merged render: HN × HN canvas with parent terrain surrounding the
+    // comp tile, and the CPU shadow result composited into the centre.
+    const srN = elevation.N;
+    const srHN = elevationHorizon.HN;
+    const shadowCtx = shadowCanvas.getContext("2d");
+    const shadowImg = shadowCtx.createImageData(srHN, srHN);
+    const shadowPx = shadowImg.data;
+
+    // Shared hypsometric ramp across the whole figure: include the
+    // horizon's min/max (for both the tile source and any synthetic
+    // source that ships a populated horizon) so comp and parent tones
+    // sit on the same scale.
+    let gMinS = elevation.elevMin;
+    let gMaxS = elevation.elevMax;
+    if (elevation === tileElevation) {
+      gMinS = Math.min(gMinS, tileHorizon.hMin);
+      gMaxS = Math.max(gMaxS, tileHorizon.hMax);
+    } else if (elevation.horizon && elevation.horizon.hMax !== undefined) {
+      gMinS = Math.min(gMinS, elevation.horizon.hMin ?? 0);
+      gMaxS = Math.max(gMaxS, elevation.horizon.hMax);
+    }
+    const gRangeS = gMaxS - gMinS || 1;
+    const toneOf = (h) => {
+      const t = Math.max(0, Math.min(1, (h - gMinS) / gRangeS));
+      return 0.1 + 0.8 * t;
+    };
+
+    // Central computation-tile region, in horizon-pixel coordinates.
+    const halfN = srN >> 1;
+    const ox = srN >> 1;
+    const oy = srN >> 1;
+
+    // Background: parent / horizon elevation data. Surrounding pixels
+    // (outside the central computation tile) get a darkening cast so the
+    // red-boxed centre reads clearly.
+    const horH = elevationHorizon.heights;
+    const surroundDarken = 0.4;
+    for (let j = 0; j < srHN; j++) {
+      const inCenterJ = j >= oy && j < oy + halfN;
+      for (let i = 0; i < srHN; i++) {
+        const inCenter = inCenterJ && i >= ox && i < ox + halfN;
+        let tone = toneOf(horH[j * srHN + i]);
+        if (!inCenter) tone *= surroundDarken;
+        const v = Math.round(linearToSrgb(tone) * 255);
+        const k = (j * srHN + i) * 4;
+        shadowPx[k] = v;
+        shadowPx[k + 1] = v;
+        shadowPx[k + 2] = v;
+        shadowPx[k + 3] = 255;
       }
     }
 
-    ctx.putImageData(imageData, 0, 0);
+    // Centre tile: shadow-composited hypsometric at half resolution.
+    // Each horizon pixel covers a 2×2 block of comp pixels; we average
+    // both the tone and the shadow value over those four samples.
+    const hh = elevation.heights;
+    for (let j = 0; j < halfN; j++) {
+      for (let i = 0; i < halfN; i++) {
+        const i0 = 2 * i,
+          j0 = 2 * j;
+        const idx00 = j0 * srN + i0;
+        const idx10 = idx00 + 1;
+        const idx01 = idx00 + srN;
+        const idx11 = idx01 + 1;
+        const avgTone =
+          0.25 *
+          (toneOf(hh[idx00]) +
+            toneOf(hh[idx10]) +
+            toneOf(hh[idx01]) +
+            toneOf(hh[idx11]));
+        const avgShade =
+          0.25 *
+          (shadowResult[idx00] +
+            shadowResult[idx10] +
+            shadowResult[idx01] +
+            shadowResult[idx11]);
+        const lit = 1 - 0.94 * Math.min(1, Math.max(0, avgShade));
+        const v = Math.round(linearToSrgb(avgTone * lit) * 255);
+        const k = ((oy + j) * srHN + (ox + i)) * 4;
+        shadowPx[k] = v;
+        shadowPx[k + 1] = v;
+        shadowPx[k + 2] = v;
+        shadowPx[k + 3] = 255;
+      }
+    }
 
-    display(html`<div>
-      <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <strong>Difference Map (Simple - Multi)</strong> - Top 100 rows<br>
-        <span style="color: #e74c3c;">■</span> Red = Multi-level shows MORE shadow (correct)<br>
-        <span style="color: #3498db;">■</span> Blue = Multi-level shows LESS shadow (incorrect)
-      </div>
-      ${canvas}
-      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <strong>Expected:</strong> West edge (left) should be RED (multi-level sees elevated parent terrain)<br>
-        <strong>If blue on west edge:</strong> Bug - multi-level is not correctly sampling parent data
-      </div>
-    </div>`);
-  </script>
-  <script id="34" type="text/markdown">
-    ## 8. Multi-Level LSAO with Real Terrain
+    // Tint parent pixels touched by the warmup.
+    for (let j = 0; j < srHN; j++) {
+      for (let i = 0; i < srHN; i++) {
+        if (i >= ox && i < ox + halfN && j >= oy && j < oy + halfN) continue;
+        const t = horizonTouched[j * srHN + i];
+        if (!t) continue;
+        const k = (j * srHN + i) * 4;
+        shadowPx[k] = Math.round(shadowPx[k] * 0.7);
+        shadowPx[k + 1] = Math.round(shadowPx[k + 1] * 0.7);
+        shadowPx[k + 2] = Math.min(255, Math.round(shadowPx[k + 2] * 0.7 + 70));
+      }
+    }
 
-    Now test with actual Mapbox terrain data:
+    // Red border around the centre tile (2 horizon-pixels wide).
+    const bw = 2;
+    for (let j = 0; j < halfN; j++) {
+      const onEdgeJ = j < bw || j >= halfN - bw;
+      for (let i = 0; i < halfN; i++) {
+        if (!(onEdgeJ || i < bw || i >= halfN - bw)) continue;
+        const k = ((oy + j) * srHN + (ox + i)) * 4;
+        shadowPx[k] = 220;
+        shadowPx[k + 1] = 50;
+        shadowPx[k + 2] = 50;
+        shadowPx[k + 3] = 255;
+      }
+    }
+
+    shadowCtx.putImageData(shadowImg, 0, 0);
   </script>
-  <script id="34a" type="module">
-    const numLevelsInput = Inputs.range([1, 3], {
-      value: 2,
+
+  <script id="penumbra-hover" type="module">
+    // Mouse-driven sun position for the penumbra analysis figure below.
+    // Stashed on `window` so the figure cell (a separate scope) can mutate
+    // it from its mouse handlers.
+    const penumbraHoverMut = Mutable({ x: 16, y: 19 });
+    const penumbraHover = penumbraHoverMut;
+    const penumbraHoverAccessor = (() => { const m = penumbraHoverMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
+  </script>
+
+  <script id="penumbra-elev-version" type="module">
+    // Version counter for the penumbra figure's height field. The
+    // height field itself lives at `window.__penumbraElev` and is
+    // mutated in place by the figure's click-drag handler; bumping this
+    // counter triggers a reactive re-render of the figure cell.
+    const penumbraElevVersionMut = Mutable(0);
+    window.__penumbraElevVersionMut = penumbraElevVersionMut;
+    const penumbraElevVersion = penumbraElevVersionMut;
+    penumbraElevVersion;
+  </script>
+
+  <script id="penumbra-intro" type="text/markdown">
+    ## Penumbra
+
+    The hard-threshold shadow from a point sun produces perfectly sharp edges, but real sunlight has a finite angular diameter (~0.53°), creating a geometric penumbra — a gradual transition from full shadow to full light. I plan to incorporate this in two ways: a smooth cutoff in the altitude direction, and multiple azimuthal samples to soften the shadow edge laterally.
+  </script>
+
+  <script id="penumbra-controls" type="module">
+    const penumbraAngleEl = Inputs.range([0, 30], {
+      label: "sun diameter (°)",
+      value: 10,
+      step: 0.5,
+    });
+    display(penumbraAngleEl);
+  </script>
+
+  <script id="penumbra-figure" type="module">
+    import { createPenumbraFigure } from "./penumbra-figure.js";
+    const _ver = penumbraElevVersion;
+    const penumbraFigure = createPenumbraFigure({
+      html,
+      sunAccessor: penumbraHoverAccessor,
+      angleEl: penumbraAngleEl,
+      width,
+    });
+    display(penumbraFigure);
+  </script>
+
+  <script id="relief-intro" type="text/markdown">
+    ## Relief shading
+
+    The shadow map captures cast shadows, but even fully lit surfaces vary in brightness depending on their orientation. Relief shading separates the terrain slope from its aspect (direction it faces relative to the sun), so the sun's altitude doesn't darken flat ground. Flat terrain stays white; slopes facing the sun brighten, slopes facing away darken, and the strength of the effect is proportional to the slope angle.
+
+    Concretely: from central differences on the height field, I compute the slope angle ${tex`\theta = \arctan(z_f \cdot \|\mathbf{n}_{xy}\| / n_z)`} and the aspect alignment ${tex`a = \hat{\mathbf{n}}_{xy} \cdot \hat{\mathbf{L}}_{xy} \in [-1, 1]`}, then shade each pixel as ${tex`v = 1 - \sin(\theta \cdot s) \cdot (1 - \tfrac{1+a}{2}) \cdot 1.8`} where ${tex`s`} is the strength parameter. The z-factor ${tex`z_f = 0.625 \sqrt{\cos \alpha}`} (where ${tex`\alpha`} is the sun's altitude) dampens gentle slopes following the GDAL/maplibre convention, and modulates the perceived slope by sun altitude: at overhead sun the terrain appears flat and the image is white; as the sun lowers, slopes become more visually pronounced, reaching full contrast at the horizon. The computation is performed in sRGB (perceptual) space so that "50% gray" means perceptual midgray.
+  </script>
+
+  <script id="relief-sun-dir" type="module">
+    const reliefSunDirMut = Mutable({ az: 314.5, alt: 45 });
+    const reliefSunDir = reliefSunDirMut;
+    const reliefSunDirAccessor = (() => { const m = reliefSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
+  </script>
+
+  <script id="relief-controls" type="module">
+    const reliefControls = html`<div></div>`;
+    function rctrl(input) {
+      reliefControls.appendChild(input);
+      return Generators.input(input);
+    }
+
+    const reliefStrength = rctrl(
+      Inputs.range([0, 1], {
+        label: "strength",
+        value: 0.2,
+        step: 0.01,
+      }),
+    );
+
+    display(reliefControls);
+  </script>
+
+  <script id="relief-canvas" type="module">
+    const rlN = elevation.N;
+    const rlDisp = Math.max(1, Math.floor(512 / rlN));
+    const rlPxDisplay = Math.min(rlN * rlDisp, width);
+    const reliefCanvas = html`<canvas
+      width=${rlN}
+      height=${rlN}
+      style="display:block; width:${rlPxDisplay}px; height:${rlPxDisplay}px; image-rendering:pixelated;"
+    ></canvas>`;
+
+    const reliefFigure = mountSunHandle({
+      canvas: reliefCanvas,
+      ...reliefSunDirAccessor,
+    });
+    reliefFigure.appendChild(createSourceToggleBadge());
+
+    display(
+      html`<figure>
+        ${reliefFigure}
+        <figcaption>
+          Relief shading from slope/aspect decomposition. Flat terrain stays
+          white; slopes darken proportionally to steepness and aspect relative
+          to the sun. Drag the yellow handle to change the light direction.
+        </figcaption>
+      </figure>`,
+    );
+    reliefCanvas;
+  </script>
+
+  <script id="relief-render" type="module">
+    const rlCtx = reliefCanvas.getContext("2d");
+    const rlN2 = elevation.N;
+    const rlImg = rlCtx.createImageData(rlN2, rlN2);
+    const rlPx = rlImg.data;
+    const rlH = elevation.heights;
+    const rlDx = elevation.pixelSizeM;
+
+    const rlAzRad = (reliefSunDir.az * Math.PI) / 180;
+    const rlAltRad = (reliefSunDir.alt * Math.PI) / 180;
+    const sunLx = Math.cos(rlAltRad) * Math.cos(rlAzRad);
+    const sunLy = Math.cos(rlAltRad) * Math.sin(rlAzRad);
+    const sunHL = Math.hypot(sunLx, sunLy);
+    const sunHx = sunHL > 0.001 ? sunLx / sunHL : 1;
+    const sunHy = sunHL > 0.001 ? sunLy / sunHL : 0;
+
+    const str = reliefStrength;
+
+    for (let row = 0; row < rlN2; row++) {
+      for (let col = 0; col < rlN2; col++) {
+        const rm = Math.max(row - 1, 0);
+        const rp = Math.min(row + 1, rlN2 - 1);
+        const cm = Math.max(col - 1, 0);
+        const cp = Math.min(col + 1, rlN2 - 1);
+
+        const eN = rlH[rm * rlN2 + col];
+        const eS = rlH[rp * rlN2 + col];
+        const eE = rlH[row * rlN2 + cp];
+        const eW = rlH[row * rlN2 + cm];
+
+        let nx = (eW - eE) / ((cp - cm) * rlDx);
+        let ny = (eS - eN) / ((rp - rm) * rlDx);
+        const nmag = Math.sqrt(nx * nx + ny * ny + 1);
+        nx /= nmag;
+        ny /= nmag;
+        const nz = 1 / nmag;
+
+        // Slope/aspect relief shading matching the tile viewer.
+        const slopeMag = Math.hypot(nx, ny);
+        const zFactor = 0.625 * Math.sqrt(sunHL);
+        const slopeAngle = Math.atan(zFactor * slopeMag / Math.max(nz, 0.001));
+        const scaledSlope = Math.min(slopeAngle * str * 2.0, 1.5);
+        const aspectAlign = slopeMag > 0.001 && sunHL > 0.001
+          ? (nx * sunHx + ny * sunHy) / slopeMag : 0;
+        const shade = 0.5 + 0.5 * aspectAlign;
+        const reliefDark = Math.sin(scaledSlope) * (1 - shade);
+        const v = Math.pow(1 - reliefDark * 0.85, 2.5);
+
+        const idx = (row * rlN2 + col) * 4;
+        const b = Math.round(v * 255);
+        rlPx[idx] = b;
+        rlPx[idx + 1] = b;
+        rlPx[idx + 2] = b;
+        rlPx[idx + 3] = 255;
+      }
+    }
+    rlCtx.putImageData(rlImg, 0, 0);
+  </script>
+
+  <script id="soft-shadow-intro" type="text/markdown">
+    ## Soft shadows
+
+    To approximate the penumbra from a finite-diameter sun, I run multiple hard-shadow sweeps at small azimuthal offsets across the sun disk and average the results. The altitude dimension of the penumbra is handled inside each sweep: I sweep at a lowered altitude (offset by three-quarters of the sun diameter) and then smoothstep the shadow bit over the full angular width. That reduces the averaging to one dimension — azimuth — and lets each sweep run in its own web worker in parallel.
+  </script>
+
+  <script id="soft-shadow-sun-dir" type="module">
+    const softSunDirMut = Mutable({ az: 314.5, alt: 10 });
+    const softSunDirAccessor = (() => { const m = softSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
+  </script>
+
+  <script id="soft-sampling-analysis" type="module">
+    const sampN = Math.round(softAzSamples);
+    display(md`
+      ### Sampling the sun disk
+
+      Before averaging, it's worth thinking carefully about how to distribute samples across the sun disk. With only ${tex`N = ${sampN}`} samples in the current configuration — each one a full hard-shadow sweep — getting the most information per sample matters.
+
+      The goal is to approximate the integral
+
+      ${tex.block`\int f(x)\,g(x)\,dx \;\approx\; \frac{1}{N}\sum_{i=1}^{N} f(x_i)`}
+
+      where ${tex`g(x) = \frac{1}{\sigma\sqrt{2\pi}}\exp(-x^2/2\sigma^2)`} is the Gaussian intensity profile across the sun disk and ${tex`f(x)`} is the shadow bit as a function of azimuthal offset ${tex`x`}. The right approach is **stratified inverse-CDF sampling**: place the ${tex`i`}th sample at the point where the Gaussian CDF equals ${tex`(i - \tfrac{1}{2})/N`}. Each sample then represents an equal slice of probability mass under the Gaussian, so the desired distribution is baked into the positions and every sample can be weighted equally — no sweep is wasted on a sample the filter will discount.
+    `);
+  </script>
+
+  <script id="norm-inv" type="module">
+    // Acklam's inverse-normal approximation: maps a CDF probability in
+    // (0, 1) to the corresponding standard-normal quantile. Shared by the
+    // stratified-sampling plot and the soft-shadow driver loop.
+    const normInv = (p) => {
+      const a = [
+        -39.69683028665376, 220.9460984245205, -275.9285104469687,
+        138.357751867269, -30.66479806614716, 2.506628277459239,
+      ];
+      const b = [
+        -54.47609879822406, 161.5858368580409, -155.6989798598866,
+        66.80131188771972, -13.28068155288572,
+      ];
+      const c = [
+        -0.007784894002430293, -0.3223964580411365, -2.400758277161838,
+        -2.549732539343734, 4.374664141464968, 2.938163982698783,
+      ];
+      const d = [
+        0.007784695709041462, 0.3224671290700398, 2.445134137142996,
+        3.754408661907416,
+      ];
+      const plow = 0.02425;
+      const phigh = 1 - plow;
+      let q, r;
+      if (p < plow) {
+        q = Math.sqrt(-2 * Math.log(p));
+        return (
+          (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q +
+            c[5]) /
+          ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+        );
+      }
+      if (p <= phigh) {
+        q = p - 0.5;
+        r = q * q;
+        return (
+          ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r +
+            a[5]) *
+            q) /
+          (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+        );
+      }
+      q = Math.sqrt(-2 * Math.log(1 - p));
+      return (
+        -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+        ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+      );
+    };
+    normInv;
+  </script>
+
+  <script id="soft-sampling-plot" type="module">
+    const Npp = Math.round(softAzSamples);
+    const xMax = 3;
+
+    const refPts = [];
+    for (let i = 0; i <= 200; i++) {
+      const x = -xMax + (2 * xMax * i) / 200;
+      refPts.push({ x, y: Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI) });
+    }
+    const yMaxGauss = 1 / Math.sqrt(2 * Math.PI);
+
+    const strat = [];
+    for (let i = 0; i < Npp; i++) {
+      strat.push({ x: normInv((i + 0.5) / Npp) });
+    }
+
+    const plot = Plot.plot({
+      width: Math.min(520, width),
+      height: 220,
+      marginTop: 20,
+      marginBottom: 40,
+      marginLeft: 20,
+      marginRight: 20,
+      x: {
+        label: "azimuthal offset",
+        domain: [-xMax, xMax],
+        ticks: [-3, -2, -1, 0, 1, 2, 3],
+        tickFormat: (d) => (d === 0 ? "0" : `${d}σ`),
+      },
+      y: { axis: null, domain: [0, yMaxGauss * 1.08] },
+      marks: [
+        Plot.areaY(refPts, { x: "x", y: "y", fill: "#e6e6e6", clip: true }),
+        Plot.ruleX(strat, {
+          x: "x",
+          y1: 0,
+          y2: yMaxGauss / Npp,
+          stroke: "#0366d6",
+          strokeWidth: 1.5,
+          clip: true,
+        }),
+        Plot.dot(strat, {
+          x: "x",
+          y: () => yMaxGauss / Npp,
+          fill: "#0366d6",
+          r: 3.5,
+          clip: true,
+        }),
+        Plot.ruleY([0]),
+      ],
+    });
+
+    display(
+      html`<figure>
+        ${plot}
+        <figcaption>
+          Stratified inverse-CDF placement of ${tex`N = ${Npp}`} samples across
+          the sun disk. Each sample sits at the centre of an equal-probability
+          slice under the Gaussian (gray), so averaging with uniform weight
+          ${tex`1/N`} reproduces the desired distribution exactly.
+        </figcaption>
+      </figure>`,
+    );
+  </script>
+
+  <script id="soft-sweep-fn" type="module">
+    import { createSoftSweepPool } from "./soft-sweep.js";
+    const { runSoftSweeps } = createSoftSweepPool();
+    runSoftSweeps;
+  </script>
+
+  <script id="soft-shadow-controls" type="module">
+    const softControls = html`<div></div>`;
+    function ssctrl(input) {
+      softControls.appendChild(input);
+      return Generators.input(input);
+    }
+
+    // Hold on to the raw input elements so the driver loop below can read
+    // their .value directly (non-reactively). Exposed on window so the
+    // driver cell doesn't take a reactive dependency on them.
+    const softSunDiameterEl = Inputs.range([0.5, 30], {
+      label: "sun diameter (°)",
+      value: 10,
+      step: 0.01,
+      transform: Math.log,
+    });
+    const softAzSamplesEl = Inputs.range([1, 32], {
+      label: "azimuthal samples",
+      value: 12,
       step: 1,
-      label: "Number of parent levels",
     });
+    window.__softSunDiameterEl = softSunDiameterEl;
+    window.__softAzSamplesEl = softAzSamplesEl;
 
-    const numLevels = view(numLevelsInput);
-    numLevels;
+    const softSunDiameter = ssctrl(softSunDiameterEl);
+    const softAzSamples = ssctrl(softAzSamplesEl);
+
+    display(softControls);
   </script>
-  <script id="35" type="module">
-    import { getParentTilesAtLevel, assembleParentTileBufferMultiLevel } from './terrain/data/parent-tile-assembly-multi-level.js';
 
-    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
-      <strong>Fetching parent tiles for ${numLevels} level${numLevels > 1 ? 's' : ''}...</strong>
-    </div>`);
+  <script id="soft-shadow-canvas" type="module">
+    const softN = elevation.N;
+    const softDisp = Math.max(1, Math.floor(512 / softN));
+    const sizePx = Math.min(softN * softDisp, width);
 
-    // Fetch parent tiles for each level
-    const parentLevelsData = [];
-    const levelInfo = [];
+    const softCanvas = html`<canvas
+      width=${softN}
+      height=${softN}
+      style="display:block; width:${sizePx}px; height:${sizePx}px; image-rendering:pixelated;"
+    ></canvas>`;
 
-    for (let i = 1; i <= numLevels; i++) {
-      const deltaZ = -i;
-      const parentTileCoords = getParentTilesAtLevel(coords, deltaZ);
+    const softFigure = mountSunHandle({
+      canvas: softCanvas,
+      ...softSunDirAccessor,
+    });
+    softFigure.appendChild(createSourceToggleBadge());
 
-      const parentTiles = [];
-      for (const tileCoords of parentTileCoords) {
-        const tile = await getTerrainTile(tileCoords);
-        const imageData = readImageData(tile.img);
-        const elevations = decodeTerrainData(imageData);
-        parentTiles.push({
-          data: elevations,
-          width: tile.width,
-          height: tile.height,
-          tileSize: tile.tileSize,
-          role: tileCoords.role
-        });
+    display(
+      html`<figure>
+        ${softFigure}
+        <figcaption>
+          Soft shadows from Gaussian-weighted sampling of the sun disk. Drag the
+          yellow handle to change the lighting direction.
+        </figcaption>
+      </figure>`,
+    );
+    softCanvas;
+  </script>
+
+  <script id="soft-shadow-compute" type="module">
+    // Persistent driver loop: reads the latest sun direction + params
+    // from shared refs (window.__softSunDirMut, window.__softSunDiameterEl,
+    // window.__softAzSamplesEl) between batches and renders directly to
+    // softCanvas. This cell is *not* reactive on sun-dir or controls, so
+    // mousemoves don't invalidate it — instead the loop coalesces pending
+    // state changes into the next available batch, and each completed
+    // batch gets drawn even while interaction is ongoing.
+    const scN = elevation.N;
+    const softCtx = softCanvas.getContext("2d");
+    const softImg = softCtx.createImageData(scN, scN);
+    const softPx = softImg.data;
+    const srH = elevation.heights;
+    const srMin = elevation.elevMin;
+    const srRange = elevation.elevMax - elevation.elevMin || 1;
+
+    // Bump the generation counter so any previous driver loop (from a
+    // prior cell run — e.g. after an elevation swap) exits cleanly when
+    // its iteration sees a mismatch.
+    const gen = (window.__softDriverGen || 0) + 1;
+    window.__softDriverGen = gen;
+
+    (async function driver() {
+      let lastKey = null;
+      let idleTick = 0;
+      while (window.__softDriverGen === gen) {
+        const sd = softSunDirAccessor.get();
+        const diamEl = window.__softSunDiameterEl;
+        const nEl = window.__softAzSamplesEl;
+        const diam = diamEl ? Number(diamEl.value) : 5;
+        const nAzCur = Math.round(nEl ? Number(nEl.value) : 8);
+        const key = sd.az + "|" + sd.alt + "|" + diam + "|" + nAzCur;
+
+        if (key === lastKey) {
+          // Nothing new to render; wake up periodically to re-check.
+          await new Promise((r) => setTimeout(r, 16));
+          idleTick++;
+          continue;
+        }
+        idleTick = 0;
+
+        const sunR = diam / 2;
+        // Variance-match to the altitude smoothstep. The smoothstep
+        // s(t) = 3t² − 2t³ has slope 3/2 at its midpoint; equating to
+        // the Gaussian CDF slope 1/(σ√(2π)) gives σ_unit = 1/(1.5·√(2π)).
+        // Applied over the altitude half-width of 1.5·sunR (total span 3·sunR),
+        // the equivalent Gaussian standard deviation in degrees is
+        //   σ = 3·sunR · σ_unit = 2·sunR / √(2π).
+        const sigma = (2 * sunR) / Math.sqrt(2 * Math.PI);
+        const tasks = [];
+        for (let ia = 0; ia < nAzCur; ia++) {
+          // Stratified inverse-CDF placement: each sample sits at the
+          // centre of an equal-probability slice under the Gaussian.
+          const q = nAzCur === 1 ? 0 : normInv((ia + 0.5) / nAzCur);
+          const daz = q * sigma;
+          tasks.push({
+            W: scN,
+            H: scN,
+            heights: elevation.heights,
+            azDeg: sd.az + daz,
+            altDeg: sd.alt,
+            pxSizeM: elevation.pixelSizeM,
+            sunRadiusDeg: sunR,
+          });
+        }
+
+        const sweeps = await runSoftSweeps(tasks);
+        if (window.__softDriverGen !== gen) return;
+
+        const result = new Float32Array(scN * scN);
+        const wUnit = 1 / sweeps.length;
+        for (let s = 0; s < sweeps.length; s++) {
+          const sweep = sweeps[s];
+          for (let i = 0; i < sweep.length; i++) {
+            result[i] += wUnit * sweep[i];
+          }
+        }
+
+        for (let i = 0; i < srH.length; i++) {
+          const j = i * 4;
+          const tone = 0.1 + 0.8 * ((srH[i] - srMin) / srRange);
+          const shade = Math.min(1, Math.max(0, result[i]));
+          const lit = 1 - 0.94 * shade;
+          const v = Math.round(linearToSrgb(tone * lit) * 255);
+          softPx[j] = v;
+          softPx[j + 1] = v;
+          softPx[j + 2] = v;
+          softPx[j + 3] = 255;
+        }
+        softCtx.putImageData(softImg, 0, 0);
+
+        lastKey = key;
       }
+    })();
 
-      // Assemble this level's parent buffer
-      const assembled = assembleParentTileBufferMultiLevel({
-        targetTile: coords,
-        parentTiles,
-        deltaZ,
-        tileSize: 512
+    const softResult = null;
+    softResult;
+  </script>
+
+  <script id="lsao-intro" type="text/markdown">
+    ## Line-sweep ambient occlusion
+
+    The same upper-hull-tracking discipline that gives us hard shadows works for **ambient occlusion** too. Following [Karim Naaji's LSAO](https://karim.naaji.fr/lsao.html), for each sweep direction I walk every ray through the terrain and, at each pixel, look up the horizon blocker that maximizes the sky-elevation angle α. Naaji uses an ad-hoc ${tex`e^{-\sin\alpha}`} exponential falloff for the per-direction sky visibility, which works visually but has a long tail — even a target 500 m away from a tall blocker still reads ~11% darkening, so the AO effect bleeds across adjacent tiles.
+
+    There's a more principled choice that happens to be much more local. For a Lambertian receiver, incident sky radiance from a direction at zenith angle ${tex`\theta`} is weighted by ${tex`\cos\theta`}, so the visible fraction of one azimuthal slice above a horizon at elevation α is
+
+    ${tex.block`V(\alpha) \;=\; \int_{0}^{\pi/2 - \alpha} \cos\theta \cdot \sin\theta \, d\theta \;=\; \tfrac{1}{2}\cos^2\!\alpha,`}
+
+    which normalises to ${tex`\cos^2\!\alpha`}: 1 at a flat horizon, 0 at a fully vertical wall. Averaging this over azimuthally uniform sweeps gives the full ambient-occlusion factor. Because ${tex`\cos^2\!\alpha \approx 1 - (\Delta h / d)^2`} for small angles, the contribution of a distant tall blocker falls off like ${tex`1/d^2`} rather than lingering on the exponential's shoulder: the same 500 m target now only sees ~1.5% darkening, and the effect is visibly local.
+
+    A contrast slider ${tex`c \in [0, 1]`} shapes the response on top of the raw ${tex`\bar{v} = \overline{\cos^2\!\alpha}`} per pixel. Let ${tex`s = c / (1 - c)`} and ${tex`\text{shade} = 1 - \bar{v}`}; an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
+
+    ${tex.block`\text{display} \;=\; 1 - \tfrac{2}{\pi}\arctan\!\left(\tfrac{c}{1-c}\,(1 - \bar{v})\right).`}
+
+    At ${tex`c = 0`} the slider emits solid white; as ${tex`c \to 1`} the scaled shade runs to infinity and the tonemap saturates toward full darkness. Naaji's reference fires eight axis-aligned passes; because our canonical reparameterization handles arbitrary azimuths, we can use any number of directions, and each pass is independent so we run them in the same Web Worker pool as the soft shadows.
+  </script>
+
+  <script id="lsao-sweep-fn" type="module">
+    import { createLsaoSweepPool } from "./lsao-sweep.js";
+    const { runLsao } = createLsaoSweepPool();
+    runLsao;
+  </script>
+
+  <script id="lsao-controls" type="module">
+    const lsaoControls = html`<div></div>`;
+    const lsaoSamplesEl = Inputs.range([1, 32], {
+      label: "sweep directions",
+      value: 8,
+      step: 1,
+    });
+    const lsaoContrastEl = Inputs.range([0, 0.99], {
+      label: "contrast",
+      value: 0.6,
+      step: 0.01,
+    });
+    lsaoControls.appendChild(lsaoSamplesEl);
+    lsaoControls.appendChild(lsaoContrastEl);
+    const lsaoSamples = Generators.input(lsaoSamplesEl);
+    const lsaoContrast = Generators.input(lsaoContrastEl);
+    display(lsaoControls);
+  </script>
+
+  <script id="lsao-canvas" type="module">
+    const lsaoN = elevation.N;
+    const lsaoDisp = Math.max(1, Math.floor(512 / lsaoN));
+    const lsaoPxDisplay = Math.min(lsaoN * lsaoDisp, width);
+    const lsaoCanvas = html`<canvas
+      width=${lsaoN}
+      height=${lsaoN}
+      style="display:block; width:${lsaoPxDisplay}px; height:${lsaoPxDisplay}px; image-rendering:pixelated; border:1px solid #888;"
+    ></canvas>`;
+    const lsaoWrap = html`<div
+      style="position:relative; display:inline-block; line-height:0;"
+    >
+      ${lsaoCanvas}
+    </div>`;
+    lsaoWrap.appendChild(createSourceToggleBadge());
+    display(
+      html`<figure>
+        ${lsaoWrap}
+        <figcaption>
+          Ambient occlusion from ${tex`N`} azimuthally uniform line sweeps,
+          averaged per pixel. Directions stack additively — more samples smooth
+          out azimuth banding. Rendered as AO modulating a uniform gray base so
+          the occlusion effect is isolated from elevation coloring.
+        </figcaption>
+      </figure>`,
+    );
+    lsaoCanvas;
+  </script>
+
+  <script id="lsao-compute" type="module">
+    const nDirs = Math.round(lsaoSamples);
+    const W = elevation.N;
+    const H = elevation.N;
+    const tasks = [];
+    for (let i = 0; i < nDirs; i++) {
+      tasks.push({
+        W,
+        H,
+        elev: elevation.heights,
+        azDeg: (i * 360) / nDirs,
+        pxSizeM: elevation.pixelSizeM,
+        weight: 1 / nDirs,
+      });
+    }
+    const sweeps = await runLsao(tasks);
+
+    const ao = new Float32Array(W * H);
+    for (let s = 0; s < sweeps.length; s++) {
+      const sw = sweeps[s];
+      for (let i = 0; i < ao.length; i++) ao[i] += sw[i];
+    }
+
+    const lsaoCtx = lsaoCanvas.getContext("2d");
+    const lsaoImg = lsaoCtx.createImageData(W, H);
+    const lsaoPx = lsaoImg.data;
+
+    // Contrast slider c ∈ [0, 1]:
+    //   s = c / (1 − c)                 scale factor, (0, ∞)
+    //   shade = 1 − ao_raw               per-pixel linear darkening
+    //   display = 1 − (2/π)·atan(s·shade)
+    // At c=0, s=0, no darkening, display = 1 (solid white); at c=1,
+    // s=∞, display saturates toward 0 everywhere shade > 0.
+    const lsaoC = Math.max(0, Math.min(0.999999, lsaoContrast ** 0.1));
+    const lsaoS = lsaoC / (1 - lsaoC);
+    const lsaoInvPi2 = 2 / Math.PI;
+    for (let i = 0; i < ao.length; i++) {
+      const aoRaw = Math.max(0, Math.min(1, ao[i]));
+      const shade = 1 - aoRaw;
+      const squashed = lsaoInvPi2 * Math.atan(lsaoS * shade);
+      const visibility = 1 - squashed;
+      const v = Math.round(linearToSrgb(visibility) * 255);
+      const j = i * 4;
+      lsaoPx[j] = v;
+      lsaoPx[j + 1] = v;
+      lsaoPx[j + 2] = v;
+      lsaoPx[j + 3] = 255;
+    }
+    lsaoCtx.putImageData(lsaoImg, 0, 0);
+  </script>
+
+  <script id="webgpu-intro" type="text/markdown">
+    ## WebGPU implementation
+
+    Every mode the CPU `sweepCore` supports — hard shadow, soft shadow with stratified azimuth integration, and LSAO — ported to WGSL compute via _dynamic shader specialization_. Each `(mode, prewarm)` permutation is built once into its own `GPUComputePipeline` and cached, so the inner hull-scan loop has no per-pixel mode branch. The parent-tile prewarm is itself a compile-time flag: when off, the shader skips the warmup block entirely and the horizon binding shrinks to a 16-byte stub. Multi-sample averaging (azimuth offsets for soft, uniform directions for LSAO) is dispatched as N successive compute passes that each accumulate `weight · bit · fpScale` into the shared atomic `shadow` buffer.
+  </script>
+
+  <script id="webgpu-device" type="module">
+    // One-time device setup. Persists across sun/source changes.
+    const webgpuContext = await (async () => {
+      if (!navigator.gpu)
+        return { error: "WebGPU not supported in this browser." };
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) return { error: "No WebGPU adapter available." };
+      const device = await adapter.requestDevice();
+      const format = navigator.gpu.getPreferredCanvasFormat();
+      return { adapter, device, format };
+    })();
+    if (webgpuContext.error) {
+      display(
+        html`<div
+          style="font:13px ui-monospace,monospace; background:#fee; padding:8px 12px; border-left:3px solid #d33;"
+        >
+          ${webgpuContext.error}
+        </div>`,
+      );
+    }
+    webgpuContext;
+  </script>
+
+  <script id="webgpu-pipelines" type="module">
+    import {
+      getOrBuildComputePipeline,
+      getOrBuildRenderPipeline,
+      packUniforms,
+      packRenderUniforms,
+      deriveSweepParams,
+      createHorizonStubBuffer,
+      UNIFORM_BYTES,
+      RENDER_UNIFORM_BYTES,
+      FP_SCALE,
+    } from "./webgpu-pipelines.js";
+    // Re-export everything the dispatch cell needs as a single bundle so
+    // the cell isn't reactive on each individual import.
+    const webgpuPipelinesApi = (() => {
+      if (webgpuContext.error) return null;
+      return {
+        getOrBuildComputePipeline,
+        getOrBuildRenderPipeline,
+        packUniforms,
+        packRenderUniforms,
+        deriveSweepParams,
+        createHorizonStubBuffer,
+        UNIFORM_BYTES,
+        RENDER_UNIFORM_BYTES,
+        FP_SCALE,
+      };
+    })();
+    webgpuPipelinesApi;
+  </script>
+
+  <script id="webgpu-sun-dir" type="module">
+    // Live sun direction for the WebGPU figure. The driver loop polls
+    // this mutable rather than taking a reactive dependency on it so
+    // mousemoves don't invalidate the cell.
+    const webgpuSunDirMut = Mutable({ az: 314.5, alt: 10 });
+    const webgpuSunDirAccessor = (() => { const m = webgpuSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
+  </script>
+
+  <script id="webgpu-controls" type="module">
+    // Mode + sample-count + contrast knobs for the WebGPU figure. Held
+    // on `window` so the persistent driver loop can read them without
+    // becoming reactive on every keystroke.
+    const wgpuControls = html`<div></div>`;
+    const wgpuModeEl = Inputs.radio(["hard", "soft", "lsao"], {
+      label: "mode",
+      value: "hard",
+    });
+    const wgpuPrewarmEl = Inputs.toggle({
+      label: "parent-tile prewarm",
+      value: true,
+    });
+    const wgpuSamplesEl = Inputs.range([1, 32], {
+      label: "samples",
+      value: 12,
+      step: 1,
+    });
+    const wgpuSunDiameterEl = Inputs.range([0.5, 30], {
+      label: "sun diameter (°)",
+      value: 10,
+      step: 0.01,
+      transform: Math.log,
+    });
+    const wgpuContrastEl = Inputs.range([0, 0.99], {
+      label: "LSAO contrast",
+      value: 0.6,
+      step: 0.01,
+    });
+    wgpuControls.appendChild(wgpuModeEl);
+    wgpuControls.appendChild(wgpuPrewarmEl);
+    wgpuControls.appendChild(wgpuSamplesEl);
+    wgpuControls.appendChild(wgpuSunDiameterEl);
+    wgpuControls.appendChild(wgpuContrastEl);
+    window.__wgpuModeEl = wgpuModeEl;
+    window.__wgpuPrewarmEl = wgpuPrewarmEl;
+    window.__wgpuSamplesEl = wgpuSamplesEl;
+    window.__wgpuSunDiameterEl = wgpuSunDiameterEl;
+    window.__wgpuContrastEl = wgpuContrastEl;
+    display(wgpuControls);
+  </script>
+
+  <script id="webgpu-canvas-setup" type="module">
+    // Reactive on elevation — recreates canvas + elev/shadow buffers when N or
+    // source changes. The WebGPU context is configured on the new canvas.
+    const webgpuRuntime = (() => {
+      if (webgpuContext.error || !webgpuPipelinesApi) return null;
+      const { device, format } = webgpuContext;
+      const N = elevation.N;
+      const dispScale = Math.max(1, Math.floor(512 / N));
+      const dispPx = Math.min(N * dispScale, width);
+      const canvas = html`<canvas
+        width=${N}
+        height=${N}
+        style="display:block; width:${dispPx}px; height:${dispPx}px; image-rendering:pixelated;"
+      ></canvas>`;
+      const wgpuFigure = mountSunHandle({
+        canvas,
+        ...webgpuSunDirAccessor,
+      });
+      wgpuFigure.appendChild(createSourceToggleBadge());
+      display(
+        html`<figure>
+          ${wgpuFigure}
+          <figcaption>
+            WGSL compute kernel exercising every mode the CPU sweepCore
+            supports. Drag the yellow handle to move the sun; toggle the
+            controls to switch mode, enable/disable the parent-tile prewarm, or
+            change sample counts.
+          </figcaption>
+        </figure>`,
+      );
+
+      const ctx = canvas.getContext("webgpu");
+      ctx.configure({ device, format });
+
+      const elevBuffer = device.createBuffer({
+        size: N * N * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        label: "elevation",
+      });
+      device.queue.writeBuffer(elevBuffer, 0, elevation.heights);
+
+      const shadowBuffer = device.createBuffer({
+        size: N * N * 4,
+        usage:
+          GPUBufferUsage.STORAGE |
+          GPUBufferUsage.COPY_DST |
+          GPUBufferUsage.COPY_SRC,
+        label: "shadow (atomic u32)",
       });
 
-      parentLevelsData.push(assembled.buffer);
-      levelInfo.push(calculateLevelInfo(deltaZ, 512));
-    }
+      const HN = elevationHorizon.HN;
+      const horizonBuffer = device.createBuffer({
+        size: HN * HN * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        label: "horizon (half-res parent pre-pass)",
+      });
+      device.queue.writeBuffer(horizonBuffer, 0, elevationHorizon.heights);
 
-    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
-      ✓ Assembled ${numLevels} parent level${numLevels > 1 ? 's' : ''}:<br>
-      ${levelInfo.map((info, i) => html`
-        <span style="margin-left: 12px;">• Level ${i}: ${info.bufferSize}×${info.bufferSize} (Δz=${-(i+1)})</span><br>
-      `)}
-    </div>`);
+      const horizonStub = webgpuPipelinesApi.createHorizonStubBuffer(device);
 
-    ({ parentLevelsData, levelInfo });
+      // One uniform buffer per dispatch is a touch wasteful but sidesteps
+      // the synchronization headache of writing N copies into the same
+      // buffer between N successive passes in one encoder. Allocated up
+      // front for the maximum sample count we expose in the UI (32).
+      const MAX_SAMPLES = 32;
+      const uniformBuffers = [];
+      for (let i = 0; i < MAX_SAMPLES; i++) {
+        uniformBuffers.push(
+          device.createBuffer({
+            size: webgpuPipelinesApi.UNIFORM_BYTES,
+            usage:
+              GPUBufferUsage.UNIFORM |
+              GPUBufferUsage.COPY_DST |
+              GPUBufferUsage.COPY_SRC,
+            label: `sweepCore uniforms #${i}`,
+          }),
+        );
+      }
+      const renderUniformBuffer = device.createBuffer({
+        size: webgpuPipelinesApi.RENDER_UNIFORM_BYTES,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: "sweepCore render uniforms",
+      });
+
+      return {
+        canvas,
+        ctx,
+        elevBuffer,
+        shadowBuffer,
+        horizonBuffer,
+        horizonStub,
+        uniformBuffers,
+        renderUniformBuffer,
+        N,
+        HN,
+      };
+    })();
+    webgpuRuntime;
   </script>
-  <script id="36" type="module">
-    // Create multi-level LSAO pipeline
-    const { pipeline: multiLevelPipeline, bindGroupLayout: multiLevelBindGroupLayout } = createLSAOPipeline(device, {
-      tileSize: 512,
-      tileBuffer: 1,
-      numLevels,
-      workgroupSize: 128
+
+  <script id="webgpu-dispatch" type="module">
+    // Persistent driver loop: polls sun-dir + controls, and on every
+    // change rebuilds N pipeline dispatches (one per sample) into a
+    // single command buffer that clears the shadow buffer, accumulates
+    // weighted contributions into it, and renders the final composite.
+    if (webgpuRuntime && webgpuPipelinesApi && !webgpuContext.error) {
+      const { device, format } = webgpuContext;
+      const api = webgpuPipelinesApi;
+      const {
+        ctx,
+        elevBuffer,
+        shadowBuffer,
+        horizonBuffer,
+        horizonStub,
+        uniformBuffers,
+        renderUniformBuffer,
+        N,
+        HN,
+      } = webgpuRuntime;
+      const W = N,
+        H = N;
+      const pxSizeM = elevation.pixelSizeM;
+
+      // Bump a generation counter so any previous driver loop (from a
+      // prior cell run) exits cleanly when its tick sees a mismatch.
+      const gen = (window.__wgpuDriverGen || 0) + 1;
+      window.__wgpuDriverGen = gen;
+
+      function dispatchOnce({
+        mode,
+        prewarm,
+        samples,
+        sunDiameter,
+        contrast,
+        sd,
+      }) {
+        const pipeline = api.getOrBuildComputePipeline({
+          device,
+          mode,
+          prewarm,
+        });
+        const renderPipeline = api.getOrBuildRenderPipeline({
+          device,
+          format,
+          displayMode: mode === "lsao" ? "lsao" : "shaded",
+        });
+
+        // Build the per-sample task list. For 'hard' we just do the
+        // single point-sun sweep. For 'soft' we stratify N azimuth
+        // offsets over a Gaussian variance-matched to the altitude
+        // smoothstep, exactly as the soft-shadow CPU driver does. For
+        // 'lsao' we use N azimuthally uniform directions starting at
+        // the live sun azimuth so the figure responds to the handle.
+        const tasks = [];
+        if (mode === "hard") {
+          tasks.push({ azDeg: sd.az, altDeg: sd.alt });
+        } else if (mode === "soft") {
+          const sunR = sunDiameter / 2;
+          const sigma = (2 * sunR) / Math.sqrt(2 * Math.PI);
+          for (let ia = 0; ia < samples; ia++) {
+            const q = samples === 1 ? 0 : normInv((ia + 0.5) / samples);
+            tasks.push({
+              azDeg: sd.az + q * sigma,
+              altDeg: sd.alt,
+              sunRadiusDeg: sunR,
+            });
+          }
+        } else {
+          for (let ia = 0; ia < samples; ia++) {
+            tasks.push({ azDeg: sd.az + (ia * 360) / samples });
+          }
+        }
+
+        const weight = 1 / tasks.length;
+        const useHorizon = prewarm;
+        const horizonBinding = useHorizon ? horizonBuffer : horizonStub;
+        const horizonN = useHorizon ? HN : 0;
+
+        const encoder = device.createCommandEncoder();
+        encoder.clearBuffer(shadowBuffer);
+
+        for (let t = 0; t < tasks.length; t++) {
+          const task = tasks[t];
+          const sweep = api.deriveSweepParams({
+            W,
+            H,
+            azDeg: task.azDeg,
+            pxSizeM,
+            mode,
+            altDeg: task.altDeg || 0,
+            sunRadiusDeg: task.sunRadiusDeg || 0,
+            weight,
+            horizonN,
+          });
+          const uBytes = api.packUniforms(sweep);
+          device.queue.writeBuffer(uniformBuffers[t], 0, uBytes);
+
+          const bindGroup = device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: uniformBuffers[t] } },
+              { binding: 1, resource: { buffer: elevBuffer } },
+              { binding: 2, resource: { buffer: shadowBuffer } },
+              { binding: 3, resource: { buffer: horizonBinding } },
+            ],
+          });
+
+          const numRays = sweep.bMax - sweep.bMin + 1;
+          const numWorkgroups = Math.ceil(numRays / 64);
+          const pass = encoder.beginComputePass();
+          pass.setPipeline(pipeline);
+          pass.setBindGroup(0, bindGroup);
+          pass.dispatchWorkgroups(numWorkgroups);
+          pass.end();
+        }
+
+        // Render uniforms.
+        const rBytes = api.packRenderUniforms({
+          N,
+          hMin: elevation.elevMin,
+          hRange: elevation.elevMax - elevation.elevMin || 1,
+          contrast: Math.pow(Math.min(0.999999, Math.max(0, contrast)), 0.1),
+        });
+        device.queue.writeBuffer(renderUniformBuffer, 0, rBytes);
+
+        const renderBindGroup = device.createBindGroup({
+          layout: renderPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: shadowBuffer } },
+            { binding: 1, resource: { buffer: elevBuffer } },
+            { binding: 2, resource: { buffer: renderUniformBuffer } },
+          ],
+        });
+
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [
+            {
+              view: ctx.getCurrentTexture().createView(),
+              loadOp: "clear",
+              clearValue: [0, 0, 0, 1],
+              storeOp: "store",
+            },
+          ],
+        });
+        pass.setPipeline(renderPipeline);
+        pass.setBindGroup(0, renderBindGroup);
+        pass.draw(3);
+        pass.end();
+
+        device.queue.submit([encoder.finish()]);
+      }
+
+      (async function driver() {
+        let lastKey = null;
+        while (window.__wgpuDriverGen === gen) {
+          const sd = webgpuSunDirAccessor.get();
+          const mode = window.__wgpuModeEl.value;
+          // LSAO with cos²α + parent-tile prewarm produces a visible
+          // within-tile band on the sun-facing edge (distant parent
+          // blockers stay on the hull contributing graded darkening).
+          // In this single-tile showcase figure we always render LSAO
+          // without prewarm to keep the kernel clean; the slippy-map
+          // tile viewer later in the notebook opts the other way and
+          // uses prewarm for cross-tile continuity.
+          const prewarmToggle = !!window.__wgpuPrewarmEl.value;
+          const prewarm = mode === "lsao" ? false : prewarmToggle;
+          const samples = Math.max(
+            1,
+            Math.round(Number(window.__wgpuSamplesEl.value)),
+          );
+          const sunDiameter = Number(window.__wgpuSunDiameterEl.value);
+          const contrast = Number(window.__wgpuContrastEl.value);
+          const effectiveSamples = mode === "hard" ? 1 : samples;
+          const key = [
+            sd.az,
+            sd.alt,
+            mode,
+            prewarm ? 1 : 0,
+            effectiveSamples,
+            sunDiameter,
+            contrast,
+          ].join("|");
+          if (key === lastKey) {
+            await new Promise((r) => requestAnimationFrame(r));
+            continue;
+          }
+          dispatchOnce({
+            mode,
+            prewarm,
+            samples: effectiveSamples,
+            sunDiameter,
+            contrast,
+            sd,
+          });
+          lastKey = key;
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+      })();
+    }
+  </script>
+
+  <script id="tile-viewer-intro" type="text/markdown">
+    ## Live WebGPU tile viewer
+
+    End of the notebook — everything we've built, composited in realtime on the GPU. Each tile is a CPU bake: fetch the Terrarium webp, compute surface normals, 8-pass LSAO, and a hard shadow at a fixed reference sun direction. All four fields are packed into one `rgba8unorm` texture:
+
+    ${tex.block`(R, G) = (\tfrac{n_x + 1}{2},\; \tfrac{n_y + 1}{2}), \quad B = \mathrm{AO}, \quad A = s_{\text{bake}}.`}
+
+    The fragment shader reconstructs ${tex`n_z = \sqrt{1 - n_x^2 - n_y^2}`}, takes the dot product with the live sun direction for Lambertian diffuse, and combines it with the baked ambient and shadow masks using the same ${tex`(1 - v̄)`}-style weights as the earlier figures. Sun-drag and slider moves are pure uniform-buffer writes with no CPU recomputation — 60 fps in every pose. The baked shadow stays at a fixed reference direction; only the direct relief term moves when you drag the sun. Tile positioning math runs in JS `number` precision so the view stays stable at high zoom.
+
+    The viewer reuses the same WebGPU device as the compute shader earlier in the notebook. Pan with click+drag; zoom with the mouse wheel.
+  </script>
+
+  <script id="tile-viewer-sun-dir" type="module">
+    const tileViewerSunDirMut = Mutable({ az: 314.5, alt: 25 });
+    const tileViewerSunDirAccessor = (() => { const m = tileViewerSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
+  </script>
+
+  <script id="tile-viewer-helper" type="module">
+    import { createTileViewer } from "./tile-viewer.js";
+    import { expandable } from "./lib/expandable.js";
+  </script>
+
+  <script id="tile-viewer-controls" type="module">
+    const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
+    const bakeModeEl = Inputs.radio(
+      new Map([["CPU", "cpu"], ["GPU", "gpu"], ["debug", "debug"]]),
+      { label: "mode", value: "cpu" },
+    );
+    const strengthEl = Inputs.range([0, 1], {
+      label: "relief strength",
+      value: 0.2,
+      step: 0.01,
     });
-
-    display(html`<div style="font-family: sans-serif; font-size: 13px; color: #666; margin-bottom: 12px;">
-      ✓ Created multi-level LSAO pipeline (${numLevels} levels)
-    </div>`);
-
-    ({ multiLevelPipeline, multiLevelBindGroupLayout });
-  </script>
-  <script id="37" type="module">
-    // Compute multi-level LSAO
-    const EARTH_CIRCUMFERENCE = 40075017;
-    const pixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
-
-    const startTime = performance.now();
-
-    const multiLevelResult = await computeLSAO({
-      device,
-      pipeline: multiLevelPipeline,
-      bindGroupLayout: multiLevelBindGroupLayout,
-      targetData: bufferedData,
-      parentLevels: parentLevelsData,
-      levelInfo,
-      tileSize: 512,
-      pixelSize,
-      workgroupSize: 128,
-      directions: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    const aoEl = Inputs.range([0, 1], {
+      label: "AO strength",
+      value: 0.5,
+      step: 0.01,
     });
-
-    const elapsed = performance.now() - startTime;
-
-    // Compute stats
-    let min = Infinity, max = -Infinity, sum = 0;
-    for (let i = 0; i < multiLevelResult.length; i++) {
-      const v = multiLevelResult[i];
-      if (v < min) min = v;
-      if (v > max) max = v;
-      sum += v;
-    }
-    const multiLevelStats = { min, max, mean: sum / multiLevelResult.length };
-
-    // Calculate how different this is from simple LSAO
-    let totalDiff = 0;
-    let maxDiff = 0;
-    for (let i = 0; i < multiLevelResult.length; i++) {
-      const diff = Math.abs(multiLevelResult[i] - lsaoResult[i]);
-      totalDiff += diff;
-      maxDiff = Math.max(maxDiff, diff);
-    }
-    const meanDiff = totalDiff / multiLevelResult.length;
-    const meanDiffPercent = (meanDiff / lsaoStats.mean) * 100;
-
-    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-      <strong>Multi-Level LSAO Results:</strong><br>
-      Values: min=${multiLevelStats.min.toFixed(3)}, max=${multiLevelStats.max.toFixed(3)}, mean=${multiLevelStats.mean.toFixed(3)}<br>
-      Computation time: ${elapsed.toFixed(1)}ms (4 direction sweeps × ${numLevels} level${numLevels > 1 ? 's' : ''})<br>
-      Status: ${min >= 0 && max <= 1.1 ? '✓ Values in expected range' : '⚠️ Values outside expected range'}<br>
-      <br>
-      <strong>Comparison to Simple LSAO:</strong><br>
-      Simple LSAO mean: ${lsaoStats.mean.toFixed(3)}<br>
-      Mean difference: ${meanDiff.toFixed(4)} (${meanDiffPercent.toFixed(1)}%)<br>
-      Max difference: ${maxDiff.toFixed(4)}<br>
-      ${meanDiffPercent > 10 ? '<span style="color: #ca4747;">⚠️ Large difference suggests possible bug</span>' : '<span style="color: #27ae60;">✓ Difference within expected range</span>'}
-    </div>`;
-
-    display(info);
-    ({ multiLevelResult, multiLevelStats });
-  </script>
-  <script id="38" type="module">
-    // Visualize multi-level LSAO result (no normalization)
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(512, 512);
-
-    for (let i = 0; i < multiLevelResult.length; i++) {
-      // Clamp to [0, 1] and convert to grayscale
-      const value = Math.floor(Math.min(Math.max(multiLevelResult[i], 0), 1) * 255);
-      imageData.data[i * 4] = value;
-      imageData.data[i * 4 + 1] = value;
-      imageData.data[i * 4 + 2] = value;
-      imageData.data[i * 4 + 3] = 255;
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-
-    const container = html`<div>
-      ${canvas}
-      <div style="margin-top: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-        <em>Multi-level LSAO result (${numLevels} parent level${numLevels > 1 ? 's' : ''}, raw values, no normalization)</em><br>
-        <strong>Benefit:</strong> Parent tiles provide proper horizon initialization, eliminating boundary artifacts
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="39" type="text/markdown">
-    ### Comparison: Simple vs Multi-Level LSAO
-
-    Compare the results side-by-side to see the improvement from using parent tile data:
-  </script>
-  <script id="40" type="module">
-    // Create comparison (no normalization - use raw values)
-    const canvasSimple = document.createElement('canvas');
-    canvasSimple.width = 512;
-    canvasSimple.height = 512;
-    let ctx = canvasSimple.getContext('2d');
-    let imgData = ctx.createImageData(512, 512);
-
-    // Simple LSAO - raw values
-    for (let i = 0; i < lsaoResult.length; i++) {
-      const value = Math.floor(Math.min(Math.max(lsaoResult[i], 0), 1) * 255);
-      imgData.data[i * 4] = value;
-      imgData.data[i * 4 + 1] = value;
-      imgData.data[i * 4 + 2] = value;
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    const canvasMulti = document.createElement('canvas');
-    canvasMulti.width = 512;
-    canvasMulti.height = 512;
-    ctx = canvasMulti.getContext('2d');
-    imgData = ctx.createImageData(512, 512);
-
-    // Multi-level LSAO - raw values
-    for (let i = 0; i < multiLevelResult.length; i++) {
-      const value = Math.floor(Math.min(Math.max(multiLevelResult[i], 0), 1) * 255);
-      imgData.data[i * 4] = value;
-      imgData.data[i * 4 + 1] = value;
-      imgData.data[i * 4 + 2] = value;
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    // Create difference map
-    const canvasDiff = document.createElement('canvas');
-    canvasDiff.width = 512;
-    canvasDiff.height = 512;
-    ctx = canvasDiff.getContext('2d');
-    imgData = ctx.createImageData(512, 512);
-
-    for (let i = 0; i < lsaoResult.length; i++) {
-      const diff = Math.abs(multiLevelResult[i] - lsaoResult[i]);
-      const value = Math.floor(diff * 512); // Amplify differences for visibility
-      imgData.data[i * 4] = Math.min(value, 255);
-      imgData.data[i * 4 + 1] = Math.min(value, 255);
-      imgData.data[i * 4 + 2] = Math.min(value, 255);
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    const container = html`<div style="display: flex; flex-direction: column; gap: 24px;">
-      <div>
-        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-          <strong>Simple LSAO</strong> (target tile only)
-        </div>
-        ${canvasSimple}
-      </div>
-      <div>
-        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-          <strong>Multi-Level LSAO</strong> (${numLevels} parent level${numLevels > 1 ? 's' : ''})
-        </div>
-        ${canvasMulti}
-      </div>
-      <div>
-        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-          <strong>Difference (×2)</strong> - Edge improvements highlighted
-        </div>
-        ${canvasDiff}
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="40a" type="text/markdown">
-    ## 9. CPU vs GPU Validation
-
-    To validate our GPU shader implementations, we've created CPU reference implementations that exactly match the shader logic. This allows us to debug the algorithms more easily and verify correctness.
-
-    Below, we compare CPU and GPU results for both simple and multi-level LSAO:
-  </script>
-  <script id="40b" type="module">
-    // Run simple LSAO on CPU
-    const cpuStartTime = performance.now();
-
-    // Calculate pixelSize locally to avoid ambiguity
-    const EARTH_CIRCUMFERENCE = 40075017;
-    const cpuPixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
-
-    const cpuSimpleResult = computeSimpleLSAOCPU({
-      terrainData: bufferedData,
-      tileSize: 512,
-      pixelSize: cpuPixelSize,
-      directions: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    const shadowEl = Inputs.range([0, 1], {
+      label: "shadow strength",
+      value: 0.5,
+      step: 0.01,
     });
-
-    const cpuElapsed = performance.now() - cpuStartTime;
-
-    // Compute stats
-    let min = Infinity, max = -Infinity, sum = 0;
-    for (let i = 0; i < cpuSimpleResult.length; i++) {
-      const v = cpuSimpleResult[i];
-      if (v < min) min = v;
-      if (v > max) max = v;
-      sum += v;
-    }
-    const cpuStats = { min, max, mean: sum / cpuSimpleResult.length };
-
-    // Compare with GPU result
-    let totalDiff = 0;
-    let maxDiff = 0;
-    let diffCount = 0;
-    for (let i = 0; i < cpuSimpleResult.length; i++) {
-      const diff = Math.abs(cpuSimpleResult[i] - lsaoResult[i]);
-      totalDiff += diff;
-      maxDiff = Math.max(maxDiff, diff);
-      if (diff > 0.001) diffCount++;
-    }
-    const meanDiff = totalDiff / cpuSimpleResult.length;
-
-    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-      <strong>Simple LSAO - CPU Implementation:</strong><br>
-      Values: min=${cpuStats.min.toFixed(3)}, max=${cpuStats.max.toFixed(3)}, mean=${cpuStats.mean.toFixed(3)}<br>
-      Computation time: ${cpuElapsed.toFixed(1)}ms<br>
-      <br>
-      <strong>CPU vs GPU Comparison:</strong><br>
-      Mean absolute difference: ${meanDiff.toFixed(6)}<br>
-      Max absolute difference: ${maxDiff.toFixed(6)}<br>
-      Pixels with diff > 0.001: ${diffCount} (${(diffCount / cpuSimpleResult.length * 100).toFixed(2)}%)<br>
-      ${meanDiff < 0.0001 ? '<span style="color: #27ae60;">✓ Excellent match - implementations are equivalent</span>' :
-        meanDiff < 0.001 ? '<span style="color: #f39c12;">⚠️ Small differences - likely floating-point precision</span>' :
-        '<span style="color: #ca4747;">⚠️ Large differences - possible bug!</span>'}
-    </div>`;
-
-    display(info);
-    cpuSimpleResult;
-  </script>
-  <script id="40c" type="module">
-    // Visualize CPU result and difference map
-    const canvasCPU = document.createElement('canvas');
-    canvasCPU.width = 512;
-    canvasCPU.height = 512;
-    let ctx = canvasCPU.getContext('2d');
-    let imgData = ctx.createImageData(512, 512);
-
-    for (let i = 0; i < cpuSimpleResult.length; i++) {
-      const value = Math.floor(Math.min(Math.max(cpuSimpleResult[i], 0), 1) * 255);
-      imgData.data[i * 4] = value;
-      imgData.data[i * 4 + 1] = value;
-      imgData.data[i * 4 + 2] = value;
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    // Create difference map (amplified)
-    const canvasDiff = document.createElement('canvas');
-    canvasDiff.width = 512;
-    canvasDiff.height = 512;
-    ctx = canvasDiff.getContext('2d');
-    imgData = ctx.createImageData(512, 512);
-
-    for (let i = 0; i < cpuSimpleResult.length; i++) {
-      const diff = Math.abs(cpuSimpleResult[i] - lsaoResult[i]);
-      // Amplify differences for visibility (×1000)
-      const value = Math.floor(Math.min(diff * 1000, 1) * 255);
-      imgData.data[i * 4] = value;
-      imgData.data[i * 4 + 1] = value;
-      imgData.data[i * 4 + 2] = value;
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    const container = html`<div style="display: flex; flex-direction: column; gap: 24px;">
-      <div>
-        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-          <strong>CPU Result</strong>
-        </div>
-        ${canvasCPU}
-      </div>
-      <div>
-        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-          <strong>Absolute Difference (×1000)</strong> - White = larger difference
-        </div>
-        ${canvasDiff}
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="40d" type="module">
-    // Run multi-level LSAO on CPU
-    const cpuMultiStartTime = performance.now();
-
-    // Calculate pixelSize locally to avoid ambiguity
-    const EARTH_CIRCUMFERENCE = 40075017;
-    const cpuMultiPixelSize = EARTH_CIRCUMFERENCE / 512 / Math.pow(2, coords.z);
-
-    const cpuMultiResult = computeLSAOCPU({
-      targetData: bufferedData,
-      parentLevels: parentLevelsData,
-      levelInfo,
-      tileSize: 512,
-      pixelSize: cpuMultiPixelSize,
-      directions: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    const sunDiameterEl = Inputs.range([0.5, 30], {
+      label: "sun diameter (°)",
+      value: 5,
+      step: 0.01,
+      transform: Math.log,
     });
-
-    const cpuMultiElapsed = performance.now() - cpuMultiStartTime;
-
-    // Compute stats
-    let min = Infinity, max = -Infinity, sum = 0;
-    for (let i = 0; i < cpuMultiResult.length; i++) {
-      const v = cpuMultiResult[i];
-      if (v < min) min = v;
-      if (v > max) max = v;
-      sum += v;
-    }
-    const cpuMultiStats = { min, max, mean: sum / cpuMultiResult.length };
-
-    // Compare with GPU result
-    let totalDiff = 0;
-    let maxDiff = 0;
-    let diffCount = 0;
-    for (let i = 0; i < cpuMultiResult.length; i++) {
-      const diff = Math.abs(cpuMultiResult[i] - multiLevelResult[i]);
-      totalDiff += diff;
-      maxDiff = Math.max(maxDiff, diff);
-      if (diff > 0.001) diffCount++;
-    }
-    const meanDiff = totalDiff / cpuMultiResult.length;
-
-    const info = html`<div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-      <strong>Multi-Level LSAO - CPU Implementation (${numLevels} levels):</strong><br>
-      Values: min=${cpuMultiStats.min.toFixed(3)}, max=${cpuMultiStats.max.toFixed(3)}, mean=${cpuMultiStats.mean.toFixed(3)}<br>
-      Computation time: ${cpuMultiElapsed.toFixed(1)}ms<br>
-      <br>
-      <strong>CPU vs GPU Comparison:</strong><br>
-      Mean absolute difference: ${meanDiff.toFixed(6)}<br>
-      Max absolute difference: ${maxDiff.toFixed(6)}<br>
-      Pixels with diff > 0.001: ${diffCount} (${(diffCount / cpuMultiResult.length * 100).toFixed(2)}%)<br>
-      ${meanDiff < 0.0001 ? '<span style="color: #27ae60;">✓ Excellent match - implementations are equivalent</span>' :
-        meanDiff < 0.001 ? '<span style="color: #f39c12;">⚠️ Small differences - likely floating-point precision</span>' :
-        '<span style="color: #ca4747;">⚠️ Large differences - possible bug!</span>'}
-    </div>`;
-
-    display(info);
-    cpuMultiResult;
+    const shadowSamplesEl = Inputs.range([1, 16], {
+      label: "shadow samples",
+      value: 6,
+      step: 1,
+    });
+    tileViewerControlsDiv.appendChild(bakeModeEl);
+    tileViewerControlsDiv.appendChild(strengthEl);
+    tileViewerControlsDiv.appendChild(aoEl);
+    tileViewerControlsDiv.appendChild(shadowEl);
+    tileViewerControlsDiv.appendChild(sunDiameterEl);
+    tileViewerControlsDiv.appendChild(shadowSamplesEl);
+    display(tileViewerControlsDiv);
+    const tileViewerControls = {
+      bakeModeEl,
+      strengthEl,
+      aoEl,
+      shadowEl,
+      sunDiameterEl,
+      shadowSamplesEl,
+    };
   </script>
-  <script id="40e" type="module">
-    // Visualize CPU multi-level result and difference map
-    const canvasCPU = document.createElement('canvas');
-    canvasCPU.width = 512;
-    canvasCPU.height = 512;
-    let ctx = canvasCPU.getContext('2d');
-    let imgData = ctx.createImageData(512, 512);
 
-    for (let i = 0; i < cpuMultiResult.length; i++) {
-      const value = Math.floor(Math.min(Math.max(cpuMultiResult[i], 0), 1) * 255);
-      imgData.data[i * 4] = value;
-      imgData.data[i * 4 + 1] = value;
-      imgData.data[i * 4 + 2] = value;
-      imgData.data[i * 4 + 3] = 255;
+  <script id="tile-viewer" type="module">
+    const viewerEl = html`<div
+      style="width:100%; height:100%; border:1px solid #888; box-sizing:border-box; position:relative;"
+    ></div>`;
+
+    display(expandable(viewerEl, {
+      id: 'tile-viewer',
+      width: 640,
+      height: 600,
+      wide: true,
+      controls: ['.tile-viewer-controls', '.tile-viewer-sun-overlay'],
+    }));
+
+    if (webgpuContext.error) {
+      viewerEl.textContent = "WebGPU unavailable: " + webgpuContext.error;
+    } else {
+      const { device, format } = webgpuContext;
+      // Sun handle overlay, wired to the tile-viewer-sun-dir mutable.
+      const handleCanvas = html`<canvas
+        width="120"
+        height="120"
+        style="display:block; width:120px; height:120px;"
+      ></canvas>`;
+      handleCanvas.style.background = "rgba(0,0,0,0.5)";
+      const sunOverlay = mountSunHandle({
+        canvas: handleCanvas,
+        ...tileViewerSunDirAccessor,
+        crosshairs: true,
+      });
+      sunOverlay.style.overflow = "hidden";
+      sunOverlay.style.borderRadius = "6px";
+      sunOverlay.style.border = "1px solid rgba(255,255,255,0.25)";
+
+      const sunLabel = document.createElement("label");
+      sunLabel.textContent = "sun angle";
+      sunLabel.style.display = "none";
+
+      const sunWrapper = document.createElement("div");
+      sunWrapper.className = "tile-viewer-sun-overlay";
+      sunWrapper.appendChild(sunLabel);
+      sunWrapper.appendChild(sunOverlay);
+
+      // Style the wrapper for the map (absolute, upper-right).
+      const applyMapStyle = () => {
+        sunWrapper.style.cssText = "position:absolute; top:12px; right:12px; z-index:500; pointer-events:auto;";
+        sunLabel.style.display = "none";
+        handleCanvas.style.background = "rgba(0,0,0,0.5)";
+        sunOverlay.style.overflow = "hidden";
+        sunOverlay.style.border = "1px solid rgba(255,255,255,0.25)";
+      };
+      // Style for the expanded controls panel.
+      const applyPanelStyle = () => {
+        sunWrapper.style.cssText = "display:flex; flex-wrap:nowrap; align-items:start; pointer-events:auto;";
+        sunLabel.style.cssText = "display:block; flex-shrink:0; align-self:start; width:var(--label-width,120px); margin-right:var(--length2,6.5px); padding:5px 0 4px 0; font:13px/1.2 var(--sans-serif);";
+        handleCanvas.style.background = "rgba(128,128,128,0.15)";
+        sunOverlay.style.overflow = "hidden";
+        sunOverlay.style.border = "1px solid rgb(133, 133, 133)";
+        sunOverlay.style.borderRadius = "4px";
+      };
+      applyMapStyle();
+
+      // Watch for reparenting between the map and the controls panel.
+      new MutationObserver(() => {
+        if (sunWrapper.closest(".expandable-controls-panel")) applyPanelStyle();
+        else applyMapStyle();
+      }).observe(document.body, { childList: true, subtree: true });
+
+      const viewer = createTileViewer({
+        container: viewerEl,
+        device,
+        format,
+        tileUrl: "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
+        tileSize: 256,
+        minZoom: 0,
+        maxZoom: 15,
+        zoom: 11,
+        center: [36.1, -111.99],
+      });
+      viewerEl.appendChild(sunWrapper);
+
+      // Poll the sun mutable and the three sliders each frame; when
+      // anything has changed, push the new values through as a single
+      // uniform-buffer write. `needsRender` inside the viewer makes
+      // the render loop a no-op when there's nothing to update.
+      const c = tileViewerControls;
+      const tickLighting = () => {
+        const sd = tileViewerSunDirAccessor.get();
+        const azRad = (sd.az * Math.PI) / 180;
+        const altRad = (sd.alt * Math.PI) / 180;
+        const sunX = Math.cos(altRad) * Math.cos(azRad);
+        const sunY = Math.cos(altRad) * Math.sin(azRad);
+        const sunZ = Math.sin(altRad);
+        const reliefStrength = Number(c.strengthEl.value);
+        const aoStrength = Number(c.aoEl.value);
+        const shadowStrength = Number(c.shadowEl.value);
+        const sunDiameter = Number(c.sunDiameterEl.value);
+        const shadowSamples = Math.max(
+          1,
+          Math.round(Number(c.shadowSamplesEl.value)),
+        );
+        const isDebug = c.bakeModeEl.value === "debug";
+        viewer.setLighting({
+          sunX,
+          sunY,
+          sunZ,
+          kAmbient: 0,
+          kDirect: 0,
+          aoStrength,
+          shadowStrength,
+          sunRadiusDeg: sunDiameter / 2,
+          shadowSamples,
+          sunInteracting: sunOverlay.isDragging(),
+          shadingMode: isDebug ? 2 : 1,
+          reliefStrength,
+          bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
+        });
+        requestAnimationFrame(tickLighting);
+      };
+      requestAnimationFrame(tickLighting);
+
+      viewer;
     }
-    ctx.putImageData(imgData, 0, 0);
-
-    // Create difference map (amplified)
-    const canvasDiff = document.createElement('canvas');
-    canvasDiff.width = 512;
-    canvasDiff.height = 512;
-    ctx = canvasDiff.getContext('2d');
-    imgData = ctx.createImageData(512, 512);
-
-    for (let i = 0; i < cpuMultiResult.length; i++) {
-      const diff = Math.abs(cpuMultiResult[i] - multiLevelResult[i]);
-      // Amplify differences for visibility (×1000)
-      const value = Math.floor(Math.min(diff * 1000, 1) * 255);
-      imgData.data[i * 4] = value;
-      imgData.data[i * 4 + 1] = value;
-      imgData.data[i * 4 + 2] = value;
-      imgData.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    const container = html`<div style="display: flex; flex-direction: column; gap: 24px;">
-      <div>
-        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-          <strong>CPU Result (${numLevels} levels)</strong>
-        </div>
-        ${canvasCPU}
-      </div>
-      <div>
-        <div style="margin-bottom: 8px; font-family: sans-serif; font-size: 13px; color: #666;">
-          <strong>Absolute Difference (×1000)</strong> - White = larger difference
-        </div>
-        ${canvasDiff}
-      </div>
-    </div>`;
-
-    display(container);
-  </script>
-  <script id="40f" type="text/markdown">
-    ### Performance Comparison
-
-    The CPU implementations are much slower than GPU (typically 100-1000× slower), but they serve an important role:
-
-    - **Debugging**: Easier to step through and debug algorithm logic
-    - **Validation**: Verify GPU shader correctness by comparing outputs
-    - **Reference**: Canonical implementation for testing edge cases
-
-    The small floating-point differences between CPU and GPU are expected due to:
-    - Different floating-point precision (CPU uses double precision in some calculations, GPU uses single precision)
-    - Different order of operations (GPU parallelism vs CPU sequential)
-    - Different rounding modes
-
-    As long as the mean difference is < 0.001, the implementations are considered equivalent.
-  </script>
-  <script id="41" type="text/markdown">
-    ## Summary
-
-    This notebook demonstrates the complete hierarchical terrain lighting pipeline:
-
-    - **Tile Hierarchy**: Identifies parent tiles needed for boundary data
-    - **Multi-Level Parent Assembly**: Configurable parent levels (Δz = -1 to -4) for extended coverage
-    - **Tile Fetching**: Retrieves Mapbox terrain tiles with RGB elevation encoding
-    - **Data Decoding**: Converts RGB values to elevation in meters
-    - **WebGPU Compute**: GPU-accelerated normal calculation and lighting
-    - **Simple LSAO**: Line-sweep ambient occlusion with 4-direction sweeps (target tile only)
-    - **Multi-Level LSAO**: Advanced LSAO with 1-3 parent levels for seamless boundaries
-    - **Normal Map**: Physically-correct surface normals with Web Mercator scaling
-    - **Final Output**: RGB lighting map (R=ny, G=AO, B=nx) for on-the-fly rendering
-    - **LRU Caching**: Manages tile data and GPU buffers efficiently
-
-    ### Key Innovation: Multi-Level LSAO
-
-    The multi-level LSAO implementation extends the horizon visibility stack beyond tile boundaries by:
-    - Using normalized coordinates (target at 0,0 to 1,1)
-    - Sampling from parent tiles with bilinear interpolation
-    - Progressive horizon initialization from coarsest to finest level
-    - Supporting configurable 1-4 parent levels
-
-    This eliminates boundary artifacts and enables seamless multi-tile terrain rendering.
-
-    The infrastructure supports both browser and Node.js environments with platform-specific implementations. Lighting maps can be compressed as WebP and served as tiles for real-time terrain rendering.
   </script>
 </notebook>
