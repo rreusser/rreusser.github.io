@@ -1,5 +1,5 @@
 publishedAt: "April 16, 2026"
-description: ""
+description: "Terrain shadowing and ambient occlusion for web maps using fast horizon visibility"
 maxWidth: 640px
 hideFromIndex: false
 hideFromSearch: true

@@ -45,12 +45,12 @@ function computeNormals(heights, N, pxSizeM) {
   return { nx, ny };
 }
 
-function computeLSAO(heights, N, pxSizeM, horizon, HN) {
+function computeLSAO(heights, N, aoPxSizeM, horizon, HN) {
   const ao = new Float32Array(N * N);
   for (let d = 0; d < AO_DIRECTIONS; d++) {
     const azDeg = (d * 360) / AO_DIRECTIONS;
     const result = sweepCore({
-      W: N, H: N, elev: heights, azDeg, pxSizeM,
+      W: N, H: N, elev: heights, azDeg, pxSizeM: aoPxSizeM,
       mode: "lsao",
       weight: 1 / AO_DIRECTIONS,
       horizon: HN > 0 ? horizon : null,
@@ -127,10 +127,10 @@ self.onmessage = (e) => {
   const msg = e.data;
   switch (msg.type) {
     case "bake": {
-      const { z, x, y, heights, N, pxSizeM, horizon, HN,
+      const { z, x, y, heights, N, pxSizeM, aoPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples } = msg;
       const { nx, ny } = computeNormals(heights, N, pxSizeM);
-      const ao = computeLSAO(heights, N, pxSizeM, horizon, HN);
+      const ao = computeLSAO(heights, N, aoPxSizeM || pxSizeM, horizon, HN);
       const shadow = computeShadow(heights, N, pxSizeM, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples);
       const packed = packRGBA(nx, ny, ao, shadow, N);

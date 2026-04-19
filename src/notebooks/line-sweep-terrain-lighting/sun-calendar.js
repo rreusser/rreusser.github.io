@@ -186,7 +186,7 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
     if (onChange) {
       onChange({
         az: Math.round(azDeg * 2) / 2,
-        alt: Math.round(Math.max(0, altDeg) * 2) / 2,
+        alt: Math.round(altDeg * 2) / 2,
       });
     }
   }

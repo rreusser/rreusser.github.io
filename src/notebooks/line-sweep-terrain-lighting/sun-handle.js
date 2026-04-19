@@ -1,4 +1,4 @@
-export function mountSunHandle({ canvas, get, set, crosshairs = false }) {
+export function mountSunHandle({ canvas, get, set, crosshairs = false, angle }) {
   const sizePx = parseInt(canvas.style.width, 10) || canvas.width;
 
   canvas.style.border = "none";
@@ -49,12 +49,44 @@ export function mountSunHandle({ canvas, get, set, crosshairs = false }) {
   hit.setAttribute("fill-opacity", "0");
   handle.appendChild(hit);
 
+  // In orthographic projection of the hemisphere, a point at angular
+  // distance δ from zenith lands at radius sin(δ) * rFig. So an angular
+  // radius of angle/2 around the sun projects to a tangential (major)
+  // half-axis of sin(angle/2) * rFig pixels. `angle` may be a number
+  // (static) or an input element whose `.value` provides a live angular
+  // diameter in degrees.
+  const isAngleElement =
+    angle &&
+    typeof angle === "object" &&
+    "value" in angle &&
+    typeof angle.addEventListener === "function";
+  const readAngle = () =>
+    typeof angle === "number"
+      ? angle
+      : isAngleElement
+        ? Number(angle.value)
+        : NaN;
+  // Deliberately oversized by 1.5× — the strictly correct major axis is
+  // hard to perceive at small angles, so we trade physical exactness for
+  // visual intuition.
+  const HALO_VISUAL_BOOST = 1.5;
+  const computeHaloR = () => {
+    const a = readAngle();
+    return Number.isFinite(a)
+      ? HALO_VISUAL_BOOST * Math.sin((a * Math.PI) / 360) * rFig
+      : 32;
+  };
   const halo = document.createElementNS(SVG_NS, "circle");
-  halo.setAttribute("r", "32");
+  halo.setAttribute("r", String(computeHaloR()));
   halo.setAttribute("fill", "#ffd866");
   halo.setAttribute("fill-opacity", "0.45");
   halo.setAttribute("pointer-events", "none");
   handle.appendChild(halo);
+  if (isAngleElement) {
+    angle.addEventListener("input", () => {
+      halo.setAttribute("r", String(computeHaloR()));
+    });
+  }
 
   const dot = document.createElementNS(SVG_NS, "circle");
   dot.setAttribute("r", "8");
@@ -92,6 +124,9 @@ export function mountSunHandle({ canvas, get, set, crosshairs = false }) {
       "transform",
       "rotate(" + thetaDeg + ") scale(" + minorScale + ", 1)",
     );
+    const belowHorizon = sd.alt < 0;
+    halo.style.display = belowHorizon ? "none" : "";
+    dot.setAttribute("fill", belowHorizon ? "#6b86a8" : "#ffd866");
   };
 
   placeHandle(get());

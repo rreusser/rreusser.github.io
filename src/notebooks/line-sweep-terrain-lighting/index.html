@@ -1,255 +1,29 @@
 <!doctype html>
 <notebook theme="air">
-  <title>Line Sweep Terrain Lighting</title>
-
-  <script id="intro" type="text/markdown">
+  <title>Line-Sweep Terrain Lighting</title>
+  <script id="1" type="text/markdown">
     # Line-Sweep Terrain Lighting
 
-    Lighting is often a pretty expensive computation in computer graphics. Diffuse shading is simple, but effects like shadowing and ambient occlusion add significant cost and complexity. This post walks through a simple algorithm for heightfield shading. It's definitely not novel, but the devil is really in the details here.
+    <img src="meta.webp">
 
-    One approach for terrain lighting is to shoot rays. [Rye Terrell's terrain shading](https://wwwtyro.net/2019/03/21/advanced-map-shading.html) uses Amanatides-Woo voxel traversal to march rays from each pixel toward the sun — 128 samples per pixel, averaged for soft shadows. The results are beautiful, but the cost is high and it still suffers from tile-boundary discontinuities, which Terrell addresses by brute-force rendering 3×3 tiles (768×768) and extracting the center.
+    Although I don't still [work in mapping](https://www.mapbox.com), I'll always have have a soft spot for fancy experimental map rendering techniques. I've experimented previously with [rendering a live solar terminator](https://rreusser.github.io/notebooks/night-and-day/) on a map and with building a [kinda janky 3D map renderer](http://localhost:5173/notebooks/denali/). Inspired by some good posts on the topic, I've also dabbled in heightfield shadowing. This article finally pulls the latter work together into something functional.
 
-    A much cheaper alternative is a line sweep. [Karim Naaji's Line-Sweep Ambient Occlusion](https://karim.naaji.fr/lsao.html) sweeps entire rows of the grid in a single pass, tracking the horizon with a running maximum. Each pixel is visited exactly once per sweep direction, making the whole operation O(n) per direction. LSAO sweeps at 45° increments and applies an exponential or rational distance falloff to produce soft ambient-occlusion-style shading.
+    Our goal therefore is to compute terrain lighting using standard web map terrain tiles as input and producing a corresponding 1:1 raster light map as output. For terrain data, we'll be using the really excellent and open [Mapterhorn](https://mapterhorn.com/) tileset. We'll start with a simple horizon visibility algorithm and extend to cover self-shadowing and ambient occlusion. It's definitely not novel, but the devil is in the details.
 
-    This article builds on the line-sweep idea and adapts it for direct terrain lighting:
+    Lighting in computer graphics is usually either complex or expensive. One approach for terrain lighting is to shoot rays. [Rye Terrell's terrain shading](https://wwwtyro.net/2019/03/21/advanced-map-shading.html) marches rays from each pixel along the surface and in the direction of the sun, checking for occlusion. The results are beautiful, but the cost is high and it suffers from tile-boundary discontinuities which Terrell addresses by brute-force rendering 3×3 tiles (768×768) and extracting the center.
 
-    - generalize the sweep to **arbitrary directions** by reducing any angle to a canonical octant.
-    - replace the distance falloff with a **geometric shadow test** — a pixel is in shadow when intervening terrain blocks the line of sight to the sun — giving physically motivated hard shadows rather than ambient occlusion.
-    - add a **parent-tile pre-pass** that assembles a half-resolution horizon buffer from ancestor tiles, warming up each ray before it enters the computation tile so that shadows from terrain beyond the boundary propagate correctly without rendering oversized tiles.
-    - incorporate the sun's finite angular size to produce a geometric **penumbra**, using a smooth cutoff in altitude and multiple azimuthal samples.
+    A cheaper alternative is to sweep across the grid, tracking horizon visibility in a stack. [Karim Naaji's Line-Sweep Ambient Occlusion](https://karim.naaji.fr/lsao.html) sweeps rows of the grid, tracking visibility and applying shading in a single pass. However, the technique is limited to eight cardinal directions and still suffers from tile boundary discontinuities.
+
+    This article doesn't really offer new insight but instead builds on and extends the line-sweep idea to address the shortcomings inherent in the above techniques. In particular it uses geometric shadowing to produce soft shadows and avoids tile boundary discontinuities by prewarming horizon visibility with parent tile data.
   </script>
-
-  <script id="horizon-tracking-intro" type="text/markdown">
+  <script id="2" type="text/markdown">
     ## Horizon tracking
 
-    The core primitive behind all of this is a 1-D sweep that tracks the upper convex hull of elevations seen so far along each ray. As the sweep advances left to right, each new elevation is compared against the current horizon — the line connecting the convex hull vertices. Any column whose elevation falls below the horizon is in shadow.
+    The core primitive behind all of this is a 1-D sweep that tracks the upper convex hull of elevations seen so far along each ray. As the sweep advances left to right, each new elevation is compared against the current horizon.
   </script>
-
-  <script id="horizon-tracking-anim" type="module">
-    // Animated 1-D horizon-tracking diagram. Generates a smooth random
-    // elevation profile, then sweeps left-to-right tracking the upper
-    // convex hull (running max of heights). The pink line shows the
-    // current horizon; the red dot is the sweep cursor.
-    const htW = 640,
-      htH = 200,
-      htN = 32,
-      htPad = 20;
-    const htStepX = (htW - 2 * htPad) / (htN - 1);
-
-    function makeProfile() {
-      const h = new Float32Array(htN);
-      const nHarm = 4;
-      const amps = [],
-        phases = [],
-        freqs = [];
-      for (let k = 0; k < nHarm; k++) {
-        amps.push((0.5 + 0.5 * Math.random()) / (k + 1));
-        phases.push(Math.random() * Math.PI * 2);
-        freqs.push((k + 1) * (1 + Math.random() * 0.3));
-      }
-      for (let i = 0; i < htN; i++) {
-        let v = 0;
-        for (let k = 0; k < nHarm; k++)
-          v +=
-            amps[k] *
-            Math.cos(((freqs[k] * i) / htN) * Math.PI * 2 + phases[k]);
-        h[i] = v;
-      }
-      let mn = Infinity,
-        mx = -Infinity;
-      for (let i = 0; i < htN; i++) {
-        if (h[i] < mn) mn = h[i];
-        if (h[i] > mx) mx = h[i];
-      }
-      const range = mx - mn || 1;
-      for (let i = 0; i < htN; i++)
-        h[i] = 10 + ((htH - 40) * (h[i] - mn)) / range;
-      return h;
-    }
-
-    const svgNS = "http://www.w3.org/2000/svg";
-    const htDispW = Math.min(htW, width);
-    const htDispH = htDispW * (htH / htW);
-    const htSvg = html`<svg
-      width=${htDispW}
-      height=${htDispH}
-      style="display:block; background:#fff; max-width:100%;"
-      viewBox="0 0 ${htW} ${htH}"
-    ></svg>`;
-
-    function pxI(i) {
-      return htPad + i * htStepX;
-    }
-    function pyH(h) {
-      return htH - htPad - h;
-    }
-
-    function mkSvgEl(tag, attrs) {
-      const el = document.createElementNS(svgNS, tag);
-      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-      return el;
-    }
-
-    // Grid lines (rebuilt per profile so they stop at terrain height).
-    const gridGroup = mkSvgEl("g", {});
-    htSvg.appendChild(gridGroup);
-
-    // Shadow regions (filled below horizon, above terrain).
-    const shadowPath = mkSvgEl("path", {
-      fill: "rgba(0,0,0,0.12)",
-      stroke: "none",
-    });
-    htSvg.appendChild(shadowPath);
-
-    // Terrain polyline.
-    const terrainPath = mkSvgEl("polyline", {
-      fill: "none",
-      stroke: "#222",
-      "stroke-width": 2.5,
-      "stroke-linejoin": "round",
-      "stroke-linecap": "round",
-    });
-    htSvg.appendChild(terrainPath);
-
-    // Horizon line (pink).
-    const horizonPath = mkSvgEl("polyline", {
-      fill: "none",
-      stroke: "rgba(240,140,160,0.7)",
-      "stroke-width": 2.5,
-      "stroke-linejoin": "round",
-      "stroke-linecap": "round",
-    });
-    htSvg.appendChild(horizonPath);
-
-    // Hull vertex dots (pink, drawn at each convex hull point).
-    const hullDotsGroup = mkSvgEl("g", {});
-    htSvg.appendChild(hullDotsGroup);
-
-    // Sweep cursor dot.
-    const cursorDot = mkSvgEl("circle", {
-      r: 4,
-      fill: "#e44",
-      stroke: "#fff",
-      "stroke-width": 1.5,
-    });
-    htSvg.appendChild(cursorDot);
-
-    let profile = makeProfile();
-    let step = 0;
-    let hull = []; // upper convex hull: array of {i, h}
-
-    function reset() {
-      profile = makeProfile();
-      step = 0;
-      hull = [];
-      terrainPath.setAttribute(
-        "points",
-        Array.from(profile)
-          .map((h, i) => `${pxI(i)},${pyH(h)}`)
-          .join(" "),
-      );
-      while (gridGroup.firstChild) gridGroup.removeChild(gridGroup.firstChild);
-      for (let i = 0; i < htN; i++) {
-        gridGroup.appendChild(
-          mkSvgEl("line", {
-            x1: pxI(i),
-            y1: htH,
-            x2: pxI(i),
-            y2: pyH(profile[i]),
-            stroke: "#999",
-            "stroke-width": 0.75,
-            "stroke-dasharray": "2 4",
-          }),
-        );
-      }
-    }
-
-    // Interpolate the hull line height at a given sample index.
-    function hullAt(idx) {
-      if (hull.length === 0) return 0;
-      if (idx <= hull[0].i) return hull[0].h;
-      if (idx >= hull[hull.length - 1].i) return hull[hull.length - 1].h;
-      for (let k = 0; k < hull.length - 1; k++) {
-        if (idx <= hull[k + 1].i) {
-          const t = (idx - hull[k].i) / (hull[k + 1].i - hull[k].i);
-          return hull[k].h + t * (hull[k + 1].h - hull[k].h);
-        }
-      }
-      return hull[hull.length - 1].h;
-    }
-
-    function advance() {
-      if (step >= htN) {
-        reset();
-        return;
-      }
-      const h = profile[step];
-
-      // Update the upper convex hull. Pop any vertex that falls on or
-      // below the line from the second-to-last vertex to the new point.
-      while (hull.length >= 2) {
-        const a = hull[hull.length - 2];
-        const b = hull[hull.length - 1];
-        const cross = (b.i - a.i) * (h - a.h) - (step - a.i) * (b.h - a.h);
-        if (cross >= 0) hull.pop();
-        else break;
-      }
-      hull.push({ i: step, h });
-
-      // Horizon polyline through hull vertices.
-      horizonPath.setAttribute(
-        "points",
-        hull.map((v) => `${pxI(v.i)},${pyH(v.h)}`).join(" "),
-      );
-
-      // Hull vertex dots.
-      while (hullDotsGroup.firstChild)
-        hullDotsGroup.removeChild(hullDotsGroup.firstChild);
-      for (const v of hull) {
-        hullDotsGroup.appendChild(
-          mkSvgEl("circle", {
-            cx: pxI(v.i),
-            cy: pyH(v.h),
-            r: 3,
-            fill: "rgba(240,140,160,0.85)",
-            stroke: "#fff",
-            "stroke-width": 1,
-          }),
-        );
-      }
-
-      // Shadow bars: where the hull line is above the terrain.
-      let d = "";
-      for (let i = 0; i <= step; i++) {
-        const hh = hullAt(i);
-        if (hh > profile[i] + 0.5) {
-          d += `M${pxI(i)},${pyH(hh)} L${pxI(i)},${pyH(profile[i])} `;
-        }
-      }
-      shadowPath.setAttribute("d", d);
-
-      cursorDot.setAttribute("cx", pxI(step));
-      cursorDot.setAttribute("cy", pyH(h));
-      step++;
-    }
-
-    reset();
-    const interval = 250;
-    const pauseAfter = 1500;
-    function tick() {
-      advance();
-      if (step >= htN) {
-        setTimeout(() => {
-          reset();
-          advance();
-          tick();
-        }, pauseAfter);
-      } else {
-        setTimeout(tick, interval);
-      }
-    }
-    tick();
-
+  <script id="3" type="module">
+    import createHullViz from './hull-algo.js';
+    const htSvg = createHullViz(html, width, false);
     display(
       html`<figure>
         ${htSvg}
@@ -260,9 +34,36 @@
       </figure>`,
     );
   </script>
+  The most obvious application of this hull to lighting is to apply a hard threshold
+  <script id="hull-occlusion" type="module">
+    const htSvgLight = createHullViz(html, width, true);
+    display(
+      html`<figure>
+        ${htSvgLight}
+        <figcaption>
+          The pink line shows the current horizon; pink dots mark the vertices
+          of the convex hull; the red dot is the sweep cursor.
+        </figcaption>
+      </figure>`,
+    );
+  </script>
 
-  <script id="traversal-intro" type="text/markdown">
-    ## Arbitrary-direction traversal
+  Giving the sun a finite angular radius turns the hard cut into a penumbra: the outer edge of the sun disk falls below the horizon first (partial shadow), and the inner edge last (full umbra). Each terrain sample gets a fraction of the sun visible, and the blocker's two rays fan out a soft-shadow band.
+  <script id="hull-occlusion-soft" type="module">
+    const htSvgSoft = createHullViz(html, width, true, true);
+    display(
+      html`<figure>
+        ${htSvgSoft}
+        <figcaption>
+          The terrain stroke fades between lit and shadow colors by the
+          fraction of the sun disk visible; the shadow fill fades from
+          transparent at the outer ray to opaque at the umbra.
+        </figcaption>
+      </figure>`,
+    );
+  </script>
+
+  <script id="4" type="text/markdown">
 
     The shadow sweep needs to visit every pixel in the grid exactly once for a given direction. The key constraint is **conservation**: regardless of angle, every pixel must receive a total deposit weight of exactly 1.0. Without this, shadows would brighten or darken depending on the sweep direction.
 
@@ -270,12 +71,10 @@
 
     Only a single **canonical octant** needs to be implemented — directions where the ray advances in +x with a slope between 0 and 1. Any other angle reduces to this case by swapping axes (when the y-component dominates) and/or flipping an axis (when a component is negative). The canonical sweep runs over the transformed coordinates; deposits are mapped back to the original buffer.
   </script>
-
-  <script id="arbitrary-direction-intro" type="text/markdown">
+  <script id="5" type="text/markdown">
     ### Traversal visualization
   </script>
-
-  <script id="controls" type="module">
+  <script id="6" type="module">
     const angleDegMut = Mutable(30);
     window.__angleDegMut = angleDegMut;
     const angleDeg = angleDegMut;
@@ -283,21 +82,18 @@
     const gridH = 36;
     const showRayStarts = true;
   </script>
-
-  <script id="sweep" type="module">
+  <script id="7" type="module">
     import { sweep, hsl2rgb01 } from "./sweep.js";
     sweep;
   </script>
-
-  <script id="result" type="module">
+  <script id="8" type="module">
     // Two sweep passes: unweighted (left half) vs weighted (right half).
     const resultOff = sweep(gridW, gridH, angleDeg, false);
     const resultOn = sweep(gridW, gridH, angleDeg, true);
     const result = resultOn; // used by stats cell
     result;
   </script>
-
-  <script id="stats" type="module">
+  <script id="9" type="module">
     // Conservation check (computed but not displayed — useful for debugging).
     let maxDev = 0;
     for (let i = 0; i < result.accum.length; i++) {
@@ -307,8 +103,7 @@
     const conserved = maxDev < 1e-5;
     conserved;
   </script>
-
-  <script id="canvas-setup" type="module">
+  <script id="10" type="module">
     const cwPx = Math.min(640, width);
     const chPx = Math.round((cwPx * gridH) / gridW);
     const canvas = html`<canvas
@@ -416,8 +211,7 @@
     );
     canvas;
   </script>
-
-  <script id="render" type="module">
+  <script id="11" type="module">
     const ctx = canvas.getContext("2d");
     const img = ctx.createImageData(gridW, gridH);
     const px = img.data;
@@ -512,10 +306,7 @@
       rayGroup.appendChild(line);
     }
   </script>
-
-  <script id="explainer" type="text/markdown"></script>
-
-  <script id="hard-shadow-intro" type="text/markdown">
+  <script id="13" type="text/markdown">
     ## Hard-threshold shadows
 
     With the traversal machinery in place, I can apply it to direct sunlight. Where LSAO applies a distance falloff to produce soft ambient-occlusion-style shading, I replace this with a geometric shadow test: a pixel is in shadow when terrain between it and the sun blocks the line of sight. The result is a binary lit/shadow decision per pixel, appropriate for direct sunlight.
@@ -527,20 +318,17 @@
     - **Interpolation symmetry.** The terrain sample and the shadow deposit must use the same `(1−f, f)` weights. Any mismatch produces striations on hillsides.
     - **Pixel size.** At Web Mercator zoom `z` and latitude `lat`, the pixel size in meters is `40075016.686·cos(lat) / (2^z · tileSize)`. The canonical step length is `√(1 + m²) · pixelSize`.
   </script>
-
-  <script id="simple-sun-dir" type="module">
+  <script id="14" type="module">
     const simpleSunDirMut = Mutable({ az: 314.5, alt: 10 });
     const simpleSunDir = simpleSunDirMut;
     const simpleSunDirAccessor = (() => { const m = simpleSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
-
-  <script id="parent-sun-dir" type="module">
+  <script id="15" type="module">
     const parentSunDirMut = Mutable({ az: 314.5, alt: 10 });
     const parentSunDir = parentSunDirMut;
     const parentSunDirAccessor = (() => { const m = parentSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
-
-  <script id="sun-controls" type="module">
+  <script id="16" type="module">
     const sunControls = html`<div id="sun-controls-div"></div>`;
     function sctrl(input) {
       sunControls.appendChild(input);
@@ -556,8 +344,7 @@
 
     display(sunControls);
   </script>
-
-  <script id="sun-angles" type="module">
+  <script id="17" type="module">
     // Isolated in its own cell so that reacting to parentSunDir changes
     // doesn't re-run sun-controls (which would rebuild `source` and
     // cascade down through elevation → shadow-canvas-setup, replacing
@@ -565,23 +352,19 @@
     const sunAzimuth = parentSunDir.az;
     const sunAltitude = parentSunDir.alt;
   </script>
-
-  <script id="sweep-shadow" type="module">
+  <script id="18" type="module">
     import { sweepShadow } from "./sweep-shadow.js";
     sweepShadow;
   </script>
-
-  <script id="sun-handle-helper" type="module">
+  <script id="19" type="module">
     import { mountSunHandle } from "./sun-handle.js";
     mountSunHandle;
   </script>
-
-  <script id="source-toggle-helper" type="module">
+  <script id="20" type="module">
     import { createSourceToggleBadge } from "./source-toggle.js";
     createSourceToggleBadge;
   </script>
-
-  <script id="srgb-helper" type="module">
+  <script id="21" type="module">
     // Linear → sRGB gamma encoding. All per-pixel rendering below
     // interprets `tone * lit` (etc.) as a linear radiance and runs the
     // result through this before writing to the canvas, so what appears
@@ -593,8 +376,7 @@
     };
     linearToSrgb;
   </script>
-
-  <script id="shadow-simple-canvas" type="module">
+  <script id="22" type="module">
     const ssN = elevation.N;
     const ssDisp = Math.max(1, Math.floor(512 / ssN));
     const ssDispPx = Math.min(ssN * ssDisp, width);
@@ -620,8 +402,7 @@
     );
     ssCanvas;
   </script>
-
-  <script id="shadow-simple-result" type="module">
+  <script id="23" type="module">
     // Shadow computed WITHOUT parent/horizon data — comp tile only.
     // Uses its own independent sun direction from simpleSunDir.
     const shadowSimpleResult = sweepShadow(
@@ -636,8 +417,7 @@
     );
     shadowSimpleResult;
   </script>
-
-  <script id="shadow-simple-render" type="module">
+  <script id="24" type="module">
     const ssCtx = ssCanvas.getContext("2d");
     const ssImg = ssCtx.createImageData(elevation.N, elevation.N);
     const ssPx = ssImg.data;
@@ -658,24 +438,22 @@
     }
     ssCtx.putImageData(ssImg, 0, 0);
   </script>
-
-  <script id="parent-tile-intro" type="text/markdown">
+  <script id="25" type="text/markdown">
     ## Parent-tile pre-pass
 
     A fundamental limitation of per-tile line-sweep methods — including LSAO — is that a sweep starting at the tile edge has no knowledge of terrain beyond it. Shadows cast by mountains just outside the boundary are clipped, producing visible seams between tiles.
 
     I resolve this by assembling a half-resolution horizon buffer from four z−1 ancestor tiles, covering the computation tile and one tile width of surrounding terrain in each direction. Before the main sweep, a pre-pass walks each ray through this coarser buffer, warming up the running maximum so that by the time the ray enters the computation tile, it already carries the horizon contributed by surrounding terrain.
   </script>
-
-  <script id="tile-coords" type="module">
+  <script id="26" type="module">
     // Reference tile for the interactive shadow / AO / soft-shadow
     // figures below. Northern Arizona / Grand Canyon area, served
     // live from https://tiles.mapterhorn.com.
-    const tile = { z: 13, x: 1590, y: 3188 };
-    tile;
+    const tile = {x: 381, y: 802, z: 11};
+    //const tile = { z: 12, x: 1590 / 2, y: 3188 / 2 };
+    //const tile = {x: 166, y: 363, z: 10};
   </script>
-
-  <script id="terrarium-decode" type="module">
+  <script id="27" type="module">
     // Decode a Terrarium-encoded webp tile into a Float32Array of heights.
     async function fetchTerrarium(url) {
       const res = await fetch(url);
@@ -705,8 +483,7 @@
     }
     fetchTerrarium;
   </script>
-
-  <script id="tile-elevation" type="module">
+  <script id="28" type="module">
     const tileElevation = await (async () => {
       const url = `https://tiles.mapterhorn.com/${tile.z}/${tile.x}/${tile.y}.webp`;
       const { N, heights, hMin, hMax } = await fetchTerrarium(url);
@@ -725,8 +502,7 @@
     })();
     tileElevation;
   </script>
-
-  <script id="tile-horizon" type="module">
+  <script id="29" type="module">
     // Fetch four z-1 parent tiles — guaranteed to physically cover the 3×3
     // neighbourhood around our computation tile — and assemble them into a
     // half-resolution horizon buffer of size (3·N/2) × (3·N/2) parent pixels,
@@ -824,8 +600,7 @@
     })();
     tileHorizon;
   </script>
-
-  <script id="geometry-elevation" type="module">
+  <script id="30" type="module">
     // Three primitives scattered on flat ground inside the comp tile
     // (cone, cylinder, hemisphere — exercising linear, vertical-wall, and
     // curved shadow edges), plus a set of tall pillars and cones placed
@@ -945,15 +720,13 @@
     })();
     geometryElevation;
   </script>
-
-  <script id="elevation" type="module">
+  <script id="31" type="module">
     // Switch between sources; reactive on `source`.
     const elevation = source === "geometry" ? geometryElevation : tileElevation;
     // (source values: "terrain" | "geometry")
     elevation;
   </script>
-
-  <script id="elevation-horizon" type="module">
+  <script id="32" type="module">
     // Pick a horizon buffer matching the active elevation source.
     //
     // * For the tile source, use the assembled parent-tile data (tileHorizon).
@@ -973,8 +746,7 @@
     })();
     elevationHorizon;
   </script>
-
-  <script id="horizon-visualization" type="module">
+  <script id="33" type="module">
     // Render the computation tile stamped into an HN × HN frame with the
     // same half-resolution layout as the compute-shader horizon buffer (comp
     // pixel (0, 0) at horizon pixel (N/2, N/2), red outline around comp-tile
@@ -1063,8 +835,15 @@
     // as a separate figure — it's merged into the shadow canvas below.
     horizonCanvas;
   </script>
-
-  <script id="shadow-result" type="module">
+  <script id="73" type="module">
+    const parentPrewarmEl = Inputs.toggle({
+      label: "use parent-tile pre-pass",
+      value: true,
+    });
+    display(parentPrewarmEl);
+    const parentPrewarm = Generators.input(parentPrewarmEl);
+  </script>
+  <script id="34" type="module">
     const horizonTouched = new Uint8Array(
       elevationHorizon.HN * elevationHorizon.HN,
     );
@@ -1075,14 +854,13 @@
       sunAzimuth,
       sunAltitude,
       elevation.pixelSizeM,
-      elevationHorizon.heights,
-      elevationHorizon.HN,
-      horizonTouched,
+      parentPrewarm ? elevationHorizon.heights : null,
+      parentPrewarm ? elevationHorizon.HN : 0,
+      parentPrewarm ? horizonTouched : null,
     );
     shadowResult;
   </script>
-
-  <script id="shadow-canvas-setup" type="module">
+  <script id="35" type="module">
     // Merged figure: HN × HN canvas showing surrounding parent terrain
     // with the shadow-rendered comp tile in the centre. Displayed at
     // 640 × 640 CSS pixels.
@@ -1112,8 +890,7 @@
     );
     shadowCanvas;
   </script>
-
-  <script id="shadow-render" type="module">
+  <script id="36" type="module">
     // Merged render: HN × HN canvas with parent terrain surrounding the
     // comp tile, and the CPU shadow result composited into the centre.
     const srN = elevation.N;
@@ -1229,8 +1006,7 @@
 
     shadowCtx.putImageData(shadowImg, 0, 0);
   </script>
-
-  <script id="penumbra-hover" type="module">
+  <script id="37" type="module">
     // Mouse-driven sun position for the penumbra analysis figure below.
     // Stashed on `window` so the figure cell (a separate scope) can mutate
     // it from its mouse handlers.
@@ -1238,8 +1014,7 @@
     const penumbraHover = penumbraHoverMut;
     const penumbraHoverAccessor = (() => { const m = penumbraHoverMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
-
-  <script id="penumbra-elev-version" type="module">
+  <script id="38" type="module">
     // Version counter for the penumbra figure's height field. The
     // height field itself lives at `window.__penumbraElev` and is
     // mutated in place by the figure's click-drag handler; bumping this
@@ -1249,14 +1024,12 @@
     const penumbraElevVersion = penumbraElevVersionMut;
     penumbraElevVersion;
   </script>
-
-  <script id="penumbra-intro" type="text/markdown">
+  <script id="39" type="text/markdown">
     ## Penumbra
 
     The hard-threshold shadow from a point sun produces perfectly sharp edges, but real sunlight has a finite angular diameter (~0.53°), creating a geometric penumbra — a gradual transition from full shadow to full light. I plan to incorporate this in two ways: a smooth cutoff in the altitude direction, and multiple azimuthal samples to soften the shadow edge laterally.
   </script>
-
-  <script id="penumbra-controls" type="module">
+  <script id="40" type="module">
     const penumbraAngleEl = Inputs.range([0, 30], {
       label: "sun diameter (°)",
       value: 10,
@@ -1264,8 +1037,7 @@
     });
     display(penumbraAngleEl);
   </script>
-
-  <script id="penumbra-figure" type="module">
+  <script id="41" type="module">
     import { createPenumbraFigure } from "./penumbra-figure.js";
     const _ver = penumbraElevVersion;
     const penumbraFigure = createPenumbraFigure({
@@ -1276,22 +1048,19 @@
     });
     display(penumbraFigure);
   </script>
-
-  <script id="relief-intro" type="text/markdown">
+  <script id="42" type="text/markdown">
     ## Relief shading
 
     The shadow map captures cast shadows, but even fully lit surfaces vary in brightness depending on their orientation. Relief shading separates the terrain slope from its aspect (direction it faces relative to the sun), so the sun's altitude doesn't darken flat ground. Flat terrain stays white; slopes facing the sun brighten, slopes facing away darken, and the strength of the effect is proportional to the slope angle.
 
-    Concretely: from central differences on the height field, I compute the slope angle ${tex`\theta = \arctan(z_f \cdot \|\mathbf{n}_{xy}\| / n_z)`} and the aspect alignment ${tex`a = \hat{\mathbf{n}}_{xy} \cdot \hat{\mathbf{L}}_{xy} \in [-1, 1]`}, then shade each pixel as ${tex`v = 1 - \sin(\theta \cdot s) \cdot (1 - \tfrac{1+a}{2}) \cdot 1.8`} where ${tex`s`} is the strength parameter. The z-factor ${tex`z_f = 0.625 \sqrt{\cos \alpha}`} (where ${tex`\alpha`} is the sun's altitude) dampens gentle slopes following the GDAL/maplibre convention, and modulates the perceived slope by sun altitude: at overhead sun the terrain appears flat and the image is white; as the sun lowers, slopes become more visually pronounced, reaching full contrast at the horizon. The computation is performed in sRGB (perceptual) space so that "50% gray" means perceptual midgray.
+    Concretely: from central differences on the height field, I compute the slope angle ${tex`\theta = \arctan(z_f \cdot \|\mathbf{n}_{xy}\| / n_z)`} and the aspect alignment ${tex`a = \hat{\mathbf{n}}_{xy} \cdot \hat{\mathbf{L}}_{xy} \in [-1, 1]`}, then a darkness term ${tex`d = \sin(\min(\theta \cdot 2s,\; 1.5)) \cdot (1 - \tfrac{1+a}{2})`} where ${tex`s`} is the strength parameter. The final relief value is ${tex`v = (1 - 0.85\,d)^{2.5}`}, a gamma curve that maps the linear darkness into perceptual space. The z-factor ${tex`z_f = 0.625 \sqrt{\cos \alpha}`} (where ${tex`\alpha`} is the sun's altitude) dampens gentle slopes following the GDAL/maplibre convention, and modulates the perceived slope by sun altitude: at overhead sun the terrain appears flat and the image is white; as the sun lowers, slopes become more visually pronounced, reaching full contrast at the horizon.
   </script>
-
-  <script id="relief-sun-dir" type="module">
+  <script id="43" type="module">
     const reliefSunDirMut = Mutable({ az: 314.5, alt: 45 });
     const reliefSunDir = reliefSunDirMut;
     const reliefSunDirAccessor = (() => { const m = reliefSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
-
-  <script id="relief-controls" type="module">
+  <script id="44" type="module">
     const reliefControls = html`<div></div>`;
     function rctrl(input) {
       reliefControls.appendChild(input);
@@ -1308,8 +1077,7 @@
 
     display(reliefControls);
   </script>
-
-  <script id="relief-canvas" type="module">
+  <script id="45" type="module">
     const rlN = elevation.N;
     const rlDisp = Math.max(1, Math.floor(512 / rlN));
     const rlPxDisplay = Math.min(rlN * rlDisp, width);
@@ -1337,8 +1105,7 @@
     );
     reliefCanvas;
   </script>
-
-  <script id="relief-render" type="module">
+  <script id="46" type="module">
     const rlCtx = reliefCanvas.getContext("2d");
     const rlN2 = elevation.N;
     const rlImg = rlCtx.createImageData(rlN2, rlN2);
@@ -1396,19 +1163,16 @@
     }
     rlCtx.putImageData(rlImg, 0, 0);
   </script>
-
-  <script id="soft-shadow-intro" type="text/markdown">
+  <script id="47" type="text/markdown">
     ## Soft shadows
 
-    To approximate the penumbra from a finite-diameter sun, I run multiple hard-shadow sweeps at small azimuthal offsets across the sun disk and average the results. The altitude dimension of the penumbra is handled inside each sweep: I sweep at a lowered altitude (offset by three-quarters of the sun diameter) and then smoothstep the shadow bit over the full angular width. That reduces the averaging to one dimension — azimuth — and lets each sweep run in its own web worker in parallel.
+    To approximate the penumbra from a finite-diameter sun, I run multiple hard-shadow sweeps at small azimuthal offsets across the sun disk and average the results. The altitude dimension of the penumbra is handled inside each sweep: I define a half-width of ${tex`\tfrac{3}{2}r`} (where ${tex`r`} is the sun's angular radius) and smoothstep the shadow between ${tex`\alpha - \tfrac{3}{2}r`} and ${tex`\alpha + \tfrac{3}{2}r`}, giving a soft altitude transition spanning ${tex`3r`}. That reduces the averaging to one dimension — azimuth — and lets each sweep run in its own web worker in parallel.
   </script>
-
-  <script id="soft-shadow-sun-dir" type="module">
+  <script id="48" type="module">
     const softSunDirMut = Mutable({ az: 314.5, alt: 10 });
     const softSunDirAccessor = (() => { const m = softSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
-
-  <script id="soft-sampling-analysis" type="module">
+  <script id="49" type="module">
     const sampN = Math.round(softAzSamples);
     display(md`
       ### Sampling the sun disk
@@ -1422,8 +1186,7 @@
       where ${tex`g(x) = \frac{1}{\sigma\sqrt{2\pi}}\exp(-x^2/2\sigma^2)`} is the Gaussian intensity profile across the sun disk and ${tex`f(x)`} is the shadow bit as a function of azimuthal offset ${tex`x`}. The right approach is **stratified inverse-CDF sampling**: place the ${tex`i`}th sample at the point where the Gaussian CDF equals ${tex`(i - \tfrac{1}{2})/N`}. Each sample then represents an equal slice of probability mass under the Gaussian, so the desired distribution is baked into the positions and every sample can be weighted equally — no sweep is wasted on a sample the filter will discount.
     `);
   </script>
-
-  <script id="norm-inv" type="module">
+  <script id="50" type="module">
     // Acklam's inverse-normal approximation: maps a CDF probability in
     // (0, 1) to the corresponding standard-normal quantile. Shared by the
     // stratified-sampling plot and the soft-shadow driver loop.
@@ -1473,8 +1236,7 @@
     };
     normInv;
   </script>
-
-  <script id="soft-sampling-plot" type="module">
+  <script id="51" type="module">
     const Npp = Math.round(softAzSamples);
     const xMax = 3;
 
@@ -1537,14 +1299,12 @@
       </figure>`,
     );
   </script>
-
-  <script id="soft-sweep-fn" type="module">
+  <script id="52" type="module">
     import { createSoftSweepPool } from "./soft-sweep.js";
     const { runSoftSweeps } = createSoftSweepPool();
     runSoftSweeps;
   </script>
-
-  <script id="soft-shadow-controls" type="module">
+  <script id="53" type="module">
     const softControls = html`<div></div>`;
     function ssctrl(input) {
       softControls.appendChild(input);
@@ -1573,8 +1333,7 @@
 
     display(softControls);
   </script>
-
-  <script id="soft-shadow-canvas" type="module">
+  <script id="54" type="module">
     const softN = elevation.N;
     const softDisp = Math.max(1, Math.floor(512 / softN));
     const sizePx = Math.min(softN * softDisp, width);
@@ -1588,6 +1347,7 @@
     const softFigure = mountSunHandle({
       canvas: softCanvas,
       ...softSunDirAccessor,
+      angle: softSunDiameterEl,
     });
     softFigure.appendChild(createSourceToggleBadge());
 
@@ -1602,8 +1362,7 @@
     );
     softCanvas;
   </script>
-
-  <script id="soft-shadow-compute" type="module">
+  <script id="55" type="module">
     // Persistent driver loop: reads the latest sun direction + params
     // from shared refs (window.__softSunDirMut, window.__softSunDiameterEl,
     // window.__softAzSamplesEl) between batches and renders directly to
@@ -1701,8 +1460,7 @@
     const softResult = null;
     softResult;
   </script>
-
-  <script id="lsao-intro" type="text/markdown">
+  <script id="56" type="text/markdown">
     ## Line-sweep ambient occlusion
 
     The same upper-hull-tracking discipline that gives us hard shadows works for **ambient occlusion** too. Following [Karim Naaji's LSAO](https://karim.naaji.fr/lsao.html), for each sweep direction I walk every ray through the terrain and, at each pixel, look up the horizon blocker that maximizes the sky-elevation angle α. Naaji uses an ad-hoc ${tex`e^{-\sin\alpha}`} exponential falloff for the per-direction sky visibility, which works visually but has a long tail — even a target 500 m away from a tall blocker still reads ~11% darkening, so the AO effect bleeds across adjacent tiles.
@@ -1719,14 +1477,12 @@
 
     At ${tex`c = 0`} the slider emits solid white; as ${tex`c \to 1`} the scaled shade runs to infinity and the tonemap saturates toward full darkness. Naaji's reference fires eight axis-aligned passes; because our canonical reparameterization handles arbitrary azimuths, we can use any number of directions, and each pass is independent so we run them in the same Web Worker pool as the soft shadows.
   </script>
-
-  <script id="lsao-sweep-fn" type="module">
+  <script id="57" type="module">
     import { createLsaoSweepPool } from "./lsao-sweep.js";
     const { runLsao } = createLsaoSweepPool();
     runLsao;
   </script>
-
-  <script id="lsao-controls" type="module">
+  <script id="58" type="module">
     const lsaoControls = html`<div></div>`;
     const lsaoSamplesEl = Inputs.range([1, 32], {
       label: "sweep directions",
@@ -1744,8 +1500,7 @@
     const lsaoContrast = Generators.input(lsaoContrastEl);
     display(lsaoControls);
   </script>
-
-  <script id="lsao-canvas" type="module">
+  <script id="59" type="module">
     const lsaoN = elevation.N;
     const lsaoDisp = Math.max(1, Math.floor(512 / lsaoN));
     const lsaoPxDisplay = Math.min(lsaoN * lsaoDisp, width);
@@ -1773,8 +1528,7 @@
     );
     lsaoCanvas;
   </script>
-
-  <script id="lsao-compute" type="module">
+  <script id="60" type="module">
     const nDirs = Math.round(lsaoSamples);
     const W = elevation.N;
     const H = elevation.N;
@@ -1824,14 +1578,12 @@
     }
     lsaoCtx.putImageData(lsaoImg, 0, 0);
   </script>
-
-  <script id="webgpu-intro" type="text/markdown">
+  <script id="61" type="text/markdown">
     ## WebGPU implementation
 
     Every mode the CPU `sweepCore` supports — hard shadow, soft shadow with stratified azimuth integration, and LSAO — ported to WGSL compute via _dynamic shader specialization_. Each `(mode, prewarm)` permutation is built once into its own `GPUComputePipeline` and cached, so the inner hull-scan loop has no per-pixel mode branch. The parent-tile prewarm is itself a compile-time flag: when off, the shader skips the warmup block entirely and the horizon binding shrinks to a 16-byte stub. Multi-sample averaging (azimuth offsets for soft, uniform directions for LSAO) is dispatched as N successive compute passes that each accumulate `weight · bit · fpScale` into the shared atomic `shadow` buffer.
   </script>
-
-  <script id="webgpu-device" type="module">
+  <script id="62" type="module">
     // One-time device setup. Persists across sun/source changes.
     const webgpuContext = await (async () => {
       if (!navigator.gpu)
@@ -1853,8 +1605,7 @@
     }
     webgpuContext;
   </script>
-
-  <script id="webgpu-pipelines" type="module">
+  <script id="63" type="module">
     import {
       getOrBuildComputePipeline,
       getOrBuildRenderPipeline,
@@ -1884,16 +1635,14 @@
     })();
     webgpuPipelinesApi;
   </script>
-
-  <script id="webgpu-sun-dir" type="module">
+  <script id="64" type="module">
     // Live sun direction for the WebGPU figure. The driver loop polls
     // this mutable rather than taking a reactive dependency on it so
     // mousemoves don't invalidate the cell.
     const webgpuSunDirMut = Mutable({ az: 314.5, alt: 10 });
     const webgpuSunDirAccessor = (() => { const m = webgpuSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
-
-  <script id="webgpu-controls" type="module">
+  <script id="65" type="module">
     // Mode + sample-count + contrast knobs for the WebGPU figure. Held
     // on `window` so the persistent driver loop can read them without
     // becoming reactive on every keystroke.
@@ -1934,8 +1683,7 @@
     window.__wgpuContrastEl = wgpuContrastEl;
     display(wgpuControls);
   </script>
-
-  <script id="webgpu-canvas-setup" type="module">
+  <script id="66" type="module">
     // Reactive on elevation — recreates canvas + elev/shadow buffers when N or
     // source changes. The WebGPU context is configured on the new canvas.
     const webgpuRuntime = (() => {
@@ -1952,6 +1700,7 @@
       const wgpuFigure = mountSunHandle({
         canvas,
         ...webgpuSunDirAccessor,
+        angle: window.__wgpuSunDiameterEl,
       });
       wgpuFigure.appendChild(createSourceToggleBadge());
       display(
@@ -2034,8 +1783,7 @@
     })();
     webgpuRuntime;
   </script>
-
-  <script id="webgpu-dispatch" type="module">
+  <script id="67" type="module">
     // Persistent driver loop: polls sun-dir + controls, and on every
     // change rebuilds N pipeline dispatches (one per sample) into a
     // single command buffer that clears the shadow buffer, accumulates
@@ -2235,32 +1983,28 @@
       })();
     }
   </script>
-
-  <script id="tile-viewer-intro" type="text/markdown">
+  <script id="68" type="text/markdown">
     ## Live WebGPU tile viewer
 
-    End of the notebook — everything we've built, composited in realtime on the GPU. Each tile is a CPU bake: fetch the Terrarium webp, compute surface normals, 8-pass LSAO, and a hard shadow at a fixed reference sun direction. All four fields are packed into one `rgba8unorm` texture:
+    End of the notebook — everything we've built, composited in realtime on the GPU. Each tile goes through a two-phase bake (CPU or GPU). The **static bake** runs once when the tile's elevation data arrives: compute surface normals, 8-pass LSAO, and pack the results into an `rgba8unorm` texture:
 
-    ${tex.block`(R, G) = (\tfrac{n_x + 1}{2},\; \tfrac{n_y + 1}{2}), \quad B = \mathrm{AO}, \quad A = s_{\text{bake}}.`}
+    ${tex.block`(R, G) = (\tfrac{n_x + 1}{2},\; \tfrac{n_y + 1}{2}), \quad B = \mathrm{AO}^{\gamma}, \quad A = s_{\text{shadow}}.`}
 
-    The fragment shader reconstructs ${tex`n_z = \sqrt{1 - n_x^2 - n_y^2}`}, takes the dot product with the live sun direction for Lambertian diffuse, and combines it with the baked ambient and shadow masks using the same ${tex`(1 - v̄)`}-style weights as the earlier figures. Sun-drag and slider moves are pure uniform-buffer writes with no CPU recomputation — 60 fps in every pose. The baked shadow stays at a fixed reference direction; only the direct relief term moves when you drag the sun. Tile positioning math runs in JS `number` precision so the view stays stable at high zoom.
+    The **shadow re-bake** runs whenever the sun direction changes, recomputing just the alpha channel for every visible tile. Normals and AO are preserved. The fragment shader reconstructs ${tex`n_z = \sqrt{1 - n_x^2 - n_y^2}`} and composites relief shading, ambient occlusion, and shadows using the live sun direction. Slider and sun-drag changes that don't move the sun direction are pure uniform-buffer writes — 60 fps with no recomputation. Tile positioning math runs in JS `number` precision so the view stays stable at high zoom.
 
     The viewer reuses the same WebGPU device as the compute shader earlier in the notebook. Pan with click+drag; zoom with the mouse wheel.
   </script>
-
-  <script id="tile-viewer-sun-dir" type="module">
+  <script id="69" type="module">
     const tileViewerSunDirMut = Mutable({ az: 314.5, alt: 25 });
     const tileViewerSunDirAccessor = (() => { const m = tileViewerSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
-
-  <script id="tile-viewer-helper" type="module">
+  <script id="70" type="module">
     import { createTileViewer } from "./tile-viewer.js";
     import { expandable } from "./lib/expandable.js";
     import SunCalc from "npm:suncalc";
     import { createSunCalendar } from "./sun-calendar.js";
   </script>
-
-  <script id="tile-viewer-controls" type="module">
+  <script id="71" type="module">
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
     const bakeModeEl = Inputs.radio(
       new Map([["CPU", "cpu"], ["GPU", "gpu"], ["debug", "debug"]]),
@@ -2315,8 +2059,7 @@
       shadowSamplesEl,
     };
   </script>
-
-  <script id="tile-viewer" type="module">
+  <script id="72" type="module">
     const viewerEl = html`<div
       style="width:100%; height:100%; border:1px solid #888; box-sizing:border-box; position:relative;"
     ></div>`;
@@ -2344,6 +2087,7 @@
         canvas: handleCanvas,
         ...tileViewerSunDirAccessor,
         crosshairs: true,
+        angle: tileViewerControls.sunDiameterEl,
       });
       sunOverlay.style.overflow = "hidden";
       sunOverlay.style.borderRadius = "6px";
@@ -2391,8 +2135,11 @@
         tileSize: 256,
         minZoom: 0,
         maxZoom: 15,
-        zoom: 11,
-        center: [36.1, -111.99],
+        zoom: 13.5,
+        center: [
+          37.0476,
+          -110.1072
+        ],
       });
       tileViewerRef.set(viewer);
       viewerEl.appendChild(sunWrapper);
@@ -2405,7 +2152,10 @@
       const tickLighting = () => {
         const sd = tileViewerSunDirAccessor.get();
         const azRad = (sd.az * Math.PI) / 180;
-        const altRad = (sd.alt * Math.PI) / 180;
+        // Clamp to the horizon for shading/shadow math — a negative
+        // altitude would break the sweep kernel. The widget still reads
+        // the raw sd.alt so its below-horizon state displays correctly.
+        const altRad = (Math.max(0, sd.alt) * Math.PI) / 180;
         const sunX = Math.cos(altRad) * Math.cos(azRad);
         const sunY = Math.cos(altRad) * Math.sin(azRad);
         const sunZ = Math.sin(altRad);

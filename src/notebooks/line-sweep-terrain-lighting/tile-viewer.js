@@ -101,6 +101,12 @@ function tilePxSizeM(z, y, N) {
   return (EARTH_CIRCUMFERENCE_M * Math.cos(lat)) / (Math.pow(2, z) * N);
 }
 
+// Latitude-independent pixel size for LSAO — removes cos(lat) so
+// occlusion strength doesn't vary with latitude or jump at tile borders.
+function tilePxSizeMRef(z, N) {
+  return EARTH_CIRCUMFERENCE_M / (Math.pow(2, z) * N);
+}
+
 const SHADER = /* wgsl */ `
 struct Global {
   viewportPx: vec4<f32>,   // xy = viewport size, z = shadingMode (0=lambertian,1=relief), w = reliefStrength
@@ -601,6 +607,7 @@ export function createTileViewer(opts) {
         if (lighting.bakeMode === "cpu") {
           // ---- CPU bake path ----
           const pxSizeM = tilePxSizeM(this.z, this.y, compN);
+          const aoPxSizeM = tilePxSizeMRef(this.z, compN);
           // Store copies for later shadow rebakes (originals will be
           // transferred to the worker and neutered).
           this._heights = new Float32Array(comp.heights);
@@ -620,6 +627,7 @@ export function createTileViewer(opts) {
             heights: new Float32Array(comp.heights),
             N: compN,
             pxSizeM,
+            aoPxSizeM,
             horizon: new Float32Array(horizon.heights),
             HN,
             azDeg,
@@ -708,6 +716,7 @@ export function createTileViewer(opts) {
   // ------------------------------------------------------------------
   function runStaticBake(tile, compN) {
     const pxSizeM = tilePxSizeM(tile.z, tile.y, compN);
+    const aoPxSizeM = tilePxSizeMRef(tile.z, compN);
 
     // Small normals uniform: { N: u32, pxSizeM: f32, pad, pad }
     const normalsBuf = new ArrayBuffer(16);
@@ -731,7 +740,7 @@ export function createTileViewer(opts) {
         W: compN,
         H: compN,
         azDeg,
-        pxSizeM,
+        pxSizeM: aoPxSizeM,
         mode: "lsao",
         weight: 1 / AO_DIRECTIONS,
         horizonN: tile.HN,
@@ -1128,10 +1137,9 @@ export function createTileViewer(opts) {
     globalData[4] = lighting.sunX;
     globalData[5] = lighting.sunY;
     globalData[6] = lighting.sunZ;
-    // Zoom-dependent AO boost: multiplier > 1 at low zoom amplifies
-    // subtle occlusion, < 1 at high zoom tames it.
-    // Reference zoom 11: multiplier = 1 (no change).
-    const aoBoost = Math.pow(2, (11 - zoom) * 0.5);
+    // Zoom-dependent AO boost: multiplier on aoShade in the shader.
+    // 1.0 = no change. Values > 1 amplify, < 1 tame.
+    const aoBoost = 1.0;
     globalData[7] = aoBoost;
     globalData[8] = lighting.kAmbient;
     globalData[9] = lighting.kDirect;
