@@ -198,6 +198,67 @@ export default function createHullViz (html, width, showLight=false, softShadow=
   // run as soon as any part of the sun disk is occluded.
   const classifyAngle = sunAngle - sunRadius;
 
+  // Top-left sun-direction indicator. Hard-shadow figures get a single
+  // arrow along the centre ray; soft-shadow figures get a wedge spanning
+  // the sun's full angular diameter (2·sunRadius) to cue the spread.
+  if (showLight) {
+    const originX = pad + 20;
+    const originY = pad + 8;
+    const dirDx = Math.cos(sunAngle);
+    const dirDy = Math.sin(sunAngle);
+    if (softShadow) {
+      const r = 56;
+      const a0 = sunAngle - sunRadius;
+      const a1 = sunAngle + sunRadius;
+      const xA = originX + r * Math.cos(a0);
+      const yA = originY + r * Math.sin(a0);
+      const xB = originX + r * Math.cos(a1);
+      const yB = originY + r * Math.sin(a1);
+      const d = `M ${originX} ${originY} L ${xA} ${yA} A ${r} ${r} 0 0 1 ${xB} ${yB} Z`;
+      svg.appendChild(mkSvgEl("path", {
+        d,
+        fill: "#ffd866",
+        "fill-opacity": "0.85",
+        stroke: "#3a2600",
+        "stroke-width": 1.5,
+        "stroke-linejoin": "round",
+      }));
+    } else {
+      const len = 50;
+      const xHead = originX + dirDx * len;
+      const yHead = originY + dirDy * len;
+      const headSize = 10;
+      const perpX = -dirDy, perpY = dirDx;
+      const tipX = xHead + dirDx * headSize;
+      const tipY = yHead + dirDy * headSize;
+      const backX = xHead - dirDx * headSize * 0.2;
+      const backY = yHead - dirDy * headSize * 0.2;
+      const shaftHalf = 1.5;
+      const headHalf = headSize * 0.7;
+      const tailL = [originX + perpX * shaftHalf, originY + perpY * shaftHalf];
+      const shaftL = [backX + perpX * shaftHalf, backY + perpY * shaftHalf];
+      const wingL = [backX + perpX * headHalf, backY + perpY * headHalf];
+      const wingR = [backX - perpX * headHalf, backY - perpY * headHalf];
+      const shaftR = [backX - perpX * shaftHalf, backY - perpY * shaftHalf];
+      const tailR = [originX - perpX * shaftHalf, originY - perpY * shaftHalf];
+      const points = [tailL, shaftL, wingL, [tipX, tipY], wingR, shaftR, tailR]
+        .map((p) => p[0] + "," + p[1])
+        .join(" ");
+      svg.appendChild(mkSvgEl("polygon", {
+        points,
+        fill: "#3a2600",
+        stroke: "#3a2600",
+        "stroke-width": 3,
+        "stroke-linejoin": "round",
+      }));
+      svg.appendChild(mkSvgEl("polygon", {
+        points,
+        fill: "#ffd866",
+        stroke: "none",
+      }));
+    }
+  }
+
   // Ray Y (screen) at x, given blocker hull vertex and tangent of angle.
   function rayYAt (blocker, x, tanA) {
     return pyH(blocker.h) + (x - pxI(blocker.i)) * tanA;
@@ -541,10 +602,28 @@ export default function createHullViz (html, width, showLight=false, softShadow=
   reset();
   const interval = 120;
   const pauseAfter = 1500;
+
+  let isVisible = true;
+  const visibilityObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) isVisible = entry.isIntersecting;
+    },
+    { threshold: 0 },
+  );
+  visibilityObserver.observe(svg);
+
   function tick() {
+    if (!isVisible) {
+      setTimeout(tick, interval);
+      return;
+    }
     advance();
     if (step >= N) {
       setTimeout(() => {
+        if (!isVisible) {
+          setTimeout(tick, interval);
+          return;
+        }
         reset();
         advance();
         tick();

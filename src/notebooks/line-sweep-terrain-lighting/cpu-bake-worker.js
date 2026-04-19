@@ -45,7 +45,7 @@ function computeNormals(heights, N, pxSizeM) {
   return { nx, ny };
 }
 
-function computeLSAO(heights, N, aoPxSizeM, horizon, HN) {
+function computeLSAO(heights, N, aoPxSizeM, horizon, HN, lsaoFalloff) {
   const ao = new Float32Array(N * N);
   for (let d = 0; d < AO_DIRECTIONS; d++) {
     const azDeg = (d * 360) / AO_DIRECTIONS;
@@ -55,6 +55,7 @@ function computeLSAO(heights, N, aoPxSizeM, horizon, HN) {
       weight: 1 / AO_DIRECTIONS,
       horizon: HN > 0 ? horizon : null,
       HN,
+      lsaoFalloff,
     });
     for (let i = 0; i < N * N; i++) ao[i] += result[i];
   }
@@ -128,9 +129,9 @@ self.onmessage = (e) => {
   switch (msg.type) {
     case "bake": {
       const { z, x, y, heights, N, pxSizeM, aoPxSizeM, horizon, HN,
-              azDeg, altDeg, sunRadiusDeg, shadowSamples } = msg;
+              azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff } = msg;
       const { nx, ny } = computeNormals(heights, N, pxSizeM);
-      const ao = computeLSAO(heights, N, aoPxSizeM || pxSizeM, horizon, HN);
+      const ao = computeLSAO(heights, N, aoPxSizeM || pxSizeM, horizon, HN, lsaoFalloff);
       const shadow = computeShadow(heights, N, pxSizeM, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples);
       const packed = packRGBA(nx, ny, ao, shadow, N);

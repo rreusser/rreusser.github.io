@@ -135,12 +135,12 @@ const HELPERS_WGSL = /* wgsl */ `
 // Inlined rather than a WGSL function so it can read/write the
 // caller's local hull arrays without `ptr<function, ...>` plumbing,
 // which is awkward for fixed-size array pointers in older WGSL impls.
-function warmupBlock(prewarm, mode) {
+function warmupBlock(prewarm, mode, lsaoFalloff) {
   if (!prewarm) return "";
   // Inject the same mode kernel the main loop uses. We rebind `hRay`
   // and `cx` as `let` aliases inside the deposit block so the kernel
   // (which reads those identifiers) works verbatim.
-  const kernel = modeKernelWGSL(mode);
+  const kernel = modeKernelWGSL(mode, lsaoFalloff);
   return /* wgsl */ `
     {
       let WARMUP_STEPS: i32 = i32(u.W);
@@ -223,7 +223,7 @@ function warmupBlock(prewarm, mode) {
 // Per-mode contribution kernel emitted into the hot loop. Each variant
 // reads `hRay`, `cx`, the hull arrays, and per-mode uniform fields and
 // writes a scalar `bit` in [0, 1].
-function modeKernelWGSL(mode) {
+function modeKernelWGSL(mode, lsaoFalloff = "cos2") {
   if (mode === "hard") {
     // Hard threshold via the G-correction trick. Linearstep over ±epsH
     // gives ½-pixel edge AA along the sweep axis. Matches sweep-core.js
@@ -267,9 +267,12 @@ function modeKernelWGSL(mode) {
       }
     `;
   }
-  // LSAO: max sin α, deposit cos²α = 1 − sin²α. Early-continue when
-  // dz <= 0 matches sweep-core.js exactly so a target on a ridge isn't
-  // pulled down by lower blockers behind it.
+  // LSAO: max sin α, deposit either cos²α = 1 − sin²α (Lambertian)
+  // or exp(−sin α) (Naaji's original). Early-continue when dz <= 0
+  // matches sweep-core.js exactly so a target on a ridge isn't pulled
+  // down by lower blockers behind it.
+  const finalBit =
+    lsaoFalloff === "exp" ? `exp(-bestSin)` : `1.0 - bestSin * bestSin`;
   return /* wgsl */ `
     var bestSin: f32 = 0.0;
     for (var i: i32 = 0; i <= hullPtr; i = i + 1) {
@@ -282,12 +285,12 @@ function modeKernelWGSL(mode) {
       let s = dz / len3;
       if (s > bestSin) { bestSin = s; }
     }
-    let bit: f32 = 1.0 - bestSin * bestSin;
+    let bit: f32 = ${finalBit};
   `;
 }
 
-// Build the full WGSL source for one (mode, prewarm) permutation.
-function buildComputeWGSL({ mode, prewarm }) {
+// Build the full WGSL source for one (mode, prewarm, lsaoFalloff) permutation.
+function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
   // `prewarm` is honoured for every mode, including LSAO. The caller
   // is responsible for deciding whether it's the right trade-off:
   // LSAO with prewarm introduces a within-tile gradient near the
@@ -336,7 +339,7 @@ function buildComputeWGSL({ mode, prewarm }) {
         cxEntry = vw;
       }
 
-      ${warmupBlock(hasWarmup, mode)}
+      ${warmupBlock(hasWarmup, mode, lsaoFalloff)}
 
       for (var cx: i32 = cxEntry; cx < vw; cx = cx + 1) {
         let y = f32(b) + u.slope * f32(cx);
@@ -359,7 +362,7 @@ function buildComputeWGSL({ mode, prewarm }) {
         let hRay = (1.0 - fy) * hLo + fy * hHi;
 
         // Mode-specific hull scan → \`bit\` in [0, 1].
-        ${modeKernelWGSL(mode)}
+        ${modeKernelWGSL(mode, lsaoFalloff)}
 
         // Push-time prune for the current pixel.
         let cxF2 = f32(cx);
@@ -527,12 +530,18 @@ function getComputeCache(device) {
   return m;
 }
 
-export function getOrBuildComputePipeline({ device, mode, prewarm }) {
-  const key = `${mode}|${prewarm ? 1 : 0}`;
+export function getOrBuildComputePipeline({
+  device,
+  mode,
+  prewarm,
+  lsaoFalloff = "cos2",
+}) {
+  const falloffTag = mode === "lsao" ? lsaoFalloff : "n/a";
+  const key = `${mode}|${prewarm ? 1 : 0}|${falloffTag}`;
   const cache = getComputeCache(device);
   let pipe = cache.get(key);
   if (pipe) return pipe;
-  const code = buildComputeWGSL({ mode, prewarm });
+  const code = buildComputeWGSL({ mode, prewarm, lsaoFalloff });
   const module = device.createShaderModule({
     code,
     label: `sweepCore-${key}`,

@@ -499,6 +499,7 @@ export function createTileViewer(opts) {
     shadingMode: 0,
     reliefStrength: 1,
     bakeMode: "cpu",
+    lsaoFalloff: "exp",
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -634,6 +635,7 @@ export function createTileViewer(opts) {
             altDeg,
             sunRadiusDeg: Math.max(0, lighting.sunRadiusDeg || 0),
             shadowSamples: Math.max(1, Math.round(lighting.shadowSamples || 1)),
+            lsaoFalloff: lighting.lsaoFalloff,
           });
           if (!result || this.destroyed) {
             this.texture?.destroy();
@@ -787,6 +789,7 @@ export function createTileViewer(opts) {
         device,
         mode: "lsao",
         prewarm: true,
+        lsaoFalloff: lighting.lsaoFalloff,
       });
       const bgl = getComputeBindGroupLayout(device);
       for (let d = 0; d < AO_DIRECTIONS; d++) {
@@ -1387,6 +1390,7 @@ export function createTileViewer(opts) {
       const prevR = lighting.sunRadiusDeg;
       const prevS = lighting.shadowSamples;
       const prevMode = lighting.bakeMode;
+      const prevFalloff = lighting.lsaoFalloff;
       const wasInteracting = lighting.sunInteracting;
       Object.assign(lighting, state);
       if (
@@ -1401,7 +1405,10 @@ export function createTileViewer(opts) {
       if (wasInteracting && !lighting.sunInteracting) {
         scheduleHQRebake();
       }
-      if (prevMode !== lighting.bakeMode) {
+      if (
+        prevMode !== lighting.bakeMode ||
+        prevFalloff !== lighting.lsaoFalloff
+      ) {
         for (const tile of tiles.values()) tile.destroy();
         tiles.clear();
         for (const s of staleTiles) s.destroy();

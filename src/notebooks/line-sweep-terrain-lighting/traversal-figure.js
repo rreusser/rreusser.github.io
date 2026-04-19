@@ -326,7 +326,18 @@ export function createTraversalFigure({
     return true;
   }
 
+  let isVisible = true;
+  const visibilityObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) isVisible = entry.isIntersecting;
+    },
+    { threshold: 0 },
+  );
+  visibilityObserver.observe(figure);
+
   const loop = createFrameLoop((t) => {
+    if (!isVisible) return;
+
     const deg = angle.get();
     const w = weighted.get();
     if (deg !== currentAngle || w !== currentWeighted) {
@@ -352,6 +363,6 @@ export function createTraversalFigure({
   return {
     figure,
     canvas,
-    cancel() { loop.cancel(); },
+    cancel() { loop.cancel(); visibilityObserver.disconnect(); },
   };
 }

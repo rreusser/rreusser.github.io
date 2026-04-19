@@ -37,6 +37,7 @@ self.onmessage = function(e) {
     pxSizeM: d.pxSizeM,
     mode: "lsao",
     weight: d.weight,
+    lsaoFalloff: d.lsaoFalloff,
   });
   self.postMessage({ result: r.buffer }, [r.buffer]);
 };`;

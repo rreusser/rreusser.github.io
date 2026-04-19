@@ -1,4 +1,11 @@
-export function mountSunHandle({ canvas, get, set, crosshairs = false, angle }) {
+export function mountSunHandle({
+  canvas,
+  get,
+  set,
+  crosshairs = false,
+  angle,
+  arrow = false,
+}) {
   const sizePx = parseInt(canvas.style.width, 10) || canvas.width;
 
   canvas.style.border = "none";
@@ -91,9 +98,30 @@ export function mountSunHandle({ canvas, get, set, crosshairs = false, angle }) 
   const dot = document.createElementNS(SVG_NS, "circle");
   dot.setAttribute("r", "8");
   dot.setAttribute("fill", "#ffd866");
-  dot.setAttribute("stroke", "#fff");
-  dot.setAttribute("stroke-width", "2");
+  dot.setAttribute("stroke", "#3a2600");
+  dot.setAttribute("stroke-width", "1.5");
   handle.appendChild(dot);
+
+  // Optional arrow from the sun handle inward toward the figure centre,
+  // showing the light-propagation direction. Drawn beneath the handle so
+  // the dot stays clickable on top. The arrow is a single polygon so
+  // the dark outline traces only the external silhouette — no seam
+  // between the shaft and the arrowhead.
+  let arrowOutline = null;
+  let arrowShape = null;
+  if (arrow) {
+    arrowOutline = document.createElementNS(SVG_NS, "polygon");
+    arrowOutline.setAttribute("fill", "#3a2600");
+    arrowOutline.setAttribute("stroke", "#3a2600");
+    arrowOutline.setAttribute("stroke-width", "3");
+    arrowOutline.setAttribute("stroke-linejoin", "round");
+    arrowOutline.setAttribute("pointer-events", "none");
+    overlay.appendChild(arrowOutline);
+    arrowShape = document.createElementNS(SVG_NS, "polygon");
+    arrowShape.setAttribute("fill", "#ffd866");
+    arrowShape.setAttribute("pointer-events", "none");
+    overlay.appendChild(arrowShape);
+  }
 
   if (crosshairs) {
     const ch = document.createElementNS(SVG_NS, "g");
@@ -127,6 +155,45 @@ export function mountSunHandle({ canvas, get, set, crosshairs = false, angle }) 
     const belowHorizon = sd.alt < 0;
     halo.style.display = belowHorizon ? "none" : "";
     dot.setAttribute("fill", belowHorizon ? "#6b86a8" : "#ffd866");
+
+    const distToCenter = Math.hypot(dx, dy);
+    if (arrowOutline && arrowShape) {
+      if (!belowHorizon && distToCenter > 20) {
+        const ux = -dx / distToCenter;
+        const uy = -dy / distToCenter;
+        const startFrac = 0.18;
+        const endFrac = 0.58;
+        const xTail = x + (cxFig - x) * startFrac;
+        const yTail = y + (cyFig - y) * startFrac;
+        const xHead = x + (cxFig - x) * endFrac;
+        const yHead = y + (cyFig - y) * endFrac;
+        const headSize = 10;
+        const tipX = xHead + ux * headSize;
+        const tipY = yHead + uy * headSize;
+        const perpX = -uy, perpY = ux;
+        const backX = xHead - ux * headSize * 0.2;
+        const backY = yHead - uy * headSize * 0.2;
+        const shaftHalf = 1.5;
+        const headHalf = headSize * 0.7;
+        const tailL = [xTail + perpX * shaftHalf, yTail + perpY * shaftHalf];
+        const shaftL = [backX + perpX * shaftHalf, backY + perpY * shaftHalf];
+        const wingL  = [backX + perpX * headHalf, backY + perpY * headHalf];
+        const tip    = [tipX, tipY];
+        const wingR  = [backX - perpX * headHalf, backY - perpY * headHalf];
+        const shaftR = [backX - perpX * shaftHalf, backY - perpY * shaftHalf];
+        const tailR  = [xTail - perpX * shaftHalf, yTail - perpY * shaftHalf];
+        const points = [tailL, shaftL, wingL, tip, wingR, shaftR, tailR]
+          .map((p) => p[0] + "," + p[1])
+          .join(" ");
+        arrowOutline.setAttribute("points", points);
+        arrowShape.setAttribute("points", points);
+        arrowOutline.style.display = "";
+        arrowShape.style.display = "";
+      } else {
+        arrowOutline.style.display = "none";
+        arrowShape.style.display = "none";
+      }
+    }
   };
 
   placeHandle(get());

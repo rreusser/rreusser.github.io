@@ -51,6 +51,7 @@ export function sweepCore(opts) {
     horizon = null,
     HN = 0,
     horizonTouched = null,
+    lsaoFalloff = "cos2",
   } = opts;
 
   // Shadow-casting modes traverse *away* from the sun; LSAO is a
@@ -179,7 +180,9 @@ export function sweepCore(opts) {
       if (tt > 1) tt = 1;
       return tt * tt * (3 - 2 * tt);
     }
-    // LSAO: max over hull of sin α, then cos²α = 1 − sin²α.
+    // LSAO: max over hull of sin α. `lsaoFalloff` chooses between the
+    // Lambertian cos²α visibility and Naaji's exp(−sin α). Both map a
+    // horizon of 0 to visibility 1.
     let bestSin = 0;
     for (let i = 0; i <= ptr; i++) {
       const cxi = stackCx[i];
@@ -191,6 +194,7 @@ export function sweepCore(opts) {
       const s = dz / len3;
       if (s > bestSin) bestSin = s;
     }
+    if (lsaoFalloff === "exp") return Math.exp(-bestSin);
     return 1 - bestSin * bestSin;
   };
 

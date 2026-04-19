@@ -6,9 +6,9 @@
 
     <img src="meta.webp">
 
-    Although I don't still [work in mapping](https://www.mapbox.com), I'll always have have a soft spot for fancy experimental map rendering techniques. I've experimented previously with [rendering a live solar terminator](https://rreusser.github.io/notebooks/night-and-day/) on a map and with building a [kinda janky 3D map renderer](http://localhost:5173/notebooks/denali/). Inspired by some good posts on the topic, I've also dabbled in heightfield shadowing. This article finally pulls the latter work together into something functional.
+    Although I don't [work in mapping anymore](https://www.mapbox.com), I'll always have have a soft spot for experimental map rendering techniques. Previously I've built a live [solar terminator map](https://rreusser.github.io/notebooks/night-and-day/) and a [kinda janky 3D map renderer](http://localhost:5173/notebooks/denali/). Inspired by some good posts on the topic, I've also dabbled in heightfield shadowing. This article finally pulls the latter work together into something functional.
 
-    Our goal therefore is to compute terrain lighting using standard web map terrain tiles as input and producing a corresponding 1:1 raster light map as output. For terrain data, we'll be using the really excellent and open [Mapterhorn](https://mapterhorn.com/) tileset. We'll start with a simple horizon visibility algorithm and extend to cover self-shadowing and ambient occlusion. It's definitely not novel, but the devil is in the details.
+    Our goal here is to compute terrain lighting using standard web map terrain tiles as input and producing corresponding 1:1 raster light maps as output. For terrain data, we'll be using the excellent and open [Mapterhorn](https://mapterhorn.com/) tileset. We'll start with a simple horizon visibility algorithm and extend to cover self-shadowing and ambient occlusion. It's definitely not novel, but the devil is in the details.
 
     ## Inspiration
 
@@ -16,12 +16,12 @@
 
     A cheaper alternative is to sweep across the grid, tracking horizon visibility in a stack. [Karim Naaji's Line-Sweep Ambient Occlusion](https://karim.naaji.fr/lsao.html) sweeps rows of the grid, tracking visibility and applying shading in a single pass. However, the technique is limited to eight cardinal directions and still suffers from tile boundary discontinuities.
 
-    This article doesn't really offer new insight but instead builds on and extends the line-sweep idea to address the shortcomings inherent in the above techniques. In particular it uses geometric shadowing to produce soft shadows and avoids tile boundary discontinuities by prewarming horizon visibility with parent tile data.
+    This article doesn't offer fundamentally new insight but instead builds on and extends the line-sweep idea to address their shortcomings. In particular it extends the line-sweep to arbitrary directions, uses geometric shadowing to produce soft shadows, and avoids tile boundary discontinuities by prewarming horizon visibility with parent tile data.
   </script>
   <script id="2" type="text/markdown">
     ## Line-sweep horizon visibility
 
-    The core primitive behind this notebook is a 1-D sweep that tracks the upper convex hull of elevations seen so far along each ray. As the sweep advances left to right, we test each new point to see if it's a horizon. If we step uphill far enough that multiple horizons become visible, we pop horizons off of the stack until exactly one horizon remains visible.
+    The core primitive behind this notebook is a 1-D sweep that tracks the upper convex hull of elevations seen so far along each ray. Imagine sweeping along a single slice of terrain elevations. As the sweep advances left to right, we test each new point to see if it's a horizon. If we step uphill far enough that multiple horizons become visible, we pop horizons off of the stack until exactly one horizon remains visible.
   </script>
   <script id="3" type="module">
     import createHullViz from './hull-algo.js';
@@ -39,9 +39,9 @@
   <script id="13" type="text/markdown">
     ## Self-shadowing
 
-    From here, it's a simple matter to compute self-shadowing. At each point during the sweep, we compare the horizon angle to the sun angle. If the sun is below the horizon, the terrain is shadowed.
+    From here, it's only a small step farther to compute self-shadowing. At each point during the sweep, we compare the horizon angle to the sun angle. If the sun is below the horizon, the terrain is shadowed.
 
-    A particularly nice feature of this algorithm is that we can compute horizon visbility and lighting in the same pass. Neglecting the depth of the stack which generally remains quite small, the algorithm is O(n) in the resolution of terrain data, requiring that we read each terrain value exactly once. This is generally a best-case scenario in most algorithms since you can't do much better than to read your data once.
+    A particularly nice feature of this algorithm is that we can compute horizon visbility and lighting in the same pass. Neglecting the depth of the stack which generally remains quite small, the algorithm is O(n) in the resolution of terrain data, requiring that we read each terrain value only once. I can't immediately see that we could do significantly better.
   </script>
   <script id="hull-occlusion" type="module">
     const htSvgLight = createHullViz(html, width, true);
@@ -56,11 +56,11 @@
     );
   </script>
   <script id="traversal-explanation" type="text/markdown">
-    A little more work is necessary before we can apply this to terrain tiles though. The algorithm so far presumes that we're sweeping along a well-defined grid direction. In reality, we'd like to be able to compute shadowing in arbitrary directions.
+    A little more work is necessary before we can apply this to terrain tiles though. The algorithm so far presumes that we're sweeping along a well-defined grid direction. We'd like to be able to compute shadowing in arbitrary directions.
 
-    The solution is simple but requires some finesse. The diagram below illustrates our approach to traversing the grid in arbitrary directions. We start our first sweeps along the left edge, always stepping rightward exactly one pixel and upward by a given slope. Once we've exhausted all sweeps down to the lower left corner, we begin stepping rightward along the bottom edge with a given stride, performing identically the same sweeps from the new seed points.
+    The solution is simple but requires some finesse. The diagram below illustrates grid traversal in arbitrary directions. We start our first sweep in the upper left corner, seeding subsequent sweeps with remaining pixels along the left edge. For each sweep, we step rightward exactly one pixel and upward by a fractional amount. Once we've exhausted all sweeps starting along the left edge, we step rightward along the bottom edge with a given stride, performing identically the same sweeps from the new seed points.
 
-    This sequence handles all possible sweep directions in a single octant. Drag the handle below and observe that for other directions, we simply flip and rotate our traversal direction to handle all remaining octants.
+    This sequence only handles sweep angles in a single octant of the possible ${tex`360^\circ.`} Drag the handle below and observe that for other octants, we simply flip and rotate our canonical octant. In practical terms, this can be implemented with ndarray-style index arithmetic.
   </script>
 
   <script id="6" type="module">
@@ -72,9 +72,8 @@
     import { createTraversalFigure } from "./traversal-figure.js";
     const weightedEl = Inputs.toggle({
       label: "linear interpolation",
-      value: true,
+      value: false,
     });
-    display(weightedEl);
     const weightedAccessor = { get: () => !!weightedEl.value };
     const traversalFigure = createTraversalFigure({
       width,
@@ -82,12 +81,13 @@
       weighted: weightedAccessor,
     });
     display(traversalFigure.figure);
+    display(weightedEl);
     invalidation.then(() => traversalFigure.cancel());
   </script>
   <script id="traversal-caveat" type="text/markdown">
-    A final note is that since sampled elevations are directly adjacent to pixels receiving shading, even small sample positioning errors result in large slope errors. Any inconsistencies causes glancing sunlight to produce terrible striations on smooth hillsides.
+    A final note is that since sampled elevations are directly adjacent to pixels receiving shading, even small errors in sample position result in errors in computed slope angle. Any inconsistencies causes glancing sunlight to produce terrible striations on smooth hillsides.
 
-    The problems can be overcome though, and the figure below illustrates the result. Drag the handle on the figure below and observe that using this line sweep approach, a single terrain tile correctly casts shadows on itself.
+    The problems can be overcome though, and the figure below illustrates the result. Drag the handle and observe that the terrain tile correctly casts shadows on itself.
   </script>
   <script id="14" type="module">
     const simpleSunDirMut = Mutable({ az: 314.5, alt: 10 });
@@ -160,6 +160,7 @@
     const ssFigure = mountSunHandle({
       canvas: ssCanvas,
       ...simpleSunDirAccessor,
+      arrow: true,
     });
     ssFigure.appendChild(createSourceToggleBadge());
 
@@ -176,7 +177,9 @@
   <script id="47" type="text/markdown">
     ## Soft shadows
 
-    We've been considering hard thresholds, but we're well poised to relax this to a smooth threshold to emulate the soft penumbra of a finite-sized light source like the sun. Realistically, the sun covers about ${tex`0.53^\circ`} degrees in the sky, making it pretty close to a point source, but we can always increase the size for visual effect.
+    We've been considering hard thresholds, but we're well poised to relax this to a smooth threshold so that we can emulate the soft penumbra of a finite-sized light source like the sun. Realistically, the sun covers about ${tex`0.53^\circ`} degrees in the sky, making it pretty close to a point source, but we can always increase the size for visual effect.
+    
+    The figure below illustrates a soft shadowing pass using a smoothstep function for horizon visibility occlusion.
   </script>
   <script id="23" type="module">
     // Shadow computed WITHOUT parent/horizon data — comp tile only.
@@ -230,18 +233,9 @@
   </script>
 
   <script id="47" type="text/markdown">
-    Sadly though, the sun is a *two*-dimensional source, and we've only discussed softening in *one* dimension. 
+    Sadly though, the sun is a *two*-dimensional source, and we've only discussed softening in *one* dimension. Short of something fancy like mip-maps, all I was able to come up with was to naively average multiple samples of our altitude-wide analytical soft shadows across the azimuthal direction.
 
-
-  </script>
-  <script id="49" type="text/markdown">
-    Before averaging, it's worth thinking carefully about how to distribute samples across the sun disk. With only ${tex`N = ${Math.round(softAzSamples)}`} samples in the current configuration — each one a full hard-shadow sweep — getting the most information per sample matters.
-
-    The goal is to approximate the integral
-
-    ${tex.block`\int f(x)\,g(x)\,dx \;\approx\; \frac{1}{N}\sum_{i=1}^{N} f(x_i)`}
-
-    where ${tex`g(x) = \frac{1}{\sigma\sqrt{2\pi}}\exp(-x^2/2\sigma^2)`} is the Gaussian intensity profile across the sun disk and ${tex`f(x)`} is the shadow bit as a function of azimuthal offset ${tex`x`}. The right approach is **stratified inverse-CDF sampling**: place the ${tex`i`}th sample at the point where the Gaussian CDF equals ${tex`(i - \tfrac{1}{2})/N`}. Each sample then represents an equal slice of probability mass under the Gaussian, so the desired distribution is baked into the positions and every sample can be weighted equally — no sweep is wasted on a sample the filter will discount.
+    Samples aren't cheap, so it's worth thinking carefully about how to distribute samples across the sun disk. Our altitude-wise analytical soft shadows use a [smoothstep](https://en.wikipedia.org/wiki/Smoothstep) function, so after some consideration, I scaled a Gaussian function to roughly approximate the smoothstep function, then distributed equally-weighted samples in the azimuthal direction using [inverse-CDF sampling](https://en.wikipedia.org/wiki/Inverse_transform_sampling) to approximate the desired Gaussian. 
   </script>
   <script id="50" type="module">
     // Acklam's inverse-normal approximation: maps a CDF probability in
@@ -373,8 +367,9 @@
     }
 
     // Hold on to the raw input elements so the driver loop below can read
-    // their .value directly (non-reactively). Exposed on window so the
-    // driver cell doesn't take a reactive dependency on them.
+    // their .value directly (non-reactively). The driver cell imports the
+    // element bindings (not the Generators.input-wrapped values), so its
+    // reactive dependency is only on cell creation, not on each input event.
     const softSunDiameterEl = Inputs.range([0.5, 30], {
       label: "sun diameter (°)",
       value: 10,
@@ -386,8 +381,6 @@
       value: 12,
       step: 1,
     });
-    window.__softSunDiameterEl = softSunDiameterEl;
-    window.__softAzSamplesEl = softAzSamplesEl;
 
     const softSunDiameter = ssctrl(softSunDiameterEl);
     const softAzSamples = ssctrl(softAzSamplesEl);
@@ -409,6 +402,7 @@
       canvas: softCanvas,
       ...softSunDirAccessor,
       angle: softSunDiameterEl,
+      arrow: true,
     });
     softFigure.appendChild(createSourceToggleBadge());
 
@@ -425,12 +419,12 @@
   </script>
   <script id="55" type="module">
     // Persistent driver loop: reads the latest sun direction + params
-    // from shared refs (window.__softSunDirMut, window.__softSunDiameterEl,
-    // window.__softAzSamplesEl) between batches and renders directly to
-    // softCanvas. This cell is *not* reactive on sun-dir or controls, so
-    // mousemoves don't invalidate it — instead the loop coalesces pending
-    // state changes into the next available batch, and each completed
-    // batch gets drawn even while interaction is ongoing.
+    // directly from the sun-dir accessor and input elements between batches
+    // and renders directly to softCanvas. The cell references the input
+    // *elements* (not the Generators.input-wrapped values), so it's not
+    // reactive on mousemoves — the loop coalesces pending state changes
+    // into the next batch, and each completed batch gets drawn even
+    // while interaction is ongoing.
     const scN = elevation.N;
     const softCtx = softCanvas.getContext("2d");
     const softImg = softCtx.createImageData(scN, scN);
@@ -439,21 +433,16 @@
     const srMin = elevation.elevMin;
     const srRange = elevation.elevMax - elevation.elevMin || 1;
 
-    // Bump the generation counter so any previous driver loop (from a
-    // prior cell run — e.g. after an elevation swap) exits cleanly when
-    // its iteration sees a mismatch.
-    const gen = (window.__softDriverGen || 0) + 1;
-    window.__softDriverGen = gen;
+    let cancelled = false;
+    invalidation.then(() => { cancelled = true; });
 
     (async function driver() {
       let lastKey = null;
       let idleTick = 0;
-      while (window.__softDriverGen === gen) {
+      while (!cancelled) {
         const sd = softSunDirAccessor.get();
-        const diamEl = window.__softSunDiameterEl;
-        const nEl = window.__softAzSamplesEl;
-        const diam = diamEl ? Number(diamEl.value) : 5;
-        const nAzCur = Math.round(nEl ? Number(nEl.value) : 8);
+        const diam = Number(softSunDiameterEl.value);
+        const nAzCur = Math.round(Number(softAzSamplesEl.value));
         const key = sd.az + "|" + sd.alt + "|" + diam + "|" + nAzCur;
 
         if (key === lastKey) {
@@ -490,7 +479,7 @@
         }
 
         const sweeps = await runSoftSweeps(tasks);
-        if (window.__softDriverGen !== gen) return;
+        if (cancelled) return;
 
         const result = new Float32Array(scN * scN);
         const wUnit = 1 / sweeps.length;
@@ -517,24 +506,17 @@
         lastKey = key;
       }
     })();
-
-    const softResult = null;
-    softResult;
-  </script>
-  <script id="4" type="text/markdown">
-
-    The shadow sweep needs to visit every pixel in the grid exactly once for a given direction. The key constraint is **conservation**: regardless of angle, every pixel must receive a total deposit weight of exactly 1.0. Without this, shadows would brighten or darken depending on the sweep direction.
-
-    The idea is to fill the grid with a family of parallel rays, each advancing one pixel at a time along the dominant axis. A ray generally falls _between_ two pixel rows, so I split its contribution: if the ray sits at fractional position `f` between rows, the lower row gets weight `(1−f)` and the upper row gets `f`. Adjacent rays are spaced one pixel apart vertically, so at every column the two rays straddling a given pixel contribute complementary weights that sum to 1 — guaranteeing exact conservation.
-
-    Only a single **canonical octant** needs to be implemented — directions where the ray advances in +x with a slope between 0 and 1. Any other angle reduces to this case by swapping axes (when the y-component dominates) and/or flipping an axis (when a component is negative). The canonical sweep runs over the transformed coordinates; deposits are mapped back to the original buffer.
   </script>
   <script id="25" type="text/markdown">
     ## Parent-tile pre-pass
 
-    A fundamental limitation of per-tile line-sweep methods — including LSAO — is that a sweep starting at the tile edge has no knowledge of terrain beyond it. Shadows cast by mountains just outside the boundary are clipped, producing visible seams between tiles.
+    A natural limitation of per-tile methods is that they have no knowledge of terrain beyond it. Mountains just outside the boundary which would cast shadows onto the tile are never considered, producing visible seams between tiles.
 
-    I resolve this by assembling a half-resolution horizon buffer from four z−1 ancestor tiles, covering the computation tile and one tile width of surrounding terrain in each direction. Before the main sweep, a pre-pass walks each ray through this coarser buffer, warming up the running maximum so that by the time the ray enters the computation tile, it already carries the horizon contributed by surrounding terrain.
+    A natural solution is to generate a half-resolution horizon buffer from four z−1 ancestor tiles, covering the computation tile and one tile width of surrounding terrain in each direction. Before the main sweep, a pre-pass walks each ray through this coarser buffer, warming up the stack so that by the time the ray enters the computation tile, it already carries the horizon contributed by surrounding terrain.
+
+    We could step multiple levels upward in the tile pyramid to extend the range of this pre-warming, but in practice I find that a single level is almost always necessary and almost always sufficient.
+
+    Toggle the parent-tile pre-pass below and observe its effect in the vicinity of tile boundaries.
   </script>
   <script id="26" type="module">
     // Reference tile for the interactive shadow / AO / soft-shadow
@@ -572,7 +554,6 @@
       }
       return { N, heights, hMin, hMax };
     }
-    fetchTerrarium;
   </script>
   <script id="28" type="module">
     const tileElevation = await (async () => {
@@ -591,7 +572,6 @@
         lat,
       };
     })();
-    tileElevation;
   </script>
   <script id="29" type="module">
     // Fetch four z-1 parent tiles — guaranteed to physically cover the 3×3
@@ -689,7 +669,6 @@
         hMax,
       };
     })();
-    tileHorizon;
   </script>
   <script id="30" type="module">
     // Three primitives scattered on flat ground inside the comp tile
@@ -809,13 +788,10 @@
         },
       };
     })();
-    geometryElevation;
   </script>
   <script id="31" type="module">
     // Switch between sources; reactive on `source`.
     const elevation = source === "geometry" ? geometryElevation : tileElevation;
-    // (source values: "terrain" | "geometry")
-    elevation;
   </script>
   <script id="32" type="module">
     // Pick a horizon buffer matching the active elevation source.
@@ -835,7 +811,6 @@
       const HN = Math.floor((3 * N) / 2);
       return { HN, heights: new Float32Array(HN * HN) };
     })();
-    elevationHorizon;
   </script>
   <script id="33" type="module">
     // Render the computation tile stamped into an HN × HN frame with the
@@ -921,14 +896,10 @@
       disp}px; image-rendering:pixelated; border:1px solid #888; display:block;"
     ></canvas>`;
     horizonCanvas.getContext("2d").putImageData(horizonImg, 0, 0);
-
-    // Keep horizonCanvas alive for reactive deps but don't display it
-    // as a separate figure — it's merged into the shadow canvas below.
-    horizonCanvas;
   </script>
   <script id="73" type="module">
     const parentPrewarmEl = Inputs.toggle({
-      label: "use parent-tile pre-pass",
+      label: "parent-tile pre-pass",
       value: true,
     });
     display(parentPrewarmEl);
@@ -949,7 +920,6 @@
       parentPrewarm ? elevationHorizon.HN : 0,
       parentPrewarm ? horizonTouched : null,
     );
-    shadowResult;
   </script>
   <script id="35" type="module">
     // Merged figure: HN × HN canvas showing surrounding parent terrain
@@ -966,6 +936,7 @@
     const shadowFigure = mountSunHandle({
       canvas: shadowCanvas,
       ...parentSunDirAccessor,
+      arrow: true,
     });
     shadowFigure.appendChild(createSourceToggleBadge());
 
@@ -979,7 +950,6 @@
         </figcaption>
       </figure>`,
     );
-    shadowCanvas;
   </script>
   <script id="36" type="module">
     // Merged render: HN × HN canvas with parent terrain surrounding the
@@ -1097,6 +1067,186 @@
 
     shadowCtx.putImageData(shadowImg, 0, 0);
   </script>
+  <script id="56" type="text/markdown">
+    ## Line-sweep ambient occlusion
+
+    The same horizon visibility sweep works for ambient occlusion as well. Ambient occlusion proceeds similar to shadowing, but instead of illumination by a point source, pixels are illuminated by the portion of sky visible to them. I initially extended [Karim Naaji's LSAO](https://karim.naaji.fr/lsao.html) method to include parent tile occlusion and arbitrary sweep directions, but a significant remaining problem was the slow falloff of ${tex`e^{-\sin\alpha}`}, where ${tex`\alpha`} is the horizon angle. The function works visually but has a long tail, causing tile discontinuities due to the long-range influence of terrain features.
+
+    There's a more principled choice that happens to be much more local. For a Lambertian receiver, incident sky radiance from a direction at zenith angle ${tex`\theta`} is weighted by ${tex`\cos\theta`}, so the visible fraction of one azimuthal slice above a horizon at elevation α is
+
+    ${tex.block`V(\alpha) \;=\; \int_{0}^{\pi/2 - \alpha} \cos\theta \cdot \sin\theta \, d\theta \;=\; \tfrac{1}{2}\cos^2\!\alpha,`}
+
+    which normalises to ${tex`\cos^2\!\alpha`}: 1 at a flat horizon, 0 at a fully vertical wall. Averaging this over azimuthally uniform sweeps gives the full ambient-occlusion factor. Because ${tex`\cos^2\!\alpha \approx 1 - (\Delta h / d)^2`} for small angles, the contribution of a distant tall blocker falls off like ${tex`1/d^2`} rather than lingering on the exponential's long tail, and the effect is visibly local.
+
+    A contrast slider ${tex`c \in [0, 1]`} shapes the response on top of the raw ${tex`\bar{v} = \overline{\cos^2\!\alpha}`} per pixel. Let ${tex`s = c / (1 - c)`} and ${tex`\text{shade} = 1 - \bar{v}`}; an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
+
+    ${tex.block`\text{display} \;=\; 1 - \tfrac{2}{\pi}\arctan\!\left(\tfrac{c}{1-c}\,(1 - \bar{v})\right).`}
+
+    At ${tex`c = 0`} the slider emits solid white; as ${tex`c \to 1`} the scaled shade runs to infinity and the tonemap saturates toward full darkness. Naaji's reference fires eight axis-aligned passes; because our canonical reparameterization handles arbitrary azimuths, we can use any number of directions, and each pass is independent so we run them in the same Web Worker pool as the soft shadows.
+  </script>
+  <script id="74" type="module">
+    const falloffData = [];
+    for (let i = 0; i <= 180; i++) {
+      const deg = (i * 90) / 180;
+      const a = (deg * Math.PI) / 180;
+      falloffData.push({ alpha: deg, V: Math.cos(a) ** 2, fn: "cos²α" });
+      falloffData.push({ alpha: deg, V: Math.exp(-Math.sin(a)), fn: "e^(−sin α)" });
+    }
+    const falloffPlot = Plot.plot({
+      width: Math.min(560, width),
+      height: 260,
+      marginTop: 16,
+      marginBottom: 42,
+      marginLeft: 54,
+      marginRight: 20,
+      x: {
+        label: "horizon angle α (°)",
+        domain: [0, 90],
+        ticks: [0, 15, 30, 45, 60, 75, 90],
+      },
+      y: {
+        label: "per-slice visibility V(α)",
+        domain: [0, 1.02],
+        grid: true,
+      },
+      color: {
+        legend: true,
+        domain: ["cos²α", "e^(−sin α)"],
+        range: ["#0366d6", "#d63636"],
+      },
+      marks: [
+        Plot.ruleY([0]),
+        Plot.line(falloffData, {
+          x: "alpha",
+          y: "V",
+          stroke: "fn",
+          strokeWidth: 2,
+        }),
+      ],
+    });
+    display(
+      html`<figure>
+        ${falloffPlot}
+        <figcaption>
+          Per-azimuth-slice visibility vs. horizon angle α. The Lambertian
+          ${tex`\cos^2\!\alpha`} collapses to 0 at a vertical wall, with the bulk of its
+          falloff concentrated in small α (hence local influence and 1/d² distance
+          decay). Naaji's ${tex`e^{-\sin\alpha}`} bottoms out at ${tex`e^{-1} \approx 0.37`}
+          even for a fully vertical wall and decays roughly linearly in α for small
+          angles — the long tail responsible for the tile-boundary artefacts.
+        </figcaption>
+      </figure>`,
+    );
+  </script>
+  <script id="57" type="module">
+    import { createLsaoSweepPool } from "./lsao-sweep.js";
+    const { runLsao } = createLsaoSweepPool();
+    runLsao;
+  </script>
+  <script id="58" type="module">
+    const lsaoControls = html`<div></div>`;
+    const lsaoSamplesEl = Inputs.range([1, 32], {
+      label: "sweep directions",
+      value: 8,
+      step: 1,
+    });
+    const lsaoContrastEl = Inputs.range([0, 0.99], {
+      label: "contrast",
+      value: 0.6,
+      step: 0.01,
+    });
+    const lsaoFalloffEl = Inputs.radio(["cos²α", "e^(−sin α)"], {
+      label: "falloff",
+      value: "cos²α",
+    });
+    lsaoControls.appendChild(lsaoSamplesEl);
+    lsaoControls.appendChild(lsaoContrastEl);
+    lsaoControls.appendChild(lsaoFalloffEl);
+    const lsaoSamples = Generators.input(lsaoSamplesEl);
+    const lsaoContrast = Generators.input(lsaoContrastEl);
+    const lsaoFalloff = Generators.input(lsaoFalloffEl);
+    display(lsaoControls);
+  </script>
+  <script id="59" type="module">
+    const lsaoN = elevation.N;
+    const lsaoDisp = Math.max(1, Math.floor(512 / lsaoN));
+    const lsaoPxDisplay = Math.min(lsaoN * lsaoDisp, width);
+    const lsaoCanvas = html`<canvas
+      width=${lsaoN}
+      height=${lsaoN}
+      style="display:block; width:${lsaoPxDisplay}px; height:${lsaoPxDisplay}px; image-rendering:pixelated; border:1px solid #888;"
+    ></canvas>`;
+    const lsaoWrap = html`<div
+      style="position:relative; display:inline-block; line-height:0;"
+    >
+      ${lsaoCanvas}
+    </div>`;
+    lsaoWrap.appendChild(createSourceToggleBadge());
+    display(
+      html`<figure>
+        ${lsaoWrap}
+        <figcaption>
+          Ambient occlusion from ${tex`N`} azimuthally uniform line sweeps,
+          averaged per pixel. Directions stack additively — more samples smooth
+          out azimuth banding. Rendered as AO modulating a uniform gray base so
+          the occlusion effect is isolated from elevation coloring.
+        </figcaption>
+      </figure>`,
+    );
+    lsaoCanvas;
+  </script>
+  <script id="60" type="module">
+    const nDirs = Math.round(lsaoSamples);
+    const W = elevation.N;
+    const H = elevation.N;
+    const falloffKey = lsaoFalloff === "e^(−sin α)" ? "exp" : "cos2";
+    const tasks = [];
+    for (let i = 0; i < nDirs; i++) {
+      tasks.push({
+        W,
+        H,
+        elev: elevation.heights,
+        azDeg: (i * 360) / nDirs,
+        pxSizeM: elevation.pixelSizeM,
+        weight: 1 / nDirs,
+        lsaoFalloff: falloffKey,
+      });
+    }
+    const sweeps = await runLsao(tasks);
+
+    const ao = new Float32Array(W * H);
+    for (let s = 0; s < sweeps.length; s++) {
+      const sw = sweeps[s];
+      for (let i = 0; i < ao.length; i++) ao[i] += sw[i];
+    }
+
+    const lsaoCtx = lsaoCanvas.getContext("2d");
+    const lsaoImg = lsaoCtx.createImageData(W, H);
+    const lsaoPx = lsaoImg.data;
+
+    // Contrast slider c ∈ [0, 1]:
+    //   s = c / (1 − c)                 scale factor, (0, ∞)
+    //   shade = 1 − ao_raw               per-pixel linear darkening
+    //   display = 1 − (2/π)·atan(s·shade)
+    // At c=0, s=0, no darkening, display = 1 (solid white); at c=1,
+    // s=∞, display saturates toward 0 everywhere shade > 0.
+    const lsaoC = Math.max(0, Math.min(0.999999, lsaoContrast ** 0.1));
+    const lsaoS = lsaoC / (1 - lsaoC);
+    const lsaoInvPi2 = 2 / Math.PI;
+    for (let i = 0; i < ao.length; i++) {
+      const aoRaw = Math.max(0, Math.min(1, ao[i]));
+      const shade = 1 - aoRaw;
+      const squashed = lsaoInvPi2 * Math.atan(lsaoS * shade);
+      const visibility = 1 - squashed;
+      const v = Math.round(linearToSrgb(visibility) * 255);
+      const j = i * 4;
+      lsaoPx[j] = v;
+      lsaoPx[j + 1] = v;
+      lsaoPx[j + 2] = v;
+      lsaoPx[j + 3] = 255;
+    }
+    lsaoCtx.putImageData(lsaoImg, 0, 0);
+  </script>
   <script id="42" type="text/markdown">
     ## Relief shading
 
@@ -1139,6 +1289,7 @@
     const reliefFigure = mountSunHandle({
       canvas: reliefCanvas,
       ...reliefSunDirAccessor,
+      arrow: true,
     });
     reliefFigure.appendChild(createSourceToggleBadge());
 
@@ -1211,124 +1362,6 @@
       }
     }
     rlCtx.putImageData(rlImg, 0, 0);
-  </script>
-  <script id="56" type="text/markdown">
-    ## Line-sweep ambient occlusion
-
-    The same upper-hull-tracking discipline that gives us hard shadows works for **ambient occlusion** too. Following [Karim Naaji's LSAO](https://karim.naaji.fr/lsao.html), for each sweep direction I walk every ray through the terrain and, at each pixel, look up the horizon blocker that maximizes the sky-elevation angle α. Naaji uses an ad-hoc ${tex`e^{-\sin\alpha}`} exponential falloff for the per-direction sky visibility, which works visually but has a long tail — even a target 500 m away from a tall blocker still reads ~11% darkening, so the AO effect bleeds across adjacent tiles.
-
-    There's a more principled choice that happens to be much more local. For a Lambertian receiver, incident sky radiance from a direction at zenith angle ${tex`\theta`} is weighted by ${tex`\cos\theta`}, so the visible fraction of one azimuthal slice above a horizon at elevation α is
-
-    ${tex.block`V(\alpha) \;=\; \int_{0}^{\pi/2 - \alpha} \cos\theta \cdot \sin\theta \, d\theta \;=\; \tfrac{1}{2}\cos^2\!\alpha,`}
-
-    which normalises to ${tex`\cos^2\!\alpha`}: 1 at a flat horizon, 0 at a fully vertical wall. Averaging this over azimuthally uniform sweeps gives the full ambient-occlusion factor. Because ${tex`\cos^2\!\alpha \approx 1 - (\Delta h / d)^2`} for small angles, the contribution of a distant tall blocker falls off like ${tex`1/d^2`} rather than lingering on the exponential's shoulder: the same 500 m target now only sees ~1.5% darkening, and the effect is visibly local.
-
-    A contrast slider ${tex`c \in [0, 1]`} shapes the response on top of the raw ${tex`\bar{v} = \overline{\cos^2\!\alpha}`} per pixel. Let ${tex`s = c / (1 - c)`} and ${tex`\text{shade} = 1 - \bar{v}`}; an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
-
-    ${tex.block`\text{display} \;=\; 1 - \tfrac{2}{\pi}\arctan\!\left(\tfrac{c}{1-c}\,(1 - \bar{v})\right).`}
-
-    At ${tex`c = 0`} the slider emits solid white; as ${tex`c \to 1`} the scaled shade runs to infinity and the tonemap saturates toward full darkness. Naaji's reference fires eight axis-aligned passes; because our canonical reparameterization handles arbitrary azimuths, we can use any number of directions, and each pass is independent so we run them in the same Web Worker pool as the soft shadows.
-  </script>
-  <script id="57" type="module">
-    import { createLsaoSweepPool } from "./lsao-sweep.js";
-    const { runLsao } = createLsaoSweepPool();
-    runLsao;
-  </script>
-  <script id="58" type="module">
-    const lsaoControls = html`<div></div>`;
-    const lsaoSamplesEl = Inputs.range([1, 32], {
-      label: "sweep directions",
-      value: 8,
-      step: 1,
-    });
-    const lsaoContrastEl = Inputs.range([0, 0.99], {
-      label: "contrast",
-      value: 0.6,
-      step: 0.01,
-    });
-    lsaoControls.appendChild(lsaoSamplesEl);
-    lsaoControls.appendChild(lsaoContrastEl);
-    const lsaoSamples = Generators.input(lsaoSamplesEl);
-    const lsaoContrast = Generators.input(lsaoContrastEl);
-    display(lsaoControls);
-  </script>
-  <script id="59" type="module">
-    const lsaoN = elevation.N;
-    const lsaoDisp = Math.max(1, Math.floor(512 / lsaoN));
-    const lsaoPxDisplay = Math.min(lsaoN * lsaoDisp, width);
-    const lsaoCanvas = html`<canvas
-      width=${lsaoN}
-      height=${lsaoN}
-      style="display:block; width:${lsaoPxDisplay}px; height:${lsaoPxDisplay}px; image-rendering:pixelated; border:1px solid #888;"
-    ></canvas>`;
-    const lsaoWrap = html`<div
-      style="position:relative; display:inline-block; line-height:0;"
-    >
-      ${lsaoCanvas}
-    </div>`;
-    lsaoWrap.appendChild(createSourceToggleBadge());
-    display(
-      html`<figure>
-        ${lsaoWrap}
-        <figcaption>
-          Ambient occlusion from ${tex`N`} azimuthally uniform line sweeps,
-          averaged per pixel. Directions stack additively — more samples smooth
-          out azimuth banding. Rendered as AO modulating a uniform gray base so
-          the occlusion effect is isolated from elevation coloring.
-        </figcaption>
-      </figure>`,
-    );
-    lsaoCanvas;
-  </script>
-  <script id="60" type="module">
-    const nDirs = Math.round(lsaoSamples);
-    const W = elevation.N;
-    const H = elevation.N;
-    const tasks = [];
-    for (let i = 0; i < nDirs; i++) {
-      tasks.push({
-        W,
-        H,
-        elev: elevation.heights,
-        azDeg: (i * 360) / nDirs,
-        pxSizeM: elevation.pixelSizeM,
-        weight: 1 / nDirs,
-      });
-    }
-    const sweeps = await runLsao(tasks);
-
-    const ao = new Float32Array(W * H);
-    for (let s = 0; s < sweeps.length; s++) {
-      const sw = sweeps[s];
-      for (let i = 0; i < ao.length; i++) ao[i] += sw[i];
-    }
-
-    const lsaoCtx = lsaoCanvas.getContext("2d");
-    const lsaoImg = lsaoCtx.createImageData(W, H);
-    const lsaoPx = lsaoImg.data;
-
-    // Contrast slider c ∈ [0, 1]:
-    //   s = c / (1 − c)                 scale factor, (0, ∞)
-    //   shade = 1 − ao_raw               per-pixel linear darkening
-    //   display = 1 − (2/π)·atan(s·shade)
-    // At c=0, s=0, no darkening, display = 1 (solid white); at c=1,
-    // s=∞, display saturates toward 0 everywhere shade > 0.
-    const lsaoC = Math.max(0, Math.min(0.999999, lsaoContrast ** 0.1));
-    const lsaoS = lsaoC / (1 - lsaoC);
-    const lsaoInvPi2 = 2 / Math.PI;
-    for (let i = 0; i < ao.length; i++) {
-      const aoRaw = Math.max(0, Math.min(1, ao[i]));
-      const shade = 1 - aoRaw;
-      const squashed = lsaoInvPi2 * Math.atan(lsaoS * shade);
-      const visibility = 1 - squashed;
-      const v = Math.round(linearToSrgb(visibility) * 255);
-      const j = i * 4;
-      lsaoPx[j] = v;
-      lsaoPx[j + 1] = v;
-      lsaoPx[j + 2] = v;
-      lsaoPx[j + 3] = 255;
-    }
-    lsaoCtx.putImageData(lsaoImg, 0, 0);
   </script>
   <script id="61" type="text/markdown">
     ## WebGPU implementation
@@ -1453,6 +1486,7 @@
         canvas,
         ...webgpuSunDirAccessor,
         angle: window.__wgpuSunDiameterEl,
+        arrow: true,
       });
       wgpuFigure.appendChild(createSourceToggleBadge());
       display(
@@ -1788,6 +1822,10 @@
       value: 6,
       step: 1,
     });
+    const aoFalloffEl = Inputs.radio(["cos²α", "e^(−sin α)"], {
+      label: "AO falloff",
+      value: "e^(−sin α)",
+    });
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1800,6 +1838,7 @@
     tileViewerControlsDiv.appendChild(shadowEl);
     tileViewerControlsDiv.appendChild(sunDiameterEl);
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
+    tileViewerControlsDiv.appendChild(aoFalloffEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
     const tileViewerControls = {
@@ -1809,6 +1848,7 @@
       shadowEl,
       sunDiameterEl,
       shadowSamplesEl,
+      aoFalloffEl,
     };
   </script>
   <script id="72" type="module">
@@ -1920,6 +1960,7 @@
           Math.round(Number(c.shadowSamplesEl.value)),
         );
         const isDebug = c.bakeModeEl.value === "debug";
+        const lsaoFalloff = c.aoFalloffEl.value === "e^(−sin α)" ? "exp" : "cos2";
         viewer.setLighting({
           sunX,
           sunY,
@@ -1934,6 +1975,7 @@
           shadingMode: isDebug ? 2 : 1,
           reliefStrength,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
+          lsaoFalloff,
         });
         requestAnimationFrame(tickLighting);
       };
