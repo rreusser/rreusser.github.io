@@ -6,9 +6,11 @@
 
 import { sweepCoreSource } from "./sweep-core.js";
 
-const workerCode =
-  sweepCoreSource +
-  `
+// See lsao-sweep.js for the rationale — binding the stringified source
+// to a known `sweepCore` identifier survives minification that would
+// otherwise rename the inner function.
+const workerCode = `
+var sweepCore = ${sweepCoreSource};
 self.onmessage = function(e) {
   var d = e.data;
   var shadow = sweepCore({

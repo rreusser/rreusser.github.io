@@ -26,9 +26,13 @@ export function sweepLsaoDirection(W, H, elev, azDeg, pxSizeM, weight) {
   });
 }
 
-const workerCode =
-  sweepCoreSource +
-  `
+// Bind the stringified source to a known name inside the worker.
+// `sweepCore.toString()` preserves whatever identifier the bundler ends
+// up using (production minifiers typically rename to one-letter names),
+// so referencing `sweepCore` directly in the worker's onmessage would
+// throw `ReferenceError: sweepCore is not defined` after minification.
+const workerCode = `
+var sweepCore = ${sweepCoreSource};
 self.onmessage = function(e) {
   var d = e.data;
   var r = sweepCore({
