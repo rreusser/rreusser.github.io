@@ -3,3 +3,8 @@ description: "Terrain shadowing and ambient occlusion for web maps using fast ho
 maxWidth: 640px
 hideFromIndex: true
 hideFromSearch: true
+tags:
+  - maps
+  - webgpu
+  - graphics
+  - wip
