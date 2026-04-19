@@ -234,8 +234,16 @@ export function sweepCore(opts) {
         let oyf = swap ? cx : y;
         if (flipX) oxf = W - 1 - oxf;
         if (flipY) oyf = H - 1 - oyf;
-        const hxf = (oxf + W) * 0.5;
-        const hyf = (oyf + H) * 0.5;
+        // Elevations are defined at pixel centers. Parent pixels are
+        // 2× child pixels, so a child pixel at oxf sits 0.5 child-pixels
+        // (= 0.25 parent-pixels) inside the parent cell it occupies.
+        // Without this −0.25 offset, the hull entry pushed from the last
+        // warmup step at canonical cx = −1 would carry a height sampled
+        // from the physical position cx = −0.5, producing a slope that's
+        // half the true value at the very first comp pixel — which shows
+        // up as a faint shadow band along tile edges in LSAO.
+        const hxf = (oxf + W) * 0.5 - 0.25;
+        const hyf = (oyf + H) * 0.5 - 0.25;
         const hxi = Math.floor(hxf);
         const hyi = Math.floor(hyf);
         if (hxi < 0 || hxi + 1 >= HN) continue;

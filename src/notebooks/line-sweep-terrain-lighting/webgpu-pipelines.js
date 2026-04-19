@@ -156,8 +156,14 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
           if (u.swap != 0u) { ox_f = yw; oy_f = f32(cxw); }
           if (u.flipX != 0u) { ox_f = (Wf - 1.0) - ox_f; }
           if (u.flipY != 0u) { oy_f = (Hf - 1.0) - oy_f; }
-          let hx_f: f32 = (ox_f + Wf) * 0.5;
-          let hy_f: f32 = (oy_f + Hf) * 0.5;
+          // Parent pixels are 2× child pixels and elevations live at
+          // pixel centers, so a child pixel at ox_f lies 0.25 parent-
+          // pixels into its enclosing parent cell. See sweep-core.js
+          // for the full reasoning; without this the slope from the
+          // last warmup hull entry to the first comp pixel is half its
+          // true value.
+          let hx_f: f32 = (ox_f + Wf) * 0.5 - 0.25;
+          let hy_f: f32 = (oy_f + Hf) * 0.5 - 0.25;
           let hx_i: i32 = i32(floor(hx_f));
           let hy_i: i32 = i32(floor(hy_f));
           if (hx_i < 0 || hx_i + 1 >= hN) { continue; }

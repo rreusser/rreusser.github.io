@@ -11,6 +11,8 @@
     Our goal here is to compute terrain lighting using standard web map terrain tiles as input and producing corresponding 1:1 raster light maps as output. For terrain data, we'll be using the excellent and open [Mapterhorn](https://mapterhorn.com/) tileset. We'll start with a simple horizon visibility algorithm and extend to cover self-shadowing and ambient occlusion. It's definitely not novel, but the devil is in the details.
 
     ## Inspiration
+    
+    First of all, the best resource on the topic is Tom Patterson's [shadedrelief.com](http://www.shadedrelief.com/). Any work in map shading could only aspire to convey topography and tell stories in the way his maps do. Alas, I've set myself up to fail in the shadow of such a behemoth. But at any rate, my goal is somewhat focused here, to shade map tiles for real time interactive usage.
 
     Lighting in computer graphics is usually either complex or expensive. One approach for heightfield shading is to shoot rays. [Rye Terrell's terrain shading](https://wwwtyro.net/2019/03/21/advanced-map-shading.html) marches rays from each pixel along the surface and in the direction of the sun, checking for occlusion along the way. The results are beautiful, but the cost is high and it suffers from tile-boundary discontinuities which Terrell addresses by brute-force rendering 3×3 tiles (768×768) and extracting the center.
 
