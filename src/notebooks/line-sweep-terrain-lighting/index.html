@@ -10,16 +10,18 @@
 
     Our goal therefore is to compute terrain lighting using standard web map terrain tiles as input and producing a corresponding 1:1 raster light map as output. For terrain data, we'll be using the really excellent and open [Mapterhorn](https://mapterhorn.com/) tileset. We'll start with a simple horizon visibility algorithm and extend to cover self-shadowing and ambient occlusion. It's definitely not novel, but the devil is in the details.
 
-    Lighting in computer graphics is usually either complex or expensive. One approach for terrain lighting is to shoot rays. [Rye Terrell's terrain shading](https://wwwtyro.net/2019/03/21/advanced-map-shading.html) marches rays from each pixel along the surface and in the direction of the sun, checking for occlusion. The results are beautiful, but the cost is high and it suffers from tile-boundary discontinuities which Terrell addresses by brute-force rendering 3×3 tiles (768×768) and extracting the center.
+    ## Inspiration
+
+    Lighting in computer graphics is usually either complex or expensive. One approach for heightfield shading is to shoot rays. [Rye Terrell's terrain shading](https://wwwtyro.net/2019/03/21/advanced-map-shading.html) marches rays from each pixel along the surface and in the direction of the sun, checking for occlusion along the way. The results are beautiful, but the cost is high and it suffers from tile-boundary discontinuities which Terrell addresses by brute-force rendering 3×3 tiles (768×768) and extracting the center.
 
     A cheaper alternative is to sweep across the grid, tracking horizon visibility in a stack. [Karim Naaji's Line-Sweep Ambient Occlusion](https://karim.naaji.fr/lsao.html) sweeps rows of the grid, tracking visibility and applying shading in a single pass. However, the technique is limited to eight cardinal directions and still suffers from tile boundary discontinuities.
 
     This article doesn't really offer new insight but instead builds on and extends the line-sweep idea to address the shortcomings inherent in the above techniques. In particular it uses geometric shadowing to produce soft shadows and avoids tile boundary discontinuities by prewarming horizon visibility with parent tile data.
   </script>
   <script id="2" type="text/markdown">
-    ## Horizon tracking
+    ## Line-sweep horizon visibility
 
-    The core primitive behind all of this is a 1-D sweep that tracks the upper convex hull of elevations seen so far along each ray. As the sweep advances left to right, each new elevation is compared against the current horizon.
+    The core primitive behind this notebook is a 1-D sweep that tracks the upper convex hull of elevations seen so far along each ray. As the sweep advances left to right, we test each new point to see if it's a horizon. If we step uphill far enough that multiple horizons become visible, we pop horizons off of the stack until exactly one horizon remains visible.
   </script>
   <script id="3" type="module">
     import createHullViz from './hull-algo.js';
@@ -34,7 +36,13 @@
       </figure>`,
     );
   </script>
-  The most obvious application of this hull to lighting is to apply a hard threshold
+  <script id="13" type="text/markdown">
+    ## Self-shadowing
+
+    From here, it's a simple matter to compute self-shadowing. At each point during the sweep, we compare the horizon angle to the sun angle. If the sun is below the horizon, the terrain is shadowed.
+
+    A particularly nice feature of this algorithm is that we can compute horizon visbility and lighting in the same pass. Neglecting the depth of the stack which generally remains quite small, the algorithm is O(n) in the resolution of terrain data, requiring that we read each terrain value exactly once. This is generally a best-case scenario in most algorithms since you can't do much better than to read your data once.
+  </script>
   <script id="hull-occlusion" type="module">
     const htSvgLight = createHullViz(html, width, true);
     display(
@@ -47,276 +55,39 @@
       </figure>`,
     );
   </script>
+  <script id="traversal-explanation" type="text/markdown">
+    A little more work is necessary before we can apply this to terrain tiles though. The algorithm so far presumes that we're sweeping along a well-defined grid direction. In reality, we'd like to be able to compute shadowing in arbitrary directions.
 
-  Giving the sun a finite angular radius turns the hard cut into a penumbra: the outer edge of the sun disk falls below the horizon first (partial shadow), and the inner edge last (full umbra). Each terrain sample gets a fraction of the sun visible, and the blocker's two rays fan out a soft-shadow band.
-  <script id="hull-occlusion-soft" type="module">
-    const htSvgSoft = createHullViz(html, width, true, true);
-    display(
-      html`<figure>
-        ${htSvgSoft}
-        <figcaption>
-          The terrain stroke fades between lit and shadow colors by the
-          fraction of the sun disk visible; the shadow fill fades from
-          transparent at the outer ray to opaque at the umbra.
-        </figcaption>
-      </figure>`,
-    );
+    The solution is simple but requires some finesse. The diagram below illustrates our approach to traversing the grid in arbitrary directions. We start our first sweeps along the left edge, always stepping rightward exactly one pixel and upward by a given slope. Once we've exhausted all sweeps down to the lower left corner, we begin stepping rightward along the bottom edge with a given stride, performing identically the same sweeps from the new seed points.
+
+    This sequence handles all possible sweep directions in a single octant. Drag the handle below and observe that for other directions, we simply flip and rotate our traversal direction to handle all remaining octants.
   </script>
 
-  <script id="4" type="text/markdown">
-
-    The shadow sweep needs to visit every pixel in the grid exactly once for a given direction. The key constraint is **conservation**: regardless of angle, every pixel must receive a total deposit weight of exactly 1.0. Without this, shadows would brighten or darken depending on the sweep direction.
-
-    The idea is to fill the grid with a family of parallel rays, each advancing one pixel at a time along the dominant axis. A ray generally falls _between_ two pixel rows, so I split its contribution: if the ray sits at fractional position `f` between rows, the lower row gets weight `(1−f)` and the upper row gets `f`. Adjacent rays are spaced one pixel apart vertically, so at every column the two rays straddling a given pixel contribute complementary weights that sum to 1 — guaranteeing exact conservation.
-
-    Only a single **canonical octant** needs to be implemented — directions where the ray advances in +x with a slope between 0 and 1. Any other angle reduces to this case by swapping axes (when the y-component dominates) and/or flipping an axis (when a component is negative). The canonical sweep runs over the transformed coordinates; deposits are mapped back to the original buffer.
-  </script>
-  <script id="5" type="text/markdown">
-    ### Traversal visualization
-  </script>
   <script id="6" type="module">
-    const angleDegMut = Mutable(30);
-    window.__angleDegMut = angleDegMut;
+    const angleDegMut = Mutable(20);
     const angleDeg = angleDegMut;
-    const gridW = 64;
-    const gridH = 36;
-    const showRayStarts = true;
+    const angleDegAccessor = (() => { const m = angleDegMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
   <script id="7" type="module">
-    import { sweep, hsl2rgb01 } from "./sweep.js";
-    sweep;
-  </script>
-  <script id="8" type="module">
-    // Two sweep passes: unweighted (left half) vs weighted (right half).
-    const resultOff = sweep(gridW, gridH, angleDeg, false);
-    const resultOn = sweep(gridW, gridH, angleDeg, true);
-    const result = resultOn; // used by stats cell
-    result;
-  </script>
-  <script id="9" type="module">
-    // Conservation check (computed but not displayed — useful for debugging).
-    let maxDev = 0;
-    for (let i = 0; i < result.accum.length; i++) {
-      const dev = Math.abs(result.accum[i] - 1);
-      if (dev > maxDev) maxDev = dev;
-    }
-    const conserved = maxDev < 1e-5;
-    conserved;
-  </script>
-  <script id="10" type="module">
-    const cwPx = Math.min(640, width);
-    const chPx = Math.round((cwPx * gridH) / gridW);
-    const canvas = html`<canvas
-      width=${gridW}
-      height=${gridH}
-      style="width:${cwPx}px; height:${chPx}px; image-rendering:pixelated; display:block;"
-    ></canvas>`;
-
-    const SVG_NS = "http://www.w3.org/2000/svg";
-    const overlaySvg = document.createElementNS(SVG_NS, "svg");
-    overlaySvg.setAttribute("width", cwPx);
-    overlaySvg.setAttribute("height", chPx);
-    overlaySvg.setAttribute("viewBox", `0 0 ${gridW} ${gridH}`);
-    overlaySvg.style.cssText =
-      "position:absolute; left:0; top:0; pointer-events:none; overflow:visible;";
-    const rayGroup = document.createElementNS(SVG_NS, "g");
-    rayGroup.style.display = "none";
-    overlaySvg.appendChild(rayGroup);
-
-    // Draggable handle — positioned on the circle edge at current angle.
-    // Sizes are in viewBox units; convert from screen pixels.
-    const vbScale = gridW / cwPx;
-    const handleR = Math.min(gridW, gridH) * 0.4;
-    const handleG = document.createElementNS(SVG_NS, "g");
-    handleG.setAttribute("style", "pointer-events:auto; cursor:grab; touch-action:none;");
-    const haloC = document.createElementNS(SVG_NS, "circle");
-    haloC.setAttribute("r", String(24 * vbScale));
-    haloC.setAttribute("fill", "rgba(70,130,220,0.18)");
-    handleG.appendChild(haloC);
-    const hitC = document.createElementNS(SVG_NS, "circle");
-    hitC.setAttribute("r", String(28 * vbScale));
-    hitC.setAttribute("fill", "#000");
-    hitC.setAttribute("fill-opacity", "0");
-    handleG.appendChild(hitC);
-    const dotC = document.createElementNS(SVG_NS, "circle");
-    dotC.setAttribute("r", String(8 * vbScale));
-    dotC.setAttribute("fill", "#4682dc");
-    dotC.setAttribute("stroke", "#fff");
-    dotC.setAttribute("stroke-width", String(3 * vbScale));
-    handleG.appendChild(dotC);
-    overlaySvg.appendChild(handleG);
-
-    function placeHandle(deg) {
-      const rad = (deg * Math.PI) / 180;
-      const hx = gridW / 2 - handleR * Math.cos(rad);
-      const hy = gridH / 2 + handleR * Math.sin(rad);
-      handleG.setAttribute("transform", `translate(${hx}, ${hy})`);
-    }
-    // Don't reference angleDeg here — it would make this cell
-    // reactive, destroying the handle on every angle change.
-
-    let angleDragging = false;
-    function angleFromEvent(e) {
-      const rect = overlaySvg.getBoundingClientRect();
-      const sx = gridW / rect.width;
-      const sy = gridH / rect.height;
-      const mx = (e.clientX - rect.left) * sx;
-      const my = (e.clientY - rect.top) * sy;
-      let deg = (Math.atan2(my - gridH / 2, -(mx - gridW / 2)) * 180) / Math.PI;
-      if (deg < 0) deg += 360;
-      return Math.round(deg * 2) / 2;
-    }
-    handleG.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      angleDragging = true;
-      rayGroup.style.display = "";
-      try { handleG.setPointerCapture(e.pointerId); } catch (_) {}
-      handleG.style.cursor = "grabbing";
-      e.preventDefault();
-      e.stopPropagation();
+    import { createTraversalFigure } from "./traversal-figure.js";
+    const weightedEl = Inputs.toggle({
+      label: "linear interpolation",
+      value: true,
     });
-    handleG.addEventListener("pointermove", (e) => {
-      if (!angleDragging) return;
-      const stepped = angleFromEvent(e);
-      const m = window.__angleDegMut;
-      if (m.value !== stepped) m.value = stepped;
-      e.stopPropagation();
+    display(weightedEl);
+    const weightedAccessor = { get: () => !!weightedEl.value };
+    const traversalFigure = createTraversalFigure({
+      width,
+      angle: angleDegAccessor,
+      weighted: weightedAccessor,
     });
-    const endAngleDrag = (e) => {
-      if (!angleDragging) return;
-      angleDragging = false;
-      rayGroup.style.display = "none";
-      try { handleG.releasePointerCapture(e.pointerId); } catch (_) {}
-      handleG.style.cursor = "grab";
-      e.stopPropagation();
-    };
-    handleG.addEventListener("pointerup", endAngleDrag);
-    handleG.addEventListener("pointercancel", endAngleDrag);
-
-    const container = html`<div style="position:relative; display:inline-block; border:1px solid #888;"></div>`;
-    container.appendChild(canvas);
-    container.appendChild(overlaySvg);
-
-    display(
-      html`<figure>
-        ${container}
-        <figcaption>
-          Drag the yellow handle to sweep through all 360°. The left half shows
-          each ray depositing with uniform weight (visible banding where rays
-          overlap or leave gaps); the right half shows the
-          <code>(1−f, f)</code> interpolation scheme, which produces an even
-          fill. While dragging, thin lines show each ray's traversal path.
-        </figcaption>
-      </figure>`,
-    );
-    canvas;
+    display(traversalFigure.figure);
+    invalidation.then(() => traversalFigure.cancel());
   </script>
-  <script id="11" type="module">
-    const ctx = canvas.getContext("2d");
-    const img = ctx.createImageData(gridW, gridH);
-    const px = img.data;
-    const splitX = Math.floor(gridW / 2);
+  <script id="traversal-caveat" type="text/markdown">
+    A final note is that since sampled elevations are directly adjacent to pixels receiving shading, even small sample positioning errors result in large slope errors. Any inconsistencies causes glancing sunlight to produce terrible striations on smooth hillsides.
 
-    for (let y = 0; y < gridH; y++) {
-      for (let x = 0; x < gridW; x++) {
-        const i = y * gridW + x;
-        const j = i * 4;
-        const src = x < splitX ? resultOff : resultOn;
-        let r = Math.max(0, Math.min(255, src.rAcc[i] * 255));
-        let g = Math.max(0, Math.min(255, src.gAcc[i] * 255));
-        let b = Math.max(0, Math.min(255, src.bAcc[i] * 255));
-        if (showRayStarts && resultOn.start[i]) {
-          r = 0;
-          g = 0;
-          b = 0;
-        }
-        px[j] = r;
-        px[j + 1] = g;
-        px[j + 2] = b;
-        px[j + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-
-    // Reposition the drag handle.
-    placeHandle(angleDeg);
-
-    // Rebuild SVG ray lines. Each ray is a straight line in the
-    // canonical reparameterized grid; we map entry/exit back to
-    // original coords and draw a thin line.
-    while (rayGroup.firstChild) rayGroup.removeChild(rayGroup.firstChild);
-    const theta = (angleDeg * Math.PI) / 180;
-    const rdx = Math.cos(theta);
-    const rdy = -Math.sin(theta);
-    const adx = Math.abs(rdx);
-    const ady = Math.abs(rdy);
-    const rswap = ady > adx;
-    const rflipX = rdx < 0;
-    const rflipY = rdy < 0;
-    const rvW = rswap ? gridH : gridW;
-    const rvH = rswap ? gridW : gridH;
-    const rndx = rswap ? ady : adx;
-    const rndy = rswap ? adx : ady;
-    let rm = rndx === 0 ? 0 : rndy / rndx;
-    if (rm < 1e-12) rm = 0;
-    else if (rm > 1 - 1e-12) rm = 1;
-    const rbMin = -Math.ceil(rm * (rvW - 1));
-    const rbMax = rvH - 1;
-    const toXY = (cx, cy) => {
-      let ox = rswap ? cy : cx;
-      let oy = rswap ? cx : cy;
-      if (rflipX) ox = gridW - 1 - ox;
-      if (rflipY) oy = gridH - 1 - oy;
-      return [ox + 0.5, oy + 0.5];
-    };
-    const bCenter = (() => {
-      const oxC = Math.floor(gridW / 2);
-      const oyC = Math.floor(gridH / 2);
-      const oxP = rflipX ? gridW - 1 - oxC : oxC;
-      const oyP = rflipY ? gridH - 1 - oyC : oyC;
-      const cxC = rswap ? oyP : oxP;
-      const cyC = rswap ? oxP : oyP;
-      return Math.round(cyC - rm * cxC);
-    })();
-    for (let b = rbMin; b <= rbMax; b++) {
-      let cxStart = -1;
-      let cxEnd = -1;
-      for (let cx = 0; cx < rvW; cx++) {
-        const y = b + rm * cx;
-        const yi = Math.floor(y);
-        if (yi >= 0 && yi < rvH) {
-          if (cxStart < 0) cxStart = cx;
-          cxEnd = cx;
-        } else if (yi + 1 >= 0 && yi + 1 < rvH) {
-          if (cxStart < 0) cxStart = cx;
-          cxEnd = cx;
-        }
-      }
-      if (cxStart < 0) continue;
-      const [x1, y1] = toXY(cxStart, b + rm * cxStart);
-      const [x2, y2] = toXY(cxEnd, b + rm * cxEnd);
-      const line = document.createElementNS(SVG_NS, "line");
-      const isCenter = b === bCenter;
-      line.setAttribute("x1", x1);
-      line.setAttribute("y1", y1);
-      line.setAttribute("x2", x2);
-      line.setAttribute("y2", y2);
-      line.setAttribute("stroke", isCenter ? "red" : "rgba(0,0,0,0.15)");
-      line.setAttribute("stroke-width", String(gridW / Math.min(640, width)));
-      rayGroup.appendChild(line);
-    }
-  </script>
-  <script id="13" type="text/markdown">
-    ## Hard-threshold shadows
-
-    With the traversal machinery in place, I can apply it to direct sunlight. Where LSAO applies a distance falloff to produce soft ambient-occlusion-style shading, I replace this with a geometric shadow test: a pixel is in shadow when terrain between it and the sun blocks the line of sight. The result is a binary lit/shadow decision per pixel, appropriate for direct sunlight.
-
-    Each ray sweeps _away_ from the sun (azimuth+180°), so shadows fall along the direction of travel. At each step I interpolate the terrain height at the ray's sub-pixel position and ask: does a ray from the sun at altitude `α` clear all the terrain seen so far? The trick that makes this O(1) per step is to add a height ramp to each elevation — define `G_k = h_k + k·d_step·tan(α)`, where `d_step` is the metric length of one canonical step. In this tilted coordinate system, the sun's line of sight becomes horizontal, and the shadow test reduces to checking whether `G` at the current pixel exceeds the running maximum of `G` over all previous pixels on the ray.
-
-    A few implementation details matter for quality:
-
-    - **Interpolation symmetry.** The terrain sample and the shadow deposit must use the same `(1−f, f)` weights. Any mismatch produces striations on hillsides.
-    - **Pixel size.** At Web Mercator zoom `z` and latitude `lat`, the pixel size in meters is `40075016.686·cos(lat) / (2^z · tileSize)`. The canonical step length is `√(1 + m²) · pixelSize`.
+    The problems can be overcome though, and the figure below illustrates the result. Drag the handle on the figure below and observe that using this line sweep approach, a single terrain tile correctly casts shadows on itself.
   </script>
   <script id="14" type="module">
     const simpleSunDirMut = Mutable({ az: 314.5, alt: 10 });
@@ -402,6 +173,11 @@
     );
     ssCanvas;
   </script>
+  <script id="47" type="text/markdown">
+    ## Soft shadows
+
+    We've been considering hard thresholds, but we're well poised to relax this to a smooth threshold to emulate the soft penumbra of a finite-sized light source like the sun. Realistically, the sun covers about ${tex`0.53^\circ`} degrees in the sky, making it pretty close to a point source, but we can always increase the size for visual effect.
+  </script>
   <script id="23" type="module">
     // Shadow computed WITHOUT parent/horizon data — comp tile only.
     // Uses its own independent sun direction from simpleSunDir.
@@ -437,6 +213,321 @@
       ssPx[j + 3] = 255;
     }
     ssCtx.putImageData(ssImg, 0, 0);
+  </script>
+
+  <script id="hull-occlusion-soft" type="module">
+    const htSvgSoft = createHullViz(html, width, true, true);
+    display(
+      html`<figure>
+        ${htSvgSoft}
+        <figcaption>
+          The terrain stroke fades between lit and shadow colors by the
+          fraction of the sun disk visible; the shadow fill fades from
+          transparent at the outer ray to opaque at the umbra.
+        </figcaption>
+      </figure>`,
+    );
+  </script>
+
+  <script id="47" type="text/markdown">
+    Sadly though, the sun is a *two*-dimensional source, and we've only discussed softening in *one* dimension. 
+
+
+  </script>
+  <script id="49" type="text/markdown">
+    Before averaging, it's worth thinking carefully about how to distribute samples across the sun disk. With only ${tex`N = ${Math.round(softAzSamples)}`} samples in the current configuration — each one a full hard-shadow sweep — getting the most information per sample matters.
+
+    The goal is to approximate the integral
+
+    ${tex.block`\int f(x)\,g(x)\,dx \;\approx\; \frac{1}{N}\sum_{i=1}^{N} f(x_i)`}
+
+    where ${tex`g(x) = \frac{1}{\sigma\sqrt{2\pi}}\exp(-x^2/2\sigma^2)`} is the Gaussian intensity profile across the sun disk and ${tex`f(x)`} is the shadow bit as a function of azimuthal offset ${tex`x`}. The right approach is **stratified inverse-CDF sampling**: place the ${tex`i`}th sample at the point where the Gaussian CDF equals ${tex`(i - \tfrac{1}{2})/N`}. Each sample then represents an equal slice of probability mass under the Gaussian, so the desired distribution is baked into the positions and every sample can be weighted equally — no sweep is wasted on a sample the filter will discount.
+  </script>
+  <script id="50" type="module">
+    // Acklam's inverse-normal approximation: maps a CDF probability in
+    // (0, 1) to the corresponding standard-normal quantile. Shared by the
+    // stratified-sampling plot and the soft-shadow driver loop.
+    const normInv = (p) => {
+      const a = [
+        -39.69683028665376, 220.9460984245205, -275.9285104469687,
+        138.357751867269, -30.66479806614716, 2.506628277459239,
+      ];
+      const b = [
+        -54.47609879822406, 161.5858368580409, -155.6989798598866,
+        66.80131188771972, -13.28068155288572,
+      ];
+      const c = [
+        -0.007784894002430293, -0.3223964580411365, -2.400758277161838,
+        -2.549732539343734, 4.374664141464968, 2.938163982698783,
+      ];
+      const d = [
+        0.007784695709041462, 0.3224671290700398, 2.445134137142996,
+        3.754408661907416,
+      ];
+      const plow = 0.02425;
+      const phigh = 1 - plow;
+      let q, r;
+      if (p < plow) {
+        q = Math.sqrt(-2 * Math.log(p));
+        return (
+          (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q +
+            c[5]) /
+          ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+        );
+      }
+      if (p <= phigh) {
+        q = p - 0.5;
+        r = q * q;
+        return (
+          ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r +
+            a[5]) *
+            q) /
+          (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+        );
+      }
+      q = Math.sqrt(-2 * Math.log(1 - p));
+      return (
+        -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+        ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+      );
+    };
+    normInv;
+  </script>
+  <script id="51" type="module">
+    const Npp = Math.round(softAzSamples);
+    const xMax = 3;
+
+    const refPts = [];
+    for (let i = 0; i <= 200; i++) {
+      const x = -xMax + (2 * xMax * i) / 200;
+      refPts.push({ x, y: Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI) });
+    }
+    const yMaxGauss = 1 / Math.sqrt(2 * Math.PI);
+
+    const strat = [];
+    for (let i = 0; i < Npp; i++) {
+      strat.push({ x: normInv((i + 0.5) / Npp) });
+    }
+
+    const plot = Plot.plot({
+      width: Math.min(520, width),
+      height: 220,
+      marginTop: 20,
+      marginBottom: 40,
+      marginLeft: 20,
+      marginRight: 20,
+      x: {
+        label: "azimuthal offset",
+        domain: [-xMax, xMax],
+        ticks: [-3, -2, -1, 0, 1, 2, 3],
+        tickFormat: (d) => (d === 0 ? "0" : `${d}σ`),
+      },
+      y: { axis: null, domain: [0, yMaxGauss * 1.08] },
+      marks: [
+        Plot.areaY(refPts, { x: "x", y: "y", fill: "#e6e6e6", clip: true }),
+        Plot.ruleX(strat, {
+          x: "x",
+          y1: 0,
+          y2: yMaxGauss / Npp,
+          stroke: "#0366d6",
+          strokeWidth: 1.5,
+          clip: true,
+        }),
+        Plot.dot(strat, {
+          x: "x",
+          y: () => yMaxGauss / Npp,
+          fill: "#0366d6",
+          r: 3.5,
+          clip: true,
+        }),
+        Plot.ruleY([0]),
+      ],
+    });
+
+    display(
+      html`<figure>
+        ${plot}
+        <figcaption>
+          Stratified inverse-CDF placement of ${tex`N = ${Npp}`} samples across
+          the sun disk. Each sample sits at the centre of an equal-probability
+          slice under the Gaussian (gray), so averaging with uniform weight
+          ${tex`1/N`} reproduces the desired distribution exactly.
+        </figcaption>
+      </figure>`,
+    );
+  </script>
+  <script id="48" type="module">
+    const softSunDirMut = Mutable({ az: 314.5, alt: 10 });
+    const softSunDirAccessor = (() => { const m = softSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
+  </script>
+  <script id="52" type="module">
+    import { createSoftSweepPool } from "./soft-sweep.js";
+    const { runSoftSweeps } = createSoftSweepPool();
+    runSoftSweeps;
+  </script>
+  <script id="53" type="module">
+    const softControls = html`<div></div>`;
+    function ssctrl(input) {
+      softControls.appendChild(input);
+      return Generators.input(input);
+    }
+
+    // Hold on to the raw input elements so the driver loop below can read
+    // their .value directly (non-reactively). Exposed on window so the
+    // driver cell doesn't take a reactive dependency on them.
+    const softSunDiameterEl = Inputs.range([0.5, 30], {
+      label: "sun diameter (°)",
+      value: 10,
+      step: 0.01,
+      transform: Math.log,
+    });
+    const softAzSamplesEl = Inputs.range([1, 32], {
+      label: "azimuthal samples",
+      value: 12,
+      step: 1,
+    });
+    window.__softSunDiameterEl = softSunDiameterEl;
+    window.__softAzSamplesEl = softAzSamplesEl;
+
+    const softSunDiameter = ssctrl(softSunDiameterEl);
+    const softAzSamples = ssctrl(softAzSamplesEl);
+
+    display(softControls);
+  </script>
+  <script id="54" type="module">
+    const softN = elevation.N;
+    const softDisp = Math.max(1, Math.floor(512 / softN));
+    const sizePx = Math.min(softN * softDisp, width);
+
+    const softCanvas = html`<canvas
+      width=${softN}
+      height=${softN}
+      style="display:block; width:${sizePx}px; height:${sizePx}px; image-rendering:pixelated;"
+    ></canvas>`;
+
+    const softFigure = mountSunHandle({
+      canvas: softCanvas,
+      ...softSunDirAccessor,
+      angle: softSunDiameterEl,
+    });
+    softFigure.appendChild(createSourceToggleBadge());
+
+    display(
+      html`<figure>
+        ${softFigure}
+        <figcaption>
+          Soft shadows from Gaussian-weighted sampling of the sun disk. Drag the
+          yellow handle to change the lighting direction.
+        </figcaption>
+      </figure>`,
+    );
+    softCanvas;
+  </script>
+  <script id="55" type="module">
+    // Persistent driver loop: reads the latest sun direction + params
+    // from shared refs (window.__softSunDirMut, window.__softSunDiameterEl,
+    // window.__softAzSamplesEl) between batches and renders directly to
+    // softCanvas. This cell is *not* reactive on sun-dir or controls, so
+    // mousemoves don't invalidate it — instead the loop coalesces pending
+    // state changes into the next available batch, and each completed
+    // batch gets drawn even while interaction is ongoing.
+    const scN = elevation.N;
+    const softCtx = softCanvas.getContext("2d");
+    const softImg = softCtx.createImageData(scN, scN);
+    const softPx = softImg.data;
+    const srH = elevation.heights;
+    const srMin = elevation.elevMin;
+    const srRange = elevation.elevMax - elevation.elevMin || 1;
+
+    // Bump the generation counter so any previous driver loop (from a
+    // prior cell run — e.g. after an elevation swap) exits cleanly when
+    // its iteration sees a mismatch.
+    const gen = (window.__softDriverGen || 0) + 1;
+    window.__softDriverGen = gen;
+
+    (async function driver() {
+      let lastKey = null;
+      let idleTick = 0;
+      while (window.__softDriverGen === gen) {
+        const sd = softSunDirAccessor.get();
+        const diamEl = window.__softSunDiameterEl;
+        const nEl = window.__softAzSamplesEl;
+        const diam = diamEl ? Number(diamEl.value) : 5;
+        const nAzCur = Math.round(nEl ? Number(nEl.value) : 8);
+        const key = sd.az + "|" + sd.alt + "|" + diam + "|" + nAzCur;
+
+        if (key === lastKey) {
+          // Nothing new to render; wake up periodically to re-check.
+          await new Promise((r) => setTimeout(r, 16));
+          idleTick++;
+          continue;
+        }
+        idleTick = 0;
+
+        const sunR = diam / 2;
+        // Variance-match to the altitude smoothstep. The smoothstep
+        // s(t) = 3t² − 2t³ has slope 3/2 at its midpoint; equating to
+        // the Gaussian CDF slope 1/(σ√(2π)) gives σ_unit = 1/(1.5·√(2π)).
+        // Applied over the altitude half-width of 1.5·sunR (total span 3·sunR),
+        // the equivalent Gaussian standard deviation in degrees is
+        //   σ = 3·sunR · σ_unit = 2·sunR / √(2π).
+        const sigma = (2 * sunR) / Math.sqrt(2 * Math.PI);
+        const tasks = [];
+        for (let ia = 0; ia < nAzCur; ia++) {
+          // Stratified inverse-CDF placement: each sample sits at the
+          // centre of an equal-probability slice under the Gaussian.
+          const q = nAzCur === 1 ? 0 : normInv((ia + 0.5) / nAzCur);
+          const daz = q * sigma;
+          tasks.push({
+            W: scN,
+            H: scN,
+            heights: elevation.heights,
+            azDeg: sd.az + daz,
+            altDeg: sd.alt,
+            pxSizeM: elevation.pixelSizeM,
+            sunRadiusDeg: sunR,
+          });
+        }
+
+        const sweeps = await runSoftSweeps(tasks);
+        if (window.__softDriverGen !== gen) return;
+
+        const result = new Float32Array(scN * scN);
+        const wUnit = 1 / sweeps.length;
+        for (let s = 0; s < sweeps.length; s++) {
+          const sweep = sweeps[s];
+          for (let i = 0; i < sweep.length; i++) {
+            result[i] += wUnit * sweep[i];
+          }
+        }
+
+        for (let i = 0; i < srH.length; i++) {
+          const j = i * 4;
+          const tone = 0.1 + 0.8 * ((srH[i] - srMin) / srRange);
+          const shade = Math.min(1, Math.max(0, result[i]));
+          const lit = 1 - 0.94 * shade;
+          const v = Math.round(linearToSrgb(tone * lit) * 255);
+          softPx[j] = v;
+          softPx[j + 1] = v;
+          softPx[j + 2] = v;
+          softPx[j + 3] = 255;
+        }
+        softCtx.putImageData(softImg, 0, 0);
+
+        lastKey = key;
+      }
+    })();
+
+    const softResult = null;
+    softResult;
+  </script>
+  <script id="4" type="text/markdown">
+
+    The shadow sweep needs to visit every pixel in the grid exactly once for a given direction. The key constraint is **conservation**: regardless of angle, every pixel must receive a total deposit weight of exactly 1.0. Without this, shadows would brighten or darken depending on the sweep direction.
+
+    The idea is to fill the grid with a family of parallel rays, each advancing one pixel at a time along the dominant axis. A ray generally falls _between_ two pixel rows, so I split its contribution: if the ray sits at fractional position `f` between rows, the lower row gets weight `(1−f)` and the upper row gets `f`. Adjacent rays are spaced one pixel apart vertically, so at every column the two rays straddling a given pixel contribute complementary weights that sum to 1 — guaranteeing exact conservation.
+
+    Only a single **canonical octant** needs to be implemented — directions where the ray advances in +x with a slope between 0 and 1. Any other angle reduces to this case by swapping axes (when the y-component dominates) and/or flipping an axis (when a component is negative). The canonical sweep runs over the transformed coordinates; deposits are mapped back to the original buffer.
   </script>
   <script id="25" type="text/markdown">
     ## Parent-tile pre-pass
@@ -1006,48 +1097,6 @@
 
     shadowCtx.putImageData(shadowImg, 0, 0);
   </script>
-  <script id="37" type="module">
-    // Mouse-driven sun position for the penumbra analysis figure below.
-    // Stashed on `window` so the figure cell (a separate scope) can mutate
-    // it from its mouse handlers.
-    const penumbraHoverMut = Mutable({ x: 16, y: 19 });
-    const penumbraHover = penumbraHoverMut;
-    const penumbraHoverAccessor = (() => { const m = penumbraHoverMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
-  </script>
-  <script id="38" type="module">
-    // Version counter for the penumbra figure's height field. The
-    // height field itself lives at `window.__penumbraElev` and is
-    // mutated in place by the figure's click-drag handler; bumping this
-    // counter triggers a reactive re-render of the figure cell.
-    const penumbraElevVersionMut = Mutable(0);
-    window.__penumbraElevVersionMut = penumbraElevVersionMut;
-    const penumbraElevVersion = penumbraElevVersionMut;
-    penumbraElevVersion;
-  </script>
-  <script id="39" type="text/markdown">
-    ## Penumbra
-
-    The hard-threshold shadow from a point sun produces perfectly sharp edges, but real sunlight has a finite angular diameter (~0.53°), creating a geometric penumbra — a gradual transition from full shadow to full light. I plan to incorporate this in two ways: a smooth cutoff in the altitude direction, and multiple azimuthal samples to soften the shadow edge laterally.
-  </script>
-  <script id="40" type="module">
-    const penumbraAngleEl = Inputs.range([0, 30], {
-      label: "sun diameter (°)",
-      value: 10,
-      step: 0.5,
-    });
-    display(penumbraAngleEl);
-  </script>
-  <script id="41" type="module">
-    import { createPenumbraFigure } from "./penumbra-figure.js";
-    const _ver = penumbraElevVersion;
-    const penumbraFigure = createPenumbraFigure({
-      html,
-      sunAccessor: penumbraHoverAccessor,
-      angleEl: penumbraAngleEl,
-      width,
-    });
-    display(penumbraFigure);
-  </script>
   <script id="42" type="text/markdown">
     ## Relief shading
 
@@ -1162,303 +1211,6 @@
       }
     }
     rlCtx.putImageData(rlImg, 0, 0);
-  </script>
-  <script id="47" type="text/markdown">
-    ## Soft shadows
-
-    To approximate the penumbra from a finite-diameter sun, I run multiple hard-shadow sweeps at small azimuthal offsets across the sun disk and average the results. The altitude dimension of the penumbra is handled inside each sweep: I define a half-width of ${tex`\tfrac{3}{2}r`} (where ${tex`r`} is the sun's angular radius) and smoothstep the shadow between ${tex`\alpha - \tfrac{3}{2}r`} and ${tex`\alpha + \tfrac{3}{2}r`}, giving a soft altitude transition spanning ${tex`3r`}. That reduces the averaging to one dimension — azimuth — and lets each sweep run in its own web worker in parallel.
-  </script>
-  <script id="48" type="module">
-    const softSunDirMut = Mutable({ az: 314.5, alt: 10 });
-    const softSunDirAccessor = (() => { const m = softSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
-  </script>
-  <script id="49" type="module">
-    const sampN = Math.round(softAzSamples);
-    display(md`
-      ### Sampling the sun disk
-
-      Before averaging, it's worth thinking carefully about how to distribute samples across the sun disk. With only ${tex`N = ${sampN}`} samples in the current configuration — each one a full hard-shadow sweep — getting the most information per sample matters.
-
-      The goal is to approximate the integral
-
-      ${tex.block`\int f(x)\,g(x)\,dx \;\approx\; \frac{1}{N}\sum_{i=1}^{N} f(x_i)`}
-
-      where ${tex`g(x) = \frac{1}{\sigma\sqrt{2\pi}}\exp(-x^2/2\sigma^2)`} is the Gaussian intensity profile across the sun disk and ${tex`f(x)`} is the shadow bit as a function of azimuthal offset ${tex`x`}. The right approach is **stratified inverse-CDF sampling**: place the ${tex`i`}th sample at the point where the Gaussian CDF equals ${tex`(i - \tfrac{1}{2})/N`}. Each sample then represents an equal slice of probability mass under the Gaussian, so the desired distribution is baked into the positions and every sample can be weighted equally — no sweep is wasted on a sample the filter will discount.
-    `);
-  </script>
-  <script id="50" type="module">
-    // Acklam's inverse-normal approximation: maps a CDF probability in
-    // (0, 1) to the corresponding standard-normal quantile. Shared by the
-    // stratified-sampling plot and the soft-shadow driver loop.
-    const normInv = (p) => {
-      const a = [
-        -39.69683028665376, 220.9460984245205, -275.9285104469687,
-        138.357751867269, -30.66479806614716, 2.506628277459239,
-      ];
-      const b = [
-        -54.47609879822406, 161.5858368580409, -155.6989798598866,
-        66.80131188771972, -13.28068155288572,
-      ];
-      const c = [
-        -0.007784894002430293, -0.3223964580411365, -2.400758277161838,
-        -2.549732539343734, 4.374664141464968, 2.938163982698783,
-      ];
-      const d = [
-        0.007784695709041462, 0.3224671290700398, 2.445134137142996,
-        3.754408661907416,
-      ];
-      const plow = 0.02425;
-      const phigh = 1 - plow;
-      let q, r;
-      if (p < plow) {
-        q = Math.sqrt(-2 * Math.log(p));
-        return (
-          (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q +
-            c[5]) /
-          ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
-        );
-      }
-      if (p <= phigh) {
-        q = p - 0.5;
-        r = q * q;
-        return (
-          ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r +
-            a[5]) *
-            q) /
-          (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
-        );
-      }
-      q = Math.sqrt(-2 * Math.log(1 - p));
-      return (
-        -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
-        ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
-      );
-    };
-    normInv;
-  </script>
-  <script id="51" type="module">
-    const Npp = Math.round(softAzSamples);
-    const xMax = 3;
-
-    const refPts = [];
-    for (let i = 0; i <= 200; i++) {
-      const x = -xMax + (2 * xMax * i) / 200;
-      refPts.push({ x, y: Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI) });
-    }
-    const yMaxGauss = 1 / Math.sqrt(2 * Math.PI);
-
-    const strat = [];
-    for (let i = 0; i < Npp; i++) {
-      strat.push({ x: normInv((i + 0.5) / Npp) });
-    }
-
-    const plot = Plot.plot({
-      width: Math.min(520, width),
-      height: 220,
-      marginTop: 20,
-      marginBottom: 40,
-      marginLeft: 20,
-      marginRight: 20,
-      x: {
-        label: "azimuthal offset",
-        domain: [-xMax, xMax],
-        ticks: [-3, -2, -1, 0, 1, 2, 3],
-        tickFormat: (d) => (d === 0 ? "0" : `${d}σ`),
-      },
-      y: { axis: null, domain: [0, yMaxGauss * 1.08] },
-      marks: [
-        Plot.areaY(refPts, { x: "x", y: "y", fill: "#e6e6e6", clip: true }),
-        Plot.ruleX(strat, {
-          x: "x",
-          y1: 0,
-          y2: yMaxGauss / Npp,
-          stroke: "#0366d6",
-          strokeWidth: 1.5,
-          clip: true,
-        }),
-        Plot.dot(strat, {
-          x: "x",
-          y: () => yMaxGauss / Npp,
-          fill: "#0366d6",
-          r: 3.5,
-          clip: true,
-        }),
-        Plot.ruleY([0]),
-      ],
-    });
-
-    display(
-      html`<figure>
-        ${plot}
-        <figcaption>
-          Stratified inverse-CDF placement of ${tex`N = ${Npp}`} samples across
-          the sun disk. Each sample sits at the centre of an equal-probability
-          slice under the Gaussian (gray), so averaging with uniform weight
-          ${tex`1/N`} reproduces the desired distribution exactly.
-        </figcaption>
-      </figure>`,
-    );
-  </script>
-  <script id="52" type="module">
-    import { createSoftSweepPool } from "./soft-sweep.js";
-    const { runSoftSweeps } = createSoftSweepPool();
-    runSoftSweeps;
-  </script>
-  <script id="53" type="module">
-    const softControls = html`<div></div>`;
-    function ssctrl(input) {
-      softControls.appendChild(input);
-      return Generators.input(input);
-    }
-
-    // Hold on to the raw input elements so the driver loop below can read
-    // their .value directly (non-reactively). Exposed on window so the
-    // driver cell doesn't take a reactive dependency on them.
-    const softSunDiameterEl = Inputs.range([0.5, 30], {
-      label: "sun diameter (°)",
-      value: 10,
-      step: 0.01,
-      transform: Math.log,
-    });
-    const softAzSamplesEl = Inputs.range([1, 32], {
-      label: "azimuthal samples",
-      value: 12,
-      step: 1,
-    });
-    window.__softSunDiameterEl = softSunDiameterEl;
-    window.__softAzSamplesEl = softAzSamplesEl;
-
-    const softSunDiameter = ssctrl(softSunDiameterEl);
-    const softAzSamples = ssctrl(softAzSamplesEl);
-
-    display(softControls);
-  </script>
-  <script id="54" type="module">
-    const softN = elevation.N;
-    const softDisp = Math.max(1, Math.floor(512 / softN));
-    const sizePx = Math.min(softN * softDisp, width);
-
-    const softCanvas = html`<canvas
-      width=${softN}
-      height=${softN}
-      style="display:block; width:${sizePx}px; height:${sizePx}px; image-rendering:pixelated;"
-    ></canvas>`;
-
-    const softFigure = mountSunHandle({
-      canvas: softCanvas,
-      ...softSunDirAccessor,
-      angle: softSunDiameterEl,
-    });
-    softFigure.appendChild(createSourceToggleBadge());
-
-    display(
-      html`<figure>
-        ${softFigure}
-        <figcaption>
-          Soft shadows from Gaussian-weighted sampling of the sun disk. Drag the
-          yellow handle to change the lighting direction.
-        </figcaption>
-      </figure>`,
-    );
-    softCanvas;
-  </script>
-  <script id="55" type="module">
-    // Persistent driver loop: reads the latest sun direction + params
-    // from shared refs (window.__softSunDirMut, window.__softSunDiameterEl,
-    // window.__softAzSamplesEl) between batches and renders directly to
-    // softCanvas. This cell is *not* reactive on sun-dir or controls, so
-    // mousemoves don't invalidate it — instead the loop coalesces pending
-    // state changes into the next available batch, and each completed
-    // batch gets drawn even while interaction is ongoing.
-    const scN = elevation.N;
-    const softCtx = softCanvas.getContext("2d");
-    const softImg = softCtx.createImageData(scN, scN);
-    const softPx = softImg.data;
-    const srH = elevation.heights;
-    const srMin = elevation.elevMin;
-    const srRange = elevation.elevMax - elevation.elevMin || 1;
-
-    // Bump the generation counter so any previous driver loop (from a
-    // prior cell run — e.g. after an elevation swap) exits cleanly when
-    // its iteration sees a mismatch.
-    const gen = (window.__softDriverGen || 0) + 1;
-    window.__softDriverGen = gen;
-
-    (async function driver() {
-      let lastKey = null;
-      let idleTick = 0;
-      while (window.__softDriverGen === gen) {
-        const sd = softSunDirAccessor.get();
-        const diamEl = window.__softSunDiameterEl;
-        const nEl = window.__softAzSamplesEl;
-        const diam = diamEl ? Number(diamEl.value) : 5;
-        const nAzCur = Math.round(nEl ? Number(nEl.value) : 8);
-        const key = sd.az + "|" + sd.alt + "|" + diam + "|" + nAzCur;
-
-        if (key === lastKey) {
-          // Nothing new to render; wake up periodically to re-check.
-          await new Promise((r) => setTimeout(r, 16));
-          idleTick++;
-          continue;
-        }
-        idleTick = 0;
-
-        const sunR = diam / 2;
-        // Variance-match to the altitude smoothstep. The smoothstep
-        // s(t) = 3t² − 2t³ has slope 3/2 at its midpoint; equating to
-        // the Gaussian CDF slope 1/(σ√(2π)) gives σ_unit = 1/(1.5·√(2π)).
-        // Applied over the altitude half-width of 1.5·sunR (total span 3·sunR),
-        // the equivalent Gaussian standard deviation in degrees is
-        //   σ = 3·sunR · σ_unit = 2·sunR / √(2π).
-        const sigma = (2 * sunR) / Math.sqrt(2 * Math.PI);
-        const tasks = [];
-        for (let ia = 0; ia < nAzCur; ia++) {
-          // Stratified inverse-CDF placement: each sample sits at the
-          // centre of an equal-probability slice under the Gaussian.
-          const q = nAzCur === 1 ? 0 : normInv((ia + 0.5) / nAzCur);
-          const daz = q * sigma;
-          tasks.push({
-            W: scN,
-            H: scN,
-            heights: elevation.heights,
-            azDeg: sd.az + daz,
-            altDeg: sd.alt,
-            pxSizeM: elevation.pixelSizeM,
-            sunRadiusDeg: sunR,
-          });
-        }
-
-        const sweeps = await runSoftSweeps(tasks);
-        if (window.__softDriverGen !== gen) return;
-
-        const result = new Float32Array(scN * scN);
-        const wUnit = 1 / sweeps.length;
-        for (let s = 0; s < sweeps.length; s++) {
-          const sweep = sweeps[s];
-          for (let i = 0; i < sweep.length; i++) {
-            result[i] += wUnit * sweep[i];
-          }
-        }
-
-        for (let i = 0; i < srH.length; i++) {
-          const j = i * 4;
-          const tone = 0.1 + 0.8 * ((srH[i] - srMin) / srRange);
-          const shade = Math.min(1, Math.max(0, result[i]));
-          const lit = 1 - 0.94 * shade;
-          const v = Math.round(linearToSrgb(tone * lit) * 255);
-          softPx[j] = v;
-          softPx[j + 1] = v;
-          softPx[j + 2] = v;
-          softPx[j + 3] = 255;
-        }
-        softCtx.putImageData(softImg, 0, 0);
-
-        lastKey = key;
-      }
-    })();
-
-    const softResult = null;
-    softResult;
   </script>
   <script id="56" type="text/markdown">
     ## Line-sweep ambient occlusion
