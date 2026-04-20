@@ -252,8 +252,12 @@ export function mountSunHandle({
 
   const container = document.createElement("div");
   container.isDragging = isDragging;
+  // touch-action:none on the outer container — setting it only on the
+  // SVG <g> (handle) isn't reliably honoured by mobile browsers, so
+  // without this a finger-drag scrolls the page instead of moving
+  // the sun.
   container.style.cssText =
-    "position:relative; display:inline-block; line-height:0; overflow:hidden;";
+    "position:relative; display:inline-block; line-height:0; overflow:hidden; touch-action:none;";
   if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
   container.appendChild(canvas);
   container.appendChild(overlay);
