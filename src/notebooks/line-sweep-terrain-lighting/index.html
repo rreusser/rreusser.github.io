@@ -1376,6 +1376,8 @@
     ## WebGPU implementation
 
     Every mode the CPU `sweepCore` supports — hard shadow, soft shadow with stratified azimuth integration, and LSAO — ported to WGSL compute via _dynamic shader specialization_. Each `(mode, prewarm)` permutation is built once into its own `GPUComputePipeline` and cached, so the inner hull-scan loop has no per-pixel mode branch. The parent-tile prewarm is itself a compile-time flag: when off, the shader skips the warmup block entirely and the horizon binding shrinks to a 16-byte stub. Multi-sample averaging (azimuth offsets for soft, uniform directions for LSAO) is dispatched as N successive compute passes that each accumulate `weight · bit · fpScale` into the shared atomic `shadow` buffer.
+
+    A caveat from building this out: the GPU path turned out to be less useful than I'd hoped. It's measurably faster per tile than the CPU worker pool, but only modestly so, and the display compositor shares a queue with the bake — every heavy compute submit stalls the tile viewer's render pass and makes pans and zooms feel gummy. A CPU worker pool is slightly slower per tile but lets the GPU stay idle and responsive to pointer events, which matters more than raw throughput for an interactive viewer. Both paths are kept here for comparison, but the live viewer at the end of the notebook defaults to the CPU bake.
   </script>
   <script id="62" type="module">
     // One-time device setup. Persists across sun/source changes.
