@@ -1072,15 +1072,19 @@
   <script id="56" type="text/markdown">
     ## Line-sweep ambient occlusion
 
-    The same horizon visibility sweep works for ambient occlusion as well. Ambient occlusion proceeds similar to shadowing, but instead of illumination by a point source, pixels are illuminated by the portion of sky visible to them. I initially extended [Karim Naaji's LSAO](https://karim.naaji.fr/lsao.html) method to include parent tile occlusion and arbitrary sweep directions, but a significant remaining problem was the slow falloff of ${tex`e^{-\sin\alpha}`}, where ${tex`\alpha`} is the horizon angle. The function works visually but has a long tail, causing tile discontinuities due to the long-range influence of terrain features.
+    The same horizon visibility sweep works for ambient occlusion as well. Ambient occlusion proceeds similarly to shadowing, but instead of illumination by a point source, each pixel is illuminated by the portion of sky visible to it. I extended [Karim Naaji's LSAO](https://karim.naaji.fr/lsao.html) to support parent-tile occlusion and arbitrary sweep directions. That leaves one design knob open: the per-slice visibility function ${tex`V(\alpha)`} that maps each swept horizon angle ${tex`\alpha`} to a shade contribution.
 
-    There's a more principled choice that happens to be much more local. For a Lambertian receiver, incident sky radiance from a direction at zenith angle ${tex`\theta`} is weighted by ${tex`\cos\theta`}, so the visible fraction of one azimuthal slice above a horizon at elevation α is
+    Naaji uses ${tex`V(\alpha) = e^{-\sin\alpha}`}. It isn't tied to a particular radiometric model; it's shaped by what reads well. The function drops with slope ${tex`-1`} right at ${tex`\alpha = 0`}, so even a shallow horizon produces an immediate darkening — ridges, terraces, and other layered structure separate crisply. The tradeoff is a long tail: even a vertical wall only attenuates the slice to ${tex`e^{-1} \approx 0.37`}, so distant tall features keep contributing, and tile boundaries take extra care.
+
+    A Lambertian sky integral offers a physically motivated alternative. Incident sky radiance from a direction at zenith angle ${tex`\theta`} is weighted by ${tex`\cos\theta`}, so the visible fraction of one azimuthal slice above a horizon at elevation α is
 
     ${tex.block`V(\alpha) \;=\; \int_{0}^{\pi/2 - \alpha} \cos\theta \cdot \sin\theta \, d\theta \;=\; \tfrac{1}{2}\cos^2\!\alpha,`}
 
-    which normalises to ${tex`\cos^2\!\alpha`}: 1 at a flat horizon, 0 at a fully vertical wall. Averaging this over azimuthally uniform sweeps gives the full ambient-occlusion factor. Because ${tex`\cos^2\!\alpha \approx 1 - (\Delta h / d)^2`} for small angles, the contribution of a distant tall blocker falls off like ${tex`1/d^2`} rather than lingering on the exponential's long tail, and the effect is visibly local.
+    which normalises to ${tex`\cos^2\!\alpha`}: 1 at a flat horizon, 0 at a vertical wall. Its slope is flat at ${tex`\alpha = 0`} and steepens later, giving a softer, more forgiving response to small horizons. And because ${tex`\cos^2\!\alpha \approx 1 - (\Delta h / d)^2`} for small α, distant tall blockers fall off as ${tex`1/d^2`}, so the effect is strongly local and tile boundaries are less visible.
 
-    A contrast slider ${tex`c \in [0, 1]`} shapes the response on top of the raw ${tex`\bar{v} = \overline{\cos^2\!\alpha}`} per pixel. Let ${tex`s = c / (1 - c)`} and ${tex`\text{shade} = 1 - \bar{v}`}; an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
+    Neither is categorically right — the control below toggles between them. Averaging across azimuthally uniform sweeps gives the full ambient-occlusion factor in either case.
+
+    A contrast slider ${tex`c \in [0, 1]`} shapes the response on top of the raw ${tex`\bar{v}`} per pixel. Let ${tex`s = c / (1 - c)`} and ${tex`\text{shade} = 1 - \bar{v}`}; an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
 
     ${tex.block`\text{display} \;=\; 1 - \tfrac{2}{\pi}\arctan\!\left(\tfrac{c}{1-c}\,(1 - \bar{v})\right).`}
 
@@ -1130,12 +1134,15 @@
       html`<figure>
         ${falloffPlot}
         <figcaption>
-          Per-azimuth-slice visibility vs. horizon angle α. The Lambertian
-          ${tex`\cos^2\!\alpha`} collapses to 0 at a vertical wall, with the bulk of its
-          falloff concentrated in small α (hence local influence and 1/d² distance
-          decay). Naaji's ${tex`e^{-\sin\alpha}`} bottoms out at ${tex`e^{-1} \approx 0.37`}
-          even for a fully vertical wall and decays roughly linearly in α for small
-          angles — the long tail responsible for the tile-boundary artefacts.
+          Per-azimuth-slice visibility vs. horizon angle α. Naaji's
+          ${tex`e^{-\sin\alpha}`} drops with slope −1 right at a flat horizon, so
+          small horizon differences produce immediate contrast and layered features
+          (ridges, terraces) separate sharply; it bottoms out at
+          ${tex`e^{-1} \approx 0.37`} at a vertical wall and carries a long tail.
+          The Lambertian ${tex`\cos^2\!\alpha`} is flat at α = 0 and then accelerates,
+          collapsing to 0 at a vertical wall; the bulk of its falloff lives in small
+          α, which gives a more local effect and cleaner tile seams. Neither is more
+          correct — pick the one that reads better for the scene.
         </figcaption>
       </figure>`,
     );
@@ -1159,7 +1166,7 @@
     });
     const lsaoFalloffEl = Inputs.radio(["cos²α", "e^(−sin α)"], {
       label: "falloff",
-      value: "cos²α",
+      value: "e^(−sin α)",
     });
     lsaoControls.appendChild(lsaoSamplesEl);
     lsaoControls.appendChild(lsaoContrastEl);
