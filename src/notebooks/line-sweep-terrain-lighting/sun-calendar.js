@@ -44,13 +44,12 @@ function tzOffsetMs(date, tz) {
   return local - utc;
 }
 
-function formatMinutes(minutes, date, tz) {
+function formatMinutes(minutes) {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   const period = h >= 12 ? "PM" : "AM";
-  const abbr = tzAbbr(date, tz);
-  return `${h12}:${pad2(m)} ${period} ${abbr}`;
+  return `${h12}:${pad2(m)} ${period}`;
 }
 
 function todayISO() {
@@ -165,9 +164,7 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
 
   function updateDisplay() {
     const minutes = parseInt(timeSlider.value);
-    const tz = tzSelect.value;
-    const refDate = getSelectedDate() || new Date();
-    timeOutput.textContent = formatMinutes(minutes, refDate, tz);
+    timeOutput.textContent = formatMinutes(minutes);
   }
 
   function computeAndNotify() {

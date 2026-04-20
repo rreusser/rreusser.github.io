@@ -1276,46 +1276,120 @@ export function createTileViewer(opts) {
   resizeObserver.observe(container);
   updateCanvasSize();
 
-  // Pointer-drag panning. Screen-pixel deltas are converted into
-  // baseZoom world pixels via the current display scale so the drag
-  // feels 1:1 with the cursor regardless of fractional zoom.
+  // Pointer-drag panning + pinch-zoom. Screen-pixel deltas are converted
+  // into baseZoom world pixels via the current display scale so the
+  // gesture feels 1:1 with the cursor/finger regardless of fractional
+  // zoom. Two-finger pinch applies incremental pan + zoom per frame:
+  // pan by midpoint delta, then zoom by distance ratio anchored at the
+  // new midpoint. pinchMid/pinchDist are nulled whenever the pointer
+  // set changes so the next move re-seeds cleanly without a jump.
+  const activePointers = new Map();
   let dragging = false;
   let dragMoved = false;
   let lastX = 0;
   let lastY = 0;
+  let pinchMid = null;
+  let pinchDist = 0;
+
+  function pinchState() {
+    const it = activePointers.values();
+    const a = it.next().value;
+    const b = it.next().value;
+    return {
+      x: (a.x + b.x) * 0.5,
+      y: (a.y + b.y) * 0.5,
+      dist: Math.hypot(a.x - b.x, a.y - b.y),
+    };
+  }
+
   container.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 && e.pointerType !== "touch") return;
-    dragging = true;
-    dragMoved = false;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    container.style.cursor = "grabbing";
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try {
       container.setPointerCapture(e.pointerId);
     } catch (_) {}
     e.preventDefault();
+    if (activePointers.size === 1) {
+      dragging = true;
+      dragMoved = false;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      container.style.cursor = "grabbing";
+    } else {
+      pinchMid = null;
+      pinchDist = 0;
+      dragMoved = true;
+    }
   });
   container.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    if (dx !== 0 || dy !== 0) dragMoved = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    const scale = displayScale();
-    centerWorldX -= dx / scale;
-    centerWorldY -= dy / scale;
-    needsRender = true;
-    updateTiles();
+    const p = activePointers.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX;
+    p.y = e.clientY;
+
+    if (activePointers.size >= 2) {
+      const curr = pinchState();
+      if (pinchMid === null) {
+        pinchMid = { x: curr.x, y: curr.y };
+        pinchDist = curr.dist;
+        return;
+      }
+      const scale = displayScale();
+      centerWorldX -= (curr.x - pinchMid.x) / scale;
+      centerWorldY -= (curr.y - pinchMid.y) / scale;
+      if (pinchDist > 0 && curr.dist > 0) {
+        const dz = Math.log2(curr.dist / pinchDist);
+        if (Math.abs(dz) > 1e-6) {
+          const rect = container.getBoundingClientRect();
+          zoomTo(zoom + dz, {
+            x: curr.x - rect.left,
+            y: curr.y - rect.top,
+          });
+        }
+      }
+      pinchMid = { x: curr.x, y: curr.y };
+      pinchDist = curr.dist;
+      dragMoved = true;
+      needsRender = true;
+      updateTiles();
+    } else if (activePointers.size === 1 && dragging) {
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      if (dx !== 0 || dy !== 0) dragMoved = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      const scale = displayScale();
+      centerWorldX -= dx / scale;
+      centerWorldY -= dy / scale;
+      needsRender = true;
+      updateTiles();
+    }
   });
   const endDrag = (e) => {
-    if (!dragging) return;
-    dragging = false;
-    container.style.cursor = "grab";
+    if (!activePointers.has(e.pointerId)) return;
+    activePointers.delete(e.pointerId);
     try {
       container.releasePointerCapture(e.pointerId);
     } catch (_) {}
-    scheduleHashFlush();
+    if (activePointers.size === 1) {
+      // Fall back to single-finger pan; re-seed from the remaining
+      // pointer so lifting one finger doesn't jump the view.
+      const remaining = activePointers.values().next().value;
+      lastX = remaining.x;
+      lastY = remaining.y;
+      dragging = true;
+      pinchMid = null;
+      pinchDist = 0;
+    } else if (activePointers.size === 0) {
+      dragging = false;
+      pinchMid = null;
+      pinchDist = 0;
+      container.style.cursor = "grab";
+      scheduleHashFlush();
+    } else {
+      pinchMid = null;
+      pinchDist = 0;
+    }
   };
   container.addEventListener("pointerup", endDrag);
   container.addEventListener("pointercancel", endDrag);
