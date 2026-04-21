@@ -1780,6 +1780,49 @@
       })();
     }
   </script>
+  <script id="75" type="text/markdown">
+    ## Zoom-dependent gradient attenuation
+
+    Everything up to this point has worked on a single 512-pixel tile, where the pxSize is whatever it is and the shading math is scale-invariant: a slope of ${tex`\theta`} reads as ${tex`\theta`} regardless of what pxSize happens to be in meters. Put that same machinery into a slippy map and something ugly shows up — zoom out and the terrain turns flat, washing out both the relief and the AO far more than downsampling alone should explain.
+
+    Web map tile pyramids serve downsampled overviews at low zoom, and the downsampling has asymmetric effects on what the shading pipeline sees. *Peak elevations are largely preserved* — a summit pixel survives the pyramid because whatever resampling kernel the tile producer uses (box, bilinear, Lanczos, max-pool) leaves extrema close to their true values when the feature is concentrated. *Gradients are not preserved* — the pyramid's low-pass filter attenuates the height differences between neighboring pixels, which is exactly what relief and LSAO read from.
+
+    Probing AWS's open Terrarium tileset over four major summits makes this quantitative. Peak elevation at the summit's pixel:
+
+    | summit      | truth   | z=14    | z=10    | z=6     | z=4     |
+    |-------------|---------|---------|---------|---------|---------|
+    | Mt. Peale   | 3879 m  | 3880    | 3855    | 4009    | 3853    |
+    | Mt. Whitney | 4421    | 4414    | 4396    | 3931    | 3826    |
+    | Mt. Rainier | 4392    | 4393    | 4370    | 3974    | 3200    |
+    | Denali      | 6190    | 6167    | 6127    | 5879    | 5056    |
+
+    Mean gradient magnitude ${tex`\langle \|\nabla h\| \rangle`} across the same tiles, measured via central differences in the tile's own pxSize:
+
+    | summit      | z=14    | z=10    | z=8     | z=6     | z=4     |
+    |-------------|---------|---------|---------|---------|---------|
+    | Mt. Peale   | 0.570   | 0.183   | 0.106   | 0.048   | 0.012   |
+    | Mt. Whitney | 0.766   | 0.325   | 0.125   | 0.041   | 0.017   |
+    | Mt. Rainier | 0.484   | 0.418   | 0.214   | 0.052   | 0.022   |
+    | Denali      | 0.693   | 0.711   | 0.167   | 0.074   | 0.028   |
+
+    Peaks drop by only a few percent out to z=6 and ~15–20% at z=4. Mean gradient drops by an order of magnitude over the same range. Fitting the gradient data to a power law ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} gives ${tex`\beta \approx 0.4{-}0.55`} over the z=14→z=4 window, with ${tex`\beta`} approaching ${tex`0.5`} as the window widens. That's the rate at which a central-difference gradient inside a low-pass-filtered height field loses power: the differences in the numerator shrink as high-frequency terrain content gets averaged out, while the pxSize in the denominator grows by a factor of 2 per zoom level.
+
+    This explains the asymmetry with cast shadows. Shadow geometry is driven by peak-to-target elevation differences ${tex`\Delta h`}, which the pyramid preserves, so hard and soft shadows look about right at low zoom without intervention. Relief and LSAO are driven by ${tex`\nabla h`}, which the pyramid doesn't preserve, and they flatten visibly.
+
+    ### The correction
+
+    The fix I landed on is a horizontal contraction, applied at bake time only to the passes whose output depends on ${tex`\nabla h`}:
+
+    ${tex.block`\mathrm{pxSize}_{\text{eff}}(z) = \mathrm{pxSize}(z) \cdot 2^{(z - z_{\text{ref}}) \beta}`}
+
+    where ${tex`z_{\text{ref}}`} is the top of the pyramid (pyramid source at its native resolution). At ${tex`z = z_{\text{ref}}`} the correction is 1×; below that it shrinks the horizontal step used in the central difference for normals and in the ${tex`\mathrm{dStep}`} for the LSAO sweep, which boosts the reported slope and horizon angles. The shadow sweep uses the raw pxSize.
+
+    Contracting pxSize rather than inflating the height buffer keeps the correction narrowly scoped. The elevation array is read by the parent-tile horizon warmup, the LSAO sweep's ${tex`\Delta h`} comparisons, the hypsometric coloring in the debug render, and downstream consumers I don't want to audit — scaling it introduces coupling. pxSize appears only as a finite-difference denominator (normals) and a per-step horizontal distance (sweeps), and in both cases it's exactly the knob that controls "how much rise per run."
+
+    Theoretical ${tex`\beta \approx 0.5`} matches the empirical gradient asymptote but reads as visually overeager — features that look gently rolling at z=8 shouldn't snap to high-zoom contrast. The live viewer below defaults to ${tex`\beta = 0.3`} and exposes a slider across ${tex`[0, 1]`}; ${tex`\beta = 0`} disables the correction entirely, so you can compare.
+
+    A caveat that I haven't resolved: AWS Terrarium and Mapterhorn (the live viewer's source) aren't the same dataset and aren't guaranteed to use the same resampling algorithm, so the ${tex`\beta`} fit transfers only approximately. The slider is the right level at which to dial it in empirically against whatever your actual tileset does.
+  </script>
   <script id="68" type="text/markdown">
     ## Live WebGPU tile viewer
 
