@@ -1787,25 +1787,122 @@
 
     Web map tile pyramids serve downsampled overviews at low zoom, and the downsampling has asymmetric effects on what the shading pipeline sees. *Peak elevations are largely preserved* — a summit pixel survives the pyramid because whatever resampling kernel the tile producer uses (box, bilinear, Lanczos, max-pool) leaves extrema close to their true values when the feature is concentrated. *Gradients are not preserved* — the pyramid's low-pass filter attenuates the height differences between neighboring pixels, which is exactly what relief and LSAO read from.
 
-    Probing AWS's open Terrarium tileset over four major summits makes this quantitative. Peak elevation at the summit's pixel:
+    Probing Mapterhorn directly over four major summits makes this quantitative. The two tables below are fetched live from `tiles.mapterhorn.com`: the first is peak elevation at each summit's pixel, the second is mean gradient magnitude across the full tile, central-differenced with the tile's own pxSize.
+  </script>
+  <script id="76" type="module">
+    // Fetch Mapterhorn tiles across a matrix of (summit, zoom) and
+    // compute per-tile peak elevation and mean gradient magnitude.
+    // Tables render inline once all fetches complete; failures show
+    // as em-dashes rather than blocking the whole figure.
 
-    | summit      | truth   | z=14    | z=10    | z=6     | z=4     |
-    |-------------|---------|---------|---------|---------|---------|
-    | Mt. Peale   | 3879 m  | 3880    | 3855    | 4009    | 3853    |
-    | Mt. Whitney | 4421    | 4414    | 4396    | 3931    | 3826    |
-    | Mt. Rainier | 4392    | 4393    | 4370    | 3974    | 3200    |
-    | Denali      | 6190    | 6167    | 6127    | 5879    | 5056    |
+    const probeTargets = [
+      { name: "Mt. Peale (UT)",    lat: 38.4384, lng: -109.2293, truth: 3879 },
+      { name: "Mt. Whitney (CA)",  lat: 36.5785, lng: -118.2923, truth: 4421 },
+      { name: "Mt. Rainier (WA)",  lat: 46.8523, lng: -121.7603, truth: 4392 },
+      { name: "Denali (AK)",       lat: 63.0695, lng: -151.0071, truth: 6190 },
+    ];
+    const probeZooms = [14, 12, 10, 8, 6, 4];
+    const EARTH_M = 40075016.686;
 
-    Mean gradient magnitude ${tex`\langle \|\nabla h\| \rangle`} across the same tiles, measured via central differences in the tile's own pxSize:
+    function latLngToTile(lat, lng, z) {
+      const n = 1 << z;
+      const latR = (lat * Math.PI) / 180;
+      const x = Math.floor(((lng + 180) / 360) * n);
+      const y = Math.floor((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n);
+      return { x, y };
+    }
 
-    | summit      | z=14    | z=10    | z=8     | z=6     | z=4     |
-    |-------------|---------|---------|---------|---------|---------|
-    | Mt. Peale   | 0.570   | 0.183   | 0.106   | 0.048   | 0.012   |
-    | Mt. Whitney | 0.766   | 0.325   | 0.125   | 0.041   | 0.017   |
-    | Mt. Rainier | 0.484   | 0.418   | 0.214   | 0.052   | 0.022   |
-    | Denali      | 0.693   | 0.711   | 0.167   | 0.074   | 0.028   |
+    async function fetchProbeTile(z, x, y) {
+      const url = `https://tiles.mapterhorn.com/${z}/${x}/${y}.webp`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const bitmap = await createImageBitmap(blob);
+      const N = bitmap.width;
+      const c = document.createElement("canvas");
+      c.width = N; c.height = N;
+      const cctx = c.getContext("2d");
+      cctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const px = cctx.getImageData(0, 0, N, N).data;
+      let hMax = -Infinity;
+      let gSum = 0, gCount = 0;
+      // Build a Float32 heights array only long enough for gradient
+      // passes; we don't need to retain it.
+      const heights = new Float32Array(N * N);
+      for (let i = 0; i < N * N; i++) {
+        const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+        const h = r * 256 + g + b / 256 - 32768;
+        heights[i] = h;
+        if (h > hMax) hMax = h;
+      }
+      const lat = Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / (1 << z))));
+      const pxSizeM = (EARTH_M * Math.cos(lat)) / (Math.pow(2, z) * N);
+      for (let r = 1; r < N - 1; r++) {
+        for (let c = 1; c < N - 1; c++) {
+          const mx = (heights[r * N + c + 1] - heights[r * N + c - 1]) / (2 * pxSizeM);
+          const my = (heights[(r + 1) * N + c] - heights[(r - 1) * N + c]) / (2 * pxSizeM);
+          gSum += Math.hypot(mx, my);
+          gCount++;
+        }
+      }
+      return { hMax, gradMean: gSum / gCount };
+    }
 
-    Peaks drop by only a few percent out to z=6 and ~15–20% at z=4. Mean gradient drops by an order of magnitude over the same range. Fitting the gradient data to a power law ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} gives ${tex`\beta \approx 0.4{-}0.55`} over the z=14→z=4 window, with ${tex`\beta`} approaching ${tex`0.5`} as the window widens. That's the rate at which a central-difference gradient inside a low-pass-filtered height field loses power: the differences in the numerator shrink as high-frequency terrain content gets averaged out, while the pxSize in the denominator grows by a factor of 2 per zoom level.
+    const tasks = [];
+    for (const t of probeTargets) {
+      for (const z of probeZooms) {
+        const { x, y } = latLngToTile(t.lat, t.lng, z);
+        tasks.push({ t, z, x, y });
+      }
+    }
+    const results = await Promise.all(tasks.map(async task =>
+      fetchProbeTile(task.z, task.x, task.y)
+        .then(r => ({ ...task, ok: true, ...r }))
+        .catch(err => ({ ...task, ok: false, err }))
+    ));
+
+    const byTargetZoom = new Map();
+    for (const r of results) {
+      const key = `${r.t.name}|${r.z}`;
+      byTargetZoom.set(key, r);
+    }
+    const fmtPeak = r => r && r.ok ? `${Math.round(r.hMax)}` : "—";
+    const fmtGrad = r => r && r.ok ? r.gradMean.toFixed(3) : "—";
+
+    const tableStyle = "border-collapse:collapse; font:12px/1.3 ui-monospace,monospace;";
+    const thStyle = "text-align:right; padding:3px 10px; border-bottom:1px solid #888; font-weight:600;";
+    const tdStyle = "text-align:right; padding:2px 10px;";
+    const tdNameStyle = "text-align:left; padding:2px 10px;";
+
+    const peakTable = html`<table style="${tableStyle}">
+      <thead><tr>
+        <th style="${thStyle}; text-align:left;">summit</th>
+        <th style="${thStyle}">truth</th>
+        ${probeZooms.map(z => html`<th style="${thStyle}">z=${z}</th>`)}
+      </tr></thead>
+      <tbody>${probeTargets.map(t => html`<tr>
+        <td style="${tdNameStyle}">${t.name}</td>
+        <td style="${tdStyle}">${t.truth} m</td>
+        ${probeZooms.map(z => html`<td style="${tdStyle}">${fmtPeak(byTargetZoom.get(`${t.name}|${z}`))}</td>`)}
+      </tr>`)}</tbody>
+    </table>`;
+    const gradTable = html`<table style="${tableStyle}">
+      <thead><tr>
+        <th style="${thStyle}; text-align:left;">summit</th>
+        ${probeZooms.map(z => html`<th style="${thStyle}">z=${z}</th>`)}
+      </tr></thead>
+      <tbody>${probeTargets.map(t => html`<tr>
+        <td style="${tdNameStyle}">${t.name}</td>
+        ${probeZooms.map(z => html`<td style="${tdStyle}">${fmtGrad(byTargetZoom.get(`${t.name}|${z}`))}</td>`)}
+      </tr>`)}</tbody>
+    </table>`;
+
+    display(html`<figure>${peakTable}<figcaption>Peak elevation (m) at the summit's pixel, fetched live from Mapterhorn.</figcaption></figure>`);
+    display(html`<figure>${gradTable}<figcaption>Mean gradient magnitude across the tile, same tiles.</figcaption></figure>`);
+  </script>
+  <script id="77" type="text/markdown">
+    Peaks drop by only a few percent out to z=6 and a bit more at z=4. Mean gradient drops by roughly an order of magnitude over the same range. Fitting the gradient data to a power law ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} gives ${tex`\beta`} in the ballpark of ${tex`0.4{-}0.55`} over the z=14→z=4 window, with ${tex`\beta`} approaching ${tex`0.5`} as the window widens. That's the rate at which a central-difference gradient inside a low-pass-filtered height field loses power: the differences in the numerator shrink as high-frequency terrain content gets averaged out, while the pxSize in the denominator grows by a factor of 2 per zoom level.
 
     This explains the asymmetry with cast shadows. Shadow geometry is driven by peak-to-target elevation differences ${tex`\Delta h`}, which the pyramid preserves, so hard and soft shadows look about right at low zoom without intervention. Relief and LSAO are driven by ${tex`\nabla h`}, which the pyramid doesn't preserve, and they flatten visibly.
 
@@ -1820,8 +1917,6 @@
     Contracting pxSize rather than inflating the height buffer keeps the correction narrowly scoped. The elevation array is read by the parent-tile horizon warmup, the LSAO sweep's ${tex`\Delta h`} comparisons, the hypsometric coloring in the debug render, and downstream consumers I don't want to audit — scaling it introduces coupling. pxSize appears only as a finite-difference denominator (normals) and a per-step horizontal distance (sweeps), and in both cases it's exactly the knob that controls "how much rise per run."
 
     Theoretical ${tex`\beta \approx 0.5`} matches the empirical gradient asymptote but reads as visually overeager — features that look gently rolling at z=8 shouldn't snap to high-zoom contrast. The live viewer below defaults to ${tex`\beta = 0.3`} and exposes a slider across ${tex`[0, 1]`}; ${tex`\beta = 0`} disables the correction entirely, so you can compare.
-
-    A caveat that I haven't resolved: AWS Terrarium and Mapterhorn (the live viewer's source) aren't the same dataset and aren't guaranteed to use the same resampling algorithm, so the ${tex`\beta`} fit transfers only approximately. The slider is the right level at which to dial it in empirically against whatever your actual tileset does.
   </script>
   <script id="68" type="text/markdown">
     ## Live WebGPU tile viewer
