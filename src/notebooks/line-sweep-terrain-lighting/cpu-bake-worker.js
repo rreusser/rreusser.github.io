@@ -128,9 +128,13 @@ self.onmessage = (e) => {
   const msg = e.data;
   switch (msg.type) {
     case "bake": {
-      const { z, x, y, heights, N, pxSizeM, aoPxSizeM, horizon, HN,
+      const { z, x, y, heights, N, pxSizeM, normalsPxSizeM, aoPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff } = msg;
-      const { nx, ny } = computeNormals(heights, N, pxSizeM);
+      // Normals and LSAO use the β-corrected pxSize so low-zoom
+      // gradients stay visually consistent with high-zoom ones.
+      // The shadow sweep uses raw pxSize so shadow geometry tracks
+      // real elevation differences rather than inflated ones.
+      const { nx, ny } = computeNormals(heights, N, normalsPxSizeM || pxSizeM);
       const ao = computeLSAO(heights, N, aoPxSizeM || pxSizeM, horizon, HN, lsaoFalloff);
       const shadow = computeShadow(heights, N, pxSizeM, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples);

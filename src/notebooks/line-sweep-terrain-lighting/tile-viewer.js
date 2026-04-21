@@ -120,6 +120,13 @@ function tilePxSizeMRef(z, N) {
 // angles. β ≈ 0.5 was empirically calibrated against AWS terrarium
 // tiles over four summits — see the mapterhorn probe in /tmp. The
 // reference zoom is the viewer's native data zoom (maxZoom).
+//
+// This correction is applied only to the normals and LSAO sweeps,
+// where what you're visualizing is the terrain's characteristic
+// gradient — which is what downsampling attenuates. Cast shadows use
+// the raw pxSize: their geometry is governed by peak-to-target
+// elevation differences, which survive downsampling well, so
+// compensating there would artificially lengthen low-zoom shadows.
 function pxSizeCorrection(z, zRef, beta) {
   if (!beta) return 1;
   return Math.pow(2, (z - zRef) * beta);
@@ -630,10 +637,12 @@ export function createTileViewer(opts) {
         if (lighting.bakeMode === "cpu") {
           // ---- CPU bake path ----
           const pxCorr = pxSizeCorrection(this.z, maxZoom, lighting.reliefBeta);
-          const pxSizeM = tilePxSizeM(this.z, this.y, compN) * pxCorr;
+          const pxSizeM = tilePxSizeM(this.z, this.y, compN);
+          const normalsPxSizeM = pxSizeM * pxCorr;
           const aoPxSizeM = tilePxSizeMRef(this.z, compN) * pxCorr;
           // Store copies for later shadow rebakes (originals will be
-          // transferred to the worker and neutered).
+          // transferred to the worker and neutered). Shadow rebakes
+          // use the raw pxSize so they don't inherit the β contraction.
           this._heights = new Float32Array(comp.heights);
           this._horizon = new Float32Array(horizon.heights);
           this._horizonHN = HN;
@@ -651,6 +660,7 @@ export function createTileViewer(opts) {
             heights: new Float32Array(comp.heights),
             N: compN,
             pxSizeM,
+            normalsPxSizeM,
             aoPxSizeM,
             horizon: new Float32Array(horizon.heights),
             HN,
@@ -741,13 +751,16 @@ export function createTileViewer(opts) {
   // ------------------------------------------------------------------
   function runStaticBake(tile, compN) {
     const pxCorr = pxSizeCorrection(tile.z, maxZoom, lighting.reliefBeta);
-    const pxSizeM = tilePxSizeM(tile.z, tile.y, compN) * pxCorr;
+    // The static bake only produces normals + LSAO; both get the
+    // β-contracted pxSize. The shadow pass uses the raw pxSize,
+    // applied in the shadow-rebake below.
+    const normalsPxSizeM = tilePxSizeM(tile.z, tile.y, compN) * pxCorr;
     const aoPxSizeM = tilePxSizeMRef(tile.z, compN) * pxCorr;
 
     // Small normals uniform: { N: u32, pxSizeM: f32, pad, pad }
     const normalsBuf = new ArrayBuffer(16);
     new Uint32Array(normalsBuf, 0, 1)[0] = compN;
-    new Float32Array(normalsBuf, 4, 1)[0] = pxSizeM;
+    new Float32Array(normalsBuf, 4, 1)[0] = normalsPxSizeM;
     device.queue.writeBuffer(bakeRes.normalsUniform, 0, normalsBuf);
 
     // Pre-compute + write 8 LSAO sweep uniforms into the pool. Unlike
@@ -925,8 +938,8 @@ export function createTileViewer(opts) {
 
     for (let tIdx = 0; tIdx < visible.length; tIdx++) {
       const tile = visible[tIdx];
-      const pxCorr = pxSizeCorrection(tile.z, maxZoom, lighting.reliefBeta);
-      const pxSizeM = tilePxSizeM(tile.z, tile.y, bakeN) * pxCorr;
+      // Shadow sweep uses raw pxSize — see pxSizeCorrection docstring.
+      const pxSizeM = tilePxSizeM(tile.z, tile.y, bakeN);
 
       // Pre-compute all N sweeps for this tile and pack their
       // uniforms into the first N pool slots. writeBuffer is queued
