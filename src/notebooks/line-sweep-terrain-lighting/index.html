@@ -1783,11 +1783,11 @@
   <script id="75" type="text/markdown">
     ## Zoom-dependent gradient attenuation
 
-    Everything up to this point has worked on a single 512-pixel tile, where the pxSize is whatever it is and the shading math is scale-invariant: a slope of ${tex`\theta`} reads as ${tex`\theta`} regardless of what pxSize happens to be in meters. Put that same machinery into a slippy map and something ugly shows up — zoom out and the terrain turns flat, washing out both the relief and the AO far more than downsampling alone should explain.
+    The single-tile figures above are scale-invariant: a slope of ${tex`\theta`} reads as ${tex`\theta`} regardless of pxSize. Put the same machinery into a slippy map and terrain visibly flattens at low zoom — more than simple downsampling should account for.
 
-    Web map tile pyramids serve downsampled overviews at low zoom, and the downsampling has asymmetric effects on what the shading pipeline sees. *Peak elevations are largely preserved* — a summit pixel survives the pyramid because whatever resampling kernel the tile producer uses (box, bilinear, Lanczos, max-pool) leaves extrema close to their true values when the feature is concentrated. *Gradients are not preserved* — the pyramid's low-pass filter attenuates the height differences between neighboring pixels, which is exactly what relief and LSAO read from.
+    Tile pyramids are asymmetric. Peak elevations survive the downsample chain — extrema of concentrated features come through close to their true value under any reasonable resampling kernel — but the gradient field between them doesn't. The numerator of a central difference gets low-passed while the denominator grows by a factor of 2 per zoom step, so low-zoom tiles systematically under-report slope.
 
-    Probing Mapterhorn directly over four major summits makes this quantitative. The two tables below are fetched live from `tiles.mapterhorn.com`: the first is peak elevation at each summit's pixel, the second is mean gradient magnitude across the full tile, central-differenced with the tile's own pxSize.
+    The tables below probe this live against Mapterhorn: peak elevation at each summit's pixel, then mean gradient magnitude across the full tile, across four zoom levels.
   </script>
   <script id="76" type="module">
     // Fetch Mapterhorn tiles across a matrix of (summit, zoom) and
@@ -1902,23 +1902,19 @@
     display(html`<figure>${gradTable}<figcaption>Mean gradient magnitude across the tile, same tiles.</figcaption></figure>`);
   </script>
   <script id="77" type="text/markdown">
-    Peaks drop by only a few percent out to z=6 and a bit more at z=4. Mean gradient drops by roughly an order of magnitude over the same range. Fitting the gradient data to a power law ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} gives ${tex`\beta`} in the ballpark of ${tex`0.4{-}0.55`} over the z=14→z=4 window, with ${tex`\beta`} approaching ${tex`0.5`} as the window widens. That's the rate at which a central-difference gradient inside a low-pass-filtered height field loses power: the differences in the numerator shrink as high-frequency terrain content gets averaged out, while the pxSize in the denominator grows by a factor of 2 per zoom level.
+    Peaks drop a few percent out to z=6 and a bit more at z=4; mean gradient drops by an order of magnitude over the same range. A power-law fit ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} gives ${tex`\beta`} in the ballpark of ${tex`0.4{-}0.55`}, approaching ${tex`0.5`} as the window widens.
 
-    This explains the asymmetry with cast shadows. Shadow geometry is driven by peak-to-target elevation differences ${tex`\Delta h`}, which the pyramid preserves, so hard and soft shadows look about right at low zoom without intervention. Relief and LSAO are driven by ${tex`\nabla h`}, which the pyramid doesn't preserve, and they flatten visibly.
+    This splits the passes by what they read. Cast shadows are driven by ${tex`\Delta h`}, which the pyramid preserves, so they look fine at low zoom. Relief and LSAO are driven by ${tex`\nabla h`}, which it doesn't, and they flatten visibly.
 
     ### The correction
 
-    The fix I landed on is a horizontal contraction, applied at bake time only to the passes whose output depends on ${tex`\nabla h`}:
-
     ${tex.block`\mathrm{pxSize}_{\text{eff}}(z) = \mathrm{pxSize}(z) \cdot 2^{(z - z_{\text{ref}}) \beta}`}
 
-    where ${tex`z_{\text{ref}}`} is the top of the pyramid (pyramid source at its native resolution). At ${tex`z = z_{\text{ref}}`} the correction is 1×; below that it shrinks the horizontal step used in the central difference for normals and in the ${tex`\mathrm{dStep}`} for the LSAO sweep, which boosts the reported slope and horizon angles. The shadow sweep uses the raw pxSize.
+    Applied only to the ${tex`\nabla h`} passes, with ${tex`z_{\text{ref}}`} the native data zoom. At ${tex`z_{\text{ref}}`} the correction is 1×; below it shrinks the horizontal step, which boosts slope and horizon angles. Contracting pxSize rather than inflating heights keeps the elevation buffer untouched — the horizon warmup, hypsometric coloring, and every cross-pass ${tex`\Delta h`} comparison keep reading real meters.
 
-    Contracting pxSize rather than inflating the height buffer keeps the correction narrowly scoped. The elevation array is read by the parent-tile horizon warmup, the LSAO sweep's ${tex`\Delta h`} comparisons, the hypsometric coloring in the debug render, and downstream consumers I don't want to audit — scaling it introduces coupling. pxSize appears only as a finite-difference denominator (normals) and a per-step horizontal distance (sweeps), and in both cases it's exactly the knob that controls "how much rise per run."
+    A related per-row fix runs alongside: pxSize itself is latitude-dependent via ${tex`\cos(\mathrm{lat})`}, and at low zoom one tile spans enough latitude that a single tile-centroid value leaves slope seams at every horizontal tile boundary. Every pass now derives ${tex`\cos(\mathrm{lat})`} per row from each pixel's own mercator coordinate. Inside the sweep kernels each target holds its row's pxSize constant across the inner hull scan — an approximation invisible at tile-sweep range.
 
-    One more subtlety shows up once ${tex`\beta`} is cranked at low zoom: the raw pxSize itself is latitude-dependent via ${tex`\cos(\mathrm{lat})`}, and a single tile at z=4 spans enough latitude that using a tile-centroid ${tex`\cos(\mathrm{lat})`} leaves visible slope discontinuities at tile seams — the north edge of one tile disagrees with the south edge of its neighbour. Every pass that reads pxSize (normals, LSAO, shadow) now derives ${tex`\cos(\mathrm{lat})`} per row from the pixel's own mercator coordinate, which costs a handful of trig ops per pixel and buys continuity across every horizontal seam in the grid. For the sweep kernels, each target pixel sees a constant pxSize across its own inner hull scan — blockers behind the target are assumed to share its row latitude — which is an approximation that's invisible at the scale of a single tile's sweep range and avoids a per-hull-entry lookup in the hot path.
-
-    Theoretical ${tex`\beta \approx 0.5`} matches the empirical gradient asymptote but reads as visually overeager — features that look gently rolling at z=8 shouldn't snap to high-zoom contrast. The live viewer below defaults to ${tex`\beta = 0.3`} and exposes a slider across ${tex`[0, 1]`}; ${tex`\beta = 0`} disables the correction entirely, so you can compare.
+    Theoretical ${tex`\beta \approx 0.5`} matches the asymptote but reads visually overeager. The viewer defaults to ${tex`\beta = 0.3`}; ${tex`\beta = 0`} disables the correction for comparison.
   </script>
   <script id="68" type="text/markdown">
     ## Live WebGPU tile viewer
@@ -1949,7 +1945,7 @@
     );
     const strengthEl = Inputs.range([0, 1], {
       label: "relief strength",
-      value: 0.2,
+      value: 0.28,
       step: 0.01,
     });
     const aoEl = Inputs.range([0, 1], {
