@@ -526,9 +526,11 @@ export function createTileViewer(opts) {
     bakeMode: "cpu",
     lsaoFalloff: "exp",
     // β for zoom-dependent pxSize contraction. 0 disables the
-    // correction (raw pxSize used); ~0.5 matches the empirical
-    // attenuation of tile-pyramid gradient magnitude.
-    reliefBeta: 0.5,
+    // correction (raw pxSize used); β = 0.5 matches the empirical
+    // mean-gradient attenuation asymptote. In practice that's
+    // visually too strong — subjective preference sits around 0.3
+    // (half the theoretical compensation).
+    reliefBeta: 0.3,
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
