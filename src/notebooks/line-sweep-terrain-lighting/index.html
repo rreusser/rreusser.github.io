@@ -1916,6 +1916,8 @@
 
     Contracting pxSize rather than inflating the height buffer keeps the correction narrowly scoped. The elevation array is read by the parent-tile horizon warmup, the LSAO sweep's ${tex`\Delta h`} comparisons, the hypsometric coloring in the debug render, and downstream consumers I don't want to audit — scaling it introduces coupling. pxSize appears only as a finite-difference denominator (normals) and a per-step horizontal distance (sweeps), and in both cases it's exactly the knob that controls "how much rise per run."
 
+    One more subtlety shows up once ${tex`\beta`} is cranked at low zoom: the raw pxSize itself is latitude-dependent via ${tex`\cos(\mathrm{lat})`}, and a single tile at z=4 spans enough latitude that using a tile-centroid ${tex`\cos(\mathrm{lat})`} leaves visible slope discontinuities at tile seams — the north edge of one tile disagrees with the south edge of its neighbour. The normals shader fixes this by recomputing ${tex`\cos(\mathrm{lat})`} per row from the pixel's own mercator coordinate, which costs a handful of trig ops per pixel and buys continuity across every horizontal seam in the grid. LSAO is already continuous across those seams because its sweep uses the equatorial (latitude-independent) pxSize by construction.
+
     Theoretical ${tex`\beta \approx 0.5`} matches the empirical gradient asymptote but reads as visually overeager — features that look gently rolling at z=8 shouldn't snap to high-zoom contrast. The live viewer below defaults to ${tex`\beta = 0.3`} and exposes a slider across ${tex`[0, 1]`}; ${tex`\beta = 0`} disables the correction entirely, so you can compare.
   </script>
   <script id="68" type="text/markdown">

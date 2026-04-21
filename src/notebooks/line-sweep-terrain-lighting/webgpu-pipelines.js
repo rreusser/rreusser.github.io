@@ -684,15 +684,33 @@ export function getNormalsBindGroupLayout(device) {
 const normalsCode = /* wgsl */ `
 struct NormalsUniforms {
   N: u32,
-  pxSizeM: f32,
-  pad0: f32,
-  pad1: f32,
+  tileY: u32,
+  z: u32,
+  eqPxSizeM: f32,
 };
 
 @group(0) @binding(0) var<uniform> nu: NormalsUniforms;
 @group(0) @binding(1) var<storage, read> elev: array<f32>;
 @group(0) @binding(2) var<storage, read_write> nxBuf: array<f32>;
 @group(0) @binding(3) var<storage, read_write> nyBuf: array<f32>;
+
+// Per-pixel latitude correction for pxSize. At low zoom a tile spans a
+// meaningful chunk of latitude, so using a single tile-centroid pxSize
+// (what we did originally) produces visible slope discontinuities at
+// tile boundaries — the north edge of one tile and the south edge of
+// its northern neighbour disagree on cos(lat). Computing pxSize from
+// the current row's own latitude makes both sides of the seam agree.
+// The seam-free equivalent for LSAO is already handled by binding the
+// equatorial pxSize into that path.
+const PI_F: f32 = 3.14159265358979323846;
+
+fn pxSizeAtRow(row: u32) -> f32 {
+  let worldRow = f32(nu.tileY) * f32(nu.N) + f32(row) + 0.5;
+  let nFull = f32(1u << nu.z) * f32(nu.N);
+  let nMerc = PI_F * (1.0 - 2.0 * worldRow / nFull);
+  let lat = atan(sinh(nMerc));
+  return nu.eqPxSizeM * cos(lat);
+}
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -707,8 +725,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let cp = u32(min(cI + 1, Ni - 1));
   let rm = u32(max(rI - 1, 0));
   let rp = u32(min(rI + 1, Ni - 1));
-  let dCol = f32(cp - cm) * nu.pxSizeM;
-  let dRow = f32(rp - rm) * nu.pxSizeM;
+  // cos(lat) varies continuously with row, so averaging the two
+  // neighbouring rows' pxSize for dRow cancels the leading-order y
+  // gradient of the correction. dCol is evaluated purely at this row.
+  let pxThis = pxSizeAtRow(row);
+  let pxN = pxSizeAtRow(rm);
+  let pxS = pxSizeAtRow(rp);
+  let dCol = f32(cp - cm) * pxThis;
+  let dRow = f32(rp - rm) * 0.5 * (pxN + pxS);
   let eN_ = elev[rm * N + col];
   let eS_ = elev[rp * N + col];
   let eE_ = elev[row * N + cp];

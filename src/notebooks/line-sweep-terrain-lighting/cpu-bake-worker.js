@@ -19,17 +19,30 @@ import { sweepCore } from "./sweep-core.js";
 const AO_DIRECTIONS = 8;
 const AO_GAMMA = 2.0;
 
-function computeNormals(heights, N, pxSizeM) {
+function computeNormals(heights, N, eqPxSizeM, z, tileY) {
   const nx = new Float32Array(N * N);
   const ny = new Float32Array(N * N);
+  const nFull = Math.pow(2, z) * N;
+  // Precompute pxSize per row. At low zoom a tile spans enough
+  // latitude that using a single cos(lat) factor produces visible
+  // discontinuities at tile seams. cos(lat) at this pixel row picks
+  // up the local value instead.
+  const rowPx = new Float32Array(N);
+  for (let r = 0; r < N; r++) {
+    const worldRow = tileY * N + r + 0.5;
+    const nMerc = Math.PI * (1 - (2 * worldRow) / nFull);
+    const lat = Math.atan(Math.sinh(nMerc));
+    rowPx[r] = eqPxSizeM * Math.cos(lat);
+  }
   for (let row = 0; row < N; row++) {
     for (let col = 0; col < N; col++) {
       const cm = Math.max(col - 1, 0);
       const cp = Math.min(col + 1, N - 1);
       const rm = Math.max(row - 1, 0);
       const rp = Math.min(row + 1, N - 1);
-      const dCol = (cp - cm) * pxSizeM;
-      const dRow = (rp - rm) * pxSizeM;
+      const pxThis = rowPx[row];
+      const dCol = (cp - cm) * pxThis;
+      const dRow = (rp - rm) * 0.5 * (rowPx[rm] + rowPx[rp]);
       const eW = heights[row * N + cm];
       const eE = heights[row * N + cp];
       const eN = heights[rm * N + col];
@@ -128,13 +141,16 @@ self.onmessage = (e) => {
   const msg = e.data;
   switch (msg.type) {
     case "bake": {
-      const { z, x, y, heights, N, pxSizeM, normalsPxSizeM, aoPxSizeM, horizon, HN,
+      const { z, x, y, heights, N, pxSizeM, eqPxSizeM, aoPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff } = msg;
-      // Normals and LSAO use the β-corrected pxSize so low-zoom
-      // gradients stay visually consistent with high-zoom ones.
-      // The shadow sweep uses raw pxSize so shadow geometry tracks
-      // real elevation differences rather than inflated ones.
-      const { nx, ny } = computeNormals(heights, N, normalsPxSizeM || pxSizeM);
+      // Normals use the β-corrected equatorial pxSize and apply
+      // per-row cos(lat) inside computeNormals so tile-boundary
+      // discontinuities from a single tile-centroid latitude don't
+      // survive. LSAO uses the equatorial pxSize × β directly —
+      // occlusion strength is intentionally latitude-free for seam
+      // continuity. The shadow sweep uses raw pxSize so shadow
+      // geometry tracks real elevation differences.
+      const { nx, ny } = computeNormals(heights, N, eqPxSizeM, z, y);
       const ao = computeLSAO(heights, N, aoPxSizeM || pxSizeM, horizon, HN, lsaoFalloff);
       const shadow = computeShadow(heights, N, pxSizeM, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples);

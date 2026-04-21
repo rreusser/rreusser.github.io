@@ -639,9 +639,12 @@ export function createTileViewer(opts) {
         if (lighting.bakeMode === "cpu") {
           // ---- CPU bake path ----
           const pxCorr = pxSizeCorrection(this.z, maxZoom, lighting.reliefBeta);
+          // Raw tile-centroid pxSize for the shadow sweep. LSAO and
+          // normals both operate off the equatorial pxSize × β; the
+          // normals worker applies per-row cos(lat) internally.
           const pxSizeM = tilePxSizeM(this.z, this.y, compN);
-          const normalsPxSizeM = pxSizeM * pxCorr;
-          const aoPxSizeM = tilePxSizeMRef(this.z, compN) * pxCorr;
+          const eqPxSizeM = tilePxSizeMRef(this.z, compN) * pxCorr;
+          const aoPxSizeM = eqPxSizeM;
           // Store copies for later shadow rebakes (originals will be
           // transferred to the worker and neutered). Shadow rebakes
           // use the raw pxSize so they don't inherit the β contraction.
@@ -662,7 +665,7 @@ export function createTileViewer(opts) {
             heights: new Float32Array(comp.heights),
             N: compN,
             pxSizeM,
-            normalsPxSizeM,
+            eqPxSizeM,
             aoPxSizeM,
             horizon: new Float32Array(horizon.heights),
             HN,
@@ -753,16 +756,23 @@ export function createTileViewer(opts) {
   // ------------------------------------------------------------------
   function runStaticBake(tile, compN) {
     const pxCorr = pxSizeCorrection(tile.z, maxZoom, lighting.reliefBeta);
-    // The static bake only produces normals + LSAO; both get the
-    // β-contracted pxSize. The shadow pass uses the raw pxSize,
-    // applied in the shadow-rebake below.
-    const normalsPxSizeM = tilePxSizeM(tile.z, tile.y, compN) * pxCorr;
-    const aoPxSizeM = tilePxSizeMRef(tile.z, compN) * pxCorr;
+    // The static bake only produces normals + LSAO. LSAO uses the
+    // equatorial (latitude-independent) pxSize × β so occlusion
+    // strength is continuous across latitude bands. Normals get the
+    // β-contracted equatorial pxSize too; the shader then applies the
+    // per-pixel cos(lat) factor to restore actual horizontal scale
+    // while avoiding tile-boundary discontinuities.
+    const eqPxSizeM = tilePxSizeMRef(tile.z, compN) * pxCorr;
+    const aoPxSizeM = eqPxSizeM;
 
-    // Small normals uniform: { N: u32, pxSizeM: f32, pad, pad }
+    // Normals uniform: { N: u32, tileY: u32, z: u32, eqPxSizeM: f32 }
     const normalsBuf = new ArrayBuffer(16);
-    new Uint32Array(normalsBuf, 0, 1)[0] = compN;
-    new Float32Array(normalsBuf, 4, 1)[0] = normalsPxSizeM;
+    const normalsU32 = new Uint32Array(normalsBuf);
+    const normalsF32 = new Float32Array(normalsBuf);
+    normalsU32[0] = compN;
+    normalsU32[1] = tile.y;
+    normalsU32[2] = tile.z;
+    normalsF32[3] = eqPxSizeM;
     device.queue.writeBuffer(bakeRes.normalsUniform, 0, normalsBuf);
 
     // Pre-compute + write 8 LSAO sweep uniforms into the pool. Unlike
