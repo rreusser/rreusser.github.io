@@ -1837,6 +1837,11 @@
       label: "AO falloff",
       value: "e^(−sin α)",
     });
+    const zoomExagEl = Inputs.range([0, 1], {
+      label: "zoom exaggeration β",
+      value: 0.5,
+      step: 0.01,
+    });
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1850,6 +1855,7 @@
     tileViewerControlsDiv.appendChild(sunDiameterEl);
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
     tileViewerControlsDiv.appendChild(aoFalloffEl);
+    tileViewerControlsDiv.appendChild(zoomExagEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
     const tileViewerControls = {
@@ -1860,6 +1866,7 @@
       sunDiameterEl,
       shadowSamplesEl,
       aoFalloffEl,
+      zoomExagEl,
     };
   </script>
   <script id="72" type="module">
@@ -1973,6 +1980,7 @@
         );
         const isDebug = c.bakeModeEl.value === "debug";
         const lsaoFalloff = c.aoFalloffEl.value === "e^(−sin α)" ? "exp" : "cos2";
+        const reliefBeta = Number(c.zoomExagEl.value);
         viewer.setLighting({
           sunX,
           sunY,
@@ -1988,6 +1996,7 @@
           reliefStrength,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
           lsaoFalloff,
+          reliefBeta,
         });
         requestAnimationFrame(tickLighting);
       };

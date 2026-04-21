@@ -107,6 +107,24 @@ function tilePxSizeMRef(z, N) {
   return EARTH_CIRCUMFERENCE_M / (Math.pow(2, z) * N);
 }
 
+// Zoom-dependent vertical-exaggeration correction, implemented as a
+// horizontal contraction rather than a vertical inflation so the
+// elevation buffer stays untouched (and its other uses — horizon
+// comparisons, hypsometric coloring, cross-pass consistency — are
+// unaffected). For target β:
+//
+//   pxSize_effective(z) = pxSize(z) · 2^((z − zRef) · β)
+//
+// At z = zRef the correction is 1×; at z < zRef it shrinks pxSize,
+// which boosts both the normals' gradient magnitude and LSAO's horizon
+// angles. β ≈ 0.5 was empirically calibrated against AWS terrarium
+// tiles over four summits — see the mapterhorn probe in /tmp. The
+// reference zoom is the viewer's native data zoom (maxZoom).
+function pxSizeCorrection(z, zRef, beta) {
+  if (!beta) return 1;
+  return Math.pow(2, (z - zRef) * beta);
+}
+
 const SHADER = /* wgsl */ `
 struct Global {
   viewportPx: vec4<f32>,   // xy = viewport size, z = shadingMode (0=lambertian,1=relief), w = reliefStrength
@@ -500,6 +518,10 @@ export function createTileViewer(opts) {
     reliefStrength: 1,
     bakeMode: "cpu",
     lsaoFalloff: "exp",
+    // β for zoom-dependent pxSize contraction. 0 disables the
+    // correction (raw pxSize used); ~0.5 matches the empirical
+    // attenuation of tile-pyramid gradient magnitude.
+    reliefBeta: 0.5,
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -607,8 +629,9 @@ export function createTileViewer(opts) {
 
         if (lighting.bakeMode === "cpu") {
           // ---- CPU bake path ----
-          const pxSizeM = tilePxSizeM(this.z, this.y, compN);
-          const aoPxSizeM = tilePxSizeMRef(this.z, compN);
+          const pxCorr = pxSizeCorrection(this.z, maxZoom, lighting.reliefBeta);
+          const pxSizeM = tilePxSizeM(this.z, this.y, compN) * pxCorr;
+          const aoPxSizeM = tilePxSizeMRef(this.z, compN) * pxCorr;
           // Store copies for later shadow rebakes (originals will be
           // transferred to the worker and neutered).
           this._heights = new Float32Array(comp.heights);
@@ -717,8 +740,9 @@ export function createTileViewer(opts) {
   // once the tile is ready.
   // ------------------------------------------------------------------
   function runStaticBake(tile, compN) {
-    const pxSizeM = tilePxSizeM(tile.z, tile.y, compN);
-    const aoPxSizeM = tilePxSizeMRef(tile.z, compN);
+    const pxCorr = pxSizeCorrection(tile.z, maxZoom, lighting.reliefBeta);
+    const pxSizeM = tilePxSizeM(tile.z, tile.y, compN) * pxCorr;
+    const aoPxSizeM = tilePxSizeMRef(tile.z, compN) * pxCorr;
 
     // Small normals uniform: { N: u32, pxSizeM: f32, pad, pad }
     const normalsBuf = new ArrayBuffer(16);
@@ -901,7 +925,8 @@ export function createTileViewer(opts) {
 
     for (let tIdx = 0; tIdx < visible.length; tIdx++) {
       const tile = visible[tIdx];
-      const pxSizeM = tilePxSizeM(tile.z, tile.y, bakeN);
+      const pxCorr = pxSizeCorrection(tile.z, maxZoom, lighting.reliefBeta);
+      const pxSizeM = tilePxSizeM(tile.z, tile.y, bakeN) * pxCorr;
 
       // Pre-compute all N sweeps for this tile and pack their
       // uniforms into the first N pool slots. writeBuffer is queued
@@ -1465,6 +1490,7 @@ export function createTileViewer(opts) {
       const prevS = lighting.shadowSamples;
       const prevMode = lighting.bakeMode;
       const prevFalloff = lighting.lsaoFalloff;
+      const prevBeta = lighting.reliefBeta;
       const wasInteracting = lighting.sunInteracting;
       Object.assign(lighting, state);
       if (
@@ -1481,7 +1507,8 @@ export function createTileViewer(opts) {
       }
       if (
         prevMode !== lighting.bakeMode ||
-        prevFalloff !== lighting.lsaoFalloff
+        prevFalloff !== lighting.lsaoFalloff ||
+        prevBeta !== lighting.reliefBeta
       ) {
         for (const tile of tiles.values()) tile.destroy();
         tiles.clear();
