@@ -249,14 +249,16 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
   let aoContrast = g.params.z;
   let shadowStrength = g.params.w;
-  // Fade shadow to fully shadowed as the center sun approaches the
-  // horizon — this is a fixed-mode grace note so the view doesn't
-  // snap to black when the handle dips below horizontal. In time
-  // mode the per-pixel terminator handles darkening correctly, and
-  // a center-driven fade would dim tiles far from the center for no
-  // good reason, so we short-circuit it to 1.0 there.
-  let horizonFade = mix(saturate(g.sunDir.z / 0.035), 1.0, useTime);
-  let horizonShadow = mix(1.0, shadow, horizonFade);
+  // Shadow-vs-altitude blend. In fixed mode, fade to "fully
+  // shadowed" as the handle approaches the horizon — a grace note
+  // so the view doesn't snap to black at dip. In time mode, fade
+  // to "no shadow" per-pixel as the local sun crosses the horizon:
+  // sun-cast shadows don't exist at night, and the bake ran with
+  // clamped center altitude anyway so those values are meaningless
+  // for tiles on the far side of the terminator.
+  let fixedHS = mix(1.0, shadow, saturate(g.sunDir.z / 0.035));
+  let timeHS = mix(0.0, shadow, saturate(sunPP.z / 0.035));
+  let horizonShadow = mix(fixedHS, timeHS, useTime);
   let shadowMask = 1.0 - shadowStrength * horizonShadow;
 
   // AO tonemap in sRGB space — matching the LSAO section's atan
