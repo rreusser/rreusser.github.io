@@ -335,7 +335,7 @@ export function createTileViewer(opts) {
   container.style.touchAction = "none";
   container.style.cursor = "grab";
   container.style.userSelect = "none";
-  container.style.background = container.style.background || "#151515";
+  container.style.background = container.style.background || "#ffffff";
 
   const canvas = document.createElement("canvas");
   canvas.style.position = "absolute";
@@ -1345,7 +1345,7 @@ export function createTileViewer(opts) {
       colorAttachments: [
         {
           view: gpuCtx.getCurrentTexture().createView(),
-          clearValue: { r: 0.08, g: 0.08, b: 0.08, a: 1 },
+          clearValue: { r: 1, g: 1, b: 1, a: 1 },
           loadOp: "clear",
           storeOp: "store",
         },
