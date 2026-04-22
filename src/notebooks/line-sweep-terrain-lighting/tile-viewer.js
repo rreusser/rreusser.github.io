@@ -57,6 +57,7 @@ import {
   getPackBindGroupLayout,
   packUniforms,
 } from "./webgpu-pipelines.js";
+import { sunAnglesAt } from "./solar-time.js";
 
 const TAU = Math.PI * 2;
 const AO_DIRECTIONS = 8;
@@ -87,6 +88,14 @@ function parseHash() {
     if (isFinite(z) && isFinite(lat) && isFinite(lng)) return { zoom: z, lat, lng };
   }
   return null;
+}
+
+function tileCenterLatLngRad(z, x, y) {
+  const n = Math.pow(2, z);
+  const lngRad = ((x + 0.5) / n) * TAU - Math.PI;
+  const nMerc = Math.PI * (1 - (2 * (y + 0.5)) / n);
+  const latRad = Math.atan(Math.sinh(nMerc));
+  return [latRad, lngRad];
 }
 
 function tileLatCentre(z, y, N) {
@@ -239,16 +248,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // also multiply the whole composite by a civil-twilight smoothstep
   // so the terminator sweeps darkness across relief shading too —
   // otherwise aspect shading would keep drawing ridges into the night.
-  // The smoothstep is floored at 0.25 so the night side stays visible
-  // (just dimmed) rather than going fully black.
+  // The night side is semantically a cast shadow (no direct sun), so
+  // its darkening rides the same shadowStrength slider — in fact the
+  // nightMask is computed with the same 1 − strength·occlusion form
+  // as shadowMask further down.
   let useTime = g.solar.w;
   let sunPP = perPixelSunDir(in.uv);
   let sunDir = mix(g.sunDir.xyz, sunPP, useTime);
   let twilight = smoothstep(-0.105, 0.035, sunPP.z); // ≈ (−6°, +2°)
-  let nightMask = mix(1.0, 0.25 + 0.75 * twilight, useTime);
 
   let aoContrast = g.params.z;
   let shadowStrength = g.params.w;
+
+  let nightShadow = mix(0.0, 1.0 - twilight, useTime);
+  let nightMask = 1.0 - shadowStrength * nightShadow;
   // Shadow-vs-altitude blend. In fixed mode, fade to "fully
   // shadowed" as the handle approaches the horizon — a grace note
   // so the view doesn't snap to black at dip. In time mode, fade
@@ -559,6 +572,26 @@ export function createTileViewer(opts) {
   let viewportW = 1;
   let viewportH = 1;
   let needsRender = true;
+  // Resolve the sun direction for a tile's shadow bake. In fixed mode
+  // every tile gets the handle-driven global direction; in time mode
+  // each tile resolves its own direction from its geographic centre,
+  // so shadows are stable under panning (newly revealed tiles still
+  // bake with their own centre angles). altDeg is clamped at a small
+  // positive floor so tiles on the far side of the terminator don't
+  // try to sweep at negative altitudes — those tiles' shadows are
+  // faded out in the composite anyway.
+  function tileSunAngles(tile) {
+    if (lighting.useTime && lighting.solar) {
+      const [lat, lng] = tileCenterLatLngRad(tile.z, tile.x, tile.y);
+      const a = sunAnglesAt(lighting.solar, lat, lng);
+      return { azDeg: a.azDeg, altDeg: Math.max(0.5, a.altDeg) };
+    }
+    const sunZc = Math.max(-1, Math.min(1, lighting.sunZ));
+    const altDeg = (Math.asin(sunZc) * 180) / Math.PI;
+    const azDeg = (Math.atan2(lighting.sunY, lighting.sunX) * 180) / Math.PI;
+    return { azDeg, altDeg };
+  }
+
   let sunDirty = true;
   let sunGeneration = 0;
   let hashTimer = 0;
@@ -736,9 +769,7 @@ export function createTileViewer(opts) {
           this._horizonHN = HN;
           this._rawEqPxSizeM = rawEqPxSizeM;
 
-          const sunZc = Math.max(-1, Math.min(1, lighting.sunZ));
-          const altDeg = (Math.asin(sunZc) * 180) / Math.PI;
-          const azDeg = (Math.atan2(lighting.sunY, lighting.sunX) * 180) / Math.PI;
+          const { azDeg, altDeg } = tileSunAngles(this);
 
           const result = await cpuDispatch(this, {
             type: "bake",
@@ -1002,10 +1033,6 @@ export function createTileViewer(opts) {
     }
     if (visible.length === 0) return;
 
-    const sunZc = Math.max(-1, Math.min(1, lighting.sunZ));
-    const altDeg = (Math.asin(sunZc) * 180) / Math.PI;
-    const azDeg =
-      (Math.atan2(lighting.sunY, lighting.sunX) * 180) / Math.PI;
     const sunRadiusDeg = Math.max(0, lighting.sunRadiusDeg || 0);
     const N = lighting.sunInteracting ? 1 : Math.max(
       1,
@@ -1036,6 +1063,7 @@ export function createTileViewer(opts) {
       // differences, while per-row cos(lat) keeps sweep steps
       // continuous across tile seams.
       const rawEqPxSizeM = tilePxSizeMRef(tile.z, bakeN);
+      const { azDeg, altDeg } = tileSunAngles(tile);
 
       // Pre-compute all N sweeps for this tile and pack their
       // uniforms into the first N pool slots. writeBuffer is queued
@@ -1125,9 +1153,6 @@ export function createTileViewer(opts) {
   // for each visible tile that has cached CPU bake data.
   // ------------------------------------------------------------------
   function rebakeShadowCPU() {
-    const sunZc = Math.max(-1, Math.min(1, lighting.sunZ));
-    const altDeg = (Math.asin(sunZc) * 180) / Math.PI;
-    const azDeg = (Math.atan2(lighting.sunY, lighting.sunX) * 180) / Math.PI;
     const sunRadiusDeg = Math.max(0, lighting.sunRadiusDeg || 0);
     const shadowSamples = lighting.sunInteracting ? 1 : Math.max(1, Math.round(lighting.shadowSamples || 1));
     const gen = sunGeneration;
@@ -1137,6 +1162,7 @@ export function createTileViewer(opts) {
       if (tile._shadowPending) continue;
       tile._shadowPending = true;
       const compN = tile._compN;
+      const { azDeg, altDeg } = tileSunAngles(tile);
       cpuDispatch(tile, {
         type: "shadow",
         z: tile.z,
@@ -1607,14 +1633,32 @@ export function createTileViewer(opts) {
       const prevMode = lighting.bakeMode;
       const prevFalloff = lighting.lsaoFalloff;
       const prevBeta = lighting.reliefBeta;
+      const prevUseTime = lighting.useTime;
+      const prevSolar = lighting.solar;
       const wasInteracting = lighting.sunInteracting;
       Object.assign(lighting, state);
+      const solarChanged =
+        lighting.useTime &&
+        (!prevSolar ||
+          !lighting.solar ||
+          prevSolar.sinDec !== lighting.solar.sinDec ||
+          prevSolar.cosDec !== lighting.solar.cosDec ||
+          prevSolar.gmstMinusRA !== lighting.solar.gmstMinusRA);
+      // In time mode each tile's shadow sweep resolves its own
+      // direction from its centre, so pan-driven sunX/Y/Z changes
+      // shouldn't invalidate the bake. Only fixed mode responds to
+      // the scalar sun direction.
+      const fixedSunChanged =
+        !lighting.useTime &&
+        (prevX !== lighting.sunX ||
+          prevY !== lighting.sunY ||
+          prevZ !== lighting.sunZ);
       if (
-        prevX !== lighting.sunX ||
-        prevY !== lighting.sunY ||
-        prevZ !== lighting.sunZ ||
+        fixedSunChanged ||
         prevR !== lighting.sunRadiusDeg ||
-        prevS !== lighting.shadowSamples
+        prevS !== lighting.shadowSamples ||
+        prevUseTime !== lighting.useTime ||
+        solarChanged
       ) {
         sunDirty = true; sunGeneration++;
       }

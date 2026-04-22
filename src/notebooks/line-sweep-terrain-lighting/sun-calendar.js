@@ -192,6 +192,21 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
   timeSlider.addEventListener("input", computeAndNotify);
   tzSelect.addEventListener("change", computeAndNotify);
 
+  // Track time-slider drags so the tile viewer can switch to the 1-
+  // sample shadow path during scrubbing. `input` fires continuously
+  // while the slider moves; we expose an "interacting" predicate
+  // that's true for ~INTERACT_MS after the most recent input.
+  // Discrete changes to date or timezone don't count — those are
+  // single events that should get the full-quality bake straight
+  // away.
+  const INTERACT_MS = 200;
+  let lastTimeInputMs = -Infinity;
+  timeSlider.addEventListener("input", () => {
+    lastTimeInputMs = performance.now();
+  });
+  container.isInteracting = () =>
+    performance.now() - lastTimeInputMs < INTERACT_MS;
+
   // Show initial time but don't fire onChange
   updateDisplay();
 

@@ -39,6 +39,31 @@ function wrapPi(x) {
   return x - Math.floor((x + Math.PI) / TWO_PI) * TWO_PI;
 }
 
+// Finish the per-location tail of the sun-position calc on the CPU,
+// given the time-only quantities from solarTimeQuantities. Used by
+// the tile-viewer to pick a stable sun direction per tile (tile
+// center lat/lng) for shadow baking, so shadows don't drift as the
+// user pans the map. Returns notebook-convention angles in degrees:
+// azDeg measured from east, counter-clockwise; altDeg positive up.
+export function sunAnglesAt(solar, latRad, lngRad) {
+  const { sinDec, cosDec, gmstMinusRA } = solar;
+  const sinPhi = Math.sin(latRad);
+  const cosPhi = Math.cos(latRad);
+  const H = gmstMinusRA + lngRad;
+  const sinH = Math.sin(H);
+  const cosH = Math.cos(H);
+  const sinAlt = Math.max(-1, Math.min(1,
+    sinPhi * sinDec + cosPhi * cosDec * cosH));
+  const altDeg = (Math.asin(sinAlt) * 180) / Math.PI;
+  const azS = Math.atan2(
+    sinH,
+    cosH * sinPhi - (sinDec / (cosDec || 1e-6)) * cosPhi,
+  );
+  const scAzDeg = (azS * 180) / Math.PI;
+  const azDeg = (((270 - scAzDeg) % 360) + 360) % 360;
+  return { azDeg, altDeg };
+}
+
 export function solarTimeQuantities(utcMs) {
   const d = toDays(utcMs);
   const M = (357.5291 + 0.98560028 * d) * RAD;

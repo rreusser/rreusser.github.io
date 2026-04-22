@@ -2164,7 +2164,7 @@
           shadowStrength,
           sunRadiusDeg: sunDiameter / 2,
           shadowSamples,
-          sunInteracting: sunOverlay.isDragging(),
+          sunInteracting: sunOverlay.isDragging() || c.sunCalendarEl.isInteracting(),
           shadingMode: isDebug ? 2 : 1,
           reliefStrength,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
