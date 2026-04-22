@@ -435,7 +435,7 @@ export function createTileViewer(opts) {
     entries: [
       {
         binding: 0,
-        visibility: GPUShaderStage.VERTEX,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
         buffer: { type: "uniform" },
       },
       {
