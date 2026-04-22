@@ -239,18 +239,24 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // also multiply the whole composite by a civil-twilight smoothstep
   // so the terminator sweeps darkness across relief shading too —
   // otherwise aspect shading would keep drawing ridges into the night.
+  // The smoothstep is floored at 0.25 so the night side stays visible
+  // (just dimmed) rather than going fully black.
   let useTime = g.solar.w;
   let sunPP = perPixelSunDir(in.uv);
   let sunDir = mix(g.sunDir.xyz, sunPP, useTime);
   let twilight = smoothstep(-0.105, 0.035, sunPP.z); // ≈ (−6°, +2°)
-  let nightMask = mix(1.0, twilight, useTime);
+  let nightMask = mix(1.0, 0.25 + 0.75 * twilight, useTime);
 
   let aoContrast = g.params.z;
   let shadowStrength = g.params.w;
-  // Fade shadow to fully shadowed as sun approaches horizon. In fixed
-  // mode the sweep sun altitude drives this directly; in time mode
-  // the sweep still uses g.sunDir (center-of-view), so reuse that.
-  let horizonShadow = mix(1.0, shadow, saturate(g.sunDir.z / 0.035));
+  // Fade shadow to fully shadowed as the center sun approaches the
+  // horizon — this is a fixed-mode grace note so the view doesn't
+  // snap to black when the handle dips below horizontal. In time
+  // mode the per-pixel terminator handles darkening correctly, and
+  // a center-driven fade would dim tiles far from the center for no
+  // good reason, so we short-circuit it to 1.0 there.
+  let horizonFade = mix(saturate(g.sunDir.z / 0.035), 1.0, useTime);
+  let horizonShadow = mix(1.0, shadow, horizonFade);
   let shadowMask = 1.0 - shadowStrength * horizonShadow;
 
   // AO tonemap in sRGB space — matching the LSAO section's atan
