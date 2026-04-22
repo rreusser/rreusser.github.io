@@ -239,16 +239,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // also multiply the whole composite by a civil-twilight smoothstep
   // so the terminator sweeps darkness across relief shading too —
   // otherwise aspect shading would keep drawing ridges into the night.
-  // The smoothstep is floored at 0.25 so the night side stays visible
-  // (just dimmed) rather than going fully black.
+  // The night side is semantically a cast shadow (no direct sun), so
+  // its darkening rides the same shadowStrength slider — in fact the
+  // nightMask is computed with the same 1 − strength·occlusion form
+  // as shadowMask further down.
   let useTime = g.solar.w;
   let sunPP = perPixelSunDir(in.uv);
   let sunDir = mix(g.sunDir.xyz, sunPP, useTime);
   let twilight = smoothstep(-0.105, 0.035, sunPP.z); // ≈ (−6°, +2°)
-  let nightMask = mix(1.0, 0.25 + 0.75 * twilight, useTime);
 
   let aoContrast = g.params.z;
   let shadowStrength = g.params.w;
+
+  let nightShadow = mix(0.0, 1.0 - twilight, useTime);
+  let nightMask = 1.0 - shadowStrength * nightShadow;
   // Shadow-vs-altitude blend. In fixed mode, fade to "fully
   // shadowed" as the handle approaches the horizon — a grace note
   // so the view doesn't snap to black at dip. In time mode, fade
