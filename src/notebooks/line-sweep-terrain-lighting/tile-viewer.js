@@ -252,12 +252,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // Shadow-vs-altitude blend. In fixed mode, fade to "fully
   // shadowed" as the handle approaches the horizon — a grace note
   // so the view doesn't snap to black at dip. In time mode, fade
-  // to "no shadow" per-pixel as the local sun crosses the horizon:
-  // sun-cast shadows don't exist at night, and the bake ran with
-  // clamped center altitude anyway so those values are meaningless
-  // for tiles on the far side of the terminator.
+  // to "no shadow" per-pixel on the twilight smoothstep, matching
+  // the range used for nightMask and the relief fade so all three
+  // effects ramp together through the terminator.
   let fixedHS = mix(1.0, shadow, saturate(g.sunDir.z / 0.035));
-  let timeHS = mix(0.0, shadow, saturate(sunPP.z / 0.035));
+  let timeHS = mix(0.0, shadow, twilight);
   let horizonShadow = mix(fixedHS, timeHS, useTime);
   let shadowMask = 1.0 - shadowStrength * horizonShadow;
 
@@ -297,7 +296,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let scaledSlope = min(slopeAngle * reliefStr * 2.0, 1.5);
   let aspectAlign = select(0.0, dot(nxy, sunDir.xy) / (slopeMag * sunHL), slopeMag > 0.001 && sunHL > 0.001);
   let shadeDir = 0.5 + 0.5 * aspectAlign;
-  let reliefFade = mix(1.0, saturate(sunPP.z / 0.035), useTime);
+  let reliefFade = mix(1.0, twilight, useTime);
   let reliefDark = sin(scaledSlope) * (1.0 - shadeDir) * reliefFade;
   let reliefSrgb = pow(1.0 - reliefDark * 0.85, 2.5) * shadowMask;
 
