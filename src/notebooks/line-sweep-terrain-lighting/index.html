@@ -1936,6 +1936,7 @@
     import { expandable } from "./lib/expandable.js";
     import SunCalc from "npm:suncalc";
     import { createSunCalendar } from "./sun-calendar.js";
+    import { solarTimeQuantities } from "./solar-time.js";
   </script>
   <script id="71" type="module">
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
@@ -1978,6 +1979,10 @@
       value: 0.3,
       step: 0.01,
     });
+    const sunModeEl = Inputs.radio(
+      new Map([["fixed angle", "fixed"], ["from time", "time"]]),
+      { label: "sun mode", value: "fixed" },
+    );
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1992,6 +1997,7 @@
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
     tileViewerControlsDiv.appendChild(aoFalloffEl);
     tileViewerControlsDiv.appendChild(zoomExagEl);
+    tileViewerControlsDiv.appendChild(sunModeEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
     const tileViewerControls = {
@@ -2003,6 +2009,8 @@
       shadowSamplesEl,
       aoFalloffEl,
       zoomExagEl,
+      sunModeEl,
+      sunCalendarEl,
     };
   </script>
   <script id="72" type="module">
@@ -2096,7 +2104,36 @@
       // uniform-buffer write. `needsRender` inside the viewer makes
       // the render loop a no-op when there's nothing to update.
       const c = tileViewerControls;
+      // In time mode the sun handle visualises the center-of-view sun
+      // position (which also feeds the shadow sweep) but is not
+      // user-editable — the calendar is authoritative.
+      const syncSunHandleStyle = () => {
+        const useTime = c.sunModeEl.value === "time";
+        sunWrapper.style.pointerEvents = useTime ? "none" : "auto";
+        sunWrapper.style.opacity = useTime ? "0.55" : "1";
+      };
+      c.sunModeEl.addEventListener("input", syncSunHandleStyle);
+      syncSunHandleStyle();
       const tickLighting = () => {
+        const useTime = c.sunModeEl.value === "time";
+        // In time mode the calendar drives az/alt: push the current
+        // calendar value into the mutable each frame so the shadow
+        // sweep (and the handle visual) track the CPU-computed sun
+        // direction at the view centre as the view pans or the
+        // time slider moves.
+        let solar = null;
+        if (useTime) {
+          const utcDate = c.sunCalendarEl.getUtcDate();
+          if (utcDate) {
+            solar = solarTimeQuantities(utcDate.getTime());
+            const [lat, lng] = viewer.getCenter();
+            const pos = SunCalc.getPosition(utcDate, lat, lng);
+            const altDeg = (pos.altitude * 180) / Math.PI;
+            const scAzDeg = (pos.azimuth * 180) / Math.PI;
+            const azDeg = (((270 - scAzDeg) % 360) + 360) % 360;
+            tileViewerSunDirAccessor.set({ az: azDeg, alt: altDeg });
+          }
+        }
         const sd = tileViewerSunDirAccessor.get();
         const azRad = (sd.az * Math.PI) / 180;
         // Clamp to the horizon for shading/shadow math — a negative
@@ -2117,7 +2154,7 @@
         const isDebug = c.bakeModeEl.value === "debug";
         const lsaoFalloff = c.aoFalloffEl.value === "e^(−sin α)" ? "exp" : "cos2";
         const reliefBeta = Number(c.zoomExagEl.value);
-        viewer.setLighting({
+        const lightingUpdate = {
           sunX,
           sunY,
           sunZ,
@@ -2133,7 +2170,10 @@
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
           lsaoFalloff,
           reliefBeta,
-        });
+          useTime,
+        };
+        if (solar) lightingUpdate.solar = solar;
+        viewer.setLighting(lightingUpdate);
         requestAnimationFrame(tickLighting);
       };
       requestAnimationFrame(tickLighting);

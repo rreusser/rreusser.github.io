@@ -137,12 +137,14 @@ struct Global {
   viewportPx: vec4<f32>,   // xy = viewport size, z = shadingMode (0=lambertian,1=relief), w = reliefStrength
   sunDir: vec4<f32>,       // xyz = world-space sun direction, w = aoBoost (zoom-dependent)
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
+  solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
 
 struct TileData {
   originSize: vec4<f32>,   // xy = tile top-left in screen px, zw = tile size in screen px
+  tileZXY: vec4<f32>,      // x=z (integer), y=tileX, z=tileY, w unused
 };
 
 @group(1) @binding(0) var<uniform> t: TileData;
@@ -182,6 +184,47 @@ fn linearToSrgb(x: f32) -> f32 {
   return 1.055 * pow(c, 1.0 / 2.4) - 0.055;
 }
 
+// Invert web-mercator: (uv in tile, plus integer tile z/x/y) → lat/lng
+// in radians. Uses WGSL's built-in sinh; the Gudermannian form
+// atan(sinh(x)) gives the standard mercator-to-latitude map.
+const PI_F: f32 = 3.14159265358979323846;
+const TWO_PI_F: f32 = 6.28318530717958647693;
+const THREE_HALF_PI_F: f32 = 4.71238898038468985769;
+
+fn pixelToLatLngRad(uv: vec2<f32>, tileZ: f32, tileX: f32, tileY: f32) -> vec2<f32> {
+  let n = exp2(tileZ);
+  let lngRad = ((tileX + uv.x) / n) * TWO_PI_F - PI_F;
+  let nMerc = PI_F * (1.0 - 2.0 * (tileY + uv.y) / n);
+  let latRad = atan(sinh(nMerc));
+  return vec2<f32>(latRad, lngRad);
+}
+
+// World-frame sun direction derived from the time-only quantities in
+// g.solar and the per-pixel (lat, lng). Returns (x, y, z) in the same
+// convention as g.sunDir — 0 = east (+x), +y = north, +z = up — so
+// the caller can drop it into the existing shading code unchanged.
+// Returned vector has unit length even when the sun is below the
+// horizon (altitude < 0); callers gate with the terminator fade.
+fn perPixelSunDir(uv: vec2<f32>) -> vec3<f32> {
+  let ll = pixelToLatLngRad(uv, t.tileZXY.x, t.tileZXY.y, t.tileZXY.z);
+  let phi = ll.x;
+  let lam = ll.y;
+  let sinPhi = sin(phi);
+  let cosPhi = cos(phi);
+  let H = g.solar.z + lam;
+  let sinH = sin(H);
+  let cosH = cos(H);
+  let sinDec = g.solar.x;
+  let cosDec = max(g.solar.y, 1e-6);
+  let sinAlt = sinPhi * sinDec + cosPhi * cosDec * cosH;
+  let cosAlt = sqrt(max(0.0, 1.0 - sinAlt * sinAlt));
+  // suncalc convention: 0 = south, clockwise.
+  let azS = atan2(sinH, cosH * sinPhi - (sinDec / cosDec) * cosPhi);
+  // Rotate to notebook convention: 0 = east, counter-clockwise.
+  let azN = THREE_HALF_PI_F - azS;
+  return vec3<f32>(cosAlt * cos(azN), cosAlt * sin(azN), sinAlt);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let s = textureSample(tileTex, tileSampler, in.uv);
@@ -191,9 +234,22 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let ao = s.b;
   let shadow = s.a;
 
+  // Pick between the uniform (handle-driven) sun direction and a
+  // per-pixel direction derived from time + lat/lng. In time mode we
+  // also multiply the whole composite by a civil-twilight smoothstep
+  // so the terminator sweeps darkness across relief shading too —
+  // otherwise aspect shading would keep drawing ridges into the night.
+  let useTime = g.solar.w;
+  let sunPP = perPixelSunDir(in.uv);
+  let sunDir = mix(g.sunDir.xyz, sunPP, useTime);
+  let twilight = smoothstep(-0.105, 0.035, sunPP.z); // ≈ (−6°, +2°)
+  let nightMask = mix(1.0, twilight, useTime);
+
   let aoContrast = g.params.z;
   let shadowStrength = g.params.w;
-  // Fade shadow to fully shadowed as sun approaches horizon.
+  // Fade shadow to fully shadowed as sun approaches horizon. In fixed
+  // mode the sweep sun altitude drives this directly; in time mode
+  // the sweep still uses g.sunDir (center-of-view), so reuse that.
   let horizonShadow = mix(1.0, shadow, saturate(g.sunDir.z / 0.035));
   let shadowMask = 1.0 - shadowStrength * horizonShadow;
 
@@ -218,16 +274,16 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let lambNxy = nxy * lambExag;
   let lambLen = length(vec3<f32>(lambNxy, nz));
   let lambN = vec3<f32>(lambNxy, nz) / lambLen;
-  let diffuse = max(0.0, dot(lambN, g.sunDir.xyz));
+  let diffuse = max(0.0, dot(lambN, sunDir));
   let lambertian = diffuse * shadowMask;
 
   // Relief shading adapted from maplibre's standard hillshade.
   let slopeMag = length(nxy);
-  let sunHL = length(g.sunDir.xy);
+  let sunHL = length(sunDir.xy);
   let zFactor = 0.625 * sqrt(sunHL);
   let slopeAngle = atan(zFactor * slopeMag / max(nz, 0.001));
   let scaledSlope = min(slopeAngle * reliefStr * 2.0, 1.5);
-  let aspectAlign = select(0.0, dot(nxy, g.sunDir.xy) / (slopeMag * sunHL), slopeMag > 0.001 && sunHL > 0.001);
+  let aspectAlign = select(0.0, dot(nxy, sunDir.xy) / (slopeMag * sunHL), slopeMag > 0.001 && sunHL > 0.001);
   let shadeDir = 0.5 + 0.5 * aspectAlign;
   let reliefDark = sin(scaledSlope) * (1.0 - shadeDir);
   let reliefSrgb = pow(1.0 - reliefDark * 0.85, 2.5) * shadowMask;
@@ -240,8 +296,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
   // Composite in sRGB: convert base shading to sRGB, then multiply
   // by aoFactor in perceptual space. No linearToSrgb at the end.
+  // nightMask is 1 outside time mode; inside time mode it's a civil-
+  // twilight smoothstep on the per-pixel altitude, so the terminator
+  // darkens both lambertian and relief together.
   let baseSrgb = mix(linearToSrgb(lambertian), reliefSrgb, reliefMode);
-  let v = clamp(baseSrgb * aoFactor, 0.0, 1.0);
+  let v = clamp(baseSrgb * aoFactor * nightMask, 0.0, 1.0);
   return vec4<f32>(v, v, v, 1.0);
 }
 `;
@@ -412,9 +471,10 @@ export function createTileViewer(opts) {
     addressModeV: "clamp-to-edge",
   });
 
-  // Global uniform buffer (48 bytes: three vec4s).
+  // Global uniform buffer (64 bytes: four vec4s — viewport, sunDir,
+  // params, solar).
   const globalBuffer = device.createBuffer({
-    size: 48,
+    size: 64,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "tile-viewer global uniforms",
   });
@@ -422,7 +482,7 @@ export function createTileViewer(opts) {
     layout: globalBindGroupLayout,
     entries: [{ binding: 0, resource: { buffer: globalBuffer } }],
   });
-  const globalData = new Float32Array(12);
+  const globalData = new Float32Array(16);
 
   // ------------------------------------------------------------------
   // GPU tile-bake resources.
@@ -531,6 +591,14 @@ export function createTileViewer(opts) {
     // visually too strong — subjective preference sits around 0.3
     // (half the theoretical compensation).
     reliefBeta: 0.3,
+    // Per-pixel sun-position mode (time-driven). When useTime is
+    // truthy and solar is set, the composite shader derives sunDir
+    // per fragment from the tile's geographic coordinates plus the
+    // CPU-precomputed (sinDec, cosDec, gmstMinusRA) in `solar`. The
+    // shadow sweep still consumes the scalar sunX/Y/Z above — those
+    // represent the sun direction at the view centre.
+    useTime: false,
+    solar: { sinDec: 0, cosDec: 1, gmstMinusRA: 0 },
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -569,9 +637,12 @@ export function createTileViewer(opts) {
       this.y = y;
       this.ready = false;
       this.destroyed = false;
-      this.tileData = new Float32Array(4);
+      this.tileData = new Float32Array(8);
+      this.tileData[4] = z;
+      this.tileData[5] = x;
+      this.tileData[6] = y;
       this.uniformBuffer = device.createBuffer({
-        size: 16,
+        size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         label: `tile ${z}/${x}/${y} uniforms`,
       });
@@ -1183,9 +1254,10 @@ export function createTileViewer(opts) {
     needsRender = false;
 
     // Global uniform packing:
-    //   f32[0..1]  = viewportPx.xy
-    //   f32[4..6]  = sunDir.xyz
-    //   f32[8..11] = params (kAmbient, kDirect, aoStrength, shadowStrength)
+    //   f32[0..3]   = viewportPx (w,h,shadingMode,reliefStrength)
+    //   f32[4..7]   = sunDir.xyz, aoBoost
+    //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
+    //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1201,6 +1273,10 @@ export function createTileViewer(opts) {
     globalData[9] = lighting.kDirect;
     globalData[10] = lighting.aoStrength;
     globalData[11] = lighting.shadowStrength;
+    globalData[12] = lighting.solar.sinDec;
+    globalData[13] = lighting.solar.cosDec;
+    globalData[14] = lighting.solar.gmstMinusRA;
+    globalData[15] = lighting.useTime ? 1 : 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32

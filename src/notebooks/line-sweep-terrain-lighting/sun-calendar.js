@@ -195,5 +195,10 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
   // Show initial time but don't fire onChange
   updateDisplay();
 
+  // Expose the currently selected UTC instant. The notebook's
+  // time-driven lighting mode reads this every frame to compute solar
+  // quantities without re-routing through the onChange callback.
+  container.getUtcDate = getSelectedDate;
+
   return container;
 }
