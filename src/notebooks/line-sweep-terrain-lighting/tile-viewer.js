@@ -107,6 +107,31 @@ function tilePxSizeMRef(z, N) {
   return EARTH_CIRCUMFERENCE_M / (Math.pow(2, z) * N);
 }
 
+// Zoom-dependent vertical-exaggeration correction, implemented as a
+// horizontal contraction rather than a vertical inflation so the
+// elevation buffer stays untouched (and its other uses — horizon
+// comparisons, hypsometric coloring, cross-pass consistency — are
+// unaffected). For target β:
+//
+//   pxSize_effective(z) = pxSize(z) · 2^((z − zRef) · β)
+//
+// At z = zRef the correction is 1×; at z < zRef it shrinks pxSize,
+// which boosts both the normals' gradient magnitude and LSAO's horizon
+// angles. β ≈ 0.5 was empirically calibrated against AWS terrarium
+// tiles over four summits — see the mapterhorn probe in /tmp. The
+// reference zoom is the viewer's native data zoom (maxZoom).
+//
+// This correction is applied only to the normals and LSAO sweeps,
+// where what you're visualizing is the terrain's characteristic
+// gradient — which is what downsampling attenuates. Cast shadows use
+// the raw pxSize: their geometry is governed by peak-to-target
+// elevation differences, which survive downsampling well, so
+// compensating there would artificially lengthen low-zoom shadows.
+function pxSizeCorrection(z, zRef, beta) {
+  if (!beta) return 1;
+  return Math.pow(2, (z - zRef) * beta);
+}
+
 const SHADER = /* wgsl */ `
 struct Global {
   viewportPx: vec4<f32>,   // xy = viewport size, z = shadingMode (0=lambertian,1=relief), w = reliefStrength
@@ -500,6 +525,12 @@ export function createTileViewer(opts) {
     reliefStrength: 1,
     bakeMode: "cpu",
     lsaoFalloff: "exp",
+    // β for zoom-dependent pxSize contraction. 0 disables the
+    // correction (raw pxSize used); β = 0.5 matches the empirical
+    // mean-gradient attenuation asymptote. In practice that's
+    // visually too strong — subjective preference sits around 0.3
+    // (half the theoretical compensation).
+    reliefBeta: 0.3,
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -552,7 +583,7 @@ export function createTileViewer(opts) {
       this._heights = null;    // kept for CPU shadow rebake
       this._horizon = null;
       this._horizonHN = 0;
-      this._pxSizeM = 0;
+      this._rawEqPxSizeM = 0;
       this._cpuNx = null;      // cached normals+AO from CPU bake
       this._cpuNy = null;
       this._cpuAo = null;
@@ -607,14 +638,20 @@ export function createTileViewer(opts) {
 
         if (lighting.bakeMode === "cpu") {
           // ---- CPU bake path ----
-          const pxSizeM = tilePxSizeM(this.z, this.y, compN);
-          const aoPxSizeM = tilePxSizeMRef(this.z, compN);
-          // Store copies for later shadow rebakes (originals will be
-          // transferred to the worker and neutered).
+          // Every pass now works off a per-row pxSize built from the
+          // equatorial (latitude-independent) pxSize times cos(lat)
+          // per pixel row. The worker handles the build; the main
+          // thread just supplies the raw equatorial value plus the
+          // β correction factor. Normals and LSAO scale by β; shadow
+          // uses the raw per-row values.
+          const pxCorr = pxSizeCorrection(this.z, maxZoom, lighting.reliefBeta);
+          const rawEqPxSizeM = tilePxSizeMRef(this.z, compN);
+          // Store copies for later shadow rebakes. Rebakes rebuild
+          // the per-row pxSize from the same raw equatorial value.
           this._heights = new Float32Array(comp.heights);
           this._horizon = new Float32Array(horizon.heights);
           this._horizonHN = HN;
-          this._pxSizeM = pxSizeM;
+          this._rawEqPxSizeM = rawEqPxSizeM;
 
           const sunZc = Math.max(-1, Math.min(1, lighting.sunZ));
           const altDeg = (Math.asin(sunZc) * 180) / Math.PI;
@@ -627,8 +664,8 @@ export function createTileViewer(opts) {
             y: this.y,
             heights: new Float32Array(comp.heights),
             N: compN,
-            pxSizeM,
-            aoPxSizeM,
+            rawEqPxSizeM,
+            pxCorr,
             horizon: new Float32Array(horizon.heights),
             HN,
             azDeg,
@@ -717,13 +754,21 @@ export function createTileViewer(opts) {
   // once the tile is ready.
   // ------------------------------------------------------------------
   function runStaticBake(tile, compN) {
-    const pxSizeM = tilePxSizeM(tile.z, tile.y, compN);
-    const aoPxSizeM = tilePxSizeMRef(tile.z, compN);
+    const pxCorr = pxSizeCorrection(tile.z, maxZoom, lighting.reliefBeta);
+    // Normals and LSAO both operate in Mercator mode: the shader
+    // derives per-row cos(lat) from (tileY, z) and multiplies the
+    // β-contracted equatorial pxSize for each pixel's own latitude.
+    // Keeps slopes and horizon angles continuous across tile seams.
+    const eqPxSizeM = tilePxSizeMRef(tile.z, compN) * pxCorr;
 
-    // Small normals uniform: { N: u32, pxSizeM: f32, pad, pad }
+    // Normals uniform: { N: u32, tileY: u32, z: u32, eqPxSizeM: f32 }
     const normalsBuf = new ArrayBuffer(16);
-    new Uint32Array(normalsBuf, 0, 1)[0] = compN;
-    new Float32Array(normalsBuf, 4, 1)[0] = pxSizeM;
+    const normalsU32 = new Uint32Array(normalsBuf);
+    const normalsF32 = new Float32Array(normalsBuf);
+    normalsU32[0] = compN;
+    normalsU32[1] = tile.y;
+    normalsU32[2] = tile.z;
+    normalsF32[3] = eqPxSizeM;
     device.queue.writeBuffer(bakeRes.normalsUniform, 0, normalsBuf);
 
     // Pre-compute + write 8 LSAO sweep uniforms into the pool. Unlike
@@ -742,7 +787,9 @@ export function createTileViewer(opts) {
         W: compN,
         H: compN,
         azDeg,
-        pxSizeM: aoPxSizeM,
+        eqPxSizeM,
+        tileY: tile.y,
+        z: tile.z,
         mode: "lsao",
         weight: 1 / AO_DIRECTIONS,
         horizonN: tile.HN,
@@ -901,7 +948,11 @@ export function createTileViewer(opts) {
 
     for (let tIdx = 0; tIdx < visible.length; tIdx++) {
       const tile = visible[tIdx];
-      const pxSizeM = tilePxSizeM(tile.z, tile.y, bakeN);
+      // Shadow sweep runs in Mercator mode with the raw (β-free)
+      // equatorial pxSize so shadow geometry tracks real elevation
+      // differences, while per-row cos(lat) keeps sweep steps
+      // continuous across tile seams.
+      const rawEqPxSizeM = tilePxSizeMRef(tile.z, bakeN);
 
       // Pre-compute all N sweeps for this tile and pack their
       // uniforms into the first N pool slots. writeBuffer is queued
@@ -915,7 +966,9 @@ export function createTileViewer(opts) {
           W: bakeN,
           H: bakeN,
           azDeg: azDeg + daz,
-          pxSizeM,
+          eqPxSizeM: rawEqPxSizeM,
+          tileY: tile.y,
+          z: tile.z,
           mode: "soft",
           altDeg,
           sunRadiusDeg,
@@ -1008,7 +1061,7 @@ export function createTileViewer(opts) {
         y: tile.y,
         heights: new Float32Array(tile._heights),
         N: compN,
-        pxSizeM: tile._pxSizeM,
+        rawEqPxSizeM: tile._rawEqPxSizeM,
         horizon: new Float32Array(tile._horizon),
         HN: tile._horizonHN,
         azDeg,
@@ -1465,6 +1518,7 @@ export function createTileViewer(opts) {
       const prevS = lighting.shadowSamples;
       const prevMode = lighting.bakeMode;
       const prevFalloff = lighting.lsaoFalloff;
+      const prevBeta = lighting.reliefBeta;
       const wasInteracting = lighting.sunInteracting;
       Object.assign(lighting, state);
       if (
@@ -1481,7 +1535,8 @@ export function createTileViewer(opts) {
       }
       if (
         prevMode !== lighting.bakeMode ||
-        prevFalloff !== lighting.lsaoFalloff
+        prevFalloff !== lighting.lsaoFalloff ||
+        prevBeta !== lighting.reliefBeta
       ) {
         for (const tile of tiles.values()) tile.destroy();
         tiles.clear();

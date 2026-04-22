@@ -19,7 +19,25 @@ import { sweepCore } from "./sweep-core.js";
 const AO_DIRECTIONS = 8;
 const AO_GAMMA = 2.0;
 
-function computeNormals(heights, N, pxSizeM) {
+// Build a per-row pxSize array for this tile. At low zoom one tile
+// spans enough latitude that a single tile-centroid cos(lat) gives a
+// visibly discontinuous seam at the tile boundary, so every pass that
+// reads pxSize uses a per-row value instead. Horizontal and vertical
+// pixel spacing in Web Mercator are equal at a given latitude (the
+// projection is conformal), so a single row value covers both axes.
+function buildRowPx(eqPxSizeM, z, tileY, N) {
+  const nFull = Math.pow(2, z) * N;
+  const rowPx = new Float32Array(N);
+  for (let r = 0; r < N; r++) {
+    const worldRow = tileY * N + r + 0.5;
+    const nMerc = Math.PI * (1 - (2 * worldRow) / nFull);
+    const lat = Math.atan(Math.sinh(nMerc));
+    rowPx[r] = eqPxSizeM * Math.cos(lat);
+  }
+  return rowPx;
+}
+
+function computeNormals(heights, N, pxSizeByRow) {
   const nx = new Float32Array(N * N);
   const ny = new Float32Array(N * N);
   for (let row = 0; row < N; row++) {
@@ -28,8 +46,9 @@ function computeNormals(heights, N, pxSizeM) {
       const cp = Math.min(col + 1, N - 1);
       const rm = Math.max(row - 1, 0);
       const rp = Math.min(row + 1, N - 1);
-      const dCol = (cp - cm) * pxSizeM;
-      const dRow = (rp - rm) * pxSizeM;
+      const pxThis = pxSizeByRow[row];
+      const dCol = (cp - cm) * pxThis;
+      const dRow = (rp - rm) * 0.5 * (pxSizeByRow[rm] + pxSizeByRow[rp]);
       const eW = heights[row * N + cm];
       const eE = heights[row * N + cp];
       const eN = heights[rm * N + col];
@@ -45,12 +64,12 @@ function computeNormals(heights, N, pxSizeM) {
   return { nx, ny };
 }
 
-function computeLSAO(heights, N, aoPxSizeM, horizon, HN, lsaoFalloff) {
+function computeLSAO(heights, N, pxSizeByRow, horizon, HN, lsaoFalloff) {
   const ao = new Float32Array(N * N);
   for (let d = 0; d < AO_DIRECTIONS; d++) {
     const azDeg = (d * 360) / AO_DIRECTIONS;
     const result = sweepCore({
-      W: N, H: N, elev: heights, azDeg, pxSizeM: aoPxSizeM,
+      W: N, H: N, elev: heights, azDeg, pxSizeByRow,
       mode: "lsao",
       weight: 1 / AO_DIRECTIONS,
       horizon: HN > 0 ? horizon : null,
@@ -62,13 +81,13 @@ function computeLSAO(heights, N, aoPxSizeM, horizon, HN, lsaoFalloff) {
   return ao;
 }
 
-function computeShadow(heights, N, pxSizeM, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples) {
+function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples) {
   const shadow = new Float32Array(N * N);
   const weight = 1 / samples;
 
   if (samples <= 1) {
     const result = sweepCore({
-      W: N, H: N, elev: heights, azDeg, pxSizeM,
+      W: N, H: N, elev: heights, azDeg, pxSizeByRow,
       mode: "soft", altDeg, sunRadiusDeg, weight: 1,
       horizon: HN > 0 ? horizon : null, HN,
     });
@@ -80,7 +99,7 @@ function computeShadow(heights, N, pxSizeM, horizon, HN, azDeg, altDeg, sunRadiu
       const q = normInv((s + 0.5) / samples);
       const daz = q * sigma;
       const result = sweepCore({
-        W: N, H: N, elev: heights, azDeg: azDeg + daz, pxSizeM,
+        W: N, H: N, elev: heights, azDeg: azDeg + daz, pxSizeByRow,
         mode: "soft", altDeg, sunRadiusDeg, weight,
         horizon: HN > 0 ? horizon : null, HN,
       });
@@ -128,11 +147,19 @@ self.onmessage = (e) => {
   const msg = e.data;
   switch (msg.type) {
     case "bake": {
-      const { z, x, y, heights, N, pxSizeM, aoPxSizeM, horizon, HN,
+      const { z, x, y, heights, N, rawEqPxSizeM, pxCorr, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff } = msg;
-      const { nx, ny } = computeNormals(heights, N, pxSizeM);
-      const ao = computeLSAO(heights, N, aoPxSizeM || pxSizeM, horizon, HN, lsaoFalloff);
-      const shadow = computeShadow(heights, N, pxSizeM, horizon, HN,
+      // Per-row cos(lat) drives pxSize for every pass: the raw
+      // latitude-dependent version for shadow (geometry is set by
+      // real elevation differences and must stay continuous across
+      // tile seams) and the β-scaled version for normals and LSAO
+      // (both read ∇h, which is what the tile pyramid attenuates).
+      const shadowRowPx = buildRowPx(rawEqPxSizeM, z, y, N);
+      const scaledRowPx = new Float32Array(N);
+      for (let i = 0; i < N; i++) scaledRowPx[i] = shadowRowPx[i] * pxCorr;
+      const { nx, ny } = computeNormals(heights, N, scaledRowPx);
+      const ao = computeLSAO(heights, N, scaledRowPx, horizon, HN, lsaoFalloff);
+      const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples);
       const packed = packRGBA(nx, ny, ao, shadow, N);
       self.postMessage(
@@ -144,10 +171,11 @@ self.onmessage = (e) => {
     }
 
     case "shadow": {
-      const { z, x, y, heights, N, pxSizeM, horizon, HN,
+      const { z, x, y, heights, N, rawEqPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples,
               cachedNx, cachedNy, cachedAo } = msg;
-      const shadow = computeShadow(heights, N, pxSizeM, horizon, HN,
+      const shadowRowPx = buildRowPx(rawEqPxSizeM, z, y, N);
+      const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples);
       const packed = packRGBA(cachedNx, cachedNy, cachedAo, shadow, N);
       self.postMessage(

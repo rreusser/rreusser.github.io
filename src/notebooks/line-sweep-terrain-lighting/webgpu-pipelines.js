@@ -26,6 +26,11 @@ export const FP_SCALE = 1 << 20;
 // every mode, but the layout is stable across modes so the JS side
 // can pack one ArrayBuffer regardless of which pipeline it's about to
 // dispatch. 16-byte aligned to satisfy the WGSL uniform layout rules.
+// Uniforms carry pxSize-independent primitives and the raw equatorial
+// pxSize plus enough tile metadata to derive per-row cos(lat) in the
+// shader. dStep / epsH / invTwoEps used to live here but are now
+// re-derived per target pixel from that pixel's own row latitude so the
+// sweep stays continuous across tile boundaries.
 const UNIFORMS_WGSL = /* wgsl */ `
   struct Uniforms {
     W: u32,
@@ -38,22 +43,20 @@ const UNIFORMS_WGSL = /* wgsl */ `
     flipY: u32,
     horizonN: u32,
 
+    tileY: u32,
+    z: u32,
+    useMercator: u32,
+    pad0: u32,
+
     slope: f32,
-    dStep: f32,
+    tanAlt: f32,
     fpScale: f32,
     weight: f32,
 
-    // 'hard' params
-    tanAlt: f32,
-    epsH: f32,
-    invTwoEps: f32,
-    pad0: f32,
-
-    // 'soft' params
+    eqPxSizeM: f32,
     tanAltBot: f32,
     tanAltTop: f32,
     invTanRange: f32,
-    pad1: f32,
 
     bMin: i32,
     bMax: i32,
@@ -70,8 +73,10 @@ export function packUniforms(opts) {
   const {
     W, H, viewW, viewH,
     swap, flipX, flipY, horizonN,
-    slope, dStep, weight,
-    tanAlt, epsH,
+    tileY = 0, z = 0, useMercator = 0,
+    slope, weight,
+    tanAlt,
+    eqPxSizeM,
     tanAltBot, tanAltTop,
     bMin, bMax,
   } = opts;
@@ -87,19 +92,19 @@ export function packUniforms(opts) {
   u32[5] = flipX ? 1 : 0;
   u32[6] = flipY ? 1 : 0;
   u32[7] = horizonN >>> 0;
-  f32[8] = slope;
-  f32[9] = dStep;
-  f32[10] = FP_SCALE;
-  f32[11] = weight;
-  f32[12] = tanAlt || 0;
-  f32[13] = epsH || 0;
-  f32[14] = epsH > 0 ? 1 / (2 * epsH) : 0;
-  f32[15] = 0;
-  f32[16] = tanAltBot || 0;
-  f32[17] = tanAltTop || 0;
+  u32[8] = tileY >>> 0;
+  u32[9] = z >>> 0;
+  u32[10] = useMercator ? 1 : 0;
+  u32[11] = 0;
+  f32[12] = slope;
+  f32[13] = tanAlt || 0;
+  f32[14] = FP_SCALE;
+  f32[15] = weight;
+  f32[16] = eqPxSizeM || 0;
+  f32[17] = tanAltBot || 0;
+  f32[18] = tanAltTop || 0;
   const tanRange = (tanAltTop || 0) - (tanAltBot || 0);
-  f32[18] = tanRange > 0 ? 1 / tanRange : 0;
-  f32[19] = 0;
+  f32[19] = tanRange > 0 ? 1 / tanRange : 0;
   i32[20] = bMin;
   i32[21] = bMax;
   i32[22] = 0;
@@ -113,6 +118,7 @@ const HELPERS_WGSL = /* wgsl */ `
   // Sized for typical terrain; pushes past the end overwrite the top
   // slot so the hull degrades gracefully rather than corrupting memory.
   const HULL_SIZE: u32 = 128u;
+  const SWEEP_PI: f32 = 3.14159265358979323846;
 
   fn toOrig(cx: i32, cy: i32) -> u32 {
     var ox: i32 = cx;
@@ -121,6 +127,25 @@ const HELPERS_WGSL = /* wgsl */ `
     if (u.flipX != 0u) { ox = i32(u.W) - 1 - ox; }
     if (u.flipY != 0u) { oy = i32(u.H) - 1 - oy; }
     return u32(oy) * u.W + u32(ox);
+  }
+
+  // Target pxSize from canonical (cx, cy): map through the swap/flipY
+  // axes to recover the target's original-tile row, then derive cos(lat)
+  // from that row's mercator coordinate. In flat mode just returns the
+  // stored equatorial pxSize unchanged.
+  fn targetPxSize(cx: i32, cy: i32) -> f32 {
+    if (u.useMercator == 0u) { return u.eqPxSizeM; }
+    var oy: i32 = cy;
+    if (u.swap != 0u) { oy = cx; }
+    if (u.flipY != 0u) { oy = i32(u.H) - 1 - oy; }
+    if (oy < 0) { oy = 0; }
+    let Hi: i32 = i32(u.H);
+    if (oy >= Hi) { oy = Hi - 1; }
+    let worldRow: f32 = f32(u.tileY) * f32(u.H) + f32(oy) + 0.5;
+    let nFull: f32 = f32(1u << u.z) * f32(u.H);
+    let nMerc: f32 = SWEEP_PI * (1.0 - 2.0 * worldRow / nFull);
+    let lat: f32 = atan(sinh(nMerc));
+    return u.eqPxSizeM * cos(lat);
   }
 `;
 
@@ -198,6 +223,11 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
           if (inViewW && (loInW || hiInW)) {
             let hRay: f32 = hW;
             let cx: i32 = cxw;
+            let targetRow: i32 = select(yjw, yiw, loInW);
+            let pxSize = targetPxSize(cx, targetRow);
+            let dStep = pxSize * sqrt(1.0 + u.slope * u.slope);
+            let epsH = 0.5 * pxSize * u.tanAlt;
+            let invTwoEps = select(0.0, 1.0 / (2.0 * epsH), epsH > 0.0);
             ${kernel}
             let contribW = bit * u.weight;
             let depLoW = u32(round((1.0 - fyw) * contribW * u.fpScale));
@@ -233,8 +263,10 @@ function modeKernelWGSL(mode, lsaoFalloff = "cos2") {
   if (mode === "hard") {
     // Hard threshold via the G-correction trick. Linearstep over ±epsH
     // gives ½-pixel edge AA along the sweep axis. Matches sweep-core.js
-    // mode === 'hard' exactly.
+    // mode === 'hard' exactly. Reads `dStep`, `epsH`, `invTwoEps` from
+    // the surrounding scope — set per-target by the caller.
     return /* wgsl */ `
+      let dCxT = dStep * u.tanAlt;
       let gT = hRay + f32(cx) * dCxT;
       var maxDelta: f32 = -1e30;
       for (var i: i32 = 0; i <= hullPtr; i = i + 1) {
@@ -244,10 +276,10 @@ function modeKernelWGSL(mode, lsaoFalloff = "cos2") {
       }
       var bit: f32 = 0.0;
       if (maxDelta > -1e29) {
-        if (u.epsH == 0.0) {
+        if (epsH == 0.0) {
           bit = select(0.0, 1.0, maxDelta > 0.0);
         } else {
-          bit = clamp(0.5 + maxDelta * u.invTwoEps, 0.0, 1.0);
+          bit = clamp(0.5 + maxDelta * invTwoEps, 0.0, 1.0);
         }
       }
     `;
@@ -260,7 +292,7 @@ function modeKernelWGSL(mode, lsaoFalloff = "cos2") {
     return /* wgsl */ `
       var bestTan: f32 = -1e30;
       for (var i: i32 = 0; i <= hullPtr; i = i + 1) {
-        let dxW = (f32(cx) - hullCx[i]) * u.dStep;
+        let dxW = (f32(cx) - hullCx[i]) * dStep;
         if (dxW <= 0.0) { continue; }
         let tanI = (hullH[i] - hRay) / dxW;
         if (tanI > bestTan) { bestTan = tanI; }
@@ -284,7 +316,7 @@ function modeKernelWGSL(mode, lsaoFalloff = "cos2") {
     for (var i: i32 = 0; i <= hullPtr; i = i + 1) {
       let cxi = hullCx[i];
       if (cxi >= f32(cx)) { continue; }
-      let horiz = (f32(cx) - cxi) * u.dStep;
+      let horiz = (f32(cx) - cxi) * dStep;
       let dz = hullH[i] - hRay;
       if (dz <= 0.0) { continue; }
       let len3 = sqrt(horiz * horiz + dz * dz);
@@ -333,7 +365,6 @@ function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
       let vh = i32(u.viewH);
       let vw = i32(u.viewW);
       let hullMax: i32 = i32(HULL_SIZE) - 1;
-      let dCxT = u.dStep * u.tanAlt;
 
       // Where does this ray first enter the comp view [0, viewH)?
       // Mirrors sweep-core.js cxEntry.
@@ -366,6 +397,15 @@ function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
         if (loIn) { hLo = elev[iLo]; } else { hLo = elev[iHi]; }
         if (hiIn) { hHi = elev[iHi]; } else { hHi = hLo; }
         let hRay = (1.0 - fy) * hLo + fy * hHi;
+
+        // Per-target pxSize and its derived sweep constants, from the
+        // target pixel's own original row. Mirrors the CPU pxSizeAt
+        // path in sweep-core.js.
+        let targetRow: i32 = select(yj, yi, loIn);
+        let pxSize = targetPxSize(cx, targetRow);
+        let dStep = pxSize * sqrt(1.0 + u.slope * u.slope);
+        let epsH = 0.5 * pxSize * u.tanAlt;
+        let invTwoEps = select(0.0, 1.0 / (2.0 * epsH), epsH > 0.0);
 
         // Mode-specific hull scan → \`bit\` in [0, 1].
         ${modeKernelWGSL(mode, lsaoFalloff)}
@@ -684,15 +724,33 @@ export function getNormalsBindGroupLayout(device) {
 const normalsCode = /* wgsl */ `
 struct NormalsUniforms {
   N: u32,
-  pxSizeM: f32,
-  pad0: f32,
-  pad1: f32,
+  tileY: u32,
+  z: u32,
+  eqPxSizeM: f32,
 };
 
 @group(0) @binding(0) var<uniform> nu: NormalsUniforms;
 @group(0) @binding(1) var<storage, read> elev: array<f32>;
 @group(0) @binding(2) var<storage, read_write> nxBuf: array<f32>;
 @group(0) @binding(3) var<storage, read_write> nyBuf: array<f32>;
+
+// Per-pixel latitude correction for pxSize. At low zoom a tile spans a
+// meaningful chunk of latitude, so using a single tile-centroid pxSize
+// (what we did originally) produces visible slope discontinuities at
+// tile boundaries — the north edge of one tile and the south edge of
+// its northern neighbour disagree on cos(lat). Computing pxSize from
+// the current row's own latitude makes both sides of the seam agree.
+// The seam-free equivalent for LSAO is already handled by binding the
+// equatorial pxSize into that path.
+const PI_F: f32 = 3.14159265358979323846;
+
+fn pxSizeAtRow(row: u32) -> f32 {
+  let worldRow = f32(nu.tileY) * f32(nu.N) + f32(row) + 0.5;
+  let nFull = f32(1u << nu.z) * f32(nu.N);
+  let nMerc = PI_F * (1.0 - 2.0 * worldRow / nFull);
+  let lat = atan(sinh(nMerc));
+  return nu.eqPxSizeM * cos(lat);
+}
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -707,8 +765,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let cp = u32(min(cI + 1, Ni - 1));
   let rm = u32(max(rI - 1, 0));
   let rp = u32(min(rI + 1, Ni - 1));
-  let dCol = f32(cp - cm) * nu.pxSizeM;
-  let dRow = f32(rp - rm) * nu.pxSizeM;
+  // cos(lat) varies continuously with row, so averaging the two
+  // neighbouring rows' pxSize for dRow cancels the leading-order y
+  // gradient of the correction. dCol is evaluated purely at this row.
+  let pxThis = pxSizeAtRow(row);
+  let pxN = pxSizeAtRow(rm);
+  let pxS = pxSizeAtRow(rp);
+  let dCol = f32(cp - cm) * pxThis;
+  let dRow = f32(rp - rm) * 0.5 * (pxN + pxS);
   let eN_ = elev[rm * N + col];
   let eS_ = elev[rp * N + col];
   let eE_ = elev[row * N + cp];
@@ -981,8 +1045,17 @@ export function createTileBakeResources(device, { N = 256 } = {}) {
 // the same way the CPU `sweepCore` does, so the notebook driver can
 // hand the result straight into `packUniforms` without duplicating the
 // trig / clamp logic across modes.
+// Build the sweep params. pxSize is specified one of two ways:
+//   * scalar `pxSizeM` — flat mode, used by the single-tile figures
+//     where every pixel has the same pxSize. The shader treats the
+//     whole tile as if at a single latitude.
+//   * `{ eqPxSizeM, tileY, z }` — Mercator mode, used by the tile
+//     viewer. The shader derives per-row cos(lat) from (tileY, z) and
+//     multiplies the equatorial pxSize for each target's own row, so
+//     slopes and horizon angles stay continuous across tile seams.
 export function deriveSweepParams({
   W, H, azDeg, pxSizeM, mode,
+  eqPxSizeM, tileY, z,
   altDeg = 0, sunRadiusDeg = 0, weight = 1,
   horizonN = 0,
 }) {
@@ -1005,27 +1078,32 @@ export function deriveSweepParams({
   const SLOPE_EPS = 1e-12;
   if (slope < SLOPE_EPS) slope = 0;
   else if (slope > 1 - SLOPE_EPS) slope = 1;
-  const dStep = Math.sqrt(1 + slope * slope) * pxSizeM;
   const bMin = -Math.ceil(slope * (viewW - 1));
   const bMax = viewH - 1;
 
   const tanAlt = Math.tan((altDeg * Math.PI) / 180);
-  const epsH = 0.5 * pxSizeM * tanAlt;
 
   const halfWidthDeg = 1.5 * sunRadiusDeg;
   const effectiveAltDeg = altDeg < halfWidthDeg ? halfWidthDeg : altDeg;
   const tanAltBot = Math.tan(((effectiveAltDeg - halfWidthDeg) * Math.PI) / 180);
   const tanAltTop = Math.tan(((effectiveAltDeg + halfWidthDeg) * Math.PI) / 180);
 
+  const useMercator = eqPxSizeM !== undefined;
+  const outEqPxSizeM = useMercator ? eqPxSizeM : (pxSizeM || 0);
+
   return {
     W, H, viewW, viewH,
     swap, flipX, flipY,
-    slope, dStep,
+    slope,
     bMin, bMax,
-    tanAlt, epsH,
+    tanAlt,
     tanAltBot, tanAltTop,
     weight,
     horizonN,
+    tileY: tileY || 0,
+    z: z || 0,
+    useMercator: useMercator ? 1 : 0,
+    eqPxSizeM: outEqPxSizeM,
   };
 }
 

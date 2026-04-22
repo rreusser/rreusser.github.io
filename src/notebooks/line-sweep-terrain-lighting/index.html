@@ -1780,6 +1780,142 @@
       })();
     }
   </script>
+  <script id="75" type="text/markdown">
+    ## Zoom-dependent gradient attenuation
+
+    The single-tile figures above are scale-invariant: a slope of ${tex`\theta`} reads as ${tex`\theta`} regardless of pxSize. Put the same machinery into a slippy map and terrain visibly flattens at low zoom — more than simple downsampling should account for.
+
+    Tile pyramids are asymmetric. Peak elevations survive the downsample chain — extrema of concentrated features come through close to their true value under any reasonable resampling kernel — but the gradient field between them doesn't. The numerator of a central difference gets low-passed while the denominator grows by a factor of 2 per zoom step, so low-zoom tiles systematically under-report slope.
+
+    The tables below probe this live against Mapterhorn: peak elevation at each summit's pixel, then mean gradient magnitude across the full tile, across four zoom levels.
+  </script>
+  <script id="76" type="module">
+    // Fetch Mapterhorn tiles across a matrix of (summit, zoom) and
+    // compute per-tile peak elevation and mean gradient magnitude.
+    // Tables render inline once all fetches complete; failures show
+    // as em-dashes rather than blocking the whole figure.
+
+    const probeTargets = [
+      { name: "Mt. Peale (UT)",    lat: 38.4384, lng: -109.2293, truth: 3879 },
+      { name: "Mt. Whitney (CA)",  lat: 36.5785, lng: -118.2923, truth: 4421 },
+      { name: "Mt. Rainier (WA)",  lat: 46.8523, lng: -121.7603, truth: 4392 },
+      { name: "Denali (AK)",       lat: 63.0695, lng: -151.0071, truth: 6190 },
+    ];
+    const probeZooms = [14, 12, 10, 8, 6, 4];
+    const EARTH_M = 40075016.686;
+
+    function latLngToTile(lat, lng, z) {
+      const n = 1 << z;
+      const latR = (lat * Math.PI) / 180;
+      const x = Math.floor(((lng + 180) / 360) * n);
+      const y = Math.floor((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n);
+      return { x, y };
+    }
+
+    async function fetchProbeTile(z, x, y) {
+      const url = `https://tiles.mapterhorn.com/${z}/${x}/${y}.webp`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const bitmap = await createImageBitmap(blob);
+      const N = bitmap.width;
+      const c = document.createElement("canvas");
+      c.width = N; c.height = N;
+      const cctx = c.getContext("2d");
+      cctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const px = cctx.getImageData(0, 0, N, N).data;
+      let hMax = -Infinity;
+      let gSum = 0, gCount = 0;
+      // Build a Float32 heights array only long enough for gradient
+      // passes; we don't need to retain it.
+      const heights = new Float32Array(N * N);
+      for (let i = 0; i < N * N; i++) {
+        const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+        const h = r * 256 + g + b / 256 - 32768;
+        heights[i] = h;
+        if (h > hMax) hMax = h;
+      }
+      const lat = Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / (1 << z))));
+      const pxSizeM = (EARTH_M * Math.cos(lat)) / (Math.pow(2, z) * N);
+      for (let r = 1; r < N - 1; r++) {
+        for (let c = 1; c < N - 1; c++) {
+          const mx = (heights[r * N + c + 1] - heights[r * N + c - 1]) / (2 * pxSizeM);
+          const my = (heights[(r + 1) * N + c] - heights[(r - 1) * N + c]) / (2 * pxSizeM);
+          gSum += Math.hypot(mx, my);
+          gCount++;
+        }
+      }
+      return { hMax, gradMean: gSum / gCount };
+    }
+
+    const tasks = [];
+    for (const t of probeTargets) {
+      for (const z of probeZooms) {
+        const { x, y } = latLngToTile(t.lat, t.lng, z);
+        tasks.push({ t, z, x, y });
+      }
+    }
+    const results = await Promise.all(tasks.map(async task =>
+      fetchProbeTile(task.z, task.x, task.y)
+        .then(r => ({ ...task, ok: true, ...r }))
+        .catch(err => ({ ...task, ok: false, err }))
+    ));
+
+    const byTargetZoom = new Map();
+    for (const r of results) {
+      const key = `${r.t.name}|${r.z}`;
+      byTargetZoom.set(key, r);
+    }
+    const fmtPeak = r => r && r.ok ? `${Math.round(r.hMax)}` : "—";
+    const fmtGrad = r => r && r.ok ? r.gradMean.toFixed(3) : "—";
+
+    const tableStyle = "border-collapse:collapse; font:12px/1.3 ui-monospace,monospace;";
+    const thStyle = "text-align:right; padding:3px 10px; border-bottom:1px solid #888; font-weight:600;";
+    const tdStyle = "text-align:right; padding:2px 10px;";
+    const tdNameStyle = "text-align:left; padding:2px 10px;";
+
+    const peakTable = html`<table style="${tableStyle}">
+      <thead><tr>
+        <th style="${thStyle}; text-align:left;">summit</th>
+        <th style="${thStyle}">truth</th>
+        ${probeZooms.map(z => html`<th style="${thStyle}">z=${z}</th>`)}
+      </tr></thead>
+      <tbody>${probeTargets.map(t => html`<tr>
+        <td style="${tdNameStyle}">${t.name}</td>
+        <td style="${tdStyle}">${t.truth} m</td>
+        ${probeZooms.map(z => html`<td style="${tdStyle}">${fmtPeak(byTargetZoom.get(`${t.name}|${z}`))}</td>`)}
+      </tr>`)}</tbody>
+    </table>`;
+    const gradTable = html`<table style="${tableStyle}">
+      <thead><tr>
+        <th style="${thStyle}; text-align:left;">summit</th>
+        ${probeZooms.map(z => html`<th style="${thStyle}">z=${z}</th>`)}
+      </tr></thead>
+      <tbody>${probeTargets.map(t => html`<tr>
+        <td style="${tdNameStyle}">${t.name}</td>
+        ${probeZooms.map(z => html`<td style="${tdStyle}">${fmtGrad(byTargetZoom.get(`${t.name}|${z}`))}</td>`)}
+      </tr>`)}</tbody>
+    </table>`;
+
+    display(html`<figure>${peakTable}<figcaption>Peak elevation (m) at the summit's pixel, fetched live from Mapterhorn.</figcaption></figure>`);
+    display(html`<figure>${gradTable}<figcaption>Mean gradient magnitude across the tile, same tiles.</figcaption></figure>`);
+  </script>
+  <script id="77" type="text/markdown">
+    Peaks drop a few percent out to z=6 and a bit more at z=4; mean gradient drops by an order of magnitude over the same range. A power-law fit ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} gives ${tex`\beta`} in the ballpark of ${tex`0.4{-}0.55`}, approaching ${tex`0.5`} as the window widens.
+
+    This splits the passes by what they read. Cast shadows are driven by ${tex`\Delta h`}, which the pyramid preserves, so they look fine at low zoom. Relief and LSAO are driven by ${tex`\nabla h`}, which it doesn't, and they flatten visibly.
+
+    ### The correction
+
+    ${tex.block`\mathrm{pxSize}_{\text{eff}}(z) = \mathrm{pxSize}(z) \cdot 2^{(z - z_{\text{ref}}) \beta}`}
+
+    Applied only to the ${tex`\nabla h`} passes, with ${tex`z_{\text{ref}}`} the native data zoom. At ${tex`z_{\text{ref}}`} the correction is 1×; below it shrinks the horizontal step, which boosts slope and horizon angles. Contracting pxSize rather than inflating heights keeps the elevation buffer untouched — the horizon warmup, hypsometric coloring, and every cross-pass ${tex`\Delta h`} comparison keep reading real meters.
+
+    A related per-row fix runs alongside: pxSize itself is latitude-dependent via ${tex`\cos(\mathrm{lat})`}, and at low zoom one tile spans enough latitude that a single tile-centroid value leaves slope seams at every horizontal tile boundary. Every pass now derives ${tex`\cos(\mathrm{lat})`} per row from each pixel's own mercator coordinate. Inside the sweep kernels each target holds its row's pxSize constant across the inner hull scan — an approximation invisible at tile-sweep range.
+
+    Theoretical ${tex`\beta \approx 0.5`} matches the asymptote but reads visually overeager. The viewer defaults to ${tex`\beta = 0.3`}; ${tex`\beta = 0`} disables the correction for comparison.
+  </script>
   <script id="68" type="text/markdown">
     ## Live WebGPU tile viewer
 
@@ -1809,7 +1945,7 @@
     );
     const strengthEl = Inputs.range([0, 1], {
       label: "relief strength",
-      value: 0.2,
+      value: 0.28,
       step: 0.01,
     });
     const aoEl = Inputs.range([0, 1], {
@@ -1837,6 +1973,11 @@
       label: "AO falloff",
       value: "e^(−sin α)",
     });
+    const zoomExagEl = Inputs.range([0, 1], {
+      label: "zoom exaggeration β",
+      value: 0.3,
+      step: 0.01,
+    });
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1850,6 +1991,7 @@
     tileViewerControlsDiv.appendChild(sunDiameterEl);
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
     tileViewerControlsDiv.appendChild(aoFalloffEl);
+    tileViewerControlsDiv.appendChild(zoomExagEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
     const tileViewerControls = {
@@ -1860,6 +2002,7 @@
       sunDiameterEl,
       shadowSamplesEl,
       aoFalloffEl,
+      zoomExagEl,
     };
   </script>
   <script id="72" type="module">
@@ -1973,6 +2116,7 @@
         );
         const isDebug = c.bakeModeEl.value === "debug";
         const lsaoFalloff = c.aoFalloffEl.value === "e^(−sin α)" ? "exp" : "cos2";
+        const reliefBeta = Number(c.zoomExagEl.value);
         viewer.setLighting({
           sunX,
           sunY,
@@ -1988,6 +2132,7 @@
           reliefStrength,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
           lsaoFalloff,
+          reliefBeta,
         });
         requestAnimationFrame(tickLighting);
       };
