@@ -286,6 +286,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let lambertian = diffuse * shadowMask;
 
   // Relief shading adapted from maplibre's standard hillshade.
+  // In time mode, reliefDark fades to zero per-pixel as the local
+  // sun crosses the horizon, so the aspect cross-hatch disappears
+  // on the night side and only LSAO (via aoFactor) textures the
+  // terrain there.
   let slopeMag = length(nxy);
   let sunHL = length(sunDir.xy);
   let zFactor = 0.625 * sqrt(sunHL);
@@ -293,7 +297,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let scaledSlope = min(slopeAngle * reliefStr * 2.0, 1.5);
   let aspectAlign = select(0.0, dot(nxy, sunDir.xy) / (slopeMag * sunHL), slopeMag > 0.001 && sunHL > 0.001);
   let shadeDir = 0.5 + 0.5 * aspectAlign;
-  let reliefDark = sin(scaledSlope) * (1.0 - shadeDir);
+  let reliefFade = mix(1.0, saturate(sunPP.z / 0.035), useTime);
+  let reliefDark = sin(scaledSlope) * (1.0 - shadeDir) * reliefFade;
   let reliefSrgb = pow(1.0 - reliefDark * 0.85, 2.5) * shadowMask;
 
   // Debug mode: show the raw bake texture, darkened by shadow.
