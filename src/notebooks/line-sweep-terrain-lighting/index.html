@@ -1164,7 +1164,7 @@
 
     The same horizon visibility sweep works for ambient occlusion as well. Ambient occlusion proceeds similarly to shadowing, but instead of illumination by a point source, each pixel is illuminated by the portion of sky visible to it. I extended [Karim Naaji's LSAO](https://karim.naaji.fr/lsao.html) to support parent-tile occlusion and arbitrary sweep directions. That leaves one design knob open: the per-slice visibility function ${tex`V(\alpha)`} that maps each swept horizon angle ${tex`\alpha`} to a shade contribution.
 
-    Naaji uses ${tex`V(\alpha) = e^{-\sin\alpha}`}. It isn't tied to a particular radiometric model; it's shaped by what reads well. The function drops with slope ${tex`-1`} right at ${tex`\alpha = 0`}, so even a shallow horizon produces an immediate darkening — ridges, terraces, and other layered structure separate crisply. The tradeoff is a long tail: even a vertical wall only attenuates the slice to ${tex`e^{-1} \approx 0.37`}, so distant tall features keep contributing, and tile boundaries take extra care.
+    Naaji uses ${tex`V(\alpha) = e^{-\sin\alpha}`}. The function drops with slope ${tex`-1`} right at ${tex`\alpha = 0`}, so even a shallow horizon produces an immediate darkening. The tradeoff is a long tail, so distant tall features keep contributing, and tile boundaries take extra care.
 
     A Lambertian sky integral offers a physically motivated alternative. Incident sky radiance from a direction at zenith angle ${tex`\theta`} is weighted by ${tex`\cos\theta`}, so the visible fraction of one azimuthal slice above a horizon at elevation α is
 
@@ -1172,9 +1172,9 @@
 
     which normalises to ${tex`\cos^2\!\alpha`}: 1 at a flat horizon, 0 at a vertical wall. Its slope is flat at ${tex`\alpha = 0`} and steepens later, giving a softer, more forgiving response to small horizons. And because ${tex`\cos^2\!\alpha \approx 1 - (\Delta h / d)^2`} for small α, distant tall blockers fall off as ${tex`1/d^2`}, so the effect is strongly local and tile boundaries are less visible.
 
-    Neither is categorically right — the control below toggles between them. Averaging across azimuthally uniform sweeps gives the full ambient-occlusion factor in either case.
+    Honestly, I think the particular choice of function is best thought of as an artistic decision. The original function seems to produce better visual separate of features, at the cost of less locality.
 
-    A contrast slider ${tex`c \in [0, 1]`} shapes the response on top of the raw ${tex`\bar{v}`} per pixel. Let ${tex`s = c / (1 - c)`} and ${tex`\text{shade} = 1 - \bar{v}`}; an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
+    Finally, a contrast slider ${tex`c \in [0, 1]`} tone-maps the response. For pixel ${tex`v,`} let ${tex`s = c / (1 - c)`} and ${tex`\text{shade} = 1 - \bar{v}`}; an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
 
     ${tex.block`\text{display} \;=\; 1 - \tfrac{2}{\pi}\arctan\!\left(\tfrac{c}{1-c}\,(1 - \bar{v})\right).`}
 
@@ -1349,9 +1349,11 @@
   <script id="42" type="text/markdown">
     ## Relief shading
 
-    The shadow map captures cast shadows, but even fully lit surfaces vary in brightness depending on their orientation. Relief shading separates the terrain slope from its aspect (direction it faces relative to the sun), so the sun's altitude doesn't darken flat ground. Flat terrain stays white; slopes facing the sun brighten, slopes facing away darken, and the strength of the effect is proportional to the slope angle.
+    The shadow map captures shadows, but even fully lit surfaces vary in brightness depending on their orientation. The most natural lighting choice is diffuse Lambertian shading, but this tends to darken the surface when lit at oblique angles, which isn't necessarily what we want for a map.
 
-    Concretely: from central differences on the height field, I compute the slope angle ${tex`\theta = \arctan(z_f \cdot \|\mathbf{n}_{xy}\| / n_z)`} and the aspect alignment ${tex`a = \hat{\mathbf{n}}_{xy} \cdot \hat{\mathbf{L}}_{xy} \in [-1, 1]`}, then a darkness term ${tex`d = \sin(\min(\theta \cdot 2s,\; 1.5)) \cdot (1 - \tfrac{1+a}{2})`} where ${tex`s`} is the strength parameter. The final relief value is ${tex`v = (1 - 0.85\,d)^{2.5}`}, a gamma curve that maps the linear darkness into perceptual space. The z-factor ${tex`z_f = 0.625 \sqrt{\cos \alpha}`} (where ${tex`\alpha`} is the sun's altitude) dampens gentle slopes following the GDAL convention, and modulates the perceived slope by sun altitude: at overhead sun the terrain appears flat and the image is white; as the sun lowers, slopes become more visually pronounced, reaching full contrast at the horizon.
+    Relief shading separates the terrain slope from its aspect (direction it faces relative to the sun), so the sun's altitude doesn't darken flat ground. Flat terrain stays white; slopes facing the sun brighten, slopes facing away darken, and the strength of the effect is proportional to the slope angle.
+
+    Concretely, I've slightly adapted GDAL's relief shading function, coputing the slope angle ${tex`\theta = \arctan(z_f \cdot \|\mathbf{n}_{xy}\| / n_z)`} and the aspect alignment ${tex`a = \hat{\mathbf{n}}_{xy} \cdot \hat{\mathbf{L}}_{xy} \in [-1, 1]`}, then a darkness term ${tex`d = \sin(\min(\theta \cdot 2s,\; 1.5)) \cdot (1 - \tfrac{1+a}{2})`} where ${tex`s`} is the strength parameter. The final relief value is ${tex`v = (1 - 0.85\,d)^{2.5}`}. The z-factor ${tex`z_f = 0.625 \sqrt{\cos \alpha}`} (where ${tex`\alpha`} is the sun's altitude) dampens gentle slopes following the GDAL convention, and modulates the perceived slope by sun altitude: at overhead sun the terrain appears flat and the image is white; as the sun lowers, slopes become more visually pronounced, reaching full contrast at the horizon.
   </script>
   <script id="43" type="module">
     const reliefSunDirMut = Mutable({ az: 314.5, alt: 45 });
