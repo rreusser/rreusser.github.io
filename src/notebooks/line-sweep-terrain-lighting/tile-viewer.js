@@ -27,10 +27,14 @@
 //                      the tile texture's A channel. RGB is preserved
 //                      via `writeMask: GPUColorWrite.ALPHA`.
 //
-// Parent-tile continuity: each `Tile` owns a 384×384 half-res horizon
-// buffer assembled in a Web Worker from four cached z-1 fetches. The
-// worker also handles terrarium decoding and fetch deduplication so the
-// main thread stays free for GPU work and pointer events.
+// Parent-tile continuity: each `Tile` owns a horizon buffer assembled
+// in a Web Worker from four cached (z − parentDZ) fetches covering the
+// symmetric (2^parentDZ + 1)-tile neighbourhood around the comp tile.
+// With parentDZ = 2 (default) that's a 320×320 quarter-res buffer
+// covering 5×5 comp tiles; parentDZ = 1 is the original 384×384 half-
+// res / 3×3 behavior. The worker also handles terrarium decoding and
+// fetch deduplication so the main thread stays free for GPU work and
+// pointer events.
 //
 // Positioning math runs on the CPU in double precision. Tile world
 // coordinates and the viewport centre are `number` (IEEE-754 double),
@@ -341,7 +345,18 @@ export function createTileViewer(opts) {
     maxZoom = 14,
     zoom: initialZoom = 11,
     center: initialCenter = [0, 0],
+    // Parent-horizon zoom delta. At `parentDZ = dz` a 2×2 block of
+    // (z - dz) parents guarantees a (2^dz + 1)×(2^dz + 1) target-tile
+    // symmetric window around the comp tile at (1/2^dz) parent
+    // resolution. Default `dz = 2` (5×5 coverage at quarter-res)
+    // roughly doubles the blocker-search radius over `dz = 1` without
+    // extra fetches; distant blockers already matter less after
+    // cos²α / smoothstep falloff, so the coarser horizon tends to be
+    // a near-free win. `dz = 1` reproduces the original 3×3-tile /
+    // half-res behavior exactly.
+    parentDZ = 2,
   } = opts;
+  const parentScale = 1 << parentDZ;
 
   container.style.position = container.style.position || "relative";
   container.style.overflow = "hidden";
@@ -368,7 +383,7 @@ export function createTileViewer(opts) {
     new URL("./tile-viewer-worker.js", import.meta.url),
     { type: "module" },
   );
-  worker.postMessage({ type: "init", tileUrl });
+  worker.postMessage({ type: "init", tileUrl, parentDZ });
 
   // ------------------------------------------------------------------
   // CPU bake worker pool: parallel CPU-side tile baking as an
@@ -787,6 +802,7 @@ export function createTileViewer(opts) {
             sunRadiusDeg: Math.max(0, lighting.sunRadiusDeg || 0),
             shadowSamples: Math.max(1, Math.round(lighting.shadowSamples || 1)),
             lsaoFalloff: lighting.lsaoFalloff,
+            parentScale,
           });
           if (!result || this.destroyed) {
             this.texture?.destroy();
@@ -907,6 +923,7 @@ export function createTileViewer(opts) {
         mode: "lsao",
         weight: 1 / AO_DIRECTIONS,
         horizonN: tile.HN,
+        parentScale,
       });
       lsaoSweeps[d] = sweep;
       device.queue.writeBuffer(
@@ -1085,6 +1102,7 @@ export function createTileViewer(opts) {
           sunRadiusDeg,
           weight,
           horizonN: tile.HN,
+          parentScale,
         });
         sweeps[s] = sweep;
         device.queue.writeBuffer(
@@ -1180,6 +1198,7 @@ export function createTileViewer(opts) {
         cachedNx: new Float32Array(tile._cpuNx),
         cachedNy: new Float32Array(tile._cpuNy),
         cachedAo: new Float32Array(tile._cpuAo),
+        parentScale,
       }).then((result) => {
         tile._shadowPending = false;
         if (!result || tile.destroyed) return;

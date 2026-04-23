@@ -60,8 +60,8 @@ const UNIFORMS_WGSL = /* wgsl */ `
 
     bMin: i32,
     bMax: i32,
-    pad2: i32,
-    pad3: i32,
+    invParentScale: f32,
+    parentCenterOffset: f32,
   };
 `;
 
@@ -79,6 +79,7 @@ export function packUniforms(opts) {
     eqPxSizeM,
     tanAltBot, tanAltTop,
     bMin, bMax,
+    parentScale = 2,
   } = opts;
   const buf = new ArrayBuffer(UNIFORM_BYTES);
   const u32 = new Uint32Array(buf);
@@ -107,8 +108,15 @@ export function packUniforms(opts) {
   f32[19] = tanRange > 0 ? 1 / tanRange : 0;
   i32[20] = bMin;
   i32[21] = bMax;
-  i32[22] = 0;
-  i32[23] = 0;
+  // See sweep-core.js for the derivation. Child pixel `oxf`'s center
+  // (child-space position oxf + 0.5) maps to horizon pixel
+  //   (oxf + W) * invParentScale - parentCenterOffset,
+  // where parentCenterOffset = 0.5 * (1 - invParentScale) encodes the
+  // sub-parent-pixel offset introduced by sampling at child pixel
+  // centers rather than integer grid lines.
+  const invParentScale = 1 / parentScale;
+  f32[22] = invParentScale;
+  f32[23] = 0.5 * (1 - invParentScale);
   return buf;
 }
 
@@ -181,14 +189,16 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
           if (u.swap != 0u) { ox_f = yw; oy_f = f32(cxw); }
           if (u.flipX != 0u) { ox_f = (Wf - 1.0) - ox_f; }
           if (u.flipY != 0u) { oy_f = (Hf - 1.0) - oy_f; }
-          // Parent pixels are 2× child pixels and elevations live at
-          // pixel centers, so a child pixel at ox_f lies 0.25 parent-
-          // pixels into its enclosing parent cell. See sweep-core.js
-          // for the full reasoning; without this the slope from the
-          // last warmup hull entry to the first comp pixel is half its
-          // true value.
-          let hx_f: f32 = (ox_f + Wf) * 0.5 - 0.25;
-          let hy_f: f32 = (oy_f + Hf) * 0.5 - 0.25;
+          // Child→horizon bilinear alignment, generalised to
+          // parentScale = 2^dz. Elevations live at pixel centers, so
+          // sampling at child pixel ox_f's center maps to horizon
+          // pixel `(ox_f + Wf) * invParentScale - parentCenterOffset`.
+          // See sweep-core.js for the full derivation; dropping the
+          // center offset would bias the last warmup hull entry by
+          // half a parent pixel and halve the apparent slope at the
+          // first comp pixel.
+          let hx_f: f32 = (ox_f + Wf) * u.invParentScale - u.parentCenterOffset;
+          let hy_f: f32 = (oy_f + Hf) * u.invParentScale - u.parentCenterOffset;
           let hx_i: i32 = i32(floor(hx_f));
           let hy_i: i32 = i32(floor(hy_f));
           if (hx_i < 0 || hx_i + 1 >= hN) { continue; }
@@ -400,7 +410,7 @@ function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
 
         // Per-target pxSize and its derived sweep constants, from the
         // target pixel's own original row. Mirrors the CPU
-        // `updateTargetPx` path in sweep-core.js.
+        // updateTargetPx path in sweep-core.js.
         let targetRow: i32 = select(yj, yi, loIn);
         let pxSize = targetPxSize(cx, targetRow);
         let dStep = pxSize * sqrt(1.0 + u.slope * u.slope);
@@ -1058,6 +1068,7 @@ export function deriveSweepParams({
   eqPxSizeM, tileY, z,
   altDeg = 0, sunRadiusDeg = 0, weight = 1,
   horizonN = 0,
+  parentScale = 2,
 }) {
   const theta =
     mode === "lsao"
@@ -1104,6 +1115,7 @@ export function deriveSweepParams({
     z: z || 0,
     useMercator: useMercator ? 1 : 0,
     eqPxSizeM: outEqPxSizeM,
+    parentScale,
   };
 }
 
