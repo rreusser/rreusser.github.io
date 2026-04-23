@@ -176,29 +176,39 @@ export function sweepCore(opts) {
   const bMin = -Math.ceil(slope * (viewW - 1));
   const bMax = viewH - 1;
 
-  const WARMUP_STEPS = W;
   const hasHorizon = horizon && HN > 0;
 
   // Horizon-sample bilinear alignment for arbitrary `parentScale = 2^dz`.
   //
-  // One parent pixel spans `parentScale` child pixels, and the horizon
-  // window starts exactly `W` child pixels (= `W/parentScale` parent
-  // pixels) before the target tile, with PN*(parentScale+1)/parentScale
-  // total horizon pixels.
+  // The worker assembles the horizon with (PN/2) parent pixels of
+  // margin on each side of the comp tile, which is `warmupMargin`
+  // child pixels = `W * parentScale / 2`. At parentScale=2 this is
+  // exactly W (one target tile) and the formula collapses to the
+  // original hand-derived form; at parentScale=4 it's 2·W (two target
+  // tiles), and so on.
   //
-  // Parent pixel `h` has its center at child-space position
-  //   `h*parentScale + parentScale/2 - W`.
-  // Sampling at child pixel `oxf`'s center (child-space position
+  // Horizon pixel `h` (integer) has its centre at tile-local child
+  // position
+  //   `h * parentScale + parentScale/2 - warmupMargin`.
+  // Sampling at child pixel `oxf`'s centre (child-space position
   // `oxf + 0.5`) therefore lands at horizon position
-  //   `(oxf + 0.5 + W)/parentScale - 0.5`,
-  // which we rearrange to `(oxf + W)/parentScale - (0.5 - 0.5/parentScale)`
-  // to make the per-step `(oxf + W) * invParentScale` a single FMA and
-  // pull the constant pixel-center offset out of the inner loop.
+  //   `(oxf + 0.5 + warmupMargin)/parentScale - 0.5`,
+  // which we rearrange to
+  //   `(oxf + warmupMargin) * invParentScale - parentCenterOffset`
+  // with `parentCenterOffset = 0.5 * (1 - invParentScale)` to absorb
+  // the sub-parent-pixel offset introduced by pixel-centre sampling.
   //
-  // For `parentScale = 2` (one parent pixel = 2 child pixels) this is
-  // `(oxf + W)/2 - 0.25`, the original hand-derived hard-coded form.
+  // `WARMUP_STEPS` must equal `warmupMarginX` so the ray walks the
+  // full available margin along the sweep-canonical axis — walking
+  // only `W` child pixels at parentScale>2 would leave the outer
+  // parent-pixel tiles unsampled and blockers past one child tile
+  // from the comp edge would be invisible, producing visible tile-
+  // boundary artefacts.
   const invParentScale = 1 / parentScale;
   const parentCenterOffset = 0.5 * (1 - invParentScale);
+  const warmupMarginX = (W * parentScale) >> 1;
+  const warmupMarginY = (H * parentScale) >> 1;
+  const WARMUP_STEPS = warmupMarginX;
 
   // Mode-specific shadow bit at (cx, hRay) against the current hull.
   // Called from both the warmup's tile-edge deposit and the main pass
@@ -289,17 +299,17 @@ export function sweepCore(opts) {
         let oyf = swap ? cx : y;
         if (flipX) oxf = W - 1 - oxf;
         if (flipY) oyf = H - 1 - oyf;
-        // Elevations are defined at pixel centers. See the derivation
-        // of `invParentScale` / `parentCenterOffset` above: this is
-        // the pixel-centre-preserving child→horizon map, generalised
-        // to parentScale = 2^dz. Without the `-parentCenterOffset`
-        // term, the hull entry pushed from the last warmup step at
-        // canonical cx = −1 would carry a height sampled from a
-        // half-parent-pixel-earlier physical position, producing a
-        // slope at the first comp pixel that's off by a pixel — and
-        // a faint shadow band along tile edges in LSAO.
-        const hxf = (oxf + W) * invParentScale - parentCenterOffset;
-        const hyf = (oyf + H) * invParentScale - parentCenterOffset;
+        // Elevations are defined at pixel centres. See the derivation
+        // of `warmupMargin` / `parentCenterOffset` above: this is the
+        // pixel-centre-preserving child→horizon map, generalised to
+        // parentScale = 2^dz. Without the `-parentCenterOffset` term,
+        // the hull entry pushed from the last warmup step at canonical
+        // cx = −1 would carry a height sampled from a half-parent-
+        // pixel-earlier physical position, producing a slope at the
+        // first comp pixel that's off by a pixel — and a faint
+        // shadow band along tile edges in LSAO.
+        const hxf = (oxf + warmupMarginX) * invParentScale - parentCenterOffset;
+        const hyf = (oyf + warmupMarginY) * invParentScale - parentCenterOffset;
         const hxi = Math.floor(hxf);
         const hyi = Math.floor(hyf);
         if (hxi < 0 || hxi + 1 >= HN) continue;

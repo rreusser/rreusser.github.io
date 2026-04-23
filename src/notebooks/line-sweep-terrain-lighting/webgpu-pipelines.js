@@ -176,12 +176,22 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
   const kernel = modeKernelWGSL(mode, lsaoFalloff);
   return /* wgsl */ `
     {
-      let WARMUP_STEPS: i32 = i32(u.W);
+      // Child-pixel margin the horizon includes on each side of the
+      // comp tile: (PN/2) parent pixels = W * parentScale / 2 child
+      // pixels. At parentScale=2 that's W (the original behaviour);
+      // at parentScale=4 it's 2·W; and so on. The warmup must walk
+      // through EXACTLY this many child pixels, and the horizon-
+      // sample formula must shift by this amount to land at the
+      // correct parent pixel.
+      let parentScaleF: f32 = 1.0 / u.invParentScale;
+      let Wf = f32(i32(u.W));
+      let Hf = f32(i32(u.H));
+      let warmupMarginX: f32 = Wf * parentScaleF * 0.5;
+      let warmupMarginY: f32 = Hf * parentScaleF * 0.5;
+      let WARMUP_STEPS: i32 = i32(warmupMarginX);
       let warmStart: i32 = cxEntry - WARMUP_STEPS;
       let hN: i32 = i32(u.horizonN);
       if (hN > 0) {
-        let Wf = f32(i32(u.W));
-        let Hf = f32(i32(u.H));
         for (var cxw: i32 = warmStart; cxw < cxEntry; cxw = cxw + 1) {
           let yw = f32(b) + u.slope * f32(cxw);
           var ox_f: f32 = f32(cxw);
@@ -190,15 +200,14 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
           if (u.flipX != 0u) { ox_f = (Wf - 1.0) - ox_f; }
           if (u.flipY != 0u) { oy_f = (Hf - 1.0) - oy_f; }
           // Child→horizon bilinear alignment, generalised to
-          // parentScale = 2^dz. Elevations live at pixel centers, so
-          // sampling at child pixel ox_f's center maps to horizon
-          // pixel `(ox_f + Wf) * invParentScale - parentCenterOffset`.
-          // See sweep-core.js for the full derivation; dropping the
-          // center offset would bias the last warmup hull entry by
-          // half a parent pixel and halve the apparent slope at the
-          // first comp pixel.
-          let hx_f: f32 = (ox_f + Wf) * u.invParentScale - u.parentCenterOffset;
-          let hy_f: f32 = (oy_f + Hf) * u.invParentScale - u.parentCenterOffset;
+          // parentScale = 2^dz. Elevations live at pixel centres, so
+          // sampling at child pixel ox_f's centre maps to horizon
+          // pixel (ox_f + warmupMargin)*invParentScale -
+          // parentCenterOffset. See sweep-core.js for the full
+          // derivation; using Wf instead of warmupMarginX here was
+          // the tile-boundary-artifact bug at parentScale > 2.
+          let hx_f: f32 = (ox_f + warmupMarginX) * u.invParentScale - u.parentCenterOffset;
+          let hy_f: f32 = (oy_f + warmupMarginY) * u.invParentScale - u.parentCenterOffset;
           let hx_i: i32 = i32(floor(hx_f));
           let hy_i: i32 = i32(floor(hy_f));
           if (hx_i < 0 || hx_i + 1 >= hN) { continue; }
