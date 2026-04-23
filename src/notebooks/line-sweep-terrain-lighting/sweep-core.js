@@ -54,6 +54,18 @@ export function sweepCore(opts) {
     horizonTouched = null,
     lsaoFalloff = "cos2",
     parentScale = 2,
+    // Optional elevation bounds used to trim the warmup march. A
+    // parent-ring blocker of height `horizonElevMax` can only cast a
+    // hard-shadow ray reaching a comp target at height `compElevMin`
+    // out to distance `(horizonElevMax − compElevMin) / tan(altMin)`
+    // metres, where `altMin` is the shallowest shadow-contributing
+    // sun angle (= altDeg for hard, = altDeg − 1.5·sunRadiusDeg for
+    // soft, ∞ for LSAO). The warmup therefore only needs to walk the
+    // child-pixel equivalent of that distance, capped at the full
+    // margin. Leave either opt null/undefined and we walk the whole
+    // margin, same as before.
+    compElevMin = null,
+    horizonElevMax = null,
   } = opts;
 
   // Shadow-casting modes traverse *away* from the sun; LSAO is a
@@ -208,7 +220,64 @@ export function sweepCore(opts) {
   const parentCenterOffset = 0.5 * (1 - invParentScale);
   const warmupMarginX = (W * parentScale) >> 1;
   const warmupMarginY = (H * parentScale) >> 1;
-  const WARMUP_STEPS = warmupMarginX;
+
+  // Elevation-bound warmup reduction. At sun altitude `altMin` (the
+  // shallowest angle that still contributes shadow for the current
+  // mode) a blocker of height H_b can only cast a shadow that reaches
+  // distance (H_b − H_t) / tan(altMin) metres from a target of height
+  // H_t. Using the worst-case pair (H_b = horizonElevMax,
+  // H_t = compElevMin) gives a tight upper bound on how far back the
+  // warmup needs to march; anything past that contributes no shadow
+  // and can be skipped. `warmupMarginX` is the geometric maximum so
+  // we cap there.
+  //
+  //   mode=hard   altMin = altDeg
+  //   mode=soft   altMin = max(0, effectiveAltDeg − halfWidthDeg)
+  //               (equivalently: atan(tanAltBot); already accounts
+  //               for the penumbra extent so the warmup won't clip
+  //               the low-altitude side).
+  //   mode=lsao   horizon-slope scan, no "too shallow" cutoff
+  //               so the optimisation doesn't apply and we march
+  //               the full margin.
+  //
+  // Leave either elevation bound null and we fall back to the full
+  // margin (backward-compatible for callers that don't track ranges).
+  let WARMUP_STEPS = warmupMarginX;
+  if (
+    horizon && HN > 0 &&
+    mode !== "lsao" &&
+    compElevMin !== null && compElevMin !== undefined &&
+    horizonElevMax !== null && horizonElevMax !== undefined
+  ) {
+    const dh = horizonElevMax - compElevMin;
+    if (dh <= 0) {
+      // Parent ring is at or below the comp tile's lowest point —
+      // it cannot cast shadow into the comp tile. Skip the warmup.
+      WARMUP_STEPS = 0;
+    } else {
+      const tanMin = mode === "hard" ? tanAlt : tanAltBot;
+      if (tanMin > 0) {
+        // Smallest pxSize → more pixels per metre → longer walk, so
+        // use it as the conservative bound over pxSizeByRow. (Scalar
+        // pxSize is just itself.)
+        let pxMin = pxSizeM;
+        if (pxSizeByRow) {
+          pxMin = Infinity;
+          for (let i = 0; i < pxSizeByRow.length; i++) {
+            const p = pxSizeByRow[i];
+            if (p < pxMin) pxMin = p;
+          }
+        }
+        const maxDistM = dh / tanMin;
+        const maxDistPx = Math.ceil(maxDistM / pxMin);
+        if (maxDistPx < WARMUP_STEPS) {
+          WARMUP_STEPS = maxDistPx > 0 ? maxDistPx : 0;
+        }
+      }
+      // tanMin ≤ 0: sun at/below horizon ⇒ effectively infinite
+      // shadow length ⇒ keep the full-margin walk.
+    }
+  }
 
   // Mode-specific shadow bit at (cx, hRay) against the current hull.
   // Called from both the warmup's tile-edge deposit and the main pass

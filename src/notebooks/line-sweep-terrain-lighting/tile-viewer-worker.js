@@ -10,9 +10,13 @@
 //   main → worker:  { type: "cancel", z, x, y }
 //   worker → main:  { type: "tile", z, x, y, comp, horizon }
 //   worker → main:  { type: "error", z, x, y, message }
-//                    comp = { N, heights (Float32Array), hMin, hMax }
-//                    horizon = { HN, heights (Float32Array) }
+//                    comp    = { N,  heights (Float32Array), hMin, hMax }
+//                    horizon = { HN, heights (Float32Array), hMin, hMax }
 //                    Both Float32Arrays are transferred (zero-copy).
+//                    The horizon's (hMin, hMax) bounds the ring's
+//                    actual elevations (including zero-fill from
+//                    missing parents) and is paired with comp's
+//                    (hMin, hMax) by the sweep to trim the warmup.
 //
 // `parentDZ` controls how many zoom levels up the pyramid the parent-
 // horizon window is assembled from. The 2×2 block of parents at
@@ -197,12 +201,26 @@ function assembleParentHorizon(z, x, y) {
     const startX = compTileXInBlock - PN / 2;
     const startY = compTileYInBlock - PN / 2;
     const heights = new Float32Array(HN * HN);
+    // Track the min/max over the *extracted* window (not the block
+    // or the full parents) — these feed sweepCore's warmup-range
+    // trim, so the bound needs to match exactly what the warmup
+    // sees. Zero-fill from missing parents participates, which is
+    // correct: a zeroed-out ocean quadrant is a legitimately low
+    // "blocker" and the trim bound should include it.
+    let hMin = Infinity;
+    let hMax = -Infinity;
     for (let j = 0; j < HN; j++) {
       const srcRow = (startY + j) * BN + startX;
       const dstRow = j * HN;
-      for (let i = 0; i < HN; i++) heights[dstRow + i] = block[srcRow + i];
+      for (let i = 0; i < HN; i++) {
+        const v = block[srcRow + i];
+        heights[dstRow + i] = v;
+        if (v < hMin) hMin = v;
+        if (v > hMax) hMax = v;
+      }
     }
-    return { HN, heights };
+    if (!isFinite(hMin)) { hMin = 0; hMax = 0; }
+    return { HN, heights, hMin, hMax };
   });
 }
 
@@ -238,7 +256,7 @@ self.onmessage = (e) => {
             type: "tile",
             z, x, y,
             comp: { N: comp.N, heights: compHeights, hMin: comp.hMin, hMax: comp.hMax },
-            horizon: { HN: horizon.HN, heights: horizonHeights },
+            horizon: { HN: horizon.HN, heights: horizonHeights, hMin: horizon.hMin, hMax: horizon.hMax },
           },
           [compHeights.buffer, horizonHeights.buffer],
         );

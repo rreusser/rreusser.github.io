@@ -46,7 +46,7 @@ const UNIFORMS_WGSL = /* wgsl */ `
     tileY: u32,
     z: u32,
     useMercator: u32,
-    pad0: u32,
+    warmupSteps: u32,
 
     slope: f32,
     tanAlt: f32,
@@ -80,6 +80,7 @@ export function packUniforms(opts) {
     tanAltBot, tanAltTop,
     bMin, bMax,
     parentScale = 2,
+    warmupSteps = null,
   } = opts;
   const buf = new ArrayBuffer(UNIFORM_BYTES);
   const u32 = new Uint32Array(buf);
@@ -96,7 +97,10 @@ export function packUniforms(opts) {
   u32[8] = tileY >>> 0;
   u32[9] = z >>> 0;
   u32[10] = useMercator ? 1 : 0;
-  u32[11] = 0;
+  // Full warmup margin, in child pixels, if caller didn't precompute a
+  // tighter bound. Matches sweep-core.js's default WARMUP_STEPS.
+  const fullWarmup = (W * parentScale) >> 1;
+  u32[11] = (warmupSteps !== null ? warmupSteps : fullWarmup) >>> 0;
   f32[12] = slope;
   f32[13] = tanAlt || 0;
   f32[14] = FP_SCALE;
@@ -179,16 +183,19 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
       // Child-pixel margin the horizon includes on each side of the
       // comp tile: (PN/2) parent pixels = W * parentScale / 2 child
       // pixels. At parentScale=2 that's W (the original behaviour);
-      // at parentScale=4 it's 2·W; and so on. The warmup must walk
-      // through EXACTLY this many child pixels, and the horizon-
-      // sample formula must shift by this amount to land at the
-      // correct parent pixel.
+      // at parentScale=4 it's 2·W; and so on. The horizon-sample
+      // formula must shift by this full amount to land at the correct
+      // parent pixel. The loop count, however, is u.warmupSteps —
+      // the caller may precompute a tighter upper bound from the
+      // comp-tile-min / horizon-max elevation range and the current
+      // sun angle, trimming the loop when shadows can't physically
+      // reach across the full margin.
       let parentScaleF: f32 = 1.0 / u.invParentScale;
       let Wf = f32(i32(u.W));
       let Hf = f32(i32(u.H));
       let warmupMarginX: f32 = Wf * parentScaleF * 0.5;
       let warmupMarginY: f32 = Hf * parentScaleF * 0.5;
-      let WARMUP_STEPS: i32 = i32(warmupMarginX);
+      let WARMUP_STEPS: i32 = i32(u.warmupSteps);
       let warmStart: i32 = cxEntry - WARMUP_STEPS;
       let hN: i32 = i32(u.horizonN);
       if (hN > 0) {
@@ -1078,6 +1085,8 @@ export function deriveSweepParams({
   altDeg = 0, sunRadiusDeg = 0, weight = 1,
   horizonN = 0,
   parentScale = 2,
+  compElevMin = null,
+  horizonElevMax = null,
 }) {
   const theta =
     mode === "lsao"
@@ -1111,6 +1120,52 @@ export function deriveSweepParams({
   const useMercator = eqPxSizeM !== undefined;
   const outEqPxSizeM = useMercator ? eqPxSizeM : (pxSizeM || 0);
 
+  // Elevation-bound warmup trim. See sweep-core.js for the full
+  // derivation; this is the same formula running on the CPU side so
+  // the packed uniform `warmupSteps` matches what sweepCore would
+  // compute internally. LSAO is a horizon-slope scan with no
+  // shallowest-angle cutoff, so the trim doesn't apply and we fall
+  // back to the full margin.
+  const fullWarmup = (W * parentScale) >> 1;
+  let warmupSteps = fullWarmup;
+  if (
+    horizonN > 0 &&
+    mode !== "lsao" &&
+    compElevMin !== null && compElevMin !== undefined &&
+    horizonElevMax !== null && horizonElevMax !== undefined
+  ) {
+    const dh = horizonElevMax - compElevMin;
+    if (dh <= 0) {
+      warmupSteps = 0;
+    } else {
+      const tanMin = mode === "hard" ? tanAlt : tanAltBot;
+      if (tanMin > 0) {
+        // Conservative pxMin: we want the walk to cover the full
+        // physical shadow distance in every row, so we need the
+        // SMALLEST pxSize on the tile (smallest metres-per-pixel ⇒
+        // most pixels per metre ⇒ longest walk in pixel units). In
+        // Mercator mode that's at the pole-side y-edge; in flat mode
+        // pxSize is uniform.
+        let pxMin = outEqPxSizeM;
+        if (useMercator && z !== undefined) {
+          const nFull = (1 << z) * H;
+          const latAtRow = (r) => {
+            const worldRow = (tileY || 0) * H + r + 0.5;
+            const nMerc = Math.PI * (1 - (2 * worldRow) / nFull);
+            return Math.atan(Math.sinh(nMerc));
+          };
+          const lat0 = latAtRow(0);
+          const latH = latAtRow(H - 1);
+          const maxAbsLat = Math.max(Math.abs(lat0), Math.abs(latH));
+          pxMin = outEqPxSizeM * Math.cos(maxAbsLat);
+        }
+        const maxDistM = dh / tanMin;
+        const maxDistPx = Math.ceil(maxDistM / pxMin);
+        if (maxDistPx < warmupSteps) warmupSteps = Math.max(0, maxDistPx);
+      }
+    }
+  }
+
   return {
     W, H, viewW, viewH,
     swap, flipX, flipY,
@@ -1125,6 +1180,7 @@ export function deriveSweepParams({
     useMercator: useMercator ? 1 : 0,
     eqPxSizeM: outEqPxSizeM,
     parentScale,
+    warmupSteps,
   };
 }
 

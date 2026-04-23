@@ -82,7 +82,7 @@ function computeLSAO(heights, N, pxSizeByRow, horizon, HN, lsaoFalloff, parentSc
   return ao;
 }
 
-function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples, parentScale) {
+function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples, parentScale, compHMin, horizonHMax) {
   const shadow = new Float32Array(N * N);
   const weight = 1 / samples;
 
@@ -92,6 +92,7 @@ function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunR
       mode: "soft", altDeg, sunRadiusDeg, weight: 1,
       horizon: HN > 0 ? horizon : null, HN,
       parentScale,
+      compElevMin: compHMin, horizonElevMax: horizonHMax,
     });
     for (let i = 0; i < N * N; i++) shadow[i] = result[i];
   } else {
@@ -105,6 +106,7 @@ function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunR
         mode: "soft", altDeg, sunRadiusDeg, weight,
         horizon: HN > 0 ? horizon : null, HN,
         parentScale,
+        compElevMin: compHMin, horizonElevMax: horizonHMax,
       });
       for (let i = 0; i < N * N; i++) shadow[i] += result[i];
     }
@@ -152,7 +154,7 @@ self.onmessage = (e) => {
     case "bake": {
       const { z, x, y, heights, N, rawEqPxSizeM, pxCorr, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff,
-              parentScale = 2 } = msg;
+              parentScale = 2, compHMin, horizonHMax } = msg;
       // Per-row cos(lat) drives pxSize for every pass: the raw
       // latitude-dependent version for shadow (geometry is set by
       // real elevation differences and must stay continuous across
@@ -164,7 +166,8 @@ self.onmessage = (e) => {
       const { nx, ny } = computeNormals(heights, N, scaledRowPx);
       const ao = computeLSAO(heights, N, scaledRowPx, horizon, HN, lsaoFalloff, parentScale);
       const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
-                                   azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale);
+                                   azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
+                                   compHMin, horizonHMax);
       const packed = packRGBA(nx, ny, ao, shadow, N);
       self.postMessage(
         { type: "baked", z, x, y, packed, N,
@@ -178,10 +181,11 @@ self.onmessage = (e) => {
       const { z, x, y, heights, N, rawEqPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples,
               cachedNx, cachedNy, cachedAo,
-              parentScale = 2 } = msg;
+              parentScale = 2, compHMin, horizonHMax } = msg;
       const shadowRowPx = buildRowPx(rawEqPxSizeM, z, y, N);
       const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
-                                   azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale);
+                                   azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
+                                   compHMin, horizonHMax);
       const packed = packRGBA(cachedNx, cachedNy, cachedAo, shadow, N);
       self.postMessage(
         { type: "shadowed", z, x, y, packed, N },

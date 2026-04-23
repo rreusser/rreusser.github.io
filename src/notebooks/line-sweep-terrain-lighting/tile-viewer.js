@@ -715,6 +715,10 @@ export function createTileViewer(opts) {
       this._horizon = null;
       this._horizonHN = 0;
       this._rawEqPxSizeM = 0;
+      this._compHMin = 0;      // elevation bounds for warmup trim
+      this._compHMax = 0;
+      this._horizonHMin = 0;
+      this._horizonHMax = 0;
       this._cpuNx = null;      // cached normals+AO from CPU bake
       this._cpuNy = null;
       this._cpuAo = null;
@@ -783,6 +787,10 @@ export function createTileViewer(opts) {
           this._horizon = new Float32Array(horizon.heights);
           this._horizonHN = HN;
           this._rawEqPxSizeM = rawEqPxSizeM;
+          this._compHMin = comp.hMin;
+          this._compHMax = comp.hMax;
+          this._horizonHMin = horizon.hMin ?? 0;
+          this._horizonHMax = horizon.hMax ?? 0;
 
           const { azDeg, altDeg } = tileSunAngles(this);
 
@@ -803,6 +811,8 @@ export function createTileViewer(opts) {
             shadowSamples: Math.max(1, Math.round(lighting.shadowSamples || 1)),
             lsaoFalloff: lighting.lsaoFalloff,
             parentScale,
+            compHMin: comp.hMin,
+            horizonHMax: horizon.hMax ?? 0,
           });
           if (!result || this.destroyed) {
             this.texture?.destroy();
@@ -1103,6 +1113,8 @@ export function createTileViewer(opts) {
           weight,
           horizonN: tile.HN,
           parentScale,
+          compElevMin: tile._compHMin,
+          horizonElevMax: tile._horizonHMax,
         });
         sweeps[s] = sweep;
         device.queue.writeBuffer(
@@ -1199,6 +1211,8 @@ export function createTileViewer(opts) {
         cachedNy: new Float32Array(tile._cpuNy),
         cachedAo: new Float32Array(tile._cpuAo),
         parentScale,
+        compHMin: tile._compHMin,
+        horizonHMax: tile._horizonHMax,
       }).then((result) => {
         tile._shadowPending = false;
         if (!result || tile.destroyed) return;
