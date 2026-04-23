@@ -7,7 +7,9 @@ import { sweepCore } from "./sweep-core.js";
 // `null`/`0` for the simple no-prepass figure. `parentScale = 2^dz`
 // must match the buffer's resolution; default 2 = original half-res
 // behavior. `horizonTouched` is an optional debug buffer the pre-pass
-// marks to show which parent pixels the warmup sampled.
+// marks to show which parent pixels the warmup sampled. The final
+// two opts feed sweepCore's elevation-bound warmup trim — pass
+// null/null to always walk the full margin.
 export function sweepShadow(
   W,
   H,
@@ -19,6 +21,8 @@ export function sweepShadow(
   HN,
   horizonTouched,
   parentScale = 2,
+  compElevMin = null,
+  horizonElevMax = null,
 ) {
   return sweepCore({
     W,
@@ -32,5 +36,7 @@ export function sweepShadow(
     HN,
     horizonTouched,
     parentScale,
+    compElevMin,
+    horizonElevMax,
   });
 }

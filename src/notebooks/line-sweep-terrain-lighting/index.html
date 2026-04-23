@@ -815,6 +815,11 @@
     //   flat ground at elevation 0, so a zero-filled buffer is
     //   physically correct. The geometry's horizon is hand-built for
     //   Δz=1 (parentScale=2), so the Δz control doesn't affect it.
+    //
+    // hMin/hMax bound the horizon's actual elevation range and feed
+    // sweepShadow's elevation-bound warmup trim — passing them lets
+    // the figure's "horizon touched" tint shrink at steeper sun
+    // altitudes, showing the optimisation visually.
     const elevationHorizon = (() => {
       const N = elevation.N;
       if (elevation === tileElevation) {
@@ -822,13 +827,26 @@
           HN: tileHorizon.HN,
           heights: tileHorizon.heights,
           parentScale: tileHorizon.parentScale,
+          hMin: tileHorizon.hMin,
+          hMax: tileHorizon.hMax,
         };
       }
       if (elevation.horizon) {
-        return { ...elevation.horizon, parentScale: 2 };
+        return {
+          ...elevation.horizon,
+          parentScale: 2,
+          hMin: elevation.horizon.hMin ?? 0,
+          hMax: elevation.horizon.hMax ?? 0,
+        };
       }
       const HN = Math.floor((3 * N) / 2);
-      return { HN, heights: new Float32Array(HN * HN), parentScale: 2 };
+      return {
+        HN,
+        heights: new Float32Array(HN * HN),
+        parentScale: 2,
+        hMin: 0,
+        hMax: 0,
+      };
     })();
   </script>
   <script id="33" type="module">
@@ -958,6 +976,13 @@
       parentPrewarm ? elevationHorizon.HN : 0,
       parentPrewarm ? horizonTouched : null,
       elevationHorizon.parentScale,
+      // Elevation-bound warmup trim: a parent blocker at horizon hMax
+      // can only shadow the comp tile's lowest point out to
+      //   (hMax − elevMin) / tan(sunAltitude)  metres,
+      // so at steep sun angles the warmup stops marching early and
+      // the blue "horizon touched" tint shrinks correspondingly.
+      parentPrewarm ? elevation.elevMin : null,
+      parentPrewarm ? elevationHorizon.hMax : null,
     );
   </script>
   <script id="35" type="module">
