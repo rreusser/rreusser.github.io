@@ -2,10 +2,14 @@ import { sweepCore } from "./sweep-core.js";
 
 // Hard-threshold shadow for a point sun. Thin wrapper around `sweepCore`
 // in 'hard' mode; see sweep-core.js for the algorithm. `horizon`/`HN`
-// are optional: pass a half-resolution parent-tile buffer for the
-// parent-tile pre-pass figure, or `null`/`0` for the simple no-prepass
-// figure. `horizonTouched` is an optional debug buffer the pre-pass
-// marks to show which parent pixels the warmup sampled.
+// are optional: pass a horizon buffer for the parent-tile pre-pass
+// figure (sized to PN*(parentScale+1)/parentScale per dim), or
+// `null`/`0` for the simple no-prepass figure. `parentScale = 2^dz`
+// must match the buffer's resolution; default 2 = original half-res
+// behavior. `horizonTouched` is an optional debug buffer the pre-pass
+// marks to show which parent pixels the warmup sampled. The final
+// two opts feed sweepCore's elevation-bound warmup trim — pass
+// null/null to always walk the full margin.
 export function sweepShadow(
   W,
   H,
@@ -16,6 +20,9 @@ export function sweepShadow(
   horizon,
   HN,
   horizonTouched,
+  parentScale = 2,
+  compElevMin = null,
+  horizonElevMax = null,
 ) {
   return sweepCore({
     W,
@@ -28,5 +35,8 @@ export function sweepShadow(
     horizon,
     HN,
     horizonTouched,
+    parentScale,
+    compElevMin,
+    horizonElevMax,
   });
 }

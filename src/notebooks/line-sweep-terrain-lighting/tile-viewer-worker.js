@@ -5,16 +5,31 @@
 // (bake + render) so panning/zooming existing tiles stays smooth.
 //
 // Protocol:
-//   main → worker:  { type: "init", tileUrl }
+//   main → worker:  { type: "init", tileUrl, parentDZ }
 //   main → worker:  { type: "fetch", z, x, y }
 //   main → worker:  { type: "cancel", z, x, y }
 //   worker → main:  { type: "tile", z, x, y, comp, horizon }
 //   worker → main:  { type: "error", z, x, y, message }
-//                    comp = { N, heights (Float32Array), hMin, hMax }
-//                    horizon = { HN, heights (Float32Array) }
+//                    comp    = { N,  heights (Float32Array), hMin, hMax }
+//                    horizon = { HN, heights (Float32Array), hMin, hMax }
 //                    Both Float32Arrays are transferred (zero-copy).
+//                    The horizon's (hMin, hMax) bounds the ring's
+//                    actual elevations (including zero-fill from
+//                    missing parents) and is paired with comp's
+//                    (hMin, hMax) by the sweep to trim the warmup.
+//
+// `parentDZ` controls how many zoom levels up the pyramid the parent-
+// horizon window is assembled from. The 2×2 block of parents at
+// (z - parentDZ) covers 2^(parentDZ+1) target tiles along each dim,
+// so the guaranteed symmetric extract around the target is
+// 2^parentDZ + 1 target tiles wide (3 at dz=1, 5 at dz=2, 9 at dz=3)
+// and HN = PN * (s+1)/s parent pixels where s = 2^parentDZ. The
+// parent-pixel → child-pixel scale is `s`, i.e. one parent pixel
+// covers `s` child pixels — see sweep-core.js for the matching
+// bilinear-sample alignment math.
 
 let tileUrl = "";
+let parentDZ = 2;
 
 function buildUrl(z, x, y) {
   return tileUrl.replace("{z}", z).replace("{x}", x).replace("{y}", y);
@@ -92,11 +107,16 @@ async function fetchTerrarium(url, signal) {
 // ------------------------------------------------------------------
 
 // Returns the set of parent tile keys needed for a given tile.
+// `qx = floor((x - s/2) / s)` places the target tile in the middle half
+// of the 2×2 parent block (slots [s/2, 3s/2-1]), keeping at least s/2
+// child tiles of margin on whichever side is "short" — that's the
+// worst-case symmetric window of s+1 child tiles around the target.
 function parentKeys(z, x, y) {
-  const parentZ = z - 1;
+  const parentZ = z - parentDZ;
   if (parentZ < 0) return [];
-  const qx = Math.floor((x - 1) / 2);
-  const qy = Math.floor((y - 1) / 2);
+  const s = 1 << parentDZ;
+  const qx = Math.floor((x - s / 2) / s);
+  const qy = Math.floor((y - s / 2) / s);
   const nParent = 1 << parentZ;
   const keys = [];
   for (const [px, py] of [[qx, qy], [qx + 1, qy], [qx, qy + 1], [qx + 1, qy + 1]]) {
@@ -123,21 +143,19 @@ function releaseAll(z, x, y) {
 }
 
 function assembleParentHorizon(z, x, y) {
-  const parentZ = z - 1;
+  const parentZ = z - parentDZ;
   if (parentZ < 0) {
     return Promise.resolve({ HN: 0, heights: new Float32Array(0) });
   }
-  const qx = Math.floor((x - 1) / 2);
-  const qy = Math.floor((y - 1) / 2);
+  const s = 1 << parentDZ;
+  const qx = Math.floor((x - s / 2) / s);
+  const qy = Math.floor((y - s / 2) / s);
   const nParent = 1 << parentZ;
-  const fetchOrNull = (px, py) =>
-    px < 0 || px >= nParent || py < 0 || py >= nParent
-      ? Promise.resolve(null)
-      : acquireFetch(px, py, parentZ).catch(() => null);
 
-  // Note: acquireFetch was already called in acquireAll, so this
-  // just gets the existing promise (refs already incremented).
-  // We use the cache entries directly here.
+  // acquireFetch was already called by acquireAll above, so we just
+  // pull the existing promises out of the cache rather than bumping
+  // the refcount again. Missing parents (off-map) resolve to null
+  // and get zero-filled at assembly time.
   const getParent = (px, py) =>
     px < 0 || px >= nParent || py < 0 || py >= nParent
       ? Promise.resolve(null)
@@ -168,18 +186,41 @@ function assembleParentHorizon(z, x, y) {
     place(p10, 1, 0);
     place(p01, 0, 1);
     place(p11, 1, 1);
-    const HN = Math.floor((3 * PN) / 2);
-    const compTileXInBlock = (x - 2 * qx) * (PN / 2);
-    const compTileYInBlock = (y - 2 * qy) * (PN / 2);
+
+    // One parent tile covers `s` child tiles along each dim, so a
+    // child tile is `PN / s` parent pixels wide. The target tile
+    // always sits at slot `x - s*qx ∈ [s/2, 3s/2 - 1]` in the
+    // `0..2s-1` block, and we extract a symmetric `(s+1)` child-tile
+    // window around it. Window start is `PN/2` parent pixels
+    // (= s/2 child tiles) before the target's left edge, which is
+    // always inside the block (even at the most eccentric target
+    // position).
+    const HN = Math.floor((PN * (s + 1)) / s);
+    const compTileXInBlock = (x - s * qx) * (PN / s);
+    const compTileYInBlock = (y - s * qy) * (PN / s);
     const startX = compTileXInBlock - PN / 2;
     const startY = compTileYInBlock - PN / 2;
     const heights = new Float32Array(HN * HN);
+    // Track the min/max over the *extracted* window (not the block
+    // or the full parents) — these feed sweepCore's warmup-range
+    // trim, so the bound needs to match exactly what the warmup
+    // sees. Zero-fill from missing parents participates, which is
+    // correct: a zeroed-out ocean quadrant is a legitimately low
+    // "blocker" and the trim bound should include it.
+    let hMin = Infinity;
+    let hMax = -Infinity;
     for (let j = 0; j < HN; j++) {
       const srcRow = (startY + j) * BN + startX;
       const dstRow = j * HN;
-      for (let i = 0; i < HN; i++) heights[dstRow + i] = block[srcRow + i];
+      for (let i = 0; i < HN; i++) {
+        const v = block[srcRow + i];
+        heights[dstRow + i] = v;
+        if (v < hMin) hMin = v;
+        if (v > hMax) hMax = v;
+      }
     }
-    return { HN, heights };
+    if (!isFinite(hMin)) { hMin = 0; hMax = 0; }
+    return { HN, heights, hMin, hMax };
   });
 }
 
@@ -191,6 +232,9 @@ self.onmessage = (e) => {
   switch (msg.type) {
     case "init":
       tileUrl = msg.tileUrl;
+      if (Number.isFinite(msg.parentDZ) && msg.parentDZ >= 1) {
+        parentDZ = msg.parentDZ | 0;
+      }
       break;
 
     case "fetch": {
@@ -212,7 +256,7 @@ self.onmessage = (e) => {
             type: "tile",
             z, x, y,
             comp: { N: comp.N, heights: compHeights, hMin: comp.hMin, hMax: comp.hMax },
-            horizon: { HN: horizon.HN, heights: horizonHeights },
+            horizon: { HN: horizon.HN, heights: horizonHeights, hMin: horizon.hMin, hMax: horizon.hMax },
           },
           [compHeights.buffer, horizonHeights.buffer],
         );

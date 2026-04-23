@@ -516,9 +516,9 @@
 
     A natural solution is to generate a half-resolution horizon buffer from four z−1 ancestor tiles, covering the computation tile and one tile width of surrounding terrain in each direction. Before the main sweep, a pre-pass walks each ray through this coarser buffer, warming up the stack so that by the time the ray enters the computation tile, it already carries the horizon contributed by surrounding terrain.
 
-    We could step multiple levels upward in the tile pyramid to extend the range of this pre-warming, but in practice I find that a single level is almost always necessary and almost always sufficient.
+    We could also step multiple levels upward in the tile pyramid to extend the range of this pre-warming. A 2×2 block of ${tex`z - \Delta z`} parents physically covers ${tex`(2^{\Delta z} + 1)`} comp-tile widths around the computation tile (3 tiles at ${tex`\Delta z = 1`}, 5 at ${tex`\Delta z = 2`}, 9 at ${tex`\Delta z = 3`}), so bumping ${tex`\Delta z`} by one doubles the reachable blocker radius at the cost of halving the horizon's parent-pixel resolution. In practice, distant blockers matter less after the ${tex`\cos^2\!\alpha`} / smoothstep falloff, so the coarser horizon tends to be a near-free quality win.
 
-    Toggle the parent-tile pre-pass below and observe its effect in the vicinity of tile boundaries.
+    Toggle the parent-tile pre-pass below and observe its effect in the vicinity of tile boundaries. The ${tex`\Delta z`} selector shows how the covered-area / resolution trade plays out visually — at ${tex`\Delta z = 2`} the comp-tile red outline shrinks to ${tex`\tfrac{1}{5}`} of the horizon width (4× the surrounding area captured), and at ${tex`\Delta z = 3`} to ${tex`\tfrac{1}{9}`}.
   </script>
   <script id="26" type="module">
     // Reference tile for the interactive shadow / AO / soft-shadow
@@ -576,24 +576,33 @@
     })();
   </script>
   <script id="29" type="module">
-    // Fetch four z-1 parent tiles — guaranteed to physically cover the 3×3
-    // neighbourhood around our computation tile — and assemble them into a
-    // half-resolution horizon buffer of size (3·N/2) × (3·N/2) parent pixels,
-    // centred on the computation tile so that comp pixel (0, 0) lands at
-    // horizon pixel (N/2, N/2).
+    // Fetch four (z − parentDZ) parent tiles — guaranteed to physically
+    // cover the (2^parentDZ + 1)² neighbourhood around our computation
+    // tile — and assemble them into a horizon buffer at (1/parentScale)
+    // parent-pixel resolution, centred on the computation tile. Comp
+    // pixel (0, 0) always lands PN/2 parent pixels into the horizon
+    // regardless of Δz; only the window size (PN · (s+1)/s) and per-
+    // parent-pixel footprint change.
     //
-    // The computation tile is at parent pixel offset
-    //   (tile.x mod 2) * (PN/2), (tile.y mod 2) * (PN/2)
-    // within its parent. We extract a 3·PN/2-wide window whose centre aligns
-    // with that offset inside the 2·PN-wide block of four parents.
+    // At Δz=1 this is the original 3·N/2 half-res buffer; at Δz=2 a
+    // 5·N/4 quarter-res buffer covering 5×5 comp-tile extents; at Δz=3
+    // a 9·N/8 eighth-res buffer covering 9×9 extents. See sweep-core.js
+    // for the matching bilinear-sample alignment math.
     const tileHorizon = await (async () => {
-      const parentZ = tile.z - 1;
-      const qx = Math.floor((tile.x - 1) / 2);
-      const qy = Math.floor((tile.y - 1) / 2);
+      const dz = parentDZ;
+      const s = 1 << dz;
+      const parentZ = tile.z - dz;
+      if (parentZ < 0) {
+        throw new Error(
+          `tileHorizon: tile.z=${tile.z} is above Δz=${dz} parents`,
+        );
+      }
+      const qx = Math.floor((tile.x - s / 2) / s);
+      const qy = Math.floor((tile.y - s / 2) / s);
 
-      // Tolerate missing parents: if one of the four z−1 tiles isn't
-      // in the on-disk pyramid, substitute zero-filled heights. The
-      // figures degrade gracefully — the missing quadrants of the
+      // Tolerate missing parents: if one of the four (z − dz) tiles
+      // isn't in the on-disk pyramid, substitute zero-filled heights.
+      // The figures degrade gracefully — the missing quadrants of the
       // parent ring just read as flat ground rather than throwing.
       async function fetchParent(px, py) {
         try {
@@ -636,13 +645,14 @@
       place(p01, 0, 1);
       place(p11, 1, 1);
 
-      // Extract the 3·PN/2 horizon window. Its top-left corner sits half a
-      // parent-tile-width before the computation tile in both axes.
-      const HN = Math.floor((3 * PN) / 2);
-      // Position of the computation tile's top-left corner inside the 2×2 block,
-      // in parent pixels.
-      const compTileXInBlock = (tile.x - 2 * qx) * (PN / 2);
-      const compTileYInBlock = (tile.y - 2 * qy) * (PN / 2);
+      // Extract the PN·(s+1)/s horizon window. Its top-left corner
+      // sits PN/2 parent pixels (= s/2 comp-tile widths) before the
+      // computation tile in both axes.
+      const HN = Math.floor((PN * (s + 1)) / s);
+      // Position of the computation tile's top-left corner inside the
+      // 2×2 block, in parent pixels.
+      const compTileXInBlock = (tile.x - s * qx) * (PN / s);
+      const compTileYInBlock = (tile.y - s * qy) * (PN / s);
       const startX = compTileXInBlock - PN / 2;
       const startY = compTileYInBlock - PN / 2;
 
@@ -661,10 +671,11 @@
       }
 
       return {
-        label: `mapterhorn parents of ${tile.z}/${tile.x}/${tile.y}`,
+        label: `mapterhorn z${parentZ} parents of ${tile.z}/${tile.x}/${tile.y}`,
         heights,
         HN,
         compTileSize: tileElevation.N,
+        parentScale: s,
         startX,
         startY,
         hMin,
@@ -798,29 +809,57 @@
   <script id="32" type="module">
     // Pick a horizon buffer matching the active elevation source.
     //
-    // * For the tile source, use the assembled parent-tile data (tileHorizon).
-    // * For the geometry source, the surrounding physical world is flat
-    //   ground at elevation 0, so a zero-filled buffer of the same shape
-    //   is physically correct.
+    // * For the tile source, use the assembled parent-tile data
+    //   (tileHorizon) at the currently-selected Δz.
+    // * For the geometry source, the surrounding physical world is
+    //   flat ground at elevation 0, so a zero-filled buffer is
+    //   physically correct. The geometry's horizon is hand-built for
+    //   Δz=1 (parentScale=2), so the Δz control doesn't affect it.
+    //
+    // hMin/hMax bound the horizon's actual elevation range and feed
+    // sweepShadow's elevation-bound warmup trim — passing them lets
+    // the figure's "horizon touched" tint shrink at steeper sun
+    // altitudes, showing the optimisation visually.
     const elevationHorizon = (() => {
       const N = elevation.N;
       if (elevation === tileElevation) {
-        return { HN: tileHorizon.HN, heights: tileHorizon.heights };
+        return {
+          HN: tileHorizon.HN,
+          heights: tileHorizon.heights,
+          parentScale: tileHorizon.parentScale,
+          hMin: tileHorizon.hMin,
+          hMax: tileHorizon.hMax,
+        };
       }
       if (elevation.horizon) {
-        return elevation.horizon;
+        return {
+          ...elevation.horizon,
+          parentScale: 2,
+          hMin: elevation.horizon.hMin ?? 0,
+          hMax: elevation.horizon.hMax ?? 0,
+        };
       }
       const HN = Math.floor((3 * N) / 2);
-      return { HN, heights: new Float32Array(HN * HN) };
+      return {
+        HN,
+        heights: new Float32Array(HN * HN),
+        parentScale: 2,
+        hMin: 0,
+        hMax: 0,
+      };
     })();
   </script>
   <script id="33" type="module">
     // Render the computation tile stamped into an HN × HN frame with the
-    // same half-resolution layout as the compute-shader horizon buffer (comp
-    // pixel (0, 0) at horizon pixel (N/2, N/2), red outline around comp-tile
-    // region).
+    // same layout as the compute-shader horizon buffer. The comp tile
+    // always starts PN/2 = N/2 parent pixels (horizon pixels) into the
+    // window, regardless of Δz; only its width (N/parentScale) shrinks
+    // as Δz grows, visually showing how much surrounding area a single
+    // parent block covers relative to the comp tile.
     const N = elevation.N;
     const HN = elevationHorizon.HN;
+    const parentScale = elevationHorizon.parentScale;
+    const compHN = N / parentScale; // comp tile width in horizon pixels
 
     // Shared hypsometric ramp: use horizon stats for the tile source, comp
     // tile stats for synthetic sources (where horizon is all zeros).
@@ -852,20 +891,23 @@
       }
     }
 
-    // Comp tile stamp: 2×2-average down to the horizon-pixel resolution so
-    // its scale matches the surrounding parent data.
-    const half = N >> 1;
-    const originX = N >> 1;
+    // Comp tile stamp: parentScale×parentScale-average down to the
+    // horizon-pixel resolution so its scale matches the surrounding
+    // parent data.
+    const originX = N >> 1; // = PN/2
     const originY = N >> 1;
-    for (let j = 0; j < half; j++) {
-      for (let i = 0; i < half; i++) {
-        const i0 = 2 * i,
-          j0 = 2 * j;
-        const a = elevation.heights[j0 * N + i0];
-        const b = elevation.heights[j0 * N + i0 + 1];
-        const c = elevation.heights[(j0 + 1) * N + i0];
-        const d = elevation.heights[(j0 + 1) * N + i0 + 1];
-        const v = shade(0.25 * (a + b + c + d));
+    const s = parentScale;
+    const invS2 = 1 / (s * s);
+    for (let j = 0; j < compHN; j++) {
+      for (let i = 0; i < compHN; i++) {
+        let sum = 0;
+        for (let dy = 0; dy < s; dy++) {
+          const row = (j * s + dy) * N;
+          for (let dx = 0; dx < s; dx++) {
+            sum += elevation.heights[row + i * s + dx];
+          }
+        }
+        const v = shade(sum * invS2);
         const k = ((originY + j) * HN + (originX + i)) * 4;
         horizonPx[k] = Math.min(255, v + 8);
         horizonPx[k + 1] = v;
@@ -874,12 +916,12 @@
       }
     }
 
-    for (let i = 0; i < half; i++) {
+    for (let i = 0; i < compHN; i++) {
       const edges = [
         [originX + i, originY],
-        [originX + i, originY + half - 1],
+        [originX + i, originY + compHN - 1],
         [originX, originY + i],
-        [originX + half - 1, originY + i],
+        [originX + compHN - 1, originY + i],
       ];
       for (const [x, y] of edges) {
         const k = (y * HN + x) * 4;
@@ -906,6 +948,18 @@
     });
     display(parentPrewarmEl);
     const parentPrewarm = Generators.input(parentPrewarmEl);
+
+    // Parent-horizon pyramid step. dz=1 uses the traditional z−1 (half-res)
+    // pre-pass; dz=2 and dz=3 step two/three levels up for broader (but
+    // coarser) blocker coverage. The synthetic-geometry source has its
+    // own hand-built dz=1 horizon and always renders at parentScale=2
+    // regardless of this control — the tile source is where Δz matters.
+    const parentDZEl = Inputs.select([1, 2, 3], {
+      label: "parent Δz",
+      value: 1,
+    });
+    display(parentDZEl);
+    const parentDZ = Generators.input(parentDZEl);
   </script>
   <script id="34" type="module">
     const horizonTouched = new Uint8Array(
@@ -921,6 +975,14 @@
       parentPrewarm ? elevationHorizon.heights : null,
       parentPrewarm ? elevationHorizon.HN : 0,
       parentPrewarm ? horizonTouched : null,
+      elevationHorizon.parentScale,
+      // Elevation-bound warmup trim: a parent blocker at horizon hMax
+      // can only shadow the comp tile's lowest point out to
+      //   (hMax − elevMin) / tan(sunAltitude)  metres,
+      // so at steep sun angles the warmup stops marching early and
+      // the blue "horizon touched" tint shrinks correspondingly.
+      parentPrewarm ? elevation.elevMin : null,
+      parentPrewarm ? elevationHorizon.hMax : null,
     );
   </script>
   <script id="35" type="module">
@@ -982,7 +1044,12 @@
     };
 
     // Central computation-tile region, in horizon-pixel coordinates.
-    const halfN = srN >> 1;
+    // The comp tile always sits PN/2 = N/2 horizon pixels into the
+    // window regardless of Δz; only its width in horizon pixels
+    // (srN / parentScale) shrinks as Δz grows. At Δz=1 compHN = N/2,
+    // matching the original half-resolution layout.
+    const srParentScale = elevationHorizon.parentScale;
+    const compHN = srN / srParentScale;
     const ox = srN >> 1;
     const oy = srN >> 1;
 
@@ -992,9 +1059,9 @@
     const horH = elevationHorizon.heights;
     const surroundDarken = 0.4;
     for (let j = 0; j < srHN; j++) {
-      const inCenterJ = j >= oy && j < oy + halfN;
+      const inCenterJ = j >= oy && j < oy + compHN;
       for (let i = 0; i < srHN; i++) {
-        const inCenter = inCenterJ && i >= ox && i < ox + halfN;
+        const inCenter = inCenterJ && i >= ox && i < ox + compHN;
         let tone = toneOf(horH[j * srHN + i]);
         if (!inCenter) tone *= surroundDarken;
         const v = Math.round(linearToSrgb(tone) * 255);
@@ -1006,30 +1073,27 @@
       }
     }
 
-    // Centre tile: shadow-composited hypsometric at half resolution.
-    // Each horizon pixel covers a 2×2 block of comp pixels; we average
-    // both the tone and the shadow value over those four samples.
+    // Centre tile: shadow-composited hypsometric at horizon resolution.
+    // Each horizon pixel covers a (parentScale × parentScale) block of
+    // comp pixels; we average both the tone and the shadow value over
+    // that block.
     const hh = elevation.heights;
-    for (let j = 0; j < halfN; j++) {
-      for (let i = 0; i < halfN; i++) {
-        const i0 = 2 * i,
-          j0 = 2 * j;
-        const idx00 = j0 * srN + i0;
-        const idx10 = idx00 + 1;
-        const idx01 = idx00 + srN;
-        const idx11 = idx01 + 1;
-        const avgTone =
-          0.25 *
-          (toneOf(hh[idx00]) +
-            toneOf(hh[idx10]) +
-            toneOf(hh[idx01]) +
-            toneOf(hh[idx11]));
-        const avgShade =
-          0.25 *
-          (shadowResult[idx00] +
-            shadowResult[idx10] +
-            shadowResult[idx01] +
-            shadowResult[idx11]);
+    const sS = srParentScale;
+    const invS2 = 1 / (sS * sS);
+    for (let j = 0; j < compHN; j++) {
+      for (let i = 0; i < compHN; i++) {
+        let toneSum = 0;
+        let shadeSum = 0;
+        for (let dy = 0; dy < sS; dy++) {
+          const row = (j * sS + dy) * srN;
+          for (let dx = 0; dx < sS; dx++) {
+            const idx = row + i * sS + dx;
+            toneSum += toneOf(hh[idx]);
+            shadeSum += shadowResult[idx];
+          }
+        }
+        const avgTone = toneSum * invS2;
+        const avgShade = shadeSum * invS2;
         const lit = 1 - 0.94 * Math.min(1, Math.max(0, avgShade));
         const v = Math.round(linearToSrgb(avgTone * lit) * 255);
         const k = ((oy + j) * srHN + (ox + i)) * 4;
@@ -1043,7 +1107,7 @@
     // Tint parent pixels touched by the warmup.
     for (let j = 0; j < srHN; j++) {
       for (let i = 0; i < srHN; i++) {
-        if (i >= ox && i < ox + halfN && j >= oy && j < oy + halfN) continue;
+        if (i >= ox && i < ox + compHN && j >= oy && j < oy + compHN) continue;
         const t = horizonTouched[j * srHN + i];
         if (!t) continue;
         const k = (j * srHN + i) * 4;
@@ -1055,10 +1119,10 @@
 
     // Red border around the centre tile (2 horizon-pixels wide).
     const bw = 2;
-    for (let j = 0; j < halfN; j++) {
-      const onEdgeJ = j < bw || j >= halfN - bw;
-      for (let i = 0; i < halfN; i++) {
-        if (!(onEdgeJ || i < bw || i >= halfN - bw)) continue;
+    for (let j = 0; j < compHN; j++) {
+      const onEdgeJ = j < bw || j >= compHN - bw;
+      for (let i = 0; i < compHN; i++) {
+        if (!(onEdgeJ || i < bw || i >= compHN - bw)) continue;
         const k = ((oy + j) * srHN + (ox + i)) * 4;
         shadowPx[k] = 220;
         shadowPx[k + 1] = 50;

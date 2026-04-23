@@ -53,6 +53,19 @@ export function sweepCore(opts) {
     HN = 0,
     horizonTouched = null,
     lsaoFalloff = "cos2",
+    parentScale = 2,
+    // Optional elevation bounds used to trim the warmup march. A
+    // parent-ring blocker of height `horizonElevMax` can only cast a
+    // hard-shadow ray reaching a comp target at height `compElevMin`
+    // out to distance `(horizonElevMax − compElevMin) / tan(altMin)`
+    // metres, where `altMin` is the shallowest shadow-contributing
+    // sun angle (= altDeg for hard, = altDeg − 1.5·sunRadiusDeg for
+    // soft, ∞ for LSAO). The warmup therefore only needs to walk the
+    // child-pixel equivalent of that distance, capped at the full
+    // margin. Leave either opt null/undefined and we walk the whole
+    // margin, same as before.
+    compElevMin = null,
+    horizonElevMax = null,
   } = opts;
 
   // Shadow-casting modes traverse *away* from the sun; LSAO is a
@@ -89,6 +102,10 @@ export function sweepCore(opts) {
   const out = new Float32Array(W * H);
   const slopeFac = Math.sqrt(1 + slope * slope);
 
+  // 'hard' mode constants. G(p) = h_p + cx_p·dCxT gives Δ(t, p) = G(p) − G(t)
+  // for the overshoot of a blocker p above the sun ray from target t.
+  // epsH is half the ±½-pixel edge-smoothing window along the sweep axis.
+  //
   // pxSize resolution: either a scalar (same value everywhere, preserves
   // the original behavior for the single-tile figures) or a per-row
   // Float32Array indexed by the target pixel's original row. The latter
@@ -99,36 +116,31 @@ export function sweepCore(opts) {
   // column samples a single original row and pxSize stays constant
   // within one hull scan. For a no-swap sweep pxSize varies with
   // canonical y, so it's re-derived per target.
-  const origRowFromCanonical = (cx, cy) => {
-    const oy = swap ? cx : cy;
-    return flipY ? H - 1 - oy : oy;
-  };
-  const pxSizeAt = pxSizeByRow
-    ? (cx, cy) => {
-        let r = origRowFromCanonical(cx, cy);
-        if (r < 0) r = 0;
-        else if (r >= H) r = H - 1;
-        return pxSizeByRow[r];
-      }
-    : () => pxSizeM;
-
-  // 'hard' mode constants. G(p) = h_p + cx_p·dCxT gives Δ(t, p) = G(p) − G(t)
-  // for the overshoot of a blocker p above the sun ray from target t.
-  // epsH is half the ±½-pixel edge-smoothing window along the sweep axis.
-  // With per-row pxSize these vary per target: updated just before
-  // each computeBit call through `setTargetPxSize`.
+  //
+  // With per-row pxSize, dStep / dCxT / epsH / invTwoEps vary per
+  // target — `updateTargetPx` re-derives them from the target's own
+  // row just before each computeBit call. With scalar pxSize they're
+  // constant for the whole sweep and initialised once below, so
+  // `updateTargetPx` is left null and the inner loop skips it.
   const tanAlt = Math.tan((altDeg * Math.PI) / 180);
   const pxSeed = pxSizeByRow ? pxSizeByRow[0] : pxSizeM;
   let dStep = slopeFac * pxSeed;
   let dCxT = dStep * tanAlt;
   let epsH = 0.5 * pxSeed * tanAlt;
   let invTwoEps = epsH > 0 ? 1 / (2 * epsH) : 0;
-  const setTargetPxSize = (px) => {
-    dStep = slopeFac * px;
-    dCxT = dStep * tanAlt;
-    epsH = 0.5 * px * tanAlt;
-    invTwoEps = epsH > 0 ? 1 / (2 * epsH) : 0;
-  };
+  const updateTargetPx = pxSizeByRow
+    ? (cx, cy) => {
+        let r = swap ? cx : cy;
+        if (flipY) r = H - 1 - r;
+        if (r < 0) r = 0;
+        else if (r >= H) r = H - 1;
+        const px = pxSizeByRow[r];
+        dStep = slopeFac * px;
+        dCxT = dStep * tanAlt;
+        epsH = 0.5 * px * tanAlt;
+        invTwoEps = epsH > 0 ? 1 / (2 * epsH) : 0;
+      }
+    : null;
 
   // 'soft' mode constants. Clamp effective alt to ≥ halfWidthDeg so
   // tanAltBot never goes negative; otherwise flat ground would land
@@ -176,8 +188,96 @@ export function sweepCore(opts) {
   const bMin = -Math.ceil(slope * (viewW - 1));
   const bMax = viewH - 1;
 
-  const WARMUP_STEPS = W;
   const hasHorizon = horizon && HN > 0;
+
+  // Horizon-sample bilinear alignment for arbitrary `parentScale = 2^dz`.
+  //
+  // The worker assembles the horizon with (PN/2) parent pixels of
+  // margin on each side of the comp tile, which is `warmupMargin`
+  // child pixels = `W * parentScale / 2`. At parentScale=2 this is
+  // exactly W (one target tile) and the formula collapses to the
+  // original hand-derived form; at parentScale=4 it's 2·W (two target
+  // tiles), and so on.
+  //
+  // Horizon pixel `h` (integer) has its centre at tile-local child
+  // position
+  //   `h * parentScale + parentScale/2 - warmupMargin`.
+  // Sampling at child pixel `oxf`'s centre (child-space position
+  // `oxf + 0.5`) therefore lands at horizon position
+  //   `(oxf + 0.5 + warmupMargin)/parentScale - 0.5`,
+  // which we rearrange to
+  //   `(oxf + warmupMargin) * invParentScale - parentCenterOffset`
+  // with `parentCenterOffset = 0.5 * (1 - invParentScale)` to absorb
+  // the sub-parent-pixel offset introduced by pixel-centre sampling.
+  //
+  // `WARMUP_STEPS` must equal `warmupMarginX` so the ray walks the
+  // full available margin along the sweep-canonical axis — walking
+  // only `W` child pixels at parentScale>2 would leave the outer
+  // parent-pixel tiles unsampled and blockers past one child tile
+  // from the comp edge would be invisible, producing visible tile-
+  // boundary artefacts.
+  const invParentScale = 1 / parentScale;
+  const parentCenterOffset = 0.5 * (1 - invParentScale);
+  const warmupMarginX = (W * parentScale) >> 1;
+  const warmupMarginY = (H * parentScale) >> 1;
+
+  // Elevation-bound warmup reduction. At sun altitude `altMin` (the
+  // shallowest angle that still contributes shadow for the current
+  // mode) a blocker of height H_b can only cast a shadow that reaches
+  // distance (H_b − H_t) / tan(altMin) metres from a target of height
+  // H_t. Using the worst-case pair (H_b = horizonElevMax,
+  // H_t = compElevMin) gives a tight upper bound on how far back the
+  // warmup needs to march; anything past that contributes no shadow
+  // and can be skipped. `warmupMarginX` is the geometric maximum so
+  // we cap there.
+  //
+  //   mode=hard   altMin = altDeg
+  //   mode=soft   altMin = max(0, effectiveAltDeg − halfWidthDeg)
+  //               (equivalently: atan(tanAltBot); already accounts
+  //               for the penumbra extent so the warmup won't clip
+  //               the low-altitude side).
+  //   mode=lsao   horizon-slope scan, no "too shallow" cutoff
+  //               so the optimisation doesn't apply and we march
+  //               the full margin.
+  //
+  // Leave either elevation bound null and we fall back to the full
+  // margin (backward-compatible for callers that don't track ranges).
+  let WARMUP_STEPS = warmupMarginX;
+  if (
+    horizon && HN > 0 &&
+    mode !== "lsao" &&
+    compElevMin !== null && compElevMin !== undefined &&
+    horizonElevMax !== null && horizonElevMax !== undefined
+  ) {
+    const dh = horizonElevMax - compElevMin;
+    if (dh <= 0) {
+      // Parent ring is at or below the comp tile's lowest point —
+      // it cannot cast shadow into the comp tile. Skip the warmup.
+      WARMUP_STEPS = 0;
+    } else {
+      const tanMin = mode === "hard" ? tanAlt : tanAltBot;
+      if (tanMin > 0) {
+        // Smallest pxSize → more pixels per metre → longer walk, so
+        // use it as the conservative bound over pxSizeByRow. (Scalar
+        // pxSize is just itself.)
+        let pxMin = pxSizeM;
+        if (pxSizeByRow) {
+          pxMin = Infinity;
+          for (let i = 0; i < pxSizeByRow.length; i++) {
+            const p = pxSizeByRow[i];
+            if (p < pxMin) pxMin = p;
+          }
+        }
+        const maxDistM = dh / tanMin;
+        const maxDistPx = Math.ceil(maxDistM / pxMin);
+        if (maxDistPx < WARMUP_STEPS) {
+          WARMUP_STEPS = maxDistPx > 0 ? maxDistPx : 0;
+        }
+      }
+      // tanMin ≤ 0: sun at/below horizon ⇒ effectively infinite
+      // shadow length ⇒ keep the full-margin walk.
+    }
+  }
 
   // Mode-specific shadow bit at (cx, hRay) against the current hull.
   // Called from both the warmup's tile-edge deposit and the main pass
@@ -268,16 +368,17 @@ export function sweepCore(opts) {
         let oyf = swap ? cx : y;
         if (flipX) oxf = W - 1 - oxf;
         if (flipY) oyf = H - 1 - oyf;
-        // Elevations are defined at pixel centers. Parent pixels are
-        // 2× child pixels, so a child pixel at oxf sits 0.5 child-pixels
-        // (= 0.25 parent-pixels) inside the parent cell it occupies.
-        // Without this −0.25 offset, the hull entry pushed from the last
-        // warmup step at canonical cx = −1 would carry a height sampled
-        // from the physical position cx = −0.5, producing a slope that's
-        // half the true value at the very first comp pixel — which shows
-        // up as a faint shadow band along tile edges in LSAO.
-        const hxf = (oxf + W) * 0.5 - 0.25;
-        const hyf = (oyf + H) * 0.5 - 0.25;
+        // Elevations are defined at pixel centres. See the derivation
+        // of `warmupMargin` / `parentCenterOffset` above: this is the
+        // pixel-centre-preserving child→horizon map, generalised to
+        // parentScale = 2^dz. Without the `-parentCenterOffset` term,
+        // the hull entry pushed from the last warmup step at canonical
+        // cx = −1 would carry a height sampled from a half-parent-
+        // pixel-earlier physical position, producing a slope at the
+        // first comp pixel that's off by a pixel — and a faint
+        // shadow band along tile edges in LSAO.
+        const hxf = (oxf + warmupMarginX) * invParentScale - parentCenterOffset;
+        const hyf = (oyf + warmupMarginY) * invParentScale - parentCenterOffset;
         const hxi = Math.floor(hxf);
         const hyi = Math.floor(hyf);
         if (hxi < 0 || hxi + 1 >= HN) continue;
@@ -324,8 +425,7 @@ export function sweepCore(opts) {
         const loIn = yi >= 0 && yi < viewH;
         const hiIn = yj >= 0 && yj < viewH;
         if (inView && (loIn || hiIn)) {
-          // Use the target's own-row pxSize — see `pxSizeAt` comment.
-          setTargetPxSize(pxSizeAt(cx, loIn ? yi : yj));
+          if (updateTargetPx) updateTargetPx(cx, loIn ? yi : yj);
           const bit = computeBit(cx, hW);
           const contrib = bit * weight;
           if (loIn) out[toOrig(cx, yi)] += (1 - fy) * contrib;
@@ -353,7 +453,7 @@ export function sweepCore(opts) {
       const hHi = hiIn ? elev[iHi] : hLo;
       const hRay = (1 - f) * hLo + f * hHi;
 
-      setTargetPxSize(pxSizeAt(cx, loIn ? yi : yj));
+      if (updateTargetPx) updateTargetPx(cx, loIn ? yi : yj);
       const bit = computeBit(cx, hRay);
 
       pushHull(cx, hRay);

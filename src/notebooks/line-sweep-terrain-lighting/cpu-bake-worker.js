@@ -64,7 +64,7 @@ function computeNormals(heights, N, pxSizeByRow) {
   return { nx, ny };
 }
 
-function computeLSAO(heights, N, pxSizeByRow, horizon, HN, lsaoFalloff) {
+function computeLSAO(heights, N, pxSizeByRow, horizon, HN, lsaoFalloff, parentScale) {
   const ao = new Float32Array(N * N);
   for (let d = 0; d < AO_DIRECTIONS; d++) {
     const azDeg = (d * 360) / AO_DIRECTIONS;
@@ -75,13 +75,14 @@ function computeLSAO(heights, N, pxSizeByRow, horizon, HN, lsaoFalloff) {
       horizon: HN > 0 ? horizon : null,
       HN,
       lsaoFalloff,
+      parentScale,
     });
     for (let i = 0; i < N * N; i++) ao[i] += result[i];
   }
   return ao;
 }
 
-function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples) {
+function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples, parentScale, compHMin, horizonHMax) {
   const shadow = new Float32Array(N * N);
   const weight = 1 / samples;
 
@@ -90,6 +91,8 @@ function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunR
       W: N, H: N, elev: heights, azDeg, pxSizeByRow,
       mode: "soft", altDeg, sunRadiusDeg, weight: 1,
       horizon: HN > 0 ? horizon : null, HN,
+      parentScale,
+      compElevMin: compHMin, horizonElevMax: horizonHMax,
     });
     for (let i = 0; i < N * N; i++) shadow[i] = result[i];
   } else {
@@ -102,6 +105,8 @@ function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunR
         W: N, H: N, elev: heights, azDeg: azDeg + daz, pxSizeByRow,
         mode: "soft", altDeg, sunRadiusDeg, weight,
         horizon: HN > 0 ? horizon : null, HN,
+        parentScale,
+        compElevMin: compHMin, horizonElevMax: horizonHMax,
       });
       for (let i = 0; i < N * N; i++) shadow[i] += result[i];
     }
@@ -148,7 +153,8 @@ self.onmessage = (e) => {
   switch (msg.type) {
     case "bake": {
       const { z, x, y, heights, N, rawEqPxSizeM, pxCorr, horizon, HN,
-              azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff } = msg;
+              azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff,
+              parentScale = 2, compHMin, horizonHMax } = msg;
       // Per-row cos(lat) drives pxSize for every pass: the raw
       // latitude-dependent version for shadow (geometry is set by
       // real elevation differences and must stay continuous across
@@ -158,9 +164,10 @@ self.onmessage = (e) => {
       const scaledRowPx = new Float32Array(N);
       for (let i = 0; i < N; i++) scaledRowPx[i] = shadowRowPx[i] * pxCorr;
       const { nx, ny } = computeNormals(heights, N, scaledRowPx);
-      const ao = computeLSAO(heights, N, scaledRowPx, horizon, HN, lsaoFalloff);
+      const ao = computeLSAO(heights, N, scaledRowPx, horizon, HN, lsaoFalloff, parentScale);
       const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
-                                   azDeg, altDeg, sunRadiusDeg, shadowSamples);
+                                   azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
+                                   compHMin, horizonHMax);
       const packed = packRGBA(nx, ny, ao, shadow, N);
       self.postMessage(
         { type: "baked", z, x, y, packed, N,
@@ -173,10 +180,12 @@ self.onmessage = (e) => {
     case "shadow": {
       const { z, x, y, heights, N, rawEqPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples,
-              cachedNx, cachedNy, cachedAo } = msg;
+              cachedNx, cachedNy, cachedAo,
+              parentScale = 2, compHMin, horizonHMax } = msg;
       const shadowRowPx = buildRowPx(rawEqPxSizeM, z, y, N);
       const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
-                                   azDeg, altDeg, sunRadiusDeg, shadowSamples);
+                                   azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
+                                   compHMin, horizonHMax);
       const packed = packRGBA(cachedNx, cachedNy, cachedAo, shadow, N);
       self.postMessage(
         { type: "shadowed", z, x, y, packed, N },
