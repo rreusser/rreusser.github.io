@@ -4,7 +4,7 @@
   <script id="1" type="text/markdown">
     # Line-Sweep Terrain Lighting
 
-    <img src="meta.webp">
+    <img src="meta2.webp">
 
     Although I don't [work in mapping anymore](https://www.mapbox.com), I'll always have have a soft spot for experimental map rendering techniques. Previously I've built a live [solar terminator map](https://rreusser.github.io/notebooks/night-and-day/) and a [kinda janky 3D map renderer](http://localhost:5173/notebooks/denali/). Inspired by some good posts on the topic, I've also dabbled in heightfield shadowing. This article finally pulls the latter work together into something functional.
 
@@ -51,8 +51,10 @@
       html`<figure>
         ${htSvgLight}
         <figcaption>
-          The pink line shows the current horizon; pink dots mark the vertices
-          of the convex hull; the red dot is the sweep cursor.
+          Same sweep with illumination. Each terrain segment is colored lit
+          or shadowed by comparing its horizon angle against the sun's fixed
+          altitude, and the filled region below each blocker shows the
+          shadow it casts along the sun ray.
         </figcaption>
       </figure>`,
     );
@@ -63,6 +65,8 @@
     The solution is simple but requires some finesse. The diagram below illustrates grid traversal in arbitrary directions. We start our first sweep in the upper left corner, seeding subsequent sweeps with remaining pixels along the left edge. For each sweep, we step rightward exactly one pixel and upward by a fractional amount. Once we've exhausted all sweeps starting along the left edge, we step rightward along the bottom edge with a given stride, performing identically the same sweeps from the new seed points.
 
     This sequence only handles sweep angles in a single octant of the possible ${tex`360^\circ.`} Drag the handle below and observe that for other octants, we simply flip and rotate our canonical octant. In practical terms, this can be implemented with ndarray-style index arithmetic.
+
+    One subtlety is worth calling out. Rays sweeping at non-axis-aligned angles pass between integer pixel rows. Nearest-neighbor assignment drops a ray's full weight onto a single row, so adjacent rays can land on the same row repeatedly and leave others starved, producing visible banding. Distributing each sample's weight between the two neighboring rows by ${tex`(1-f,\, f)`}, where ${tex`f`} is the fractional row offset, evens out the coverage. The toggle on the figure below compares the two schemes.
   </script>
 
   <script id="6" type="module">
@@ -82,8 +86,13 @@
       angle: angleDegAccessor,
       weighted: weightedAccessor,
     });
+    // Slot the toggle between the canvas and the figcaption so it sits
+    // with the figure rather than landing in its own block below it.
+    // A small top margin keeps it from crowding the canvas.
+    weightedEl.style.margin = "6px 0 0 0";
+    const traversalFigcaption = traversalFigure.figure.querySelector("figcaption");
+    traversalFigure.figure.insertBefore(weightedEl, traversalFigcaption);
     display(traversalFigure.figure);
-    display(weightedEl);
     invalidation.then(() => traversalFigure.cancel());
   </script>
   <script id="traversal-caveat" type="text/markdown">
@@ -237,7 +246,9 @@
   <script id="47" type="text/markdown">
     Sadly though, the sun is a *two*-dimensional source, and we've only discussed softening in *one* dimension. Short of something fancy like mip-maps, all I was able to come up with was to naively average multiple samples of our altitude-wide analytical soft shadows across the azimuthal direction.
 
-    Samples aren't cheap, so it's worth thinking carefully about how to distribute samples across the sun disk. Our altitude-wise analytical soft shadows use a [smoothstep](https://en.wikipedia.org/wiki/Smoothstep) function, so after some consideration, I scaled a Gaussian function to roughly approximate the smoothstep function, then distributed equally-weighted samples in the azimuthal direction using [inverse-CDF sampling](https://en.wikipedia.org/wiki/Inverse_transform_sampling) to approximate the desired Gaussian. 
+    Samples aren't cheap, so it's worth thinking carefully about how to distribute samples across the sun disk. Our altitude-wise analytical soft shadows use a [smoothstep](https://en.wikipedia.org/wiki/Smoothstep) function, so after some consideration, I scaled a Gaussian function to roughly approximate the smoothstep function, then distributed equally-weighted samples in the azimuthal direction using [inverse-CDF sampling](https://en.wikipedia.org/wiki/Inverse_transform_sampling) to approximate the desired Gaussian.
+
+    The sun isn't really a Gaussian disk, of course. But Gaussians are mathematically separable, which makes the 1D altitude × 1D azimuth factorization work out cleanly, and the resulting penumbra looks smooth enough in practice that the approximation pays off.
   </script>
   <script id="50" type="module">
     // Acklam's inverse-normal approximation: maps a CDF probability in
@@ -291,18 +302,34 @@
   </script>
   <script id="51" type="module">
     const Npp = Math.round(softAzSamples);
-    const xMax = 3;
+    const sunR = softSunDiameter / 2;
+    const sigmaDeg = (2 * sunR) / Math.sqrt(2 * Math.PI);
+    // Fixed horizontal range so the Gaussian's width visibly scales with
+    // sun diameter rather than the axis re-scaling to hide the change.
+    // At the slider's max (30° diameter) σ ≈ 12° and 3σ ≈ 36°, so ±40°
+    // keeps the full distribution in frame without wasted whitespace.
+    const xMaxDeg = 40;
 
+    // 800-point sample grid (0.1° step) so the bell stays crisp even at
+    // the smallest sun diameter, where σ ≈ 0.2° is only a few grid steps.
     const refPts = [];
-    for (let i = 0; i <= 200; i++) {
-      const x = -xMax + (2 * xMax * i) / 200;
-      refPts.push({ x, y: Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI) });
+    for (let i = 0; i <= 800; i++) {
+      const x = -xMaxDeg + (2 * xMaxDeg * i) / 800;
+      // Unit-peak Gaussian: the y-axis is hidden and we want the bell's
+      // height to stay readable at every σ, so we normalize away the
+      // density's 1/σ scaling and let the width alone carry the change.
+      const y = sigmaDeg > 0 ? Math.exp(-0.5 * (x / sigmaDeg) ** 2) : 0;
+      refPts.push({ x, y });
     }
-    const yMaxGauss = 1 / Math.sqrt(2 * Math.PI);
 
+    // All samples carry equal weight 1/N, so they're drawn at a common
+    // height (the per-slice weight scaled to the plot). The x position
+    // is the one thing that encodes the Gaussian.
+    const sampleY = 1 / Npp;
     const strat = [];
     for (let i = 0; i < Npp; i++) {
-      strat.push({ x: normInv((i + 0.5) / Npp) });
+      const q = Npp === 1 ? 0 : normInv((i + 0.5) / Npp);
+      strat.push({ x: q * sigmaDeg });
     }
 
     const plot = Plot.plot({
@@ -313,25 +340,23 @@
       marginLeft: 20,
       marginRight: 20,
       x: {
-        label: "azimuthal offset",
-        domain: [-xMax, xMax],
-        ticks: [-3, -2, -1, 0, 1, 2, 3],
-        tickFormat: (d) => (d === 0 ? "0" : `${d}σ`),
+        label: "azimuthal offset (°)",
+        domain: [-xMaxDeg, xMaxDeg],
       },
-      y: { axis: null, domain: [0, yMaxGauss * 1.08] },
+      y: { axis: null, domain: [0, 1.08] },
       marks: [
         Plot.areaY(refPts, { x: "x", y: "y", fill: "#e6e6e6", clip: true }),
         Plot.ruleX(strat, {
           x: "x",
           y1: 0,
-          y2: yMaxGauss / Npp,
+          y2: sampleY,
           stroke: "#0366d6",
           strokeWidth: 1.5,
           clip: true,
         }),
         Plot.dot(strat, {
           x: "x",
-          y: () => yMaxGauss / Npp,
+          y: () => sampleY,
           fill: "#0366d6",
           r: 3.5,
           clip: true,
@@ -345,9 +370,10 @@
         ${plot}
         <figcaption>
           Stratified inverse-CDF placement of ${tex`N = ${Npp}`} samples across
-          the sun disk. Each sample sits at the centre of an equal-probability
-          slice under the Gaussian (gray), so averaging with uniform weight
-          ${tex`1/N`} reproduces the desired distribution exactly.
+          the Gaussian fit to the sun disk (${tex`\sigma \approx ${sigmaDeg.toFixed(2)}^\circ`}
+          at the current sun diameter). Each sample sits at the centre of an
+          equal-probability slice under the bell, so averaging with uniform
+          weight ${tex`1/N`} reproduces the target distribution exactly.
         </figcaption>
       </figure>`,
     );
@@ -1439,9 +1465,9 @@
   <script id="61" type="text/markdown">
     ## WebGPU implementation
 
-    Every mode the CPU `sweepCore` supports — hard shadow, soft shadow with stratified azimuth integration, and LSAO — ported to WGSL compute via _dynamic shader specialization_. Each `(mode, prewarm)` permutation is built once into its own `GPUComputePipeline` and cached, so the inner hull-scan loop has no per-pixel mode branch. The parent-tile prewarm is itself a compile-time flag: when off, the shader skips the warmup block entirely and the horizon binding shrinks to a 16-byte stub. Multi-sample averaging (azimuth offsets for soft, uniform directions for LSAO) is dispatched as N successive compute passes that each accumulate `weight · bit · fpScale` into the shared atomic `shadow` buffer.
+    The CPU path's two modes (soft shadow with stratified azimuth integration, and LSAO) port cleanly to WGSL compute via _dynamic shader specialization_. Each `(mode, prewarm)` permutation is built once into its own `GPUComputePipeline` and cached, so the inner hull-scan loop has no per-pixel mode branch. The parent-tile prewarm is itself a compile-time flag: when off, the shader skips the warmup block entirely and the horizon binding shrinks to a 16-byte stub. Multi-sample averaging (azimuth offsets for soft, uniform directions for LSAO) is dispatched as N successive compute passes that each accumulate `weight · bit · fpScale` into the shared atomic `shadow` buffer.
 
-    A caveat from building this out: the GPU path turned out to be less useful than I'd hoped. It's measurably faster per tile than the CPU worker pool, but only modestly so, and the display compositor shares a queue with the bake — every heavy compute submit stalls the tile viewer's render pass and makes pans and zooms feel gummy. A CPU worker pool is slightly slower per tile but lets the GPU stay idle and responsive to pointer events, which matters more than raw throughput for an interactive viewer. Both paths are kept here for comparison, but the live viewer at the end of the notebook defaults to the CPU bake.
+    A caveat from building this out is that the GPU path turned out to be less useful than hoped. It's measurably faster per tile than the CPU worker pool, but only modestly so, and the same device also drives the map's own render passes. Every heavy compute submit stalls the tile viewer's compositor and makes pans and zooms feel gummy. The CPU worker pool runs slightly slower per tile but leaves the GPU free to stay responsive to pointer events, which matters more than raw throughput for an interactive viewer. Both paths are kept here for comparison, and the live viewer at the end of the notebook defaults to the CPU bake.
   </script>
   <script id="62" type="module">
     // One-time device setup. Persists across sun/source changes.
@@ -1507,10 +1533,10 @@
     // on `window` so the persistent driver loop can read them without
     // becoming reactive on every keystroke.
     const wgpuControls = html`<div></div>`;
-    const wgpuModeEl = Inputs.radio(["hard", "soft", "lsao"], {
-      label: "mode",
-      value: "hard",
-    });
+    const wgpuModeEl = Inputs.radio(
+      new Map([["shadow", "soft"], ["lsao", "lsao"]]),
+      { label: "mode", value: "soft" },
+    );
     const wgpuPrewarmEl = Inputs.toggle({
       label: "parent-tile prewarm",
       value: true,
@@ -1568,10 +1594,10 @@
         html`<figure>
           ${wgpuFigure}
           <figcaption>
-            WGSL compute kernel exercising every mode the CPU sweepCore
-            supports. Drag the yellow handle to move the sun; toggle the
-            controls to switch mode, enable/disable the parent-tile prewarm, or
-            change sample counts.
+            WGSL compute kernel exercising every mode from the CPU path. Drag
+            the yellow handle to move the sun; toggle the controls to switch
+            mode, enable/disable the parent-tile prewarm, or change sample
+            counts.
           </figcaption>
         </figure>`,
       );
@@ -1691,16 +1717,14 @@
           displayMode: mode === "lsao" ? "lsao" : "shaded",
         });
 
-        // Build the per-sample task list. For 'hard' we just do the
-        // single point-sun sweep. For 'soft' we stratify N azimuth
-        // offsets over a Gaussian variance-matched to the altitude
-        // smoothstep, exactly as the soft-shadow CPU driver does. For
-        // 'lsao' we use N azimuthally uniform directions starting at
-        // the live sun azimuth so the figure responds to the handle.
+        // Build the per-sample task list. For 'soft' we stratify N
+        // azimuth offsets over a Gaussian variance-matched to the
+        // altitude smoothstep, exactly as the soft-shadow CPU driver
+        // does. For 'lsao' we use N azimuthally uniform directions
+        // starting at the live sun azimuth so the figure responds to
+        // the handle.
         const tasks = [];
-        if (mode === "hard") {
-          tasks.push({ azDeg: sd.az, altDeg: sd.alt });
-        } else if (mode === "soft") {
+        if (mode === "soft") {
           const sunR = sunDiameter / 2;
           const sigma = (2 * sunR) / Math.sqrt(2 * Math.PI);
           for (let ia = 0; ia < samples; ia++) {
@@ -1816,7 +1840,7 @@
           );
           const sunDiameter = Number(window.__wgpuSunDiameterEl.value);
           const contrast = Number(window.__wgpuContrastEl.value);
-          const effectiveSamples = mode === "hard" ? 1 : samples;
+          const effectiveSamples = samples;
           const key = [
             sd.az,
             sd.alt,
@@ -1847,149 +1871,24 @@
   <script id="75" type="text/markdown">
     ## Zoom-dependent gradient attenuation
 
-    The single-tile figures above are scale-invariant: a slope of ${tex`\theta`} reads as ${tex`\theta`} regardless of pxSize. Put the same machinery into a slippy map and terrain visibly flattens at low zoom — more than simple downsampling should account for.
+    One annoyance on a slippy map is that terrain visibly flattens at low zoom. Peaks survive downsampling well, but the gradient field between them does not. Decimation fails to commute with the nonlinearities in between (the resampling kernel, the tonemap, the slope calculation itself), so low-zoom tiles systematically under-report slope. Cast shadows read ${tex`\Delta h`} and hold up fine, while relief and LSAO read ${tex`\nabla h`} and go flat.
 
-    Tile pyramids are asymmetric. Peak elevations survive the downsample chain — extrema of concentrated features come through close to their true value under any reasonable resampling kernel — but the gradient field between them doesn't. The numerator of a central difference gets low-passed while the denominator grows by a factor of 2 per zoom step, so low-zoom tiles systematically under-report slope.
-
-    The tables below probe this live against Mapterhorn: peak elevation at each summit's pixel, then mean gradient magnitude across the full tile, across four zoom levels.
-  </script>
-  <script id="76" type="module">
-    // Fetch Mapterhorn tiles across a matrix of (summit, zoom) and
-    // compute per-tile peak elevation and mean gradient magnitude.
-    // Tables render inline once all fetches complete; failures show
-    // as em-dashes rather than blocking the whole figure.
-
-    const probeTargets = [
-      { name: "Mt. Peale (UT)",    lat: 38.4384, lng: -109.2293, truth: 3879 },
-      { name: "Mt. Whitney (CA)",  lat: 36.5785, lng: -118.2923, truth: 4421 },
-      { name: "Mt. Rainier (WA)",  lat: 46.8523, lng: -121.7603, truth: 4392 },
-      { name: "Denali (AK)",       lat: 63.0695, lng: -151.0071, truth: 6190 },
-    ];
-    const probeZooms = [14, 12, 10, 8, 6, 4];
-    const EARTH_M = 40075016.686;
-
-    function latLngToTile(lat, lng, z) {
-      const n = 1 << z;
-      const latR = (lat * Math.PI) / 180;
-      const x = Math.floor(((lng + 180) / 360) * n);
-      const y = Math.floor((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n);
-      return { x, y };
-    }
-
-    async function fetchProbeTile(z, x, y) {
-      const url = `https://tiles.mapterhorn.com/${z}/${x}/${y}.webp`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`${res.status}`);
-      const blob = await res.blob();
-      const bitmap = await createImageBitmap(blob);
-      const N = bitmap.width;
-      const c = document.createElement("canvas");
-      c.width = N; c.height = N;
-      const cctx = c.getContext("2d");
-      cctx.drawImage(bitmap, 0, 0);
-      bitmap.close();
-      const px = cctx.getImageData(0, 0, N, N).data;
-      let hMax = -Infinity;
-      let gSum = 0, gCount = 0;
-      // Build a Float32 heights array only long enough for gradient
-      // passes; we don't need to retain it.
-      const heights = new Float32Array(N * N);
-      for (let i = 0; i < N * N; i++) {
-        const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
-        const h = r * 256 + g + b / 256 - 32768;
-        heights[i] = h;
-        if (h > hMax) hMax = h;
-      }
-      const lat = Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / (1 << z))));
-      const pxSizeM = (EARTH_M * Math.cos(lat)) / (Math.pow(2, z) * N);
-      for (let r = 1; r < N - 1; r++) {
-        for (let c = 1; c < N - 1; c++) {
-          const mx = (heights[r * N + c + 1] - heights[r * N + c - 1]) / (2 * pxSizeM);
-          const my = (heights[(r + 1) * N + c] - heights[(r - 1) * N + c]) / (2 * pxSizeM);
-          gSum += Math.hypot(mx, my);
-          gCount++;
-        }
-      }
-      return { hMax, gradMean: gSum / gCount };
-    }
-
-    const tasks = [];
-    for (const t of probeTargets) {
-      for (const z of probeZooms) {
-        const { x, y } = latLngToTile(t.lat, t.lng, z);
-        tasks.push({ t, z, x, y });
-      }
-    }
-    const results = await Promise.all(tasks.map(async task =>
-      fetchProbeTile(task.z, task.x, task.y)
-        .then(r => ({ ...task, ok: true, ...r }))
-        .catch(err => ({ ...task, ok: false, err }))
-    ));
-
-    const byTargetZoom = new Map();
-    for (const r of results) {
-      const key = `${r.t.name}|${r.z}`;
-      byTargetZoom.set(key, r);
-    }
-    const fmtPeak = r => r && r.ok ? `${Math.round(r.hMax)}` : "—";
-    const fmtGrad = r => r && r.ok ? r.gradMean.toFixed(3) : "—";
-
-    const tableStyle = "border-collapse:collapse; font:12px/1.3 ui-monospace,monospace;";
-    const thStyle = "text-align:right; padding:3px 10px; border-bottom:1px solid #888; font-weight:600;";
-    const tdStyle = "text-align:right; padding:2px 10px;";
-    const tdNameStyle = "text-align:left; padding:2px 10px;";
-
-    const peakTable = html`<table style="${tableStyle}">
-      <thead><tr>
-        <th style="${thStyle}; text-align:left;">summit</th>
-        <th style="${thStyle}">truth</th>
-        ${probeZooms.map(z => html`<th style="${thStyle}">z=${z}</th>`)}
-      </tr></thead>
-      <tbody>${probeTargets.map(t => html`<tr>
-        <td style="${tdNameStyle}">${t.name}</td>
-        <td style="${tdStyle}">${t.truth} m</td>
-        ${probeZooms.map(z => html`<td style="${tdStyle}">${fmtPeak(byTargetZoom.get(`${t.name}|${z}`))}</td>`)}
-      </tr>`)}</tbody>
-    </table>`;
-    const gradTable = html`<table style="${tableStyle}">
-      <thead><tr>
-        <th style="${thStyle}; text-align:left;">summit</th>
-        ${probeZooms.map(z => html`<th style="${thStyle}">z=${z}</th>`)}
-      </tr></thead>
-      <tbody>${probeTargets.map(t => html`<tr>
-        <td style="${tdNameStyle}">${t.name}</td>
-        ${probeZooms.map(z => html`<td style="${tdStyle}">${fmtGrad(byTargetZoom.get(`${t.name}|${z}`))}</td>`)}
-      </tr>`)}</tbody>
-    </table>`;
-
-    display(html`<figure>${peakTable}<figcaption>Peak elevation (m) at the summit's pixel, fetched live from Mapterhorn.</figcaption></figure>`);
-    display(html`<figure>${gradTable}<figcaption>Mean gradient magnitude across the tile, same tiles.</figcaption></figure>`);
-  </script>
-  <script id="77" type="text/markdown">
-    Peaks drop a few percent out to z=6 and a bit more at z=4; mean gradient drops by an order of magnitude over the same range. A power-law fit ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} gives ${tex`\beta`} in the ballpark of ${tex`0.4{-}0.55`}, approaching ${tex`0.5`} as the window widens.
-
-    This splits the passes by what they read. Cast shadows are driven by ${tex`\Delta h`}, which the pyramid preserves, so they look fine at low zoom. Relief and LSAO are driven by ${tex`\nabla h`}, which it doesn't, and they flatten visibly.
-
-    ### The correction
+    A quick probe across a handful of Mapterhorn summits suggests a rough power-law attenuation ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} with ${tex`\beta`} trending toward ${tex`0.5`}. We apply a hand-wavy corrective factor only to the ${tex`\nabla h`} passes, contracting pxSize rather than inflating heights so that the elevation buffer stays untouched:
 
     ${tex.block`\mathrm{pxSize}_{\text{eff}}(z) = \mathrm{pxSize}(z) \cdot 2^{(z - z_{\text{ref}}) \beta}`}
 
-    Applied only to the ${tex`\nabla h`} passes, with ${tex`z_{\text{ref}}`} the native data zoom. At ${tex`z_{\text{ref}}`} the correction is 1×; below it shrinks the horizontal step, which boosts slope and horizon angles. Contracting pxSize rather than inflating heights keeps the elevation buffer untouched — the horizon warmup, hypsometric coloring, and every cross-pass ${tex`\Delta h`} comparison keep reading real meters.
-
-    A related per-row fix runs alongside: pxSize itself is latitude-dependent via ${tex`\cos(\mathrm{lat})`}, and at low zoom one tile spans enough latitude that a single tile-centroid value leaves slope seams at every horizontal tile boundary. Every pass now derives ${tex`\cos(\mathrm{lat})`} per row from each pixel's own mercator coordinate. Inside the sweep kernels each target holds its row's pxSize constant across the inner hull scan — an approximation invisible at tile-sweep range.
-
-    Theoretical ${tex`\beta \approx 0.5`} matches the asymptote but reads visually overeager. The viewer defaults to ${tex`\beta = 0.3`}; ${tex`\beta = 0`} disables the correction for comparison.
+    A theoretical value of ${tex`\beta \approx 0.5`} matches the asymptote but reads visually overeager, so the viewer's zoom-compensation slider defaults to ${tex`0.3`}. Setting it to ${tex`0`} disables the correction.
   </script>
   <script id="68" type="text/markdown">
     ## Live WebGPU tile viewer
 
-    End of the notebook — everything we've built, composited in realtime on the GPU. Each tile goes through a two-phase bake (CPU or GPU). The **static bake** runs once when the tile's elevation data arrives: compute surface normals, 8-pass LSAO, and pack the results into an `rgba8unorm` texture:
+    Finally, we have all the pieces in place to produce a map. In the map below, each tile goes through a two-phase bake (CPU or GPU). The **static bake** runs once when the tile's elevation data arrives: compute surface normals, 8-pass LSAO, and pack the results into an `rgba8unorm` texture:
 
     ${tex.block`(R, G) = (\tfrac{n_x + 1}{2},\; \tfrac{n_y + 1}{2}), \quad B = \mathrm{AO}^{\gamma}, \quad A = s_{\text{shadow}}.`}
 
-    The **shadow re-bake** runs whenever the sun direction changes, recomputing just the alpha channel for every visible tile. Normals and AO are preserved. The fragment shader reconstructs ${tex`n_z = \sqrt{1 - n_x^2 - n_y^2}`} and composites relief shading, ambient occlusion, and shadows using the live sun direction. Slider and sun-drag changes that don't move the sun direction are pure uniform-buffer writes — 60 fps with no recomputation. Tile positioning math runs in JS `number` precision so the view stays stable at high zoom.
+    The **shadow re-bake** runs whenever the sun direction changes, packing shadow values into the alpha channel for use in the final shading step.
 
-    The viewer reuses the same WebGPU device as the compute shader earlier in the notebook. Pan with click+drag; zoom with the mouse wheel.
+    The map viewer below is thrown together hastily with the help of Claude since I was not able to find another viewer which satisfied my requirements. Although it's not hard to get tiles onto a map, it's tricky if you really care about tile lifecycle and smooth updates. Pan with click+drag; zoom with the mouse wheel.
   </script>
   <script id="69" type="module">
     const tileViewerSunDirMut = Mutable({ az: 314.5, alt: 25 });
@@ -2038,8 +1937,8 @@
       label: "AO falloff",
       value: "e^(−sin α)",
     });
-    const zoomExagEl = Inputs.range([0, 1], {
-      label: "zoom exaggeration β",
+    const zoomCompensationEl = Inputs.range([0, 1], {
+      label: "zoom compensation",
       value: 0.3,
       step: 0.01,
     });
@@ -2054,13 +1953,13 @@
       onChange: (v) => tileViewerSunDirAccessor.set(v),
     });
     tileViewerControlsDiv.appendChild(bakeModeEl);
-    tileViewerControlsDiv.appendChild(strengthEl);
+    tileViewerControlsDiv.appendChild(aoFalloffEl);
     tileViewerControlsDiv.appendChild(aoEl);
+    tileViewerControlsDiv.appendChild(strengthEl);
     tileViewerControlsDiv.appendChild(shadowEl);
     tileViewerControlsDiv.appendChild(sunDiameterEl);
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
-    tileViewerControlsDiv.appendChild(aoFalloffEl);
-    tileViewerControlsDiv.appendChild(zoomExagEl);
+    tileViewerControlsDiv.appendChild(zoomCompensationEl);
     tileViewerControlsDiv.appendChild(sunModeEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
@@ -2072,7 +1971,7 @@
       sunDiameterEl,
       shadowSamplesEl,
       aoFalloffEl,
-      zoomExagEl,
+      zoomCompensationEl,
       sunModeEl,
       sunCalendarEl,
     };
@@ -2217,7 +2116,7 @@
         );
         const isDebug = c.bakeModeEl.value === "debug";
         const lsaoFalloff = c.aoFalloffEl.value === "e^(−sin α)" ? "exp" : "cos2";
-        const reliefBeta = Number(c.zoomExagEl.value);
+        const zoomCompensation = Number(c.zoomCompensationEl.value);
         const lightingUpdate = {
           sunX,
           sunY,
@@ -2233,7 +2132,7 @@
           reliefStrength,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
           lsaoFalloff,
-          reliefBeta,
+          zoomCompensation,
           useTime,
         };
         if (solar) lightingUpdate.solar = solar;

@@ -1,8 +1,8 @@
 publishedAt: "April 19, 2026"
 description: "Terrain shadowing and ambient occlusion for web maps using fast horizon visibility"
 maxWidth: 640px
-hideFromIndex: true
-hideFromSearch: true
+hideFromIndex: false
+hideFromSearch: false
 tags:
   - maps
   - webgpu

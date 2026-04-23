@@ -97,7 +97,7 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
   const timeRow = makeRow("time");
   const timeOutput = document.createElement("output");
   timeOutput.style.cssText =
-    "min-width:7em; font-variant-numeric:tabular-nums; text-align:left;";
+    "flex-shrink:0; font-variant-numeric:tabular-nums; text-align:left;";
   const timeSlider = document.createElement("input");
   timeSlider.type = "range";
   timeSlider.min = "0";
@@ -105,9 +105,17 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
   timeSlider.step = "1";
   const _now = new Date();
   timeSlider.value = String(_now.getHours() * 60 + _now.getMinutes());
-  timeSlider.style.cssText = "flex:1;";
-  timeRow.appendChild(timeOutput);
-  timeRow.appendChild(timeSlider);
+  // The slider needs min-width:0 or its default intrinsic width keeps
+  // it from shrinking, which pushes the row past the expanded panel
+  // on the right.
+  timeSlider.style.cssText = "flex:1 1 0; min-width:0; width:0;";
+  const timeBlock = document.createElement("div");
+  timeBlock.style.cssText =
+    "display:flex; align-items:center; gap:8px; min-width:0;" +
+    " width:var(--input-width,240px);";
+  timeBlock.appendChild(timeOutput);
+  timeBlock.appendChild(timeSlider);
+  timeRow.appendChild(timeBlock);
 
   // ---- Timezone ----
   const tzRow = makeRow("timezone");

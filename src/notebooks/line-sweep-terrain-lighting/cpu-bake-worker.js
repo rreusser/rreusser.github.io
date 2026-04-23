@@ -158,7 +158,7 @@ self.onmessage = (e) => {
       // Per-row cos(lat) drives pxSize for every pass: the raw
       // latitude-dependent version for shadow (geometry is set by
       // real elevation differences and must stay continuous across
-      // tile seams) and the β-scaled version for normals and LSAO
+      // tile seams) and the zoom-compensated version for normals and LSAO
       // (both read ∇h, which is what the tile pyramid attenuates).
       const shadowRowPx = buildRowPx(rawEqPxSizeM, z, y, N);
       const scaledRowPx = new Float32Array(N);
