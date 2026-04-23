@@ -399,8 +399,8 @@ function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
         let hRay = (1.0 - fy) * hLo + fy * hHi;
 
         // Per-target pxSize and its derived sweep constants, from the
-        // target pixel's own original row. Mirrors the CPU pxSizeAt
-        // path in sweep-core.js.
+        // target pixel's own original row. Mirrors the CPU
+        // `updateTargetPx` path in sweep-core.js.
         let targetRow: i32 = select(yj, yi, loIn);
         let pxSize = targetPxSize(cx, targetRow);
         let dStep = pxSize * sqrt(1.0 + u.slope * u.slope);

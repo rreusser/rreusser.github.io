@@ -89,6 +89,10 @@ export function sweepCore(opts) {
   const out = new Float32Array(W * H);
   const slopeFac = Math.sqrt(1 + slope * slope);
 
+  // 'hard' mode constants. G(p) = h_p + cx_p·dCxT gives Δ(t, p) = G(p) − G(t)
+  // for the overshoot of a blocker p above the sun ray from target t.
+  // epsH is half the ±½-pixel edge-smoothing window along the sweep axis.
+  //
   // pxSize resolution: either a scalar (same value everywhere, preserves
   // the original behavior for the single-tile figures) or a per-row
   // Float32Array indexed by the target pixel's original row. The latter
@@ -99,36 +103,31 @@ export function sweepCore(opts) {
   // column samples a single original row and pxSize stays constant
   // within one hull scan. For a no-swap sweep pxSize varies with
   // canonical y, so it's re-derived per target.
-  const origRowFromCanonical = (cx, cy) => {
-    const oy = swap ? cx : cy;
-    return flipY ? H - 1 - oy : oy;
-  };
-  const pxSizeAt = pxSizeByRow
-    ? (cx, cy) => {
-        let r = origRowFromCanonical(cx, cy);
-        if (r < 0) r = 0;
-        else if (r >= H) r = H - 1;
-        return pxSizeByRow[r];
-      }
-    : () => pxSizeM;
-
-  // 'hard' mode constants. G(p) = h_p + cx_p·dCxT gives Δ(t, p) = G(p) − G(t)
-  // for the overshoot of a blocker p above the sun ray from target t.
-  // epsH is half the ±½-pixel edge-smoothing window along the sweep axis.
-  // With per-row pxSize these vary per target: updated just before
-  // each computeBit call through `setTargetPxSize`.
+  //
+  // With per-row pxSize, dStep / dCxT / epsH / invTwoEps vary per
+  // target — `updateTargetPx` re-derives them from the target's own
+  // row just before each computeBit call. With scalar pxSize they're
+  // constant for the whole sweep and initialised once below, so
+  // `updateTargetPx` is left null and the inner loop skips it.
   const tanAlt = Math.tan((altDeg * Math.PI) / 180);
   const pxSeed = pxSizeByRow ? pxSizeByRow[0] : pxSizeM;
   let dStep = slopeFac * pxSeed;
   let dCxT = dStep * tanAlt;
   let epsH = 0.5 * pxSeed * tanAlt;
   let invTwoEps = epsH > 0 ? 1 / (2 * epsH) : 0;
-  const setTargetPxSize = (px) => {
-    dStep = slopeFac * px;
-    dCxT = dStep * tanAlt;
-    epsH = 0.5 * px * tanAlt;
-    invTwoEps = epsH > 0 ? 1 / (2 * epsH) : 0;
-  };
+  const updateTargetPx = pxSizeByRow
+    ? (cx, cy) => {
+        let r = swap ? cx : cy;
+        if (flipY) r = H - 1 - r;
+        if (r < 0) r = 0;
+        else if (r >= H) r = H - 1;
+        const px = pxSizeByRow[r];
+        dStep = slopeFac * px;
+        dCxT = dStep * tanAlt;
+        epsH = 0.5 * px * tanAlt;
+        invTwoEps = epsH > 0 ? 1 / (2 * epsH) : 0;
+      }
+    : null;
 
   // 'soft' mode constants. Clamp effective alt to ≥ halfWidthDeg so
   // tanAltBot never goes negative; otherwise flat ground would land
@@ -324,8 +323,7 @@ export function sweepCore(opts) {
         const loIn = yi >= 0 && yi < viewH;
         const hiIn = yj >= 0 && yj < viewH;
         if (inView && (loIn || hiIn)) {
-          // Use the target's own-row pxSize — see `pxSizeAt` comment.
-          setTargetPxSize(pxSizeAt(cx, loIn ? yi : yj));
+          if (updateTargetPx) updateTargetPx(cx, loIn ? yi : yj);
           const bit = computeBit(cx, hW);
           const contrib = bit * weight;
           if (loIn) out[toOrig(cx, yi)] += (1 - fy) * contrib;
@@ -353,7 +351,7 @@ export function sweepCore(opts) {
       const hHi = hiIn ? elev[iHi] : hLo;
       const hRay = (1 - f) * hLo + f * hHi;
 
-      setTargetPxSize(pxSizeAt(cx, loIn ? yi : yj));
+      if (updateTargetPx) updateTargetPx(cx, loIn ? yi : yj);
       const bit = computeBit(cx, hRay);
 
       pushHull(cx, hRay);
