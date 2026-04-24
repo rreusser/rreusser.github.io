@@ -246,7 +246,7 @@
   </script>
 
   <script id="47" type="text/markdown">
-    Sadly though, the sun is a *two*-dimensional source, and we've only discussed softening in *one* dimension. Short of something fancy like mip-maps, all I was able to come up with was to naively average multiple samples of our altitude-wide analytical soft shadows across the azimuthal direction.
+    Sadly though, the sun is a *two*-dimensional source, and we've only discussed softening in *one* dimension. Short of something fancy like mipmaps, all I was able to come up with was to naively average multiple samples of our altitude-wide analytical soft shadows across the azimuthal direction.
 
     Samples aren't cheap, so it's worth thinking carefully about how to distribute samples across the sun disk. Our altitude-wise analytical soft shadows use a [smoothstep](https://en.wikipedia.org/wiki/Smoothstep) function, so after some consideration, I scaled a Gaussian function to roughly approximate the smoothstep function, then distributed equally-weighted samples in the azimuthal direction using [inverse-CDF sampling](https://en.wikipedia.org/wiki/Inverse_transform_sampling) to approximate the desired Gaussian.
 
@@ -1891,6 +1891,8 @@
     The **shadow re-bake** runs whenever the sun direction changes, packing shadow values into the alpha channel for use in the final shading step. We can even use Volodymyr Agafonkin's [suncalc](https://www.npmjs.com/package/suncalc) library to compute physically accurate sun angles!
 
     The map viewer below is thrown together hastily with the help of Claude since I was not able to find another viewer which satisfied my requirements. Although it's not hard to get tiles onto a map, it's tricky if you really care about tile lifecycle, multi-pass computation, and smooth updates. Pan with click+drag; zoom with the mouse wheel.
+
+    Overall, I'm pretty happy with the technique, and at least happy that I probably took this idea and ran with it about as far as one would be advised to do. I wonder if [mipmaps](https://en.wikipedia.org/wiki/Mipmap) would enable soft shadows with a single pass. I'm not sure if it's performant enough to be practical. And at any rate, if you really want good shadowing, you might just be advised to use more standard shadow map techniques for shadowing.
   </script>
   <script id="69" type="module">
     const tileViewerSunDirMut = Mutable({ az: 314.5, alt: 25 });
