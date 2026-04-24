@@ -212,12 +212,31 @@ export function mountSunHandle({
   };
   const writeSun = (x, y) => {
     const sd = xyToSun(x, y);
-    const az = Math.round(sd.az * 2) / 2;
-    const alt = Math.round(sd.alt * 2) / 2;
     const cur = get();
-    if (cur.az !== az || cur.alt !== alt) {
-      set({ az, alt });
+    if (cur.az !== sd.az || cur.alt !== sd.alt) {
+      set({ az: sd.az, alt: sd.alt });
     }
+  };
+
+  // Coalesce rapid pointermove events into one set() per animation
+  // frame. The previous implementation rounded az/alt to 0.5° as a
+  // cheap throttle, which quantised movement near the horizon (where
+  // the asymptotic xyToSun mapping already compresses many mouse
+  // pixels into a single degree). rAF coalescing gives continuous
+  // sub-degree control while still capping the downstream recompute
+  // rate to one per frame.
+  let pendingPoint = null;
+  let rafId = 0;
+  const flush = () => {
+    rafId = 0;
+    if (!pendingPoint) return;
+    const [x, y] = pendingPoint;
+    pendingPoint = null;
+    writeSun(x, y);
+  };
+  const queueWrite = (x, y) => {
+    pendingPoint = [x, y];
+    if (!rafId) rafId = requestAnimationFrame(flush);
   };
 
   let dragging = false;
@@ -233,12 +252,19 @@ export function mountSunHandle({
   handle.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     const [x, y] = svgPointFromEvent(e);
-    writeSun(x, y);
+    queueWrite(x, y);
     e.stopPropagation();
   });
   const endDrag = (e) => {
     if (!dragging) return;
     dragging = false;
+    // Flush any coalesced move so the final position lands before
+    // the drag cursor changes.
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+      flush();
+    }
     try {
       handle.releasePointerCapture(e.pointerId);
     } catch (_) {}

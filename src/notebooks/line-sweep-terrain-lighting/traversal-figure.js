@@ -104,8 +104,12 @@ export function createTraversalFigure({
   handleG.addEventListener("pointercancel", endDrag);
 
   const container = document.createElement("div");
+  // touch-action:none on the outer HTML container so a finger-drag
+  // moves the handle instead of scrolling the page. Setting it only
+  // on the inner SVG <g> isn't reliably honoured by mobile browsers;
+  // the sun-handle figure solves this the same way.
   container.style.cssText =
-    "position:relative; display:inline-block;";
+    "position:relative; display:inline-block; touch-action:none;";
   container.appendChild(canvas);
   container.appendChild(overlaySvg);
 
