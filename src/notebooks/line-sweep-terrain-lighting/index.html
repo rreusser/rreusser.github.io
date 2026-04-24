@@ -1478,7 +1478,7 @@
   <script id="61" type="text/markdown">
     ## WebGPU implementation
 
-    From the start, I was pretty excited about the implementing this in a WebGPU compute shader. It's perfectly set up for it, where each scanline sweep is an independent thread. This is similar to Rye Terrel's appraoch described above, except that it's a compute shader so that we can shade as we traverse!
+    From the start, I was pretty excited about the implementing this in a WebGPU compute shader. It's perfectly set up for it, where each scanline sweep is an independent thread. This is similar to Rye Terrell's appraoch described above, except that it's a compute shader so that we can shade as we traverse!
 
     In the end though, it contends with GPU resources and does not appear to work very well, slowing down the map interface as tiles are computed. The figure below illustrates successful computation in WebGPU, but th efinal renderer favors a CPU worker pool for lighting computation.
   </script>
