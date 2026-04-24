@@ -1879,7 +1879,7 @@
 
     ${tex.block`(R, G) = (\tfrac{n_x + 1}{2},\; \tfrac{n_y + 1}{2}), \quad B = \mathrm{AO}^{\gamma}, \quad A = s_{\text{shadow}}.`}
 
-    The **shadow re-bake** runs whenever the sun direction changes, packing shadow values into the alpha channel for use in the final shading step.
+    The **shadow re-bake** runs whenever the sun direction changes, packing shadow values into the alpha channel for use in the final shading step. We can even use Volodymyr Agafonkin's [suncalc](https://www.npmjs.com/package/suncalc) library to compute physically accurate sun angles!
 
     The map viewer below is thrown together hastily with the help of Claude since I was not able to find another viewer which satisfied my requirements. Although it's not hard to get tiles onto a map, it's tricky if you really care about tile lifecycle, multi-pass computation, and smooth updates. Pan with click+drag; zoom with the mouse wheel.
   </script>
