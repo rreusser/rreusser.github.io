@@ -989,6 +989,15 @@
     display(parentDZEl);
     const parentDZ = Generators.input(parentDZEl);
   </script>
+  <script id="73-disable" type="module">
+    // Disable the parent-Δz selector when running against the synthetic
+    // geometry source: that branch uses its own hand-built dz=1 horizon
+    // and ignores the slider, so leaving the control live would be
+    // misleading.
+    const _dzSelect = parentDZEl.querySelector("select");
+    if (_dzSelect) _dzSelect.disabled = source === "geometry";
+    parentDZEl.style.opacity = source === "geometry" ? "0.5" : "";
+  </script>
   <script id="34" type="module">
     const horizonTouched = new Uint8Array(
       elevationHorizon.HN * elevationHorizon.HN,
@@ -1471,7 +1480,7 @@
 
     From the start, I was pretty excited about the implementing this in a WebGPU compute shader. It's perfectly set up for it, where each scanline sweep is an independent thread. This is similar to Rye Terrel's appraoch described above, except that it's a compute shader so that we can shade as we traverse!
 
-    In the end though, it contends with GPU resources and does nto appear to work very well, slowing down the map interface as tiles are computed. The figure below illustrates successful computation in WebGPU, but th efinal renderer favors a CPU worker pool for lighting computation.
+    In the end though, it contends with GPU resources and does not appear to work very well, slowing down the map interface as tiles are computed. The figure below illustrates successful computation in WebGPU, but th efinal renderer favors a CPU worker pool for lighting computation.
   </script>
   <script id="62" type="module">
     // One-time device setup. Persists across sun/source changes.
