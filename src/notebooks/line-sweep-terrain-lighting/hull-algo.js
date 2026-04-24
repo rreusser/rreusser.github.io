@@ -68,6 +68,15 @@ export default function createHullViz (html, width, showLight=false, softShadow=
     return el;
   }
 
+  // Translucent fill of the subsurface region — sits behind the grid
+  // lines and the terrain stroke so the dashed verticals still read
+  // cleanly on top of it. Rebuilt per profile in reset().
+  const terrainFill = mkSvgEl("polygon", {
+    fill: "#6663",
+    stroke: "none",
+  });
+  svg.appendChild(terrainFill);
+
   // Grid lines (rebuilt per profile so they stop at terrain height).
   const gridGroup = mkSvgEl("g");
   svg.appendChild(gridGroup);
@@ -297,11 +306,15 @@ export default function createHullViz (html, width, showLight=false, softShadow=
       while (shadowFillGroup.firstChild) shadowFillGroup.removeChild(shadowFillGroup.firstChild);
       while (illumFillGroup.firstChild) illumFillGroup.removeChild(illumFillGroup.firstChild);
     }
-    terrainPath.setAttribute(
+    const profilePoints = Array.from(profile)
+      .map((h, i) => `${pxI(i)},${pyH(h)}`)
+      .join(" ");
+    terrainPath.setAttribute("points", profilePoints);
+    // Close the terrain polyline down to the bottom-right and
+    // bottom-left corners to make the subsurface fill polygon.
+    terrainFill.setAttribute(
       "points",
-      Array.from(profile)
-        .map((h, i) => `${pxI(i)},${pyH(h)}`)
-        .join(" "),
+      `${profilePoints} ${pxI(N - 1)},${htH} ${pxI(0)},${htH}`,
     );
     while (gridGroup.firstChild) gridGroup.removeChild(gridGroup.firstChild);
     for (let i = 0; i < N; i+=4) {

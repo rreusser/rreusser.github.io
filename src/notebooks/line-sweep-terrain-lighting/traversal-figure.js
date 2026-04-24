@@ -34,9 +34,6 @@ export function createTraversalFigure({
   overlaySvg.style.cssText =
     "position:absolute; left:0; top:0; pointer-events:none; overflow:visible;";
 
-  const rayGroup = document.createElementNS(SVG_NS, "g");
-  overlaySvg.appendChild(rayGroup);
-
   const vbScale = gridW / cwPx;
   const handleR = Math.min(gridW, gridH) * 0.4;
   const handleG = document.createElementNS(SVG_NS, "g");
@@ -186,13 +183,6 @@ export function createTraversalFigure({
       if (flipY) oy = gridH - 1 - oy;
       return oy * gridW + ox;
     };
-    const toXY = (cx, cy) => {
-      let ox = swap ? cy : cx;
-      let oy = swap ? cx : cy;
-      if (flipX) ox = gridW - 1 - ox;
-      if (flipY) oy = gridH - 1 - oy;
-      return [ox + 0.5, oy + 0.5];
-    };
     const oxC = Math.floor(gridW / 2);
     const oyC = Math.floor(gridH / 2);
     const oxP = flipX ? gridW - 1 - oxC : oxC;
@@ -209,7 +199,6 @@ export function createTraversalFigure({
       const color = isCenter ? [1, 0, 0] : hsl2rgb01(hue, 0.45, 0.72);
       const seedColor = isCenter ? [0.55, 0, 0] : hsl2rgb01(hue, 0.9, 0.4);
       const steps = [];
-      let entryCx = -1, exitCx = -1;
       for (let cx = 0; cx < viewW; cx++) {
         const y = b + m * cx;
         const yi = Math.floor(y);
@@ -218,8 +207,6 @@ export function createTraversalFigure({
         const loIn = yi >= 0 && yi < viewH;
         const hiIn = yj >= 0 && yj < viewH;
         if (!loIn && !hiIn) continue;
-        if (entryCx < 0) entryCx = cx;
-        exitCx = cx;
         steps.push({
           f,
           iLo: loIn ? toOriginal(cx, yi) : -1,
@@ -227,28 +214,10 @@ export function createTraversalFigure({
         });
       }
       if (steps.length === 0) continue;
-      const [x1, y1] = toXY(entryCx, b + m * entryCx);
-      const [x2, y2] = toXY(exitCx, b + m * exitCx);
-      rays.push({ color, seedColor, isCenter, steps, line: { x1, y1, x2, y2 } });
+      rays.push({ color, seedColor, isCenter, steps });
       rayIdx++;
     }
     return rays;
-  }
-
-  function redrawRayOverlay(rays) {
-    while (rayGroup.firstChild) rayGroup.removeChild(rayGroup.firstChild);
-    const strokeW = String(gridW / cwPx);
-    for (const ray of rays) {
-      if (!ray.isCenter) continue;
-      const line = document.createElementNS(SVG_NS, "line");
-      line.setAttribute("x1", ray.line.x1);
-      line.setAttribute("y1", ray.line.y1);
-      line.setAttribute("x2", ray.line.x2);
-      line.setAttribute("y2", ray.line.y2);
-      line.setAttribute("stroke", "red");
-      line.setAttribute("stroke-width", strokeW);
-      rayGroup.appendChild(line);
-    }
   }
 
   let rays = [];
@@ -256,32 +225,13 @@ export function createTraversalFigure({
   let currentWeighted = null;
   let rayIdx = 0;
   let stepIdx = 0;
-  let rayStarted = false;
   let pauseUntil = 0;
 
-  function resetAnimation(deg, w) {
-    currentAngle = deg;
-    currentWeighted = w;
-    rays = buildTraversal(deg);
-    redrawRayOverlay(rays);
-    rayIdx = 0;
-    stepIdx = 0;
-    rayStarted = false;
-    pauseUntil = 0;
-    clearBuffers();
-    ctx.putImageData(img, 0, 0);
-    placeHandle(deg);
-  }
-
-  function advanceOne() {
-    while (rayIdx < rays.length && stepIdx >= rays[rayIdx].steps.length) {
-      rayIdx++;
-      stepIdx = 0;
-      rayStarted = false;
-    }
-    if (rayIdx >= rays.length) return false;
-    const ray = rays[rayIdx];
-    const step = ray.steps[stepIdx];
+  // Deposit one step's weight/colour contribution into the accumulators.
+  // Seed-point marking is handled up front in markAllRaySeeds so the
+  // animation doesn't need to track a "have we started this ray yet"
+  // flag per frame.
+  function depositStep(ray, step) {
     const [rr, gg, bb] = ray.color;
     if (currentWeighted) {
       if (step.iLo >= 0) {
@@ -304,28 +254,83 @@ export function createTraversalFigure({
       gAcc[step.iLo] += gg;
       bAcc[step.iLo] += bb;
     }
-    if (!rayStarted) {
-      const [sr0, sg0, sb0] = ray.seedColor;
-      const sr = Math.max(0, Math.min(255, sr0 * 255));
-      const sg = Math.max(0, Math.min(255, sg0 * 255));
-      const sb = Math.max(0, Math.min(255, sb0 * 255));
+    if (step.iLo >= 0) paintPixel(step.iLo);
+    if (step.iHi >= 0) paintPixel(step.iHi);
+  }
+
+  // Stamp a ray's seed-colour start marker on the first step where a
+  // deposit is actually possible. Strided rays (those entering from
+  // the bottom/side edge) can begin with several `iLo = -1` steps in
+  // nearest-neighbor mode, so we scan forward until a target row is in
+  // view; otherwise those rays would show no seed point at all until
+  // the animation reaches them.
+  function markRaySeed(ray) {
+    const [sr0, sg0, sb0] = ray.seedColor;
+    const sr = Math.max(0, Math.min(255, sr0 * 255));
+    const sg = Math.max(0, Math.min(255, sg0 * 255));
+    const sb = Math.max(0, Math.min(255, sb0 * 255));
+    for (const step of ray.steps) {
       const wLo = currentWeighted ? 1 - step.f : 1;
       const wHi = currentWeighted ? step.f : 0;
       let marked = false;
       if (step.iLo >= 0 && wLo > 1e-9) {
         startMask[step.iLo] = 1;
         seedR[step.iLo] = sr; seedG[step.iLo] = sg; seedB[step.iLo] = sb;
+        paintPixel(step.iLo);
         marked = true;
       }
       if (step.iHi >= 0 && wHi > 1e-9) {
         startMask[step.iHi] = 1;
         seedR[step.iHi] = sr; seedG[step.iHi] = sg; seedB[step.iHi] = sb;
+        paintPixel(step.iHi);
         marked = true;
       }
-      if (marked) rayStarted = true;
+      if (marked) return;
     }
-    if (step.iLo >= 0) paintPixel(step.iLo);
-    if (step.iHi >= 0) paintPixel(step.iHi);
+  }
+
+  // Deposit every step of a ray in one shot. Used to commit the centre
+  // ray immediately so the user sees the rasterised red line during a
+  // drag instead of waiting for the animation to sweep past it.
+  function rasterizeRay(ray) {
+    for (const step of ray.steps) depositStep(ray, step);
+  }
+
+  function resetAnimation(deg, w) {
+    currentAngle = deg;
+    currentWeighted = w;
+    rays = buildTraversal(deg);
+    rayIdx = 0;
+    stepIdx = 0;
+    pauseUntil = 0;
+    clearBuffers();
+    // Show every ray's seed point at full opacity up front so the user
+    // sees the full set of sweep origins the moment the handle moves,
+    // not just the ones the animation has swept past so far.
+    for (const ray of rays) markRaySeed(ray);
+    // Rasterise the centre ray immediately and flag it so the animation
+    // loop doesn't deposit into it again (which would double-weight
+    // those pixels in the weighted-interpolation mode).
+    const centerRay = rays.find((r) => r.isCenter);
+    if (centerRay) {
+      rasterizeRay(centerRay);
+      centerRay.skipped = true;
+    }
+    ctx.putImageData(img, 0, 0);
+    placeHandle(deg);
+  }
+
+  function advanceOne() {
+    while (
+      rayIdx < rays.length &&
+      (rays[rayIdx].skipped || stepIdx >= rays[rayIdx].steps.length)
+    ) {
+      rayIdx++;
+      stepIdx = 0;
+    }
+    if (rayIdx >= rays.length) return false;
+    const ray = rays[rayIdx];
+    depositStep(ray, ray.steps[stepIdx]);
     stepIdx++;
     return true;
   }

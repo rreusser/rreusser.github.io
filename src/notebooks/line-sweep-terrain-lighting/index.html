@@ -6,19 +6,21 @@
 
     <img src="meta2.webp">
 
-    Although I don't [work in mapping anymore](https://www.mapbox.com), I'll always have have a soft spot for experimental map rendering techniques. Previously I've built a live [solar terminator map](https://rreusser.github.io/notebooks/night-and-day/) and a [kinda janky 3D map renderer](http://localhost:5173/notebooks/denali/). Inspired by some good posts on the topic, I've also dabbled in heightfield shadowing. This article finally pulls the latter work together into something functional.
+    The goal of this notebook to compute terrain lighting using web map terrain tiles as input and producing corresponding raster light maps as output. For terrain data, we'll be using the excellent and open [Mapterhorn](https://mapterhorn.com/) tileset. We'll start with a simple horizon visibility algorithm and extend it to cover self-shadowing and ambient occlusion. It's definitely not novel, but the devil is in the details.
 
-    Our goal here is to compute terrain lighting using standard web map terrain tiles as input and producing corresponding 1:1 raster light maps as output. For terrain data, we'll be using the excellent and open [Mapterhorn](https://mapterhorn.com/) tileset. We'll start with a simple horizon visibility algorithm and extend to cover self-shadowing and ambient occlusion. It's definitely not novel, but the devil is in the details.
+    Although I don't [work in mapping anymore](https://www.mapbox.com), I'll always have have a soft spot for experimental map rendering techniques. Previously I've built a live [solar terminator map](https://rreusser.github.io/notebooks/night-and-day/) and a [kinda janky 3D map renderer](http://localhost:5173/notebooks/denali/). Inspired by some good posts on the topic, I've also dabbled in heightfield shadowing. This article finally pulls the latter work together into something functional.
 
     ## Inspiration
     
-    First of all, the best resource on the topic is Tom Patterson's [shadedrelief.com](http://www.shadedrelief.com/). Any work in map shading could only aspire to convey topography and tell stories in the way his maps do. Alas, I've set myself up to fail in the shadow of such a behemoth. But at any rate, my goal is somewhat focused here, to shade map tiles for real time interactive usage.
+    First of all, the best resource on the topic is Tom Patterson's [shadedrelief.com](http://www.shadedrelief.com/). Any work in map shading can only aspire to convey topography and tell stories in the way his maps do. Alas, I've set myself up to fail in the shadow of such a behemoth. But at any rate, my goal is somewhat focused here, to shade map tiles for real time interactive usage.
 
-    Lighting in computer graphics is usually either complex or expensive. One approach for heightfield shading is to shoot rays. [Rye Terrell's terrain shading](https://wwwtyro.net/2019/03/21/advanced-map-shading.html) marches rays from each pixel along the surface and in the direction of the sun, checking for occlusion along the way. The results are beautiful, but the cost is high and it suffers from tile-boundary discontinuities which Terrell addresses by brute-force rendering 3×3 tiles (768×768) and extracting the center.
+    Next is [shadowmap.org](https://shadowmap.org/). It's an excellent product for precise map shadowing. As best as I can tell, they use standard z-buffer shadow mapping techniques to compute shadows, but they do it quite well. Whatever the pros and cons, my interest is different, to compute light maps as *raster* tiles.
+
+    One approach for heightfield shading is to shoot rays. [Rye Terrell's terrain shading](https://wwwtyro.net/2019/03/21/advanced-map-shading.html) marches rays from each pixel along the surface and in the direction of the sun, checking for occlusion along the way. The results are beautiful, but the cost is high and it suffers from tile-boundary discontinuities which Terrell addresses by brute-force rendering 3×3 tiles (768×768) and extracting the center.
 
     A cheaper alternative is to sweep across the grid, tracking horizon visibility in a stack. [Karim Naaji's Line-Sweep Ambient Occlusion](https://karim.naaji.fr/lsao.html) sweeps rows of the grid, tracking visibility and applying shading in a single pass. However, the technique is limited to eight cardinal directions and still suffers from tile boundary discontinuities.
 
-    This article doesn't offer fundamentally new insight but instead builds on and extends the line-sweep idea to address their shortcomings. In particular it extends the line-sweep to arbitrary directions, uses geometric shadowing to produce soft shadows, and avoids tile boundary discontinuities by prewarming horizon visibility with parent tile data.
+    This article doesn't offer fundamentally new insight but instead builds on and extends the line-sweep idea to address its shortcomings. In particular it extends the line-sweep to arbitrary directions, uses geometric shadowing to produce soft shadows, and avoids tile boundary discontinuities by prewarming horizon visibility with parent tile data.
   </script>
   <script id="2" type="text/markdown">
     ## Line-sweep horizon visibility
@@ -43,7 +45,7 @@
 
     From here, it's only a small step farther to compute self-shadowing. At each point during the sweep, we compare the horizon angle to the sun angle. If the sun is below the horizon, the terrain is shadowed.
 
-    A particularly nice feature of this algorithm is that we can compute horizon visbility and lighting in the same pass. Neglecting the depth of the stack which generally remains quite small, the algorithm is O(n) in the resolution of terrain data, requiring that we read each terrain value only once. I can't immediately see that we could do significantly better.
+    A particularly nice feature of this algorithm is that we can compute horizon visbility and lighting in the same pass. Neglecting the depth of the stack which generally remains quite small, the algorithm is O(n) in terrain data resolution, requiring that we read each terrain value only once. I can't immediately see that we could do significantly better.
   </script>
   <script id="hull-occlusion" type="module">
     const htSvgLight = createHullViz(html, width, true);
@@ -53,20 +55,19 @@
         <figcaption>
           Same sweep with illumination. Each terrain segment is colored lit
           or shadowed by comparing its horizon angle against the sun's fixed
-          altitude, and the filled region below each blocker shows the
-          shadow it casts along the sun ray.
+          altitude.
         </figcaption>
       </figure>`,
     );
   </script>
   <script id="traversal-explanation" type="text/markdown">
-    A little more work is necessary before we can apply this to terrain tiles though. The algorithm so far presumes that we're sweeping along a well-defined grid direction. We'd like to be able to compute shadowing in arbitrary directions.
+    A little more work is necessary before we can apply this to terrain tiles. The algorithm so far presumes that we're sweeping along a well-defined grid direction. We'd like to be able to compute shadowing in arbitrary directions.
 
     The solution is simple but requires some finesse. The diagram below illustrates grid traversal in arbitrary directions. We start our first sweep in the upper left corner, seeding subsequent sweeps with remaining pixels along the left edge. For each sweep, we step rightward exactly one pixel and upward by a fractional amount. Once we've exhausted all sweeps starting along the left edge, we step rightward along the bottom edge with a given stride, performing identically the same sweeps from the new seed points.
 
     This sequence only handles sweep angles in a single octant of the possible ${tex`360^\circ.`} Drag the handle below and observe that for other octants, we simply flip and rotate our canonical octant. In practical terms, this can be implemented with ndarray-style index arithmetic.
 
-    One subtlety is worth calling out. Rays sweeping at non-axis-aligned angles pass between integer pixel rows. Nearest-neighbor assignment drops a ray's full weight onto a single row, so adjacent rays can land on the same row repeatedly and leave others starved, producing visible banding. Distributing each sample's weight between the two neighboring rows by ${tex`(1-f,\, f)`}, where ${tex`f`} is the fractional row offset, evens out the coverage. The toggle on the figure below compares the two schemes.
+    One subtlety is that rays pass between integer pixel rows. We can easily distribute values between adjacent pixels using linear interpolation. Where the rubber really meets the road though is that when we layer the sweep algorithm on top of this, we have to be quite careful about positioning, lest we inaccurately compute the terrain slope and create spurious shadows.
   </script>
 
   <script id="6" type="module">
@@ -76,10 +77,13 @@
   </script>
   <script id="7" type="module">
     import { createTraversalFigure } from "./traversal-figure.js";
-    const weightedEl = Inputs.toggle({
-      label: "linear interpolation",
-      value: false,
-    });
+    const weightedEl = Inputs.radio(
+      new Map([
+        ["nearest neighbor", false],
+        ["linear", true],
+      ]),
+      { label: "interpolation", value: false },
+    );
     const weightedAccessor = { get: () => !!weightedEl.value };
     const traversalFigure = createTraversalFigure({
       width,
@@ -96,9 +100,7 @@
     invalidation.then(() => traversalFigure.cancel());
   </script>
   <script id="traversal-caveat" type="text/markdown">
-    A final note is that since sampled elevations are directly adjacent to pixels receiving shading, even small errors in sample position result in errors in computed slope angle. Any inconsistencies causes glancing sunlight to produce terrible striations on smooth hillsides.
-
-    The problems can be overcome though, and the figure below illustrates the result. Drag the handle and observe that the terrain tile correctly casts shadows on itself.
+    The challenges can be overcome though, and the figure below illustrates the result. Drag the handle and observe that the terrain tile correctly casts shadows on itself.
   </script>
   <script id="14" type="module">
     const simpleSunDirMut = Mutable({ az: 314.5, alt: 10 });
@@ -406,7 +408,7 @@
     });
     const softAzSamplesEl = Inputs.range([1, 32], {
       label: "azimuthal samples",
-      value: 12,
+      value: 8,
       step: 1,
     });
 
@@ -538,13 +540,11 @@
   <script id="25" type="text/markdown">
     ## Parent-tile pre-pass
 
-    A natural limitation of per-tile methods is that they have no knowledge of terrain beyond it. Mountains just outside the boundary which would cast shadows onto the tile are never considered, producing visible seams between tiles.
+    A limitation of per-tile methods is that they have no knowledge of terrain beyond their edges. External mountains which would cast shadows onto the tile are not considered, producing visible seams between tiles.  A natural solution is to use lower-resolution parent tile data to build a horizon stack before sweeping across the computation tile.
 
-    A natural solution is to generate a half-resolution horizon buffer from four z−1 ancestor tiles, covering the computation tile and one tile width of surrounding terrain in each direction. Before the main sweep, a pre-pass walks each ray through this coarser buffer, warming up the stack so that by the time the ray enters the computation tile, it already carries the horizon contributed by surrounding terrain.
+    In fact we can step multiple levels upward in the tile pyramid to further extend the range of this pre-warming. A 2×2 block of ${tex`z - \Delta z`} parents physically covers ${tex`(2^{\Delta z} + 1)`} tile widths around the computation tile. Thus, a 2×2 block of parent ${tex`z - 1`} tiles always covers a 3×3 area relative to zoom ${tex`z`}, while ${tex`z-2`} grandparent tiles cover a 5×5 area, and ${tex`z-3`} tiles a 9×9 area.
 
-    We could also step multiple levels upward in the tile pyramid to extend the range of this pre-warming. A 2×2 block of ${tex`z - \Delta z`} parents physically covers ${tex`(2^{\Delta z} + 1)`} comp-tile widths around the computation tile (3 tiles at ${tex`\Delta z = 1`}, 5 at ${tex`\Delta z = 2`}, 9 at ${tex`\Delta z = 3`}), so bumping ${tex`\Delta z`} by one doubles the reachable blocker radius at the cost of halving the horizon's parent-pixel resolution. In practice, distant blockers matter less after the ${tex`\cos^2\!\alpha`} / smoothstep falloff, so the coarser horizon tends to be a near-free quality win.
-
-    Enlarging the pre-pass region like this raises the question of cost: naively we'd now have to walk the entire wider ring every sweep. But a shadow can only reach as far as the sun angle and the local relief allow — at high noon, even the tallest blocker casts barely any shadow at all. If we cache each tile's elevation range at decode time, we can turn the steepest sun angle together with the horizon's max height and the comp tile's min height into a hard bound on the warmup's spatial extent and stop marching once no remaining parent pixel could possibly cast a shadow into the tile. The further up the pyramid we step, the more this matters — most of the pre-pass work shifts from a fixed per-tile cost to a sun-angle-dependent one that goes to zero as the sun climbs.
+    In practice, ${tex`z-2`} seems a reasonable tradeoff, and we can use the maximum possible projected shadow length to limit the extent of the pre-pass horizon visibility sweep. That is, when the sun is directly overhead, shadows are very short and we don't need to march all the way to the edge of parent to know that features there could not possibly cast a shadow onto the computation tile.
 
     Toggle the parent-tile pre-pass below and observe its effect in the vicinity of tile boundaries. The ${tex`\Delta z`} selector shows how the covered-area / resolution trade plays out visually — at ${tex`\Delta z = 2`} the comp-tile red outline shrinks to ${tex`\tfrac{1}{5}`} of the horizon width (4× the surrounding area captured), and at ${tex`\Delta z = 3`} to ${tex`\tfrac{1}{9}`}. Dragging the sun handle upward also shrinks the blue "horizon touched" tint toward the tile — you're watching the elevation-bounded trim kick in.
   </script>
@@ -1174,13 +1174,12 @@
 
     which normalises to ${tex`\cos^2\!\alpha`}: 1 at a flat horizon, 0 at a vertical wall. Its slope is flat at ${tex`\alpha = 0`} and steepens later, giving a softer, more forgiving response to small horizons. And because ${tex`\cos^2\!\alpha \approx 1 - (\Delta h / d)^2`} for small α, distant tall blockers fall off as ${tex`1/d^2`}, so the effect is strongly local and tile boundaries are less visible.
 
-    Honestly, I think the particular choice of function is best thought of as an artistic decision. The original function seems to produce better visual separate of features, at the cost of less locality.
+    Honestly though, I think the particular choice of function is best thought of as an artistic decision. The original function seems to produce better visual separate of features at the cost of less locality.
 
-    Finally, a contrast slider ${tex`c \in [0, 1]`} tone-maps the response. For pixel ${tex`v,`} let ${tex`s = c / (1 - c)`} and ${tex`\text{shade} = 1 - \bar{v}`}; an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
+    In practice, we use a Web Worker pool to compute independent sweeps, then average them to compute pixel value ${tex`\bar{v}`}. For display, a contrast slider ${tex`c \in [0, 1]`} tone-maps the response. For pixel ${tex`\bar{v}`}, an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
 
-    ${tex.block`\text{display} \;=\; 1 - \tfrac{2}{\pi}\arctan\!\left(\tfrac{c}{1-c}\,(1 - \bar{v})\right).`}
+    ${tex.block`\text{display} \;=\; 1 - \tfrac{2}{\pi}\arctan\!\left(\tfrac{c}{1-c}\,\bar{v}\right).`}
 
-    At ${tex`c = 0`} the slider emits solid white; as ${tex`c \to 1`} the scaled shade runs to infinity and the tonemap saturates toward full darkness. Naaji's reference fires eight axis-aligned passes; because our canonical reparameterization handles arbitrary azimuths, we can use any number of directions, and each pass is independent so we run them in the same Web Worker pool as the soft shadows.
   </script>
   <script id="74" type="module">
     const falloffData = [];
@@ -1226,15 +1225,7 @@
       html`<figure>
         ${falloffPlot}
         <figcaption>
-          Per-azimuth-slice visibility vs. horizon angle α. Naaji's
-          ${tex`e^{-\sin\alpha}`} drops with slope −1 right at a flat horizon, so
-          small horizon differences produce immediate contrast and layered features
-          (ridges, terraces) separate sharply; it bottoms out at
-          ${tex`e^{-1} \approx 0.37`} at a vertical wall and carries a long tail.
-          The Lambertian ${tex`\cos^2\!\alpha`} is flat at α = 0 and then accelerates,
-          collapsing to 0 at a vertical wall; the bulk of its falloff lives in small
-          α, which gives a more local effect and cleaner tile seams. Neither is more
-          correct — pick the one that reads better for the scene.
+          Per-azimuth-slice visibility vs. horizon angle α.
         </figcaption>
       </figure>`,
     );
@@ -1351,11 +1342,11 @@
   <script id="42" type="text/markdown">
     ## Relief shading
 
-    The shadow map captures shadows, but even fully lit surfaces vary in brightness depending on their orientation. The most natural lighting choice is diffuse Lambertian shading, but this tends to darken the surface when lit at oblique angles, which isn't necessarily what we want for a map.
+    Lly lit surfaces vary in brightness depending on their orientation. The most natural lighting choice is diffuse Lambertian shading, but this tends to darken the surface when lit at oblique angles, which isn't necessarily what we want for a map.
 
-    Relief shading separates the terrain slope from its aspect (direction it faces relative to the sun), so the sun's altitude doesn't darken flat ground. Flat terrain stays white; slopes facing the sun brighten, slopes facing away darken, and the strength of the effect is proportional to the slope angle.
+    Relief shading separates the terrain slope from its aspect (direction it faces relative to the sun), so the sun's altitude doesn't darken flat ground. Flat terrain stays white, slopes facing the sun brighten, and slopes facing away darken. Strength of the effect is proportional to the slope angle.
 
-    Concretely, I've slightly adapted GDAL's relief shading function, coputing the slope angle ${tex`\theta = \arctan(z_f \cdot \|\mathbf{n}_{xy}\| / n_z)`} and the aspect alignment ${tex`a = \hat{\mathbf{n}}_{xy} \cdot \hat{\mathbf{L}}_{xy} \in [-1, 1]`}, then a darkness term ${tex`d = \sin(\min(\theta \cdot 2s,\; 1.5)) \cdot (1 - \tfrac{1+a}{2})`} where ${tex`s`} is the strength parameter. The final relief value is ${tex`v = (1 - 0.85\,d)^{2.5}`}. The z-factor ${tex`z_f = 0.625 \sqrt{\cos \alpha}`} (where ${tex`\alpha`} is the sun's altitude) dampens gentle slopes following the GDAL convention, and modulates the perceived slope by sun altitude: at overhead sun the terrain appears flat and the image is white; as the sun lowers, slopes become more visually pronounced, reaching full contrast at the horizon.
+    Concretely, I've adapted GDAL's relief shading function, computing the slope angle ${tex`\theta = \arctan(z_f \cdot \|\mathbf{n}_{xy}\| / n_z)`} and the aspect alignment ${tex`a = \hat{\mathbf{n}}_{xy} \cdot \hat{\mathbf{L}}_{xy} \in [-1, 1]`}, then a darkness term ${tex`d = \sin(\min(\theta \cdot 2s,\; 1.5)) \cdot (1 - \tfrac{1+a}{2})`} where ${tex`s`} is the strength parameter. The final relief value is ${tex`v = (1 - 0.85\,d)^{2.5}`}. The z-factor ${tex`z_f = 0.625 \sqrt{\cos \alpha}`} (where ${tex`\alpha`} is the sun's altitude) dampens slopes following the GDAL convention and modulates the perceived slope by sun altitude.
   </script>
   <script id="43" type="module">
     const reliefSunDirMut = Mutable({ az: 314.5, alt: 45 });
@@ -1372,7 +1363,7 @@
     const reliefStrength = rctrl(
       Inputs.range([0, 1], {
         label: "strength",
-        value: 0.2,
+        value: 0.5,
         step: 0.01,
       }),
     );
@@ -1466,12 +1457,21 @@
     }
     rlCtx.putImageData(rlImg, 0, 0);
   </script>
+  <script id="75" type="text/markdown">
+    ## Zoom-dependent gradient attenuation
+
+    One annoyance is that shading fades at low zoom. Peaks survive downsampling well, but decimation reduces the gradient and fails to commute with nonlinearities in the shading function.
+
+    A quick check across a handful of Mapterhorn tiles suggests a rough power-law attenuation of average elevation gradient, so we reduce the horizontal grid spacing at low zoom to steepen gradients and leave shading visually similar in appearance.
+
+    This is one thing I'm not content with since I'd prefer a physicaily accurate function which does not *need* a correction factor. The map on this page uses tiles of the same zoom, but tiles with different zooms, like on a pitched 3D map, would show discontinuous shading due to this inconsistency.
+  </script>
   <script id="61" type="text/markdown">
     ## WebGPU implementation
 
-    The CPU path's two modes (soft shadow with stratified azimuth integration, and LSAO) port cleanly to WGSL compute via _dynamic shader specialization_. Each `(mode, prewarm)` permutation is built once into its own `GPUComputePipeline` and cached, so the inner hull-scan loop has no per-pixel mode branch. The parent-tile prewarm is itself a compile-time flag: when off, the shader skips the warmup block entirely and the horizon binding shrinks to a 16-byte stub. Multi-sample averaging (azimuth offsets for soft, uniform directions for LSAO) is dispatched as N successive compute passes that each accumulate `weight · bit · fpScale` into the shared atomic `shadow` buffer.
+    From the start, I was pretty excited about the implementing this in a WebGPU compute shader. It's perfectly set up for it, where each scanline sweep is an independent thread. This is similar to Rye Terrel's appraoch described above, except that it's a compute shader so that we can shade as we traverse!
 
-    A caveat from building this out is that the GPU path turned out to be less useful than hoped. It's measurably faster per tile than the CPU worker pool, but only modestly so, and the same device also drives the map's own render passes. Every heavy compute submit stalls the tile viewer's compositor and makes pans and zooms feel gummy. The CPU worker pool runs slightly slower per tile but leaves the GPU free to stay responsive to pointer events, which matters more than raw throughput for an interactive viewer. Both paths are kept here for comparison, and the live viewer at the end of the notebook defaults to the CPU bake.
+    In the end though, it contends with GPU resources and does nto appear to work very well, slowing down the map interface as tiles are computed. The figure below illustrates successful computation in WebGPU, but th efinal renderer favors a CPU worker pool for lighting computation.
   </script>
   <script id="62" type="module">
     // One-time device setup. Persists across sun/source changes.
@@ -1872,17 +1872,6 @@
       })();
     }
   </script>
-  <script id="75" type="text/markdown">
-    ## Zoom-dependent gradient attenuation
-
-    One annoyance on a slippy map is that terrain visibly flattens at low zoom. Peaks survive downsampling well, but the gradient field between them does not. Decimation fails to commute with the nonlinearities in between (the resampling kernel, the tonemap, the slope calculation itself), so low-zoom tiles systematically under-report slope. Cast shadows read ${tex`\Delta h`} and hold up fine, while relief and LSAO read ${tex`\nabla h`} and go flat.
-
-    A quick probe across a handful of Mapterhorn summits suggests a rough power-law attenuation ${tex`\langle \|\nabla h\| \rangle \propto \mathrm{pxSize}^{-\beta}`} with ${tex`\beta`} trending toward ${tex`0.5`}. We apply a hand-wavy corrective factor only to the ${tex`\nabla h`} passes, contracting pxSize rather than inflating heights so that the elevation buffer stays untouched:
-
-    ${tex.block`\mathrm{pxSize}_{\text{eff}}(z) = \mathrm{pxSize}(z) \cdot 2^{(z - z_{\text{ref}}) \beta}`}
-
-    A theoretical value of ${tex`\beta \approx 0.5`} matches the asymptote but reads visually overeager, so the viewer's zoom-compensation slider defaults to ${tex`0.3`}. Setting it to ${tex`0`} disables the correction.
-  </script>
   <script id="68" type="text/markdown">
     ## Live WebGPU tile viewer
 
@@ -1892,7 +1881,7 @@
 
     The **shadow re-bake** runs whenever the sun direction changes, packing shadow values into the alpha channel for use in the final shading step.
 
-    The map viewer below is thrown together hastily with the help of Claude since I was not able to find another viewer which satisfied my requirements. Although it's not hard to get tiles onto a map, it's tricky if you really care about tile lifecycle and smooth updates. Pan with click+drag; zoom with the mouse wheel.
+    The map viewer below is thrown together hastily with the help of Claude since I was not able to find another viewer which satisfied my requirements. Although it's not hard to get tiles onto a map, it's tricky if you really care about tile lifecycle, multi-pass computation, and smooth updates. Pan with click+drag; zoom with the mouse wheel.
   </script>
   <script id="69" type="module">
     const tileViewerSunDirMut = Mutable({ az: 314.5, alt: 25 });
