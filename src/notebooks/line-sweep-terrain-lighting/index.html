@@ -1183,7 +1183,7 @@
 
     which normalises to ${tex`\cos^2\!\alpha`}: 1 at a flat horizon, 0 at a vertical wall. Its slope is flat at ${tex`\alpha = 0`} and steepens later, giving a softer, more forgiving response to small horizons. And because ${tex`\cos^2\!\alpha \approx 1 - (\Delta h / d)^2`} for small α, distant tall blockers fall off as ${tex`1/d^2`}, so the effect is strongly local and tile boundaries are less visible.
 
-    Honestly though, I think the particular choice of function is best thought of as an artistic decision. The original function seems to produce better visual separate of features at the cost of less locality.
+    Honestly though, I think the particular choice of function is best thought of as an artistic decision. The original function seems to produce better visual separation of features at the cost of less locality.
 
     In practice, we use a Web Worker pool to compute independent sweeps, then average them to compute pixel value ${tex`\bar{v}`}. For display, a contrast slider ${tex`c \in [0, 1]`} tone-maps the response. For pixel ${tex`\bar{v}`}, an ${tex`\arctan`} tonemap squashes the scaled shade into ${tex`[0, 1]`}:
 
@@ -1351,7 +1351,7 @@
   <script id="42" type="text/markdown">
     ## Relief shading
 
-    Lly lit surfaces vary in brightness depending on their orientation. The most natural lighting choice is diffuse Lambertian shading, but this tends to darken the surface when lit at oblique angles, which isn't necessarily what we want for a map.
+    Lit surfaces vary in brightness depending on their orientation. The most natural lighting choice is diffuse Lambertian shading, but this tends to darken the surface when lit at oblique angles, which isn't necessarily what we want for a map.
 
     Relief shading separates the terrain slope from its aspect (direction it faces relative to the sun), so the sun's altitude doesn't darken flat ground. Flat terrain stays white, slopes facing the sun brighten, and slopes facing away darken. Strength of the effect is proportional to the slope angle.
 
