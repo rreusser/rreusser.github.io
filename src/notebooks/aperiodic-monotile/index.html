@@ -436,14 +436,30 @@
   </script>
 
   <script id="spectre-mesh" type="text/x-typescript">
-    // Triangle fan from vertex 0: (0, i+1, i+2) for i = 0..11. 12 triangles, 36 indices.
-    // The spectre is convex enough at vertex 0 for this to triangulate cleanly.
-    const meshVertexData = new Float32Array(spectreVertices.flat());
-    const meshIndexData = new Uint16Array(36);
-    for (let i = 0; i < 12; i++) {
-      meshIndexData[i * 3 + 0] = 0;
-      meshIndexData[i * 3 + 1] = i + 1;
-      meshIndexData[i * 3 + 2] = i + 2;
+    // Triangle fan from vertex 0, expanded to 36 unique vertices so each
+    // triangle can carry its own per-vertex `edgeBary` attribute. Component k
+    // of edgeBary is barycentric weight α of vertex k IF the opposite edge is
+    // a polygon-boundary edge, else 1 throughout. In the fragment shader,
+    // `edgeBary / fwidth(edgeBary)` then gives pixel-distance only along
+    // boundary edges; other components stay at +∞.
+    const meshVertexData = new Float32Array(36 * 5);
+    {
+      let v = 0;
+      for (let i = 0; i < 12; i++) {
+        const bf_BC = 1;                    // V_{i+1} ↔ V_{i+2}: always polygon edge
+        const bf_CA = i === 11 ? 1 : 0;     // V_{i+2} ↔ V_0: only when i+2 = 13
+        const bf_AB = i === 0  ? 1 : 0;     // V_0     ↔ V_{i+1}: only when i+1 = 1
+        const A = spectreVertices[0];
+        const B = spectreVertices[i + 1];
+        const C = spectreVertices[i + 2];
+        const writeVert = (p: [number, number], ex: number, ey: number, ez: number) => {
+          meshVertexData[v++] = p[0]; meshVertexData[v++] = p[1];
+          meshVertexData[v++] = ex; meshVertexData[v++] = ey; meshVertexData[v++] = ez;
+        };
+        writeVert(A, 1, bf_CA ? 0 : 1, bf_AB ? 0 : 1);
+        writeVert(B, bf_BC ? 0 : 1, 1, bf_AB ? 0 : 1);
+        writeVert(C, bf_BC ? 0 : 1, bf_CA ? 0 : 1, 1);
+      }
     }
   </script>
 
@@ -468,20 +484,23 @@
   </script>
 
   <script id="gpu-pipeline" type="text/x-typescript">
-    import { createVertexBuffer, createIndexBuffer, createUniformBuffer } from './lib/webgpu-canvas.js';
+    import { createVertexBuffer, createUniformBuffer } from './lib/webgpu-canvas.js';
     import { expandable } from './lib/expandable.js';
+
+    const SAMPLE_COUNT = 4;
 
     const gpuCanvas = document.createElement('canvas');
     gpuCanvas.style.display = 'block';
     gpuCanvas.style.width = '100%';
     gpuCanvas.style.height = '100%';
     gpuCanvas.style.background = '#fafafa';
+    gpuCanvas.style.touchAction = 'none';
+    gpuCanvas.style.cursor = 'grab';
 
     const gpuContext = gpuCanvas.getContext('webgpu')!;
     gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
 
     const meshVertexBuffer = createVertexBuffer(device, 'spectre-verts', meshVertexData);
-    const meshIndexBuffer = createIndexBuffer(device, 'spectre-indices', meshIndexData);
     const viewUniformBuffer = createUniformBuffer(device, 'view-uniforms', 16);
     const paletteBuffer = createUniformBuffer(device, 'palette', paletteData);
 
@@ -497,12 +516,14 @@ struct View {
 
 struct VsIn {
   @location(0) pos: vec2f,
-  @location(1) iTrans: vec4f,
-  @location(2) iAttr: vec2f,
+  @location(1) edgeBary: vec3f,
+  @location(2) iTrans: vec4f,
+  @location(3) iAttr: vec2f,
 };
 struct VsOut {
   @builtin(position) pos: vec4f,
   @location(0) color: vec3f,
+  @location(1) edgeBary: vec3f,
 };
 
 @vertex fn vs(in: VsIn) -> VsOut {
@@ -516,11 +537,20 @@ struct VsOut {
   var out: VsOut;
   out.pos = vec4f(clip, 0.0, 1.0);
   out.color = palette[u32(in.iAttr.y)].rgb;
+  out.edgeBary = in.edgeBary;
   return out;
 }
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
-  return vec4f(in.color, 1.0);
+  // Pixel-space distance to the nearest polygon-boundary edge of this
+  // triangle. Components whose corresponding edge is interior were set
+  // constant=1 at all three vertices, so fwidth → 0 → distance → +∞.
+  let fw = fwidth(in.edgeBary);
+  let dEach = in.edgeBary / max(fw, vec3f(1e-8));
+  let dist = min(min(dEach.x, dEach.y), dEach.z);
+  let edgeAmt = 1.0 - smoothstep(0.5, 1.5, dist);
+  let edgeColor = vec3f(0.13, 0.13, 0.13);
+  return vec4f(mix(in.color, edgeColor, edgeAmt), 1.0);
 }
 `,
     });
@@ -533,22 +563,26 @@ struct VsOut {
         entryPoint: 'vs',
         buffers: [
           {
-            arrayStride: 8,
+            arrayStride: 20,
             stepMode: 'vertex',
-            attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+            attributes: [
+              { shaderLocation: 0, offset: 0,  format: 'float32x2' },
+              { shaderLocation: 1, offset: 8,  format: 'float32x3' },
+            ],
           },
           {
             arrayStride: 24,
             stepMode: 'instance',
             attributes: [
-              { shaderLocation: 1, offset: 0, format: 'float32x4' },
-              { shaderLocation: 2, offset: 16, format: 'float32x2' },
+              { shaderLocation: 2, offset: 0,  format: 'float32x4' },
+              { shaderLocation: 3, offset: 16, format: 'float32x2' },
             ],
           },
         ],
       },
       fragment: { module: shader, entryPoint: 'fs', targets: [{ format: canvasFormat }] },
       primitive: { topology: 'triangle-list' },
+      multisample: { count: SAMPLE_COUNT },
     });
 
     const bindGroup = device.createBindGroup({
@@ -565,11 +599,14 @@ struct VsOut {
       canvas: gpuCanvas,
       instanceBuffer: null as GPUBuffer | null,
       instanceCapacity: 0,
-      lastInstances: null as Float32Array | null,
-      lastCount: 0,
+      msTexture: null as GPUTexture | null,
       lastBounds: null as Bounds | null,
+      lastCount: 0,
       pixelWidth: 0,
       pixelHeight: 0,
+      // View state: world point at clip-space origin and pixels-per-world-unit
+      // (in physical pixels). scale.x = 2*pixelScale/pixelWidth, etc.
+      centerX: 0, centerY: 0, pixelScale: 1,
       resize(w: number, h: number) {
         const px = Math.max(1, Math.floor(w * devicePixelRatio));
         const py = Math.max(1, Math.floor(h * devicePixelRatio));
@@ -579,7 +616,15 @@ struct VsOut {
         gpuCanvas.width = px;
         gpuCanvas.height = py;
         gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
-        if (this.lastInstances) this.redraw();
+        this.msTexture?.destroy();
+        this.msTexture = device.createTexture({
+          label: 'spectre-msaa',
+          size: [px, py],
+          sampleCount: SAMPLE_COUNT,
+          format: canvasFormat,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        if (this.lastBounds) this.redraw();
       },
       ensureInstanceBuffer(count: number) {
         if (count <= this.instanceCapacity) return;
@@ -591,50 +636,109 @@ struct VsOut {
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
       },
+      fitBounds(b: Bounds) {
+        const w = b.maxX - b.minX;
+        const h = b.maxY - b.minY;
+        this.centerX = (b.minX + b.maxX) / 2;
+        this.centerY = (b.minY + b.maxY) / 2;
+        this.pixelScale = 0.95 * Math.min(this.pixelWidth / w, this.pixelHeight / h);
+      },
       draw(instanceData: Float32Array, bounds: Bounds) {
         const count = instanceData.length / 6;
         this.ensureInstanceBuffer(count);
         device.queue.writeBuffer(this.instanceBuffer!, 0, instanceData);
-        this.lastInstances = instanceData;
         this.lastCount = count;
         this.lastBounds = bounds;
+        this.fitBounds(bounds);
         this.redraw();
       },
       redraw() {
-        if (!this.lastBounds || !this.instanceBuffer || !this.pixelWidth) return;
-        const b = this.lastBounds;
-        const w = b.maxX - b.minX;
-        const h = b.maxY - b.minY;
-        const cx = (b.minX + b.maxX) / 2;
-        const cy = (b.minY + b.maxY) / 2;
-        // Aspect-preserving fit: pixels-per-world-unit equal in x and y, with
-        // the world fitted inside 95% of clip space on the limiting axis.
-        const aspect = this.pixelWidth / this.pixelHeight;
-        const c = Math.min(1.9 * aspect / w, 1.9 / h);
-        const sx = c / aspect;
-        const sy = c;
+        if (!this.instanceBuffer || !this.pixelWidth || !this.msTexture) return;
+        const sx = 2 * this.pixelScale / this.pixelWidth;
+        const sy = 2 * this.pixelScale / this.pixelHeight;
         device.queue.writeBuffer(viewUniformBuffer, 0,
-          new Float32Array([sx, sy, -cx * sx, -cy * sy]));
+          new Float32Array([sx, sy, -this.centerX * sx, -this.centerY * sy]));
 
         const encoder = device.createCommandEncoder();
         const pass = encoder.beginRenderPass({
           colorAttachments: [{
-            view: gpuContext.getCurrentTexture().createView(),
+            view: this.msTexture.createView(),
+            resolveTarget: gpuContext.getCurrentTexture().createView(),
             clearValue: { r: 0.98, g: 0.98, b: 0.98, a: 1 },
             loadOp: 'clear',
-            storeOp: 'store',
+            storeOp: 'discard',
           }],
         });
         pass.setPipeline(pipeline);
         pass.setBindGroup(0, bindGroup);
         pass.setVertexBuffer(0, meshVertexBuffer);
         pass.setVertexBuffer(1, this.instanceBuffer);
-        pass.setIndexBuffer(meshIndexBuffer, 'uint16');
-        pass.drawIndexed(36, this.lastCount);
+        pass.draw(36, this.lastCount);
         pass.end();
         device.queue.submit([encoder.finish()]);
       },
+      panBy(dxCss: number, dyCss: number) {
+        const rect = gpuCanvas.getBoundingClientRect();
+        const dpr = this.pixelWidth / Math.max(1, rect.width);
+        this.centerX -= dxCss * dpr / this.pixelScale;
+        this.centerY += dyCss * dpr / this.pixelScale;
+        this.redraw();
+      },
+      zoomAround(cssX: number, cssY: number, k: number) {
+        const rect = gpuCanvas.getBoundingClientRect();
+        const cx = (cssX / rect.width) * 2 - 1;
+        const cy = -((cssY / rect.height) * 2 - 1);
+        const sx = 2 * this.pixelScale / this.pixelWidth;
+        const sy = 2 * this.pixelScale / this.pixelHeight;
+        const wx = this.centerX + cx / sx;
+        const wy = this.centerY + cy / sy;
+        this.pixelScale *= k;
+        const sxN = 2 * this.pixelScale / this.pixelWidth;
+        const syN = 2 * this.pixelScale / this.pixelHeight;
+        this.centerX = wx - cx / sxN;
+        this.centerY = wy - cy / syN;
+        this.redraw();
+      },
     };
+
+    // Pan: pointer drag.
+    let dragId: number | null = null;
+    let lastPx = 0, lastPy = 0;
+    gpuCanvas.addEventListener('pointerdown', (e) => {
+      dragId = e.pointerId;
+      lastPx = e.clientX; lastPy = e.clientY;
+      gpuCanvas.setPointerCapture(e.pointerId);
+      gpuCanvas.style.cursor = 'grabbing';
+    });
+    gpuCanvas.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== dragId) return;
+      const dx = e.clientX - lastPx, dy = e.clientY - lastPy;
+      lastPx = e.clientX; lastPy = e.clientY;
+      gpuState.panBy(dx, dy);
+    });
+    const endDrag = (e: PointerEvent) => {
+      if (e.pointerId !== dragId) return;
+      dragId = null;
+      gpuCanvas.style.cursor = 'grab';
+    };
+    gpuCanvas.addEventListener('pointerup', endDrag);
+    gpuCanvas.addEventListener('pointercancel', endDrag);
+
+    // Zoom: wheel around the cursor position.
+    gpuCanvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const rect = gpuCanvas.getBoundingClientRect();
+      gpuState.zoomAround(
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+        Math.exp(-e.deltaY * 0.0015),
+      );
+    }, { passive: false });
+
+    invalidation.then(() => {
+      gpuState.msTexture?.destroy();
+      gpuState.instanceBuffer?.destroy();
+    });
 
     const gpuContainer = document.createElement('div');
     gpuContainer.style.position = 'relative';
