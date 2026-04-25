@@ -330,7 +330,15 @@
   <script id="render-section" type="text/markdown">
     ## A first tiling
 
-    Walking the metatile tree to a flat list of \`(transform, label)\` placements and rendering each as the spectre polygon. At level 1 starting from a Δ supertile, this is just enough to see the substitution working before we build out the WebGPU renderer.
+    Walking the metatile tree to a flat list of \`(transform, label)\` placements and rendering each as the spectre polygon. Tile counts grow by roughly 9× per substitution level, so depth 5 is around 60k spectres — still fine for SVG, but a slow refresh.
+  </script>
+
+  <script id="render-controls" type="text/x-typescript">
+    const renderDepth = view(Inputs.range([0, 5], {
+      value: 1,
+      step: 1,
+      label: "Substitution depth",
+    }));
   </script>
 
   <script id="flatten" type="text/x-typescript">
@@ -370,7 +378,6 @@
 
   <script id="render-svg" type="text/x-typescript">
     const renderStartingTile: TileName = "Delta";
-    const renderDepth = 1;
 
     let renderCluster = buildSpectreBase();
     for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
