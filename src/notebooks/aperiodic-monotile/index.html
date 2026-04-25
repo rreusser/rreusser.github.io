@@ -436,17 +436,15 @@
   </script>
 
   <script id="spectre-mesh" type="text/x-typescript">
-    // 14 cartesian spectre vertices, used by both the fill (triangle fan from
-    // vertex 0 ⇒ 12 triangles ⇒ 36 indices) and the outline (line list of the
-    // 14 polygon edges ⇒ 28 indices). Sharing the vertex buffer keeps the
-    // upload tiny and lets both passes consume the same per-instance buffer.
+    import earcut from 'npm:earcut';
+
+    // 14 cartesian spectre vertices, shared by the fill and the outline.
+    // The spectre is non-convex (V_2 sits below the V_0–V_1 baseline; the
+    // V_7 spike is convex but creates pockets), so a triangle fan from any
+    // single vertex spills outside the polygon. earcut produces a proper
+    // ear-clipped triangulation: 14 verts − 2 = 12 triangles, 36 indices.
     const meshVertexData = new Float32Array(spectreVertices.flat());
-    const meshFillIndices = new Uint16Array(36);
-    for (let i = 0; i < 12; i++) {
-      meshFillIndices[i * 3 + 0] = 0;
-      meshFillIndices[i * 3 + 1] = i + 1;
-      meshFillIndices[i * 3 + 2] = i + 2;
-    }
+    const meshFillIndices = new Uint16Array(earcut(spectreVertices.flat()));
     const meshOutlineIndices = new Uint16Array(28);
     for (let i = 0; i < 14; i++) {
       meshOutlineIndices[i * 2 + 0] = i;
