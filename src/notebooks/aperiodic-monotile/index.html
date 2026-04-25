@@ -465,6 +465,103 @@
       step: 0.005,
       label: "Hat ← Spectre → Turtle",
     }));
+
+    // ─── Palette controls ───────────────────────────────────────────────
+    // 11 swatches (one per tile label, including Γ₁/Γ₂) plus a Randomize
+    // button that picks a fresh harmonious palette in HSL: hues spaced by
+    // the golden angle so neighbouring tiles stay distinguishable, with
+    // saturation and lightness clamped well inside the [0, 1] range so
+    // colors stay muted and don't blow out under the multi-level blend.
+    const ALL_TILE_LABELS: (TileName | "Gamma1" | "Gamma2")[] = [
+      ...TILE_NAMES, "Gamma1", "Gamma2",
+    ];
+    const DEFAULT_PALETTE: Record<string, string> = {
+      Gamma:  "#a8a572", Gamma1: "#c0bf80", Gamma2: "#8a874b",
+      Delta:  "#f0e3c2", Theta:  "#d4a5a5", Lambda: "#d2956b",
+      Xi:     "#d4be7a", Pi:     "#87a7a7", Sigma:  "#c5b896",
+      Phi:    "#95b58c", Psi:    "#b099b9",
+    };
+    function hslToHex(h: number, s: number, l: number): string {
+      s /= 100; l /= 100;
+      const k = (n: number) => (n + h / 30) % 12;
+      const a = s * Math.min(l, 1 - l);
+      const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+      const hex = (x: number) => Math.round(255 * x).toString(16).padStart(2, '0');
+      return '#' + hex(f(0)) + hex(f(8)) + hex(f(4));
+    }
+    function pleasantPalette(): Record<string, string> {
+      const baseHue = Math.random() * 360;
+      const golden = 137.508;
+      const pal: Record<string, string> = {};
+      ALL_TILE_LABELS.forEach((name, i) => {
+        const h = (baseHue + i * golden) % 360;
+        const s = 28 + Math.random() * 22;   // 28–50%
+        const l = 60 + Math.random() * 18;   // 60–78%
+        pal[name] = hslToHex(h, s, l);
+      });
+      return pal;
+    }
+    function makePaletteInput(initial: Record<string, string>): HTMLElement {
+      const root = document.createElement('div');
+      root.style.display = 'flex';
+      root.style.flexWrap = 'wrap';
+      root.style.alignItems = 'flex-end';
+      root.style.gap = '4px';
+      root.style.padding = '2px 0';
+      const inputs: Record<string, HTMLInputElement> = {};
+      const emit = () => {
+        const pal: Record<string, string> = {};
+        for (const name of ALL_TILE_LABELS) pal[name] = inputs[name].value;
+        (root as any).value = pal;
+        root.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      for (const name of ALL_TILE_LABELS) {
+        const wrap = document.createElement('label');
+        wrap.style.display = 'inline-flex';
+        wrap.style.flexDirection = 'column';
+        wrap.style.alignItems = 'center';
+        wrap.style.gap = '2px';
+        wrap.style.fontSize = '10px';
+        const input = document.createElement('input');
+        input.type = 'color';
+        input.value = initial[name];
+        input.style.width = '28px';
+        input.style.height = '20px';
+        input.style.border = '1px solid #ccc';
+        input.style.borderRadius = '3px';
+        input.style.padding = '0';
+        input.style.cursor = 'pointer';
+        input.addEventListener('input', emit);
+        inputs[name] = input;
+        wrap.appendChild(input);
+        const text = document.createElement('span');
+        text.textContent = name === 'Gamma'  ? 'Γ'
+                         : name === 'Gamma1' ? 'Γ₁'
+                         : name === 'Gamma2' ? 'Γ₂' : name;
+        wrap.appendChild(text);
+        root.appendChild(wrap);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Randomize';
+      btn.style.padding = '2px 8px';
+      btn.style.fontSize = '11px';
+      btn.style.cursor = 'pointer';
+      btn.style.alignSelf = 'flex-start';
+      btn.style.marginLeft = '6px';
+      btn.addEventListener('click', () => {
+        const pal = pleasantPalette();
+        for (const name of ALL_TILE_LABELS) inputs[name].value = pal[name];
+        emit();
+      });
+      root.appendChild(btn);
+      const initialPal: Record<string, string> = {};
+      for (const name of ALL_TILE_LABELS) initialPal[name] = initial[name];
+      (root as any).value = initialPal;
+      return root;
+    }
+    const tilePalette = addControl(makePaletteInput(DEFAULT_PALETTE));
+
     display(controlsContainer);
   </script>
 
@@ -483,25 +580,10 @@
   <script id="flatten" type="text/x-typescript">
     type RawPlacement = { transform: Transform; label: LeafLabel; ancestry: TileName[] };
 
-    // One palette covers leaf labels (Γ1, Γ2, and the eight non-Γ tile names)
-    // and meta names (the nine TILE_NAMES used as ancestors). Hues are kept
-    // close in saturation so the multi-level blend below stays readable.
-    const tileColors: Record<TileName | LeafLabel, string> = {
-      Gamma:  "#a8a572",
-      Gamma1: "#c0bf80",
-      Gamma2: "#8a874b",
-      Delta:  "#f0e3c2",
-      Theta:  "#d4a5a5",
-      Lambda: "#d2956b",
-      Xi:     "#d4be7a",
-      Pi:     "#87a7a7",
-      Sigma:  "#c5b896",
-      Phi:    "#95b58c",
-      Psi:    "#b099b9",
-    };
-
+    // The palette is now a reactive input from the controls panel; this
+    // cell re-runs whenever a swatch or the Randomize button changes.
     const tileColorsRGB: Record<string, [number, number, number]> = {};
-    for (const [k, hex] of Object.entries(tileColors)) {
+    for (const [k, hex] of Object.entries(tilePalette)) {
       tileColorsRGB[k] = [
         parseInt(hex.slice(1, 3), 16) / 255,
         parseInt(hex.slice(3, 5), 16) / 255,
