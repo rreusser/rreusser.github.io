@@ -329,25 +329,35 @@
   </script>
 
   <script id="render-section" type="text/markdown">
-    ## A first tiling
+    ## Rendering
 
-    Walking the metatile tree to a flat list of \`(transform, label)\` placements and rendering each as the spectre polygon. Tile counts grow by roughly 9× per substitution level, so depth 5 is around 60k spectres — still fine for SVG, but a slow refresh.
+    Inflate a Δ supertile to the chosen depth, flatten the metatile tree to a list of \`(transform, label, color)\` placements, and draw each as one instanced spectre. Each placement's color is a Gaussian-weighted blend of the leaf and ancestor colors centered at the chosen "color level": at level 0, the leaf dominates and adjacent tiles look distinct; raising the level shifts weight to deeper supertiles, so larger blocks of similar color reveal the macro structure.
   </script>
 
   <script id="render-controls" type="text/x-typescript">
-    const renderDepth = view(Inputs.range([0, 5], {
+    const controlsContainer = html`<div id="spectre-controls"></div>`;
+    function addControl<T extends HTMLElement>(input: T): AsyncGenerator<unknown> {
+      controlsContainer.appendChild(input);
+      return Generators.input(input);
+    }
+    const renderDepth = addControl(Inputs.range([0, 8], {
       value: 1,
       step: 1,
       label: "Substitution depth",
     }));
+    // Where in the ancestor chain to peak the color blend. 0 = leaf only
+    // (max tile-level contrast), 1 = immediate supertile dominates, 2 = the
+    // supertile's supertile dominates, … Acts like a "structural zoom".
+    const renderColorLevel = addControl(Inputs.range([0, 7], {
+      value: 0,
+      step: 0.01,
+      label: "Color level",
+    }));
+    display(controlsContainer);
   </script>
 
   <script id="flatten" type="text/x-typescript">
-    type Placement = {
-      transform: Transform;
-      label: LeafLabel;
-      r: number; g: number; b: number;
-    };
+    type RawPlacement = { transform: Transform; label: LeafLabel; ancestry: TileName[] };
 
     // One palette covers leaf labels (Γ1, Γ2, and the eight non-Γ tile names)
     // and meta names (the nine TILE_NAMES used as ancestors). Hues are kept
@@ -375,33 +385,37 @@
       ];
     }
 
-    // Geometric weights on the ancestor chain: leaf 1, immediate parent 0.5,
-    // grandparent 0.25, … Within one supertile every leaf shares the same
-    // tail of the chain, so they pick up a common tint; sibling supertiles of
-    // different types separate by hue. The depth-N ancestor still contributes
-    // 0.5^N of the final color, enough to read the macro structure.
-    const ANCESTOR_BLEND_BASE = 0.5;
+    // Gaussian-peaked weights along the ancestor chain. d = 0 is the leaf
+    // itself; d = 1 the immediate supertile, d = 2 its supertile, etc. σ
+    // is small so the chosen level dominates and colors stay saturated.
+    const COLOR_BLEND_SIGMA = 0.45;
+    function ancestorWeight(d: number, k0: number): number {
+      const z = (d - k0) / COLOR_BLEND_SIGMA;
+      return Math.exp(-z * z);
+    }
+
+    function blendedColor(label: LeafLabel, ancestry: TileName[], k0: number): [number, number, number] {
+      const c0 = tileColorsRGB[label];
+      const w0 = ancestorWeight(0, k0);
+      let r = c0[0] * w0, g = c0[1] * w0, b = c0[2] * w0, total = w0;
+      for (let i = ancestry.length - 1; i >= 0; i--) {
+        const d = ancestry.length - i;
+        const w = ancestorWeight(d, k0);
+        const c = tileColorsRGB[ancestry[i]];
+        r += c[0] * w; g += c[1] * w; b += c[2] * w;
+        total += w;
+      }
+      return [r / total, g / total, b / total];
+    }
 
     function flattenMetaTile(
       mt: MetaTile,
       parent: Transform,
       ancestry: TileName[],
-      out: Placement[],
+      out: RawPlacement[],
     ): void {
       if (mt.kind === "leaf") {
-        const c0 = tileColorsRGB[mt.label];
-        let r = c0[0], g = c0[1], b = c0[2], total = 1;
-        let w = ANCESTOR_BLEND_BASE;
-        for (let i = ancestry.length - 1; i >= 0; i--) {
-          const c = tileColorsRGB[ancestry[i]];
-          r += c[0] * w; g += c[1] * w; b += c[2] * w;
-          total += w;
-          w *= ANCESTOR_BLEND_BASE;
-        }
-        out.push({
-          transform: parent, label: mt.label,
-          r: r / total, g: g / total, b: b / total,
-        });
+        out.push({ transform: parent, label: mt.label, ancestry: ancestry.slice() });
       } else {
         ancestry.push(mt.name);
         for (const { child, transform } of mt.geometries) {
@@ -412,65 +426,11 @@
     }
   </script>
 
-  <script id="render-svg" type="text/x-typescript">
-    const renderStartingTile: TileName = "Delta";
-
-    let renderCluster = buildSpectreBase();
-    for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
-    const renderPlacements: Placement[] = [];
-    flattenMetaTile(renderCluster[renderStartingTile], txIdentity, [], renderPlacements);
-
-    const renderPolygons = renderPlacements.map(({ transform, label, r, g, b }) => ({
-      label, r, g, b,
-      pts: spectreLatticeVertices.map((v) => lpToXY(txApply(transform, v))),
-    }));
-
-    let renderXMin = Infinity, renderXMax = -Infinity, renderYMin = Infinity, renderYMax = -Infinity;
-    for (const { pts } of renderPolygons) {
-      for (const [x, y] of pts) {
-        if (x < renderXMin) renderXMin = x;
-        if (x > renderXMax) renderXMax = x;
-        if (y < renderYMin) renderYMin = y;
-        if (y > renderYMax) renderYMax = y;
-      }
-    }
-    const renderPad = 0.5;
-    const renderVbW = renderXMax - renderXMin + 2 * renderPad;
-    const renderVbH = renderYMax - renderYMin + 2 * renderPad;
-    const renderSize = Math.min(width, 640);
-
-    // Build the polygon markup as a string and assign via innerHTML so the
-    // children are parsed in the SVG namespace. Interpolating a mapped array
-    // into html`<svg>...</svg>` puts the children behind an HTML <span>,
-    // which silently strips them out of the SVG namespace and renders blank.
-    const renderSvg = html`<svg
-        viewBox="${renderXMin - renderPad} ${-renderYMax - renderPad} ${renderVbW} ${renderVbH}"
-        width="${renderSize}" height="${renderSize * renderVbH / renderVbW}"
-        style="background: #fafafa; border: 1px solid #eee;"></svg>`;
-    const fmt = (x: number) => Math.round(x * 255);
-    renderSvg.innerHTML = renderPolygons.map(({ pts, r, g, b }) =>
-      `<polygon points="${pts.map(([x, y]) => `${x},${-y}`).join(" ")}"`
-      + ` fill="rgb(${fmt(r)},${fmt(g)},${fmt(b)})" stroke="#222"`
-      + ` stroke-width="0.03" stroke-linejoin="round" />`
-    ).join("");
-
-    display(html`<figure style="margin: 0;">
-      ${renderSvg}
-      <figcaption style="font-size: 0.85em; color: #666;">
-        ${renderPlacements.length} spectres after ${renderDepth} substitution${renderDepth === 1 ? "" : "s"} from a Δ supertile.
-      </figcaption>
-    </figure>`);
-  </script>
-
-  <script id="gpu-section" type="text/markdown">
-    ## Instanced rendering with WebGPU
-
-    The substitution is the same; only the geometry pipeline changes. The spectre is uploaded once as a 14-vertex triangle fan, every placement becomes a single instance, and one draw call paints the lot. A placement transform ${tex`(\text{rot}, \text{mirror}, t)`} packs into six floats: the lattice translation projected to ${tex`(t_x, t_y)`}, the rotation as ${tex`(\cos\theta, \sin\theta)`}, a mirror sign ${tex`\pm 1`}, and a label index. The vertex shader reconstructs ${tex`R \cdot M \cdot p + t`}.
-  </script>
-
   <script id="gpu-context" type="text/x-typescript">
     import { createWebGPUContext } from './lib/webgpu-canvas.js';
-    const { device, canvasFormat } = await createWebGPUContext();
+    // Depth 8 is ~17M spectres × 32 bytes/instance ≈ 540 MB, well past the
+    // default maxBufferSize (256 MB). Most adapters allow several GB if asked.
+    const { device, canvasFormat } = await createWebGPUContext({ maxBufferSizes: true });
   </script>
 
   <script id="spectre-mesh" type="text/x-typescript">
@@ -511,7 +471,8 @@
     const meshVertexBuffer = createVertexBuffer(device, 'spectre-verts', meshVertexData);
     const fillIndexBuffer = createIndexBuffer(device, 'spectre-fill-indices', meshFillIndices);
     const outlineIndexBuffer = createIndexBuffer(device, 'spectre-outline-indices', meshOutlineIndices);
-    const viewUniformBuffer = createUniformBuffer(device, 'view-uniforms', 16);
+    // 32 bytes: scale.xy, offset.xy, outlineStrength, _pad x3
+    const viewUniformBuffer = createUniformBuffer(device, 'view-uniforms', 32);
 
     // Per instance: vec4f pose (tx, ty, cos, sin) + vec4f colorSign (r, g, b, mirrorSign).
     const vertexLayouts: GPUVertexBufferLayout[] = [
@@ -567,7 +528,7 @@ struct VsOut {
     const outlineShader = device.createShaderModule({
       label: 'spectre-outline',
       code: `
-struct View { scale: vec2f, offset: vec2f };
+struct View { scale: vec2f, offset: vec2f, outlineStrength: f32 };
 @group(0) @binding(0) var<uniform> view: View;
 
 struct VsIn {
@@ -575,18 +536,28 @@ struct VsIn {
   @location(1) iPose: vec4f,
   @location(2) iColorSign: vec4f,
 };
+struct VsOut {
+  @builtin(position) pos: vec4f,
+  @location(0) color: vec3f,
+};
 
-@vertex fn vs(in: VsIn) -> @builtin(position) vec4f {
+@vertex fn vs(in: VsIn) -> VsOut {
   let m = vec2f(in.pos.x, in.pos.y * in.iColorSign.w);
   let r = vec2f(
     in.iPose.z * m.x - in.iPose.w * m.y,
     in.iPose.w * m.x + in.iPose.z * m.y,
   );
   let world = r + in.iPose.xy;
-  return vec4f(world * view.scale + view.offset, 0.0, 1.0);
+  // Outline color modulated toward this tile's fill so the line fades out
+  // when zoomed out (no alpha blending needed against the cleared canvas).
+  let edge = vec3f(0.13, 0.13, 0.13);
+  var out: VsOut;
+  out.pos = vec4f(world * view.scale + view.offset, 0.0, 1.0);
+  out.color = mix(in.iColorSign.rgb, edge, view.outlineStrength);
+  return out;
 }
-@fragment fn fs() -> @location(0) vec4f {
-  return vec4f(0.13, 0.13, 0.13, 1.0);
+@fragment fn fs(in: VsOut) -> @location(0) vec4f {
+  return vec4f(in.color, 1.0);
 }
 `,
     });
@@ -678,16 +649,29 @@ struct VsIn {
         this.ensureInstanceBuffer(count);
         device.queue.writeBuffer(this.instanceBuffer!, 0, instanceData);
         this.lastCount = count;
+        // Refit only when the data's natural bounds actually change. Color-only
+        // updates re-call draw with the same bounds and preserve the user's view.
+        const prev = this.lastBounds;
+        const boundsChanged = !prev
+          || prev.minX !== bounds.minX || prev.maxX !== bounds.maxX
+          || prev.minY !== bounds.minY || prev.maxY !== bounds.maxY;
         this.lastBounds = bounds;
-        this.fitBounds(bounds);
+        if (boundsChanged) this.fitBounds(bounds);
         this.redraw();
       },
       redraw() {
         if (!this.instanceBuffer || !this.pixelWidth || !this.msTexture) return;
         const sx = 2 * this.pixelScale / this.pixelWidth;
         const sy = 2 * this.pixelScale / this.pixelHeight;
-        device.queue.writeBuffer(viewUniformBuffer, 0,
-          new Float32Array([sx, sy, -this.centerX * sx, -this.centerY * sy]));
+        // Each spectre edge is one world unit, so its on-screen length in
+        // physical pixels is just pixelScale. Fade the outline out as edges
+        // shrink to fewer than a few pixels.
+        const edgePx = this.pixelScale;
+        const outlineStrength = Math.max(0, Math.min(1, (edgePx - 3) / 12));
+        device.queue.writeBuffer(viewUniformBuffer, 0, new Float32Array([
+          sx, sy, -this.centerX * sx, -this.centerY * sy,
+          outlineStrength, 0, 0, 0,
+        ]));
 
         const encoder = device.createCommandEncoder();
         const pass = encoder.beginRenderPass({
@@ -707,10 +691,12 @@ struct VsIn {
         pass.setIndexBuffer(fillIndexBuffer, 'uint16');
         pass.drawIndexed(36, this.lastCount);
 
-        pass.setPipeline(outlinePipeline);
-        pass.setBindGroup(0, outlineBindGroup);
-        pass.setIndexBuffer(outlineIndexBuffer, 'uint16');
-        pass.drawIndexed(28, this.lastCount);
+        if (outlineStrength > 0) {
+          pass.setPipeline(outlinePipeline);
+          pass.setBindGroup(0, outlineBindGroup);
+          pass.setIndexBuffer(outlineIndexBuffer, 'uint16');
+          pass.drawIndexed(28, this.lastCount);
+        }
 
         pass.end();
         device.queue.submit([encoder.finish()]);
@@ -788,40 +774,75 @@ struct VsIn {
       id: 'spectre-tiling',
       width: 640,
       height: 640,
+      controls: '#spectre-controls',
       onResize: (_el, w, h) => gpuState.resize(w, h),
     });
 
     display(gpuExpandable);
   </script>
 
-  <script id="gpu-render" type="text/x-typescript">
-    // Pack each placement as (tx, ty, cosθ, sinθ, r, g, b, mirrorSign).
-    // Bounds: spectre vertices lie within ~3.6 of vertex 0, so we pad each
-    // translation by 3.6 to bound the polygon without re-projecting all 14 verts.
-    const SPECTRE_RADIUS = 3.6;
-    const gpuInstances = new Float32Array(renderPlacements.length * 8);
+  <script id="raw-placements" type="text/x-typescript">
+    // Depth-driven cell: builds the metatile tree, flattens to RawPlacement
+    // entries (with ancestry preserved), precomputes the pose floats and the
+    // world-space bounds. Color is *not* computed here, so changing the color
+    // level slider doesn't re-run this cell — and so the gpu-render cell can
+    // skip refitting the view when only colors change.
+    const renderStartingTile: TileName = "Delta";
+    let renderCluster = buildSpectreBase();
+    for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
+    const renderRaw: RawPlacement[] = [];
+    flattenMetaTile(renderCluster[renderStartingTile], txIdentity, [], renderRaw);
+
+    // Pose floats per instance: tx, ty, cosθ, sinθ, mirrorSign. 5 floats × N.
+    const renderPoses = new Float32Array(renderRaw.length * 5);
     let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
-    for (let i = 0; i < renderPlacements.length; i++) {
-      const p = renderPlacements[i];
-      const [tx, ty] = lpToXY(p.transform.t);
-      const theta = p.transform.rot * Math.PI / 6;
-      const base = i * 8;
-      gpuInstances[base + 0] = tx;
-      gpuInstances[base + 1] = ty;
-      gpuInstances[base + 2] = Math.cos(theta);
-      gpuInstances[base + 3] = Math.sin(theta);
-      gpuInstances[base + 4] = p.r;
-      gpuInstances[base + 5] = p.g;
-      gpuInstances[base + 6] = p.b;
-      gpuInstances[base + 7] = p.transform.mirror ? -1 : 1;
-      if (tx < bMinX) bMinX = tx;
-      if (tx > bMaxX) bMaxX = tx;
-      if (ty < bMinY) bMinY = ty;
-      if (ty > bMaxY) bMaxY = ty;
+    for (let i = 0; i < renderRaw.length; i++) {
+      const t = renderRaw[i].transform;
+      const [tx, ty] = lpToXY(t.t);
+      const theta = t.rot * Math.PI / 6;
+      const base = i * 5;
+      renderPoses[base + 0] = tx;
+      renderPoses[base + 1] = ty;
+      renderPoses[base + 2] = Math.cos(theta);
+      renderPoses[base + 3] = Math.sin(theta);
+      renderPoses[base + 4] = t.mirror ? -1 : 1;
+      if (tx < bMinX) bMinX = tx; if (tx > bMaxX) bMaxX = tx;
+      if (ty < bMinY) bMinY = ty; if (ty > bMaxY) bMaxY = ty;
     }
-    gpuState.draw(gpuInstances, {
+    // Spectre vertices lie within ~3.6 world units of vertex 0, so each
+    // placement's polygon is contained in an axis-aligned box of t ± 3.6.
+    const SPECTRE_RADIUS = 3.6;
+    const renderBounds = {
       minX: bMinX - SPECTRE_RADIUS, maxX: bMaxX + SPECTRE_RADIUS,
       minY: bMinY - SPECTRE_RADIUS, maxY: bMaxY + SPECTRE_RADIUS,
-    });
+    };
+
+    display(html`<div style="text-align: center; color: #666; font-size: 0.85em; margin-top: 4px;">
+      ${renderRaw.length.toLocaleString()} spectres
+      after ${renderDepth} substitution${renderDepth === 1 ? "" : "s"} of a Δ supertile
+    </div>`);
+  </script>
+
+  <script id="gpu-render" type="text/x-typescript">
+    // Color-driven cell: re-blends RGB at the current color level and uploads.
+    // Pose floats come straight from renderPoses and are the same regardless
+    // of the color slider, so changing the slider produces a fresh upload but
+    // keeps the same bounds — gpuState.draw sees no bounds change and skips
+    // fitBounds, preserving the user's pan/zoom.
+    const gpuInstances = new Float32Array(renderRaw.length * 8);
+    for (let i = 0; i < renderRaw.length; i++) {
+      const { label, ancestry } = renderRaw[i];
+      const [r, g, b] = blendedColor(label, ancestry, renderColorLevel);
+      const ip = i * 5, ig = i * 8;
+      gpuInstances[ig + 0] = renderPoses[ip + 0];
+      gpuInstances[ig + 1] = renderPoses[ip + 1];
+      gpuInstances[ig + 2] = renderPoses[ip + 2];
+      gpuInstances[ig + 3] = renderPoses[ip + 3];
+      gpuInstances[ig + 4] = r;
+      gpuInstances[ig + 5] = g;
+      gpuInstances[ig + 6] = b;
+      gpuInstances[ig + 7] = renderPoses[ip + 4];
+    }
+    gpuState.draw(gpuInstances, renderBounds);
   </script>
 </notebook>
