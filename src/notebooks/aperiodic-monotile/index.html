@@ -37,35 +37,33 @@
   </script>
 
   <script id="spectre-svg" type="text/x-typescript">
-    {
-      const xs = spectreVertices.map((v) => v[0]);
-      const ys = spectreVertices.map((v) => v[1]);
-      const pad = 0.3;
-      const vbX = Math.min(...xs) - pad;
-      const vbY = -Math.max(...ys) - pad;
-      const vbW = Math.max(...xs) - Math.min(...xs) + 2 * pad;
-      const vbH = Math.max(...ys) - Math.min(...ys) + 2 * pad;
-      const pts = spectreVertices.map(([x, y]) => `${x},${-y}`).join(" ");
+    const sxs = spectreVertices.map((v) => v[0]);
+    const sys = spectreVertices.map((v) => v[1]);
+    const sPad = 0.3;
+    const sVbX = Math.min(...sxs) - sPad;
+    const sVbY = -Math.max(...sys) - sPad;
+    const sVbW = Math.max(...sxs) - Math.min(...sxs) + 2 * sPad;
+    const sVbH = Math.max(...sys) - Math.min(...sys) + 2 * sPad;
+    const sPts = spectreVertices.map(([x, y]) => `${x},${-y}`).join(" ");
+    const sSize = Math.min(360, width);
 
-      const size = Math.min(360, width);
-      display(html`<figure style="margin: 0; text-align: center;">
-        <svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}"
-             width="${size}" height="${size * vbH / vbW}"
-             style="background: #fafafa; border: 1px solid #eee;">
-          <polygon points="${pts}"
-                   fill="#cfe1f5" stroke="#222" stroke-width="0.03"
-                   stroke-linejoin="round" />
-          ${spectreVertices.map(([x, y], i) => html`
-            <circle cx="${x}" cy="${-y}" r="0.06" fill="#222" />
-            <text x="${x}" y="${-y}" dy="-0.16" font-size="0.22"
-                  text-anchor="middle" fill="#666">${i}</text>
-          `)}
-        </svg>
-        <figcaption style="font-size: 0.85em; color: #666;">
-          Vertices of the spectre tile, indexed 0–13.
-        </figcaption>
-      </figure>`);
-    }
+    display(html`<figure style="margin: 0; text-align: center;">
+      <svg viewBox="${sVbX} ${sVbY} ${sVbW} ${sVbH}"
+           width="${sSize}" height="${sSize * sVbH / sVbW}"
+           style="background: #fafafa; border: 1px solid #eee;">
+        <polygon points="${sPts}"
+                 fill="#cfe1f5" stroke="#222" stroke-width="0.03"
+                 stroke-linejoin="round" />
+        ${spectreVertices.map(([x, y], i) => html`
+          <circle cx="${x}" cy="${-y}" r="0.06" fill="#222" />
+          <text x="${x}" y="${-y}" dy="-0.16" font-size="0.22"
+                text-anchor="middle" fill="#666">${i}</text>
+        `)}
+      </svg>
+      <figcaption style="font-size: 0.85em; color: #666;">
+        Vertices of the spectre tile, indexed 0–13.
+      </figcaption>
+    </figure>`);
   </script>
 
   <script id="lattice-section" type="text/markdown">
@@ -371,48 +369,27 @@
   </script>
 
   <script id="render-svg" type="text/x-typescript">
-    {
-      const startingTile: TileName = "Delta";
-      const depth = 1;
+    // Diagnostic cell: show what each step produces so we can find what fails.
+    const dbg = (msg: string) => display(html`<pre style="margin: 0.2em 0; font-size: 0.8em;">${msg}</pre>`);
 
-      let cluster = buildSpectreBase();
-      for (let i = 0; i < depth; i++) cluster = buildSupertiles(cluster);
-      const placements = flattenMetaTile(cluster[startingTile]);
+    try {
+      dbg("step 1: about to call buildSpectreBase");
+      const c0 = buildSpectreBase();
+      dbg(`step 2: buildSpectreBase ok, keys: ${Object.keys(c0).join(", ")}`);
 
-      // Project each placement onto cartesian polygons.
-      const polygons = placements.map(({ transform, label }) => ({
-        label,
-        pts: spectreLatticeVertices.map((v) => lpToXY(txApply(transform, v))),
-      }));
+      const c1 = buildSupertiles(c0);
+      dbg(`step 3: buildSupertiles ok, Δ kind: ${c1.Delta.kind}, ${c1.Delta.kind === "meta" ? c1.Delta.geometries.length : 0} children`);
 
-      let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
-      for (const { pts } of polygons) {
-        for (const [x, y] of pts) {
-          if (x < xMin) xMin = x;
-          if (x > xMax) xMax = x;
-          if (y < yMin) yMin = y;
-          if (y > yMax) yMax = y;
-        }
-      }
-      const pad = 0.5;
-      const vbW = xMax - xMin + 2 * pad;
-      const vbH = yMax - yMin + 2 * pad;
-      const size = Math.min(width, 640);
+      const placements = flattenMetaTile(c1.Delta);
+      dbg(`step 4: flatten ok, ${placements.length} leaves`);
 
-      display(html`<figure style="margin: 0;">
-        <svg viewBox="${xMin - pad} ${-yMax - pad} ${vbW} ${vbH}"
-             width="${size}" height="${size * vbH / vbW}"
-             style="background: #fafafa; border: 1px solid #eee;">
-          ${polygons.map(({ pts, label }) => html`
-            <polygon points="${pts.map(([x, y]) => `${x},${-y}`).join(" ")}"
-                     fill="${tileColors[label]}" stroke="#222"
-                     stroke-width="0.03" stroke-linejoin="round" />
-          `)}
-        </svg>
-        <figcaption style="font-size: 0.85em; color: #666;">
-          ${placements.length} spectres after ${depth} substitution${depth === 1 ? "" : "s"} from a Δ supertile.
-        </figcaption>
-      </figure>`);
+      const t0 = placements[0].transform;
+      dbg(`step 5: first transform — rot=${t0.rot}, mirror=${t0.mirror}, t=[${t0.t.join(",")}]`);
+
+      const xy0 = lpToXY(txApply(t0, spectreLatticeVertices[0]));
+      dbg(`step 6: first vertex of first tile cartesian: (${xy0[0].toFixed(3)}, ${xy0[1].toFixed(3)})`);
+    } catch (e) {
+      dbg(`THREW: ${(e as Error).stack ?? e}`);
     }
   </script>
 </notebook>
