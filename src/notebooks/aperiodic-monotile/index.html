@@ -445,7 +445,7 @@
       controlsContainer.appendChild(input);
       return Generators.input(input);
     }
-    const renderDepth = addControl(Inputs.range([0, 7], {
+    const renderDepth = addControl(Inputs.range([0, 8], {
       value: 4,
       step: 1,
       label: "Substitution depth",
@@ -641,7 +641,7 @@
     // itself; d = 1 the immediate supertile, d = 2 its supertile, etc.
     // σ = 1 keeps the weight concentrated on the chosen ancestor so adjacent
     // tiles stay distinguishable instead of blending toward the mean.
-    const COLOR_BLEND_SIGMA = 1.0;
+    const COLOR_BLEND_SIGMA = 1.5;
 
     // Fast-path flatten that avoids the ~15 million
     // small-object/array allocations txCompose normally produces. We keep a
@@ -679,7 +679,18 @@
           });
           return;
         }
-        ancestry.push(mt.name);
+        // Skip pushing the leaf-pair Γ onto the ancestry chain. Depth-0 Γ is
+        // the only metatile in our substitution that has *leaf* children
+        // (Gamma1 and Gamma2), so its descendants would otherwise carry one
+        // extra ancestry level than their neighbours. That offset shifts the
+        // d → ancestor mapping by one level, which makes Γ pairs pick up a
+        // different supertile-level color and pop out as 2-tile specks
+        // inside otherwise-uniform regions. Γ at higher depths (with seven
+        // metatile children) is pushed normally so its color still appears
+        // at the right scale.
+        const isLeafPairGamma = mt.geometries.length > 0
+                              && mt.geometries[0].child.kind === "leaf";
+        if (!isLeafPairGamma) ancestry.push(mt.name);
         const off = d * 4, nextOff = (d + 1) * 4;
         const pRot = stRot[d], pMir = stMirror[d];
         const sign = pMir ? -1 : 1;
@@ -719,7 +730,7 @@
           stMirror[d+1] = (pMir ^ T2.mirror) as 0 | 1;
           recurse(child, d + 1);
         }
-        ancestry.pop();
+        if (!isLeafPairGamma) ancestry.pop();
       }
 
       // Identity at stack[0].
@@ -772,18 +783,24 @@
     import { expandable } from './lib/expandable.js';
 
     const SAMPLE_COUNT = 4;
-    const INSTANCE_STRIDE = 32;  // tx, ty, cos, sin, r, g, b, mirrorSign
+    // Compact per-instance layout (16 B). Halving the stride from a naive
+    // 8 floats brings depth-8 (~17 M tiles) under typical maxBufferSize.
+    //   offset  0 (8 B): float32x2  (tx, ty)         — sub-pixel accurate
+    //   offset  8 (4 B): snorm16x2  (cos θ, sin θ)   — 1 / 32 768 precision
+    //   offset 12 (4 B): unorm8x4   (r, g, b, mirror) — mirror byte is 0
+    //                                 for no flip, 255 for flip; the shader
+    //                                 maps that back to ±1.
+    const INSTANCE_STRIDE = 16;
 
     const gpuCanvas = document.createElement('canvas');
     gpuCanvas.style.display = 'block';
     gpuCanvas.style.width = '100%';
     gpuCanvas.style.height = '100%';
-    gpuCanvas.style.background = '#fafafa';
     gpuCanvas.style.touchAction = 'none';
     gpuCanvas.style.cursor = 'grab';
 
     const gpuContext = gpuCanvas.getContext('webgpu')!;
-    gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+    gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
 
     // Two meshes: even-parity tiles (rot ≡ 0 mod 2) render as Tile(a, b);
     // odd-parity tiles render as Tile(b, a). At a = b they're identical, but
@@ -795,7 +812,7 @@
     // 32 bytes: scale.xy, offset.xy, outlineStrength, _pad x3
     const viewUniformBuffer = createUniformBuffer(device, 'view-uniforms', 32);
 
-    // Per instance: vec4f pose (tx, ty, cos, sin) + vec4f colorSign (r, g, b, mirrorSign).
+    // Per instance: float32x2 (tx, ty) + snorm16x2 (cos, sin) + unorm8x4 (r, g, b, mirror).
     const vertexLayouts: GPUVertexBufferLayout[] = [
       {
         arrayStride: 8,
@@ -806,12 +823,20 @@
         arrayStride: INSTANCE_STRIDE,
         stepMode: 'instance',
         attributes: [
-          { shaderLocation: 1, offset: 0,  format: 'float32x4' },
-          { shaderLocation: 2, offset: 16, format: 'float32x4' },
+          { shaderLocation: 1, offset: 0,  format: 'float32x2' },
+          { shaderLocation: 2, offset: 8,  format: 'snorm16x2' },
+          { shaderLocation: 3, offset: 12, format: 'unorm8x4'  },
         ],
       },
     ];
 
+    // Shader inputs match the compact 16-byte instance layout:
+    //   iWorld   (location 1, float32x2)  — tile translation in world units
+    //   iCosSin  (location 2, vec2f)      — snorm16x2 decoded to [-1, 1]
+    //   iColMir  (location 3, vec4f)      — unorm8x4 decoded to [0, 1];
+    //                                        .rgb is the fill color, .w
+    //                                        encodes mirror as 0 or 1, which
+    //                                        the shader maps to ±1.
     const fillShader = device.createShaderModule({
       label: 'spectre-fill',
       code: `
@@ -820,8 +845,9 @@ struct View { scale: vec2f, offset: vec2f };
 
 struct VsIn {
   @location(0) pos: vec2f,
-  @location(1) iPose: vec4f,
-  @location(2) iColorSign: vec4f,
+  @location(1) iWorld: vec2f,
+  @location(2) iCosSin: vec2f,
+  @location(3) iColMir: vec4f,
 };
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -829,15 +855,14 @@ struct VsOut {
 };
 
 @vertex fn vs(in: VsIn) -> VsOut {
-  let m = vec2f(in.pos.x, in.pos.y * in.iColorSign.w);
-  let r = vec2f(
-    in.iPose.z * m.x - in.iPose.w * m.y,
-    in.iPose.w * m.x + in.iPose.z * m.y,
-  );
-  let world = r + in.iPose.xy;
+  let mirror = 1.0 - 2.0 * in.iColMir.w;
+  let m = vec2f(in.pos.x, in.pos.y * mirror);
+  let cs = in.iCosSin;
+  let r = vec2f(cs.x * m.x - cs.y * m.y, cs.y * m.x + cs.x * m.y);
+  let world = r + in.iWorld;
   var out: VsOut;
   out.pos = vec4f(world * view.scale + view.offset, 0.0, 1.0);
-  out.color = in.iColorSign.rgb;
+  out.color = in.iColMir.rgb;
   return out;
 }
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
@@ -854,8 +879,9 @@ struct View { scale: vec2f, offset: vec2f, outlineStrength: f32 };
 
 struct VsIn {
   @location(0) pos: vec2f,
-  @location(1) iPose: vec4f,
-  @location(2) iColorSign: vec4f,
+  @location(1) iWorld: vec2f,
+  @location(2) iCosSin: vec2f,
+  @location(3) iColMir: vec4f,
 };
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -863,18 +889,15 @@ struct VsOut {
 };
 
 @vertex fn vs(in: VsIn) -> VsOut {
-  let m = vec2f(in.pos.x, in.pos.y * in.iColorSign.w);
-  let r = vec2f(
-    in.iPose.z * m.x - in.iPose.w * m.y,
-    in.iPose.w * m.x + in.iPose.z * m.y,
-  );
-  let world = r + in.iPose.xy;
-  // Outline color modulated toward this tile's fill so the line fades out
-  // when zoomed out (no alpha blending needed against the cleared canvas).
+  let mirror = 1.0 - 2.0 * in.iColMir.w;
+  let m = vec2f(in.pos.x, in.pos.y * mirror);
+  let cs = in.iCosSin;
+  let r = vec2f(cs.x * m.x - cs.y * m.y, cs.y * m.x + cs.x * m.y);
+  let world = r + in.iWorld;
   let edge = vec3f(0.13, 0.13, 0.13);
   var out: VsOut;
   out.pos = vec4f(world * view.scale + view.offset, 0.0, 1.0);
-  out.color = mix(in.iColorSign.rgb, edge, view.outlineStrength);
+  out.color = mix(in.iColMir.rgb, edge, view.outlineStrength);
   return out;
 }
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
@@ -941,7 +964,7 @@ struct VsOut {
         this.pixelHeight = py;
         gpuCanvas.width = px;
         gpuCanvas.height = py;
-        gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+        gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
         this.msTexture?.destroy();
         this.msTexture = device.createTexture({
           label: 'spectre-msaa',
@@ -974,8 +997,8 @@ struct VsOut {
         this.centerY = (b.minY + b.maxY) / 2;
         this.pixelScale = 0.95 * Math.min(this.pixelWidth / w, this.pixelHeight / h);
       },
-      draw(instanceData: Float32Array, bounds: Bounds, evenCount: number) {
-        const count = instanceData.length / (INSTANCE_STRIDE / 4);
+      draw(instanceData: ArrayBufferView, bounds: Bounds, evenCount: number) {
+        const count = instanceData.byteLength / INSTANCE_STRIDE;
         this.ensureInstanceBuffer(count);
         device.queue.writeBuffer(this.instanceBuffer!, 0, instanceData);
         this.lastCount = count;
@@ -1009,7 +1032,7 @@ struct VsOut {
           colorAttachments: [{
             view: this.msTexture.createView(),
             resolveTarget: gpuContext.getCurrentTexture().createView(),
-            clearValue: { r: 0.98, g: 0.98, b: 0.98, a: 1 },
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
             loadOp: 'clear',
             storeOp: 'discard',
           }],
@@ -1072,28 +1095,63 @@ struct VsOut {
       },
     };
 
-    // Pan: pointer drag.
-    let dragId: number | null = null;
-    let lastPx = 0, lastPy = 0;
+    // Pan: 1-pointer drag. Pinch-zoom + 2-finger pan: 2-pointer gesture.
+    // Track all active pointers in canvas-local coords; the gesture mode is
+    // determined by pointers.size each move.
+    const pointers = new Map<number, { x: number, y: number }>();
+    let panLastX = 0, panLastY = 0;
+    let pinchDist = 0, pinchMx = 0, pinchMy = 0;
+    const canvasXY = (e: PointerEvent) => {
+      const rect = gpuCanvas.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+    const recomputePinch = () => {
+      const pts = [...pointers.values()];
+      const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+      pinchDist = Math.hypot(dx, dy);
+      pinchMx = (pts[0].x + pts[1].x) * 0.5;
+      pinchMy = (pts[0].y + pts[1].y) * 0.5;
+    };
     gpuCanvas.addEventListener('pointerdown', (e) => {
-      dragId = e.pointerId;
-      lastPx = e.clientX; lastPy = e.clientY;
       gpuCanvas.setPointerCapture(e.pointerId);
-      gpuCanvas.style.cursor = 'grabbing';
+      pointers.set(e.pointerId, canvasXY(e));
+      if (pointers.size === 1) {
+        panLastX = e.clientX; panLastY = e.clientY;
+        gpuCanvas.style.cursor = 'grabbing';
+      } else if (pointers.size === 2) {
+        recomputePinch();
+      }
     });
     gpuCanvas.addEventListener('pointermove', (e) => {
-      if (e.pointerId !== dragId) return;
-      const dx = e.clientX - lastPx, dy = e.clientY - lastPy;
-      lastPx = e.clientX; lastPy = e.clientY;
-      gpuState.panBy(dx, dy);
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, canvasXY(e));
+      if (pointers.size === 1) {
+        const dx = e.clientX - panLastX, dy = e.clientY - panLastY;
+        panLastX = e.clientX; panLastY = e.clientY;
+        gpuState.panBy(dx, dy);
+      } else if (pointers.size === 2) {
+        const prevDist = pinchDist, prevMx = pinchMx, prevMy = pinchMy;
+        recomputePinch();
+        if (prevDist > 0) {
+          gpuState.zoomAround(pinchMx, pinchMy, pinchDist / prevDist);
+          gpuState.panBy(pinchMx - prevMx, pinchMy - prevMy);
+        }
+      }
     });
-    const endDrag = (e: PointerEvent) => {
-      if (e.pointerId !== dragId) return;
-      dragId = null;
-      gpuCanvas.style.cursor = 'grab';
+    const endPointer = (e: PointerEvent) => {
+      if (!pointers.delete(e.pointerId)) return;
+      if (pointers.size === 1) {
+        // Resume single-finger pan from the remaining pointer.
+        const rect = gpuCanvas.getBoundingClientRect();
+        const r = [...pointers.values()][0];
+        panLastX = r.x + rect.left;
+        panLastY = r.y + rect.top;
+      } else if (pointers.size === 0) {
+        gpuCanvas.style.cursor = 'grab';
+      }
     };
-    gpuCanvas.addEventListener('pointerup', endDrag);
-    gpuCanvas.addEventListener('pointercancel', endDrag);
+    gpuCanvas.addEventListener('pointerup', endPointer);
+    gpuCanvas.addEventListener('pointercancel', endPointer);
 
     // Zoom: wheel around the cursor position.
     gpuCanvas.addEventListener('wheel', (e) => {
@@ -1256,19 +1314,28 @@ struct VsOut {
     // the combined instance buffer. Re-runs on morph (poses changed) or color
     // (rgb changed). Bounds are stable across both, so gpuState.draw skips
     // refitting and the user's pan/zoom is preserved.
-    const _tInst0 = performance.now();
-    const gpuInstances = new Float32Array(renderRaw.length * 8);
-    // Cache Gaussian weights once per color level. Read everything else
-    // out of typed arrays — paletteRGB by integer label id, ancestry from
-    // a flat Uint8 buffer — so the inner loop is pure numeric work with
-    // no string-keyed lookups.
+    const N = renderRaw.length;
+    // Pack into the compact 16 B layout via three views over one ArrayBuffer:
+    // float32x2 (tx, ty), snorm16x2 (cos, sin), unorm8x4 (r, g, b, mirror).
+    const gpuInstancesBuf = new ArrayBuffer(N * INSTANCE_STRIDE);
+    const gpuInstancesF32 = new Float32Array(gpuInstancesBuf);
+    const gpuInstancesI16 = new Int16Array(gpuInstancesBuf);
+    const gpuInstancesU8  = new Uint8Array(gpuInstancesBuf);
+    // Cache Gaussian weights once per color level. Read everything else out
+    // of typed arrays — paletteRGB by integer label id, ancestry from a flat
+    // Uint8 buffer — so the inner loop is pure numeric work with no
+    // string-keyed lookups.
     const _maxAncestry = renderDepth + 1;
     const _wts = new Float64Array(_maxAncestry + 1);
     for (let d = 0; d <= _maxAncestry; d++) {
       const z = (d - renderColorLevel) / COLOR_BLEND_SIGMA;
       _wts[d] = Math.exp(-z * z);
     }
-    const N = renderRaw.length;
+    // Per-tile lightness jitter via R₁ low-discrepancy sequence
+    // x[i] = (0.5 + i/φ) mod 1 — breaks up flat regions with a couple
+    // percent multiplicative variation in linear RGB.
+    const PHI_INV = 0.6180339887498949;
+    const LIGHT_JITTER = 0.12;
     for (let i = 0; i < N; i++) {
       const w0 = _wts[0];
       const c0 = rawLabelIdx[i] * 3;
@@ -1286,21 +1353,26 @@ struct VsOut {
         b += paletteRGB[cIdx + 2] * w;
         tot += w;
       }
-      const inv = 1 / tot;
-      const ip = i * 5, ig = i * 8;
-      gpuInstances[ig    ] = renderPoses[ip    ];
-      gpuInstances[ig + 1] = renderPoses[ip + 1];
-      gpuInstances[ig + 2] = renderPoses[ip + 2];
-      gpuInstances[ig + 3] = renderPoses[ip + 3];
-      gpuInstances[ig + 4] = r * inv;
-      gpuInstances[ig + 5] = g * inv;
-      gpuInstances[ig + 6] = b * inv;
-      gpuInstances[ig + 7] = renderPoses[ip + 4];
+      const jitter = (0.5 + PHI_INV * i) % 1 - 0.5;
+      const inv = (1 + jitter * LIGHT_JITTER) / tot;
+      const ip = i * 5;
+      // float32x2 at byte 0
+      gpuInstancesF32[i * 4 + 0] = renderPoses[ip + 0];
+      gpuInstancesF32[i * 4 + 1] = renderPoses[ip + 1];
+      // snorm16x2 at byte 8 — multiply [-1, 1] by 32767, truncate.
+      gpuInstancesI16[i * 8 + 4] = (renderPoses[ip + 2] * 32767) | 0;
+      gpuInstancesI16[i * 8 + 5] = (renderPoses[ip + 3] * 32767) | 0;
+      // unorm8x4 at byte 12 — color in [0, 1] × 255; mirror = 0 for +1
+      // sign and 255 for -1 (the shader maps 0 → +1, 1 → -1). Clamp
+      // since jitter can push a bright tile past 255.
+      const ri = (r * inv * 255) | 0;
+      const gi = (g * inv * 255) | 0;
+      const bi = (b * inv * 255) | 0;
+      gpuInstancesU8[i * 16 + 12] = ri < 0 ? 0 : ri > 255 ? 255 : ri;
+      gpuInstancesU8[i * 16 + 13] = gi < 0 ? 0 : gi > 255 ? 255 : gi;
+      gpuInstancesU8[i * 16 + 14] = bi < 0 ? 0 : bi > 255 ? 255 : bi;
+      gpuInstancesU8[i * 16 + 15] = renderPoses[ip + 4] < 0 ? 255 : 0;
     }
-    const _tInst1 = performance.now();
-    gpuState.draw(gpuInstances, renderBounds, renderEvenCount);
-    console.log(`[bench instances+draw N=${renderRaw.length.toLocaleString()}] `
-      + `pack=${(_tInst1 - _tInst0).toFixed(1)}ms `
-      + `total=${(performance.now() - _tInst0).toFixed(1)}ms`);
+    gpuState.draw(gpuInstancesU8, renderBounds, renderEvenCount);
   </script>
 </notebook>
