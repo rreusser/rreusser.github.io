@@ -369,27 +369,45 @@
   </script>
 
   <script id="render-svg" type="text/x-typescript">
-    // Diagnostic cell: show what each step produces so we can find what fails.
-    const dbg = (msg: string) => display(html`<pre style="margin: 0.2em 0; font-size: 0.8em;">${msg}</pre>`);
+    const renderStartingTile: TileName = "Delta";
+    const renderDepth = 1;
 
-    try {
-      dbg("step 1: about to call buildSpectreBase");
-      const c0 = buildSpectreBase();
-      dbg(`step 2: buildSpectreBase ok, keys: ${Object.keys(c0).join(", ")}`);
+    let renderCluster = buildSpectreBase();
+    for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
+    const renderPlacements = flattenMetaTile(renderCluster[renderStartingTile]);
 
-      const c1 = buildSupertiles(c0);
-      dbg(`step 3: buildSupertiles ok, Δ kind: ${c1.Delta.kind}, ${c1.Delta.kind === "meta" ? c1.Delta.geometries.length : 0} children`);
+    const renderPolygons = renderPlacements.map(({ transform, label }) => ({
+      label,
+      pts: spectreLatticeVertices.map((v) => lpToXY(txApply(transform, v))),
+    }));
 
-      const placements = flattenMetaTile(c1.Delta);
-      dbg(`step 4: flatten ok, ${placements.length} leaves`);
-
-      const t0 = placements[0].transform;
-      dbg(`step 5: first transform — rot=${t0.rot}, mirror=${t0.mirror}, t=[${t0.t.join(",")}]`);
-
-      const xy0 = lpToXY(txApply(t0, spectreLatticeVertices[0]));
-      dbg(`step 6: first vertex of first tile cartesian: (${xy0[0].toFixed(3)}, ${xy0[1].toFixed(3)})`);
-    } catch (e) {
-      dbg(`THREW: ${(e as Error).stack ?? e}`);
+    let renderXMin = Infinity, renderXMax = -Infinity, renderYMin = Infinity, renderYMax = -Infinity;
+    for (const { pts } of renderPolygons) {
+      for (const [x, y] of pts) {
+        if (x < renderXMin) renderXMin = x;
+        if (x > renderXMax) renderXMax = x;
+        if (y < renderYMin) renderYMin = y;
+        if (y > renderYMax) renderYMax = y;
+      }
     }
+    const renderPad = 0.5;
+    const renderVbW = renderXMax - renderXMin + 2 * renderPad;
+    const renderVbH = renderYMax - renderYMin + 2 * renderPad;
+    const renderSize = Math.min(width, 640);
+
+    display(html`<figure style="margin: 0;">
+      <svg viewBox="${renderXMin - renderPad} ${-renderYMax - renderPad} ${renderVbW} ${renderVbH}"
+           width="${renderSize}" height="${renderSize * renderVbH / renderVbW}"
+           style="background: #fafafa; border: 1px solid #eee;">
+        ${renderPolygons.map(({ pts, label }) => html`
+          <polygon points="${pts.map(([x, y]) => `${x},${-y}`).join(" ")}"
+                   fill="${tileColors[label]}" stroke="#222"
+                   stroke-width="0.03" stroke-linejoin="round" />
+        `)}
+      </svg>
+      <figcaption style="font-size: 0.85em; color: #666;">
+        ${renderPlacements.length} spectres after ${renderDepth} substitution${renderDepth === 1 ? "" : "s"} from a Δ supertile.
+      </figcaption>
+    </figure>`);
   </script>
 </notebook>
