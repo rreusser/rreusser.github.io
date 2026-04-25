@@ -30,22 +30,62 @@
       return Generators.input(input);
     }
 
-    const presetName = ctrl(Inputs.select(Object.keys(presets), {
-      label: "Matrix",
+    // Preset selector. Picking a preset programmatically sets the four
+    // matrix entries below; the entries themselves are the source of truth.
+    const presetSelect = Inputs.select(["Custom", ...Object.keys(presets)], {
+      label: "Preset",
       value: "Arnold cat [[2,1],[1,1]]"
-    }));
+    });
+
+    const m00Input = Inputs.range([-6, 6], { label: "a (top-left)",  value: 2, step: 1 });
+    const m01Input = Inputs.range([-6, 6], { label: "b (top-right)", value: 1, step: 1 });
+    const m10Input = Inputs.range([-6, 6], { label: "c (bot-left)",  value: 1, step: 1 });
+    const m11Input = Inputs.range([-6, 6], { label: "d (bot-right)", value: 1, step: 1 });
+
+    const matrixInputs = [m00Input, m01Input, m10Input, m11Input];
+
+    presetSelect.addEventListener('input', () => {
+      const v = presetSelect.value;
+      if (!(v in presets)) return;
+      const vals = presets[v];
+      matrixInputs.forEach((inp, i) => {
+        (inp as HTMLInputElement).value = String(vals[i]);
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
+
+    // When the user edits the entries directly, switch the dropdown to
+    // whichever preset matches (or to "Custom" if none does).
+    function syncPresetLabel() {
+      const cur = matrixInputs.map(inp => +(inp as HTMLInputElement).value);
+      for (const [name, vals] of Object.entries(presets)) {
+        if (vals.every((v, i) => v === cur[i])) {
+          if (presetSelect.value !== name) presetSelect.value = name;
+          return;
+        }
+      }
+      if (presetSelect.value !== "Custom") presetSelect.value = "Custom";
+    }
+    matrixInputs.forEach(inp => inp.addEventListener('input', syncPresetLabel));
+
+    controlsContainer.append(presetSelect, m00Input, m01Input, m10Input, m11Input);
+    const presetName = Generators.input(presetSelect);
+    const m00 = Generators.input(m00Input);
+    const m01 = Generators.input(m01Input);
+    const m10 = Generators.input(m10Input);
+    const m11 = Generators.input(m11Input);
+
     const period = ctrl(Inputs.range([2, 20], {
-      label: "Period (s)",
-      value: 8,
-      step: 0.5
+      label: "Period (s)", value: 8, step: 0.5
+    }));
+    const showPaths = ctrl(Inputs.toggle({
+      label: "Show paths", value: false
     }));
     const showEigen = ctrl(Inputs.toggle({
-      label: "Show eigen-directions",
-      value: false
+      label: "Show eigen-directions", value: false
     }));
     const paused = ctrl(Inputs.toggle({
-      label: "Pause",
-      value: false
+      label: "Pause", value: false
     }));
 
     display(controlsContainer);
@@ -57,6 +97,7 @@
       M: [2, 1, 1, 1],
       period: 8,
       showEigen: false,
+      showPaths: false,
       paused: false,
       matrixDirty: true
     };
@@ -87,9 +128,10 @@
   </script>
   <script id="sync-params" type="text/x-typescript">
     // Mirror reactive controls into the stable params object.
-    params.M = presets[presetName];
+    params.M = [m00, m01, m10, m11];
     params.period = period;
     params.showEigen = showEigen;
+    params.showPaths = showPaths;
     params.paused = paused;
     params.matrixDirty = true;
   </script>
@@ -107,11 +149,16 @@
     svg.style.border = '0.5px solid rgba(0,0,0,0.15)';
 
     const eigenG = document.createElementNS(ns, 'g');
+    const pathsElement = document.createElementNS(ns, 'path');
+    pathsElement.setAttribute('fill', 'none');
+    pathsElement.setAttribute('stroke', '#185fa5');
+    pathsElement.setAttribute('stroke-width', '0.7');
+    pathsElement.setAttribute('stroke-opacity', '0');
     const dotsG = document.createElementNS(ns, 'g');
     const originDot = document.createElementNS(ns, 'circle');
     originDot.setAttribute('r', '3.8');
     originDot.setAttribute('fill', '#185fa5');
-    svg.append(eigenG, dotsG, originDot);
+    svg.append(eigenG, pathsElement, dotsG, originDot);
 
     // Lattice points to render. Wider than the visible window so dots that
     // sweep across the figure during the loop stay populated near the edges.
@@ -227,6 +274,34 @@
             line.setAttribute('stroke-opacity', '0');
           }
         });
+
+        if (params.showPaths) {
+          // Sample M^t at N+1 instants and apply each sampled matrix to every
+          // lattice point. Concatenate into a single SVG path with M/L commands
+          // separating per-point subpaths — far cheaper than one path element
+          // per dot.
+          const N = 48;
+          const Mts: number[][] = [];
+          for (let q = 0; q <= N; q++) Mts.push(powMt(params.M, q / N));
+          const parts: string[] = [];
+          for (let p = 0; p < pts.length; p++) {
+            const [i, j] = pts[p];
+            let s = '';
+            for (let q = 0; q <= N; q++) {
+              const m = Mts[q];
+              const qx = m[0] * i + m[1] * j;
+              const qy = m[2] * i + m[3] * j;
+              const sx = (cx + qx * cs).toFixed(1);
+              const sy = (cy - qy * cs).toFixed(1);
+              s += (q === 0 ? 'M' : 'L') + sx + ' ' + sy + ' ';
+            }
+            parts.push(s);
+          }
+          pathsElement.setAttribute('d', parts.join(''));
+          pathsElement.setAttribute('stroke-opacity', '0.35');
+        } else {
+          pathsElement.setAttribute('stroke-opacity', '0');
+        }
       }
     });
 
