@@ -469,8 +469,15 @@
   </script>
 
   <script id="render-morph" type="text/x-typescript">
-    const renderA = 1 + (Math.sqrt(3) - 1) * Math.max(0,  renderMorph);
-    const renderB = 1 + (Math.sqrt(3) - 1) * Math.max(0, -renderMorph);
+    // Raw morph values: a = b = 1 at the spectre, one of them grows to √3
+    // toward each extreme. Normalize so the mean stays at 1; this keeps the
+    // cluster the same size on screen as the morph slider moves and lets the
+    // (a = b = 1) bounds we precomputed continue to fit the content.
+    const _aRaw = 1 + (Math.sqrt(3) - 1) * Math.max(0,  renderMorph);
+    const _bRaw = 1 + (Math.sqrt(3) - 1) * Math.max(0, -renderMorph);
+    const _norm = 2 / (_aRaw + _bRaw);
+    const renderA = _aRaw * _norm;
+    const renderB = _bRaw * _norm;
   </script>
 
   <script id="flatten" type="text/x-typescript">
