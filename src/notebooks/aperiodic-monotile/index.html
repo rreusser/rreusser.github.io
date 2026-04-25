@@ -9,4 +9,60 @@
 
     The plan is to build the substitution system in exact integer arithmetic over ℤ[ω] (ω = e<sup>iπ/6</sup>), then render the resulting tiles using instanced WebGPU.
   </script>
+
+  <script id="spectre-section" type="text/markdown">
+    ## The spectre
+
+    The spectre is a 14-gon. Every edge has unit length and every interior angle is a multiple of 30°. Two consecutive edges (here at vertex 10) are collinear, which is what allows this same combinatorial polygon to deform into the *hat* and *turtle* by giving the two collinear edges different lengths.
+  </script>
+
+  <script id="spectre-vertices" type="text/x-typescript">
+    const s = Math.sqrt(3) / 2;
+    const spectreVertices: [number, number][] = [
+      [0,         0       ],
+      [1,         0       ],
+      [1.5,      -s       ],
+      [1.5 + s,   0.5 - s ],
+      [1.5 + s,   1.5 - s ],
+      [2.5 + s,   1.5 - s ],
+      [3 + s,     1.5     ],
+      [3,         2       ],
+      [3 - s,     1.5     ],
+      [2.5 - s,   1.5 + s ],
+      [1.5 - s,   1.5 + s ],
+      [0.5 - s,   1.5 + s ],
+      [-s,        1.5     ],
+      [0,         1       ],
+    ];
+  </script>
+
+  <script id="spectre-svg" type="text/x-typescript">
+    const xs = spectreVertices.map((v) => v[0]);
+    const ys = spectreVertices.map((v) => v[1]);
+    const pad = 0.3;
+    const vbX = Math.min(...xs) - pad;
+    const vbY = -Math.max(...ys) - pad;
+    const vbW = Math.max(...xs) - Math.min(...xs) + 2 * pad;
+    const vbH = Math.max(...ys) - Math.min(...ys) + 2 * pad;
+    const pts = spectreVertices.map(([x, y]) => `${x},${-y}`).join(" ");
+
+    const size = Math.min(360, width);
+    display(html`<figure style="margin: 0; text-align: center;">
+      <svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}"
+           width="${size}" height="${size * vbH / vbW}"
+           style="background: #fafafa; border: 1px solid #eee;">
+        <polygon points="${pts}"
+                 fill="#cfe1f5" stroke="#222" stroke-width="0.03"
+                 stroke-linejoin="round" />
+        ${spectreVertices.map(([x, y], i) => html`
+          <circle cx="${x}" cy="${-y}" r="0.06" fill="#222" />
+          <text x="${x}" y="${-y}" dy="-0.16" font-size="0.22"
+                text-anchor="middle" fill="#666">${i}</text>
+        `)}
+      </svg>
+      <figcaption style="font-size: 0.85em; color: #666;">
+        Vertices of the spectre tile, indexed 0–13.
+      </figcaption>
+    </figure>`);
+  </script>
 </notebook>
