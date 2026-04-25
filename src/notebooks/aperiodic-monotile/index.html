@@ -105,6 +105,31 @@
       p[0] + p[1] * SQRT3_2 + p[2] * 0.5,
       p[3] + p[1] * 0.5 + p[2] * SQRT3_2,
     ];
+
+    // ─── LP² ─────────────────────────────────────────────────────────────
+    // To support the Tile(a, b) family (hat, spectre, turtle) we carry
+    // every position as an a-component plus a b-component, both in the
+    // ℤ[ω] lattice. Cartesian projection then becomes
+    //   (x, y) = a · lpToXY(p.a) + b · lpToXY(p.b)
+    // and is the only place the real numbers a, b appear. All substitution
+    // arithmetic stays integer because every operation acts component-wise
+    // on the two halves.
+    type LP2 = { a: LP; b: LP };
+    const LP_ZERO: LP = [0, 0, 0, 0];
+    const LP2_ZERO: LP2 = { a: LP_ZERO, b: LP_ZERO };
+
+    const lp2Add  = (p: LP2, q: LP2): LP2 => ({ a: lpAdd(p.a, q.a), b: lpAdd(p.b, q.b) });
+    const lp2Sub  = (p: LP2, q: LP2): LP2 => ({ a: lpSub(p.a, q.a), b: lpSub(p.b, q.b) });
+    const lp2Neg  = (p: LP2): LP2          => ({ a: lpNeg(p.a),     b: lpNeg(p.b) });
+    const lp2Conj = (p: LP2): LP2          => ({ a: lpConj(p.a),    b: lpConj(p.b) });
+    const lp2Rotate = (p: LP2, k: number): LP2 =>
+      ({ a: lpRotate(p.a, k), b: lpRotate(p.b, k) });
+
+    const lp2ToXY = (p: LP2, a: number, b: number): [number, number] => {
+      const [ax, ay] = lpToXY(p.a);
+      const [bx, by] = lpToXY(p.b);
+      return [a * ax + b * bx, a * ay + b * by];
+    };
   </script>
 
   <script id="spectre-lattice-vertices" type="text/x-typescript">
@@ -125,12 +150,57 @@
       [0, -1,  0, 2],   // 12: (-√3/2, 3/2)
       [0,  0,  0, 1],   // 13: (0, 1)
     ];
+
+    // ─── Edge type partition for the Tile(a, b) family ───────────────────
+    // Each of the 14 edges is either an "a-edge" (length a) or a "b-edge"
+    // (length b). Two kinds of constraint pin down the partition:
+    //
+    //  1. Closure for any (a, b): the a-edges' unit direction vectors must
+    //     sum to zero on their own, and likewise the b-edges'.
+    //  2. The substitution glue rules. Each transformationRules entry maps
+    //     one quad vertex of tile_(i-1) onto a quad vertex of tile_i; the
+    //     edge they share is the "outgoing" one from each quad point, which
+    //     must therefore have the same length in both tiles. Walking the
+    //     three distinct glue patterns:
+    //       V_11 → V_5  (rules with rot = ±60°): shared edge = e11 ↔ e4,
+    //         so type(e11) = type(e4).
+    //       V_7  → V_3  (rules with rot = 0°):    shared edge = e7  ↔ e2,
+    //         so type(e7)  = type(e2).
+    //       V_11 → V_11 (rule with rot = −120°):  shared edge = e11 ↔ e10,
+    //         so type(e11) = type(e10).
+    //
+    // Combining: type(e4) = type(e10) = type(e11), and type(e2) = type(e7).
+    // The 7-7 split below additionally satisfies all four closure
+    // constraints, and gives the canonical merged edge V_9–V_10–V_11 of
+    // length a + b in the hat (edges e9 and e10 carry different types).
+    const SPECTRE_A_EDGES: ReadonlySet<number> = new Set([0, 3, 4, 8, 10, 11, 13]);
+
+    // Spectre vertices in LP² form: walk the boundary, accumulating each
+    // edge's lattice direction into the a- or b-component depending on its
+    // type. At (a, b) = (1, 1) the sum of the two halves reproduces the
+    // original integer lattice vertex (verified below).
+    const spectreLatticeVertices2: LP2[] = (() => {
+      const vs: LP2[] = [{ a: LP_ZERO, b: LP_ZERO }];
+      let accA: LP = LP_ZERO, accB: LP = LP_ZERO;
+      for (let i = 0; i < 13; i++) {
+        const dir = lpSub(spectreLatticeVertices[i + 1], spectreLatticeVertices[i]);
+        if (SPECTRE_A_EDGES.has(i)) accA = lpAdd(accA, dir);
+        else                        accB = lpAdd(accB, dir);
+        vs.push({ a: accA, b: accB });
+      }
+      return vs;
+    })();
   </script>
 
   <script id="spectre-lattice-check" type="text/x-typescript">
-    // Sanity check: lattice vertices project to the same cartesian points,
-    // and all 14 edges have unit length when a = b = 1.
+    // Sanity checks:
+    //  1. LP vertices project to the same cartesian points.
+    //  2. At (a, b) = (1, 1) the LP² halves sum back to the LP vertex.
+    //  3. The hat (a = 1, b = √3) closes — polygon returns to V_0.
+    //  4. The turtle (a = √3, b = 1) also closes.
+    //  5. Every spectre edge has unit length at a = b = 1.
     const tol = 1e-12;
+
     const projected = spectreLatticeVertices.map(lpToXY);
     let maxDelta = 0;
     for (let i = 0; i < 14; i++) {
@@ -138,6 +208,30 @@
       const dy = projected[i][1] - spectreVertices[i][1];
       maxDelta = Math.max(maxDelta, Math.hypot(dx, dy));
     }
+
+    let lp2SumErr = 0;
+    for (let i = 0; i < 14; i++) {
+      const sum = lpAdd(spectreLatticeVertices2[i].a, spectreLatticeVertices2[i].b);
+      for (let k = 0; k < 4; k++) {
+        lp2SumErr = Math.max(lp2SumErr, Math.abs(sum[k] - spectreLatticeVertices[i][k]));
+      }
+    }
+
+    function closureError(a: number, b: number): number {
+      // After 14 edges starting from (0, 0), do we return to (0, 0)?
+      // Walk via LP² so the test exercises the partition itself.
+      const last = spectreLatticeVertices2[13];
+      const dirLast = lpSub(spectreLatticeVertices[0], spectreLatticeVertices[13]);
+      const closed: LP2 = SPECTRE_A_EDGES.has(13)
+        ? { a: lpAdd(last.a, dirLast), b: last.b }
+        : { a: last.a, b: lpAdd(last.b, dirLast) };
+      const [x, y] = lp2ToXY(closed, a, b);
+      return Math.hypot(x, y);
+    }
+    const SQRT3 = Math.sqrt(3);
+    const hatErr    = closureError(1, SQRT3);
+    const turtleErr = closureError(SQRT3, 1);
+
     const edgeLengths = spectreLatticeVertices.map((_, i) => {
       const a = projected[i];
       const b = projected[(i + 1) % 14];
@@ -145,11 +239,15 @@
     });
     const maxEdgeError = Math.max(...edgeLengths.map((l) => Math.abs(l - 1)));
 
-    const ok = maxDelta < tol && maxEdgeError < tol;
+    const ok = maxDelta < tol && maxEdgeError < tol
+      && lp2SumErr < tol && hatErr < tol && turtleErr < tol;
     display(html`<div style="font-size: 0.9em; padding: 0.5em 0.8em; border-radius: 4px;
                               background: ${ok ? '#e7f5ea' : '#fbe9e9'};
                               color: ${ok ? '#1d5b2c' : '#7a1414'}; font-family: monospace;">
       lattice ↔ cartesian max error: ${maxDelta.toExponential(2)}<br>
+      LP² ↔ LP max error at (1, 1): ${lp2SumErr.toExponential(2)}<br>
+      hat closure error (1, √3): ${hatErr.toExponential(2)}<br>
+      turtle closure error (√3, 1): ${turtleErr.toExponential(2)}<br>
       edge length max deviation from 1: ${maxEdgeError.toExponential(2)}
     </div>`);
   </script>
@@ -165,19 +263,19 @@
   </script>
 
   <script id="transform-math" type="text/x-typescript">
-    type Transform = { rot: number; mirror: 0 | 1; t: LP };
+    type Transform = { rot: number; mirror: 0 | 1; t: LP2 };
 
-    const txIdentity: Transform = { rot: 0, mirror: 0, t: [0, 0, 0, 0] };
+    const txIdentity: Transform = { rot: 0, mirror: 0, t: LP2_ZERO };
 
-    function txApply(T: Transform, p: LP): LP {
-      const q = T.mirror ? lpConj(p) : p;
-      return lpAdd(lpRotate(q, T.rot), T.t);
+    function txApply(T: Transform, p: LP2): LP2 {
+      const q = T.mirror ? lp2Conj(p) : p;
+      return lp2Add(lp2Rotate(q, T.rot), T.t);
     }
 
     // Apply just the linear (rotation+mirror) part to a lattice vector.
-    function txApplyLinear(T: Transform, p: LP): LP {
-      const q = T.mirror ? lpConj(p) : p;
-      return lpRotate(q, T.rot);
+    function txApplyLinear(T: Transform, p: LP2): LP2 {
+      const q = T.mirror ? lp2Conj(p) : p;
+      return lp2Rotate(q, T.rot);
     }
 
     // (T1 ∘ T2)(p) = T1(T2(p)).
@@ -187,16 +285,16 @@
       const sign = T1.mirror ? -1 : 1;
       const rot = (((T1.rot + sign * T2.rot) % 12) + 12) % 12;
       const mirror = (T1.mirror ^ T2.mirror) as 0 | 1;
-      const t = lpAdd(txApplyLinear(T1, T2.t), T1.t);
+      const t = lp2Add(txApplyLinear(T1, T2.t), T1.t);
       return { rot, mirror, t };
     }
 
     // Translation-only transform.
-    const txTranslate = (t: LP): Transform => ({ rot: 0, mirror: 0, t });
+    const txTranslate = (t: LP2): Transform => ({ rot: 0, mirror: 0, t });
 
     // Pure rotation by k·30°.
     const txRotate = (k: number): Transform =>
-      ({ rot: ((k % 12) + 12) % 12, mirror: 0, t: [0, 0, 0, 0] });
+      ({ rot: ((k % 12) + 12) % 12, mirror: 0, t: LP2_ZERO });
   </script>
 
   <script id="substitution-section" type="text/markdown">
@@ -236,7 +334,7 @@
 
     // The four spectre indices that act as a metatile's "quad" handles.
     const QUAD_INDICES = [3, 5, 7, 11] as const;
-    const baseQuad: LP[] = QUAD_INDICES.map((i) => spectreLatticeVertices[i]);
+    const baseQuad: LP2[] = QUAD_INDICES.map((i) => spectreLatticeVertices2[i]);
   </script>
 
   <script id="metatile-section" type="text/markdown">
@@ -248,8 +346,8 @@
   <script id="metatile-build" type="text/x-typescript">
     type LeafLabel = TileName | "Gamma1" | "Gamma2";
     type MetaTile =
-      | { kind: "leaf"; label: LeafLabel; quad: LP[] }
-      | { kind: "meta"; name: TileName; geometries: { child: MetaTile; transform: Transform }[]; quad: LP[] };
+      | { kind: "leaf"; label: LeafLabel; quad: LP2[] }
+      | { kind: "meta"; name: TileName; geometries: { child: MetaTile; transform: Transform }[]; quad: LP2[] };
 
     function buildSpectreBase(): Record<TileName, MetaTile> {
       const cluster = {} as Record<TileName, MetaTile>;
@@ -271,7 +369,7 @@
           {
             child: { kind: "leaf", label: "Gamma2", quad: baseQuad },
             transform: txCompose(
-              txTranslate(spectreLatticeVertices[8]),
+              txTranslate(spectreLatticeVertices2[8]),
               txRotate(1),
             ),
           },
@@ -287,7 +385,7 @@
       const transformations: Transform[] = [txIdentity];
       let totalRot = 0;
       let rotation: Transform = txIdentity;
-      let rotatedQuad: LP[] = quad;
+      let rotatedQuad: LP2[] = quad;
 
       for (const [deltaRot, fromIdx, toIdx] of transformationRules) {
         if (deltaRot !== 0) {
@@ -297,16 +395,16 @@
         }
         const target = txApply(transformations[transformations.length - 1], quad[fromIdx]);
         const source = rotatedQuad[toIdx];
-        const delta = lpSub(target, source);
+        const delta = lp2Sub(target, source);
         transformations.push({ rot: rotation.rot, mirror: 0, t: delta });
       }
 
       // Reflect everything across the y-axis: R(x, y) = (-x, y) = ω⁶ · conj.
-      const R: Transform = { rot: 6, mirror: 1, t: [0, 0, 0, 0] };
+      const R: Transform = { rot: 6, mirror: 1, t: LP2_ZERO };
       const finalTransforms = transformations.map((T) => txCompose(R, T));
 
       // The supertile's own quad is built from specific child quad points.
-      const superQuad: LP[] = [
+      const superQuad: LP2[] = [
         txApply(finalTransforms[6], quad[2]),
         txApply(finalTransforms[5], quad[1]),
         txApply(finalTransforms[3], quad[2]),
@@ -353,7 +451,19 @@
       step: 0.01,
       label: "Color level",
     }));
+    // Tile(a, b) morph: -1 = hat (a=1, b=√3), 0 = spectre (a=b=1),
+    // +1 = turtle (a=√3, b=1). a, b are derived in the next cell.
+    const renderMorph = addControl(Inputs.range([-1, 1], {
+      value: 0,
+      step: 0.005,
+      label: "Hat ← Spectre → Turtle",
+    }));
     display(controlsContainer);
+  </script>
+
+  <script id="render-morph" type="text/x-typescript">
+    const renderA = 1 + (Math.sqrt(3) - 1) * Math.max(0,  renderMorph);
+    const renderB = 1 + (Math.sqrt(3) - 1) * Math.max(0, -renderMorph);
   </script>
 
   <script id="flatten" type="text/x-typescript">
@@ -388,7 +498,7 @@
     // Gaussian-peaked weights along the ancestor chain. d = 0 is the leaf
     // itself; d = 1 the immediate supertile, d = 2 its supertile, etc. σ
     // is small so the chosen level dominates and colors stay saturated.
-    const COLOR_BLEND_SIGMA = 0.7;
+    const COLOR_BLEND_SIGMA = 1.7;
     function ancestorWeight(d: number, k0: number): number {
       const z = (d - k0) / COLOR_BLEND_SIGMA;
       return Math.exp(-z * z);
@@ -603,6 +713,12 @@ struct VsOut {
       // View state: world point at clip-space origin and pixels-per-world-unit
       // (in physical pixels). scale.x = 2*pixelScale/pixelWidth, etc.
       centerX: 0, centerY: 0, pixelScale: 0,
+      // Re-upload spectre vertices for the current Tile(a, b) morph and
+      // redraw with the cached instance buffer.
+      uploadMesh(data: Float32Array) {
+        device.queue.writeBuffer(meshVertexBuffer, 0, data);
+        if (this.lastCount) this.redraw();
+      },
       resize(w: number, h: number) {
         const px = Math.max(1, Math.floor(w * devicePixelRatio));
         const py = Math.max(1, Math.floor(h * devicePixelRatio));
@@ -783,35 +899,25 @@ struct VsOut {
 
   <script id="raw-placements" type="text/x-typescript">
     // Depth-driven cell: builds the metatile tree, flattens to RawPlacement
-    // entries (with ancestry preserved), precomputes the pose floats and the
-    // world-space bounds. Color is *not* computed here, so changing the color
-    // level slider doesn't re-run this cell — and so the gpu-render cell can
-    // skip refitting the view when only colors change.
+    // entries (with ancestry and LP² transforms preserved), and computes the
+    // world-space bounds at (a, b) = (1, 1). Bounds are pinned to the
+    // spectre's frame so morph changes don't refit the view; the actual
+    // hat/turtle envelopes are within ~√3× of these bounds.
     const renderStartingTile: TileName = "Delta";
     let renderCluster = buildSpectreBase();
     for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
     const renderRaw: RawPlacement[] = [];
     flattenMetaTile(renderCluster[renderStartingTile], txIdentity, [], renderRaw);
 
-    // Pose floats per instance: tx, ty, cosθ, sinθ, mirrorSign. 5 floats × N.
-    const renderPoses = new Float32Array(renderRaw.length * 5);
     let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
     for (let i = 0; i < renderRaw.length; i++) {
-      const t = renderRaw[i].transform;
-      const [tx, ty] = lpToXY(t.t);
-      const theta = t.rot * Math.PI / 6;
-      const base = i * 5;
-      renderPoses[base + 0] = tx;
-      renderPoses[base + 1] = ty;
-      renderPoses[base + 2] = Math.cos(theta);
-      renderPoses[base + 3] = Math.sin(theta);
-      renderPoses[base + 4] = t.mirror ? -1 : 1;
+      const [tx, ty] = lp2ToXY(renderRaw[i].transform.t, 1, 1);
       if (tx < bMinX) bMinX = tx; if (tx > bMaxX) bMaxX = tx;
       if (ty < bMinY) bMinY = ty; if (ty > bMaxY) bMaxY = ty;
     }
-    // Spectre vertices lie within ~3.6 world units of vertex 0, so each
-    // placement's polygon is contained in an axis-aligned box of t ± 3.6.
-    const SPECTRE_RADIUS = 3.6;
+    // Pad by SPECTRE_RADIUS · √3 so the box covers the hat and turtle
+    // envelopes too, not only the spectre.
+    const SPECTRE_RADIUS = 3.6 * Math.sqrt(3);
     const renderBounds = {
       minX: bMinX - SPECTRE_RADIUS, maxX: bMaxX + SPECTRE_RADIUS,
       minY: bMinY - SPECTRE_RADIUS, maxY: bMaxY + SPECTRE_RADIUS,
@@ -823,12 +929,42 @@ struct VsOut {
     </div>`);
   </script>
 
+  <script id="render-poses" type="text/x-typescript">
+    // Morph-driven cell: project each LP² translation to cartesian using the
+    // current (a, b) and pack pose floats. Re-runs whenever the morph slider
+    // moves but not when only colors change.
+    const renderPoses = new Float32Array(renderRaw.length * 5);
+    for (let i = 0; i < renderRaw.length; i++) {
+      const t = renderRaw[i].transform;
+      const [tx, ty] = lp2ToXY(t.t, renderA, renderB);
+      const theta = t.rot * Math.PI / 6;
+      const base = i * 5;
+      renderPoses[base + 0] = tx;
+      renderPoses[base + 1] = ty;
+      renderPoses[base + 2] = Math.cos(theta);
+      renderPoses[base + 3] = Math.sin(theta);
+      renderPoses[base + 4] = t.mirror ? -1 : 1;
+    }
+  </script>
+
+  <script id="spectre-mesh-projected" type="text/x-typescript">
+    // Per-frame spectre mesh: vertices projected to cartesian at the current
+    // (a, b). Shared by every instance, so we only upload 14 vec2s — the
+    // per-instance pose places each copy in world space.
+    const meshProjectedData = new Float32Array(28);
+    for (let i = 0; i < 14; i++) {
+      const [x, y] = lp2ToXY(spectreLatticeVertices2[i], renderA, renderB);
+      meshProjectedData[i * 2 + 0] = x;
+      meshProjectedData[i * 2 + 1] = y;
+    }
+    gpuState.uploadMesh(meshProjectedData);
+  </script>
+
   <script id="gpu-render" type="text/x-typescript">
-    // Color-driven cell: re-blends RGB at the current color level and uploads.
-    // Pose floats come straight from renderPoses and are the same regardless
-    // of the color slider, so changing the slider produces a fresh upload but
-    // keeps the same bounds — gpuState.draw sees no bounds change and skips
-    // fitBounds, preserving the user's pan/zoom.
+    // Color-driven cell: re-blends RGB at the current color level and uploads
+    // the combined instance buffer. Re-runs on morph (poses changed) or color
+    // (rgb changed). Bounds are stable across both, so gpuState.draw skips
+    // refitting and the user's pan/zoom is preserved.
     const gpuInstances = new Float32Array(renderRaw.length * 8);
     for (let i = 0; i < renderRaw.length; i++) {
       const { label, ancestry } = renderRaw[i];
