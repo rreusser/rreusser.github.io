@@ -249,7 +249,7 @@
     type LeafLabel = TileName | "Gamma1" | "Gamma2";
     type MetaTile =
       | { kind: "leaf"; label: LeafLabel; quad: LP[] }
-      | { kind: "meta"; geometries: { child: MetaTile; transform: Transform }[]; quad: LP[] };
+      | { kind: "meta"; name: TileName; geometries: { child: MetaTile; transform: Transform }[]; quad: LP[] };
 
     function buildSpectreBase(): Record<TileName, MetaTile> {
       const cluster = {} as Record<TileName, MetaTile>;
@@ -261,6 +261,7 @@
       // Mystic Γ: two spectres glued with a 30° rotation about vertex 8.
       cluster.Gamma = {
         kind: "meta",
+        name: "Gamma",
         quad: baseQuad,
         geometries: [
           {
@@ -321,7 +322,7 @@
           if (sub === null) continue;
           geometries.push({ child: prev[sub], transform: finalTransforms[i] });
         }
-        next[label] = { kind: "meta", quad: superQuad, geometries };
+        next[label] = { kind: "meta", name: label, quad: superQuad, geometries };
       }
       return next;
     }
@@ -342,38 +343,73 @@
   </script>
 
   <script id="flatten" type="text/x-typescript">
-    type Placement = { transform: Transform; label: LeafLabel };
+    type Placement = {
+      transform: Transform;
+      label: LeafLabel;
+      r: number; g: number; b: number;
+    };
+
+    // One palette covers leaf labels (Γ1, Γ2, and the eight non-Γ tile names)
+    // and meta names (the nine TILE_NAMES used as ancestors). Hues are kept
+    // close in saturation so the multi-level blend below stays readable.
+    const tileColors: Record<TileName | LeafLabel, string> = {
+      Gamma:  "#a8a572",
+      Gamma1: "#c0bf80",
+      Gamma2: "#8a874b",
+      Delta:  "#f0e3c2",
+      Theta:  "#d4a5a5",
+      Lambda: "#d2956b",
+      Xi:     "#d4be7a",
+      Pi:     "#87a7a7",
+      Sigma:  "#c5b896",
+      Phi:    "#95b58c",
+      Psi:    "#b099b9",
+    };
+
+    const tileColorsRGB: Record<string, [number, number, number]> = {};
+    for (const [k, hex] of Object.entries(tileColors)) {
+      tileColorsRGB[k] = [
+        parseInt(hex.slice(1, 3), 16) / 255,
+        parseInt(hex.slice(3, 5), 16) / 255,
+        parseInt(hex.slice(5, 7), 16) / 255,
+      ];
+    }
+
+    // Geometric weights on the ancestor chain: leaf 1, immediate parent 0.5,
+    // grandparent 0.25, … Within one supertile every leaf shares the same
+    // tail of the chain, so they pick up a common tint; sibling supertiles of
+    // different types separate by hue. The depth-N ancestor still contributes
+    // 0.5^N of the final color, enough to read the macro structure.
+    const ANCESTOR_BLEND_BASE = 0.5;
 
     function flattenMetaTile(
       mt: MetaTile,
-      parent: Transform = txIdentity,
-      out: Placement[] = [],
-    ): Placement[] {
+      parent: Transform,
+      ancestry: TileName[],
+      out: Placement[],
+    ): void {
       if (mt.kind === "leaf") {
-        out.push({ transform: parent, label: mt.label });
-      } else {
-        for (const { child, transform } of mt.geometries) {
-          flattenMetaTile(child, txCompose(parent, transform), out);
+        const c0 = tileColorsRGB[mt.label];
+        let r = c0[0], g = c0[1], b = c0[2], total = 1;
+        let w = ANCESTOR_BLEND_BASE;
+        for (let i = ancestry.length - 1; i >= 0; i--) {
+          const c = tileColorsRGB[ancestry[i]];
+          r += c[0] * w; g += c[1] * w; b += c[2] * w;
+          total += w;
+          w *= ANCESTOR_BLEND_BASE;
         }
+        out.push({
+          transform: parent, label: mt.label,
+          r: r / total, g: g / total, b: b / total,
+        });
+      } else {
+        ancestry.push(mt.name);
+        for (const { child, transform } of mt.geometries) {
+          flattenMetaTile(child, txCompose(parent, transform), ancestry, out);
+        }
+        ancestry.pop();
       }
-      return out;
     }
-
-    // Per-label fill colors. Γ1 and Γ2 are slightly different shades so the
-    // mystic pair is visible.
-    const tileColors: Record<LeafLabel, string> = {
-      Gamma:  "#ffffff",
-      Gamma1: "#c4c9a9",
-      Gamma2: "#9ca074",
-      Delta:  "#dcdcdc",
-      Theta:  "#ffbfbf",
-      Lambda: "#ffa07a",
-      Xi:     "#fff200",
-      Pi:     "#87cefa",
-      Sigma:  "#f5f5dc",
-      Phi:    "#00ff00",
-      Psi:    "#00ffff",
-    };
   </script>
 
   <script id="render-svg" type="text/x-typescript">
@@ -381,10 +417,11 @@
 
     let renderCluster = buildSpectreBase();
     for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
-    const renderPlacements = flattenMetaTile(renderCluster[renderStartingTile]);
+    const renderPlacements: Placement[] = [];
+    flattenMetaTile(renderCluster[renderStartingTile], txIdentity, [], renderPlacements);
 
-    const renderPolygons = renderPlacements.map(({ transform, label }) => ({
-      label,
+    const renderPolygons = renderPlacements.map(({ transform, label, r, g, b }) => ({
+      label, r, g, b,
       pts: spectreLatticeVertices.map((v) => lpToXY(txApply(transform, v))),
     }));
 
@@ -410,9 +447,10 @@
         viewBox="${renderXMin - renderPad} ${-renderYMax - renderPad} ${renderVbW} ${renderVbH}"
         width="${renderSize}" height="${renderSize * renderVbH / renderVbW}"
         style="background: #fafafa; border: 1px solid #eee;"></svg>`;
-    renderSvg.innerHTML = renderPolygons.map(({ pts, label }) =>
+    const fmt = (x: number) => Math.round(x * 255);
+    renderSvg.innerHTML = renderPolygons.map(({ pts, r, g, b }) =>
       `<polygon points="${pts.map(([x, y]) => `${x},${-y}`).join(" ")}"`
-      + ` fill="${tileColors[label]}" stroke="#222"`
+      + ` fill="rgb(${fmt(r)},${fmt(g)},${fmt(b)})" stroke="#222"`
       + ` stroke-width="0.03" stroke-linejoin="round" />`
     ).join("");
 
@@ -452,31 +490,12 @@
     }
   </script>
 
-  <script id="gpu-palette" type="text/x-typescript">
-    // Stable label → integer mapping for the per-instance label index, plus
-    // an RGBA palette laid out for a uniform array<vec4f>.
-    const tileLabelOrder = [
-      "Gamma1", "Gamma2", "Delta", "Theta", "Lambda",
-      "Xi", "Pi", "Sigma", "Phi", "Psi", "Gamma",
-    ] as const satisfies readonly LeafLabel[];
-    const labelToId = {} as Record<LeafLabel, number>;
-    const paletteData = new Float32Array(tileLabelOrder.length * 4);
-    for (let i = 0; i < tileLabelOrder.length; i++) {
-      const label = tileLabelOrder[i];
-      labelToId[label] = i;
-      const c = tileColors[label];
-      paletteData[i * 4 + 0] = parseInt(c.slice(1, 3), 16) / 255;
-      paletteData[i * 4 + 1] = parseInt(c.slice(3, 5), 16) / 255;
-      paletteData[i * 4 + 2] = parseInt(c.slice(5, 7), 16) / 255;
-      paletteData[i * 4 + 3] = 1;
-    }
-  </script>
-
   <script id="gpu-pipeline" type="text/x-typescript">
     import { createVertexBuffer, createIndexBuffer, createUniformBuffer } from './lib/webgpu-canvas.js';
     import { expandable } from './lib/expandable.js';
 
     const SAMPLE_COUNT = 4;
+    const INSTANCE_STRIDE = 32;  // tx, ty, cos, sin, r, g, b, mirrorSign
 
     const gpuCanvas = document.createElement('canvas');
     gpuCanvas.style.display = 'block';
@@ -493,8 +512,8 @@
     const fillIndexBuffer = createIndexBuffer(device, 'spectre-fill-indices', meshFillIndices);
     const outlineIndexBuffer = createIndexBuffer(device, 'spectre-outline-indices', meshOutlineIndices);
     const viewUniformBuffer = createUniformBuffer(device, 'view-uniforms', 16);
-    const paletteBuffer = createUniformBuffer(device, 'palette', paletteData);
 
+    // Per instance: vec4f pose (tx, ty, cos, sin) + vec4f colorSign (r, g, b, mirrorSign).
     const vertexLayouts: GPUVertexBufferLayout[] = [
       {
         arrayStride: 8,
@@ -502,11 +521,11 @@
         attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
       },
       {
-        arrayStride: 24,
+        arrayStride: INSTANCE_STRIDE,
         stepMode: 'instance',
         attributes: [
-          { shaderLocation: 1, offset: 0,  format: 'float32x4' },  // tx, ty, cos, sin
-          { shaderLocation: 2, offset: 16, format: 'float32x2' },  // mirrorSign, labelId
+          { shaderLocation: 1, offset: 0,  format: 'float32x4' },
+          { shaderLocation: 2, offset: 16, format: 'float32x4' },
         ],
       },
     ];
@@ -516,12 +535,11 @@
       code: `
 struct View { scale: vec2f, offset: vec2f };
 @group(0) @binding(0) var<uniform> view: View;
-@group(0) @binding(1) var<uniform> palette: array<vec4f, ${tileLabelOrder.length}>;
 
 struct VsIn {
   @location(0) pos: vec2f,
-  @location(1) iTrans: vec4f,
-  @location(2) iAttr: vec2f,
+  @location(1) iPose: vec4f,
+  @location(2) iColorSign: vec4f,
 };
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -529,15 +547,15 @@ struct VsOut {
 };
 
 @vertex fn vs(in: VsIn) -> VsOut {
-  let m = vec2f(in.pos.x, in.pos.y * in.iAttr.x);
+  let m = vec2f(in.pos.x, in.pos.y * in.iColorSign.w);
   let r = vec2f(
-    in.iTrans.z * m.x - in.iTrans.w * m.y,
-    in.iTrans.w * m.x + in.iTrans.z * m.y,
+    in.iPose.z * m.x - in.iPose.w * m.y,
+    in.iPose.w * m.x + in.iPose.z * m.y,
   );
-  let world = r + in.iTrans.xy;
+  let world = r + in.iPose.xy;
   var out: VsOut;
   out.pos = vec4f(world * view.scale + view.offset, 0.0, 1.0);
-  out.color = palette[u32(in.iAttr.y)].rgb;
+  out.color = in.iColorSign.rgb;
   return out;
 }
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
@@ -554,17 +572,17 @@ struct View { scale: vec2f, offset: vec2f };
 
 struct VsIn {
   @location(0) pos: vec2f,
-  @location(1) iTrans: vec4f,
-  @location(2) iAttr: vec2f,
+  @location(1) iPose: vec4f,
+  @location(2) iColorSign: vec4f,
 };
 
 @vertex fn vs(in: VsIn) -> @builtin(position) vec4f {
-  let m = vec2f(in.pos.x, in.pos.y * in.iAttr.x);
+  let m = vec2f(in.pos.x, in.pos.y * in.iColorSign.w);
   let r = vec2f(
-    in.iTrans.z * m.x - in.iTrans.w * m.y,
-    in.iTrans.w * m.x + in.iTrans.z * m.y,
+    in.iPose.z * m.x - in.iPose.w * m.y,
+    in.iPose.w * m.x + in.iPose.z * m.y,
   );
-  let world = r + in.iTrans.xy;
+  let world = r + in.iPose.xy;
   return vec4f(world * view.scale + view.offset, 0.0, 1.0);
 }
 @fragment fn fs() -> @location(0) vec4f {
@@ -593,10 +611,7 @@ struct VsIn {
 
     const fillBindGroup = device.createBindGroup({
       layout: fillPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: viewUniformBuffer } },
-        { binding: 1, resource: { buffer: paletteBuffer } },
-      ],
+      entries: [{ binding: 0, resource: { buffer: viewUniformBuffer } }],
     });
     const outlineBindGroup = device.createBindGroup({
       layout: outlinePipeline.getBindGroupLayout(0),
@@ -616,7 +631,7 @@ struct VsIn {
       pixelHeight: 0,
       // View state: world point at clip-space origin and pixels-per-world-unit
       // (in physical pixels). scale.x = 2*pixelScale/pixelWidth, etc.
-      centerX: 0, centerY: 0, pixelScale: 1,
+      centerX: 0, centerY: 0, pixelScale: 0,
       resize(w: number, h: number) {
         const px = Math.max(1, Math.floor(w * devicePixelRatio));
         const py = Math.max(1, Math.floor(h * devicePixelRatio));
@@ -646,11 +661,12 @@ struct VsIn {
         this.instanceCapacity = Math.max(count, Math.max(64, this.instanceCapacity * 2));
         this.instanceBuffer = device.createBuffer({
           label: 'spectre-instances',
-          size: this.instanceCapacity * 24,
+          size: this.instanceCapacity * INSTANCE_STRIDE,
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
       },
       fitBounds(b: Bounds) {
+        if (!this.pixelWidth) return;
         const w = b.maxX - b.minX;
         const h = b.maxY - b.minY;
         this.centerX = (b.minX + b.maxX) / 2;
@@ -658,7 +674,7 @@ struct VsIn {
         this.pixelScale = 0.95 * Math.min(this.pixelWidth / w, this.pixelHeight / h);
       },
       draw(instanceData: Float32Array, bounds: Bounds) {
-        const count = instanceData.length / 6;
+        const count = instanceData.length / (INSTANCE_STRIDE / 4);
         this.ensureInstanceBuffer(count);
         device.queue.writeBuffer(this.instanceBuffer!, 0, instanceData);
         this.lastCount = count;
@@ -779,23 +795,25 @@ struct VsIn {
   </script>
 
   <script id="gpu-render" type="text/x-typescript">
-    // Pack each placement as (tx, ty, cosθ, sinθ, mirrorSign, labelId).
+    // Pack each placement as (tx, ty, cosθ, sinθ, r, g, b, mirrorSign).
     // Bounds: spectre vertices lie within ~3.6 of vertex 0, so we pad each
     // translation by 3.6 to bound the polygon without re-projecting all 14 verts.
     const SPECTRE_RADIUS = 3.6;
-    const gpuInstances = new Float32Array(renderPlacements.length * 6);
+    const gpuInstances = new Float32Array(renderPlacements.length * 8);
     let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
     for (let i = 0; i < renderPlacements.length; i++) {
-      const { transform, label } = renderPlacements[i];
-      const [tx, ty] = lpToXY(transform.t);
-      const theta = transform.rot * Math.PI / 6;
-      const base = i * 6;
+      const p = renderPlacements[i];
+      const [tx, ty] = lpToXY(p.transform.t);
+      const theta = p.transform.rot * Math.PI / 6;
+      const base = i * 8;
       gpuInstances[base + 0] = tx;
       gpuInstances[base + 1] = ty;
       gpuInstances[base + 2] = Math.cos(theta);
       gpuInstances[base + 3] = Math.sin(theta);
-      gpuInstances[base + 4] = transform.mirror ? -1 : 1;
-      gpuInstances[base + 5] = labelToId[label];
+      gpuInstances[base + 4] = p.r;
+      gpuInstances[base + 5] = p.g;
+      gpuInstances[base + 6] = p.b;
+      gpuInstances[base + 7] = p.transform.mirror ? -1 : 1;
       if (tx < bMinX) bMinX = tx;
       if (tx > bMaxX) bMaxX = tx;
       if (ty < bMinY) bMinY = ty;
