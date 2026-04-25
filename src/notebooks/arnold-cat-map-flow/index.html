@@ -1,0 +1,235 @@
+<!doctype html>
+<notebook theme="air">
+  <title>The Arnold cat map as a continuous flow</title>
+  <script id="title" type="text/markdown">
+    # The Arnold cat map as a continuous flow
+  </script>
+  <script id="intro" type="text/markdown">
+    Arnold’s cat map is the linear map ${tex`M = \begin{pmatrix} 2 & 1 \\ 1 & 1 \end{pmatrix}`} acting on the torus ${tex`\mathbb{R}^2 / \mathbb{Z}^2`}. It’s the standard mascot of hyperbolic dynamics: the lattice ${tex`\mathbb{Z}^2`} maps onto itself, the unit cell stretches along one eigenvector and squeezes along the other, and the wrapping back to the torus produces a thoroughly chaotic orbit.
+
+    What if we let the discrete time index ${tex`n \in \mathbb{Z}`} flow continuously? That is, can we draw ${tex`M^t`} for ${tex`t \in [0, 1]`} so that ${tex`t = 0`} is the identity and ${tex`t = 1`} is the cat map? The animation below shows the result, applied to the integer lattice rather than the torus. The orbit closes seamlessly: at every integer time, the velocity field has the same value just before and just after.
+  </script>
+  <script id="imports" type="text/x-typescript">
+    import { expandable } from './lib/expandable.js'
+    import { createFrameLoop } from './lib/frame-loop.js'
+  </script>
+  <script id="presets" type="text/x-typescript">
+    const presets = {
+      "Arnold cat [[2,1],[1,1]]":   [2, 1, 1, 1],
+      "Fibonacci [[1,1],[1,2]]":    [1, 1, 1, 2],
+      "Tall [[3,1],[2,1]]":         [3, 1, 2, 1],
+      "Wide [[3,2],[1,1]]":         [3, 2, 1, 1],
+      "Big [[3,1],[5,2]]":          [3, 1, 5, 2],
+      "Shear (parabolic) [[1,1],[0,1]]": [1, 1, 0, 1]
+    };
+  </script>
+  <script id="controls" type="text/x-typescript">
+    const controlsContainer = html`<div id="cat-map-controls"></div>`;
+    function ctrl(input) {
+      controlsContainer.appendChild(input);
+      return Generators.input(input);
+    }
+
+    const presetName = ctrl(Inputs.select(Object.keys(presets), {
+      label: "Matrix",
+      value: "Arnold cat"
+    }));
+    const period = ctrl(Inputs.range([2, 20], {
+      label: "Period (s)",
+      value: 8,
+      step: 0.5
+    }));
+    const showEigen = ctrl(Inputs.toggle({
+      label: "Show eigen-directions",
+      value: false
+    }));
+    const paused = ctrl(Inputs.toggle({
+      label: "Pause",
+      value: false
+    }));
+
+    display(controlsContainer);
+  </script>
+  <script id="params" type="text/x-typescript">
+    // Stable, mutable parameters shared with the render loop. Properties are
+    // updated from the controls cell; this cell never re-runs.
+    const params = {
+      M: [2, 1, 1, 1],
+      period: 8,
+      showEigen: false,
+      paused: false,
+      matrixDirty: true
+    };
+  </script>
+  <script id="powMt" type="text/x-typescript">
+    // M^t for a 2×2 matrix M = [a, b, c, d] using the Cayley–Hamilton form
+    //   M^t = c0(t) I + c1(t) M
+    // valid whenever M has two distinct real eigenvalues. The parabolic
+    // case (trace² = 4 det) is handled by the limit M^t = I + t (M − I).
+    function powMt(M: number[], t: number): number[] {
+      const [a, b, c, d] = M;
+      const tr = a + d;
+      const det = a * d - b * c;
+      const disc = tr * tr - 4 * det;
+      if (Math.abs(disc) < 1e-12) {
+        const s = t;
+        return [1 + s * (a - 1), s * b, s * c, 1 + s * (d - 1)];
+      }
+      const sD = Math.sqrt(disc);
+      const lam1 = (tr + sD) / 2;
+      const lam2 = (tr - sD) / 2;
+      const e1 = Math.pow(lam1, t);
+      const e2 = Math.pow(lam2, t);
+      const c1 = (e1 - e2) / sD;
+      const c0 = (lam1 * e2 - lam2 * e1) / sD;
+      return [c0 + c1 * a, c1 * b, c1 * c, c0 + c1 * d];
+    }
+  </script>
+  <script id="sync-params" type="text/x-typescript">
+    // Mirror reactive controls into the stable params object.
+    params.M = presets[presetName];
+    params.period = period;
+    params.showEigen = showEigen;
+    params.paused = paused;
+    params.matrixDirty = true;
+  </script>
+  <script id="figure" type="text/x-typescript">
+    // The SVG holds three layers: dashed eigen-direction guides, lattice
+    // dots, and the highlighted origin (the only fixed point).
+    const ns = 'http://www.w3.org/2000/svg';
+    const figureState = { width: 0, height: 0, cellSize: 40 };
+
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('id', 'cat-map-svg');
+    svg.style.display = 'block';
+    svg.style.background = '#fff';
+    svg.style.borderRadius = '6px';
+    svg.style.border = '0.5px solid rgba(0,0,0,0.15)';
+
+    const eigenG = document.createElementNS(ns, 'g');
+    const dotsG = document.createElementNS(ns, 'g');
+    const originDot = document.createElementNS(ns, 'circle');
+    originDot.setAttribute('r', '3.8');
+    originDot.setAttribute('fill', '#185fa5');
+    svg.append(eigenG, dotsG, originDot);
+
+    // Lattice points to render. Wider than the visible window so dots that
+    // sweep across the figure during the loop stay populated near the edges.
+    const halfX = 16, halfY = 16;
+    const pts: [number, number][] = [];
+    for (let i = -halfX; i <= halfX; i++) {
+      for (let j = -halfY; j <= halfY; j++) {
+        if (i === 0 && j === 0) continue;
+        pts.push([i, j]);
+      }
+    }
+    const circles: SVGCircleElement[] = pts.map(() => {
+      const c = document.createElementNS(ns, 'circle');
+      c.setAttribute('r', '2.3');
+      c.setAttribute('fill', '#2c2c2a');
+      dotsG.appendChild(c);
+      return c;
+    });
+
+    const eigenLines: SVGLineElement[] = [0, 1].map(() => {
+      const l = document.createElementNS(ns, 'line');
+      l.setAttribute('stroke', '#888');
+      l.setAttribute('stroke-width', '1');
+      l.setAttribute('stroke-dasharray', '4 3');
+      eigenG.appendChild(l);
+      return l;
+    });
+
+    function resizeFigure(w: number, h: number) {
+      figureState.width = w;
+      figureState.height = h;
+      figureState.cellSize = Math.max(20, Math.min(w, h) / 11);
+      svg.setAttribute('width', String(w));
+      svg.setAttribute('height', String(h));
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      originDot.setAttribute('cx', String(w / 2));
+      originDot.setAttribute('cy', String(h / 2));
+      params.matrixDirty = true;
+    }
+
+    const figure = html`<figure>
+      ${svg}
+      <figcaption>Continuous flow ${tex`\gamma(t) = M^t`} on the integer lattice. The origin (blue) is the only fixed point; every other lattice point traces a closed orbit that returns to a (different) integer position at ${tex`t = 1`}.</figcaption>
+    </figure>`;
+
+    display(expandable(figure, {
+      id: 'cat-map',
+      width: Math.min(width, 640),
+      height: Math.min(480, width),
+      controls: '#cat-map-controls',
+      onResize(_el, w, h) { resizeFigure(w, h); }
+    }));
+  </script>
+  <script id="render-loop" type="text/x-typescript">
+    // Eigenvectors of M = [[a,b],[c,d]] for displaying the stable/unstable
+    // axes when the toggle is on. Returns a normalized direction for each
+    // real eigenvalue, or an empty array in degenerate cases.
+    function eigenDirections(M: number[]): [number, number][] {
+      const [a, b, c, d] = M;
+      const tr = a + d;
+      const det = a * d - b * c;
+      const disc = tr * tr - 4 * det;
+      if (disc <= 1e-12) return [];
+      const sD = Math.sqrt(disc);
+      const lams = [(tr + sD) / 2, (tr - sD) / 2];
+      return lams.map(lam => {
+        let vx: number, vy: number;
+        if (Math.abs(c) > 1e-9) { vx = lam - d; vy = c; }
+        else if (Math.abs(b) > 1e-9) { vx = b; vy = lam - a; }
+        else { vx = 1; vy = 0; }
+        const n = Math.hypot(vx, vy);
+        return [vx / n, vy / n] as [number, number];
+      });
+    }
+
+    let t = 0;
+    let last = performance.now();
+
+    const loop = createFrameLoop((now) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      if (!params.paused) t = (t + dt / params.period) % 1;
+
+      const w = figureState.width, h = figureState.height;
+      if (w === 0) return;
+      const cx = w / 2, cy = h / 2;
+      const cs = figureState.cellSize;
+
+      const Mt = powMt(params.M, t);
+      const [a, b, c, d] = Mt;
+
+      for (let k = 0; k < pts.length; k++) {
+        const [i, j] = pts[k];
+        const qx = a * i + b * j;
+        const qy = c * i + d * j;
+        circles[k].setAttribute('cx', (cx + qx * cs).toFixed(1));
+        circles[k].setAttribute('cy', (cy - qy * cs).toFixed(1));
+      }
+
+      if (params.matrixDirty) {
+        params.matrixDirty = false;
+        const dirs = params.showEigen ? eigenDirections(params.M) : [];
+        eigenLines.forEach((line, k) => {
+          if (k < dirs.length) {
+            const [vx, vy] = dirs[k];
+            const L = Math.hypot(w, h);
+            line.setAttribute('x1', (cx - vx * L).toFixed(1));
+            line.setAttribute('y1', (cy + vy * L).toFixed(1));
+            line.setAttribute('x2', (cx + vx * L).toFixed(1));
+            line.setAttribute('y2', (cy - vy * L).toFixed(1));
+            line.setAttribute('stroke-opacity', '0.6');
+          } else {
+            line.setAttribute('stroke-opacity', '0');
+          }
+        });
+      }
+    });
+
+    invalidation.then(() => loop.cancel());
+  </script>
+</notebook>
