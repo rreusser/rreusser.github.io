@@ -450,11 +450,12 @@
       step: 1,
       label: "Substitution depth",
     }));
-    // Where in the ancestor chain to peak the color blend. 0 = leaf only
-    // (max tile-level contrast), 1 = immediate supertile dominates, 2 = the
-    // supertile's supertile dominates, … Acts like a "structural zoom".
-    const renderColorLevel = addControl(Inputs.range([0, 7], {
-      value: 0,
+    // Where in the ancestor chain to peak the color blend, counted *down*
+    // from the largest supertile: 0 = top supertile dominates (broad blocks),
+    // increasing values drill into finer substructure, max ≈ depth = leaf
+    // colors win (max tile-level contrast). Acts like a "structural zoom".
+    const renderColorLevel = addControl(Inputs.range([0, 8], {
+      value: 2.5,
       step: 0.01,
       label: "Color level",
     }));
@@ -614,14 +615,28 @@
 
   <script id="render-morph" type="text/x-typescript">
     // Raw morph values: a = b = 1 at the spectre, one of them grows to √3
-    // toward each extreme. Normalize so the mean stays at 1; this keeps the
-    // cluster the same size on screen as the morph slider moves and lets the
-    // (a = b = 1) bounds we precomputed continue to fit the content.
+    // toward each extreme. Two normalizations stack: (1) divide by (a + b) so
+    // the mean edge length is 1, then (2) rescale by |C(1, 1)| / |C(a, b)|
+    // where C is the cluster centroid, so the cluster's *overall* size stays
+    // pinned to its spectre value (the per-edge normalization alone leaves a
+    // 5-10 % residual cluster-scale wobble across the morph).
     const _aRaw = 1 + (Math.sqrt(3) - 1) * Math.max(0,  renderMorph);
     const _bRaw = 1 + (Math.sqrt(3) - 1) * Math.max(0, -renderMorph);
-    const _norm = 2 / (_aRaw + _bRaw);
-    const renderA = _aRaw * _norm;
-    const renderB = _bRaw * _norm;
+    const _morphNorm = 2 / (_aRaw + _bRaw);
+    const _aN = _aRaw * _morphNorm;
+    const _bN = _bRaw * _morphNorm;
+    const _MS = SQRT3_2;
+    const _Vax = (renderClusterCwLP2.a[0] + renderClusterCwLP2.a[1] * _MS + renderClusterCwLP2.a[2] * 0.5) / renderClusterMass;
+    const _Vay = (renderClusterCwLP2.a[3] + renderClusterCwLP2.a[1] * 0.5 + renderClusterCwLP2.a[2] * _MS) / renderClusterMass;
+    const _Vbx = (renderClusterCwLP2.b[0] + renderClusterCwLP2.b[1] * _MS + renderClusterCwLP2.b[2] * 0.5) / renderClusterMass;
+    const _Vby = (renderClusterCwLP2.b[3] + renderClusterCwLP2.b[1] * 0.5 + renderClusterCwLP2.b[2] * _MS) / renderClusterMass;
+    const _CnX = _aN * _Vax + _bN * _Vbx;
+    const _CnY = _aN * _Vay + _bN * _Vby;
+    const _Lcn = Math.hypot(_CnX, _CnY);
+    const _L11 = Math.hypot(_Vax + _Vbx, _Vay + _Vby);
+    const _clusterScale = _Lcn > 1e-9 ? _L11 / _Lcn : 1;
+    const renderA = _aN * _clusterScale;
+    const renderB = _bN * _clusterScale;
   </script>
 
   <script id="flatten" type="text/x-typescript">
@@ -1193,8 +1208,78 @@ struct VsOut {
     // spectre's frame so morph changes don't refit the view; the actual
     // hat/turtle envelopes are within ~√3× of these bounds.
     const renderStartingTile: TileName = "Delta";
+    // Reference depth used to derive a *depth-independent* orientation target
+    // for the morph rotation compensation. The natural cluster orientation
+    // rotates by ~10° per substitution level, so every increment of renderDepth
+    // would otherwise jump-rotate the figure; pinning to this fixed depth's
+    // angle absorbs that jump.
+    const ORIENTATION_REFERENCE_DEPTH = 4;
     let renderCluster = buildSpectreBase();
-    for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
+    // Track each metatile type's mass (leaf count) and mass-weighted centroid
+    // (Σ leaf positions, in LP²) through the substitution. The substitution is
+    // *not* conformal at a ≠ b — lp2Rotate swaps the (a, b) components on every
+    // odd rotation — so there's no single complex inflation factor. But the
+    // cluster centroid still follows a clean integer recurrence: cost is
+    // 9 × 8 × depth LP² ops, independent of the 17 M leaves below.
+    let cwMass: Record<TileName, number> = {} as Record<TileName, number>;
+    let cwLP2: Record<TileName, LP2> = {} as Record<TileName, LP2>;
+    for (const X of TILE_NAMES) {
+      cwMass[X] = X === "Gamma" ? 2 : 1;
+      // Γ at depth 0 has two leaves: Γ1 at origin and Γ2 at v₈.
+      cwLP2[X] = X === "Gamma" ? spectreLatticeVertices2[8] : LP2_ZERO;
+    }
+    const _scaleLP = (p: LP, k: number): LP =>
+      [p[0] * k, p[1] * k, p[2] * k, p[3] * k] as LP;
+    const _scaleLP2 = (p: LP2, k: number): LP2 =>
+      ({ a: _scaleLP(p.a, k), b: _scaleLP(p.b, k) });
+    let renderClusterCwLP2: LP2 = cwLP2[renderStartingTile];
+    let renderClusterMass:  number = cwMass[renderStartingTile];
+    let orientationRefCwLP2: LP2 = cwLP2[renderStartingTile];
+    let orientationRefMass:  number = cwMass[renderStartingTile];
+    // Drive the substitution to whichever depth is larger so the reference
+    // angle is always available even when renderDepth < REFERENCE_DEPTH.
+    const _maxRecDepth = Math.max(renderDepth, ORIENTATION_REFERENCE_DEPTH);
+    let _shadowCluster = renderCluster;
+    for (let i = 0; i < _maxRecDepth; i++) {
+      // Past renderDepth we keep advancing a shadow cluster (the metatile DAG
+      // is shared structurally, so this is cheap — no leaf-tree expansion).
+      if (i < renderDepth) {
+        renderCluster = buildSupertiles(renderCluster);
+        _shadowCluster = renderCluster;
+      } else {
+        _shadowCluster = buildSupertiles(_shadowCluster);
+      }
+      // Δ has all 8 substitution slots in order, so its geometries expose
+      // finalTransforms[0..7] for this level (other types skip null slots).
+      const Tfinal: Transform[] = _shadowCluster.Delta.geometries.map((g) => g.transform);
+      const newMass: Record<TileName, number> = {} as Record<TileName, number>;
+      const newCw: Record<TileName, LP2>     = {} as Record<TileName, LP2>;
+      for (const X of TILE_NAMES) {
+        const rules = superRules[X];
+        let m = 0;
+        let cwx: LP2 = LP2_ZERO;
+        for (let slot = 0; slot < rules.length; slot++) {
+          const cl = rules[slot];
+          if (cl === null) continue;
+          const T = Tfinal[slot];
+          const cm = cwMass[cl];
+          cwx = lp2Add(cwx, lp2Add(txApplyLinear(T, cwLP2[cl]), _scaleLP2(T.t, cm)));
+          m += cm;
+        }
+        newMass[X] = m;
+        newCw[X]   = cwx;
+      }
+      cwMass = newMass;
+      cwLP2  = newCw;
+      if (i + 1 === renderDepth) {
+        renderClusterCwLP2 = cwLP2[renderStartingTile];
+        renderClusterMass  = cwMass[renderStartingTile];
+      }
+      if (i + 1 === ORIENTATION_REFERENCE_DEPTH) {
+        orientationRefCwLP2 = cwLP2[renderStartingTile];
+        orientationRefMass  = cwMass[renderStartingTile];
+      }
+    }
     const renderRaw: RawPlacement[] = [];
     flattenMetaTileFast(renderCluster[renderStartingTile], renderRaw, renderDepth);
     // Even-parity tiles (rot ≡ 0 mod 2) become hats at hat morph; odd-parity
@@ -1217,17 +1302,27 @@ struct VsOut {
       for (let i = 0; i < renderRaw.length; i++) renderRaw[i] = partitioned[i];
     }
 
-    let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
-    // Inline lp2ToXY at (a, b) = (1, 1) so the bounds loop doesn't allocate
-    // three small arrays per leaf (2.15 M leaves at depth 7).
+    // Compute a *rotation-invariant* bounding circle (centered on the cluster
+    // centroid, not the axis-aligned bbox midpoint). The morph rotation pivots
+    // the cluster around its centroid, so an axis-aligned bbox of the
+    // unrotated cluster mismatches the rotated one and shifts the view-fit
+    // back and forth as renderDepth changes; a centroid-anchored circle is
+    // invariant to that rotation, and squaring it off preserves view-fit.
     const _BS = SQRT3_2;
+    const _CtX = ((renderClusterCwLP2.a[0] + renderClusterCwLP2.b[0])
+                + (renderClusterCwLP2.a[1] + renderClusterCwLP2.b[1]) * _BS
+                + (renderClusterCwLP2.a[2] + renderClusterCwLP2.b[2]) * 0.5) / renderClusterMass;
+    const _CtY = ((renderClusterCwLP2.a[3] + renderClusterCwLP2.b[3])
+                + (renderClusterCwLP2.a[1] + renderClusterCwLP2.b[1]) * 0.5
+                + (renderClusterCwLP2.a[2] + renderClusterCwLP2.b[2]) * _BS) / renderClusterMass;
+    let bMaxR2 = 0;
     for (let i = 0; i < renderRaw.length; i++) {
       const t = renderRaw[i].transform.t;
       const pa = t.a, pb = t.b;
-      const tx = (pa[0] + pb[0]) + (pa[1] + pb[1]) * _BS + (pa[2] + pb[2]) * 0.5;
-      const ty = (pa[3] + pb[3]) + (pa[1] + pb[1]) * 0.5 + (pa[2] + pb[2]) * _BS;
-      if (tx < bMinX) bMinX = tx; if (tx > bMaxX) bMaxX = tx;
-      if (ty < bMinY) bMinY = ty; if (ty > bMaxY) bMaxY = ty;
+      const tx = (pa[0] + pb[0]) + (pa[1] + pb[1]) * _BS + (pa[2] + pb[2]) * 0.5 - _CtX;
+      const ty = (pa[3] + pb[3]) + (pa[1] + pb[1]) * 0.5 + (pa[2] + pb[2]) * _BS - _CtY;
+      const d2 = tx * tx + ty * ty;
+      if (d2 > bMaxR2) bMaxR2 = d2;
     }
     // Index pass: convert label / ancestry strings to small integers and
     // pack into typed arrays so the color blend loop can use Float32Array
@@ -1251,9 +1346,10 @@ struct VsOut {
     // Pad by SPECTRE_RADIUS · √3 so the box covers the hat and turtle
     // envelopes too, not only the spectre.
     const SPECTRE_RADIUS = 3.6 * Math.sqrt(3);
+    const _R = Math.sqrt(bMaxR2) + SPECTRE_RADIUS;
     const renderBounds = {
-      minX: bMinX - SPECTRE_RADIUS, maxX: bMaxX + SPECTRE_RADIUS,
-      minY: bMinY - SPECTRE_RADIUS, maxY: bMaxY + SPECTRE_RADIUS,
+      minX: _CtX - _R, maxX: _CtX + _R,
+      minY: _CtY - _R, maxY: _CtY + _R,
     };
 
     display(html`<div style="text-align: center; color: #666; font-size: 0.85em; margin-top: 4px;">
@@ -1276,6 +1372,37 @@ struct VsOut {
       _sinTab[k] = Math.sin(k * Math.PI / 6);
     }
     const _S = SQRT3_2;
+    // Pin the cluster centroid's *direction* to a depth-independent target
+    // (the angle of the (1, 1) centroid at ORIENTATION_REFERENCE_DEPTH) so
+    // (a) sliding the morph doesn't visibly rotate, and (b) bumping the depth
+    // slider doesn't jump-rotate by the per-level ~10°. Magnitude is left to
+    // the existing scale compensation in render-morph; here we only set the
+    // rotation that brings C(a, b)(renderDepth)'s direction onto the target
+    // direction. Translation still lands the centroid on its (1, 1) position
+    // so the precomputed bounds continue to fit.
+    const _CaX = (renderClusterCwLP2.a[0] + renderClusterCwLP2.a[1] * _S + renderClusterCwLP2.a[2] * 0.5) / renderClusterMass;
+    const _CaY = (renderClusterCwLP2.a[3] + renderClusterCwLP2.a[1] * 0.5 + renderClusterCwLP2.a[2] * _S) / renderClusterMass;
+    const _CbX = (renderClusterCwLP2.b[0] + renderClusterCwLP2.b[1] * _S + renderClusterCwLP2.b[2] * 0.5) / renderClusterMass;
+    const _CbY = (renderClusterCwLP2.b[3] + renderClusterCwLP2.b[1] * 0.5 + renderClusterCwLP2.b[2] * _S) / renderClusterMass;
+    const _CabX = renderA * _CaX + renderB * _CbX;
+    const _CabY = renderA * _CaY + renderB * _CbY;
+    const _C11X = _CaX + _CbX;
+    const _C11Y = _CaY + _CbY;
+    // Reference-depth (1, 1) centroid → depth-independent target direction.
+    const _RaX = (orientationRefCwLP2.a[0] + orientationRefCwLP2.a[1] * _S + orientationRefCwLP2.a[2] * 0.5) / orientationRefMass;
+    const _RaY = (orientationRefCwLP2.a[3] + orientationRefCwLP2.a[1] * 0.5 + orientationRefCwLP2.a[2] * _S) / orientationRefMass;
+    const _RbX = (orientationRefCwLP2.b[0] + orientationRefCwLP2.b[1] * _S + orientationRefCwLP2.b[2] * 0.5) / orientationRefMass;
+    const _RbY = (orientationRefCwLP2.b[3] + orientationRefCwLP2.b[1] * 0.5 + orientationRefCwLP2.b[2] * _S) / orientationRefMass;
+    const _TgtX = _RaX + _RbX;
+    const _TgtY = _RaY + _RbY;
+    const _Lab2 = _CabX * _CabX + _CabY * _CabY;
+    const _Ltgt2 = _TgtX * _TgtX + _TgtY * _TgtY;
+    let _cosA = 1, _sinA = 0;
+    if (_Lab2 > 1e-12 && _Ltgt2 > 1e-12) {
+      const _inv = 1 / Math.sqrt(_Lab2 * _Ltgt2);
+      _cosA = (_CabX * _TgtX + _CabY * _TgtY) * _inv;
+      _sinA = (_CabX * _TgtY - _CabY * _TgtX) * _inv;
+    }
     for (let i = 0; i < renderRaw.length; i++) {
       const t = renderRaw[i].transform;
       const pa = t.t.a, pb = t.t.b;
@@ -1283,11 +1410,17 @@ struct VsOut {
       const ay = pa[3] + pa[1] * 0.5 + pa[2] * _S;
       const bx = pb[0] + pb[1] * _S + pb[2] * 0.5;
       const by = pb[3] + pb[1] * 0.5 + pb[2] * _S;
+      const rawX = renderA * ax + renderB * bx;
+      const rawY = renderA * ay + renderB * by;
+      // Pivot rotation about the (a, b) centroid, then translate so the
+      // centroid lands at its (1, 1) location: cluster centroid is screen-stable.
+      const sX = rawX - _CabX, sY = rawY - _CabY;
+      const ct = _cosTab[t.rot], st = _sinTab[t.rot];
       const base = i * 5;
-      renderPoses[base + 0] = renderA * ax + renderB * bx;
-      renderPoses[base + 1] = renderA * ay + renderB * by;
-      renderPoses[base + 2] = _cosTab[t.rot];
-      renderPoses[base + 3] = _sinTab[t.rot];
+      renderPoses[base + 0] = (_cosA * sX - _sinA * sY) + _C11X;
+      renderPoses[base + 1] = (_sinA * sX + _cosA * sY) + _C11Y;
+      renderPoses[base + 2] = _cosA * ct - _sinA * st;
+      renderPoses[base + 3] = _sinA * ct + _cosA * st;
       renderPoses[base + 4] = t.mirror ? -1 : 1;
     }
   </script>
@@ -1328,7 +1461,7 @@ struct VsOut {
     const _maxAncestry = renderDepth + 1;
     const _wts = new Float64Array(_maxAncestry + 1);
     for (let d = 0; d <= _maxAncestry; d++) {
-      const z = (d - renderColorLevel) / COLOR_BLEND_SIGMA;
+      const z = (d - renderDepth + renderColorLevel) / COLOR_BLEND_SIGMA;
       _wts[d] = Math.exp(-z * z);
     }
     // Per-tile lightness jitter via R₁ low-discrepancy sequence
