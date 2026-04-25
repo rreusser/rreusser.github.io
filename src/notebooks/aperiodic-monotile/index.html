@@ -445,8 +445,8 @@
       controlsContainer.appendChild(input);
       return Generators.input(input);
     }
-    const renderDepth = addControl(Inputs.range([0, 8], {
-      value: 7,
+    const renderDepth = addControl(Inputs.range([0, 7], {
+      value: 4,
       step: 1,
       label: "Substitution depth",
     }));
@@ -481,23 +481,63 @@
       Xi:     "#d4be7a", Pi:     "#87a7a7", Sigma:  "#c5b896",
       Phi:    "#95b58c", Psi:    "#b099b9",
     };
-    function hslToHex(h: number, s: number, l: number): string {
-      s /= 100; l /= 100;
-      const k = (n: number) => (n + h / 30) % 12;
-      const a = s * Math.min(l, 1 - l);
-      const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    // OKLCH → sRGB hex. OKLCH is perceptually uniform, so equal-L colors
+    // look equally bright (unlike HSL where yellow at L=50% appears far
+    // brighter than blue at L=50%), and a low fixed chroma keeps the whole
+    // palette muted without going muddy.
+    function oklchToHex(L: number, C: number, hueDeg: number): string {
+      const h = hueDeg * Math.PI / 180;
+      const a = C * Math.cos(h);
+      const b = C * Math.sin(h);
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l3 = l_ * l_ * l_;
+      const m3 = m_ * m_ * m_;
+      const s3 = s_ * s_ * s_;
+      let r = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+      let g = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+      let bl = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+      const toSrgb = (x: number) => {
+        if (x <= 0) return 0;
+        if (x >= 1) return 1;
+        return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1/2.4) - 0.055;
+      };
+      r = toSrgb(r); g = toSrgb(g); bl = toSrgb(bl);
       const hex = (x: number) => Math.round(255 * x).toString(16).padStart(2, '0');
-      return '#' + hex(f(0)) + hex(f(8)) + hex(f(4));
+      return '#' + hex(r) + hex(g) + hex(bl);
     }
+    // Pick 2 or 3 cluster centers spread evenly around the wheel
+    // (complementary or triadic), then scatter the 11 tile colors across
+    // those clusters with ±~30° hue jitter per cluster. Anchored L and C
+    // keep the whole set looking like one palette while the clusters give
+    // genuine contrast — neighbouring tiles look different, not muddy.
     function pleasantPalette(): Record<string, string> {
       const baseHue = Math.random() * 360;
-      const golden = 137.508;
+      const numClusters = 2 + Math.floor(Math.random() * 2); // 2 or 3
+      const clusterSpread = 25 + Math.random() * 15;          // ±25–40°
+      // No anchor — let L roam from near-black to near-white. Clusters
+      // give the hue cohesion; the wide L range gives the visual punch.
+      const Cc = 0.08 + Math.random() * 0.04;   // 0.08–0.12
+      const clusterHues: number[] = [];
+      for (let k = 0; k < numClusters; k++) {
+        clusterHues.push((baseHue + k * 360 / numClusters) % 360);
+      }
+      // Round-robin assignment, then shuffle within each cluster slot so
+      // tile labels don't always end up grouped the same way.
+      const slotOrder = ALL_TILE_LABELS.map((_, i) => i);
+      for (let i = slotOrder.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [slotOrder[i], slotOrder[j]] = [slotOrder[j], slotOrder[i]];
+      }
       const pal: Record<string, string> = {};
-      ALL_TILE_LABELS.forEach((name, i) => {
-        const h = (baseHue + i * golden) % 360;
-        const s = 28 + Math.random() * 22;   // 28–50%
-        const l = 60 + Math.random() * 18;   // 60–78%
-        pal[name] = hslToHex(h, s, l);
+      slotOrder.forEach((labelIdx, slot) => {
+        const cluster = slot % numClusters;
+        const h = (clusterHues[cluster]
+                  + (Math.random() - 0.5) * 2 * clusterSpread + 360) % 360;
+        const L = 0.15 + Math.random() * 0.78;   // 0.15–0.93, near-black ↔ near-white
+        const C = Cc + (Math.random() - 0.5) * 0.04;
+        pal[ALL_TILE_LABELS[labelIdx]] = oklchToHex(L, C, h);
       });
       return pal;
     }
@@ -599,7 +639,9 @@
 
     // Gaussian-peaked weights along the ancestor chain. d = 0 is the leaf
     // itself; d = 1 the immediate supertile, d = 2 its supertile, etc.
-    const COLOR_BLEND_SIGMA = 1.7;
+    // σ = 1 keeps the weight concentrated on the chosen ancestor so adjacent
+    // tiles stay distinguishable instead of blending toward the mean.
+    const COLOR_BLEND_SIGMA = 1.0;
 
     // Fast-path flatten that avoids the ~15 million
     // small-object/array allocations txCompose normally produces. We keep a
@@ -1093,13 +1135,10 @@ struct VsOut {
     // spectre's frame so morph changes don't refit the view; the actual
     // hat/turtle envelopes are within ~√3× of these bounds.
     const renderStartingTile: TileName = "Delta";
-    const _t0 = performance.now();
     let renderCluster = buildSpectreBase();
     for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
-    const _t1 = performance.now();
     const renderRaw: RawPlacement[] = [];
     flattenMetaTileFast(renderCluster[renderStartingTile], renderRaw, renderDepth);
-    const _t2 = performance.now();
     // Even-parity tiles (rot ≡ 0 mod 2) become hats at hat morph; odd-parity
     // tiles become turtles. The renderer draws each group with its own mesh,
     // so partition the placements (evens first) so the GPU can issue two
@@ -1119,7 +1158,6 @@ struct VsOut {
       }
       for (let i = 0; i < renderRaw.length; i++) renderRaw[i] = partitioned[i];
     }
-    const _t3 = performance.now();
 
     let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
     // Inline lp2ToXY at (a, b) = (1, 1) so the bounds loop doesn't allocate
@@ -1133,7 +1171,6 @@ struct VsOut {
       if (tx < bMinX) bMinX = tx; if (tx > bMaxX) bMaxX = tx;
       if (ty < bMinY) bMinY = ty; if (ty > bMaxY) bMaxY = ty;
     }
-    const _t4 = performance.now();
     // Index pass: convert label / ancestry strings to small integers and
     // pack into typed arrays so the color blend loop can use Float32Array
     // lookups instead of string-keyed object access.
@@ -1153,13 +1190,6 @@ struct VsOut {
         rawAncestryFlat[_ancCursor++] = LABEL_TO_IDX[r.ancestry[j]];
       }
     }
-    const _t5 = performance.now();
-    console.log(`[bench depth=${renderDepth} N=${renderRaw.length.toLocaleString()}] `
-      + `build=${(_t1 - _t0).toFixed(1)}ms `
-      + `flatten=${(_t2 - _t1).toFixed(1)}ms `
-      + `sort=${(_t3 - _t2).toFixed(1)}ms `
-      + `bounds=${(_t4 - _t3).toFixed(1)}ms `
-      + `index=${(_t5 - _t4).toFixed(1)}ms`);
     // Pad by SPECTRE_RADIUS · √3 so the box covers the hat and turtle
     // envelopes too, not only the spectre.
     const SPECTRE_RADIUS = 3.6 * Math.sqrt(3);
@@ -1178,7 +1208,6 @@ struct VsOut {
     // Morph-driven cell: project each LP² translation to cartesian using the
     // current (a, b) and pack pose floats. Re-runs whenever the morph slider
     // moves but not when only colors change.
-    const _tPoses0 = performance.now();
     const renderPoses = new Float32Array(renderRaw.length * 5);
     // Inline lp2ToXY so we don't allocate [ax,ay], [bx,by], [tx,ty] per leaf.
     // Precompute the 12 (cos, sin) rotations indexed by t.rot ∈ [0, 12).
@@ -1203,7 +1232,6 @@ struct VsOut {
       renderPoses[base + 3] = _sinTab[t.rot];
       renderPoses[base + 4] = t.mirror ? -1 : 1;
     }
-    console.log(`[bench poses N=${renderRaw.length.toLocaleString()}] ${(performance.now() - _tPoses0).toFixed(1)}ms`);
   </script>
 
   <script id="spectre-mesh-projected" type="text/x-typescript">
