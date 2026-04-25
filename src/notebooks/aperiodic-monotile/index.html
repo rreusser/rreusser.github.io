@@ -65,4 +65,92 @@
       </figcaption>
     </figure>`);
   </script>
+
+  <script id="lattice-section" type="text/markdown">
+    ## The ℤ[ω] lattice
+
+    Every vertex coordinate above has the form ${tex`a + b\sqrt{3}/2 + c/2`} for real and ${tex`d + b/2 + c\sqrt{3}/2`} for imaginary, with ${tex`a, b, c, d \in \mathbb{Z}`}. Equivalently, every position is an integer combination of the powers of ${tex`\omega = e^{i\pi/6}`}:
+
+    ${tex.block`p = a + b\,\omega + c\,\omega^2 + d\,\omega^3, \qquad a, b, c, d \in \mathbb{Z}.`}
+
+    Because ${tex`\omega`} satisfies its cyclotomic relation ${tex`\omega^4 = \omega^2 - 1`}, the four-tuple ${tex`(a, b, c, d)`} is a closed, exact representation: rotation by 30° (multiplication by ${tex`\omega`}) and complex conjugation (the chirality mirror) are both integer permutations of the four coefficients. Doing the substitution arithmetic in this lattice avoids floating-point drift no matter how deep we recurse.
+  </script>
+
+  <script id="lattice-math" type="text/x-typescript">
+    type LP = [number, number, number, number];
+
+    const lpAdd = (p: LP, q: LP): LP => [p[0]+q[0], p[1]+q[1], p[2]+q[2], p[3]+q[3]];
+    const lpSub = (p: LP, q: LP): LP => [p[0]-q[0], p[1]-q[1], p[2]-q[2], p[3]-q[3]];
+    const lpNeg = (p: LP): LP => [-p[0], -p[1], -p[2], -p[3]];
+
+    // (a + b·ω + c·ω² + d·ω³)·ω = -d + a·ω + (b+d)·ω² + c·ω³,
+    // since ω⁴ = ω² - 1.
+    const lpMulOmega = (p: LP): LP => [-p[3], p[0], p[1] + p[3], p[2]];
+
+    // Multiplication by ω^k for any integer k (mod 12).
+    function lpRotate(p: LP, k: number): LP {
+      k = ((k % 12) + 12) % 12;
+      let q: LP = [p[0], p[1], p[2], p[3]];
+      for (let i = 0; i < k; i++) q = lpMulOmega(q);
+      return q;
+    }
+
+    // Complex conjugation. conj(ω) = ω^11, conj(ω²) = ω^10, conj(ω³) = ω^9.
+    const lpConj = (p: LP): LP =>
+      [p[0] + p[2], p[1], -p[2], -p[1] - p[3]];
+
+    // Convert to cartesian (x, y).
+    const SQRT3_2 = Math.sqrt(3) / 2;
+    const lpToXY = (p: LP): [number, number] => [
+      p[0] + p[1] * SQRT3_2 + p[2] * 0.5,
+      p[3] + p[1] * 0.5 + p[2] * SQRT3_2,
+    ];
+  </script>
+
+  <script id="spectre-lattice-vertices" type="text/x-typescript">
+    // Same 14 spectre vertices, expressed as integer points in ℤ[ω].
+    const spectreLatticeVertices: LP[] = [
+      [0,  0,  0, 0],   //  0: (0, 0)
+      [1,  0,  0, 0],   //  1: (1, 0)
+      [2,  0, -1, 0],   //  2: (3/2, -√3/2)
+      [2,  1, -1, 0],   //  3: (3/2 + √3/2, 1/2 - √3/2)
+      [2,  1, -1, 1],   //  4: (3/2 + √3/2, 3/2 - √3/2)
+      [3,  1, -1, 1],   //  5: (5/2 + √3/2, 3/2 - √3/2)
+      [3,  1,  0, 1],   //  6: (3 + √3/2, 3/2)
+      [3,  0,  0, 2],   //  7: (3, 2)
+      [3, -1,  0, 2],   //  8: (3 - √3/2, 3/2)
+      [2, -1,  1, 2],   //  9: (5/2 - √3/2, 3/2 + √3/2)
+      [1, -1,  1, 2],   // 10: (3/2 - √3/2, 3/2 + √3/2)
+      [0, -1,  1, 2],   // 11: (1/2 - √3/2, 3/2 + √3/2)
+      [0, -1,  0, 2],   // 12: (-√3/2, 3/2)
+      [0,  0,  0, 1],   // 13: (0, 1)
+    ];
+  </script>
+
+  <script id="spectre-lattice-check" type="text/x-typescript">
+    // Sanity check: lattice vertices project to the same cartesian points,
+    // and all 14 edges have unit length when a = b = 1.
+    const tol = 1e-12;
+    const projected = spectreLatticeVertices.map(lpToXY);
+    let maxDelta = 0;
+    for (let i = 0; i < 14; i++) {
+      const dx = projected[i][0] - spectreVertices[i][0];
+      const dy = projected[i][1] - spectreVertices[i][1];
+      maxDelta = Math.max(maxDelta, Math.hypot(dx, dy));
+    }
+    const edgeLengths = spectreLatticeVertices.map((_, i) => {
+      const a = projected[i];
+      const b = projected[(i + 1) % 14];
+      return Math.hypot(a[0] - b[0], a[1] - b[1]);
+    });
+    const maxEdgeError = Math.max(...edgeLengths.map((l) => Math.abs(l - 1)));
+
+    const ok = maxDelta < tol && maxEdgeError < tol;
+    display(html`<div style="font-size: 0.9em; padding: 0.5em 0.8em; border-radius: 4px;
+                              background: ${ok ? '#e7f5ea' : '#fbe9e9'};
+                              color: ${ok ? '#1d5b2c' : '#7a1414'}; font-family: monospace;">
+      lattice ↔ cartesian max error: ${maxDelta.toExponential(2)}<br>
+      edge length max deviation from 1: ${maxEdgeError.toExponential(2)}
+    </div>`);
+  </script>
 </notebook>
