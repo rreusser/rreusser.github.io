@@ -75,6 +75,60 @@
     const m10 = Generators.input(m10Input);
     const m11 = Generators.input(m11Input);
 
+    // Live readout: pretty-printed matrix + det/tr + status of whether the
+    // continuous flow is well-defined and seamlessly periodic on Z².
+    const matrixReadout = html`<div style="margin: 0.4rem 0; font-size: 0.95em;"></div>`;
+    const matrixStatus  = html`<div style="font-size: 0.85em; line-height: 1.4; margin: 0.2rem 0 0.6rem;"></div>`;
+    controlsContainer.append(matrixReadout, matrixStatus);
+
+    function updateReadout() {
+      const [a, b, c, d] = matrixInputs.map(inp => +(inp as HTMLInputElement).value);
+      const det = a * d - b * c;
+      const tr  = a + d;
+      const disc = tr * tr - 4 * det;
+      const isInt = [a, b, c, d].every(Number.isInteger);
+
+      matrixReadout.replaceChildren(tex`
+        M = \begin{pmatrix} ${a} & ${b} \\ ${c} & ${d} \end{pmatrix}
+        \quad \det M = ${det}
+        \quad \mathrm{tr}\,M = ${tr}
+        \quad \mathrm{disc} = ${disc}
+      `);
+
+      let color: string, msg: string;
+      if (det !== 1) {
+        color = '#b33'; msg =
+          `det ≠ 1: M is not a unimodular bijection of ℤ², so the lattice ` +
+          `at t = 1 is not the lattice at t = 0 and the loop cannot close.`;
+      } else if (disc < 0) {
+        color = '#b33'; msg =
+          `tr² < 4·det: eigenvalues are complex (M is conjugate to a rotation). ` +
+          `log M is not real, so M^t cannot be drawn as a real flow.`;
+      } else if (tr < 0) {
+        color = '#b33'; msg =
+          `tr < 0 with det = 1: both eigenvalues are negative. ` +
+          `log M is not real, so M^t cannot be drawn as a real flow.`;
+      } else if (disc === 0) {
+        color = '#888'; msg =
+          isInt
+            ? `Parabolic boundary case (tr² = 4·det): M^t = I + t (M − I) is a pure ` +
+              `shear with the entire eigenline fixed. Loop closes seamlessly.`
+            : `Parabolic boundary case (tr² = 4·det): M^t = I + t (M − I). ` +
+              `Non-integer entries: lattice not preserved.`;
+      } else {
+        color = isInt ? '#185fa5' : '#888';
+        msg = isInt
+          ? `Hyperbolic with det = 1, tr ≥ 2: real eigenvalues, lattice-preserving. ` +
+            `Loop closes seamlessly.`
+          : `Hyperbolic, but non-integer entries: real flow is well-defined yet the ` +
+            `dot pattern does not return to the lattice at t = 1.`;
+      }
+      matrixStatus.style.color = color;
+      matrixStatus.textContent = msg;
+    }
+    matrixInputs.forEach(inp => inp.addEventListener('input', updateReadout));
+    updateReadout();
+
     const period = ctrl(Inputs.range([2, 20], {
       label: "Period (s)", value: 8, step: 0.5
     }));
