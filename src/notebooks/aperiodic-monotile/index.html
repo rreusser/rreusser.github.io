@@ -388,7 +388,7 @@
     // Gaussian-peaked weights along the ancestor chain. d = 0 is the leaf
     // itself; d = 1 the immediate supertile, d = 2 its supertile, etc. σ
     // is small so the chosen level dominates and colors stay saturated.
-    const COLOR_BLEND_SIGMA = 0.45;
+    const COLOR_BLEND_SIGMA = 0.7;
     function ancestorWeight(d: number, k0: number): number {
       const z = (d - k0) / COLOR_BLEND_SIGMA;
       return Math.exp(-z * z);
