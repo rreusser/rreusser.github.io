@@ -436,30 +436,21 @@
   </script>
 
   <script id="spectre-mesh" type="text/x-typescript">
-    // Triangle fan from vertex 0, expanded to 36 unique vertices so each
-    // triangle can carry its own per-vertex `edgeBary` attribute. Component k
-    // of edgeBary is barycentric weight α of vertex k IF the opposite edge is
-    // a polygon-boundary edge, else 1 throughout. In the fragment shader,
-    // `edgeBary / fwidth(edgeBary)` then gives pixel-distance only along
-    // boundary edges; other components stay at +∞.
-    const meshVertexData = new Float32Array(36 * 5);
-    {
-      let v = 0;
-      for (let i = 0; i < 12; i++) {
-        const bf_BC = 1;                    // V_{i+1} ↔ V_{i+2}: always polygon edge
-        const bf_CA = i === 11 ? 1 : 0;     // V_{i+2} ↔ V_0: only when i+2 = 13
-        const bf_AB = i === 0  ? 1 : 0;     // V_0     ↔ V_{i+1}: only when i+1 = 1
-        const A = spectreVertices[0];
-        const B = spectreVertices[i + 1];
-        const C = spectreVertices[i + 2];
-        const writeVert = (p: [number, number], ex: number, ey: number, ez: number) => {
-          meshVertexData[v++] = p[0]; meshVertexData[v++] = p[1];
-          meshVertexData[v++] = ex; meshVertexData[v++] = ey; meshVertexData[v++] = ez;
-        };
-        writeVert(A, 1, bf_CA ? 0 : 1, bf_AB ? 0 : 1);
-        writeVert(B, bf_BC ? 0 : 1, 1, bf_AB ? 0 : 1);
-        writeVert(C, bf_BC ? 0 : 1, bf_CA ? 0 : 1, 1);
-      }
+    // 14 cartesian spectre vertices, used by both the fill (triangle fan from
+    // vertex 0 ⇒ 12 triangles ⇒ 36 indices) and the outline (line list of the
+    // 14 polygon edges ⇒ 28 indices). Sharing the vertex buffer keeps the
+    // upload tiny and lets both passes consume the same per-instance buffer.
+    const meshVertexData = new Float32Array(spectreVertices.flat());
+    const meshFillIndices = new Uint16Array(36);
+    for (let i = 0; i < 12; i++) {
+      meshFillIndices[i * 3 + 0] = 0;
+      meshFillIndices[i * 3 + 1] = i + 1;
+      meshFillIndices[i * 3 + 2] = i + 2;
+    }
+    const meshOutlineIndices = new Uint16Array(28);
+    for (let i = 0; i < 14; i++) {
+      meshOutlineIndices[i * 2 + 0] = i;
+      meshOutlineIndices[i * 2 + 1] = (i + 1) % 14;
     }
   </script>
 
@@ -484,7 +475,7 @@
   </script>
 
   <script id="gpu-pipeline" type="text/x-typescript">
-    import { createVertexBuffer, createUniformBuffer } from './lib/webgpu-canvas.js';
+    import { createVertexBuffer, createIndexBuffer, createUniformBuffer } from './lib/webgpu-canvas.js';
     import { expandable } from './lib/expandable.js';
 
     const SAMPLE_COUNT = 4;
@@ -501,29 +492,42 @@
     gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
 
     const meshVertexBuffer = createVertexBuffer(device, 'spectre-verts', meshVertexData);
+    const fillIndexBuffer = createIndexBuffer(device, 'spectre-fill-indices', meshFillIndices);
+    const outlineIndexBuffer = createIndexBuffer(device, 'spectre-outline-indices', meshOutlineIndices);
     const viewUniformBuffer = createUniformBuffer(device, 'view-uniforms', 16);
     const paletteBuffer = createUniformBuffer(device, 'palette', paletteData);
 
-    const shader = device.createShaderModule({
-      label: 'spectre-tiling',
+    const vertexLayouts: GPUVertexBufferLayout[] = [
+      {
+        arrayStride: 8,
+        stepMode: 'vertex',
+        attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+      },
+      {
+        arrayStride: 24,
+        stepMode: 'instance',
+        attributes: [
+          { shaderLocation: 1, offset: 0,  format: 'float32x4' },  // tx, ty, cos, sin
+          { shaderLocation: 2, offset: 16, format: 'float32x2' },  // mirrorSign, labelId
+        ],
+      },
+    ];
+
+    const fillShader = device.createShaderModule({
+      label: 'spectre-fill',
       code: `
-struct View {
-  scale: vec2f,
-  offset: vec2f,
-};
+struct View { scale: vec2f, offset: vec2f };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<uniform> palette: array<vec4f, ${tileLabelOrder.length}>;
 
 struct VsIn {
   @location(0) pos: vec2f,
-  @location(1) edgeBary: vec3f,
-  @location(2) iTrans: vec4f,
-  @location(3) iAttr: vec2f,
+  @location(1) iTrans: vec4f,
+  @location(2) iAttr: vec2f,
 };
 struct VsOut {
   @builtin(position) pos: vec4f,
   @location(0) color: vec3f,
-  @location(1) edgeBary: vec3f,
 };
 
 @vertex fn vs(in: VsIn) -> VsOut {
@@ -533,64 +537,72 @@ struct VsOut {
     in.iTrans.w * m.x + in.iTrans.z * m.y,
   );
   let world = r + in.iTrans.xy;
-  let clip = world * view.scale + view.offset;
   var out: VsOut;
-  out.pos = vec4f(clip, 0.0, 1.0);
+  out.pos = vec4f(world * view.scale + view.offset, 0.0, 1.0);
   out.color = palette[u32(in.iAttr.y)].rgb;
-  out.edgeBary = in.edgeBary;
   return out;
 }
-
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
-  // Pixel-space distance to the nearest polygon-boundary edge of this
-  // triangle. Components whose corresponding edge is interior were set
-  // constant=1 at all three vertices, so fwidth → 0 → distance → +∞.
-  let fw = fwidth(in.edgeBary);
-  let dEach = in.edgeBary / max(fw, vec3f(1e-8));
-  let dist = min(min(dEach.x, dEach.y), dEach.z);
-  let edgeAmt = 1.0 - smoothstep(0.5, 1.5, dist);
-  let edgeColor = vec3f(0.13, 0.13, 0.13);
-  return vec4f(mix(in.color, edgeColor, edgeAmt), 1.0);
+  return vec4f(in.color, 1.0);
 }
 `,
     });
 
-    const pipeline = device.createRenderPipeline({
-      label: 'spectre-pipeline',
+    const outlineShader = device.createShaderModule({
+      label: 'spectre-outline',
+      code: `
+struct View { scale: vec2f, offset: vec2f };
+@group(0) @binding(0) var<uniform> view: View;
+
+struct VsIn {
+  @location(0) pos: vec2f,
+  @location(1) iTrans: vec4f,
+  @location(2) iAttr: vec2f,
+};
+
+@vertex fn vs(in: VsIn) -> @builtin(position) vec4f {
+  let m = vec2f(in.pos.x, in.pos.y * in.iAttr.x);
+  let r = vec2f(
+    in.iTrans.z * m.x - in.iTrans.w * m.y,
+    in.iTrans.w * m.x + in.iTrans.z * m.y,
+  );
+  let world = r + in.iTrans.xy;
+  return vec4f(world * view.scale + view.offset, 0.0, 1.0);
+}
+@fragment fn fs() -> @location(0) vec4f {
+  return vec4f(0.13, 0.13, 0.13, 1.0);
+}
+`,
+    });
+
+    const fillPipeline = device.createRenderPipeline({
+      label: 'spectre-fill-pipeline',
       layout: 'auto',
-      vertex: {
-        module: shader,
-        entryPoint: 'vs',
-        buffers: [
-          {
-            arrayStride: 20,
-            stepMode: 'vertex',
-            attributes: [
-              { shaderLocation: 0, offset: 0,  format: 'float32x2' },
-              { shaderLocation: 1, offset: 8,  format: 'float32x3' },
-            ],
-          },
-          {
-            arrayStride: 24,
-            stepMode: 'instance',
-            attributes: [
-              { shaderLocation: 2, offset: 0,  format: 'float32x4' },
-              { shaderLocation: 3, offset: 16, format: 'float32x2' },
-            ],
-          },
-        ],
-      },
-      fragment: { module: shader, entryPoint: 'fs', targets: [{ format: canvasFormat }] },
+      vertex:   { module: fillShader,    entryPoint: 'vs', buffers: vertexLayouts },
+      fragment: { module: fillShader,    entryPoint: 'fs', targets: [{ format: canvasFormat }] },
       primitive: { topology: 'triangle-list' },
       multisample: { count: SAMPLE_COUNT },
     });
 
-    const bindGroup = device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
+    const outlinePipeline = device.createRenderPipeline({
+      label: 'spectre-outline-pipeline',
+      layout: 'auto',
+      vertex:   { module: outlineShader, entryPoint: 'vs', buffers: vertexLayouts },
+      fragment: { module: outlineShader, entryPoint: 'fs', targets: [{ format: canvasFormat }] },
+      primitive: { topology: 'line-list' },
+      multisample: { count: SAMPLE_COUNT },
+    });
+
+    const fillBindGroup = device.createBindGroup({
+      layout: fillPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: viewUniformBuffer } },
         { binding: 1, resource: { buffer: paletteBuffer } },
       ],
+    });
+    const outlineBindGroup = device.createBindGroup({
+      layout: outlinePipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: viewUniformBuffer } }],
     });
 
     type Bounds = { minX: number; maxX: number; minY: number; maxY: number };
@@ -624,6 +636,10 @@ struct VsOut {
           format: canvasFormat,
           usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
+        // First valid pixel size: derive the initial fit from the bounds we
+        // already received from gpu-render. Subsequent resizes preserve the
+        // user's pan/zoom (pixelScale stays in physical pixels per world unit).
+        if (this.lastBounds && this.pixelScale === 0) this.fitBounds(this.lastBounds);
         if (this.lastBounds) this.redraw();
       },
       ensureInstanceBuffer(count: number) {
@@ -669,11 +685,19 @@ struct VsOut {
             storeOp: 'discard',
           }],
         });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bindGroup);
         pass.setVertexBuffer(0, meshVertexBuffer);
         pass.setVertexBuffer(1, this.instanceBuffer);
-        pass.draw(36, this.lastCount);
+
+        pass.setPipeline(fillPipeline);
+        pass.setBindGroup(0, fillBindGroup);
+        pass.setIndexBuffer(fillIndexBuffer, 'uint16');
+        pass.drawIndexed(36, this.lastCount);
+
+        pass.setPipeline(outlinePipeline);
+        pass.setBindGroup(0, outlineBindGroup);
+        pass.setIndexBuffer(outlineIndexBuffer, 'uint16');
+        pass.drawIndexed(28, this.lastCount);
+
         pass.end();
         device.queue.submit([encoder.finish()]);
       },
