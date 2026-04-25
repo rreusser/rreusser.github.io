@@ -153,4 +153,262 @@
       edge length max deviation from 1: ${maxEdgeError.toExponential(2)}
     </div>`);
   </script>
+
+  <script id="transform-section" type="text/markdown">
+    ## Transforms
+
+    A rigid placement of a tile is the composition of a rotation by ${tex`30°k`}, an optional chirality mirror, and a lattice translation:
+
+    ${tex.block`T(p) = \omega^k \cdot \big(\text{mirror}? \,\overline{p} : p\big) + t,`}
+
+    with ${tex`k \in \{0, \dotsc, 11\}`}, mirror ${tex`\in \{0, 1\}`}, and ${tex`t \in \mathbb{Z}[\omega]`}. Composing two such transforms stays in this group, with the only subtlety that a mirror flips the sign of the next rotation: ${tex`F R = R^{-1} F`}.
+  </script>
+
+  <script id="transform-math" type="text/x-typescript">
+    type Transform = { rot: number; mirror: 0 | 1; t: LP };
+
+    const txIdentity: Transform = { rot: 0, mirror: 0, t: [0, 0, 0, 0] };
+
+    function txApply(T: Transform, p: LP): LP {
+      const q = T.mirror ? lpConj(p) : p;
+      return lpAdd(lpRotate(q, T.rot), T.t);
+    }
+
+    // Apply just the linear (rotation+mirror) part to a lattice vector.
+    function txApplyLinear(T: Transform, p: LP): LP {
+      const q = T.mirror ? lpConj(p) : p;
+      return lpRotate(q, T.rot);
+    }
+
+    // (T1 ∘ T2)(p) = T1(T2(p)).
+    // Rotations and mirrors compose as M1·M2 = R^(r1 + (-1)^m1·r2) · F^(m1 ⊕ m2);
+    // translation is M1·t2 + t1.
+    function txCompose(T1: Transform, T2: Transform): Transform {
+      const sign = T1.mirror ? -1 : 1;
+      const rot = (((T1.rot + sign * T2.rot) % 12) + 12) % 12;
+      const mirror = (T1.mirror ^ T2.mirror) as 0 | 1;
+      const t = lpAdd(txApplyLinear(T1, T2.t), T1.t);
+      return { rot, mirror, t };
+    }
+
+    // Translation-only transform.
+    const txTranslate = (t: LP): Transform => ({ rot: 0, mirror: 0, t });
+
+    // Pure rotation by k·30°.
+    const txRotate = (k: number): Transform =>
+      ({ rot: ((k % 12) + 12) % 12, mirror: 0, t: [0, 0, 0, 0] });
+  </script>
+
+  <script id="substitution-section" type="text/markdown">
+    ## Substitution rules
+
+    Spectres are organized into nine *metatile* types (Γ, Δ, Θ, Λ, Ξ, Π, Σ, Φ, Ψ). Each metatile carries a *quad* — four distinguished points indexed 3, 5, 7, 11 of the spectre — that it uses to glue to its neighbours. To inflate the tiling one level, every metatile is replaced by a fixed sequence of eight smaller metatiles, each placed by one of seven inter-tile transforms (the first slot is the identity).
+
+    The two tables below come straight from Kaplan's reference implementation: \`transformationRules\` is a sequence of \`[rotation in 30° units, source quad index, target quad index]\` triples that build up the seven non-identity transforms; \`superRules\` selects which of the nine metatile types fills each of the eight slots for each parent type. The Γ entry has \`null\` in slot 2 — Γ supertiles only take seven children, not eight.
+  </script>
+
+  <script id="substitution-data" type="text/x-typescript">
+    const TILE_NAMES = ["Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Phi", "Psi"] as const;
+    type TileName = typeof TILE_NAMES[number];
+
+    // [rotation in units of 30°, from-quad index, to-quad index]
+    const transformationRules: [number, number, number][] = [
+      [ 2, 3, 1],
+      [ 0, 2, 0],
+      [ 2, 3, 1],
+      [ 2, 3, 1],
+      [ 0, 2, 0],
+      [ 2, 3, 1],
+      [-4, 3, 3],
+    ];
+
+    const superRules: Record<TileName, (TileName | null)[]> = {
+      Gamma:  ["Pi",  "Delta", null,  "Theta", "Sigma", "Xi",  "Phi",    "Gamma"],
+      Delta:  ["Xi",  "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Theta:  ["Psi", "Delta", "Pi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Lambda: ["Psi", "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Xi:     ["Psi", "Delta", "Pi",  "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+      Pi:     ["Psi", "Delta", "Xi",  "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+      Sigma:  ["Xi",  "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Lambda", "Gamma"],
+      Phi:    ["Psi", "Delta", "Psi", "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Psi:    ["Psi", "Delta", "Psi", "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+    };
+
+    // The four spectre indices that act as a metatile's "quad" handles.
+    const QUAD_INDICES = [3, 5, 7, 11] as const;
+    const baseQuad: LP[] = QUAD_INDICES.map((i) => spectreLatticeVertices[i]);
+  </script>
+
+  <script id="metatile-section" type="text/markdown">
+    ## Building supertiles
+
+    The substitution recursion is identical to Kaplan's reference Python with two changes: every coordinate is a lattice point, and every transform is a `{rot, mirror, t}` record built from integer operations. \`buildSpectreBase\` returns the nine starting metatiles — eight are bare spectres, and Γ is the special "mystic" pair: two overlapping spectres that lock the chirality. Each call to \`buildSupertiles\` consumes the current cluster of nine metatiles and produces the next-level cluster, using the seven transforms derived from the rule table and a final reflection.
+  </script>
+
+  <script id="metatile-build" type="text/x-typescript">
+    type LeafLabel = TileName | "Gamma1" | "Gamma2";
+    type MetaTile =
+      | { kind: "leaf"; label: LeafLabel; quad: LP[] }
+      | { kind: "meta"; geometries: { child: MetaTile; transform: Transform }[]; quad: LP[] };
+
+    function buildSpectreBase(): Record<TileName, MetaTile> {
+      const cluster = {} as Record<TileName, MetaTile>;
+      for (const label of TILE_NAMES) {
+        if (label !== "Gamma") {
+          cluster[label] = { kind: "leaf", label, quad: baseQuad };
+        }
+      }
+      // Mystic Γ: two spectres glued with a 30° rotation about vertex 8.
+      cluster.Gamma = {
+        kind: "meta",
+        quad: baseQuad,
+        geometries: [
+          {
+            child: { kind: "leaf", label: "Gamma1", quad: baseQuad },
+            transform: txIdentity,
+          },
+          {
+            child: { kind: "leaf", label: "Gamma2", quad: baseQuad },
+            transform: txCompose(
+              txTranslate(spectreLatticeVertices[8]),
+              txRotate(1),
+            ),
+          },
+        ],
+      };
+      return cluster;
+    }
+
+    function buildSupertiles(prev: Record<TileName, MetaTile>): Record<TileName, MetaTile> {
+      const quad = prev.Delta.quad;
+
+      // Build the seven non-identity transforms by walking the rule table.
+      const transformations: Transform[] = [txIdentity];
+      let totalRot = 0;
+      let rotation: Transform = txIdentity;
+      let rotatedQuad: LP[] = quad;
+
+      for (const [deltaRot, fromIdx, toIdx] of transformationRules) {
+        if (deltaRot !== 0) {
+          totalRot = (((totalRot + deltaRot) % 12) + 12) % 12;
+          rotation = txRotate(totalRot);
+          rotatedQuad = quad.map((p) => txApplyLinear(rotation, p));
+        }
+        const target = txApply(transformations[transformations.length - 1], quad[fromIdx]);
+        const source = rotatedQuad[toIdx];
+        const delta = lpSub(target, source);
+        transformations.push({ rot: rotation.rot, mirror: 0, t: delta });
+      }
+
+      // Reflect everything across the y-axis: R(x, y) = (-x, y) = ω⁶ · conj.
+      const R: Transform = { rot: 6, mirror: 1, t: [0, 0, 0, 0] };
+      const finalTransforms = transformations.map((T) => txCompose(R, T));
+
+      // The supertile's own quad is built from specific child quad points.
+      const superQuad: LP[] = [
+        txApply(finalTransforms[6], quad[2]),
+        txApply(finalTransforms[5], quad[1]),
+        txApply(finalTransforms[3], quad[2]),
+        txApply(finalTransforms[0], quad[1]),
+      ];
+
+      const next = {} as Record<TileName, MetaTile>;
+      for (const label of TILE_NAMES) {
+        const subs = superRules[label];
+        const geometries: { child: MetaTile; transform: Transform }[] = [];
+        for (let i = 0; i < subs.length; i++) {
+          const sub = subs[i];
+          if (sub === null) continue;
+          geometries.push({ child: prev[sub], transform: finalTransforms[i] });
+        }
+        next[label] = { kind: "meta", quad: superQuad, geometries };
+      }
+      return next;
+    }
+  </script>
+
+  <script id="render-section" type="text/markdown">
+    ## A first tiling
+
+    Walking the metatile tree to a flat list of \`(transform, label)\` placements and rendering each as the spectre polygon. At level 1 starting from a Δ supertile, this is just enough to see the substitution working before we build out the WebGPU renderer.
+  </script>
+
+  <script id="flatten" type="text/x-typescript">
+    type Placement = { transform: Transform; label: LeafLabel };
+
+    function flattenMetaTile(
+      mt: MetaTile,
+      parent: Transform = txIdentity,
+      out: Placement[] = [],
+    ): Placement[] {
+      if (mt.kind === "leaf") {
+        out.push({ transform: parent, label: mt.label });
+      } else {
+        for (const { child, transform } of mt.geometries) {
+          flattenMetaTile(child, txCompose(parent, transform), out);
+        }
+      }
+      return out;
+    }
+
+    // Per-label fill colors. Γ1 and Γ2 are slightly different shades so the
+    // mystic pair is visible.
+    const tileColors: Record<LeafLabel, string> = {
+      Gamma:  "#ffffff",
+      Gamma1: "#c4c9a9",
+      Gamma2: "#9ca074",
+      Delta:  "#dcdcdc",
+      Theta:  "#ffbfbf",
+      Lambda: "#ffa07a",
+      Xi:     "#fff200",
+      Pi:     "#87cefa",
+      Sigma:  "#f5f5dc",
+      Phi:    "#00ff00",
+      Psi:    "#00ffff",
+    };
+  </script>
+
+  <script id="render-svg" type="text/x-typescript">
+    const startingTile: TileName = "Delta";
+    const depth = 1;
+
+    let cluster = buildSpectreBase();
+    for (let i = 0; i < depth; i++) cluster = buildSupertiles(cluster);
+    const placements = flattenMetaTile(cluster[startingTile]);
+
+    // Project each placement onto cartesian polygons.
+    const polygons = placements.map(({ transform, label }) => ({
+      label,
+      pts: spectreLatticeVertices.map((v) => lpToXY(txApply(transform, v))),
+    }));
+
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    for (const { pts } of polygons) {
+      for (const [x, y] of pts) {
+        if (x < xMin) xMin = x;
+        if (x > xMax) xMax = x;
+        if (y < yMin) yMin = y;
+        if (y > yMax) yMax = y;
+      }
+    }
+    const pad = 0.5;
+    const vbW = xMax - xMin + 2 * pad;
+    const vbH = yMax - yMin + 2 * pad;
+    const size = Math.min(width, 640);
+
+    display(html`<figure style="margin: 0;">
+      <svg viewBox="${xMin - pad} ${-yMax - pad} ${vbW} ${vbH}"
+           width="${size}" height="${size * vbH / vbW}"
+           style="background: #fafafa; border: 1px solid #eee;">
+        ${polygons.map(({ pts, label }) => html`
+          <polygon points="${pts.map(([x, y]) => `${x},${-y}`).join(" ")}"
+                   fill="${tileColors[label]}" stroke="#222"
+                   stroke-width="0.03" stroke-linejoin="round" />
+        `)}
+      </svg>
+      <figcaption style="font-size: 0.85em; color: #666;">
+        ${placements.length} spectres after ${depth} substitution${depth === 1 ? "" : "s"} from a Δ supertile.
+      </figcaption>
+    </figure>`);
+  </script>
 </notebook>
