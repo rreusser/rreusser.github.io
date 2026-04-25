@@ -121,9 +121,21 @@
     const lp2Add  = (p: LP2, q: LP2): LP2 => ({ a: lpAdd(p.a, q.a), b: lpAdd(p.b, q.b) });
     const lp2Sub  = (p: LP2, q: LP2): LP2 => ({ a: lpSub(p.a, q.a), b: lpSub(p.b, q.b) });
     const lp2Neg  = (p: LP2): LP2          => ({ a: lpNeg(p.a),     b: lpNeg(p.b) });
+    // Mirror across x-axis: direction d ↦ −d (mod 12), which preserves parity,
+    // so a-edges stay a-edges and b-edges stay b-edges. No component swap.
     const lp2Conj = (p: LP2): LP2          => ({ a: lpConj(p.a),    b: lpConj(p.b) });
-    const lp2Rotate = (p: LP2, k: number): LP2 =>
-      ({ a: lpRotate(p.a, k), b: lpRotate(p.b, k) });
+    // Rotation by k·30° flips the parity of every edge direction iff k is odd.
+    // a-edges live at even world directions (length a), b-edges at odd (length b);
+    // an odd rotation moves every a-direction to an odd direction and vice versa,
+    // so the rotated a-component physically becomes the new b-component, and vice
+    // versa. Concretely: rotate both halves, then swap them when k is odd. At
+    // a = b this swap is invisible, which is why the spectre case worked without it.
+    const lp2Rotate = (p: LP2, k: number): LP2 => {
+      const ra = lpRotate(p.a, k);
+      const rb = lpRotate(p.b, k);
+      const odd = ((k % 2) + 2) % 2 === 1;
+      return odd ? { a: rb, b: ra } : { a: ra, b: rb };
+    };
 
     const lp2ToXY = (p: LP2, a: number, b: number): [number, number] => {
       const [ax, ay] = lpToXY(p.a);
@@ -153,27 +165,22 @@
 
     // ─── Edge type partition for the Tile(a, b) family ───────────────────
     // Each of the 14 edges is either an "a-edge" (length a) or a "b-edge"
-    // (length b). Two kinds of constraint pin down the partition:
+    // (length b). Smith et al. (arXiv:2305.17743 §4) show that the partition
+    // that works for every tile in the substitution tiling is just edge
+    // direction parity: edges that point in an *even* multiple of 30° are
+    // one type, edges in an *odd* multiple are the other.
     //
-    //  1. Closure for any (a, b): the a-edges' unit direction vectors must
-    //     sum to zero on their own, and likewise the b-edges'.
-    //  2. The substitution glue rules. Each transformationRules entry maps
-    //     one quad vertex of tile_(i-1) onto a quad vertex of tile_i; the
-    //     edge they share is the "outgoing" one from each quad point, which
-    //     must therefore have the same length in both tiles. Walking the
-    //     three distinct glue patterns:
-    //       V_11 → V_5  (rules with rot = ±60°): shared edge = e11 ↔ e4,
-    //         so type(e11) = type(e4).
-    //       V_7  → V_3  (rules with rot = 0°):    shared edge = e7  ↔ e2,
-    //         so type(e7)  = type(e2).
-    //       V_11 → V_11 (rule with rot = −120°):  shared edge = e11 ↔ e10,
-    //         so type(e11) = type(e10).
+    // Walking the spectre boundary, the 14 edge directions in 30° units are
+    //   [0, 10, 1, 3, 0, 2, 5, 7, 4, 6, 6, 8, 11, 9].
+    // The eight even directions are e{0,1,4,5,8,9,10,11} (a-edges) and the
+    // six odd directions are e{2,3,6,7,12,13} (b-edges). Both subsets sum
+    // to the zero vector, so the polygon closes at every (a, b) ≥ 0; this
+    // matches Kaplan's reference hat and turtle vertex arrays exactly.
     //
-    // Combining: type(e4) = type(e10) = type(e11), and type(e2) = type(e7).
-    // The 7-7 split below additionally satisfies all four closure
-    // constraints, and gives the canonical merged edge V_9–V_10–V_11 of
-    // length a + b in the hat (edges e9 and e10 carry different types).
-    const SPECTRE_A_EDGES: ReadonlySet<number> = new Set([0, 3, 4, 8, 10, 11, 13]);
+    // The collinear "spike" at vertex 10 is e9 + e10, both type a, so the
+    // spike has length 2a (= 2 in the hat, = 2√3 in the turtle, = 2 in the
+    // spectre) — not a + b.
+    const SPECTRE_A_EDGES: ReadonlySet<number> = new Set([0, 1, 4, 5, 8, 9, 10, 11]);
 
     // Spectre vertices in LP² form: walk the boundary, accumulating each
     // edge's lattice direction into the a- or b-component depending on its
@@ -578,7 +585,11 @@
     const gpuContext = gpuCanvas.getContext('webgpu')!;
     gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
 
-    const meshVertexBuffer = createVertexBuffer(device, 'spectre-verts', meshVertexData);
+    // Two meshes: even-parity tiles (rot ≡ 0 mod 2) render as Tile(a, b);
+    // odd-parity tiles render as Tile(b, a). At a = b they're identical, but
+    // for hat/turtle morph one is the hat shape and the other the turtle shape.
+    const evenMeshVertexBuffer = createVertexBuffer(device, 'spectre-verts-even', meshVertexData);
+    const oddMeshVertexBuffer  = createVertexBuffer(device, 'spectre-verts-odd',  meshVertexData);
     const fillIndexBuffer = createIndexBuffer(device, 'spectre-fill-indices', meshFillIndices);
     const outlineIndexBuffer = createIndexBuffer(device, 'spectre-outline-indices', meshOutlineIndices);
     // 32 bytes: scale.xy, offset.xy, outlineStrength, _pad x3
@@ -708,15 +719,18 @@ struct VsOut {
       msTexture: null as GPUTexture | null,
       lastBounds: null as Bounds | null,
       lastCount: 0,
+      lastEvenCount: 0,
       pixelWidth: 0,
       pixelHeight: 0,
       // View state: world point at clip-space origin and pixels-per-world-unit
       // (in physical pixels). scale.x = 2*pixelScale/pixelWidth, etc.
       centerX: 0, centerY: 0, pixelScale: 0,
-      // Re-upload spectre vertices for the current Tile(a, b) morph and
-      // redraw with the cached instance buffer.
-      uploadMesh(data: Float32Array) {
-        device.queue.writeBuffer(meshVertexBuffer, 0, data);
+      // Per parity, re-upload the spectre vertices for the current morph and
+      // redraw. `evenData` is Tile(a, b); `oddData` is Tile(b, a). Draw calls
+      // pick the right buffer based on each instance's rotation parity.
+      uploadMeshes(evenData: Float32Array, oddData: Float32Array) {
+        device.queue.writeBuffer(evenMeshVertexBuffer, 0, evenData);
+        device.queue.writeBuffer(oddMeshVertexBuffer,  0, oddData);
         if (this.lastCount) this.redraw();
       },
       resize(w: number, h: number) {
@@ -760,11 +774,12 @@ struct VsOut {
         this.centerY = (b.minY + b.maxY) / 2;
         this.pixelScale = 0.95 * Math.min(this.pixelWidth / w, this.pixelHeight / h);
       },
-      draw(instanceData: Float32Array, bounds: Bounds) {
+      draw(instanceData: Float32Array, bounds: Bounds, evenCount: number) {
         const count = instanceData.length / (INSTANCE_STRIDE / 4);
         this.ensureInstanceBuffer(count);
         device.queue.writeBuffer(this.instanceBuffer!, 0, instanceData);
         this.lastCount = count;
+        this.lastEvenCount = evenCount;
         // Refit only when the data's natural bounds actually change. Color-only
         // updates re-call draw with the same bounds and preserve the user's view.
         const prev = this.lastBounds;
@@ -799,19 +814,35 @@ struct VsOut {
             storeOp: 'discard',
           }],
         });
-        pass.setVertexBuffer(0, meshVertexBuffer);
         pass.setVertexBuffer(1, this.instanceBuffer);
+
+        const nEven = this.lastEvenCount;
+        const nOdd  = this.lastCount - nEven;
 
         pass.setPipeline(fillPipeline);
         pass.setBindGroup(0, fillBindGroup);
         pass.setIndexBuffer(fillIndexBuffer, 'uint16');
-        pass.drawIndexed(36, this.lastCount);
+        if (nEven > 0) {
+          pass.setVertexBuffer(0, evenMeshVertexBuffer);
+          pass.drawIndexed(36, nEven, 0, 0, 0);
+        }
+        if (nOdd > 0) {
+          pass.setVertexBuffer(0, oddMeshVertexBuffer);
+          pass.drawIndexed(36, nOdd, 0, 0, nEven);
+        }
 
         if (outlineStrength > 0) {
           pass.setPipeline(outlinePipeline);
           pass.setBindGroup(0, outlineBindGroup);
           pass.setIndexBuffer(outlineIndexBuffer, 'uint16');
-          pass.drawIndexed(28, this.lastCount);
+          if (nEven > 0) {
+            pass.setVertexBuffer(0, evenMeshVertexBuffer);
+            pass.drawIndexed(28, nEven, 0, 0, 0);
+          }
+          if (nOdd > 0) {
+            pass.setVertexBuffer(0, oddMeshVertexBuffer);
+            pass.drawIndexed(28, nOdd, 0, 0, nEven);
+          }
         }
 
         pass.end();
@@ -908,6 +939,14 @@ struct VsOut {
     for (let i = 0; i < renderDepth; i++) renderCluster = buildSupertiles(renderCluster);
     const renderRaw: RawPlacement[] = [];
     flattenMetaTile(renderCluster[renderStartingTile], txIdentity, [], renderRaw);
+    // Even-parity tiles (rot ≡ 0 mod 2) become hats at hat morph; odd-parity
+    // tiles become turtles. The renderer draws each group with its own mesh,
+    // so sort the placements so evens come first and the GPU can issue two
+    // contiguous draws using firstInstance.
+    renderRaw.sort((a, b) => (a.transform.rot & 1) - (b.transform.rot & 1));
+    let renderEvenCount = 0;
+    while (renderEvenCount < renderRaw.length
+        && (renderRaw[renderEvenCount].transform.rot & 1) === 0) renderEvenCount++;
 
     let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
     for (let i = 0; i < renderRaw.length; i++) {
@@ -948,16 +987,20 @@ struct VsOut {
   </script>
 
   <script id="spectre-mesh-projected" type="text/x-typescript">
-    // Per-frame spectre mesh: vertices projected to cartesian at the current
-    // (a, b). Shared by every instance, so we only upload 14 vec2s — the
-    // per-instance pose places each copy in world space.
-    const meshProjectedData = new Float32Array(28);
+    // Per-morph mesh data, one polygon per parity. Even-parity tiles (the
+    // majority — every tile outside a Γ subtree has even rotation) project
+    // the canonical lattice at (a, b); odd-parity tiles project at (b, a),
+    // which gives the parity-flipped tile shape (turtle if even is hat).
+    // At a = b both meshes coincide and the morph is invisible.
+    const meshEvenData = new Float32Array(28);
+    const meshOddData  = new Float32Array(28);
     for (let i = 0; i < 14; i++) {
-      const [x, y] = lp2ToXY(spectreLatticeVertices2[i], renderA, renderB);
-      meshProjectedData[i * 2 + 0] = x;
-      meshProjectedData[i * 2 + 1] = y;
+      const [ex, ey] = lp2ToXY(spectreLatticeVertices2[i], renderA, renderB);
+      const [ox, oy] = lp2ToXY(spectreLatticeVertices2[i], renderB, renderA);
+      meshEvenData[i * 2]     = ex; meshEvenData[i * 2 + 1] = ey;
+      meshOddData [i * 2]     = ox; meshOddData [i * 2 + 1] = oy;
     }
-    gpuState.uploadMesh(meshProjectedData);
+    gpuState.uploadMeshes(meshEvenData, meshOddData);
   </script>
 
   <script id="gpu-render" type="text/x-typescript">
@@ -979,6 +1022,6 @@ struct VsOut {
       gpuInstances[ig + 6] = b;
       gpuInstances[ig + 7] = renderPoses[ip + 4];
     }
-    gpuState.draw(gpuInstances, renderBounds);
+    gpuState.draw(gpuInstances, renderBounds, renderEvenCount);
   </script>
 </notebook>
