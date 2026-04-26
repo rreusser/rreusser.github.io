@@ -1082,8 +1082,12 @@
         // per-level shifts don't telescope into a uniform scale-from-center).
         // Σ m_g × shift_g = 0 still holds at this level, so adjacent
         // supertiles slide apart without overlapping.
-        // Skip for the depth-0 Γ leaf-pair (isLeafPairMeta): pulling Γ₁
-        // and Γ₂ apart would break the chirality lock.
+        // Skip for the depth-0 Γ leaf-pair (isLeafPairMeta): every other
+        // gap in the figure corresponds to a real sibling-supertile
+        // boundary in the substitution; the substitution treats Γ as an
+        // atomic mystic unit (Γ₁ + Γ₂ glued at v₈ with a 30° rotation),
+        // so a gap between Γ₁ and Γ₂ would be a cosmetic split of an
+        // already-atomic tile rather than a structural separation.
         const gd = gapByDepth[d];
         const gapOn = gd !== 0 && !isLeafPairMeta;
         let pCx_a = 0, pCy_a = 0, pCx_b = 0, pCy_b = 0;
@@ -1578,7 +1582,8 @@
     // parent_center) in parent's local frame, with gd = gap × gapFalloff^d
     // matching the level-dependent magnitude used by flatten so the outline
     // quads continue to enclose their leaves when gap > 0. Returns T
-    // unchanged if gd is 0 or this meta is the Γ leaf-pair.
+    // unchanged if gd is 0 or this meta is the Γ leaf-pair (whose pair we
+    // don't pull apart — see flatten for the rationale).
     function gapShiftedT(parentMeta: MetaTile, child: MetaTile, T: Transform, gd: number): Transform {
       if (gd === 0 || parentMeta.kind !== "meta") return T;
       let isLeafPair = parentMeta.geometries.length > 0;
