@@ -764,21 +764,29 @@
     // color at its own subLevel, plus one RGB per ancestor on the stack).
     // viewLevel — derived from pixelScale so viewLevel = 0 places leaves
     // exactly at the AGG_PX threshold, and each unit grows by one
-    // substitution step's worth of zoom-out — picks the center of the
-    // Gaussian. The walker writes a single weighted RGB sum to the
-    // instance buffer, so all perceptual channels (hue, sat, light) shift
-    // together as viewLevel slides. That coordinated motion is what makes
-    // a continuous zoom look seamless: adjacent viewLevels produce
-    // adjacent colors, instead of the channels each transitioning at
-    // different stack offsets and "flashing" against each other.
+    // substitution step's worth of zoom-out — picks the *base* of the
+    // Gaussian. We then shift the actual center up by COLOR_SHIFT, so a
+    // cell about to aggregate (at AGG_PX, where S = viewLevel) is biased
+    // toward its parent's color rather than its own. Result: tiny tiles
+    // fade toward their parent (so the leaf-to-aggregate handoff is
+    // visually continuous, and the new aggregate's color matches the
+    // children that just merged into it), mid-size tiles (~2.5× AGG)
+    // pick up most of their own color, and large tiles render with full
+    // own-color saturation. Texture and contrast come from the mid and
+    // large scale objects, not the about-to-disappear small ones.
     //
     // σ ≈ 0.7 makes the dominant ancestor account for ~50% of the blend,
     // its two immediate neighbors ~25% each, and the rest negligible.
-    // That's enough multi-scale information that adjacent supertiles still
-    // read as different metatypes at a single zoom, but smooth enough
-    // that an animated zoom doesn't feel stepwise.
+    // Enough multi-scale information that adjacent supertiles still read
+    // as different metatypes at a single zoom, but smooth enough that an
+    // animated zoom doesn't feel stepwise.
     const SIGMA = 0.7;
     const _TWO_SIGMA_SQ = 2 * SIGMA * SIGMA;
+    // Offset of the Gaussian center from viewLevel. +1 means the center
+    // sits one substitution level above the soon-to-aggregate cell, so
+    // small things fade toward their parent's color while big things keep
+    // their own. See the long comment above.
+    const _COLOR_SHIFT = 1.0;
     // Spectre supertile inflation factor — each substitution level's
     // bounding circle scales by ~(1 + √3) ≈ 2.73 versus the previous;
     // I'm using 2.5 here as a tuning compromise.
@@ -965,9 +973,12 @@
         pixelScale = view.pixelScale;
         viewLevel = viewLevelFor(pixelScale);
         // Fill the per-frame Gaussian weight table once. emit() then reads
-        // weightTable[L] instead of paying for Math.exp per cell.
+        // weightTable[L] instead of paying for Math.exp per cell. Center is
+        // shifted up by _COLOR_SHIFT so cells at the AGG threshold pick up
+        // their parent's color instead of their own.
+        const center = viewLevel + _COLOR_SHIFT;
         for (let L = 0; L < weightTable.length; L++) {
-          const dl = L - viewLevel;
+          const dl = L - center;
           weightTable[L] = Math.exp(-(dl * dl) / _TWO_SIGMA_SQ);
         }
         ancDepth = 0;
