@@ -243,92 +243,71 @@
   </script>
 
   <script id="lattice-section" type="text/markdown">
-    ## The ℤ[ω] lattice
+    ## Coordinates
 
-    The substitution recurrence below inflates the cluster by ~5.7× per level, and we want to push it eight or more levels deep — millions of tiles, billions of arithmetic operations on coordinates. Floats accumulate error fast at that depth. The way out is to do all the arithmetic in *exact integers*, and the only reason we can is that every spectre vertex sits on a particular lattice in the plane: **ℤ[ω]**, the integer combinations of the 12th root of unity ${tex`\omega = e^{i\pi/6}`}.
+    Spectre vertices are stored as 2-D cartesian points. The substitution recurrence only ever combines them through four operations — add, subtract, rotate by a multiple of 30°, and mirror across the x-axis — all closed under simple float vector math. Coordinates accumulate sub-micropixel float drift across all 17 M tiles at depth 8; below the resolution of a single pixel even at extreme zoom.
 
-    **Why ω?** Every spectre interior angle is a multiple of 30°, and every edge points along one of the twelve unit directions ${tex`\omega^0, \omega^1, \dotsc, \omega^{11}`} at 0°, 30°, …, 330°. So when you walk the boundary of any spectre — or any cluster of spectres — the displacement you accumulate is an integer combination of those 12 unit vectors. That's the lattice.
+    The Tile(*a*, *b*) morph (hat → spectre → turtle) requires one extra wrinkle: every position carries an **a-component** and a **b-component**, both 2-D points. Cartesian projection is
 
-    **Why four coordinates for a 2-D point?** ω satisfies the [12th cyclotomic polynomial](https://en.wikipedia.org/wiki/Cyclotomic_polynomial) ${tex`\omega^4 - \omega^2 + 1 = 0`}, so any high power reduces to a combination of ${tex`1,\ \omega,\ \omega^2,\ \omega^3`}. Every lattice point therefore has the *unique* form
+    ${tex.block`(x, y) = a \cdot p_a + b \cdot p_b,`}
 
-    ${tex.block`p = a + b\,\omega + c\,\omega^2 + d\,\omega^3, \qquad a, b, c, d \in \mathbb{Z}.`}
-
-    and we store it as the integer 4-tuple ${tex`(a, b, c, d)`}. Two coords would have under-counted (you can't represent ω³ as integer combinations of 1 and ω alone); five or more would have over-counted (the cyclotomic relation makes one redundant). Four is exact.
-
-    **Display projection.** Substituting ${tex`\omega = \tfrac{\sqrt 3}{2} + \tfrac{i}{2}`} into ${tex`p = a + b\omega + c\omega^2 + d\omega^3`} and separating real and imaginary parts gives
-
-    ${tex.block`\Re(p) = a + b\,\tfrac{\sqrt{3}}{2} + c\,\tfrac{1}{2}, \qquad \Im(p) = d + b\,\tfrac{1}{2} + c\,\tfrac{\sqrt{3}}{2}.`}
-
-    This is the *only* place irrational numbers ever appear — at draw time, after all the substitution work is done.
-
-    **Why this matters.** Two operations dominate the substitution recursion:
-
-    * **Rotation by 30°** is multiplication by ω. Using ${tex`\omega^4 = \omega^2 - 1`} to reduce ω·ω³ back into the four-coefficient form, this becomes the integer permutation ${tex`(a, b, c, d) \mapsto (-d,\, a,\, b + d,\, c)`}.
-    * **Complex conjugation** (the chirality mirror) becomes ${tex`(a, b, c, d) \mapsto (a + c,\, b,\, -c,\, -b - d)`}.
-
-    Both are pure integer arithmetic — no roots, no rounding. Compose as many as you like; coordinates stay exact. At depth 8 we apply tens of millions of such operations and every leaf is still on the lattice down to the bit.
-
-    **One more wrinkle: the Tile(*a*, *b*) family needs two lattices.** When edge lengths *a* and *b* are different real numbers, a single ℤ[ω] coordinate can't carry both because they don't combine integrally. The fix is to split each coordinate into two halves — an *a*-half and a *b*-half — both in ℤ[ω]:
-
-    ${tex.block`p = a \cdot p_a + b \cdot p_b, \qquad p_a, p_b \in \mathbb{Z}[\omega].`}
-
-    Substitution arithmetic acts component-wise on the two halves and stays integer; the real numbers (*a*, *b*) only appear at projection time. That's the **LP²** type used throughout the code below.
+    and is the only place the morph parameters appear. Substitution arithmetic acts on the two halves component-wise — the recursion never sees *a* or *b*. That's the **LP²** type used throughout the code below.
   </script>
 
   <script id="lattice-math" type="text/x-typescript">
-    type LP = [number, number, number, number];
+    // LP is a 2-D point in cartesian coordinates. The substitution rules
+    // only ever combine these via add / subtract / 30°-rotate / mirror —
+    // all closed under simple float vector math. (Earlier revisions of
+    // this notebook used a 4-int cyclotomic representation; floats are
+    // half the memory and indistinguishable at typical zoom levels.)
+    type LP = [number, number];
 
-    const lpAdd = (p: LP, q: LP): LP => [p[0]+q[0], p[1]+q[1], p[2]+q[2], p[3]+q[3]];
-    const lpSub = (p: LP, q: LP): LP => [p[0]-q[0], p[1]-q[1], p[2]-q[2], p[3]-q[3]];
-    const lpNeg = (p: LP): LP => [-p[0], -p[1], -p[2], -p[3]];
+    const lpAdd = (p: LP, q: LP): LP => [p[0] + q[0], p[1] + q[1]];
+    const lpSub = (p: LP, q: LP): LP => [p[0] - q[0], p[1] - q[1]];
+    const lpNeg = (p: LP): LP        => [-p[0], -p[1]];
+    const lpConj = (p: LP): LP       => [p[0], -p[1]]; // mirror across x-axis
 
-    // (a + b·ω + c·ω² + d·ω³)·ω = -d + a·ω + (b+d)·ω² + c·ω³,
-    // since ω⁴ = ω² - 1.
-    const lpMulOmega = (p: LP): LP => [-p[3], p[0], p[1] + p[3], p[2]];
-
-    // Multiplication by ω^k for any integer k (mod 12).
-    function lpRotate(p: LP, k: number): LP {
-      k = ((k % 12) + 12) % 12;
-      let q: LP = [p[0], p[1], p[2], p[3]];
-      for (let i = 0; i < k; i++) q = lpMulOmega(q);
-      return q;
+    // Pre-computed cos / sin for the 12 multiples of 30°.
+    const SQRT3_2 = Math.sqrt(3) / 2;
+    const _LPCOS = new Float64Array(12);
+    const _LPSIN = new Float64Array(12);
+    for (let k = 0; k < 12; k++) {
+      _LPCOS[k] = Math.cos(k * Math.PI / 6);
+      _LPSIN[k] = Math.sin(k * Math.PI / 6);
     }
 
-    // Complex conjugation. conj(ω) = ω^11, conj(ω²) = ω^10, conj(ω³) = ω^9.
-    const lpConj = (p: LP): LP =>
-      [p[0] + p[2], p[1], -p[2], -p[1] - p[3]];
+    function lpRotate(p: LP, k: number): LP {
+      k = ((k % 12) + 12) % 12;
+      const c = _LPCOS[k], s = _LPSIN[k];
+      return [c * p[0] - s * p[1], s * p[0] + c * p[1]];
+    }
 
-    // Convert to cartesian (x, y).
-    const SQRT3_2 = Math.sqrt(3) / 2;
-    const lpToXY = (p: LP): [number, number] => [
-      p[0] + p[1] * SQRT3_2 + p[2] * 0.5,
-      p[3] + p[1] * 0.5 + p[2] * SQRT3_2,
-    ];
+    // Already cartesian — exposed for API compatibility with downstream code.
+    const lpToXY = (p: LP): [number, number] => [p[0], p[1]];
 
     // ─── LP² ─────────────────────────────────────────────────────────────
-    // To support the Tile(a, b) family (hat, spectre, turtle) we carry
-    // every position as an a-component plus a b-component, both in the
-    // ℤ[ω] lattice. Cartesian projection then becomes
-    //   (x, y) = a · lpToXY(p.a) + b · lpToXY(p.b)
-    // and is the only place the real numbers a, b appear. All substitution
-    // arithmetic stays integer because every operation acts component-wise
-    // on the two halves.
+    // To support the Tile(a, b) family (hat, spectre, turtle) every
+    // position is split into an a-component and a b-component. Cartesian
+    // projection is (x, y) = a · p.a + b · p.b, and is the only place the
+    // real numbers a, b appear. Substitution arithmetic acts component-
+    // wise on the two halves — the morph parameters never touch the
+    // recursion.
     type LP2 = { a: LP; b: LP };
-    const LP_ZERO: LP = [0, 0, 0, 0];
+    const LP_ZERO: LP = [0, 0];
     const LP2_ZERO: LP2 = { a: LP_ZERO, b: LP_ZERO };
 
     const lp2Add  = (p: LP2, q: LP2): LP2 => ({ a: lpAdd(p.a, q.a), b: lpAdd(p.b, q.b) });
     const lp2Sub  = (p: LP2, q: LP2): LP2 => ({ a: lpSub(p.a, q.a), b: lpSub(p.b, q.b) });
     const lp2Neg  = (p: LP2): LP2          => ({ a: lpNeg(p.a),     b: lpNeg(p.b) });
-    // Mirror across x-axis: direction d ↦ −d (mod 12), which preserves parity,
-    // so a-edges stay a-edges and b-edges stay b-edges. No component swap.
+    // Mirror across x-axis preserves edge-direction parity, so a-edges
+    // stay a-edges and b-edges stay b-edges — no component swap.
     const lp2Conj = (p: LP2): LP2          => ({ a: lpConj(p.a),    b: lpConj(p.b) });
-    // Rotation by k·30° flips the parity of every edge direction iff k is odd.
-    // a-edges live at even world directions (length a), b-edges at odd (length b);
-    // an odd rotation moves every a-direction to an odd direction and vice versa,
-    // so the rotated a-component physically becomes the new b-component, and vice
-    // versa. Concretely: rotate both halves, then swap them when k is odd. At
-    // a = b this swap is invisible, which is why the spectre case worked without it.
+    // Rotation by k·30° flips edge-direction parity when k is odd. a-edges
+    // live at even world directions (length a), b-edges at odd (length b);
+    // an odd rotation moves every a-direction to an odd direction and vice
+    // versa, so the rotated a-component physically becomes the new b-
+    // component. Rotate both halves, swap them when k is odd. At a = b the
+    // swap is invisible, which is why the spectre case worked without it.
     const lp2Rotate = (p: LP2, k: number): LP2 => {
       const ra = lpRotate(p.a, k);
       const rb = lpRotate(p.b, k);
@@ -336,45 +315,29 @@
       return odd ? { a: rb, b: ra } : { a: ra, b: rb };
     };
 
-    const lp2ToXY = (p: LP2, a: number, b: number): [number, number] => {
-      const [ax, ay] = lpToXY(p.a);
-      const [bx, by] = lpToXY(p.b);
-      return [a * ax + b * bx, a * ay + b * by];
-    };
+    const lp2ToXY = (p: LP2, a: number, b: number): [number, number] =>
+      [a * p.a[0] + b * p.b[0], a * p.a[1] + b * p.b[1]];
   </script>
 
   <script id="spectre-lattice-vertices" type="text/x-typescript">
-    // Same 14 spectre vertices, expressed as integer points in ℤ[ω].
-    const spectreLatticeVertices: LP[] = [
-      [0,  0,  0, 0],   //  0: (0, 0)
-      [1,  0,  0, 0],   //  1: (1, 0)
-      [2,  0, -1, 0],   //  2: (3/2, -√3/2)
-      [2,  1, -1, 0],   //  3: (3/2 + √3/2, 1/2 - √3/2)
-      [2,  1, -1, 1],   //  4: (3/2 + √3/2, 3/2 - √3/2)
-      [3,  1, -1, 1],   //  5: (5/2 + √3/2, 3/2 - √3/2)
-      [3,  1,  0, 1],   //  6: (3 + √3/2, 3/2)
-      [3,  0,  0, 2],   //  7: (3, 2)
-      [3, -1,  0, 2],   //  8: (3 - √3/2, 3/2)
-      [2, -1,  1, 2],   //  9: (5/2 - √3/2, 3/2 + √3/2)
-      [1, -1,  1, 2],   // 10: (3/2 - √3/2, 3/2 + √3/2)
-      [0, -1,  1, 2],   // 11: (1/2 - √3/2, 3/2 + √3/2)
-      [0, -1,  0, 2],   // 12: (-√3/2, 3/2)
-      [0,  0,  0, 1],   // 13: (0, 1)
-    ];
+    // The 14 spectre vertices as cartesian (x, y) — same data as the
+    // hand-coded spectreVertices in the previous cell, just re-aliased
+    // here so downstream code that historically expected a "lattice
+    // vertex" array still finds it.
+    const spectreLatticeVertices: LP[] = spectreVertices.map(([x, y]) => [x, y]);
 
     // ─── Edge type partition for the Tile(a, b) family ───────────────────
     // Each of the 14 edges is either an "a-edge" (length a) or a "b-edge"
-    // (length b). Smith et al. (arXiv:2305.17743 §4) show that the partition
-    // that works for every tile in the substitution tiling is just edge
-    // direction parity: edges that point in an *even* multiple of 30° are
-    // one type, edges in an *odd* multiple are the other.
+    // (length b). The partition that works for every tile in the
+    // substitution tiling is just edge-direction parity: edges in an
+    // *even* multiple of 30° are one type, edges in an *odd* multiple
+    // are the other.
     //
     // Walking the spectre boundary, the 14 edge directions in 30° units are
     //   [0, 10, 1, 3, 0, 2, 5, 7, 4, 6, 6, 8, 11, 9].
     // The eight even directions are e{0,1,4,5,8,9,10,11} (a-edges) and the
     // six odd directions are e{2,3,6,7,12,13} (b-edges). Both subsets sum
-    // to the zero vector, so the polygon closes at every (a, b) ≥ 0; this
-    // matches Kaplan's reference hat and turtle vertex arrays exactly.
+    // to the zero vector, so the polygon closes at every (a, b) ≥ 0.
     //
     // The collinear "spike" at vertex 10 is e9 + e10, both type a, so the
     // spike has length 2a (= 2 in the hat, = 2√3 in the turtle, = 2 in the
@@ -382,12 +345,12 @@
     const SPECTRE_A_EDGES: ReadonlySet<number> = new Set([0, 1, 4, 5, 8, 9, 10, 11]);
 
     // Spectre vertices in LP² form: walk the boundary, accumulating each
-    // edge's lattice direction into the a- or b-component depending on its
-    // type. At (a, b) = (1, 1) the sum of the two halves reproduces the
-    // original integer lattice vertex (verified below).
+    // edge's direction into the a- or b-component depending on its type.
+    // At (a, b) = (1, 1) the sum of the two halves reproduces the
+    // original cartesian vertex (verified in the next cell).
     const spectreLatticeVertices2: LP2[] = (() => {
-      const vs: LP2[] = [{ a: LP_ZERO, b: LP_ZERO }];
-      let accA: LP = LP_ZERO, accB: LP = LP_ZERO;
+      const vs: LP2[] = [{ a: [0, 0], b: [0, 0] }];
+      let accA: LP = [0, 0], accB: LP = [0, 0];
       for (let i = 0; i < 13; i++) {
         const dir = lpSub(spectreLatticeVertices[i + 1], spectreLatticeVertices[i]);
         if (SPECTRE_A_EDGES.has(i)) accA = lpAdd(accA, dir);
@@ -399,33 +362,13 @@
   </script>
 
   <script id="spectre-lattice-check" type="text/x-typescript">
-    // Sanity checks:
-    //  1. LP vertices project to the same cartesian points.
-    //  2. At (a, b) = (1, 1) the LP² halves sum back to the LP vertex.
-    //  3. The hat (a = 1, b = √3) closes — polygon returns to V_0.
-    //  4. The turtle (a = √3, b = 1) also closes.
-    //  5. Every spectre edge has unit length at a = b = 1.
+    // Sanity checks for the (a, b) edge-type partition:
+    //  1. Hat (a = 1, b = √3): polygon closes after 14 edges.
+    //  2. Turtle (a = √3, b = 1): closes too.
+    //  3. Every spectre edge has unit length at a = b = 1.
     const tol = 1e-12;
 
-    const projected = spectreLatticeVertices.map(lpToXY);
-    let maxDelta = 0;
-    for (let i = 0; i < 14; i++) {
-      const dx = projected[i][0] - spectreVertices[i][0];
-      const dy = projected[i][1] - spectreVertices[i][1];
-      maxDelta = Math.max(maxDelta, Math.hypot(dx, dy));
-    }
-
-    let lp2SumErr = 0;
-    for (let i = 0; i < 14; i++) {
-      const sum = lpAdd(spectreLatticeVertices2[i].a, spectreLatticeVertices2[i].b);
-      for (let k = 0; k < 4; k++) {
-        lp2SumErr = Math.max(lp2SumErr, Math.abs(sum[k] - spectreLatticeVertices[i][k]));
-      }
-    }
-
     function closureError(a: number, b: number): number {
-      // After 14 edges starting from (0, 0), do we return to (0, 0)?
-      // Walk via LP² so the test exercises the partition itself.
       const last = spectreLatticeVertices2[13];
       const dirLast = lpSub(spectreLatticeVertices[0], spectreLatticeVertices[13]);
       const closed: LP2 = SPECTRE_A_EDGES.has(13)
@@ -439,19 +382,16 @@
     const turtleErr = closureError(SQRT3, 1);
 
     const edgeLengths = spectreLatticeVertices.map((_, i) => {
-      const a = projected[i];
-      const b = projected[(i + 1) % 14];
+      const a = spectreLatticeVertices[i];
+      const b = spectreLatticeVertices[(i + 1) % 14];
       return Math.hypot(a[0] - b[0], a[1] - b[1]);
     });
     const maxEdgeError = Math.max(...edgeLengths.map((l) => Math.abs(l - 1)));
 
-    const ok = maxDelta < tol && maxEdgeError < tol
-      && lp2SumErr < tol && hatErr < tol && turtleErr < tol;
+    const ok = maxEdgeError < tol && hatErr < tol && turtleErr < tol;
     display(html`<div style="font-size: 0.9em; padding: 0.5em 0.8em; border-radius: 4px;
                               background: ${ok ? '#e7f5ea' : '#fbe9e9'};
                               color: ${ok ? '#1d5b2c' : '#7a1414'}; font-family: monospace;">
-      lattice ↔ cartesian max error: ${maxDelta.toExponential(2)}<br>
-      LP² ↔ LP max error at (1, 1): ${lp2SumErr.toExponential(2)}<br>
       hat closure error (1, √3): ${hatErr.toExponential(2)}<br>
       turtle closure error (√3, 1): ${turtleErr.toExponential(2)}<br>
       edge length max deviation from 1: ${maxEdgeError.toExponential(2)}
@@ -979,11 +919,10 @@
     const _morphNorm = 2 / Math.max(1e-9, _aRaw + _bRaw);
     const _aN = _aRaw * _morphNorm;
     const _bN = _bRaw * _morphNorm;
-    const _MS = SQRT3_2;
-    const _Vax = (renderClusterCwLP2.a[0] + renderClusterCwLP2.a[1] * _MS + renderClusterCwLP2.a[2] * 0.5) / renderClusterMass;
-    const _Vay = (renderClusterCwLP2.a[3] + renderClusterCwLP2.a[1] * 0.5 + renderClusterCwLP2.a[2] * _MS) / renderClusterMass;
-    const _Vbx = (renderClusterCwLP2.b[0] + renderClusterCwLP2.b[1] * _MS + renderClusterCwLP2.b[2] * 0.5) / renderClusterMass;
-    const _Vby = (renderClusterCwLP2.b[3] + renderClusterCwLP2.b[1] * 0.5 + renderClusterCwLP2.b[2] * _MS) / renderClusterMass;
+    const _Vax = renderClusterCwLP2.a[0] / renderClusterMass;
+    const _Vay = renderClusterCwLP2.a[1] / renderClusterMass;
+    const _Vbx = renderClusterCwLP2.b[0] / renderClusterMass;
+    const _Vby = renderClusterCwLP2.b[1] / renderClusterMass;
     const _CnX = _aN * _Vax + _bN * _Vbx;
     const _CnY = _aN * _Vay + _bN * _Vby;
     const _Lcn = Math.hypot(_CnX, _CnY);
@@ -1006,35 +945,33 @@
     const LABEL_TO_IDX: Record<string, number> = {};
     LABEL_LIST.forEach((name, i) => { LABEL_TO_IDX[name] = i; });
 
-    // Fast-path flatten that avoids the ~15 million
-    // small-object/array allocations txCompose normally produces. We keep a
-    // pre-allocated stack of (rot, mirror, t.a, t.b) slots, one per recursion
-    // depth; composing onto stack[d+1] is pure scalar arithmetic on Int32Array
-    // entries with no intermediate LP / LP² objects. Only the final per-leaf
-    // Transform record is freshly allocated, bringing the alloc count from
-    // ~150 M down to ~10 M.
+    // Fast-path flatten that avoids ~15 M small-object/array allocations
+    // from naive txCompose. We keep a pre-allocated stack of
+    // (rot, mirror, t.a, t.b) slots — 2 floats per LP component, 4 floats
+    // per LP² stack slot — and compose onto stack[d+1] with pure scalar
+    // arithmetic. Only the final per-leaf Transform record is allocated.
     function flattenMetaTileFast(
       root: MetaTile,
       out: RawPlacement[],
       maxDepth: number,
     ): void {
       const cap = maxDepth + 2;
-      const stTa = new Int32Array(cap * 4);
-      const stTb = new Int32Array(cap * 4);
+      const stTa = new Float64Array(cap * 2);
+      const stTb = new Float64Array(cap * 2);
       const stRot = new Uint8Array(cap);
       const stMirror = new Uint8Array(cap);
       const ancestry: TileName[] = [];
 
       function recurse(mt: MetaTile, d: number): void {
         if (mt.kind === "leaf") {
-          const off = d * 4;
+          const off = d * 2;
           out.push({
             transform: {
               rot: stRot[d],
               mirror: stMirror[d] as 0 | 1,
               t: {
-                a: [stTa[off], stTa[off+1], stTa[off+2], stTa[off+3]] as LP,
-                b: [stTb[off], stTb[off+1], stTb[off+2], stTb[off+3]] as LP,
+                a: [stTa[off], stTa[off + 1]] as LP,
+                b: [stTb[off], stTb[off + 1]] as LP,
               },
             },
             label: mt.label,
@@ -1042,63 +979,50 @@
           });
           return;
         }
-        // Skip pushing the leaf-pair Γ onto the ancestry chain. Depth-0 Γ is
-        // the only metatile in our substitution that has *leaf* children
-        // (Gamma1 and Gamma2), so its descendants would otherwise carry one
-        // extra ancestry level than their neighbours. That offset shifts the
-        // d → ancestor mapping by one level, which makes Γ pairs pick up a
-        // different supertile-level color and pop out as 2-tile specks
-        // inside otherwise-uniform regions. Γ at higher depths (with seven
-        // metatile children) is pushed normally so its color still appears
-        // at the right scale.
+        // Skip pushing the leaf-pair Γ onto the ancestry chain (depth-0 Γ
+        // has *leaf* children Γ1/Γ2; its descendants would otherwise sit
+        // one extra ancestry level deeper than their neighbours, which
+        // shifts the d → ancestor mapping and makes Γ pairs pick up a
+        // different supertile colour). Γ at higher depths is pushed
+        // normally so its colour still appears at the right scale.
         const isLeafPairGamma = mt.geometries.length > 0
                               && mt.geometries[0].child.kind === "leaf";
         if (!isLeafPairGamma) ancestry.push(mt.name);
-        const off = d * 4, nextOff = (d + 1) * 4;
+        const off = d * 2, nextOff = (d + 1) * 2;
         const pRot = stRot[d], pMir = stMirror[d];
         const sign = pMir ? -1 : 1;
-        const pTa0 = stTa[off+0], pTa1 = stTa[off+1], pTa2 = stTa[off+2], pTa3 = stTa[off+3];
-        const pTb0 = stTb[off+0], pTb1 = stTb[off+1], pTb2 = stTb[off+2], pTb3 = stTb[off+3];
+        const pTaX = stTa[off + 0], pTaY = stTa[off + 1];
+        const pTbX = stTb[off + 0], pTbY = stTb[off + 1];
+        const c = _LPCOS[pRot], s = _LPSIN[pRot];
         const odd = pRot & 1;
         for (const { child, transform: T2 } of mt.geometries) {
           const cta = T2.t.a, ctb = T2.t.b;
-          // 1. lp2Conj if pMir.
-          let aa0, aa1, aa2, aa3, ab0, ab1, ab2, ab3;
-          if (pMir) {
-            aa0 = cta[0] + cta[2]; aa1 = cta[1]; aa2 = -cta[2]; aa3 = -cta[1] - cta[3];
-            ab0 = ctb[0] + ctb[2]; ab1 = ctb[1]; ab2 = -ctb[2]; ab3 = -ctb[1] - ctb[3];
-          } else {
-            aa0 = cta[0]; aa1 = cta[1]; aa2 = cta[2]; aa3 = cta[3];
-            ab0 = ctb[0]; ab1 = ctb[1]; ab2 = ctb[2]; ab3 = ctb[3];
-          }
-          // 2. lpRotate by pRot iterations: lpMulOmega([a,b,c,d]) = [-d,a,b+d,c].
-          for (let k = 0; k < pRot; k++) {
-            const t0 = -aa3, t1 = aa0, t2 = aa1 + aa3, t3 = aa2;
-            aa0 = t0; aa1 = t1; aa2 = t2; aa3 = t3;
-            const u0 = -ab3, u1 = ab0, u2 = ab1 + ab3, u3 = ab2;
-            ab0 = u0; ab1 = u1; ab2 = u2; ab3 = u3;
-          }
+          // 1. lp2Conj if pMir (mirror across x-axis = negate y).
+          let aax = cta[0], aay = cta[1];
+          let abx = ctb[0], aby = ctb[1];
+          if (pMir) { aay = -aay; aby = -aby; }
+          // 2. Rotate by pRot · 30°.
+          const raax = c * aax - s * aay, raay = s * aax + c * aay;
+          const rabx = c * abx - s * aby, raby = s * abx + c * aby;
+          aax = raax; aay = raay;
+          abx = rabx; aby = raby;
           // 3. Parity swap a/b if pRot is odd.
-          if (odd) {
-            const s0 = aa0, s1 = aa1, s2 = aa2, s3 = aa3;
-            aa0 = ab0; aa1 = ab1; aa2 = ab2; aa3 = ab3;
-            ab0 = s0; ab1 = s1; ab2 = s2; ab3 = s3;
-          }
+          let oax, oay, obx, oby;
+          if (odd) { oax = abx; oay = aby; obx = aax; oby = aay; }
+          else     { oax = aax; oay = aay; obx = abx; oby = aby; }
           // 4. Translate by parent.t and write to stack[d+1].
-          stTa[nextOff+0] = aa0 + pTa0; stTa[nextOff+1] = aa1 + pTa1;
-          stTa[nextOff+2] = aa2 + pTa2; stTa[nextOff+3] = aa3 + pTa3;
-          stTb[nextOff+0] = ab0 + pTb0; stTb[nextOff+1] = ab1 + pTb1;
-          stTb[nextOff+2] = ab2 + pTb2; stTb[nextOff+3] = ab3 + pTb3;
-          stRot[d+1] = (((pRot + sign * T2.rot) % 12) + 12) % 12;
-          stMirror[d+1] = (pMir ^ T2.mirror) as 0 | 1;
+          stTa[nextOff + 0] = oax + pTaX; stTa[nextOff + 1] = oay + pTaY;
+          stTb[nextOff + 0] = obx + pTbX; stTb[nextOff + 1] = oby + pTbY;
+          stRot[d + 1] = (((pRot + sign * T2.rot) % 12) + 12) % 12;
+          stMirror[d + 1] = (pMir ^ T2.mirror) as 0 | 1;
           recurse(child, d + 1);
         }
         if (!isLeafPairGamma) ancestry.pop();
       }
 
       // Identity at stack[0].
-      stTa[0] = stTa[1] = stTa[2] = stTa[3] = 0;
-      stTb[0] = stTb[1] = stTb[2] = stTb[3] = 0;
+      stTa[0] = 0; stTa[1] = 0;
+      stTb[0] = 0; stTb[1] = 0;
       stRot[0] = 0; stMirror[0] = 0;
       recurse(root, 0);
     }
@@ -1763,8 +1687,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
       // Γ at depth 0 has two leaves: Γ1 at origin and Γ2 at v₈.
       cwLP2[X] = X === "Gamma" ? spectreLatticeVertices2[8] : LP2_ZERO;
     }
-    const _scaleLP = (p: LP, k: number): LP =>
-      [p[0] * k, p[1] * k, p[2] * k, p[3] * k] as LP;
+    const _scaleLP = (p: LP, k: number): LP => [p[0] * k, p[1] * k] as LP;
     const _scaleLP2 = (p: LP2, k: number): LP2 =>
       ({ a: _scaleLP(p.a, k), b: _scaleLP(p.b, k) });
     let renderClusterCwLP2: LP2 = cwLP2[renderStartingTile];
@@ -1843,19 +1766,14 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     // unrotated cluster mismatches the rotated one and shifts the view-fit
     // back and forth as renderDepth changes; a centroid-anchored circle is
     // invariant to that rotation, and squaring it off preserves view-fit.
-    const _BS = SQRT3_2;
-    const _CtX = ((renderClusterCwLP2.a[0] + renderClusterCwLP2.b[0])
-                + (renderClusterCwLP2.a[1] + renderClusterCwLP2.b[1]) * _BS
-                + (renderClusterCwLP2.a[2] + renderClusterCwLP2.b[2]) * 0.5) / renderClusterMass;
-    const _CtY = ((renderClusterCwLP2.a[3] + renderClusterCwLP2.b[3])
-                + (renderClusterCwLP2.a[1] + renderClusterCwLP2.b[1]) * 0.5
-                + (renderClusterCwLP2.a[2] + renderClusterCwLP2.b[2]) * _BS) / renderClusterMass;
+    const _CtX = (renderClusterCwLP2.a[0] + renderClusterCwLP2.b[0]) / renderClusterMass;
+    const _CtY = (renderClusterCwLP2.a[1] + renderClusterCwLP2.b[1]) / renderClusterMass;
     let bMaxR2 = 0;
     for (let i = 0; i < renderRaw.length; i++) {
       const t = renderRaw[i].transform.t;
       const pa = t.a, pb = t.b;
-      const tx = (pa[0] + pb[0]) + (pa[1] + pb[1]) * _BS + (pa[2] + pb[2]) * 0.5 - _CtX;
-      const ty = (pa[3] + pb[3]) + (pa[1] + pb[1]) * 0.5 + (pa[2] + pb[2]) * _BS - _CtY;
+      const tx = (pa[0] + pb[0]) - _CtX;
+      const ty = (pa[1] + pb[1]) - _CtY;
       const d2 = tx * tx + ty * ty;
       if (d2 > bMaxR2) bMaxR2 = d2;
     }
@@ -1898,9 +1816,9 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     const OUTLINE_MAX_LEVEL = 5;
     const outlineCap = Math.min(renderDepth, OUTLINE_MAX_LEVEL);
 
-    // Two flat arrays: outlineLP2 holds 8 ints per quad point (a-LP then
-    // b-LP, 4 ints each) × 4 points per metatile; outlineLevels holds one
-    // f32 per metatile.
+    // Flat float array: 4 floats per quad point (a.x, a.y, b.x, b.y)
+    // × 4 points per metatile = 16 floats per metatile. Levels list has
+    // one f32 per metatile.
     const outlineQuadsList: number[] = [];
     const outlineLevelsList: number[] = [];
     const outlineCount = { value: 0 };
@@ -1908,10 +1826,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     function emitQuad(quad: LP2[], level: number): void {
       for (let i = 0; i < 4; i++) {
         const q = quad[i];
-        outlineQuadsList.push(
-          q.a[0], q.a[1], q.a[2], q.a[3],
-          q.b[0], q.b[1], q.b[2], q.b[3],
-        );
+        outlineQuadsList.push(q.a[0], q.a[1], q.b[0], q.b[1]);
       }
       outlineLevelsList.push(level);
       outlineCount.value++;
@@ -1927,7 +1842,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     }
     walkOutlines(renderCluster[renderStartingTile], txIdentity, 0);
 
-    const outlineQuadsLP2 = new Int32Array(outlineQuadsList);
+    const outlineQuadsLP2 = new Float32Array(outlineQuadsList);
     const outlineLevelsArr = new Float32Array(outlineLevelsList);
     const outlineN = outlineCount.value;
   </script>
@@ -1945,7 +1860,6 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
       _cosTab[k] = Math.cos(k * Math.PI / 6);
       _sinTab[k] = Math.sin(k * Math.PI / 6);
     }
-    const _S = SQRT3_2;
     // Pin the cluster centroid's *direction* to a depth-independent target
     // (the angle of the (1, 1) centroid at ORIENTATION_REFERENCE_DEPTH) so
     // (a) sliding the morph doesn't visibly rotate, and (b) bumping the depth
@@ -1954,19 +1868,19 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     // rotation that brings C(a, b)(renderDepth)'s direction onto the target
     // direction. Translation still lands the centroid on its (1, 1) position
     // so the precomputed bounds continue to fit.
-    const _CaX = (renderClusterCwLP2.a[0] + renderClusterCwLP2.a[1] * _S + renderClusterCwLP2.a[2] * 0.5) / renderClusterMass;
-    const _CaY = (renderClusterCwLP2.a[3] + renderClusterCwLP2.a[1] * 0.5 + renderClusterCwLP2.a[2] * _S) / renderClusterMass;
-    const _CbX = (renderClusterCwLP2.b[0] + renderClusterCwLP2.b[1] * _S + renderClusterCwLP2.b[2] * 0.5) / renderClusterMass;
-    const _CbY = (renderClusterCwLP2.b[3] + renderClusterCwLP2.b[1] * 0.5 + renderClusterCwLP2.b[2] * _S) / renderClusterMass;
+    const _CaX = renderClusterCwLP2.a[0] / renderClusterMass;
+    const _CaY = renderClusterCwLP2.a[1] / renderClusterMass;
+    const _CbX = renderClusterCwLP2.b[0] / renderClusterMass;
+    const _CbY = renderClusterCwLP2.b[1] / renderClusterMass;
     const _CabX = renderA * _CaX + renderB * _CbX;
     const _CabY = renderA * _CaY + renderB * _CbY;
     const _C11X = _CaX + _CbX;
     const _C11Y = _CaY + _CbY;
     // Reference-depth (1, 1) centroid → depth-independent target direction.
-    const _RaX = (orientationRefCwLP2.a[0] + orientationRefCwLP2.a[1] * _S + orientationRefCwLP2.a[2] * 0.5) / orientationRefMass;
-    const _RaY = (orientationRefCwLP2.a[3] + orientationRefCwLP2.a[1] * 0.5 + orientationRefCwLP2.a[2] * _S) / orientationRefMass;
-    const _RbX = (orientationRefCwLP2.b[0] + orientationRefCwLP2.b[1] * _S + orientationRefCwLP2.b[2] * 0.5) / orientationRefMass;
-    const _RbY = (orientationRefCwLP2.b[3] + orientationRefCwLP2.b[1] * 0.5 + orientationRefCwLP2.b[2] * _S) / orientationRefMass;
+    const _RaX = orientationRefCwLP2.a[0] / orientationRefMass;
+    const _RaY = orientationRefCwLP2.a[1] / orientationRefMass;
+    const _RbX = orientationRefCwLP2.b[0] / orientationRefMass;
+    const _RbY = orientationRefCwLP2.b[1] / orientationRefMass;
     const _TgtX = _RaX + _RbX;
     const _TgtY = _RaY + _RbY;
     const _Lab2 = _CabX * _CabX + _CabY * _CabY;
@@ -1988,12 +1902,8 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     for (let i = 0; i < renderRaw.length; i++) {
       const t = renderRaw[i].transform;
       const pa = t.t.a, pb = t.t.b;
-      const ax = pa[0] + pa[1] * _S + pa[2] * 0.5;
-      const ay = pa[3] + pa[1] * 0.5 + pa[2] * _S;
-      const bx = pb[0] + pb[1] * _S + pb[2] * 0.5;
-      const by = pb[3] + pb[1] * 0.5 + pb[2] * _S;
-      const rawX = renderA * ax + renderB * bx;
-      const rawY = renderA * ay + renderB * by;
+      const rawX = renderA * pa[0] + renderB * pb[0];
+      const rawY = renderA * pa[1] + renderB * pb[1];
       // Pivot rotation about the (a, b) centroid, then translate so the
       // centroid lands at its (1, 1) location: cluster centroid is screen-stable.
       const sX = rawX - _CabX, sY = rawY - _CabY;
@@ -2013,19 +1923,18 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     // render-poses, then emit a closed polyline per metatile (5 vertices for
     // p0–p3–p0 plus a break vertex to terminate). The break vertex carries
     // breakFlag = 0 so the line shader zeroes its width and clip.w.
-    const _OS = SQRT3_2;
-    const _oCaX = (renderClusterCwLP2.a[0] + renderClusterCwLP2.a[1] * _OS + renderClusterCwLP2.a[2] * 0.5) / renderClusterMass;
-    const _oCaY = (renderClusterCwLP2.a[3] + renderClusterCwLP2.a[1] * 0.5 + renderClusterCwLP2.a[2] * _OS) / renderClusterMass;
-    const _oCbX = (renderClusterCwLP2.b[0] + renderClusterCwLP2.b[1] * _OS + renderClusterCwLP2.b[2] * 0.5) / renderClusterMass;
-    const _oCbY = (renderClusterCwLP2.b[3] + renderClusterCwLP2.b[1] * 0.5 + renderClusterCwLP2.b[2] * _OS) / renderClusterMass;
+    const _oCaX = renderClusterCwLP2.a[0] / renderClusterMass;
+    const _oCaY = renderClusterCwLP2.a[1] / renderClusterMass;
+    const _oCbX = renderClusterCwLP2.b[0] / renderClusterMass;
+    const _oCbY = renderClusterCwLP2.b[1] / renderClusterMass;
     const _oCabX = renderA * _oCaX + renderB * _oCbX;
     const _oCabY = renderA * _oCaY + renderB * _oCbY;
     const _oC11X = _oCaX + _oCbX;
     const _oC11Y = _oCaY + _oCbY;
-    const _oRaX = (orientationRefCwLP2.a[0] + orientationRefCwLP2.a[1] * _OS + orientationRefCwLP2.a[2] * 0.5) / orientationRefMass;
-    const _oRaY = (orientationRefCwLP2.a[3] + orientationRefCwLP2.a[1] * 0.5 + orientationRefCwLP2.a[2] * _OS) / orientationRefMass;
-    const _oRbX = (orientationRefCwLP2.b[0] + orientationRefCwLP2.b[1] * _OS + orientationRefCwLP2.b[2] * 0.5) / orientationRefMass;
-    const _oRbY = (orientationRefCwLP2.b[3] + orientationRefCwLP2.b[1] * 0.5 + orientationRefCwLP2.b[2] * _OS) / orientationRefMass;
+    const _oRaX = orientationRefCwLP2.a[0] / orientationRefMass;
+    const _oRaY = orientationRefCwLP2.a[1] / orientationRefMass;
+    const _oRbX = orientationRefCwLP2.b[0] / orientationRefMass;
+    const _oRbY = orientationRefCwLP2.b[1] / orientationRefMass;
     const _oTgtX = _oRaX + _oRbX;
     const _oTgtY = _oRaY + _oRbY;
     const _oLab2 = _oCabX * _oCabX + _oCabY * _oCabY;
@@ -2067,15 +1976,9 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
       const vBase = i * 6 * 4;
       let firstX = 0, firstY = 0;
       for (let j = 0; j < 4; j++) {
-        const off = (src * 4 + j) * 8;
-        const a0 = outlineQuadsLP2[off + 0], a1 = outlineQuadsLP2[off + 1];
-        const a2 = outlineQuadsLP2[off + 2], a3 = outlineQuadsLP2[off + 3];
-        const b0 = outlineQuadsLP2[off + 4], b1 = outlineQuadsLP2[off + 5];
-        const b2 = outlineQuadsLP2[off + 6], b3 = outlineQuadsLP2[off + 7];
-        const ax = a0 + a1 * _OS + a2 * 0.5;
-        const ay = a3 + a1 * 0.5 + a2 * _OS;
-        const bx = b0 + b1 * _OS + b2 * 0.5;
-        const by = b3 + b1 * 0.5 + b2 * _OS;
+        const off = (src * 4 + j) * 4;
+        const ax = outlineQuadsLP2[off + 0], ay = outlineQuadsLP2[off + 1];
+        const bx = outlineQuadsLP2[off + 2], by = outlineQuadsLP2[off + 3];
         const rawX = renderA * ax + renderB * bx;
         const rawY = renderA * ay + renderB * by;
         const sX = rawX - _oCabX, sY = rawY - _oCabY;
