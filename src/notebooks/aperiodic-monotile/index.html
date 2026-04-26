@@ -616,7 +616,7 @@
     // honoured raised limits at init time. Cap the slider at 7 otherwise.
     const _depthMax = webgpuMaxBuffersAvailable ? 8 : 7;
     const _depthSliderEl = Inputs.range([0, _depthMax], {
-      value: 7,
+      value: 5,
       step: 1,
       label: "Substitution depth",
     });
@@ -682,6 +682,14 @@
       step: 0.1,
       label: "Hat ← Spectre → Turtle",
     }));
+    // Metatile outline scaffolding: when on, every metatile's quad is drawn,
+    // with finer levels at 1 px and successively coarser levels at 3, 5, 7…
+    // px so the hierarchy reads visually. Color is a viridis sweep over the
+    // level so each tier is distinguishable.
+    const renderShowOutlines = addControl(Inputs.toggle({
+      value: false,
+      label: "Quads",
+    }));
     // Range slider where the bar's *center* picks the ancestor level the
     // colour blend peaks at (0 = top supertile, max ≈ depth = leaves) and
     // its *width* sets the Gaussian σ — narrow band ⇒ a single sharp tier
@@ -689,7 +697,7 @@
     const _colorRangeEl = interval([0, 8], {
       value: [1.0, 4],
       step: 0.01,
-      label: "Color level",
+      label: "Color blend depth",
       distribution: 'gaussian',
       ticks: 1,
     });
@@ -910,14 +918,6 @@
       return root;
     }
     const tilePalette = addControl(makePaletteInput(INITIAL_PALETTE_SEED));
-    // Metatile outline scaffolding: when on, every metatile's quad is drawn,
-    // with finer levels at 1 px and successively coarser levels at 3, 5, 7…
-    // px so the hierarchy reads visually. Color is a viridis sweep over the
-    // level so each tier is distinguishable.
-    const renderShowOutlines = addControl(Inputs.toggle({
-      value: false,
-      label: "Quads",
-    }));
   </script>
 
   <script id="render-morph" type="text/x-typescript">
@@ -1609,8 +1609,50 @@
       };
     }
 
+    // Gap-aware metatile quads. mt.quad is fixed at construction (one shared
+    // superQuad per substitution level — see buildSupertiles), so without
+    // help it stays a rigid rectangle while the children inside slide
+    // outward, and the outline stops enclosing its leaves. Replay the same
+    // recurrence buildSupertiles uses, but with the gap-shifted child
+    // transforms, so each level's quad distorts to follow its (now-spread-
+    // apart) children:
+    //   gappedQuad_k[i] = txApply(gappedT_k[slot_i], gappedQuad_{k-1}[corner_i])
+    // (slot_i, corner_i) ∈ {(6, 2), (5, 1), (3, 2), (0, 1)} — exactly the
+    // pairs buildSupertiles uses. Walk renderCluster.Delta down to reach
+    // Delta at every level (Delta is the only type whose superRule has no
+    // null slot, so its 8 geometries expose all 8 finalTransforms in order).
+    const _deltaAtLevel: MetaTile[] = [];
+    {
+      let _cur: MetaTile = renderCluster.Delta;
+      while (true) {
+        _deltaAtLevel.unshift(_cur);
+        if (_cur.kind !== "meta") break;
+        // superRules.Delta[1] = "Delta" → geometries[1].child is the
+        // previous-level Delta.
+        _cur = _cur.geometries[1].child;
+      }
+    }
+    const _gappedQuadAtLevel: LP2[][] = [_deltaAtLevel[0].quad];
+    for (let _k = 1; _k <= renderDepth; _k++) {
+      const _parent = _deltaAtLevel[_k];
+      if (_parent.kind !== "meta") break;
+      const _gd = renderGap * Math.pow(GAP_FALLOFF, renderDepth - _k);
+      const _Tg: Transform[] = _parent.geometries.map((g) =>
+        gapShiftedT(_parent, g.child, g.transform, _gd)
+      );
+      const _prev = _gappedQuadAtLevel[_k - 1];
+      _gappedQuadAtLevel.push([
+        txApply(_Tg[6], _prev[2]),
+        txApply(_Tg[5], _prev[1]),
+        txApply(_Tg[3], _prev[2]),
+        txApply(_Tg[0], _prev[1]),
+      ]);
+    }
+
     function walkOutlines(mt: MetaTile, parent: Transform, level: number): void {
-      const absoluteQuad: LP2[] = mt.quad.map((q) => txApply(parent, q));
+      const subLevel = renderDepth - level;
+      const localQuad = _gappedQuadAtLevel[subLevel] ?? mt.quad;
+      const absoluteQuad: LP2[] = localQuad.map((q) => txApply(parent, q));
       emitQuad(absoluteQuad, level, _isMystic(mt));
       if (mt.kind === "leaf" || level >= outlineCap) return;
       const gd = renderGap * Math.pow(GAP_FALLOFF, level);
