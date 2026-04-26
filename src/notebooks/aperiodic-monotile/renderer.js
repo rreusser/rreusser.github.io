@@ -29,6 +29,14 @@ export function createGpuRenderer({
   meshVertexData,
   meshFillIndices,
   meshOutlineIndices,
+  // Upper bounds for the resizable mesh / index buffers — sized once at
+  // construction so the curved-edge editor can swap in a denser polygon
+  // without re-creating GPU buffers each morph tick. The default 14-vertex
+  // spectre uses ~14 verts / 36 fill indices / 28 outline indices; curved
+  // edges with adaptive refinement push these higher.
+  maxBoundaryVerts = 256,
+  maxFillIndices   = 768,
+  maxOutlineIndices = 512,
   shaders,
   createGPULines,
 }) {
@@ -45,15 +53,23 @@ export function createGpuRenderer({
   // Two meshes: even-parity tiles (rot ≡ 0 mod 2) render as Tile(a, b);
   // odd-parity tiles render as Tile(b, a). At a = b they're identical, but
   // for hat/turtle morph one is the hat shape and the other the turtle shape.
-  const evenMeshVertexBuffer = createVertexBuffer(device, 'spectre-verts-even', meshVertexData);
-  const oddMeshVertexBuffer  = createVertexBuffer(device, 'spectre-verts-odd',  meshVertexData);
+  // Buffers are pre-sized at the upper bound so the curved-edge editor can
+  // grow the boundary polygon without re-allocating; we just track the live
+  // counts and pass them to drawIndexed each frame.
+  const evenMeshVertexBuffer = createVertexBuffer(device, 'spectre-verts-even', maxBoundaryVerts * 8);
+  const oddMeshVertexBuffer  = createVertexBuffer(device, 'spectre-verts-odd',  maxBoundaryVerts * 8);
+  device.queue.writeBuffer(evenMeshVertexBuffer, 0, meshVertexData);
+  device.queue.writeBuffer(oddMeshVertexBuffer,  0, meshVertexData);
   // Separate fill index buffers per parity — at the morph's degenerate
   // endpoints (b → 0 or a → 0) the even and odd polygons have *different*
   // topologies (one is a 7-gon-with-spike, the other a hexagon), so a
   // single shared triangulation can't cover both.
-  const fillIndexBufferEven = createIndexBuffer(device, 'spectre-fill-indices-even', meshFillIndices);
-  const fillIndexBufferOdd  = createIndexBuffer(device, 'spectre-fill-indices-odd',  meshFillIndices);
-  const outlineIndexBuffer  = createIndexBuffer(device, 'spectre-outline-indices',   meshOutlineIndices);
+  const fillIndexBufferEven = createIndexBuffer(device, 'spectre-fill-indices-even', maxFillIndices * 2);
+  const fillIndexBufferOdd  = createIndexBuffer(device, 'spectre-fill-indices-odd',  maxFillIndices * 2);
+  const outlineIndexBuffer  = createIndexBuffer(device, 'spectre-outline-indices',   maxOutlineIndices * 2);
+  device.queue.writeBuffer(fillIndexBufferEven, 0, meshFillIndices);
+  device.queue.writeBuffer(fillIndexBufferOdd,  0, meshFillIndices);
+  device.queue.writeBuffer(outlineIndexBuffer,  0, meshOutlineIndices);
   // 32 bytes: scale.xy, offset.xy, outlineStrength, _pad x3
   const viewUniformBuffer = createUniformBuffer(device, 'view-uniforms', 32);
 
@@ -169,6 +185,11 @@ export function createGpuRenderer({
     // View state: world point at clip-space origin and pixels-per-world-unit
     // (in physical pixels). scale.x = 2*pixelScale/pixelWidth, etc.
     centerX: 0, centerY: 0, pixelScale: 0,
+    // Live mesh counts. Default = the original 14-vertex / 36-index / 28-
+    // outline-index spectre; the curved-edge editor cell rewrites these
+    // when the user pulls a handle off-center.
+    fillIndexCount: meshFillIndices.length,
+    outlineIndexCount: meshOutlineIndices.length,
     // Per parity, re-upload the spectre vertices for the current morph and
     // redraw. `evenData` is Tile(a, b); `oddData` is Tile(b, a). Draw calls
     // pick the right buffer based on each instance's rotation parity.
@@ -177,13 +198,24 @@ export function createGpuRenderer({
       device.queue.writeBuffer(oddMeshVertexBuffer,  0, oddData);
       if (this.lastCount) this.redraw();
     },
-    uploadFillIndices(evenIndices, oddIndices) {
-      // Earcut on the morphed polygon may rearrange the 12 fill triangles
-      // (or produce zero-area ones at degenerate endpoints). Per parity
-      // because the polygons have different topologies at the degenerate
-      // endpoints. Each buffer is 36 × 2 B and never grows.
+    uploadFillIndices(evenIndices, oddIndices, indexCount) {
+      // Earcut on the morphed polygon may rearrange triangles (or produce
+      // zero-area ones at degenerate endpoints). Per parity because the
+      // polygons have different topologies at the degenerate endpoints.
+      // indexCount is the live count to draw — buffers are sized at the
+      // upper bound and may have stale tail data.
       device.queue.writeBuffer(fillIndexBufferEven, 0, evenIndices);
       device.queue.writeBuffer(fillIndexBufferOdd,  0, oddIndices);
+      this.fillIndexCount = indexCount ?? evenIndices.length;
+      if (this.lastCount) this.redraw();
+    },
+    uploadOutlineIndices(indices, indexCount) {
+      // Outline is the closed boundary loop; topology-wise it's the same
+      // for both parities (just N → 2N edge-pairs), so a single shared
+      // index buffer is fine. Updated when the curved-edge editor changes
+      // the number of boundary vertices.
+      device.queue.writeBuffer(outlineIndexBuffer, 0, indices);
+      this.outlineIndexCount = indexCount ?? indices.length;
       if (this.lastCount) this.redraw();
     },
     resize(w, h) {
@@ -306,17 +338,20 @@ export function createGpuRenderer({
       const nEven = this.lastEvenCount;
       const nOdd  = this.lastCount - nEven;
 
+      const fillN    = this.fillIndexCount;
+      const outlineN = this.outlineIndexCount;
+
       pass.setPipeline(fillPipeline);
       pass.setBindGroup(0, fillBindGroup);
       if (nEven > 0) {
         pass.setIndexBuffer(fillIndexBufferEven, 'uint16');
         pass.setVertexBuffer(0, evenMeshVertexBuffer);
-        pass.drawIndexed(36, nEven, 0, 0, 0);
+        pass.drawIndexed(fillN, nEven, 0, 0, 0);
       }
       if (nOdd > 0) {
         pass.setIndexBuffer(fillIndexBufferOdd, 'uint16');
         pass.setVertexBuffer(0, oddMeshVertexBuffer);
-        pass.drawIndexed(36, nOdd, 0, 0, nEven);
+        pass.drawIndexed(fillN, nOdd, 0, 0, nEven);
       }
 
       if (outlineStrength > 0) {
@@ -325,11 +360,11 @@ export function createGpuRenderer({
         pass.setIndexBuffer(outlineIndexBuffer, 'uint16');
         if (nEven > 0) {
           pass.setVertexBuffer(0, evenMeshVertexBuffer);
-          pass.drawIndexed(28, nEven, 0, 0, 0);
+          pass.drawIndexed(outlineN, nEven, 0, 0, 0);
         }
         if (nOdd > 0) {
           pass.setVertexBuffer(0, oddMeshVertexBuffer);
-          pass.drawIndexed(28, nOdd, 0, 0, nEven);
+          pass.drawIndexed(outlineN, nOdd, 0, 0, nEven);
         }
       }
 

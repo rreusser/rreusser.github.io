@@ -168,6 +168,293 @@
     </figure>`);
   </script>
 
+  <script id="edge-editor-section" type="text/markdown">
+    ### Curving the edges
+
+    The spectre still tiles aperiodically when each edge is replaced by a curve, provided edge pairs `(0, 1), (2, 3), …, (12, 13)` use curves that are 180°-rotations of each other about the shared vertex. Drag a handle on any edge to bend it; its paired edge updates automatically so the result stays tileable. The Reset button restores straight edges (and the fast 14-vertex / 12-triangle render path).
+  </script>
+
+  <script id="tile-edge-geometry" type="text/x-typescript">
+    // Shared geometry helpers for the curved-edge editor and the mesh
+    // build below. Lives in its own cell so both consumers (the SVG
+    // editor and the per-morph polygon refinement) reuse the same
+    // definition of "control points for edge i" — keeping the editor's
+    // visual handles consistent with the rendered triangulation.
+    //
+    // Each of the 14 edges is a cubic Bézier. Storage is per *user* edge
+    // (the 7 even-indexed edges 0, 2, …, 12); the paired odd edge is
+    // derived as the 180° rotation about the shared vertex, which
+    // preserves the matching condition so the curved tile still tiles
+    // aperiodically.
+    //
+    // Handles live in edge-local fractional coords (t along the edge in
+    // units of edge length, n perpendicular in the same units). Default
+    // = (1/3, 0) and (2/3, 0), the equally-spaced control points of a
+    // straight cubic. The (a, b) morph just stretches the edge; handles
+    // ride along.
+    type EdgeHandles = { h1t: number; h1n: number; h2t: number; h2n: number };
+    const DEFAULT_HANDLES: EdgeHandles = { h1t: 1/3, h1n: 0, h2t: 2/3, h2n: 0 };
+    const USER_EDGES: readonly number[] = [0, 2, 4, 6, 8, 10, 12];
+
+    function projectSpectreVerts(a: number, b: number): [number, number][] {
+      return spectreLatticeVertices2.map((p) =>
+        [a * p.a[0] + b * p.b[0], a * p.a[1] + b * p.b[1]] as [number, number]);
+    }
+    // Edge i: V(i) → V((i+1) mod 14). Returns origin, unit tangent, unit
+    // normal (90° CW from tangent → outward), and length.
+    function edgeFrame(verts: [number, number][], i: number) {
+      const p0 = verts[i];
+      const p1 = verts[(i + 1) % 14];
+      const dx = p1[0] - p0[0], dy = p1[1] - p0[1];
+      const len = Math.hypot(dx, dy);
+      const tx = dx / len, ty = dy / len;
+      const nx = ty, ny = -tx;
+      return { p0, p1, tx, ty, nx, ny, len };
+    }
+    // World-space control points for edge i. For an even (user) edge,
+    // applies its stored handles directly; for an odd (paired) edge,
+    // mirrors the user edge's handles by 180° rotation about the shared
+    // vertex.
+    function controlPointsFor(
+      i: number,
+      handlesByUser: Record<number, EdgeHandles>,
+      verts: [number, number][],
+    ): { c1: [number, number]; c2: [number, number] } {
+      const u = i & ~1;
+      const h = handlesByUser[u];
+      const fU = edgeFrame(verts, u);
+      const c1u: [number, number] = [
+        fU.p0[0] + h.h1t * (fU.p1[0] - fU.p0[0]) + h.h1n * fU.len * fU.nx,
+        fU.p0[1] + h.h1t * (fU.p1[1] - fU.p0[1]) + h.h1n * fU.len * fU.ny,
+      ];
+      const c2u: [number, number] = [
+        fU.p0[0] + h.h2t * (fU.p1[0] - fU.p0[0]) + h.h2n * fU.len * fU.nx,
+        fU.p0[1] + h.h2t * (fU.p1[1] - fU.p0[1]) + h.h2n * fU.len * fU.ny,
+      ];
+      if (i === u) return { c1: c1u, c2: c2u };
+      const s = verts[(u + 1) % 14];
+      return {
+        c1: [2 * s[0] - c2u[0], 2 * s[1] - c2u[1]],
+        c2: [2 * s[0] - c1u[0], 2 * s[1] - c1u[1]],
+      };
+    }
+  </script>
+
+  <script id="edge-editor" type="text/x-typescript">
+    // SVG editor for the cubic-Bézier handles. Drag the orange handles on
+    // any of the 7 even-indexed (user) edges; the grey handles on the
+    // 7 odd-indexed (paired) edges follow automatically via the 180°
+    // rotation rule in controlPointsFor. Reset restores the default
+    // (1/3, 0) / (2/3, 0) handles, which collapse to straight edges and
+    // let the downstream mesh-build cell take its 14-vertex fast path.
+
+    // ─── Mutable handle store ─────────────────────────────────────────────
+    // Live edge-local fractional coords for the 7 user edges. The "value"
+    // emitted by the cell is a fresh wrapper object (see emit()) so
+    // identity-comparing observers reliably re-run on each drag.
+    const _handleStore: Record<number, EdgeHandles> = Object.fromEntries(
+      USER_EDGES.map((i) => [i, { ...DEFAULT_HANDLES }]),
+    );
+    function checkDefault(): boolean {
+      const tol = 1e-9;
+      for (const i of USER_EDGES) {
+        const h = _handleStore[i];
+        if (Math.abs(h.h1t - 1/3) > tol || Math.abs(h.h1n) > tol
+         || Math.abs(h.h2t - 2/3) > tol || Math.abs(h.h2n) > tol) return false;
+      }
+      return true;
+    }
+
+    // ─── SVG editor ───────────────────────────────────────────────────────
+    // Single cell that drives both the visual editor and the downstream
+    // tileEdges generator. Pointer events live on the root <svg>, dragging
+    // updates the active user edge's (h1t, h1n) or (h2t, h2n) directly,
+    // re-renders the SVG, and emits 'input' events so Generators.input
+    // wakes the dependent cells.
+    const _editorRoot = document.createElement('div');
+    _editorRoot.style.cssText = 'margin: 0.5em auto 1em; max-width: 420px;';
+    const _editorSize = Math.min(360, width);
+    const _editorVerts = projectSpectreVerts(1, 1);
+    let _eMnX = Infinity, _eMxX = -Infinity, _eMnY = Infinity, _eMxY = -Infinity;
+    for (const [x, y] of _editorVerts) {
+      if (x < _eMnX) _eMnX = x; if (x > _eMxX) _eMxX = x;
+      if (y < _eMnY) _eMnY = y; if (y > _eMxY) _eMxY = y;
+    }
+    const _eCx = (_eMnX + _eMxX) / 2;
+    const _eCy = (_eMnY + _eMxY) / 2;
+    // Pad enough that handles dragged out beyond the boundary still show.
+    const _eSide = Math.max(_eMxX - _eMnX, _eMxY - _eMnY) + 1.6;
+    const _eVbX = _eCx - _eSide / 2;
+    const _eVbY = -_eCy - _eSide / 2;
+    const _eVbW = _eSide, _eVbH = _eSide;
+
+    const _svgNS = 'http://www.w3.org/2000/svg';
+    const _svg = document.createElementNS(_svgNS, 'svg');
+    _svg.setAttribute('viewBox', `${_eVbX} ${_eVbY} ${_eVbW} ${_eVbH}`);
+    _svg.setAttribute('width', String(_editorSize));
+    _svg.setAttribute('height', String(_editorSize));
+    _svg.style.cssText = 'display: block; margin: 0 auto; touch-action: none; user-select: none; cursor: default;';
+
+    function buildPath(verts: [number, number][]): string {
+      // M to v0, then 14 cubic-bezier C commands closing at v0.
+      let d = `M ${verts[0][0]} ${-verts[0][1]}`;
+      for (let i = 0; i < 14; i++) {
+        const { c1, c2 } = controlPointsFor(i, _handleStore, verts);
+        const p1 = verts[(i + 1) % 14];
+        d += ` C ${c1[0]} ${-c1[1]}, ${c2[0]} ${-c2[1]}, ${p1[0]} ${-p1[1]}`;
+      }
+      return d + ' Z';
+    }
+
+    function rerender(): void {
+      while (_svg.firstChild) _svg.removeChild(_svg.firstChild);
+      // Filled polygon with curved edges.
+      const path = document.createElementNS(_svgNS, 'path');
+      path.setAttribute('d', buildPath(_editorVerts));
+      path.setAttribute('fill', '#cfe1f5');
+      path.setAttribute('stroke', '#222');
+      path.setAttribute('stroke-width', '0.03');
+      path.setAttribute('stroke-linejoin', 'round');
+      _svg.appendChild(path);
+
+      // Vertices.
+      for (let i = 0; i < 14; i++) {
+        const [x, y] = _editorVerts[i];
+        const c = document.createElementNS(_svgNS, 'circle');
+        c.setAttribute('cx', String(x));
+        c.setAttribute('cy', String(-y));
+        c.setAttribute('r', '0.05');
+        c.setAttribute('fill', '#222');
+        _svg.appendChild(c);
+      }
+
+      // Handles. Draw the 7 mirror edges' handles first (lower z) so the
+      // 7 user edges' handles draw on top and remain clickable.
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < 14; i++) {
+          const isUser = (i & 1) === 0;
+          if (pass === 0 && isUser) continue;
+          if (pass === 1 && !isUser) continue;
+          const { c1, c2 } = controlPointsFor(i, _handleStore, _editorVerts);
+          const p0 = _editorVerts[i];
+          const p1 = _editorVerts[(i + 1) % 14];
+          const stemColor = isUser ? '#cc7a00' : '#bbb';
+          const dotColor  = isUser ? '#cc7a00' : '#cfcfcf';
+          for (const [from, to, which] of [
+            [p0, c1, 'c1'], [p1, c2, 'c2'],
+          ] as const) {
+            const ln = document.createElementNS(_svgNS, 'line');
+            ln.setAttribute('x1', String(from[0]));
+            ln.setAttribute('y1', String(-from[1]));
+            ln.setAttribute('x2', String(to[0]));
+            ln.setAttribute('y2', String(-to[1]));
+            ln.setAttribute('stroke', stemColor);
+            ln.setAttribute('stroke-width', '0.018');
+            ln.setAttribute('stroke-dasharray', '0.05 0.05');
+            ln.setAttribute('opacity', isUser ? '0.85' : '0.5');
+            _svg.appendChild(ln);
+            const dot = document.createElementNS(_svgNS, 'circle');
+            dot.setAttribute('cx', String(to[0]));
+            dot.setAttribute('cy', String(-to[1]));
+            dot.setAttribute('r', isUser ? '0.09' : '0.06');
+            dot.setAttribute('fill', dotColor);
+            dot.setAttribute('stroke', '#222');
+            dot.setAttribute('stroke-width', '0.015');
+            if (isUser) {
+              dot.setAttribute('cursor', 'grab');
+              (dot as any).dataset.edge = String(i);
+              (dot as any).dataset.handle = which;
+            } else {
+              dot.setAttribute('pointer-events', 'none');
+            }
+            _svg.appendChild(dot);
+          }
+        }
+      }
+    }
+
+    // Pointer-to-SVG-coord conversion.
+    function svgPoint(ev: PointerEvent): [number, number] {
+      const rect = _svg.getBoundingClientRect();
+      const fx = (ev.clientX - rect.left) / rect.width;
+      const fy = (ev.clientY - rect.top)  / rect.height;
+      return [_eVbX + fx * _eVbW, _eVbY + fy * _eVbH];
+    }
+
+    function emit(): void {
+      const isDef = checkDefault();
+      _resetBtn.disabled = isDef;
+      // Fresh wrapper each tick so dependents that compare by identity see
+      // a change. byUser still points at the live store; consumers read
+      // it as a snapshot during the cell run.
+      (_editorRoot as any).value = { byUser: _handleStore, isDefault: isDef };
+      _editorRoot.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    let _drag: { edge: number; handle: 'c1' | 'c2'; pointerId: number } | null = null;
+    _svg.addEventListener('pointerdown', (ev) => {
+      const target = ev.target as HTMLElement | null;
+      if (!target || target.tagName.toLowerCase() !== 'circle') return;
+      const edgeStr = (target as any).dataset.edge;
+      const handle  = (target as any).dataset.handle;
+      if (edgeStr == null || (handle !== 'c1' && handle !== 'c2')) return;
+      _drag = { edge: parseInt(edgeStr, 10), handle, pointerId: ev.pointerId };
+      _svg.setPointerCapture(ev.pointerId);
+      target.setAttribute('cursor', 'grabbing');
+      ev.preventDefault();
+    });
+    _svg.addEventListener('pointermove', (ev) => {
+      if (!_drag || ev.pointerId !== _drag.pointerId) return;
+      const [sx, sy] = svgPoint(ev);
+      // SVG y is flipped; convert back to world coords.
+      const wx = sx, wy = -sy;
+      const f = edgeFrame(_editorVerts, _drag.edge);
+      // Project (wx, wy) − p0 onto (tangent, normal).
+      const dx = wx - f.p0[0], dy = wy - f.p0[1];
+      const tDist = (dx * f.tx + dy * f.ty) / f.len;
+      const nDist = (dx * f.nx + dy * f.ny) / f.len;
+      const h = _handleStore[_drag.edge];
+      if (_drag.handle === 'c1') { h.h1t = tDist; h.h1n = nDist; }
+      else                       { h.h2t = tDist; h.h2n = nDist; }
+      rerender();
+      emit();
+    });
+    const _endDrag = (ev: PointerEvent): void => {
+      if (!_drag || ev.pointerId !== _drag.pointerId) return;
+      _drag = null;
+      try { _svg.releasePointerCapture(ev.pointerId); } catch {}
+    };
+    _svg.addEventListener('pointerup', _endDrag);
+    _svg.addEventListener('pointercancel', _endDrag);
+
+    // Reset button.
+    const _btnRow = document.createElement('div');
+    _btnRow.style.cssText = 'display: flex; justify-content: center; margin-top: 4px; font-family: var(--sans-serif); font-size: 13px;';
+    const _resetBtn = document.createElement('button');
+    _resetBtn.type = 'button';
+    _resetBtn.textContent = 'Reset to straight edges';
+    _resetBtn.style.cssText = 'padding: 3px 10px; font-size: 12px; cursor: pointer;';
+    _resetBtn.disabled = true;
+    _resetBtn.addEventListener('click', () => {
+      for (const i of USER_EDGES) _handleStore[i] = { ...DEFAULT_HANDLES };
+      rerender();
+      emit();
+    });
+    _btnRow.appendChild(_resetBtn);
+
+    _editorRoot.appendChild(_svg);
+    _editorRoot.appendChild(_btnRow);
+    rerender();
+    (_editorRoot as any).value = { byUser: _handleStore, isDefault: true };
+    display(html`<figure style="margin: 0 auto;">${_editorRoot}<figcaption>
+      Drag the orange handles to bend the spectre's edges. Each edge is paired
+      with its neighbour (the grey handles) by 180° rotation about the shared
+      vertex, which keeps the curved tile aperiodically tileable. Reset to
+      restore the original straight-edge tile and its 12-triangle fast path.
+    </figcaption></figure>`);
+    const tileEdges = Generators.input(_editorRoot);
+  </script>
+
   <script id="morph-strip-section" type="text/markdown">
     The same 14-vertex polygon is part of a one-parameter family Tile(*a*, *b*). The 14 edges have fixed directions (multiples of 30°) and fixed types — eight *a*-edges and six *b*-edges — and only their lengths change as you slide *a* and *b*. The five named stops along the morph slider above:
   </script>
@@ -1211,8 +1498,17 @@
     // V_7 spike is convex but creates pockets), so a triangle fan from any
     // single vertex spills outside the polygon. earcut produces a proper
     // ear-clipped triangulation: 14 verts − 2 = 12 triangles, 36 indices.
-    const meshVertexData = new Float32Array(spectreVertices.flat());
-    const meshFillIndices = new Uint16Array(earcut(spectreVertices.flat()));
+    //
+    // These constants are upper bounds for the curved-edge editor: with
+    // adaptive Bézier refinement at a 0.5%-of-edge-length flatness the
+    // boundary stays under ~16 verts/edge in practice, and earcut on N
+    // verts produces 3·(N−2) indices. Buffers in renderer.js are sized
+    // at these caps and live counts are uploaded each frame.
+    const MAX_BOUNDARY_VERTS  = 256;
+    const MAX_FILL_INDICES    = MAX_BOUNDARY_VERTS * 3;     // 3·(N−2) ≤ 3N
+    const MAX_OUTLINE_INDICES = MAX_BOUNDARY_VERTS * 2;
+    const meshVertexData     = new Float32Array(spectreVertices.flat());
+    const meshFillIndices    = new Uint16Array(earcut(spectreVertices.flat()));
     const meshOutlineIndices = new Uint16Array(28);
     for (let i = 0; i < 14; i++) {
       meshOutlineIndices[i * 2 + 0] = i;
@@ -1238,6 +1534,9 @@
       meshVertexData,
       meshFillIndices,
       meshOutlineIndices,
+      maxBoundaryVerts:  MAX_BOUNDARY_VERTS,
+      maxFillIndices:    MAX_FILL_INDICES,
+      maxOutlineIndices: MAX_OUTLINE_INDICES,
       shaders,
       createGPULines,
     });
@@ -1847,6 +2146,8 @@
   </script>
 
   <script id="spectre-mesh-projected" type="text/x-typescript">
+    import adaptiveBezierCurve from 'npm:adaptive-bezier-curve';
+
     // Per-morph mesh data, one polygon per parity. Even-parity tiles (the
     // majority — every tile outside a Γ subtree has even rotation) project
     // the canonical lattice at (a, b); odd-parity tiles project at (b, a),
@@ -1855,28 +2156,123 @@
     // re-triangulate the polygon every frame so the morph can extend past
     // hat/turtle to the degenerate endpoints, where vertices coincide and
     // the original triangulation would flip / overlap.
-    const meshEvenData = new Float32Array(28);
-    const meshOddData  = new Float32Array(28);
-    for (let i = 0; i < 14; i++) {
-      const [ex, ey] = lp2ToXY(spectreLatticeVertices2[i], renderA, renderB);
-      const [ox, oy] = lp2ToXY(spectreLatticeVertices2[i], renderB, renderA);
-      meshEvenData[i * 2]     = ex; meshEvenData[i * 2 + 1] = ey;
-      meshOddData [i * 2]     = ox; meshOddData [i * 2 + 1] = oy;
+    //
+    // When the editor's handles are at default, every cubic collapses to
+    // a straight line and we take the original 14-vertex / 12-triangle
+    // path — buffer counts shrink back to the spectre's natural size and
+    // the renderer skips the curved overhead entirely. Off-default we run
+    // adaptive de Casteljau (mattdesl/adaptive-bezier-curve) on each edge
+    // to a fixed flatness of 0.5 % of edge length, which keeps the boundary
+    // well under MAX_BOUNDARY_VERTS even for sharply pulled handles.
+
+    function buildBoundary(verts: [number, number][], byUser: Record<number, EdgeHandles>): Float32Array {
+      // adaptive-bezier-curve's `scale` argument sets distanceTolerance =
+      // 1/scale in world units, applied as |perp deviation| / |chord| ≤
+      // 1/scale. With scale = 200 the test ends recursion when the
+      // control-point lever arms project less than ~0.5 % of edge length
+      // off the chord — visually indistinguishable on a 640 px canvas
+      // and well below the spectre's ~16-verts-per-edge cap at typical
+      // handle ranges.
+      const SCALE = 200;
+      const DEGENERATE_EPS = 1e-6;
+      const pts: number[] = [];
+      for (let i = 0; i < 14; i++) {
+        const p0 = verts[i];
+        const p3 = verts[(i + 1) % 14];
+        const dx = p3[0] - p0[0], dy = p3[1] - p0[1];
+        // Skip the bezier on collapsed edges (occurs at the degenerate
+        // morph endpoints where one of a, b → 0). adaptive-bezier-curve's
+        // stopping criterion divides by edge length and would recurse
+        // to its limit on a zero-length cubic; just emit the start point.
+        if (dx * dx + dy * dy < DEGENERATE_EPS * DEGENERATE_EPS) {
+          pts.push(p0[0], p0[1]);
+          continue;
+        }
+        const { c1, c2 } = controlPointsFor(i, byUser, verts);
+        // Returns an array of [x, y] including both endpoints. We append
+        // all but the last to avoid duplicating the shared vertex with
+        // the next edge's first point.
+        const seg = adaptiveBezierCurve(p0, c1, c2, p3, SCALE) as [number, number][];
+        for (let k = 0; k < seg.length - 1; k++) {
+          pts.push(seg[k][0], seg[k][1]);
+        }
+      }
+      return new Float32Array(pts);
     }
-    gpuState.uploadMeshes(meshEvenData, meshOddData);
-    // Triangulate per parity. At intermediate morph values both polygons
-    // share topology and earcut gives identical results; at the ±2 ends one
-    // is a hexagon and the other a 7-gon-with-spike, so they need their
-    // own triangulations. earcut may return < 36 indices when the polygon
-    // is degenerate; pad with index 0 so the drawIndexed(36, …) call still
-    // fires (the resulting collapsed triangles are zero-area).
-    const _earcutInto = (verts: Float32Array): Uint16Array => {
-      const idx = earcut(Array.from(verts));
-      const out = new Uint16Array(36);
-      for (let i = 0; i < idx.length && i < 36; i++) out[i] = idx[i];
+
+    function buildDefaultBoundary(verts: [number, number][]): Float32Array {
+      const out = new Float32Array(28);
+      for (let i = 0; i < 14; i++) {
+        out[i * 2]     = verts[i][0];
+        out[i * 2 + 1] = verts[i][1];
+      }
       return out;
-    };
-    gpuState.uploadFillIndices(_earcutInto(meshEvenData), _earcutInto(meshOddData));
+    }
+
+    const _evenVerts = projectSpectreVerts(renderA, renderB);
+    const _oddVerts  = projectSpectreVerts(renderB, renderA);
+    const _isDefault = tileEdges.isDefault;
+    const meshEvenData = _isDefault
+      ? buildDefaultBoundary(_evenVerts)
+      : buildBoundary(_evenVerts, tileEdges.byUser);
+    const meshOddData  = _isDefault
+      ? buildDefaultBoundary(_oddVerts)
+      : buildBoundary(_oddVerts,  tileEdges.byUser);
+    const _evenN = meshEvenData.length / 2;
+    const _oddN  = meshOddData.length  / 2;
+
+    if (_evenN > MAX_BOUNDARY_VERTS || _oddN > MAX_BOUNDARY_VERTS) {
+      console.warn(`[spectre] curved boundary exceeded buffer cap (${Math.max(_evenN, _oddN)} > ${MAX_BOUNDARY_VERTS}); raise MAX_BOUNDARY_VERTS in spectre-mesh.`);
+    }
+
+    // Pad to the renderer's vertex buffer capacity. The shader reads only
+    // the indices we draw, but writeBuffer requires byteLength ≤ buffer
+    // size — drawing more vertices than we packed would just hit zeros.
+    function padVerts(src: Float32Array, max: number): Float32Array {
+      if (src.length === max * 2) return src;
+      const out = new Float32Array(max * 2);
+      out.set(src.subarray(0, Math.min(src.length, out.length)));
+      return out;
+    }
+    const _evenPadded = padVerts(meshEvenData, MAX_BOUNDARY_VERTS);
+    const _oddPadded  = padVerts(meshOddData,  MAX_BOUNDARY_VERTS);
+    gpuState.uploadMeshes(_evenPadded, _oddPadded);
+
+    // Triangulate per parity. Earcut may return fewer indices than the
+    // 3·(N−2) upper bound at degenerate morphs (collinear segments); pad
+    // the trailing slots with index 0 so the resulting collapsed triangles
+    // are zero-area but the index buffer is fully written.
+    function earcutInto(verts: Float32Array, n: number, capIndices: number): Uint16Array {
+      const idx = earcut(Array.from(verts.subarray(0, n * 2)));
+      const target = Math.max(idx.length, 3 * Math.max(0, n - 2));
+      const out = new Uint16Array(Math.min(target, capIndices));
+      for (let i = 0; i < idx.length && i < out.length; i++) out[i] = idx[i];
+      return out;
+    }
+    const _evenIdx = earcutInto(meshEvenData, _evenN, MAX_FILL_INDICES);
+    const _oddIdx  = earcutInto(meshOddData,  _oddN,  MAX_FILL_INDICES);
+    // Both parities must draw the same number of indices per call (one
+    // drawIndexed for each), so use the larger of the two; the smaller
+    // polygon's tail is zero-padded above.
+    const _fillIndexCount = Math.max(_evenIdx.length, _oddIdx.length);
+    function padIdx(src: Uint16Array, n: number): Uint16Array {
+      if (src.length === n) return src;
+      const out = new Uint16Array(n);
+      out.set(src);
+      return out;
+    }
+    gpuState.uploadFillIndices(padIdx(_evenIdx, _fillIndexCount), padIdx(_oddIdx, _fillIndexCount), _fillIndexCount);
+
+    // Outline: closed loop of 2·N indices over the larger boundary. The
+    // shorter parity reuses the first n_short × 2 of these and trails into
+    // its own (zero-padded) verts as zero-length segments.
+    const _outlineN = Math.max(_evenN, _oddN);
+    const _outline = new Uint16Array(_outlineN * 2);
+    for (let i = 0; i < _outlineN; i++) {
+      _outline[i * 2 + 0] = i;
+      _outline[i * 2 + 1] = (i + 1) % _outlineN;
+    }
+    gpuState.uploadOutlineIndices(_outline, _outline.length);
   </script>
 
   <script id="gpu-render" type="text/x-typescript">
