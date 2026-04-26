@@ -1,0 +1,1126 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Aperiodic Monotile, Infinite Zoom</title>
+
+  <script id="title" type="text/markdown">
+    # Aperiodic monotile, infinite zoom
+
+    A pared-down Spectre viewer that lets you zoom out arbitrarily. Supertiles are generated on demand, and tiles that shrink below a few pixels collapse into earcut polygon meshes. This first cut is a plain viewer at fixed depth; the walker, upward extension, aggregation, and zoom-driven coloring are layered in afterwards.
+  </script>
+
+  <script id="figure" type="text/x-typescript">
+    display(viewerExpandable);
+  </script>
+
+  <script id="figure-caption" type="text/x-typescript">
+    const _totalLeaves = countLeaves(rootMeta);
+    display(html`<figcaption>
+      Depth-${BASE_DEPTH} Δ supertile, Cartesian coordinates only (no morph). ${_totalLeaves.toLocaleString()} spectres total; only the visible subset is uploaded each frame.
+    </figcaption>`);
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+    import { createWebGPUContext } from './lib/webgpu-canvas.js';
+    const _gpuCtx = await createWebGPUContext();
+    const { device, canvasFormat } = _gpuCtx;
+  </script>
+
+  <script id="spectre-data" type="text/x-typescript">
+    import earcut from 'npm:earcut';
+
+    // 14 cartesian spectre vertices — each edge is unit length.
+    const _SQ3_2 = Math.sqrt(3) / 2;
+    const spectreVertices: [number, number][] = [
+      [0,           0           ],
+      [1,           0           ],
+      [1.5,        -_SQ3_2      ],
+      [1.5 + _SQ3_2, 0.5 - _SQ3_2],
+      [1.5 + _SQ3_2, 1.5 - _SQ3_2],
+      [2.5 + _SQ3_2, 1.5 - _SQ3_2],
+      [3 + _SQ3_2,  1.5         ],
+      [3,           2           ],
+      [3 - _SQ3_2,  1.5         ],
+      [2.5 - _SQ3_2, 1.5 + _SQ3_2],
+      [1.5 - _SQ3_2, 1.5 + _SQ3_2],
+      [0.5 - _SQ3_2, 1.5 + _SQ3_2],
+      [-_SQ3_2,     1.5         ],
+      [0,           1           ],
+    ];
+
+    // The four spectre vertices that act as a metatile's "quad" handles.
+    const QUAD_INDICES = [3, 5, 7, 11] as const;
+    const baseQuad: [number, number][] = QUAD_INDICES.map((i) => spectreVertices[i]);
+
+    // Earcut-triangulated 14-gon: 12 triangles, 36 indices. The spectre is
+    // non-convex (vertex 2 sits below the v0–v1 baseline, vertex 7 makes a
+    // pocket), so a fan won't work — earcut produces a proper triangulation.
+    const meshVertexData = new Float32Array(spectreVertices.flat());
+    const meshFillIndices = new Uint16Array(earcut(spectreVertices.flat()));
+  </script>
+
+  <script id="transform-math" type="text/x-typescript">
+    type Vec2 = [number, number];
+
+    // Pre-computed cos/sin for the 12 multiples of 30°. Substitution math
+    // only ever rotates by integer multiples, so a 12-entry table is exact.
+    const _COS = new Float64Array(12);
+    const _SIN = new Float64Array(12);
+    for (let k = 0; k < 12; k++) {
+      _COS[k] = Math.cos(k * Math.PI / 6);
+      _SIN[k] = Math.sin(k * Math.PI / 6);
+    }
+
+    type Transform = { rot: number; mirror: 0 | 1; t: Vec2 };
+    const txIdentity: Transform = { rot: 0, mirror: 0, t: [0, 0] };
+
+    // p ↦ R(rot · 30°) · M^mirror(p) + t, where M reflects across x-axis.
+    function txApply(T: Transform, p: Vec2): Vec2 {
+      const x = p[0];
+      const y = T.mirror ? -p[1] : p[1];
+      const c = _COS[T.rot], s = _SIN[T.rot];
+      return [c * x - s * y + T.t[0], s * x + c * y + T.t[1]];
+    }
+
+    function txApplyLinear(T: Transform, p: Vec2): Vec2 {
+      const x = p[0];
+      const y = T.mirror ? -p[1] : p[1];
+      const c = _COS[T.rot], s = _SIN[T.rot];
+      return [c * x - s * y, s * x + c * y];
+    }
+
+    // (T1 ∘ T2)(p) = T1(T2(p)). Composition rule for rot/mirror/t in the
+    // group <rotation, x-axis reflection, translation>.
+    function txCompose(T1: Transform, T2: Transform): Transform {
+      const sign = T1.mirror ? -1 : 1;
+      const rot = (((T1.rot + sign * T2.rot) % 12) + 12) % 12;
+      const mirror = (T1.mirror ^ T2.mirror) as 0 | 1;
+      const lin = txApplyLinear(T1, T2.t);
+      return { rot, mirror, t: [lin[0] + T1.t[0], lin[1] + T1.t[1]] };
+    }
+
+    const txTranslate = (t: Vec2): Transform => ({ rot: 0, mirror: 0, t });
+    const txRotate = (k: number): Transform =>
+      ({ rot: ((k % 12) + 12) % 12, mirror: 0, t: [0, 0] });
+
+    // Inverse, derived from T(p) = R M p + t:
+    //   q = T(p)  ⇒  p = M^{-1} R^{-1} (q - t)
+    // Using R(α) M = M R(-α):
+    //   mirror = 0:  T^-1 = { rot: -rot, mirror: 0, t: -R(-rot)·t }
+    //   mirror = 1:  T^-1 = { rot:  rot, mirror: 1, t: -R(rot)·M·t }
+    function txInverse(T: Transform): Transform {
+      if (T.mirror) {
+        const c = _COS[T.rot], s = _SIN[T.rot];
+        const tx = T.t[0], ty = -T.t[1]; // M·t
+        const rx = c * tx - s * ty;
+        const ry = s * tx + c * ty;
+        return { rot: T.rot, mirror: 1, t: [-rx, -ry] };
+      } else {
+        const invRot = ((-T.rot % 12) + 12) % 12;
+        const ic = _COS[invRot], is = _SIN[invRot];
+        const rx = ic * T.t[0] - is * T.t[1];
+        const ry = is * T.t[0] + ic * T.t[1];
+        return { rot: invRot, mirror: 0, t: [-rx, -ry] };
+      }
+    }
+  </script>
+
+  <script id="substitution-data" type="text/x-typescript">
+    // Nine metatile types. Γ is the "mystic" pair of two overlapping
+    // spectres glued at vertex 8 with a 30° rotation; the other eight are
+    // bare spectres at substitution depth 0. Both rule tables are taken
+    // verbatim from Kaplan's spectre.js.
+    const TILE_NAMES = ["Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Phi", "Psi"] as const;
+    type TileName = typeof TILE_NAMES[number];
+
+    // [rotation in units of 30°, from-quad index, to-quad index]
+    const transformationRules: [number, number, number][] = [
+      [ 2, 3, 1],
+      [ 0, 2, 0],
+      [ 2, 3, 1],
+      [ 2, 3, 1],
+      [ 0, 2, 0],
+      [ 2, 3, 1],
+      [-4, 3, 3],
+    ];
+
+    const superRules: Record<TileName, (TileName | null)[]> = {
+      Gamma:  ["Pi",  "Delta", null,  "Theta", "Sigma", "Xi",  "Phi",    "Gamma"],
+      Delta:  ["Xi",  "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Theta:  ["Psi", "Delta", "Pi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Lambda: ["Psi", "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Xi:     ["Psi", "Delta", "Pi",  "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+      Pi:     ["Psi", "Delta", "Xi",  "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+      Sigma:  ["Xi",  "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Lambda", "Gamma"],
+      Phi:    ["Psi", "Delta", "Psi", "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Psi:    ["Psi", "Delta", "Psi", "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+    };
+  </script>
+
+  <script id="metatile-build" type="text/x-typescript">
+    type LeafLabel = TileName | "Gamma1" | "Gamma2";
+    type MetaTile =
+      | { kind: "leaf"; label: LeafLabel; quad: Vec2[] }
+      | { kind: "meta"; name: TileName; geometries: { child: MetaTile; transform: Transform }[]; quad: Vec2[] };
+
+    function buildSpectreBase(): Record<TileName, MetaTile> {
+      const cluster = {} as Record<TileName, MetaTile>;
+      for (const label of TILE_NAMES) {
+        if (label !== "Gamma") {
+          cluster[label] = { kind: "leaf", label, quad: baseQuad };
+        }
+      }
+      // Mystic Γ: two spectres glued at v8 with a 30° rotation.
+      cluster.Gamma = {
+        kind: "meta",
+        name: "Gamma",
+        quad: baseQuad,
+        geometries: [
+          { child: { kind: "leaf", label: "Gamma1", quad: baseQuad }, transform: txIdentity },
+          { child: { kind: "leaf", label: "Gamma2", quad: baseQuad },
+            transform: txCompose(txTranslate(spectreVertices[8]), txRotate(1)) },
+        ],
+      };
+      return cluster;
+    }
+
+    // Inflate one full record of nine metatiles to the next level.
+    function buildSupertiles(prev: Record<TileName, MetaTile>): Record<TileName, MetaTile> {
+      const quad = prev.Delta.quad;
+
+      // Build the seven non-identity transforms by walking the rule table.
+      const transformations: Transform[] = [txIdentity];
+      let totalRot = 0;
+      let rotation: Transform = txIdentity;
+      let rotatedQuad: Vec2[] = quad;
+      for (const [deltaRot, fromIdx, toIdx] of transformationRules) {
+        if (deltaRot !== 0) {
+          totalRot = (((totalRot + deltaRot) % 12) + 12) % 12;
+          rotation = txRotate(totalRot);
+          rotatedQuad = quad.map((p) => txApplyLinear(rotation, p));
+        }
+        const target = txApply(transformations[transformations.length - 1], quad[fromIdx]);
+        const source = rotatedQuad[toIdx];
+        const delta: Vec2 = [target[0] - source[0], target[1] - source[1]];
+        transformations.push({ rot: rotation.rot, mirror: 0, t: delta });
+      }
+
+      // Reflect across the y-axis: (x, y) ↦ (-x, y) ≡ rot 6 + mirror.
+      const R: Transform = { rot: 6, mirror: 1, t: [0, 0] };
+      const finalTransforms = transformations.map((T) => txCompose(R, T));
+
+      const superQuad: Vec2[] = [
+        txApply(finalTransforms[6], quad[2]),
+        txApply(finalTransforms[5], quad[1]),
+        txApply(finalTransforms[3], quad[2]),
+        txApply(finalTransforms[0], quad[1]),
+      ];
+
+      const next = {} as Record<TileName, MetaTile>;
+      for (const label of TILE_NAMES) {
+        const subs = superRules[label];
+        const geometries: { child: MetaTile; transform: Transform }[] = [];
+        for (let i = 0; i < subs.length; i++) {
+          const sub = subs[i];
+          if (sub === null) continue;
+          geometries.push({ child: prev[sub], transform: finalTransforms[i] });
+        }
+        next[label] = { kind: "meta", name: label, quad: superQuad, geometries };
+      }
+      return next;
+    }
+  </script>
+
+  <script id="palette" type="text/x-typescript">
+    // Per-(level, type) coloring. Each metatile type has a distinct base
+    // hue; each substitution level rotates the whole palette by 47°. So
+    // at any single dominant zoom level, the 9 types take 9 well-separated
+    // hues, and as zoom shifts by one substitution level, the palette
+    // rotates as a whole — enough to make supertile structure pop without
+    // making colors confusing across zoom changes.
+    // Hues spread evenly 40° apart across the wheel so any two types at
+    // the same substitution level read as clearly distinct, regardless of
+    // the level rotation. Order is arbitrary — just makes the 9 metatypes
+    // span the full color wheel without clustering.
+    const _TYPE_BASE_HUE: Record<string, number> = {
+      Gamma:  320, Delta:  200, Theta:    0, Lambda: 120,
+      Xi:     280, Pi:      80, Sigma:  240, Phi:     40, Psi: 160,
+    };
+    const _LEVEL_HUE_STEP = 47; // per substitution level
+    // Per-type saturation and lightness modulators in [-1, 1]. Used by the
+    // walker for HSL-channel hierarchical encoding: a cell's hue comes from
+    // the ancestor at viewLevel, its saturation from the ancestor +1 level
+    // up, its lightness from the ancestor +2 levels up. Each scale's
+    // structure becomes simultaneously visible because each scale drives
+    // a different perceptual channel. Modulators are arbitrary deterministic
+    // values in [-1, 1] picked to give 9 reasonably-distinct points along
+    // each axis. Γ takes the largest deltas so it reads as the strongest
+    // highlight at whichever level it dominates.
+    const _TYPE_SAT_MOD: Record<string, number> = {
+      Gamma:   1.0, Delta: -0.6, Theta:  0.4, Lambda: -0.2,
+      Xi:      0.7, Pi:    -0.8, Sigma:  0.2, Phi:    -0.4, Psi: 0.0,
+    };
+    const _TYPE_LIGHT_MOD: Record<string, number> = {
+      Gamma:   0.7, Delta:  0.5, Theta: -0.5, Lambda:  0.8,
+      Xi:     -0.3, Pi:    -0.8, Sigma:  0.2, Phi:    -0.1, Psi: 0.0,
+    };
+    function _hslToRgb(h: number, s: number, l: number): [number, number, number] {
+      h = ((h % 360) + 360) % 360;
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = l - c / 2;
+      let r = 0, g = 0, b = 0;
+      if      (h <  60) { r = c; g = x; }
+      else if (h < 120) { r = x; g = c; }
+      else if (h < 180) { g = c; b = x; }
+      else if (h < 240) { g = x; b = c; }
+      else if (h < 300) { r = x; b = c; }
+      else              { r = c; b = x; }
+      return [r + m, g + m, b + m];
+    }
+    function _typeForLabel(label: string): string {
+      return label === "Gamma1" || label === "Gamma2" ? "Gamma" : label;
+    }
+  </script>
+
+  <script id="cluster" type="text/x-typescript">
+    function countLeaves(mt: MetaTile): number {
+      if (mt.kind === "leaf") return 1;
+      let n = 0;
+      for (const { child } of mt.geometries) n += countLeaves(child);
+      return n;
+    }
+
+    const BASE_DEPTH = 4;
+    const baseCluster = (() => {
+      let c = buildSpectreBase();
+      for (let i = 0; i < BASE_DEPTH; i++) c = buildSupertiles(c);
+      return c;
+    })();
+
+    // Mutable state shared across cells: as the user zooms out we wrap
+    // the current root in a new Δ parent at slot 1 (Δ→Δ self-similar
+    // chain via superRules.Delta[1]). currentRootTransform encodes the
+    // pose of the current root in absolute world coordinates so that
+    // tiles previously visible stay byte-identical after extension.
+    const walkerState = {
+      currentRoot: baseCluster.Delta,
+      currentRootTransform: txIdentity,
+      currentBaseRecord: baseCluster,
+      // Number of upward extensions on top of BASE_DEPTH.
+      extensionLevel: 0,
+    };
+    const rootMeta = baseCluster.Delta;
+
+    // ─── Bounding radius per metatile (for view-frustum culling) ────────
+    // A metatile's bounding circle in its own local frame: centered at the
+    // local origin (0, 0), large enough to cover every leaf vertex once
+    // children are placed. Conservative — only used to cull entire
+    // subtrees that are definitely off-screen.
+    const _spectreBoundRadius = (() => {
+      let r = 0;
+      for (const v of spectreVertices) {
+        const d = Math.hypot(v[0], v[1]);
+        if (d > r) r = d;
+      }
+      return r;
+    })();
+
+    function attachRadii(mt: MetaTile): number {
+      if ((mt as any)._localRadius != null) return (mt as any)._localRadius;
+      if (mt.kind === "leaf") {
+        (mt as any)._localRadius = _spectreBoundRadius;
+        return _spectreBoundRadius;
+      }
+      let r = 0;
+      for (const { child, transform } of mt.geometries) {
+        const cr = attachRadii(child);
+        const d = Math.hypot(transform.t[0], transform.t[1]);
+        if (d + cr > r) r = d + cr;
+      }
+      (mt as any)._localRadius = r;
+      return r;
+    }
+    // The DAG shares child metatiles across types; attachRadii is
+    // memoized on _localRadius, so walking just the root covers the rest.
+    attachRadii(rootMeta);
+
+    // ─── Substitution level (for zoom-dependent color blending) ────────
+    // _subLevel = how many substitution steps away from a leaf this
+    // metatile sits. Leaves are level 0; Γ at base depth is level 1
+    // (it's a meta of 2 leaves); non-Γ at depth N is level N; Γ at
+    // depth N is level N+1. The Gaussian color blend in the walker
+    // centers a window over (subLevel − viewLevel), where viewLevel
+    // grows with zoom-out.
+    function attachSubLevels(mt: MetaTile): number {
+      if ((mt as any)._subLevel != null) return (mt as any)._subLevel;
+      if (mt.kind === "leaf") { (mt as any)._subLevel = 0; return 0; }
+      let max = 0;
+      for (const { child } of mt.geometries) {
+        const cl = attachSubLevels(child);
+        if (cl > max) max = cl;
+      }
+      (mt as any)._subLevel = max + 1;
+      return max + 1;
+    }
+    attachSubLevels(rootMeta);
+
+    // ─── Initial-fit bounds (one-time bbox of the root cluster) ────────
+    // _localRadius from the local origin is loose — the spectre's
+    // origin is at one corner of its bbox, not the centroid, so for
+    // deep substitution the conservative radius is several × the
+    // cluster's actual extent. Compute an exact world-space AABB by
+    // walking once at construction time.
+    const rootBounds = (() => {
+      let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+      const STK = BASE_DEPTH + 4;
+      const stRot = new Uint8Array(STK);
+      const stMir = new Uint8Array(STK);
+      const stTx  = new Float64Array(STK);
+      const stTy  = new Float64Array(STK);
+      function recurse(mt: MetaTile, d: number) {
+        if (mt.kind === "leaf") {
+          // Account for the spectre's bbox in the leaf's local frame:
+          // every spectre vertex sits within _spectreBoundRadius of the
+          // tile origin, so a circular pad is rotation-invariant.
+          const tx = stTx[d], ty = stTy[d];
+          const m = _spectreBoundRadius;
+          if (tx - m < mnx) mnx = tx - m;
+          if (tx + m > mxx) mxx = tx + m;
+          if (ty - m < mny) mny = ty - m;
+          if (ty + m > mxy) mxy = ty + m;
+          return;
+        }
+        const pRot = stRot[d], pMir = stMir[d];
+        const pTx = stTx[d], pTy = stTy[d];
+        const pc = _COS[pRot], ps = _SIN[pRot];
+        const d1 = d + 1;
+        for (const { child, transform: T2 } of mt.geometries) {
+          let cx = T2.t[0], cy = T2.t[1];
+          if (pMir) cy = -cy;
+          stTx[d1] = pc * cx - ps * cy + pTx;
+          stTy[d1] = ps * cx + pc * cy + pTy;
+          const rDiff = pMir ? -T2.rot : T2.rot;
+          stRot[d1] = (pRot + rDiff + 12) % 12;
+          stMir[d1] = (pMir ^ T2.mirror) as 0 | 1;
+          recurse(child, d1);
+        }
+      }
+      stRot[0] = 0; stMir[0] = 0; stTx[0] = 0; stTy[0] = 0;
+      recurse(rootMeta, 0);
+      return { minX: mnx, minY: mny, maxX: mxx, maxY: mxy };
+    })();
+  </script>
+
+  <script id="boundary-cache" type="text/x-typescript">
+    // Extract a metatile's outer boundary: walk its leaves, build an edge
+    // multiplicity map, the multiplicity-1 edges are exterior, stitch them
+    // into a closed loop, earcut for triangle indices.
+    //
+    // Skip extraction (return null) if the metatile has more than
+    // MAX_BOUNDARY_LEAVES leaves — at deep substitution levels this would
+    // be untenably slow without simplification. The walker falls back to
+    // treating those metatiles as "recurse normally" rather than aggregate.
+    const MAX_BOUNDARY_LEAVES = 200_000;
+    // Aggregated cells render at ≤ ~32 px on screen, so the boundary's
+    // fractal detail is below the AA floor. Simplify each cached polygon
+    // via Visvalingam-Whyatt (drop-smallest-triangle until target reached);
+    // 16 vertices ≈ 14 triangles per cell, and for the typical visible
+    // count of a few thousand to a few tens of thousand cells per frame
+    // that's well under 1 M triangles total.
+    const BOUNDARY_VERTEX_BUDGET = 16;
+    // Above this sub-level, skip raw extraction — Spectre supertile
+    // boundaries are self-similar after simplification to 16 verts, so a
+    // donor polygon extracted once at the cap can stand in for all higher
+    // levels by scaling up by the radius ratio. Without this cap, extension
+    // level 9 would mean the walker tries to extract polygons from
+    // metatiles with billions of leaves, falls back to recursion, and
+    // emits millions of instances per frame.
+    const EXTRACT_CAP = 5;
+
+    // Visvalingam-Whyatt for closed polygons. Removes the vertex whose
+    // triangle (with neighbors) has the smallest area; repeats until
+    // length === budget. Implemented with a doubly-linked-list ring and
+    // a linear search for the min — quadratic in polygon size, but
+    // bounded by MAX_BOUNDARY_LEAVES × 14 edges and only paid once per
+    // metatile thanks to the cache.
+    function _simplifyClosedPolygon(pts: Vec2[], budget: number): Vec2[] {
+      const n = pts.length;
+      if (n <= budget) return pts;
+      const next = new Int32Array(n);
+      const prev = new Int32Array(n);
+      const alive = new Uint8Array(n);
+      for (let i = 0; i < n; i++) { next[i] = (i + 1) % n; prev[i] = (i - 1 + n) % n; alive[i] = 1; }
+      const area = new Float64Array(n);
+      function _triArea(i: number) {
+        const a = pts[prev[i]], b = pts[i], c = pts[next[i]];
+        return Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) * 0.5;
+      }
+      for (let i = 0; i < n; i++) area[i] = _triArea(i);
+      let remaining = n;
+      while (remaining > budget) {
+        // Find smallest-area alive vertex.
+        let mi = -1, ma = Infinity;
+        for (let i = 0; i < n; i++) {
+          if (!alive[i]) continue;
+          if (area[i] < ma) { ma = area[i]; mi = i; }
+        }
+        if (mi === -1) break;
+        const p = prev[mi], q = next[mi];
+        next[p] = q; prev[q] = p;
+        alive[mi] = 0;
+        remaining--;
+        area[p] = _triArea(p);
+        area[q] = _triArea(q);
+      }
+      const out: Vec2[] = [];
+      // Find any alive vertex to start the walk.
+      let start = -1;
+      for (let i = 0; i < n; i++) if (alive[i]) { start = i; break; }
+      if (start === -1) return pts;
+      let cur = start;
+      do {
+        out.push(pts[cur]);
+        cur = next[cur];
+      } while (cur !== start);
+      return out;
+    }
+
+    type BoundaryMesh = {
+      polygon: Float32Array;        // flat (x0, y0, x1, y1, ...)
+      indices: Uint32Array;
+    };
+    const _boundaryCache = new WeakMap<MetaTile, BoundaryMesh | null>();
+
+    function _collectLeafTransforms(mt: MetaTile, accum: Transform, out: Transform[]) {
+      if (mt.kind === "leaf") { out.push(accum); return; }
+      for (const { child, transform: T2 } of mt.geometries) {
+        _collectLeafTransforms(child, txCompose(accum, T2), out);
+      }
+    }
+
+    function extractBoundary(mt: MetaTile): BoundaryMesh | null {
+      if (mt.kind === "leaf") return null;
+      const cached = _boundaryCache.get(mt);
+      if (cached !== undefined) return cached;
+      const leafCount = countLeaves(mt);
+      if (leafCount > MAX_BOUNDARY_LEAVES) {
+        _boundaryCache.set(mt, null);
+        return null;
+      }
+
+      // 1. Collect every leaf's accumulated transform in mt's local frame.
+      const xforms: Transform[] = [];
+      _collectLeafTransforms(mt, txIdentity, xforms);
+
+      // 2. Quantize vertices to integer IDs. Substitution math involves
+      // sums of unit-length vectors at multiples of 30°, so 1e-7 rounding
+      // is well above the FP noise floor at any depth we'd extract here.
+      const Q = 1e7;
+      const vertMap = new Map<string, number>();
+      const vertList: Vec2[] = [];
+      function vertId(p: Vec2): number {
+        const qx = Math.round(p[0] * Q);
+        const qy = Math.round(p[1] * Q);
+        const key = qx + "," + qy;
+        let id = vertMap.get(key);
+        if (id === undefined) { id = vertList.length; vertMap.set(key, id); vertList.push([p[0], p[1]]); }
+        return id;
+      }
+
+      // 3. For each leaf, compute its 14 vertex IDs and 14 edge keys.
+      // edgeMult counts how many leaves share each edge; multiplicity 1
+      // means it's on the cluster boundary.
+      const edgeMult = new Map<number, number>();
+      for (const T of xforms) {
+        const ids: number[] = new Array(14);
+        for (let i = 0; i < 14; i++) ids[i] = vertId(txApply(T, spectreVertices[i]));
+        for (let i = 0; i < 14; i++) {
+          const a = ids[i], b = ids[(i + 1) % 14];
+          const lo = a < b ? a : b;
+          const hi = a < b ? b : a;
+          const key = lo * 0x100000 + hi;     // safe up to ~1M unique vertices
+          edgeMult.set(key, (edgeMult.get(key) ?? 0) + 1);
+        }
+      }
+
+      // 4. Adjacency map: vertId → 2 boundary neighbors (for a closed loop
+      // each boundary vertex has degree 2; degenerate cases would have
+      // higher degree, which we don't expect here).
+      const adj = new Map<number, number[]>();
+      for (const [key, mult] of edgeMult) {
+        if (mult !== 1) continue;
+        const lo = Math.floor(key / 0x100000);
+        const hi = key % 0x100000;
+        let la = adj.get(lo); if (!la) { la = []; adj.set(lo, la); } la.push(hi);
+        let lb = adj.get(hi); if (!lb) { lb = []; adj.set(hi, lb); } lb.push(lo);
+      }
+
+      // 5. Stitch into closed loops. Pick the longest as the outer
+      // boundary (Spectre clusters are simply connected, so there should
+      // only be one).
+      const visited = new Set<number>();
+      const loops: number[][] = [];
+      for (const start of adj.keys()) {
+        if (visited.has(start)) continue;
+        const loop: number[] = [];
+        let prev = -1;
+        let cur = start;
+        while (true) {
+          loop.push(cur);
+          visited.add(cur);
+          const ns = adj.get(cur)!;
+          let next = -1;
+          for (const n of ns) { if (n !== prev) { next = n; break; } }
+          if (next === -1 || next === start) break;
+          prev = cur;
+          cur = next;
+        }
+        loops.push(loop);
+      }
+      if (loops.length === 0) { _boundaryCache.set(mt, null); return null; }
+      loops.sort((a, b) => b.length - a.length);
+      const outer = loops[0];
+
+      // 6. Materialize the outer-boundary as Vec2 points, simplify with
+      // Visvalingam-Whyatt down to the vertex budget, then dilate slightly
+      // around the polygon's centroid so adjacent aggregates overlap by a
+      // small amount and the visible black streaks from FP-precision drift
+      // (and from simplification-induced edge-mismatch with neighbors) are
+      // hidden under the overlap. The metatile's local origin is at one
+      // corner of the cluster bbox, so dilating around the polygon centroid
+      // (not the origin) is what keeps the expansion isotropic.
+      const outerPts: Vec2[] = outer.map((id) => vertList[id]);
+      const simplified = _simplifyClosedPolygon(outerPts, BOUNDARY_VERTEX_BUDGET);
+      let cx = 0, cy = 0;
+      for (const p of simplified) { cx += p[0]; cy += p[1]; }
+      cx /= simplified.length; cy /= simplified.length;
+      const DILATE = 1.025;
+      const polygon = new Float32Array(simplified.length * 2);
+      const flat: number[] = new Array(simplified.length * 2);
+      for (let i = 0; i < simplified.length; i++) {
+        const x = cx + (simplified[i][0] - cx) * DILATE;
+        const y = cy + (simplified[i][1] - cy) * DILATE;
+        polygon[i * 2 + 0] = x;
+        polygon[i * 2 + 1] = y;
+        flat[i * 2 + 0] = x;
+        flat[i * 2 + 1] = y;
+      }
+      const indices = new Uint32Array(earcut(flat));
+      const mesh: BoundaryMesh = { polygon, indices };
+      _boundaryCache.set(mt, mesh);
+      return mesh;
+    }
+
+    // ─── GPU mesh handles ──────────────────────────────────────────────
+    // Per-metatile lazily-created vertex+index buffers. Memory is bounded
+    // by the number of unique metatiles encountered as aggregation
+    // candidates — at most ~9 metatypes × the deepest aggregation level.
+    import {
+      createVertexBuffer as _createVB,
+      createIndexBuffer as _createIB,
+    } from './lib/webgpu-canvas.js';
+
+    type GpuMesh = {
+      vertexBuffer: GPUBuffer;
+      indexBuffer: GPUBuffer;
+      indexCount: number;
+      indexFormat: 'uint32';
+    };
+    // Per-metatile-object cache (avoids re-checking the shape map every
+    // visit) and a shape-keyed cache that all 8 non-Γ types at the same
+    // substitution level point at, so we extract one boundary and create
+    // one pair of GPU buffers per (level, isGamma) instead of per type.
+    const _gpuMeshCache = new WeakMap<MetaTile, GpuMesh | null>();
+    const _gpuMeshByShape = new Map<string, GpuMesh | null>();
+
+    // Donor metatiles for boundary extraction, one per shape (Γ vs non-Γ).
+    // Their polygons are extracted on first demand and reused (scaled) for
+    // any same-shape metatile with subLevel > EXTRACT_CAP. The donor's
+    // _localRadius is captured so we can compute the scale factor without
+    // needing the Spectre inflation constant analytically.
+    //
+    // After BASE_DEPTH inflations every metatile in baseCluster has
+    // subLevel = BASE_DEPTH + 1, so we use baseCluster.Delta (non-Γ) and
+    // baseCluster.Gamma directly. baseCluster.Gamma isn't reachable from
+    // baseCluster.Delta, so its radii/sublevels aren't attached yet.
+    const _donors = (() => {
+      attachRadii(baseCluster.Gamma);
+      attachSubLevels(baseCluster.Gamma);
+      return { nonGamma: baseCluster.Delta, gamma: baseCluster.Gamma };
+    })();
+
+    function _getDonorBoundary(isGamma: boolean): { mesh: BoundaryMesh; radius: number } | null {
+      const donor = isGamma ? _donors.gamma : _donors.nonGamma;
+      const mesh = extractBoundary(donor);
+      if (mesh === null) return null;
+      return { mesh, radius: (donor as any)._localRadius };
+    }
+
+    function getGpuMesh(mt: MetaTile): GpuMesh | null {
+      const cached = _gpuMeshCache.get(mt);
+      if (cached !== undefined) return cached;
+      const subLevel = (mt as any)._subLevel as number;
+      const isGamma = mt.kind === "meta" && mt.name === "Gamma";
+      const shapeKey = subLevel + (isGamma ? "g" : "n");
+      const shared = _gpuMeshByShape.get(shapeKey);
+      if (shared !== undefined) {
+        _gpuMeshCache.set(mt, shared);
+        return shared;
+      }
+      let polygon: Float32Array;
+      let indices: Uint32Array;
+      if (subLevel <= EXTRACT_CAP) {
+        // Extract directly from this metatile.
+        const boundary = extractBoundary(mt);
+        if (boundary === null) {
+          _gpuMeshByShape.set(shapeKey, null);
+          _gpuMeshCache.set(mt, null);
+          return null;
+        }
+        polygon = boundary.polygon;
+        indices = boundary.indices;
+      } else {
+        // Reuse donor polygon scaled by radius ratio.
+        const donor = _getDonorBoundary(isGamma);
+        if (donor === null) {
+          _gpuMeshByShape.set(shapeKey, null);
+          _gpuMeshCache.set(mt, null);
+          return null;
+        }
+        const scale = ((mt as any)._localRadius as number) / donor.radius;
+        polygon = new Float32Array(donor.mesh.polygon.length);
+        for (let i = 0; i < polygon.length; i++) polygon[i] = donor.mesh.polygon[i] * scale;
+        indices = donor.mesh.indices;
+      }
+      const vb = _createVB(device, 'agg-poly-verts', polygon);
+      const ib = _createIB(device, 'agg-poly-indices', indices);
+      const mesh: GpuMesh = {
+        vertexBuffer: vb, indexBuffer: ib,
+        indexCount: indices.length, indexFormat: 'uint32',
+      };
+      _gpuMeshByShape.set(shapeKey, mesh);
+      _gpuMeshCache.set(mt, mesh);
+      return mesh;
+    }
+  </script>
+
+  <script id="walker" type="text/x-typescript">
+    // View-driven walker: traverse the metatile DAG with a per-frame view
+    // rect, cull subtrees whose bounding circle is outside the rect, and
+    // emit one 16-byte instance per visible leaf:
+    //   offset  0 (8 B): float32x2 (tx, ty)
+    //   offset  8 (4 B): snorm16x2 (cos θ, sin θ)
+    //   offset 12 (4 B): unorm8x4  (r, g, b, mirror)
+    //
+    // Scratch state (the data buffer, the transform stack) is allocated
+    // once and reused; only the visible-leaf prefix changes per frame.
+    type WalkView = {
+      centerX: number; centerY: number;
+      pixelScale: number;
+      pixelWidth: number; pixelHeight: number;
+    };
+
+    // Aggregate at this on-screen pixel extent: a metatile whose actual
+    // diameter shrinks below AGG_PX is rendered as its outline polygon
+    // instead of recursing into individual leaves.
+    //
+    // The walker descends until the first cell falls under the threshold
+    // and aggregates there, so cell sizes after aggregation land in
+    // (AGG_PX/inflation, AGG_PX] = (~AGG_PX/2.8, AGG_PX]. Picking 56 puts
+    // typical aggregate cells around 20–55 px on screen — small enough
+    // that any solid-color region reads as a single mosaic tile rather
+    // than a monolithic block, large enough that the eye can resolve
+    // individual cells and the per-cell color differences register.
+    const AGG_PX = 56;
+    // _localRadius is measured from the spectre's corner origin (vertex 0),
+    // so for any supertile it's ~1.5× the cluster's true centered radius
+    // (empirically 1.44 at sub-level 3, growing to 1.64 at sub-level 5).
+    // Multiplying the threshold by this factor lets aggregates trigger at
+    // the cell's actual on-screen extent rather than a smaller fraction.
+    // Without it, the walker recurses one extra level on average and emits
+    // ~5× more cells than necessary.
+    const _LOOSE_RADIUS_FACTOR = 1.55;
+
+    // Zoom-dependent color via HSL channel encoding. The cell carries a
+    // color whose hue is read from the cell itself, saturation from its
+    // immediate parent meta, lightness from its grandparent, with viewLevel
+    // sliding the whole window up the ancestry chain in lockstep with the
+    // user's zoom-out. Three different substitution levels drive three
+    // perceptual axes simultaneously, so coarse, medium, and fine
+    // structure are all visible at once instead of any single one
+    // dominating. Transitions are continuous because each channel pick
+    // linearly interpolates between integer "levels-up" stack slots.
+    //
+    // viewLevel = 0 places leaves at the AGG_PX threshold (i.e., it's the
+    // log_inflation of how many supertile levels the user has zoomed past
+    // the leaf-aggregation boundary). At fine zoom (low viewLevel) the
+    // cell's own type colors the hue. At deep zoom each channel reads
+    // from progressively-higher ancestors, so what the eye picks up as
+    // hue/sat/lightness all reflect levels relevant to that zoom.
+    //
+    // Spectre supertile inflation factor — each substitution level's
+    // bounding circle scales by ~(1 + √3) ≈ 2.73 versus the previous;
+    // I'm using 2.5 here as a tuning compromise.
+    const _INFLATION = 2.5;
+    const _LEVEL0_PIXEL_SCALE = AGG_PX / (2 * _spectreBoundRadius);
+    function viewLevelFor(pixelScale: number): number {
+      if (pixelScale <= 0) return 0;
+      return -Math.log(pixelScale / _LEVEL0_PIXEL_SCALE) / Math.log(_INFLATION);
+    }
+
+    type WalkBucket = {
+      // null key = leaves drawn with the spectre mesh; otherwise the
+      // metatile whose outline polygon owns this bucket.
+      key: MetaTile | null;
+      data: ArrayBuffer;
+      f32: Float32Array;
+      i16: Int16Array;
+      u8: Uint8Array;
+      count: number;
+      capacity: number;
+    };
+
+    function _newBucket(key: MetaTile | null, initCap: number): WalkBucket {
+      const capacity = Math.max(16, initCap);
+      const data = new ArrayBuffer(capacity * 16);
+      return {
+        key,
+        data,
+        f32: new Float32Array(data),
+        i16: new Int16Array(data),
+        u8:  new Uint8Array(data),
+        count: 0,
+        capacity,
+      };
+    }
+
+    function _growBucket(b: WalkBucket, needed: number) {
+      if (needed <= b.capacity) return;
+      const newCap = Math.max(needed, b.capacity * 2);
+      const newData = new ArrayBuffer(newCap * 16);
+      new Uint8Array(newData).set(b.u8.subarray(0, b.count * 16));
+      b.data = newData;
+      b.f32 = new Float32Array(newData);
+      b.i16 = new Int16Array(newData);
+      b.u8  = new Uint8Array(newData);
+      b.capacity = newCap;
+    }
+
+    function makeWalker(initialLeafCap: number) {
+      // Generous depth budget — depth grows by 1 per upward-extension level.
+      const STK = 64;
+      const stRot = new Uint8Array(STK);
+      const stMir = new Uint8Array(STK);
+      const stTx  = new Float64Array(STK);
+      const stTy  = new Float64Array(STK);
+      // Ancestry channel stack: each entered meta pushes its (subLevel, hue,
+      // satMod, lightMod). The walker picks one ancestor per perceptual
+      // channel (different stack distances) so multiple substitution levels
+      // remain visible at once instead of any single one dominating.
+      // Stack is ordered with index 0 = root (highest subLevel) and
+      // index ancDepth−1 = immediate parent (lowest subLevel).
+      const stHue   = new Float64Array(STK);
+      const stSatM  = new Float64Array(STK);
+      const stLitM  = new Float64Array(STK);
+      const stSubL  = new Float64Array(STK);
+      let ancDepth = 0;
+
+      let vMnX = -Infinity, vMxX = Infinity, vMnY = -Infinity, vMxY = Infinity;
+      let pixelScale = 1;
+      let viewLevel = 0;
+      const buckets = new Map<MetaTile | null, WalkBucket>();
+      // Pre-seed the leaf bucket at the requested size; it reuses across
+      // frames. Aggregate buckets are created lazily and reset each frame.
+      buckets.set(null, _newBucket(null, initialLeafCap));
+
+      // Channel-offset assignments. Cell (level 0 in the "levels-up" sense)
+      // contributes hue. Each step up the ancestry chain adds 1 to the
+      // levels-up count, so an offset of N means "N levels above the cell."
+      // Picking saturation from the +1 ancestor and lightness from the +2
+      // ancestor encodes three substitution scales into the cell's color
+      // simultaneously.
+      const _HUE_OFFSET   = 0;
+      const _SAT_OFFSET   = 1;
+      const _LIGHT_OFFSET = 2;
+      const _BASE_SAT   = 0.55;
+      const _SAT_AMP    = 0.30;
+      const _BASE_LIGHT = 0.55;
+      const _LIGHT_AMP  = 0.20;
+
+      // Pick a channel value at a given "levels-up" target with linear
+      // interpolation between the two adjacent stack levels. levelsUp is
+      // continuous and viewLevel-dependent, so transitions between integer
+      // levels remain smooth as the user zooms.
+      //
+      // levelsUp = 0 → cell itself; 1 → parent; 2 → grandparent; clamped at
+      // root for values past the stack height.
+      function _pickChannel(
+        levelsUp: number,
+        cellValue: number,
+        getter: (idx: number) => number,
+      ): number {
+        const f = levelsUp;
+        const lo = Math.floor(f);
+        const t = f - lo;
+        const getAt = (li: number): number => {
+          if (li <= 0) return cellValue;
+          const idx = ancDepth - li;
+          if (idx < 0) return ancDepth > 0 ? getter(0) : cellValue;
+          return getter(idx);
+        };
+        return getAt(lo) * (1 - t) + getAt(lo + 1) * t;
+      }
+
+      function emit(bucketKey: MetaTile | null, label: string, d: number, cellSubLevel: number) {
+        let b = buckets.get(bucketKey);
+        if (!b) { b = _newBucket(bucketKey, 64); buckets.set(bucketKey, b); }
+        if (b.count >= b.capacity) _growBucket(b, b.count + 1);
+        const i = b.count;
+        b.f32[i * 4 + 0] = stTx[d];
+        b.f32[i * 4 + 1] = stTy[d];
+        const c = _COS[stRot[d]], s = _SIN[stRot[d]];
+        b.i16[i * 8 + 4] = Math.max(-32768, Math.min(32767, Math.round(c * 32767)));
+        b.i16[i * 8 + 5] = Math.max(-32768, Math.min(32767, Math.round(s * 32767)));
+
+        // Cell's own (hue, satMod, lightMod) — used when no ancestor exists
+        // at the requested levels-up.
+        const type = _typeForLabel(label);
+        const cellHue = (_TYPE_BASE_HUE[type] ?? 0) + cellSubLevel * _LEVEL_HUE_STEP;
+        const cellSatMod = _TYPE_SAT_MOD[type] ?? 0;
+        const cellLitMod = _TYPE_LIGHT_MOD[type] ?? 0;
+
+        // Channel encoding: each scale's structure shows up in a different
+        // perceptual axis. levelsUp targets are positive offsets from the
+        // cell, advanced by viewLevel so as the user zooms out the whole
+        // window slides up the ancestry chain in lockstep.
+        const huePick   = _pickChannel(viewLevel + _HUE_OFFSET,   cellHue,    (k) => stHue[k]);
+        const satPick   = _pickChannel(viewLevel + _SAT_OFFSET,   cellSatMod, (k) => stSatM[k]);
+        const litPick   = _pickChannel(viewLevel + _LIGHT_OFFSET, cellLitMod, (k) => stLitM[k]);
+        const sat   = Math.max(0, Math.min(1, _BASE_SAT   + _SAT_AMP   * satPick));
+        const light = Math.max(0, Math.min(1, _BASE_LIGHT + _LIGHT_AMP * litPick));
+        const [R, G, B] = _hslToRgb(huePick, sat, light);
+
+        const off = i * 16;
+        b.u8[off + 12] = Math.max(0, Math.min(255, Math.round(R * 255)));
+        b.u8[off + 13] = Math.max(0, Math.min(255, Math.round(G * 255)));
+        b.u8[off + 14] = Math.max(0, Math.min(255, Math.round(B * 255)));
+        b.u8[off + 15] = stMir[d] ? 255 : 0;
+        b.count = i + 1;
+      }
+
+      function recurse(mt: MetaTile, d: number) {
+        const cx = stTx[d], cy = stTy[d];
+        const r = (mt as any)._localRadius ?? 0;
+        if (cx + r < vMnX || cx - r > vMxX || cy + r < vMnY || cy - r > vMxY) return;
+        if (mt.kind === "leaf") { emit(null, mt.label, d, 0); return; }
+
+        // Aggregate if this metatile would render below the threshold.
+        // 2·r is the bounding-circle diameter; pixelExtent is its size
+        // in screen pixels. If the boundary cache yields a polygon, emit
+        // one aggregate instance using the metatile's name color; if the
+        // metatile is too big to extract a boundary for, fall through
+        // to the recursive case.
+        const pixelExtent = 2 * r * pixelScale;
+        if (pixelExtent < AGG_PX * _LOOSE_RADIUS_FACTOR) {
+          const mesh = getGpuMesh(mt);
+          if (mesh) { emit(mt, mt.name, d, (mt as any)._subLevel); return; }
+        }
+
+        // Push this meta's channel info onto the ancestry stack, recurse, pop.
+        const mySL = (mt as any)._subLevel as number;
+        stHue [ancDepth] = (_TYPE_BASE_HUE [mt.name] ?? 0) + mySL * _LEVEL_HUE_STEP;
+        stSatM[ancDepth] = _TYPE_SAT_MOD  [mt.name] ?? 0;
+        stLitM[ancDepth] = _TYPE_LIGHT_MOD[mt.name] ?? 0;
+        stSubL[ancDepth] = mySL;
+        ancDepth++;
+
+        const pRot = stRot[d], pMir = stMir[d];
+        const pTx = stTx[d], pTy = stTy[d];
+        const pc = _COS[pRot], ps = _SIN[pRot];
+        const d1 = d + 1;
+        for (const { child, transform: T2 } of mt.geometries) {
+          let ccx = T2.t[0], ccy = T2.t[1];
+          if (pMir) ccy = -ccy;
+          stTx[d1] = pc * ccx - ps * ccy + pTx;
+          stTy[d1] = ps * ccx + pc * ccy + pTy;
+          const rDiff = pMir ? -T2.rot : T2.rot;
+          stRot[d1] = (pRot + rDiff + 12) % 12;
+          stMir[d1] = (pMir ^ T2.mirror) as 0 | 1;
+          recurse(child, d1);
+        }
+        ancDepth--;
+      }
+
+      // Single shared buffer, populated by concatenating bucket data
+      // post-walk. Re-used across frames; grows on demand.
+      let outData = new ArrayBuffer(initialLeafCap * 16);
+      let outU8 = new Uint8Array(outData);
+
+      return function walk(rootMeta: MetaTile, rootTransform: Transform, view: WalkView): {
+        data: ArrayBuffer; totalCount: number;
+        groups: Array<{ key: MetaTile | null; instanceOffset: number; instanceCount: number }>;
+      } {
+        const halfW = view.pixelWidth / (2 * view.pixelScale);
+        const halfH = view.pixelHeight / (2 * view.pixelScale);
+        const m = _spectreBoundRadius;
+        vMnX = view.centerX - halfW - m;
+        vMxX = view.centerX + halfW + m;
+        vMnY = view.centerY - halfH - m;
+        vMxY = view.centerY + halfH + m;
+        pixelScale = view.pixelScale;
+        viewLevel = viewLevelFor(pixelScale);
+        ancDepth = 0;
+
+        // Reset all buckets.
+        for (const b of buckets.values()) b.count = 0;
+
+        stRot[0] = rootTransform.rot;
+        stMir[0] = rootTransform.mirror;
+        stTx[0]  = rootTransform.t[0];
+        stTy[0]  = rootTransform.t[1];
+        recurse(rootMeta, 0);
+
+        // Concatenate buckets into outData. Leaves first (key === null),
+        // then aggregates in insertion order.
+        let totalCount = 0;
+        for (const b of buckets.values()) totalCount += b.count;
+        if (totalCount * 16 > outData.byteLength) {
+          const newCap = Math.max(totalCount, (outData.byteLength / 16) * 2);
+          outData = new ArrayBuffer(newCap * 16);
+          outU8 = new Uint8Array(outData);
+        }
+        const groups: Array<{ key: MetaTile | null; instanceOffset: number; instanceCount: number }> = [];
+        let off = 0;
+        const leafBucket = buckets.get(null)!;
+        if (leafBucket.count > 0) {
+          outU8.set(leafBucket.u8.subarray(0, leafBucket.count * 16), off * 16);
+          groups.push({ key: null, instanceOffset: off, instanceCount: leafBucket.count });
+          off += leafBucket.count;
+        }
+        for (const b of buckets.values()) {
+          if (b.key === null) continue;
+          if (b.count === 0) continue;
+          outU8.set(b.u8.subarray(0, b.count * 16), off * 16);
+          groups.push({ key: b.key, instanceOffset: off, instanceCount: b.count });
+          off += b.count;
+        }
+        return { data: outData, totalCount, groups };
+      };
+    }
+
+    const walker = makeWalker(countLeaves(rootMeta));
+
+    // ─── Upward extension ───────────────────────────────────────────────
+    // Wrap the current root in a level-up Δ parent. Slot 1 of Δ is Δ
+    // (per superRules.Delta[1]), so the existing root becomes the slot-1
+    // child of the new root. The new root's pose in absolute world is
+    // chosen so that the slot-1 child's accumulated transform stays
+    // exactly equal to the current root's transform — visible tiles
+    // remain in the same world position.
+    function extendRootUpward() {
+      const nextRecord = buildSupertiles(walkerState.currentBaseRecord);
+      const newRoot = nextRecord.Delta;
+      attachRadii(newRoot);
+      attachSubLevels(newRoot);
+      // Non-Γ types: geometries[i] corresponds directly to slot i (no
+      // null slots). Slot 1 of Δ is "Delta", so newRoot.geometries[1]
+      // is the geometry whose child === walkerState.currentRoot.
+      const slot1Transform = newRoot.geometries[1].transform;
+      walkerState.currentRootTransform = txCompose(
+        walkerState.currentRootTransform,
+        txInverse(slot1Transform),
+      );
+      walkerState.currentRoot = newRoot;
+      walkerState.currentBaseRecord = nextRecord;
+      walkerState.extensionLevel += 1;
+    }
+
+    // Extend while the current root's bounding circle doesn't cover the
+    // view-corner farthest from the root center. The 0.95 factor leaves
+    // a small margin so we extend before the user actually sees an edge.
+    function maybeExtend(view: WalkView): void {
+      let safety = 64;
+      while (safety-- > 0) {
+        const r = (walkerState.currentRoot as any)._localRadius;
+        const cx = walkerState.currentRootTransform.t[0];
+        const cy = walkerState.currentRootTransform.t[1];
+        const halfW = view.pixelWidth / (2 * view.pixelScale);
+        const halfH = view.pixelHeight / (2 * view.pixelScale);
+        const dx = Math.abs(view.centerX - cx) + halfW;
+        const dy = Math.abs(view.centerY - cy) + halfH;
+        const distToCorner = Math.hypot(dx, dy);
+        if (distToCorner <= 0.95 * r) return;
+        extendRootUpward();
+      }
+    }
+  </script>
+
+  <script id="renderer-setup" type="text/x-typescript">
+    import { expandable } from './lib/expandable.js';
+    import { createInfiniteRenderer } from './infinite-renderer.js';
+
+    // Rebuilt on every view change; the walker's scratch buffer is
+    // reused so this call is allocation-free in the hot path.
+    let _initialFitDone = false;
+    function repackInstances(): void {
+      if (viewerState.pixelWidth === 0) return;
+      const view = {
+        centerX: viewerState.centerX,
+        centerY: viewerState.centerY,
+        pixelScale: viewerState.pixelScale,
+        pixelWidth: viewerState.pixelWidth,
+        pixelHeight: viewerState.pixelHeight,
+      };
+      maybeExtend(view);
+      const result = walker(walkerState.currentRoot, walkerState.currentRootTransform, view);
+
+      // Resolve bucket keys → renderer meshes. The leaf bucket uses the
+      // renderer's default spectre mesh; aggregates use per-metatile
+      // boundary meshes. getGpuMesh is memoized so repeats are cheap.
+      const renderGroups = [];
+      for (const g of result.groups) {
+        const mesh = g.key === null ? viewerState.defaultMesh : getGpuMesh(g.key);
+        if (!mesh) continue;
+        renderGroups.push({
+          mesh,
+          instanceOffset: g.instanceOffset,
+          instanceCount: g.instanceCount,
+        });
+      }
+      viewerState.setDrawList({ data: result.data, totalCount: result.totalCount, groups: renderGroups });
+    }
+
+    const { canvas: viewerCanvas, state: viewerState } = createInfiniteRenderer({
+      device,
+      canvasFormat,
+      invalidation,
+      meshVertexData,
+      meshFillIndices,
+      onViewChange: () => repackInstances(),
+    });
+
+    const viewerExpandable = expandable(viewerCanvas, {
+      id: 'spectre-infinite',
+      width: 640,
+      height: 640,
+      wide: true,
+      onResize: (_el, w, h) => {
+        viewerState.resize(w, h);
+        if (!_initialFitDone && viewerState.pixelWidth > 0) {
+          // First valid pixel size: center on the cluster centroid and
+          // pick the largest pixelScale that keeps the cluster inside
+          // the viewport with a 5% margin.
+          const b = rootBounds;
+          viewerState.centerX = (b.minX + b.maxX) / 2;
+          viewerState.centerY = (b.minY + b.maxY) / 2;
+          const fitX = viewerState.pixelWidth  / (b.maxX - b.minX);
+          const fitY = viewerState.pixelHeight / (b.maxY - b.minY);
+          viewerState.pixelScale = 0.95 * Math.min(fitX, fitY);
+          _initialFitDone = true;
+        }
+        repackInstances();
+        viewerState.requestFrame();
+      },
+    });
+  </script>
+</notebook>
