@@ -58,6 +58,136 @@ export const ICON_ARCBALL = svgIcon(
 
 let _expandableCounter = 0;
 
+// Touch-driven fade: while the user drags a slider thumb with touch, fade
+// the rest of the floating controls panel — its background, shadow,
+// header, resize grip, and every sibling row — so the touched slider is
+// the only thing fully visible. Pure CSS-class driven so there's no
+// per-node bookkeeping to drift out of sync. Installed once on first
+// expandable() call.
+let _sliderFadeInstalled = false;
+function installSliderFadeHandlers() {
+  if (_sliderFadeInstalled) return;
+  _sliderFadeInstalled = true;
+  const style = document.createElement('style');
+  style.textContent = `
+    .expandable-controls-panel,
+    .expandable-controls-panel * {
+      transition: opacity 0.18s ease-out, background 0.18s ease-out, box-shadow 0.18s ease-out;
+    }
+    body.expandable-slider-fade .expandable-controls-panel {
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+    body.expandable-slider-fade .expandable-controls-header,
+    body.expandable-slider-fade .expandable-controls-resize {
+      opacity: 0;
+    }
+    /* !important so nothing in user-supplied control styling can keep a
+       sibling row visible while we want it hidden. visibility:hidden in
+       addition to opacity 0 because iOS Safari sometimes defers opacity
+       repaints while a touch is active — visibility forces compositor hide.
+       Keep layout (no display:none) so the panel doesn't reflow as the
+       touch starts. */
+    .expandable-slider-faded {
+      opacity: 0 !important;
+      visibility: hidden !important;
+    }
+    /* Halo around labels of the still-opaque slider so its text stays
+       legible against whatever the figure happens to be showing. */
+    body.expandable-slider-fade .expandable-controls-panel label,
+    body.expandable-slider-fade .expandable-controls-panel .label,
+    body.expandable-slider-fade .expandable-controls-panel span,
+    body.expandable-slider-fade .expandable-controls-panel output {
+      text-shadow:
+        0 0 4px var(--theme-background, #fff),
+        0 0 2px var(--theme-background, #fff),
+        0 0 1px var(--theme-background, #fff);
+    }
+  `;
+  document.head.appendChild(style);
+  // Walk up from the touched slider until we find an element whose siblings
+  // include *other* slider-containing rows. That element is the slider's
+  // "row" — the granularity at which we want to fade peers, regardless of
+  // how the user happens to nest controls inside the controls container.
+  const findSliderRow = (target) => {
+    let cur = target;
+    while (cur && cur.parentNode instanceof Element) {
+      const parent = cur.parentNode;
+      let n = 0;
+      for (const sib of parent.children) {
+        if (sib === cur || sib.querySelector('input[type="range"], .range-slider')) {
+          if (++n >= 2) return cur;
+        }
+      }
+      cur = parent;
+    }
+    return null;
+  };
+  // Only the *draggable* sub-elements of a slider count as a fade trigger.
+  // Native input[type=range] always captures input. The custom range-slider
+  // library captures input on .thumb-* and .range-select only — touches on
+  // surrounding decoration (label, .range-track padding, etc.) do *not*
+  // capture, which means a vertical drag there is just a panel scroll and
+  // we shouldn't fade.
+  const isSliderTarget = (t) => {
+    if (!(t instanceof Element)) return false;
+    if (t.tagName === 'INPUT' && t.type === 'range') return true;
+    if (t.classList?.contains('thumb')) return true;
+    if (t.classList?.contains('range-select')) return true;
+    return false;
+  };
+  const restore = () => {
+    document.body.classList.remove('expandable-slider-fade');
+    for (const el of document.querySelectorAll('.expandable-slider-active, .expandable-slider-faded')) {
+      el.classList.remove('expandable-slider-active', 'expandable-slider-faded');
+    }
+  };
+  // Touchstart only *arms* the fade when the touch lands on a slider — we
+  // wait for touchmove to confirm it's a drag (not a tap) before applying.
+  // Direction doesn't matter: sliders capture input (vertical motion on a
+  // thumb is still a slider drag, not a scroll), so once we know we're on
+  // a slider any movement triggers the fade. Touches on non-slider areas
+  // (labels, gaps) never arm, so panel scrolling stays untouched.
+  let _pending = null;
+  document.addEventListener('touchstart', (e) => {
+    _pending = null;
+    if (!isSliderTarget(e.target)) return;
+    const content = e.target.closest('.expandable-controls-content');
+    if (!content) return;
+    const unit = findSliderRow(e.target);
+    if (!unit || !content.contains(unit)) return;
+    const t = e.touches[0];
+    if (!t) return;
+    _pending = { unit, startX: t.clientX, startY: t.clientY };
+  }, { capture: true, passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!_pending) return;
+    const t = e.touches[0];
+    if (!t) return;
+    const dx = Math.abs(t.clientX - _pending.startX);
+    const dy = Math.abs(t.clientY - _pending.startY);
+    // Any movement past the noise threshold counts — vertical drags on a
+    // captured slider thumb still fade.
+    if (Math.max(dx, dy) < 6) return;
+    const { unit } = _pending;
+    unit.classList.add('expandable-slider-active');
+    if (unit.parentNode) {
+      for (const sib of unit.parentNode.children) {
+        if (sib !== unit) sib.classList.add('expandable-slider-faded');
+      }
+    }
+    document.body.classList.add('expandable-slider-fade');
+    _pending = null;
+  }, { capture: true, passive: true });
+  const end = (e) => {
+    _pending = null;
+    if (e.touches && e.touches.length > 0) return;
+    restore();
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', end, { passive: true });
+}
+
 export function expandable(content, {
   width, height,
   toggleOffset = [8, 8],
@@ -72,6 +202,7 @@ export function expandable(content, {
   buttons = [],
   id
 }) {
+  installSliderFadeHandlers();
   const hashId = id || `fig-${++_expandableCounter}`;
   const hashFragment = `#${hashId}`;
 
@@ -221,8 +352,74 @@ export function expandable(content, {
     const panelContent = document.createElement('div');
     panelContent.className = 'expandable-controls-content';
 
+    // Custom vertical resize grip (Pointer Events, so it works on iOS where
+    // CSS `resize: vertical` is a no-op for non-textareas).
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'expandable-controls-resize';
+    resizeHandle.title = 'Resize';
+    resizeHandle.innerHTML = svgIcon(
+      '<line x1="2" y1="14" x2="14" y2="2"/><line x1="6" y1="14" x2="14" y2="6"/><line x1="10" y1="14" x2="14" y2="10"/>',
+      { strokeWidth: 1.4 }
+    );
+    // Use Touch Events on touch-capable devices (iOS Safari's PointerEvent
+    // .clientY is unreliable on small captured targets — first pointermove
+    // can report coords ~30 px off from pointerdown, causing a phantom jump).
+    // Fall back to Pointer Events for desktop mouse.
+    let _resizing = false;
+    let _resizeStartY = 0;
+    let _resizeStartH = 0;
+    let _resizeNaturalH = 0;
+    const _beginResize = (clientY) => {
+      _resizing = true;
+      _resizeStartY = clientY;
+      _resizeStartH = panelContent.offsetHeight;
+      // Snapshot the natural content height (children + padding) so we can
+      // clamp the upper bound to it — no point letting the user grow the
+      // panel taller than the rows it contains.
+      const saved = panelContent.style.height;
+      panelContent.style.height = 'auto';
+      _resizeNaturalH = panelContent.offsetHeight;
+      panelContent.style.height = saved;
+      panelContent.style.height = _resizeStartH + 'px';
+    };
+    const _moveResize = (clientY) => {
+      if (!_resizing) return;
+      const dy = clientY - _resizeStartY;
+      const maxH = Math.min(_resizeNaturalH, window.innerHeight - 80);
+      const newH = Math.max(80, Math.min(maxH, _resizeStartH + dy));
+      panelContent.style.height = newH + 'px';
+    };
+    resizeHandle.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      _beginResize(e.touches[0].clientY);
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
+    document.addEventListener('touchmove', (e) => {
+      if (!_resizing || e.touches.length !== 1) return;
+      _moveResize(e.touches[0].clientY);
+      e.preventDefault();
+    }, { passive: false });
+    const _endResizeTouch = () => { _resizing = false; };
+    document.addEventListener('touchend', _endResizeTouch);
+    document.addEventListener('touchcancel', _endResizeTouch);
+    resizeHandle.addEventListener('mousedown', (e) => {
+      _beginResize(e.clientY);
+      e.preventDefault();
+      e.stopPropagation();
+      const onMove = (ev) => _moveResize(ev.clientY);
+      const onUp = () => {
+        _resizing = false;
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
     floatingPanel.appendChild(panelHeader);
     floatingPanel.appendChild(panelContent);
+    floatingPanel.appendChild(resizeHandle);
 
     panelHeader.addEventListener('mousedown', (e) => {
       if (e.target === panelToggle) return;
@@ -284,11 +481,16 @@ export function expandable(content, {
     if (!floatingPanel) return;
     const pc = floatingPanel.querySelector('.expandable-controls-content');
     const pt = floatingPanel.querySelector('.expandable-controls-toggle');
+    const rh = floatingPanel.querySelector('.expandable-controls-resize');
     if (controlsPanelExpanded) {
       if (pc) pc.style.display = 'flex';
+      if (rh) rh.style.display = '';
       if (pt) { pt.innerHTML = '▼'; pt.title = 'Collapse controls'; }
     } else {
       if (pc) pc.style.display = 'none';
+      // Hide the resize grip when collapsed — otherwise it sits in the
+      // header's bottom-right and overlaps the ▶ caret used to re-expand.
+      if (rh) rh.style.display = 'none';
       if (pt) { pt.innerHTML = '▶'; pt.title = 'Expand controls'; }
     }
   }
@@ -339,11 +541,14 @@ export function expandable(content, {
     controlsPanelExpanded = !isMobile;
     const pc = floatingPanel.querySelector('.expandable-controls-content');
     const pt = floatingPanel.querySelector('.expandable-controls-toggle');
+    const rh = floatingPanel.querySelector('.expandable-controls-resize');
     if (controlsPanelExpanded) {
       if (pc) pc.style.display = 'flex';
+      if (rh) rh.style.display = '';
       if (pt) { pt.innerHTML = '▼'; pt.title = 'Collapse controls'; }
     } else {
       if (pc) pc.style.display = 'none';
+      if (rh) rh.style.display = 'none';
       if (pt) { pt.innerHTML = '▶'; pt.title = 'Expand controls'; }
     }
   }

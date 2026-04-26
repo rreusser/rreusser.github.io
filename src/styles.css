@@ -886,7 +886,7 @@ a.index__tag:active {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   overflow: hidden;
   max-width: min(360px, calc(100vw - 32px));
-  max-height: calc(100vh - 100px);
+  max-height: calc(100vh - 32px);
 }
 
 .expandable-controls-header {
@@ -920,13 +920,41 @@ a.index__tag:active {
 }
 
 .expandable-controls-content {
+  /* border-box so style.height set by the resize handler matches what
+     offsetHeight reports — otherwise the 30 px of padding would be added
+     on the first drag and the box would jump. */
+  box-sizing: border-box;
   padding: 12px;
+  padding-bottom: 18px; /* leave room for the resize grip */
   overflow-y: auto;
-  max-height: calc(100vh - 200px);
+  min-height: 100px;
+  max-height: calc(100vh - 100px);
+  height: auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+
+/* Custom resize handle. CSS `resize: vertical` is broken on iOS Safari for
+   non-textareas, so we render our own grip and drive height changes via
+   Pointer Events (which unifies mouse + touch). */
+.expandable-controls-resize {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  cursor: ns-resize;
+  touch-action: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 4px;
+  color: var(--theme-foreground-muted, #888);
+  opacity: 0.55;
+}
+.expandable-controls-resize:hover { opacity: 1; }
+.expandable-controls-resize svg { display: block; }
 
 .expandable-controls-content details {
   margin: 4px 0;

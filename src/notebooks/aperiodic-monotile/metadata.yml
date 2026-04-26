@@ -1,6 +1,8 @@
-description: "Rendering the spectre — a chiral aperiodic monotile in the Tile(a, b) family of Smith, Myers, Kaplan, and Goodman-Strauss."
-hideFromIndex: true
+publishedAt: April 25, 2026
+description: "Rendering the spectre a chiral aperiodic monotile of Smith, Myers, Kaplan, and Goodman-Strauss."
+hideFromIndex: false
 hideFromSearch: true
+maxWidth: 640px
 tags:
   - math
   - webgpu
