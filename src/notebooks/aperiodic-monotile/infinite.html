@@ -744,12 +744,12 @@
     //
     // The walker descends until the first cell falls under the threshold
     // and aggregates there, so cell sizes after aggregation land in
-    // (AGG_PX/inflation, AGG_PX] = (~AGG_PX/2.8, AGG_PX]. Picking 56 puts
-    // typical aggregate cells around 20–55 px on screen — small enough
-    // that any solid-color region reads as a single mosaic tile rather
-    // than a monolithic block, large enough that the eye can resolve
-    // individual cells and the per-cell color differences register.
-    const AGG_PX = 56;
+    // (AGG_PX/inflation, AGG_PX] = (~AGG_PX/2.8, AGG_PX]. Picking 44 puts
+    // typical aggregate cells around 16–44 px — small enough that
+    // individual aggregates read as single mosaic tiles rather than
+    // monolithic blocks, but small enough also that detail persists
+    // farther into zoom-out before the level-aggregation kicks in.
+    const AGG_PX = 44;
     // _localRadius is measured from the spectre's corner origin (vertex 0),
     // so for any supertile it's ~1.5× the cluster's true centered radius
     // (empirically 1.44 at sub-level 3, growing to 1.64 at sub-level 5).
@@ -775,12 +775,13 @@
     // own-color saturation. Texture and contrast come from the mid and
     // large scale objects, not the about-to-disappear small ones.
     //
-    // σ ≈ 0.7 makes the dominant ancestor account for ~50% of the blend,
-    // its two immediate neighbors ~25% each, and the rest negligible.
-    // Enough multi-scale information that adjacent supertiles still read
-    // as different metatypes at a single zoom, but smooth enough that an
-    // animated zoom doesn't feel stepwise.
-    const SIGMA = 0.7;
+    // σ ≈ 1.2 spreads the blend across ~5 substitution levels, so
+    // structure at multiple scales contributes to each cell's color
+    // simultaneously. Mid-size cells (~2.5× AGG) read ~51% own / 36%
+    // parent / 13% grandparent — three levels of ancestry visible at
+    // once, which is what makes mid- and large-scale supertile boundaries
+    // legible rather than washing out into per-cell type colors.
+    const SIGMA = 1.2;
     const _TWO_SIGMA_SQ = 2 * SIGMA * SIGMA;
     // Offset of the Gaussian center from viewLevel. +1 means the center
     // sits one substitution level above the soon-to-aggregate cell, so
