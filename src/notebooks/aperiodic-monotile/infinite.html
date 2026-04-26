@@ -413,16 +413,16 @@
     // be untenably slow without simplification. The walker falls back to
     // treating those metatiles as "recurse normally" rather than aggregate.
     const MAX_BOUNDARY_LEAVES = 200_000;
-    // Vertex budget per simplified cluster boundary. At 16 verts a 44-px
-    // aggregate has ~2.7 px segments, and adjacent clusters (especially Γ
-    // vs non-Γ) simplify the same shared fractal edge to different chord
-    // approximations, leaving visible 1–2 px black gaps between them
-    // that no reasonable amount of polygon dilation can hide. At 64 verts
-    // the segments are ~0.7 px and the inter-cluster simplification
-    // mismatch drops to sub-pixel, where 4× MSAA + a small dilation can
-    // reliably cover it. ~62 triangles per aggregate × ~5K visible
-    // aggregates = ~300K triangles per frame, well within budget.
-    const BOUNDARY_VERTEX_BUDGET = 64;
+    // No vertex budget — keep every spectre edge that's on the cluster
+    // boundary. Adjacent clusters' shared edges are *the same* sequence
+    // of leaf-spectre edges traversed from each side, so two adjacent
+    // clusters' polygons share the entire vertex sequence on the shared
+    // boundary by construction. Any simplification breaks that invariant
+    // (each cluster picks a different chord approximation, leaving gaps).
+    // Without simplification, gaps reduce to f32 precision drift in the
+    // GPU shader, which the small DILATE below covers. Sub-level 5
+    // boundary is ~3200 verts → ~3200 triangles per aggregate × ~5K
+    // visible = ~16M triangles, well within GPU fill rate at 1.8M pixels.
     // Above this sub-level, skip raw extraction — Spectre supertile
     // boundaries are self-similar after simplification to 16 verts, so a
     // donor polygon extracted once at the cap can stand in for all higher
@@ -431,54 +431,6 @@
     // metatiles with billions of leaves, falls back to recursion, and
     // emits millions of instances per frame.
     const EXTRACT_CAP = 5;
-
-    // Visvalingam-Whyatt for closed polygons. Removes the vertex whose
-    // triangle (with neighbors) has the smallest area; repeats until
-    // length === budget. Implemented with a doubly-linked-list ring and
-    // a linear search for the min — quadratic in polygon size, but
-    // bounded by MAX_BOUNDARY_LEAVES × 14 edges and only paid once per
-    // metatile thanks to the cache.
-    function _simplifyClosedPolygon(pts: Vec2[], budget: number): Vec2[] {
-      const n = pts.length;
-      if (n <= budget) return pts;
-      const next = new Int32Array(n);
-      const prev = new Int32Array(n);
-      const alive = new Uint8Array(n);
-      for (let i = 0; i < n; i++) { next[i] = (i + 1) % n; prev[i] = (i - 1 + n) % n; alive[i] = 1; }
-      const area = new Float64Array(n);
-      function _triArea(i: number) {
-        const a = pts[prev[i]], b = pts[i], c = pts[next[i]];
-        return Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) * 0.5;
-      }
-      for (let i = 0; i < n; i++) area[i] = _triArea(i);
-      let remaining = n;
-      while (remaining > budget) {
-        // Find smallest-area alive vertex.
-        let mi = -1, ma = Infinity;
-        for (let i = 0; i < n; i++) {
-          if (!alive[i]) continue;
-          if (area[i] < ma) { ma = area[i]; mi = i; }
-        }
-        if (mi === -1) break;
-        const p = prev[mi], q = next[mi];
-        next[p] = q; prev[q] = p;
-        alive[mi] = 0;
-        remaining--;
-        area[p] = _triArea(p);
-        area[q] = _triArea(q);
-      }
-      const out: Vec2[] = [];
-      // Find any alive vertex to start the walk.
-      let start = -1;
-      for (let i = 0; i < n; i++) if (alive[i]) { start = i; break; }
-      if (start === -1) return pts;
-      let cur = start;
-      do {
-        out.push(pts[cur]);
-        cur = next[cur];
-      } while (cur !== start);
-      return out;
-    }
 
     type BoundaryMesh = {
       polygon: Float32Array;        // flat (x0, y0, x1, y1, ...)
@@ -576,25 +528,25 @@
       loops.sort((a, b) => b.length - a.length);
       const outer = loops[0];
 
-      // 6. Materialize the outer-boundary as Vec2 points, simplify with
-      // Visvalingam-Whyatt down to the vertex budget, then dilate slightly
-      // around the polygon's centroid so adjacent aggregates overlap by a
-      // small amount and the visible black streaks from FP-precision drift
-      // (and from simplification-induced edge-mismatch with neighbors) are
-      // hidden under the overlap. The metatile's local origin is at one
-      // corner of the cluster bbox, so dilating around the polygon centroid
-      // (not the origin) is what keeps the expansion isotropic.
+      // 6. Materialize the outer-boundary as Vec2 points and dilate slightly
+      // around the polygon's centroid so any sub-pixel f32 precision drift
+      // in the GPU shader's transform composition is covered by overlap.
+      // We don't simplify: keeping every spectre-edge boundary vertex is
+      // what makes adjacent clusters' shared edges share their entire
+      // vertex sequence by construction (no chord-vs-chord mismatch). The
+      // metatile's local origin is at one corner of the cluster bbox, so
+      // dilating around the polygon centroid (not the origin) is what
+      // keeps the expansion isotropic.
       const outerPts: Vec2[] = outer.map((id) => vertList[id]);
-      const simplified = _simplifyClosedPolygon(outerPts, BOUNDARY_VERTEX_BUDGET);
       let cx = 0, cy = 0;
-      for (const p of simplified) { cx += p[0]; cy += p[1]; }
-      cx /= simplified.length; cy /= simplified.length;
-      const DILATE = 1.012;
-      const polygon = new Float32Array(simplified.length * 2);
-      const flat: number[] = new Array(simplified.length * 2);
-      for (let i = 0; i < simplified.length; i++) {
-        const x = cx + (simplified[i][0] - cx) * DILATE;
-        const y = cy + (simplified[i][1] - cy) * DILATE;
+      for (const p of outerPts) { cx += p[0]; cy += p[1]; }
+      cx /= outerPts.length; cy /= outerPts.length;
+      const DILATE = 1.005;
+      const polygon = new Float32Array(outerPts.length * 2);
+      const flat: number[] = new Array(outerPts.length * 2);
+      for (let i = 0; i < outerPts.length; i++) {
+        const x = cx + (outerPts[i][0] - cx) * DILATE;
+        const y = cy + (outerPts[i][1] - cy) * DILATE;
         polygon[i * 2 + 0] = x;
         polygon[i * 2 + 1] = y;
         flat[i * 2 + 0] = x;
