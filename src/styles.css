@@ -325,7 +325,11 @@ main h3 {
 main figcaption {
   margin-top: 1em;
   opacity: 1;
-  color: var(--theme-foreground-muted);
+  /* Off-foreground — set captions apart from body prose without making
+     them hard to read. Mixes 20% of the opposing background into the
+     foreground (slightly darkened white in dark mode, slightly lightened
+     black in light mode). */
+  color: color-mix(in srgb, var(--theme-foreground) 80%, var(--theme-background-b));
 }
 
 main .katex-display {

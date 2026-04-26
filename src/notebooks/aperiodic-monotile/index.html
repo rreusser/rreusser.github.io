@@ -1,13 +1,8 @@
 <!doctype html>
 <notebook theme="air">
   <title>Rendering the Aperiodic Monotile</title>
-
-  <script id="intro" type="text/markdown">
+  <script id="title" type="text/markdown">
     # Rendering the Aperiodic Monotile
-
-    A work-in-progress notebook for rendering the *spectre* — the chiral aperiodic monotile of [Smith, Myers, Kaplan, and Goodman-Strauss](https://arxiv.org/abs/2305.17743) — and the rest of the Tile(a, b) family it belongs to (the [hat](https://arxiv.org/abs/2303.10798) and turtle).
-
-    The plan is to walk the spectre substitution from [Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js) to some depth, then render the resulting tiles using instanced WebGPU. Each tile's translation is split into separate (*a*, *b*) components so the hat ↔ spectre ↔ turtle morph is a per-frame projection rather than a fresh substitution at every slider value.
   </script>
 
   <script id="figure" type="text/x-typescript">
@@ -38,16 +33,27 @@
     : b < 1e6   ? `${(b / 1024).toFixed(1)} kB`
     : b < 1e9   ? `${(b / 1e6 ).toFixed(b < 1e7 ? 1 : 0)} MB`
     :             `${(b / 1e9 ).toFixed(2)} GB`;
-    display(html`<div style="text-align: center; color: #666; font-size: 0.85em; margin-top: 4px;">
+    display(html`<figcaption>
       ${renderRaw.length.toLocaleString()} spectres
       after ${renderDepth} substitution${renderDepth === 1 ? "" : "s"} of a ${TILE_GLYPH[renderStartingTile] ?? renderStartingTile} supertile
       · CPU ${_fmtBytes(_cpuBytes)} · GPU ${_fmtBytes(_gpuBytes)}
-    </div>`);
+    </figcaption>`);
   </script>
 
   <script id="figure-controls" type="text/x-typescript">
     display(controlsContainer);
   </script>
+
+  <script id="intro" type="text/markdown">
+    ## Summary
+
+    A WebGPU rendering of the *spectre* — the chiral aperiodic monotile of [Smith, Myers, Kaplan, and Goodman-Strauss](https://arxiv.org/abs/2305.17743) — and the rest of the Tile(*a*, *b*) family it belongs to (the [hat](https://arxiv.org/abs/2303.10798) and turtle).
+
+    The substitution machinery is a port of [Craig S. Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js), the p5.js reference linked from the paper page; specific attribution is in the substitution section below.
+
+    What's added on top: tile translations are split into separate (*a*, *b*) components so the hat ↔ spectre ↔ turtle morph is a per-frame projection rather than a fresh substitution; the figure is counter-rotated each frame so depth changes and morph changes don't spin it; and the cluster is drawn with WebGPU instancing — a single 16-byte transform per tile — that scales to ~17 M tiles at depth 8.
+  </script>
+
 
   <script id="spectre-section" type="text/markdown">
     ## The spectre
@@ -156,7 +162,7 @@
                 text-anchor="middle" fill="#666">${i}</text>
         `)}
       </svg>
-      <figcaption style="font-size: 0.85em; color: #666;">
+      <figcaption>
         Vertices of the spectre tile, indexed 0–13. Drag the slider to morph between hat, spectre, turtle, and the degenerate endpoints.
       </figcaption>
     </figure>`);
@@ -251,27 +257,25 @@
                        stroke-linejoin="round" />
             </svg>
             <div style="font-size: 0.85em; margin-top: 4px;"><strong>${s.name}</strong></div>
-            <div style="font-size: 0.72em; color: #666;">${s.detail}</div>
-            <div style="font-size: 0.7em; color: #999;">slider = ${s.m}</div>
+            <div style="font-size: 0.72em; color: var(--theme-foreground-alt);">${s.detail}</div>
+            <div style="font-size: 0.7em; color: var(--theme-foreground-muted);">slider = ${s.m}</div>
           </div>
         `)}
       </div>
-      <figcaption style="font-size: 0.85em; color: #666; margin-top: 8px; max-width: 580px; margin-left: auto; margin-right: auto;">
+      <figcaption>
         Two pairs of consecutive collinear edges fuse into one at the endpoints, dropping the polygon from a 14-gon down to a hexagon (left) or a 7-gon with a long spike (right). Substitution still tiles the plane all the way through.
       </figcaption>
     </figure>`);
   </script>
 
   <script id="lattice-section" type="text/markdown">
-    ## Coordinates
+    ## The (*a*, *b*) split
 
-    Spectre vertices are stored as 2-D cartesian points. The substitution recurrence only ever combines them through four operations — add, subtract, rotate by a multiple of 30°, and mirror across the x-axis — all closed under simple float vector math. Coordinates accumulate sub-micropixel float drift across all 17 M tiles at depth 8; below the resolution of a single pixel even at extreme zoom.
+    The hat ↔ spectre ↔ turtle morph happens *after* the substitution, not during it. Every tile position is stored as a pair of 2-D vectors — one **a-component** ${tex`p_a`} and one **b-component** ${tex`p_b`} — and the cartesian point that gets drawn is a per-frame mix:
 
-    The Tile(*a*, *b*) morph (hat → spectre → turtle) requires one extra wrinkle: every position carries an **a-component** and a **b-component**, both 2-D points. Cartesian projection is
+    ${tex.block`(x, y) = a \cdot p_a + b \cdot p_b.`}
 
-    ${tex.block`(x, y) = a \cdot p_a + b \cdot p_b,`}
-
-    and is the only place the morph parameters appear. Substitution arithmetic acts on the two halves component-wise — the recursion never sees *a* or *b*. That's the **LP²** type used throughout the code below.
+    Substitution arithmetic acts on the two halves component-wise — the recursion never sees *a* or *b* — so moving the morph slider is a fresh projection over the existing tile list, not a re-substitution.
   </script>
 
   <script id="lattice-math" type="text/x-typescript">
@@ -418,16 +422,6 @@
     </div>`);
   </script>
 
-  <script id="transform-section" type="text/markdown">
-    ## Transforms
-
-    A rigid placement of a tile is the composition of a rotation by ${tex`30°k`}, an optional chirality mirror, and a lattice translation:
-
-    ${tex.block`T(p) = \omega^k \cdot \big(\text{mirror}? \,\overline{p} : p\big) + t,`}
-
-    with ${tex`k \in \{0, \dotsc, 11\}`}, mirror ${tex`\in \{0, 1\}`}, and ${tex`t \in \mathbb{Z}[\omega]`}. Composing two such transforms stays in this group, with the only subtlety that a mirror flips the sign of the next rotation: ${tex`F R = R^{-1} F`}.
-  </script>
-
   <script id="transform-math" type="text/x-typescript">
     type Transform = { rot: number; mirror: 0 | 1; t: LP2 };
 
@@ -466,18 +460,9 @@
   <script id="substitution-section" type="text/markdown">
     ## Substitution rules
 
-    The substitution machinery here is a port of [Craig S. Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js), the p5.js reference implementation linked from the spectre paper page. Used directly:
+    The tiling is built by *substitution*: the unit of recursion is a *metatile* — a labelled group of one or more spectres — and at each level, fixed sequences of metatiles are glued together at distinguished spectre vertices into single metatiles of the next level up. There are nine metatile types (Γ, Δ, Θ, Λ, Ξ, Π, Σ, Φ, Ψ); Γ is the "mystic" pair of two overlapping spectres that locks the tiling's chirality, the other eight are bare spectres.
 
-    - The 14 spectre vertex coordinates (his `spectre` array in `buildSpectreBase`) and the quad-handle indices `[3, 5, 7, 11]` (his `spectre_keys`).
-    - The nine metatile names Γ, Δ, Θ, Λ, Ξ, Π, Σ, Φ, Ψ (his `tile_names`).
-    - The two rule tables: `transformationRules` (his `t_rules`, with rotations rewritten in 30°-unit increments instead of degrees) and `superRules` (his `super_rules` verbatim).
-    - The recursion in `buildSpectreBase` and `buildSupertiles`, including the final reflection across the y-axis that closes the supertile cluster.
-
-    Adapted: each transform's translation is stored as an LP² (separate (*a*, *b*) components) instead of a single (*x*, *y*), so the hat ↔ spectre ↔ turtle morph is a per-frame projection rather than a fresh substitution at every slider value. The point algebra (`lpAdd`, `lpRotate`, `txCompose`, ...) is our own, replacing his matrix helpers (`mul`, `trot`, `ttrans`, `transPt`); his `buildHatTurtleBase` and `buildHexBase` are unused since the (*a*, *b*) split covers the whole Tile family.
-
-    Each metatile carries a *quad* (the four distinguished points indexed 3, 5, 7, 11 of the spectre) that it uses to glue to its neighbours. To inflate the tiling one level, every metatile is replaced by a fixed sequence of eight smaller metatiles, each placed by one of seven inter-tile transforms (the first slot is the identity).
-
-    The two tables below: `transformationRules` is a sequence of `[rotation in 30° units, source quad index, target quad index]` triples that build up the seven non-identity transforms; `superRules` selects which of the nine metatile types fills each of the eight slots for each parent type. The Γ entry has `null` in slot 2: Γ supertiles only take seven children, not eight.
+    The vertex coordinates, the two rule tables, and the recursion are taken from [Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js) — almost verbatim, with one adaptation: each transform's translation is the (*a*, *b*) pair from above instead of a single (*x*, *y*) so the morph projection can run per-frame.
   </script>
 
   <script id="substitution-data" type="text/x-typescript">
@@ -510,12 +495,6 @@
     // The four spectre indices that act as a metatile's "quad" handles.
     const QUAD_INDICES = [3, 5, 7, 11] as const;
     const baseQuad: LP2[] = QUAD_INDICES.map((i) => spectreLatticeVertices2[i]);
-  </script>
-
-  <script id="metatile-section" type="text/markdown">
-    ## Building supertiles
-
-    `buildSpectreBase` returns the nine starting metatiles. Eight are bare spectres; Γ is the special "mystic" pair (two overlapping spectres that lock the chirality). Each call to `buildSupertiles` consumes the current cluster of nine metatiles and produces the next-level cluster, applying the seven transforms derived from the rule table and a final reflection across the y-axis. The metatile data type is a TypeScript discriminated union (`{ kind: "leaf"; ... } | { kind: "meta"; ... }`) instead of Kaplan's Shape/Meta class hierarchy; the algorithm is otherwise identical.
   </script>
 
   <script id="metatile-build" type="text/x-typescript">
@@ -604,7 +583,11 @@
   <script id="render-section" type="text/markdown">
     ## Rendering
 
-    Inflate a Δ supertile to the chosen depth, flatten the metatile tree to a list of `(transform, label, color)` placements, and draw each as one instanced spectre. Each placement's color is a Gaussian-weighted blend of the leaf and ancestor colors centered at the chosen "color level": at level 0, the leaf dominates and adjacent tiles look distinct; raising the level shifts weight to deeper supertiles, so larger blocks of similar color reveal the macro structure.
+    Inflate a Δ supertile to the chosen depth, flatten the metatile tree to a list of `(transform, label, color)` placements, and draw the lot with WebGPU instancing — one tile mesh, one quad outline mesh, one buffer of per-tile transforms. Each placement's color is a Gaussian-weighted blend of the leaf and ancestor colors centered at the chosen "color level": at level 0 the leaf dominates and adjacent tiles look distinct; raising the level shifts weight to deeper supertiles, so larger blocks of similar color reveal the macro structure.
+
+    ### Visual stability
+
+    The substitution's natural cluster orientation drifts by ~10° per level, and at *a* ≠ *b* the inflation isn't even conformal — so increasing the substitution depth or sliding between hat and turtle would otherwise spin the figure on every change. As a purely visual convenience we counter that: each metatile type's mass-weighted centroid is tracked through the substitution (a 9 × 8 × depth recurrence, independent of the 17 M leaves below), and per frame the whole cluster is rotated around its centroid to a depth-independent orientation target. The cluster centroid stays pinned to the same screen position too, so depth and morph changes feel like the figure refining in place rather than swinging around.
   </script>
 
   <script id="render-controls" type="text/x-typescript">
@@ -624,7 +607,7 @@
       Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ",
       Pi:    "Π", Sigma: "Σ", Phi:   "Φ", Psi:    "Ψ",
     };
-    const renderStartingTile = addControl(Inputs.select(["Delta", "Gamma"], {
+    const renderStartingTile = addControl(Inputs.select([...TILE_NAMES], {
       value: "Delta",
       label: "Starting metatile",
       format: (s: string) => TILE_GLYPH[s] ?? s,
@@ -696,6 +679,18 @@
     const _crFooter = _colorRangeEl.querySelector('.range-footer') as HTMLElement | null;
     if (_crFooter) _crFooter.style.display = 'none';
     const renderColorRange = addControl(_colorRangeEl);
+    // Hierarchical gap. Each metatile in the substitution tree pushes its
+    // children outward from its own centroid by `gap` × (child-centroid −
+    // parent-centroid). Applied at every level and composed down through the
+    // recursion, so coarse levels open large gaps and finer levels open
+    // proportionally smaller ones — making the substitution structure
+    // visible without changing the connectivity. Costs a re-flatten on slider
+    // change; at depth 7 (~17 M tiles) that's tens of ms.
+    const renderGap = addControl(Inputs.range([0, 0.5], {
+      value: 0,
+      step: 0.005,
+      label: "Hierarchical gap",
+    }));
 
     // ─── Palette controls ───────────────────────────────────────────────
     // 11 swatches (one per tile label, including Γ₁/Γ₂) plus a Randomize
@@ -996,6 +991,7 @@
       root: MetaTile,
       N: number,
       maxDepth: number,
+      gap: number,
     ): RawArrays {
       const cap = maxDepth + 2;
       const stTaX = new Float64Array(cap);
@@ -1061,14 +1057,61 @@
         const c = _LPCOS[pRot], s = _LPSIN[pRot];
         const odd = pRot & 1;
         const d1 = d + 1;
+        // Hierarchical gap. At each meta we push every child's translation
+        // outward from this meta's centroid in its own local frame:
+        //   T_g.t  →  T_g.t + gap × (child_g.center − this.center)
+        // Pushing centroid-to-centroid (rather than scaling T.t outward)
+        // preserves the mass-weighted centroid (Σ m_g × shift_g = 0), so
+        // cluster bounds and orientation stay put and adjacent supertiles
+        // don't overlap as they slide apart.
+        // Skip for the depth-0 Γ leaf-pair (isLeafPairMeta): pulling Γ₁
+        // and Γ₂ apart would break the chirality lock.
+        const gapOn = gap !== 0 && !isLeafPairMeta;
+        let pCx_a = 0, pCy_a = 0, pCx_b = 0, pCy_b = 0;
+        if (gapOn) {
+          const _pM = (mt as any)._cwMass;
+          const _pCw = (mt as any)._cwLP2;
+          const _invPm = 1 / _pM;
+          pCx_a = _pCw.a[0] * _invPm; pCy_a = _pCw.a[1] * _invPm;
+          pCx_b = _pCw.b[0] * _invPm; pCy_b = _pCw.b[1] * _invPm;
+        }
 
         for (let g = 0; g < G; g++) {
           const geom = geos[g];
           const T2 = geom.transform;
-          const cta = T2.t.a, ctb = T2.t.b;
+          let cta_x = T2.t.a[0], cta_y = T2.t.a[1];
+          let ctb_x = T2.t.b[0], ctb_y = T2.t.b[1];
+          if (gapOn) {
+            // Compute child_g.center in the parent's local frame:
+            //   child_center = T2_lin(child._cwLP2) / child._cwMass + T2.t
+            // T2_lin: mirror, rotate, parity-swap on odd rot — same as the
+            // per-leaf math below, applied to the child centroid.
+            const child = geom.child;
+            const _cM = (child as any)._cwMass;
+            const _cCw = (child as any)._cwLP2;
+            const _invCm = 1 / _cM;
+            let cax = _cCw.a[0], cay = _cCw.a[1];
+            let cbx = _cCw.b[0], cby = _cCw.b[1];
+            if (T2.mirror) { cay = -cay; cby = -cby; }
+            const _t2c = _LPCOS[T2.rot], _t2s = _LPSIN[T2.rot];
+            const racax = _t2c * cax - _t2s * cay;
+            const racay = _t2s * cax + _t2c * cay;
+            const racbx = _t2c * cbx - _t2s * cby;
+            const racby = _t2s * cbx + _t2c * cby;
+            let oacax, oacay, oacbx, oacby;
+            if (T2.rot & 1) {
+              oacax = racbx; oacay = racby; oacbx = racax; oacby = racay;
+            } else {
+              oacax = racax; oacay = racay; oacbx = racbx; oacby = racby;
+            }
+            cta_x += gap * (oacax * _invCm + cta_x - pCx_a);
+            cta_y += gap * (oacay * _invCm + cta_y - pCy_a);
+            ctb_x += gap * (oacbx * _invCm + ctb_x - pCx_b);
+            ctb_y += gap * (oacby * _invCm + ctb_y - pCy_b);
+          }
           // 1. lp2Conj if pMir (mirror across x-axis = negate y).
-          let aax = cta[0], aay = cta[1];
-          let abx = ctb[0], aby = ctb[1];
+          let aax = cta_x, aay = cta_y;
+          let abx = ctb_x, aby = ctb_y;
           if (pMir) { aay = -aay; aby = -aby; }
           // 2. Rotate by pRot · 30°.
           const raax = c * aax - s * aay, raay = s * aax + c * aay;
@@ -1155,604 +1198,25 @@
   </script>
 
   <script id="gpu-pipeline" type="text/x-typescript">
-    import { createVertexBuffer, createIndexBuffer, createUniformBuffer } from './lib/webgpu-canvas.js';
     import { expandable, ICON_CAMERA } from './lib/expandable.js';
     import { captureWebGPUCanvas } from './lib/webgpu-snapshot.js';
     import { createGPULines } from 'npm:webgpu-instanced-lines';
+    import * as shaders from './shaders.js';
+    import { createGpuRenderer, INSTANCE_STRIDE } from './renderer.js';
 
-    // Shim the WebGPU global usage flags so this cell can at least *parse*
-    // its free identifiers on browsers without WebGPU (notably iOS Safari).
-    // The cell will still reject downstream of gpu-context, but it won't
-    // crash with "GPUBufferUsage is not defined" before the runtime can
-    // surface that more useful error.
-    const GPUBufferUsage  = (globalThis as any).GPUBufferUsage  ?? {} as any;
-    const GPUTextureUsage = (globalThis as any).GPUTextureUsage ?? {} as any;
-
-    const SAMPLE_COUNT = 4;
-    // Compact per-instance layout (16 B). Halving the stride from a naive
-    // 8 floats brings depth-8 (~17 M tiles) under typical maxBufferSize.
-    //   offset  0 (8 B): float32x2  (tx, ty)         — sub-pixel accurate
-    //   offset  8 (4 B): snorm16x2  (cos θ, sin θ)   — 1 / 32 768 precision
-    //   offset 12 (4 B): unorm8x4   (r, g, b, mirror) — mirror byte is 0
-    //                                 for no flip, 255 for flip; the shader
-    //                                 maps that back to ±1.
-    const INSTANCE_STRIDE = 16;
-
-    const gpuCanvas = document.createElement('canvas');
-    gpuCanvas.style.display = 'block';
-    gpuCanvas.style.width = '100%';
-    gpuCanvas.style.height = '100%';
-    gpuCanvas.style.touchAction = 'none';
-    gpuCanvas.style.cursor = 'grab';
-
-    const gpuContext = gpuCanvas.getContext('webgpu')!;
-    gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
-
-    // Two meshes: even-parity tiles (rot ≡ 0 mod 2) render as Tile(a, b);
-    // odd-parity tiles render as Tile(b, a). At a = b they're identical, but
-    // for hat/turtle morph one is the hat shape and the other the turtle shape.
-    const evenMeshVertexBuffer = createVertexBuffer(device, 'spectre-verts-even', meshVertexData);
-    const oddMeshVertexBuffer  = createVertexBuffer(device, 'spectre-verts-odd',  meshVertexData);
-    // Separate fill index buffers per parity — at the morph's degenerate
-    // endpoints (b → 0 or a → 0) the even and odd polygons have *different*
-    // topologies (one is a 7-gon-with-spike, the other a hexagon), so a
-    // single shared triangulation can't cover both.
-    const fillIndexBufferEven = createIndexBuffer(device, 'spectre-fill-indices-even', meshFillIndices);
-    const fillIndexBufferOdd  = createIndexBuffer(device, 'spectre-fill-indices-odd',  meshFillIndices);
-    const outlineIndexBuffer  = createIndexBuffer(device, 'spectre-outline-indices',   meshOutlineIndices);
-    // 32 bytes: scale.xy, offset.xy, outlineStrength, _pad x3
-    const viewUniformBuffer = createUniformBuffer(device, 'view-uniforms', 32);
-
-    // Per instance: float32x2 (tx, ty) + snorm16x2 (cos, sin) + unorm8x4 (r, g, b, mirror).
-    const vertexLayouts: GPUVertexBufferLayout[] = [
-      {
-        arrayStride: 8,
-        stepMode: 'vertex',
-        attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
-      },
-      {
-        arrayStride: INSTANCE_STRIDE,
-        stepMode: 'instance',
-        attributes: [
-          { shaderLocation: 1, offset: 0,  format: 'float32x2' },
-          { shaderLocation: 2, offset: 8,  format: 'snorm16x2' },
-          { shaderLocation: 3, offset: 12, format: 'unorm8x4'  },
-        ],
-      },
-    ];
-
-    // Shader inputs match the compact 16-byte instance layout:
-    //   iWorld   (location 1, float32x2)  — tile translation in world units
-    //   iCosSin  (location 2, vec2f)      — snorm16x2 decoded to [-1, 1]
-    //   iColMir  (location 3, vec4f)      — unorm8x4 decoded to [0, 1];
-    //                                        .rgb is the fill color, .w
-    //                                        encodes mirror as 0 or 1, which
-    //                                        the shader maps to ±1.
-    const fillShader = device.createShaderModule({
-      label: 'spectre-fill',
-      code: `
-struct View { scale: vec2f, offset: vec2f };
-@group(0) @binding(0) var<uniform> view: View;
-
-struct VsIn {
-  @location(0) pos: vec2f,
-  @location(1) iWorld: vec2f,
-  @location(2) iCosSin: vec2f,
-  @location(3) iColMir: vec4f,
-};
-struct VsOut {
-  @builtin(position) pos: vec4f,
-  @location(0) color: vec3f,
-};
-
-@vertex fn vs(in: VsIn) -> VsOut {
-  let mirror = 1.0 - 2.0 * in.iColMir.w;
-  let m = vec2f(in.pos.x, in.pos.y * mirror);
-  let cs = in.iCosSin;
-  let r = vec2f(cs.x * m.x - cs.y * m.y, cs.y * m.x + cs.x * m.y);
-  let world = r + in.iWorld;
-  var out: VsOut;
-  out.pos = vec4f(world * view.scale + view.offset, 0.0, 1.0);
-  out.color = in.iColMir.rgb;
-  return out;
-}
-@fragment fn fs(in: VsOut) -> @location(0) vec4f {
-  return vec4f(in.color, 1.0);
-}
-`,
-    });
-
-    const outlineShader = device.createShaderModule({
-      label: 'spectre-outline',
-      code: `
-struct View { scale: vec2f, offset: vec2f, outlineStrength: f32 };
-@group(0) @binding(0) var<uniform> view: View;
-
-struct VsIn {
-  @location(0) pos: vec2f,
-  @location(1) iWorld: vec2f,
-  @location(2) iCosSin: vec2f,
-  @location(3) iColMir: vec4f,
-};
-struct VsOut {
-  @builtin(position) pos: vec4f,
-  @location(0) color: vec3f,
-};
-
-@vertex fn vs(in: VsIn) -> VsOut {
-  let mirror = 1.0 - 2.0 * in.iColMir.w;
-  let m = vec2f(in.pos.x, in.pos.y * mirror);
-  let cs = in.iCosSin;
-  let r = vec2f(cs.x * m.x - cs.y * m.y, cs.y * m.x + cs.x * m.y);
-  let world = r + in.iWorld;
-  let edge = vec3f(0.13, 0.13, 0.13);
-  var out: VsOut;
-  out.pos = vec4f(world * view.scale + view.offset, 0.0, 1.0);
-  out.color = mix(in.iColMir.rgb, edge, view.outlineStrength);
-  return out;
-}
-@fragment fn fs(in: VsOut) -> @location(0) vec4f {
-  return vec4f(in.color, 1.0);
-}
-`,
-    });
-
-    const fillPipeline = device.createRenderPipeline({
-      label: 'spectre-fill-pipeline',
-      layout: 'auto',
-      vertex:   { module: fillShader,    entryPoint: 'vs', buffers: vertexLayouts },
-      fragment: { module: fillShader,    entryPoint: 'fs', targets: [{ format: canvasFormat }] },
-      primitive: { topology: 'triangle-list' },
-      multisample: { count: SAMPLE_COUNT },
-    });
-
-    const outlinePipeline = device.createRenderPipeline({
-      label: 'spectre-outline-pipeline',
-      layout: 'auto',
-      vertex:   { module: outlineShader, entryPoint: 'vs', buffers: vertexLayouts },
-      fragment: { module: outlineShader, entryPoint: 'fs', targets: [{ format: canvasFormat }] },
-      primitive: { topology: 'line-list' },
-      multisample: { count: SAMPLE_COUNT },
-    });
-
-    const fillBindGroup = device.createBindGroup({
-      layout: fillPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: viewUniformBuffer } }],
-    });
-    const outlineBindGroup = device.createBindGroup({
-      layout: outlinePipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: viewUniformBuffer } }],
-    });
-
-    // ─── Metatile-outline line renderer ─────────────────────────────────
-    // Storage layout: 4 vec4f per quad — only the unique corner points,
-    // packed as (worldX, worldY, paletteIdx, widthPx). paletteIdx is an
-    // integer-valued f32 in [0, 11] indexing the 6-level Tableau palette
-    // (slots 0..5 finest→coarsest for normal outlines, slots 6..11 same
-    // ordering for mystic Γ outlines, with each mystic colour an OKLCH-
-    // derived lighter+hue-shifted variant of its normal pair). widthPx is
-    // the logical-pixel line width.
-    //
-    // Each quad is drawn as a closed loop using 7 indices per quad in the
-    // index space:
-    //   0..3 → corners p0, p1, p2, p3
-    //   4    → wrap to p0 (so the closure segment p3→p0 actually draws)
-    //   5    → extra wrap to p1 (so the join at the wrap point sees a
-    //          valid outgoing tangent and produces a smooth interior bevel
-    //          instead of an end-cap; the resulting duplicate p0→p1
-    //          segment is geometrically identical to the original and
-    //          paints over it without visible artefact)
-    //   6    → break sentinel (separates this quad's loop from the next)
-    // See https://github.com/rreusser/webgpu-instanced-lines/blob/main/examples/closed-loop.ts
-    // for the closed-loop modular-index technique used here.
-    const lineVertexShaderBody = /* wgsl */ `
-@group(1) @binding(0) var<storage, read> linePoints: array<vec4f>;
-struct LineUniforms {
-  viewScale: vec2f,
-  viewOffset: vec2f,
-  dpr: f32,
-  pad0: f32,
-  pad1: f32,
-  pad2: f32,
-}
-@group(1) @binding(1) var<uniform> lineU: LineUniforms;
-
-struct Vertex {
-  position: vec4f,
-  width: f32,
-  level: f32,
-  widthPx: f32,
-}
-
-fn _breakVertex() -> Vertex {
-  return Vertex(vec4f(0.0, 0.0, 0.0, 0.0), 0.0, 0.0, 0.0);
-}
-
-fn getVertex(index: i32) -> Vertex {
-  let pCount = i32(uniforms.pointCount);
-  if (index < 0 || index >= pCount) {
-    return _breakVertex();
-  }
-  let loopIdx = index / 7;
-  let localIdx = index - loopIdx * 7;
-  if (localIdx == 6) {
-    return _breakVertex();
-  }
-  let pIdx = u32(loopIdx * 4 + (localIdx % 4));
-  let p = linePoints[pIdx];
-  let world = p.xy;
-  let clip = world * lineU.viewScale + lineU.viewOffset;
-  let widthPx = p.w * lineU.dpr;
-  return Vertex(
-    vec4f(clip, 0.0, 1.0),
-    widthPx,
-    p.z,
-    widthPx,
-  );
-}
-`;
-    // 12-slot palette: 6 base colours (muted/subdued, OKLCH L=0.60
-    // C=0.075) for normal outlines, finest→coarsest, with hues spaced
-    // 60° apart (255° blue, 315° mauve, 25° terracotta, 85° olive, 145°
-    // sage, 205° teal) so successive levels rotate clearly through the
-    // wheel. The matching 6 mystic colours sit at the same hues but
-    // lighter and a touch more saturated (L=0.78, C=0.11) so each
-    // mystic Γ reads as a brighter highlight of its host level rather
-    // than a foreign accent.
-    // Border: pixelsFromEdge = (1 - |lineCoord.y|) × widthPx/2 in screen
-    // pixels; smoothstep(0, 1, …) gives a one-fragment AA falloff from
-    // the dark border at the edge to the slot colour at the centre.
-    const lineFragmentShaderBody = /* wgsl */ `
-fn getColor(lineCoord: vec2f, paletteIdx: f32, widthPx: f32) -> vec4f {
-  var palette = array<vec3f, 12>(
-    vec3f(0.382407, 0.511405, 0.677137), //  0 base   h=255° #6282ad blue
-    vec3f(0.569732, 0.449672, 0.624686), //  1 base   h=315° #91739f mauve
-    vec3f(0.661262, 0.433471, 0.413636), //  2 base   h=25°  #a96f69 terracotta
-    vec3f(0.583668, 0.489677, 0.290021), //  3 base   h=85°  #957d4a olive
-    vec3f(0.390643, 0.550393, 0.393525), //  4 base   h=145° #648c64 sage
-    vec3f(0.259559, 0.553860, 0.586249), //  5 base   h=205° #428d95 teal
-    vec3f(0.532360, 0.731363, 0.986384), //  6 mystic h=255° #88bafc sky
-    vec3f(0.823689, 0.634699, 0.909483), //  7 mystic h=315° #d2a2e8 lavender
-    vec3f(0.964252, 0.608467, 0.579091), //  8 mystic h=25°  #f69b94 salmon
-    vec3f(0.845689, 0.697529, 0.376245), //  9 mystic h=85°  #d8b260 gold
-    vec3f(0.540324, 0.793068, 0.546524), // 10 mystic h=145° #8aca8b mint
-    vec3f(0.308778, 0.798117, 0.849839), // 11 mystic h=205° #4fccd9 cyan
-  );
-  let i = clamp(i32(paletteIdx), 0, 11);
-  let centerColor = palette[i];
-  let borderColor = vec3f(0.08, 0.08, 0.10);
-  let pixelsFromEdge = (1.0 - abs(lineCoord.y)) * widthPx * 0.5;
-  let t = 1.0 - smoothstep(0.0, 1.0, pixelsFromEdge);
-  return vec4f(mix(centerColor, borderColor, t), 1.0);
-}
-`;
-    const gpuLines = createGPULines(device, {
-      colorTargets: [{
-        format: canvasFormat,
-        blend: {
-          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-          alpha: { srcFactor: 'one',       dstFactor: 'one-minus-src-alpha', operation: 'add' },
-        },
-      }],
-      multisample: { count: SAMPLE_COUNT },
-      join: 'bevel',
-      // Each quad is a closed loop drawn via the modular-index technique
-      // (see lineVertexShaderBody): butt caps so the inevitable end-cap at
-      // the seam between adjacent loops doesn't poke out, and
-      // clampIndices: false so getVertex receives raw indices and handles
-      // its own bounds (returning a break vertex for out-of-range).
-      cap: 'butt',
-      clampIndices: false,
-      vertexShaderBody: lineVertexShaderBody,
-      fragmentShaderBody: lineFragmentShaderBody,
-    });
-
-    // 32 B uniform: viewScale.xy, viewOffset.xy, outlineLevel, sigma, baseWidth, pad.
-    const lineUniformBuffer = createUniformBuffer(device, 'line-uniforms', 32);
-
-    type Bounds = { minX: number; maxX: number; minY: number; maxY: number };
-
-    const gpuState = {
-      canvas: gpuCanvas,
-      instanceBuffer: null as GPUBuffer | null,
-      instanceCapacity: 0,
-      msTexture: null as GPUTexture | null,
-      lastBounds: null as Bounds | null,
-      lastCount: 0,
-      lastEvenCount: 0,
-      pixelWidth: 0,
-      pixelHeight: 0,
-      // Outline state: storage buffer holding (x, y, levelNorm, widthPx)
-      // per vertex, plus its bind group and the count of vertices to draw.
-      // The bind group is rebuilt whenever the buffer is reallocated.
-      outlineBuffer: null as GPUBuffer | null,
-      outlineCapacity: 0,
-      outlineVertexCount: 0,
-      outlineMaxWidth: 0,
-      outlineBindGroup: null as GPUBindGroup | null,
-      outlineEnabled: true,
-      // View state: world point at clip-space origin and pixels-per-world-unit
-      // (in physical pixels). scale.x = 2*pixelScale/pixelWidth, etc.
-      centerX: 0, centerY: 0, pixelScale: 0,
-      // Per parity, re-upload the spectre vertices for the current morph and
-      // redraw. `evenData` is Tile(a, b); `oddData` is Tile(b, a). Draw calls
-      // pick the right buffer based on each instance's rotation parity.
-      uploadMeshes(evenData: Float32Array, oddData: Float32Array) {
-        device.queue.writeBuffer(evenMeshVertexBuffer, 0, evenData);
-        device.queue.writeBuffer(oddMeshVertexBuffer,  0, oddData);
-        if (this.lastCount) this.redraw();
-      },
-      uploadFillIndices(evenIndices: Uint16Array, oddIndices: Uint16Array) {
-        // Earcut on the morphed polygon may rearrange the 12 fill triangles
-        // (or produce zero-area ones at degenerate endpoints). Per parity
-        // because the polygons have different topologies at the degenerate
-        // endpoints. Each buffer is 36 × 2 B and never grows.
-        device.queue.writeBuffer(fillIndexBufferEven, 0, evenIndices);
-        device.queue.writeBuffer(fillIndexBufferOdd,  0, oddIndices);
-        if (this.lastCount) this.redraw();
-      },
-      resize(w: number, h: number) {
-        const px = Math.max(1, Math.floor(w * devicePixelRatio));
-        const py = Math.max(1, Math.floor(h * devicePixelRatio));
-        if (px === this.pixelWidth && py === this.pixelHeight) return;
-        this.pixelWidth = px;
-        this.pixelHeight = py;
-        gpuCanvas.width = px;
-        gpuCanvas.height = py;
-        gpuContext.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
-        this.msTexture?.destroy();
-        this.msTexture = device.createTexture({
-          label: 'spectre-msaa',
-          size: [px, py],
-          sampleCount: SAMPLE_COUNT,
-          format: canvasFormat,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        });
-        // First valid pixel size: derive the initial fit from the bounds we
-        // already received from gpu-render. Subsequent resizes preserve the
-        // user's pan/zoom (pixelScale stays in physical pixels per world unit).
-        if (this.lastBounds && this.pixelScale === 0) this.fitBounds(this.lastBounds);
-        if (this.lastBounds) this.redraw();
-      },
-      ensureInstanceBuffer(count: number) {
-        if (count <= this.instanceCapacity) return;
-        this.instanceBuffer?.destroy();
-        this.instanceCapacity = Math.max(count, Math.max(64, this.instanceCapacity * 2));
-        this.instanceBuffer = device.createBuffer({
-          label: 'spectre-instances',
-          size: this.instanceCapacity * INSTANCE_STRIDE,
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-      },
-      setOutlines(positions: Float32Array, vertexCount: number, maxWidth: number) {
-        const requiredBytes = positions.byteLength;
-        if (requiredBytes > this.outlineCapacity) {
-          this.outlineBuffer?.destroy();
-          this.outlineCapacity = Math.max(requiredBytes, Math.max(4096, this.outlineCapacity * 2));
-          this.outlineBuffer = device.createBuffer({
-            label: 'metatile-outline-points',
-            size: this.outlineCapacity,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-          });
-          this.outlineBindGroup = device.createBindGroup({
-            layout: gpuLines.getBindGroupLayout(1),
-            entries: [
-              { binding: 0, resource: { buffer: this.outlineBuffer } },
-              { binding: 1, resource: { buffer: lineUniformBuffer } },
-            ],
-          });
-        }
-        if (this.outlineBuffer) {
-          device.queue.writeBuffer(this.outlineBuffer, 0, positions);
-        }
-        this.outlineVertexCount = vertexCount;
-        this.outlineMaxWidth = maxWidth;
-        if (this.lastBounds) this.redraw();
-      },
-      setOutlinesEnabled(enabled: boolean) {
-        this.outlineEnabled = enabled;
-        if (this.lastBounds) this.redraw();
-      },
-      fitBounds(b: Bounds) {
-        if (!this.pixelWidth) return;
-        const w = b.maxX - b.minX;
-        const h = b.maxY - b.minY;
-        this.centerX = (b.minX + b.maxX) / 2;
-        this.centerY = (b.minY + b.maxY) / 2;
-        // Bounds is a circumscribing square around the cluster's bounding
-        // circle (rotation-invariant), so the tile cluster naturally fills
-        // far less than the full square. Over-scale a bit so the visible
-        // cluster fills more of the canvas on initial fit; users can still
-        // zoom out via wheel/pinch if they want to see the bound's slack.
-        this.pixelScale = 1.25 * Math.min(this.pixelWidth / w, this.pixelHeight / h);
-      },
-      draw(instanceData: ArrayBufferView, bounds: Bounds, evenCount: number) {
-        const count = instanceData.byteLength / INSTANCE_STRIDE;
-        this.ensureInstanceBuffer(count);
-        device.queue.writeBuffer(this.instanceBuffer!, 0, instanceData);
-        this.lastCount = count;
-        this.lastEvenCount = evenCount;
-        // Refit only when the data's natural bounds actually change. Color-only
-        // updates re-call draw with the same bounds and preserve the user's view.
-        const prev = this.lastBounds;
-        const boundsChanged = !prev
-          || prev.minX !== bounds.minX || prev.maxX !== bounds.maxX
-          || prev.minY !== bounds.minY || prev.maxY !== bounds.maxY;
-        this.lastBounds = bounds;
-        if (boundsChanged) this.fitBounds(bounds);
-        this.redraw();
-      },
-      redraw() {
-        if (!this.instanceBuffer || !this.pixelWidth || !this.msTexture) return;
-        const sx = 2 * this.pixelScale / this.pixelWidth;
-        const sy = 2 * this.pixelScale / this.pixelHeight;
-        // Each spectre edge is one world unit, so its on-screen length in
-        // physical pixels is just pixelScale. Fade the outline out as edges
-        // shrink to fewer than a few pixels.
-        const edgePx = this.pixelScale;
-        const outlineStrength = Math.max(0, Math.min(1, (edgePx + 0) / 12));
-        device.queue.writeBuffer(viewUniformBuffer, 0, new Float32Array([
-          sx, sy, -this.centerX * sx, -this.centerY * sy,
-          outlineStrength, 0, 0, 0,
-        ]));
-
-        const encoder = device.createCommandEncoder();
-        const pass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view: this.msTexture.createView(),
-            resolveTarget: gpuContext.getCurrentTexture().createView(),
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
-            loadOp: 'clear',
-            storeOp: 'discard',
-          }],
-        });
-        pass.setVertexBuffer(1, this.instanceBuffer);
-
-        const nEven = this.lastEvenCount;
-        const nOdd  = this.lastCount - nEven;
-
-        pass.setPipeline(fillPipeline);
-        pass.setBindGroup(0, fillBindGroup);
-        if (nEven > 0) {
-          pass.setIndexBuffer(fillIndexBufferEven, 'uint16');
-          pass.setVertexBuffer(0, evenMeshVertexBuffer);
-          pass.drawIndexed(36, nEven, 0, 0, 0);
-        }
-        if (nOdd > 0) {
-          pass.setIndexBuffer(fillIndexBufferOdd, 'uint16');
-          pass.setVertexBuffer(0, oddMeshVertexBuffer);
-          pass.drawIndexed(36, nOdd, 0, 0, nEven);
-        }
-
-        if (outlineStrength > 0) {
-          pass.setPipeline(outlinePipeline);
-          pass.setBindGroup(0, outlineBindGroup);
-          pass.setIndexBuffer(outlineIndexBuffer, 'uint16');
-          if (nEven > 0) {
-            pass.setVertexBuffer(0, evenMeshVertexBuffer);
-            pass.drawIndexed(28, nEven, 0, 0, 0);
-          }
-          if (nOdd > 0) {
-            pass.setVertexBuffer(0, oddMeshVertexBuffer);
-            pass.drawIndexed(28, nOdd, 0, 0, nEven);
-          }
-        }
-
-        if (this.outlineEnabled && this.outlineVertexCount > 0 && this.outlineBindGroup) {
-          // Line uniform mirrors the spectre view transform so outlines pan/
-          // zoom with the figure; per-vertex widths in the storage buffer are
-          // in logical pixels and the shader multiplies by DPR.
-          const dpr = devicePixelRatio || 1;
-          device.queue.writeBuffer(lineUniformBuffer, 0, new Float32Array([
-            sx, sy, -this.centerX * sx, -this.centerY * sy,
-            dpr, 0, 0, 0,
-          ]));
-          gpuLines.draw(pass, {
-            vertexCount: this.outlineVertexCount,
-            width: this.outlineMaxWidth * dpr,
-            resolution: [this.pixelWidth, this.pixelHeight],
-          }, [this.outlineBindGroup]);
-        }
-
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-      },
-      panBy(dxCss: number, dyCss: number) {
-        const rect = gpuCanvas.getBoundingClientRect();
-        const dpr = this.pixelWidth / Math.max(1, rect.width);
-        this.centerX -= dxCss * dpr / this.pixelScale;
-        this.centerY += dyCss * dpr / this.pixelScale;
-        this.redraw();
-      },
-      zoomAround(cssX: number, cssY: number, k: number) {
-        const rect = gpuCanvas.getBoundingClientRect();
-        const cx = (cssX / rect.width) * 2 - 1;
-        const cy = -((cssY / rect.height) * 2 - 1);
-        const sx = 2 * this.pixelScale / this.pixelWidth;
-        const sy = 2 * this.pixelScale / this.pixelHeight;
-        const wx = this.centerX + cx / sx;
-        const wy = this.centerY + cy / sy;
-        this.pixelScale *= k;
-        const sxN = 2 * this.pixelScale / this.pixelWidth;
-        const syN = 2 * this.pixelScale / this.pixelHeight;
-        this.centerX = wx - cx / sxN;
-        this.centerY = wy - cy / syN;
-        this.redraw();
-      },
-    };
-
-    // Pan: 1-pointer drag. Pinch-zoom + 2-finger pan: 2-pointer gesture.
-    // Track all active pointers in canvas-local coords; the gesture mode is
-    // determined by pointers.size each move.
-    const pointers = new Map<number, { x: number, y: number }>();
-    let panLastX = 0, panLastY = 0;
-    let pinchDist = 0, pinchMx = 0, pinchMy = 0;
-    const canvasXY = (e: PointerEvent) => {
-      const rect = gpuCanvas.getBoundingClientRect();
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    };
-    const recomputePinch = () => {
-      const pts = [...pointers.values()];
-      const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
-      pinchDist = Math.hypot(dx, dy);
-      pinchMx = (pts[0].x + pts[1].x) * 0.5;
-      pinchMy = (pts[0].y + pts[1].y) * 0.5;
-    };
-    gpuCanvas.addEventListener('pointerdown', (e) => {
-      gpuCanvas.setPointerCapture(e.pointerId);
-      pointers.set(e.pointerId, canvasXY(e));
-      if (pointers.size === 1) {
-        panLastX = e.clientX; panLastY = e.clientY;
-        gpuCanvas.style.cursor = 'grabbing';
-      } else if (pointers.size === 2) {
-        recomputePinch();
-      }
-    });
-    gpuCanvas.addEventListener('pointermove', (e) => {
-      if (!pointers.has(e.pointerId)) return;
-      pointers.set(e.pointerId, canvasXY(e));
-      if (pointers.size === 1) {
-        const dx = e.clientX - panLastX, dy = e.clientY - panLastY;
-        panLastX = e.clientX; panLastY = e.clientY;
-        gpuState.panBy(dx, dy);
-      } else if (pointers.size === 2) {
-        const prevDist = pinchDist, prevMx = pinchMx, prevMy = pinchMy;
-        recomputePinch();
-        if (prevDist > 0) {
-          gpuState.zoomAround(pinchMx, pinchMy, pinchDist / prevDist);
-          gpuState.panBy(pinchMx - prevMx, pinchMy - prevMy);
-        }
-      }
-    });
-    const endPointer = (e: PointerEvent) => {
-      if (!pointers.delete(e.pointerId)) return;
-      if (pointers.size === 1) {
-        // Resume single-finger pan from the remaining pointer.
-        const rect = gpuCanvas.getBoundingClientRect();
-        const r = [...pointers.values()][0];
-        panLastX = r.x + rect.left;
-        panLastY = r.y + rect.top;
-      } else if (pointers.size === 0) {
-        gpuCanvas.style.cursor = 'grab';
-      }
-    };
-    gpuCanvas.addEventListener('pointerup', endPointer);
-    gpuCanvas.addEventListener('pointercancel', endPointer);
-
-    // Zoom: wheel around the cursor position.
-    gpuCanvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const rect = gpuCanvas.getBoundingClientRect();
-      gpuState.zoomAround(
-        e.clientX - rect.left,
-        e.clientY - rect.top,
-        Math.exp(-e.deltaY * 0.0015),
-      );
-    }, { passive: false });
-
-    invalidation.then(() => {
-      gpuState.msTexture?.destroy();
-      gpuState.instanceBuffer?.destroy();
+    // The renderer owns the canvas, pipelines, mesh/instance/outline
+    // buffers, and pan/zoom interaction. This cell just instantiates
+    // it, wires the canvas into an `expandable()`, and exposes
+    // gpuState + gpuExpandable to downstream cells.
+    const { canvas: gpuCanvas, state: gpuState } = createGpuRenderer({
+      device,
+      canvasFormat,
+      invalidation,
+      meshVertexData,
+      meshFillIndices,
+      meshOutlineIndices,
+      shaders,
+      createGPULines,
     });
 
     const gpuContainer = document.createElement('div');
@@ -1812,6 +1276,14 @@ fn getColor(lineCoord: vec2f, paletteIdx: f32, widthPx: f32) -> vec4f {
       cwMass[X] = X === "Gamma" ? 2 : 1;
       // Γ at depth 0 has two leaves: Γ1 at origin and Γ2 at v₈.
       cwLP2[X] = X === "Gamma" ? spectreLatticeVertices2[8] : LP2_ZERO;
+      // Stamp the base-level metas: the hierarchical-gap walk in flatten
+      // reads `_cwLP2` / `_cwMass` off each non-leaf node it descends into,
+      // and the depth-0 Γ-pair meta is one such node (its leaf children Γ₁
+      // and Γ₂ get the gap shift skipped — see flatten — but the parent
+      // meta still needs the stamps for the *enclosing* meta's gap math).
+      const _base = renderCluster[X];
+      (_base as any)._cwMass = cwMass[X];
+      (_base as any)._cwLP2  = cwLP2[X];
     }
     const _scaleLP = (p: LP, k: number): LP => [p[0] * k, p[1] * k] as LP;
     const _scaleLP2 = (p: LP2, k: number): LP2 =>
@@ -1856,6 +1328,15 @@ fn getColor(lineCoord: vec2f, paletteIdx: f32, widthPx: f32) -> vec4f {
       }
       cwMass = newMass;
       cwLP2  = newCw;
+      // Stamp this level's metas with the centroid + mass for the gap walk
+      // in flatten. The DAG has only ~9 distinct metas per level, so this
+      // is cheap. Stamp on _shadowCluster (== renderCluster while i <
+      // renderDepth) so every meta the flatten will descend into is covered.
+      for (const X of TILE_NAMES) {
+        const _meta = _shadowCluster[X];
+        (_meta as any)._cwMass = cwMass[X];
+        (_meta as any)._cwLP2  = cwLP2[X];
+      }
       if (i + 1 === renderDepth) {
         renderClusterCwLP2 = cwLP2[renderStartingTile];
         renderClusterMass  = cwMass[renderStartingTile];
@@ -1891,6 +1372,7 @@ fn getColor(lineCoord: vec2f, paletteIdx: f32, widthPx: f32) -> vec4f {
       renderCluster[renderStartingTile],
       renderClusterMass,
       renderDepth,
+      renderGap,
     );
     console.log(`[perf] flattenMetaTileFast (${_flatRaw.length.toLocaleString()} leaves): ${(performance.now() - _tFlatten).toFixed(1)} ms`);
 
@@ -2018,12 +1500,48 @@ fn getColor(lineCoord: vec2f, paletteIdx: f32, widthPx: f32) -> vec4f {
       outlineCount.value++;
     }
 
+    // Gap-shift one child's transform: T.t' = T.t + gap × (child_center −
+    // parent_center), all in parent's local frame. Mirrors the centroid-
+    // based math in flatten so the outline quads continue to enclose their
+    // leaves when gap > 0. Returns the transform unchanged if gap is 0 or
+    // this meta is the Γ leaf-pair (whose pair we don't pull apart).
+    function gapShiftedT(parentMeta: MetaTile, child: MetaTile, T: Transform, gap: number): Transform {
+      if (gap === 0 || parentMeta.kind !== "meta") return T;
+      let isLeafPair = parentMeta.geometries.length > 0;
+      for (let g = 0; g < parentMeta.geometries.length; g++) {
+        if (parentMeta.geometries[g].child.kind !== "leaf") { isLeafPair = false; break; }
+      }
+      if (isLeafPair) return T;
+      const _pM = (parentMeta as any)._cwMass as number;
+      const _pCw = (parentMeta as any)._cwLP2 as LP2;
+      const _cM = (child as any)._cwMass as number;
+      const _cCw = (child as any)._cwLP2 as LP2;
+      const TlinCw = txApplyLinear(T, _cCw);
+      const childCx_a = TlinCw.a[0] / _cM + T.t.a[0];
+      const childCy_a = TlinCw.a[1] / _cM + T.t.a[1];
+      const childCx_b = TlinCw.b[0] / _cM + T.t.b[0];
+      const childCy_b = TlinCw.b[1] / _cM + T.t.b[1];
+      const parCx_a = _pCw.a[0] / _pM, parCy_a = _pCw.a[1] / _pM;
+      const parCx_b = _pCw.b[0] / _pM, parCy_b = _pCw.b[1] / _pM;
+      return {
+        rot: T.rot,
+        mirror: T.mirror,
+        t: {
+          a: [T.t.a[0] + gap * (childCx_a - parCx_a),
+              T.t.a[1] + gap * (childCy_a - parCy_a)],
+          b: [T.t.b[0] + gap * (childCx_b - parCx_b),
+              T.t.b[1] + gap * (childCy_b - parCy_b)],
+        },
+      };
+    }
+
     function walkOutlines(mt: MetaTile, parent: Transform, level: number): void {
       const absoluteQuad: LP2[] = mt.quad.map((q) => txApply(parent, q));
       emitQuad(absoluteQuad, level, _isMystic(mt));
       if (mt.kind === "leaf" || level >= outlineCap) return;
       for (const { child, transform: T } of mt.geometries) {
-        walkOutlines(child, txCompose(parent, T), level + 1);
+        const Tg = gapShiftedT(mt, child, T, renderGap);
+        walkOutlines(child, txCompose(parent, Tg), level + 1);
       }
     }
     walkOutlines(renderCluster[renderStartingTile], txIdentity, 0);
