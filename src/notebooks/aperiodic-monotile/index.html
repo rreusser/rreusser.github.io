@@ -7,7 +7,7 @@
 
     A work-in-progress notebook for rendering the *spectre* — the chiral aperiodic monotile of [Smith, Myers, Kaplan, and Goodman-Strauss](https://arxiv.org/abs/2305.17743) — and the rest of the Tile(a, b) family it belongs to (the [hat](https://arxiv.org/abs/2303.10798) and turtle).
 
-    The plan is to build the substitution system in exact integer arithmetic over ℤ[ω] (ω = e<sup>iπ/6</sup>), then render the resulting tiles using instanced WebGPU.
+    The plan is to walk the spectre substitution from [Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js) to some depth, then render the resulting tiles using instanced WebGPU. Each tile's translation is split into separate (*a*, *b*) components so the hat ↔ spectre ↔ turtle morph is a per-frame projection rather than a fresh substitution at every slider value.
   </script>
 
   <script id="figure" type="text/x-typescript">
@@ -19,9 +19,29 @@
   </script>
 
   <script id="figure-count" type="text/x-typescript">
+    // CPU-side: the parallel typed arrays in renderRaw (incl. the
+    // upper-bound ancFlat allocation) plus the renderPoses staging buffer
+    // (5 float32 / tile). GPU-side: the device instance buffer
+    // (INSTANCE_STRIDE = 16 B / tile); other GPU resources (meshes,
+    // outlines) are tiny and constant.
+    const _cpuBytes = renderRaw.rot.byteLength + renderRaw.mir.byteLength
+                    + renderRaw.taX.byteLength + renderRaw.taY.byteLength
+                    + renderRaw.tbX.byteLength + renderRaw.tbY.byteLength
+                    + renderRaw.labelIdx.byteLength
+                    + renderRaw.ancFlat.byteLength
+                    + renderRaw.ancStart.byteLength
+                    + renderRaw.ancLen.byteLength
+                    + renderRaw.length * 5 * 4;
+    const _gpuBytes = renderRaw.length * 16;
+    const _fmtBytes = (b: number): string =>
+      b < 1024  ? `${b} B`
+    : b < 1e6   ? `${(b / 1024).toFixed(1)} kB`
+    : b < 1e9   ? `${(b / 1e6 ).toFixed(b < 1e7 ? 1 : 0)} MB`
+    :             `${(b / 1e9 ).toFixed(2)} GB`;
     display(html`<div style="text-align: center; color: #666; font-size: 0.85em; margin-top: 4px;">
       ${renderRaw.length.toLocaleString()} spectres
       after ${renderDepth} substitution${renderDepth === 1 ? "" : "s"} of a ${TILE_GLYPH[renderStartingTile] ?? renderStartingTile} supertile
+      · CPU ${_fmtBytes(_cpuBytes)} · GPU ${_fmtBytes(_gpuBytes)}
     </div>`);
   </script>
 
@@ -123,7 +143,7 @@
     const _ssPts = _ssVerts.map(([x, y]) => `${x},${-y}`).join(" ");
     const _ssSize = Math.min(360, width);
 
-    display(html`<figure style="margin: 0; text-align: center;">
+    display(html`<figure style="margin: 0 auto; text-align: center;">
       <svg viewBox="${_ssVbX} ${_ssVbY} ${_ssVbW} ${_ssVbH}"
            width="${_ssSize}" height="${_ssSize}"
            style="display: block; margin: 0 auto;">
@@ -446,11 +466,18 @@
   <script id="substitution-section" type="text/markdown">
     ## Substitution rules
 
-    Everything from here on — the nine metatile types Γ, Δ, Θ, Λ, Ξ, Π, Σ, Φ, Ψ, the substitution rule tables, the quad-handle scheme, and the seven inter-tile transforms — is a direct port of [Craig S. Kaplan's reference implementation](https://cs.uwaterloo.ca/~csk/spectre/) for the spectre paper. The integer-lattice rewrite (LP² over ℤ[ω]) is the only structural change; the substitution itself is unchanged.
+    The substitution machinery here is a port of [Craig S. Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js), the p5.js reference implementation linked from the spectre paper page. Used directly:
 
-    Each metatile carries a *quad* — four distinguished points indexed 3, 5, 7, 11 of the spectre — that it uses to glue to its neighbours. To inflate the tiling one level, every metatile is replaced by a fixed sequence of eight smaller metatiles, each placed by one of seven inter-tile transforms (the first slot is the identity).
+    - The 14 spectre vertex coordinates (his `spectre` array in `buildSpectreBase`) and the quad-handle indices `[3, 5, 7, 11]` (his `spectre_keys`).
+    - The nine metatile names Γ, Δ, Θ, Λ, Ξ, Π, Σ, Φ, Ψ (his `tile_names`).
+    - The two rule tables: `transformationRules` (his `t_rules`, with rotations rewritten in 30°-unit increments instead of degrees) and `superRules` (his `super_rules` verbatim).
+    - The recursion in `buildSpectreBase` and `buildSupertiles`, including the final reflection across the y-axis that closes the supertile cluster.
 
-    The two tables below come straight from Kaplan's code: \`transformationRules\` is a sequence of \`[rotation in 30° units, source quad index, target quad index]\` triples that build up the seven non-identity transforms; \`superRules\` selects which of the nine metatile types fills each of the eight slots for each parent type. The Γ entry has \`null\` in slot 2 — Γ supertiles only take seven children, not eight.
+    Adapted: each transform's translation is stored as an LP² (separate (*a*, *b*) components) instead of a single (*x*, *y*), so the hat ↔ spectre ↔ turtle morph is a per-frame projection rather than a fresh substitution at every slider value. The point algebra (`lpAdd`, `lpRotate`, `txCompose`, ...) is our own, replacing his matrix helpers (`mul`, `trot`, `ttrans`, `transPt`); his `buildHatTurtleBase` and `buildHexBase` are unused since the (*a*, *b*) split covers the whole Tile family.
+
+    Each metatile carries a *quad* (the four distinguished points indexed 3, 5, 7, 11 of the spectre) that it uses to glue to its neighbours. To inflate the tiling one level, every metatile is replaced by a fixed sequence of eight smaller metatiles, each placed by one of seven inter-tile transforms (the first slot is the identity).
+
+    The two tables below: `transformationRules` is a sequence of `[rotation in 30° units, source quad index, target quad index]` triples that build up the seven non-identity transforms; `superRules` selects which of the nine metatile types fills each of the eight slots for each parent type. The Γ entry has `null` in slot 2: Γ supertiles only take seven children, not eight.
   </script>
 
   <script id="substitution-data" type="text/x-typescript">
@@ -488,7 +515,7 @@
   <script id="metatile-section" type="text/markdown">
     ## Building supertiles
 
-    The substitution recursion is identical to Kaplan's reference Python with two changes: every coordinate is a lattice point, and every transform is a `{rot, mirror, t}` record built from integer operations. \`buildSpectreBase\` returns the nine starting metatiles — eight are bare spectres, and Γ is the special "mystic" pair: two overlapping spectres that lock the chirality. Each call to \`buildSupertiles\` consumes the current cluster of nine metatiles and produces the next-level cluster, using the seven transforms derived from the rule table and a final reflection.
+    `buildSpectreBase` returns the nine starting metatiles. Eight are bare spectres; Γ is the special "mystic" pair (two overlapping spectres that lock the chirality). Each call to `buildSupertiles` consumes the current cluster of nine metatiles and produces the next-level cluster, applying the seven transforms derived from the rule table and a final reflection across the y-axis. The metatile data type is a TypeScript discriminated union (`{ kind: "leaf"; ... } | { kind: "meta"; ... }`) instead of Kaplan's Shape/Meta class hierarchy; the algorithm is otherwise identical.
   </script>
 
   <script id="metatile-build" type="text/x-typescript">
@@ -577,7 +604,7 @@
   <script id="render-section" type="text/markdown">
     ## Rendering
 
-    Inflate a Δ supertile to the chosen depth, flatten the metatile tree to a list of \`(transform, label, color)\` placements, and draw each as one instanced spectre. Each placement's color is a Gaussian-weighted blend of the leaf and ancestor colors centered at the chosen "color level": at level 0, the leaf dominates and adjacent tiles look distinct; raising the level shifts weight to deeper supertiles, so larger blocks of similar color reveal the macro structure.
+    Inflate a Δ supertile to the chosen depth, flatten the metatile tree to a list of `(transform, label, color)` placements, and draw each as one instanced spectre. Each placement's color is a Gaussian-weighted blend of the leaf and ancestor colors centered at the chosen "color level": at level 0, the leaf dominates and adjacent tiles look distinct; raising the level shifts weight to deeper supertiles, so larger blocks of similar color reveal the macro structure.
   </script>
 
   <script id="render-controls" type="text/x-typescript">
@@ -606,7 +633,7 @@
     // honoured raised limits at init time. Cap the slider at 7 otherwise.
     const _depthMax = webgpuMaxBuffersAvailable ? 8 : 7;
     const _depthSliderEl = Inputs.range([0, _depthMax], {
-      value: 3,
+      value: 7,
       step: 1,
       label: "Substitution depth",
     });
@@ -933,7 +960,21 @@
   </script>
 
   <script id="flatten" type="text/x-typescript">
-    type RawPlacement = { transform: Transform; label: LeafLabel; ancestry: TileName[] };
+    // Parallel typed-array view of one substituted cluster: every per-leaf
+    // field is its own typed array, indexed in lockstep. Replaces the old
+    // RawPlacement[] of nested objects, which was the dominant allocation
+    // cost (~5 nested allocs × 2 M leaves) at depth 7.
+    type RawArrays = {
+      length: number;
+      rot: Uint8Array;
+      mir: Uint8Array;
+      taX: Float32Array; taY: Float32Array;
+      tbX: Float32Array; tbY: Float32Array;
+      labelIdx: Uint8Array;
+      ancFlat: Uint8Array;
+      ancStart: Uint32Array;
+      ancLen: Uint8Array;
+    };
 
     // Integer label ids — used both to flat-pack the per-leaf ancestry and
     // to index the palette buffer. The substitution machinery only ever
@@ -945,57 +986,85 @@
     const LABEL_TO_IDX: Record<string, number> = {};
     LABEL_LIST.forEach((name, i) => { LABEL_TO_IDX[name] = i; });
 
-    // Fast-path flatten that avoids ~15 M small-object/array allocations
-    // from naive txCompose. We keep a pre-allocated stack of
-    // (rot, mirror, t.a, t.b) slots — 2 floats per LP component, 4 floats
-    // per LP² stack slot — and compose onto stack[d+1] with pure scalar
-    // arithmetic. Only the final per-leaf Transform record is allocated.
+    // Walk the metatile DAG and emit one entry per leaf into preallocated
+    // parallel typed arrays. Per-tree-level state (rot, mirror, t.a, t.b)
+    // lives on a small fixed stack and is composed onto stack[d+1] with
+    // scalar arithmetic. Label and ancestry are written as integer ids —
+    // string-keyed lookups happen O(metatile-types) times during flatten,
+    // not per leaf.
     function flattenMetaTileFast(
       root: MetaTile,
-      out: RawPlacement[],
+      N: number,
       maxDepth: number,
-    ): void {
+    ): RawArrays {
       const cap = maxDepth + 2;
-      const stTa = new Float64Array(cap * 2);
-      const stTb = new Float64Array(cap * 2);
+      const stTaX = new Float64Array(cap);
+      const stTaY = new Float64Array(cap);
+      const stTbX = new Float64Array(cap);
+      const stTbY = new Float64Array(cap);
       const stRot = new Uint8Array(cap);
-      const stMirror = new Uint8Array(cap);
-      const ancestry: TileName[] = [];
+      const stMir = new Uint8Array(cap);
+      const ancStack = new Uint8Array(cap);
+
+      const taX = new Float32Array(N);
+      const taY = new Float32Array(N);
+      const tbX = new Float32Array(N);
+      const tbY = new Float32Array(N);
+      const rot = new Uint8Array(N);
+      const mir = new Uint8Array(N);
+      const labelIdx = new Uint8Array(N);
+      // Upper bound on ancestry storage (leafCount × maxAncestryDepth).
+      // Trimmed during the partition pass below.
+      const ancFlat = new Uint8Array(N * (maxDepth + 1));
+      const ancStart = new Uint32Array(N);
+      const ancLen = new Uint8Array(N);
+
+      let outI = 0;
+      let ancD = 0;
+      let ancCur = 0;
 
       function recurse(mt: MetaTile, d: number): void {
         if (mt.kind === "leaf") {
-          const off = d * 2;
-          out.push({
-            transform: {
-              rot: stRot[d],
-              mirror: stMirror[d] as 0 | 1,
-              t: {
-                a: [stTa[off], stTa[off + 1]] as LP,
-                b: [stTb[off], stTb[off + 1]] as LP,
-              },
-            },
-            label: mt.label,
-            ancestry: ancestry.slice(),
-          });
+          const i = outI;
+          taX[i] = stTaX[d]; taY[i] = stTaY[d];
+          tbX[i] = stTbX[d]; tbY[i] = stTbY[d];
+          rot[i] = stRot[d];
+          mir[i] = stMir[d];
+          labelIdx[i] = (mt as any)._labelIdx;
+          ancStart[i] = ancCur;
+          ancLen[i] = ancD;
+          for (let j = 0; j < ancD; j++) ancFlat[ancCur + j] = ancStack[j];
+          ancCur += ancD;
+          outI = i + 1;
           return;
         }
-        // Skip pushing the leaf-pair Γ onto the ancestry chain (depth-0 Γ
-        // has *leaf* children Γ1/Γ2; its descendants would otherwise sit
-        // one extra ancestry level deeper than their neighbours, which
-        // shifts the d → ancestor mapping and makes Γ pairs pick up a
-        // different supertile colour). Γ at higher depths is pushed
-        // normally so its colour still appears at the right scale.
-        const isLeafPairGamma = mt.geometries.length > 0
-                              && mt.geometries[0].child.kind === "leaf";
-        if (!isLeafPairGamma) ancestry.push(mt.name);
-        const off = d * 2, nextOff = (d + 1) * 2;
-        const pRot = stRot[d], pMir = stMirror[d];
-        const sign = pMir ? -1 : 1;
-        const pTaX = stTa[off + 0], pTaY = stTa[off + 1];
-        const pTbX = stTb[off + 0], pTbY = stTb[off + 1];
+        // Skip pushing the depth-0 Γ leaf-pair onto the ancestry chain: it's
+        // the only meta whose children are *all* leaves (Γ1, Γ2), so its
+        // descendants would otherwise sit one extra ancestry level deeper
+        // than their neighbours and pick up a different supertile colour
+        // tier. (Earlier we used the cheaper test `geos[0].child.kind ===
+        // "leaf"`, but that also matched every depth-1 supertile — the
+        // first slot of every superRule entry is a non-Γ leaf at depth 0 —
+        // which dropped the depth-1 supertile colour tier from the blend
+        // and skipped the visible "block of 9" level.)
+        const geos = mt.geometries;
+        const G = geos.length;
+        let isLeafPairMeta = G > 0;
+        for (let g = 0; g < G; g++) {
+          if (geos[g].child.kind !== "leaf") { isLeafPairMeta = false; break; }
+        }
+        if (!isLeafPairMeta) ancStack[ancD++] = (mt as any)._labelIdx;
+
+        const pRot = stRot[d], pMir = stMir[d];
+        const pTaX = stTaX[d], pTaY = stTaY[d];
+        const pTbX = stTbX[d], pTbY = stTbY[d];
         const c = _LPCOS[pRot], s = _LPSIN[pRot];
         const odd = pRot & 1;
-        for (const { child, transform: T2 } of mt.geometries) {
+        const d1 = d + 1;
+
+        for (let g = 0; g < G; g++) {
+          const geom = geos[g];
+          const T2 = geom.transform;
           const cta = T2.t.a, ctb = T2.t.b;
           // 1. lp2Conj if pMir (mirror across x-axis = negate y).
           let aax = cta[0], aay = cta[1];
@@ -1004,27 +1073,31 @@
           // 2. Rotate by pRot · 30°.
           const raax = c * aax - s * aay, raay = s * aax + c * aay;
           const rabx = c * abx - s * aby, raby = s * abx + c * aby;
-          aax = raax; aay = raay;
-          abx = rabx; aby = raby;
           // 3. Parity swap a/b if pRot is odd.
           let oax, oay, obx, oby;
-          if (odd) { oax = abx; oay = aby; obx = aax; oby = aay; }
-          else     { oax = aax; oay = aay; obx = abx; oby = aby; }
+          if (odd) { oax = rabx; oay = raby; obx = raax; oby = raay; }
+          else     { oax = raax; oay = raay; obx = rabx; oby = raby; }
           // 4. Translate by parent.t and write to stack[d+1].
-          stTa[nextOff + 0] = oax + pTaX; stTa[nextOff + 1] = oay + pTaY;
-          stTb[nextOff + 0] = obx + pTbX; stTb[nextOff + 1] = oby + pTbY;
-          stRot[d + 1] = (((pRot + sign * T2.rot) % 12) + 12) % 12;
-          stMirror[d + 1] = (pMir ^ T2.mirror) as 0 | 1;
-          recurse(child, d + 1);
+          stTaX[d1] = oax + pTaX; stTaY[d1] = oay + pTaY;
+          stTbX[d1] = obx + pTbX; stTbY[d1] = oby + pTbY;
+          // pRot ∈ [0,11], rDiff ∈ [-11,11] ⇒ sum + 12 ∈ [1,34], % 12 ∈ [0,11].
+          const rDiff = pMir ? -T2.rot : T2.rot;
+          stRot[d1] = (pRot + rDiff + 12) % 12;
+          stMir[d1] = (pMir ^ T2.mirror) as 0 | 1;
+          recurse(geom.child, d1);
         }
-        if (!isLeafPairGamma) ancestry.pop();
+        if (!isLeafPairMeta) ancD--;
       }
 
-      // Identity at stack[0].
-      stTa[0] = 0; stTa[1] = 0;
-      stTb[0] = 0; stTb[1] = 0;
-      stRot[0] = 0; stMirror[0] = 0;
+      stTaX[0] = 0; stTaY[0] = 0;
+      stTbX[0] = 0; stTbY[0] = 0;
+      stRot[0] = 0; stMir[0] = 0;
       recurse(root, 0);
+
+      return {
+        length: N, rot, mir, taX, taY, tbX, tbY, labelIdx,
+        ancFlat, ancStart, ancLen,
+      };
     }
   </script>
 
@@ -1252,11 +1325,26 @@ struct VsOut {
     });
 
     // ─── Metatile-outline line renderer ─────────────────────────────────
-    // Each metatile-outline vertex is (worldX, worldY, levelNorm, widthPx)
-    // in a vec4f storage buffer. levelNorm ∈ [0, 1] indexes a viridis
-    // colormap; widthPx is the desired logical-pixel line width (already
-    // scaled for hierarchy: 1 px at the finest level, +2 px per coarser
-    // level). widthPx = 0 marks a break vertex.
+    // Storage layout: 4 vec4f per quad — only the unique corner points,
+    // packed as (worldX, worldY, paletteIdx, widthPx). paletteIdx is an
+    // integer-valued f32 in [0, 11] indexing the 6-level Tableau palette
+    // (slots 0..5 finest→coarsest for normal outlines, slots 6..11 same
+    // ordering for mystic Γ outlines, with each mystic colour an OKLCH-
+    // derived lighter+hue-shifted variant of its normal pair). widthPx is
+    // the logical-pixel line width.
+    //
+    // Each quad is drawn as a closed loop using 7 indices per quad in the
+    // index space:
+    //   0..3 → corners p0, p1, p2, p3
+    //   4    → wrap to p0 (so the closure segment p3→p0 actually draws)
+    //   5    → extra wrap to p1 (so the join at the wrap point sees a
+    //          valid outgoing tangent and produces a smooth interior bevel
+    //          instead of an end-cap; the resulting duplicate p0→p1
+    //          segment is geometrically identical to the original and
+    //          paints over it without visible artefact)
+    //   6    → break sentinel (separates this quad's loop from the next)
+    // See https://github.com/rreusser/webgpu-instanced-lines/blob/main/examples/closed-loop.ts
+    // for the closed-loop modular-index technique used here.
     const lineVertexShaderBody = /* wgsl */ `
 @group(1) @binding(0) var<storage, read> linePoints: array<vec4f>;
 struct LineUniforms {
@@ -1273,38 +1361,69 @@ struct Vertex {
   position: vec4f,
   width: f32,
   level: f32,
+  widthPx: f32,
 }
 
-fn getVertex(index: u32) -> Vertex {
-  let p = linePoints[index];
-  let isBreak = p.w < 0.001;
+fn _breakVertex() -> Vertex {
+  return Vertex(vec4f(0.0, 0.0, 0.0, 0.0), 0.0, 0.0, 0.0);
+}
+
+fn getVertex(index: i32) -> Vertex {
+  let pCount = i32(uniforms.pointCount);
+  if (index < 0 || index >= pCount) {
+    return _breakVertex();
+  }
+  let loopIdx = index / 7;
+  let localIdx = index - loopIdx * 7;
+  if (localIdx == 6) {
+    return _breakVertex();
+  }
+  let pIdx = u32(loopIdx * 4 + (localIdx % 4));
+  let p = linePoints[pIdx];
   let world = p.xy;
   let clip = world * lineU.viewScale + lineU.viewOffset;
-  let levelNorm = p.z;
-  let width = p.w * lineU.dpr;
+  let widthPx = p.w * lineU.dpr;
   return Vertex(
-    vec4f(clip, 0.0, select(1.0, 0.0, isBreak)),
-    width,
-    levelNorm,
+    vec4f(clip, 0.0, 1.0),
+    widthPx,
+    p.z,
+    widthPx,
   );
 }
 `;
-    // Viridis polynomial approximation (Matt Zucker via mrcdrose) — six
-    // dot-products, no LUT; t ∈ [0, 1].
+    // 12-slot palette: 6 base colours (muted/subdued, OKLCH L=0.60
+    // C=0.075) for normal outlines, finest→coarsest, with hues spaced
+    // 60° apart (255° blue, 315° mauve, 25° terracotta, 85° olive, 145°
+    // sage, 205° teal) so successive levels rotate clearly through the
+    // wheel. The matching 6 mystic colours sit at the same hues but
+    // lighter and a touch more saturated (L=0.78, C=0.11) so each
+    // mystic Γ reads as a brighter highlight of its host level rather
+    // than a foreign accent.
+    // Border: pixelsFromEdge = (1 - |lineCoord.y|) × widthPx/2 in screen
+    // pixels; smoothstep(0, 1, …) gives a one-fragment AA falloff from
+    // the dark border at the edge to the slot colour at the centre.
     const lineFragmentShaderBody = /* wgsl */ `
-fn viridis(t: f32) -> vec3f {
-  let tc = clamp(t, 0.0, 1.0);
-  let c0 = vec3f(0.2777273272234177, 0.005407344544966578, 0.3340998053353061);
-  let c1 = vec3f(0.1050930431085774, 1.404613529898575, 1.384590162594685);
-  let c2 = vec3f(-0.3308618287255563, 0.214847559468213, 0.09509516302823659);
-  let c3 = vec3f(-4.634230498983486, -5.799100973351585, -19.33244095627987);
-  let c4 = vec3f(6.228269936347081, 14.17993336680509, 56.69055260068105);
-  let c5 = vec3f(4.776384997670288, -13.74514537774601, -65.35303263337234);
-  let c6 = vec3f(-5.435455855934631, 4.645852612178535, 26.3124352495832);
-  return c0 + tc * (c1 + tc * (c2 + tc * (c3 + tc * (c4 + tc * (c5 + tc * c6)))));
-}
-fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
-  return vec4f(viridis(level), 1.0);
+fn getColor(lineCoord: vec2f, paletteIdx: f32, widthPx: f32) -> vec4f {
+  var palette = array<vec3f, 12>(
+    vec3f(0.382407, 0.511405, 0.677137), //  0 base   h=255° #6282ad blue
+    vec3f(0.569732, 0.449672, 0.624686), //  1 base   h=315° #91739f mauve
+    vec3f(0.661262, 0.433471, 0.413636), //  2 base   h=25°  #a96f69 terracotta
+    vec3f(0.583668, 0.489677, 0.290021), //  3 base   h=85°  #957d4a olive
+    vec3f(0.390643, 0.550393, 0.393525), //  4 base   h=145° #648c64 sage
+    vec3f(0.259559, 0.553860, 0.586249), //  5 base   h=205° #428d95 teal
+    vec3f(0.532360, 0.731363, 0.986384), //  6 mystic h=255° #88bafc sky
+    vec3f(0.823689, 0.634699, 0.909483), //  7 mystic h=315° #d2a2e8 lavender
+    vec3f(0.964252, 0.608467, 0.579091), //  8 mystic h=25°  #f69b94 salmon
+    vec3f(0.845689, 0.697529, 0.376245), //  9 mystic h=85°  #d8b260 gold
+    vec3f(0.540324, 0.793068, 0.546524), // 10 mystic h=145° #8aca8b mint
+    vec3f(0.308778, 0.798117, 0.849839), // 11 mystic h=205° #4fccd9 cyan
+  );
+  let i = clamp(i32(paletteIdx), 0, 11);
+  let centerColor = palette[i];
+  let borderColor = vec3f(0.08, 0.08, 0.10);
+  let pixelsFromEdge = (1.0 - abs(lineCoord.y)) * widthPx * 0.5;
+  let t = 1.0 - smoothstep(0.0, 1.0, pixelsFromEdge);
+  return vec4f(mix(centerColor, borderColor, t), 1.0);
 }
 `;
     const gpuLines = createGPULines(device, {
@@ -1317,7 +1436,13 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
       }],
       multisample: { count: SAMPLE_COUNT },
       join: 'bevel',
-      cap: 'square',
+      // Each quad is a closed loop drawn via the modular-index technique
+      // (see lineVertexShaderBody): butt caps so the inevitable end-cap at
+      // the seam between adjacent loops doesn't poke out, and
+      // clampIndices: false so getVertex receives raw indices and handles
+      // its own bounds (returning a break vertex for out-of-range).
+      cap: 'butt',
+      clampIndices: false,
       vertexShaderBody: lineVertexShaderBody,
       fragmentShaderBody: lineFragmentShaderBody,
     });
@@ -1465,7 +1590,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
         // physical pixels is just pixelScale. Fade the outline out as edges
         // shrink to fewer than a few pixels.
         const edgePx = this.pixelScale;
-        const outlineStrength = Math.max(0, Math.min(1, (edgePx - 3) / 12));
+        const outlineStrength = Math.max(0, Math.min(1, (edgePx + 0) / 12));
         device.queue.writeBuffer(viewUniformBuffer, 0, new Float32Array([
           sx, sy, -this.centerX * sx, -this.centerY * sy,
           outlineStrength, 0, 0, 0,
@@ -1673,6 +1798,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     // would otherwise jump-rotate the figure; pinning to this fixed depth's
     // angle absorbs that jump.
     const ORIENTATION_REFERENCE_DEPTH = 4;
+    const _tAll = performance.now();
     let renderCluster = buildSpectreBase();
     // Track each metatile type's mass (leaf count) and mass-weighted centroid
     // (Σ leaf positions, in LP²) through the substitution. The substitution is
@@ -1698,6 +1824,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     // angle is always available even when renderDepth < REFERENCE_DEPTH.
     const _maxRecDepth = Math.max(renderDepth, ORIENTATION_REFERENCE_DEPTH);
     let _shadowCluster = renderCluster;
+    const _tBuild = performance.now();
     for (let i = 0; i < _maxRecDepth; i++) {
       // Past renderDepth we keep advancing a shadow cluster (the metatile DAG
       // is shared structurally, so this is cheap — no leaf-tree expansion).
@@ -1738,28 +1865,86 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
         orientationRefMass  = cwMass[renderStartingTile];
       }
     }
-    const renderRaw: RawPlacement[] = [];
-    flattenMetaTileFast(renderCluster[renderStartingTile], renderRaw, renderDepth);
+    console.log(`[perf] build+centroid (depth ${renderDepth}): ${(performance.now() - _tBuild).toFixed(1)} ms`);
+    // Stamp integer label ids onto the metatile DAG so the flatten hot loop
+    // reads `mt._labelIdx` (a number property on a known shape) instead of
+    // doing a string-keyed `LABEL_TO_IDX[mt.label]` lookup per leaf. The DAG
+    // has only ~88 distinct metatile objects at depth 7, so this is cheap.
+    {
+      const _seen = new WeakSet<MetaTile>();
+      const _stamp = (mt: MetaTile): void => {
+        if (_seen.has(mt)) return;
+        _seen.add(mt);
+        if (mt.kind === "leaf") {
+          (mt as any)._labelIdx = LABEL_TO_IDX[mt.label];
+        } else {
+          (mt as any)._labelIdx = LABEL_TO_IDX[mt.name];
+          for (let g = 0; g < mt.geometries.length; g++) _stamp(mt.geometries[g].child);
+        }
+      };
+      _stamp(renderCluster[renderStartingTile]);
+    }
+    const _tFlatten = performance.now();
+    // flatten emits parallel typed arrays directly, so label-id and ancestry
+    // packing are folded in (no separate index pass).
+    const _flatRaw = flattenMetaTileFast(
+      renderCluster[renderStartingTile],
+      renderClusterMass,
+      renderDepth,
+    );
+    console.log(`[perf] flattenMetaTileFast (${_flatRaw.length.toLocaleString()} leaves): ${(performance.now() - _tFlatten).toFixed(1)} ms`);
+
+    const _tPart = performance.now();
+    const _nRaw = _flatRaw.length;
     // Even-parity tiles (rot ≡ 0 mod 2) become hats at hat morph; odd-parity
     // tiles become turtles. The renderer draws each group with its own mesh,
     // so partition the placements (evens first) so the GPU can issue two
-    // contiguous draws using firstInstance. A two-pass partition is O(N)
-    // vs sort's O(N log N) — about 4× faster at depth 7.
+    // contiguous draws using firstInstance.
     let renderEvenCount = 0;
-    for (let i = 0; i < renderRaw.length; i++) {
-      if ((renderRaw[i].transform.rot & 1) === 0) renderEvenCount++;
-    }
     {
-      const partitioned = new Array<RawPlacement>(renderRaw.length);
-      let evenIdx = 0, oddIdx = renderEvenCount;
-      for (let i = 0; i < renderRaw.length; i++) {
-        const p = renderRaw[i];
-        if ((p.transform.rot & 1) === 0) partitioned[evenIdx++] = p;
-        else                              partitioned[oddIdx++]  = p;
-      }
-      for (let i = 0; i < renderRaw.length; i++) renderRaw[i] = partitioned[i];
+      const _r = _flatRaw.rot;
+      for (let i = 0; i < _nRaw; i++) if ((_r[i] & 1) === 0) renderEvenCount++;
     }
+    // Partition into evens-first order with two cursors writing directly
+    // into the new arrays. The ancestry buffer is reused as-is from flatten
+    // (consumers index via ancStart[j], so the source-order byte layout
+    // works unchanged) — only the per-leaf ancStart / ancLen entries get
+    // permuted into the new positions.
+    const renderRaw: RawArrays = (() => {
+      const oldRot = _flatRaw.rot, oldMir = _flatRaw.mir;
+      const oldTaX = _flatRaw.taX, oldTaY = _flatRaw.taY;
+      const oldTbX = _flatRaw.tbX, oldTbY = _flatRaw.tbY;
+      const oldLabel = _flatRaw.labelIdx;
+      const oldAncStart = _flatRaw.ancStart;
+      const oldAncLen = _flatRaw.ancLen;
 
+      const rot = new Uint8Array(_nRaw);
+      const mir = new Uint8Array(_nRaw);
+      const taX = new Float32Array(_nRaw), taY = new Float32Array(_nRaw);
+      const tbX = new Float32Array(_nRaw), tbY = new Float32Array(_nRaw);
+      const labelIdx = new Uint8Array(_nRaw);
+      const ancStart = new Uint32Array(_nRaw);
+      const ancLen = new Uint8Array(_nRaw);
+
+      let evenIdx = 0, oddIdx = renderEvenCount;
+      for (let i = 0; i < _nRaw; i++) {
+        const j = (oldRot[i] & 1) === 0 ? evenIdx++ : oddIdx++;
+        rot[j] = oldRot[i];
+        mir[j] = oldMir[i];
+        taX[j] = oldTaX[i]; taY[j] = oldTaY[i];
+        tbX[j] = oldTbX[i]; tbY[j] = oldTbY[i];
+        labelIdx[j] = oldLabel[i];
+        ancStart[j] = oldAncStart[i];
+        ancLen[j] = oldAncLen[i];
+      }
+      return {
+        length: _nRaw, rot, mir, taX, taY, tbX, tbY, labelIdx,
+        ancFlat: _flatRaw.ancFlat, ancStart, ancLen,
+      };
+    })();
+    console.log(`[perf] partition: ${(performance.now() - _tPart).toFixed(1)} ms`);
+
+    const _tBounds = performance.now();
     // Compute a *rotation-invariant* bounding circle (centered on the cluster
     // centroid, not the axis-aligned bbox midpoint). The morph rotation pivots
     // the cluster around its centroid, so an axis-aligned bbox of the
@@ -1769,33 +1954,18 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     const _CtX = (renderClusterCwLP2.a[0] + renderClusterCwLP2.b[0]) / renderClusterMass;
     const _CtY = (renderClusterCwLP2.a[1] + renderClusterCwLP2.b[1]) / renderClusterMass;
     let bMaxR2 = 0;
-    for (let i = 0; i < renderRaw.length; i++) {
-      const t = renderRaw[i].transform.t;
-      const pa = t.a, pb = t.b;
-      const tx = (pa[0] + pb[0]) - _CtX;
-      const ty = (pa[1] + pb[1]) - _CtY;
-      const d2 = tx * tx + ty * ty;
-      if (d2 > bMaxR2) bMaxR2 = d2;
-    }
-    // Index pass: convert label / ancestry strings to small integers and
-    // pack into typed arrays so the color blend loop can use Float32Array
-    // lookups instead of string-keyed object access.
-    const rawLabelIdx = new Uint8Array(renderRaw.length);
-    let _ancTotal = 0;
-    for (let i = 0; i < renderRaw.length; i++) _ancTotal += renderRaw[i].ancestry.length;
-    const rawAncestryFlat = new Uint8Array(_ancTotal);
-    const rawAncestryStart = new Uint32Array(renderRaw.length);
-    const rawAncestryLen = new Uint8Array(renderRaw.length);
-    let _ancCursor = 0;
-    for (let i = 0; i < renderRaw.length; i++) {
-      const r = renderRaw[i];
-      rawLabelIdx[i] = LABEL_TO_IDX[r.label];
-      rawAncestryStart[i] = _ancCursor;
-      rawAncestryLen[i] = r.ancestry.length;
-      for (let j = 0; j < r.ancestry.length; j++) {
-        rawAncestryFlat[_ancCursor++] = LABEL_TO_IDX[r.ancestry[j]];
+    {
+      const _taX = renderRaw.taX, _taY = renderRaw.taY;
+      const _tbX = renderRaw.tbX, _tbY = renderRaw.tbY;
+      for (let i = 0; i < _nRaw; i++) {
+        const tx = (_taX[i] + _tbX[i]) - _CtX;
+        const ty = (_taY[i] + _tbY[i]) - _CtY;
+        const d2 = tx * tx + ty * ty;
+        if (d2 > bMaxR2) bMaxR2 = d2;
       }
     }
+    console.log(`[perf] bounds: ${(performance.now() - _tBounds).toFixed(1)} ms`);
+
     // Pad by SPECTRE_RADIUS · √3 so the box covers the hat and turtle
     // envelopes too, not only the spectre.
     const SPECTRE_RADIUS = 3.6 * Math.sqrt(3);
@@ -1804,6 +1974,13 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
       minX: _CtX - _R, maxX: _CtX + _R,
       minY: _CtY - _R, maxY: _CtY + _R,
     };
+
+    // Legacy names so palette-rgb / gpu-render need no edits.
+    const rawLabelIdx = renderRaw.labelIdx;
+    const rawAncestryFlat = renderRaw.ancFlat;
+    const rawAncestryStart = renderRaw.ancStart;
+    const rawAncestryLen = renderRaw.ancLen;
+    console.log(`[perf] === raw-placements TOTAL: ${(performance.now() - _tAll).toFixed(1)} ms ===`);
   </script>
 
   <script id="outlines-collect" type="text/x-typescript">
@@ -1818,23 +1995,32 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
 
     // Flat float array: 4 floats per quad point (a.x, a.y, b.x, b.y)
     // × 4 points per metatile = 16 floats per metatile. Levels list has
-    // one f32 per metatile.
+    // one f32 per metatile; mystic flag is 1 for Γ supertiles and the leaf
+    // Γ₁/Γ₂ pair, 0 otherwise (drives a separate slice of the tab10 palette
+    // in outlines-pack so the mystic chirality lock is visually distinct).
     const outlineQuadsList: number[] = [];
     const outlineLevelsList: number[] = [];
+    const outlineMysticList: number[] = [];
     const outlineCount = { value: 0 };
 
-    function emitQuad(quad: LP2[], level: number): void {
+    const _isMystic = (mt: MetaTile): boolean =>
+      mt.kind === "meta"
+        ? mt.name === "Gamma"
+        : (mt.label === "Gamma1" || mt.label === "Gamma2");
+
+    function emitQuad(quad: LP2[], level: number, mystic: boolean): void {
       for (let i = 0; i < 4; i++) {
         const q = quad[i];
         outlineQuadsList.push(q.a[0], q.a[1], q.b[0], q.b[1]);
       }
       outlineLevelsList.push(level);
+      outlineMysticList.push(mystic ? 1 : 0);
       outlineCount.value++;
     }
 
     function walkOutlines(mt: MetaTile, parent: Transform, level: number): void {
       const absoluteQuad: LP2[] = mt.quad.map((q) => txApply(parent, q));
-      emitQuad(absoluteQuad, level);
+      emitQuad(absoluteQuad, level, _isMystic(mt));
       if (mt.kind === "leaf" || level >= outlineCap) return;
       for (const { child, transform: T } of mt.geometries) {
         walkOutlines(child, txCompose(parent, T), level + 1);
@@ -1844,6 +2030,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
 
     const outlineQuadsLP2 = new Float32Array(outlineQuadsList);
     const outlineLevelsArr = new Float32Array(outlineLevelsList);
+    const outlineMysticArr = new Uint8Array(outlineMysticList);
     const outlineN = outlineCount.value;
   </script>
 
@@ -1851,6 +2038,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     // Morph-driven cell: project each LP² translation to cartesian using the
     // current (a, b) and pack pose floats. Re-runs whenever the morph slider
     // moves but not when only colors change.
+    const _tPoses = performance.now();
     const renderPoses = new Float32Array(renderRaw.length * 5);
     // Inline lp2ToXY so we don't allocate [ax,ay], [bx,by], [tx,ty] per leaf.
     // Precompute the 12 (cos, sin) rotations indexed by t.rot ∈ [0, 12).
@@ -1899,22 +2087,28 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
       _cosA = -_baseS;
       _sinA =  _baseC;
     }
-    for (let i = 0; i < renderRaw.length; i++) {
-      const t = renderRaw[i].transform;
-      const pa = t.t.a, pb = t.t.b;
-      const rawX = renderA * pa[0] + renderB * pb[0];
-      const rawY = renderA * pa[1] + renderB * pb[1];
-      // Pivot rotation about the (a, b) centroid, then translate so the
-      // centroid lands at its (1, 1) location: cluster centroid is screen-stable.
-      const sX = rawX - _CabX, sY = rawY - _CabY;
-      const ct = _cosTab[t.rot], st = _sinTab[t.rot];
-      const base = i * 5;
-      renderPoses[base + 0] = (_cosA * sX - _sinA * sY) + _C11X;
-      renderPoses[base + 1] = (_sinA * sX + _cosA * sY) + _C11Y;
-      renderPoses[base + 2] = _cosA * ct - _sinA * st;
-      renderPoses[base + 3] = _sinA * ct + _cosA * st;
-      renderPoses[base + 4] = t.mirror ? -1 : 1;
+    {
+      const _N = renderRaw.length;
+      const _rotA = renderRaw.rot, _mirA = renderRaw.mir;
+      const _taX = renderRaw.taX, _taY = renderRaw.taY;
+      const _tbX = renderRaw.tbX, _tbY = renderRaw.tbY;
+      for (let i = 0; i < _N; i++) {
+        const rawX = renderA * _taX[i] + renderB * _tbX[i];
+        const rawY = renderA * _taY[i] + renderB * _tbY[i];
+        // Pivot rotation about the (a, b) centroid, then translate so the
+        // centroid lands at its (1, 1) location: cluster centroid is screen-stable.
+        const sX = rawX - _CabX, sY = rawY - _CabY;
+        const r = _rotA[i];
+        const ct = _cosTab[r], st = _sinTab[r];
+        const base = i * 5;
+        renderPoses[base + 0] = (_cosA * sX - _sinA * sY) + _C11X;
+        renderPoses[base + 1] = (_sinA * sX + _cosA * sY) + _C11Y;
+        renderPoses[base + 2] = _cosA * ct - _sinA * st;
+        renderPoses[base + 3] = _sinA * ct + _cosA * st;
+        renderPoses[base + 4] = _mirA[i] ? -1 : 1;
+      }
     }
+    console.log(`[perf] render-poses (${renderRaw.length.toLocaleString()} tiles): ${(performance.now() - _tPoses).toFixed(1)} ms`);
   </script>
 
   <script id="outlines-pack" type="text/x-typescript">
@@ -1952,8 +2146,12 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
       _oCosA = -_baseS;
       _oSinA =  _baseC;
     }
-    // 6 vertices per metatile (p0, p1, p2, p3, p0, BREAK), 4 floats per vertex.
-    // Per-vertex layout: x, y, levelNorm ∈ [0, 1], widthPx (0 = break).
+    // Pack 4 unique corner points per quad as vec4f (x, y, paletteIdx,
+    // widthPx). The line shader's getVertex synthesises 7 logical indices
+    // per quad (4 corners + 2 wrap helpers + 1 break) on top of these 4
+    // stored points, so the closure (p3 → p0) renders as a smooth interior
+    // join instead of an end-cap. See the lineVertexShaderBody comment.
+    //
     // Width sequence indexed by depth-from-coarsest: the *coarsest* level
     // (level = 0, the top supertile) always gets the largest width in the
     // table; each finer tier steps to a smaller value, clamped at 1 px.
@@ -1961,20 +2159,27 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     // small (e.g., depth 1 still shows the top quad at 9 px, not 1 px).
     // Render order = level descending so coarser (wider) outlines land
     // *on top* of the finer ones they enclose.
-    const QUAD_WIDTHS = [9, 7, 5, 3, 2, 1];
-    const _maxL = Math.max(1, outlineCap);
+    //
+    // Palette index packs the 6-level Tableau colour: slots 0..5 for
+    // non-mystic outlines (finest → coarsest), slots 6..11 for the mystic
+    // Γ companion at the same level. We index colour from the *finest*
+    // emitted level so the smallest quads keep the same colour (slot 0,
+    // blue) regardless of renderDepth.
+    const QUAD_WIDTHS = [9, 7, 5, 4, 3, 2];
+    const TAB10_MYSTIC_OFFSET = 6;
     const _order = Array.from({ length: outlineN }, (_, k) => k);
     _order.sort((a, b) => outlineLevelsArr[b] - outlineLevelsArr[a]);
-    const outlineVertexBuf = new Float32Array(outlineN * 6 * 4);
+    const outlineVertexBuf = new Float32Array(outlineN * 4 * 4);
     let _outlineMaxW = 0;
     for (let i = 0; i < outlineN; i++) {
       const src = _order[i];
       const level = outlineLevelsArr[src];
-      const levelNorm = level / _maxL;
+      const mystic = outlineMysticArr[src];
+      const paletteIdx = (outlineCap - level)
+                       + (mystic ? TAB10_MYSTIC_OFFSET : 0);
       const widthPx = QUAD_WIDTHS[Math.min(level, QUAD_WIDTHS.length - 1)];
       if (widthPx > _outlineMaxW) _outlineMaxW = widthPx;
-      const vBase = i * 6 * 4;
-      let firstX = 0, firstY = 0;
+      const vBase = i * 4 * 4;
       for (let j = 0; j < 4; j++) {
         const off = (src * 4 + j) * 4;
         const ax = outlineQuadsLP2[off + 0], ay = outlineQuadsLP2[off + 1];
@@ -1984,27 +2189,14 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
         const sX = rawX - _oCabX, sY = rawY - _oCabY;
         const x = (_oCosA * sX - _oSinA * sY) + _oC11X;
         const y = (_oSinA * sX + _oCosA * sY) + _oC11Y;
-        if (j === 0) { firstX = x; firstY = y; }
         const o = vBase + j * 4;
         outlineVertexBuf[o + 0] = x;
         outlineVertexBuf[o + 1] = y;
-        outlineVertexBuf[o + 2] = levelNorm;
+        outlineVertexBuf[o + 2] = paletteIdx;
         outlineVertexBuf[o + 3] = widthPx;
       }
-      // 5th vertex closes the loop (back to p0) so the last segment renders.
-      const oC = vBase + 4 * 4;
-      outlineVertexBuf[oC + 0] = firstX;
-      outlineVertexBuf[oC + 1] = firstY;
-      outlineVertexBuf[oC + 2] = levelNorm;
-      outlineVertexBuf[oC + 3] = widthPx;
-      // 6th vertex is a break sentinel (widthPx = 0 → shader emits 0 width).
-      const oB = vBase + 5 * 4;
-      outlineVertexBuf[oB + 0] = 0;
-      outlineVertexBuf[oB + 1] = 0;
-      outlineVertexBuf[oB + 2] = levelNorm;
-      outlineVertexBuf[oB + 3] = 0;
     }
-    gpuState.setOutlines(outlineVertexBuf, outlineN * 6, _outlineMaxW);
+    gpuState.setOutlines(outlineVertexBuf, outlineN * 7, _outlineMaxW);
   </script>
 
   <script id="outlines-uniforms" type="text/x-typescript">
@@ -2052,6 +2244,7 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     // the combined instance buffer. Re-runs on morph (poses changed) or color
     // (rgb changed). Bounds are stable across both, so gpuState.draw skips
     // refitting and the user's pan/zoom is preserved.
+    const _tGpuRender = performance.now();
     const N = renderRaw.length;
     // Pack into the compact 16 B layout via three views over one ArrayBuffer:
     // float32x2 (tx, ty), snorm16x2 (cos, sin), unorm8x4 (r, g, b, mirror).
@@ -2079,9 +2272,12 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
     }
     // Per-tile lightness jitter via R₁ low-discrepancy sequence
     // x[i] = (0.5 + i/φ) mod 1 — breaks up flat regions with a couple
-    // percent multiplicative variation in linear RGB.
+    // percent multiplicative variation in linear RGB. Tracked as a running
+    // counter so the inner loop pays one fp add (and a rare branch) per
+    // tile instead of an fp modulo.
     const PHI_INV = 0.6180339887498949;
     const LIGHT_JITTER = 0.12;
+    let _phase = 0.5;
     for (let i = 0; i < N; i++) {
       const w0 = _wts[0];
       const c0 = rawLabelIdx[i] * 3;
@@ -2099,7 +2295,9 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
         b += paletteRGB[cIdx + 2] * w;
         tot += w;
       }
-      const jitter = (0.5 + PHI_INV * i) % 1 - 0.5;
+      const jitter = _phase - 0.5;
+      _phase += PHI_INV;
+      if (_phase >= 1) _phase -= 1;
       const inv = (1 + jitter * LIGHT_JITTER) / tot;
       const ip = i * 5;
       // float32x2 at byte 0
@@ -2119,6 +2317,9 @@ fn getColor(lineCoord: vec2f, level: f32) -> vec4f {
       gpuInstancesU8[i * 16 + 14] = bi < 0 ? 0 : bi > 255 ? 255 : bi;
       gpuInstancesU8[i * 16 + 15] = renderPoses[ip + 4] < 0 ? 255 : 0;
     }
+    console.log(`[perf] gpu-render pack (${N.toLocaleString()} tiles): ${(performance.now() - _tGpuRender).toFixed(1)} ms`);
+    const _tDraw = performance.now();
     gpuState.draw(gpuInstancesU8, renderBounds, renderEvenCount);
+    console.log(`[perf] gpu-render draw: ${(performance.now() - _tDraw).toFixed(1)} ms`);
   </script>
 </notebook>
