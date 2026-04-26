@@ -445,6 +445,54 @@
       }
     }
 
+    // Decimate the boundary by keeping anchors (the metatile's 4 superQuad
+    // corners) plus a fixed number of evenly-spaced intermediate vertices
+    // on each side between consecutive anchors.
+    //
+    // Cross-cluster consistency: two adjacent clusters share a side
+    // between the same two anchors C1 and C2, traversed in opposite
+    // directions but covering the same L vertices. Both compute m =
+    // min(maxExtraPerSide, L − 1) intermediate samples and keep verts at
+    // index offsets {round(k · L / (m + 1)) : k = 1..m}. That offset set
+    // is symmetric under k → m + 1 − k, so reversing the traversal
+    // direction picks the same world-space vertices. The polygons agree
+    // exactly along every shared side; the anchors pin the side
+    // endpoints so even sub-pixel index-rounding asymmetries can't open
+    // a corner gap.
+    function _decimateBetweenAnchors(
+      pts: Vec2[],
+      anchorIndices: number[],
+      maxExtraPerSide: number,
+    ): Vec2[] {
+      const n = pts.length;
+      if (anchorIndices.length < 2) {
+        // No usable anchors: just keep every k-th vertex around the loop.
+        const target = Math.min(48, n);
+        if (target >= n) return pts.slice();
+        const out: Vec2[] = [];
+        const step = n / target;
+        for (let i = 0; i < target; i++) out.push(pts[Math.round(i * step) % n]);
+        return out;
+      }
+      const sorted = [...anchorIndices].sort((a, b) => a - b);
+      const out: Vec2[] = [];
+      for (let a = 0; a < sorted.length; a++) {
+        const start = sorted[a];
+        const end = sorted[(a + 1) % sorted.length];
+        out.push(pts[start]);
+        const sideLen = (end - start + n) % n;
+        if (sideLen <= 1) continue;
+        const m = Math.min(maxExtraPerSide, sideLen - 1);
+        for (let k = 1; k <= m; k++) {
+          const offset = Math.round((k * sideLen) / (m + 1));
+          if (offset > 0 && offset < sideLen) {
+            out.push(pts[(start + offset) % n]);
+          }
+        }
+      }
+      return out.length >= 3 ? out : pts;
+    }
+
     function extractBoundary(mt: MetaTile): BoundaryMesh | null {
       if (mt.kind === "leaf") return null;
       const cached = _boundaryCache.get(mt);
@@ -528,25 +576,47 @@
       loops.sort((a, b) => b.length - a.length);
       const outer = loops[0];
 
-      // 6. Materialize the outer-boundary as Vec2 points and dilate slightly
-      // around the polygon's centroid so any sub-pixel f32 precision drift
-      // in the GPU shader's transform composition is covered by overlap.
-      // We don't simplify: keeping every spectre-edge boundary vertex is
-      // what makes adjacent clusters' shared edges share their entire
-      // vertex sequence by construction (no chord-vs-chord mismatch). The
-      // metatile's local origin is at one corner of the cluster bbox, so
-      // dilating around the polygon centroid (not the origin) is what
-      // keeps the expansion isotropic.
+      // 6. Mark the metatile's superQuad corners as anchors. These are the
+      // 4 supertile corners where adjacent same-level clusters' boundaries
+      // meet — pinning them keeps every shared edge's start and end
+      // identical between the two sides regardless of how the in-between
+      // vertices simplify.
+      const anchorVertIds = new Set<number>();
+      if (mt.kind === "meta") {
+        for (const corner of mt.quad) {
+          const qx = Math.round(corner[0] * Q);
+          const qy = Math.round(corner[1] * Q);
+          const id = vertMap.get(qx + "," + qy);
+          if (id !== undefined) anchorVertIds.add(id);
+        }
+      }
       const outerPts: Vec2[] = outer.map((id) => vertList[id]);
+      const anchorIndices: number[] = [];
+      for (let i = 0; i < outer.length; i++) {
+        if (anchorVertIds.has(outer[i])) anchorIndices.push(i);
+      }
+
+      // 7. Uniformly decimate each side between two anchors. ~12
+      // intermediates per side gives ~52 verts total at any subLevel
+      // (4 anchors + 4×12 intermediates), coarse but sufficient. Adjacent
+      // clusters' shared sides agree exactly because the offsets are
+      // symmetric under traversal reversal.
+      const simplified = _decimateBetweenAnchors(outerPts, anchorIndices, 12);
+
+      // 8. Dilate slightly around the polygon centroid so any sub-pixel
+      // f32 precision drift in the GPU shader's transform composition is
+      // covered by overlap. The metatile's local origin sits at a corner
+      // of the cluster bbox, not the centroid, so dilating around the
+      // polygon centroid (not the origin) keeps the expansion isotropic.
       let cx = 0, cy = 0;
-      for (const p of outerPts) { cx += p[0]; cy += p[1]; }
-      cx /= outerPts.length; cy /= outerPts.length;
+      for (const p of simplified) { cx += p[0]; cy += p[1]; }
+      cx /= simplified.length; cy /= simplified.length;
       const DILATE = 1.005;
-      const polygon = new Float32Array(outerPts.length * 2);
-      const flat: number[] = new Array(outerPts.length * 2);
-      for (let i = 0; i < outerPts.length; i++) {
-        const x = cx + (outerPts[i][0] - cx) * DILATE;
-        const y = cy + (outerPts[i][1] - cy) * DILATE;
+      const polygon = new Float32Array(simplified.length * 2);
+      const flat: number[] = new Array(simplified.length * 2);
+      for (let i = 0; i < simplified.length; i++) {
+        const x = cx + (simplified[i][0] - cx) * DILATE;
+        const y = cy + (simplified[i][1] - cy) * DILATE;
         polygon[i * 2 + 0] = x;
         polygon[i * 2 + 1] = y;
         flat[i * 2 + 0] = x;
@@ -649,6 +719,42 @@
       _gpuMeshCache.set(mt, mesh);
       return mesh;
     }
+
+    // Pre-extract every aggregate-polygon shape we'll use during normal
+    // interaction. Without this, the first time the user zooms out far
+    // enough to cross a substitution-level boundary, the walker calls
+    // `extractBoundary` cold for that level — at sub-level 5 (the donor)
+    // that walks ~4400 leaves and hashes ~62K edges synchronously,
+    // which shows up as a 30+ ms hitch on the main thread. Pre-warming
+    // moves all that work into module init time, where it's spent
+    // before the first frame.
+    //
+    // Walks the live root and a Γ representative, calling getGpuMesh on
+    // one metatile per (subLevel ≤ EXTRACT_CAP, isGamma) combo to fill
+    // _gpuMeshByShape. Then forces both donors so the > EXTRACT_CAP
+    // path's polygon scaling has its source already extracted.
+    (function _prewarmAggregatePolygons() {
+      const seen = new Set<string>();
+      function rec(mt: MetaTile) {
+        if (mt.kind === "leaf") return;
+        const sl = (mt as any)._subLevel as number | undefined;
+        if (sl != null && sl >= 1 && sl <= EXTRACT_CAP) {
+          const isG = mt.name === "Gamma";
+          const key = sl + (isG ? "g" : "n");
+          if (!seen.has(key)) {
+            seen.add(key);
+            getGpuMesh(mt);
+          }
+        }
+        for (const { child } of mt.geometries) rec(child);
+      }
+      rec(walkerState.currentRoot);
+      rec(baseCluster.Gamma);
+      // Donors for subLevel > EXTRACT_CAP — extract once so the first
+      // scaled-polygon emission doesn't pay the donor's extraction cost.
+      _getDonorBoundary(false);
+      _getDonorBoundary(true);
+    })();
   </script>
 
   <script id="walker" type="text/x-typescript">
