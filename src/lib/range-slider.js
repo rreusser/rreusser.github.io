@@ -46,8 +46,11 @@ const theme_Flat = `
   width: calc(var(--range-max) - var(--range-min));
   cursor: ew-resize;
   background: currentColor;
-  height: 7px;
-  border: inherit;
+  /* Match the *inner* (post-border) height of .range-track so the bar
+     sits flush inside the track instead of poking 1–2 px past the
+     bottom edge. */
+  height: 5px;
+  border: none;
 }
 /* Expands the hotspot area. */
 :scope .range-select:before {
@@ -69,7 +72,8 @@ const theme_Flat = `
   height: var(--thumb-size);
 
   background: var(--theme-foreground-focus, #3b99fc);
-  top: -4px;
+  /* Centre the 15 px thumb on the 5 px track: -(15 − 5) / 2 = −5 px. */
+  top: -5px;
   border-radius: 100%;
   border: none;
   cursor: default;
@@ -84,10 +88,13 @@ const theme_Flat = `
   filter: brightness(0.85);
 }
 :scope .thumb-min {
-  left: calc(-1px - var(--thumb-radius));
+  /* Centre the thumb on the .range-select edge. The -1 px the original
+     theme used was compensating for a 1 px border on .range-select that
+     no longer exists. */
+  left: calc(-1 * var(--thumb-radius));
 }
 :scope .thumb-max {
-  right: calc(-1px - var(--thumb-radius));
+  right: calc(-1 * var(--thumb-radius));
 }
 :scope.range-inverted .range-track {
   background-color: currentColor;
@@ -108,6 +115,9 @@ export function rangeInput(options = {}) {
     theme = theme_Flat,
     transform = null,
     invert = null,
+    distribution = null,        // 'box' | 'triangle' | 'gaussian' | (([a, b], x) => 0..1) | null
+    distributionHeight = 15,    // px
+    ticks = null,               // number (spacing) | number[] (explicit positions) | null
   } = options;
 
   // Set up transform functions
@@ -167,6 +177,99 @@ export function rangeInput(options = {}) {
   controls.min = dom.querySelector('.thumb-min');
   controls.max = dom.querySelector('.thumb-max');
 
+  // Optional distribution overlay: a thin filled SVG curve sitting just
+  // above the track that visualises the *shape* of the distribution the
+  // interval represents (box / triangle / gaussian / custom). Subtle by
+  // design — meant as a hint, not the primary control. Absolutely
+  // positioned so it doesn't displace the rest of the layout.
+  let distFn = null;
+  if (typeof distribution === 'function') {
+    distFn = distribution;
+  } else if (distribution === 'box') {
+    distFn = ([a, b], x) => (x >= a && x <= b) ? 1 : 0;
+  } else if (distribution === 'triangle') {
+    distFn = ([a, b], x) => {
+      const c = (a + b) / 2, h = (b - a) / 2;
+      if (h === 0) return x === c ? 1 : 0;
+      return Math.max(0, 1 - Math.abs(x - c) / h);
+    };
+  } else if (distribution === 'gaussian') {
+    // exp(-z²/2) (the standard Gaussian) so the interval edges land at
+    // ±1σ → e^-0.5 ≈ 0.61 of peak. exp(-z²) instead would put the edges
+    // at e^-1 ≈ 0.37, i.e. the interval would actually span ±√2 σ —
+    // visibly narrower than the textbook bell.
+    distFn = ([a, b], x) => {
+      const c = (a + b) / 2, s = (b - a) / 2;
+      if (s === 0) return x === c ? 1 : 0;
+      const z = (x - c) / s;
+      return Math.exp(-0.5 * z * z);
+    };
+  }
+  let distSvg = null, distPath = null;
+  if (distFn) {
+    // Reserve room directly above the track for the curve — SVG bottom is
+    // flush with the track's top edge so the curve appears integrated with
+    // the slider rather than floating above it. Thumbs extend up to the
+    // track centre and may very slightly overlap the curve's lower pixels;
+    // at 25 % opacity that reads cleanly.
+    dom.style.paddingTop = `calc(var(--thumb-radius) + ${distributionHeight}px)`;
+    distSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    distSvg.setAttribute('preserveAspectRatio', 'none');
+    distSvg.setAttribute('viewBox', `0 0 1000 ${distributionHeight}`);
+    distSvg.style.position = 'absolute';
+    // Inset matches the thumb travel range: thumb-radius padding *plus*
+    // the 1 px track border on each side. Without the +1/-2px the SVG is
+    // 2 px wider than the thumb range and the curve drifts out of
+    // alignment with the thumb positions.
+    distSvg.style.left = 'calc(var(--thumb-radius) + 1px)';
+    distSvg.style.width = 'calc(100% - var(--thumb-size) - 2px)';
+    distSvg.style.top = 'var(--thumb-radius)';
+    distSvg.style.height = distributionHeight + 'px';
+    // The SVG itself catches drag events (range-shift), but the path
+    // doesn't need to — clicks anywhere in the SVG's bounding box should
+    // start a drag. A transparent rect filling the whole viewBox gives
+    // us that "anywhere in bounds" hit area regardless of where the
+    // path's filled pixels are.
+    distSvg.style.cursor = 'ew-resize';
+    distSvg.style.touchAction = 'none';
+    distSvg.style.overflow = 'visible';
+    const distHit = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    distHit.setAttribute('x', '0');
+    distHit.setAttribute('y', '0');
+    distHit.setAttribute('width', '1000');
+    distHit.setAttribute('height', String(distributionHeight));
+    distHit.setAttribute('fill', 'transparent');
+    // Force the rect to participate in hit-testing despite the transparent
+    // fill — SVG's default `visiblePainted` would otherwise skip it.
+    distHit.setAttribute('pointer-events', 'all');
+    distSvg.appendChild(distHit);
+    distPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    distPath.setAttribute('fill', 'var(--theme-foreground, currentColor)');
+    distPath.setAttribute('opacity', '0.25');
+    distPath.style.pointerEvents = 'none'; // hit the rect instead
+    distSvg.appendChild(distPath);
+    dom.insertBefore(distSvg, dom.firstChild);
+  }
+  const updateDistribution = () => {
+    if (!distFn || !distPath) return;
+    const samples = 160;
+    const range = value;
+    // Sample a couple of percent past each edge so the curve has just a
+    // little headroom to fall before closing — combined with
+    // overflow:visible this prevents a vertical wall at the SVG edge
+    // without the curve obviously running off the slider.
+    const tLo = -0.025, tHi = 1.025;
+    let d = `M ${(tLo * 1000).toFixed(2)} ${distributionHeight}`;
+    for (let i = 0; i <= samples; i++) {
+      const t = tLo + (i / samples) * (tHi - tLo);
+      const x = fromTransformed(tMin + t * (tMax - tMin));
+      const h = Math.max(0, Math.min(1, distFn(range, x)));
+      d += ` L ${(t * 1000).toFixed(2)} ${((1 - h) * distributionHeight).toFixed(2)}`;
+    }
+    d += ` L ${(tHi * 1000).toFixed(2)} ${distributionHeight} Z`;
+    distPath.setAttribute('d', d);
+  };
+
   let value = [], changed = false;
   Object.defineProperty(dom, 'value', {
     get: () => [...value],
@@ -188,9 +291,52 @@ export function rangeInput(options = {}) {
   // Convert position ratio (0-1) to value using inverse transform
   const ratioToValue = r => fromTransformed(tMin + r * (tMax - tMin));
 
+  // Optional tick marks below the track. `ticks` is either a number
+  // (spacing between ticks) or an explicit array of tick values.
+  let tickPositions = null;
+  if (Array.isArray(ticks)) {
+    tickPositions = ticks.filter(t => t >= min && t <= max);
+  } else if (typeof ticks === 'number' && ticks > 0) {
+    tickPositions = [];
+    const start = Math.ceil(min / ticks) * ticks;
+    for (let v = start; v <= max + 1e-9; v += ticks) {
+      tickPositions.push(v);
+    }
+  }
+  if (tickPositions && tickPositions.length) {
+    const tickContainer = document.createElement('div');
+    tickContainer.style.position = 'absolute';
+    tickContainer.style.left = '0';
+    tickContainer.style.right = '0';
+    tickContainer.style.top = '100%';
+    tickContainer.style.height = '8px';
+    tickContainer.style.pointerEvents = 'none';
+    for (const v of tickPositions) {
+      const t = valueToRatio(v);
+      if (!isFinite(t) || t < 0 || t > 1) continue;
+      const tick = document.createElement('div');
+      tick.style.position = 'absolute';
+      tick.style.left = `${t * 100}%`;
+      tick.style.top = '3px'; // a couple of px below the track
+      tick.style.width = '1.5px';
+      tick.style.height = '5px';
+      tick.style.background = 'var(--theme-foreground-faint, currentColor)';
+      tick.style.opacity = '0.65';
+      tick.style.transform = 'translateX(-0.75px)';
+      tickContainer.appendChild(tick);
+    }
+    // Append inside the track-zone so the tick coordinate frame is the
+    // same as the thumbs' (zone width = thumb travel range, accounting
+    // for both the 1 px border and the thumb-radius padding the track
+    // applies). Inserted before .range-select so thumbs paint on top of
+    // any tick they happen to sit over.
+    controls.zone.insertBefore(tickContainer, controls.range);
+  }
+
   const updateRange = () => {
     dom.style.setProperty('--range-min', `${valueToRatio(value[0]) * 100}%`);
     dom.style.setProperty('--range-max', `${valueToRatio(value[1]) * 100}%`);
+    updateDistribution();
   };
 
   const dispatch = name => {
@@ -210,6 +356,13 @@ export function rangeInput(options = {}) {
   setValue(...defaultValue);
 
   // Mousemove handlers - work in ratio space for proper transform support
+  const shiftHandler = (dt, ov) => {
+    const r0 = valueToRatio(ov[0]);
+    const r1 = valueToRatio(ov[1]);
+    const d = r1 - r0;
+    const newR0 = clamp(0, 1 - d, r0 + dt);
+    setValue(ratioToValue(newR0), ratioToValue(newR0 + d));
+  };
   const handlers = new Map([
     [controls.min, (dt, ov) => {
       // Convert original values to ratios, adjust, convert back
@@ -224,14 +377,14 @@ export function rangeInput(options = {}) {
       const newR = clamp(r0, 1, r1 + dt);
       setValue(ov[0], ratioToValue(newR));
     }],
-    [controls.range, (dt, ov) => {
-      const r0 = valueToRatio(ov[0]);
-      const r1 = valueToRatio(ov[1]);
-      const d = r1 - r0;
-      const newR0 = clamp(0, 1 - d, r0 + dt);
-      setValue(ratioToValue(newR0), ratioToValue(newR0 + d));
-    }],
+    [controls.range, shiftHandler],
   ]);
+  // Dragging the distribution-curve overlay shifts the whole interval —
+  // same behaviour as dragging the .range-select bar between the thumbs.
+  if (distSvg) {
+    handlers.set(distSvg, shiftHandler);
+    handlers.set(distSvg.querySelector('rect'), shiftHandler);
+  }
 
   // Returns client offset object.
   const pointer = e => e.touches ? e.touches[0] : e;
@@ -293,6 +446,27 @@ export function rangeInput(options = {}) {
     if (changed) dispatch('change');
   };
 
+  // Wheel-zoom: scrolling the wheel while hovering the slider zooms the
+  // selected interval in/out about its centre. Up = narrow (zoom in),
+  // down = widen (zoom out). Multiplicative so it's symmetric across the
+  // range. Clamped to the slider bounds.
+  dom.addEventListener('wheel', (e) => {
+    if (e.deltaY === 0) return;
+    e.preventDefault();
+    const [a, b] = value;
+    const centre = (a + b) / 2;
+    const half = (b - a) / 2;
+    const factor = Math.exp(e.deltaY * 0.0015); // up = factor < 1, down > 1
+    let newHalf = half * factor;
+    // Don't collapse below one step; don't grow beyond the slider's range.
+    const minHalf = (typeof step === 'number' ? step : 0) / 2;
+    newHalf = Math.max(minHalf, Math.min((max - min) / 2, newHalf));
+    const newA = clamp(min, max, centre - newHalf);
+    const newB = clamp(min, max, centre + newHalf);
+    setValue(newA, newB);
+    if (changed) dispatch('change');
+  }, { passive: false });
+
   return dom;
 }
 
@@ -326,6 +500,9 @@ export function interval(range = [], options = {}) {
     transform = null,
     invert = null,
     invertible = false,
+    distribution = null,
+    distributionHeight = 15,
+    ticks = null,
     __ns__ = randomScope(),
   } = options;
 
@@ -337,6 +514,11 @@ export function interval(range = [], options = {}) {
   flex-wrap: wrap;
   max-width: 100%;
   width: auto;
+  /* Match the vertical rhythm of Observable Inputs (~13 px top + bottom
+     margin on their <form>) but trimmed to account for this control's
+     own 7.5 px top + bottom padding (--thumb-radius), which Inputs.range
+     doesn't have. */
+  margin: 6px 0 8px 0;
 }
 @media only screen and (min-width: 30em) {
   #${__ns__} {
@@ -389,6 +571,9 @@ export function interval(range = [], options = {}) {
     theme,
     transform,
     invert,
+    distribution,
+    distributionHeight,
+    ticks,
   });
 
   const $output = document.createElement('output');
