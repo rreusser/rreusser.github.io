@@ -280,6 +280,24 @@
     function _typeForLabel(label: string): string {
       return label === "Gamma1" || label === "Gamma2" ? "Gamma" : label;
     }
+    // Sat/light defaults the walker uses when assembling per-level/per-type
+    // colors. Each ancestor's contribution is a single RGB point in this
+    // (hue, sat, light) space; the walker blends those RGBs by a Gaussian
+    // weight over substitution-level distance from viewLevel, so all
+    // channels move together as the user zooms. The per-type mods nudge
+    // sat/light so siblings of the same level still look distinct.
+    const _BASE_SAT = 0.55;
+    const _SAT_DELTA = 0.18;
+    const _BASE_LIGHT = 0.55;
+    const _LIGHT_DELTA = 0.10;
+    function colorForLevelType(level: number, label: string): [number, number, number] {
+      const type = _typeForLabel(label);
+      const base = _TYPE_BASE_HUE[type] ?? 0;
+      const hue = base + level * _LEVEL_HUE_STEP;
+      const sat = Math.max(0, Math.min(1, _BASE_SAT   + _SAT_DELTA   * (_TYPE_SAT_MOD[type]   ?? 0)));
+      const lit = Math.max(0, Math.min(1, _BASE_LIGHT + _LIGHT_DELTA * (_TYPE_LIGHT_MOD[type] ?? 0)));
+      return _hslToRgb(hue, sat, lit);
+    }
   </script>
 
   <script id="cluster" type="text/x-typescript">
@@ -741,23 +759,26 @@
     // ~5× more cells than necessary.
     const _LOOSE_RADIUS_FACTOR = 1.55;
 
-    // Zoom-dependent color via HSL channel encoding. The cell carries a
-    // color whose hue is read from the cell itself, saturation from its
-    // immediate parent meta, lightness from its grandparent, with viewLevel
-    // sliding the whole window up the ancestry chain in lockstep with the
-    // user's zoom-out. Three different substitution levels drive three
-    // perceptual axes simultaneously, so coarse, medium, and fine
-    // structure are all visible at once instead of any single one
-    // dominating. Transitions are continuous because each channel pick
-    // linearly interpolates between integer "levels-up" stack slots.
+    // Zoom-dependent color via Gaussian-weighted ancestor blend. Each
+    // visible cell has a precomputed RGB at every ancestor level (cell
+    // color at its own subLevel, plus one RGB per ancestor on the stack).
+    // viewLevel — derived from pixelScale so viewLevel = 0 places leaves
+    // exactly at the AGG_PX threshold, and each unit grows by one
+    // substitution step's worth of zoom-out — picks the center of the
+    // Gaussian. The walker writes a single weighted RGB sum to the
+    // instance buffer, so all perceptual channels (hue, sat, light) shift
+    // together as viewLevel slides. That coordinated motion is what makes
+    // a continuous zoom look seamless: adjacent viewLevels produce
+    // adjacent colors, instead of the channels each transitioning at
+    // different stack offsets and "flashing" against each other.
     //
-    // viewLevel = 0 places leaves at the AGG_PX threshold (i.e., it's the
-    // log_inflation of how many supertile levels the user has zoomed past
-    // the leaf-aggregation boundary). At fine zoom (low viewLevel) the
-    // cell's own type colors the hue. At deep zoom each channel reads
-    // from progressively-higher ancestors, so what the eye picks up as
-    // hue/sat/lightness all reflect levels relevant to that zoom.
-    //
+    // σ ≈ 0.7 makes the dominant ancestor account for ~50% of the blend,
+    // its two immediate neighbors ~25% each, and the rest negligible.
+    // That's enough multi-scale information that adjacent supertiles still
+    // read as different metatypes at a single zoom, but smooth enough
+    // that an animated zoom doesn't feel stepwise.
+    const SIGMA = 0.7;
+    const _TWO_SIGMA_SQ = 2 * SIGMA * SIGMA;
     // Spectre supertile inflation factor — each substitution level's
     // bounding circle scales by ~(1 + √3) ≈ 2.73 versus the previous;
     // I'm using 2.5 here as a tuning compromise.
@@ -813,63 +834,29 @@
       const stMir = new Uint8Array(STK);
       const stTx  = new Float64Array(STK);
       const stTy  = new Float64Array(STK);
-      // Ancestry channel stack: each entered meta pushes its (subLevel, hue,
-      // satMod, lightMod). The walker picks one ancestor per perceptual
-      // channel (different stack distances) so multiple substitution levels
-      // remain visible at once instead of any single one dominating.
-      // Stack is ordered with index 0 = root (highest subLevel) and
-      // index ancDepth−1 = immediate parent (lowest subLevel).
-      const stHue   = new Float64Array(STK);
-      const stSatM  = new Float64Array(STK);
-      const stLitM  = new Float64Array(STK);
-      const stSubL  = new Float64Array(STK);
+      // Ancestry color stack: each entered meta pushes its (subLevel, RGB).
+      // emit() blends the cell's own RGB with these ancestor RGBs using a
+      // Gaussian weight on (subLevel − viewLevel). Stack is ordered with
+      // index 0 = root (highest subLevel) and index ancDepth−1 = immediate
+      // parent (lowest subLevel).
+      const stColR = new Float64Array(STK);
+      const stColG = new Float64Array(STK);
+      const stColB = new Float64Array(STK);
+      const stSubL = new Float64Array(STK);
       let ancDepth = 0;
 
       let vMnX = -Infinity, vMxX = Infinity, vMnY = -Infinity, vMxY = Infinity;
       let pixelScale = 1;
       let viewLevel = 0;
+      // Per-frame precomputed Gaussian weight table: weight[L] =
+      // exp(-(L − viewLevel)² / 2σ²). 64 entries cover any plausible
+      // substitution level, replacing per-emit Math.exp calls with array
+      // lookups. Filled at the start of each walk().
+      const weightTable = new Float64Array(64);
       const buckets = new Map<MetaTile | null, WalkBucket>();
       // Pre-seed the leaf bucket at the requested size; it reuses across
       // frames. Aggregate buckets are created lazily and reset each frame.
       buckets.set(null, _newBucket(null, initialLeafCap));
-
-      // Channel-offset assignments. Cell (level 0 in the "levels-up" sense)
-      // contributes hue. Each step up the ancestry chain adds 1 to the
-      // levels-up count, so an offset of N means "N levels above the cell."
-      // Picking saturation from the +1 ancestor and lightness from the +2
-      // ancestor encodes three substitution scales into the cell's color
-      // simultaneously.
-      const _HUE_OFFSET   = 0;
-      const _SAT_OFFSET   = 1;
-      const _LIGHT_OFFSET = 2;
-      const _BASE_SAT   = 0.55;
-      const _SAT_AMP    = 0.30;
-      const _BASE_LIGHT = 0.55;
-      const _LIGHT_AMP  = 0.20;
-
-      // Pick a channel value at a given "levels-up" target with linear
-      // interpolation between the two adjacent stack levels. levelsUp is
-      // continuous and viewLevel-dependent, so transitions between integer
-      // levels remain smooth as the user zooms.
-      //
-      // levelsUp = 0 → cell itself; 1 → parent; 2 → grandparent; clamped at
-      // root for values past the stack height.
-      function _pickChannel(
-        levelsUp: number,
-        cellValue: number,
-        getter: (idx: number) => number,
-      ): number {
-        const f = levelsUp;
-        const lo = Math.floor(f);
-        const t = f - lo;
-        const getAt = (li: number): number => {
-          if (li <= 0) return cellValue;
-          const idx = ancDepth - li;
-          if (idx < 0) return ancDepth > 0 ? getter(0) : cellValue;
-          return getter(idx);
-        };
-        return getAt(lo) * (1 - t) + getAt(lo + 1) * t;
-      }
 
       function emit(bucketKey: MetaTile | null, label: string, d: number, cellSubLevel: number) {
         let b = buckets.get(bucketKey);
@@ -882,28 +869,25 @@
         b.i16[i * 8 + 4] = Math.max(-32768, Math.min(32767, Math.round(c * 32767)));
         b.i16[i * 8 + 5] = Math.max(-32768, Math.min(32767, Math.round(s * 32767)));
 
-        // Cell's own (hue, satMod, lightMod) — used when no ancestor exists
-        // at the requested levels-up.
-        const type = _typeForLabel(label);
-        const cellHue = (_TYPE_BASE_HUE[type] ?? 0) + cellSubLevel * _LEVEL_HUE_STEP;
-        const cellSatMod = _TYPE_SAT_MOD[type] ?? 0;
-        const cellLitMod = _TYPE_LIGHT_MOD[type] ?? 0;
-
-        // Channel encoding: each scale's structure shows up in a different
-        // perceptual axis. levelsUp targets are positive offsets from the
-        // cell, advanced by viewLevel so as the user zooms out the whole
-        // window slides up the ancestry chain in lockstep.
-        const huePick   = _pickChannel(viewLevel + _HUE_OFFSET,   cellHue,    (k) => stHue[k]);
-        const satPick   = _pickChannel(viewLevel + _SAT_OFFSET,   cellSatMod, (k) => stSatM[k]);
-        const litPick   = _pickChannel(viewLevel + _LIGHT_OFFSET, cellLitMod, (k) => stLitM[k]);
-        const sat   = Math.max(0, Math.min(1, _BASE_SAT   + _SAT_AMP   * satPick));
-        const light = Math.max(0, Math.min(1, _BASE_LIGHT + _LIGHT_AMP * litPick));
-        const [R, G, B] = _hslToRgb(huePick, sat, light);
+        // Single-source Gaussian-weighted RGB blend over the ancestry chain
+        // plus this cell. weightTable was filled at the start of walk() so
+        // this is a few multiply-adds per ancestor instead of an exp per
+        // emit. All perceptual channels move together because they all
+        // come from one weighted sum.
+        const cellCol = colorForLevelType(cellSubLevel, label);
+        let w = weightTable[cellSubLevel | 0];
+        let total = w, R = w * cellCol[0], G = w * cellCol[1], B = w * cellCol[2];
+        for (let k = 0; k < ancDepth; k++) {
+          w = weightTable[stSubL[k] | 0];
+          total += w;
+          R += w * stColR[k]; G += w * stColG[k]; B += w * stColB[k];
+        }
+        const inv = 1 / total;
 
         const off = i * 16;
-        b.u8[off + 12] = Math.max(0, Math.min(255, Math.round(R * 255)));
-        b.u8[off + 13] = Math.max(0, Math.min(255, Math.round(G * 255)));
-        b.u8[off + 14] = Math.max(0, Math.min(255, Math.round(B * 255)));
+        b.u8[off + 12] = Math.max(0, Math.min(255, Math.round(R * inv * 255)));
+        b.u8[off + 13] = Math.max(0, Math.min(255, Math.round(G * inv * 255)));
+        b.u8[off + 14] = Math.max(0, Math.min(255, Math.round(B * inv * 255)));
         b.u8[off + 15] = stMir[d] ? 255 : 0;
         b.count = i + 1;
       }
@@ -926,11 +910,12 @@
           if (mesh) { emit(mt, mt.name, d, (mt as any)._subLevel); return; }
         }
 
-        // Push this meta's channel info onto the ancestry stack, recurse, pop.
+        // Push this meta's RGB onto the ancestry stack, recurse, pop.
         const mySL = (mt as any)._subLevel as number;
-        stHue [ancDepth] = (_TYPE_BASE_HUE [mt.name] ?? 0) + mySL * _LEVEL_HUE_STEP;
-        stSatM[ancDepth] = _TYPE_SAT_MOD  [mt.name] ?? 0;
-        stLitM[ancDepth] = _TYPE_LIGHT_MOD[mt.name] ?? 0;
+        const myCol = colorForLevelType(mySL, mt.name);
+        stColR[ancDepth] = myCol[0];
+        stColG[ancDepth] = myCol[1];
+        stColB[ancDepth] = myCol[2];
         stSubL[ancDepth] = mySL;
         ancDepth++;
 
@@ -963,12 +948,28 @@
         const halfW = view.pixelWidth / (2 * view.pixelScale);
         const halfH = view.pixelHeight / (2 * view.pixelScale);
         const m = _spectreBoundRadius;
-        vMnX = view.centerX - halfW - m;
-        vMxX = view.centerX + halfW + m;
-        vMnY = view.centerY - halfH - m;
-        vMxY = view.centerY + halfH + m;
+        // Walker accumulates positions in *view-relative* world units: every
+        // stTx/stTy is "world coordinate minus viewCenter", computed in Float64
+        // throughout the recursion. The instance buffer's iWorld is then a
+        // small-magnitude Float32 (bounded by the viewport radius), and the
+        // GPU shader doesn't have to subtract two large numbers to project to
+        // clip space. Without this trick, the cancellation of (world - center)
+        // inside `world * view.scale + view.offset` chews through Float32
+        // precision once world coordinates pass ~1e6, and shared edges
+        // between adjacent cells crack open. (Standard "Relative-To-Center"
+        // / RTC trick used by web maps and 3D engines.)
+        vMnX = -halfW - m;
+        vMxX =  halfW + m;
+        vMnY = -halfH - m;
+        vMxY =  halfH + m;
         pixelScale = view.pixelScale;
         viewLevel = viewLevelFor(pixelScale);
+        // Fill the per-frame Gaussian weight table once. emit() then reads
+        // weightTable[L] instead of paying for Math.exp per cell.
+        for (let L = 0; L < weightTable.length; L++) {
+          const dl = L - viewLevel;
+          weightTable[L] = Math.exp(-(dl * dl) / _TWO_SIGMA_SQ);
+        }
         ancDepth = 0;
 
         // Reset all buckets.
@@ -976,8 +977,8 @@
 
         stRot[0] = rootTransform.rot;
         stMir[0] = rootTransform.mirror;
-        stTx[0]  = rootTransform.t[0];
-        stTy[0]  = rootTransform.t[1];
+        stTx[0]  = rootTransform.t[0] - view.centerX;
+        stTy[0]  = rootTransform.t[1] - view.centerY;
         recurse(rootMeta, 0);
 
         // Concatenate buckets into outData. Leaves first (key === null),

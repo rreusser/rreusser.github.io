@@ -189,8 +189,12 @@ export function createInfiniteRenderer({
       if (!this.instanceBuffer || !this.pixelWidth || !this.msTexture) return;
       const sx = 2 * this.pixelScale / this.pixelWidth;
       const sy = 2 * this.pixelScale / this.pixelHeight;
+      // Instance positions are already view-relative (the walker subtracts
+      // centerX/Y in Float64 before truncating to Float32), so the shader
+      // just needs the scale — no large `-center * scale` term that would
+      // cancel large numbers and chew through Float32 precision.
       device.queue.writeBuffer(viewUniformBuffer, 0, new Float32Array([
-        sx, sy, -this.centerX * sx, -this.centerY * sy,
+        sx, sy, 0, 0,
       ]));
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({
