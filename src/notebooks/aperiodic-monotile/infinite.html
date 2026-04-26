@@ -54,7 +54,28 @@
     // Earcut-triangulated 14-gon: 12 triangles, 36 indices. The spectre is
     // non-convex (vertex 2 sits below the v0–v1 baseline, vertex 7 makes a
     // pocket), so a fan won't work — earcut produces a proper triangulation.
-    const meshVertexData = new Float32Array(spectreVertices.flat());
+    //
+    // Each leaf renders this mesh transformed into world; adjacent leaves
+    // share spectre edges in world space, but small float32 drift in the
+    // GPU shader's transform composition would otherwise leave sub-pixel
+    // gaps that 4× MSAA renders as black sliver pixels (each subsample
+    // misses both leaves' coverage). Dilating the mesh slightly around
+    // its centroid makes adjacent leaves overlap by ~0.7% on each side,
+    // covering all such sub-pixel mismatches. The overlap is invisible
+    // because adjacent leaves' fill colors are picked by the walker to
+    // be visually similar at the moment of rendering.
+    const _LEAF_DILATE = 1.012;
+    const meshVertexData = (() => {
+      let cx = 0, cy = 0;
+      for (const v of spectreVertices) { cx += v[0]; cy += v[1]; }
+      cx /= spectreVertices.length; cy /= spectreVertices.length;
+      const out = new Float32Array(spectreVertices.length * 2);
+      for (let i = 0; i < spectreVertices.length; i++) {
+        out[i * 2 + 0] = cx + (spectreVertices[i][0] - cx) * _LEAF_DILATE;
+        out[i * 2 + 1] = cy + (spectreVertices[i][1] - cy) * _LEAF_DILATE;
+      }
+      return out;
+    })();
     const meshFillIndices = new Uint16Array(earcut(spectreVertices.flat()));
   </script>
 
@@ -611,7 +632,7 @@
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
-      const DILATE = 1.005;
+      const DILATE = 1.012;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
       for (let i = 0; i < simplified.length; i++) {
@@ -735,8 +756,10 @@
     // path's polygon scaling has its source already extracted.
     (function _prewarmAggregatePolygons() {
       const seen = new Set<string>();
+      const visited = new WeakSet<MetaTile>();
       function rec(mt: MetaTile) {
-        if (mt.kind === "leaf") return;
+        if (mt.kind === "leaf" || visited.has(mt)) return;
+        visited.add(mt);
         const sl = (mt as any)._subLevel as number | undefined;
         if (sl != null && sl >= 1 && sl <= EXTRACT_CAP) {
           const isG = mt.name === "Gamma";
