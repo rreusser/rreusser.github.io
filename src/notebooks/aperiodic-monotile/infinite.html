@@ -439,13 +439,16 @@
     // be untenably slow without simplification. The walker falls back to
     // treating those metatiles as "recurse normally" rather than aggregate.
     const MAX_BOUNDARY_LEAVES = 200_000;
-    // Aggregated cells render at ≤ ~32 px on screen, so the boundary's
-    // fractal detail is below the AA floor. Simplify each cached polygon
-    // via Visvalingam-Whyatt (drop-smallest-triangle until target reached);
-    // 16 vertices ≈ 14 triangles per cell, and for the typical visible
-    // count of a few thousand to a few tens of thousand cells per frame
-    // that's well under 1 M triangles total.
-    const BOUNDARY_VERTEX_BUDGET = 16;
+    // Vertex budget per simplified cluster boundary. At 16 verts a 44-px
+    // aggregate has ~2.7 px segments, and adjacent clusters (especially Γ
+    // vs non-Γ) simplify the same shared fractal edge to different chord
+    // approximations, leaving visible 1–2 px black gaps between them
+    // that no reasonable amount of polygon dilation can hide. At 64 verts
+    // the segments are ~0.7 px and the inter-cluster simplification
+    // mismatch drops to sub-pixel, where 4× MSAA + a small dilation can
+    // reliably cover it. ~62 triangles per aggregate × ~5K visible
+    // aggregates = ~300K triangles per frame, well within budget.
+    const BOUNDARY_VERTEX_BUDGET = 64;
     // Above this sub-level, skip raw extraction — Spectre supertile
     // boundaries are self-similar after simplification to 16 verts, so a
     // donor polygon extracted once at the cap can stand in for all higher
@@ -612,7 +615,7 @@
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
-      const DILATE = 1.025;
+      const DILATE = 1.012;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
       for (let i = 0; i < simplified.length; i++) {
