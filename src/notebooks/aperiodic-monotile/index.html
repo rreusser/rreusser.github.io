@@ -654,6 +654,25 @@
       }
     });
     const renderDepth = addControl(_depthSliderEl);
+    // Hierarchical gap. Each metatile pushes its children outward from its
+    // own centroid by  μ_d · gap · (child-centroid − parent-centroid),
+    // where μ_d = GAP_FALLOFF^d (d = recursion depth from the root meta).
+    // The bare formula gap · (c_g − C) telescopes through composition: the
+    // child-centroid at depth d+1 equals the parent-centroid at depth d, so
+    // a depth-d shift exactly cancels its depth-(d+1) sibling, and the net
+    // displacement on each leaf collapses to gap · (leaf_world − global
+    // centroid) — pure scale-from-center, no hierarchy. Multiplying each
+    // level by μ_d < 1 breaks that telescope, so coarse levels open large
+    // gaps and finer levels open proportionally smaller ones. Σ m_g · shift_g
+    // = μ_d · gap · Σ m_g · (c_g − C) = 0 still holds at every level, so
+    // adjacent supertiles slide apart without overlapping. Costs a re-flatten
+    // on slider change; at depth 7 (~17 M tiles) that's tens of ms.
+    const GAP_FALLOFF = 0.65;
+    const renderGap = addControl(Inputs.range([0, 1], {
+      value: 0,
+      step: 0.005,
+      label: "Gap",
+    }));
     // Tile(a, b) morph: 0 = spectre (a = b = 1), ±1 = hat / turtle, ±2 =
     // degenerate endpoints where one edge length collapses to 0 and the
     // 14-gon flattens into a hexagon (a → 0) or a 7-gon-with-spike (b → 0).
@@ -679,18 +698,6 @@
     const _crFooter = _colorRangeEl.querySelector('.range-footer') as HTMLElement | null;
     if (_crFooter) _crFooter.style.display = 'none';
     const renderColorRange = addControl(_colorRangeEl);
-    // Hierarchical gap. Each metatile in the substitution tree pushes its
-    // children outward from its own centroid by `gap` × (child-centroid −
-    // parent-centroid). Applied at every level and composed down through the
-    // recursion, so coarse levels open large gaps and finer levels open
-    // proportionally smaller ones — making the substitution structure
-    // visible without changing the connectivity. Costs a re-flatten on slider
-    // change; at depth 7 (~17 M tiles) that's tens of ms.
-    const renderGap = addControl(Inputs.range([0, 0.5], {
-      value: 0,
-      step: 0.005,
-      label: "Hierarchical gap",
-    }));
 
     // ─── Palette controls ───────────────────────────────────────────────
     // 11 swatches (one per tile label, including Γ₁/Γ₂) plus a Randomize
@@ -992,7 +999,18 @@
       N: number,
       maxDepth: number,
       gap: number,
+      gapFalloff: number,
     ): RawArrays {
+      // Per-depth gap magnitude. Multiplying each recursion level's shift by
+      // gapFalloff^d (with gapFalloff < 1) breaks the telescope that would
+      // otherwise collapse Σ_d gap·(c_{d+1} − c_d) into gap·(leaf − global_C),
+      // i.e. into a uniform scale. With a level-dependent multiplier the per-
+      // level shifts no longer cancel, so coarser levels open visibly larger
+      // gaps than finer ones.
+      const gapByDepth = new Float64Array(maxDepth + 2);
+      for (let d = 0; d < gapByDepth.length; d++) {
+        gapByDepth[d] = gap * Math.pow(gapFalloff, d);
+      }
       const cap = maxDepth + 2;
       const stTaX = new Float64Array(cap);
       const stTaY = new Float64Array(cap);
@@ -1059,14 +1077,15 @@
         const d1 = d + 1;
         // Hierarchical gap. At each meta we push every child's translation
         // outward from this meta's centroid in its own local frame:
-        //   T_g.t  →  T_g.t + gap × (child_g.center − this.center)
-        // Pushing centroid-to-centroid (rather than scaling T.t outward)
-        // preserves the mass-weighted centroid (Σ m_g × shift_g = 0), so
-        // cluster bounds and orientation stay put and adjacent supertiles
-        // don't overlap as they slide apart.
+        //   T_g.t  →  T_g.t + gd × (child_g.center − this.center)
+        // gd = gapByDepth[d] = gap × gapFalloff^d (level-dependent so the
+        // per-level shifts don't telescope into a uniform scale-from-center).
+        // Σ m_g × shift_g = 0 still holds at this level, so adjacent
+        // supertiles slide apart without overlapping.
         // Skip for the depth-0 Γ leaf-pair (isLeafPairMeta): pulling Γ₁
         // and Γ₂ apart would break the chirality lock.
-        const gapOn = gap !== 0 && !isLeafPairMeta;
+        const gd = gapByDepth[d];
+        const gapOn = gd !== 0 && !isLeafPairMeta;
         let pCx_a = 0, pCy_a = 0, pCx_b = 0, pCy_b = 0;
         if (gapOn) {
           const _pM = (mt as any)._cwMass;
@@ -1104,10 +1123,10 @@
             } else {
               oacax = racax; oacay = racay; oacbx = racbx; oacby = racby;
             }
-            cta_x += gap * (oacax * _invCm + cta_x - pCx_a);
-            cta_y += gap * (oacay * _invCm + cta_y - pCy_a);
-            ctb_x += gap * (oacbx * _invCm + ctb_x - pCx_b);
-            ctb_y += gap * (oacby * _invCm + ctb_y - pCy_b);
+            cta_x += gd * (oacax * _invCm + cta_x - pCx_a);
+            cta_y += gd * (oacay * _invCm + cta_y - pCy_a);
+            ctb_x += gd * (oacbx * _invCm + ctb_x - pCx_b);
+            ctb_y += gd * (oacby * _invCm + ctb_y - pCy_b);
           }
           // 1. lp2Conj if pMir (mirror across x-axis = negate y).
           let aax = cta_x, aay = cta_y;
@@ -1250,19 +1269,20 @@
     });
   </script>
 
-  <script id="raw-placements" type="text/x-typescript">
-    // Depth-driven cell: builds the metatile tree, flattens to RawPlacement
-    // entries (with ancestry and LP² transforms preserved), and computes the
-    // world-space bounds at (a, b) = (1, 1). Bounds are pinned to the
-    // spectre's frame so morph changes don't refit the view; the actual
-    // hat/turtle envelopes are within ~√3× of these bounds.
+  <script id="cluster-build" type="text/x-typescript">
+    // Depth-driven cell: builds the metatile DAG, runs the centroid
+    // recurrence, and stamps each meta with mass / centroid / label-id so
+    // the flatten hot loops (in raw-placements) and the gap walk can read
+    // them as plain numeric properties. Independent of renderGap, so the
+    // tree and centroids stay stable while the gap slider moves — that's
+    // what lets cluster-bounds export gap-invariant bounds.
     // Reference depth used to derive a *depth-independent* orientation target
     // for the morph rotation compensation. The natural cluster orientation
     // rotates by ~10° per substitution level, so every increment of renderDepth
     // would otherwise jump-rotate the figure; pinning to this fixed depth's
     // angle absorbs that jump.
     const ORIENTATION_REFERENCE_DEPTH = 4;
-    const _tAll = performance.now();
+    const _tBuildAll = performance.now();
     let renderCluster = buildSpectreBase();
     // Track each metatile type's mass (leaf count) and mass-weighted centroid
     // (Σ leaf positions, in LP²) through the substitution. The substitution is
@@ -1365,6 +1385,90 @@
       };
       _stamp(renderCluster[renderStartingTile]);
     }
+    console.log(`[perf] === cluster-build TOTAL: ${(performance.now() - _tBuildAll).toFixed(1)} ms ===`);
+  </script>
+
+  <script id="cluster-bounds" type="text/x-typescript">
+    // Compute a *rotation-invariant* bounding circle (centered on the cluster
+    // centroid, not the axis-aligned bbox midpoint). The morph rotation pivots
+    // the cluster around its centroid, so an axis-aligned bbox of the
+    // unrotated cluster mismatches the rotated one and shifts the view-fit
+    // back and forth as renderDepth changes; a centroid-anchored circle is
+    // invariant to that rotation, and squaring it off preserves view-fit.
+    //
+    // This cell deliberately omits renderGap from its dependencies so the
+    // bounds stay constant as the user drags the gap slider — otherwise the
+    // gap-shifted leaves widen the cluster and the renderer's boundsChanged
+    // check refits the view on every drag tick. Bounds are computed once per
+    // (depth, startingTile) change by walking the metatile DAG at gap = 0.
+    const _tBoundsAll = performance.now();
+    const _CtX_b = (renderClusterCwLP2.a[0] + renderClusterCwLP2.b[0]) / renderClusterMass;
+    const _CtY_b = (renderClusterCwLP2.a[1] + renderClusterCwLP2.b[1]) / renderClusterMass;
+    // Streamlined gap-0 walker: just one max-squared-distance accumulator,
+    // no array allocations. About half the cost of the full flatten.
+    let bMaxR2 = 0;
+    {
+      const cap = renderDepth + 2;
+      const stTaX = new Float64Array(cap);
+      const stTaY = new Float64Array(cap);
+      const stTbX = new Float64Array(cap);
+      const stTbY = new Float64Array(cap);
+      const stRot = new Uint8Array(cap);
+      const stMir = new Uint8Array(cap);
+      function walk(mt: MetaTile, d: number): void {
+        if (mt.kind === "leaf") {
+          const tx = (stTaX[d] + stTbX[d]) - _CtX_b;
+          const ty = (stTaY[d] + stTbY[d]) - _CtY_b;
+          const d2 = tx * tx + ty * ty;
+          if (d2 > bMaxR2) bMaxR2 = d2;
+          return;
+        }
+        const pRot = stRot[d], pMir = stMir[d];
+        const pTaX = stTaX[d], pTaY = stTaY[d];
+        const pTbX = stTbX[d], pTbY = stTbY[d];
+        const c = _LPCOS[pRot], s = _LPSIN[pRot];
+        const odd = pRot & 1;
+        const d1 = d + 1;
+        const geos = mt.geometries;
+        for (let g = 0; g < geos.length; g++) {
+          const T2 = geos[g].transform;
+          let aax = T2.t.a[0], aay = T2.t.a[1];
+          let abx = T2.t.b[0], aby = T2.t.b[1];
+          if (pMir) { aay = -aay; aby = -aby; }
+          const raax = c * aax - s * aay, raay = s * aax + c * aay;
+          const rabx = c * abx - s * aby, raby = s * abx + c * aby;
+          let oax, oay, obx, oby;
+          if (odd) { oax = rabx; oay = raby; obx = raax; oby = raay; }
+          else     { oax = raax; oay = raay; obx = rabx; oby = raby; }
+          stTaX[d1] = oax + pTaX; stTaY[d1] = oay + pTaY;
+          stTbX[d1] = obx + pTbX; stTbY[d1] = oby + pTbY;
+          const rDiff = pMir ? -T2.rot : T2.rot;
+          stRot[d1] = (pRot + rDiff + 12) % 12;
+          stMir[d1] = (pMir ^ T2.mirror) as 0 | 1;
+          walk(geos[g].child, d1);
+        }
+      }
+      stTaX[0] = 0; stTaY[0] = 0; stTbX[0] = 0; stTbY[0] = 0;
+      stRot[0] = 0; stMir[0] = 0;
+      walk(renderCluster[renderStartingTile], 0);
+    }
+    // Pad by SPECTRE_RADIUS · √3 so the box covers the hat and turtle
+    // envelopes too, not only the spectre.
+    const SPECTRE_RADIUS = 3.6 * Math.sqrt(3);
+    const _R = Math.sqrt(bMaxR2) + SPECTRE_RADIUS;
+    const renderBounds = {
+      minX: _CtX_b - _R, maxX: _CtX_b + _R,
+      minY: _CtY_b - _R, maxY: _CtY_b + _R,
+    };
+    console.log(`[perf] cluster-bounds: ${(performance.now() - _tBoundsAll).toFixed(1)} ms`);
+  </script>
+
+  <script id="raw-placements" type="text/x-typescript">
+    // Flattens the metatile DAG (built in cluster-build) into parallel typed
+    // arrays for the GPU instance buffer, applying the hierarchical gap on
+    // the way down. Re-runs whenever renderGap changes; the cluster tree
+    // and bounds stay put.
+    const _tAll = performance.now();
     const _tFlatten = performance.now();
     // flatten emits parallel typed arrays directly, so label-id and ancestry
     // packing are folded in (no separate index pass).
@@ -1373,6 +1477,7 @@
       renderClusterMass,
       renderDepth,
       renderGap,
+      GAP_FALLOFF,
     );
     console.log(`[perf] flattenMetaTileFast (${_flatRaw.length.toLocaleString()} leaves): ${(performance.now() - _tFlatten).toFixed(1)} ms`);
 
@@ -1426,37 +1531,6 @@
     })();
     console.log(`[perf] partition: ${(performance.now() - _tPart).toFixed(1)} ms`);
 
-    const _tBounds = performance.now();
-    // Compute a *rotation-invariant* bounding circle (centered on the cluster
-    // centroid, not the axis-aligned bbox midpoint). The morph rotation pivots
-    // the cluster around its centroid, so an axis-aligned bbox of the
-    // unrotated cluster mismatches the rotated one and shifts the view-fit
-    // back and forth as renderDepth changes; a centroid-anchored circle is
-    // invariant to that rotation, and squaring it off preserves view-fit.
-    const _CtX = (renderClusterCwLP2.a[0] + renderClusterCwLP2.b[0]) / renderClusterMass;
-    const _CtY = (renderClusterCwLP2.a[1] + renderClusterCwLP2.b[1]) / renderClusterMass;
-    let bMaxR2 = 0;
-    {
-      const _taX = renderRaw.taX, _taY = renderRaw.taY;
-      const _tbX = renderRaw.tbX, _tbY = renderRaw.tbY;
-      for (let i = 0; i < _nRaw; i++) {
-        const tx = (_taX[i] + _tbX[i]) - _CtX;
-        const ty = (_taY[i] + _tbY[i]) - _CtY;
-        const d2 = tx * tx + ty * ty;
-        if (d2 > bMaxR2) bMaxR2 = d2;
-      }
-    }
-    console.log(`[perf] bounds: ${(performance.now() - _tBounds).toFixed(1)} ms`);
-
-    // Pad by SPECTRE_RADIUS · √3 so the box covers the hat and turtle
-    // envelopes too, not only the spectre.
-    const SPECTRE_RADIUS = 3.6 * Math.sqrt(3);
-    const _R = Math.sqrt(bMaxR2) + SPECTRE_RADIUS;
-    const renderBounds = {
-      minX: _CtX - _R, maxX: _CtX + _R,
-      minY: _CtY - _R, maxY: _CtY + _R,
-    };
-
     // Legacy names so palette-rgb / gpu-render need no edits.
     const rawLabelIdx = renderRaw.labelIdx;
     const rawAncestryFlat = renderRaw.ancFlat;
@@ -1500,13 +1574,13 @@
       outlineCount.value++;
     }
 
-    // Gap-shift one child's transform: T.t' = T.t + gap × (child_center −
-    // parent_center), all in parent's local frame. Mirrors the centroid-
-    // based math in flatten so the outline quads continue to enclose their
-    // leaves when gap > 0. Returns the transform unchanged if gap is 0 or
-    // this meta is the Γ leaf-pair (whose pair we don't pull apart).
-    function gapShiftedT(parentMeta: MetaTile, child: MetaTile, T: Transform, gap: number): Transform {
-      if (gap === 0 || parentMeta.kind !== "meta") return T;
+    // Gap-shift one child's transform: T.t' = T.t + gd × (child_center −
+    // parent_center) in parent's local frame, with gd = gap × gapFalloff^d
+    // matching the level-dependent magnitude used by flatten so the outline
+    // quads continue to enclose their leaves when gap > 0. Returns T
+    // unchanged if gd is 0 or this meta is the Γ leaf-pair.
+    function gapShiftedT(parentMeta: MetaTile, child: MetaTile, T: Transform, gd: number): Transform {
+      if (gd === 0 || parentMeta.kind !== "meta") return T;
       let isLeafPair = parentMeta.geometries.length > 0;
       for (let g = 0; g < parentMeta.geometries.length; g++) {
         if (parentMeta.geometries[g].child.kind !== "leaf") { isLeafPair = false; break; }
@@ -1527,10 +1601,10 @@
         rot: T.rot,
         mirror: T.mirror,
         t: {
-          a: [T.t.a[0] + gap * (childCx_a - parCx_a),
-              T.t.a[1] + gap * (childCy_a - parCy_a)],
-          b: [T.t.b[0] + gap * (childCx_b - parCx_b),
-              T.t.b[1] + gap * (childCy_b - parCy_b)],
+          a: [T.t.a[0] + gd * (childCx_a - parCx_a),
+              T.t.a[1] + gd * (childCy_a - parCy_a)],
+          b: [T.t.b[0] + gd * (childCx_b - parCx_b),
+              T.t.b[1] + gd * (childCy_b - parCy_b)],
         },
       };
     }
@@ -1539,8 +1613,9 @@
       const absoluteQuad: LP2[] = mt.quad.map((q) => txApply(parent, q));
       emitQuad(absoluteQuad, level, _isMystic(mt));
       if (mt.kind === "leaf" || level >= outlineCap) return;
+      const gd = renderGap * Math.pow(GAP_FALLOFF, level);
       for (const { child, transform: T } of mt.geometries) {
-        const Tg = gapShiftedT(mt, child, T, renderGap);
+        const Tg = gapShiftedT(mt, child, T, gd);
         walkOutlines(child, txCompose(parent, Tg), level + 1);
       }
     }
