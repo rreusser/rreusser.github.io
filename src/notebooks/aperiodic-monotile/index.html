@@ -1535,10 +1535,12 @@
     //
     // These constants are upper bounds for the curved-edge editor: with
     // adaptive Bézier refinement at a 0.5%-of-edge-length flatness the
-    // boundary stays under ~16 verts/edge in practice, and earcut on N
-    // verts produces 3·(N−2) indices. Buffers in renderer.js are sized
-    // at these caps and live counts are uploaded each frame.
-    const MAX_BOUNDARY_VERTS  = 256;
+    // boundary stays well under MAX_BOUNDARY_VERTS for most edits, but
+    // sharper curves can push above ~18 verts/edge, so the cap is set
+    // generously. earcut on N verts produces 3·(N−2) ≤ 3N indices.
+    // Buffers in renderer.js are sized at these caps and live counts
+    // are uploaded each frame.
+    const MAX_BOUNDARY_VERTS  = 512;
     const MAX_FILL_INDICES    = MAX_BOUNDARY_VERTS * 3;     // 3·(N−2) ≤ 3N
     const MAX_OUTLINE_INDICES = MAX_BOUNDARY_VERTS * 2;
     const meshVertexData     = new Float32Array(spectreVertices.flat());
