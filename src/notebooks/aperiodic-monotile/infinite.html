@@ -833,17 +833,14 @@
     // own-color saturation. Texture and contrast come from the mid and
     // large scale objects, not the about-to-disappear small ones.
     //
-    // σ ≈ 1.5 spreads each cell's blend across ~5 levels of ancestry:
-    // self ~28%, parent ~22%, grandparent ~12%, great-grandparent ~5%,
-    // and a long tail. With cell-centered weights this is intrinsic to
-    // the cell's position in the hierarchy (no zoom dependence), so the
-    // multi-scale structure is *consistent* across zooms instead of
-    // collapsing or rotating. Adjacent cells of different types differ at
-    // the per-cell scale; cells under different parents differ at the
-    // per-parent scale; cells under different grandparents differ at the
-    // per-grandparent scale — three scales of visible structure at once,
-    // showing up at every zoom level.
-    const SIGMA = 1.5;
+    // σ ≈ 3.0 blends ~8 levels of ancestry into each cell's color:
+    // self ~23%, parent ~22%, gp ~18%, ggp ~14%, gggp ~9%, ggggp ~6%,
+    // and a long tail. Cell-centered, so this multi-scale blend is
+    // intrinsic to the substitution hierarchy and stays consistent
+    // across zooms. Adjacent cells differ at ~6 visible scales at once
+    // — per-cell, per-parent, per-grandparent, per-great-grandparent,
+    // etc. — instead of just one or two.
+    const SIGMA = 3.0;
     const _TWO_SIGMA_SQ = 2 * SIGMA * SIGMA;
     // Offset of the Gaussian center from viewLevel. With the alpha-fade
     // band handling the visual smoothness at the aggregate-to-children
