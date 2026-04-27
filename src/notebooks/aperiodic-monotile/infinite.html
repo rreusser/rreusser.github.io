@@ -1407,4 +1407,74 @@
       },
     });
   </script>
+
+  <script id="view-state-display" type="text/x-typescript">
+    // Live view-state read-out + paste-to-restore. Lets the user copy the
+    // current zoom/pan state out of the page (to share, screenshot,
+    // reproduce a bug report) and paste it back later to return to the
+    // exact same view.
+    const _viewOutput = document.createElement('input');
+    _viewOutput.type = 'text';
+    _viewOutput.readOnly = true;
+    _viewOutput.style.flex = '1';
+    _viewOutput.style.minWidth = '0';
+    _viewOutput.style.fontFamily = 'var(--mono, monospace)';
+    _viewOutput.style.fontSize = '11px';
+    _viewOutput.style.padding = '2px 6px';
+    _viewOutput.title = 'Current view as JSON. Click to select, copy to share.';
+    _viewOutput.addEventListener('focus', () => _viewOutput.select());
+    function _formatView(): string {
+      const v = viewerState.getView();
+      return JSON.stringify({
+        centerX: v.centerX,
+        centerY: v.centerY,
+        pixelScale: v.pixelScale,
+      });
+    }
+    function _refreshViewOutput() { _viewOutput.value = _formatView(); }
+    // Wrap the existing onViewChange so each view update also refreshes
+    // the read-out. Done here (not in renderer.js) so the display logic
+    // stays a notebook-level concern.
+    const _origOnViewChange = viewerState.onViewChange;
+    viewerState.onViewChange = function (...args: any[]) {
+      _origOnViewChange?.apply(this, args);
+      _refreshViewOutput();
+    };
+    _refreshViewOutput();
+
+    const _viewInput = document.createElement('input');
+    _viewInput.type = 'text';
+    _viewInput.placeholder = 'Paste view JSON to restore';
+    _viewInput.style.flex = '1';
+    _viewInput.style.minWidth = '0';
+    _viewInput.style.fontFamily = 'var(--mono, monospace)';
+    _viewInput.style.fontSize = '11px';
+    _viewInput.style.padding = '2px 6px';
+    _viewInput.addEventListener('change', () => {
+      try {
+        const parsed = JSON.parse(_viewInput.value);
+        viewerState.setView(parsed);
+        _viewInput.value = '';
+      } catch (e) {
+        _viewInput.style.outline = '1px solid red';
+        setTimeout(() => { _viewInput.style.outline = ''; }, 600);
+      }
+    });
+
+    const _viewRow = document.createElement('div');
+    _viewRow.style.display = 'flex';
+    _viewRow.style.gap = '8px';
+    _viewRow.style.alignItems = 'center';
+    _viewRow.style.margin = '8px 0';
+    _viewRow.style.fontFamily = 'var(--sans-serif)';
+    _viewRow.style.fontSize = '11px';
+    const _viewLabel1 = document.createElement('label');
+    _viewLabel1.textContent = 'view:';
+    _viewLabel1.style.flex = '0 0 auto';
+    const _viewLabel2 = document.createElement('label');
+    _viewLabel2.textContent = 'set:';
+    _viewLabel2.style.flex = '0 0 auto';
+    _viewRow.append(_viewLabel1, _viewOutput, _viewLabel2, _viewInput);
+    display(_viewRow);
+  </script>
 </notebook>
