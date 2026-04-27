@@ -233,10 +233,14 @@
       i: number,
       handlesByEdge: Record<number, EdgeHandles>,
       verts: [number, number][],
+      mode: 'alternating' | 'sShape' = 'alternating',
     ): { c1: [number, number]; c2: [number, number] } {
       const h = handlesByEdge[i];
       const f = edgeFrame(verts, i);
-      const reversed = (i & 1) === 1;
+      // Tab/slot alternation only fires in 'alternating' mode; in
+      // 'sShape' the master curve is its own midpoint reflection so
+      // every edge uses the forward parameterisation.
+      const reversed = mode === 'alternating' && (i & 1) === 1;
       const q1t = reversed ? 1 - h.h2t : h.h1t;
       const q1n = reversed ?    -h.h2n : h.h1n;
       const q2t = reversed ? 1 - h.h1t : h.h2t;
@@ -279,19 +283,30 @@
     const _curve: EdgeHandles = { ...DEFAULT_HANDLES };
     const _handleStore: Record<number, EdgeHandles> = {};
     for (let i = 0; i < 14; i++) _handleStore[i] = _curve;
+    // Two symmetry modes. 'alternating' produces single-side bulges
+    // (Q2 mirrored across the chord's perpendicular bisector); the
+    // mesh build flips the perpendicular component on odd-indexed
+    // edges so adjacent tiles meet tab-to-slot. 'sShape' produces
+    // S-curves (Q2 mirrored through the chord midpoint); the same
+    // forward curve is used on every edge.
+    type SymmetryMode = 'alternating' | 'sShape';
+    let _mode: SymmetryMode = 'alternating';
     function checkDefault(): boolean {
       const tol = 1e-9;
       return Math.abs(_curve.h1t - 1/3) < tol && Math.abs(_curve.h1n) < tol
           && Math.abs(_curve.h2t - 2/3) < tol && Math.abs(_curve.h2n) < tol;
     }
-    // Mirror the dragged handle across the perpendicular bisector of
-    // the chord — (t, n) → (1 − t, n) — so the curve has a single
-    // bulge in one direction (a "tab" or "slot") rather than an
-    // S-shape. Adjacent edges in the tiling alternate which side
-    // they bulge to (see the partition in controlPointsFor below).
     function syncSymmetry(curve: EdgeHandles, handle: 'c1' | 'c2'): void {
-      if (handle === 'c1') { curve.h2t = 1 - curve.h1t; curve.h2n = curve.h1n; }
-      else                 { curve.h1t = 1 - curve.h2t; curve.h1n = curve.h2n; }
+      // 'alternating': perpendicular-bisector mirror, (t, n) → (1−t, n).
+      // 'sShape':      midpoint reflection,           (t, n) → (1−t, −n).
+      const flipN = _mode === 'sShape';
+      if (handle === 'c1') {
+        curve.h2t = 1 - curve.h1t;
+        curve.h2n = flipN ? -curve.h1n : curve.h1n;
+      } else {
+        curve.h1t = 1 - curve.h2t;
+        curve.h1n = flipN ? -curve.h2n : curve.h2n;
+      }
     }
 
     // ─── SVG editor ───────────────────────────────────────────────────────
@@ -414,7 +429,7 @@
       // Fresh wrapper each tick so dependents that compare by identity see
       // a change. byEdge still points at the live store; consumers read
       // it as a snapshot during the cell run.
-      (_editorRoot as any).value = { byEdge: _handleStore, isDefault: isDef };
+      (_editorRoot as any).value = { byEdge: _handleStore, isDefault: isDef, mode: _mode };
       _editorRoot.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
@@ -451,7 +466,28 @@
 
     // Reset button.
     const _btnRow = document.createElement('div');
-    _btnRow.style.cssText = 'display: flex; justify-content: center; margin-top: 4px; font-family: var(--sans-serif); font-size: 13px;';
+    _btnRow.style.cssText = 'display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 4px; font-family: var(--sans-serif); font-size: 12px;';
+    const _modeSel = document.createElement('select');
+    _modeSel.style.cssText = 'font-size: 12px; padding: 1px 3px;';
+    for (const [val, label] of [
+      ['alternating', 'Tab / slot'],
+      ['sShape',      'S-curve'],
+    ] as const) {
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = label;
+      _modeSel.appendChild(opt);
+    }
+    _modeSel.value = _mode;
+    _modeSel.addEventListener('change', () => {
+      _mode = _modeSel.value as SymmetryMode;
+      // Re-apply the symmetry constraint to the existing master point
+      // so a switch doesn't leave the curve in a state inconsistent
+      // with the new mode.
+      syncSymmetry(_curve, 'c1');
+      rerender();
+      emit();
+    });
+    _btnRow.appendChild(_modeSel);
     const _resetBtn = document.createElement('button');
     _resetBtn.type = 'button';
     _resetBtn.textContent = 'Reset to straight edges';
@@ -467,7 +503,7 @@
     _editorRoot.appendChild(_svg);
     _editorRoot.appendChild(_btnRow);
     rerender();
-    (_editorRoot as any).value = { byEdge: _handleStore, isDefault: true };
+    (_editorRoot as any).value = { byEdge: _handleStore, isDefault: true, mode: _mode };
     // Append into the WebGPU figure's controls panel (the same element
     // that hosts the depth / morph / palette controls) so dragging a
     // handle gives immediate feedback in the tiling. The cell's
@@ -2190,7 +2226,7 @@
     // to a fixed flatness of 0.5 % of edge length, which keeps the boundary
     // well under MAX_BOUNDARY_VERTS even for sharply pulled handles.
 
-    function buildBoundary(verts: [number, number][], byEdge: Record<number, EdgeHandles>): Float32Array {
+    function buildBoundary(verts: [number, number][], byEdge: Record<number, EdgeHandles>, mode: 'alternating' | 'sShape'): Float32Array {
       // adaptive-bezier-curve's `scale` argument sets distanceTolerance =
       // 1/scale in world units, applied as |perp deviation| / |chord| ≤
       // 1/scale. SCALE = 40 ends recursion at ~2.5 % of edge length —
@@ -2211,7 +2247,7 @@
           pts.push(p0[0], p0[1]);
           continue;
         }
-        const { c1, c2 } = controlPointsFor(i, byEdge, verts);
+        const { c1, c2 } = controlPointsFor(i, byEdge, verts, mode);
         // Returns an array of [x, y] including both endpoints. We append
         // all but the last to avoid duplicating the shared vertex with
         // the next edge's first point.
@@ -2235,12 +2271,13 @@
     const _evenVerts = projectSpectreVerts(renderA, renderB);
     const _oddVerts  = projectSpectreVerts(renderB, renderA);
     const _isDefault = tileEdges.isDefault;
+    const _editMode = tileEdges.mode ?? 'alternating';
     const meshEvenData = _isDefault
       ? buildDefaultBoundary(_evenVerts)
-      : buildBoundary(_evenVerts, tileEdges.byEdge);
+      : buildBoundary(_evenVerts, tileEdges.byEdge, _editMode);
     const meshOddData  = _isDefault
       ? buildDefaultBoundary(_oddVerts)
-      : buildBoundary(_oddVerts,  tileEdges.byEdge);
+      : buildBoundary(_oddVerts,  tileEdges.byEdge, _editMode);
     const _evenN = meshEvenData.length / 2;
     const _oddN  = meshOddData.length  / 2;
 
