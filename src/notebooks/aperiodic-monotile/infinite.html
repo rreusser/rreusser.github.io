@@ -833,14 +833,17 @@
     // own-color saturation. Texture and contrast come from the mid and
     // large scale objects, not the about-to-disappear small ones.
     //
-    // σ ≈ 0.7 keeps the dominant ancestor's contribution to ~73% of the
-    // cell's color, with the next two ancestors at ~13% each. That keeps
-    // adjacent same-parent cells visibly distinct (each cell's own type
-    // colour drives most of the result) so the smallest-scale unit reads
-    // as the smallest-scale unit at every zoom — instead of all the
-    // cells in one parent cluster averaging into a single regional
-    // colour the way they would with a wider σ.
-    const SIGMA = 0.7;
+    // σ ≈ 0.45 makes the dominant ancestor account for ~88% of the cell's
+    // color and the next ancestor only ~12%. With shift = 0, that means
+    // adjacent same-parent cells share at most 12% of their color via the
+    // shared parent — too little for the eye to group them as a single
+    // region. The visual scale stays at the per-cell level at every zoom,
+    // even though the cell's own substitution level grows with zoom.
+    // Wider σ values let the parent contribution dominate enough that 8
+    // siblings under the same level-(K+1) parent average together into a
+    // single coloured region, giving the deep-zoom view a qualitatively
+    // larger-scale character than the moderate-zoom view.
+    const SIGMA = 0.45;
     const _TWO_SIGMA_SQ = 2 * SIGMA * SIGMA;
     // Offset of the Gaussian center from viewLevel. With the alpha-fade
     // band handling the visual smoothness at the aggregate-to-children
