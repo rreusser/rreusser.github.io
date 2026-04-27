@@ -964,6 +964,10 @@
       centerX: number; centerY: number;
       pixelScale: number;
       pixelWidth: number; pixelHeight: number;
+      // Optional: if set, used for AGG threshold instead of pixelScale.
+      // Lets the user "freeze" the aggregation level while still zooming
+      // the actual rendering in/out.
+      aggPixelScale?: number;
     };
 
     // Aggregate at this on-screen pixel extent: a metatile whose actual
@@ -1089,6 +1093,7 @@
 
       let vMnX = -Infinity, vMxX = Infinity, vMnY = -Infinity, vMxY = Infinity;
       let pixelScale = 1;
+      let aggPixelScale = 1; // used for AGG threshold; can be frozen
       let viewLevel = 0;
       // Per-frame precomputed Gaussian weight table: weight[L] =
       // exp(-(L − viewLevel)² / 2σ²). 64 entries cover any plausible
@@ -1155,24 +1160,29 @@
         //   aggThresh ≤ pixelExtent < fadeUpper → aggregate at full alpha,
         //                                          children at lerped alpha
         //   fadeUpper ≤ pixelExtent          → no aggregate, children at full
-        // The lerped alpha smoothly fades the next refinement level in over
-        // a 2× zoom band, hiding the visual snap at the threshold. When the
-        // cell crosses out of the band on the high side, the aggregate stops
-        // being drawn just as the children reach alpha 1, so they fully
-        // cover whatever the aggregate was hiding — no discontinuity.
-        const pixelExtent = 2 * r * pixelScale;
+        //
+        // BUT: aggregates at sub-levels above EXTRACT_CAP use scaled donor
+        // polygons (not real-extracted boundaries), and the donor's shape
+        // is the cap-level cluster's boundary, which doesn't match the
+        // higher-level cluster's actual boundary in detail. Adjacent same-
+        // shape donor-scaled cells leave chord-mismatch slivers.
+        // Children, on the other hand, are at sub-level ≤ cap and emit
+        // real-extracted polygons that tile correctly. So when the parent
+        // would be donor-scaled, we *skip* the parent emit and have
+        // children emit at full alpha — they fully cover the cluster
+        // without leaving gaps. This sacrifices the fade-band crossfade
+        // for that one level but eliminates the chord-mismatch artefacts.
+        const pixelExtent = 2 * r * aggPixelScale;
         const aggThresh = AGG_PX * _LOOSE_RADIUS_FACTOR;
-        // 4× zoom range for the fade band (~1.5 substitution levels)
-        // gives a noticeably gentler crossfade than 2× — both refinement
-        // levels stay alive long enough for the eye to register the
-        // transition rather than seeing it snap by.
         const fadeUpper = aggThresh * 4;
+        const mySubLevel = (mt as any)._subLevel as number;
+        const parentIsExtracted = mySubLevel <= EXTRACT_CAP;
 
         let childAlpha = alphaIn;
         if (pixelExtent < fadeUpper) {
           const mesh = getGpuMesh(mt);
           if (mesh) {
-            emit(mt, mt.name, d, (mt as any)._subLevel, alphaIn);
+            emit(mt, mt.name, d, mySubLevel, alphaIn);
             if (pixelExtent < aggThresh) return;
             const t = (pixelExtent - aggThresh) / (fadeUpper - aggThresh);
             childAlpha = alphaIn * t;
@@ -1232,7 +1242,13 @@
         vMnY = -halfH - m;
         vMxY =  halfH + m;
         pixelScale = view.pixelScale;
-        viewLevel = viewLevelFor(pixelScale);
+        // aggPixelScale defaults to view.pixelScale, but can be overridden
+        // (e.g., by the freeze toggle) so the AGG threshold is computed
+        // against a frozen pixelScale even though the actual rendering
+        // uses view.pixelScale. That lets the user zoom in on a captured
+        // structure without it re-aggregating.
+        aggPixelScale = (view as any).aggPixelScale ?? view.pixelScale;
+        viewLevel = viewLevelFor(aggPixelScale);
         // The weight table is now indexed by ABSOLUTE LEVEL DISTANCE from
         // the cell being emitted, not by absolute level number. weight[d]
         // is the weight applied to an ancestor d substitution levels up
@@ -1356,6 +1372,11 @@
     // Rebuilt on every view change; the walker's scratch buffer is
     // reused so this call is allocation-free in the hot path.
     let _initialFitDone = false;
+    // Mutable freeze state: when non-null, the aggregation threshold is
+    // computed against this pixelScale instead of the live one, so the
+    // structure stays at its captured aggregation level while the user
+    // zooms the camera in/out for inspection.
+    const freezeState: { aggPixelScale: number | null } = { aggPixelScale: null };
     function repackInstances(): void {
       if (viewerState.pixelWidth === 0) return;
       const view = {
@@ -1364,6 +1385,7 @@
         pixelScale: viewerState.pixelScale,
         pixelWidth: viewerState.pixelWidth,
         pixelHeight: viewerState.pixelHeight,
+        aggPixelScale: freezeState.aggPixelScale ?? undefined,
       };
       maybeExtend(view);
       const result = walker(walkerState.currentRoot, walkerState.currentRootTransform, view);
@@ -1471,6 +1493,24 @@
       }
     });
 
+    // Freeze checkbox: locks the aggregation level to whatever it was at
+    // the moment the box was checked, so zooming in past the threshold
+    // doesn't trigger refinement. Useful for inspecting a specific
+    // aggregation level's geometry up close.
+    const _freezeCb = document.createElement('input');
+    _freezeCb.type = 'checkbox';
+    _freezeCb.id = 'spectre-freeze';
+    const _freezeLabel = document.createElement('label');
+    _freezeLabel.htmlFor = 'spectre-freeze';
+    _freezeLabel.textContent = 'freeze structure';
+    _freezeLabel.style.flex = '0 0 auto';
+    _freezeLabel.style.cursor = 'pointer';
+    _freezeCb.addEventListener('change', () => {
+      freezeState.aggPixelScale = _freezeCb.checked ? viewerState.pixelScale : null;
+      viewerState.onViewChange?.(viewerState);
+      viewerState.requestFrame();
+    });
+
     const _viewRow = document.createElement('div');
     _viewRow.style.display = 'flex';
     _viewRow.style.gap = '8px';
@@ -1484,7 +1524,7 @@
     const _viewLabel2 = document.createElement('label');
     _viewLabel2.textContent = 'set:';
     _viewLabel2.style.flex = '0 0 auto';
-    _viewRow.append(_viewLabel1, _viewOutput, _viewLabel2, _viewInput);
+    _viewRow.append(_viewLabel1, _viewOutput, _viewLabel2, _viewInput, _freezeCb, _freezeLabel);
     display(_viewRow);
   </script>
 </notebook>
