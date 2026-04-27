@@ -288,12 +288,15 @@
     const _editorRoot = document.createElement('div');
     _editorRoot.style.cssText = 'margin: 4px auto; max-width: 100%;';
     // Flat single-edge layout: P0 at (0,0), P3 at (1,0), with vertical
-    // headroom above and below for handles dragged off-axis. Aspect
-    // 12:5 keeps the chord prominent without wasting vertical space.
-    const _editorW = 240;
-    const _editorH = 100;
-    const _eVbX = -0.15, _eVbY = -0.55;
-    const _eVbW = 1.30,  _eVbH = 1.10;
+    // headroom above and below for handles dragged off-axis. ViewBox
+    // and element aspect ratios match (1.4 × 0.8 world ↔ 280 × 160 px,
+    // both 1.75:1) so SVG's default uniform scaling doesn't stretch
+    // the content — and a 1-pixel mouse move translates to the same
+    // world delta in both axes, which fixes drag-tracking.
+    const _editorW = 280;
+    const _editorH = 160;
+    const _eVbX = -0.2, _eVbY = -0.4;
+    const _eVbW = 1.4,  _eVbH = 0.8;
 
     const _svgNS = 'http://www.w3.org/2000/svg';
     const _svg = document.createElementNS(_svgNS, 'svg');
@@ -314,13 +317,16 @@
     function rerender(): void {
       while (_svg.firstChild) _svg.removeChild(_svg.firstChild);
       const c = _curve;
-      const STEM = '#888', PT = '#222', HANDLE_COL = A_COLOR;
+      // Light-on-dark palette so the editor reads on the controls
+      // panel's dark background.
+      const CHORD_COL = '#666', CURVE_COL = '#e8e8e8';
+      const STEM = '#aaa', PT = '#e8e8e8', HANDLE_COL = A_COLOR;
 
       // Faint chord from P0=(0,0) to P3=(1,0).
       const chord = document.createElementNS(_svgNS, 'line');
       chord.setAttribute('x1', '0');  chord.setAttribute('y1', '0');
       chord.setAttribute('x2', '1');  chord.setAttribute('y2', '0');
-      chord.setAttribute('stroke', '#bbb');
+      chord.setAttribute('stroke', CHORD_COL);
       chord.setAttribute('stroke-width', '0.012');
       chord.setAttribute('stroke-dasharray', '0.04 0.03');
       _svg.appendChild(chord);
@@ -331,7 +337,7 @@
       path.setAttribute('d',
         `M 0 0 C ${c.h1t} ${-c.h1n}, ${c.h2t} ${-c.h2n}, 1 0`);
       path.setAttribute('fill', 'none');
-      path.setAttribute('stroke', '#222');
+      path.setAttribute('stroke', CURVE_COL);
       path.setAttribute('stroke-width', '0.025');
       _svg.appendChild(path);
 
