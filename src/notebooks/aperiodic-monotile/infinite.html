@@ -608,7 +608,7 @@
     // from real leaves (~530K leaves max per shape) — its boundary is
     // exact, so adjacent same-shape sub-level 6 cells tile properly.
     // Above 6 we still use the donor (now the sub-level 6 polygon).
-    const EXTRACT_CAP = 6;
+    const EXTRACT_CAP = 7;
 
     type BoundaryMesh = {
       polygon: Float32Array;        // flat (x0, y0, x1, y1, ...)
@@ -797,7 +797,7 @@
       // their parents at full alpha (in the fade band), so the heavy
       // dilation doesn't blend colours muddily — adjacent same-α
       // polygons fully replace each other in the overlap.
-      const DILATE = 1.05;
+      const DILATE = 1.00;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
       for (let i = 0; i < simplified.length; i++) {
@@ -844,11 +844,11 @@
     // analytically.
     //
     // baseCluster has subLevel = BASE_DEPTH + 1 = 5 metatiles. We need
-    // donors at EXTRACT_CAP = 6, so we inflate one more time to get
-    // sub-level 6 metatiles. The Γ donor is taken straight from
-    // baseCluster (subLevel 5 + 1 = 6 in the inflated cluster).
+    // donors at EXTRACT_CAP = 7, so we inflate twice to get sub-level 7
+    // metatiles.
     const _donors = (() => {
-      const inflated = buildSupertiles(baseCluster);
+      let inflated = buildSupertiles(baseCluster);
+      inflated = buildSupertiles(inflated);
       attachRadii(inflated.Delta);
       attachSubLevels(inflated.Delta);
       attachRadii(inflated.Gamma);
@@ -887,7 +887,13 @@
         polygon = boundary.polygon;
         indices = boundary.indices;
       } else {
-        // Reuse donor polygon scaled by radius ratio.
+        // Reuse donor polygon scaled by radius ratio. Adjacent same-shape
+        // donor-scaled cells leave chord-mismatch slivers because the
+        // donor's shape doesn't match the actual cluster boundary at
+        // sub-level > EXTRACT_CAP. Apply an *extra* dilation around the
+        // scaled polygon's centroid (on top of the 5% already baked in
+        // by extractBoundary) so adjacent cells overlap by enough to
+        // swallow those slivers (observed up to ~9 px at sub-level 7).
         const donor = _getDonorBoundary(isGamma);
         if (donor === null) {
           _gpuMeshByShape.set(shapeKey, null);
@@ -895,8 +901,22 @@
           return null;
         }
         const scale = ((mt as any)._localRadius as number) / donor.radius;
+        const N = donor.mesh.polygon.length / 2;
+        // Centroid of the scaled polygon.
+        let cx = 0, cy = 0;
+        for (let i = 0; i < N; i++) {
+          cx += donor.mesh.polygon[i * 2] * scale;
+          cy += donor.mesh.polygon[i * 2 + 1] * scale;
+        }
+        cx /= N; cy /= N;
+        const EXTRA_DILATE = 1.00;
         polygon = new Float32Array(donor.mesh.polygon.length);
-        for (let i = 0; i < polygon.length; i++) polygon[i] = donor.mesh.polygon[i] * scale;
+        for (let i = 0; i < N; i++) {
+          const x = donor.mesh.polygon[i * 2] * scale;
+          const y = donor.mesh.polygon[i * 2 + 1] * scale;
+          polygon[i * 2]     = cx + (x - cx) * EXTRA_DILATE;
+          polygon[i * 2 + 1] = cy + (y - cy) * EXTRA_DILATE;
+        }
         indices = donor.mesh.indices;
       }
       const vb = _createVB(device, 'agg-poly-verts', polygon);
