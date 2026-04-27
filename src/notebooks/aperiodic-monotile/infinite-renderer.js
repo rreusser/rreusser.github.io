@@ -138,6 +138,11 @@ export function createInfiniteRenderer({
     centerY: 0,
     // physical pixels per world unit. 60 ≈ a unit-edge spectre ~60 px tall.
     pixelScale: 60,
+    // Premultiplied (rgb*a, a). Callers can mutate this so any uncovered
+    // pixels (sub-pixel gaps between cells, viewport regions outside the
+    // root cluster) blend with a colour close to the average tile colour
+    // instead of a jarring opaque black/dark grey.
+    clearValue: { r: 0, g: 0, b: 0, a: 0 },
     _frameRequested: false,
     onViewChange,
 
@@ -225,7 +230,7 @@ export function createInfiniteRenderer({
         colorAttachments: [{
           view: this.msTexture.createView(),
           resolveTarget: context.getCurrentTexture().createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          clearValue: this.clearValue,
           loadOp: 'clear',
           storeOp: 'discard',
         }],

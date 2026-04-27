@@ -36,9 +36,26 @@
     _ctrlSeed.style.width = '80px';
     _ctrlSeed.style.fontSize = '12px';
     _ctrlSeed.style.padding = '2px 6px';
+    function _updateClearValue() {
+      // Average RGB across all 11 palette labels — used as the canvas's
+      // clear colour so any uncovered pixels (sub-pixel gaps between
+      // cells, viewport corners outside the root cluster's actual shape)
+      // blend with a muted version of the palette instead of an opaque
+      // dark grey. Premultiplied with alpha = 1 (the canvas is in
+      // 'premultiplied' alphaMode), so r/g/b are the colour values
+      // directly.
+      let r = 0, g = 0, b = 0;
+      for (const label of _ALL_LABELS) {
+        const c = paletteState.rgb[label];
+        r += c[0]; g += c[1]; b += c[2];
+      }
+      const n = _ALL_LABELS.length;
+      viewerState.clearValue = { r: r / n, g: g / n, b: b / n, a: 1 };
+    }
     function _applySeed(s: number) {
       paletteState.setSeed(s);
       _ctrlSeed.value = String(paletteState.seed);
+      _updateClearValue();
       // requestFrame just redraws the existing instance buffer with the
       // colours it already has. To pick up the new palette we need to
       // re-run the walker, which packs each instance's colour at emit
@@ -46,6 +63,8 @@
       viewerState.onViewChange?.(viewerState);
       viewerState.requestFrame();
     }
+    // Initial clear value at page load.
+    _updateClearValue();
     _ctrlBtn.addEventListener('click', () => {
       _applySeed(Math.floor(Math.random() * 99999));
     });
@@ -113,7 +132,7 @@
     // covering all such sub-pixel mismatches. The overlap is invisible
     // because adjacent leaves' fill colors are picked by the walker to
     // be visually similar at the moment of rendering.
-    const _LEAF_DILATE = 1.02;
+    const _LEAF_DILATE = 3.0;
     const meshVertexData = (() => {
       let cx = 0, cy = 0;
       for (const v of spectreVertices) { cx += v[0]; cy += v[1]; }
@@ -946,7 +965,7 @@
     // as the user zooms in) happens at the same threshold, so a smaller
     // AGG_PX pushes refinement to fire at a smaller on-screen size —
     // detail persists farther into zoom-out.
-    const AGG_PX = 22;
+    const AGG_PX = 20;
     // _localRadius is measured from the spectre's corner origin (vertex 0),
     // so for any supertile it's ~1.5× the cluster's true centered radius
     // (empirically 1.44 at sub-level 3, growing to 1.64 at sub-level 5).
