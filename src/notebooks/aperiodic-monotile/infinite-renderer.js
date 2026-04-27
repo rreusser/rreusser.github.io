@@ -64,7 +64,10 @@ export function createInfiniteRenderer({
   canvas.style.cursor = 'grab';
 
   const context = canvas.getContext('webgpu');
-  context.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+  context.configure({
+    device, format: canvasFormat, alphaMode: 'premultiplied',
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
 
   const meshVertexBuffer = createVertexBuffer(device, 'spectre-verts', meshVertexData);
   const meshIndexBuffer  = createIndexBuffer(device, 'spectre-fill-indices', meshFillIndices);
@@ -144,6 +147,8 @@ export function createInfiniteRenderer({
     // instead of a jarring opaque black/dark grey.
     clearValue: { r: 0, g: 0, b: 0, a: 0 },
     _frameRequested: false,
+    _rafId: null,
+    _capture: null,
     onViewChange,
 
     resize(w, h) {
@@ -154,7 +159,10 @@ export function createInfiniteRenderer({
       this.pixelHeight = py;
       canvas.width = px;
       canvas.height = py;
-      context.configure({ device, format: canvasFormat, alphaMode: 'premultiplied' });
+      context.configure({
+        device, format: canvasFormat, alphaMode: 'premultiplied',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      });
       this.msTexture?.destroy();
       this.msTexture = device.createTexture({
         label: 'spectre-msaa',
@@ -208,14 +216,19 @@ export function createInfiniteRenderer({
     requestFrame() {
       if (this._frameRequested) return;
       this._frameRequested = true;
-      requestAnimationFrame(() => {
+      this._rafId = requestAnimationFrame(() => {
         this._frameRequested = false;
+        this._rafId = null;
         this.draw();
       });
     },
 
     draw() {
       if (!this.instanceBuffer || !this.pixelWidth || !this.msTexture) return;
+      this._renderTo(context.getCurrentTexture());
+    },
+
+    _renderTo(target, extraEncode) {
       const sx = 2 * this.pixelScale / this.pixelWidth;
       const sy = 2 * this.pixelScale / this.pixelHeight;
       // Instance positions are already view-relative (the walker subtracts
@@ -229,7 +242,7 @@ export function createInfiniteRenderer({
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: this.msTexture.createView(),
-          resolveTarget: context.getCurrentTexture().createView(),
+          resolveTarget: target.createView(),
           clearValue: this.clearValue,
           loadOp: 'clear',
           storeOp: 'discard',
@@ -247,7 +260,114 @@ export function createInfiniteRenderer({
         }
       }
       pass.end();
+      if (extraEncode) extraEncode(encoder);
       device.queue.submit([encoder.finish()]);
+    },
+
+    // Offline-capture API. Use to render at a fixed pixel size (e.g.,
+    // 1280×720 for video export) without disturbing the live canvas.
+    //
+    //   beginCapture(w, h) — override the renderer's pixel dims and
+    //     allocate dedicated MSAA + COPY_SRC targets at (w, h). The
+    //     walker (invoked via setView → onViewChange) sees the new dims
+    //     because it reads pixelWidth/pixelHeight off the renderer state.
+    //   captureFrame()    — render the current draw list to the capture
+    //     target and copy pixels back as RGBA Uint8Array.
+    //   endCapture()      — destroy the temp targets, restore live dims,
+    //     redraw the live canvas.
+    //
+    // While a capture session is active, requestFrame is a no-op and any
+    // already-pending rAF is cancelled, so a stray draw doesn't try to
+    // render at mismatched dims onto the live canvas.
+    beginCapture(w, h) {
+      if (this._capture) throw new Error('capture already in progress');
+      if (this._rafId != null) {
+        cancelAnimationFrame(this._rafId);
+        this._rafId = null;
+      }
+      const savedFrameRequested = this._frameRequested;
+      this._frameRequested = true;
+      const savedPxW = this.pixelWidth, savedPxH = this.pixelHeight;
+      const savedMs = this.msTexture;
+      this.pixelWidth = w;
+      this.pixelHeight = h;
+      const ms = device.createTexture({
+        label: 'spectre-capture-ms',
+        size: [w, h], sampleCount: SAMPLE_COUNT, format: canvasFormat,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      const target = device.createTexture({
+        label: 'spectre-capture-target',
+        size: [w, h], format: canvasFormat,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      });
+      const bytesPerRow = Math.ceil(w * 4 / 256) * 256;
+      const readback = device.createBuffer({
+        label: 'spectre-capture-readback',
+        size: bytesPerRow * h,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      this.msTexture = ms;
+      this._capture = {
+        w, h, ms, target, readback, bytesPerRow,
+        savedPxW, savedPxH, savedMs, savedFrameRequested,
+      };
+    },
+
+    async captureFrame() {
+      if (!this._capture) throw new Error('beginCapture not called');
+      if (!this.instanceBuffer) return new Uint8Array(0);
+      const { w, h, target, readback, bytesPerRow } = this._capture;
+      this._renderTo(target, (encoder) => {
+        encoder.copyTextureToBuffer(
+          { texture: target },
+          { buffer: readback, bytesPerRow, rowsPerImage: h },
+          [w, h, 1],
+        );
+      });
+      await readback.mapAsync(GPUMapMode.READ);
+      const padded = new Uint8Array(readback.getMappedRange());
+      const out = new Uint8Array(w * h * 4);
+      const isBgra = canvasFormat === 'bgra8unorm';
+      for (let y = 0; y < h; y++) {
+        const srcRow = y * bytesPerRow;
+        const dstRow = y * w * 4;
+        for (let x = 0; x < w; x++) {
+          const s = srcRow + x * 4;
+          const d = dstRow + x * 4;
+          if (isBgra) {
+            out[d + 0] = padded[s + 2];
+            out[d + 1] = padded[s + 1];
+            out[d + 2] = padded[s + 0];
+            out[d + 3] = padded[s + 3];
+          } else {
+            out[d + 0] = padded[s + 0];
+            out[d + 1] = padded[s + 1];
+            out[d + 2] = padded[s + 2];
+            out[d + 3] = padded[s + 3];
+          }
+        }
+      }
+      readback.unmap();
+      return out;
+    },
+
+    endCapture() {
+      if (!this._capture) return;
+      const c = this._capture;
+      c.target.destroy();
+      c.readback.destroy();
+      c.ms.destroy();
+      this.msTexture = c.savedMs;
+      this.pixelWidth = c.savedPxW;
+      this.pixelHeight = c.savedPxH;
+      this._frameRequested = c.savedFrameRequested;
+      this._capture = null;
+      // Walker output reflects the capture dims; trigger a fresh
+      // repack at live dims and redraw the live canvas.
+      this.onViewChange?.(this);
+      this._frameRequested = false;
+      this.requestFrame();
     },
 
     // Snapshot/restore the view state. Useful for reproducing a specific

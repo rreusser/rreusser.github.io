@@ -33,6 +33,9 @@
     _ctrlSeed.type = 'number';
     _ctrlSeed.min = '0';
     _ctrlSeed.value = String(paletteState.seed);
+    // Stable id so the video-export "Load config" button can sync this
+    // input's displayed value when it programmatically changes the seed.
+    _ctrlSeed.id = 'spectre-palette-seed-input';
     _ctrlSeed.style.width = '80px';
     _ctrlSeed.style.fontSize = '12px';
     _ctrlSeed.style.padding = '2px 6px';
@@ -979,6 +982,12 @@
       // Lets the user "freeze" the aggregation level while still zooming
       // the actual rendering in/out.
       aggPixelScale?: number;
+      // Optional extra cull-pad in CSS pixels. The walker pads the
+      // viewport AABB outward by this many pixels (converted to world
+      // units) before testing each cell's bounding ball. Pure safety
+      // margin — set higher to reduce the chance of background
+      // peeking through at the viewport edges.
+      cullPadPx?: number;
     };
 
     // Aggregate at this on-screen pixel extent: a metatile whose actual
@@ -1161,24 +1170,10 @@
 
       function recurse(mt: MetaTile, d: number, alphaIn: number, allowFadeOut: boolean = true) {
         if (alphaIn <= 0) return;
-        // Cull against a centroid-centered bounding ball: tighter than
-        // the corner-based _localRadius (which can be ~2× the cluster's
-        // actual extent because the local origin sits at a cluster
-        // corner, not its centroid). _localRadius is still used below
-        // for pixelExtent (aggregation tuning) and donor scaling, where
-        // the corner reference matters.
-        const myRot = stRot[d], myMir = stMir[d];
-        const myCos = _COS[myRot], mySin = _SIN[myRot];
-        const lcx = (mt as any)._cCx as number;
-        let lcy = (mt as any)._cCy as number;
-        if (myMir) lcy = -lcy;
-        const cCx = myCos * lcx - mySin * lcy + stTx[d];
-        const cCy = mySin * lcx + myCos * lcy + stTy[d];
-        const cBound = ((mt as any)._cBound as number) ?? 0;
-        if (cCx + cBound < vMnX || cCx - cBound > vMxX ||
-            cCy + cBound < vMnY || cCy - cBound > vMxY) return;
-        if (mt.kind === "leaf") { emit(null, mt.label, d, 0, alphaIn); return; }
+        const cx = stTx[d], cy = stTy[d];
         const r = (mt as any)._localRadius ?? 0;
+        if (cx + r < vMnX || cx - r > vMxX || cy + r < vMnY || cy - r > vMxY) return;
+        if (mt.kind === "leaf") { emit(null, mt.label, d, 0, alphaIn); return; }
 
         // We crossfade the parent's self-emit against its children's
         // recursion so neither pops. The parent fades in across an upper
@@ -1194,17 +1189,17 @@
         // sub-aggThresh region instead of cascading down to leaves.
         const pixelExtent = 2 * r * aggPixelScale;
         const aggThresh = AGG_PX * _LOOSE_RADIUS_FACTOR;
-        const upperFadeBound = aggThresh * 1.8;
+        const upperFadeBound = aggThresh * 1.5;
         const mySubLevel = (mt as any)._subLevel as number;
         // At and below sub-level EXTRACT_CAP+1, children are real-extracted
-        // (or leaves) and tile correctly, so a wide fade band lets them
+        // (or leaves) and tile correctly, so a wider fade band lets them
         // smoothly disappear without revealing structural gaps. At higher
         // sub-levels the children are also donor-scaled (gaps remain), so
         // we use a narrower band: enough to smooth the level-transition
         // pop without paying full-band cell counts.
         const lowerFadeBound = mySubLevel <= EXTRACT_CAP + 1
-          ? aggThresh / 4
-          : aggThresh * 0.55;
+          ? aggThresh / 3
+          : aggThresh * 0.65;
 
         // Parent self-emit alpha factor: 1 in the lower band, smooth
         // fade-in across the upper band, 0 above the upper band.
@@ -1281,6 +1276,8 @@
         const halfW = view.pixelWidth / (2 * view.pixelScale);
         const halfH = view.pixelHeight / (2 * view.pixelScale);
         const m = _spectreBoundRadius;
+        const padPx = view.cullPadPx ?? 0;
+        const padWorld = padPx / view.pixelScale;
         // Walker accumulates positions in *view-relative* world units: every
         // stTx/stTy is "world coordinate minus viewCenter", computed in Float64
         // throughout the recursion. The instance buffer's iWorld is then a
@@ -1291,10 +1288,10 @@
         // precision once world coordinates pass ~1e6, and shared edges
         // between adjacent cells crack open. (Standard "Relative-To-Center"
         // / RTC trick used by web maps and 3D engines.)
-        vMnX = -halfW - m;
-        vMxX =  halfW + m;
-        vMnY = -halfH - m;
-        vMxY =  halfH + m;
+        vMnX = -halfW - m - padWorld;
+        vMxX =  halfW + m + padWorld;
+        vMnY = -halfH - m - padWorld;
+        vMxY =  halfH + m + padWorld;
         pixelScale = view.pixelScale;
         // aggPixelScale defaults to view.pixelScale, but can be overridden
         // (e.g., by the freeze toggle) so the AGG threshold is computed
@@ -1369,22 +1366,46 @@
     const walker = makeWalker(countLeaves(rootMeta));
 
     // ─── Upward extension ───────────────────────────────────────────────
-    // Wrap the current root in a level-up Δ parent. Slot 1 of Δ is Δ
-    // (per superRules.Delta[1]), so the existing root becomes the slot-1
-    // child of the new root. The new root's pose in absolute world is
-    // chosen so that the slot-1 child's accumulated transform stays
-    // exactly equal to the current root's transform — visible tiles
-    // remain in the same world position.
+    // Wrap the current root in a level-up parent. The new root's pose is
+    // chosen so the slot containing the existing root keeps the existing
+    // root's accumulated transform — visible tiles do not move.
+    //
+    // To avoid the "same surroundings at every zoom-out" effect, we walk
+    // through different (parent_type, slot) options at each extension
+    // rather than always wrapping as slot-1 of Δ. The substitution rules
+    // form a constrained graph: child type C can only sit at the
+    // specific (parent, slot) pairs where superRules[parent][slot] === C.
+    // Some types are bottlenecks (e.g., Θ only fits at slot 3 of Γ, Λ
+    // only at slot 6 of Σ); others have many options.
+    const _PARENT_OPTIONS: Record<TileName, Array<[TileName, number]>> = (() => {
+      const out = {} as Record<TileName, Array<[TileName, number]>>;
+      for (const t of TILE_NAMES) out[t] = [];
+      for (const parent of TILE_NAMES) {
+        const subs = superRules[parent];
+        for (let slot = 0; slot < subs.length; slot++) {
+          const c = subs[slot];
+          if (c !== null) out[c].push([parent, slot]);
+        }
+      }
+      return out;
+    })();
     function extendRootUpward() {
       const nextRecord = buildSupertiles(walkerState.currentBaseRecord);
-      const newRoot = nextRecord.Delta;
+      const currentType = (walkerState.currentRoot as any).name as TileName;
+      const opts = _PARENT_OPTIONS[currentType];
+      // Cycle through options. The simple modulo is good enough; for
+      // bottleneck types (Θ, Λ) opts.length === 1 and we always pick it.
+      const [parentType, slot] = opts[walkerState.extensionLevel % opts.length];
+      const newRoot = nextRecord[parentType];
       attachRadii(newRoot);
       attachSubLevels(newRoot);
       attachCentroidBounds(newRoot);
-      // Non-Γ types: geometries[i] corresponds directly to slot i (no
-      // null slots). Slot 1 of Δ is "Delta", so newRoot.geometries[1]
-      // is the geometry whose child === walkerState.currentRoot.
-      const slot1Transform = newRoot.geometries[1].transform;
+      // Find geometry index for slot, accounting for null entries that
+      // buildSupertiles filters out (only Γ has a null, at slot 2).
+      const subs = superRules[parentType];
+      let geomIdx = 0;
+      for (let s = 0; s < slot; s++) if (subs[s] !== null) geomIdx++;
+      const slot1Transform = newRoot.geometries[geomIdx].transform;
       walkerState.currentRootTransform = txCompose(
         walkerState.currentRootTransform,
         txInverse(slot1Transform),
@@ -1411,8 +1432,9 @@
         const cy = walkerState.currentRootTransform.t[1];
         const halfW = view.pixelWidth / (2 * view.pixelScale);
         const halfH = view.pixelHeight / (2 * view.pixelScale);
-        const dx = Math.abs(view.centerX - cx) + halfW;
-        const dy = Math.abs(view.centerY - cy) + halfH;
+        const padW = (view.cullPadPx ?? 0) / view.pixelScale;
+        const dx = Math.abs(view.centerX - cx) + halfW + padW;
+        const dy = Math.abs(view.centerY - cy) + halfH + padW;
         const distToCorner = Math.hypot(dx, dy);
         if (distToCorner <= 0.3 * r) return;
         extendRootUpward();
@@ -1432,6 +1454,10 @@
     // structure stays at its captured aggregation level while the user
     // zooms the camera in/out for inspection.
     const freezeState: { aggPixelScale: number | null } = { aggPixelScale: null };
+    // Cull-padding (CSS pixels) applied around the viewport before
+    // per-cell cull tests. Mutated by the video-export slider; defaults
+    // to 0 so live interaction is unchanged.
+    const cullState: { padPx: number } = { padPx: 0 };
     function repackInstances(): void {
       if (viewerState.pixelWidth === 0) return;
       const view = {
@@ -1441,6 +1467,7 @@
         pixelWidth: viewerState.pixelWidth,
         pixelHeight: viewerState.pixelHeight,
         aggPixelScale: freezeState.aggPixelScale ?? undefined,
+        cullPadPx: cullState.padPx,
       };
       maybeExtend(view);
       const result = walker(walkerState.currentRoot, walkerState.currentRootTransform, view);
@@ -1581,5 +1608,600 @@
     _viewLabel2.style.flex = '0 0 auto';
     _viewRow.append(_viewLabel1, _viewOutput, _viewLabel2, _viewInput, _freezeCb, _freezeLabel);
     display(_viewRow);
+  </script>
+
+  <script id="video-export" type="text/x-typescript">
+    // Offline mp4 export: programmatically animates the view (zoom out →
+    // pan → zoom in), captures each frame from the canvas via
+    // copyTextureToBuffer, and feeds RGBA pixels to h264-mp4-encoder.
+    // Not realtime — frames render synchronously, one at a time.
+
+    // h264-mp4-encoder is a UMD bundle that registers `window.HME`. Loaded
+    // via <script> tag (not npm) because the wasm binary isn't bundled
+    // through Vite cleanly and the CDN copy is what the original Observable
+    // notebook uses.
+    const HME: any = await new Promise((resolve, reject) => {
+      if ((window as any).HME) return resolve((window as any).HME);
+      const s = document.createElement('script');
+      s.src = 'https://unpkg.com/h264-mp4-encoder/embuild/dist/h264-mp4-encoder.web.js';
+      s.onload = () => {
+        const m = (window as any).HME;
+        if (m) resolve(m); else reject(new Error('HME global not set'));
+      };
+      s.onerror = () => reject(new Error('failed to load h264-mp4-encoder'));
+      document.head.appendChild(s);
+    });
+
+    function _lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
+    function _logLerp(a: number, b: number, t: number): number {
+      return a * Math.exp(Math.log(b / a) * t);
+    }
+
+    type View = { centerX: number; centerY: number; pixelScale: number };
+    type Ease = 'linear' | 'cubic' | 'quintic';
+    type SegConfig = { sec: number; ease: Ease };
+
+    function _easeFn(name: Ease): (t: number) => number {
+      // cubic = standard smoothstep (C¹ at endpoints).
+      // quintic = smootherstep (C² at endpoints — zero velocity AND zero
+      // acceleration). For a long zoom that starts/ends at rest, quintic
+      // is what makes the very-beginning and very-end feel smooth.
+      if (name === 'cubic')   return (t) => t * t * (3 - 2 * t);
+      if (name === 'quintic') return (t) => t * t * t * (t * (t * 6 - 15) + 10);
+      return (t) => t;
+    }
+
+    // Mutable trajectory state. Initial values are the user's debugging
+    // script (start → zoom-out → pan → zoom-in). The widget below mutates
+    // these in place; _recordVideo reads them at click time.
+    const _kf: View[] = [
+      { centerX: 62.90020681398703,        centerY: -69.41475882293156,    pixelScale: 159.57638576360853 },
+      { centerX: -276309144.8722216,       centerY: 813097338.8738983,     pixelScale: 8.685921175201373e-8 },
+      { centerX: 52490654572.06181,        centerY: 31946543152.550705,    pixelScale: 8.685921175201373e-8 },
+      { centerX: 52651834944.69957,        centerY: 31501858022.634777,    pixelScale: 118.57227795600912 },
+    ];
+    const _seg: SegConfig[] = [
+      { sec: 6, ease: 'quintic' },
+      { sec: 4, ease: 'cubic' },
+      { sec: 6, ease: 'quintic' },
+    ];
+
+    function _viewAt(frac: number): View {
+      // Map overall progress into a particular segment and apply that
+      // segment's local ease. Use quintic on the first/last segments to
+      // get a smooth video start/end (zero velocity AND zero acceleration
+      // at endpoints), and cubic or linear on interior segments to avoid
+      // visible pauses at intermediate keyframes.
+      //
+      // Pan interpolates in *log-pixelScale space*, not linearly. Linear
+      // world-coord pan during a logarithmic zoom-out shoots off-screen
+      // mid-segment (the camera covers ~half the world distance while
+      // pixelScale is still small, so half-distance × small-scale = many
+      // screen pixels). The exponential form below makes the pan's
+      // screen-pixel velocity constant under the simultaneous zoom:
+      //
+      //   p(t) = p₀ · (p₁/p₀)ᵗ          (log interp of pixelScale)
+      //   x(t) = x₀ + (x₁−x₀) · fac(t)
+      //   fac(t) = (1 − e^{−tL}) / (1 − e^{−L})   with L = ln(p₁/p₀)
+      //
+      // fac(t) → t as L → 0, so pure-pan segments degenerate to linear.
+      const total = _seg.reduce((a, s) => a + s.sec, 0);
+      let elapsed = Math.max(0, Math.min(1, frac)) * total;
+      let prev = _kf[0];
+      for (let i = 0; i < _seg.length; i++) {
+        const s = _seg[i];
+        if (elapsed <= s.sec || i === _seg.length - 1) {
+          const lt = Math.max(0, Math.min(1, elapsed / s.sec));
+          const t = _easeFn(s.ease)(lt);
+          const next = _kf[i + 1];
+          const p0 = prev.pixelScale, p1 = next.pixelScale;
+          const L = Math.log(p1 / p0);
+          const fac = Math.abs(L) < 1e-6
+            ? t
+            : (1 - Math.exp(-t * L)) / (1 - Math.exp(-L));
+          return {
+            centerX: prev.centerX + (next.centerX - prev.centerX) * fac,
+            centerY: prev.centerY + (next.centerY - prev.centerY) * fac,
+            pixelScale: p0 * Math.exp(t * L),
+          };
+        }
+        elapsed -= s.sec;
+        prev = _kf[i + 1];
+      }
+      return _kf[_kf.length - 1];
+    }
+
+    interface RecordOpts {
+      width: number;
+      height: number;
+      fps: number;
+      qp: number;
+      samples: number;
+      fitMode: 'fit' | 'fill';
+      progress?: (f: number, t: number, ms: number) => void;
+    }
+
+    async function _recordVideo(opts: RecordOpts): Promise<Uint8Array> {
+      const w = opts.width  - (opts.width  & 1);
+      const h = opts.height - (opts.height & 1);
+      if (w < 16 || h < 16) throw new Error('width/height too small');
+      if (_kf.length < 2) throw new Error('need ≥2 keyframes');
+      if (_seg.length !== _kf.length - 1) {
+        throw new Error('segments out of sync with keyframes');
+      }
+      const liveW = viewerState.pixelWidth;
+      const liveH = viewerState.pixelHeight;
+      if (liveW === 0 || liveH === 0) throw new Error('live canvas not yet sized');
+      // Resolution-independent framing: the keyframes' pixelScale was
+      // captured against the live canvas size. To keep framed content the
+      // same on-screen size at the capture resolution, scale pixelScale
+      // by capture-vs-live size ratio.
+      //   fill = max ratio  → live's framing fills the capture; the off-axis
+      //                       of a wider/taller capture crops vs. live.
+      //   fit  = min ratio  → captures everything live showed; the off-axis
+      //                       gets extra context (no cropping).
+      const wR = w / liveW, hR = h / liveH;
+      const psScale = opts.fitMode === 'fit' ? Math.min(wR, hR) : Math.max(wR, hR);
+
+      const totalSec = _seg.reduce((a, s) => a + s.sec, 0);
+      const totalFrames = Math.max(2, Math.round(totalSec * opts.fps));
+      const savedView = viewerState.getView();
+
+      const enc = await HME.createH264MP4Encoder();
+      enc.outputFilename = 'spectre-zoom.mp4';
+      enc.width = w;
+      enc.height = h;
+      enc.frameRate = opts.fps;
+      enc.quantizationParameter = opts.qp;
+      enc.initialize();
+
+      // Temporal supersampling: per output frame, render N sub-frames at
+      // fractional times spanning the output frame's interval, then
+      // average. Only the time parameter varies between sub-samples;
+      // palette, cull pad, etc. stay fixed. N=1 is plain (no blur).
+      const N = Math.max(1, Math.floor(opts.samples) | 0);
+      const dFrac = 1 / Math.max(1, totalFrames - 1);
+      const accLen = w * h * 4;
+      const acc = N > 1 ? new Float64Array(accLen) : null;
+
+      (viewerState as any).beginCapture(w, h);
+      const t0 = performance.now();
+      try {
+        for (let i = 0; i < totalFrames; i++) {
+          const fracI = i / Math.max(1, totalFrames - 1);
+          let frame: Uint8Array | null = null;
+          if (acc) acc.fill(0);
+          for (let k = 0; k < N; k++) {
+            const subOff = ((k + 0.5) / N - 0.5) * dFrac;
+            const subFrac = Math.max(0, Math.min(1, fracI + subOff));
+            const v = _viewAt(subFrac);
+            viewerState.setView({
+              centerX: v.centerX,
+              centerY: v.centerY,
+              pixelScale: v.pixelScale * psScale,
+            });
+            const rgba = await (viewerState as any).captureFrame();
+            if (acc) {
+              for (let j = 0; j < accLen; j++) acc[j] += rgba[j];
+            } else {
+              frame = rgba;
+            }
+          }
+          if (acc) {
+            frame = new Uint8Array(accLen);
+            const inv = 1 / N;
+            for (let j = 0; j < accLen; j++) {
+              frame[j] = Math.round(acc[j] * inv);
+            }
+          }
+          enc.addFrameRgba(frame!);
+          opts.progress?.(i + 1, totalFrames, performance.now() - t0);
+        }
+        enc.finalize();
+        return enc.FS.readFile(enc.outputFilename) as Uint8Array;
+      } finally {
+        enc.delete();
+        (viewerState as any).endCapture();
+        viewerState.setView(savedView);
+      }
+    }
+
+    // ─── Keyframe widget ──────────────────────────────────────────────
+    // Per-keyframe row: three numeric inputs (centerX, centerY,
+    // pixelScale). Text inputs (not type="number") so scientific
+    // notation round-trips cleanly through Number(); also avoids a
+    // browser-side spinner on huge values like 5.2e10.
+    function _viewInput(value: number, w: string): HTMLInputElement {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = String(value);
+      inp.style.flex = '1';
+      inp.style.minWidth = w;
+      inp.style.fontFamily = 'var(--mono, monospace)';
+      inp.style.fontSize = '10px';
+      inp.style.padding = '2px 4px';
+      return inp;
+    }
+    function _smallBtn(text: string, title?: string): HTMLButtonElement {
+      const b = document.createElement('button');
+      b.textContent = text;
+      if (title) b.title = title;
+      b.style.padding = '2px 6px';
+      b.style.fontSize = '11px';
+      b.style.fontFamily = 'var(--sans-serif)';
+      return b;
+    }
+
+    const _kfContainer = document.createElement('div');
+    _kfContainer.style.display = 'flex';
+    _kfContainer.style.flexDirection = 'column';
+    _kfContainer.style.gap = '4px';
+    _kfContainer.style.margin = '8px 0';
+    _kfContainer.style.fontFamily = 'var(--sans-serif)';
+    _kfContainer.style.fontSize = '11px';
+
+    function _rebuildKfWidget(): void {
+      _kfContainer.innerHTML = '';
+      for (let i = 0; i < _kf.length; i++) {
+        // Keyframe row.
+        const kfRow = document.createElement('div');
+        kfRow.style.display = 'flex';
+        kfRow.style.gap = '6px';
+        kfRow.style.alignItems = 'center';
+
+        const idx = document.createElement('span');
+        idx.textContent = `KF${i}`;
+        idx.style.flex = '0 0 28px';
+        idx.style.fontFamily = 'var(--mono, monospace)';
+        idx.style.fontWeight = 'bold';
+
+        const cxLbl = document.createElement('span'); cxLbl.textContent = 'cx';
+        const cyLbl = document.createElement('span'); cyLbl.textContent = 'cy';
+        const psLbl = document.createElement('span'); psLbl.textContent = 'ps';
+        for (const lbl of [cxLbl, cyLbl, psLbl]) {
+          lbl.style.flex = '0 0 auto';
+          lbl.style.opacity = '0.6';
+        }
+        const cxInp = _viewInput(_kf[i].centerX,    '120px');
+        const cyInp = _viewInput(_kf[i].centerY,    '120px');
+        const psInp = _viewInput(_kf[i].pixelScale, '90px');
+        const _bind = (inp: HTMLInputElement, key: 'centerX' | 'centerY' | 'pixelScale') => {
+          inp.addEventListener('change', () => {
+            const v = Number(inp.value);
+            if (Number.isFinite(v)) { _kf[i][key] = v; inp.style.outline = ''; }
+            else                     { inp.style.outline = '1px solid red'; }
+          });
+        };
+        _bind(cxInp, 'centerX'); _bind(cyInp, 'centerY'); _bind(psInp, 'pixelScale');
+
+        const captureBtn = _smallBtn('grab', 'set this keyframe to the current view');
+        captureBtn.addEventListener('click', () => {
+          _kf[i] = viewerState.getView();
+          cxInp.value = String(_kf[i].centerX);
+          cyInp.value = String(_kf[i].centerY);
+          psInp.value = String(_kf[i].pixelScale);
+          for (const inp of [cxInp, cyInp, psInp]) inp.style.outline = '';
+        });
+        const gotoBtn = _smallBtn('go', 'jump the live view to this keyframe');
+        gotoBtn.addEventListener('click', () => {
+          viewerState.setView(_kf[i]);
+        });
+        const removeBtn = _smallBtn('×', 'remove this keyframe');
+        removeBtn.disabled = _kf.length <= 2;
+        removeBtn.addEventListener('click', () => {
+          if (_kf.length <= 2) return;
+          _kf.splice(i, 1);
+          // Drop the segment that fed this keyframe (or the last one if i=0).
+          const segIdx = i === 0 ? 0 : i - 1;
+          _seg.splice(segIdx, 1);
+          _rebuildKfWidget();
+        });
+
+        kfRow.append(idx, cxLbl, cxInp, cyLbl, cyInp, psLbl, psInp, captureBtn, gotoBtn, removeBtn);
+        _kfContainer.append(kfRow);
+
+        // Segment row (between this kf and the next, if any).
+        if (i < _kf.length - 1) {
+          const sRow = document.createElement('div');
+          sRow.style.display = 'flex';
+          sRow.style.gap = '6px';
+          sRow.style.alignItems = 'center';
+          sRow.style.paddingLeft = '34px';
+          sRow.style.opacity = '0.85';
+
+          const arrow = document.createElement('span');
+          arrow.textContent = '↓';
+          arrow.style.flex = '0 0 14px';
+
+          const durLbl = document.createElement('span');
+          durLbl.textContent = 'sec';
+          const dur = document.createElement('input');
+          dur.type = 'number';
+          dur.step = '0.1';
+          dur.value = String(_seg[i].sec);
+          dur.style.width = '60px';
+          dur.style.fontFamily = 'var(--mono, monospace)';
+          dur.style.fontSize = '11px';
+          dur.style.padding = '2px 4px';
+          dur.addEventListener('change', () => {
+            const v = +dur.value;
+            if (Number.isFinite(v) && v > 0) _seg[i].sec = v;
+          });
+
+          const eaLbl = document.createElement('span');
+          eaLbl.textContent = 'ease';
+          const ea = document.createElement('select');
+          ea.style.fontSize = '11px';
+          for (const name of ['linear', 'cubic', 'quintic'] as Ease[]) {
+            const opt = document.createElement('option');
+            opt.value = name; opt.textContent = name;
+            if (_seg[i].ease === name) opt.selected = true;
+            ea.append(opt);
+          }
+          ea.addEventListener('change', () => { _seg[i].ease = ea.value as Ease; });
+
+          const insertBtn = _smallBtn('+', 'insert a keyframe here (current view)');
+          insertBtn.addEventListener('click', () => {
+            _kf.splice(i + 1, 0, viewerState.getView());
+            _seg.splice(i + 1, 0, { sec: 1, ease: 'linear' });
+            // Halve the existing segment's duration so total time is preserved.
+            _seg[i].sec = Math.max(0.1, _seg[i].sec / 2);
+            _seg[i + 1].sec = _seg[i].sec;
+            _rebuildKfWidget();
+          });
+
+          sRow.append(arrow, durLbl, dur, eaLbl, ea, insertBtn);
+          _kfContainer.append(sRow);
+        }
+      }
+
+      // Append-keyframe button at the bottom.
+      const tail = document.createElement('div');
+      tail.style.display = 'flex';
+      tail.style.gap = '6px';
+      tail.style.paddingLeft = '34px';
+      const appendBtn = _smallBtn('+ append keyframe (current view)');
+      appendBtn.addEventListener('click', () => {
+        _kf.push(viewerState.getView());
+        _seg.push({ sec: 2, ease: 'linear' });
+        _rebuildKfWidget();
+      });
+      tail.append(appendBtn);
+      _kfContainer.append(tail);
+    }
+    _rebuildKfWidget();
+
+    // ─── Render-action row ────────────────────────────────────────────
+    function _numInput(label: string, value: number, w = '64px') {
+      const wrap = document.createElement('label');
+      wrap.style.display = 'inline-flex';
+      wrap.style.gap = '4px';
+      wrap.style.alignItems = 'center';
+      const span = document.createElement('span'); span.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.value = String(value);
+      inp.style.width = w; inp.style.fontFamily = 'var(--mono, monospace)';
+      inp.style.fontSize = '11px'; inp.style.padding = '2px 4px';
+      wrap.append(span, inp);
+      return { wrap, inp };
+    }
+
+    const _w    = _numInput('w',     1280);
+    const _h    = _numInput('h',      720);
+    const _fps  = _numInput('fps',     30);
+    const _qp   = _numInput('qp',      24);
+    const _samp = _numInput('samples',  1);
+
+    // fit  — captures everything the live canvas showed (extra context on
+    //        the off-axis if the capture aspect differs).
+    // fill — content stays at its live on-screen size; if capture aspect
+    //        differs, the off-axis gets cropped vs. live.
+    const _fitWrap = document.createElement('label');
+    _fitWrap.style.display = 'inline-flex';
+    _fitWrap.style.gap = '4px';
+    _fitWrap.style.alignItems = 'center';
+    const _fitSpan = document.createElement('span');
+    _fitSpan.textContent = 'frame';
+    const _fitSel = document.createElement('select');
+    _fitSel.style.fontSize = '11px';
+    for (const mode of ['fill', 'fit']) {
+      const o = document.createElement('option');
+      o.value = mode; o.textContent = mode;
+      _fitSel.append(o);
+    }
+    _fitWrap.append(_fitSpan, _fitSel);
+
+    // Cull-pad slider: extra viewport padding (CSS pixels) before the
+    // walker tests each cell against the AABB. Higher = let through more
+    // off-screen geometry → less chance of background bleeding in at the
+    // viewport edges, at the cost of a larger cell count and slower walks.
+    // Default 0 keeps live interaction at current speed; bump it during
+    // a recording session if you spot blanks.
+    const _cullWrap = document.createElement('label');
+    _cullWrap.style.display = 'inline-flex';
+    _cullWrap.style.gap = '4px';
+    _cullWrap.style.alignItems = 'center';
+    const _cullLabel = document.createElement('span');
+    _cullLabel.textContent = 'cull pad';
+    const _cullSlider = document.createElement('input');
+    _cullSlider.type = 'range';
+    _cullSlider.min = '0'; _cullSlider.max = '500'; _cullSlider.step = '5';
+    _cullSlider.value = '0';
+    _cullSlider.style.width = '120px';
+    const _cullVal = document.createElement('span');
+    _cullVal.textContent = '0 px';
+    _cullVal.style.fontFamily = 'var(--mono, monospace)';
+    _cullVal.style.minWidth = '44px';
+    _cullSlider.addEventListener('input', () => {
+      const v = +_cullSlider.value;
+      cullState.padPx = v;
+      _cullVal.textContent = `${v} px`;
+      // Live-rebuild so the user can see the effect at the current zoom.
+      repackInstances();
+      viewerState.requestFrame();
+    });
+    _cullWrap.append(_cullLabel, _cullSlider, _cullVal);
+
+    // ─── Save / load entire config (palette + keyframes + video opts) ──
+    function _gatherConfig() {
+      return {
+        palette: { seed: paletteState.seed },
+        keyframes: _kf.map((k) => ({
+          centerX: k.centerX, centerY: k.centerY, pixelScale: k.pixelScale,
+        })),
+        segments: _seg.map((s) => ({ sec: s.sec, ease: s.ease })),
+        video: {
+          width:    +_w.inp.value,
+          height:   +_h.inp.value,
+          fps:      +_fps.inp.value,
+          qp:       +_qp.inp.value,
+          samples:  +_samp.inp.value,
+          fitMode:  _fitSel.value,
+          cullPadPx: cullState.padPx,
+        },
+      };
+    }
+    function _applyConfig(cfg: any): void {
+      if (cfg.palette?.seed != null) {
+        paletteState.setSeed(cfg.palette.seed);
+        // Sync the seed input in the palette-controls cell so its
+        // displayed value reflects the loaded seed.
+        const seedInput = document.getElementById('spectre-palette-seed-input') as HTMLInputElement | null;
+        if (seedInput) seedInput.value = String(paletteState.seed);
+        // Trigger a fresh repack so the new colours land.
+        viewerState.onViewChange?.(viewerState);
+      }
+      if (Array.isArray(cfg.keyframes) && cfg.keyframes.length >= 2) {
+        _kf.length = 0;
+        for (const k of cfg.keyframes) {
+          _kf.push({
+            centerX: +k.centerX, centerY: +k.centerY, pixelScale: +k.pixelScale,
+          });
+        }
+      }
+      if (Array.isArray(cfg.segments) && cfg.segments.length === _kf.length - 1) {
+        _seg.length = 0;
+        for (const s of cfg.segments) {
+          _seg.push({
+            sec: +s.sec,
+            ease: (s.ease === 'linear' || s.ease === 'cubic' || s.ease === 'quintic')
+              ? s.ease : 'linear',
+          });
+        }
+      }
+      if (cfg.video) {
+        if (cfg.video.width  != null) _w.inp.value   = String(cfg.video.width);
+        if (cfg.video.height != null) _h.inp.value   = String(cfg.video.height);
+        if (cfg.video.fps    != null) _fps.inp.value = String(cfg.video.fps);
+        if (cfg.video.qp     != null) _qp.inp.value  = String(cfg.video.qp);
+        if (cfg.video.samples != null) _samp.inp.value = String(cfg.video.samples);
+        if (cfg.video.fitMode === 'fit' || cfg.video.fitMode === 'fill') {
+          _fitSel.value = cfg.video.fitMode;
+        }
+        if (cfg.video.cullPadPx != null) {
+          cullState.padPx = +cfg.video.cullPadPx;
+          _cullSlider.value = String(cullState.padPx);
+          _cullVal.textContent = `${cullState.padPx} px`;
+        }
+      }
+      _rebuildKfWidget();
+      viewerState.requestFrame();
+    }
+    const _saveBtn = document.createElement('button');
+    _saveBtn.textContent = 'Save config';
+    _saveBtn.style.padding = '4px 10px';
+    _saveBtn.style.fontSize = '11px';
+    _saveBtn.addEventListener('click', () => {
+      const cfg = _gatherConfig();
+      const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'spectre-config.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    });
+    const _loadBtn = document.createElement('button');
+    _loadBtn.textContent = 'Load config';
+    _loadBtn.style.padding = '4px 10px';
+    _loadBtn.style.fontSize = '11px';
+    const _loadInput = document.createElement('input');
+    _loadInput.type = 'file';
+    _loadInput.accept = 'application/json,.json';
+    _loadInput.style.display = 'none';
+    _loadInput.addEventListener('change', async () => {
+      const f = _loadInput.files?.[0];
+      if (!f) return;
+      try {
+        const text = await f.text();
+        const cfg = JSON.parse(text);
+        _applyConfig(cfg);
+        _status.textContent = `loaded ${f.name}`;
+      } catch (e) {
+        _status.textContent = 'load error: ' + (e as Error).message;
+      } finally {
+        _loadInput.value = '';
+      }
+    });
+    _loadBtn.addEventListener('click', () => _loadInput.click());
+
+    const _btn = document.createElement('button');
+    _btn.textContent = 'Render mp4';
+    _btn.style.padding = '4px 10px';
+    _btn.style.fontFamily = 'var(--sans-serif)';
+    _btn.style.fontSize = '11px';
+
+    const _status = document.createElement('span');
+    _status.style.fontFamily = 'var(--mono, monospace)';
+    _status.style.fontSize = '11px';
+    _status.style.minWidth = '160px';
+
+    let _busy = false;
+    _btn.addEventListener('click', async () => {
+      if (_busy) return;
+      _busy = true; _btn.disabled = true;
+      _status.textContent = 'rendering…';
+      try {
+        const bytes = await _recordVideo({
+          width: +_w.inp.value,
+          height: +_h.inp.value,
+          fps: +_fps.inp.value,
+          qp: +_qp.inp.value,
+          samples: Math.max(1, +_samp.inp.value),
+          fitMode: _fitSel.value as 'fit' | 'fill',
+          progress: (f, t, ms) => {
+            _status.textContent = `${f} / ${t}  (${(ms / f).toFixed(0)} ms/frame)`;
+          },
+        });
+        const blob = new Blob([bytes], { type: 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'spectre-zoom.mp4';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        _status.textContent = `${(bytes.length / 1e6).toFixed(2)} MB`;
+      } catch (e) {
+        _status.textContent = 'error: ' + (e as Error).message;
+        console.error(e);
+      } finally {
+        _busy = false; _btn.disabled = false;
+      }
+    });
+
+    const _actionRow = document.createElement('div');
+    _actionRow.style.display = 'flex';
+    _actionRow.style.gap = '8px';
+    _actionRow.style.alignItems = 'center';
+    _actionRow.style.flexWrap = 'wrap';
+    _actionRow.style.margin = '8px 0';
+    _actionRow.style.fontFamily = 'var(--sans-serif)';
+    _actionRow.style.fontSize = '11px';
+    _actionRow.append(
+      _w.wrap, _h.wrap, _fps.wrap, _qp.wrap, _samp.wrap, _fitWrap, _cullWrap,
+      _saveBtn, _loadBtn, _loadInput,
+      _btn, _status,
+    );
+
+    display(_kfContainer);
+    display(_actionRow);
   </script>
 </notebook>
