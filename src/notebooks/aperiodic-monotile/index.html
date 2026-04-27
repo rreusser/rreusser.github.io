@@ -171,9 +171,9 @@
   <script id="edge-editor-section" type="text/markdown">
     ### Curving the edges
 
-    The chiral spectre tiles aperiodically when each edge is replaced by a single shared cubic-Bézier curve, applied identically in every edge's local frame and made invariant under 180° rotation about its own midpoint. The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same. That collapses the editor to a single master handle (its mate inside the same edge follows from the symmetry); two free numbers in total.
+    The chiral spectre tiles aperiodically when each edge is replaced by a single shared cubic-Bézier curve, applied identically in every edge's local frame and made invariant under 180° rotation about its own midpoint. The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same. That collapses the editor to a single master handle (its mate on the same edge follows from the symmetry); two free numbers in total.
 
-    The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. *a*-edges are tinted orange and *b*-edges blue so you can see which kind of edge each handle sits on, but every handle is wired to the same shared curve and dragging any of them updates all 14 edges.
+    The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. Only edge 0 (the bottom horizontal *a*-edge) carries handles, since every other edge is forced to use the same shape; the curves still render on all 14 edges so you can see the resulting tile.
   </script>
 
   <script id="tile-edge-geometry" type="text/x-typescript">
@@ -280,11 +280,14 @@
     // feedback; pointer events on the root <svg> update the dragged
     // edge's type-shared curve, mirror inside the curve via syncSymmetry,
     // and emit 'input' so dependent cells re-run.
+    // The single edge whose handles are draggable. Every other edge
+    // shares this curve, so the rest are redundant and would just clutter
+    // the editor; the curves are still rendered on all 14 edges.
+    const EDITABLE_EDGE = 0;
+
     const _editorRoot = document.createElement('div');
-    _editorRoot.style.cssText = 'margin: 6px auto; max-width: 100%;';
-    // Sized to fit the controls panel comfortably; expandable() and the
-    // panel's own width constraints handle anything tighter.
-    const _editorSize = 240;
+    _editorRoot.style.cssText = 'margin: 4px auto; max-width: 100%;';
+    const _editorSize = 200;
     const _editorVerts = projectSpectreVerts(1, 1);
     let _eMnX = Infinity, _eMxX = -Infinity, _eMnY = Infinity, _eMxY = -Infinity;
     for (const [x, y] of _editorVerts) {
@@ -293,8 +296,10 @@
     }
     const _eCx = (_eMnX + _eMxX) / 2;
     const _eCy = (_eMnY + _eMxY) / 2;
-    // Pad enough that handles dragged out beyond the boundary still show.
-    const _eSide = Math.max(_eMxX - _eMnX, _eMxY - _eMnY) + 1.6;
+    // Tight padding now that only edge 0's two handles can stray beyond
+    // the boundary; just enough that a moderately-pulled handle still
+    // sits inside the viewBox.
+    const _eSide = Math.max(_eMxX - _eMnX, _eMxY - _eMnY) + 0.6;
     const _eVbX = _eCx - _eSide / 2;
     const _eVbY = -_eCy - _eSide / 2;
     const _eVbW = _eSide, _eVbH = _eSide;
@@ -348,44 +353,40 @@
         _svg.appendChild(c);
       }
 
-      // Handles — every edge shows its own pair (c1, c2). Dragging
-      // any handle updates that edge's *type* curve, so the visible
-      // handles on every other edge of the same type also move on the
-      // next rerender. Two passes so dots sit above stems for clean
-      // hit-testing.
+      // Handles on the single editable edge. Two passes so the dots
+      // draw above the stems for clean hit-testing.
+      const i = EDITABLE_EDGE;
+      const { c1, c2 } = controlPointsFor(i, _handleStore, _editorVerts);
+      const p0 = _editorVerts[i];
+      const p1 = _editorVerts[(i + 1) % 14];
+      const col = edgeColor(i);
       for (let pass = 0; pass < 2; pass++) {
-        for (let i = 0; i < 14; i++) {
-          const { c1, c2 } = controlPointsFor(i, _handleStore, _editorVerts);
-          const p0 = _editorVerts[i];
-          const p1 = _editorVerts[(i + 1) % 14];
-          const col = edgeColor(i);
-          for (const [from, to, which] of [
-            [p0, c1, 'c1'], [p1, c2, 'c2'],
-          ] as const) {
-            if (pass === 0) {
-              const ln = document.createElementNS(_svgNS, 'line');
-              ln.setAttribute('x1', String(from[0]));
-              ln.setAttribute('y1', String(-from[1]));
-              ln.setAttribute('x2', String(to[0]));
-              ln.setAttribute('y2', String(-to[1]));
-              ln.setAttribute('stroke', col);
-              ln.setAttribute('stroke-width', '0.018');
-              ln.setAttribute('stroke-dasharray', '0.05 0.05');
-              ln.setAttribute('opacity', '0.7');
-              _svg.appendChild(ln);
-            } else {
-              const dot = document.createElementNS(_svgNS, 'circle');
-              dot.setAttribute('cx', String(to[0]));
-              dot.setAttribute('cy', String(-to[1]));
-              dot.setAttribute('r', '0.085');
-              dot.setAttribute('fill', col);
-              dot.setAttribute('stroke', '#222');
-              dot.setAttribute('stroke-width', '0.015');
-              dot.setAttribute('cursor', 'grab');
-              (dot as any).dataset.edge = String(i);
-              (dot as any).dataset.handle = which;
-              _svg.appendChild(dot);
-            }
+        for (const [from, to, which] of [
+          [p0, c1, 'c1'], [p1, c2, 'c2'],
+        ] as const) {
+          if (pass === 0) {
+            const ln = document.createElementNS(_svgNS, 'line');
+            ln.setAttribute('x1', String(from[0]));
+            ln.setAttribute('y1', String(-from[1]));
+            ln.setAttribute('x2', String(to[0]));
+            ln.setAttribute('y2', String(-to[1]));
+            ln.setAttribute('stroke', col);
+            ln.setAttribute('stroke-width', '0.018');
+            ln.setAttribute('stroke-dasharray', '0.05 0.05');
+            ln.setAttribute('opacity', '0.85');
+            _svg.appendChild(ln);
+          } else {
+            const dot = document.createElementNS(_svgNS, 'circle');
+            dot.setAttribute('cx', String(to[0]));
+            dot.setAttribute('cy', String(-to[1]));
+            dot.setAttribute('r', '0.09');
+            dot.setAttribute('fill', col);
+            dot.setAttribute('stroke', '#222');
+            dot.setAttribute('stroke-width', '0.015');
+            dot.setAttribute('cursor', 'grab');
+            (dot as any).dataset.edge = String(i);
+            (dot as any).dataset.handle = which;
+            _svg.appendChild(dot);
           }
         }
       }
