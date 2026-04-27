@@ -51,6 +51,9 @@
       }
       const n = _ALL_LABELS.length;
       viewerState.clearValue = { r: r / n, g: g / n, b: b / n, a: 1 };
+      viewerState.clearValue.r = 1;
+      viewerState.clearValue.g = 0;
+      viewerState.clearValue.b = 0;
     }
     function _applySeed(s: number) {
       paletteState.setSeed(s);
@@ -132,7 +135,7 @@
     // covering all such sub-pixel mismatches. The overlap is invisible
     // because adjacent leaves' fill colors are picked by the walker to
     // be visually similar at the moment of rendering.
-    const _LEAF_DILATE = 3.0;
+    const _LEAF_DILATE = 8.0;
     const meshVertexData = (() => {
       let cx = 0, cy = 0;
       for (const v of spectreVertices) { cx += v[0]; cy += v[1]; }
@@ -784,13 +787,12 @@
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
-      // 1.05 (5% per side) is enough to swallow the chord-vs-chord
-      // mismatches between the parent polygon's decimation and its
-      // children's decimations of the same shared boundary segments,
-      // plus the donor-approximation mismatches at sub-levels > 5
-      // where adjacent clusters use scaled donor shapes that don't
-      // exactly match the actual cluster boundary at that level.
-      const DILATE = 1.05;
+      // DIAGNOSTIC: 5× aggregate-polygon dilation. If gaps persist with
+      // this much overdraw, they're not from chord-vs-chord mismatches
+      // between adjacent cells — there must be world-space regions
+      // where no cell of any kind is being emitted. Dial back once root
+      // cause is found.
+      const DILATE = 5.0;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
       for (let i = 0; i < simplified.length; i++) {

@@ -250,6 +250,24 @@ export function createInfiniteRenderer({
       device.queue.submit([encoder.finish()]);
     },
 
+    // Snapshot/restore the view state. Useful for reproducing a specific
+    // zoom + pan from the runtime — call getView() to capture, then
+    // setView({centerX, centerY, pixelScale}) later to restore.
+    getView() {
+      return {
+        centerX: this.centerX,
+        centerY: this.centerY,
+        pixelScale: this.pixelScale,
+      };
+    },
+    setView(state) {
+      if (state.centerX != null) this.centerX = state.centerX;
+      if (state.centerY != null) this.centerY = state.centerY;
+      if (state.pixelScale != null) this.pixelScale = state.pixelScale;
+      this.onViewChange?.(this);
+      this.requestFrame();
+    },
+
     panBy(dxCss, dyCss) {
       const rect = canvas.getBoundingClientRect();
       const dpr = this.pixelWidth / Math.max(1, rect.width);
