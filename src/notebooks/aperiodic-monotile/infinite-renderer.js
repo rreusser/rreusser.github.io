@@ -21,10 +21,18 @@ struct VsIn {
 struct VsOut {
   @builtin(position) pos: vec4f,
   @location(0) color: vec3f,
+  @location(1) alpha: f32,
 };
 
+// The fourth instance byte packs (mirror_bit << 7) | alpha7. Decode:
+// byte values 0..127 are non-mirrored (mirror = +1), 128..255 are
+// mirrored (mirror = -1); the low 7 bits are alpha in [0, 127].
 @vertex fn vs(in: VsIn) -> VsOut {
-  let mirror = 1.0 - 2.0 * in.iColMir.w;
+  let v255 = in.iColMir.w * 255.0;
+  let isMirror = v255 >= 128.0;
+  let mirror = select(1.0, -1.0, isMirror);
+  let alpha7 = v255 - select(0.0, 128.0, isMirror);
+  let alpha = alpha7 / 127.0;
   let m = vec2f(in.pos.x, in.pos.y * mirror);
   let cs = in.iCosSin;
   let r = vec2f(cs.x * m.x - cs.y * m.y, cs.y * m.x + cs.x * m.y);
@@ -32,10 +40,14 @@ struct VsOut {
   var out: VsOut;
   out.pos = vec4f(world * view.scale + view.offset, 0.0, 1.0);
   out.color = in.iColMir.rgb;
+  out.alpha = alpha;
   return out;
 }
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
-  return vec4f(in.color, 1.0);
+  // Premultiplied alpha — the canvas is in 'premultiplied' alphaMode and
+  // the pipeline blend is set up to do "src + (1 - src.a) * dst" so that
+  // a fading-in level draws on top of the level it's replacing.
+  return vec4f(in.color * in.alpha, in.alpha);
 }
 `;
 
@@ -89,7 +101,19 @@ export function createInfiniteRenderer({
     label: 'spectre-fill-pipeline',
     layout: 'auto',
     vertex:   { module: fillShader, entryPoint: 'vs', buffers: vertexLayouts },
-    fragment: { module: fillShader, entryPoint: 'fs', targets: [{ format: canvasFormat }] },
+    fragment: {
+      module: fillShader, entryPoint: 'fs',
+      targets: [{
+        format: canvasFormat,
+        blend: {
+          // Premultiplied "src over dst": src is already (rgb*a, a) from
+          // the fragment shader, so we add it directly and attenuate dst
+          // by (1 - src.a).
+          color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        },
+      }],
+    },
     primitive: { topology: 'triangle-list' },
     multisample: { count: SAMPLE_COUNT },
   });

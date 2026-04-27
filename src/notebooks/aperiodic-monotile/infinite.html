@@ -925,7 +925,8 @@
       // frames. Aggregate buckets are created lazily and reset each frame.
       buckets.set(null, _newBucket(null, initialLeafCap));
 
-      function emit(bucketKey: MetaTile | null, label: string, d: number, cellSubLevel: number) {
+      function emit(bucketKey: MetaTile | null, label: string, d: number, cellSubLevel: number, alpha: number) {
+        if (alpha <= 0) return;
         let b = buckets.get(bucketKey);
         if (!b) { b = _newBucket(bucketKey, 64); buckets.set(bucketKey, b); }
         if (b.count >= b.capacity) _growBucket(b, b.count + 1);
@@ -951,30 +952,48 @@
         }
         const inv = 1 / total;
 
+        // Pack mirror flag (high bit) and alpha (low 7 bits) into byte 15.
+        // 0..127 = non-mirrored, alpha 0..1; 128..255 = mirrored, alpha 0..1.
+        // Shader decodes via select() on byte >= 128 and divides by 127.
+        const a127 = Math.max(0, Math.min(127, Math.round(alpha * 127)));
         const off = i * 16;
         b.u8[off + 12] = Math.max(0, Math.min(255, Math.round(R * inv * 255)));
         b.u8[off + 13] = Math.max(0, Math.min(255, Math.round(G * inv * 255)));
         b.u8[off + 14] = Math.max(0, Math.min(255, Math.round(B * inv * 255)));
-        b.u8[off + 15] = stMir[d] ? 255 : 0;
+        b.u8[off + 15] = (stMir[d] ? 128 : 0) | a127;
         b.count = i + 1;
       }
 
-      function recurse(mt: MetaTile, d: number) {
+      function recurse(mt: MetaTile, d: number, alphaIn: number) {
+        if (alphaIn <= 0) return;
         const cx = stTx[d], cy = stTy[d];
         const r = (mt as any)._localRadius ?? 0;
         if (cx + r < vMnX || cx - r > vMxX || cy + r < vMnY || cy - r > vMxY) return;
-        if (mt.kind === "leaf") { emit(null, mt.label, d, 0); return; }
+        if (mt.kind === "leaf") { emit(null, mt.label, d, 0, alphaIn); return; }
 
-        // Aggregate if this metatile would render below the threshold.
-        // 2·r is the bounding-circle diameter; pixelExtent is its size
-        // in screen pixels. If the boundary cache yields a polygon, emit
-        // one aggregate instance using the metatile's name color; if the
-        // metatile is too big to extract a boundary for, fall through
-        // to the recursive case.
+        // Two thresholds bracket a fade band:
+        //   pixelExtent < aggThresh         → pure aggregate (no children)
+        //   aggThresh ≤ pixelExtent < fadeUpper → aggregate at full alpha,
+        //                                          children at lerped alpha
+        //   fadeUpper ≤ pixelExtent          → no aggregate, children at full
+        // The lerped alpha smoothly fades the next refinement level in over
+        // a 2× zoom band, hiding the visual snap at the threshold. When the
+        // cell crosses out of the band on the high side, the aggregate stops
+        // being drawn just as the children reach alpha 1, so they fully
+        // cover whatever the aggregate was hiding — no discontinuity.
         const pixelExtent = 2 * r * pixelScale;
-        if (pixelExtent < AGG_PX * _LOOSE_RADIUS_FACTOR) {
+        const aggThresh = AGG_PX * _LOOSE_RADIUS_FACTOR;
+        const fadeUpper = aggThresh * 2;
+
+        let childAlpha = alphaIn;
+        if (pixelExtent < fadeUpper) {
           const mesh = getGpuMesh(mt);
-          if (mesh) { emit(mt, mt.name, d, (mt as any)._subLevel); return; }
+          if (mesh) {
+            emit(mt, mt.name, d, (mt as any)._subLevel, alphaIn);
+            if (pixelExtent < aggThresh) return;
+            const t = (pixelExtent - aggThresh) / (fadeUpper - aggThresh);
+            childAlpha = alphaIn * t;
+          }
         }
 
         // Push this meta's RGB onto the ancestry stack, recurse, pop.
@@ -998,7 +1017,7 @@
           const rDiff = pMir ? -T2.rot : T2.rot;
           stRot[d1] = (pRot + rDiff + 12) % 12;
           stMir[d1] = (pMir ^ T2.mirror) as 0 | 1;
-          recurse(child, d1);
+          recurse(child, d1, childAlpha);
         }
         ancDepth--;
       }
@@ -1049,10 +1068,11 @@
         stMir[0] = rootTransform.mirror;
         stTx[0]  = rootTransform.t[0] - view.centerX;
         stTy[0]  = rootTransform.t[1] - view.centerY;
-        recurse(rootMeta, 0);
+        recurse(rootMeta, 0, 1.0);
 
-        // Concatenate buckets into outData. Leaves first (key === null),
-        // then aggregates in insertion order.
+        // Concatenate buckets into outData. Aggregates first (so the
+        // fading-in next level draws on top of them with alpha blending),
+        // then leaves last on top of all aggregates.
         let totalCount = 0;
         for (const b of buckets.values()) totalCount += b.count;
         if (totalCount * 16 > outData.byteLength) {
@@ -1062,18 +1082,28 @@
         }
         const groups: Array<{ key: MetaTile | null; instanceOffset: number; instanceCount: number }> = [];
         let off = 0;
+        // Sort aggregate buckets coarsest-first (highest subLevel first) so
+        // a parent aggregate draws under its child sub-aggregates during
+        // the fade-band overlap. Leaves (subLevel 0) come last.
+        const aggBuckets: WalkBucket[] = [];
+        for (const b of buckets.values()) {
+          if (b.key === null) continue;
+          if (b.count === 0) continue;
+          aggBuckets.push(b);
+        }
+        aggBuckets.sort((a, b) =>
+          ((b.key as any)._subLevel ?? 0) - ((a.key as any)._subLevel ?? 0)
+        );
+        for (const b of aggBuckets) {
+          outU8.set(b.u8.subarray(0, b.count * 16), off * 16);
+          groups.push({ key: b.key, instanceOffset: off, instanceCount: b.count });
+          off += b.count;
+        }
         const leafBucket = buckets.get(null)!;
         if (leafBucket.count > 0) {
           outU8.set(leafBucket.u8.subarray(0, leafBucket.count * 16), off * 16);
           groups.push({ key: null, instanceOffset: off, instanceCount: leafBucket.count });
           off += leafBucket.count;
-        }
-        for (const b of buckets.values()) {
-          if (b.key === null) continue;
-          if (b.count === 0) continue;
-          outU8.set(b.u8.subarray(0, b.count * 16), off * 16);
-          groups.push({ key: b.key, instanceOffset: off, instanceCount: b.count });
-          off += b.count;
         }
         return { data: outData, totalCount, groups };
       };
