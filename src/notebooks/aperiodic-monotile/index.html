@@ -47,18 +47,18 @@
   <script id="intro" type="text/markdown">
     ## Summary
 
-    A WebGPU rendering of the *spectre* — the chiral aperiodic monotile of [Smith, Myers, Kaplan, and Goodman-Strauss](https://arxiv.org/abs/2305.17743) — and the rest of the Tile(*a*, *b*) family it belongs to (the [hat](https://arxiv.org/abs/2303.10798) and turtle).
+    A WebGPU rendering of the *spectre*, the chiral aperiodic monotile of [Smith, Myers, Kaplan, and Goodman-Strauss](https://arxiv.org/abs/2305.17743), and the rest of the Tile(*a*, *b*) family (the [hat](https://arxiv.org/abs/2303.10798) and turtle).
 
-    The substitution machinery is a port of [Craig S. Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js), the p5.js reference linked from the paper page; specific attribution is in the substitution section below.
+    The substitution is a port of [Craig S. Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js).
 
-    What's added on top: tile translations are split into separate (*a*, *b*) components so the hat ↔ spectre ↔ turtle morph is a per-frame projection rather than a fresh substitution; the figure is counter-rotated each frame so depth changes and morph changes don't spin it; and the cluster is drawn with WebGPU instancing — a single 16-byte transform per tile — that scales to ~17 M tiles at depth 8.
+    Tile translations are stored as separate (*a*, *b*) components, so the hat ↔ spectre ↔ turtle morph is a per-frame projection rather than a fresh substitution. The cluster is drawn with WebGPU instancing at 16 bytes per tile, scaling to ~17 M tiles at depth 8.
   </script>
 
 
   <script id="spectre-section" type="text/markdown">
     ## The spectre
 
-    The spectre is a 14-gon. Every edge has unit length and every interior angle is a multiple of 30°. Two consecutive edges (here at vertex 10) are collinear, which is what allows this same combinatorial polygon to deform into the *hat* and *turtle* by giving the two collinear edges different lengths.
+    The spectre is a 14-gon with unit edges and interior angles that are multiples of 30°. Two consecutive edges (at vertex 10) are collinear, which lets the same polygon deform into the *hat* and *turtle* when those edges take different lengths.
   </script>
 
   <script id="spectre-vertices" type="text/x-typescript">
@@ -166,14 +166,6 @@
         Vertices of the spectre tile, indexed 0–13. Drag the slider to morph between hat, spectre, turtle, and the degenerate endpoints.
       </figcaption>
     </figure>`);
-  </script>
-
-  <script id="edge-editor-section" type="text/markdown">
-    ### Curving the edges
-
-    The chiral spectre tiles aperiodically when each edge is replaced by a single shared cubic-Bézier curve, applied identically in every edge's local frame and made invariant under 180° rotation about its own midpoint. The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same. That collapses the editor to a single master handle (its mate on the same edge follows from the symmetry); two free numbers in total.
-
-    The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. Only edge 0 (the bottom horizontal *a*-edge) carries handles, since every other edge is forced to use the same shape; the curves still render on all 14 edges so you can see the resulting tile.
   </script>
 
   <script id="tile-edge-geometry" type="text/x-typescript">
@@ -515,7 +507,7 @@
   </script>
 
   <script id="morph-strip-section" type="text/markdown">
-    The same 14-vertex polygon is part of a one-parameter family Tile(*a*, *b*). The 14 edges have fixed directions (multiples of 30°) and fixed types — eight *a*-edges and six *b*-edges — and only their lengths change as you slide *a* and *b*. The five named stops along the morph slider above:
+    The spectre belongs to a one-parameter family Tile(*a*, *b*). The 14 edges have fixed directions (multiples of 30°) and fixed types (eight *a*-edges, six *b*-edges); only their lengths change as you slide *a* and *b*. The five named stops along the morph slider:
   </script>
 
   <script id="morph-strip" type="text/x-typescript">
@@ -617,11 +609,11 @@
   <script id="lattice-section" type="text/markdown">
     ## The (*a*, *b*) split
 
-    The hat ↔ spectre ↔ turtle morph happens *after* the substitution, not during it. Every tile position is stored as a pair of 2-D vectors — one **a-component** ${tex`p_a`} and one **b-component** ${tex`p_b`} — and the cartesian point that gets drawn is a per-frame mix:
+    The morph happens *after* the substitution. Each tile position is stored as two 2-D vectors, an **a-component** ${tex`p_a`} and a **b-component** ${tex`p_b`}, combined per frame as:
 
     ${tex.block`(x, y) = a \cdot p_a + b \cdot p_b.`}
 
-    Substitution arithmetic acts on the two halves component-wise — the recursion never sees *a* or *b* — so moving the morph slider is a fresh projection over the existing tile list, not a re-substitution.
+    Substitution arithmetic acts on the two halves component-wise, so moving the morph slider is a fresh projection rather than a re-substitution.
   </script>
 
   <script id="lattice-math" type="text/x-typescript">
@@ -806,9 +798,9 @@
   <script id="substitution-section" type="text/markdown">
     ## Substitution rules
 
-    The tiling is built by *substitution*: the unit of recursion is a *metatile* — a labelled group of one or more spectres — and at each level, fixed sequences of metatiles are glued together at distinguished spectre vertices into single metatiles of the next level up. There are nine metatile types (Γ, Δ, Θ, Λ, Ξ, Π, Σ, Φ, Ψ); Γ is the "mystic" pair of two overlapping spectres that locks the tiling's chirality, the other eight are bare spectres.
+    The tiling is built by *substitution*. The unit of recursion is a *metatile*, a labelled group of one or more spectres; at each level, fixed sequences of metatiles glue together at distinguished spectre vertices to form metatiles of the next level. There are nine types (Γ, Δ, Θ, Λ, Ξ, Π, Σ, Φ, Ψ); Γ is the "mystic" pair of two overlapping spectres that locks the tiling's chirality, the other eight are bare spectres.
 
-    The vertex coordinates, the two rule tables, and the recursion are taken from [Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js) — almost verbatim, with one adaptation: each transform's translation is the (*a*, *b*) pair from above instead of a single (*x*, *y*) so the morph projection can run per-frame.
+    The vertex coordinates, rule tables, and recursion come from [Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js), almost verbatim. The one adaptation: each transform's translation is the (*a*, *b*) pair from above instead of a single (*x*, *y*), so the morph projection runs per-frame.
   </script>
 
   <script id="substitution-data" type="text/x-typescript">
@@ -929,11 +921,11 @@
   <script id="render-section" type="text/markdown">
     ## Rendering
 
-    Inflate a Δ supertile to the chosen depth, flatten the metatile tree to a list of `(transform, label, color)` placements, and draw the lot with WebGPU instancing — one tile mesh, one quad outline mesh, one buffer of per-tile transforms. Each placement's color is a Gaussian-weighted blend of the leaf and ancestor colors centered at the chosen "color level": at level 0 the leaf dominates and adjacent tiles look distinct; raising the level shifts weight to deeper supertiles, so larger blocks of similar color reveal the macro structure.
+    Inflate a Δ supertile to the chosen depth, flatten the tree to a list of `(transform, label, color)` placements, and draw with WebGPU instancing: one tile mesh, one quad outline mesh, one buffer of per-tile transforms. Each placement's color is a Gaussian-weighted blend of the leaf and ancestor colors centered at the chosen "color level"; at level 0 the leaf dominates and adjacent tiles look distinct, and raising the level shifts weight to deeper supertiles so larger blocks of macro structure emerge.
 
     ### Visual stability
 
-    The substitution's natural cluster orientation drifts by ~10° per level, and at *a* ≠ *b* the inflation isn't even conformal — so increasing the substitution depth or sliding between hat and turtle would otherwise spin the figure on every change. As a purely visual convenience we counter that: each metatile type's mass-weighted centroid is tracked through the substitution (a 9 × 8 × depth recurrence, independent of the 17 M leaves below), and per frame the whole cluster is rotated around its centroid to a depth-independent orientation target. The cluster centroid stays pinned to the same screen position too, so depth and morph changes feel like the figure refining in place rather than swinging around.
+    The natural cluster orientation drifts by ~10° per level, and at *a* ≠ *b* the inflation isn't even conformal, so changing depth or morph would otherwise spin the figure. To counter that, each metatile type's mass-weighted centroid is tracked through the substitution (a 9 × 8 × depth recurrence, independent of the 17 M leaves below), and per frame the cluster is rotated around its centroid to a fixed orientation target. The centroid also stays pinned on screen, so depth and morph changes feel like the figure refining in place.
   </script>
 
   <script id="render-controls" type="text/x-typescript">
