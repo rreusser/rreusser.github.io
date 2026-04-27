@@ -337,8 +337,8 @@
       chord.setAttribute('x1', '0');  chord.setAttribute('y1', '0');
       chord.setAttribute('x2', '1');  chord.setAttribute('y2', '0');
       chord.setAttribute('stroke', CHORD_COL);
-      chord.setAttribute('stroke-width', '0.012');
-      chord.setAttribute('stroke-dasharray', '0.04 0.03');
+      chord.setAttribute('stroke-width', '0.007');
+      chord.setAttribute('stroke-dasharray', '0.03 0.025');
       _svg.appendChild(chord);
 
       // Curve: cubic from (0,0) to (1,0) passing through Q1=(h1t,h1n)
@@ -353,7 +353,7 @@
         `M 0 0 C ${c1t} ${-c1n}, ${c2t} ${-c2n}, 1 0`);
       path.setAttribute('fill', 'none');
       path.setAttribute('stroke', CURVE_COL);
-      path.setAttribute('stroke-width', '0.025');
+      path.setAttribute('stroke-width', '0.014');
       _svg.appendChild(path);
 
       // Endpoint and midpoint markers (informational; not draggable).
@@ -361,7 +361,7 @@
         const dot = document.createElementNS(_svgNS, 'circle');
         dot.setAttribute('cx', String(x));
         dot.setAttribute('cy', String(-y));
-        dot.setAttribute('r', '0.04');
+        dot.setAttribute('r', '0.025');
         dot.setAttribute('fill', PT);
         _svg.appendChild(dot);
       }
@@ -372,7 +372,7 @@
       const q2 = document.createElementNS(_svgNS, 'circle');
       q2.setAttribute('cx', String(c.h2t));
       q2.setAttribute('cy', String(-c.h2n));
-      q2.setAttribute('r', '0.035');
+      q2.setAttribute('r', '0.022');
       q2.setAttribute('fill', PT);
       q2.setAttribute('opacity', '0.6');
       _svg.appendChild(q2);
@@ -380,10 +380,10 @@
       const q1 = document.createElementNS(_svgNS, 'circle');
       q1.setAttribute('cx', String(c.h1t));
       q1.setAttribute('cy', String(-c.h1n));
-      q1.setAttribute('r', '0.06');
+      q1.setAttribute('r', '0.04');
       q1.setAttribute('fill', HANDLE_COL);
       q1.setAttribute('stroke', '#222');
-      q1.setAttribute('stroke-width', '0.012');
+      q1.setAttribute('stroke-width', '0.008');
       q1.setAttribute('cursor', 'grab');
       (q1 as any).dataset.handle = 'c1';
       _svg.appendChild(q1);
@@ -2182,13 +2182,10 @@
     function buildBoundary(verts: [number, number][], byEdge: Record<number, EdgeHandles>): Float32Array {
       // adaptive-bezier-curve's `scale` argument sets distanceTolerance =
       // 1/scale in world units, applied as |perp deviation| / |chord| ≤
-      // 1/scale. SCALE = 60 ends recursion at ~1.7 % of edge length,
-      // which projects to roughly half a pixel on a 640 px canvas at the
-      // typical zoom — smooth-looking but cheap to triangulate (5–8
-      // verts per edge, vs 18+ at scale 200). The earlier finer setting
-      // produced too many vertices and made earcut + GPU upload stutter
-      // during fast handle drags.
-      const SCALE = 60;
+      // 1/scale. SCALE = 40 ends recursion at ~2.5 % of edge length —
+      // still under a pixel at the default canvas zoom but ~30 %
+      // cheaper to triangulate per drag tick than the earlier 60.
+      const SCALE = 40;
       const DEGENERATE_EPS = 1e-6;
       const pts: number[] = [];
       for (let i = 0; i < 14; i++) {
