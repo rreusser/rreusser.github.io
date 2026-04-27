@@ -802,12 +802,12 @@
     //
     // The walker descends until the first cell falls under the threshold
     // and aggregates there, so cell sizes after aggregation land in
-    // (AGG_PX/inflation, AGG_PX] = (~AGG_PX/2.8, AGG_PX]. Picking 44 puts
-    // typical aggregate cells around 16–44 px — small enough that
-    // individual aggregates read as single mosaic tiles rather than
-    // monolithic blocks, but small enough also that detail persists
-    // farther into zoom-out before the level-aggregation kicks in.
-    const AGG_PX = 44;
+    // (AGG_PX/inflation, AGG_PX] = (~AGG_PX/2.8, AGG_PX]. Refinement
+    // (the transition from aggregate polygon back to individual leaves
+    // as the user zooms in) happens at the same threshold, so a smaller
+    // AGG_PX pushes refinement to fire at a smaller on-screen size —
+    // detail persists farther into zoom-out.
+    const AGG_PX = 22;
     // _localRadius is measured from the spectre's corner origin (vertex 0),
     // so for any supertile it's ~1.5× the cluster's true centered radius
     // (empirically 1.44 at sub-level 3, growing to 1.64 at sub-level 5).
