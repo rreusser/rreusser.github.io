@@ -171,9 +171,9 @@
   <script id="edge-editor-section" type="text/markdown">
     ### Curving the edges
 
-    The chiral spectre tiles aperiodically when each edge is replaced by a curve, provided every edge of a given type uses the same curve shape (in edge-local coords) and that shape is invariant under 180° rotation about the edge midpoint. Two edges of the same type always meet head-to-head in the tiling, so a midpoint-symmetric curve sees its own mirror image on the far side and matches automatically. That leaves two free curves — one for the eight *a*-edges, one for the six *b*-edges — and four free numbers in total: a single handle per type (its mate inside the same edge follows from the symmetry).
+    The chiral spectre tiles aperiodically when each edge is replaced by a single shared cubic-Bézier curve, applied identically in every edge's local frame and made invariant under 180° rotation about its own midpoint. The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same. That collapses the editor to a single master handle (its mate inside the same edge follows from the symmetry); two free numbers in total.
 
-    The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. *a*-edges are highlighted in orange, *b*-edges in blue; handles on edges of the same colour are linked, so dragging any one of them updates that type's shared curve everywhere.
+    The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. *a*-edges are tinted orange and *b*-edges blue so you can see which kind of edge each handle sits on, but every handle is wired to the same shared curve and dragging any of them updates all 14 edges.
   </script>
 
   <script id="tile-edge-geometry" type="text/x-typescript">
@@ -184,14 +184,13 @@
     // visual handles consistent with the rendered triangulation.
     //
     // The matching condition for the chiral spectre's curved edges is:
-    // (1) every a-edge uses the same curve shape in its local frame,
-    // (2) every b-edge uses another single curve shape, and (3) each
-    // curve is point-symmetric about its own edge midpoint. Two edges
-    // of the same type always meet head-to-head in the tiling (their
-    // direction vectors differ by 180°, which preserves a/b parity),
-    // so symmetry (3) makes the same physical curve appear on both
-    // sides regardless of orientation. That gives just 2 free handles
-    // (one per type), 4 DOF total.
+    // every edge — a-edge and b-edge alike — uses the same curve in
+    // its own edge-local frame, and that curve is point-symmetric
+    // about its midpoint. The mirror tile from the substitution rule
+    // ties a- and b-edges together, so they can't be set independently;
+    // anything else leaves visible mismatches at the mystic's overlap.
+    // One free handle (its mate inside the same edge falls out of the
+    // symmetry), 2 DOF total.
     //
     // Handles live in edge-local fractional coords (t along the edge in
     // units of edge length, n perpendicular in the same units). Default
@@ -239,39 +238,31 @@
   </script>
 
   <script id="edge-editor" type="text/x-typescript">
-    // SVG editor for the spectre's two cubic-Bézier handles (one per
-    // edge type). Every edge displays its own pair of control points,
-    // but a-edges all read from a single shared store and b-edges from
-    // another, so dragging any handle on an a-edge updates all eight
-    // a-edges in lockstep (same for b). Within each shared curve the
-    // c2 handle mirrors c1 through the edge midpoint:
+    // SVG editor for the spectre's single cubic-Bézier shape. All 14
+    // edges share one EdgeHandles object (in edge-local fractional
+    // coords) — both a-edges and b-edges, since the substitution's
+    // mirror tile forces them to be the same curve. Within the curve
+    // the c2 handle mirrors c1 through the edge midpoint:
     //   h2t = 1 − h1t,  h2n = −h1n
-    // which is the matching rule the chiral spectre's curved variants
-    // need. The defaults (1/3, 0) / (2/3, 0) satisfy this trivially,
-    // so the resting state is the straight-edge spectre.
+    // and the defaults (1/3, 0) / (2/3, 0) already satisfy that, so
+    // the resting state is the original straight-edge spectre.
     //
     // The editor lives in the WebGPU figure's controls panel
     // (#spectre-controls) so the tiling redraws as the user drags;
     // the markdown introduction above sits in document position and
-    // explains the colour coding (a-edges orange, b-edges blue).
+    // explains the colour tinting (a-edges orange, b-edges blue) —
+    // visual only, every handle drives the same shared curve.
 
-    // Shared per-type stores. _handleStore is just a Record<number,
-    // EdgeHandles> view that points each of the 14 edges at the right
-    // type-master, so controlPointsFor / the mesh build can index it
-    // by raw edge index without caring about the partition.
-    const _aCurve: EdgeHandles = { ...DEFAULT_HANDLES };
-    const _bCurve: EdgeHandles = { ...DEFAULT_HANDLES };
+    // One curve, 14 references to it. _handleStore lets controlPointsFor
+    // / the mesh build index by raw edge number without knowing about
+    // the linkage.
+    const _curve: EdgeHandles = { ...DEFAULT_HANDLES };
     const _handleStore: Record<number, EdgeHandles> = {};
-    for (let i = 0; i < 14; i++) {
-      _handleStore[i] = SPECTRE_A_EDGES.has(i) ? _aCurve : _bCurve;
-    }
+    for (let i = 0; i < 14; i++) _handleStore[i] = _curve;
     function checkDefault(): boolean {
       const tol = 1e-9;
-      for (const c of [_aCurve, _bCurve]) {
-        if (Math.abs(c.h1t - 1/3) > tol || Math.abs(c.h1n) > tol
-         || Math.abs(c.h2t - 2/3) > tol || Math.abs(c.h2n) > tol) return false;
-      }
-      return true;
+      return Math.abs(_curve.h1t - 1/3) < tol && Math.abs(_curve.h1n) < tol
+          && Math.abs(_curve.h2t - 2/3) < tol && Math.abs(_curve.h2n) < tol;
     }
     // Mirror the dragged handle through the edge midpoint to keep the
     // shared curve point-symmetric. (1/2, 0) is the midpoint in
@@ -467,9 +458,7 @@
     _resetBtn.style.cssText = 'padding: 3px 10px; font-size: 12px; cursor: pointer;';
     _resetBtn.disabled = true;
     _resetBtn.addEventListener('click', () => {
-      // Reset both per-type curves to the straight-edge defaults.
-      Object.assign(_aCurve, DEFAULT_HANDLES);
-      Object.assign(_bCurve, DEFAULT_HANDLES);
+      Object.assign(_curve, DEFAULT_HANDLES);
       rerender();
       emit();
     });
