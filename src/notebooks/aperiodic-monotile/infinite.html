@@ -833,17 +833,17 @@
     // own-color saturation. Texture and contrast come from the mid and
     // large scale objects, not the about-to-disappear small ones.
     //
-    // σ ≈ 0.45 makes the dominant ancestor account for ~88% of the cell's
-    // color and the next ancestor only ~12%. With shift = 0, that means
-    // adjacent same-parent cells share at most 12% of their color via the
-    // shared parent — too little for the eye to group them as a single
-    // region. The visual scale stays at the per-cell level at every zoom,
-    // even though the cell's own substitution level grows with zoom.
-    // Wider σ values let the parent contribution dominate enough that 8
-    // siblings under the same level-(K+1) parent average together into a
-    // single coloured region, giving the deep-zoom view a qualitatively
-    // larger-scale character than the moderate-zoom view.
-    const SIGMA = 0.45;
+    // σ ≈ 1.5 spreads each cell's blend across ~5 levels of ancestry:
+    // self ~28%, parent ~22%, grandparent ~12%, great-grandparent ~5%,
+    // and a long tail. With cell-centered weights this is intrinsic to
+    // the cell's position in the hierarchy (no zoom dependence), so the
+    // multi-scale structure is *consistent* across zooms instead of
+    // collapsing or rotating. Adjacent cells of different types differ at
+    // the per-cell scale; cells under different parents differ at the
+    // per-parent scale; cells under different grandparents differ at the
+    // per-grandparent scale — three scales of visible structure at once,
+    // showing up at every zoom level.
+    const SIGMA = 1.5;
     const _TWO_SIGMA_SQ = 2 * SIGMA * SIGMA;
     // Offset of the Gaussian center from viewLevel. With the alpha-fade
     // band handling the visual smoothness at the aggregate-to-children
@@ -995,7 +995,11 @@
         // cover whatever the aggregate was hiding — no discontinuity.
         const pixelExtent = 2 * r * pixelScale;
         const aggThresh = AGG_PX * _LOOSE_RADIUS_FACTOR;
-        const fadeUpper = aggThresh * 2;
+        // 4× zoom range for the fade band (~1.5 substitution levels)
+        // gives a noticeably gentler crossfade than 2× — both refinement
+        // levels stay alive long enough for the eye to register the
+        // transition rather than seeing it snap by.
+        const fadeUpper = aggThresh * 4;
 
         let childAlpha = alphaIn;
         if (pixelExtent < fadeUpper) {
