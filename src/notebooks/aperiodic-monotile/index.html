@@ -215,23 +215,32 @@
       const nx = ty, ny = -tx;
       return { p0, p1, tx, ty, nx, ny, len };
     }
-    // World-space control points for edge i, read directly from the
-    // store. The pairing constraint is maintained by the editor at
-    // drag time, so this function doesn't need to know about it.
+    // World-space control points for edge i. Even-indexed edges
+    // apply the master curve forward; odd-indexed edges apply it
+    // reversed in edge-local coords:
+    //   forward:  C1 = (h1t, h1n),     C2 = (h2t, h2n)
+    //   reverse:  C1 = (1 − h2t, h2n), C2 = (1 − h1t, h1n)
+    // i.e. swap c1↔c2 and flip t. That's the "even/odd parity"
+    // hypothesis for the spectre's edge-matching partition.
     function controlPointsFor(
       i: number,
       handlesByEdge: Record<number, EdgeHandles>,
       verts: [number, number][],
     ): { c1: [number, number]; c2: [number, number] } {
       const h = handlesByEdge[i];
+      const reversed = (i & 1) === 1;
+      const ht1 = reversed ? 1 - h.h2t : h.h1t;
+      const hn1 = reversed ? h.h2n     : h.h1n;
+      const ht2 = reversed ? 1 - h.h1t : h.h2t;
+      const hn2 = reversed ? h.h1n     : h.h2n;
       const f = edgeFrame(verts, i);
       const c1: [number, number] = [
-        f.p0[0] + h.h1t * (f.p1[0] - f.p0[0]) + h.h1n * f.len * f.nx,
-        f.p0[1] + h.h1t * (f.p1[1] - f.p0[1]) + h.h1n * f.len * f.ny,
+        f.p0[0] + ht1 * (f.p1[0] - f.p0[0]) + hn1 * f.len * f.nx,
+        f.p0[1] + ht1 * (f.p1[1] - f.p0[1]) + hn1 * f.len * f.ny,
       ];
       const c2: [number, number] = [
-        f.p0[0] + h.h2t * (f.p1[0] - f.p0[0]) + h.h2n * f.len * f.nx,
-        f.p0[1] + h.h2t * (f.p1[1] - f.p0[1]) + h.h2n * f.len * f.ny,
+        f.p0[0] + ht2 * (f.p1[0] - f.p0[0]) + hn2 * f.len * f.nx,
+        f.p0[1] + ht2 * (f.p1[1] - f.p0[1]) + hn2 * f.len * f.ny,
       ];
       return { c1, c2 };
     }
@@ -415,7 +424,6 @@
       const t = sx, n = -sy;
       if (_drag.handle === 'c1') { _curve.h1t = t; _curve.h1n = n; }
       else                       { _curve.h2t = t; _curve.h2n = n; }
-      syncSymmetry(_curve, _drag.handle);
       rerender();
       emit();
     });
