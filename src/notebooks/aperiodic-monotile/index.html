@@ -287,28 +287,19 @@
 
     const _editorRoot = document.createElement('div');
     _editorRoot.style.cssText = 'margin: 4px auto; max-width: 100%;';
-    const _editorSize = 200;
-    const _editorVerts = projectSpectreVerts(1, 1);
-    let _eMnX = Infinity, _eMxX = -Infinity, _eMnY = Infinity, _eMxY = -Infinity;
-    for (const [x, y] of _editorVerts) {
-      if (x < _eMnX) _eMnX = x; if (x > _eMxX) _eMxX = x;
-      if (y < _eMnY) _eMnY = y; if (y > _eMxY) _eMxY = y;
-    }
-    const _eCx = (_eMnX + _eMxX) / 2;
-    const _eCy = (_eMnY + _eMxY) / 2;
-    // Tight padding now that only edge 0's two handles can stray beyond
-    // the boundary; just enough that a moderately-pulled handle still
-    // sits inside the viewBox.
-    const _eSide = Math.max(_eMxX - _eMnX, _eMxY - _eMnY) + 0.6;
-    const _eVbX = _eCx - _eSide / 2;
-    const _eVbY = -_eCy - _eSide / 2;
-    const _eVbW = _eSide, _eVbH = _eSide;
+    // Flat single-edge layout: P0 at (0,0), P3 at (1,0), with vertical
+    // headroom above and below for handles dragged off-axis. Aspect
+    // 12:5 keeps the chord prominent without wasting vertical space.
+    const _editorW = 240;
+    const _editorH = 100;
+    const _eVbX = -0.15, _eVbY = -0.55;
+    const _eVbW = 1.30,  _eVbH = 1.10;
 
     const _svgNS = 'http://www.w3.org/2000/svg';
     const _svg = document.createElementNS(_svgNS, 'svg');
     _svg.setAttribute('viewBox', `${_eVbX} ${_eVbY} ${_eVbW} ${_eVbH}`);
-    _svg.setAttribute('width', String(_editorSize));
-    _svg.setAttribute('height', String(_editorSize));
+    _svg.setAttribute('width', String(_editorW));
+    _svg.setAttribute('height', String(_editorH));
     _svg.style.cssText = 'display: block; margin: 0 auto; touch-action: none; user-select: none; cursor: default;';
 
     // Color coding for the two edge types: a-edges (length a) in
@@ -320,75 +311,64 @@
       return SPECTRE_A_EDGES.has(i) ? A_COLOR : B_COLOR;
     }
 
-    function buildPath(verts: [number, number][]): string {
-      // M to v0, then 14 cubic-bezier C commands closing at v0.
-      let d = `M ${verts[0][0]} ${-verts[0][1]}`;
-      for (let i = 0; i < 14; i++) {
-        const { c1, c2 } = controlPointsFor(i, _handleStore, verts);
-        const p1 = verts[(i + 1) % 14];
-        d += ` C ${c1[0]} ${-c1[1]}, ${c2[0]} ${-c2[1]}, ${p1[0]} ${-p1[1]}`;
-      }
-      return d + ' Z';
-    }
-
     function rerender(): void {
       while (_svg.firstChild) _svg.removeChild(_svg.firstChild);
-      // Filled polygon with curved edges.
+      const c = _curve;
+      const STEM = '#888', PT = '#222', HANDLE_COL = A_COLOR;
+
+      // Faint chord from P0=(0,0) to P3=(1,0).
+      const chord = document.createElementNS(_svgNS, 'line');
+      chord.setAttribute('x1', '0');  chord.setAttribute('y1', '0');
+      chord.setAttribute('x2', '1');  chord.setAttribute('y2', '0');
+      chord.setAttribute('stroke', '#bbb');
+      chord.setAttribute('stroke-width', '0.012');
+      chord.setAttribute('stroke-dasharray', '0.04 0.03');
+      _svg.appendChild(chord);
+
+      // Curve: cubic from (0,0) to (1,0) through (h1t, h1n) and
+      // (h2t, h2n). SVG y is flipped relative to edge-local n.
       const path = document.createElementNS(_svgNS, 'path');
-      path.setAttribute('d', buildPath(_editorVerts));
-      path.setAttribute('fill', '#cfe1f5');
+      path.setAttribute('d',
+        `M 0 0 C ${c.h1t} ${-c.h1n}, ${c.h2t} ${-c.h2n}, 1 0`);
+      path.setAttribute('fill', 'none');
       path.setAttribute('stroke', '#222');
-      path.setAttribute('stroke-width', '0.03');
-      path.setAttribute('stroke-linejoin', 'round');
+      path.setAttribute('stroke-width', '0.025');
       _svg.appendChild(path);
 
-      // Vertices.
-      for (let i = 0; i < 14; i++) {
-        const [x, y] = _editorVerts[i];
-        const c = document.createElementNS(_svgNS, 'circle');
-        c.setAttribute('cx', String(x));
-        c.setAttribute('cy', String(-y));
-        c.setAttribute('r', '0.05');
-        c.setAttribute('fill', '#222');
-        _svg.appendChild(c);
+      // Endpoint and midpoint markers (informational; not draggable).
+      for (const [x, y] of [[0, 0], [1, 0], [0.5, 0]] as const) {
+        const dot = document.createElementNS(_svgNS, 'circle');
+        dot.setAttribute('cx', String(x));
+        dot.setAttribute('cy', String(-y));
+        dot.setAttribute('r', '0.04');
+        dot.setAttribute('fill', PT);
+        _svg.appendChild(dot);
       }
 
-      // Handles on the single editable edge. Two passes so the dots
-      // draw above the stems for clean hit-testing.
-      const i = EDITABLE_EDGE;
-      const { c1, c2 } = controlPointsFor(i, _handleStore, _editorVerts);
-      const p0 = _editorVerts[i];
-      const p1 = _editorVerts[(i + 1) % 14];
-      const col = edgeColor(i);
-      for (let pass = 0; pass < 2; pass++) {
-        for (const [from, to, which] of [
-          [p0, c1, 'c1'], [p1, c2, 'c2'],
-        ] as const) {
-          if (pass === 0) {
-            const ln = document.createElementNS(_svgNS, 'line');
-            ln.setAttribute('x1', String(from[0]));
-            ln.setAttribute('y1', String(-from[1]));
-            ln.setAttribute('x2', String(to[0]));
-            ln.setAttribute('y2', String(-to[1]));
-            ln.setAttribute('stroke', col);
-            ln.setAttribute('stroke-width', '0.018');
-            ln.setAttribute('stroke-dasharray', '0.05 0.05');
-            ln.setAttribute('opacity', '0.85');
-            _svg.appendChild(ln);
-          } else {
-            const dot = document.createElementNS(_svgNS, 'circle');
-            dot.setAttribute('cx', String(to[0]));
-            dot.setAttribute('cy', String(-to[1]));
-            dot.setAttribute('r', '0.09');
-            dot.setAttribute('fill', col);
-            dot.setAttribute('stroke', '#222');
-            dot.setAttribute('stroke-width', '0.015');
-            dot.setAttribute('cursor', 'grab');
-            (dot as any).dataset.edge = String(i);
-            (dot as any).dataset.handle = which;
-            _svg.appendChild(dot);
-          }
-        }
+      // Two handle stems + dots. Dots in a second pass so they sit on top.
+      const handles: Array<['c1' | 'c2', [number, number], [number, number]]> = [
+        ['c1', [0, 0], [c.h1t, c.h1n]],
+        ['c2', [1, 0], [c.h2t, c.h2n]],
+      ];
+      for (const [, anchor, to] of handles) {
+        const ln = document.createElementNS(_svgNS, 'line');
+        ln.setAttribute('x1', String(anchor[0])); ln.setAttribute('y1', String(-anchor[1]));
+        ln.setAttribute('x2', String(to[0]));     ln.setAttribute('y2', String(-to[1]));
+        ln.setAttribute('stroke', STEM);
+        ln.setAttribute('stroke-width', '0.014');
+        ln.setAttribute('stroke-dasharray', '0.04 0.03');
+        _svg.appendChild(ln);
+      }
+      for (const [which, , to] of handles) {
+        const dot = document.createElementNS(_svgNS, 'circle');
+        dot.setAttribute('cx', String(to[0])); dot.setAttribute('cy', String(-to[1]));
+        dot.setAttribute('r', '0.05');
+        dot.setAttribute('fill', HANDLE_COL);
+        dot.setAttribute('stroke', '#222');
+        dot.setAttribute('stroke-width', '0.012');
+        dot.setAttribute('cursor', 'grab');
+        (dot as any).dataset.handle = which;
+        _svg.appendChild(dot);
       }
     }
 
@@ -410,35 +390,26 @@
       _editorRoot.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
-    let _drag: { edge: number; handle: 'c1' | 'c2'; pointerId: number } | null = null;
+    let _drag: { handle: 'c1' | 'c2'; pointerId: number } | null = null;
     _svg.addEventListener('pointerdown', (ev) => {
       const target = ev.target as HTMLElement | null;
       if (!target || target.tagName.toLowerCase() !== 'circle') return;
-      const edgeStr = (target as any).dataset.edge;
-      const handle  = (target as any).dataset.handle;
-      if (edgeStr == null || (handle !== 'c1' && handle !== 'c2')) return;
-      _drag = { edge: parseInt(edgeStr, 10), handle, pointerId: ev.pointerId };
+      const handle = (target as any).dataset.handle;
+      if (handle !== 'c1' && handle !== 'c2') return;
+      _drag = { handle, pointerId: ev.pointerId };
       _svg.setPointerCapture(ev.pointerId);
       target.setAttribute('cursor', 'grabbing');
       ev.preventDefault();
     });
     _svg.addEventListener('pointermove', (ev) => {
       if (!_drag || ev.pointerId !== _drag.pointerId) return;
+      // SVG coords are already in edge-local (t, n). Y is flipped:
+      // n = −y_svg.
       const [sx, sy] = svgPoint(ev);
-      // SVG y is flipped; convert back to world coords.
-      const wx = sx, wy = -sy;
-      const f = edgeFrame(_editorVerts, _drag.edge);
-      // Project (wx, wy) − p0 onto (tangent, normal).
-      const dx = wx - f.p0[0], dy = wy - f.p0[1];
-      const tDist = (dx * f.tx + dy * f.ty) / f.len;
-      const nDist = (dx * f.nx + dy * f.ny) / f.len;
-      // Write into the *type's* shared curve (every edge's _handleStore
-      // entry references one of two singletons), then mirror inside
-      // that curve to keep the c1/c2 midpoint symmetry.
-      const curve = _handleStore[_drag.edge];
-      if (_drag.handle === 'c1') { curve.h1t = tDist; curve.h1n = nDist; }
-      else                       { curve.h2t = tDist; curve.h2n = nDist; }
-      syncSymmetry(curve, _drag.handle);
+      const t = sx, n = -sy;
+      if (_drag.handle === 'c1') { _curve.h1t = t; _curve.h1n = n; }
+      else                       { _curve.h2t = t; _curve.h2n = n; }
+      syncSymmetry(_curve, _drag.handle);
       rerender();
       emit();
     });
