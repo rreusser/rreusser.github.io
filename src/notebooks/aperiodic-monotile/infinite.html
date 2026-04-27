@@ -833,13 +833,14 @@
     // own-color saturation. Texture and contrast come from the mid and
     // large scale objects, not the about-to-disappear small ones.
     //
-    // σ ≈ 1.2 spreads the blend across ~5 substitution levels, so
-    // structure at multiple scales contributes to each cell's color
-    // simultaneously. Mid-size cells (~2.5× AGG) read ~51% own / 36%
-    // parent / 13% grandparent — three levels of ancestry visible at
-    // once, which is what makes mid- and large-scale supertile boundaries
-    // legible rather than washing out into per-cell type colors.
-    const SIGMA = 1.2;
+    // σ ≈ 0.7 keeps the dominant ancestor's contribution to ~73% of the
+    // cell's color, with the next two ancestors at ~13% each. That keeps
+    // adjacent same-parent cells visibly distinct (each cell's own type
+    // colour drives most of the result) so the smallest-scale unit reads
+    // as the smallest-scale unit at every zoom — instead of all the
+    // cells in one parent cluster averaging into a single regional
+    // colour the way they would with a wider σ.
+    const SIGMA = 0.7;
     const _TWO_SIGMA_SQ = 2 * SIGMA * SIGMA;
     // Offset of the Gaussian center from viewLevel. With the alpha-fade
     // band handling the visual smoothness at the aggregate-to-children
