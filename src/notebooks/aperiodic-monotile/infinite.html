@@ -64,7 +64,7 @@
     // covering all such sub-pixel mismatches. The overlap is invisible
     // because adjacent leaves' fill colors are picked by the walker to
     // be visually similar at the moment of rendering.
-    const _LEAF_DILATE = 1.012;
+    const _LEAF_DILATE = 1.02;
     const meshVertexData = (() => {
       let cx = 0, cy = 0;
       for (const v of spectreVertices) { cx += v[0]; cy += v[1]; }
@@ -632,7 +632,7 @@
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
-      const DILATE = 1.012;
+      const DILATE = 1.02;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
       for (let i = 0; i < simplified.length; i++) {
@@ -1153,9 +1153,15 @@
       walkerState.extensionLevel += 1;
     }
 
-    // Extend while the current root's bounding circle doesn't cover the
-    // view-corner farthest from the root center. The 0.95 factor leaves
-    // a small margin so we extend before the user actually sees an edge.
+    // Extend while the current root's bounding circle isn't comfortably
+    // bigger than the viewport. _localRadius is measured from the spectre
+    // tile's corner origin (vertex 0), not the cluster's centroid, so in
+    // some directions the cluster covers as little as ~35% of that
+    // radius. To guarantee that every viewport pixel falls inside the
+    // cluster's actual shape (not just the bounding circle), we want
+    // distToCorner ≤ ~0.35 × r. Picking 0.3 gives a small safety margin.
+    // Each extension is O(1) and grows the cluster by ~2.5×, so the
+    // tighter threshold typically costs ~1 extra extension level.
     function maybeExtend(view: WalkView): void {
       let safety = 64;
       while (safety-- > 0) {
@@ -1167,7 +1173,7 @@
         const dx = Math.abs(view.centerX - cx) + halfW;
         const dy = Math.abs(view.centerY - cy) + halfH;
         const distToCorner = Math.hypot(dx, dy);
-        if (distToCorner <= 0.95 * r) return;
+        if (distToCorner <= 0.3 * r) return;
         extendRootUpward();
       }
     }
