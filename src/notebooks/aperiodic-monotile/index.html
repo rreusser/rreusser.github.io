@@ -2193,12 +2193,13 @@
     function buildBoundary(verts: [number, number][], byEdge: Record<number, EdgeHandles>): Float32Array {
       // adaptive-bezier-curve's `scale` argument sets distanceTolerance =
       // 1/scale in world units, applied as |perp deviation| / |chord| ≤
-      // 1/scale. With scale = 200 the test ends recursion when the
-      // control-point lever arms project less than ~0.5 % of edge length
-      // off the chord — visually indistinguishable on a 640 px canvas
-      // and well below the spectre's ~16-verts-per-edge cap at typical
-      // handle ranges.
-      const SCALE = 200;
+      // 1/scale. SCALE = 60 ends recursion at ~1.7 % of edge length,
+      // which projects to roughly half a pixel on a 640 px canvas at the
+      // typical zoom — smooth-looking but cheap to triangulate (5–8
+      // verts per edge, vs 18+ at scale 200). The earlier finer setting
+      // produced too many vertices and made earcut + GPU upload stutter
+      // during fast handle drags.
+      const SCALE = 60;
       const DEGENERATE_EPS = 1e-6;
       const pts: number[] = [];
       for (let i = 0; i < 14; i++) {
@@ -2303,6 +2304,11 @@
       _outline[i * 2 + 1] = (i + 1) % _outlineN;
     }
     gpuState.uploadOutlineIndices(_outline, _outline.length);
+    // Single redraw after all three uploads — keeps vertex / fill /
+    // outline data consistent in the next frame, instead of three
+    // staggered redraws where intermediate frames see fresh verts paired
+    // with stale indices (which tore visibly during fast handle drags).
+    if (gpuState.lastCount) gpuState.redraw();
   </script>
 
   <script id="gpu-render" type="text/x-typescript">

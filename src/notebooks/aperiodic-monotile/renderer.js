@@ -190,13 +190,16 @@ export function createGpuRenderer({
     // when the user pulls a handle off-center.
     fillIndexCount: meshFillIndices.length,
     outlineIndexCount: meshOutlineIndices.length,
-    // Per parity, re-upload the spectre vertices for the current morph and
-    // redraw. `evenData` is Tile(a, b); `oddData` is Tile(b, a). Draw calls
-    // pick the right buffer based on each instance's rotation parity.
+    // Per parity, re-upload the spectre vertices for the current morph.
+    // `evenData` is Tile(a, b); `oddData` is Tile(b, a); draw calls pick
+    // the right buffer based on each instance's rotation parity. The
+    // upload methods don't redraw — that lets the curved-edge editor
+    // batch all three (mesh / fill / outline) into a single redraw,
+    // avoiding the intermediate frames where vertex data is fresh but
+    // index data is still stale (which would tear the polygon).
     uploadMeshes(evenData, oddData) {
       device.queue.writeBuffer(evenMeshVertexBuffer, 0, evenData);
       device.queue.writeBuffer(oddMeshVertexBuffer,  0, oddData);
-      if (this.lastCount) this.redraw();
     },
     uploadFillIndices(evenIndices, oddIndices, indexCount) {
       // Earcut on the morphed polygon may rearrange triangles (or produce
@@ -207,7 +210,6 @@ export function createGpuRenderer({
       device.queue.writeBuffer(fillIndexBufferEven, 0, evenIndices);
       device.queue.writeBuffer(fillIndexBufferOdd,  0, oddIndices);
       this.fillIndexCount = indexCount ?? evenIndices.length;
-      if (this.lastCount) this.redraw();
     },
     uploadOutlineIndices(indices, indexCount) {
       // Outline is the closed boundary loop; topology-wise it's the same
@@ -216,7 +218,6 @@ export function createGpuRenderer({
       // the number of boundary vertices.
       device.queue.writeBuffer(outlineIndexBuffer, 0, indices);
       this.outlineIndexCount = indexCount ?? indices.length;
-      if (this.lastCount) this.redraw();
     },
     resize(w, h) {
       const px = Math.max(1, Math.floor(w * devicePixelRatio));
