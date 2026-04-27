@@ -135,7 +135,7 @@
     // covering all such sub-pixel mismatches. The overlap is invisible
     // because adjacent leaves' fill colors are picked by the walker to
     // be visually similar at the moment of rendering.
-    const _LEAF_DILATE = 8.0;
+    const _LEAF_DILATE = 1.05;
     const meshVertexData = (() => {
       let cx = 0, cy = 0;
       for (const v of spectreVertices) { cx += v[0]; cy += v[1]; }
@@ -787,12 +787,7 @@
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
-      // DIAGNOSTIC: 5× aggregate-polygon dilation. If gaps persist with
-      // this much overdraw, they're not from chord-vs-chord mismatches
-      // between adjacent cells — there must be world-space regions
-      // where no cell of any kind is being emitted. Dial back once root
-      // cause is found.
-      const DILATE = 5.0;
+      const DILATE = 1.05;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
       for (let i = 0; i < simplified.length; i++) {
