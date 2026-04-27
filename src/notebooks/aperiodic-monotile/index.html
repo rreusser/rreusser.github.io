@@ -171,7 +171,9 @@
   <script id="edge-editor-section" type="text/markdown">
     ### Curving the edges
 
-    Each of the 14 edges can be replaced by any cubic Bézier whose curve is invariant under 180° rotation about its own midpoint. That symmetry is what makes the curved tile still tile aperiodically: every edge looks the same forwards and backwards, so adjacent tiles always meet on a matching curve regardless of orientation. Drag either of an edge's two handles and its mate flips through the midpoint to keep the symmetry; the defaults `(1/3, 0)` and `(2/3, 0)` already satisfy it, so straight edges fall out of the same constraint. Reset restores those defaults (and the fast 14-vertex / 12-triangle render path).
+    The chiral spectre tiles aperiodically when each edge is replaced by a curve, provided every edge of a given type uses the same curve shape (in edge-local coords) and that shape is invariant under 180° rotation about the edge midpoint. Two edges of the same type always meet head-to-head in the tiling, so a midpoint-symmetric curve sees its own mirror image on the far side and matches automatically. That leaves two free curves — one for the eight *a*-edges, one for the six *b*-edges — and four free numbers in total: a single handle per type (its mate inside the same edge follows from the symmetry).
+
+    The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. *a*-edges are highlighted in orange, *b*-edges in blue; handles on edges of the same colour are linked, so dragging any one of them updates that type's shared curve everywhere.
   </script>
 
   <script id="tile-edge-geometry" type="text/x-typescript">
@@ -181,18 +183,21 @@
     // definition of "control points for edge i" — keeping the editor's
     // visual handles consistent with the rendered triangulation.
     //
-    // Each of the 14 edges is a cubic Bézier. All 14 edges' handles are
-    // independently editable; the matching condition that keeps the
-    // curved spectre aperiodically tileable is enforced by syncing each
-    // pair (2k, 2k+1) on every drag (see edge-editor below). This cell
-    // just stores fractional coords and reads them back as world-space
-    // control points.
+    // The matching condition for the chiral spectre's curved edges is:
+    // (1) every a-edge uses the same curve shape in its local frame,
+    // (2) every b-edge uses another single curve shape, and (3) each
+    // curve is point-symmetric about its own edge midpoint. Two edges
+    // of the same type always meet head-to-head in the tiling (their
+    // direction vectors differ by 180°, which preserves a/b parity),
+    // so symmetry (3) makes the same physical curve appear on both
+    // sides regardless of orientation. That gives just 2 free handles
+    // (one per type), 4 DOF total.
     //
     // Handles live in edge-local fractional coords (t along the edge in
     // units of edge length, n perpendicular in the same units). Default
     // = (1/3, 0) and (2/3, 0), the equally-spaced control points of a
-    // straight cubic. The (a, b) morph just stretches the edge; handles
-    // ride along.
+    // straight cubic; midpoint symmetry is satisfied for free, so the
+    // resting state is the original straight-edge spectre.
     type EdgeHandles = { h1t: number; h1n: number; h2t: number; h2n: number };
     const DEFAULT_HANDLES: EdgeHandles = { h1t: 1/3, h1n: 0, h2t: 2/3, h2n: 0 };
 
@@ -234,54 +239,61 @@
   </script>
 
   <script id="edge-editor" type="text/x-typescript">
-    // SVG editor for the cubic-Bézier handles. Each of the 14 edges has
-    // two visible handles (c1, c2); both are draggable and the *other*
-    // handle on the same edge mirrors automatically through the edge
-    // midpoint to keep the curve point-symmetric — the matching rule
-    // for the chiral spectre's curved-edge variants. Edges don't talk
-    // to each other; they're independently editable.
+    // SVG editor for the spectre's two cubic-Bézier handles (one per
+    // edge type). Every edge displays its own pair of control points,
+    // but a-edges all read from a single shared store and b-edges from
+    // another, so dragging any handle on an a-edge updates all eight
+    // a-edges in lockstep (same for b). Within each shared curve the
+    // c2 handle mirrors c1 through the edge midpoint:
+    //   h2t = 1 − h1t,  h2n = −h1n
+    // which is the matching rule the chiral spectre's curved variants
+    // need. The defaults (1/3, 0) / (2/3, 0) satisfy this trivially,
+    // so the resting state is the straight-edge spectre.
     //
-    // In edge-local fractional coords the symmetry is just
-    //   h2t = 1 − h1t,   h2n = −h1n,
-    // and the defaults (1/3, 0) / (2/3, 0) already satisfy it, so
-    // "straight edge" and "matching-rule-respecting" are the same
-    // resting state.
+    // The editor lives in the WebGPU figure's controls panel
+    // (#spectre-controls) so the tiling redraws as the user drags;
+    // the markdown introduction above sits in document position and
+    // explains the colour coding (a-edges orange, b-edges blue).
 
-    // ─── Mutable handle store ─────────────────────────────────────────────
-    // Live edge-local fractional coords for all 14 edges. The "value"
-    // emitted by the cell is a fresh wrapper object (see emit()) so
-    // identity-comparing observers reliably re-run on each drag.
-    const _handleStore: Record<number, EdgeHandles> = Object.fromEntries(
-      Array.from({ length: 14 }, (_, i) => [i, { ...DEFAULT_HANDLES }]),
-    );
+    // Shared per-type stores. _handleStore is just a Record<number,
+    // EdgeHandles> view that points each of the 14 edges at the right
+    // type-master, so controlPointsFor / the mesh build can index it
+    // by raw edge index without caring about the partition.
+    const _aCurve: EdgeHandles = { ...DEFAULT_HANDLES };
+    const _bCurve: EdgeHandles = { ...DEFAULT_HANDLES };
+    const _handleStore: Record<number, EdgeHandles> = {};
+    for (let i = 0; i < 14; i++) {
+      _handleStore[i] = SPECTRE_A_EDGES.has(i) ? _aCurve : _bCurve;
+    }
     function checkDefault(): boolean {
       const tol = 1e-9;
-      for (let i = 0; i < 14; i++) {
-        const h = _handleStore[i];
-        if (Math.abs(h.h1t - 1/3) > tol || Math.abs(h.h1n) > tol
-         || Math.abs(h.h2t - 2/3) > tol || Math.abs(h.h2n) > tol) return false;
+      for (const c of [_aCurve, _bCurve]) {
+        if (Math.abs(c.h1t - 1/3) > tol || Math.abs(c.h1n) > tol
+         || Math.abs(c.h2t - 2/3) > tol || Math.abs(c.h2n) > tol) return false;
       }
       return true;
     }
-    // Mirror the dragged handle through the edge midpoint to keep
-    // the curve point-symmetric (the matching rule). In edge-local
-    // fractional coords the midpoint is (t, n) = (1/2, 0), so the
-    // 180° rotation is just (t, n) → (1 − t, −n).
-    function syncSymmetry(i: number, handle: 'c1' | 'c2'): void {
-      const h = _handleStore[i];
-      if (handle === 'c1') { h.h2t = 1 - h.h1t; h.h2n = -h.h1n; }
-      else                 { h.h1t = 1 - h.h2t; h.h1n = -h.h2n; }
+    // Mirror the dragged handle through the edge midpoint to keep the
+    // shared curve point-symmetric. (1/2, 0) is the midpoint in
+    // edge-local fractional coords, so the rotation is (t, n) →
+    // (1 − t, −n).
+    function syncSymmetry(curve: EdgeHandles, handle: 'c1' | 'c2'): void {
+      if (handle === 'c1') { curve.h2t = 1 - curve.h1t; curve.h2n = -curve.h1n; }
+      else                 { curve.h1t = 1 - curve.h2t; curve.h1n = -curve.h2n; }
     }
 
     // ─── SVG editor ───────────────────────────────────────────────────────
     // Single cell that drives both the visual editor and the downstream
-    // tileEdges generator. Pointer events live on the root <svg>, dragging
-    // updates the active user edge's (h1t, h1n) or (h2t, h2n) directly,
-    // re-renders the SVG, and emits 'input' events so Generators.input
-    // wakes the dependent cells.
+    // tileEdges generator. The editor is appended into the WebGPU
+    // figure's #spectre-controls panel so dragging gives immediate
+    // feedback; pointer events on the root <svg> update the dragged
+    // edge's type-shared curve, mirror inside the curve via syncSymmetry,
+    // and emit 'input' so dependent cells re-run.
     const _editorRoot = document.createElement('div');
-    _editorRoot.style.cssText = 'margin: 0.5em auto 1em; max-width: 420px;';
-    const _editorSize = Math.min(360, width);
+    _editorRoot.style.cssText = 'margin: 6px auto; max-width: 100%;';
+    // Sized to fit the controls panel comfortably; expandable() and the
+    // panel's own width constraints handle anything tighter.
+    const _editorSize = 240;
     const _editorVerts = projectSpectreVerts(1, 1);
     let _eMnX = Infinity, _eMxX = -Infinity, _eMnY = Infinity, _eMxY = -Infinity;
     for (const [x, y] of _editorVerts) {
@@ -302,6 +314,15 @@
     _svg.setAttribute('width', String(_editorSize));
     _svg.setAttribute('height', String(_editorSize));
     _svg.style.cssText = 'display: block; margin: 0 auto; touch-action: none; user-select: none; cursor: default;';
+
+    // Color coding for the two edge types: a-edges (length a) in
+    // orange, b-edges (length b) in blue, so the user can see at a
+    // glance which handles are linked together.
+    const A_COLOR = '#cc7a00';
+    const B_COLOR = '#2c6fb3';
+    function edgeColor(i: number): string {
+      return SPECTRE_A_EDGES.has(i) ? A_COLOR : B_COLOR;
+    }
 
     function buildPath(verts: [number, number][]): string {
       // M to v0, then 14 cubic-bezier C commands closing at v0.
@@ -336,15 +357,17 @@
         _svg.appendChild(c);
       }
 
-      // Handles — every edge's two control points are independently
-      // draggable; the partner edge's mirror handle updates on each
-      // drag (see syncPartner). Stems and dots in two passes so dots
-      // sit above stems (cleaner hit-testing).
+      // Handles — every edge shows its own pair (c1, c2). Dragging
+      // any handle updates that edge's *type* curve, so the visible
+      // handles on every other edge of the same type also move on the
+      // next rerender. Two passes so dots sit above stems for clean
+      // hit-testing.
       for (let pass = 0; pass < 2; pass++) {
         for (let i = 0; i < 14; i++) {
           const { c1, c2 } = controlPointsFor(i, _handleStore, _editorVerts);
           const p0 = _editorVerts[i];
           const p1 = _editorVerts[(i + 1) % 14];
+          const col = edgeColor(i);
           for (const [from, to, which] of [
             [p0, c1, 'c1'], [p1, c2, 'c2'],
           ] as const) {
@@ -354,7 +377,7 @@
               ln.setAttribute('y1', String(-from[1]));
               ln.setAttribute('x2', String(to[0]));
               ln.setAttribute('y2', String(-to[1]));
-              ln.setAttribute('stroke', '#cc7a00');
+              ln.setAttribute('stroke', col);
               ln.setAttribute('stroke-width', '0.018');
               ln.setAttribute('stroke-dasharray', '0.05 0.05');
               ln.setAttribute('opacity', '0.7');
@@ -364,7 +387,7 @@
               dot.setAttribute('cx', String(to[0]));
               dot.setAttribute('cy', String(-to[1]));
               dot.setAttribute('r', '0.085');
-              dot.setAttribute('fill', '#cc7a00');
+              dot.setAttribute('fill', col);
               dot.setAttribute('stroke', '#222');
               dot.setAttribute('stroke-width', '0.015');
               dot.setAttribute('cursor', 'grab');
@@ -417,10 +440,13 @@
       const dx = wx - f.p0[0], dy = wy - f.p0[1];
       const tDist = (dx * f.tx + dy * f.ty) / f.len;
       const nDist = (dx * f.nx + dy * f.ny) / f.len;
-      const h = _handleStore[_drag.edge];
-      if (_drag.handle === 'c1') { h.h1t = tDist; h.h1n = nDist; }
-      else                       { h.h2t = tDist; h.h2n = nDist; }
-      syncSymmetry(_drag.edge, _drag.handle);
+      // Write into the *type's* shared curve (every edge's _handleStore
+      // entry references one of two singletons), then mirror inside
+      // that curve to keep the c1/c2 midpoint symmetry.
+      const curve = _handleStore[_drag.edge];
+      if (_drag.handle === 'c1') { curve.h1t = tDist; curve.h1n = nDist; }
+      else                       { curve.h2t = tDist; curve.h2n = nDist; }
+      syncSymmetry(curve, _drag.handle);
       rerender();
       emit();
     });
@@ -441,7 +467,9 @@
     _resetBtn.style.cssText = 'padding: 3px 10px; font-size: 12px; cursor: pointer;';
     _resetBtn.disabled = true;
     _resetBtn.addEventListener('click', () => {
-      for (let i = 0; i < 14; i++) _handleStore[i] = { ...DEFAULT_HANDLES };
+      // Reset both per-type curves to the straight-edge defaults.
+      Object.assign(_aCurve, DEFAULT_HANDLES);
+      Object.assign(_bCurve, DEFAULT_HANDLES);
       rerender();
       emit();
     });
@@ -451,12 +479,13 @@
     _editorRoot.appendChild(_btnRow);
     rerender();
     (_editorRoot as any).value = { byEdge: _handleStore, isDefault: true };
-    display(html`<figure style="margin: 0 auto;">${_editorRoot}<figcaption>
-      Drag the orange handles to bend the spectre's edges. Each edge is paired
-      with its neighbour (the grey handles) by 180° rotation about the shared
-      vertex, which keeps the curved tile aperiodically tileable. Reset to
-      restore the original straight-edge tile and its 12-triangle fast path.
-    </figcaption></figure>`);
+    // Append into the WebGPU figure's controls panel (the same element
+    // that hosts the depth / morph / palette controls) so dragging a
+    // handle gives immediate feedback in the tiling. The cell's
+    // dependency on `controlsContainer` makes Observable run this cell
+    // after `render-controls` even though we're earlier in document
+    // order.
+    controlsContainer.appendChild(_editorRoot);
     const tileEdges = Generators.input(_editorRoot);
   </script>
 
