@@ -135,7 +135,7 @@
     // covering all such sub-pixel mismatches. The overlap is invisible
     // because adjacent leaves' fill colors are picked by the walker to
     // be visually similar at the moment of rendering.
-    const _LEAF_DILATE = 1.05;
+    const _LEAF_DILATE = 1.00;
     const meshVertexData = (() => {
       let cx = 0, cy = 0;
       for (const v of spectreVertices) { cx += v[0]; cy += v[1]; }
@@ -599,14 +599,16 @@
     // GPU shader, which the small DILATE below covers. Sub-level 5
     // boundary is ~3200 verts → ~3200 triangles per aggregate × ~5K
     // visible = ~16M triangles, well within GPU fill rate at 1.8M pixels.
-    // Above this sub-level, skip raw extraction — Spectre supertile
-    // boundaries are self-similar after simplification to 16 verts, so a
-    // donor polygon extracted once at the cap can stand in for all higher
-    // levels by scaling up by the radius ratio. Without this cap, extension
-    // level 9 would mean the walker tries to extract polygons from
-    // metatiles with billions of leaves, falls back to recursion, and
-    // emits millions of instances per frame.
-    const EXTRACT_CAP = 5;
+    // Above this sub-level, skip raw extraction and use a scaled donor
+    // polygon. The donor's shape is the cap-level cluster boundary;
+    // higher sub-levels' actual boundaries have additional fractal
+    // detail that the donor smooths over, which causes adjacent
+    // donor-scaled polygons to leave visible chord-mismatch slivers.
+    // Bumping the cap to 6 means a sub-level 6 cluster is extracted
+    // from real leaves (~530K leaves max per shape) — its boundary is
+    // exact, so adjacent same-shape sub-level 6 cells tile properly.
+    // Above 6 we still use the donor (now the sub-level 6 polygon).
+    const EXTRACT_CAP = 6;
 
     type BoundaryMesh = {
       polygon: Float32Array;        // flat (x0, y0, x1, y1, ...)
@@ -787,6 +789,14 @@
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
+      // Adjacent aggregate polygons leave chord-mismatch slivers from
+      // independent anchor-decimation and from donor-approximation
+      // mismatches at sub-levels > 5. With cluster size ~50 px on
+      // screen, DILATE = 1.5 gives ~12 px overlap per pair, enough to
+      // swallow runs of ~10 px or less. Aggregates draw on top of
+      // their parents at full alpha (in the fade band), so the heavy
+      // dilation doesn't blend colours muddily — adjacent same-α
+      // polygons fully replace each other in the overlap.
       const DILATE = 1.05;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
@@ -826,20 +836,24 @@
     const _gpuMeshCache = new WeakMap<MetaTile, GpuMesh | null>();
     const _gpuMeshByShape = new Map<string, GpuMesh | null>();
 
-    // Donor metatiles for boundary extraction, one per shape (Γ vs non-Γ).
-    // Their polygons are extracted on first demand and reused (scaled) for
-    // any same-shape metatile with subLevel > EXTRACT_CAP. The donor's
-    // _localRadius is captured so we can compute the scale factor without
-    // needing the Spectre inflation constant analytically.
+    // Donor metatiles for boundary extraction, one per shape (Γ vs non-Γ),
+    // at sub-level EXTRACT_CAP. Their polygons are extracted on first
+    // demand and reused (scaled) for any same-shape metatile with
+    // subLevel > EXTRACT_CAP. The donor's _localRadius is captured so we
+    // can compute the scale factor without needing the inflation constant
+    // analytically.
     //
-    // After BASE_DEPTH inflations every metatile in baseCluster has
-    // subLevel = BASE_DEPTH + 1, so we use baseCluster.Delta (non-Γ) and
-    // baseCluster.Gamma directly. baseCluster.Gamma isn't reachable from
-    // baseCluster.Delta, so its radii/sublevels aren't attached yet.
+    // baseCluster has subLevel = BASE_DEPTH + 1 = 5 metatiles. We need
+    // donors at EXTRACT_CAP = 6, so we inflate one more time to get
+    // sub-level 6 metatiles. The Γ donor is taken straight from
+    // baseCluster (subLevel 5 + 1 = 6 in the inflated cluster).
     const _donors = (() => {
-      attachRadii(baseCluster.Gamma);
-      attachSubLevels(baseCluster.Gamma);
-      return { nonGamma: baseCluster.Delta, gamma: baseCluster.Gamma };
+      const inflated = buildSupertiles(baseCluster);
+      attachRadii(inflated.Delta);
+      attachSubLevels(inflated.Delta);
+      attachRadii(inflated.Gamma);
+      attachSubLevels(inflated.Gamma);
+      return { nonGamma: inflated.Delta, gamma: inflated.Gamma };
     })();
 
     function _getDonorBoundary(isGamma: boolean): { mesh: BoundaryMesh; radius: number } | null {
@@ -927,7 +941,8 @@
         for (const { child } of mt.geometries) rec(child);
       }
       rec(walkerState.currentRoot);
-      rec(baseCluster.Gamma);
+      rec(_donors.nonGamma);
+      rec(_donors.gamma);
       // Donors for subLevel > EXTRACT_CAP — extract once so the first
       // scaled-polygon emission doesn't pay the donor's extraction cost.
       _getDonorBoundary(false);
