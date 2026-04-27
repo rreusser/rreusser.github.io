@@ -945,16 +945,20 @@
         b.i16[i * 8 + 4] = Math.max(-32768, Math.min(32767, Math.round(c * 32767)));
         b.i16[i * 8 + 5] = Math.max(-32768, Math.min(32767, Math.round(s * 32767)));
 
-        // Single-source Gaussian-weighted RGB blend over the ancestry chain
-        // plus this cell. weightTable was filled at the start of walk() so
-        // this is a few multiply-adds per ancestor instead of an exp per
-        // emit. All perceptual channels move together because they all
-        // come from one weighted sum.
+        // Cell-centered Gaussian-weighted RGB blend over the ancestry chain.
+        // weightTable[d] = exp(-d² / 2σ²) is indexed by level-distance from
+        // the cell. The cell itself gets weight[0] = 1 (peak), each
+        // ancestor d levels up gets weight[d]. This way every cell reads
+        // dominantly its own type color regardless of zoom; the visual
+        // character is consistent across substitution levels because the
+        // blend is intrinsic to the cell's position in the substitution
+        // hierarchy, not to the global zoom state.
         const cellCol = colorForLevelType(cellSubLevel, label);
-        let w = weightTable[cellSubLevel | 0];
+        let w = weightTable[0];
         let total = w, R = w * cellCol[0], G = w * cellCol[1], B = w * cellCol[2];
         for (let k = 0; k < ancDepth; k++) {
-          w = weightTable[stSubL[k] | 0];
+          const d = (stSubL[k] - cellSubLevel) | 0;
+          w = weightTable[d < 0 ? -d : d];
           total += w;
           R += w * stColR[k]; G += w * stColG[k]; B += w * stColB[k];
         }
@@ -1058,14 +1062,18 @@
         vMxY =  halfH + m;
         pixelScale = view.pixelScale;
         viewLevel = viewLevelFor(pixelScale);
-        // Fill the per-frame Gaussian weight table once. emit() then reads
-        // weightTable[L] instead of paying for Math.exp per cell. Center is
-        // shifted up by _COLOR_SHIFT so cells at the AGG threshold pick up
-        // their parent's color instead of their own.
-        const center = viewLevel + _COLOR_SHIFT;
-        for (let L = 0; L < weightTable.length; L++) {
-          const dl = L - center;
-          weightTable[L] = Math.exp(-(dl * dl) / _TWO_SIGMA_SQ);
+        // The weight table is now indexed by ABSOLUTE LEVEL DISTANCE from
+        // the cell being emitted, not by absolute level number. weight[d]
+        // is the weight applied to an ancestor d substitution levels up
+        // from the cell. So the cell's own color always gets weight[0] = 1
+        // (peak) regardless of zoom. Without this, when viewLevel sits
+        // between two integer levels, neither the cell nor its parent
+        // gets peak weight, and the dominant contribution comes from
+        // averaging across many ancestors — at deep zoom that converges
+        // toward the palette mean (a bluish-grey), erasing the per-cell
+        // color variation.
+        for (let d = 0; d < weightTable.length; d++) {
+          weightTable[d] = Math.exp(-(d * d) / _TWO_SIGMA_SQ);
         }
         ancDepth = 0;
 
