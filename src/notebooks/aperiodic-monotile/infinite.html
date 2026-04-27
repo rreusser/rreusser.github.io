@@ -19,6 +19,55 @@
     </figcaption>`);
   </script>
 
+  <script id="palette-controls" type="text/x-typescript">
+    // A "Randomize" button that picks a new palette seed and triggers a
+    // redraw. paletteState.rgb is mutated in place, so the next frame's
+    // walker reads the new colours without re-running any cells.
+    const _ctrlBtn = document.createElement('button');
+    _ctrlBtn.type = 'button';
+    _ctrlBtn.textContent = 'Randomize colours';
+    _ctrlBtn.style.padding = '4px 12px';
+    _ctrlBtn.style.fontSize = '12px';
+    _ctrlBtn.style.cursor = 'pointer';
+    const _ctrlSeed = document.createElement('input');
+    _ctrlSeed.type = 'number';
+    _ctrlSeed.min = '0';
+    _ctrlSeed.value = String(paletteState.seed);
+    _ctrlSeed.style.width = '80px';
+    _ctrlSeed.style.fontSize = '12px';
+    _ctrlSeed.style.padding = '2px 6px';
+    function _applySeed(s: number) {
+      paletteState.setSeed(s);
+      _ctrlSeed.value = String(paletteState.seed);
+      // requestFrame just redraws the existing instance buffer with the
+      // colours it already has. To pick up the new palette we need to
+      // re-run the walker, which packs each instance's colour at emit
+      // time — that's what onViewChange (= repackInstances) does.
+      viewerState.onViewChange?.(viewerState);
+      viewerState.requestFrame();
+    }
+    _ctrlBtn.addEventListener('click', () => {
+      _applySeed(Math.floor(Math.random() * 99999));
+    });
+    _ctrlSeed.addEventListener('input', () => {
+      _applySeed(parseInt(_ctrlSeed.value, 10) || 0);
+    });
+    const _ctrlRow = document.createElement('div');
+    _ctrlRow.style.display = 'flex';
+    _ctrlRow.style.gap = '8px';
+    _ctrlRow.style.alignItems = 'center';
+    _ctrlRow.style.margin = '8px 0';
+    _ctrlRow.style.fontFamily = 'var(--sans-serif)';
+    const _ctrlSeedLabel = document.createElement('label');
+    _ctrlSeedLabel.style.display = 'inline-flex';
+    _ctrlSeedLabel.style.gap = '6px';
+    _ctrlSeedLabel.style.alignItems = 'center';
+    _ctrlSeedLabel.style.fontSize = '12px';
+    _ctrlSeedLabel.append('seed ', _ctrlSeed);
+    _ctrlRow.append(_ctrlBtn, _ctrlSeedLabel);
+    display(_ctrlRow);
+  </script>
+
   <script id="gpu-context" type="text/x-typescript">
     import { createWebGPUContext } from './lib/webgpu-canvas.js';
     const _gpuCtx = await createWebGPUContext();
@@ -252,46 +301,130 @@
   </script>
 
   <script id="palette" type="text/x-typescript">
-    // Per-label palette mirroring the existing aperiodic-monotile notebook.
-    // 11 entries: the 9 metatypes plus Γ₁/Γ₂ for the two leaf labels of the
-    // Γ metatile (which doesn't itself appear as a leaf). The palette is
-    // designed — muted-but-distinct hues with a wide lightness range so
-    // adjacent tiles look different rather than muddy. Multi-scale variation
+    // Per-label palette: 11 entries — the 9 metatypes plus Γ₁/Γ₂ for the
+    // two leaf labels of the Γ metatile. Generated from a seed via the
+    // same OKLCH-clustered scheme used in the sister notebook
+    // (src/notebooks/aperiodic-monotile/index.html), so the same seed
+    // yields the same palette across both. Multi-scale colour variation
     // comes from the Gaussian blend over ancestor LEVELS in the walker,
     // not from per-level hue rotation; deeper ancestors contribute their
-    // metatype color directly. So at deep zoom, a region dominated by one
-    // ancestor reads as that ancestor's color, and the type's identity
-    // shows through across substitution scales.
-    const _LABEL_HEX: Record<string, string> = {
-      Gamma:  "#458e95",
-      Gamma1: "#50adc2",
-      Gamma2: "#83dcff",
-      Delta:  "#3a041b",
-      Theta:  "#90536e",
-      Lambda: "#7c3d21",
-      Xi:     "#af7648",
-      Pi:     "#8dc3e7",
-      Sigma:  "#de9e81",
-      Phi:    "#006061",
-      Psi:    "#003f5f",
-    };
-    const _LABEL_RGB: Record<string, [number, number, number]> = {};
-    for (const [label, hex] of Object.entries(_LABEL_HEX)) {
-      _LABEL_RGB[label] = [
+    // metatype colour directly.
+    const _ALL_LABELS = [
+      "Gamma", "Gamma1", "Gamma2",
+      "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Phi", "Psi",
+    ];
+    function _typeForLabel(label: string): string {
+      return label === "Gamma1" || label === "Gamma2" ? "Gamma" : label;
+    }
+    function _hexToRgb(hex: string): [number, number, number] {
+      return [
         parseInt(hex.slice(1, 3), 16) / 255,
         parseInt(hex.slice(3, 5), 16) / 255,
         parseInt(hex.slice(5, 7), 16) / 255,
       ];
     }
-    function _typeForLabel(label: string): string {
-      return label === "Gamma1" || label === "Gamma2" ? "Gamma" : label;
+    // OKLCH → sRGB hex. Uniform-lightness colour space so equal-L points
+    // read as equally bright; muted colours come from a low chroma rather
+    // than a low lightness.
+    function _oklchToHex(L: number, C: number, hueDeg: number): string {
+      const h = hueDeg * Math.PI / 180;
+      const a = C * Math.cos(h);
+      const b = C * Math.sin(h);
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l3 = l_ * l_ * l_;
+      const m3 = m_ * m_ * m_;
+      const s3 = s_ * s_ * s_;
+      let r = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+      let g = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+      let bl = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+      const toSrgb = (x: number) => {
+        if (x <= 0) return 0;
+        if (x >= 1) return 1;
+        return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1/2.4) - 0.055;
+      };
+      r = toSrgb(r); g = toSrgb(g); bl = toSrgb(bl);
+      const hh = (x: number) => Math.round(255 * x).toString(16).padStart(2, '0');
+      return '#' + hh(r) + hh(g) + hh(bl);
     }
+    // Mulberry32 — small, fast, seedable PRNG. Returns [0, 1). Same
+    // sequence for the same seed across page reloads, so palettes are
+    // reproducible.
+    function _makeSeededRng(seed: number): () => number {
+      let state = (seed >>> 0) || 1;
+      return () => {
+        state = (state + 0x6D2B79F5) >>> 0;
+        let t = state;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    // Pick 2 or 3 cluster centers spread evenly around the wheel
+    // (complementary or triadic), then scatter the 11 tile colours across
+    // those clusters with ±~30° hue jitter per cluster. Wide lightness
+    // range gives visual punch; the cluster-anchored hues keep the whole
+    // set looking like one palette.
+    function _pleasantPalette(seed: number): Record<string, string> {
+      const rand = _makeSeededRng(seed);
+      const baseHue = rand() * 360;
+      const numClusters = 2 + Math.floor(rand() * 2);
+      const clusterSpread = 25 + rand() * 15;
+      const Cc = 0.08 + rand() * 0.04;
+      const clusterHues: number[] = [];
+      for (let k = 0; k < numClusters; k++) {
+        clusterHues.push((baseHue + k * 360 / numClusters) % 360);
+      }
+      const slotOrder = _ALL_LABELS.map((_, i) => i);
+      for (let i = slotOrder.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [slotOrder[i], slotOrder[j]] = [slotOrder[j], slotOrder[i]];
+      }
+      const pal: Record<string, string> = {};
+      slotOrder.forEach((labelIdx, slot) => {
+        const cluster = slot % numClusters;
+        const h = (clusterHues[cluster]
+                  + (rand() - 0.5) * 2 * clusterSpread + 360) % 360;
+        const L = 0.15 + rand() * 0.78;
+        const C = Cc + (rand() - 0.5) * 0.04;
+        pal[_ALL_LABELS[labelIdx]] = _oklchToHex(L, C, h);
+      });
+      return pal;
+    }
+    // Mutable palette state — properties are mutated in place when the
+    // user hits Randomize, and the next-frame walker reads the current
+    // values. Keeping the OBJECT identity stable means cells that
+    // captured a reference to it don't need to re-execute when the
+    // user changes the palette. setSeed() is exposed as a method so
+    // the controls cell can drive it (cell-private underscored helpers
+    // wouldn't cross the cell boundary).
+    type PaletteState = {
+      seed: number;
+      hex: Record<string, string>;
+      rgb: Record<string, [number, number, number]>;
+      setSeed(seed: number): void;
+    };
+    const paletteState: PaletteState = {
+      seed: 12345,
+      hex: {},
+      rgb: {},
+      setSeed(seed: number) {
+        this.seed = Math.max(0, seed | 0);
+        this.hex = _pleasantPalette(this.seed);
+        for (const label of _ALL_LABELS) {
+          this.rgb[label] = _hexToRgb(this.hex[label]);
+        }
+      },
+    };
+    paletteState.setSeed(paletteState.seed);
     // Walker entry point. Level is unused — kept in the signature so that
-    // multi-scale color variation can later be reintroduced by perturbing
-    // the base color per substitution level (e.g., slight lightness shifts
-    // up and down the hierarchy).
+    // multi-scale colour variation can later be reintroduced by perturbing
+    // the base colour per substitution level.
     function colorForLevelType(_level: number, label: string): [number, number, number] {
-      return _LABEL_RGB[label] ?? _LABEL_RGB[_typeForLabel(label)] ?? [0.5, 0.5, 0.5];
+      return paletteState.rgb[label]
+          ?? paletteState.rgb[_typeForLabel(label)]
+          ?? [0.5, 0.5, 0.5];
     }
   </script>
 
@@ -632,7 +765,13 @@
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
-      const DILATE = 1.02;
+      // 1.05 (5% per side) is enough to swallow the chord-vs-chord
+      // mismatches between the parent polygon's decimation and its
+      // children's decimations of the same shared boundary segments,
+      // plus the donor-approximation mismatches at sub-levels > 5
+      // where adjacent clusters use scaled donor shapes that don't
+      // exactly match the actual cluster boundary at that level.
+      const DILATE = 1.05;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
       for (let i = 0; i < simplified.length; i++) {
@@ -840,7 +979,7 @@
     // across zooms. Adjacent cells differ at ~6 visible scales at once
     // — per-cell, per-parent, per-grandparent, per-great-grandparent,
     // etc. — instead of just one or two.
-    const SIGMA = 3.0;
+    const SIGMA = 4.0;
     const _TWO_SIGMA_SQ = 2 * SIGMA * SIGMA;
     // Offset of the Gaussian center from viewLevel. With the alpha-fade
     // band handling the visual smoothness at the aggregate-to-children
