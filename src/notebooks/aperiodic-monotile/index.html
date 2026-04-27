@@ -171,7 +171,7 @@
   <script id="edge-editor-section" type="text/markdown">
     ### Curving the edges
 
-    The spectre still tiles aperiodically when each edge is replaced by a curve, provided edge pairs `(0, 1), (2, 3), …, (12, 13)` use curves that are 180°-rotations of each other about the shared vertex. Drag *any* handle to bend its edge; its paired handle on the neighbouring edge updates automatically so the result stays tileable. The Reset button restores straight edges (and the fast 14-vertex / 12-triangle render path).
+    Each of the 14 edges can be replaced by any cubic Bézier whose curve is invariant under 180° rotation about its own midpoint. That symmetry is what makes the curved tile still tile aperiodically: every edge looks the same forwards and backwards, so adjacent tiles always meet on a matching curve regardless of orientation. Drag either of an edge's two handles and its mate flips through the midpoint to keep the symmetry; the defaults `(1/3, 0)` and `(2/3, 0)` already satisfy it, so straight edges fall out of the same constraint. Reset restores those defaults (and the fast 14-vertex / 12-triangle render path).
   </script>
 
   <script id="tile-edge-geometry" type="text/x-typescript">
@@ -234,17 +234,18 @@
   </script>
 
   <script id="edge-editor" type="text/x-typescript">
-    // SVG editor for the cubic-Bézier handles. Every one of the 28
-    // handles (2 per edge × 14 edges) is independently draggable; on
-    // each drag we update the dragged handle's stored coords *and*
-    // sync its partner via the 180° rotation rule. That keeps the
-    // store consistent with the matching condition without forcing
-    // half the handles to follow the other half.
+    // SVG editor for the cubic-Bézier handles. Each of the 14 edges has
+    // two visible handles (c1, c2); both are draggable and the *other*
+    // handle on the same edge mirrors automatically through the edge
+    // midpoint to keep the curve point-symmetric — the matching rule
+    // for the chiral spectre's curved-edge variants. Edges don't talk
+    // to each other; they're independently editable.
     //
-    // Pair (2k, 2k+1) shares vertex S = v(2k+1). The rotation maps
-    //   c1 of edge i ↔ c2 of edge (i^1)   (both far from S)
-    //   c2 of edge i ↔ c1 of edge (i^1)   (both near  S, at S itself)
-    // so every edit on one side has a unique mirror on the other.
+    // In edge-local fractional coords the symmetry is just
+    //   h2t = 1 − h1t,   h2n = −h1n,
+    // and the defaults (1/3, 0) / (2/3, 0) already satisfy it, so
+    // "straight edge" and "matching-rule-respecting" are the same
+    // resting state.
 
     // ─── Mutable handle store ─────────────────────────────────────────────
     // Live edge-local fractional coords for all 14 edges. The "value"
@@ -262,29 +263,14 @@
       }
       return true;
     }
-    // Sync the partner edge's mirror handle after a drag. Pair shares
-    // vertex S = verts[(i | 1) % 14]; c1 of i maps to c2 of (i^1) and
-    // vice versa.
-    function syncPartner(i: number, handle: 'c1' | 'c2', verts: [number, number][]): void {
-      const j = i ^ 1;
-      const S = verts[(i | 1) % 14];
-      const fI = edgeFrame(verts, i);
-      const hI = _handleStore[i];
-      const ht = handle === 'c1' ? hI.h1t : hI.h2t;
-      const hn = handle === 'c1' ? hI.h1n : hI.h2n;
-      const Px = fI.p0[0] + ht * (fI.p1[0] - fI.p0[0]) + hn * fI.len * fI.nx;
-      const Py = fI.p0[1] + ht * (fI.p1[1] - fI.p0[1]) + hn * fI.len * fI.ny;
-      // Mirror across the shared vertex.
-      const Qx = 2 * S[0] - Px;
-      const Qy = 2 * S[1] - Py;
-      const fJ = edgeFrame(verts, j);
-      const dx = Qx - fJ.p0[0], dy = Qy - fJ.p0[1];
-      const tJ = (dx * fJ.tx + dy * fJ.ty) / fJ.len;
-      const nJ = (dx * fJ.nx + dy * fJ.ny) / fJ.len;
-      const hJ = _handleStore[j];
-      // c1 ↔ c2 across the pair: c1 sits far from S, c2 sits at S.
-      if (handle === 'c1') { hJ.h2t = tJ; hJ.h2n = nJ; }
-      else                 { hJ.h1t = tJ; hJ.h1n = nJ; }
+    // Mirror the dragged handle through the edge midpoint to keep
+    // the curve point-symmetric (the matching rule). In edge-local
+    // fractional coords the midpoint is (t, n) = (1/2, 0), so the
+    // 180° rotation is just (t, n) → (1 − t, −n).
+    function syncSymmetry(i: number, handle: 'c1' | 'c2'): void {
+      const h = _handleStore[i];
+      if (handle === 'c1') { h.h2t = 1 - h.h1t; h.h2n = -h.h1n; }
+      else                 { h.h1t = 1 - h.h2t; h.h1n = -h.h2n; }
     }
 
     // ─── SVG editor ───────────────────────────────────────────────────────
@@ -434,7 +420,7 @@
       const h = _handleStore[_drag.edge];
       if (_drag.handle === 'c1') { h.h1t = tDist; h.h1n = nDist; }
       else                       { h.h2t = tDist; h.h2n = nDist; }
-      syncPartner(_drag.edge, _drag.handle, _editorVerts);
+      syncSymmetry(_drag.edge, _drag.handle);
       rerender();
       emit();
     });
