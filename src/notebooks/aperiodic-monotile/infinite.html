@@ -1102,46 +1102,60 @@
         b.count = i + 1;
       }
 
-      function recurse(mt: MetaTile, d: number, alphaIn: number) {
+      function recurse(mt: MetaTile, d: number, alphaIn: number, allowFadeOut: boolean = true) {
         if (alphaIn <= 0) return;
         const cx = stTx[d], cy = stTy[d];
         const r = (mt as any)._localRadius ?? 0;
         if (cx + r < vMnX || cx - r > vMxX || cy + r < vMnY || cy - r > vMxY) return;
         if (mt.kind === "leaf") { emit(null, mt.label, d, 0, alphaIn); return; }
 
-        // Two thresholds bracket a fade band:
-        //   pixelExtent < aggThresh         → pure aggregate (no children)
-        //   aggThresh ≤ pixelExtent < fadeUpper → aggregate at full alpha,
-        //                                          children at lerped alpha
-        //   fadeUpper ≤ pixelExtent          → no aggregate, children at full
+        // Children at α=1 cover their parent fully when the cluster is
+        // big enough on screen, so above aggThresh we skip the parent
+        // emit entirely — the children handle coverage. Below aggThresh
+        // the cluster is too small to recurse into normally, so we emit
+        // the parent. We optionally also recurse into children one
+        // additional level at a fade-out alpha so the just-cull-ing
+        // children blend smoothly out of view as zoom proceeds, masking
+        // any donor-polygon gaps in the parent until they're sub-pixel.
         //
-        // BUT: aggregates at sub-levels above EXTRACT_CAP use scaled donor
-        // polygons (not real-extracted boundaries), and the donor's shape
-        // is the cap-level cluster's boundary, which doesn't match the
-        // higher-level cluster's actual boundary in detail. Adjacent same-
-        // shape donor-scaled cells leave chord-mismatch slivers.
-        // Children, on the other hand, are at sub-level ≤ cap and emit
-        // real-extracted polygons that tile correctly. So when the parent
-        // would be donor-scaled, we *skip* the parent emit and have
-        // children emit at full alpha — they fully cover the cluster
-        // without leaving gaps. This sacrifices the fade-band crossfade
-        // for that one level but eliminates the chord-mismatch artefacts.
+        // Continuity at aggThresh:
+        //   - just above: parent skipped, children at α=1.
+        //   - just below: parent at α=1, children at α=1 (start of fade-
+        //     out, which lerps 1 → 0 down to lowerFadeBound).
+        //
+        // allowFadeOut limits cascade: a child reached via fade-out
+        // doesn't itself get a fade-out band, so we render at most two
+        // levels (parent + one fade-out children level) in the
+        // sub-aggThresh region instead of cascading down to leaves.
         const pixelExtent = 2 * r * aggPixelScale;
         const aggThresh = AGG_PX * _LOOSE_RADIUS_FACTOR;
-        const fadeUpper = aggThresh * 4;
+        const lowerFadeBound = aggThresh / 4;
         const mySubLevel = (mt as any)._subLevel as number;
-        const parentIsExtracted = mySubLevel <= EXTRACT_CAP;
 
         let childAlpha = alphaIn;
-        if (pixelExtent < fadeUpper) {
+        let childAllowFadeOut = true;
+        if (pixelExtent < aggThresh) {
           const mesh = getGpuMesh(mt);
           if (mesh) {
             emit(mt, mt.name, d, mySubLevel, alphaIn);
-            if (pixelExtent < aggThresh) return;
-            const t = (pixelExtent - aggThresh) / (fadeUpper - aggThresh);
+            if (pixelExtent < lowerFadeBound || !allowFadeOut) return;
+            // The lower fade-out band is *only* useful at sub-level
+            // EXTRACT_CAP + 1 — there the children are at sub-level
+            // EXTRACT_CAP (real-extracted, tile correctly) and can mask
+            // the parent's donor-scaled gaps. At higher sub-levels both
+            // parent and children are donor-scaled, so the children
+            // can't fix gaps and only multiply cell count. We accept
+            // visible donor-gap slivers at deep zoom rather than blow
+            // up cell counts to billions.
+            if (mySubLevel !== EXTRACT_CAP + 1) return;
+            const t = (pixelExtent - lowerFadeBound) / (aggThresh - lowerFadeBound);
             childAlpha = alphaIn * t;
+            childAllowFadeOut = false;
+          } else {
+            return;
           }
         }
+        // Above aggThresh: parent skipped, children recurse at full alpha.
 
         // Push this meta's RGB onto the ancestry stack, recurse, pop.
         const mySL = (mt as any)._subLevel as number;
@@ -1164,7 +1178,7 @@
           const rDiff = pMir ? -T2.rot : T2.rot;
           stRot[d1] = (pRot + rDiff + 12) % 12;
           stMir[d1] = (pMir ^ T2.mirror) as 0 | 1;
-          recurse(child, d1, childAlpha);
+          recurse(child, d1, childAlpha, childAllowFadeOut);
         }
         ancDepth--;
       }
