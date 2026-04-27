@@ -608,7 +608,7 @@
     // from real leaves (~530K leaves max per shape) — its boundary is
     // exact, so adjacent same-shape sub-level 6 cells tile properly.
     // Above 6 we still use the donor (now the sub-level 6 polygon).
-    const EXTRACT_CAP = 7;
+    const EXTRACT_CAP = 6;
 
     type BoundaryMesh = {
       polygon: Float32Array;        // flat (x0, y0, x1, y1, ...)
@@ -844,11 +844,10 @@
     // analytically.
     //
     // baseCluster has subLevel = BASE_DEPTH + 1 = 5 metatiles. We need
-    // donors at EXTRACT_CAP = 7, so we inflate twice to get sub-level 7
+    // donors at EXTRACT_CAP = 6, so we inflate once to get sub-level 6
     // metatiles.
     const _donors = (() => {
-      let inflated = buildSupertiles(baseCluster);
-      inflated = buildSupertiles(inflated);
+      const inflated = buildSupertiles(baseCluster);
       attachRadii(inflated.Delta);
       attachSubLevels(inflated.Delta);
       attachRadii(inflated.Gamma);
