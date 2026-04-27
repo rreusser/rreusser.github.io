@@ -51,9 +51,9 @@
       }
       const n = _ALL_LABELS.length;
       viewerState.clearValue = { r: r / n, g: g / n, b: b / n, a: 1 };
-      viewerState.clearValue.r = 1;
-      viewerState.clearValue.g = 0;
-      viewerState.clearValue.b = 0;
+      //viewerState.clearValue.r = 1;
+      //viewerState.clearValue.g = 0;
+      //viewerState.clearValue.b = 0;
     }
     function _applySeed(s: number) {
       paletteState.setSeed(s);
@@ -512,6 +512,61 @@
     // memoized on _localRadius, so walking just the root covers the rest.
     attachRadii(rootMeta);
 
+    // ─── Centroid-based bounding ball (for tighter culling) ───────────
+    // _localRadius above is centered at the cell's local origin (a
+    // corner of the cluster), so for deep substitutions the bounding
+    // circle around the origin is several × the cluster's actual
+    // extent. We additionally compute a tight bounding ball centered on
+    // the cell's centroid and use *that* for view-frustum culling and
+    // for the pixel-extent threshold that triggers aggregation. The
+    // corner-based _localRadius is kept for donor-polygon scaling,
+    // which references the corner origin.
+    function attachCentroidBounds(mt: MetaTile): void {
+      if ((mt as any)._cBound != null) return;
+      if (mt.kind === "leaf") {
+        let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+        for (const v of spectreVertices) {
+          if (v[0] < mnx) mnx = v[0]; if (v[0] > mxx) mxx = v[0];
+          if (v[1] < mny) mny = v[1]; if (v[1] > mxy) mxy = v[1];
+        }
+        const cx = (mnx + mxx) / 2, cy = (mny + mxy) / 2;
+        let r = 0;
+        for (const v of spectreVertices) {
+          const d = Math.hypot(v[0] - cx, v[1] - cy);
+          if (d > r) r = d;
+        }
+        (mt as any)._cCx = cx; (mt as any)._cCy = cy; (mt as any)._cBound = r;
+        return;
+      }
+      // Pass 1: each child's centroid+radius mapped into mt's frame.
+      const childCx: number[] = [], childCy: number[] = [], childCr: number[] = [];
+      let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+      for (const { child, transform } of mt.geometries) {
+        attachCentroidBounds(child);
+        let lcx = (child as any)._cCx as number;
+        let lcy = (child as any)._cCy as number;
+        const lcr = (child as any)._cBound as number;
+        if (transform.mirror) lcy = -lcy;
+        const cs = _COS[transform.rot], sn = _SIN[transform.rot];
+        const cx = cs * lcx - sn * lcy + transform.t[0];
+        const cy = sn * lcx + cs * lcy + transform.t[1];
+        childCx.push(cx); childCy.push(cy); childCr.push(lcr);
+        if (cx - lcr < mnx) mnx = cx - lcr;
+        if (cx + lcr > mxx) mxx = cx + lcr;
+        if (cy - lcr < mny) mny = cy - lcr;
+        if (cy + lcr > mxy) mxy = cy + lcr;
+      }
+      // Pass 2: AABB-center, then radius = max child-ball reach from there.
+      const cx = (mnx + mxx) / 2, cy = (mny + mxy) / 2;
+      let r = 0;
+      for (let i = 0; i < childCx.length; i++) {
+        const d = Math.hypot(childCx[i] - cx, childCy[i] - cy) + childCr[i];
+        if (d > r) r = d;
+      }
+      (mt as any)._cCx = cx; (mt as any)._cCy = cy; (mt as any)._cBound = r;
+    }
+    attachCentroidBounds(rootMeta);
+
     // ─── Substitution level (for zoom-dependent color blending) ────────
     // _subLevel = how many substitution steps away from a leaf this
     // metatile sits. Leaves are level 0; Γ at base depth is level 1
@@ -608,7 +663,7 @@
     // from real leaves (~530K leaves max per shape) — its boundary is
     // exact, so adjacent same-shape sub-level 6 cells tile properly.
     // Above 6 we still use the donor (now the sub-level 6 polygon).
-    const EXTRACT_CAP = 6;
+    const EXTRACT_CAP = 5;
 
     type BoundaryMesh = {
       polygon: Float32Array;        // flat (x0, y0, x1, y1, ...)
@@ -760,7 +815,7 @@
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
-      const DILATE = 1.00;
+      const DILATE = 1.05;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
       for (let i = 0; i < simplified.length; i++) {
@@ -813,8 +868,10 @@
       const inflated = buildSupertiles(baseCluster);
       attachRadii(inflated.Delta);
       attachSubLevels(inflated.Delta);
+      attachCentroidBounds(inflated.Delta);
       attachRadii(inflated.Gamma);
       attachSubLevels(inflated.Gamma);
+      attachCentroidBounds(inflated.Gamma);
       return { nonGamma: inflated.Delta, gamma: inflated.Gamma };
     })();
 
@@ -935,7 +992,7 @@
     // as the user zooms in) happens at the same threshold, so a smaller
     // AGG_PX pushes refinement to fire at a smaller on-screen size —
     // detail persists farther into zoom-out.
-    const AGG_PX = 20;
+    const AGG_PX = 25;
     // _localRadius is measured from the spectre's corner origin (vertex 0),
     // so for any supertile it's ~1.5× the cluster's true centered radius
     // (empirically 1.44 at sub-level 3, growing to 1.64 at sub-level 5).
@@ -1104,24 +1161,32 @@
 
       function recurse(mt: MetaTile, d: number, alphaIn: number, allowFadeOut: boolean = true) {
         if (alphaIn <= 0) return;
-        const cx = stTx[d], cy = stTy[d];
-        const r = (mt as any)._localRadius ?? 0;
-        if (cx + r < vMnX || cx - r > vMxX || cy + r < vMnY || cy - r > vMxY) return;
+        // Cull against a centroid-centered bounding ball: tighter than
+        // the corner-based _localRadius (which can be ~2× the cluster's
+        // actual extent because the local origin sits at a cluster
+        // corner, not its centroid). _localRadius is still used below
+        // for pixelExtent (aggregation tuning) and donor scaling, where
+        // the corner reference matters.
+        const myRot = stRot[d], myMir = stMir[d];
+        const myCos = _COS[myRot], mySin = _SIN[myRot];
+        const lcx = (mt as any)._cCx as number;
+        let lcy = (mt as any)._cCy as number;
+        if (myMir) lcy = -lcy;
+        const cCx = myCos * lcx - mySin * lcy + stTx[d];
+        const cCy = mySin * lcx + myCos * lcy + stTy[d];
+        const cBound = ((mt as any)._cBound as number) ?? 0;
+        if (cCx + cBound < vMnX || cCx - cBound > vMxX ||
+            cCy + cBound < vMnY || cCy - cBound > vMxY) return;
         if (mt.kind === "leaf") { emit(null, mt.label, d, 0, alphaIn); return; }
+        const r = (mt as any)._localRadius ?? 0;
 
-        // Children at α=1 cover their parent fully when the cluster is
-        // big enough on screen, so above aggThresh we skip the parent
-        // emit entirely — the children handle coverage. Below aggThresh
-        // the cluster is too small to recurse into normally, so we emit
-        // the parent. We optionally also recurse into children one
-        // additional level at a fade-out alpha so the just-cull-ing
-        // children blend smoothly out of view as zoom proceeds, masking
-        // any donor-polygon gaps in the parent until they're sub-pixel.
-        //
-        // Continuity at aggThresh:
-        //   - just above: parent skipped, children at α=1.
-        //   - just below: parent at α=1, children at α=1 (start of fade-
-        //     out, which lerps 1 → 0 down to lowerFadeBound).
+        // We crossfade the parent's self-emit against its children's
+        // recursion so neither pops. The parent fades in across an upper
+        // band [aggThresh, upperFadeBound] (at α=0 above, α=1 at and
+        // below aggThresh) while children render at full alpha. Below
+        // aggThresh the parent stays at α=1 and children fade out across
+        // [lowerFadeBound, aggThresh]. Below lowerFadeBound only the
+        // parent renders.
         //
         // allowFadeOut limits cascade: a child reached via fade-out
         // doesn't itself get a fade-out band, so we render at most two
@@ -1129,33 +1194,54 @@
         // sub-aggThresh region instead of cascading down to leaves.
         const pixelExtent = 2 * r * aggPixelScale;
         const aggThresh = AGG_PX * _LOOSE_RADIUS_FACTOR;
-        const lowerFadeBound = aggThresh / 4;
+        const upperFadeBound = aggThresh * 1.8;
         const mySubLevel = (mt as any)._subLevel as number;
+        // At and below sub-level EXTRACT_CAP+1, children are real-extracted
+        // (or leaves) and tile correctly, so a wide fade band lets them
+        // smoothly disappear without revealing structural gaps. At higher
+        // sub-levels the children are also donor-scaled (gaps remain), so
+        // we use a narrower band: enough to smooth the level-transition
+        // pop without paying full-band cell counts.
+        const lowerFadeBound = mySubLevel <= EXTRACT_CAP + 1
+          ? aggThresh / 4
+          : aggThresh * 0.55;
 
-        let childAlpha = alphaIn;
-        let childAllowFadeOut = true;
+        // Parent self-emit alpha factor: 1 in the lower band, smooth
+        // fade-in across the upper band, 0 above the upper band.
+        let parentFactor = 0;
         if (pixelExtent < aggThresh) {
+          parentFactor = 1;
+        } else if (pixelExtent < upperFadeBound) {
+          const u = (upperFadeBound - pixelExtent) / (upperFadeBound - aggThresh);
+          parentFactor = u * u * (3 - 2 * u);
+        }
+
+        if (parentFactor > 0) {
           const mesh = getGpuMesh(mt);
           if (mesh) {
-            emit(mt, mt.name, d, mySubLevel, alphaIn);
-            if (pixelExtent < lowerFadeBound || !allowFadeOut) return;
-            // The lower fade-out band is *only* useful at sub-level
-            // EXTRACT_CAP + 1 — there the children are at sub-level
-            // EXTRACT_CAP (real-extracted, tile correctly) and can mask
-            // the parent's donor-scaled gaps. At higher sub-levels both
-            // parent and children are donor-scaled, so the children
-            // can't fix gaps and only multiply cell count. We accept
-            // visible donor-gap slivers at deep zoom rather than blow
-            // up cell counts to billions.
-            if (mySubLevel !== EXTRACT_CAP + 1) return;
-            const t = (pixelExtent - lowerFadeBound) / (aggThresh - lowerFadeBound);
-            childAlpha = alphaIn * t;
-            childAllowFadeOut = false;
-          } else {
+            emit(mt, mt.name, d, mySubLevel, alphaIn * parentFactor);
+          } else if (pixelExtent < aggThresh) {
+            // No mesh available and we're in the lower band where the
+            // parent must carry coverage; abort before recursing into
+            // children we can't fall back on.
             return;
           }
         }
-        // Above aggThresh: parent skipped, children recurse at full alpha.
+
+        let childAlpha: number;
+        let childAllowFadeOut: boolean;
+        if (pixelExtent < aggThresh) {
+          // Lower band: only recurse children if a fade-out applies.
+          if (pixelExtent < lowerFadeBound || !allowFadeOut) return;
+          const u = (pixelExtent - lowerFadeBound) / (aggThresh - lowerFadeBound);
+          const t = u * u * (3 - 2 * u);
+          childAlpha = alphaIn * t;
+          childAllowFadeOut = false;
+        } else {
+          // Upper fade band or beyond: children recurse at full alpha.
+          childAlpha = alphaIn;
+          childAllowFadeOut = allowFadeOut;
+        }
 
         // Push this meta's RGB onto the ancestry stack, recurse, pop.
         const mySL = (mt as any)._subLevel as number;
@@ -1294,6 +1380,7 @@
       const newRoot = nextRecord.Delta;
       attachRadii(newRoot);
       attachSubLevels(newRoot);
+      attachCentroidBounds(newRoot);
       // Non-Γ types: geometries[i] corresponds directly to slot i (no
       // null slots). Slot 1 of Δ is "Delta", so newRoot.geometries[1]
       // is the geometry whose child === walkerState.currentRoot.
