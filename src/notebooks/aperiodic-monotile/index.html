@@ -218,12 +218,17 @@
     // World-space cubic-Bézier control points for edge i. The handles
     // (h1, h2) are *interpolation points* — points the curve passes
     // through at parameters s = 1/3 and s = 2/3 — so the cubic's
-    // actual control points are derived by solving B(0)=P0, B(1/3)=Q1,
-    // B(2/3)=Q2, B(1)=P3:
-    //   C1 = ( 3 q1t − 3/2 q2t + 1/3,  3 q1n − 3/2 q2n)
-    //   C2 = (−3/2 q1t + 3 q2t − 5/6, −3/2 q1n + 3 q2n)
-    // Defaults (1/3, 0) / (2/3, 0) recover the straight cubic, and
-    // midpoint symmetry on (Q1, Q2) maps to the same on (C1, C2).
+    // control points are derived by solving B(0)=P0, B(1/3)=Q1,
+    // B(2/3)=Q2, B(1)=P3.
+    //
+    // Edge-index parity selects which side the bulge falls on. Even
+    // edges use the master Q1, Q2 directly; odd edges use the
+    // n-flipped reverse: Q1' = (1 − Q2.t, −Q2.n), Q2' = (1 − Q1.t,
+    // −Q1.n). When two adjacent tiles meet at a shared physical
+    // edge, their two edge indices have opposite parity, so the
+    // curves they paint into world space coincide ("tab" on one
+    // side, "slot" on the other) — no midpoint-symmetry constraint
+    // on the master, so a single one-sided bulge is admissible.
     function controlPointsFor(
       i: number,
       handlesByEdge: Record<number, EdgeHandles>,
@@ -231,10 +236,15 @@
     ): { c1: [number, number]; c2: [number, number] } {
       const h = handlesByEdge[i];
       const f = edgeFrame(verts, i);
-      const c1t =  3   * h.h1t - 1.5 * h.h2t + 1/3;
-      const c1n =  3   * h.h1n - 1.5 * h.h2n;
-      const c2t = -1.5 * h.h1t + 3   * h.h2t - 5/6;
-      const c2n = -1.5 * h.h1n + 3   * h.h2n;
+      const reversed = (i & 1) === 1;
+      const q1t = reversed ? 1 - h.h2t : h.h1t;
+      const q1n = reversed ?    -h.h2n : h.h1n;
+      const q2t = reversed ? 1 - h.h1t : h.h2t;
+      const q2n = reversed ?    -h.h1n : h.h2n;
+      const c1t =  3   * q1t - 1.5 * q2t + 1/3;
+      const c1n =  3   * q1n - 1.5 * q2n;
+      const c2t = -1.5 * q1t + 3   * q2t - 5/6;
+      const c2n = -1.5 * q1n + 3   * q2n;
       const c1: [number, number] = [
         f.p0[0] + c1t * (f.p1[0] - f.p0[0]) + c1n * f.len * f.nx,
         f.p0[1] + c1t * (f.p1[1] - f.p0[1]) + c1n * f.len * f.ny,
@@ -274,13 +284,14 @@
       return Math.abs(_curve.h1t - 1/3) < tol && Math.abs(_curve.h1n) < tol
           && Math.abs(_curve.h2t - 2/3) < tol && Math.abs(_curve.h2n) < tol;
     }
-    // Mirror the dragged handle through the edge midpoint to keep the
-    // shared curve point-symmetric. (1/2, 0) is the midpoint in
-    // edge-local fractional coords, so the rotation is (t, n) →
-    // (1 − t, −n).
+    // Mirror the dragged handle across the perpendicular bisector of
+    // the chord — (t, n) → (1 − t, n) — so the curve has a single
+    // bulge in one direction (a "tab" or "slot") rather than an
+    // S-shape. Adjacent edges in the tiling alternate which side
+    // they bulge to (see the partition in controlPointsFor below).
     function syncSymmetry(curve: EdgeHandles, handle: 'c1' | 'c2'): void {
-      if (handle === 'c1') { curve.h2t = 1 - curve.h1t; curve.h2n = -curve.h1n; }
-      else                 { curve.h1t = 1 - curve.h2t; curve.h1n = -curve.h2n; }
+      if (handle === 'c1') { curve.h2t = 1 - curve.h1t; curve.h2n = curve.h1n; }
+      else                 { curve.h1t = 1 - curve.h2t; curve.h1n = curve.h2n; }
     }
 
     // ─── SVG editor ───────────────────────────────────────────────────────
