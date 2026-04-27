@@ -681,13 +681,9 @@
         return null;
       }
 
-      // 1. Collect every leaf's accumulated transform in mt's local frame.
       const xforms: Transform[] = [];
       _collectLeafTransforms(mt, txIdentity, xforms);
 
-      // 2. Quantize vertices to integer IDs. Substitution math involves
-      // sums of unit-length vectors at multiples of 30°, so 1e-7 rounding
-      // is well above the FP noise floor at any depth we'd extract here.
       const Q = 1e7;
       const vertMap = new Map<string, number>();
       const vertList: Vec2[] = [];
@@ -700,9 +696,6 @@
         return id;
       }
 
-      // 3. For each leaf, compute its 14 vertex IDs and 14 edge keys.
-      // edgeMult counts how many leaves share each edge; multiplicity 1
-      // means it's on the cluster boundary.
       const edgeMult = new Map<number, number>();
       for (const T of xforms) {
         const ids: number[] = new Array(14);
@@ -711,14 +704,11 @@
           const a = ids[i], b = ids[(i + 1) % 14];
           const lo = a < b ? a : b;
           const hi = a < b ? b : a;
-          const key = lo * 0x100000 + hi;     // safe up to ~1M unique vertices
+          const key = lo * 0x100000 + hi;
           edgeMult.set(key, (edgeMult.get(key) ?? 0) + 1);
         }
       }
 
-      // 4. Adjacency map: vertId → 2 boundary neighbors (for a closed loop
-      // each boundary vertex has degree 2; degenerate cases would have
-      // higher degree, which we don't expect here).
       const adj = new Map<number, number[]>();
       for (const [key, mult] of edgeMult) {
         if (mult !== 1) continue;
@@ -728,9 +718,6 @@
         let lb = adj.get(hi); if (!lb) { lb = []; adj.set(hi, lb); } lb.push(lo);
       }
 
-      // 5. Stitch into closed loops. Pick the longest as the outer
-      // boundary (Spectre clusters are simply connected, so there should
-      // only be one).
       const visited = new Set<number>();
       const loops: number[][] = [];
       for (const start of adj.keys()) {
@@ -754,11 +741,6 @@
       loops.sort((a, b) => b.length - a.length);
       const outer = loops[0];
 
-      // 6. Mark the metatile's superQuad corners as anchors. These are the
-      // 4 supertile corners where adjacent same-level clusters' boundaries
-      // meet — pinning them keeps every shared edge's start and end
-      // identical between the two sides regardless of how the in-between
-      // vertices simplify.
       const anchorVertIds = new Set<number>();
       if (mt.kind === "meta") {
         for (const corner of mt.quad) {
@@ -774,29 +756,10 @@
         if (anchorVertIds.has(outer[i])) anchorIndices.push(i);
       }
 
-      // 7. Uniformly decimate each side between two anchors. ~12
-      // intermediates per side gives ~52 verts total at any subLevel
-      // (4 anchors + 4×12 intermediates), coarse but sufficient. Adjacent
-      // clusters' shared sides agree exactly because the offsets are
-      // symmetric under traversal reversal.
       const simplified = _decimateBetweenAnchors(outerPts, anchorIndices, 12);
-
-      // 8. Dilate slightly around the polygon centroid so any sub-pixel
-      // f32 precision drift in the GPU shader's transform composition is
-      // covered by overlap. The metatile's local origin sits at a corner
-      // of the cluster bbox, not the centroid, so dilating around the
-      // polygon centroid (not the origin) keeps the expansion isotropic.
       let cx = 0, cy = 0;
       for (const p of simplified) { cx += p[0]; cy += p[1]; }
       cx /= simplified.length; cy /= simplified.length;
-      // Adjacent aggregate polygons leave chord-mismatch slivers from
-      // independent anchor-decimation and from donor-approximation
-      // mismatches at sub-levels > 5. With cluster size ~50 px on
-      // screen, DILATE = 1.5 gives ~12 px overlap per pair, enough to
-      // swallow runs of ~10 px or less. Aggregates draw on top of
-      // their parents at full alpha (in the fade band), so the heavy
-      // dilation doesn't blend colours muddily — adjacent same-α
-      // polygons fully replace each other in the overlap.
       const DILATE = 1.00;
       const polygon = new Float32Array(simplified.length * 2);
       const flat: number[] = new Array(simplified.length * 2);
@@ -809,9 +772,9 @@
         flat[i * 2 + 1] = y;
       }
       const indices = new Uint32Array(earcut(flat));
-      const mesh: BoundaryMesh = { polygon, indices };
-      _boundaryCache.set(mt, mesh);
-      return mesh;
+      const built: BoundaryMesh = { polygon, indices };
+      _boundaryCache.set(mt, built);
+      return built;
     }
 
     // ─── GPU mesh handles ──────────────────────────────────────────────
@@ -876,7 +839,6 @@
       let polygon: Float32Array;
       let indices: Uint32Array;
       if (subLevel <= EXTRACT_CAP) {
-        // Extract directly from this metatile.
         const boundary = extractBoundary(mt);
         if (boundary === null) {
           _gpuMeshByShape.set(shapeKey, null);
@@ -886,13 +848,6 @@
         polygon = boundary.polygon;
         indices = boundary.indices;
       } else {
-        // Reuse donor polygon scaled by radius ratio. Adjacent same-shape
-        // donor-scaled cells leave chord-mismatch slivers because the
-        // donor's shape doesn't match the actual cluster boundary at
-        // sub-level > EXTRACT_CAP. Apply an *extra* dilation around the
-        // scaled polygon's centroid (on top of the 5% already baked in
-        // by extractBoundary) so adjacent cells overlap by enough to
-        // swallow those slivers (observed up to ~9 px at sub-level 7).
         const donor = _getDonorBoundary(isGamma);
         if (donor === null) {
           _gpuMeshByShape.set(shapeKey, null);
@@ -900,22 +855,8 @@
           return null;
         }
         const scale = ((mt as any)._localRadius as number) / donor.radius;
-        const N = donor.mesh.polygon.length / 2;
-        // Centroid of the scaled polygon.
-        let cx = 0, cy = 0;
-        for (let i = 0; i < N; i++) {
-          cx += donor.mesh.polygon[i * 2] * scale;
-          cy += donor.mesh.polygon[i * 2 + 1] * scale;
-        }
-        cx /= N; cy /= N;
-        const EXTRA_DILATE = 1.00;
         polygon = new Float32Array(donor.mesh.polygon.length);
-        for (let i = 0; i < N; i++) {
-          const x = donor.mesh.polygon[i * 2] * scale;
-          const y = donor.mesh.polygon[i * 2 + 1] * scale;
-          polygon[i * 2]     = cx + (x - cx) * EXTRA_DILATE;
-          polygon[i * 2 + 1] = cy + (y - cy) * EXTRA_DILATE;
-        }
+        for (let i = 0; i < polygon.length; i++) polygon[i] = donor.mesh.polygon[i] * scale;
         indices = donor.mesh.indices;
       }
       const vb = _createVB(device, 'agg-poly-verts', polygon);
@@ -938,10 +879,6 @@
     // moves all that work into module init time, where it's spent
     // before the first frame.
     //
-    // Walks the live root and a Γ representative, calling getGpuMesh on
-    // one metatile per (subLevel ≤ EXTRACT_CAP, isGamma) combo to fill
-    // _gpuMeshByShape. Then forces both donors so the > EXTRACT_CAP
-    // path's polygon scaling has its source already extracted.
     (function _prewarmAggregatePolygons() {
       const seen = new Set<string>();
       const visited = new WeakSet<MetaTile>();
@@ -962,8 +899,6 @@
       rec(walkerState.currentRoot);
       rec(_donors.nonGamma);
       rec(_donors.gamma);
-      // Donors for subLevel > EXTRACT_CAP — extract once so the first
-      // scaled-polygon emission doesn't pay the donor's extraction cost.
       _getDonorBoundary(false);
       _getDonorBoundary(true);
     })();
