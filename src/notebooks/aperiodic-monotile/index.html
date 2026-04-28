@@ -381,7 +381,11 @@
     function _mkAnchor(t: number, n: number): FFAnchorRec {
       return { id: _ffNextId++, t, n };
     }
-    let _ffSym: FFSym = 'alternating';
+    // Freeform always uses the parity-flip ('alternating') edge-application
+    // convention since it's compatible with any curve shape; the forward
+    // convention would require midpoint symmetry on the curve, which the
+    // freeform editor doesn't enforce.
+    const _ffSym: FFSym = 'alternating';
     let _ffAnchors: FFAnchorRec[] = [];
     function ffIsDefault(): boolean {
       // Default freeform = no user anchors; the spline collapses to the
@@ -464,8 +468,8 @@
       chord.setAttribute('stroke-width', '0.007');
       chord.setAttribute('stroke-dasharray', '0.03 0.025');
       _svg.appendChild(chord);
-      // Endpoint and midpoint markers (informational; not draggable).
-      for (const [x, y] of [[0, 0], [1, 0], [0.5, 0]] as const) {
+      // Endpoint markers (informational; not draggable).
+      for (const [x, y] of [[0, 0], [1, 0]] as const) {
         const dot = document.createElementNS(_svgNS, 'circle');
         dot.setAttribute('cx', String(x));
         dot.setAttribute('cy', String(-y));
@@ -699,41 +703,13 @@
       _mode = _modeSel.value as SymmetryMode;
       // Re-apply the symmetry constraint to the cubic master point so a
       // switch back to a cubic mode doesn't leave the curve in a state
-      // inconsistent with the new mode. Freeform's own sub-sym is
-      // managed independently by _ffSymSel below.
+      // inconsistent with the new mode.
       syncSymmetry(_curve, 'c1');
-      _ffSymSel.style.display = _mode === 'freeform' ? '' : 'none';
-      _ffHelp.style.display    = _mode === 'freeform' ? '' : 'none';
+      _ffHelp.style.display = _mode === 'freeform' ? '' : 'none';
       rerender();
       emit();
     });
     _btnRow.appendChild(_modeSel);
-
-    // Sub-toggle for the per-edge application of the freeform curve.
-    // 'alternating' n-flips the curve on odd-indexed edges (the convention
-    // that makes a symmetric cubic produce tab-to-slot mating); 'sShape'
-    // applies the curve forward on every edge. Without a symmetry constraint
-    // on the curve neither produces a clean tile match — toggling lets the
-    // user see how the mismatch differs.
-    const _ffSymSel = document.createElement('select');
-    _ffSymSel.style.cssText = 'font-size: 12px; padding: 1px 3px; display: none;';
-    for (const [val, label] of [
-      ['alternating', 'alt-flip edges'],
-      ['sShape',      'forward edges'],
-    ] as const) {
-      const opt = document.createElement('option');
-      opt.value = val; opt.textContent = label;
-      _ffSymSel.appendChild(opt);
-    }
-    _ffSymSel.value = _ffSym;
-    _ffSymSel.addEventListener('change', () => {
-      _ffSym = _ffSymSel.value as FFSym;
-      // No anchor remapping — _ffSym only changes the per-edge application
-      // convention downstream.
-      rerender();
-      emit();
-    });
-    _btnRow.appendChild(_ffSymSel);
     const _resetBtn = document.createElement('button');
     _resetBtn.type = 'button';
     _resetBtn.textContent = 'Reset to straight edges';
