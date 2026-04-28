@@ -171,7 +171,9 @@
   <script id="edge-editor-section" type="text/markdown">
     ### Curving the edges
 
-    The chiral spectre tiles aperiodically when each edge is replaced by a single shared cubic-Bézier curve, applied identically in every edge's local frame and made invariant under 180° rotation about its own midpoint. The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same. That collapses the editor to a single master handle (its mate on the same edge follows from the symmetry); two free numbers in total.
+    The chiral spectre tiles aperiodically when each edge is replaced by a single shared curve, applied identically in every edge's local frame and reflected across the chord's perpendicular bisector. The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same.
+
+    *Tab / slot* uses a single cubic Bézier with one draggable handle (its mate falls out of the symmetry). *Free form* drops the symmetry constraint entirely: drop as many anchors as you like along the edge, drag them anywhere, and watch the matching condition fail in real time. Click anywhere in the editor to add an anchor, drag to reshape, shift+click an anchor to delete.
 
     The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. Only edge 0 (the bottom horizontal *a*-edge) carries handles, since every other edge is forced to use the same shape; the curves still render on all 14 edges so you can see the resulting tile.
   </script>
@@ -200,6 +202,19 @@
     type EdgeHandles = { h1t: number; h1n: number; h2t: number; h2n: number };
     const DEFAULT_HANDLES: EdgeHandles = { h1t: 1/3, h1n: 0, h2t: 2/3, h2n: 0 };
 
+    // Freeform spline: a sorted-by-t list of anchor points (excluding the
+    // chord endpoints) that the user manipulates directly. No symmetry
+    // constraint is applied — anchors are placed freely so the user can
+    // explore what happens to the tiling when the matching condition is
+    // violated. Each edge still picks an *application* convention via
+    // `sym` (forward on every edge vs parity-flipped on odd edges); these
+    // are the same two conventions the cubic modes use, but with a free
+    // curve neither produces a clean tile-to-tile match — that mismatch
+    // is the whole point of the mode.
+    type FFAnchor = { t: number; n: number };
+    type FreeformSpline = { anchors: FFAnchor[]; sym: 'alternating' | 'sShape' };
+    const DEFAULT_FREEFORM_ANCHORS: FFAnchor[] = [];
+
     function projectSpectreVerts(a: number, b: number): [number, number][] {
       return spectreLatticeVertices2.map((p) =>
         [a * p.a[0] + b * p.b[0], a * p.a[1] + b * p.b[1]] as [number, number]);
@@ -214,6 +229,72 @@
       const tx = dx / len, ty = dy / len;
       const nx = ty, ny = -tx;
       return { p0, p1, tx, ty, nx, ny, len };
+    }
+
+    // Centripetal Catmull-Rom → cubic Bézier conversion. Given a sorted-by-t
+    // list of (t, n) interpolation points starting at (0, 0) and ending at
+    // (1, 0), emit one cubic Bézier per consecutive pair. Phantom endpoints
+    // are reflected through the actual endpoints so the natural curve has
+    // zero second derivative at t = 0 and t = 1 — straight enough to blend
+    // into the polygon corners without an obvious kink.
+    function freeformLocalCubics(
+      anchors: FFAnchor[],
+      _sym: 'alternating' | 'sShape',
+    ): Array<{ p0: [number, number]; c1: [number, number]; c2: [number, number]; p1: [number, number] }> {
+      // No symmetry enforcement — the user's anchors go through unmodified;
+      // sorting only makes sure the spline is t-monotone.
+      const all: FFAnchor[] = [{ t: 0, n: 0 }];
+      const sorted = anchors.slice().sort((a, b) => a.t - b.t);
+      for (const p of sorted) all.push(p);
+      all.push({ t: 1, n: 0 });
+      const out: Array<{ p0: [number, number]; c1: [number, number]; c2: [number, number]; p1: [number, number] }> = [];
+      const N = all.length;
+      for (let i = 0; i < N - 1; i++) {
+        const p0 = all[i];
+        const p1 = all[i + 1];
+        // Phantom-mirror at the boundary; uniform Catmull-Rom (tension 0)
+        // handle = ⅙ of the chord between the neighbors.
+        const pPrev = i === 0     ? { t: 2 * p0.t - p1.t, n: 2 * p0.n - p1.n } : all[i - 1];
+        const pNext = i === N - 2 ? { t: 2 * p1.t - p0.t, n: 2 * p1.n - p0.n } : all[i + 2];
+        const c1: [number, number] = [
+          p0.t + (p1.t - pPrev.t) / 6,
+          p0.n + (p1.n - pPrev.n) / 6,
+        ];
+        const c2: [number, number] = [
+          p1.t - (pNext.t - p0.t) / 6,
+          p1.n - (pNext.n - p0.n) / 6,
+        ];
+        out.push({ p0: [p0.t, p0.n], c1, c2, p1: [p1.t, p1.n] });
+      }
+      return out;
+    }
+    // World-space cubic Bézier segments for edge i, freeform spline path.
+    // Same parity flip as `controlPointsFor`: 'alternating' mode runs the
+    // odd edges through the n-flipped reverse parameterisation so adjacent
+    // tiles meet tab-to-slot. 'sShape' uses the forward curve on every edge.
+    function freeformWorldSegments(
+      i: number,
+      freeform: FreeformSpline,
+      verts: [number, number][],
+    ): Array<{ p0: [number, number]; c1: [number, number]; c2: [number, number]; p1: [number, number] }> {
+      const f = edgeFrame(verts, i);
+      const reversed = freeform.sym === 'alternating' && (i & 1) === 1;
+      let segs = freeformLocalCubics(freeform.anchors, freeform.sym);
+      if (reversed) {
+        segs = segs.map((s) => ({
+          p0: [1 - s.p1[0], -s.p1[1]] as [number, number],
+          c1: [1 - s.c2[0], -s.c2[1]] as [number, number],
+          c2: [1 - s.c1[0], -s.c1[1]] as [number, number],
+          p1: [1 - s.p0[0], -s.p0[1]] as [number, number],
+        })).reverse();
+      }
+      const toWorld = ([t, n]: [number, number]): [number, number] => [
+        f.p0[0] + t * (f.p1[0] - f.p0[0]) + n * f.len * f.nx,
+        f.p0[1] + t * (f.p1[1] - f.p0[1]) + n * f.len * f.ny,
+      ];
+      return segs.map((s) => ({
+        p0: toWorld(s.p0), c1: toWorld(s.c1), c2: toWorld(s.c2), p1: toWorld(s.p1),
+      }));
     }
     // World-space cubic-Bézier control points for edge i. The handles
     // (h1, h2) are *interpolation points* — points the curve passes
@@ -289,23 +370,46 @@
     // edges so adjacent tiles meet tab-to-slot. 'sShape' produces
     // S-curves (Q2 mirrored through the chord midpoint); the same
     // forward curve is used on every edge.
-    type SymmetryMode = 'alternating' | 'sShape';
+    type SymmetryMode = 'alternating' | 'freeform';
+    type FFSym = 'alternating' | 'sShape';
     let _mode: SymmetryMode = 'alternating';
+    // Freeform state. Each anchor is independent — no auto-mirrored partner.
+    // The default state is *no* anchors at all, which collapses to a straight
+    // line through the two endpoints.
+    type FFAnchorRec = { id: number; t: number; n: number };
+    let _ffNextId = 0;
+    function _mkAnchor(t: number, n: number): FFAnchorRec {
+      return { id: _ffNextId++, t, n };
+    }
+    // Freeform always uses the parity-flip ('alternating') edge-application
+    // convention since it's compatible with any curve shape; the forward
+    // convention would require midpoint symmetry on the curve, which the
+    // freeform editor doesn't enforce.
+    const _ffSym: FFSym = 'alternating';
+    let _ffAnchors: FFAnchorRec[] = [];
+    function ffIsDefault(): boolean {
+      // Default freeform = no user anchors; the spline collapses to the
+      // straight chord between the two endpoints.
+      return _ffAnchors.length === 0;
+    }
     function checkDefault(): boolean {
+      if (_mode === 'freeform') return ffIsDefault();
       const tol = 1e-9;
       return Math.abs(_curve.h1t - 1/3) < tol && Math.abs(_curve.h1n) < tol
           && Math.abs(_curve.h2t - 2/3) < tol && Math.abs(_curve.h2n) < tol;
     }
     function syncSymmetry(curve: EdgeHandles, handle: 'c1' | 'c2'): void {
-      // 'alternating': perpendicular-bisector mirror, (t, n) → (1−t, n).
-      // 'sShape':      midpoint reflection,           (t, n) → (1−t, −n).
-      const flipN = _mode === 'sShape';
+      // Cubic mode enforces perpendicular-bisector mirror symmetry on the
+      // curve, (t, n) → (1−t, n), so the master cubic produces the canonical
+      // tab/slot tile with the alt-flip edge convention. Freeform mode
+      // doesn't touch this — the cubic state is parked while freeform is
+      // active.
       if (handle === 'c1') {
         curve.h2t = 1 - curve.h1t;
-        curve.h2n = flipN ? -curve.h1n : curve.h1n;
+        curve.h2n = curve.h1n;
       } else {
         curve.h1t = 1 - curve.h2t;
-        curve.h1n = flipN ? -curve.h2n : curve.h2n;
+        curve.h1n = curve.h2n;
       }
     }
 
@@ -350,14 +454,22 @@
       return SPECTRE_A_EDGES.has(i) ? A_COLOR : B_COLOR;
     }
 
-    function rerender(): void {
-      while (_svg.firstChild) _svg.removeChild(_svg.firstChild);
-      const c = _curve;
-      // Light-on-dark palette so the editor reads on the controls
-      // panel's dark background.
-      const CHORD_COL = '#666', CURVE_COL = '#e8e8e8';
-      const STEM = '#aaa', PT = '#e8e8e8', HANDLE_COL = A_COLOR;
+    // Color/style constants shared between cubic and freeform rerender.
+    const CHORD_COL = '#666', CURVE_COL = '#e8e8e8';
+    const PT = '#e8e8e8', HANDLE_COL = A_COLOR;
 
+    function _rerenderChordAndMarkers(): void {
+      // Transparent background rect: catches pointerdown anywhere inside
+      // the editor's viewBox so the freeform "click to add anchor"
+      // interaction doesn't require pixel-precise hits on the curve.
+      const bg = document.createElementNS(_svgNS, 'rect');
+      bg.setAttribute('x', String(_eVbX));
+      bg.setAttribute('y', String(_eVbY));
+      bg.setAttribute('width',  String(_eVbW));
+      bg.setAttribute('height', String(_eVbH));
+      bg.setAttribute('fill', 'transparent');
+      (bg as any).dataset.hit = 'bg';
+      _svg.appendChild(bg);
       // Faint chord from P0=(0,0) to P3=(1,0).
       const chord = document.createElementNS(_svgNS, 'line');
       chord.setAttribute('x1', '0');  chord.setAttribute('y1', '0');
@@ -366,7 +478,19 @@
       chord.setAttribute('stroke-width', '0.007');
       chord.setAttribute('stroke-dasharray', '0.03 0.025');
       _svg.appendChild(chord);
+      // Endpoint markers (informational; not draggable).
+      for (const [x, y] of [[0, 0], [1, 0]] as const) {
+        const dot = document.createElementNS(_svgNS, 'circle');
+        dot.setAttribute('cx', String(x));
+        dot.setAttribute('cy', String(-y));
+        dot.setAttribute('r', '0.025');
+        dot.setAttribute('fill', PT);
+        _svg.appendChild(dot);
+      }
+    }
 
+    function _rerenderCubic(): void {
+      const c = _curve;
       // Curve: cubic from (0,0) to (1,0) passing through Q1=(h1t,h1n)
       // and Q2=(h2t,h2n) at s=1/3 and s=2/3. Derive Bézier control
       // points the same way controlPointsFor does.
@@ -381,16 +505,6 @@
       path.setAttribute('stroke', CURVE_COL);
       path.setAttribute('stroke-width', '0.014');
       _svg.appendChild(path);
-
-      // Endpoint and midpoint markers (informational; not draggable).
-      for (const [x, y] of [[0, 0], [1, 0], [0.5, 0]] as const) {
-        const dot = document.createElementNS(_svgNS, 'circle');
-        dot.setAttribute('cx', String(x));
-        dot.setAttribute('cy', String(-y));
-        dot.setAttribute('r', '0.025');
-        dot.setAttribute('fill', PT);
-        _svg.appendChild(dot);
-      }
 
       // Single draggable handle at Q1 (the curve passes through it
       // at s=1/3); Q2 follows by midpoint symmetry, drawn as a
@@ -415,6 +529,49 @@
       _svg.appendChild(q1);
     }
 
+    function _rerenderFreeform(): void {
+      // Build the same cubic Bézier segments the mesh path will use, but
+      // in edge-local (t, n) coords (no edgeFrame projection). Reusing
+      // freeformLocalCubics keeps the editor's preview pixel-perfect with
+      // the rendered tile.
+      const segs = freeformLocalCubics(
+        _ffAnchors.map(({ t, n }) => ({ t, n })),
+        _ffSym,
+      );
+      let d = `M ${segs[0].p0[0]} ${-segs[0].p0[1]}`;
+      for (const s of segs) {
+        d += ` C ${s.c1[0]} ${-s.c1[1]}, ${s.c2[0]} ${-s.c2[1]}, ${s.p1[0]} ${-s.p1[1]}`;
+      }
+      const path = document.createElementNS(_svgNS, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', CURVE_COL);
+      path.setAttribute('stroke-width', '0.014');
+      _svg.appendChild(path);
+
+      // Anchor handles: every anchor is independent and visually identical.
+      for (const a of _ffAnchors) {
+        const dot = document.createElementNS(_svgNS, 'circle');
+        dot.setAttribute('cx', String(a.t));
+        dot.setAttribute('cy', String(-a.n));
+        dot.setAttribute('r', '0.04');
+        dot.setAttribute('fill', HANDLE_COL);
+        dot.setAttribute('stroke', '#222');
+        dot.setAttribute('stroke-width', '0.008');
+        dot.setAttribute('cursor', 'grab');
+        (dot as any).dataset.handle = 'ff';
+        (dot as any).dataset.ffid = String(a.id);
+        _svg.appendChild(dot);
+      }
+    }
+
+    function rerender(): void {
+      while (_svg.firstChild) _svg.removeChild(_svg.firstChild);
+      _rerenderChordAndMarkers();
+      if (_mode === 'freeform') _rerenderFreeform();
+      else                      _rerenderCubic();
+    }
+
     // Pointer-to-SVG-coord conversion.
     function svgPoint(ev: PointerEvent): [number, number] {
       const rect = _svg.getBoundingClientRect();
@@ -428,21 +585,83 @@
       _resetBtn.disabled = isDef;
       // Fresh wrapper each tick so dependents that compare by identity see
       // a change. byEdge still points at the live store; consumers read
-      // it as a snapshot during the cell run.
-      (_editorRoot as any).value = { byEdge: _handleStore, isDefault: isDef, mode: _mode };
+      // it as a snapshot during the cell run. In freeform mode `freeform`
+      // carries the (anchors, sym) pair the mesh build needs; in cubic
+      // mode it's null and the build follows the existing byEdge path.
+      const ffSnapshot = _mode === 'freeform'
+        ? { anchors: _ffAnchors.map(({ t, n }) => ({ t, n })), sym: _ffSym }
+        : null;
+      (_editorRoot as any).value = {
+        byEdge: _handleStore, isDefault: isDef, mode: _mode, freeform: ffSnapshot,
+      };
       _editorRoot.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
-    let _drag: { handle: 'c1' | 'c2'; pointerId: number } | null = null;
+    type DragState =
+      | { kind: 'cubic'; handle: 'c1' | 'c2'; pointerId: number }
+      | { kind: 'ff'; ffid: number; pointerId: number };
+    let _drag: DragState | null = null;
+
+    function _ffFindById(id: number): FFAnchorRec | null {
+      for (const a of _ffAnchors) if (a.id === id) return a;
+      return null;
+    }
+    function _ffMoveAnchor(id: number, t: number, n: number): void {
+      const a = _ffFindById(id);
+      if (!a) return;
+      // Clamp t to (0, 1) so the user can't drag an anchor onto an
+      // endpoint and force a duplicate point.
+      a.t = Math.max(0.005, Math.min(0.995, t));
+      a.n = n;
+    }
+    function _ffDelete(id: number): void {
+      _ffAnchors = _ffAnchors.filter((p) => p.id !== id);
+    }
+    function _ffAdd(t: number, n: number): void {
+      t = Math.max(0.005, Math.min(0.995, t));
+      _ffAnchors.push(_mkAnchor(t, n));
+    }
+
     _svg.addEventListener('pointerdown', (ev) => {
       const target = ev.target as HTMLElement | null;
-      if (!target || target.tagName.toLowerCase() !== 'circle') return;
-      const handle = (target as any).dataset.handle;
-      if (handle !== 'c1' && handle !== 'c2') return;
-      _drag = { handle, pointerId: ev.pointerId };
-      _svg.setPointerCapture(ev.pointerId);
-      target.setAttribute('cursor', 'grabbing');
-      ev.preventDefault();
+      if (!target) return;
+      const handle = (target as any).dataset?.handle;
+      const hit    = (target as any).dataset?.hit;
+      // Shift+click on an anchor in freeform mode = delete.
+      if (_mode === 'freeform' && handle === 'ff' && ev.shiftKey) {
+        const id = Number((target as any).dataset.ffid);
+        _ffDelete(id);
+        rerender();
+        emit();
+        ev.preventDefault();
+        return;
+      }
+      if (handle === 'ff' && _mode === 'freeform') {
+        const id = Number((target as any).dataset.ffid);
+        _drag = { kind: 'ff', ffid: id, pointerId: ev.pointerId };
+        _svg.setPointerCapture(ev.pointerId);
+        target.setAttribute('cursor', 'grabbing');
+        ev.preventDefault();
+        return;
+      }
+      if (handle === 'c1' || handle === 'c2') {
+        _drag = { kind: 'cubic', handle, pointerId: ev.pointerId };
+        _svg.setPointerCapture(ev.pointerId);
+        target.setAttribute('cursor', 'grabbing');
+        ev.preventDefault();
+        return;
+      }
+      // Anything else inside the editor in freeform mode = add anchor at
+      // the click position. Catches clicks on the chord, endpoints, the
+      // curve itself, and the transparent background — none of those are
+      // interactive, so dropping the click on them was just frustrating.
+      if (_mode === 'freeform') {
+        const [sx, sy] = svgPoint(ev);
+        _ffAdd(sx, -sy);
+        rerender();
+        emit();
+        ev.preventDefault();
+      }
     });
     _svg.addEventListener('pointermove', (ev) => {
       if (!_drag || ev.pointerId !== _drag.pointerId) return;
@@ -450,9 +669,20 @@
       // n = −y_svg.
       const [sx, sy] = svgPoint(ev);
       const t = sx, n = -sy;
-      if (_drag.handle === 'c1') { _curve.h1t = t; _curve.h1n = n; }
-      else                       { _curve.h2t = t; _curve.h2n = n; }
-      syncSymmetry(_curve, _drag.handle);
+      if (_drag.kind === 'cubic') {
+        // Re-bind the cursor to whichever interpolation point keeps the
+        // h1/h2 ordering canonical (h1 the s = 1/3 point, h2 the s = 2/3
+        // point). When the user drags past the chord midpoint, the cursor
+        // is now the right-hand point — feed it into h2 and let
+        // syncSymmetry fold the reflection back onto h1. Without this the
+        // cubic loops back on itself once Q1 crosses Q2.
+        const handle: 'c1' | 'c2' = t < 0.5 ? 'c1' : 'c2';
+        if (handle === 'c1') { _curve.h1t = t; _curve.h1n = n; }
+        else                 { _curve.h2t = t; _curve.h2n = n; }
+        syncSymmetry(_curve, handle);
+      } else {
+        _ffMoveAnchor(_drag.ffid, t, n);
+      }
       rerender();
       emit();
     });
@@ -471,7 +701,7 @@
     _modeSel.style.cssText = 'font-size: 12px; padding: 1px 3px;';
     for (const [val, label] of [
       ['alternating', 'Tab / slot'],
-      ['sShape',      'S-curve'],
+      ['freeform',    'Free form'],
     ] as const) {
       const opt = document.createElement('option');
       opt.value = val; opt.textContent = label;
@@ -480,10 +710,11 @@
     _modeSel.value = _mode;
     _modeSel.addEventListener('change', () => {
       _mode = _modeSel.value as SymmetryMode;
-      // Re-apply the symmetry constraint to the existing master point
-      // so a switch doesn't leave the curve in a state inconsistent
-      // with the new mode.
+      // Re-apply the symmetry constraint to the cubic master point so a
+      // switch back to a cubic mode doesn't leave the curve in a state
+      // inconsistent with the new mode.
       syncSymmetry(_curve, 'c1');
+      _ffHelp.style.display = _mode === 'freeform' ? '' : 'none';
       rerender();
       emit();
     });
@@ -494,16 +725,26 @@
     _resetBtn.style.cssText = 'padding: 3px 10px; font-size: 12px; cursor: pointer;';
     _resetBtn.disabled = true;
     _resetBtn.addEventListener('click', () => {
-      Object.assign(_curve, DEFAULT_HANDLES);
+      if (_mode === 'freeform') {
+        _ffAnchors = [];
+      } else {
+        Object.assign(_curve, DEFAULT_HANDLES);
+      }
       rerender();
       emit();
     });
     _btnRow.appendChild(_resetBtn);
 
+    // Help line for freeform interactions; only shown in freeform mode.
+    const _ffHelp = document.createElement('div');
+    _ffHelp.style.cssText = 'display: none; text-align: center; margin-top: 4px; font-family: var(--sans-serif); font-size: 11px; color: var(--theme-foreground-muted, #888);';
+    _ffHelp.textContent = 'Click anywhere to add anchor · drag to move · shift+click to delete';
+
     _editorRoot.appendChild(_svg);
     _editorRoot.appendChild(_btnRow);
+    _editorRoot.appendChild(_ffHelp);
     rerender();
-    (_editorRoot as any).value = { byEdge: _handleStore, isDefault: true, mode: _mode };
+    (_editorRoot as any).value = { byEdge: _handleStore, isDefault: true, mode: _mode, freeform: null };
     // Append into the WebGPU figure's controls panel (the same element
     // that hosts the depth / morph / palette controls) so dragging a
     // handle gives immediate feedback in the tiling. The cell's
@@ -2226,7 +2467,12 @@
     // to a fixed flatness of 0.5 % of edge length, which keeps the boundary
     // well under MAX_BOUNDARY_VERTS even for sharply pulled handles.
 
-    function buildBoundary(verts: [number, number][], byEdge: Record<number, EdgeHandles>, mode: 'alternating' | 'sShape'): Float32Array {
+    function buildBoundary(
+      verts: [number, number][],
+      byEdge: Record<number, EdgeHandles>,
+      mode: 'alternating' | 'sShape' | 'freeform',
+      freeform: { anchors: { t: number; n: number }[]; sym: 'alternating' | 'sShape' } | null,
+    ): Float32Array {
       // adaptive-bezier-curve's `scale` argument sets distanceTolerance =
       // 1/scale in world units, applied as |perp deviation| / |chord| ≤
       // 1/scale. SCALE = 40 ends recursion at ~2.5 % of edge length —
@@ -2247,13 +2493,29 @@
           pts.push(p0[0], p0[1]);
           continue;
         }
-        const { c1, c2 } = controlPointsFor(i, byEdge, verts, mode);
-        // Returns an array of [x, y] including both endpoints. We append
-        // all but the last to avoid duplicating the shared vertex with
-        // the next edge's first point.
-        const seg = adaptiveBezierCurve(p0, c1, c2, p3, SCALE) as [number, number][];
-        for (let k = 0; k < seg.length - 1; k++) {
-          pts.push(seg[k][0], seg[k][1]);
+        if (mode === 'freeform' && freeform) {
+          // Multi-segment cubic spline through the freeform anchors;
+          // discretize each segment with the same adaptive scheme. Each
+          // segment's last sample is the next segment's first sample (or
+          // the next edge's start vertex), so we skip it to keep the
+          // shared boundary vertex count exactly once per edge.
+          const segs = freeformWorldSegments(i, freeform, verts);
+          for (let s = 0; s < segs.length; s++) {
+            const seg = segs[s];
+            const out = adaptiveBezierCurve(seg.p0, seg.c1, seg.c2, seg.p1, SCALE) as [number, number][];
+            for (let k = 0; k < out.length - 1; k++) {
+              pts.push(out[k][0], out[k][1]);
+            }
+          }
+        } else {
+          const { c1, c2 } = controlPointsFor(i, byEdge, verts, mode as 'alternating' | 'sShape');
+          // Returns an array of [x, y] including both endpoints. We append
+          // all but the last to avoid duplicating the shared vertex with
+          // the next edge's first point.
+          const seg = adaptiveBezierCurve(p0, c1, c2, p3, SCALE) as [number, number][];
+          for (let k = 0; k < seg.length - 1; k++) {
+            pts.push(seg[k][0], seg[k][1]);
+          }
         }
       }
       return new Float32Array(pts);
@@ -2272,12 +2534,13 @@
     const _oddVerts  = projectSpectreVerts(renderB, renderA);
     const _isDefault = tileEdges.isDefault;
     const _editMode = tileEdges.mode ?? 'alternating';
+    const _ffSpline = tileEdges.freeform ?? null;
     const meshEvenData = _isDefault
       ? buildDefaultBoundary(_evenVerts)
-      : buildBoundary(_evenVerts, tileEdges.byEdge, _editMode);
+      : buildBoundary(_evenVerts, tileEdges.byEdge, _editMode, _ffSpline);
     const meshOddData  = _isDefault
       ? buildDefaultBoundary(_oddVerts)
-      : buildBoundary(_oddVerts,  tileEdges.byEdge, _editMode);
+      : buildBoundary(_oddVerts,  tileEdges.byEdge, _editMode, _ffSpline);
     const _evenN = meshEvenData.length / 2;
     const _oddN  = meshOddData.length  / 2;
 
