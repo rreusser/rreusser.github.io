@@ -8,37 +8,272 @@
     A pared-down Spectre viewer that lets you zoom out arbitrarily. Supertiles are generated on demand, and tiles that shrink below a few pixels collapse into earcut polygon meshes. This first cut is a plain viewer at fixed depth; the walker, upward extension, aggregation, and zoom-driven coloring are layered in afterwards.
   </script>
 
-  <script id="figure" type="text/x-typescript">
-    display(viewerExpandable);
-  </script>
-
-  <script id="figure-caption" type="text/x-typescript">
-    const _totalLeaves = countLeaves(rootMeta);
-    display(html`<figcaption>
-      Depth-${BASE_DEPTH} Δ supertile, Cartesian coordinates only (no morph). ${_totalLeaves.toLocaleString()} spectres total; only the visible subset is uploaded each frame.
-    </figcaption>`);
+  <script id="editor-styles" type="text/html">
+    <style>
+      .spectre-card {
+        --gap: 8px;
+        display: flex; flex-direction: column; gap: 6px;
+        padding: 10px 12px; margin: 8px 0;
+        border-radius: 6px;
+        border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+        background: color-mix(in srgb, currentColor 4%, transparent);
+        font-family: var(--sans-serif, sans-serif);
+        font-size: 12px;
+      }
+      .spectre-row {
+        display: flex; gap: var(--gap, 8px); align-items: center;
+        flex-wrap: wrap;
+      }
+      .spectre-row > .grow { flex: 1 1 0; min-width: 0; }
+      .spectre-input, .spectre-select {
+        font-family: var(--mono, monospace);
+        font-size: 11px;
+        padding: 4px 7px;
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 3px;
+        background: color-mix(in srgb, currentColor 6%, transparent);
+        color: inherit;
+        box-sizing: border-box;
+      }
+      .spectre-input:focus, .spectre-select:focus {
+        outline: 1px solid color-mix(in srgb, currentColor 60%, transparent);
+        outline-offset: -1px;
+      }
+      .spectre-input.grow { flex: 1 1 0; min-width: 0; }
+      .spectre-input.num    { width: 60px; text-align: right; }
+      .spectre-input.num-sm { width: 52px; text-align: right; }
+      .spectre-input.num-md { width: 70px; text-align: right; }
+      .spectre-input.num-lg { width: 96px; text-align: right; }
+      .spectre-input[readonly] {
+        cursor: text;
+        background: color-mix(in srgb, currentColor 3%, transparent);
+      }
+      .spectre-btn {
+        font-family: var(--sans-serif, sans-serif);
+        font-size: 11px;
+        padding: 4px 10px;
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 3px;
+        background: color-mix(in srgb, currentColor 8%, transparent);
+        color: inherit;
+        cursor: pointer;
+        white-space: nowrap;
+        line-height: 1.2;
+      }
+      .spectre-btn:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+      .spectre-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+      .spectre-btn.icon {
+        padding: 3px 8px; min-width: 28px; text-align: center;
+        font-family: var(--mono, monospace);
+      }
+      .spectre-btn.primary {
+        background: color-mix(in srgb, #4a9eff 22%, transparent);
+        border-color: color-mix(in srgb, #4a9eff 50%, transparent);
+        font-weight: 600;
+      }
+      .spectre-btn.primary:hover {
+        background: color-mix(in srgb, #4a9eff 34%, transparent);
+      }
+      .spectre-btn.danger:hover:not(:disabled) {
+        background: color-mix(in srgb, #d04848 28%, transparent);
+        border-color: color-mix(in srgb, #d04848 60%, transparent);
+      }
+      .spectre-label {
+        font-size: 11px;
+        opacity: 0.55;
+        flex: 0 0 auto;
+      }
+      .spectre-tag {
+        font-family: var(--mono, monospace);
+        font-weight: 700;
+        font-size: 11px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        background: color-mix(in srgb, currentColor 14%, transparent);
+        flex: 0 0 auto;
+        letter-spacing: 0.03em;
+        min-width: 40px;
+        text-align: center;
+      }
+      .spectre-mono {
+        font-family: var(--mono, monospace);
+        font-size: 11px;
+        opacity: 0.7;
+        white-space: nowrap;
+      }
+      .spectre-checkbox {
+        display: inline-flex; gap: 4px; align-items: center;
+        cursor: pointer; user-select: none;
+        font-size: 11px;
+        flex: 0 0 auto;
+      }
+      .spectre-divider {
+        flex: 1 1 0;
+        border: 0;
+        border-top: 1px dashed color-mix(in srgb, currentColor 16%, transparent);
+        margin: 0 4px;
+        align-self: center;
+      }
+      .spectre-kf-row {
+        display: flex; gap: 8px; align-items: center;
+        padding: 4px 0;
+      }
+      .spectre-seg {
+        display: flex; flex-direction: column; gap: 4px;
+        padding: 6px 8px 6px 12px;
+        margin: 2px 0 6px 22px;
+        border-left: 2px solid color-mix(in srgb, currentColor 12%, transparent);
+        border-radius: 0 4px 4px 0;
+      }
+      .spectre-seg.is-smooth {
+        border-left-color: color-mix(in srgb, #4a9eff 65%, transparent);
+        background: linear-gradient(
+          90deg,
+          color-mix(in srgb, #4a9eff 6%, transparent) 0,
+          transparent 280px
+        );
+      }
+      .spectre-seg-row {
+        display: flex; gap: 8px; align-items: center;
+        font-size: 11px;
+        flex-wrap: wrap;
+      }
+      .spectre-section-head {
+        display: flex; gap: 8px; align-items: baseline;
+        margin: 0 0 6px 0;
+      }
+      .spectre-section-head h4 {
+        margin: 0;
+        font-size: 10px; font-weight: 700;
+        letter-spacing: 0.06em; text-transform: uppercase;
+        opacity: 0.55;
+      }
+      .spectre-section-head .meta {
+        font-family: var(--mono, monospace);
+        font-size: 11px;
+        opacity: 0.7;
+        margin-left: auto;
+      }
+      .spectre-actions {
+        display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      }
+      .spectre-cull-slider {
+        flex: 1 1 0;
+        min-width: 80px;
+        max-width: 200px;
+      }
+      .spectre-help {
+        font-family: var(--sans-serif, sans-serif);
+        font-size: 12px;
+        line-height: 1.45;
+        opacity: 0.75;
+        margin: 0 0 4px 0;
+      }
+      .spectre-help > summary {
+        cursor: pointer;
+        font-size: 11px;
+        opacity: 0.7;
+        list-style: none;
+        display: inline-flex; align-items: center; gap: 4px;
+        user-select: none;
+      }
+      .spectre-help > summary::-webkit-details-marker { display: none; }
+      .spectre-help > summary::before {
+        content: '▸';
+        font-size: 9px;
+        transition: transform 0.12s ease;
+        display: inline-block;
+        width: 9px;
+      }
+      .spectre-help[open] > summary::before { transform: rotate(90deg); }
+      .spectre-help > summary:hover { opacity: 1; }
+      .spectre-help > p {
+        margin: 6px 0 0 0;
+        max-width: 70ch;
+      }
+      .spectre-swatch-row {
+        display: flex; gap: 2px; align-items: flex-end;
+        width: 100%;
+        max-width: 360px;
+      }
+      .spectre-swatch-cell {
+        display: flex; flex-direction: column;
+        flex: 1 1 0; min-width: 0;
+        align-items: center;
+        gap: 2px;
+        font-family: var(--sans-serif, sans-serif);
+        font-size: 11px;
+        opacity: 0.85;
+      }
+      input.spectre-swatch {
+        -webkit-appearance: none; -moz-appearance: none; appearance: none;
+        width: 100%;
+        height: 18px;
+        padding: 0;
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 3px;
+        background: transparent;
+        cursor: pointer;
+      }
+      input.spectre-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+      input.spectre-swatch::-webkit-color-swatch { border: none; border-radius: 2px; }
+      input.spectre-swatch::-moz-color-swatch { border: none; }
+    </style>
   </script>
 
   <script id="palette-controls" type="text/x-typescript">
-    // A "Randomize" button that picks a new palette seed and triggers a
-    // redraw. paletteState.rgb is mutated in place, so the next frame's
-    // walker reads the new colours without re-running any cells.
+    // 11 colour swatches (one per tile label, including Γ₁/Γ₂) plus a
+    // Randomize button + seed input. paletteState.rgb is mutated in place,
+    // so the next frame's walker reads the new colours without re-running
+    // any cells.
+    const _SWATCH_GLYPH: Record<string, string> = {
+      Gamma: 'Γ', Gamma1: 'Γ₁', Gamma2: 'Γ₂',
+      Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ',
+      Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ',
+    };
+    const _swatchRow = document.createElement('div');
+    _swatchRow.className = 'spectre-swatch-row';
+    _swatchRow.id = 'spectre-palette-swatch-row';
+    const _swatchInputs: Record<string, HTMLInputElement> = {};
+    for (const label of _ALL_LABELS) {
+      const cell = document.createElement('label');
+      cell.className = 'spectre-swatch-cell';
+      cell.title = label;
+      const inp = document.createElement('input');
+      inp.type = 'color';
+      inp.className = 'spectre-swatch';
+      inp.value = paletteState.hex[label];
+      inp.addEventListener('input', () => {
+        paletteState.setHex(label, inp.value);
+        _updateClearValue();
+        viewerState.onViewChange?.(viewerState);
+        viewerState.requestFrame();
+        (window as any)._spectreSaveLocal?.();
+      });
+      _swatchInputs[label] = inp;
+      const glyph = document.createElement('span');
+      glyph.textContent = _SWATCH_GLYPH[label] ?? label;
+      cell.append(inp, glyph);
+      _swatchRow.append(cell);
+    }
+    function _syncSwatches() {
+      for (const label of _ALL_LABELS) {
+        if (_swatchInputs[label]) _swatchInputs[label].value = paletteState.hex[label];
+      }
+    }
+
     const _ctrlBtn = document.createElement('button');
     _ctrlBtn.type = 'button';
-    _ctrlBtn.textContent = 'Randomize colours';
-    _ctrlBtn.style.padding = '4px 12px';
-    _ctrlBtn.style.fontSize = '12px';
-    _ctrlBtn.style.cursor = 'pointer';
+    _ctrlBtn.textContent = 'Randomize';
+    _ctrlBtn.className = 'spectre-btn';
     const _ctrlSeed = document.createElement('input');
     _ctrlSeed.type = 'number';
     _ctrlSeed.min = '0';
     _ctrlSeed.value = String(paletteState.seed);
+    _ctrlSeed.className = 'spectre-input num-md';
     // Stable id so the video-export "Load config" button can sync this
     // input's displayed value when it programmatically changes the seed.
     _ctrlSeed.id = 'spectre-palette-seed-input';
-    _ctrlSeed.style.width = '80px';
-    _ctrlSeed.style.fontSize = '12px';
-    _ctrlSeed.style.padding = '2px 6px';
     function _updateClearValue() {
       // Average RGB across all 11 palette labels — used as the canvas's
       // clear colour so any uncovered pixels (sub-pixel gaps between
@@ -61,6 +296,7 @@
     function _applySeed(s: number) {
       paletteState.setSeed(s);
       _ctrlSeed.value = String(paletteState.seed);
+      _syncSwatches();
       _updateClearValue();
       // requestFrame just redraws the existing instance buffer with the
       // colours it already has. To pick up the new palette we need to
@@ -71,26 +307,341 @@
     }
     // Initial clear value at page load.
     _updateClearValue();
+    // Exposed so the video-export "Load config" button can refresh the
+    // swatches and clear colour after a programmatic palette change.
+    (window as any)._spectreSyncSwatches = () => {
+      _syncSwatches();
+      _updateClearValue();
+    };
     _ctrlBtn.addEventListener('click', () => {
       _applySeed(Math.floor(Math.random() * 99999));
+      (window as any)._spectreSaveLocal?.();
     });
     _ctrlSeed.addEventListener('input', () => {
       _applySeed(parseInt(_ctrlSeed.value, 10) || 0);
+      (window as any)._spectreSaveLocal?.();
     });
-    const _ctrlRow = document.createElement('div');
-    _ctrlRow.style.display = 'flex';
-    _ctrlRow.style.gap = '8px';
-    _ctrlRow.style.alignItems = 'center';
-    _ctrlRow.style.margin = '8px 0';
-    _ctrlRow.style.fontFamily = 'var(--sans-serif)';
     const _ctrlSeedLabel = document.createElement('label');
-    _ctrlSeedLabel.style.display = 'inline-flex';
-    _ctrlSeedLabel.style.gap = '6px';
-    _ctrlSeedLabel.style.alignItems = 'center';
-    _ctrlSeedLabel.style.fontSize = '12px';
-    _ctrlSeedLabel.append('seed ', _ctrlSeed);
+    _ctrlSeedLabel.className = 'spectre-checkbox';
+    const _ctrlSeedSpan = document.createElement('span');
+    _ctrlSeedSpan.className = 'spectre-label';
+    _ctrlSeedSpan.textContent = 'seed';
+    _ctrlSeedLabel.append(_ctrlSeedSpan, _ctrlSeed);
+    const _ctrlRow = document.createElement('div');
+    _ctrlRow.className = 'spectre-row';
     _ctrlRow.append(_ctrlBtn, _ctrlSeedLabel);
-    display(_ctrlRow);
+    const _paletteCard = document.createElement('div');
+    _paletteCard.className = 'spectre-card';
+    const _paletteHead = document.createElement('div');
+    _paletteHead.className = 'spectre-section-head';
+    const _paletteH = document.createElement('h4');
+    _paletteH.textContent = 'palette';
+    _paletteHead.append(_paletteH);
+    _paletteCard.append(_paletteHead, _swatchRow, _ctrlRow);
+    display(_paletteCard);
+  </script>
+
+  <script id="figure" type="text/x-typescript">
+    display(viewerExpandable);
+  </script>
+
+  <script id="find-distant-match" type="text/x-typescript">
+    // ─── Find a distant pattern-matching view ─────────────────────────
+    // For a given source view (the current viewport), find another world
+    // position whose local pattern is identical to the source within a
+    // radius determined by the suffix length K. Two leaves with the same
+    // K-suffix (last K geometry indices in the substitution path, same
+    // type at level K) sit inside identically-substituted level-K
+    // supertiles, so their local environments are byte-identical out to
+    // ~(2.45)^K world units.
+    type LeafAddress = {
+      path: number[];        // geom indices, root → leaf
+      types: TileName[];     // type at each meta level
+      rots: number[];        // accumulated world rot at each meta level
+      mirs: number[];        // accumulated world mirror at each meta level
+      leafCx: number;        // world X of the located leaf's centroid
+      leafCy: number;        // world Y of the located leaf's centroid
+    };
+    // Closest-child descent: always reaches a leaf (the one whose
+    // centroid is nearest to the target). Robust to floating-point
+    // precision at deep extension levels and to the case where the
+    // target is on a polygon boundary.
+    function _findLeafNear(targetX: number, targetY: number): LeafAddress | null {
+      let mt: any = walkerState.currentRoot;
+      let tx: any = walkerState.currentRootTransform;
+      if (mt.kind !== 'meta') return null;
+      const path: number[] = [];
+      const types: TileName[] = [mt.name];
+      const rots: number[] = [tx.rot];
+      const mirs: number[] = [tx.mirror];
+      while (mt.kind === 'meta') {
+        let bestI = -1, bestD = Infinity;
+        for (let i = 0; i < mt.geometries.length; i++) {
+          const geom = mt.geometries[i];
+          const child = geom.child;
+          const childTx = txCompose(tx, geom.transform);
+          const cx = (child as any)._cCx ?? 0;
+          const cy = (child as any)._cCy ?? 0;
+          const wc = txApply(childTx, [cx, cy]);
+          const d = Math.hypot(wc[0] - targetX, wc[1] - targetY);
+          if (d < bestD) { bestD = d; bestI = i; }
+        }
+        if (bestI < 0) break;
+        path.push(bestI);
+        const geom = mt.geometries[bestI];
+        tx = txCompose(tx, geom.transform);
+        mt = geom.child;
+        if (mt.kind === 'meta') {
+          types.push(mt.name as TileName);
+          rots.push(tx.rot);
+          mirs.push(tx.mirror);
+        }
+      }
+      // mt is the leaf — compute its world centroid for offset
+      // preservation in the caller.
+      const lcx = (mt as any)._cCx ?? 0;
+      const lcy = (mt as any)._cCy ?? 0;
+      const wc = txApply(tx, [lcx, lcy]);
+      return { path, types, rots, mirs, leafCx: wc[0], leafCy: wc[1] };
+    }
+
+    interface FindMatchResult { centerX: number; centerY: number; attempts: number }
+    function _findMatchingLeaf(args: {
+      sourceX: number; sourceY: number;
+      parentType: TileName;
+      parentRot: number;     // world rotation of source's level-K ancestor
+      parentMir: number;     // world mirror of source's level-K ancestor
+      parentSubLevel: number;
+      suffix: number[];
+      minDistance: number;
+      maxAttempts?: number;
+    }): FindMatchResult | null {
+      const root = walkerState.currentRoot;
+      const rootTransform = walkerState.currentRootTransform;
+      if (root.kind !== 'meta') return null;
+      const rootSubLevel = (root as any)._subLevel as number;
+      const stepsToParent = rootSubLevel - args.parentSubLevel;
+      if (stepsToParent < 0) return null;
+      const seed = ((Math.floor(args.sourceX) ^ Math.floor(args.sourceY)) >>> 0) || 1;
+      const rng = _makeSeededRng(seed);
+      const max = args.maxAttempts ?? 200000;
+      for (let attempt = 0; attempt < max; attempt++) {
+        let mt: any = root;
+        let tx: any = rootTransform;
+        let ok = true;
+        for (let d = 0; d < stepsToParent; d++) {
+          if (mt.kind !== 'meta') { ok = false; break; }
+          const i = Math.floor(rng() * mt.geometries.length);
+          const geom = mt.geometries[i];
+          tx = txCompose(tx, geom.transform);
+          mt = geom.child;
+        }
+        if (!ok || mt.kind !== 'meta' || mt.name !== args.parentType) continue;
+        // Match world orientation: same rot and mirror means the
+        // candidate's local pattern is in the same on-screen orientation
+        // as the source, not just congruent up to a rotation.
+        if (tx.rot !== args.parentRot || tx.mirror !== args.parentMir) continue;
+        // Apply suffix.
+        let suffOk = true;
+        for (const i of args.suffix) {
+          if (mt.kind !== 'meta' || i >= mt.geometries.length) { suffOk = false; break; }
+          const geom = mt.geometries[i];
+          tx = txCompose(tx, geom.transform);
+          mt = geom.child;
+        }
+        if (!suffOk || mt.kind !== 'leaf') continue;
+        const lcx = (mt as any)._cCx ?? 0;
+        const lcy = (mt as any)._cCy ?? 0;
+        const c = txApply(tx, [lcx, lcy]);
+        const dx = c[0] - args.sourceX, dy = c[1] - args.sourceY;
+        if (Math.hypot(dx, dy) < args.minDistance) continue;
+        return { centerX: c[0], centerY: c[1], attempts: attempt + 1 };
+      }
+      return null;
+    }
+
+    function _findDistantMatchForCurrentView(K: number, minDistance: number):
+      { result: FindMatchResult | null; sourceLeaf: LeafAddress | null } {
+      const v = viewerState.getView();
+      const sourceLeaf = _findLeafNear(v.centerX, v.centerY);
+      if (!sourceLeaf) return { result: null, sourceLeaf: null };
+      const D = sourceLeaf.path.length;
+      if (D < K) return { result: null, sourceLeaf };
+      const suffix = sourceLeaf.path.slice(D - K);
+      const idx = D - K;
+      const parentType = sourceLeaf.types[idx];
+      const parentRot = sourceLeaf.rots[idx];
+      const parentMir = sourceLeaf.mirs[idx];
+      const root = walkerState.currentRoot;
+      const rootSubLevel = (root as any)._subLevel as number;
+      const parentSubLevel = rootSubLevel - idx;
+      const result = _findMatchingLeaf({
+        sourceX: v.centerX, sourceY: v.centerY,
+        parentType, parentRot, parentMir, parentSubLevel,
+        suffix, minDistance,
+      });
+      return { result, sourceLeaf };
+    }
+
+    // Local button helper (keeps this cell self-contained — the
+    // video-export cell has its own _btn, but cross-cell helper sharing
+    // is brittle and this is two lines.)
+    function _fdmBtn(text: string, classes = '', title?: string): HTMLButtonElement {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.className = `spectre-btn ${classes}`.trim();
+      if (title) b.title = title;
+      return b;
+    }
+
+    const _loopRow = document.createElement('div');
+    _loopRow.className = 'spectre-card';
+    const _loopHead = document.createElement('div');
+    _loopHead.className = 'spectre-section-head';
+    const _loopH = document.createElement('h4');
+    _loopH.textContent = 'find distant match';
+    _loopHead.append(_loopH);
+    _loopRow.append(_loopHead);
+    const _loopHelp = document.createElement('details');
+    _loopHelp.className = 'spectre-help';
+    const _loopHelpSummary = document.createElement('summary');
+    _loopHelpSummary.textContent = 'how this works';
+    const _loopHelpBody = document.createElement('p');
+    _loopHelpBody.textContent =
+      'Locates a far-away spot whose local pattern matches the current view exactly, ' +
+      'useful for building a seamless looping zoom. Frame a view, click Find, then Go ' +
+      'to jump there; paste the output into a keyframe to use it as an endpoint. ' +
+      'Match depth is bounded by the supertile levels currently loaded around the view, ' +
+      'so if it fails, zoom out slightly (to extend the tree) or reduce depth / min dist.';
+    _loopHelp.append(_loopHelpSummary, _loopHelpBody);
+    _loopRow.append(_loopHelp);
+    const _loopControls = document.createElement('div');
+    _loopControls.className = 'spectre-row';
+
+    function _labeledInput(
+      label: string, type: string, value: string, cls: string, title: string,
+    ) {
+      const wrap = document.createElement('label');
+      wrap.className = 'spectre-checkbox';
+      const span = document.createElement('span');
+      span.className = 'spectre-label';
+      span.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = type;
+      inp.value = value;
+      inp.className = `spectre-input ${cls}`.trim();
+      inp.title = title;
+      wrap.append(span, inp);
+      return { wrap, inp };
+    }
+    // K can be left as 'auto' (or 0/empty) to be derived from the current
+    // viewport's world extent. Match radius is ~2.45^K world units, so K
+    // needs to scale with how zoomed-out the user is.
+    const _kInput = _labeledInput(
+      'match depth', 'text', 'auto', 'num-sm',
+      'How many substitution levels of context the match must reproduce. ' +
+        'Match radius ≈ 2.45^depth world units. "auto" picks the smallest depth ' +
+        'whose radius comfortably exceeds the current viewport. ' +
+        'Capped by the supertile levels currently loaded around the view — ' +
+        'if no match is found, zoom out a bit (to load more levels) or lower the depth.',
+    );
+    const _minDistInput = _labeledInput(
+      'min dist', 'text', 'auto', 'num-md',
+      'Minimum world-units distance from current view to candidate. "auto" = current viewport diameter.',
+    );
+
+    const _matchBtn = _fdmBtn('Find distant match', 'primary');
+    const _matchOut = document.createElement('input');
+    _matchOut.type = 'text';
+    _matchOut.readOnly = true;
+    _matchOut.className = 'spectre-input grow';
+    _matchOut.placeholder = 'paste output into a keyframe';
+
+    const _matchGoBtn = _fdmBtn('Go', '', 'Jump the live view to the matched coordinates.');
+    _matchGoBtn.disabled = true;
+
+    // Separate status line so the output box stays cleanly copy-able.
+    const _matchStatus = document.createElement('span');
+    _matchStatus.className = 'spectre-mono';
+
+    function _autoK(viewPxW: number, pixelScale: number): number {
+      // Want 2.45^K >> viewport world diameter so the entire visible
+      // area is well inside the matching radius — and so a small
+      // offset drift after Go can't push the next-iteration source
+      // onto a *different* leaf with a different K-suffix. +2 gives
+      // ~6× headroom over the viewport extent.
+      const worldExtent = Math.max(1, viewPxW) / Math.max(1e-30, pixelScale);
+      return Math.max(2, Math.ceil(Math.log(worldExtent) / Math.log(2.45)) + 2);
+    }
+
+    type _FdmView = { centerX: number; centerY: number; pixelScale: number };
+    let _matchedView: _FdmView | null = null;
+    _matchBtn.addEventListener('click', () => {
+      const v = viewerState.getView();
+      const liveW = viewerState.pixelWidth || 1280;
+      // Resolve K: 'auto' / 0 / empty → derive from viewport.
+      let K = parseInt(_kInput.inp.value, 10);
+      if (!Number.isFinite(K) || K < 1) K = _autoK(liveW, v.pixelScale);
+      // Resolve min distance: 'auto' / empty → viewport world diameter.
+      let minDist = Number(_minDistInput.inp.value);
+      if (!Number.isFinite(minDist) || minDist < 0) {
+        minDist = liveW / Math.max(1e-30, v.pixelScale);
+      }
+      const t0 = performance.now();
+      const { result, sourceLeaf } = _findDistantMatchForCurrentView(K, minDist);
+      const ms = (performance.now() - t0).toFixed(0);
+      if (!sourceLeaf) {
+        _matchOut.value = '';
+        _matchStatus.textContent = 'could not locate source leaf at view center';
+        _matchedView = null;
+        _matchGoBtn.disabled = true;
+        return;
+      }
+      if (!result) {
+        _matchOut.value = '';
+        _matchStatus.textContent = `no match · depth=${K} · min dist=${minDist.toExponential(2)} · try lower depth, smaller min dist, or zoom out to load more levels`;
+        _matchedView = null;
+        _matchGoBtn.disabled = true;
+        return;
+      }
+      // Preserve the source view's offset from its own leaf's centroid:
+      // both source and matched leaves are at the same K-suffix path
+      // and share the same level-K ancestor world rotation, so their
+      // local environments are byte-identical. Setting the new view to
+      // (matchedLeaf.centroid + sourceOffset) reproduces what the user
+      // was looking at, just at the matched coordinates — instead of
+      // shifting the framing to the matched leaf's centroid.
+      const offX = v.centerX - sourceLeaf.leafCx;
+      const offY = v.centerY - sourceLeaf.leafCy;
+      _matchedView = {
+        centerX: result.centerX + offX,
+        centerY: result.centerY + offY,
+        pixelScale: v.pixelScale,
+      };
+      const radius = Math.pow(2.45, K);
+      _matchOut.value = `${_matchedView.pixelScale}/${_matchedView.centerX}/${_matchedView.centerY}`;
+      _matchStatus.textContent = `depth=${K} · r≈${radius.toExponential(1)} · ${result.attempts} attempts · ${ms}ms`;
+      _matchGoBtn.disabled = false;
+      // No auto-go: clicking "Find" again with the same view re-runs
+      // deterministically (same seeded RNG → same result). Click "Go"
+      // to inspect the match and use it as the next source.
+      // eslint-disable-next-line no-console
+      console.log('match found:', {
+        ...(_matchedView as any),
+        K, attempts: result.attempts, ms: +ms, matchRadius: radius,
+      });
+    });
+
+    _matchGoBtn.addEventListener('click', () => {
+      if (_matchedView) viewerState.setView(_matchedView);
+    });
+
+    _loopControls.append(_kInput.wrap, _minDistInput.wrap, _matchBtn, _matchOut, _matchGoBtn);
+    const _loopStatusRow = document.createElement('div');
+    _loopStatusRow.className = 'spectre-row';
+    _loopStatusRow.append(_matchStatus);
+    _loopRow.append(_loopControls, _loopStatusRow);
+    display(_loopRow);
   </script>
 
   <script id="gpu-context" type="text/x-typescript">
@@ -429,6 +980,7 @@
       hex: Record<string, string>;
       rgb: Record<string, [number, number, number]>;
       setSeed(seed: number): void;
+      setHex(label: string, hex: string): void;
     };
     const paletteState: PaletteState = {
       seed: 12345,
@@ -440,6 +992,11 @@
         for (const label of _ALL_LABELS) {
           this.rgb[label] = _hexToRgb(this.hex[label]);
         }
+      },
+      setHex(label: string, hex: string) {
+        if (!_ALL_LABELS.includes(label)) return;
+        this.hex[label] = hex;
+        this.rgb[label] = _hexToRgb(hex);
       },
     };
     paletteState.setSeed(paletteState.seed);
@@ -1391,7 +1948,9 @@
     })();
     function extendRootUpward() {
       const nextRecord = buildSupertiles(walkerState.currentBaseRecord);
-      const currentType = (walkerState.currentRoot as any).name as TileName;
+      const root = walkerState.currentRoot;
+      if (root.kind !== 'meta') throw new Error('root must be a meta tile');
+      const currentType = root.name;
       const opts = _PARENT_OPTIONS[currentType];
       // Cycle through options. The simple modulo is good enough; for
       // bottleneck types (Θ, Λ) opts.length === 1 and we always pick it.
@@ -1530,20 +2089,11 @@
     const _viewOutput = document.createElement('input');
     _viewOutput.type = 'text';
     _viewOutput.readOnly = true;
-    _viewOutput.style.flex = '1';
-    _viewOutput.style.minWidth = '0';
-    _viewOutput.style.fontFamily = 'var(--mono, monospace)';
-    _viewOutput.style.fontSize = '11px';
-    _viewOutput.style.padding = '2px 6px';
-    _viewOutput.title = 'Current view as JSON. Click to select, copy to share.';
-    _viewOutput.addEventListener('focus', () => _viewOutput.select());
+    _viewOutput.className = 'spectre-input grow';
+    _viewOutput.title = 'Current view as pixelScale/centerX/centerY.';
     function _formatView(): string {
       const v = viewerState.getView();
-      return JSON.stringify({
-        centerX: v.centerX,
-        centerY: v.centerY,
-        pixelScale: v.pixelScale,
-      });
+      return `${v.pixelScale}/${v.centerX}/${v.centerY}`;
     }
     function _refreshViewOutput() { _viewOutput.value = _formatView(); }
     // Wrap the existing onViewChange so each view update also refreshes
@@ -1558,18 +2108,17 @@
 
     const _viewInput = document.createElement('input');
     _viewInput.type = 'text';
-    _viewInput.placeholder = 'Paste view JSON to restore';
-    _viewInput.style.flex = '1';
-    _viewInput.style.minWidth = '0';
-    _viewInput.style.fontFamily = 'var(--mono, monospace)';
-    _viewInput.style.fontSize = '11px';
-    _viewInput.style.padding = '2px 6px';
+    _viewInput.placeholder = 'pixelScale/centerX/centerY';
+    _viewInput.className = 'spectre-input grow';
     _viewInput.addEventListener('change', () => {
-      try {
-        const parsed = JSON.parse(_viewInput.value);
-        viewerState.setView(parsed);
+      const parts = _viewInput.value.split('/');
+      const ps = parts.length === 3 ? Number(parts[0]) : NaN;
+      const cx = parts.length === 3 ? Number(parts[1]) : NaN;
+      const cy = parts.length === 3 ? Number(parts[2]) : NaN;
+      if (Number.isFinite(ps) && Number.isFinite(cx) && Number.isFinite(cy)) {
+        viewerState.setView({ pixelScale: ps, centerX: cx, centerY: cy });
         _viewInput.value = '';
-      } catch (e) {
+      } else {
         _viewInput.style.outline = '1px solid red';
         setTimeout(() => { _viewInput.style.outline = ''; }, 600);
       }
@@ -1579,14 +2128,15 @@
     // the moment the box was checked, so zooming in past the threshold
     // doesn't trigger refinement. Useful for inspecting a specific
     // aggregation level's geometry up close.
+    const _freezeWrap = document.createElement('label');
+    _freezeWrap.className = 'spectre-checkbox';
+    _freezeWrap.htmlFor = 'spectre-freeze';
     const _freezeCb = document.createElement('input');
     _freezeCb.type = 'checkbox';
     _freezeCb.id = 'spectre-freeze';
-    const _freezeLabel = document.createElement('label');
-    _freezeLabel.htmlFor = 'spectre-freeze';
-    _freezeLabel.textContent = 'freeze structure';
-    _freezeLabel.style.flex = '0 0 auto';
-    _freezeLabel.style.cursor = 'pointer';
+    const _freezeText = document.createElement('span');
+    _freezeText.textContent = 'freeze structure';
+    _freezeWrap.append(_freezeCb, _freezeText);
     _freezeCb.addEventListener('change', () => {
       freezeState.aggPixelScale = _freezeCb.checked ? viewerState.pixelScale : null;
       viewerState.onViewChange?.(viewerState);
@@ -1594,19 +2144,15 @@
     });
 
     const _viewRow = document.createElement('div');
-    _viewRow.style.display = 'flex';
-    _viewRow.style.gap = '8px';
-    _viewRow.style.alignItems = 'center';
+    _viewRow.className = 'spectre-row';
     _viewRow.style.margin = '8px 0';
-    _viewRow.style.fontFamily = 'var(--sans-serif)';
-    _viewRow.style.fontSize = '11px';
-    const _viewLabel1 = document.createElement('label');
-    _viewLabel1.textContent = 'view:';
-    _viewLabel1.style.flex = '0 0 auto';
-    const _viewLabel2 = document.createElement('label');
-    _viewLabel2.textContent = 'set:';
-    _viewLabel2.style.flex = '0 0 auto';
-    _viewRow.append(_viewLabel1, _viewOutput, _viewLabel2, _viewInput, _freezeCb, _freezeLabel);
+    const _viewLabel1 = document.createElement('span');
+    _viewLabel1.className = 'spectre-label';
+    _viewLabel1.textContent = 'view';
+    const _viewLabel2 = document.createElement('span');
+    _viewLabel2.className = 'spectre-label';
+    _viewLabel2.textContent = 'set';
+    _viewRow.append(_viewLabel1, _viewOutput, _viewLabel2, _viewInput, _freezeWrap);
     display(_viewRow);
   </script>
 
@@ -1638,22 +2184,141 @@
     }
 
     type View = { centerX: number; centerY: number; pixelScale: number };
-    type Ease = 'linear' | 'cubic' | 'quintic';
-    type SegConfig = { sec: number; ease: Ease };
+    type Ease = 'linear' | 'sinusoidal' | 'cubic' | 'quintic';
+    // Each transition independently chooses smooth (van Wijk geodesic
+    // with auto duration) or legacy (manual `sec`, log-zoom + exponential
+    // pan). All parameters live per-segment so the user can mix
+    // approaches across a single trajectory.
+    type SegConfig = {
+      smooth: boolean;
+      sec: number;     // legacy: duration. Ignored when smooth.
+      ease: Ease;
+      speed: number;   // smooth-only (V).
+      rho: number;     // smooth-only (zoom-vs-pan tradeoff).
+    };
+    const _DEFAULT_SPEED = 0.9;
+    const _DEFAULT_RHO = Math.sqrt(2);
 
     function _easeFn(name: Ease): (t: number) => number {
-      // cubic = standard smoothstep (C¹ at endpoints).
+      // sinusoidal = (1 − cos πt) / 2. C∞, peak velocity π/2 ≈ 1.571.
+      // cubic = standard smoothstep (C¹ at endpoints), peak 1.5.
       // quintic = smootherstep (C² at endpoints — zero velocity AND zero
-      // acceleration). For a long zoom that starts/ends at rest, quintic
-      // is what makes the very-beginning and very-end feel smooth.
-      if (name === 'cubic')   return (t) => t * t * (3 - 2 * t);
-      if (name === 'quintic') return (t) => t * t * t * (t * (t * 6 - 15) + 10);
+      // acceleration), peak 1.875. For a long zoom that starts/ends at
+      // rest, quintic is what makes the very-beginning and very-end feel
+      // smooth, while sinusoidal stays closer to constant-velocity in
+      // the middle.
+      if (name === 'sinusoidal') return (t) => 0.5 - 0.5 * Math.cos(Math.PI * t);
+      if (name === 'cubic')      return (t) => t * t * (3 - 2 * t);
+      if (name === 'quintic')    return (t) => t * t * t * (t * (t * 6 - 15) + 10);
       return (t) => t;
     }
 
-    // Mutable trajectory state. Initial values are the user's debugging
-    // script (start → zoom-out → pan → zoom-in). The widget below mutates
-    // these in place; _recordVideo reads them at click time.
+    // ─── van Wijk & Nuij geodesic ─────────────────────────────────────
+    // Smooth and efficient zooming and panning, IEEE InfoVis 2003.
+    // The path between two views (c0, w0) → (c1, w1) is the geodesic of
+    // the metric ds² = (ρ²/w²) du² + (1/(ρ²w²)) dw², where u is pan
+    // distance along the line c0→c1 (world units) and w is the viewport
+    // width (world units, same units as u — this is the dimensional
+    // requirement of the metric: u/w is "pan in viewport widths" and
+    // dw/w is "e-folds of zoom"). We map our coordinates via
+    // w = refPxWidth / pixelScale (a true world width), where
+    // refPxWidth is the live canvas pixel width captured at the time
+    // the trajectory is built. The paper's recommended ρ=√2 only
+    // produces the documented behaviour with this dimensional setup.
+    // Free parameters: ρ (zoom-vs-pan tradeoff, recommended √2) and V
+    // (animation speed, paper user-study average 0.9). Total time = S/V.
+    type VwPath = {
+      S: number;
+      sample: (s: number) => View;
+    };
+    function _vanWijkPath(
+      c0: [number, number], ps0: number,
+      c1: [number, number], ps1: number,
+      rho: number, refPxWidth: number,
+    ): VwPath {
+      const w0 = refPxWidth / ps0;
+      const w1 = refPxWidth / ps1;
+      const dx = c1[0] - c0[0];
+      const dy = c1[1] - c0[1];
+      const U = Math.hypot(dx, dy);
+      const screenPan = U / Math.max(w0, w1);
+      // Identical-or-degenerate segment.
+      if (screenPan < 1e-9 && Math.abs(Math.log(w1 / w0)) < 1e-12) {
+        return {
+          S: 0,
+          sample: () => ({ centerX: c0[0], centerY: c0[1], pixelScale: ps0 }),
+        };
+      }
+      // Pure zoom: sub-pixel pan over the segment.
+      if (screenPan < 1e-9) {
+        const lnRatio = Math.log(w1 / w0);
+        const k = lnRatio < 0 ? -1 : 1;
+        const S = Math.abs(lnRatio) / rho;
+        return {
+          S,
+          sample: (s) => {
+            const w = w0 * Math.exp(k * rho * s);
+            return { centerX: c0[0], centerY: c0[1], pixelScale: refPxWidth / w };
+          },
+        };
+      }
+      // General case: equation (9) of the paper.
+      const dirX = dx / U;
+      const dirY = dy / U;
+      const rho2 = rho * rho;
+      const rho4 = rho2 * rho2;
+      const denom0 = 2 * w0 * rho2 * U;
+      const denom1 = 2 * w1 * rho2 * U;
+      const b0 = (w1 * w1 - w0 * w0 + rho4 * U * U) / denom0;
+      const b1 = (w1 * w1 - w0 * w0 - rho4 * U * U) / denom1;
+      // -asinh(b) is the numerically stable form of ln(-b + sqrt(b²+1));
+      // the paper's literal expression catastrophically cancels for large
+      // positive b (e.g., the user's 5e9× zoom segment has b₀ ≈ 5e11).
+      const r0 = -Math.asinh(b0);
+      const r1 = -Math.asinh(b1);
+      const S = (r1 - r0) / rho;
+      const w0_cosh_r0 = w0 * Math.cosh(r0);
+      const sinh_r0 = Math.sinh(r0);
+      const log_w0 = Math.log(w0);
+      const log_cosh_r0 = Math.log(Math.cosh(r0));
+      return {
+        S,
+        sample: (s) => {
+          const arg = rho * s + r0;
+          const u = (w0_cosh_r0 / rho2) * Math.tanh(arg)
+                  - (w0 / rho2) * sinh_r0;
+          // Compute log w then exponentiate; cosh(arg) can otherwise
+          // overflow at extreme zoom apex (paper's deepest segments).
+          const logCosh = arg < 0
+            ? Math.log(Math.cosh(arg))
+            : arg + Math.log(0.5 + 0.5 * Math.exp(-2 * arg));
+          const log_w = log_w0 + log_cosh_r0 - logCosh;
+          // pixelScale = refPxWidth / w = exp(log(refPxWidth) - log_w).
+          return {
+            centerX: c0[0] + dirX * u,
+            centerY: c0[1] + dirY * u,
+            pixelScale: refPxWidth * Math.exp(-log_w),
+          };
+        },
+      };
+    }
+
+    // ─── Trajectory state ──────────────────────────────────────────────
+    // Initial values are the user's debugging script (start → zoom-out →
+    // pan → zoom-in). The widget below mutates these in place;
+    // _recordVideo reads them at click time. Each segment carries its
+    // own smooth/legacy choice and parameters.
+    //
+    // Reference pixel width for the van Wijk metric. During preview we
+    // read viewerState.pixelWidth live; during capture we capture the
+    // live width into _vwRefWidthOverride before beginCapture overrides
+    // viewerState.pixelWidth, so the trajectory math stays referenced
+    // to the live canvas the user designed against.
+    let _vwRefWidthOverride: number | null = null;
+    function _vwRefWidth(): number {
+      const w = _vwRefWidthOverride ?? viewerState.pixelWidth;
+      return w > 0 ? w : 1; // fallback while canvas not yet sized
+    }
     const _kf: View[] = [
       { centerX: 62.90020681398703,        centerY: -69.41475882293156,    pixelScale: 159.57638576360853 },
       { centerX: -276309144.8722216,       centerY: 813097338.8738983,     pixelScale: 8.685921175201373e-8 },
@@ -1661,52 +2326,84 @@
       { centerX: 52651834944.69957,        centerY: 31501858022.634777,    pixelScale: 118.57227795600912 },
     ];
     const _seg: SegConfig[] = [
-      { sec: 6, ease: 'quintic' },
-      { sec: 4, ease: 'cubic' },
-      { sec: 6, ease: 'quintic' },
+      { smooth: false, sec: 6, ease: 'quintic', speed: _DEFAULT_SPEED, rho: _DEFAULT_RHO },
+      { smooth: false, sec: 4, ease: 'cubic',   speed: _DEFAULT_SPEED, rho: _DEFAULT_RHO },
+      { smooth: false, sec: 6, ease: 'quintic', speed: _DEFAULT_SPEED, rho: _DEFAULT_RHO },
     ];
 
-    function _viewAt(frac: number): View {
-      // Map overall progress into a particular segment and apply that
-      // segment's local ease. Use quintic on the first/last segments to
-      // get a smooth video start/end (zero velocity AND zero acceleration
-      // at endpoints), and cubic or linear on interior segments to avoid
-      // visible pauses at intermediate keyframes.
-      //
-      // Pan interpolates in *log-pixelScale space*, not linearly. Linear
-      // world-coord pan during a logarithmic zoom-out shoots off-screen
-      // mid-segment (the camera covers ~half the world distance while
-      // pixelScale is still small, so half-distance × small-scale = many
-      // screen pixels). The exponential form below makes the pan's
-      // screen-pixel velocity constant under the simultaneous zoom:
-      //
-      //   p(t) = p₀ · (p₁/p₀)ᵗ          (log interp of pixelScale)
-      //   x(t) = x₀ + (x₁−x₀) · fac(t)
+    // For each segment, return its evaluated form: a duration in seconds
+    // and a sample(localT) function mapping local time ∈ [0, 1] → View.
+    // Smooth segments compute the van Wijk geodesic and scale by S/V;
+    // legacy segments use the user-set sec and the log-zoom +
+    // exponential-pan interpolation. Per-segment ease is applied to the
+    // local time so velocity zeros at every keyframe junction (no bounce
+    // between segments, regardless of whether each end is smooth).
+    type SegmentEval = {
+      duration: number;
+      sample: (localT: number) => View;
+    };
+    function _legacyInterp(a: View, b: View, t: number): View {
+      // Pan interpolates in log-pixelScale space so screen-pixel pan
+      // velocity stays constant under the simultaneous log-zoom:
       //   fac(t) = (1 − e^{−tL}) / (1 − e^{−L})   with L = ln(p₁/p₀)
-      //
       // fac(t) → t as L → 0, so pure-pan segments degenerate to linear.
-      const total = _seg.reduce((a, s) => a + s.sec, 0);
-      let elapsed = Math.max(0, Math.min(1, frac)) * total;
-      let prev = _kf[0];
-      for (let i = 0; i < _seg.length; i++) {
+      const p0 = a.pixelScale, p1 = b.pixelScale;
+      const L = Math.log(p1 / p0);
+      const fac = Math.abs(L) < 1e-6
+        ? t
+        : (1 - Math.exp(-t * L)) / (1 - Math.exp(-L));
+      return {
+        centerX: a.centerX + (b.centerX - a.centerX) * fac,
+        centerY: a.centerY + (b.centerY - a.centerY) * fac,
+        pixelScale: p0 * Math.exp(t * L),
+      };
+    }
+    function _buildSegments(): SegmentEval[] {
+      const out: SegmentEval[] = [];
+      const refW = _vwRefWidth();
+      for (let i = 0; i < _seg.length && i < _kf.length - 1; i++) {
         const s = _seg[i];
-        if (elapsed <= s.sec || i === _seg.length - 1) {
-          const lt = Math.max(0, Math.min(1, elapsed / s.sec));
-          const t = _easeFn(s.ease)(lt);
-          const next = _kf[i + 1];
-          const p0 = prev.pixelScale, p1 = next.pixelScale;
-          const L = Math.log(p1 / p0);
-          const fac = Math.abs(L) < 1e-6
-            ? t
-            : (1 - Math.exp(-t * L)) / (1 - Math.exp(-L));
-          return {
-            centerX: prev.centerX + (next.centerX - prev.centerX) * fac,
-            centerY: prev.centerY + (next.centerY - prev.centerY) * fac,
-            pixelScale: p0 * Math.exp(t * L),
-          };
+        const a = _kf[i], b = _kf[i + 1];
+        const ease = _easeFn(s.ease);
+        if (s.smooth) {
+          const path = _vanWijkPath(
+            [a.centerX, a.centerY], a.pixelScale,
+            [b.centerX, b.centerY], b.pixelScale,
+            s.rho, refW,
+          );
+          const speed = s.speed > 0 ? s.speed : _DEFAULT_SPEED;
+          const duration = path.S / speed;
+          out.push({
+            duration,
+            sample: (lt) => path.sample(ease(Math.max(0, Math.min(1, lt))) * path.S),
+          });
+        } else {
+          out.push({
+            duration: Math.max(0, s.sec),
+            sample: (lt) => _legacyInterp(a, b, ease(Math.max(0, Math.min(1, lt)))),
+          });
         }
-        elapsed -= s.sec;
-        prev = _kf[i + 1];
+      }
+      return out;
+    }
+
+    function _trajectoryTotalSec(): number {
+      return _buildSegments().reduce((acc, s) => acc + s.duration, 0);
+    }
+
+    function _viewAt(frac: number): View {
+      const segs = _buildSegments();
+      const total = segs.reduce((acc, s) => acc + s.duration, 0);
+      if (total === 0) return _kf[0];
+      let elapsed = Math.max(0, Math.min(1, frac)) * total;
+      for (let i = 0; i < segs.length; i++) {
+        const s = segs[i];
+        if (s.duration === 0) continue;
+        if (elapsed <= s.duration || i === segs.length - 1) {
+          const lt = Math.max(0, Math.min(1, elapsed / s.duration));
+          return s.sample(lt);
+        }
+        elapsed -= s.duration;
       }
       return _kf[_kf.length - 1];
     }
@@ -1743,7 +2440,16 @@
       const wR = w / liveW, hR = h / liveH;
       const psScale = opts.fitMode === 'fit' ? Math.min(wR, hR) : Math.max(wR, hR);
 
-      const totalSec = _seg.reduce((a, s) => a + s.sec, 0);
+      // Pin the van Wijk reference width to the *live* canvas so the
+      // trajectory shape and arc lengths stay tied to what the user
+      // designed against, not to whatever beginCapture overrides
+      // viewerState.pixelWidth to during the loop.
+      _vwRefWidthOverride = liveW;
+      const totalSec = _trajectoryTotalSec();
+      if (!(totalSec > 0)) {
+        _vwRefWidthOverride = null;
+        throw new Error('trajectory has zero length');
+      }
       const totalFrames = Math.max(2, Math.round(totalSec * opts.fps));
       const savedView = viewerState.getView();
 
@@ -1803,6 +2509,7 @@
         enc.delete();
         (viewerState as any).endCapture();
         viewerState.setView(savedView);
+        _vwRefWidthOverride = null;
       }
     }
 
@@ -1811,245 +2518,325 @@
     // pixelScale). Text inputs (not type="number") so scientific
     // notation round-trips cleanly through Number(); also avoids a
     // browser-side spinner on huge values like 5.2e10.
-    function _viewInput(value: number, w: string): HTMLInputElement {
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.value = String(value);
-      inp.style.flex = '1';
-      inp.style.minWidth = w;
-      inp.style.fontFamily = 'var(--mono, monospace)';
-      inp.style.fontSize = '10px';
-      inp.style.padding = '2px 4px';
-      return inp;
-    }
-    function _smallBtn(text: string, title?: string): HTMLButtonElement {
+    // Small DOM helpers for the keyframe widget.
+    function _btn(text: string, classes = '', title?: string): HTMLButtonElement {
       const b = document.createElement('button');
       b.textContent = text;
+      b.className = `spectre-btn ${classes}`.trim();
       if (title) b.title = title;
-      b.style.padding = '2px 6px';
-      b.style.fontSize = '11px';
-      b.style.fontFamily = 'var(--sans-serif)';
       return b;
+    }
+    function _label(text: string): HTMLSpanElement {
+      const s = document.createElement('span');
+      s.className = 'spectre-label';
+      s.textContent = text;
+      return s;
+    }
+    function _easeSelect(initial: Ease, onChange: (e: Ease) => void): HTMLSelectElement {
+      const sel = document.createElement('select');
+      sel.className = 'spectre-select';
+      for (const name of ['linear', 'sinusoidal', 'cubic', 'quintic'] as Ease[]) {
+        const opt = document.createElement('option');
+        opt.value = name; opt.textContent = name;
+        if (initial === name) opt.selected = true;
+        sel.append(opt);
+      }
+      sel.addEventListener('change', () => onChange(sel.value as Ease));
+      return sel;
     }
 
     const _kfContainer = document.createElement('div');
-    _kfContainer.style.display = 'flex';
-    _kfContainer.style.flexDirection = 'column';
-    _kfContainer.style.gap = '4px';
-    _kfContainer.style.margin = '8px 0';
-    _kfContainer.style.fontFamily = 'var(--sans-serif)';
-    _kfContainer.style.fontSize = '11px';
+    _kfContainer.className = 'spectre-card';
 
     function _rebuildKfWidget(): void {
       _kfContainer.innerHTML = '';
+      const head = document.createElement('div');
+      head.className = 'spectre-section-head';
+      const h = document.createElement('h4');
+      h.textContent = 'trajectory';
+      head.append(h);
+      _kfContainer.append(head);
+
       for (let i = 0; i < _kf.length; i++) {
-        // Keyframe row.
+        // ── Keyframe row ──────────────────────────────────────────────
         const kfRow = document.createElement('div');
-        kfRow.style.display = 'flex';
-        kfRow.style.gap = '6px';
-        kfRow.style.alignItems = 'center';
+        kfRow.className = 'spectre-kf-row';
 
-        const idx = document.createElement('span');
-        idx.textContent = `KF${i}`;
-        idx.style.flex = '0 0 28px';
-        idx.style.fontFamily = 'var(--mono, monospace)';
-        idx.style.fontWeight = 'bold';
+        const tag = document.createElement('span');
+        tag.className = 'spectre-tag';
+        tag.textContent = `KF${i}`;
 
-        const cxLbl = document.createElement('span'); cxLbl.textContent = 'cx';
-        const cyLbl = document.createElement('span'); cyLbl.textContent = 'cy';
-        const psLbl = document.createElement('span'); psLbl.textContent = 'ps';
-        for (const lbl of [cxLbl, cyLbl, psLbl]) {
-          lbl.style.flex = '0 0 auto';
-          lbl.style.opacity = '0.6';
+        const posInp = document.createElement('input');
+        posInp.type = 'text';
+        posInp.className = 'spectre-input grow';
+        posInp.value = `${_kf[i].pixelScale}/${_kf[i].centerX}/${_kf[i].centerY}`;
+        posInp.title = 'pixelScale / centerX / centerY';
+
+        function _setKfFromString(s: string): boolean {
+          const parts = s.split('/');
+          if (parts.length !== 3) return false;
+          const ps = Number(parts[0]);
+          const cx = Number(parts[1]);
+          const cy = Number(parts[2]);
+          if (!(Number.isFinite(ps) && Number.isFinite(cx) && Number.isFinite(cy))) {
+            return false;
+          }
+          _kf[i] = { pixelScale: ps, centerX: cx, centerY: cy };
+          return true;
         }
-        const cxInp = _viewInput(_kf[i].centerX,    '120px');
-        const cyInp = _viewInput(_kf[i].centerY,    '120px');
-        const psInp = _viewInput(_kf[i].pixelScale, '90px');
-        const _bind = (inp: HTMLInputElement, key: 'centerX' | 'centerY' | 'pixelScale') => {
-          inp.addEventListener('change', () => {
-            const v = Number(inp.value);
-            if (Number.isFinite(v)) { _kf[i][key] = v; inp.style.outline = ''; }
-            else                     { inp.style.outline = '1px solid red'; }
-          });
-        };
-        _bind(cxInp, 'centerX'); _bind(cyInp, 'centerY'); _bind(psInp, 'pixelScale');
+        function _writeKfToInput(): void {
+          posInp.value = `${_kf[i].pixelScale}/${_kf[i].centerX}/${_kf[i].centerY}`;
+        }
+        posInp.addEventListener('change', () => {
+          if (_setKfFromString(posInp.value)) {
+            posInp.style.outline = '';
+            _rebuildKfWidget();
+            _refreshTotalLabel();
+          } else {
+            posInp.style.outline = '1px solid #d04848';
+          }
+        });
 
-        const captureBtn = _smallBtn('grab', 'set this keyframe to the current view');
+        const captureBtn = _btn('grab', '', 'set this keyframe to the current view');
         captureBtn.addEventListener('click', () => {
           _kf[i] = viewerState.getView();
-          cxInp.value = String(_kf[i].centerX);
-          cyInp.value = String(_kf[i].centerY);
-          psInp.value = String(_kf[i].pixelScale);
-          for (const inp of [cxInp, cyInp, psInp]) inp.style.outline = '';
+          _writeKfToInput();
+          posInp.style.outline = '';
+          _rebuildKfWidget();
+          _refreshTotalLabel();
         });
-        const gotoBtn = _smallBtn('go', 'jump the live view to this keyframe');
+        const gotoBtn = _btn('go', '', 'jump the live view to this keyframe');
         gotoBtn.addEventListener('click', () => {
           viewerState.setView(_kf[i]);
         });
-        const removeBtn = _smallBtn('×', 'remove this keyframe');
+        const removeBtn = _btn('×', 'icon danger', 'remove this keyframe');
         removeBtn.disabled = _kf.length <= 2;
         removeBtn.addEventListener('click', () => {
           if (_kf.length <= 2) return;
           _kf.splice(i, 1);
-          // Drop the segment that fed this keyframe (or the last one if i=0).
           const segIdx = i === 0 ? 0 : i - 1;
           _seg.splice(segIdx, 1);
           _rebuildKfWidget();
+          _refreshTotalLabel();
         });
 
-        kfRow.append(idx, cxLbl, cxInp, cyLbl, cyInp, psLbl, psInp, captureBtn, gotoBtn, removeBtn);
+        kfRow.append(tag, posInp, captureBtn, gotoBtn, removeBtn);
         _kfContainer.append(kfRow);
 
-        // Segment row (between this kf and the next, if any).
+        // ── Segment (transition to next keyframe) ─────────────────────
         if (i < _kf.length - 1) {
+          const seg = _seg[i];
+          const segWrap = document.createElement('div');
+          segWrap.className = 'spectre-seg' + (seg.smooth ? ' is-smooth' : '');
+
           const sRow = document.createElement('div');
-          sRow.style.display = 'flex';
-          sRow.style.gap = '6px';
-          sRow.style.alignItems = 'center';
-          sRow.style.paddingLeft = '34px';
-          sRow.style.opacity = '0.85';
+          sRow.className = 'spectre-seg-row';
 
-          const arrow = document.createElement('span');
-          arrow.textContent = '↓';
-          arrow.style.flex = '0 0 14px';
-
-          const durLbl = document.createElement('span');
-          durLbl.textContent = 'sec';
-          const dur = document.createElement('input');
-          dur.type = 'number';
-          dur.step = '0.1';
-          dur.value = String(_seg[i].sec);
-          dur.style.width = '60px';
-          dur.style.fontFamily = 'var(--mono, monospace)';
-          dur.style.fontSize = '11px';
-          dur.style.padding = '2px 4px';
-          dur.addEventListener('change', () => {
-            const v = +dur.value;
-            if (Number.isFinite(v) && v > 0) _seg[i].sec = v;
+          // Smooth checkbox.
+          const smLbl = document.createElement('label');
+          smLbl.className = 'spectre-checkbox';
+          const smCb = document.createElement('input');
+          smCb.type = 'checkbox';
+          smCb.checked = seg.smooth;
+          smCb.title = 'Smooth (van Wijk geodesic, auto-duration). Off = legacy log-zoom + exponential pan with manual sec.';
+          const smTxt = document.createElement('span');
+          smTxt.textContent = 'smooth';
+          smLbl.append(smCb, smTxt);
+          smCb.addEventListener('change', () => {
+            seg.smooth = smCb.checked;
+            _rebuildKfWidget();
+            _refreshTotalLabel();
           });
 
-          const eaLbl = document.createElement('span');
-          eaLbl.textContent = 'ease';
-          const ea = document.createElement('select');
-          ea.style.fontSize = '11px';
-          for (const name of ['linear', 'cubic', 'quintic'] as Ease[]) {
-            const opt = document.createElement('option');
-            opt.value = name; opt.textContent = name;
-            if (_seg[i].ease === name) opt.selected = true;
-            ea.append(opt);
-          }
-          ea.addEventListener('change', () => { _seg[i].ease = ea.value as Ease; });
+          const easeSel = _easeSelect(seg.ease, (e) => { seg.ease = e; _saveLocal(); });
 
-          const insertBtn = _smallBtn('+', 'insert a keyframe here (current view)');
+          sRow.append(smLbl);
+
+          if (seg.smooth) {
+            const vInp = document.createElement('input');
+            vInp.type = 'number'; vInp.step = '0.1';
+            vInp.value = String(seg.speed);
+            vInp.className = 'spectre-input num-sm';
+            vInp.title = 'V — speed (segment time = arc length / V)';
+            vInp.addEventListener('change', () => {
+              const v = +vInp.value;
+              if (Number.isFinite(v) && v > 0) {
+                seg.speed = v;
+                _rebuildKfWidget();
+                _refreshTotalLabel();
+              }
+            });
+            const rInp = document.createElement('input');
+            rInp.type = 'number'; rInp.step = '0.1';
+            rInp.value = String(seg.rho);
+            rInp.className = 'spectre-input num-sm';
+            rInp.title = 'ρ — zoom-vs-pan tradeoff (paper recommends √2)';
+            rInp.addEventListener('change', () => {
+              const v = +rInp.value;
+              if (Number.isFinite(v) && v > 0) {
+                seg.rho = v;
+                _rebuildKfWidget();
+                _refreshTotalLabel();
+              }
+            });
+
+            const a = _kf[i], b = _kf[i + 1];
+            const p = _vanWijkPath(
+              [a.centerX, a.centerY], a.pixelScale,
+              [b.centerX, b.centerY], b.pixelScale,
+              seg.rho, _vwRefWidth(),
+            );
+            const auto = document.createElement('span');
+            auto.className = 'spectre-mono';
+            auto.textContent = `${(p.S / seg.speed).toFixed(2)} s  (S=${p.S.toFixed(2)})`;
+
+            sRow.append(_label('V'), vInp, _label('ρ'), rInp, _label('ease'), easeSel, auto);
+          } else {
+            const dur = document.createElement('input');
+            dur.type = 'number'; dur.step = '0.1';
+            dur.value = String(seg.sec);
+            dur.className = 'spectre-input num-sm';
+            dur.addEventListener('change', () => {
+              const v = +dur.value;
+              if (Number.isFinite(v) && v > 0) seg.sec = v;
+              _refreshTotalLabel();
+            });
+            sRow.append(_label('sec'), dur, _label('ease'), easeSel);
+          }
+
+          // Spacer + insert button at right end.
+          const div = document.createElement('hr');
+          div.className = 'spectre-divider';
+          const insertBtn = _btn('+ insert', 'icon', 'insert a keyframe here (current view)');
           insertBtn.addEventListener('click', () => {
             _kf.splice(i + 1, 0, viewerState.getView());
-            _seg.splice(i + 1, 0, { sec: 1, ease: 'linear' });
-            // Halve the existing segment's duration so total time is preserved.
-            _seg[i].sec = Math.max(0.1, _seg[i].sec / 2);
-            _seg[i + 1].sec = _seg[i].sec;
+            _seg.splice(i + 1, 0, {
+              smooth: seg.smooth,
+              sec: 1, ease: seg.ease,
+              speed: seg.speed, rho: seg.rho,
+            });
+            seg.sec = Math.max(0.1, seg.sec / 2);
+            _seg[i + 1].sec = seg.sec;
             _rebuildKfWidget();
+            _refreshTotalLabel();
           });
+          sRow.append(div, insertBtn);
 
-          sRow.append(arrow, durLbl, dur, eaLbl, ea, insertBtn);
-          _kfContainer.append(sRow);
+          segWrap.append(sRow);
+          _kfContainer.append(segWrap);
         }
       }
 
-      // Append-keyframe button at the bottom.
+      // Append-keyframe button.
       const tail = document.createElement('div');
-      tail.style.display = 'flex';
-      tail.style.gap = '6px';
-      tail.style.paddingLeft = '34px';
-      const appendBtn = _smallBtn('+ append keyframe (current view)');
+      tail.className = 'spectre-row';
+      tail.style.marginTop = '4px';
+      const appendBtn = _btn('+ append keyframe', '', 'append a keyframe at the current view');
       appendBtn.addEventListener('click', () => {
         _kf.push(viewerState.getView());
-        _seg.push({ sec: 2, ease: 'linear' });
+        const prev = _seg[_seg.length - 1];
+        _seg.push(prev
+          ? { smooth: prev.smooth, sec: 2, ease: prev.ease, speed: prev.speed, rho: prev.rho }
+          : { smooth: false, sec: 2, ease: 'linear', speed: _DEFAULT_SPEED, rho: _DEFAULT_RHO });
         _rebuildKfWidget();
+        _refreshTotalLabel();
       });
       tail.append(appendBtn);
       _kfContainer.append(tail);
     }
     _rebuildKfWidget();
 
-    // ─── Render-action row ────────────────────────────────────────────
-    function _numInput(label: string, value: number, w = '64px') {
+    // ─── Render config + actions ──────────────────────────────────────
+    function _numInput(label: string, value: number, cls = 'num') {
       const wrap = document.createElement('label');
-      wrap.style.display = 'inline-flex';
-      wrap.style.gap = '4px';
-      wrap.style.alignItems = 'center';
-      const span = document.createElement('span'); span.textContent = label;
+      wrap.className = 'spectre-checkbox';
+      const span = document.createElement('span');
+      span.className = 'spectre-label';
+      span.textContent = label;
       const inp = document.createElement('input');
       inp.type = 'number'; inp.value = String(value);
-      inp.style.width = w; inp.style.fontFamily = 'var(--mono, monospace)';
-      inp.style.fontSize = '11px'; inp.style.padding = '2px 4px';
+      inp.className = `spectre-input ${cls}`.trim();
       wrap.append(span, inp);
       return { wrap, inp };
     }
 
-    const _w    = _numInput('w',     1280);
-    const _h    = _numInput('h',      720);
-    const _fps  = _numInput('fps',     30);
-    const _qp   = _numInput('qp',      24);
-    const _samp = _numInput('samples',  1);
+    const _w    = _numInput('w',     1280, 'num-md');
+    const _h    = _numInput('h',      720, 'num-md');
+    const _fps  = _numInput('fps',     30, 'num-sm');
+    const _qp   = _numInput('qp',      24, 'num-sm');
+    const _samp = _numInput('samples',  1, 'num-sm');
+    for (const i of [_w, _h, _fps, _qp, _samp]) {
+      i.inp.addEventListener('change', () => _saveLocal());
+    }
+
+    // Live-updating total-trajectory-time label.
+    const _totalLabel = document.createElement('span');
+    _totalLabel.className = 'spectre-mono';
+    function _refreshTotalLabel(): void {
+      const t = _trajectoryTotalSec();
+      _totalLabel.textContent = `total: ${t.toFixed(2)} s`;
+      // Almost every keyframe / segment mutation calls this; the
+      // exceptions are patched explicitly below.
+      _saveLocal();
+    }
 
     // fit  — captures everything the live canvas showed (extra context on
     //        the off-axis if the capture aspect differs).
     // fill — content stays at its live on-screen size; if capture aspect
     //        differs, the off-axis gets cropped vs. live.
     const _fitWrap = document.createElement('label');
-    _fitWrap.style.display = 'inline-flex';
-    _fitWrap.style.gap = '4px';
-    _fitWrap.style.alignItems = 'center';
+    _fitWrap.className = 'spectre-checkbox';
     const _fitSpan = document.createElement('span');
+    _fitSpan.className = 'spectre-label';
     _fitSpan.textContent = 'frame';
     const _fitSel = document.createElement('select');
-    _fitSel.style.fontSize = '11px';
+    _fitSel.className = 'spectre-select';
     for (const mode of ['fill', 'fit']) {
       const o = document.createElement('option');
       o.value = mode; o.textContent = mode;
       _fitSel.append(o);
     }
+    _fitSel.addEventListener('change', () => _saveLocal());
     _fitWrap.append(_fitSpan, _fitSel);
 
     // Cull-pad slider: extra viewport padding (CSS pixels) before the
-    // walker tests each cell against the AABB. Higher = let through more
-    // off-screen geometry → less chance of background bleeding in at the
-    // viewport edges, at the cost of a larger cell count and slower walks.
-    // Default 0 keeps live interaction at current speed; bump it during
-    // a recording session if you spot blanks.
+    // walker tests each cell against the AABB.
     const _cullWrap = document.createElement('label');
-    _cullWrap.style.display = 'inline-flex';
-    _cullWrap.style.gap = '4px';
-    _cullWrap.style.alignItems = 'center';
+    _cullWrap.className = 'spectre-checkbox';
     const _cullLabel = document.createElement('span');
+    _cullLabel.className = 'spectre-label';
     _cullLabel.textContent = 'cull pad';
     const _cullSlider = document.createElement('input');
     _cullSlider.type = 'range';
     _cullSlider.min = '0'; _cullSlider.max = '500'; _cullSlider.step = '5';
     _cullSlider.value = '0';
-    _cullSlider.style.width = '120px';
+    _cullSlider.className = 'spectre-cull-slider';
     const _cullVal = document.createElement('span');
-    _cullVal.textContent = '0 px';
-    _cullVal.style.fontFamily = 'var(--mono, monospace)';
+    _cullVal.className = 'spectre-mono';
     _cullVal.style.minWidth = '44px';
+    _cullVal.textContent = '0 px';
     _cullSlider.addEventListener('input', () => {
       const v = +_cullSlider.value;
       cullState.padPx = v;
       _cullVal.textContent = `${v} px`;
-      // Live-rebuild so the user can see the effect at the current zoom.
       repackInstances();
       viewerState.requestFrame();
+      _saveLocal();
     });
     _cullWrap.append(_cullLabel, _cullSlider, _cullVal);
 
     // ─── Save / load entire config (palette + keyframes + video opts) ──
     function _gatherConfig() {
       return {
-        palette: { seed: paletteState.seed },
+        version: 3,
+        palette: { seed: paletteState.seed, hex: { ...paletteState.hex } },
         keyframes: _kf.map((k) => ({
           centerX: k.centerX, centerY: k.centerY, pixelScale: k.pixelScale,
         })),
-        segments: _seg.map((s) => ({ sec: s.sec, ease: s.ease })),
+        segments: _seg.map((s) => ({
+          smooth: s.smooth, sec: s.sec, ease: s.ease,
+          speed: s.speed, rho: s.rho,
+        })),
         video: {
           width:    +_w.inp.value,
           height:   +_h.inp.value,
@@ -2068,6 +2855,17 @@
         // displayed value reflects the loaded seed.
         const seedInput = document.getElementById('spectre-palette-seed-input') as HTMLInputElement | null;
         if (seedInput) seedInput.value = String(paletteState.seed);
+      }
+      if (cfg.palette?.hex && typeof cfg.palette.hex === 'object') {
+        for (const label of Object.keys(cfg.palette.hex)) {
+          const v = cfg.palette.hex[label];
+          if (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) {
+            paletteState.setHex(label, v);
+          }
+        }
+      }
+      if (cfg.palette) {
+        (window as any)._spectreSyncSwatches?.();
         // Trigger a fresh repack so the new colours land.
         viewerState.onViewChange?.(viewerState);
       }
@@ -2079,14 +2877,51 @@
           });
         }
       }
+      // Determine v2 motion defaults once so we can broadcast them onto
+      // each segment when migrating a v2 config (where smooth/V/ρ/ease
+      // were global).
+      const v2Smooth = cfg.version === 2 && cfg.motion?.useVanWijk === true;
+      const v2Speed = cfg.version === 2 && Number.isFinite(+cfg.motion?.speed) && +cfg.motion.speed > 0
+        ? +cfg.motion.speed : _DEFAULT_SPEED;
+      const v2Rho = cfg.version === 2 && Number.isFinite(+cfg.motion?.rho) && +cfg.motion.rho > 0
+        ? +cfg.motion.rho : _DEFAULT_RHO;
+      const v2EaseRaw = cfg.version === 2 ? (cfg.motion?.ease ?? cfg.motion?.globalEase) : null;
+      const v2Ease: Ease = (v2EaseRaw === 'linear' || v2EaseRaw === 'sinusoidal'
+                          || v2EaseRaw === 'cubic'  || v2EaseRaw === 'quintic')
+        ? v2EaseRaw : 'quintic';
       if (Array.isArray(cfg.segments) && cfg.segments.length === _kf.length - 1) {
         _seg.length = 0;
         for (const s of cfg.segments) {
-          _seg.push({
-            sec: +s.sec,
-            ease: (s.ease === 'linear' || s.ease === 'cubic' || s.ease === 'quintic')
-              ? s.ease : 'linear',
-          });
+          const ease: Ease = (s.ease === 'linear' || s.ease === 'sinusoidal'
+                            || s.ease === 'cubic'  || s.ease === 'quintic')
+            ? s.ease : 'linear';
+          if (cfg.version === 3) {
+            _seg.push({
+              smooth: !!s.smooth,
+              sec: Number.isFinite(+s.sec) ? +s.sec : 2,
+              ease,
+              speed: Number.isFinite(+s.speed) && +s.speed > 0 ? +s.speed : _DEFAULT_SPEED,
+              rho:   Number.isFinite(+s.rho)   && +s.rho   > 0 ? +s.rho   : _DEFAULT_RHO,
+            });
+          } else if (cfg.version === 2) {
+            // v2: per-segment sec + ease, plus globally-defined motion.
+            _seg.push({
+              smooth: v2Smooth,
+              sec: Number.isFinite(+s.sec) ? +s.sec : 2,
+              ease: v2Smooth ? v2Ease : ease,
+              speed: v2Speed,
+              rho: v2Rho,
+            });
+          } else {
+            // v1: legacy only.
+            _seg.push({
+              smooth: false,
+              sec: Number.isFinite(+s.sec) ? +s.sec : 2,
+              ease,
+              speed: _DEFAULT_SPEED,
+              rho: _DEFAULT_RHO,
+            });
+          }
         }
       }
       if (cfg.video) {
@@ -2105,12 +2940,43 @@
         }
       }
       _rebuildKfWidget();
+      _refreshTotalLabel();
       viewerState.requestFrame();
     }
-    const _saveBtn = document.createElement('button');
-    _saveBtn.textContent = 'Save config';
-    _saveBtn.style.padding = '4px 10px';
-    _saveBtn.style.fontSize = '11px';
+
+    // ─── localStorage persistence ─────────────────────────────────────
+    // Auto-save the config on every mutation (debounced) and restore on
+    // page load. The user's manual Save / Load buttons remain for
+    // sharing or backups; this just keeps your in-progress work alive
+    // across page reloads without you having to think about it.
+    const _LS_KEY = 'spectre-infinite-config-v1';
+    let _isLoading = false;
+    let _saveTimer: any = null;
+    function _saveLocal(): void {
+      if (_isLoading) return;
+      if (_saveTimer != null) clearTimeout(_saveTimer);
+      _saveTimer = setTimeout(() => {
+        _saveTimer = null;
+        try {
+          localStorage.setItem(_LS_KEY, JSON.stringify(_gatherConfig()));
+        } catch (_e) { /* private mode / quota / disabled */ }
+      }, 250);
+    }
+    function _loadLocal(): boolean {
+      try {
+        const raw = localStorage.getItem(_LS_KEY);
+        if (!raw) return false;
+        const cfg = JSON.parse(raw);
+        _isLoading = true;
+        try { _applyConfig(cfg); } finally { _isLoading = false; }
+        return true;
+      } catch (_e) { return false; }
+    }
+    // Cross-cell trigger so the palette-controls cell can save without
+    // a direct cell-to-cell function reference.
+    (window as any)._spectreSaveLocal = _saveLocal;
+
+    const _saveBtn = _btn('Save config');
     _saveBtn.addEventListener('click', () => {
       const cfg = _gatherConfig();
       const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
@@ -2120,10 +2986,7 @@
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     });
-    const _loadBtn = document.createElement('button');
-    _loadBtn.textContent = 'Load config';
-    _loadBtn.style.padding = '4px 10px';
-    _loadBtn.style.fontSize = '11px';
+    const _loadBtn = _btn('Load config');
     const _loadInput = document.createElement('input');
     _loadInput.type = 'file';
     _loadInput.accept = 'application/json,.json';
@@ -2144,21 +3007,54 @@
     });
     _loadBtn.addEventListener('click', () => _loadInput.click());
 
-    const _btn = document.createElement('button');
-    _btn.textContent = 'Render mp4';
-    _btn.style.padding = '4px 10px';
-    _btn.style.fontFamily = 'var(--sans-serif)';
-    _btn.style.fontSize = '11px';
+    // ─── Run (preview) ─────────────────────────────────────────────────
+    // Animates the trajectory live in the viewport canvas using
+    // requestAnimationFrame, ignoring `samples` (no supersampling) and
+    // skipping the encoder. Useful for previewing the keyframe sequence
+    // before committing to a long render. Click again to stop.
+    let _previewRaf: number | null = null;
+    const _runBtn = _btn('Run', 'primary');
+    function _stopPreview(): void {
+      if (_previewRaf != null) {
+        cancelAnimationFrame(_previewRaf);
+        _previewRaf = null;
+      }
+      _runBtn.textContent = 'Run';
+    }
+    _runBtn.addEventListener('click', () => {
+      if (_previewRaf != null) { _stopPreview(); return; }
+      if (_kf.length < 2) { _status.textContent = 'need ≥2 keyframes'; return; }
+      const totalSec = _trajectoryTotalSec();
+      if (!(totalSec > 0)) { _status.textContent = 'zero-length trajectory'; return; }
+      _runBtn.textContent = 'Stop';
+      const t0 = performance.now();
+      const tick = () => {
+        const sec = (performance.now() - t0) / 1000;
+        const frac = sec / totalSec;
+        if (frac >= 1) {
+          viewerState.setView(_kf[_kf.length - 1]);
+          _previewRaf = null;
+          _runBtn.textContent = 'Run';
+          _status.textContent = 'preview done';
+          return;
+        }
+        viewerState.setView(_viewAt(frac));
+        _status.textContent = `preview ${(sec).toFixed(2)} / ${totalSec.toFixed(2)} s`;
+        _previewRaf = requestAnimationFrame(tick);
+      };
+      _previewRaf = requestAnimationFrame(tick);
+    });
+
+    const _renderBtn = _btn('Render mp4', 'primary');
 
     const _status = document.createElement('span');
-    _status.style.fontFamily = 'var(--mono, monospace)';
-    _status.style.fontSize = '11px';
+    _status.className = 'spectre-mono';
     _status.style.minWidth = '160px';
 
     let _busy = false;
-    _btn.addEventListener('click', async () => {
+    _renderBtn.addEventListener('click', async () => {
       if (_busy) return;
-      _busy = true; _btn.disabled = true;
+      _busy = true; _renderBtn.disabled = true;
       _status.textContent = 'rendering…';
       try {
         const bytes = await _recordVideo({
@@ -2183,25 +3079,49 @@
         _status.textContent = 'error: ' + (e as Error).message;
         console.error(e);
       } finally {
-        _busy = false; _btn.disabled = false;
+        _busy = false; _renderBtn.disabled = false;
       }
     });
 
-    const _actionRow = document.createElement('div');
-    _actionRow.style.display = 'flex';
-    _actionRow.style.gap = '8px';
-    _actionRow.style.alignItems = 'center';
-    _actionRow.style.flexWrap = 'wrap';
-    _actionRow.style.margin = '8px 0';
-    _actionRow.style.fontFamily = 'var(--sans-serif)';
-    _actionRow.style.fontSize = '11px';
-    _actionRow.append(
-      _w.wrap, _h.wrap, _fps.wrap, _qp.wrap, _samp.wrap, _fitWrap, _cullWrap,
-      _saveBtn, _loadBtn, _loadInput,
-      _btn, _status,
+    // Two cards under the trajectory editor: render parameters above,
+    // action buttons below.
+    const _renderCard = document.createElement('div');
+    _renderCard.className = 'spectre-card';
+    const _renderHead = document.createElement('div');
+    _renderHead.className = 'spectre-section-head';
+    const _renderH = document.createElement('h4');
+    _renderH.textContent = 'render';
+    _renderHead.append(_renderH);
+    _renderHead.append(_totalLabel);
+    _totalLabel.classList.add('meta');
+    const _renderConfigRow = document.createElement('div');
+    _renderConfigRow.className = 'spectre-row';
+    _renderConfigRow.append(
+      _w.wrap, _h.wrap, _fps.wrap, _qp.wrap, _samp.wrap,
+      _fitWrap, _cullWrap,
     );
+    const _renderActionsRow = document.createElement('div');
+    _renderActionsRow.className = 'spectre-row';
+    _renderActionsRow.append(
+      _saveBtn, _loadBtn, _loadInput,
+      _runBtn, _renderBtn, _status,
+    );
+    _renderCard.append(_renderHead, _renderConfigRow, _renderActionsRow);
+    // Restore previous session if present. This calls _applyConfig
+    // which rebuilds the keyframe widget and refreshes the total label.
+    _loadLocal();
+    _refreshTotalLabel();
 
+    // Refresh the total label whenever the renderer's view changes — in
+    // particular when the canvas resizes, which is when viewerState.pixelWidth
+    // first becomes nonzero and the van Wijk reference width is established.
+    const _origOnViewChangeForTotal = viewerState.onViewChange;
+    viewerState.onViewChange = function (this: any, ...args: any[]) {
+      _origOnViewChangeForTotal?.apply(this, args);
+      _refreshTotalLabel();
+    };
+
+    display(_renderCard);
     display(_kfContainer);
-    display(_actionRow);
   </script>
 </notebook>
