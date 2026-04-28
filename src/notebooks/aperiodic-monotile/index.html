@@ -47,9 +47,12 @@
   <script id="intro" type="text/markdown">
     ## Summary
 
-    A WebGPU rendering of the *spectre* — the chiral aperiodic monotile of [Smith, Myers, Kaplan, and Goodman-Strauss](https://arxiv.org/abs/2305.17743) — and the rest of the Tile(*a*, *b*) family it belongs to (the [hat](https://arxiv.org/abs/2303.10798) and turtle).
+    A WebGPU rendering of the *spectre*, the chiral aperiodic monotile, building on:
 
-    The substitution machinery is a port of [Craig S. Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js), the p5.js reference linked from the paper page; specific attribution is in the substitution section below.
+    - [**A chiral aperiodic monotile**](https://cs.uwaterloo.ca/~csk/spectre/) — Smith, Myers, Kaplan, Goodman-Strauss (2023). Project page with the construction reproduced here.
+    - [**An aperiodic monotile**](https://cs.uwaterloo.ca/~csk/hat/index.html) — Smith, Myers, Kaplan, Goodman-Strauss (2023). The hat paper that preceded the spectre.
+
+    The substitution machinery is a port of [Craig S. Kaplan's `spectre.js`](https://cs.uwaterloo.ca/~csk/spectre/spectre.js); specific attribution is in the substitution section below.
 
     What's added on top: tile translations are split into separate (*a*, *b*) components so the hat ↔ spectre ↔ turtle morph is a per-frame projection rather than a fresh substitution; the figure is counter-rotated each frame so depth changes and morph changes don't spin it; and the cluster is drawn with WebGPU instancing — a single 16-byte transform per tile — that scales to ~17 M tiles at depth 8.
   </script>
@@ -753,106 +756,6 @@
     // order.
     controlsContainer.appendChild(_editorRoot);
     const tileEdges = Generators.input(_editorRoot);
-  </script>
-
-  <script id="morph-strip-section" type="text/markdown">
-    The same 14-vertex polygon is part of a one-parameter family Tile(*a*, *b*). The 14 edges have fixed directions (multiples of 30°) and fixed types — eight *a*-edges and six *b*-edges — and only their lengths change as you slide *a* and *b*. The five named stops along the morph slider above:
-  </script>
-
-  <script id="morph-strip" type="text/x-typescript">
-    // Walk the spectre boundary at any (a, b). The 14 edges have fixed
-    // directions (multiples of 30°) and a fixed type (a-edge or b-edge);
-    // varying (a, b) just rescales each edge in place — which is exactly
-    // what the morph slider above does.
-    const _edgeDirs = [0, 10, 1, 3, 0, 2, 5, 7, 4, 6, 6, 8, 11, 9];
-    const _aMask = [true, true, false, false, true, true, false, false,
-                    true, true, true, true, false, false];
-    function _polyAt(a: number, b: number): [number, number][] {
-      const verts: [number, number][] = [[0, 0]];
-      let x = 0, y = 0;
-      for (let i = 0; i < 13; i++) {
-        const ang = _edgeDirs[i] * Math.PI / 6;
-        const len = _aMask[i] ? a : b;
-        x += len * Math.cos(ang);
-        y += len * Math.sin(ang);
-        verts.push([x, y]);
-      }
-      return verts;
-    }
-    // Same piecewise parameterization as render-morph; sample any slider
-    // position deterministically.
-    function _morphToAB(m: number): [number, number] {
-      const absM = Math.abs(m);
-      let aR: number, bR: number;
-      if (absM <= 1) {
-        aR = 1 + (Math.sqrt(3) - 1) * Math.max(0,  m);
-        bR = 1 + (Math.sqrt(3) - 1) * Math.max(0, -m);
-      } else {
-        const t = absM - 1;
-        const long  = Math.sqrt(3) + (2 - Math.sqrt(3)) * t;
-        const short = 1 - t;
-        [aR, bR] = m > 0 ? [long, short] : [short, long];
-      }
-      const norm = 2 / Math.max(1e-9, aR + bR);
-      return [aR * norm, bR * norm];
-    }
-
-    const _stops = [
-      { m: -2, name: "hexagon",  detail: "a → 0" },
-      { m: -1, name: "hat",      detail: "b / a = √3" },
-      { m:  0, name: "spectre",  detail: "a = b" },
-      { m: +1, name: "turtle",   detail: "a / b = √3" },
-      { m: +2, name: "7-gon",    detail: "b → 0" },
-    ];
-    type _MorphStop = { m: number; name: string; detail: string; verts: [number, number][] };
-    const _shapes: _MorphStop[] = _stops.map(({ m, name, detail }) => {
-      const [a, b] = _morphToAB(m);
-      const verts = _polyAt(a, b);
-      // Centre on bbox so all shapes sit at the same screen origin and a
-      // single shared viewBox can hold them at the same scale.
-      let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
-      for (const [x, y] of verts) {
-        if (x < mnx) mnx = x; if (x > mxx) mxx = x;
-        if (y < mny) mny = y; if (y > mxy) mxy = y;
-      }
-      const cx = (mnx + mxx) / 2, cy = (mny + mxy) / 2;
-      return { m, name, detail, verts: verts.map(([x, y]) => [x - cx, y - cy]) };
-    });
-    // Shared viewBox sized to the largest cluster so the spectre's *intrinsic*
-    // size variation across the morph is visible.
-    let _gMinX = Infinity, _gMaxX = -Infinity, _gMinY = Infinity, _gMaxY = -Infinity;
-    for (const s of _shapes) for (const [x, y] of s.verts) {
-      if (x < _gMinX) _gMinX = x; if (x > _gMaxX) _gMaxX = x;
-      if (y < _gMinY) _gMinY = y; if (y > _gMaxY) _gMaxY = y;
-    }
-    const _pad = 0.3;
-    const _vbX = _gMinX - _pad;
-    const _vbY = -_gMaxY - _pad;
-    const _vbW = (_gMaxX - _gMinX) + 2 * _pad;
-    const _vbH = (_gMaxY - _gMinY) + 2 * _pad;
-    const _wpx = Math.min(116, Math.floor((width - 40) / _shapes.length));
-
-    display(html`<figure style="margin: 1em 0; text-align: center;">
-      <div style="display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; align-items: flex-start;">
-        ${_shapes.map((s) => html`
-          <div style="display: flex; flex-direction: column; align-items: center;">
-            <svg viewBox="${_vbX} ${_vbY} ${_vbW} ${_vbH}"
-                 width="${_wpx}" height="${_wpx * _vbH / _vbW}"
-                 style="display: block;">
-              <polygon points="${s.verts.map(([x, y]) => `${x},${-y}`).join(' ')}"
-                       fill="#cfe1f5" stroke="#222" stroke-width="0.04"
-                       stroke-linejoin="round" />
-            </svg>
-            <div style="font-size: 0.85em; margin-top: 4px;"><strong>${s.name}</strong></div>
-            <div style="font-size: 0.72em; color: var(--theme-foreground-alt);">${s.detail}</div>
-            <div style="font-size: 0.7em; color: var(--theme-foreground-muted);">slider = ${s.m}</div>
-          </div>
-        `)}
-      </div>
-      <figcaption>
-        Two pairs of consecutive collinear edges fuse into one at the endpoints, dropping the polygon from a 14-gon down to a hexagon (left) or a 7-gon with a long spike (right). Substitution still tiles the plane all the way through.
-      </figcaption>
-    </figure>`);
   </script>
 
   <script id="lattice-section" type="text/markdown">
