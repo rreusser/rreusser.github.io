@@ -171,9 +171,9 @@
   <script id="edge-editor-section" type="text/markdown">
     ### Curving the edges
 
-    The chiral spectre tiles aperiodically when each edge is replaced by a single shared curve, applied identically in every edge's local frame and made invariant under either 180° rotation about its own midpoint (*S-curve* mode) or reflection across the chord's perpendicular bisector (*tab / slot* mode). The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same.
+    The chiral spectre tiles aperiodically when each edge is replaced by a single shared curve, applied identically in every edge's local frame and reflected across the chord's perpendicular bisector. The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same.
 
-    The editor offers three styles for the master curve. *Tab / slot* and *S-curve* both use a single cubic Bézier with one draggable handle (its mate falls out of the symmetry). *Free form* drops the symmetry constraint entirely — drop as many anchors as you like along the edge, drag them anywhere, and watch the matching condition fail in real time. Click the curve to add an anchor, drag to reshape, shift+click an anchor to delete. The sub-toggle picks how each of the 14 edges applies the curve (alt-flipped on odd edges, or forward on every edge); without symmetry neither makes the tiles meet, but each kind of mismatch is informative.
+    *Tab / slot* uses a single cubic Bézier with one draggable handle (its mate falls out of the symmetry). *Free form* drops the symmetry constraint entirely: drop as many anchors as you like along the edge, drag them anywhere, and watch the matching condition fail in real time. Click anywhere in the editor to add an anchor, drag to reshape, shift+click an anchor to delete.
 
     The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. Only edge 0 (the bottom horizontal *a*-edge) carries handles, since every other edge is forced to use the same shape; the curves still render on all 14 edges so you can see the resulting tile.
   </script>
@@ -370,7 +370,7 @@
     // edges so adjacent tiles meet tab-to-slot. 'sShape' produces
     // S-curves (Q2 mirrored through the chord midpoint); the same
     // forward curve is used on every edge.
-    type SymmetryMode = 'alternating' | 'sShape' | 'freeform';
+    type SymmetryMode = 'alternating' | 'freeform';
     type FFSym = 'alternating' | 'sShape';
     let _mode: SymmetryMode = 'alternating';
     // Freeform state. Each anchor is independent — no auto-mirrored partner.
@@ -399,18 +399,17 @@
           && Math.abs(_curve.h2t - 2/3) < tol && Math.abs(_curve.h2n) < tol;
     }
     function syncSymmetry(curve: EdgeHandles, handle: 'c1' | 'c2'): void {
-      // 'alternating': perpendicular-bisector mirror, (t, n) → (1−t, n).
-      // 'sShape':      midpoint reflection,           (t, n) → (1−t, −n).
-      // Freeform mode does not constrain the cubic at all — its sub-sym
-      // (_ffSym) only picks the per-edge application convention, not a
-      // mirror rule on the curve itself.
-      const flipN = _mode === 'sShape';
+      // Cubic mode enforces perpendicular-bisector mirror symmetry on the
+      // curve, (t, n) → (1−t, n), so the master cubic produces the canonical
+      // tab/slot tile with the alt-flip edge convention. Freeform mode
+      // doesn't touch this — the cubic state is parked while freeform is
+      // active.
       if (handle === 'c1') {
         curve.h2t = 1 - curve.h1t;
-        curve.h2n = flipN ? -curve.h1n : curve.h1n;
+        curve.h2n = curve.h1n;
       } else {
         curve.h1t = 1 - curve.h2t;
-        curve.h1n = flipN ? -curve.h2n : curve.h2n;
+        curve.h1n = curve.h2n;
       }
     }
 
@@ -652,10 +651,11 @@
         ev.preventDefault();
         return;
       }
-      // Anywhere else inside the editor in freeform mode = add anchor at
-      // the click position. The transparent background rect (data-hit='bg')
-      // catches clicks that miss the curve and other elements.
-      if (_mode === 'freeform' && (hit === 'bg' || (target as Element) === _svg)) {
+      // Anything else inside the editor in freeform mode = add anchor at
+      // the click position. Catches clicks on the chord, endpoints, the
+      // curve itself, and the transparent background — none of those are
+      // interactive, so dropping the click on them was just frustrating.
+      if (_mode === 'freeform') {
         const [sx, sy] = svgPoint(ev);
         _ffAdd(sx, -sy);
         rerender();
@@ -701,7 +701,6 @@
     _modeSel.style.cssText = 'font-size: 12px; padding: 1px 3px;';
     for (const [val, label] of [
       ['alternating', 'Tab / slot'],
-      ['sShape',      'S-curve'],
       ['freeform',    'Free form'],
     ] as const) {
       const opt = document.createElement('option');
