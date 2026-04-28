@@ -1,0 +1,475 @@
+<!doctype html>
+<notebook theme="air">
+  <title>The Arnold cat map as a continuous flow</title>
+  <script id="title" type="text/markdown">
+    # The Arnold cat map as a continuous flow
+  </script>
+  <script id="intro" type="text/markdown">
+    Arnold’s cat map is the linear map ${tex`M = \begin{pmatrix} 2 & 1 \\ 1 & 1 \end{pmatrix}`} acting on the torus ${tex`\mathbb{R}^2 / \mathbb{Z}^2`}. It’s the standard mascot of hyperbolic dynamics: the lattice ${tex`\mathbb{Z}^2`} maps onto itself, the unit cell stretches along one eigenvector and squeezes along the other, and the wrapping back to the torus produces a thoroughly chaotic orbit.
+
+    What if we let the discrete time index ${tex`n \in \mathbb{Z}`} flow continuously? That is, can we draw ${tex`M^t`} for ${tex`t \in [0, 1]`} so that ${tex`t = 0`} is the identity and ${tex`t = 1`} is the cat map? The animation below shows the result, applied to the integer lattice rather than the torus. The orbit closes seamlessly: at every integer time, the velocity field has the same value just before and just after.
+  </script>
+  <script id="imports" type="text/x-typescript">
+    import { expandable } from './lib/expandable.js'
+    import { createFrameLoop } from './lib/frame-loop.js'
+  </script>
+  <script id="presets" type="text/x-typescript">
+    const presets = {
+      "Arnold cat [[2,1],[1,1]]":   [2, 1, 1, 1],
+      "Fibonacci [[1,1],[1,2]]":    [1, 1, 1, 2],
+      "Tall [[3,1],[2,1]]":         [3, 1, 2, 1],
+      "Wide [[3,2],[1,1]]":         [3, 2, 1, 1],
+      "Big [[3,1],[5,2]]":          [3, 1, 5, 2],
+      "Shear (parabolic) [[1,1],[0,1]]": [1, 1, 0, 1]
+    };
+  </script>
+  <script id="controls" type="text/x-typescript">
+    const controlsContainer = html`<div id="cat-map-controls"></div>`;
+    function ctrl(input) {
+      controlsContainer.appendChild(input);
+      return Generators.input(input);
+    }
+
+    // Preset selector. Picking a preset programmatically sets the four
+    // matrix entries below; the entries themselves are the source of truth.
+    const presetSelect = Inputs.select(["Custom", ...Object.keys(presets)], {
+      label: "Preset",
+      value: "Arnold cat [[2,1],[1,1]]"
+    });
+
+    const m00Input = Inputs.range([-6, 6], { label: "a (top-left)",  value: 2, step: 1 });
+    const m01Input = Inputs.range([-6, 6], { label: "b (top-right)", value: 1, step: 1 });
+    const m10Input = Inputs.range([-6, 6], { label: "c (bot-left)",  value: 1, step: 1 });
+    const m11Input = Inputs.range([-6, 6], { label: "d (bot-right)", value: 1, step: 1 });
+
+    const matrixInputs = [m00Input, m01Input, m10Input, m11Input];
+
+    presetSelect.addEventListener('input', () => {
+      const v = presetSelect.value;
+      if (!(v in presets)) return;
+      const vals = presets[v];
+      matrixInputs.forEach((inp, i) => {
+        (inp as HTMLInputElement).value = String(vals[i]);
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
+
+    // When the user edits the entries directly, switch the dropdown to
+    // whichever preset matches (or to "Custom" if none does).
+    function syncPresetLabel() {
+      const cur = matrixInputs.map(inp => +(inp as HTMLInputElement).value);
+      for (const [name, vals] of Object.entries(presets)) {
+        if (vals.every((v, i) => v === cur[i])) {
+          if (presetSelect.value !== name) presetSelect.value = name;
+          return;
+        }
+      }
+      if (presetSelect.value !== "Custom") presetSelect.value = "Custom";
+    }
+    matrixInputs.forEach(inp => inp.addEventListener('input', syncPresetLabel));
+
+    controlsContainer.append(presetSelect, m00Input, m01Input, m10Input, m11Input);
+    const presetName = Generators.input(presetSelect);
+    const m00 = Generators.input(m00Input);
+    const m01 = Generators.input(m01Input);
+    const m10 = Generators.input(m10Input);
+    const m11 = Generators.input(m11Input);
+
+    // Live readout: pretty-printed matrix + det/tr + status of whether the
+    // continuous flow is well-defined and seamlessly periodic on Z².
+    const matrixReadout = html`<div style="margin: 0.4rem 0; font-size: 0.95em;"></div>`;
+    const matrixStatus  = html`<div style="font-size: 0.85em; line-height: 1.4; margin: 0.2rem 0 0.6rem;"></div>`;
+    controlsContainer.append(matrixReadout, matrixStatus);
+
+    function updateReadout() {
+      const [a, b, c, d] = matrixInputs.map(inp => +(inp as HTMLInputElement).value);
+      const det = a * d - b * c;
+      const tr  = a + d;
+      const disc = tr * tr - 4 * det;
+      const isInt = [a, b, c, d].every(Number.isInteger);
+
+      matrixReadout.replaceChildren(tex`
+        M = \begin{pmatrix} ${a} & ${b} \\ ${c} & ${d} \end{pmatrix}
+        \quad \det M = ${det}
+        \quad \mathrm{tr}\,M = ${tr}
+        \quad \mathrm{disc} = ${disc}
+      `);
+
+      let color: string, msg: string;
+      if (det !== 1) {
+        color = '#b33'; msg =
+          `det ≠ 1: M is not a unimodular bijection of ℤ², so the lattice ` +
+          `at t = 1 is not the lattice at t = 0 and the loop cannot close.`;
+      } else if (disc < 0) {
+        color = '#b33'; msg =
+          `tr² < 4·det: eigenvalues are complex (M is conjugate to a rotation). ` +
+          `log M is not real, so M^t cannot be drawn as a real flow.`;
+      } else if (tr < 0) {
+        color = '#b33'; msg =
+          `tr < 0 with det = 1: both eigenvalues are negative. ` +
+          `log M is not real, so M^t cannot be drawn as a real flow.`;
+      } else if (disc === 0) {
+        color = '#888'; msg =
+          isInt
+            ? `Parabolic boundary case (tr² = 4·det): M^t = I + t (M − I) is a pure ` +
+              `shear with the entire eigenline fixed. Loop closes seamlessly.`
+            : `Parabolic boundary case (tr² = 4·det): M^t = I + t (M − I). ` +
+              `Non-integer entries: lattice not preserved.`;
+      } else {
+        color = isInt ? '#185fa5' : '#888';
+        msg = isInt
+          ? `Hyperbolic with det = 1, tr ≥ 2: real eigenvalues, lattice-preserving. ` +
+            `Loop closes seamlessly.`
+          : `Hyperbolic, but non-integer entries: real flow is well-defined yet the ` +
+            `dot pattern does not return to the lattice at t = 1.`;
+      }
+      matrixStatus.style.color = color;
+      matrixStatus.textContent = msg;
+    }
+    matrixInputs.forEach(inp => inp.addEventListener('input', updateReadout));
+    updateReadout();
+
+    const period = ctrl(Inputs.range([2, 20], {
+      label: "Period (s)", value: 8, step: 0.5
+    }));
+    const showPaths = ctrl(Inputs.toggle({
+      label: "Show paths", value: false
+    }));
+    const showEigen = ctrl(Inputs.toggle({
+      label: "Show eigen-directions", value: false
+    }));
+    const paused = ctrl(Inputs.toggle({
+      label: "Pause", value: false
+    }));
+
+    display(controlsContainer);
+  </script>
+  <script id="params" type="text/x-typescript">
+    // Stable, mutable parameters shared with the render loop. Properties are
+    // updated from the controls cell; this cell never re-runs.
+    const params = {
+      M: [2, 1, 1, 1],
+      period: 8,
+      showEigen: false,
+      showPaths: false,
+      paused: false,
+      matrixDirty: true
+    };
+  </script>
+  <script id="powMt" type="text/x-typescript">
+    // M^t for a 2×2 matrix M = [a, b, c, d] using the Cayley–Hamilton form
+    //   M^t = c0(t) I + c1(t) M
+    // valid whenever M has two distinct real eigenvalues. The parabolic
+    // case (trace² = 4 det) is handled by the limit M^t = I + t (M − I).
+    function powMt(M: number[], t: number): number[] {
+      const [a, b, c, d] = M;
+      const tr = a + d;
+      const det = a * d - b * c;
+      const disc = tr * tr - 4 * det;
+      if (Math.abs(disc) < 1e-12) {
+        const s = t;
+        return [1 + s * (a - 1), s * b, s * c, 1 + s * (d - 1)];
+      }
+      const sD = Math.sqrt(disc);
+      const lam1 = (tr + sD) / 2;
+      const lam2 = (tr - sD) / 2;
+      const e1 = Math.pow(lam1, t);
+      const e2 = Math.pow(lam2, t);
+      const c1 = (e1 - e2) / sD;
+      const c0 = (lam1 * e2 - lam2 * e1) / sD;
+      return [c0 + c1 * a, c1 * b, c1 * c, c0 + c1 * d];
+    }
+  </script>
+  <script id="sync-params" type="text/x-typescript">
+    // Mirror reactive controls into the stable params object.
+    params.M = [m00, m01, m10, m11];
+    params.period = period;
+    params.showEigen = showEigen;
+    params.showPaths = showPaths;
+    params.paused = paused;
+    params.matrixDirty = true;
+  </script>
+  <script id="figure" type="text/x-typescript">
+    // The SVG holds three layers: dashed eigen-direction guides, lattice
+    // dots, and the highlighted origin (the only fixed point).
+    const ns = 'http://www.w3.org/2000/svg';
+    const figureState = { width: 0, height: 0, cellSize: 40 };
+
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('id', 'cat-map-svg');
+    svg.style.display = 'block';
+    svg.style.background = '#fff';
+    svg.style.borderRadius = '6px';
+    svg.style.border = '0.5px solid rgba(0,0,0,0.15)';
+
+    const eigenG = document.createElementNS(ns, 'g');
+    const pathsElement = document.createElementNS(ns, 'path');
+    pathsElement.setAttribute('fill', 'none');
+    pathsElement.setAttribute('stroke', '#185fa5');
+    pathsElement.setAttribute('stroke-width', '0.7');
+    pathsElement.setAttribute('stroke-opacity', '0');
+    const dotsG = document.createElementNS(ns, 'g');
+    const originDot = document.createElementNS(ns, 'circle');
+    originDot.setAttribute('r', '3.8');
+    originDot.setAttribute('fill', '#185fa5');
+    svg.append(eigenG, pathsElement, dotsG, originDot);
+
+    // Lattice points to render. Wider than the visible window so dots that
+    // sweep across the figure during the loop stay populated near the edges.
+    const halfX = 16, halfY = 16;
+    const pts: [number, number][] = [];
+    for (let i = -halfX; i <= halfX; i++) {
+      for (let j = -halfY; j <= halfY; j++) {
+        if (i === 0 && j === 0) continue;
+        pts.push([i, j]);
+      }
+    }
+    const circles: SVGCircleElement[] = pts.map(() => {
+      const c = document.createElementNS(ns, 'circle');
+      c.setAttribute('r', '2.3');
+      c.setAttribute('fill', '#2c2c2a');
+      dotsG.appendChild(c);
+      return c;
+    });
+
+    const eigenLines: SVGLineElement[] = [0, 1].map(() => {
+      const l = document.createElementNS(ns, 'line');
+      l.setAttribute('stroke', '#888');
+      l.setAttribute('stroke-width', '1');
+      l.setAttribute('stroke-dasharray', '4 3');
+      eigenG.appendChild(l);
+      return l;
+    });
+
+    function resizeFigure(w: number, h: number) {
+      figureState.width = w;
+      figureState.height = h;
+      figureState.cellSize = Math.max(20, Math.min(w, h) / 11);
+      svg.setAttribute('width', String(w));
+      svg.setAttribute('height', String(h));
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      originDot.setAttribute('cx', String(w / 2));
+      originDot.setAttribute('cy', String(h / 2));
+      params.matrixDirty = true;
+    }
+
+    const figure = html`<figure>
+      ${svg}
+      <figcaption>Continuous flow ${tex`\gamma(t) = M^t`} on the integer lattice. The origin (blue) is the only fixed point; every other lattice point traces a closed orbit that returns to a (different) integer position at ${tex`t = 1`}.</figcaption>
+    </figure>`;
+
+    display(expandable(figure, {
+      id: 'cat-map',
+      width: Math.min(width, 640),
+      height: Math.min(480, width),
+      controls: '#cat-map-controls',
+      onResize(_el, w, h) { resizeFigure(w, h); }
+    }));
+  </script>
+  <script id="render-loop" type="text/x-typescript">
+    // Eigenvectors of M = [[a,b],[c,d]] for displaying the stable/unstable
+    // axes when the toggle is on. Returns a normalized direction for each
+    // real eigenvalue, or an empty array in degenerate cases.
+    function eigenDirections(M: number[]): [number, number][] {
+      const [a, b, c, d] = M;
+      const tr = a + d;
+      const det = a * d - b * c;
+      const disc = tr * tr - 4 * det;
+      if (disc <= 1e-12) return [];
+      const sD = Math.sqrt(disc);
+      const lams = [(tr + sD) / 2, (tr - sD) / 2];
+      return lams.map(lam => {
+        let vx: number, vy: number;
+        if (Math.abs(c) > 1e-9) { vx = lam - d; vy = c; }
+        else if (Math.abs(b) > 1e-9) { vx = b; vy = lam - a; }
+        else { vx = 1; vy = 0; }
+        const n = Math.hypot(vx, vy);
+        return [vx / n, vy / n] as [number, number];
+      });
+    }
+
+    let t = 0;
+    let last = performance.now();
+
+    const loop = createFrameLoop((now) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      if (!params.paused) t = (t + dt / params.period) % 1;
+
+      const w = figureState.width, h = figureState.height;
+      if (w === 0) return;
+      const cx = w / 2, cy = h / 2;
+      const cs = figureState.cellSize;
+
+      const Mt = powMt(params.M, t);
+      const [a, b, c, d] = Mt;
+
+      for (let k = 0; k < pts.length; k++) {
+        const [i, j] = pts[k];
+        const qx = a * i + b * j;
+        const qy = c * i + d * j;
+        circles[k].setAttribute('cx', (cx + qx * cs).toFixed(1));
+        circles[k].setAttribute('cy', (cy - qy * cs).toFixed(1));
+      }
+
+      if (params.matrixDirty) {
+        params.matrixDirty = false;
+        const dirs = params.showEigen ? eigenDirections(params.M) : [];
+        eigenLines.forEach((line, k) => {
+          if (k < dirs.length) {
+            const [vx, vy] = dirs[k];
+            const L = Math.hypot(w, h);
+            line.setAttribute('x1', (cx - vx * L).toFixed(1));
+            line.setAttribute('y1', (cy + vy * L).toFixed(1));
+            line.setAttribute('x2', (cx + vx * L).toFixed(1));
+            line.setAttribute('y2', (cy - vy * L).toFixed(1));
+            line.setAttribute('stroke-opacity', '0.6');
+          } else {
+            line.setAttribute('stroke-opacity', '0');
+          }
+        });
+
+        if (params.showPaths) {
+          // Sample M^t at N+1 instants and apply each sampled matrix to every
+          // lattice point. Concatenate into a single SVG path with M/L commands
+          // separating per-point subpaths — far cheaper than one path element
+          // per dot.
+          const N = 48;
+          const Mts: number[][] = [];
+          for (let q = 0; q <= N; q++) Mts.push(powMt(params.M, q / N));
+          const parts: string[] = [];
+          for (let p = 0; p < pts.length; p++) {
+            const [i, j] = pts[p];
+            let s = '';
+            for (let q = 0; q <= N; q++) {
+              const m = Mts[q];
+              const qx = m[0] * i + m[1] * j;
+              const qy = m[2] * i + m[3] * j;
+              const sx = (cx + qx * cs).toFixed(1);
+              const sy = (cy - qy * cs).toFixed(1);
+              s += (q === 0 ? 'M' : 'L') + sx + ' ' + sy + ' ';
+            }
+            parts.push(s);
+          }
+          pathsElement.setAttribute('d', parts.join(''));
+          pathsElement.setAttribute('stroke-opacity', '0.35');
+        } else {
+          pathsElement.setAttribute('stroke-opacity', '0');
+        }
+      }
+    });
+
+    invalidation.then(() => loop.cancel());
+  </script>
+  <script id="discrete-heading" type="text/markdown">
+    ## The discrete map
+  </script>
+  <script id="discrete" type="text/markdown">
+    The cat map is the linear self-map of ${tex`\mathbb{Z}^2`} (or, after wrapping, of the torus) given by
+
+    ${tex.block`
+      M = \begin{pmatrix} 2 & 1 \\ 1 & 1 \end{pmatrix}, \qquad \det M = 1.
+    `}
+
+    Because ${tex`M`} has integer entries and unit determinant, it is a bijection ${tex`\mathbb{Z}^2 \to \mathbb{Z}^2`}. Its eigenvalues are ${tex`\lambda_\pm = (3 \pm \sqrt{5})/2`} — one above one and one below — so the unit cell is stretched along the eigenvector for ${tex`\lambda_+ = \varphi^2`} and squeezed by the same factor along the perpendicular direction.
+
+    Iterating ${tex`M`} on the torus is the canonical example of a chaotic, ergodic, mixing dynamical system. We won’t use the torus here. Instead we keep the map on all of ${tex`\mathbb{R}^2`} and ask what happens for non-integer time.
+  </script>
+  <script id="continuous-heading" type="text/markdown">
+    ## A continuous flow between ${tex`I`} and ${tex`M`}
+  </script>
+  <script id="continuous-1" type="text/markdown">
+    To interpolate from the identity at ${tex`t=0`} to ${tex`M`} at ${tex`t=1`}, we want a one-parameter family ${tex`\gamma(t)`} of matrices with ${tex`\gamma(0) = I`}, ${tex`\gamma(1) = M`}, and ${tex`\gamma(s+t) = \gamma(s)\,\gamma(t)`} (a one-parameter subgroup of ${tex`\mathrm{GL}_2(\mathbb{R})`}). The unique smooth choice is
+
+    ${tex.block`\gamma(t) \;=\; M^t \;:=\; \exp(t \log M),`}
+
+    where ${tex`\log M`} is a real matrix logarithm of ${tex`M`}. For our cat map, ${tex`M`} is symmetric with eigenvalues ${tex`\lambda_\pm > 0`}, so ${tex`\log M`} is real and unique up to ${tex`2\pi i`}-shifts that we ignore.
+  </script>
+  <script id="continuous-2" type="text/markdown">
+    Now let a single point ${tex`v_0`} flow according to ${tex`v(t) = \gamma(t)\,v_0`}. Differentiating,
+
+    ${tex.block`
+      \frac{dv}{dt} \;=\; \frac{d}{dt}\bigl[\exp(t \log M)\bigr]\,v_0
+      \;=\; (\log M)\,\exp(t \log M)\,v_0
+      \;=\; (\log M)\,v(t).
+    `}
+
+    The crucial observation is that the velocity at any current position depends *only on the current position*: it is the linear vector field ${tex`v \mapsto (\log M)\,v`}, which has no explicit ${tex`t`}-dependence. The flow is autonomous.
+  </script>
+  <script id="continuous-3" type="text/markdown">
+    A few easy consequences of autonomy:
+
+    - The origin is fixed for all ${tex`t`}, since ${tex`(\log M)\cdot 0 = 0`}.
+    - Trajectories are integral curves of a fixed vector field, so distinct trajectories never cross.
+    - ${tex`\log M`} for the cat map has eigenvalues ${tex`\pm \log\varphi^2`} (one positive, one negative) and trace zero, so the flow is area-preserving and is a saddle at the origin.
+  </script>
+  <script id="loop-heading" type="text/markdown">
+    ## Why the loop closes seamlessly
+  </script>
+  <script id="loop-1" type="text/markdown">
+    The animation runs ${tex`t`} from ${tex`0`} to ${tex`1`} and then snaps back. Why does that look continuous, when each lattice dot really does jump abruptly from ${tex`M v_0`} back to ${tex`v_0`} at the reset?
+
+    Because ${tex`M`} is a bijection of ${tex`\mathbb{Z}^2`}, the *set* of integer lattice positions at ${tex`t = 1`} is exactly the *set* of integer lattice positions at ${tex`t = 0`}. Only the labels (which dot is which) have been permuted. Visually, no dot has moved — every integer site that was occupied at ${tex`t = 1^-`} is still occupied at ${tex`t = 0^+`}.
+  </script>
+  <script id="loop-2" type="text/markdown">
+    And by autonomy, the velocity at any point ${tex`p`} is the same function of ${tex`p`} at every instant. So the velocity vector at every visible lattice site at ${tex`t = 1^-`} agrees with the velocity vector at the same site at ${tex`t = 0^+`}. The resulting visualization is ${tex`C^1`}-smooth at the loop seam, even though no individual dot’s trajectory is.
+
+    The boundary of the visible window is the only place where the illusion breaks: a dot that left through one edge re-enters as a *different* dot, not as itself.
+  </script>
+  <script id="exp-heading" type="text/markdown">
+    ## Computing ${tex`M^t`} without an eigendecomposition
+  </script>
+  <script id="exp-1" type="text/markdown">
+    Cayley–Hamilton says any analytic function of a 2×2 matrix lies in the span ${tex`\{I, M\}`}. So there exist scalars ${tex`c_0(t), c_1(t)`} with
+
+    ${tex.block`M^t \;=\; c_0(t)\,I + c_1(t)\,M.`}
+
+    Apply both sides to an eigenvector with eigenvalue ${tex`\lambda`}:
+
+    ${tex.block`\lambda^t \;=\; c_0(t) + c_1(t)\,\lambda.`}
+
+    With two eigenvalues ${tex`\lambda_+, \lambda_-`} this is a 2×2 linear system. Solving,
+
+    ${tex.block`
+      c_1(t) = \frac{\lambda_+^t - \lambda_-^t}{\lambda_+ - \lambda_-},
+      \qquad
+      c_0(t) = \frac{\lambda_+\lambda_-^t - \lambda_-\lambda_+^t}{\lambda_+ - \lambda_-}.
+    `}
+
+    Plug ${tex`c_0, c_1`} back into ${tex`c_0 I + c_1 M`} and you have ${tex`M^t`} with no eigenvectors needed — only the eigenvalues, which come from the trace and determinant.
+  </script>
+  <script id="exp-2" type="text/markdown">
+    For the Arnold cat map specifically, ${tex`\lambda_\pm = (3 \pm \sqrt 5)/2`}, with ${tex`\lambda_+ - \lambda_- = \sqrt 5`}. Substituting and using the identities ${tex`\lambda_+ - 2 = 1/\varphi`} and ${tex`2 - \lambda_- = \varphi`}, the (1,1) entry of ${tex`M^t`} works out to ${tex`(\varphi\,\lambda_+^t + \lambda_-^t/\varphi)/\sqrt 5`}, matching what you’d get from a direct spectral decomposition.
+  </script>
+  <script id="exp-3" type="text/x-typescript" pinned="">
+    // The implementation used by the animation above:
+    //   M^t = c0(t) I + c1(t) M
+    // for a 2×2 matrix M with two distinct real eigenvalues. The branch with
+    // disc ≈ 0 is the parabolic limit M^t = I + t (M − I).
+    powMt
+  </script>
+  <script id="other-heading" type="text/markdown">
+    ## What other matrices admit this construction?
+  </script>
+  <script id="other-1" type="text/markdown">
+    Three properties were quietly bundled into the cat map:
+
+    1. **Integer entries**, so ${tex`M`} maps ${tex`\mathbb{Z}^2`} into ${tex`\mathbb{Z}^2`}.
+    2. **${tex`\det M = 1`}**, so the inverse is integer too and ${tex`M`} is a bijection of ${tex`\mathbb{Z}^2`}. (This is the lattice-permutation step that makes the loop close.)
+    3. **${tex`\mathrm{tr}(M) > 2`}**, so the eigenvalues are real, distinct, and positive. This is what lets ${tex`\log M`} be a real matrix.
+  </script>
+  <script id="other-2" type="text/markdown">
+    The first two together say ${tex`M \in \mathrm{SL}_2(\mathbb{Z})`}. The trace condition picks out the *hyperbolic* elements with both eigenvalues positive — the orientation-preserving Anosov toral automorphisms. The Fibonacci matrix ${tex`\bigl(\begin{smallmatrix}1&1\\1&2\end{smallmatrix}\bigr)`} is in the same conjugacy class as the cat map (same trace), so it produces a flow that is congruent under a change of basis. Increasing the trace to 4, 5, … gives stronger stretching and visibly faster shearing during a single loop.
+
+    The parabolic preset ${tex`\bigl(\begin{smallmatrix}1&1\\0&1\end{smallmatrix}\bigr)`} is included as a contrast. Its trace equals 2, the discriminant is zero, and the formula reduces to the limit ${tex`M^t = I + t(M - I)`}: a pure shear, with the entire ${tex`x`}-axis fixed instead of just the origin.
+
+    What we *can’t* do continuously, while staying real-valued, is the elliptic case ${tex`|\mathrm{tr}\,M| < 2`} (where ${tex`M`} is conjugate to a rotation and ${tex`\log M`} lives in the rotation Lie algebra) or the orientation-reversing case ${tex`\det M = -1`} (where one eigenvalue is negative). Both are perfectly fine if you allow a complex ${tex`\log M`}, but the visualization is then no longer a real flow.
+  </script>
+  <script id="closing" type="text/markdown">
+    The whole thing is a small example of a familiar pattern. A discrete map with the right algebraic structure (here, an element of a Lie group) embeds into a continuous flow generated by a vector field on the Lie algebra. The visual loop is a nice way to *see* that the discrete cat map is just the time-1 sample of a perfectly tame autonomous linear ODE.
+  </script>
+  <script id="collapse" type="text/x-typescript">
+    import { collapseCodeBlocks } from './lib/collapsible-code.js'
+    collapseCodeBlocks({ maxHeight: 600 });
+  </script>
+</notebook>
