@@ -173,7 +173,7 @@
 
     The chiral spectre tiles aperiodically when each edge is replaced by a single shared curve, applied identically in every edge's local frame and made invariant under either 180° rotation about its own midpoint (*S-curve* mode) or reflection across the chord's perpendicular bisector (*tab / slot* mode). The same curve covers both *a*-edges (length *a*) and *b*-edges (length *b*) — the matching condition forces them to be one and the same.
 
-    The editor offers three styles for the master curve. *Tab / slot* and *S-curve* both use a single cubic Bézier with one draggable handle (its mate falls out of the symmetry). *Free form* opens up a Catmull-Rom spline through any number of user-placed anchors — click the curve to add an anchor, drag to reshape, shift+click an anchor to delete; the symmetric partner on the other half-edge follows automatically.
+    The editor offers three styles for the master curve. *Tab / slot* and *S-curve* both use a single cubic Bézier with one draggable handle (its mate falls out of the symmetry). *Free form* drops the symmetry constraint entirely — drop as many anchors as you like along the edge, drag them anywhere, and watch the matching condition fail in real time. Click the curve to add an anchor, drag to reshape, shift+click an anchor to delete. The sub-toggle picks how each of the 14 edges applies the curve (alt-flipped on odd edges, or forward on every edge); without symmetry neither makes the tiles meet, but each kind of mismatch is informative.
 
     The editor lives in the figure's controls panel above so you see the WebGPU tiling update as you drag. Only edge 0 (the bottom horizontal *a*-edge) carries handles, since every other edge is forced to use the same shape; the curves still render on all 14 edges so you can see the resulting tile.
   </script>
@@ -203,18 +203,17 @@
     const DEFAULT_HANDLES: EdgeHandles = { h1t: 1/3, h1n: 0, h2t: 2/3, h2n: 0 };
 
     // Freeform spline: a sorted-by-t list of anchor points (excluding the
-    // chord endpoints) that the user manipulates directly. Symmetry is
-    // enforced by the editor: every off-axis anchor has a partner at the
-    // mirrored (1 − t, ±n) position; a singleton is allowed at t = 0.5.
-    // Both 'alternating' and 'sShape' symmetries are admissible — the
-    // matching condition is the same as for the cubic mode, just expressed
-    // through more interpolation points.
+    // chord endpoints) that the user manipulates directly. No symmetry
+    // constraint is applied — anchors are placed freely so the user can
+    // explore what happens to the tiling when the matching condition is
+    // violated. Each edge still picks an *application* convention via
+    // `sym` (forward on every edge vs parity-flipped on odd edges); these
+    // are the same two conventions the cubic modes use, but with a free
+    // curve neither produces a clean tile-to-tile match — that mismatch
+    // is the whole point of the mode.
     type FFAnchor = { t: number; n: number };
     type FreeformSpline = { anchors: FFAnchor[]; sym: 'alternating' | 'sShape' };
-    const DEFAULT_FREEFORM_ANCHORS: FFAnchor[] = [
-      { t: 1/3, n: 0 },
-      { t: 2/3, n: 0 },
-    ];
+    const DEFAULT_FREEFORM_ANCHORS: FFAnchor[] = [];
 
     function projectSpectreVerts(a: number, b: number): [number, number][] {
       return spectreLatticeVertices2.map((p) =>
@@ -240,20 +239,13 @@
     // into the polygon corners without an obvious kink.
     function freeformLocalCubics(
       anchors: FFAnchor[],
-      sym: 'alternating' | 'sShape',
+      _sym: 'alternating' | 'sShape',
     ): Array<{ p0: [number, number]; c1: [number, number]; c2: [number, number]; p1: [number, number] }> {
+      // No symmetry enforcement — the user's anchors go through unmodified;
+      // sorting only makes sure the spline is t-monotone.
       const all: FFAnchor[] = [{ t: 0, n: 0 }];
       const sorted = anchors.slice().sort((a, b) => a.t - b.t);
-      for (const p of sorted) {
-        // Force the center anchor onto the symmetry axis when sShape demands
-        // n = 0 there. The editor enforces this on input too, but defensive
-        // here in case a freeform spline is constructed directly.
-        if (Math.abs(p.t - 0.5) < 1e-9 && sym === 'sShape') {
-          all.push({ t: 0.5, n: 0 });
-        } else {
-          all.push(p);
-        }
-      }
+      for (const p of sorted) all.push(p);
       all.push({ t: 1, n: 0 });
       const out: Array<{ p0: [number, number]; c1: [number, number]; c2: [number, number]; p1: [number, number] }> = [];
       const N = all.length;
@@ -381,36 +373,20 @@
     type SymmetryMode = 'alternating' | 'sShape' | 'freeform';
     type FFSym = 'alternating' | 'sShape';
     let _mode: SymmetryMode = 'alternating';
-    // Freeform state. _ffAnchors are user-placed anchors (excluding the
-    // implicit endpoints at t = 0 and t = 1) maintained as symmetric pairs
-    // — every off-axis anchor has a partner at (1 − t, ±n); a singleton
-    // is allowed at t = 0.5. partnerId === id flags a center singleton.
-    type FFAnchorRec = { id: number; t: number; n: number; partnerId: number };
+    // Freeform state. Each anchor is independent — no auto-mirrored partner.
+    // The default state is *no* anchors at all, which collapses to a straight
+    // line through the two endpoints.
+    type FFAnchorRec = { id: number; t: number; n: number };
     let _ffNextId = 0;
-    function _mkPair(t: number, n: number, sym: FFSym): FFAnchorRec[] {
-      if (Math.abs(t - 0.5) < 1e-6) {
-        const id = _ffNextId++;
-        return [{ id, t: 0.5, n: sym === 'sShape' ? 0 : n, partnerId: id }];
-      }
-      const a = _ffNextId++;
-      const b = _ffNextId++;
-      return [
-        { id: a, t,         n,                                  partnerId: b },
-        { id: b, t: 1 - t,  n: sym === 'sShape' ? -n : n,       partnerId: a },
-      ];
+    function _mkAnchor(t: number, n: number): FFAnchorRec {
+      return { id: _ffNextId++, t, n };
     }
     let _ffSym: FFSym = 'alternating';
-    let _ffAnchors: FFAnchorRec[] = [
-      ..._mkPair(1/3, 0, _ffSym),
-    ];
+    let _ffAnchors: FFAnchorRec[] = [];
     function ffIsDefault(): boolean {
-      // Default freeform = the original two interpolation points at
-      // (1/3, 0) and (2/3, 0): a straight line.
-      if (_ffAnchors.length !== 2) return false;
-      const tol = 1e-9;
-      const sorted = _ffAnchors.slice().sort((a, b) => a.t - b.t);
-      return Math.abs(sorted[0].t - 1/3) < tol && Math.abs(sorted[0].n) < tol
-          && Math.abs(sorted[1].t - 2/3) < tol && Math.abs(sorted[1].n) < tol;
+      // Default freeform = no user anchors; the spline collapses to the
+      // straight chord between the two endpoints.
+      return _ffAnchors.length === 0;
     }
     function checkDefault(): boolean {
       if (_mode === 'freeform') return ffIsDefault();
@@ -421,35 +397,16 @@
     function syncSymmetry(curve: EdgeHandles, handle: 'c1' | 'c2'): void {
       // 'alternating': perpendicular-bisector mirror, (t, n) → (1−t, n).
       // 'sShape':      midpoint reflection,           (t, n) → (1−t, −n).
-      // For freeform mode the cubic state is left untouched; only its sub-
-      // sym (_ffSym) drives the anchor mirroring.
-      const flipN = (_mode === 'sShape') || (_mode === 'freeform' && _ffSym === 'sShape');
+      // Freeform mode does not constrain the cubic at all — its sub-sym
+      // (_ffSym) only picks the per-edge application convention, not a
+      // mirror rule on the curve itself.
+      const flipN = _mode === 'sShape';
       if (handle === 'c1') {
         curve.h2t = 1 - curve.h1t;
         curve.h2n = flipN ? -curve.h1n : curve.h1n;
       } else {
         curve.h1t = 1 - curve.h2t;
         curve.h1n = flipN ? -curve.h2n : curve.h2n;
-      }
-    }
-    // Re-mirror every anchor's partner against the current _ffSym. Used
-    // when the user toggles the freeform symmetry sub-mode so the existing
-    // anchors stay self-consistent with the new mirror rule.
-    function ffResync(): void {
-      const seen = new Set<number>();
-      for (const a of _ffAnchors) {
-        if (seen.has(a.id)) continue;
-        seen.add(a.id);
-        if (a.partnerId === a.id) {
-          // Center singleton: sShape forces n = 0, alternating leaves n free.
-          if (_ffSym === 'sShape') a.n = 0;
-          continue;
-        }
-        const partner = _ffAnchors.find((p) => p.id === a.partnerId);
-        if (!partner) { a.partnerId = a.id; continue; }
-        seen.add(partner.id);
-        partner.t = 1 - a.t;
-        partner.n = _ffSym === 'sShape' ? -a.n : a.n;
       }
     }
 
@@ -588,24 +545,15 @@
       _svg.appendChild(hit);
       _svg.appendChild(path);
 
-      // Anchor handles: highlight left-half (t < 0.5) in HANDLE_COL,
-      // right-half partners drawn slightly smaller in PT to read as
-      // mirrors. Center singleton (partnerId === id) gets a distinct
-      // outline so users see why dragging it has no partner motion.
+      // Anchor handles: every anchor is independent and visually identical.
       for (const a of _ffAnchors) {
-        const isCenter = a.partnerId === a.id;
-        const isLeft = a.t < 0.5 - 1e-9;
-        const r = isLeft || isCenter ? 0.04 : 0.03;
-        const fill = isLeft ? HANDLE_COL : (isCenter ? B_COLOR : PT);
-        const op = isLeft || isCenter ? '1' : '0.85';
         const dot = document.createElementNS(_svgNS, 'circle');
         dot.setAttribute('cx', String(a.t));
         dot.setAttribute('cy', String(-a.n));
-        dot.setAttribute('r', String(r));
-        dot.setAttribute('fill', fill);
+        dot.setAttribute('r', '0.04');
+        dot.setAttribute('fill', HANDLE_COL);
         dot.setAttribute('stroke', '#222');
         dot.setAttribute('stroke-width', '0.008');
-        dot.setAttribute('opacity', op);
         dot.setAttribute('cursor', 'grab');
         (dot as any).dataset.handle = 'ff';
         (dot as any).dataset.ffid = String(a.id);
@@ -659,30 +607,15 @@
       if (!a) return;
       // Clamp t to (0, 1) so the user can't drag an anchor onto an
       // endpoint and force a duplicate point.
-      t = Math.max(0.005, Math.min(0.995, t));
-      if (a.partnerId === a.id) {
-        // Center singleton: lock t to 0.5; n is constrained for sShape.
-        a.t = 0.5;
-        a.n = _ffSym === 'sShape' ? 0 : n;
-        return;
-      }
-      a.t = t;
+      a.t = Math.max(0.005, Math.min(0.995, t));
       a.n = n;
-      const partner = _ffFindById(a.partnerId);
-      if (partner) {
-        partner.t = 1 - t;
-        partner.n = _ffSym === 'sShape' ? -n : n;
-      }
     }
     function _ffDelete(id: number): void {
-      const a = _ffFindById(id);
-      if (!a) return;
-      const ids = a.partnerId === a.id ? new Set([a.id]) : new Set([a.id, a.partnerId]);
-      _ffAnchors = _ffAnchors.filter((p) => !ids.has(p.id));
+      _ffAnchors = _ffAnchors.filter((p) => p.id !== id);
     }
     function _ffAdd(t: number, n: number): void {
       t = Math.max(0.005, Math.min(0.995, t));
-      _ffAnchors.push(..._mkPair(t, n, _ffSym));
+      _ffAnchors.push(_mkAnchor(t, n));
     }
 
     _svg.addEventListener('pointerdown', (ev) => {
@@ -776,12 +709,17 @@
     });
     _btnRow.appendChild(_modeSel);
 
-    // Sub-toggle for the freeform symmetry. Hidden unless _mode === 'freeform'.
+    // Sub-toggle for the per-edge application of the freeform curve.
+    // 'alternating' n-flips the curve on odd-indexed edges (the convention
+    // that makes a symmetric cubic produce tab-to-slot mating); 'sShape'
+    // applies the curve forward on every edge. Without a symmetry constraint
+    // on the curve neither produces a clean tile match — toggling lets the
+    // user see how the mismatch differs.
     const _ffSymSel = document.createElement('select');
     _ffSymSel.style.cssText = 'font-size: 12px; padding: 1px 3px; display: none;';
     for (const [val, label] of [
-      ['alternating', 'tab / slot sym'],
-      ['sShape',      'S-curve sym'],
+      ['alternating', 'alt-flip edges'],
+      ['sShape',      'forward edges'],
     ] as const) {
       const opt = document.createElement('option');
       opt.value = val; opt.textContent = label;
@@ -790,7 +728,8 @@
     _ffSymSel.value = _ffSym;
     _ffSymSel.addEventListener('change', () => {
       _ffSym = _ffSymSel.value as FFSym;
-      ffResync();
+      // No anchor remapping — _ffSym only changes the per-edge application
+      // convention downstream.
       rerender();
       emit();
     });
@@ -802,7 +741,7 @@
     _resetBtn.disabled = true;
     _resetBtn.addEventListener('click', () => {
       if (_mode === 'freeform') {
-        _ffAnchors = [..._mkPair(1/3, 0, _ffSym)];
+        _ffAnchors = [];
       } else {
         Object.assign(_curve, DEFAULT_HANDLES);
       }
@@ -814,7 +753,7 @@
     // Help line for freeform interactions; only shown in freeform mode.
     const _ffHelp = document.createElement('div');
     _ffHelp.style.cssText = 'display: none; text-align: center; margin-top: 4px; font-family: var(--sans-serif); font-size: 11px; color: var(--theme-foreground-muted, #888);';
-    _ffHelp.textContent = 'Click curve to add a point · drag to move · shift+click to delete';
+    _ffHelp.textContent = 'Click curve to add anchor · drag to move · shift+click to delete · no symmetry enforced';
 
     _editorRoot.appendChild(_svg);
     _editorRoot.appendChild(_btnRow);
