@@ -460,6 +460,17 @@
     const PT = '#e8e8e8', HANDLE_COL = A_COLOR;
 
     function _rerenderChordAndMarkers(): void {
+      // Transparent background rect: catches pointerdown anywhere inside
+      // the editor's viewBox so the freeform "click to add anchor"
+      // interaction doesn't require pixel-precise hits on the curve.
+      const bg = document.createElementNS(_svgNS, 'rect');
+      bg.setAttribute('x', String(_eVbX));
+      bg.setAttribute('y', String(_eVbY));
+      bg.setAttribute('width',  String(_eVbW));
+      bg.setAttribute('height', String(_eVbH));
+      bg.setAttribute('fill', 'transparent');
+      (bg as any).dataset.hit = 'bg';
+      _svg.appendChild(bg);
       // Faint chord from P0=(0,0) to P3=(1,0).
       const chord = document.createElementNS(_svgNS, 'line');
       chord.setAttribute('x1', '0');  chord.setAttribute('y1', '0');
@@ -537,16 +548,6 @@
       path.setAttribute('fill', 'none');
       path.setAttribute('stroke', CURVE_COL);
       path.setAttribute('stroke-width', '0.014');
-      // Background hit target for click-to-add: a wide invisible stroke
-      // along the same path picks up clicks slightly off the curve.
-      const hit = document.createElementNS(_svgNS, 'path');
-      hit.setAttribute('d', d);
-      hit.setAttribute('fill', 'none');
-      hit.setAttribute('stroke', 'rgba(0,0,0,0)');
-      hit.setAttribute('stroke-width', '0.06');
-      (hit as any).dataset.hit = 'curve';
-      hit.setAttribute('cursor', 'copy');
-      _svg.appendChild(hit);
       _svg.appendChild(path);
 
       // Anchor handles: every anchor is independent and visually identical.
@@ -651,8 +652,10 @@
         ev.preventDefault();
         return;
       }
-      // Click on the freeform curve's wide hit-target = add anchor.
-      if (_mode === 'freeform' && hit === 'curve') {
+      // Anywhere else inside the editor in freeform mode = add anchor at
+      // the click position. The transparent background rect (data-hit='bg')
+      // catches clicks that miss the curve and other elements.
+      if (_mode === 'freeform' && (hit === 'bg' || (target as Element) === _svg)) {
         const [sx, sy] = svgPoint(ev);
         _ffAdd(sx, -sy);
         rerender();
@@ -667,9 +670,16 @@
       const [sx, sy] = svgPoint(ev);
       const t = sx, n = -sy;
       if (_drag.kind === 'cubic') {
-        if (_drag.handle === 'c1') { _curve.h1t = t; _curve.h1n = n; }
-        else                       { _curve.h2t = t; _curve.h2n = n; }
-        syncSymmetry(_curve, _drag.handle);
+        // Re-bind the cursor to whichever interpolation point keeps the
+        // h1/h2 ordering canonical (h1 the s = 1/3 point, h2 the s = 2/3
+        // point). When the user drags past the chord midpoint, the cursor
+        // is now the right-hand point — feed it into h2 and let
+        // syncSymmetry fold the reflection back onto h1. Without this the
+        // cubic loops back on itself once Q1 crosses Q2.
+        const handle: 'c1' | 'c2' = t < 0.5 ? 'c1' : 'c2';
+        if (handle === 'c1') { _curve.h1t = t; _curve.h1n = n; }
+        else                 { _curve.h2t = t; _curve.h2n = n; }
+        syncSymmetry(_curve, handle);
       } else {
         _ffMoveAnchor(_drag.ffid, t, n);
       }
@@ -729,7 +739,7 @@
     // Help line for freeform interactions; only shown in freeform mode.
     const _ffHelp = document.createElement('div');
     _ffHelp.style.cssText = 'display: none; text-align: center; margin-top: 4px; font-family: var(--sans-serif); font-size: 11px; color: var(--theme-foreground-muted, #888);';
-    _ffHelp.textContent = 'Click curve to add anchor · drag to move · shift+click to delete · no symmetry enforced';
+    _ffHelp.textContent = 'Click anywhere to add anchor · drag to move · shift+click to delete';
 
     _editorRoot.appendChild(_svg);
     _editorRoot.appendChild(_btnRow);
