@@ -2230,7 +2230,6 @@
           type: 'colorBlend',
           sigma:     colorBlendState.sigma,
           offset:    colorBlendState.offset,
-          leafNoise: colorBlendState.leafNoise,
         });
         // Walk every sampled trajectory point through maybeExtend on
         // pool worker 0 to find the cumulative extensionLevel needed
@@ -2777,7 +2776,6 @@
         colorBlend: {
           sigma:     colorBlendState.sigma,
           offset:    colorBlendState.offset,
-          leafNoise: colorBlendState.leafNoise,
         },
         aggHex: {
           dilation: aggHexState.dilation,
@@ -2844,7 +2842,6 @@
         const cb = cfg.colorBlend;
         if (Number.isFinite(+cb.sigma)  && +cb.sigma > 0)   colorBlendState.sigma     = +cb.sigma;
         if (Number.isFinite(+cb.offset))                    colorBlendState.offset    = +cb.offset;
-        if (Number.isFinite(+cb.leafNoise) && +cb.leafNoise >= 0) colorBlendState.leafNoise = +cb.leafNoise;
         (window as any)._spectreSyncColorBlend?.();
         viewerState.onViewChange?.(viewerState);
       }
