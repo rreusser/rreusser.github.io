@@ -1,0 +1,6 @@
+publishedAt: April 28, 2026
+description: "A (sort of) infinite zooming spectre aperiodic monotile"
+maxWidth: 640px
+tags:
+  - math
+  - webgpu
