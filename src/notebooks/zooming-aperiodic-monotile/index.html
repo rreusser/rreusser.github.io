@@ -4,6 +4,8 @@
 
   <script id="title" type="text/markdown">
     A pared-down Spectre viewer that lets you zoom out arbitrarily. Supertiles are generated on demand, and tiles that shrink below a few pixels collapse into instanced hexagons. It's a big laggy, and it's pretty easy to run into precision problems if you zoom out too far!
+
+    I've adapted some of the functions from Craig Kaplan's original JavaScript implementation [here](https://cs.uwaterloo.ca/~csk/spectre/). TBH this whole thing came about because I was just really curious: *how far can we push the recursion??*
   </script>
 
   <script id="editor-styles" type="text/html">
