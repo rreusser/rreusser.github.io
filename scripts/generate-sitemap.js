@@ -80,8 +80,7 @@ ${urls}
 function generateRobots() {
   return `User-agent: *
 Allow: /
-
-  Sitemap: https://rreusser.github.io/sitemap.xml
+Sitemap: ${SITE_URL}/sitemap.xml
 `;
 }
 
