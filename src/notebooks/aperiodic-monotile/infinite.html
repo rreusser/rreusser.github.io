@@ -1,0 +1,3566 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Aperiodic Monotile, Infinite Zoom</title>
+
+  <script id="title" type="text/markdown">
+    # Aperiodic monotile, infinite zoom
+
+    A pared-down Spectre viewer that lets you zoom out arbitrarily. Supertiles are generated on demand, and tiles that shrink below a few pixels collapse into earcut polygon meshes. This first cut is a plain viewer at fixed depth; the walker, upward extension, aggregation, and zoom-driven coloring are layered in afterwards.
+  </script>
+
+  <script id="editor-styles" type="text/html">
+    <style>
+      .spectre-card {
+        --gap: 8px;
+        display: flex; flex-direction: column; gap: 6px;
+        padding: 10px 12px; margin: 8px 0;
+        border-radius: 6px;
+        border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+        background: color-mix(in srgb, currentColor 4%, transparent);
+        font-family: var(--sans-serif, sans-serif);
+        font-size: 12px;
+      }
+      .spectre-row {
+        display: flex; gap: var(--gap, 8px); align-items: center;
+        flex-wrap: wrap;
+      }
+      .spectre-row > .grow { flex: 1 1 0; min-width: 0; }
+      .spectre-input, .spectre-select {
+        font-family: var(--mono, monospace);
+        font-size: 11px;
+        padding: 4px 7px;
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 3px;
+        background: color-mix(in srgb, currentColor 6%, transparent);
+        color: inherit;
+        box-sizing: border-box;
+      }
+      .spectre-input:focus, .spectre-select:focus {
+        outline: 1px solid color-mix(in srgb, currentColor 60%, transparent);
+        outline-offset: -1px;
+      }
+      .spectre-input.grow { flex: 1 1 0; min-width: 0; }
+      .spectre-input.num    { width: 60px; text-align: right; }
+      .spectre-input.num-sm { width: 52px; text-align: right; }
+      .spectre-input.num-md { width: 70px; text-align: right; }
+      .spectre-input.num-lg { width: 96px; text-align: right; }
+      .spectre-input[readonly] {
+        cursor: text;
+        background: color-mix(in srgb, currentColor 3%, transparent);
+      }
+      .spectre-btn {
+        font-family: var(--sans-serif, sans-serif);
+        font-size: 11px;
+        padding: 4px 10px;
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 3px;
+        background: color-mix(in srgb, currentColor 8%, transparent);
+        color: inherit;
+        cursor: pointer;
+        white-space: nowrap;
+        line-height: 1.2;
+      }
+      .spectre-btn:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+      .spectre-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+      .spectre-btn.icon {
+        padding: 3px 8px; min-width: 28px; text-align: center;
+        font-family: var(--mono, monospace);
+      }
+      .spectre-btn.primary {
+        background: color-mix(in srgb, #4a9eff 22%, transparent);
+        border-color: color-mix(in srgb, #4a9eff 50%, transparent);
+        font-weight: 600;
+      }
+      .spectre-btn.primary:hover {
+        background: color-mix(in srgb, #4a9eff 34%, transparent);
+      }
+      .spectre-btn.danger:hover:not(:disabled) {
+        background: color-mix(in srgb, #d04848 28%, transparent);
+        border-color: color-mix(in srgb, #d04848 60%, transparent);
+      }
+      .spectre-label {
+        font-size: 11px;
+        opacity: 0.55;
+        flex: 0 0 auto;
+      }
+      .spectre-tag {
+        font-family: var(--mono, monospace);
+        font-weight: 700;
+        font-size: 11px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        background: color-mix(in srgb, currentColor 14%, transparent);
+        flex: 0 0 auto;
+        letter-spacing: 0.03em;
+        min-width: 40px;
+        text-align: center;
+      }
+      .spectre-mono {
+        font-family: var(--mono, monospace);
+        font-size: 11px;
+        opacity: 0.7;
+        white-space: nowrap;
+      }
+      .spectre-checkbox {
+        display: inline-flex; gap: 4px; align-items: center;
+        cursor: pointer; user-select: none;
+        font-size: 11px;
+        flex: 0 0 auto;
+      }
+      .spectre-divider {
+        flex: 1 1 0;
+        border: 0;
+        border-top: 1px dashed color-mix(in srgb, currentColor 16%, transparent);
+        margin: 0 4px;
+        align-self: center;
+      }
+      .spectre-kf-row {
+        display: flex; gap: 8px; align-items: center;
+        padding: 4px 0;
+      }
+      .spectre-seg {
+        display: flex; flex-direction: column; gap: 4px;
+        padding: 6px 8px 6px 12px;
+        margin: 2px 0 6px 22px;
+        border-left: 2px solid color-mix(in srgb, currentColor 12%, transparent);
+        border-radius: 0 4px 4px 0;
+      }
+      .spectre-seg.is-smooth {
+        border-left-color: color-mix(in srgb, #4a9eff 65%, transparent);
+        background: linear-gradient(
+          90deg,
+          color-mix(in srgb, #4a9eff 6%, transparent) 0,
+          transparent 280px
+        );
+      }
+      .spectre-seg-row {
+        display: flex; gap: 8px; align-items: center;
+        font-size: 11px;
+        flex-wrap: wrap;
+      }
+      .spectre-section-head {
+        display: flex; gap: 8px; align-items: baseline;
+        margin: 0 0 6px 0;
+      }
+      .spectre-section-head h4 {
+        margin: 0;
+        font-size: 10px; font-weight: 700;
+        letter-spacing: 0.06em; text-transform: uppercase;
+        opacity: 0.55;
+      }
+      .spectre-section-head .meta {
+        font-family: var(--mono, monospace);
+        font-size: 11px;
+        opacity: 0.7;
+        margin-left: auto;
+      }
+      .spectre-actions {
+        display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      }
+      .spectre-cull-slider {
+        flex: 1 1 0;
+        min-width: 80px;
+        max-width: 200px;
+      }
+      .spectre-help {
+        font-family: var(--sans-serif, sans-serif);
+        font-size: 12px;
+        line-height: 1.45;
+        opacity: 0.75;
+        margin: 0 0 4px 0;
+      }
+      .spectre-help > summary {
+        cursor: pointer;
+        font-size: 11px;
+        opacity: 0.7;
+        list-style: none;
+        display: inline-flex; align-items: center; gap: 4px;
+        user-select: none;
+      }
+      .spectre-help > summary::-webkit-details-marker { display: none; }
+      .spectre-help > summary::before {
+        content: '▸';
+        font-size: 9px;
+        transition: transform 0.12s ease;
+        display: inline-block;
+        width: 9px;
+      }
+      .spectre-help[open] > summary::before { transform: rotate(90deg); }
+      .spectre-help > summary:hover { opacity: 1; }
+      .spectre-help > p {
+        margin: 6px 0 0 0;
+        max-width: 70ch;
+      }
+      .spectre-swatch-row {
+        display: flex; gap: 2px; align-items: flex-end;
+        width: 100%;
+        max-width: 360px;
+      }
+      .spectre-swatch-cell {
+        display: flex; flex-direction: column;
+        flex: 1 1 0; min-width: 0;
+        align-items: center;
+        gap: 2px;
+        font-family: var(--sans-serif, sans-serif);
+        font-size: 11px;
+        opacity: 0.85;
+      }
+      input.spectre-swatch {
+        -webkit-appearance: none; -moz-appearance: none; appearance: none;
+        width: 100%;
+        height: 18px;
+        padding: 0;
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 3px;
+        background: transparent;
+        cursor: pointer;
+      }
+      input.spectre-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+      input.spectre-swatch::-webkit-color-swatch { border: none; border-radius: 2px; }
+      input.spectre-swatch::-moz-color-swatch { border: none; }
+      .spectre-slider-row {
+        display: flex; gap: 8px; align-items: center;
+      }
+      .spectre-slider-row > .spectre-label {
+        min-width: 78px;
+      }
+      .spectre-slider-row > input[type="range"] {
+        flex: 1 1 0;
+        min-width: 60px;
+      }
+      .spectre-slider-grid {
+        display: grid;
+        gap: 6px 16px;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+    </style>
+  </script>
+
+  <script id="controls-container" type="text/x-typescript">
+    // Single container that hosts every control card on the page —
+    // following the convention from `index.html` so the viewer's
+    // expandable can move the whole bundle into a floating panel
+    // when the figure goes full-screen via `controls: '#spectre-controls'`.
+    // Subsequent card cells append to `controlsContainer` instead
+    // of calling `display(card)` directly; one final cell displays
+    // the container at the bottom of the page.
+    const controlsContainer = document.createElement('div');
+    controlsContainer.id = 'spectre-controls';
+    controlsContainer.style.display = 'flex';
+    controlsContainer.style.flexDirection = 'column';
+    controlsContainer.style.gap = '12px';
+  </script>
+
+  <script id="palette-controls" type="text/x-typescript">
+    // 11 colour swatches (one per tile label, including Γ₁/Γ₂) plus a
+    // Randomize button + seed input. paletteState.rgb is mutated in place,
+    // so the next frame's walker reads the new colours without re-running
+    // any cells.
+    const _SWATCH_GLYPH: Record<string, string> = {
+      Gamma: 'Γ', Gamma1: 'Γ₁', Gamma2: 'Γ₂',
+      Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ',
+      Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ',
+    };
+    const _swatchRow = document.createElement('div');
+    _swatchRow.className = 'spectre-swatch-row';
+    _swatchRow.id = 'spectre-palette-swatch-row';
+    const _swatchInputs: Record<string, HTMLInputElement> = {};
+    for (const label of _ALL_LABELS) {
+      const cell = document.createElement('label');
+      cell.className = 'spectre-swatch-cell';
+      cell.title = label;
+      const inp = document.createElement('input');
+      inp.type = 'color';
+      inp.className = 'spectre-swatch';
+      inp.value = paletteState.hex[label];
+      inp.addEventListener('input', () => {
+        paletteState.setHex(label, inp.value);
+        _updateClearValue();
+        viewerState.onViewChange?.(viewerState);
+        viewerState.requestFrame();
+        (window as any)._spectreSaveLocal?.();
+      });
+      _swatchInputs[label] = inp;
+      const glyph = document.createElement('span');
+      glyph.textContent = _SWATCH_GLYPH[label] ?? label;
+      cell.append(inp, glyph);
+      _swatchRow.append(cell);
+    }
+    function _syncSwatches() {
+      for (const label of _ALL_LABELS) {
+        if (_swatchInputs[label]) _swatchInputs[label].value = paletteState.hex[label];
+      }
+    }
+
+    const _ctrlBtn = document.createElement('button');
+    _ctrlBtn.type = 'button';
+    _ctrlBtn.textContent = 'Randomize';
+    _ctrlBtn.className = 'spectre-btn';
+    const _ctrlSeed = document.createElement('input');
+    _ctrlSeed.type = 'number';
+    _ctrlSeed.min = '0';
+    _ctrlSeed.value = String(paletteState.seed);
+    _ctrlSeed.className = 'spectre-input num-md';
+    // Stable id so the video-export "Load config" button can sync this
+    // input's displayed value when it programmatically changes the seed.
+    _ctrlSeed.id = 'spectre-palette-seed-input';
+    function _updateClearValue() {
+      // Average RGB across all 11 palette labels — used as the canvas's
+      // clear colour so any uncovered pixels (sub-pixel gaps between
+      // cells, viewport corners outside the root cluster's actual shape)
+      // blend with a muted version of the palette instead of an opaque
+      // dark grey. Premultiplied with alpha = 1 (the canvas is in
+      // 'premultiplied' alphaMode), so r/g/b are the colour values
+      // directly.
+      let r = 0, g = 0, b = 0;
+      for (const label of _ALL_LABELS) {
+        const c = paletteState.rgb[label];
+        r += c[0]; g += c[1]; b += c[2];
+      }
+      const n = _ALL_LABELS.length;
+      viewerState.clearValue = { r: r / n, g: g / n, b: b / n, a: 1 };
+      //viewerState.clearValue.r = 1;
+      //viewerState.clearValue.g = 0;
+      //viewerState.clearValue.b = 0;
+    }
+    function _applySeed(s: number) {
+      paletteState.setSeed(s);
+      _ctrlSeed.value = String(paletteState.seed);
+      _syncSwatches();
+      _updateClearValue();
+      // requestFrame just redraws the existing instance buffer with the
+      // colours it already has. To pick up the new palette we need to
+      // re-run the walker, which packs each instance's colour at emit
+      // time — that's what onViewChange (= repackInstances) does.
+      viewerState.onViewChange?.(viewerState);
+      viewerState.requestFrame();
+    }
+    // Initial clear value at page load.
+    _updateClearValue();
+    // Exposed so the video-export "Load config" button can refresh the
+    // swatches and clear colour after a programmatic palette change.
+    (window as any)._spectreSyncSwatches = () => {
+      _syncSwatches();
+      _updateClearValue();
+    };
+    _ctrlBtn.addEventListener('click', () => {
+      _applySeed(Math.floor(Math.random() * 99999));
+      (window as any)._spectreSaveLocal?.();
+    });
+    _ctrlSeed.addEventListener('input', () => {
+      _applySeed(parseInt(_ctrlSeed.value, 10) || 0);
+      (window as any)._spectreSaveLocal?.();
+    });
+    const _ctrlSeedLabel = document.createElement('label');
+    _ctrlSeedLabel.className = 'spectre-checkbox';
+    const _ctrlSeedSpan = document.createElement('span');
+    _ctrlSeedSpan.className = 'spectre-label';
+    _ctrlSeedSpan.textContent = 'seed';
+    _ctrlSeedLabel.append(_ctrlSeedSpan, _ctrlSeed);
+    const _ctrlRow = document.createElement('div');
+    _ctrlRow.className = 'spectre-row';
+    _ctrlRow.append(_ctrlBtn, _ctrlSeedLabel);
+
+    // Slider + numeric input pair, bidirectionally bound. Each row uses
+    // a fixed-width label so all colour-parameter rows align vertically.
+    // Used for tonemap (contrast/saturation/brightness) and the
+    // multi-level Gaussian blend (detail/blend offset).
+    function _tmSlider(
+      label: string, min: number, max: number, step: number,
+      initial: number, onChange: (v: number) => void,
+    ) {
+      const wrap = document.createElement('div');
+      wrap.className = 'spectre-slider-row';
+      const lbl = document.createElement('span');
+      lbl.className = 'spectre-label';
+      lbl.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = 'range';
+      inp.min = String(min); inp.max = String(max); inp.step = String(step);
+      inp.value = String(initial);
+      const num = document.createElement('input');
+      num.type = 'number';
+      num.min = String(min); num.max = String(max); num.step = String(step);
+      num.value = (+initial).toFixed(2);
+      num.className = 'spectre-input num-md';
+      const apply = (v: number) => {
+        onChange(v);
+        viewerState.requestFrame();
+        (window as any)._spectreSaveLocal?.();
+      };
+      inp.addEventListener('input', () => {
+        const v = +inp.value;
+        num.value = v.toFixed(2);
+        apply(v);
+      });
+      num.addEventListener('input', () => {
+        const raw = +num.value;
+        if (!Number.isFinite(raw)) return;
+        const v = Math.max(min, Math.min(max, raw));
+        inp.value = String(v);
+        apply(v);
+      });
+      wrap.append(lbl, inp, num);
+      return {
+        wrap,
+        set(v: number) {
+          inp.value = String(v);
+          num.value = (+v).toFixed(2);
+        },
+      };
+    }
+    const _tmContrast = _tmSlider('contrast', 0.5, 2.5, 0.01, viewerState.tonemap.contrast,
+      (v) => { viewerState.tonemap.contrast = v; });
+    const _tmSat = _tmSlider('saturation', 0.0, 2.5, 0.01, viewerState.tonemap.saturation,
+      (v) => { viewerState.tonemap.saturation = v; });
+    const _tmBright = _tmSlider('brightness', -0.5, 0.5, 0.01, viewerState.tonemap.brightness,
+      (v) => { viewerState.tonemap.brightness = v; });
+    function _syncTonemap() {
+      _tmContrast.set(viewerState.tonemap.contrast);
+      _tmSat.set(viewerState.tonemap.saturation);
+      _tmBright.set(viewerState.tonemap.brightness);
+    }
+    (window as any)._spectreSyncTonemap = _syncTonemap;
+
+    // Multi-level Gaussian blend controls. Mutating colorBlendState
+    // (defined in the palette cell) is enough — the walker re-reads on
+    // every walk(). We trigger onViewChange to repack instances with
+    // the new colours immediately.
+    //
+    // "blend width" is σ directly: larger σ pulls more ancestor levels
+    // into each cell's colour (smoother, more macro structure); smaller
+    // σ collapses the blend toward whichever level the offset peaks at,
+    // letting per-cell variation show through.
+    const _cbWidth = _tmSlider('blend width', 0.3, 8.0, 0.05, colorBlendState.sigma,
+      (v) => {
+        colorBlendState.sigma = v;
+        viewerState.onViewChange?.(viewerState);
+      });
+    const _cbOffset = _tmSlider('blend offset', -2.0, 12.0, 0.05, colorBlendState.offset,
+      (v) => {
+        colorBlendState.offset = v;
+        viewerState.onViewChange?.(viewerState);
+      });
+    // Detail = 100 / aggPx. Larger detail = smaller agg-px threshold
+    // = more cells emitted = higher visual quality, slower walks.
+    // The internal storage stays as `qualityState.aggPx` (which is
+    // what the worker reads); this slider just exposes its
+    // reciprocal so a higher slider value reads as "more detail".
+    // aggPx range [5, 100] → detail range [1, 20].
+    const _DETAIL_K = 100;
+    const _qSlider = _tmSlider('detail', _DETAIL_K / 100, _DETAIL_K / 10, 0.1,
+      _DETAIL_K / qualityState.aggPx,
+      (v) => {
+        if (v <= 0) return;
+        const newPx = Math.max(1, Math.round(_DETAIL_K / v));
+        if (newPx === qualityState.aggPx) return;
+        qualityState.aggPx = newPx;
+        viewerState.onViewChange?.(viewerState);
+      });
+    // Per-leaf outline opacity. The renderer fades the outlines from
+    // 0 to this value as leaves grow above ~6 px on screen, so dialed
+    // in here is the *peak* outline strength. Setting to 0 disables
+    // outlines entirely.
+    const _outlineSlider = _tmSlider('outline', 0, 1, 0.01, viewerState.outline.opacity,
+      (v) => {
+        viewerState.outline.opacity = v;
+        viewerState.outline.enabled = v > 0;
+        viewerState.requestFrame();
+      });
+    function _syncColorBlend() {
+      _cbWidth.set(colorBlendState.sigma);
+      _cbOffset.set(colorBlendState.offset);
+      _qSlider.set(_DETAIL_K / qualityState.aggPx);
+      _outlineSlider.set(viewerState.outline.opacity);
+    }
+    (window as any)._spectreSyncColorBlend = _syncColorBlend;
+    (window as any)._spectreSyncQuality = () => _qSlider.set(_DETAIL_K / qualityState.aggPx);
+
+    const _paletteCard = document.createElement('div');
+    _paletteCard.className = 'spectre-card';
+    const _paletteHead = document.createElement('div');
+    _paletteHead.className = 'spectre-section-head';
+    const _paletteH = document.createElement('h4');
+    _paletteH.textContent = 'palette';
+    _paletteHead.append(_paletteH);
+    const _sliderGrid = document.createElement('div');
+    _sliderGrid.className = 'spectre-slider-grid';
+    _sliderGrid.append(
+      _tmContrast.wrap, _tmSat.wrap, _tmBright.wrap,
+      _cbWidth.wrap, _cbOffset.wrap,
+      _qSlider.wrap, _outlineSlider.wrap,
+    );
+    _paletteCard.append(_paletteHead, _swatchRow, _ctrlRow, _sliderGrid);
+    // Append ordering for the controls box happens in the
+    // `controls-display` cell so it isn't at the mercy of which cell
+    // happens to run first under the dependency resolver.
+  </script>
+
+  <script id="figure" type="text/x-typescript">
+    display(viewerExpandable);
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+    import { createWebGPUContext } from './lib/webgpu-canvas.js';
+    const _gpuCtx = await createWebGPUContext();
+    const { device, canvasFormat } = _gpuCtx;
+  </script>
+
+  <script id="spectre-data" type="text/x-typescript">
+    import earcut from 'npm:earcut';
+
+    // 14 cartesian spectre vertices — each edge is unit length.
+    const _SQ3_2 = Math.sqrt(3) / 2;
+    const spectreVertices: [number, number][] = [
+      [0,           0           ],
+      [1,           0           ],
+      [1.5,        -_SQ3_2      ],
+      [1.5 + _SQ3_2, 0.5 - _SQ3_2],
+      [1.5 + _SQ3_2, 1.5 - _SQ3_2],
+      [2.5 + _SQ3_2, 1.5 - _SQ3_2],
+      [3 + _SQ3_2,  1.5         ],
+      [3,           2           ],
+      [3 - _SQ3_2,  1.5         ],
+      [2.5 - _SQ3_2, 1.5 + _SQ3_2],
+      [1.5 - _SQ3_2, 1.5 + _SQ3_2],
+      [0.5 - _SQ3_2, 1.5 + _SQ3_2],
+      [-_SQ3_2,     1.5         ],
+      [0,           1           ],
+    ];
+
+    // The four spectre vertices that act as a metatile's "quad" handles.
+    const QUAD_INDICES = [3, 5, 7, 11] as const;
+    const baseQuad: [number, number][] = QUAD_INDICES.map((i) => spectreVertices[i]);
+
+    // Earcut-triangulated 14-gon: 12 triangles, 36 indices. The spectre is
+    // non-convex (vertex 2 sits below the v0–v1 baseline, vertex 7 makes a
+    // pocket), so a fan won't work — earcut produces a proper triangulation.
+    //
+    // Each leaf renders this mesh transformed into world; adjacent leaves
+    // share spectre edges in world space, but small float32 drift in the
+    // GPU shader's transform composition would otherwise leave sub-pixel
+    // gaps that 4× MSAA renders as black sliver pixels (each subsample
+    // misses both leaves' coverage). Dilating the mesh slightly around
+    // its centroid makes adjacent leaves overlap by ~0.7% on each side,
+    // covering all such sub-pixel mismatches. The overlap is invisible
+    // because adjacent leaves' fill colors are picked by the walker to
+    // be visually similar at the moment of rendering.
+    const _LEAF_DILATE = 1.00;
+    const meshVertexData = (() => {
+      let cx = 0, cy = 0;
+      for (const v of spectreVertices) { cx += v[0]; cy += v[1]; }
+      cx /= spectreVertices.length; cy /= spectreVertices.length;
+      const out = new Float32Array(spectreVertices.length * 2);
+      for (let i = 0; i < spectreVertices.length; i++) {
+        out[i * 2 + 0] = cx + (spectreVertices[i][0] - cx) * _LEAF_DILATE;
+        out[i * 2 + 1] = cy + (spectreVertices[i][1] - cy) * _LEAF_DILATE;
+      }
+      return out;
+    })();
+    const meshFillIndices = new Uint16Array(earcut(spectreVertices.flat()));
+  </script>
+
+  <script id="transform-math" type="text/x-typescript">
+    type Vec2 = [number, number];
+
+    // Pre-computed cos/sin for the 12 multiples of 30°. Substitution math
+    // only ever rotates by integer multiples, so a 12-entry table is exact.
+    const _COS = new Float64Array(12);
+    const _SIN = new Float64Array(12);
+    for (let k = 0; k < 12; k++) {
+      _COS[k] = Math.cos(k * Math.PI / 6);
+      _SIN[k] = Math.sin(k * Math.PI / 6);
+    }
+
+    type Transform = { rot: number; mirror: 0 | 1; t: Vec2 };
+    const txIdentity: Transform = { rot: 0, mirror: 0, t: [0, 0] };
+
+    // p ↦ R(rot · 30°) · M^mirror(p) + t, where M reflects across x-axis.
+    function txApply(T: Transform, p: Vec2): Vec2 {
+      const x = p[0];
+      const y = T.mirror ? -p[1] : p[1];
+      const c = _COS[T.rot], s = _SIN[T.rot];
+      return [c * x - s * y + T.t[0], s * x + c * y + T.t[1]];
+    }
+
+    function txApplyLinear(T: Transform, p: Vec2): Vec2 {
+      const x = p[0];
+      const y = T.mirror ? -p[1] : p[1];
+      const c = _COS[T.rot], s = _SIN[T.rot];
+      return [c * x - s * y, s * x + c * y];
+    }
+
+    // (T1 ∘ T2)(p) = T1(T2(p)). Composition rule for rot/mirror/t in the
+    // group <rotation, x-axis reflection, translation>.
+    function txCompose(T1: Transform, T2: Transform): Transform {
+      const sign = T1.mirror ? -1 : 1;
+      const rot = (((T1.rot + sign * T2.rot) % 12) + 12) % 12;
+      const mirror = (T1.mirror ^ T2.mirror) as 0 | 1;
+      const lin = txApplyLinear(T1, T2.t);
+      return { rot, mirror, t: [lin[0] + T1.t[0], lin[1] + T1.t[1]] };
+    }
+
+    const txTranslate = (t: Vec2): Transform => ({ rot: 0, mirror: 0, t });
+    const txRotate = (k: number): Transform =>
+      ({ rot: ((k % 12) + 12) % 12, mirror: 0, t: [0, 0] });
+
+    // Inverse, derived from T(p) = R M p + t:
+    //   q = T(p)  ⇒  p = M^{-1} R^{-1} (q - t)
+    // Using R(α) M = M R(-α):
+    //   mirror = 0:  T^-1 = { rot: -rot, mirror: 0, t: -R(-rot)·t }
+    //   mirror = 1:  T^-1 = { rot:  rot, mirror: 1, t: -R(rot)·M·t }
+    function txInverse(T: Transform): Transform {
+      if (T.mirror) {
+        const c = _COS[T.rot], s = _SIN[T.rot];
+        const tx = T.t[0], ty = -T.t[1]; // M·t
+        const rx = c * tx - s * ty;
+        const ry = s * tx + c * ty;
+        return { rot: T.rot, mirror: 1, t: [-rx, -ry] };
+      } else {
+        const invRot = ((-T.rot % 12) + 12) % 12;
+        const ic = _COS[invRot], is = _SIN[invRot];
+        const rx = ic * T.t[0] - is * T.t[1];
+        const ry = is * T.t[0] + ic * T.t[1];
+        return { rot: invRot, mirror: 0, t: [-rx, -ry] };
+      }
+    }
+  </script>
+
+  <script id="substitution-data" type="text/x-typescript">
+    // Nine metatile types. Γ is the "mystic" pair of two overlapping
+    // spectres glued at vertex 8 with a 30° rotation; the other eight are
+    // bare spectres at substitution depth 0. Both rule tables are taken
+    // verbatim from Kaplan's spectre.js.
+    const TILE_NAMES = ["Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Phi", "Psi"] as const;
+    type TileName = typeof TILE_NAMES[number];
+
+    // [rotation in units of 30°, from-quad index, to-quad index]
+    const transformationRules: [number, number, number][] = [
+      [ 2, 3, 1],
+      [ 0, 2, 0],
+      [ 2, 3, 1],
+      [ 2, 3, 1],
+      [ 0, 2, 0],
+      [ 2, 3, 1],
+      [-4, 3, 3],
+    ];
+
+    const superRules: Record<TileName, (TileName | null)[]> = {
+      Gamma:  ["Pi",  "Delta", null,  "Theta", "Sigma", "Xi",  "Phi",    "Gamma"],
+      Delta:  ["Xi",  "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Theta:  ["Psi", "Delta", "Pi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Lambda: ["Psi", "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Xi:     ["Psi", "Delta", "Pi",  "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+      Pi:     ["Psi", "Delta", "Xi",  "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+      Sigma:  ["Xi",  "Delta", "Xi",  "Phi",   "Sigma", "Pi",  "Lambda", "Gamma"],
+      Phi:    ["Psi", "Delta", "Psi", "Phi",   "Sigma", "Pi",  "Phi",    "Gamma"],
+      Psi:    ["Psi", "Delta", "Psi", "Phi",   "Sigma", "Psi", "Phi",    "Gamma"],
+    };
+  </script>
+
+  <script id="metatile-build" type="text/x-typescript">
+    type LeafLabel = TileName | "Gamma1" | "Gamma2";
+    type MetaTile =
+      | { kind: "leaf"; label: LeafLabel; quad: Vec2[] }
+      | { kind: "meta"; name: TileName; geometries: { child: MetaTile; transform: Transform }[]; quad: Vec2[] };
+
+    function buildSpectreBase(): Record<TileName, MetaTile> {
+      const cluster = {} as Record<TileName, MetaTile>;
+      for (const label of TILE_NAMES) {
+        if (label !== "Gamma") {
+          cluster[label] = { kind: "leaf", label, quad: baseQuad };
+        }
+      }
+      // Mystic Γ: two spectres glued at v8 with a 30° rotation.
+      cluster.Gamma = {
+        kind: "meta",
+        name: "Gamma",
+        quad: baseQuad,
+        geometries: [
+          { child: { kind: "leaf", label: "Gamma1", quad: baseQuad }, transform: txIdentity },
+          { child: { kind: "leaf", label: "Gamma2", quad: baseQuad },
+            transform: txCompose(txTranslate(spectreVertices[8]), txRotate(1)) },
+        ],
+      };
+      return cluster;
+    }
+
+    // Inflate one full record of nine metatiles to the next level.
+    function buildSupertiles(prev: Record<TileName, MetaTile>): Record<TileName, MetaTile> {
+      const quad = prev.Delta.quad;
+
+      // Build the seven non-identity transforms by walking the rule table.
+      const transformations: Transform[] = [txIdentity];
+      let totalRot = 0;
+      let rotation: Transform = txIdentity;
+      let rotatedQuad: Vec2[] = quad;
+      for (const [deltaRot, fromIdx, toIdx] of transformationRules) {
+        if (deltaRot !== 0) {
+          totalRot = (((totalRot + deltaRot) % 12) + 12) % 12;
+          rotation = txRotate(totalRot);
+          rotatedQuad = quad.map((p) => txApplyLinear(rotation, p));
+        }
+        const target = txApply(transformations[transformations.length - 1], quad[fromIdx]);
+        const source = rotatedQuad[toIdx];
+        const delta: Vec2 = [target[0] - source[0], target[1] - source[1]];
+        transformations.push({ rot: rotation.rot, mirror: 0, t: delta });
+      }
+
+      // Reflect across the y-axis: (x, y) ↦ (-x, y) ≡ rot 6 + mirror.
+      const R: Transform = { rot: 6, mirror: 1, t: [0, 0] };
+      const finalTransforms = transformations.map((T) => txCompose(R, T));
+
+      const superQuad: Vec2[] = [
+        txApply(finalTransforms[6], quad[2]),
+        txApply(finalTransforms[5], quad[1]),
+        txApply(finalTransforms[3], quad[2]),
+        txApply(finalTransforms[0], quad[1]),
+      ];
+
+      const next = {} as Record<TileName, MetaTile>;
+      for (const label of TILE_NAMES) {
+        const subs = superRules[label];
+        const geometries: { child: MetaTile; transform: Transform }[] = [];
+        for (let i = 0; i < subs.length; i++) {
+          const sub = subs[i];
+          if (sub === null) continue;
+          geometries.push({ child: prev[sub], transform: finalTransforms[i] });
+        }
+        next[label] = { kind: "meta", name: label, quad: superQuad, geometries };
+      }
+      return next;
+    }
+  </script>
+
+  <script id="palette" type="text/x-typescript">
+    // Per-label palette: 11 entries — the 9 metatypes plus Γ₁/Γ₂ for the
+    // two leaf labels of the Γ metatile. Generated from a seed via the
+    // same OKLCH-clustered scheme used in the sister notebook
+    // (src/notebooks/aperiodic-monotile/index.html), so the same seed
+    // yields the same palette across both. Multi-scale colour variation
+    // comes from the Gaussian blend over ancestor LEVELS in the walker,
+    // not from per-level hue rotation; deeper ancestors contribute their
+    // metatype colour directly.
+    const _ALL_LABELS = [
+      "Gamma", "Gamma1", "Gamma2",
+      "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Phi", "Psi",
+    ];
+    function _typeForLabel(label: string): string {
+      return label === "Gamma1" || label === "Gamma2" ? "Gamma" : label;
+    }
+    function _hexToRgb(hex: string): [number, number, number] {
+      return [
+        parseInt(hex.slice(1, 3), 16) / 255,
+        parseInt(hex.slice(3, 5), 16) / 255,
+        parseInt(hex.slice(5, 7), 16) / 255,
+      ];
+    }
+    // OKLCH → sRGB hex. Uniform-lightness colour space so equal-L points
+    // read as equally bright; muted colours come from a low chroma rather
+    // than a low lightness.
+    function _oklchToHex(L: number, C: number, hueDeg: number): string {
+      const h = hueDeg * Math.PI / 180;
+      const a = C * Math.cos(h);
+      const b = C * Math.sin(h);
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l3 = l_ * l_ * l_;
+      const m3 = m_ * m_ * m_;
+      const s3 = s_ * s_ * s_;
+      let r = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+      let g = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+      let bl = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+      const toSrgb = (x: number) => {
+        if (x <= 0) return 0;
+        if (x >= 1) return 1;
+        return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1/2.4) - 0.055;
+      };
+      r = toSrgb(r); g = toSrgb(g); bl = toSrgb(bl);
+      const hh = (x: number) => Math.round(255 * x).toString(16).padStart(2, '0');
+      return '#' + hh(r) + hh(g) + hh(bl);
+    }
+    // Mulberry32 — small, fast, seedable PRNG. Returns [0, 1). Same
+    // sequence for the same seed across page reloads, so palettes are
+    // reproducible.
+    function _makeSeededRng(seed: number): () => number {
+      let state = (seed >>> 0) || 1;
+      return () => {
+        state = (state + 0x6D2B79F5) >>> 0;
+        let t = state;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    // Pick 2 or 3 cluster centers spread evenly around the wheel
+    // (complementary or triadic), then scatter the 11 tile colours across
+    // those clusters with ±~30° hue jitter per cluster. Wide lightness
+    // range gives visual punch; the cluster-anchored hues keep the whole
+    // set looking like one palette.
+    function _pleasantPalette(seed: number): Record<string, string> {
+      const rand = _makeSeededRng(seed);
+      const baseHue = rand() * 360;
+      const numClusters = 2 + Math.floor(rand() * 2);
+      const clusterSpread = 25 + rand() * 15;
+      const Cc = 0.08 + rand() * 0.04;
+      const clusterHues: number[] = [];
+      for (let k = 0; k < numClusters; k++) {
+        clusterHues.push((baseHue + k * 360 / numClusters) % 360);
+      }
+      const slotOrder = _ALL_LABELS.map((_, i) => i);
+      for (let i = slotOrder.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [slotOrder[i], slotOrder[j]] = [slotOrder[j], slotOrder[i]];
+      }
+      const pal: Record<string, string> = {};
+      slotOrder.forEach((labelIdx, slot) => {
+        const cluster = slot % numClusters;
+        const h = (clusterHues[cluster]
+                  + (rand() - 0.5) * 2 * clusterSpread + 360) % 360;
+        const L = 0.15 + rand() * 0.78;
+        const C = Cc + (rand() - 0.5) * 0.04;
+        pal[_ALL_LABELS[labelIdx]] = _oklchToHex(L, C, h);
+      });
+      return pal;
+    }
+    // Mutable palette state — properties are mutated in place when the
+    // user hits Randomize, and the next-frame walker reads the current
+    // values. Keeping the OBJECT identity stable means cells that
+    // captured a reference to it don't need to re-execute when the
+    // user changes the palette. setSeed() is exposed as a method so
+    // the controls cell can drive it (cell-private underscored helpers
+    // wouldn't cross the cell boundary).
+    type PaletteState = {
+      seed: number;
+      hex: Record<string, string>;
+      rgb: Record<string, [number, number, number]>;
+      setSeed(seed: number): void;
+      setHex(label: string, hex: string): void;
+    };
+    const paletteState: PaletteState = {
+      seed: 27223,
+      hex: {},
+      rgb: {},
+      setSeed(seed: number) {
+        this.seed = Math.max(0, seed | 0);
+        this.hex = _pleasantPalette(this.seed);
+        for (const label of _ALL_LABELS) {
+          this.rgb[label] = _hexToRgb(this.hex[label]);
+        }
+      },
+      setHex(label: string, hex: string) {
+        if (!_ALL_LABELS.includes(label)) return;
+        this.hex[label] = hex;
+        this.rgb[label] = _hexToRgb(hex);
+      },
+    };
+    paletteState.setSeed(paletteState.seed);
+    // Per-label hex overrides baked in from the user's saved config.
+    // setSeed seeds the procedural palette; these explicit values
+    // overwrite specific labels the user manually tuned.
+    {
+      const _initialHex: Record<string, string> = {
+        Xi:     '#00727a',
+        Delta:  '#3d2f6a',
+        Gamma2: '#7b3d27',
+        Pi:     '#002117',
+        Psi:    '#583e6f',
+        Gamma:  '#cd8b7b',
+        Sigma:  '#41b092',
+        Lambda: '#a8c2fd',
+        Theta:  '#e8ad64',
+        Phi:    '#93f8d2',
+        Gamma1: '#3f1658',
+      };
+      for (const [label, hex] of Object.entries(_initialHex)) {
+        paletteState.setHex(label, hex);
+      }
+    }
+    // Walker entry point. Level is unused — kept in the signature so that
+    // multi-scale colour variation can later be reintroduced by perturbing
+    // the base colour per substitution level.
+    function colorForLevelType(_level: number, label: string): [number, number, number] {
+      return paletteState.rgb[label]
+          ?? paletteState.rgb[_typeForLabel(label)]
+          ?? [0.5, 0.5, 0.5];
+    }
+
+    // Multi-level Gaussian colour blend parameters. The walker fills a
+    // weight table keyed by ancestor level distance d:
+    //   weight[d] = exp(-(d - offset)² / (2σ²))
+    // sigma controls how many ancestor levels contribute to each cell's
+    // colour (small σ → sharper per-cell detail; large σ → smoother
+    // macro structure). offset shifts the peak: 0 puts peak weight on
+    // the cell itself, positive values bias toward parents/grandparents
+    // for a "zoomed-out" feel even at deep zoom. Mutated in place by the
+    // controls cell; the walker re-reads on every walk().
+    const colorBlendState = { sigma: 2.35, offset: 4.9 };
+
+    // Aggregate-hexagon shape parameters. `dilation` scales each
+    // hexagon's circumradius around its centroid; values > 1 grow the
+    // hexagons (more overlap with neighbours, eats edge gaps), values
+    // < 1 shrink them (cleaner per-cell silhouettes but visible gaps
+    // between neighbours). Mutated by the palette-controls slider;
+    // boundary-cache reads on every mesh build, so changing it
+    // requires invalidating the GpuMesh cache.
+    const aggHexState = { dilation: 0.86 };
+
+    // Aggregation threshold in CSS pixels — cells whose on-screen
+    // extent shrinks below this size are emitted as a hexagon
+    // aggregate instead of recursing into individual leaves. Smaller
+    // values produce more leaves on screen (high quality, slow walk);
+    // larger values aggregate sooner (low quality, fast walk). The
+    // worker reads `view.aggPx` per walk; main passes this value in
+    // every view message.
+    const qualityState = { aggPx: 50 };
+  </script>
+
+  <script id="worker-setup" type="text/x-typescript">
+    // The walker, the metatile DAG, and tree-extension state all live
+    // in `infinite-walker-worker.js`. Main thread: send view +
+    // palette + colorBlend updates; receive instance buffers (with
+    // ArrayBuffers transferred zero-copy) and forward them to the
+    // renderer. While the worker is computing, the renderer keeps
+    // drawing the *previous* result, with the offset uniform shifting
+    // it to the current view (same mechanism the freeze toggle uses).
+    // So pan/zoom stays smooth even when each individual walk takes
+    // hundreds of milliseconds.
+    type WorkerGroup = {
+      key: string | null;
+      cCx?: number; cCy?: number; cBound?: number;
+      instanceOffset: number;
+      instanceCount: number;
+    };
+    type WorkerResult = {
+      type: 'result';
+      data: ArrayBuffer;
+      totalCount: number;
+      groups: WorkerGroup[];
+      instanceCenterX: number;
+      instanceCenterY: number;
+      pixelScale: number;
+      extensionLevel: number;
+      rootName: string;
+      rootSubLevel: number;
+      rootCBound: number;
+      rootTxRot: number;
+      rootTxMirror: number;
+      rootTxTx: number;
+      rootTxTy: number;
+    };
+    type WorkerInit = {
+      type: 'init';
+      rootBounds: { minX: number; minY: number; maxX: number; maxY: number };
+      extensionLevel: number;
+    };
+
+    // Mutable status object the rest of the notebook can poll. Other
+    // cells must guard on `ready` before pushing view messages because
+    // they can construct before the worker handshake completes.
+    const workerStatus: {
+      ready: boolean;
+      rootBounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
+      extensionLevel: number;
+      lastResult: WorkerResult | null;
+      onResult: ((result: WorkerResult) => void) | null;
+      onInit:   ((init: WorkerInit) => void) | null;
+      // True while the video-export loop is in flight. Interactive
+      // view changes (mouse/wheel handlers) call sendViewToWorker
+      // through repackInstances, which would race the export's
+      // walkAndAwait by overwriting the worker's pendingView and
+      // dropping our seq. Setting this flag blocks repackInstances
+      // from posting; the export drives walks itself via walkAndAwait.
+      captureMode: boolean;
+    } = {
+      ready: false,
+      rootBounds: null,
+      extensionLevel: 0,
+      lastResult: null,
+      onResult: null,
+      onInit: null,
+      captureMode: false,
+    };
+
+    const walkerWorker = new Worker(
+      new URL('./infinite-walker-worker.js', import.meta.url),
+      { type: 'module' },
+    );
+
+    // Resolvers awaiting a specific view's result, keyed by view seq.
+    // Used by the video-export path (and any other "I need this exact
+    // view's output" caller) to synchronously block on the worker.
+    const _pendingSeqResolvers = new Map<number, (m: WorkerResult) => void>();
+    // Resolvers for ack-style messages on the live worker (currently
+    // just findDistantMatchDone). Same Map-keyed-by-ackId pattern as
+    // the pool's _pending; lives here because the live worker has
+    // its own message channel.
+    const _pendingAckResolvers = new Map<number, (m: any) => void>();
+    let _liveAckSeq = 0;
+
+    walkerWorker.onmessage = (e: MessageEvent) => {
+      const m = e.data;
+      if (m.type === 'init') {
+        workerStatus.ready = true;
+        workerStatus.rootBounds = m.rootBounds;
+        workerStatus.extensionLevel = m.extensionLevel;
+        // Push the current palette + colorBlend state immediately
+        // so the worker's first walk uses up-to-date colours.
+        sendPaletteToWorker();
+        sendColorBlendToWorker();
+        workerStatus.onInit?.(m);
+      } else if (m.type === 'result') {
+        workerStatus.lastResult = m;
+        workerStatus.extensionLevel = m.extensionLevel;
+        workerStatus.onResult?.(m);
+        const seq = (m as any).viewSeq;
+        if (typeof seq === 'number') {
+          const r = _pendingSeqResolvers.get(seq);
+          if (r) {
+            _pendingSeqResolvers.delete(seq);
+            r(m);
+          }
+        }
+      } else if (m.type === 'findDistantMatchDone' || m.type === 'resetDone') {
+        const r = _pendingAckResolvers.get(m.ackId);
+        if (r) { _pendingAckResolvers.delete(m.ackId); r(m); }
+        if (m.type === 'resetDone') {
+          workerStatus.rootBounds = m.rootBounds;
+          workerStatus.extensionLevel = m.extensionLevel;
+        }
+      }
+    };
+
+    // Push state helpers. Each one diffs against the last-sent payload
+    // and no-ops if nothing has changed, so repackInstances can call
+    // all three on every view update without paying for redundant
+    // postMessages. Both palette and colorBlend land in the worker
+    // *before* the view message that follows, so the next walk uses
+    // up-to-date state.
+    let _lastSentPalette = '';
+    let _lastSentColorBlend = '';
+    function sendPaletteToWorker(): void {
+      if (!workerStatus.ready) return;
+      const hash = JSON.stringify(paletteState.hex);
+      if (hash === _lastSentPalette) return;
+      _lastSentPalette = hash;
+      walkerWorker.postMessage({
+        type: 'palette',
+        rgb: { ...paletteState.rgb },
+      });
+    }
+    function sendColorBlendToWorker(): void {
+      if (!workerStatus.ready) return;
+      const hash = colorBlendState.sigma + ',' + colorBlendState.offset;
+      if (hash === _lastSentColorBlend) return;
+      _lastSentColorBlend = hash;
+      walkerWorker.postMessage({
+        type: 'colorBlend',
+        sigma: colorBlendState.sigma,
+        offset: colorBlendState.offset,
+      });
+    }
+    let _viewSeq = 0;
+    function sendViewToWorker(view: {
+      centerX: number; centerY: number;
+      pixelScale: number;
+      pixelWidth: number; pixelHeight: number;
+      aggPixelScale?: number; cullPadPx?: number;
+    }): number {
+      if (!workerStatus.ready) return -1;
+      sendPaletteToWorker();
+      sendColorBlendToWorker();
+      const seq = ++_viewSeq;
+      walkerWorker.postMessage({ type: 'view', view: { ...view, seq } });
+      return seq;
+    }
+    // Block until the worker has processed a *specific* view (identified
+    // by the seq returned from sendViewToWorker). Used by the video
+    // export so each frame's drawList matches the frame's intended view
+    // exactly, instead of whatever the most-recent walk happens to have
+    // produced. The worker drops *pending* views but never drops one
+    // it has begun processing, so as long as nothing else posts a view
+    // before our walk completes, the seq we requested will come back.
+    function awaitWorkerResultForSeq(seq: number): Promise<WorkerResult> {
+      return new Promise((resolve) => _pendingSeqResolvers.set(seq, resolve));
+    }
+    // Convenience: send a view AND wait for its result. Use this from
+    // synchronous capture loops (video export, screenshot rendering)
+    // that need a deterministic frame-for-frame correspondence.
+    async function walkAndAwait(view: {
+      centerX: number; centerY: number;
+      pixelScale: number;
+      pixelWidth: number; pixelHeight: number;
+      aggPixelScale?: number; cullPadPx?: number;
+    }): Promise<WorkerResult> {
+      const seq = sendViewToWorker(view);
+      if (seq < 0) throw new Error('worker not ready');
+      return awaitWorkerResultForSeq(seq);
+    }
+
+    // Clear the live worker's accumulated extension state. Returns
+    // when the worker reports the reset is done.
+    async function resetWorkerTree(): Promise<void> {
+      if (!workerStatus.ready) return;
+      const ackId = ++_liveAckSeq;
+      await new Promise<void>((resolve) => {
+        _pendingAckResolvers.set(ackId, () => resolve());
+        walkerWorker.postMessage({ type: 'reset', ackId });
+      });
+      // Force palette/colorBlend to be re-broadcast on next view —
+      // the worker's mirrors aren't touched by reset, but tagging
+      // them dirty is the easiest way to ensure consistency.
+      _lastSentPalette = '';
+      _lastSentColorBlend = '';
+    }
+
+    // DAG-driven find-distant-match (replaces the old synchronous
+    // helpers in the find-distant-match cell that used to walk
+    // walkerState directly on main). The live worker hosts the
+    // metatile DAG, so we send a request and await the response.
+    async function findDistantMatchOnWorker(
+      sourceX: number, sourceY: number, K: number, minDistance: number,
+    ): Promise<{
+      sourceLeaf: { leafCx: number; leafCy: number; path: number[] } | null;
+      result: { centerX: number; centerY: number; attempts: number } | null;
+    }> {
+      if (!workerStatus.ready) throw new Error('worker not ready');
+      const ackId = ++_liveAckSeq;
+      const m: any = await new Promise((resolve) => {
+        _pendingAckResolvers.set(ackId, resolve);
+        walkerWorker.postMessage({
+          type: 'findDistantMatch',
+          ackId, sourceX, sourceY, K, minDistance,
+        });
+      });
+      return { sourceLeaf: m.sourceLeaf, result: m.result };
+    }
+
+    // ─── Worker pool for video-export parallelism ──────────────────
+    //
+    // Spawns a fresh set of workers for the duration of an export.
+    // Each pool worker is an independent copy of the same module and
+    // is initialised to identical state via:
+    //   broadcast palette + colorBlend
+    //   broadcast extendToLevel(K)  (K is precomputed by main from
+    //                                the trajectory's most zoomed-out
+    //                                view, so every worker reaches the
+    //                                exact same cluster shape before
+    //                                any walk runs)
+    // After init, walk(view) picks an idle worker and posts the view.
+    // Resolves when that worker's result with the matching seq comes
+    // back. Workers are released back to the idle pool on completion.
+    type _PoolPending<T> = Map<string, (val: T) => void>;
+    // Top-level helper so Vite's worker plugin sees the literal
+    // `new Worker(new URL(...), { type: 'module' })` pattern at AST
+    // root — the static-analysis heuristic doesn't always look inside
+    // class constructors. This matches what the live walkerWorker
+    // construction does above.
+    function _spawnWalkerWorker(): Worker {
+      return new Worker(
+        new URL('./infinite-walker-worker.js', import.meta.url),
+        { type: 'module' },
+      );
+    }
+    let _poolWalkCount = 0;
+    class WalkerWorkerPool {
+      readonly size: number;
+      readonly workers: Worker[];
+      private readonly _seq: number[];
+      private readonly _pending: _PoolPending<any>[];
+      private readonly _idle: number[];
+      private readonly _waiters: Array<(idx: number) => void>;
+      readonly ready: Promise<void>;
+
+      constructor(size: number) {
+        this.size = size;
+        this.workers = [];
+        this._seq = [];
+        this._pending = [];
+        this._idle = [];
+        this._waiters = [];
+        const initPromises: Array<Promise<void>> = [];
+        for (let i = 0; i < size; i++) {
+          const w = _spawnWalkerWorker();
+          // Surface any spawn / module-load / runtime error so we
+          // don't silently hang on `pool.ready` waiting for an init
+          // message that's never coming.
+          w.addEventListener('error', (e) => {
+            // eslint-disable-next-line no-console
+            console.error('[pool worker', i, 'error]', e.message, e.filename, e.lineno);
+          });
+          w.addEventListener('messageerror', (e) => {
+            // eslint-disable-next-line no-console
+            console.error('[pool worker', i, 'messageerror]', e);
+          });
+          this.workers.push(w);
+          this._seq.push(0);
+          const pending: _PoolPending<any> = new Map();
+          this._pending.push(pending);
+          this._idle.push(i);
+          const initP = new Promise<void>((resolve) => {
+            const onInit = (e: MessageEvent) => {
+              if (e.data?.type === 'init') {
+                w.removeEventListener('message', onInit);
+                // eslint-disable-next-line no-console
+                console.log('[pool worker', i, 'ready]');
+                resolve();
+              }
+            };
+            w.addEventListener('message', onInit);
+          });
+          w.addEventListener('message', (e) => {
+            const m = e.data;
+            if (m?.type === 'result') {
+              const r = pending.get('v:' + m.viewSeq);
+              if (r) { pending.delete('v:' + m.viewSeq); r(m); }
+            } else if (m?.type === 'extendDone') {
+              const r = pending.get('a:' + m.ackId);
+              if (r) { pending.delete('a:' + m.ackId); r(m); }
+            }
+          });
+          initPromises.push(initP);
+        }
+        this.ready = Promise.all(initPromises).then(() => undefined);
+      }
+
+      // Send `msg` to every worker without waiting for an ack.
+      async broadcast(msg: any): Promise<void> {
+        await this.ready;
+        for (const w of this.workers) w.postMessage(msg);
+      }
+
+      // Send an extend* message to every worker and wait for each
+      // worker's `extendDone` ack. Returns each worker's reported
+      // extensionLevel (useful for verifying they all reached the same
+      // state).
+      async broadcastExtend(msg: any): Promise<number[]> {
+        await this.ready;
+        const results: number[] = new Array(this.size);
+        const ps: Array<Promise<void>> = [];
+        for (let i = 0; i < this.size; i++) {
+          const ackId = ++this._seq[i];
+          const p = new Promise<void>((resolve) => {
+            this._pending[i].set('a:' + ackId, (m: any) => {
+              results[i] = m.extensionLevel;
+              resolve();
+            });
+          });
+          this.workers[i].postMessage({ ...msg, ackId });
+          ps.push(p);
+        }
+        await Promise.all(ps);
+        return results;
+      }
+
+      // Send `msg` to one specific worker and await its extendDone.
+      async sendExtend(workerIdx: number, msg: any): Promise<number> {
+        await this.ready;
+        const ackId = ++this._seq[workerIdx];
+        const m: any = await new Promise((resolve) => {
+          this._pending[workerIdx].set('a:' + ackId, resolve);
+          this.workers[workerIdx].postMessage({ ...msg, ackId });
+        });
+        return m.extensionLevel;
+      }
+
+      private _acquire(): Promise<number> {
+        if (this._idle.length > 0) return Promise.resolve(this._idle.shift()!);
+        return new Promise((resolve) => this._waiters.push(resolve));
+      }
+
+      private _release(workerIdx: number): void {
+        if (this._waiters.length > 0) {
+          const r = this._waiters.shift()!;
+          r(workerIdx);
+        } else {
+          this._idle.push(workerIdx);
+        }
+      }
+
+      // Pick an idle worker, post `view`, await its result. The
+      // pool's concurrency = N walks in flight at once (one per
+      // worker); calls beyond N queue up.
+      async walk(view: {
+        centerX: number; centerY: number;
+        pixelScale: number;
+        pixelWidth: number; pixelHeight: number;
+        aggPixelScale?: number; cullPadPx?: number;
+      }): Promise<WorkerResult> {
+        await this.ready;
+        const callNum = ++_poolWalkCount;
+        const idx = await this._acquire();
+        const startMs = performance.now();
+        try {
+          const seq = ++this._seq[idx];
+          const _logFirst = callNum <= 10 || callNum % 100 === 0;
+          if (_logFirst) {
+            // eslint-disable-next-line no-console
+            console.log('[pool] dispatch #', callNum, 'worker=', idx, 'seq=', seq);
+          }
+          const result: WorkerResult = await new Promise((resolve) => {
+            this._pending[idx].set('v:' + seq, resolve);
+            this.workers[idx].postMessage({ type: 'view', view: { ...view, seq } });
+          });
+          const dt = performance.now() - startMs;
+          if (_logFirst || dt > 1000) {
+            // eslint-disable-next-line no-console
+            console.log('[pool] return   #', callNum, 'worker=', idx, 'seq=', seq, 'count=', result.totalCount, 'in', dt.toFixed(0), 'ms');
+          }
+          return result;
+        } finally {
+          this._release(idx);
+        }
+      }
+
+      destroy(): void {
+        for (const w of this.workers) w.terminate();
+        this.workers.length = 0;
+        this._idle.length = 0;
+        this._waiters.length = 0;
+      }
+    }
+  </script>
+
+  <script id="cluster" type="text/x-typescript">
+    function countLeaves(mt: MetaTile): number {
+      if (mt.kind === "leaf") return 1;
+      let n = 0;
+      for (const { child } of mt.geometries) n += countLeaves(child);
+      return n;
+    }
+
+    const BASE_DEPTH = 4;
+    const baseCluster = (() => {
+      let c = buildSpectreBase();
+      for (let i = 0; i < BASE_DEPTH; i++) c = buildSupertiles(c);
+      return c;
+    })();
+
+    // Mutable state shared across cells: as the user zooms out we wrap
+    // the current root in a new Δ parent at slot 1 (Δ→Δ self-similar
+    // chain via superRules.Delta[1]). currentRootTransform encodes the
+    // pose of the current root in absolute world coordinates so that
+    // tiles previously visible stay byte-identical after extension.
+    const walkerState = {
+      currentRoot: baseCluster.Delta,
+      currentRootTransform: txIdentity,
+      currentBaseRecord: baseCluster,
+      // Number of upward extensions on top of BASE_DEPTH.
+      extensionLevel: 0,
+    };
+    const rootMeta = baseCluster.Delta;
+
+    // ─── Bounding radius per metatile (for view-frustum culling) ────────
+    // A metatile's bounding circle in its own local frame: centered at the
+    // local origin (0, 0), large enough to cover every leaf vertex once
+    // children are placed. Conservative — only used to cull entire
+    // subtrees that are definitely off-screen.
+    const _spectreBoundRadius = (() => {
+      let r = 0;
+      for (const v of spectreVertices) {
+        const d = Math.hypot(v[0], v[1]);
+        if (d > r) r = d;
+      }
+      return r;
+    })();
+
+    function attachRadii(mt: MetaTile): number {
+      if ((mt as any)._localRadius != null) return (mt as any)._localRadius;
+      if (mt.kind === "leaf") {
+        (mt as any)._localRadius = _spectreBoundRadius;
+        return _spectreBoundRadius;
+      }
+      let r = 0;
+      for (const { child, transform } of mt.geometries) {
+        const cr = attachRadii(child);
+        const d = Math.hypot(transform.t[0], transform.t[1]);
+        if (d + cr > r) r = d + cr;
+      }
+      (mt as any)._localRadius = r;
+      return r;
+    }
+    // The DAG shares child metatiles across types; attachRadii is
+    // memoized on _localRadius, so walking just the root covers the rest.
+    attachRadii(rootMeta);
+
+    // ─── Centroid-based bounding ball (for tighter culling) ───────────
+    // _localRadius above is centered at the cell's local origin (a
+    // corner of the cluster), so for deep substitutions the bounding
+    // circle around the origin is several × the cluster's actual
+    // extent. We additionally compute a tight bounding ball centered on
+    // the cell's centroid and use *that* for view-frustum culling and
+    // for the pixel-extent threshold that triggers aggregation. The
+    // corner-based _localRadius is kept for donor-polygon scaling,
+    // which references the corner origin.
+    function attachCentroidBounds(mt: MetaTile): void {
+      if ((mt as any)._cBound != null) return;
+      if (mt.kind === "leaf") {
+        let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+        for (const v of spectreVertices) {
+          if (v[0] < mnx) mnx = v[0]; if (v[0] > mxx) mxx = v[0];
+          if (v[1] < mny) mny = v[1]; if (v[1] > mxy) mxy = v[1];
+        }
+        const cx = (mnx + mxx) / 2, cy = (mny + mxy) / 2;
+        let r = 0;
+        for (const v of spectreVertices) {
+          const d = Math.hypot(v[0] - cx, v[1] - cy);
+          if (d > r) r = d;
+        }
+        (mt as any)._cCx = cx; (mt as any)._cCy = cy; (mt as any)._cBound = r;
+        return;
+      }
+      // Pass 1: each child's centroid+radius mapped into mt's frame.
+      const childCx: number[] = [], childCy: number[] = [], childCr: number[] = [];
+      let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+      for (const { child, transform } of mt.geometries) {
+        attachCentroidBounds(child);
+        let lcx = (child as any)._cCx as number;
+        let lcy = (child as any)._cCy as number;
+        const lcr = (child as any)._cBound as number;
+        if (transform.mirror) lcy = -lcy;
+        const cs = _COS[transform.rot], sn = _SIN[transform.rot];
+        const cx = cs * lcx - sn * lcy + transform.t[0];
+        const cy = sn * lcx + cs * lcy + transform.t[1];
+        childCx.push(cx); childCy.push(cy); childCr.push(lcr);
+        if (cx - lcr < mnx) mnx = cx - lcr;
+        if (cx + lcr > mxx) mxx = cx + lcr;
+        if (cy - lcr < mny) mny = cy - lcr;
+        if (cy + lcr > mxy) mxy = cy + lcr;
+      }
+      // Pass 2: AABB-center, then radius = max child-ball reach from there.
+      const cx = (mnx + mxx) / 2, cy = (mny + mxy) / 2;
+      let r = 0;
+      for (let i = 0; i < childCx.length; i++) {
+        const d = Math.hypot(childCx[i] - cx, childCy[i] - cy) + childCr[i];
+        if (d > r) r = d;
+      }
+      (mt as any)._cCx = cx; (mt as any)._cCy = cy; (mt as any)._cBound = r;
+    }
+    attachCentroidBounds(rootMeta);
+
+    // ─── Substitution level (for zoom-dependent color blending) ────────
+    // _subLevel = how many substitution steps away from a leaf this
+    // metatile sits. Leaves are level 0; Γ at base depth is level 1
+    // (it's a meta of 2 leaves); non-Γ at depth N is level N; Γ at
+    // depth N is level N+1. The Gaussian color blend in the walker
+    // centers a window over (subLevel − viewLevel), where viewLevel
+    // grows with zoom-out.
+    function attachSubLevels(mt: MetaTile): number {
+      if ((mt as any)._subLevel != null) return (mt as any)._subLevel;
+      if (mt.kind === "leaf") { (mt as any)._subLevel = 0; return 0; }
+      let max = 0;
+      for (const { child } of mt.geometries) {
+        const cl = attachSubLevels(child);
+        if (cl > max) max = cl;
+      }
+      (mt as any)._subLevel = max + 1;
+      return max + 1;
+    }
+    attachSubLevels(rootMeta);
+
+    // ─── Initial-fit bounds (one-time bbox of the root cluster) ────────
+    // _localRadius from the local origin is loose — the spectre's
+    // origin is at one corner of its bbox, not the centroid, so for
+    // deep substitution the conservative radius is several × the
+    // cluster's actual extent. Compute an exact world-space AABB by
+    // walking once at construction time.
+    const rootBounds = (() => {
+      let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+      const STK = BASE_DEPTH + 4;
+      const stRot = new Uint8Array(STK);
+      const stMir = new Uint8Array(STK);
+      const stTx  = new Float64Array(STK);
+      const stTy  = new Float64Array(STK);
+      function recurse(mt: MetaTile, d: number) {
+        if (mt.kind === "leaf") {
+          // Account for the spectre's bbox in the leaf's local frame:
+          // every spectre vertex sits within _spectreBoundRadius of the
+          // tile origin, so a circular pad is rotation-invariant.
+          const tx = stTx[d], ty = stTy[d];
+          const m = _spectreBoundRadius;
+          if (tx - m < mnx) mnx = tx - m;
+          if (tx + m > mxx) mxx = tx + m;
+          if (ty - m < mny) mny = ty - m;
+          if (ty + m > mxy) mxy = ty + m;
+          return;
+        }
+        const pRot = stRot[d], pMir = stMir[d];
+        const pTx = stTx[d], pTy = stTy[d];
+        const pc = _COS[pRot], ps = _SIN[pRot];
+        const d1 = d + 1;
+        for (const { child, transform: T2 } of mt.geometries) {
+          let cx = T2.t[0], cy = T2.t[1];
+          if (pMir) cy = -cy;
+          stTx[d1] = pc * cx - ps * cy + pTx;
+          stTy[d1] = ps * cx + pc * cy + pTy;
+          const rDiff = pMir ? -T2.rot : T2.rot;
+          stRot[d1] = (pRot + rDiff + 12) % 12;
+          stMir[d1] = (pMir ^ T2.mirror) as 0 | 1;
+          recurse(child, d1);
+        }
+      }
+      stRot[0] = 0; stMir[0] = 0; stTx[0] = 0; stTy[0] = 0;
+      recurse(rootMeta, 0);
+      return { minX: mnx, minY: mny, maxX: mxx, maxY: mxy };
+    })();
+  </script>
+
+  <script id="boundary-cache" type="text/x-typescript">
+    // Aggregated cells render as a circumscribing regular hexagon
+    // centered on the cell's centroid (`_cCx`, `_cCy`) with radius
+    // `_cBound`. At the few-pixel scale where aggregation kicks in,
+    // anything more elaborate is wasted: 6 verts conveys the cell's
+    // position and footprint just as well as 50 verts of fractal
+    // boundary. Adjacent cells' hexagons overlap by ~30–60% at the
+    // shared edge (concave Spectre bumps interlock tighter than
+    // circumscribing hexagons), which guarantees coverage with no
+    // gap-finding logic. Overlap is visually quiet because adjacent
+    // cells get near-identical colours from the multi-level Gaussian
+    // blend.
+    //
+    // Cache key is `(subLevel, name)` — same-type same-sub-level cells
+    // share a centroid offset and bound radius (DAG-shared mt object),
+    // so one cached hexagon mesh fits every visible instance.
+    import {
+      createVertexBuffer as _createVB,
+      createIndexBuffer as _createIB,
+    } from './lib/webgpu-canvas.js';
+
+    type GpuMesh = {
+      vertexBuffer: GPUBuffer;
+      indexBuffer: GPUBuffer;
+      indexCount: number;
+      indexFormat: 'uint32';
+    };
+    const _gpuMeshByShape = new Map<string, GpuMesh | null>();
+
+    // Triangle fan from vertex 0: (0,1,2), (0,2,3), (0,3,4), (0,4,5).
+    const _hexIndices = new Uint32Array([0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5]);
+
+    // The walker (in the worker) sends each aggregate group with a
+    // string key `"subLevel:name"` plus the cell's centroid offset
+    // (`cCx`, `cCy`) and bounding-ball radius (`cBound`) — everything
+    // needed to materialise a hexagon mesh on first sight without
+    // round-tripping back to the worker. Cache hits skip the GPU
+    // buffer creation.
+    function getGpuMesh(
+      shapeKey: string,
+      cCx: number,
+      cCy: number,
+      cBound: number,
+    ): GpuMesh {
+      const cached = _gpuMeshByShape.get(shapeKey);
+      if (cached !== undefined && cached !== null) return cached;
+      const r = cBound * aggHexState.dilation;
+      const polygon = new Float32Array(12);
+      for (let i = 0; i < 6; i++) {
+        const t = i * Math.PI / 3;
+        polygon[2 * i + 0] = cCx + r * Math.cos(t);
+        polygon[2 * i + 1] = cCy + r * Math.sin(t);
+      }
+      const vb = _createVB(device, 'agg-hex-verts', polygon);
+      const ib = _createIB(device, 'agg-hex-indices', _hexIndices);
+      const mesh: GpuMesh = {
+        vertexBuffer: vb, indexBuffer: ib,
+        indexCount: _hexIndices.length, indexFormat: 'uint32',
+      };
+      _gpuMeshByShape.set(shapeKey, mesh);
+      return mesh;
+    }
+
+    // Drop every cached hexagon mesh and re-resolve the last
+    // worker-delivered draw list with freshly-built meshes. Called
+    // when aggHexState.dilation changes — the cached vertex buffers
+    // bake the previous dilation into their positions, so the cache
+    // must be invalidated for the new dilation to take visual effect.
+    // Re-running `workerStatus.onResult` on `lastResult` does the
+    // re-resolve and re-uploads the (unchanged) instance buffer; the
+    // onResult handler also calls requestFrame.
+    function refreshAggMeshes(): void {
+      for (const m of _gpuMeshByShape.values()) {
+        if (m) {
+          m.vertexBuffer.destroy?.();
+          m.indexBuffer.destroy?.();
+        }
+      }
+      _gpuMeshByShape.clear();
+      if (workerStatus.lastResult && workerStatus.onResult) {
+        workerStatus.onResult(workerStatus.lastResult);
+      }
+    }
+  </script>
+
+
+  <script id="renderer-setup" type="text/x-typescript">
+    import { expandable } from './lib/expandable.js';
+    import { createInfiniteRenderer } from './infinite-renderer.js';
+
+    // Rebuilt on every view change; the walker's scratch buffer is
+    // reused so this call is allocation-free in the hot path.
+    let _initialFitDone = false;
+    // Mutable freeze state. When `frozen` is true the walker is bypassed
+    // entirely: the captured instance buffer keeps drawing, and pan/zoom
+    // is absorbed by the renderer's offset uniform via instanceCenterX/Y.
+    // `aggPixelScale` is the freeze-time pixel scale, exposed to the
+    // walker (when not bypassed) so the AGG threshold uses the captured
+    // scale instead of the live one.
+    const freezeState: { frozen: boolean; aggPixelScale: number | null } = {
+      frozen: false, aggPixelScale: null,
+    };
+    // Cull-padding (CSS pixels) applied around the viewport before
+    // per-cell cull tests in the worker. Each walk takes ~viewport-area
+    // time, so increasing the pad makes individual walks slower (more
+    // cells visited) — but since the renderer keeps drawing the cached
+    // result while the worker computes the next one, a larger pad lets
+    // pan/zoom drift further before blank space appears at the edges.
+    // 200 px on a 1280-wide viewport is ~16% extra coverage in each
+    // direction (~33% margin total), which absorbs typical wheel-zoom
+    // rates without making walks visibly slower. Push it higher (via
+    // the video-export slider) for smoother fast-zoom at the cost of
+    // walk latency.
+    const cullState: { padPx: number } = { padPx: 300 };
+    function repackInstances(): void {
+      if (viewerState.pixelWidth === 0) return;
+      if (freezeState.frozen) {
+        // Skip the worker entirely. The cached instance buffer keeps
+        // drawing, and pan/zoom shifts the offset uniform via the
+        // (instanceCenter − center) term in _renderTo.
+        viewerState.requestFrame();
+        return;
+      }
+      if (workerStatus.captureMode) {
+        // Video export is driving walks via walkAndAwait. An
+        // interactive sendViewToWorker here would overwrite the
+        // export's pending view and cause its await to hang.
+        return;
+      }
+      // Push the latest view to the worker. The renderer keeps
+      // drawing the *previous* result (with the offset uniform
+      // compensating for the view delta) until a fresh result
+      // arrives. The worker drops stale views, so a flurry of pan
+      // events between frames coalesces into a single re-walk.
+      sendViewToWorker({
+        centerX: viewerState.centerX,
+        centerY: viewerState.centerY,
+        pixelScale: viewerState.pixelScale,
+        pixelWidth: viewerState.pixelWidth,
+        pixelHeight: viewerState.pixelHeight,
+        aggPixelScale: freezeState.aggPixelScale ?? undefined,
+        cullPadPx: cullState.padPx,
+        aggPx: qualityState.aggPx,
+      });
+      viewerState.requestFrame();
+    }
+
+    // Forward worker results to the renderer. Each group's mesh is
+    // looked up (or built and cached) from its `(subLevel, name)` key
+    // plus the centroid + bound that came with it; leaves use the
+    // renderer's default spectre mesh.
+    // Resolve a worker result's bucket-key groups to renderer mesh
+    // references (looking up — and lazily building — the per-(subLevel,
+    // name) hexagon meshes), upload its instance buffer, and pin the
+    // renderer's instanceCenter to the view that produced it. Used by
+    // both the live onResult handler and the video-export pool path.
+    function applyWorkerResult(m: WorkerResult): void {
+      const renderGroups = [];
+      for (const g of m.groups) {
+        const mesh = g.key === null
+          ? viewerState.defaultMesh
+          : getGpuMesh(g.key, g.cCx!, g.cCy!, g.cBound!);
+        if (!mesh) continue;
+        renderGroups.push({
+          mesh,
+          instanceOffset: g.instanceOffset,
+          instanceCount: g.instanceCount,
+        });
+      }
+      viewerState.instanceCenterX = m.instanceCenterX;
+      viewerState.instanceCenterY = m.instanceCenterY;
+      viewerState.setDrawList({
+        data: m.data,
+        totalCount: m.totalCount,
+        groups: renderGroups,
+      });
+    }
+    workerStatus.onResult = (m) => {
+      applyWorkerResult(m);
+      // setDrawList only uploads to the GPU buffer — it doesn't
+      // schedule a frame. Without this, a result that arrives between
+      // user interactions (e.g., after clicking Go on a keyframe)
+      // never paints, and the canvas stays blank until the next pan
+      // or resize triggers requestFrame.
+      viewerState.requestFrame();
+    };
+
+    const { canvas: viewerCanvas, state: viewerState } = createInfiniteRenderer({
+      device,
+      canvasFormat,
+      invalidation,
+      meshVertexData,
+      meshFillIndices,
+      onViewChange: () => repackInstances(),
+    });
+
+    // Snap the live view to a fixed initial pose (centered at the
+    // origin, pixelScale 20 — matches the saved-config keyframe 0
+    // baked in below). We still wait for the worker's init message
+    // because the first walk needs the worker handshake to have
+    // completed; the `b` (rootBounds) it brings is no longer used
+    // for fitting, just as the gate.
+    function _tryInitialFit(): void {
+      if (_initialFitDone) return;
+      if (viewerState.pixelWidth === 0) return;
+      if (!workerStatus.rootBounds) return;
+      viewerState.centerX = 0;
+      viewerState.centerY = 0;
+      viewerState.pixelScale = 20;
+      _initialFitDone = true;
+      repackInstances();
+    }
+    // If the worker handshake completes after the renderer has
+    // already sized itself, do the fit then.
+    workerStatus.onInit = () => _tryInitialFit();
+
+    const viewerExpandable = expandable(viewerCanvas, {
+      id: 'spectre-infinite',
+      width: 640,
+      height: 640,
+      wide: true,
+      controls: '#spectre-controls',
+      onResize: (_el, w, h) => {
+        viewerState.resize(w, h);
+        _tryInitialFit();
+        repackInstances();
+        viewerState.requestFrame();
+      },
+    });
+  </script>
+
+  <script id="view-state-display" type="text/x-typescript">
+    // Live view-state read-out + paste-to-restore. Lets the user copy the
+    // current zoom/pan state out of the page (to share, screenshot,
+    // reproduce a bug report) and paste it back later to return to the
+    // exact same view.
+    // Single editable view box: shows the current pixelScale/centerX/centerY,
+    // editable in place. Click Go (or press Enter) to jump. Auto-refresh
+    // pauses while the input is focused so an interactive pan/zoom doesn't
+    // wipe the user's mid-edit text.
+    const _viewInput = document.createElement('input');
+    _viewInput.type = 'text';
+    _viewInput.className = 'spectre-input grow';
+    _viewInput.title = 'pixelScale/centerX/centerY — edit and press Enter (or click Go) to jump.';
+    let _viewInputFocused = false;
+    function _formatView(): string {
+      const v = viewerState.getView();
+      return `${v.pixelScale}/${v.centerX}/${v.centerY}`;
+    }
+    function _refreshViewInput() {
+      if (_viewInputFocused) return;
+      _viewInput.value = _formatView();
+    }
+    _viewInput.addEventListener('focus', () => { _viewInputFocused = true; });
+    _viewInput.addEventListener('blur',  () => {
+      _viewInputFocused = false;
+      _refreshViewInput();
+    });
+    // Wrap the existing onViewChange so each view update also refreshes
+    // the displayed value. Done here (not in renderer.js) so the display
+    // logic stays a notebook-level concern.
+    const _origOnViewChange = viewerState.onViewChange;
+    viewerState.onViewChange = function (...args: any[]) {
+      _origOnViewChange?.apply(this, args);
+      _refreshViewInput();
+    };
+    _refreshViewInput();
+
+    function _applyView() {
+      const parts = _viewInput.value.split('/');
+      const ps = parts.length === 3 ? Number(parts[0]) : NaN;
+      const cx = parts.length === 3 ? Number(parts[1]) : NaN;
+      const cy = parts.length === 3 ? Number(parts[2]) : NaN;
+      if (Number.isFinite(ps) && Number.isFinite(cx) && Number.isFinite(cy)) {
+        _viewInput.style.outline = '';
+        viewerState.setView({ pixelScale: ps, centerX: cx, centerY: cy });
+        _viewInput.blur();
+      } else {
+        _viewInput.style.outline = '1px solid #d04848';
+        setTimeout(() => { _viewInput.style.outline = ''; }, 600);
+      }
+    }
+    _viewInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); _applyView(); }
+    });
+    const _goBtn = document.createElement('button');
+    _goBtn.type = 'button';
+    _goBtn.className = 'spectre-btn';
+    _goBtn.textContent = 'Go';
+    _goBtn.addEventListener('click', _applyView);
+
+    // Freeze checkbox: pins the *exact* draw list (and its
+    // accompanying view center / aggregation pixelScale) at the
+    // moment the box is checked. While checked the walker is
+    // bypassed entirely — pan and zoom shift the renderer's offset
+    // uniform but the instance buffer doesn't change. This is a
+    // debugging tool: it lets you zoom out far enough to see what
+    // would otherwise have been culled, without the walker grinding
+    // through an ever-growing tree.
+    const _freezeWrap = document.createElement('label');
+    _freezeWrap.className = 'spectre-checkbox';
+    _freezeWrap.htmlFor = 'spectre-freeze';
+    const _freezeCb = document.createElement('input');
+    _freezeCb.type = 'checkbox';
+    _freezeCb.id = 'spectre-freeze';
+    const _freezeText = document.createElement('span');
+    _freezeText.textContent = 'freeze structure';
+    _freezeWrap.append(_freezeCb, _freezeText);
+    _freezeCb.addEventListener('change', () => {
+      if (_freezeCb.checked) {
+        // Take a fresh walk at the current view, then lock everything
+        // — the walker call seeds instanceCenterX/Y to the freeze-time
+        // center, and `frozen = true` blocks subsequent re-walks.
+        freezeState.frozen = false;
+        freezeState.aggPixelScale = viewerState.pixelScale;
+        repackInstances();
+        freezeState.frozen = true;
+      } else {
+        freezeState.frozen = false;
+        freezeState.aggPixelScale = null;
+        repackInstances();
+      }
+      viewerState.requestFrame();
+    });
+
+    const _viewRow = document.createElement('div');
+    _viewRow.className = 'spectre-row';
+    _viewRow.style.margin = '8px 0';
+    const _viewLabel1 = document.createElement('span');
+    _viewLabel1.className = 'spectre-label';
+    _viewLabel1.textContent = 'scale/x/y';
+    _viewRow.append(_viewLabel1, _viewInput, _goBtn, _freezeWrap);
+    display(_viewRow);
+  </script>
+
+  <script id="video-export" type="text/x-typescript">
+    // Offline mp4 export: programmatically animates the view (zoom out →
+    // pan → zoom in), captures each frame from the canvas via
+    // copyTextureToBuffer, and feeds RGBA pixels to h264-mp4-encoder.
+    // Not realtime — frames render synchronously, one at a time.
+
+    // h264-mp4-encoder is a UMD bundle that registers `window.HME`. Loaded
+    // via <script> tag (not npm) because the wasm binary isn't bundled
+    // through Vite cleanly and the CDN copy is what the original Observable
+    // notebook uses.
+    const HME: any = await new Promise((resolve, reject) => {
+      if ((window as any).HME) return resolve((window as any).HME);
+      const s = document.createElement('script');
+      s.src = 'https://unpkg.com/h264-mp4-encoder/embuild/dist/h264-mp4-encoder.web.js';
+      s.onload = () => {
+        const m = (window as any).HME;
+        if (m) resolve(m); else reject(new Error('HME global not set'));
+      };
+      s.onerror = () => reject(new Error('failed to load h264-mp4-encoder'));
+      document.head.appendChild(s);
+    });
+
+    function _lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
+    function _logLerp(a: number, b: number, t: number): number {
+      return a * Math.exp(Math.log(b / a) * t);
+    }
+
+    type View = { centerX: number; centerY: number; pixelScale: number };
+    type Ease = 'linear' | 'sinusoidal' | 'cubic' | 'quintic';
+    // Each transition independently chooses smooth (van Wijk geodesic
+    // with auto duration) or legacy (manual `sec`, log-zoom + exponential
+    // pan). All parameters live per-segment so the user can mix
+    // approaches across a single trajectory.
+    type SegConfig = {
+      smooth: boolean;
+      sec: number;     // legacy: duration. Ignored when smooth.
+      ease: Ease;
+      speed: number;   // smooth-only (V).
+      rho: number;     // smooth-only (zoom-vs-pan tradeoff).
+    };
+    const _DEFAULT_SPEED = 0.9;
+    const _DEFAULT_RHO = Math.sqrt(2);
+
+    function _easeFn(name: Ease): (t: number) => number {
+      // sinusoidal = (1 − cos πt) / 2. C∞, peak velocity π/2 ≈ 1.571.
+      // cubic = standard smoothstep (C¹ at endpoints), peak 1.5.
+      // quintic = smootherstep (C² at endpoints — zero velocity AND zero
+      // acceleration), peak 1.875. For a long zoom that starts/ends at
+      // rest, quintic is what makes the very-beginning and very-end feel
+      // smooth, while sinusoidal stays closer to constant-velocity in
+      // the middle.
+      if (name === 'sinusoidal') return (t) => 0.5 - 0.5 * Math.cos(Math.PI * t);
+      if (name === 'cubic')      return (t) => t * t * (3 - 2 * t);
+      if (name === 'quintic')    return (t) => t * t * t * (t * (t * 6 - 15) + 10);
+      return (t) => t;
+    }
+
+    // ─── van Wijk & Nuij geodesic ─────────────────────────────────────
+    // Smooth and efficient zooming and panning, IEEE InfoVis 2003.
+    // The path between two views (c0, w0) → (c1, w1) is the geodesic of
+    // the metric ds² = (ρ²/w²) du² + (1/(ρ²w²)) dw², where u is pan
+    // distance along the line c0→c1 (world units) and w is the viewport
+    // width (world units, same units as u — this is the dimensional
+    // requirement of the metric: u/w is "pan in viewport widths" and
+    // dw/w is "e-folds of zoom"). We map our coordinates via
+    // w = refPxWidth / pixelScale (a true world width), where
+    // refPxWidth is the live canvas pixel width captured at the time
+    // the trajectory is built. The paper's recommended ρ=√2 only
+    // produces the documented behaviour with this dimensional setup.
+    // Free parameters: ρ (zoom-vs-pan tradeoff, recommended √2) and V
+    // (animation speed, paper user-study average 0.9). Total time = S/V.
+    type VwPath = {
+      S: number;
+      sample: (s: number) => View;
+    };
+    function _vanWijkPath(
+      c0: [number, number], ps0: number,
+      c1: [number, number], ps1: number,
+      rho: number, refPxWidth: number,
+    ): VwPath {
+      const w0 = refPxWidth / ps0;
+      const w1 = refPxWidth / ps1;
+      const dx = c1[0] - c0[0];
+      const dy = c1[1] - c0[1];
+      const U = Math.hypot(dx, dy);
+      const screenPan = U / Math.max(w0, w1);
+      // Identical-or-degenerate segment.
+      if (screenPan < 1e-9 && Math.abs(Math.log(w1 / w0)) < 1e-12) {
+        return {
+          S: 0,
+          sample: () => ({ centerX: c0[0], centerY: c0[1], pixelScale: ps0 }),
+        };
+      }
+      // Pure zoom: sub-pixel pan over the segment.
+      if (screenPan < 1e-9) {
+        const lnRatio = Math.log(w1 / w0);
+        const k = lnRatio < 0 ? -1 : 1;
+        const S = Math.abs(lnRatio) / rho;
+        return {
+          S,
+          sample: (s) => {
+            const w = w0 * Math.exp(k * rho * s);
+            return { centerX: c0[0], centerY: c0[1], pixelScale: refPxWidth / w };
+          },
+        };
+      }
+      // General case: equation (9) of the paper.
+      const dirX = dx / U;
+      const dirY = dy / U;
+      const rho2 = rho * rho;
+      const rho4 = rho2 * rho2;
+      const denom0 = 2 * w0 * rho2 * U;
+      const denom1 = 2 * w1 * rho2 * U;
+      const b0 = (w1 * w1 - w0 * w0 + rho4 * U * U) / denom0;
+      const b1 = (w1 * w1 - w0 * w0 - rho4 * U * U) / denom1;
+      // -asinh(b) is the numerically stable form of ln(-b + sqrt(b²+1));
+      // the paper's literal expression catastrophically cancels for large
+      // positive b (e.g., the user's 5e9× zoom segment has b₀ ≈ 5e11).
+      const r0 = -Math.asinh(b0);
+      const r1 = -Math.asinh(b1);
+      const S = (r1 - r0) / rho;
+      const w0_cosh_r0 = w0 * Math.cosh(r0);
+      const sinh_r0 = Math.sinh(r0);
+      const log_w0 = Math.log(w0);
+      const log_cosh_r0 = Math.log(Math.cosh(r0));
+      return {
+        S,
+        sample: (s) => {
+          const arg = rho * s + r0;
+          const u = (w0_cosh_r0 / rho2) * Math.tanh(arg)
+                  - (w0 / rho2) * sinh_r0;
+          // Compute log w then exponentiate; cosh(arg) can otherwise
+          // overflow at extreme zoom apex (paper's deepest segments).
+          const logCosh = arg < 0
+            ? Math.log(Math.cosh(arg))
+            : arg + Math.log(0.5 + 0.5 * Math.exp(-2 * arg));
+          const log_w = log_w0 + log_cosh_r0 - logCosh;
+          // pixelScale = refPxWidth / w = exp(log(refPxWidth) - log_w).
+          return {
+            centerX: c0[0] + dirX * u,
+            centerY: c0[1] + dirY * u,
+            pixelScale: refPxWidth * Math.exp(-log_w),
+          };
+        },
+      };
+    }
+
+    // ─── Trajectory state ──────────────────────────────────────────────
+    // Initial values are the user's debugging script (start → zoom-out →
+    // pan → zoom-in). The widget below mutates these in place;
+    // _recordVideo reads them at click time. Each segment carries its
+    // own smooth/legacy choice and parameters.
+    //
+    // Reference pixel width for the van Wijk metric. During preview we
+    // read viewerState.pixelWidth live; during capture we capture the
+    // live width into _vwRefWidthOverride before beginCapture overrides
+    // viewerState.pixelWidth, so the trajectory math stays referenced
+    // to the live canvas the user designed against.
+    let _vwRefWidthOverride: number | null = null;
+    function _vwRefWidth(): number {
+      const w = _vwRefWidthOverride ?? viewerState.pixelWidth;
+      return w > 0 ? w : 1; // fallback while canvas not yet sized
+    }
+    const _kf: View[] = [
+      { centerX: 0,                  centerY: 0,                  pixelScale: 20 },
+      { centerX: -552442261.2357118, centerY: -1044150917.0082084, pixelScale: 20 },
+    ];
+    const _seg: SegConfig[] = [
+      { smooth: true, sec: 2, ease: 'sinusoidal', speed: 1.5, rho: 1.5 },
+    ];
+
+    // Optional per-render brightness ramp. When `autoBalance` is on,
+    // the exporter pre-renders frame 0 and the last frame, measures
+    // their average luma, and biases viewerState.tonemap.brightness
+    // by ±(L_end − L_start) / 2 so frame 0 looks one half-step
+    // brighter (or dimmer) than nominal and the last frame looks one
+    // half-step the other way. The two halves "meet at the midpoint"
+    // (zero adjustment), and a loop video transitions smoothly
+    // because the visual brightness of the first and last frames
+    // both converge to (L_start + L_end) / 2.
+    const _brightnessRamp: { autoBalance: boolean } = { autoBalance: true };
+
+    // For each segment, return its evaluated form: a duration in seconds
+    // and a sample(localT) function mapping local time ∈ [0, 1] → View.
+    // Smooth segments compute the van Wijk geodesic and scale by S/V;
+    // legacy segments use the user-set sec and the log-zoom +
+    // exponential-pan interpolation. Per-segment ease is applied to the
+    // local time so velocity zeros at every keyframe junction (no bounce
+    // between segments, regardless of whether each end is smooth).
+    type SegmentEval = {
+      duration: number;
+      sample: (localT: number) => View;
+    };
+    function _legacyInterp(a: View, b: View, t: number): View {
+      // Pan interpolates in log-pixelScale space so screen-pixel pan
+      // velocity stays constant under the simultaneous log-zoom:
+      //   fac(t) = (1 − e^{−tL}) / (1 − e^{−L})   with L = ln(p₁/p₀)
+      // fac(t) → t as L → 0, so pure-pan segments degenerate to linear.
+      const p0 = a.pixelScale, p1 = b.pixelScale;
+      const L = Math.log(p1 / p0);
+      const fac = Math.abs(L) < 1e-6
+        ? t
+        : (1 - Math.exp(-t * L)) / (1 - Math.exp(-L));
+      return {
+        centerX: a.centerX + (b.centerX - a.centerX) * fac,
+        centerY: a.centerY + (b.centerY - a.centerY) * fac,
+        pixelScale: p0 * Math.exp(t * L),
+      };
+    }
+    function _buildSegments(): SegmentEval[] {
+      const out: SegmentEval[] = [];
+      const refW = _vwRefWidth();
+      for (let i = 0; i < _seg.length && i < _kf.length - 1; i++) {
+        const s = _seg[i];
+        const a = _kf[i], b = _kf[i + 1];
+        const ease = _easeFn(s.ease);
+        if (s.smooth) {
+          const path = _vanWijkPath(
+            [a.centerX, a.centerY], a.pixelScale,
+            [b.centerX, b.centerY], b.pixelScale,
+            s.rho, refW,
+          );
+          const speed = s.speed > 0 ? s.speed : _DEFAULT_SPEED;
+          const duration = path.S / speed;
+          out.push({
+            duration,
+            sample: (lt) => path.sample(ease(Math.max(0, Math.min(1, lt))) * path.S),
+          });
+        } else {
+          out.push({
+            duration: Math.max(0, s.sec),
+            sample: (lt) => _legacyInterp(a, b, ease(Math.max(0, Math.min(1, lt)))),
+          });
+        }
+      }
+      return out;
+    }
+
+    function _trajectoryTotalSec(): number {
+      return _buildSegments().reduce((acc, s) => acc + s.duration, 0);
+    }
+
+    function _viewAt(frac: number): View {
+      const segs = _buildSegments();
+      const total = segs.reduce((acc, s) => acc + s.duration, 0);
+      if (total === 0) return _kf[0];
+      let elapsed = Math.max(0, Math.min(1, frac)) * total;
+      for (let i = 0; i < segs.length; i++) {
+        const s = segs[i];
+        if (s.duration === 0) continue;
+        if (elapsed <= s.duration || i === segs.length - 1) {
+          const lt = Math.max(0, Math.min(1, elapsed / s.duration));
+          return s.sample(lt);
+        }
+        elapsed -= s.duration;
+      }
+      return _kf[_kf.length - 1];
+    }
+
+    interface RecordOpts {
+      width: number;
+      height: number;
+      fps: number;
+      qp: number;
+      samples: number;
+      fitMode: 'fit' | 'fill';
+      progress?: (f: number, t: number, ms: number) => void;
+    }
+
+    async function _recordVideo(opts: RecordOpts): Promise<Uint8Array> {
+      // eslint-disable-next-line no-console
+      console.log('[mp4] _recordVideo called', opts);
+      const w = opts.width  - (opts.width  & 1);
+      const h = opts.height - (opts.height & 1);
+      if (w < 16 || h < 16) throw new Error('width/height too small');
+      if (_kf.length < 2) throw new Error('need ≥2 keyframes');
+      if (_seg.length !== _kf.length - 1) {
+        throw new Error('segments out of sync with keyframes');
+      }
+      const liveW = viewerState.pixelWidth;
+      const liveH = viewerState.pixelHeight;
+      if (liveW === 0 || liveH === 0) throw new Error('live canvas not yet sized');
+      // Resolution-independent framing: the keyframes' pixelScale was
+      // captured against the live canvas size. To keep framed content the
+      // same on-screen size at the capture resolution, scale pixelScale
+      // by capture-vs-live size ratio.
+      //   fill = max ratio  → live's framing fills the capture; the off-axis
+      //                       of a wider/taller capture crops vs. live.
+      //   fit  = min ratio  → captures everything live showed; the off-axis
+      //                       gets extra context (no cropping).
+      const wR = w / liveW, hR = h / liveH;
+      const psScale = opts.fitMode === 'fit' ? Math.min(wR, hR) : Math.max(wR, hR);
+
+      // Pin the van Wijk reference width to the *live* canvas so the
+      // trajectory shape and arc lengths stay tied to what the user
+      // designed against, not to whatever beginCapture overrides
+      // viewerState.pixelWidth to during the loop.
+      _vwRefWidthOverride = liveW;
+      const totalSec = _trajectoryTotalSec();
+      if (!(totalSec > 0)) {
+        _vwRefWidthOverride = null;
+        throw new Error('trajectory has zero length');
+      }
+      const totalFrames = Math.max(2, Math.round(totalSec * opts.fps));
+      const savedView = viewerState.getView();
+
+      const enc = await HME.createH264MP4Encoder();
+      enc.outputFilename = 'spectre-zoom.mp4';
+      enc.width = w;
+      enc.height = h;
+      enc.frameRate = opts.fps;
+      enc.quantizationParameter = opts.qp;
+      enc.initialize();
+
+      // Temporal supersampling: per output frame, render N sub-frames at
+      // fractional times spanning the output frame's interval. With N>1
+      // we accumulate the sub-frames in a linear HDR buffer on the GPU
+      // and run the tonemap curve once on the average — this preserves
+      // bright streaks that the per-sub-frame tonemap path would clip
+      // and then dilute via post-tonemap averaging. With N=1 we use the
+      // direct fill+tonemap path. Only the time parameter varies between
+      // sub-samples; palette, cull pad, etc. stay fixed.
+      const N = Math.max(1, Math.floor(opts.samples) | 0);
+      const dFrac = 1 / Math.max(1, totalFrames - 1);
+      const useAccumulator = N > 1;
+
+      // ─── Worker pool setup ───────────────────────────────────────
+      // Spawn N independent walker workers, initialise each with the
+      // current palette + colorBlend, and pre-extend them all to the
+      // same DAG state. Walks for individual frames then run in
+      // parallel without further extension, so per-frame cluster
+      // shape is identical across pool workers (no cross-worker
+      // visual inconsistency from divergent extension histories).
+      const poolSize = Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4));
+      // eslint-disable-next-line no-console
+      console.log('[mp4] _recordVideo enter — totalFrames =', totalFrames, ', poolSize =', poolSize);
+      const pool = new WalkerWorkerPool(poolSize);
+      // Block interactive sendViewToWorker calls (mouse/wheel handlers
+      // that fire during our awaits) so the live worker doesn't churn
+      // on stale views while the export runs. The pool drives its own
+      // walks; the live worker is left idle.
+      workerStatus.captureMode = true;
+      // Disable mouse interactions on the live canvas — mid-export
+      // pan/zoom mutations would race the per-frame view we set on
+      // viewerState, putting the encoder out of sync with what the
+      // walker computed.
+      const _savedPointerEvents = viewerCanvas.style.pointerEvents;
+      viewerCanvas.style.pointerEvents = 'none';
+      // Preview canvas: a sibling 2D-context canvas that shows each
+      // captured frame as it's encoded. We can't multiplex WebGPU
+      // and 2D contexts on the same canvas, so we hide the live
+      // canvas and put a 2D canvas in its slot for the duration of
+      // the export.
+      const _previewCanvas = document.createElement('canvas');
+      _previewCanvas.width = w;
+      _previewCanvas.height = h;
+      _previewCanvas.style.display = 'block';
+      _previewCanvas.style.width = '100%';
+      _previewCanvas.style.height = '100%';
+      _previewCanvas.style.objectFit = 'contain';
+      const _previewCtx = _previewCanvas.getContext('2d');
+      const _viewerSavedDisplay = viewerCanvas.style.display;
+      viewerCanvas.style.display = 'none';
+      viewerCanvas.parentElement?.insertBefore(_previewCanvas, viewerCanvas);
+      // Per-channel ramp setup. We compute the bias values after the
+      // worker pool is up (the auto path renders two preview frames
+      // first); for now save the live tonemap state so finally can
+      // restore it.
+      const _tmSaved = {
+        biasR: viewerState.tonemap.biasR ?? 0,
+        biasG: viewerState.tonemap.biasG ?? 0,
+        biasB: viewerState.tonemap.biasB ?? 0,
+      };
+      let _brightActive = false;
+      let _biasStartR = 0, _biasStartG = 0, _biasStartB = 0;
+      let _biasEndR   = 0, _biasEndG   = 0, _biasEndB   = 0;
+      (viewerState as any).beginCapture(w, h, { accumulator: useAccumulator });
+      const t0 = performance.now();
+      try {
+        // eslint-disable-next-line no-console
+        console.log('[mp4] waiting for pool of', poolSize, 'workers to spawn...');
+        await pool.ready;
+        // eslint-disable-next-line no-console
+        console.log('[mp4] pool ready; broadcasting palette + colorBlend');
+        await pool.broadcast({ type: 'palette', rgb: { ...paletteState.rgb } });
+        await pool.broadcast({
+          type: 'colorBlend',
+          sigma:     colorBlendState.sigma,
+          offset:    colorBlendState.offset,
+        });
+        // Walk every sampled trajectory point through maybeExtend on
+        // pool worker 0 to find the cumulative extensionLevel needed
+        // to cover the entire trajectory (centroid drift means the
+        // single most-zoomed-out view is not always sufficient — a
+        // far-flung view at modest zoom can still extend the
+        // cluster). Then broadcast the resulting target level to the
+        // rest of the pool. extendRootUpward is deterministic from
+        // baseCluster, so every worker reaching the same level via
+        // sequential extensions ends up in byte-identical state.
+        const samples = Math.max(60, Math.min(totalFrames, 200));
+        let targetLevel = 0;
+        // eslint-disable-next-line no-console
+        console.log('[mp4] computing extension level over', samples, 'samples...');
+        for (let i = 0; i <= samples; i++) {
+          const v = _viewAt(i / samples);
+          targetLevel = await pool.sendExtend(0, {
+            type: 'extendForView',
+            view: {
+              centerX: v.centerX,
+              centerY: v.centerY,
+              pixelScale: v.pixelScale * psScale,
+              pixelWidth: w, pixelHeight: h,
+              aggPixelScale: freezeState.aggPixelScale ?? undefined,
+              cullPadPx: cullState.padPx,
+              aggPx: qualityState.aggPx,
+            },
+          });
+        }
+        // eslint-disable-next-line no-console
+        console.log('[mp4] target extension level =', targetLevel, '— broadcasting');
+        await pool.broadcastExtend({ type: 'extendToLevel', level: targetLevel });
+        // eslint-disable-next-line no-console
+        console.log('[mp4] all workers extended; starting frame walks');
+
+        // ─── Per-channel auto-balance ───────────────────────────────
+        // Render frame 0 and the last frame as quick singles (one
+        // sub-frame each, no accumulator), measure their average
+        // R/G/B, and derive a per-channel bias ramp that pulls both
+        // ends toward their midpoint colour. Per-channel rather than
+        // luma-only because the multi-level colour blend's ancestor-
+        // chain truncation at the trajectory endpoints often shifts
+        // hue — not just brightness — between matched start and end
+        // views. Loop endpoints converge on the SAME average colour
+        // (not just the same average luma), so the seam is invisible.
+        if (_brightnessRamp.autoBalance && totalFrames >= 2) {
+          const measure = async (frac: number): Promise<[number, number, number]> => {
+            const v = _viewAt(frac);
+            const m = await pool.walk({
+              centerX: v.centerX, centerY: v.centerY,
+              pixelScale: v.pixelScale * psScale,
+              pixelWidth: w, pixelHeight: h,
+              aggPixelScale: freezeState.aggPixelScale ?? undefined,
+              cullPadPx: cullState.padPx,
+              aggPx: qualityState.aggPx,
+            });
+            applyWorkerResult(m);
+            viewerState.centerX = m.instanceCenterX;
+            viewerState.centerY = m.instanceCenterY;
+            viewerState.pixelScale = m.pixelScale;
+            // Disable any existing bias for the measurement so we
+            // measure the un-shifted colour. (Should already be 0
+            // unless a previous export crashed before the finally.)
+            viewerState.tonemap.biasR = 0;
+            viewerState.tonemap.biasG = 0;
+            viewerState.tonemap.biasB = 0;
+            const px = await (viewerState as any).captureFrame() as Uint8Array;
+            // Stride-sample every 4th pixel for speed (~230k samples
+            // at 1280×720, plenty for a stable average).
+            let sR = 0, sG = 0, sB = 0, n = 0;
+            for (let p = 0; p < px.length; p += 16) {
+              sR += px[p];
+              sG += px[p + 1];
+              sB += px[p + 2];
+              n++;
+            }
+            return [sR / n / 255, sG / n / 255, sB / n / 255];
+          };
+          // Serialize: captureFrame uses a single _capture.readback
+          // buffer, so two concurrent measure() calls would race on
+          // the same GPU map → corrupted pixels → eventual encoder
+          // abort. The walk dispatches can still go to the pool in
+          // parallel under the hood, but the readback half must run
+          // one at a time.
+          const aStart = await measure(0);
+          const aEnd   = await measure(1);
+          const dR = (aEnd[0] - aStart[0]) / 2;
+          const dG = (aEnd[1] - aStart[1]) / 2;
+          const dB = (aEnd[2] - aStart[2]) / 2;
+          _biasStartR = +dR; _biasStartG = +dG; _biasStartB = +dB;
+          _biasEndR   = -dR; _biasEndG   = -dG; _biasEndB   = -dB;
+          const mag = Math.max(Math.abs(dR), Math.abs(dG), Math.abs(dB));
+          _brightActive = mag > 1e-4;
+          // eslint-disable-next-line no-console
+          console.log('[mp4] colour auto-balance: start=[',
+                      aStart.map(x => x.toFixed(3)).join(', '),
+                      '] end=[', aEnd.map(x => x.toFixed(3)).join(', '),
+                      '] delta=[', dR.toFixed(3), dG.toFixed(3), dB.toFixed(3), ']',
+                      _brightActive ? '(applied)' : '(skipped, near-identical)');
+        }
+
+        // ─── Walk + encode pipeline ───────────────────────────────
+        // Per-frame, dispatch N sub-frame walks to the pool. Pool
+        // schedules them across its workers; concurrency ≈ poolSize.
+        // Encoding (sequential GPU work on main thread) overlaps with
+        // walks for upcoming frames via an in-flight bound: at most
+        // 2*poolSize frames' walks are in flight at any time, so
+        // memory stays bounded and the encoder isn't throttled.
+        const buildFrameView = (frac: number) => {
+          const v = _viewAt(frac);
+          return {
+            centerX: v.centerX,
+            centerY: v.centerY,
+            pixelScale: v.pixelScale * psScale,
+            pixelWidth: w,
+            pixelHeight: h,
+            aggPixelScale: freezeState.aggPixelScale ?? undefined,
+            cullPadPx: cullState.padPx,
+            aggPx: qualityState.aggPx,
+          };
+        };
+        const walkOneFrame = (frameIdx: number): Promise<WorkerResult[]> => {
+          const fracI = frameIdx / Math.max(1, totalFrames - 1);
+          if (useAccumulator) {
+            const ps: Array<Promise<WorkerResult>> = [];
+            for (let k = 0; k < N; k++) {
+              const subOff = ((k + 0.5) / N - 0.5) * dFrac;
+              const subFrac = Math.max(0, Math.min(1, fracI + subOff));
+              ps.push(pool.walk(buildFrameView(subFrac)));
+            }
+            return Promise.all(ps);
+          }
+          return Promise.all([pool.walk(buildFrameView(fracI))]);
+        };
+
+        const inFlight = poolSize * 2;
+        const slots: Array<Promise<WorkerResult[]> | null> = new Array(totalFrames).fill(null);
+        let nextDispatch = 0;
+        const dispatchUpTo = (limit: number) => {
+          while (nextDispatch < limit && nextDispatch < totalFrames) {
+            slots[nextDispatch] = walkOneFrame(nextDispatch);
+            nextDispatch++;
+          }
+        };
+        // eslint-disable-next-line no-console
+        console.log('[mp4] dispatching first', Math.min(inFlight, totalFrames), 'frames worth of walks (', N, 'sub-frames each)');
+        dispatchUpTo(Math.min(inFlight, totalFrames));
+        // eslint-disable-next-line no-console
+        console.log('[mp4] entering encode loop, awaiting frame 0...');
+
+        const weight = 1 / N;
+        for (let i = 0; i < totalFrames; i++) {
+          const tWaitStart = performance.now();
+          const subResults = await slots[i]!;
+          if (i < 5 || i % 25 === 0) {
+            // eslint-disable-next-line no-console
+            console.log('[mp4] frame', i, 'walks done after', (performance.now() - tWaitStart).toFixed(0), 'ms wait');
+          }
+          slots[i] = null;
+          if (_brightActive) {
+            const t = totalFrames > 1 ? i / (totalFrames - 1) : 0;
+            viewerState.tonemap.biasR = _biasStartR + (_biasEndR - _biasStartR) * t;
+            viewerState.tonemap.biasG = _biasStartG + (_biasEndG - _biasStartG) * t;
+            viewerState.tonemap.biasB = _biasStartB + (_biasEndB - _biasStartB) * t;
+          }
+          let frame: Uint8Array;
+          if (useAccumulator) {
+            (viewerState as any).clearAccumulator();
+            for (let k = 0; k < N; k++) {
+              applyWorkerResult(subResults[k]);
+              // Mirror the renderer's view to match the sub-frame so
+              // the offset uniform stays at zero AND the GPU's NDC
+              // scale (sx, sy) matches the walker's view — without
+              // this, the renderer would draw at the wrong size.
+              viewerState.centerX = subResults[k].instanceCenterX;
+              viewerState.centerY = subResults[k].instanceCenterY;
+              viewerState.pixelScale = subResults[k].pixelScale;
+              (viewerState as any).accumulateSubFrame(weight);
+            }
+            frame = await (viewerState as any).captureAccumulated();
+          } else {
+            applyWorkerResult(subResults[0]);
+            viewerState.centerX = subResults[0].instanceCenterX;
+            viewerState.centerY = subResults[0].instanceCenterY;
+            viewerState.pixelScale = subResults[0].pixelScale;
+            frame = await (viewerState as any).captureFrame();
+          }
+          enc.addFrameRgba(frame);
+          // Echo to the preview canvas. ImageData wants a Uint8ClampedArray
+          // view over the same bytes — the renderer's RGBA frame is
+          // already in the right pixel order.
+          if (_previewCtx) {
+            const clamped = new Uint8ClampedArray(frame.buffer, frame.byteOffset, frame.byteLength);
+            _previewCtx.putImageData(new ImageData(clamped, w, h), 0, 0);
+          }
+          // Top up the dispatch queue now that one slot freed.
+          dispatchUpTo(i + 1 + inFlight);
+          opts.progress?.(i + 1, totalFrames, performance.now() - t0);
+        }
+        enc.finalize();
+        return enc.FS.readFile(enc.outputFilename) as Uint8Array;
+      } finally {
+        pool.destroy();
+        enc.delete();
+        (viewerState as any).endCapture();
+        workerStatus.captureMode = false;
+        viewerCanvas.style.pointerEvents = _savedPointerEvents;
+        _previewCanvas.remove();
+        viewerCanvas.style.display = _viewerSavedDisplay;
+        viewerState.setView(savedView);
+        viewerState.tonemap.biasR = _tmSaved.biasR;
+        viewerState.tonemap.biasG = _tmSaved.biasG;
+        viewerState.tonemap.biasB = _tmSaved.biasB;
+        _vwRefWidthOverride = null;
+      }
+    }
+
+    // ─── Keyframe widget ──────────────────────────────────────────────
+    // Per-keyframe row: three numeric inputs (centerX, centerY,
+    // pixelScale). Text inputs (not type="number") so scientific
+    // notation round-trips cleanly through Number(); also avoids a
+    // browser-side spinner on huge values like 5.2e10.
+    // Small DOM helpers for the keyframe widget.
+    function _btn(text: string, classes = '', title?: string): HTMLButtonElement {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.className = `spectre-btn ${classes}`.trim();
+      if (title) b.title = title;
+      return b;
+    }
+    function _label(text: string): HTMLSpanElement {
+      const s = document.createElement('span');
+      s.className = 'spectre-label';
+      s.textContent = text;
+      return s;
+    }
+    function _easeSelect(initial: Ease, onChange: (e: Ease) => void): HTMLSelectElement {
+      const sel = document.createElement('select');
+      sel.className = 'spectre-select';
+      for (const name of ['linear', 'sinusoidal', 'cubic', 'quintic'] as Ease[]) {
+        const opt = document.createElement('option');
+        opt.value = name; opt.textContent = name;
+        if (initial === name) opt.selected = true;
+        sel.append(opt);
+      }
+      sel.addEventListener('change', () => onChange(sel.value as Ease));
+      return sel;
+    }
+
+    const _kfContainer = document.createElement('div');
+    _kfContainer.className = 'spectre-card';
+
+    function _rebuildKfWidget(): void {
+      _kfContainer.innerHTML = '';
+      const head = document.createElement('div');
+      head.className = 'spectre-section-head';
+      const h = document.createElement('h4');
+      h.textContent = 'keyframes';
+      head.append(h);
+      _kfContainer.append(head);
+
+      for (let i = 0; i < _kf.length; i++) {
+        // ── Keyframe row ──────────────────────────────────────────────
+        const kfRow = document.createElement('div');
+        kfRow.className = 'spectre-kf-row';
+
+        const tag = document.createElement('span');
+        tag.className = 'spectre-tag';
+        tag.textContent = `KF${i}`;
+
+        const posInp = document.createElement('input');
+        posInp.type = 'text';
+        posInp.className = 'spectre-input grow';
+        posInp.value = `${_kf[i].pixelScale}/${_kf[i].centerX}/${_kf[i].centerY}`;
+        posInp.title = 'pixelScale / centerX / centerY';
+
+        function _setKfFromString(s: string): boolean {
+          const parts = s.split('/');
+          if (parts.length !== 3) return false;
+          const ps = Number(parts[0]);
+          const cx = Number(parts[1]);
+          const cy = Number(parts[2]);
+          if (!(Number.isFinite(ps) && Number.isFinite(cx) && Number.isFinite(cy))) {
+            return false;
+          }
+          _kf[i] = { pixelScale: ps, centerX: cx, centerY: cy };
+          return true;
+        }
+        function _writeKfToInput(): void {
+          posInp.value = `${_kf[i].pixelScale}/${_kf[i].centerX}/${_kf[i].centerY}`;
+        }
+        posInp.addEventListener('change', () => {
+          if (_setKfFromString(posInp.value)) {
+            posInp.style.outline = '';
+            _rebuildKfWidget();
+            _refreshTotalLabel();
+          } else {
+            posInp.style.outline = '1px solid #d04848';
+          }
+        });
+
+        const captureBtn = _btn('grab', '', 'set this keyframe to the current view');
+        captureBtn.addEventListener('click', () => {
+          _kf[i] = viewerState.getView();
+          _writeKfToInput();
+          posInp.style.outline = '';
+          _rebuildKfWidget();
+          _refreshTotalLabel();
+        });
+        const gotoBtn = _btn('go', '', 'jump the live view to this keyframe');
+        gotoBtn.addEventListener('click', () => {
+          viewerState.setView(_kf[i]);
+        });
+        const removeBtn = _btn('×', 'icon danger', 'remove this keyframe');
+        removeBtn.disabled = _kf.length <= 2;
+        removeBtn.addEventListener('click', () => {
+          if (_kf.length <= 2) return;
+          _kf.splice(i, 1);
+          const segIdx = i === 0 ? 0 : i - 1;
+          _seg.splice(segIdx, 1);
+          _rebuildKfWidget();
+          _refreshTotalLabel();
+        });
+
+        kfRow.append(tag, posInp, captureBtn, gotoBtn, removeBtn);
+        _kfContainer.append(kfRow);
+
+        // ── Segment (transition to next keyframe) ─────────────────────
+        if (i < _kf.length - 1) {
+          const seg = _seg[i];
+          const segWrap = document.createElement('div');
+          segWrap.className = 'spectre-seg' + (seg.smooth ? ' is-smooth' : '');
+
+          const sRow = document.createElement('div');
+          sRow.className = 'spectre-seg-row';
+
+          // Smooth checkbox.
+          const smLbl = document.createElement('label');
+          smLbl.className = 'spectre-checkbox';
+          const smCb = document.createElement('input');
+          smCb.type = 'checkbox';
+          smCb.checked = seg.smooth;
+          smCb.title = 'Smooth (van Wijk geodesic, auto-duration). Off = legacy log-zoom + exponential pan with manual sec.';
+          const smTxt = document.createElement('span');
+          smTxt.textContent = 'smooth';
+          smLbl.append(smCb, smTxt);
+          smCb.addEventListener('change', () => {
+            seg.smooth = smCb.checked;
+            _rebuildKfWidget();
+            _refreshTotalLabel();
+          });
+
+          const easeSel = _easeSelect(seg.ease, (e) => { seg.ease = e; _saveLocal(); });
+
+          sRow.append(smLbl);
+
+          if (seg.smooth) {
+            const vInp = document.createElement('input');
+            vInp.type = 'number'; vInp.step = '0.1';
+            vInp.value = String(seg.speed);
+            vInp.className = 'spectre-input num-sm';
+            vInp.title = 'V — speed (segment time = arc length / V)';
+            vInp.addEventListener('change', () => {
+              const v = +vInp.value;
+              if (Number.isFinite(v) && v > 0) {
+                seg.speed = v;
+                _rebuildKfWidget();
+                _refreshTotalLabel();
+              }
+            });
+            const rInp = document.createElement('input');
+            rInp.type = 'number'; rInp.step = '0.1';
+            rInp.value = String(seg.rho);
+            rInp.className = 'spectre-input num-sm';
+            rInp.title = 'ρ — zoom-vs-pan tradeoff (paper recommends √2)';
+            rInp.addEventListener('change', () => {
+              const v = +rInp.value;
+              if (Number.isFinite(v) && v > 0) {
+                seg.rho = v;
+                _rebuildKfWidget();
+                _refreshTotalLabel();
+              }
+            });
+
+            const a = _kf[i], b = _kf[i + 1];
+            const p = _vanWijkPath(
+              [a.centerX, a.centerY], a.pixelScale,
+              [b.centerX, b.centerY], b.pixelScale,
+              seg.rho, _vwRefWidth(),
+            );
+            const auto = document.createElement('span');
+            auto.className = 'spectre-mono';
+            auto.textContent = `${(p.S / seg.speed).toFixed(2)} s  (S=${p.S.toFixed(2)})`;
+
+            sRow.append(_label('V'), vInp, _label('ρ'), rInp, _label('ease'), easeSel, auto);
+          } else {
+            const dur = document.createElement('input');
+            dur.type = 'number'; dur.step = '0.1';
+            dur.value = String(seg.sec);
+            dur.className = 'spectre-input num-sm';
+            dur.addEventListener('change', () => {
+              const v = +dur.value;
+              if (Number.isFinite(v) && v > 0) seg.sec = v;
+              _refreshTotalLabel();
+            });
+            sRow.append(_label('sec'), dur, _label('ease'), easeSel);
+          }
+
+          // Spacer + insert button at right end.
+          const div = document.createElement('hr');
+          div.className = 'spectre-divider';
+          const insertBtn = _btn('+ insert', 'icon', 'insert a keyframe here (current view)');
+          insertBtn.addEventListener('click', () => {
+            _kf.splice(i + 1, 0, viewerState.getView());
+            _seg.splice(i + 1, 0, {
+              smooth: seg.smooth,
+              sec: 1, ease: seg.ease,
+              speed: seg.speed, rho: seg.rho,
+            });
+            seg.sec = Math.max(0.1, seg.sec / 2);
+            _seg[i + 1].sec = seg.sec;
+            _rebuildKfWidget();
+            _refreshTotalLabel();
+          });
+          sRow.append(div, insertBtn);
+
+          segWrap.append(sRow);
+          _kfContainer.append(segWrap);
+        }
+      }
+
+      // Append-keyframe button.
+      const tail = document.createElement('div');
+      tail.className = 'spectre-row';
+      tail.style.marginTop = '4px';
+      const appendBtn = _btn('+ append keyframe', '', 'append a keyframe at the current view');
+      appendBtn.addEventListener('click', () => {
+        _kf.push(viewerState.getView());
+        const prev = _seg[_seg.length - 1];
+        _seg.push(prev
+          ? { smooth: prev.smooth, sec: 2, ease: prev.ease, speed: prev.speed, rho: prev.rho }
+          : { smooth: false, sec: 2, ease: 'linear', speed: _DEFAULT_SPEED, rho: _DEFAULT_RHO });
+        _rebuildKfWidget();
+        _refreshTotalLabel();
+      });
+      tail.append(appendBtn);
+      _kfContainer.append(tail);
+    }
+    _rebuildKfWidget();
+
+    // ─── Render config + actions ──────────────────────────────────────
+    function _numInput(label: string, value: number, cls = 'num') {
+      const wrap = document.createElement('label');
+      wrap.className = 'spectre-checkbox';
+      const span = document.createElement('span');
+      span.className = 'spectre-label';
+      span.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.value = String(value);
+      inp.className = `spectre-input ${cls}`.trim();
+      wrap.append(span, inp);
+      return { wrap, inp };
+    }
+
+    const _w    = _numInput('w',     1280, 'num-md');
+    const _h    = _numInput('h',      720, 'num-md');
+    const _fps  = _numInput('fps',     60, 'num-sm');
+    const _qp   = _numInput('qp',      10, 'num-sm');
+    const _samp = _numInput('samples', 20, 'num-sm');
+    for (const i of [_w, _h, _fps, _qp, _samp]) {
+      i.inp.addEventListener('change', () => _saveLocal());
+    }
+
+    // Live-updating total-trajectory-time label.
+    const _totalLabel = document.createElement('span');
+    _totalLabel.className = 'spectre-mono';
+    function _refreshTotalLabel(): void {
+      const t = _trajectoryTotalSec();
+      _totalLabel.textContent = `total: ${t.toFixed(2)} s`;
+      // Almost every keyframe / segment mutation calls this; the
+      // exceptions are patched explicitly below.
+      _saveLocal();
+    }
+
+    // fit  — captures everything the live canvas showed (extra context on
+    //        the off-axis if the capture aspect differs).
+    // fill — content stays at its live on-screen size; if capture aspect
+    //        differs, the off-axis gets cropped vs. live.
+    const _fitWrap = document.createElement('label');
+    _fitWrap.className = 'spectre-checkbox';
+    const _fitSpan = document.createElement('span');
+    _fitSpan.className = 'spectre-label';
+    _fitSpan.textContent = 'frame';
+    const _fitSel = document.createElement('select');
+    _fitSel.className = 'spectre-select';
+    for (const mode of ['fill', 'fit']) {
+      const o = document.createElement('option');
+      o.value = mode; o.textContent = mode;
+      _fitSel.append(o);
+    }
+    _fitSel.addEventListener('change', () => _saveLocal());
+    _fitWrap.append(_fitSpan, _fitSel);
+
+    // Cull-pad slider: extra viewport padding (CSS pixels) before the
+    // walker tests each cell against the AABB.
+    const _cullWrap = document.createElement('label');
+    _cullWrap.className = 'spectre-checkbox';
+    const _cullLabel = document.createElement('span');
+    _cullLabel.className = 'spectre-label';
+    _cullLabel.textContent = 'cull pad';
+    const _cullSlider = document.createElement('input');
+    _cullSlider.type = 'range';
+    _cullSlider.min = '0'; _cullSlider.max = '500'; _cullSlider.step = '5';
+    _cullSlider.value = String(cullState.padPx);
+    _cullSlider.className = 'spectre-cull-slider';
+    const _cullVal = document.createElement('span');
+    _cullVal.className = 'spectre-mono';
+    _cullVal.style.minWidth = '44px';
+    _cullVal.textContent = `${cullState.padPx} px`;
+    _cullSlider.addEventListener('input', () => {
+      const v = +_cullSlider.value;
+      cullState.padPx = v;
+      _cullVal.textContent = `${v} px`;
+      repackInstances();
+      viewerState.requestFrame();
+      _saveLocal();
+    });
+    _cullWrap.append(_cullLabel, _cullSlider, _cullVal);
+
+    // ─── Save / load entire config (palette + keyframes + video opts) ──
+    function _gatherConfig() {
+      return {
+        version: 3,
+        palette: { seed: paletteState.seed, hex: { ...paletteState.hex } },
+        tonemap: {
+          contrast:   viewerState.tonemap.contrast,
+          saturation: viewerState.tonemap.saturation,
+          midpoint:   viewerState.tonemap.midpoint,
+          brightness: viewerState.tonemap.brightness,
+        },
+        outline: {
+          opacity: viewerState.outline.opacity,
+        },
+        colorBlend: {
+          sigma:     colorBlendState.sigma,
+          offset:    colorBlendState.offset,
+        },
+        aggHex: {
+          dilation: aggHexState.dilation,
+        },
+        keyframes: _kf.map((k) => ({
+          centerX: k.centerX, centerY: k.centerY, pixelScale: k.pixelScale,
+        })),
+        segments: _seg.map((s) => ({
+          smooth: s.smooth, sec: s.sec, ease: s.ease,
+          speed: s.speed, rho: s.rho,
+        })),
+        video: {
+          width:    +_w.inp.value,
+          height:   +_h.inp.value,
+          fps:      +_fps.inp.value,
+          qp:       +_qp.inp.value,
+          samples:  +_samp.inp.value,
+          fitMode:  _fitSel.value,
+          cullPadPx: cullState.padPx,
+          autoBalance: _brightnessRamp.autoBalance,
+          aggPx: qualityState.aggPx,
+        },
+      };
+    }
+    function _applyConfig(cfg: any): void {
+      if (cfg.palette?.seed != null) {
+        paletteState.setSeed(cfg.palette.seed);
+        // Sync the seed input in the palette-controls cell so its
+        // displayed value reflects the loaded seed.
+        const seedInput = document.getElementById('spectre-palette-seed-input') as HTMLInputElement | null;
+        if (seedInput) seedInput.value = String(paletteState.seed);
+      }
+      if (cfg.palette?.hex && typeof cfg.palette.hex === 'object') {
+        for (const label of Object.keys(cfg.palette.hex)) {
+          const v = cfg.palette.hex[label];
+          if (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) {
+            paletteState.setHex(label, v);
+          }
+        }
+      }
+      if (cfg.palette) {
+        (window as any)._spectreSyncSwatches?.();
+        // Trigger a fresh repack so the new colours land.
+        viewerState.onViewChange?.(viewerState);
+      }
+      if (cfg.tonemap && typeof cfg.tonemap === 'object') {
+        const t = cfg.tonemap;
+        if (Number.isFinite(+t.contrast))   viewerState.tonemap.contrast   = +t.contrast;
+        if (Number.isFinite(+t.saturation)) viewerState.tonemap.saturation = +t.saturation;
+        if (Number.isFinite(+t.midpoint))   viewerState.tonemap.midpoint   = +t.midpoint;
+        if (Number.isFinite(+t.brightness)) viewerState.tonemap.brightness = +t.brightness;
+        (window as any)._spectreSyncTonemap?.();
+        viewerState.requestFrame();
+      }
+      if (cfg.outline && typeof cfg.outline === 'object') {
+        if (Number.isFinite(+cfg.outline.opacity)) {
+          viewerState.outline.opacity = Math.max(0, Math.min(1, +cfg.outline.opacity));
+          viewerState.outline.enabled = viewerState.outline.opacity > 0;
+          (window as any)._spectreSyncColorBlend?.();
+          viewerState.requestFrame();
+        }
+      }
+      if (cfg.colorBlend && typeof cfg.colorBlend === 'object') {
+        const cb = cfg.colorBlend;
+        if (Number.isFinite(+cb.sigma)  && +cb.sigma > 0)   colorBlendState.sigma     = +cb.sigma;
+        if (Number.isFinite(+cb.offset))                    colorBlendState.offset    = +cb.offset;
+        (window as any)._spectreSyncColorBlend?.();
+        viewerState.onViewChange?.(viewerState);
+      }
+      if (cfg.aggHex && typeof cfg.aggHex === 'object') {
+        const ah = cfg.aggHex;
+        if (Number.isFinite(+ah.dilation) && +ah.dilation > 0) {
+          aggHexState.dilation = +ah.dilation;
+          (window as any)._spectreSyncColorBlend?.();
+          refreshAggMeshes();
+        }
+      }
+      if (Array.isArray(cfg.keyframes) && cfg.keyframes.length >= 2) {
+        _kf.length = 0;
+        for (const k of cfg.keyframes) {
+          _kf.push({
+            centerX: +k.centerX, centerY: +k.centerY, pixelScale: +k.pixelScale,
+          });
+        }
+      }
+      // Determine v2 motion defaults once so we can broadcast them onto
+      // each segment when migrating a v2 config (where smooth/V/ρ/ease
+      // were global).
+      const v2Smooth = cfg.version === 2 && cfg.motion?.useVanWijk === true;
+      const v2Speed = cfg.version === 2 && Number.isFinite(+cfg.motion?.speed) && +cfg.motion.speed > 0
+        ? +cfg.motion.speed : _DEFAULT_SPEED;
+      const v2Rho = cfg.version === 2 && Number.isFinite(+cfg.motion?.rho) && +cfg.motion.rho > 0
+        ? +cfg.motion.rho : _DEFAULT_RHO;
+      const v2EaseRaw = cfg.version === 2 ? (cfg.motion?.ease ?? cfg.motion?.globalEase) : null;
+      const v2Ease: Ease = (v2EaseRaw === 'linear' || v2EaseRaw === 'sinusoidal'
+                          || v2EaseRaw === 'cubic'  || v2EaseRaw === 'quintic')
+        ? v2EaseRaw : 'quintic';
+      if (Array.isArray(cfg.segments) && cfg.segments.length === _kf.length - 1) {
+        _seg.length = 0;
+        for (const s of cfg.segments) {
+          const ease: Ease = (s.ease === 'linear' || s.ease === 'sinusoidal'
+                            || s.ease === 'cubic'  || s.ease === 'quintic')
+            ? s.ease : 'linear';
+          if (cfg.version === 3) {
+            _seg.push({
+              smooth: !!s.smooth,
+              sec: Number.isFinite(+s.sec) ? +s.sec : 2,
+              ease,
+              speed: Number.isFinite(+s.speed) && +s.speed > 0 ? +s.speed : _DEFAULT_SPEED,
+              rho:   Number.isFinite(+s.rho)   && +s.rho   > 0 ? +s.rho   : _DEFAULT_RHO,
+            });
+          } else if (cfg.version === 2) {
+            // v2: per-segment sec + ease, plus globally-defined motion.
+            _seg.push({
+              smooth: v2Smooth,
+              sec: Number.isFinite(+s.sec) ? +s.sec : 2,
+              ease: v2Smooth ? v2Ease : ease,
+              speed: v2Speed,
+              rho: v2Rho,
+            });
+          } else {
+            // v1: legacy only.
+            _seg.push({
+              smooth: false,
+              sec: Number.isFinite(+s.sec) ? +s.sec : 2,
+              ease,
+              speed: _DEFAULT_SPEED,
+              rho: _DEFAULT_RHO,
+            });
+          }
+        }
+      }
+      if (cfg.video) {
+        if (cfg.video.width  != null) _w.inp.value   = String(cfg.video.width);
+        if (cfg.video.height != null) _h.inp.value   = String(cfg.video.height);
+        if (cfg.video.fps    != null) _fps.inp.value = String(cfg.video.fps);
+        if (cfg.video.qp     != null) _qp.inp.value  = String(cfg.video.qp);
+        if (cfg.video.samples != null) _samp.inp.value = String(cfg.video.samples);
+        if (cfg.video.fitMode === 'fit' || cfg.video.fitMode === 'fill') {
+          _fitSel.value = cfg.video.fitMode;
+        }
+        if (cfg.video.cullPadPx != null) {
+          cullState.padPx = +cfg.video.cullPadPx;
+          _cullSlider.value = String(cullState.padPx);
+          _cullVal.textContent = `${cullState.padPx} px`;
+        }
+        if (typeof cfg.video.autoBalance === 'boolean') {
+          _brightnessRamp.autoBalance = cfg.video.autoBalance;
+          (window as any)._spectreSyncBrightnessRamp?.();
+        }
+        if (Number.isFinite(+cfg.video.aggPx) && +cfg.video.aggPx > 0) {
+          qualityState.aggPx = +cfg.video.aggPx;
+          (window as any)._spectreSyncQuality?.();
+        }
+      }
+      _rebuildKfWidget();
+      _refreshTotalLabel();
+      viewerState.requestFrame();
+    }
+
+    // ─── localStorage persistence ─────────────────────────────────────
+    // Auto-save the config on every mutation (debounced) and restore on
+    // page load. The user's manual Save / Load buttons remain for
+    // sharing or backups; this just keeps your in-progress work alive
+    // across page reloads without you having to think about it.
+    const _LS_KEY = 'spectre-infinite-config-v1';
+    let _isLoading = false;
+    let _saveTimer: any = null;
+    function _saveLocal(): void {
+      if (_isLoading) return;
+      if (_saveTimer != null) clearTimeout(_saveTimer);
+      _saveTimer = setTimeout(() => {
+        _saveTimer = null;
+        try {
+          localStorage.setItem(_LS_KEY, JSON.stringify(_gatherConfig()));
+        } catch (_e) { /* private mode / quota / disabled */ }
+      }, 250);
+    }
+    function _loadLocal(): boolean {
+      try {
+        const raw = localStorage.getItem(_LS_KEY);
+        if (!raw) return false;
+        const cfg = JSON.parse(raw);
+        _isLoading = true;
+        try { _applyConfig(cfg); } finally { _isLoading = false; }
+        return true;
+      } catch (_e) { return false; }
+    }
+    // Cross-cell trigger so the palette-controls cell can save without
+    // a direct cell-to-cell function reference.
+    (window as any)._spectreSaveLocal = _saveLocal;
+
+    const _saveBtn = _btn('Save config');
+    _saveBtn.addEventListener('click', () => {
+      const cfg = _gatherConfig();
+      const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'spectre-config.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    });
+    const _loadBtn = _btn('Load config');
+    const _loadInput = document.createElement('input');
+    _loadInput.type = 'file';
+    _loadInput.accept = 'application/json,.json';
+    _loadInput.style.display = 'none';
+    _loadInput.addEventListener('change', async () => {
+      const f = _loadInput.files?.[0];
+      if (!f) return;
+      try {
+        const text = await f.text();
+        const cfg = JSON.parse(text);
+        _applyConfig(cfg);
+        _status.textContent = `loaded ${f.name}`;
+      } catch (e) {
+        _status.textContent = 'load error: ' + (e as Error).message;
+      } finally {
+        _loadInput.value = '';
+      }
+    });
+    _loadBtn.addEventListener('click', () => _loadInput.click());
+
+    // Drop the auto-saved localStorage entry so the next page reload
+    // starts from the baked-in defaults instead of the last
+    // session's state. Disabled while a Save/Load is in flight so we
+    // don't race the debounced auto-save.
+    const _purgeSavedBtn = _btn(
+      'Purge saved', '',
+      'Delete the localStorage entry that auto-saves your config across reloads. ' +
+        'Page reload after this clicks restores the baked-in defaults.',
+    );
+    _purgeSavedBtn.addEventListener('click', () => {
+      // Cancel any pending auto-save so it can't write back over us.
+      if (_saveTimer != null) { clearTimeout(_saveTimer); _saveTimer = null; }
+      try { localStorage.removeItem(_LS_KEY); } catch (_e) { /* ignore */ }
+      _status.textContent = 'cleared saved state — reload page to start from defaults';
+    });
+
+    // ─── Run (preview) ─────────────────────────────────────────────────
+    // Animates the trajectory live in the viewport canvas using
+    // requestAnimationFrame, ignoring `samples` (no supersampling) and
+    // skipping the encoder. Useful for previewing the keyframe sequence
+    // before committing to a long render. Click again to stop.
+    let _previewRaf: number | null = null;
+    const _runBtn = _btn('Run', 'primary');
+    function _stopPreview(): void {
+      if (_previewRaf != null) {
+        cancelAnimationFrame(_previewRaf);
+        _previewRaf = null;
+      }
+      _runBtn.textContent = 'Run';
+    }
+    _runBtn.addEventListener('click', () => {
+      if (_previewRaf != null) { _stopPreview(); return; }
+      if (_kf.length < 2) { _status.textContent = 'need ≥2 keyframes'; return; }
+      const totalSec = _trajectoryTotalSec();
+      if (!(totalSec > 0)) { _status.textContent = 'zero-length trajectory'; return; }
+      _runBtn.textContent = 'Stop';
+      const t0 = performance.now();
+      const tick = () => {
+        const sec = (performance.now() - t0) / 1000;
+        const frac = sec / totalSec;
+        if (frac >= 1) {
+          viewerState.setView(_kf[_kf.length - 1]);
+          _previewRaf = null;
+          _runBtn.textContent = 'Run';
+          _status.textContent = 'preview done';
+          return;
+        }
+        viewerState.setView(_viewAt(frac));
+        _status.textContent = `preview ${(sec).toFixed(2)} / ${totalSec.toFixed(2)} s`;
+        _previewRaf = requestAnimationFrame(tick);
+      };
+      _previewRaf = requestAnimationFrame(tick);
+    });
+
+    const _renderBtn = _btn('Render mp4', 'primary');
+
+    const _status = document.createElement('span');
+    _status.className = 'spectre-mono';
+    _status.style.minWidth = '160px';
+
+    let _busy = false;
+    _renderBtn.addEventListener('click', async () => {
+      if (_busy) return;
+      _busy = true; _renderBtn.disabled = true;
+      _status.textContent = 'rendering…';
+      try {
+        const bytes = await _recordVideo({
+          width: +_w.inp.value,
+          height: +_h.inp.value,
+          fps: +_fps.inp.value,
+          qp: +_qp.inp.value,
+          samples: Math.max(1, +_samp.inp.value),
+          fitMode: _fitSel.value as 'fit' | 'fill',
+          progress: (f, t, ms) => {
+            _status.textContent = `${f} / ${t}  (${(ms / f).toFixed(0)} ms/frame)`;
+          },
+        });
+        const blob = new Blob([bytes], { type: 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'spectre-zoom.mp4';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        _status.textContent = `${(bytes.length / 1e6).toFixed(2)} MB`;
+      } catch (e) {
+        _status.textContent = 'error: ' + (e as Error).message;
+        console.error(e);
+      } finally {
+        _busy = false; _renderBtn.disabled = false;
+      }
+    });
+
+    // Two cards under the trajectory editor: render parameters above,
+    // action buttons below.
+    const _renderCard = document.createElement('div');
+    _renderCard.className = 'spectre-card';
+    const _renderHead = document.createElement('div');
+    _renderHead.className = 'spectre-section-head';
+    const _renderH = document.createElement('h4');
+    _renderH.textContent = 'render';
+    _renderHead.append(_renderH);
+    _renderHead.append(_totalLabel);
+    _totalLabel.classList.add('meta');
+    const _renderConfigRow = document.createElement('div');
+    _renderConfigRow.className = 'spectre-row';
+    _renderConfigRow.append(
+      _w.wrap, _h.wrap, _fps.wrap, _qp.wrap, _samp.wrap,
+      _fitWrap,
+    );
+    const _renderActionsRow = document.createElement('div');
+    _renderActionsRow.className = 'spectre-row';
+    _renderActionsRow.append(
+      _saveBtn, _loadBtn, _loadInput, _purgeSavedBtn,
+      _runBtn, _renderBtn, _status,
+    );
+    const _cullRow = document.createElement('div');
+    _cullRow.className = 'spectre-row';
+    _cullRow.append(_cullWrap);
+
+    // Auto-balance brightness checkbox. When on, the exporter renders
+    // the first and last output frames as quick singles before the
+    // main encode loop, measures their luma, and biases brightness
+    // ±half the difference across the trajectory. Loop endpoints
+    // converge to the same average brightness so a looped playback
+    // doesn't flash at the seam.
+    const _autoBalanceWrap = document.createElement('label');
+    _autoBalanceWrap.className = 'spectre-checkbox';
+    const _autoBalanceCb = document.createElement('input');
+    _autoBalanceCb.type = 'checkbox';
+    _autoBalanceCb.checked = _brightnessRamp.autoBalance;
+    const _autoBalanceTxt = document.createElement('span');
+    _autoBalanceTxt.textContent = 'auto-balance brightness';
+    _autoBalanceTxt.title =
+      'Render frame 0 and the last frame, measure their average brightness, ' +
+      'and ramp tonemap brightness across all frames so both ends meet at the midpoint. ' +
+      'Useful for seamless loops.';
+    _autoBalanceWrap.append(_autoBalanceCb, _autoBalanceTxt);
+    _autoBalanceCb.addEventListener('change', () => {
+      _brightnessRamp.autoBalance = _autoBalanceCb.checked;
+      _saveLocal();
+    });
+    (window as any)._spectreSyncBrightnessRamp = () => {
+      _autoBalanceCb.checked = _brightnessRamp.autoBalance;
+    };
+    const _brightnessRow = document.createElement('div');
+    _brightnessRow.className = 'spectre-row';
+    _brightnessRow.append(_autoBalanceWrap);
+
+    _renderCard.append(_renderHead, _renderConfigRow, _renderActionsRow, _cullRow, _brightnessRow);
+    // Restore previous session if present. This calls _applyConfig
+    // which rebuilds the keyframe widget and refreshes the total label.
+    _loadLocal();
+    _refreshTotalLabel();
+
+    // Refresh the total label whenever the renderer's view changes — in
+    // particular when the canvas resizes, which is when viewerState.pixelWidth
+    // first becomes nonzero and the van Wijk reference width is established.
+    const _origOnViewChangeForTotal = viewerState.onViewChange;
+    viewerState.onViewChange = function (this: any, ...args: any[]) {
+      _origOnViewChangeForTotal?.apply(this, args);
+      _refreshTotalLabel();
+    };
+
+    // Append ordering happens in the controls-display cell so the
+    // top-to-bottom layout is fixed regardless of cell execution order.
+  </script>
+
+  <script id="find-distant-match" type="text/x-typescript">
+    // ─── Find a distant pattern-matching view ─────────────────────────
+    // For a given source view (the current viewport), find another world
+    // position whose local pattern is identical to the source within a
+    // radius determined by the suffix length K. Two leaves with the same
+    // K-suffix (last K geometry indices in the substitution path, same
+    // type at level K) sit inside identically-substituted level-K
+    // supertiles, so their local environments are byte-identical out to
+    // ~(2.45)^K world units.
+    type LeafAddress = {
+      path: number[];        // geom indices, root → leaf
+      types: TileName[];     // type at each meta level
+      rots: number[];        // accumulated world rot at each meta level
+      mirs: number[];        // accumulated world mirror at each meta level
+      leafCx: number;        // world X of the located leaf's centroid
+      leafCy: number;        // world Y of the located leaf's centroid
+    };
+    // Closest-child descent: always reaches a leaf (the one whose
+    // centroid is nearest to the target). Robust to floating-point
+    // precision at deep extension levels and to the case where the
+    // target is on a polygon boundary.
+    function _findLeafNear(targetX: number, targetY: number): LeafAddress | null {
+      let mt: any = walkerState.currentRoot;
+      let tx: any = walkerState.currentRootTransform;
+      if (mt.kind !== 'meta') return null;
+      const path: number[] = [];
+      const types: TileName[] = [mt.name];
+      const rots: number[] = [tx.rot];
+      const mirs: number[] = [tx.mirror];
+      while (mt.kind === 'meta') {
+        let bestI = -1, bestD = Infinity;
+        for (let i = 0; i < mt.geometries.length; i++) {
+          const geom = mt.geometries[i];
+          const child = geom.child;
+          const childTx = txCompose(tx, geom.transform);
+          const cx = (child as any)._cCx ?? 0;
+          const cy = (child as any)._cCy ?? 0;
+          const wc = txApply(childTx, [cx, cy]);
+          const d = Math.hypot(wc[0] - targetX, wc[1] - targetY);
+          if (d < bestD) { bestD = d; bestI = i; }
+        }
+        if (bestI < 0) break;
+        path.push(bestI);
+        const geom = mt.geometries[bestI];
+        tx = txCompose(tx, geom.transform);
+        mt = geom.child;
+        if (mt.kind === 'meta') {
+          types.push(mt.name as TileName);
+          rots.push(tx.rot);
+          mirs.push(tx.mirror);
+        }
+      }
+      // mt is the leaf — compute its world centroid for offset
+      // preservation in the caller.
+      const lcx = (mt as any)._cCx ?? 0;
+      const lcy = (mt as any)._cCy ?? 0;
+      const wc = txApply(tx, [lcx, lcy]);
+      return { path, types, rots, mirs, leafCx: wc[0], leafCy: wc[1] };
+    }
+
+    interface FindMatchResult { centerX: number; centerY: number; attempts: number }
+    function _findMatchingLeaf(args: {
+      sourceX: number; sourceY: number;
+      parentType: TileName;
+      parentRot: number;     // world rotation of source's level-K ancestor
+      parentMir: number;     // world mirror of source's level-K ancestor
+      parentSubLevel: number;
+      suffix: number[];
+      minDistance: number;
+      maxAttempts?: number;
+    }): FindMatchResult | null {
+      const root = walkerState.currentRoot;
+      const rootTransform = walkerState.currentRootTransform;
+      if (root.kind !== 'meta') return null;
+      const rootSubLevel = (root as any)._subLevel as number;
+      const stepsToParent = rootSubLevel - args.parentSubLevel;
+      if (stepsToParent < 0) return null;
+      const seed = ((Math.floor(args.sourceX) ^ Math.floor(args.sourceY)) >>> 0) || 1;
+      const rng = _makeSeededRng(seed);
+      const max = args.maxAttempts ?? 200000;
+      for (let attempt = 0; attempt < max; attempt++) {
+        let mt: any = root;
+        let tx: any = rootTransform;
+        let ok = true;
+        for (let d = 0; d < stepsToParent; d++) {
+          if (mt.kind !== 'meta') { ok = false; break; }
+          const i = Math.floor(rng() * mt.geometries.length);
+          const geom = mt.geometries[i];
+          tx = txCompose(tx, geom.transform);
+          mt = geom.child;
+        }
+        if (!ok || mt.kind !== 'meta' || mt.name !== args.parentType) continue;
+        // Match world orientation: same rot and mirror means the
+        // candidate's local pattern is in the same on-screen orientation
+        // as the source, not just congruent up to a rotation.
+        if (tx.rot !== args.parentRot || tx.mirror !== args.parentMir) continue;
+        // Apply suffix.
+        let suffOk = true;
+        for (const i of args.suffix) {
+          if (mt.kind !== 'meta' || i >= mt.geometries.length) { suffOk = false; break; }
+          const geom = mt.geometries[i];
+          tx = txCompose(tx, geom.transform);
+          mt = geom.child;
+        }
+        if (!suffOk || mt.kind !== 'leaf') continue;
+        const lcx = (mt as any)._cCx ?? 0;
+        const lcy = (mt as any)._cCy ?? 0;
+        const c = txApply(tx, [lcx, lcy]);
+        const dx = c[0] - args.sourceX, dy = c[1] - args.sourceY;
+        if (Math.hypot(dx, dy) < args.minDistance) continue;
+        return { centerX: c[0], centerY: c[1], attempts: attempt + 1 };
+      }
+      return null;
+    }
+
+    function _findDistantMatchForCurrentView(K: number, minDistance: number):
+      { result: FindMatchResult | null; sourceLeaf: LeafAddress | null } {
+      const v = viewerState.getView();
+      const sourceLeaf = _findLeafNear(v.centerX, v.centerY);
+      if (!sourceLeaf) return { result: null, sourceLeaf: null };
+      const D = sourceLeaf.path.length;
+      if (D < K) return { result: null, sourceLeaf };
+      const suffix = sourceLeaf.path.slice(D - K);
+      const idx = D - K;
+      const parentType = sourceLeaf.types[idx];
+      const parentRot = sourceLeaf.rots[idx];
+      const parentMir = sourceLeaf.mirs[idx];
+      const root = walkerState.currentRoot;
+      const rootSubLevel = (root as any)._subLevel as number;
+      const parentSubLevel = rootSubLevel - idx;
+      const result = _findMatchingLeaf({
+        sourceX: v.centerX, sourceY: v.centerY,
+        parentType, parentRot, parentMir, parentSubLevel,
+        suffix, minDistance,
+      });
+      return { result, sourceLeaf };
+    }
+
+    // Local button helper (keeps this cell self-contained — the
+    // video-export cell has its own _btn, but cross-cell helper sharing
+    // is brittle and this is two lines.)
+    function _fdmBtn(text: string, classes = '', title?: string): HTMLButtonElement {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.className = `spectre-btn ${classes}`.trim();
+      if (title) b.title = title;
+      return b;
+    }
+
+    const _loopRow = document.createElement('div');
+    _loopRow.className = 'spectre-card';
+    const _loopHead = document.createElement('div');
+    _loopHead.className = 'spectre-section-head';
+    const _loopH = document.createElement('h4');
+    _loopH.textContent = 'find distant match';
+    _loopHead.append(_loopH);
+    _loopRow.append(_loopHead);
+    const _loopHelp = document.createElement('details');
+    _loopHelp.className = 'spectre-help';
+    const _loopHelpSummary = document.createElement('summary');
+    _loopHelpSummary.textContent = 'how this works';
+    const _loopHelpBody = document.createElement('p');
+    _loopHelpBody.textContent =
+      'Locates a far-away spot whose local pattern matches the current view exactly, ' +
+      'useful for building a seamless looping zoom. Frame a view, click Find, then Go ' +
+      'to jump there; paste the output into a keyframe to use it as an endpoint. ' +
+      'Match depth is bounded by the supertile levels currently loaded around the view, ' +
+      'so if it fails, zoom out slightly (to extend the tree) or reduce depth / min dist.';
+    _loopHelp.append(_loopHelpSummary, _loopHelpBody);
+    _loopRow.append(_loopHelp);
+    const _loopControls = document.createElement('div');
+    _loopControls.className = 'spectre-row';
+
+    function _labeledInput(
+      label: string, type: string, value: string, cls: string, title: string,
+    ) {
+      const wrap = document.createElement('label');
+      wrap.className = 'spectre-checkbox';
+      const span = document.createElement('span');
+      span.className = 'spectre-label';
+      span.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = type;
+      inp.value = value;
+      inp.className = `spectre-input ${cls}`.trim();
+      inp.title = title;
+      wrap.append(span, inp);
+      return { wrap, inp };
+    }
+    // K can be left as 'auto' (or 0/empty) to be derived from the current
+    // viewport's world extent. Match radius is ~2.45^K world units, so K
+    // needs to scale with how zoomed-out the user is.
+    const _kInput = _labeledInput(
+      'match depth', 'text', 'auto', 'num-sm',
+      'How many substitution levels of context the match must reproduce. ' +
+        'Match radius ≈ 2.45^depth world units. "auto" picks the smallest depth ' +
+        'whose radius comfortably exceeds the current viewport. ' +
+        'Capped by the supertile levels currently loaded around the view — ' +
+        'if no match is found, zoom out a bit (to load more levels) or lower the depth.',
+    );
+    const _minDistInput = _labeledInput(
+      'min dist', 'text', 'auto', 'num-md',
+      'Minimum world-units distance from current view to candidate. "auto" = current viewport diameter.',
+    );
+
+    const _matchBtn = _fdmBtn('Find distant match', 'primary');
+    const _matchOut = document.createElement('input');
+    _matchOut.type = 'text';
+    _matchOut.readOnly = true;
+    _matchOut.className = 'spectre-input grow';
+    _matchOut.placeholder = 'paste output into a keyframe';
+
+    const _matchGoBtn = _fdmBtn('Go', '', 'Jump the live view to the matched coordinates.');
+    _matchGoBtn.disabled = true;
+
+    // Separate status line so the output box stays cleanly copy-able.
+    const _matchStatus = document.createElement('span');
+    _matchStatus.className = 'spectre-mono';
+
+    function _autoK(viewPxW: number, pixelScale: number): number {
+      // Want 2.45^K >> viewport world diameter so the entire visible
+      // area is well inside the matching radius — and so a small
+      // offset drift after Go can't push the next-iteration source
+      // onto a *different* leaf with a different K-suffix. +2 gives
+      // ~6× headroom over the viewport extent.
+      const worldExtent = Math.max(1, viewPxW) / Math.max(1e-30, pixelScale);
+      return Math.max(2, Math.ceil(Math.log(worldExtent) / Math.log(2.45)) + 2);
+    }
+
+    type _FdmView = { centerX: number; centerY: number; pixelScale: number };
+    let _matchedView: _FdmView | null = null;
+    _matchBtn.addEventListener('click', async () => {
+      const v = viewerState.getView();
+      const liveW = viewerState.pixelWidth || 1280;
+      // Resolve K: 'auto' / 0 / empty → derive from viewport.
+      let K = parseInt(_kInput.inp.value, 10);
+      if (!Number.isFinite(K) || K < 1) K = _autoK(liveW, v.pixelScale);
+      // Resolve min distance: 'auto' / empty → viewport world diameter.
+      let minDist = Number(_minDistInput.inp.value);
+      if (!Number.isFinite(minDist) || minDist < 0) {
+        minDist = liveW / Math.max(1e-30, v.pixelScale);
+      }
+      _matchBtn.disabled = true;
+      _matchStatus.textContent = 'searching...';
+      const t0 = performance.now();
+      let result, sourceLeaf;
+      try {
+        ({ result, sourceLeaf } = await findDistantMatchOnWorker(
+          v.centerX, v.centerY, K, minDist,
+        ));
+      } catch (err) {
+        _matchStatus.textContent = 'error: ' + (err as Error).message;
+        _matchBtn.disabled = false;
+        return;
+      } finally {
+        _matchBtn.disabled = false;
+      }
+      const ms = (performance.now() - t0).toFixed(0);
+      if (!sourceLeaf) {
+        _matchOut.value = '';
+        _matchStatus.textContent = 'could not locate source leaf at view center';
+        _matchedView = null;
+        _matchGoBtn.disabled = true;
+        return;
+      }
+      if (!result) {
+        _matchOut.value = '';
+        _matchStatus.textContent = `no match · depth=${K} · min dist=${minDist.toExponential(2)} · try lower depth, smaller min dist, or zoom out to load more levels`;
+        _matchedView = null;
+        _matchGoBtn.disabled = true;
+        return;
+      }
+      // Preserve the source view's offset from its own leaf's centroid:
+      // both source and matched leaves are at the same K-suffix path
+      // and share the same level-K ancestor world rotation, so their
+      // local environments are byte-identical. Setting the new view to
+      // (matchedLeaf.centroid + sourceOffset) reproduces what the user
+      // was looking at, just at the matched coordinates — instead of
+      // shifting the framing to the matched leaf's centroid.
+      const offX = v.centerX - sourceLeaf.leafCx;
+      const offY = v.centerY - sourceLeaf.leafCy;
+      _matchedView = {
+        centerX: result.centerX + offX,
+        centerY: result.centerY + offY,
+        pixelScale: v.pixelScale,
+      };
+      const radius = Math.pow(2.45, K);
+      _matchOut.value = `${_matchedView.pixelScale}/${_matchedView.centerX}/${_matchedView.centerY}`;
+      _matchStatus.textContent = `depth=${K} · r≈${radius.toExponential(1)} · ${result.attempts} attempts · ${ms}ms`;
+      _matchGoBtn.disabled = false;
+      // No auto-go: clicking "Find" again with the same view re-runs
+      // deterministically (same seeded RNG → same result). Click "Go"
+      // to inspect the match and use it as the next source.
+      // eslint-disable-next-line no-console
+      console.log('match found:', {
+        ...(_matchedView as any),
+        K, attempts: result.attempts, ms: +ms, matchRadius: radius,
+      });
+    });
+
+    _matchGoBtn.addEventListener('click', () => {
+      if (_matchedView) viewerState.setView(_matchedView);
+    });
+
+    _loopControls.append(_kInput.wrap, _minDistInput.wrap, _matchBtn, _matchOut, _matchGoBtn);
+    const _loopStatusRow = document.createElement('div');
+    _loopStatusRow.className = 'spectre-row';
+    _loopStatusRow.append(_matchStatus);
+
+    // Tree state: hidden internal state that drifts with extension —
+    // not user-visible inputs (palette, keyframes, view) but the
+    // accumulated side-effects of how the user has been zooming.
+    // Affects: multi-level Gaussian colour blend (deeper ancestor
+    // chains shift ancestor averages), find-distant-match (root
+    // sub-level bounds the reachable K-suffix levels), and
+    // float-precision (very large root translations eat decimal
+    // digits in world coords).
+    //
+    // The button row sits ABOVE the info text so the button isn't
+    // vertically centred on a multi-line info block.
+    const _purgeBtn = _fdmBtn(
+      'purge tree', '',
+      'Reset the worker\'s metatile DAG to the freshly-built base cluster (extension level 0). ' +
+        'Clears accumulated extensions and the hexagon mesh cache.',
+    );
+    const _purgeRow = document.createElement('div');
+    _purgeRow.className = 'spectre-row';
+    _purgeRow.append(_purgeBtn);
+    const _treeInfoText = document.createElement('pre');
+    _treeInfoText.className = 'spectre-mono';
+    _treeInfoText.style.margin = '4px 0 0 0';
+    _treeInfoText.style.whiteSpace = 'pre';
+    _treeInfoText.style.fontSize = '11px';
+    _treeInfoText.textContent = '(no walks yet)';
+    _purgeBtn.addEventListener('click', async () => {
+      _purgeBtn.disabled = true;
+      const prev = _treeInfoText.textContent;
+      _treeInfoText.textContent = 'purging…';
+      try {
+        await resetWorkerTree();
+        refreshAggMeshes();
+        repackInstances();
+      } finally {
+        _purgeBtn.disabled = false;
+        // Info refreshes on the next worker result message via
+        // workerStatus.onResult; the prev text is fine until then.
+      }
+    });
+    function _refreshTreeInfo(): void {
+      const m = workerStatus.lastResult;
+      if (!m) { _treeInfoText.textContent = '(no walks yet)'; return; }
+      // Float-precision headroom: f32 has ~7 decimal digits of
+      // mantissa, f64 has ~15. log10(|root.t|) tells us how many
+      // are eaten by the world-coord magnitude alone. We show f64
+      // digits since the worker walks in Float64 — this is the
+      // headroom *available*, not the headroom remaining after the
+      // GPU's relative-to-centre trick (which is much better).
+      const txMag = Math.hypot(m.rootTxTx, m.rootTxTy);
+      const f64Headroom = 15 - Math.max(0, Math.log10(Math.max(1, txMag)));
+      const lines = [
+        `extension level ${m.extensionLevel}`,
+        `root type       ${m.rootName}`,
+        `root sub-level  ${m.rootSubLevel}`,
+        `root tx rot     ${m.rootTxRot} (× 30°)`,
+        `root tx mirror  ${m.rootTxMirror}`,
+        `root tx |t|     ${txMag.toExponential(3)}`,
+        `root cBound     ${m.rootCBound.toExponential(3)}`,
+        `f64 digits left ${f64Headroom.toFixed(1)}`,
+      ];
+      _treeInfoText.textContent = lines.join('\n');
+    }
+    // Refresh whenever a fresh worker result lands. We chain the
+    // existing onResult so we don't clobber the renderer's hookup.
+    const _origOnResult = workerStatus.onResult;
+    workerStatus.onResult = (m) => {
+      _origOnResult?.(m);
+      _refreshTreeInfo();
+    };
+
+    _loopRow.append(_loopControls, _loopStatusRow, _purgeRow, _treeInfoText);
+    // Append happens in the controls-display cell.
+  </script>
+
+  <script id="controls-display" type="text/x-typescript">
+    // Append all cards to the controls container in EXPLICIT visual
+    // order, then display once. Doing the appends here (rather than
+    // each card cell appending itself) decouples DOM order from cell
+    // execution order — the dependency resolver may shuffle which
+    // card cell runs first, but this cell runs after all of them
+    // (it references each card) and stamps the canonical order.
+    controlsContainer.append(_paletteCard);
+    controlsContainer.append(_kfContainer);
+    controlsContainer.append(_renderCard);
+    controlsContainer.append(_loopRow);
+    display(controlsContainer);
+  </script>
+
+</notebook>
