@@ -236,6 +236,21 @@
     </style>
   </script>
 
+  <script id="controls-container" type="text/x-typescript">
+    // Single container that hosts every control card on the page —
+    // following the convention from `index.html` so the viewer's
+    // expandable can move the whole bundle into a floating panel
+    // when the figure goes full-screen via `controls: '#spectre-controls'`.
+    // Subsequent card cells append to `controlsContainer` instead
+    // of calling `display(card)` directly; one final cell displays
+    // the container at the bottom of the page.
+    const controlsContainer = document.createElement('div');
+    controlsContainer.id = 'spectre-controls';
+    controlsContainer.style.display = 'flex';
+    controlsContainer.style.flexDirection = 'column';
+    controlsContainer.style.gap = '12px';
+  </script>
+
   <script id="palette-controls" type="text/x-typescript">
     // 11 colour swatches (one per tile label, including Γ₁/Γ₂) plus a
     // Randomize button + seed input. paletteState.rgb is mutated in place,
@@ -426,30 +441,20 @@
         colorBlendState.offset = v;
         viewerState.onViewChange?.(viewerState);
       });
-    const _cbLeafNoise = _tmSlider('leaf noise', 0.0, 0.25, 0.005, colorBlendState.leafNoise,
+    // Detail = 100 / aggPx. Larger detail = smaller agg-px threshold
+    // = more cells emitted = higher visual quality, slower walks.
+    // The internal storage stays as `qualityState.aggPx` (which is
+    // what the worker reads); this slider just exposes its
+    // reciprocal so a higher slider value reads as "more detail".
+    // aggPx range [5, 100] → detail range [1, 20].
+    const _DETAIL_K = 100;
+    const _qSlider = _tmSlider('detail', _DETAIL_K / 100, _DETAIL_K / 10, 0.1,
+      _DETAIL_K / qualityState.aggPx,
       (v) => {
-        colorBlendState.leafNoise = v;
-        viewerState.onViewChange?.(viewerState);
-      });
-    // Hexagon dilation: scales each aggregate hexagon's circumradius
-    // around its centroid. Changing this only affects mesh geometry
-    // (not the worker's instance data), so we just rebuild the
-    // hexagon meshes and re-render — no walker round-trip needed.
-    const _aggDilation = _tmSlider('hex dilate', 0.5, 1.5, 0.01, aggHexState.dilation,
-      (v) => {
-        aggHexState.dilation = v;
-        refreshAggMeshes();
-      });
-    // Quality / aggregation threshold (px). Smaller = more cells
-    // visible (higher quality, slower walks); larger = aggregates
-    // sooner (lower quality, faster walks). Drives view.aggPx in
-    // every walk message — the worker recomputes its r-thresholds
-    // per walk, so changes take effect on the next walk with no
-    // worker-state churn. Display rounds to integer px since the
-    // worker uses it as a screen-pixel threshold.
-    const _qSlider = _tmSlider('agg px', 5, 100, 1, qualityState.aggPx,
-      (v) => {
-        qualityState.aggPx = Math.max(1, Math.round(v));
+        if (v <= 0) return;
+        const newPx = Math.max(1, Math.round(_DETAIL_K / v));
+        if (newPx === qualityState.aggPx) return;
+        qualityState.aggPx = newPx;
         viewerState.onViewChange?.(viewerState);
       });
     // Per-leaf outline opacity. The renderer fades the outlines from
@@ -465,13 +470,11 @@
     function _syncColorBlend() {
       _cbWidth.set(colorBlendState.sigma);
       _cbOffset.set(colorBlendState.offset);
-      _cbLeafNoise.set(colorBlendState.leafNoise);
-      _aggDilation.set(aggHexState.dilation);
-      _qSlider.set(qualityState.aggPx);
+      _qSlider.set(_DETAIL_K / qualityState.aggPx);
       _outlineSlider.set(viewerState.outline.opacity);
     }
     (window as any)._spectreSyncColorBlend = _syncColorBlend;
-    (window as any)._spectreSyncQuality = () => _qSlider.set(qualityState.aggPx);
+    (window as any)._spectreSyncQuality = () => _qSlider.set(_DETAIL_K / qualityState.aggPx);
 
     const _paletteCard = document.createElement('div');
     _paletteCard.className = 'spectre-card';
@@ -484,11 +487,13 @@
     _sliderGrid.className = 'spectre-slider-grid';
     _sliderGrid.append(
       _tmContrast.wrap, _tmSat.wrap, _tmBright.wrap,
-      _cbWidth.wrap, _cbOffset.wrap, _cbLeafNoise.wrap,
-      _aggDilation.wrap, _qSlider.wrap, _outlineSlider.wrap,
+      _cbWidth.wrap, _cbOffset.wrap,
+      _qSlider.wrap, _outlineSlider.wrap,
     );
     _paletteCard.append(_paletteHead, _swatchRow, _ctrlRow, _sliderGrid);
-    display(_paletteCard);
+    // Append ordering for the controls box happens in the
+    // `controls-display` cell so it isn't at the mercy of which cell
+    // happens to run first under the dependency resolver.
   </script>
 
   <script id="figure" type="text/x-typescript">
@@ -834,7 +839,7 @@
       setHex(label: string, hex: string): void;
     };
     const paletteState: PaletteState = {
-      seed: 12345,
+      seed: 27223,
       hex: {},
       rgb: {},
       setSeed(seed: number) {
@@ -851,6 +856,27 @@
       },
     };
     paletteState.setSeed(paletteState.seed);
+    // Per-label hex overrides baked in from the user's saved config.
+    // setSeed seeds the procedural palette; these explicit values
+    // overwrite specific labels the user manually tuned.
+    {
+      const _initialHex: Record<string, string> = {
+        Xi:     '#00727a',
+        Delta:  '#3d2f6a',
+        Gamma2: '#7b3d27',
+        Pi:     '#002117',
+        Psi:    '#583e6f',
+        Gamma:  '#cd8b7b',
+        Sigma:  '#41b092',
+        Lambda: '#a8c2fd',
+        Theta:  '#e8ad64',
+        Phi:    '#93f8d2',
+        Gamma1: '#3f1658',
+      };
+      for (const [label, hex] of Object.entries(_initialHex)) {
+        paletteState.setHex(label, hex);
+      }
+    }
     // Walker entry point. Level is unused — kept in the signature so that
     // multi-scale colour variation can later be reintroduced by perturbing
     // the base colour per substitution level.
@@ -869,7 +895,7 @@
     // the cell itself, positive values bias toward parents/grandparents
     // for a "zoomed-out" feel even at deep zoom. Mutated in place by the
     // controls cell; the walker re-reads on every walk().
-    const colorBlendState = { sigma: 4.0, offset: 0.0, leafNoise: 0.0 };
+    const colorBlendState = { sigma: 2.35, offset: 4.9 };
 
     // Aggregate-hexagon shape parameters. `dilation` scales each
     // hexagon's circumradius around its centroid; values > 1 grow the
@@ -887,7 +913,7 @@
     // larger values aggregate sooner (low quality, fast walk). The
     // worker reads `view.aggPx` per walk; main passes this value in
     // every view message.
-    const qualityState = { aggPx: 25 };
+    const qualityState = { aggPx: 50 };
   </script>
 
   <script id="worker-setup" type="text/x-typescript">
@@ -1025,14 +1051,13 @@
     }
     function sendColorBlendToWorker(): void {
       if (!workerStatus.ready) return;
-      const hash = colorBlendState.sigma + ',' + colorBlendState.offset + ',' + colorBlendState.leafNoise;
+      const hash = colorBlendState.sigma + ',' + colorBlendState.offset;
       if (hash === _lastSentColorBlend) return;
       _lastSentColorBlend = hash;
       walkerWorker.postMessage({
         type: 'colorBlend',
         sigma: colorBlendState.sigma,
         offset: colorBlendState.offset,
-        leafNoise: colorBlendState.leafNoise,
       });
     }
     let _viewSeq = 0;
@@ -1594,7 +1619,7 @@
     // rates without making walks visibly slower. Push it higher (via
     // the video-export slider) for smoother fast-zoom at the cost of
     // walk latency.
-    const cullState: { padPx: number } = { padPx: 200 };
+    const cullState: { padPx: number } = { padPx: 300 };
     function repackInstances(): void {
       if (viewerState.pixelWidth === 0) return;
       if (freezeState.frozen) {
@@ -1677,22 +1702,19 @@
       onViewChange: () => repackInstances(),
     });
 
-    // The initial fit needs the cluster's world-space bounds, which
-    // come asynchronously from the worker's `init` message. So the
-    // resize callback may run before the bounds are known; we just
-    // try the fit on every relevant trigger and let it succeed once
-    // both the canvas has pixels and the worker has handed off
-    // bounds.
+    // Snap the live view to a fixed initial pose (centered at the
+    // origin, pixelScale 20 — matches the saved-config keyframe 0
+    // baked in below). We still wait for the worker's init message
+    // because the first walk needs the worker handshake to have
+    // completed; the `b` (rootBounds) it brings is no longer used
+    // for fitting, just as the gate.
     function _tryInitialFit(): void {
       if (_initialFitDone) return;
       if (viewerState.pixelWidth === 0) return;
-      const b = workerStatus.rootBounds;
-      if (!b) return;
-      viewerState.centerX = (b.minX + b.maxX) / 2;
-      viewerState.centerY = (b.minY + b.maxY) / 2;
-      const fitX = viewerState.pixelWidth  / (b.maxX - b.minX);
-      const fitY = viewerState.pixelHeight / (b.maxY - b.minY);
-      viewerState.pixelScale = 0.95 * Math.min(fitX, fitY);
+      if (!workerStatus.rootBounds) return;
+      viewerState.centerX = 0;
+      viewerState.centerY = 0;
+      viewerState.pixelScale = 20;
       _initialFitDone = true;
       repackInstances();
     }
@@ -1705,6 +1727,7 @@
       width: 640,
       height: 640,
       wide: true,
+      controls: '#spectre-controls',
       onResize: (_el, w, h) => {
         viewerState.resize(w, h);
         _tryInitialFit();
@@ -1982,15 +2005,11 @@
       return w > 0 ? w : 1; // fallback while canvas not yet sized
     }
     const _kf: View[] = [
-      { centerX: 62.90020681398703,        centerY: -69.41475882293156,    pixelScale: 159.57638576360853 },
-      { centerX: -276309144.8722216,       centerY: 813097338.8738983,     pixelScale: 8.685921175201373e-8 },
-      { centerX: 52490654572.06181,        centerY: 31946543152.550705,    pixelScale: 8.685921175201373e-8 },
-      { centerX: 52651834944.69957,        centerY: 31501858022.634777,    pixelScale: 118.57227795600912 },
+      { centerX: 0,                  centerY: 0,                  pixelScale: 20 },
+      { centerX: -552442261.2357118, centerY: -1044150917.0082084, pixelScale: 20 },
     ];
     const _seg: SegConfig[] = [
-      { smooth: false, sec: 6, ease: 'quintic', speed: _DEFAULT_SPEED, rho: _DEFAULT_RHO },
-      { smooth: false, sec: 4, ease: 'cubic',   speed: _DEFAULT_SPEED, rho: _DEFAULT_RHO },
-      { smooth: false, sec: 6, ease: 'quintic', speed: _DEFAULT_SPEED, rho: _DEFAULT_RHO },
+      { smooth: true, sec: 2, ease: 'sinusoidal', speed: 1.5, rho: 1.5 },
     ];
 
     // Optional per-render brightness ramp. When `autoBalance` is on,
@@ -2469,7 +2488,7 @@
       const head = document.createElement('div');
       head.className = 'spectre-section-head';
       const h = document.createElement('h4');
-      h.textContent = 'trajectory';
+      h.textContent = 'keyframes';
       head.append(h);
       _kfContainer.append(head);
 
@@ -2678,9 +2697,9 @@
 
     const _w    = _numInput('w',     1280, 'num-md');
     const _h    = _numInput('h',      720, 'num-md');
-    const _fps  = _numInput('fps',     30, 'num-sm');
-    const _qp   = _numInput('qp',      24, 'num-sm');
-    const _samp = _numInput('samples',  1, 'num-sm');
+    const _fps  = _numInput('fps',     60, 'num-sm');
+    const _qp   = _numInput('qp',      10, 'num-sm');
+    const _samp = _numInput('samples', 20, 'num-sm');
     for (const i of [_w, _h, _fps, _qp, _samp]) {
       i.inp.addEventListener('change', () => _saveLocal());
     }
@@ -2725,12 +2744,12 @@
     const _cullSlider = document.createElement('input');
     _cullSlider.type = 'range';
     _cullSlider.min = '0'; _cullSlider.max = '500'; _cullSlider.step = '5';
-    _cullSlider.value = '0';
+    _cullSlider.value = String(cullState.padPx);
     _cullSlider.className = 'spectre-cull-slider';
     const _cullVal = document.createElement('span');
     _cullVal.className = 'spectre-mono';
     _cullVal.style.minWidth = '44px';
-    _cullVal.textContent = '0 px';
+    _cullVal.textContent = `${cullState.padPx} px`;
     _cullSlider.addEventListener('input', () => {
       const v = +_cullSlider.value;
       cullState.padPx = v;
@@ -2983,6 +3002,22 @@
     });
     _loadBtn.addEventListener('click', () => _loadInput.click());
 
+    // Drop the auto-saved localStorage entry so the next page reload
+    // starts from the baked-in defaults instead of the last
+    // session's state. Disabled while a Save/Load is in flight so we
+    // don't race the debounced auto-save.
+    const _purgeSavedBtn = _btn(
+      'Purge saved', '',
+      'Delete the localStorage entry that auto-saves your config across reloads. ' +
+        'Page reload after this clicks restores the baked-in defaults.',
+    );
+    _purgeSavedBtn.addEventListener('click', () => {
+      // Cancel any pending auto-save so it can't write back over us.
+      if (_saveTimer != null) { clearTimeout(_saveTimer); _saveTimer = null; }
+      try { localStorage.removeItem(_LS_KEY); } catch (_e) { /* ignore */ }
+      _status.textContent = 'cleared saved state — reload page to start from defaults';
+    });
+
     // ─── Run (preview) ─────────────────────────────────────────────────
     // Animates the trajectory live in the viewport canvas using
     // requestAnimationFrame, ignoring `samples` (no supersampling) and
@@ -3079,7 +3114,7 @@
     const _renderActionsRow = document.createElement('div');
     _renderActionsRow.className = 'spectre-row';
     _renderActionsRow.append(
-      _saveBtn, _loadBtn, _loadInput,
+      _saveBtn, _loadBtn, _loadInput, _purgeSavedBtn,
       _runBtn, _renderBtn, _status,
     );
     const _cullRow = document.createElement('div');
@@ -3130,8 +3165,8 @@
       _refreshTotalLabel();
     };
 
-    display(_renderCard);
-    display(_kfContainer);
+    // Append ordering happens in the controls-display cell so the
+    // top-to-bottom layout is fixed regardless of cell execution order.
   </script>
 
   <script id="find-distant-match" type="text/x-typescript">
@@ -3514,7 +3549,21 @@
     };
 
     _loopRow.append(_loopControls, _loopStatusRow, _purgeRow, _treeInfoText);
-    display(_loopRow);
+    // Append happens in the controls-display cell.
+  </script>
+
+  <script id="controls-display" type="text/x-typescript">
+    // Append all cards to the controls container in EXPLICIT visual
+    // order, then display once. Doing the appends here (rather than
+    // each card cell appending itself) decouples DOM order from cell
+    // execution order — the dependency resolver may shuffle which
+    // card cell runs first, but this cell runs after all of them
+    // (it references each card) and stamps the canonical order.
+    controlsContainer.append(_paletteCard);
+    controlsContainer.append(_kfContainer);
+    controlsContainer.append(_renderCard);
+    controlsContainer.append(_loopRow);
+    display(controlsContainer);
   </script>
 
 </notebook>

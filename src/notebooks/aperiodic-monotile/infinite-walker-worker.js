@@ -389,7 +389,17 @@ function maybeExtend(view) {
     const dx = Math.abs(view.centerX - cwx) + halfW + padW;
     const dy = Math.abs(view.centerY - cwy) + halfH + padW;
     const distToCorner = Math.hypot(dx, dy);
-    if (distToCorner <= 0.5 * cBound) return;
+    // Threshold of 0.3 × cBound: requires the viewport corners to
+    // sit well inside the cluster's CENTROID-bounded circle, with
+    // generous safety margin against the cluster's worst-direction
+    // FILLED extent (~0.6–0.7 × cBound for a Spectre supertile).
+    // Each iteration extends the root upward; the cluster's cBound
+    // grows by ~_INFLATION × (≈2.5×) per extension, and each
+    // extension is O(1), so a tighter threshold just means one or
+    // two more extensions for a typical view — well worth it to
+    // eliminate the "blank wedge" on the side of the viewport when
+    // the user pans away from the cluster's centroid.
+    if (distToCorner <= 0.3 * cBound) return;
     extendRootUpward();
   }
 }
@@ -507,7 +517,7 @@ function _typeForLabel(label) {
   if (label === "Gamma1" || label === "Gamma2") return "Gamma";
   return label;
 }
-const colorBlendState = { sigma: 4.0, offset: 0.0, leafNoise: 0.0 };
+const colorBlendState = { sigma: 4.0, offset: 0.0 };
 
 // ─── Walker ─────────────────────────────────────────────────────────
 const AGG_PX = 25;
@@ -570,7 +580,6 @@ function makeWalker(initialLeafCap) {
   let aggThreshR = Infinity, upperFadeR = Infinity, lowerFadeR = Infinity;
   let aggThreshHysteresis = Infinity; // = upperFadeR - aggThreshR, precomputed
   let lowerFadeHysteresis = Infinity; // = aggThreshR - lowerFadeR
-  let leafNoise = 0;
   // Per-walk colour-kernel parameters: Gaussian centred on
   // `viewLevel + colorBlendState.offset` in log-scale space, with
   // stddev = colorBlendState.sigma. weight(L) = exp((L − kCenter)² *
@@ -635,28 +644,10 @@ function makeWalker(initialLeafCap) {
       R += w * stColR[k]; G += w * stColG[k]; B += w * stColB[k];
     }
     const inv = 1 / total;
-    let normR = R * inv, normG = G * inv, normB = B * inv;
+    const normR = R * inv, normG = G * inv, normB = B * inv;
 
-    if (bucketKey === null && leafNoise > 0) {
-      const K_NOISE = 6;
-      const startD = d - K_NOISE + 1 > 1 ? d - K_NOISE + 1 : 1;
-      let h = 0x9e3779b1 | 0;
-      for (let p = startD; p <= d; p++) {
-        h = Math.imul(h ^ pathStack[p], 0x9e3779b1);
-      }
-      h = (h ^ (h >>> 16)) | 0;
-      h = Math.imul(h, 0x85ebca6b);
-      h = (h ^ (h >>> 13)) | 0;
-      h = Math.imul(h, 0xc2b2ae35);
-      h = (h ^ (h >>> 16)) | 0;
-      const j = ((h & 0xFF) - 128) * (leafNoise / 128);
-      normR += j;
-      normG += j;
-      normB += j;
-    }
-
-    // Color quantisation: clamp because `noise` and rounding can
-    // push values slightly past [0, 1].
+    // Color quantisation: clamp in case rounding pushes values
+    // slightly past [0, 1].
     const a127 = Math.round(alpha * 127);
     let qR = (normR * 255 + 0.5) | 0; if (qR < 0) qR = 0; else if (qR > 255) qR = 255;
     let qG = (normG * 255 + 0.5) | 0; if (qG < 0) qG = 0; else if (qG > 255) qG = 255;
@@ -775,7 +766,6 @@ function makeWalker(initialLeafCap) {
     lowerFadeR  = lowerFadeBound * inv2agg;
     aggThreshHysteresis = upperFadeR - aggThreshR;
     lowerFadeHysteresis = aggThreshR - lowerFadeR;
-    leafNoise = colorBlendState.leafNoise;
     const _sigma = colorBlendState.sigma;
     // Kernel parameters captured into closure-level vars so emit()
     // can evaluate exp(dl² * negInvTwoSigSq) inline without per-call
@@ -951,7 +941,6 @@ self.onmessage = (e) => {
   } else if (m.type === 'colorBlend') {
     colorBlendState.sigma = m.sigma;
     colorBlendState.offset = m.offset;
-    colorBlendState.leafNoise = m.leafNoise;
     colorBlendDirty = true;
     if (lastView && !pendingView) pendingView = lastView;
     schedule();

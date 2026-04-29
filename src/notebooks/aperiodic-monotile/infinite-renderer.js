@@ -389,7 +389,7 @@ export function createInfiniteRenderer({
     // contrast curve, with the result clamped to [0, 1]. Defaults are
     // identity (no visible change vs. the pre-HDR pipeline aside from
     // float16 → 8-bit requantization at the canvas write).
-    tonemap: { contrast: 1.0, saturation: 1.0, midpoint: 0.5, brightness: 0.0,
+    tonemap: { contrast: 1.3, saturation: 1.05, midpoint: 0.5, brightness: 0.01,
                biasR: 0.0, biasG: 0.0, biasB: 0.0 },
     // Per-leaf outline. Drawn after the fill pass with line-strip
     // topology, fading linearly from `fadeOutPx` to `fadeInPx` so
