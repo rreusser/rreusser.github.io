@@ -3,9 +3,11 @@
   <title>Zooming Aperiodic Monotile</title>
 
   <script id="title" type="text/markdown">
-    A pared-down Spectre viewer that lets you zoom out arbitrarily. Supertiles are generated on demand, and tiles that shrink below a few pixels collapse into instanced hexagons. It's a big laggy, and it's pretty easy to run into precision problems if you zoom out too far!
+    A basic spectre tile viewer that lets you pan and zoom out to the extent of floating point precision. Supertiles are generated on demand, and tiles that shrink below a few pixels collapse into instanced hexagons. It's a big laggy, and it's pretty easy to run into precision problems if you zoom out too far. TBH this whole thing came about because after pushing the limits to render 17M tile instances at the eigth substitution level, I was pretty curious: *how far can we push the recursion??* It turns out pretty far!
 
-    I've adapted some of the functions from Craig Kaplan's original JavaScript implementation [here](https://cs.uwaterloo.ca/~csk/spectre/). TBH this whole thing came about because I was just really curious: *how far can we push the recursion??*
+    The coloring works by assigning a distinct color to each of the supertiles. The color of each instance is computed based on its position in the hierarchy, using a Gaussian kernel as a function of log-zoom. This produces meaningful detail based on the features actually visible at the current view scale, and allows the influence of new substitution levels to fade in as you zoom in our out.
+
+    With gratitude, I've adapted some of the functions from Craig Kaplan's original JavaScript implementation [here](https://cs.uwaterloo.ca/~csk/spectre/).
   </script>
 
   <script id="editor-styles" type="text/html">
@@ -1593,7 +1595,7 @@
 
 
   <script id="renderer-setup" type="text/x-typescript">
-    import { expandable } from './lib/expandable.js';
+    import { expandable, ICON_CAMERA } from './lib/expandable.js';
     import { createInfiniteRenderer } from './infinite-renderer.js';
 
     // Rebuilt on every view change; the walker's scratch buffer is
@@ -1722,12 +1724,57 @@
     // already sized itself, do the fit then.
     workerStatus.onInit = () => _tryInitialFit();
 
+    let _snapshotBusy = false;
+    async function _takeSnapshot(button: HTMLButtonElement) {
+      if (_snapshotBusy) return;
+      _snapshotBusy = true;
+      const prevTitle = button.title;
+      button.disabled = true;
+      try {
+        const w = viewerState.pixelWidth;
+        const h = viewerState.pixelHeight;
+        if (!w || !h) throw new Error('canvas not yet sized');
+        viewerState.beginCapture(w, h);
+        let rgba: Uint8Array;
+        try {
+          rgba = await viewerState.captureFrame();
+        } finally {
+          viewerState.endCapture();
+        }
+        const off = new OffscreenCanvas(w, h);
+        const ctx = off.getContext('2d');
+        if (!ctx) throw new Error('2d context unavailable');
+        const img = new ImageData(
+          new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, rgba.byteLength), w, h);
+        ctx.putImageData(img, 0, 0);
+        const blob = await off.convertToBlob({ type: 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, '');
+        a.href = url; a.download = `spectre-${ts}.png`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch (e) {
+        console.error('[snapshot]', e);
+        button.title = 'snapshot failed: ' + (e as Error).message;
+        setTimeout(() => { button.title = prevTitle; }, 4000);
+      } finally {
+        _snapshotBusy = false;
+        button.disabled = false;
+      }
+    }
+
     const viewerExpandable = expandable(viewerCanvas, {
       id: 'spectre-infinite',
       width: 640,
       height: 640,
       wide: true,
       controls: '#spectre-controls',
+      buttons: [{
+        icon: ICON_CAMERA,
+        title: 'Snapshot PNG (renders to off-screen target — drawing buffer is not preserved)',
+        onClick: (_content: any, _expanded: boolean, btn: HTMLButtonElement) => _takeSnapshot(btn),
+      }],
       onResize: (_el, w, h) => {
         viewerState.resize(w, h);
         _tryInitialFit();
