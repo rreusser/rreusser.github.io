@@ -46,6 +46,7 @@ const redirects = [
   ["/things-i-learned-the-hard-way-using-react-native/", "/notebooks/things-i-learned-the-hard-way-using-react-native/"],
   ["/ueda-attractor/", "/sketches/ueda-attractor/"],
   ["/vortex-sdf/", "/sketches/vortex-sdf/"],
+  ["/periodic-three-body-orbits/", "/notebooks/periodic-planar-three-body-orbits/"],
 ];
 
 function htmlFor(targetUrl) {
