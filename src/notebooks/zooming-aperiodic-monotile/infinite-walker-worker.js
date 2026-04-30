@@ -371,6 +371,20 @@ function extendRootUpward() {
   walkerState.extensionLevel += 1;
 }
 
+// Cover threshold (0.3 × cBound) is calibrated for the cluster's
+// worst-case centroid drift relative to its centroid-bound radius —
+// each upward extension shifts cwx/cwy by a substantial fraction of
+// cBound, so a tighter threshold can become geometrically unreachable.
+// Headroom is therefore tracked separately: _coverTargetLevel records
+// the historical maximum extensionLevel that cover required, and we
+// keep extensionLevel at _coverTargetLevel + _EXTENSION_HEADROOM. This
+// pre-populates the colour kernel's upper-level tail so emit()'s
+// ancestor sum doesn't snap when an extension was about to fire. Each
+// extension is O(1), so the extra levels are essentially free.
+const _COVER_THRESHOLD = 0.3;
+const _EXTENSION_HEADROOM = 3;
+let _coverTargetLevel = 0;
+
 function maybeExtend(view) {
   let safety = 64;
   while (safety-- > 0) {
@@ -389,17 +403,18 @@ function maybeExtend(view) {
     const dx = Math.abs(view.centerX - cwx) + halfW + padW;
     const dy = Math.abs(view.centerY - cwy) + halfH + padW;
     const distToCorner = Math.hypot(dx, dy);
-    // Threshold of 0.3 × cBound: requires the viewport corners to
-    // sit well inside the cluster's CENTROID-bounded circle, with
-    // generous safety margin against the cluster's worst-direction
-    // FILLED extent (~0.6–0.7 × cBound for a Spectre supertile).
-    // Each iteration extends the root upward; the cluster's cBound
-    // grows by ~_INFLATION × (≈2.5×) per extension, and each
-    // extension is O(1), so a tighter threshold just means one or
-    // two more extensions for a typical view — well worth it to
-    // eliminate the "blank wedge" on the side of the viewport when
-    // the user pans away from the cluster's centroid.
-    if (distToCorner <= 0.3 * cBound) return;
+    if (distToCorner <= _COVER_THRESHOLD * cBound) break;
+    extendRootUpward();
+    if (walkerState.extensionLevel > _coverTargetLevel) {
+      _coverTargetLevel = walkerState.extensionLevel;
+    }
+  }
+  // Maintain headroom on top of the historical cover level. Updates to
+  // _coverTargetLevel only happen above (when phase 1 actually extends
+  // for cover), so this loop is a no-op once the headroom band is
+  // established and the view doesn't demand more cover.
+  while (safety-- > 0 &&
+         walkerState.extensionLevel < _coverTargetLevel + _EXTENSION_HEADROOM) {
     extendRootUpward();
   }
 }
@@ -957,6 +972,7 @@ self.onmessage = (e) => {
     walkerState.currentRootTransform = txIdentity;
     walkerState.currentBaseRecord = baseCluster;
     walkerState.extensionLevel = 0;
+    _coverTargetLevel = 0;
     postMessage({
       type: 'resetDone',
       ackId: m.ackId,
