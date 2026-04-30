@@ -37,6 +37,7 @@ const redirects = [
   ["/multiscale-turing-patterns/", "/sketches/multiscale-turing-patterns/"],
   ["/nose-hoover-attractor/", "/sketches/nose-hoover-attractor/"],
   ["/potential-flow/", "/sketches/potential-flow/"],
+  ["/projects/", "/notebooks/"],
   ["/random-polynomial-roots/", "/sketches/random-polynomial-roots/"],
   ["/rule-30/", "/sketches/rule-30/"],
   ["/schwarzschild-spacetime/", "/sketches/schwarzschild-spacetime/"],
