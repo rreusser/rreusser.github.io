@@ -47,6 +47,11 @@ const redirects = [
   ["/ueda-attractor/", "/sketches/ueda-attractor/"],
   ["/vortex-sdf/", "/sketches/vortex-sdf/"],
   ["/periodic-three-body-orbits/", "/notebooks/periodic-planar-three-body-orbits/"],
+  ["/mandelbrot/", "/sketches/mandelbrot/"],
+  ["/webcam-kmeans/", "/sketches/webcam-kmeans/"],
+  ["/path-integral-diffraction/", "/sketches/path-integral-diffraction/"],
+  ["/hydrodynamic-instabilities/", "/sketches/hydrodynamic-instabilities/"],
+  ["/clifford-torus/", "/sketches/clifford-torus/"],
 ];
 
 function htmlFor(targetUrl) {
