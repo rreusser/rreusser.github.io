@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "vite -c vite.config.js",
-    "build": "vite build -c vite.config.js && node scripts/copy-meta-images.js && node scripts/generate-rss.js && node scripts/generate-sitemap.js"
+    "build": "vite build -c vite.config.js && node scripts/copy-meta-images.js && node scripts/generate-rss.js && node scripts/generate-sitemap.js && node scripts/generate-redirects.js"
   },
   "keywords": [],
   "author": "",
