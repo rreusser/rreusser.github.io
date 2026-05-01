@@ -382,7 +382,11 @@ function extendRootUpward() {
 // ancestor sum doesn't snap when an extension was about to fire. Each
 // extension is O(1), so the extra levels are essentially free.
 const _COVER_THRESHOLD = 0.3;
-const _EXTENSION_HEADROOM = 3;
+// Headroom of 1 trades a small reduction in colour-kernel snap for a
+// much shorter find-distant-match search radius. Larger values inflate
+// the DAG depth (and the world-coord magnitudes the find descends to),
+// burning float-precision headroom for marginal snap improvements.
+const _EXTENSION_HEADROOM = 1;
 let _coverTargetLevel = 0;
 
 function maybeExtend(view) {
