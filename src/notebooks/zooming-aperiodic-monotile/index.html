@@ -897,7 +897,7 @@
     // the cell itself, positive values bias toward parents/grandparents
     // for a "zoomed-out" feel even at deep zoom. Mutated in place by the
     // controls cell; the walker re-reads on every walk().
-    const colorBlendState = { sigma: 2.35, offset: 4.9 };
+    const colorBlendState = { sigma: 4.0, offset: 5.0 };
 
     // Aggregate-hexagon shape parameters. `dilation` scales each
     // hexagon's circumradius around its centroid; values > 1 grow the
@@ -915,7 +915,7 @@
     // larger values aggregate sooner (low quality, fast walk). The
     // worker reads `view.aggPx` per walk; main passes this value in
     // every view message.
-    const qualityState = { aggPx: 50 };
+    const qualityState = { aggPx: 40 };
   </script>
 
   <script id="worker-setup" type="text/x-typescript">
