@@ -1,6 +1,6 @@
 import { observable, config } from "@observablehq/notebook-kit/vite";
 import { defineConfig } from "vite";
-import { debugNotebook } from "@rreusser/mcp-observable-notebookkit-debug";
+import { debugNotebook } from "@rreusser/mcp-observable-notebook-kit-debug";
 
 export default defineConfig({
   ...config(),

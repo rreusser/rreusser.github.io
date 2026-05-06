@@ -8,11 +8,11 @@
     "build": "vite build"
   },
   "devDependencies": {
-    "@observablehq/notebook-kit": "^1.5.1",
-    "@rreusser/mcp-observable-notebookkit-debug": "file:../../mcp-observable-notebookkit-debug",
+    "@observablehq/notebook-kit": "^1.5.2",
+    "@rreusser/mcp-observable-notebook-kit-debug": "^1.0.2",
     "@webgpu/types": "^0.1.69",
-    "typescript": "^5.9.3",
-    "vite": "^6.0.0"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
   },
   "dependencies": {
     "@zappar/msdf-generator": "^1.2.4"
