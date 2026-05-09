@@ -81,9 +81,21 @@ export class TileManager {
     this.requestQueue = [];
     this.bindGroupLayout = null; // set by main.js
     this.onTileResolved = null; // callback when a tile is loaded or 404s
+    this.onTileEvicted = null;  // callback when a tile is removed from cache
     this.wantedKeys = new Set();
     this.bounds = null;
     this.aabbCache = new Map(); // key -> { minElevation, maxElevation } — persists across GPU eviction
+    // Camera-distance prioritization for the request queue. Set once per
+    // coverage pass; null disables sorting (pure FIFO). Coordinates are
+    // mercator world (X=east, Y=up, Z=south); tile centers use Y=0.
+    this._cameraPos = null;
+  }
+
+  // Called by selectImageryTiles each coverage pass so the request queue
+  // can prefer tiles whose centers are closest to the camera. Best-effort:
+  // if multiple tiles tie or the camera is far above, FIFO ordering wins.
+  setCameraPos(eyeX, eyeY, eyeZ) {
+    this._cameraPos = [eyeX, eyeY, eyeZ];
   }
 
   getElevationBounds(z, x, y) {
@@ -104,11 +116,37 @@ export class TileManager {
     this.bounds = bounds;
   }
 
-  setBindGroupLayout(layout) {
+  setBindGroupLayout(layout, fallbackShadingTexture, shadingSampler) {
     this.bindGroupLayout = layout;
+    this._fallbackShadingView = fallbackShadingTexture.createView();
+    this._shadingSampler = shadingSampler;
     this._flatTileTexture = null;
     this._flatTileBindGroup = null;
     this._flatTileElevations = null;
+  }
+
+  // Build a per-tile bind group from elevation texture + (optional)
+  // baked shading texture. Falls back to the shared fallback shading
+  // view if no shading is provided.
+  _createTileBindGroup(elevTexture, shadingView) {
+    return this.device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: elevTexture.createView() },
+        { binding: 1, resource: shadingView || this._fallbackShadingView },
+        { binding: 2, resource: this._shadingSampler },
+      ],
+    });
+  }
+
+  // Called by LightingManager when a tile's shading texture is ready.
+  // Recreates the per-tile bind group with the new shading view; the
+  // elevation texture stays the same.
+  attachShading(z, x, y, shadingView) {
+    const entry = this.cache.get(this._key(z, x, y));
+    if (!entry || entry.isFlat) return;
+    entry.shadingView = shadingView;
+    entry.bindGroup = this._createTileBindGroup(entry.texture, shadingView);
   }
 
   // Shared zero-elevation tile resources, created lazily
@@ -127,10 +165,7 @@ export class TileManager {
       { bytesPerRow },
       [514, 514]
     );
-    this._flatTileBindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [{ binding: 0, resource: this._flatTileTexture.createView() }],
-    });
+    this._flatTileBindGroup = this._createTileBindGroup(this._flatTileTexture, null);
   }
 
   _cacheFlatTile(key) {
@@ -217,7 +252,10 @@ export class TileManager {
 
   _processQueue() {
     while (this.activeRequests < MAX_CONCURRENT && this.requestQueue.length > 0) {
-      const { z, x, y, key } = this.requestQueue.shift();
+      // Pick the queued tile whose center is closest to the camera. With
+      // no camera position set, _pickNextIndex returns 0 (FIFO).
+      const idx = this._pickNextIndex();
+      const { z, x, y, key } = this.requestQueue.splice(idx, 1)[0];
       if (this.cache.has(key) || this.pending.has(key) || this.failed.has(key)) continue;
 
       this.activeRequests++;
@@ -230,6 +268,29 @@ export class TileManager {
         this._processQueue();
       });
     }
+  }
+
+  _pickNextIndex() {
+    const cam = this._cameraPos;
+    if (!cam) return 0;
+    const cx = cam[0], cy = cam[1], cz = cam[2];
+    let bestIdx = 0;
+    let bestDist = this._tileDistSq(this.requestQueue[0], cx, cy, cz);
+    for (let i = 1; i < this.requestQueue.length; i++) {
+      const d = this._tileDistSq(this.requestQueue[i], cx, cy, cz);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    return bestIdx;
+  }
+
+  _tileDistSq({ z, x, y }, cx, cy, cz) {
+    const s = 1 / (1 << z);
+    const tileCx = (x + 0.5) * s;
+    const tileCz = (y + 0.5) * s;
+    const dx = tileCx - cx;
+    const dy = cy; // tile center sits at world Y = 0; cam Y is altitude
+    const dz = tileCz - cz;
+    return dx * dx + dy * dy + dz * dz;
   }
 
   async _loadTile(z, x, y, key, signal) {
@@ -304,14 +365,12 @@ export class TileManager {
         [514, 514],
       );
 
-      const bindGroup = this.device.createBindGroup({
-        layout: this.bindGroupLayout,
-        entries: [{ binding: 0, resource: texture.createView() }],
-      });
+      const bindGroup = this._createTileBindGroup(texture, null);
 
       this.cache.set(key, {
         texture,
         bindGroup,
+        shadingView: null,
         elevations,
         quadtree: null,
         minElevation,
@@ -351,11 +410,17 @@ export class TileManager {
     return entry;
   }
 
-  stripQuadtrees() {
+  // Drop the elevation quadtree from tiles not in the render list.
+  // Quadtrees (2.7 MB each) are rebuilt cheaply from `entry.elevations`
+  // by ensureQuadtree if the tile cycles back into raycast use, so this
+  // is purely an upper-bound CPU cost. Elevations are kept — stripping
+  // them breaks raycasting on tiles that re-enter the render list, and
+  // recovery would require a re-fetch.
+  stripChainCpuData(renderedKeys) {
     for (const [key, entry] of this.cache) {
-      if (!this.wantedKeys.has(key) && entry.quadtree) {
-        entry.quadtree = null;
-      }
+      if (entry.isFlat) continue;
+      if (renderedKeys.has(key)) continue;
+      if (entry.quadtree) entry.quadtree = null;
     }
   }
 
@@ -391,6 +456,10 @@ export class TileManager {
       entry.texture.destroy();
       this.cache.delete(oldestKey);
       realCount--;
+      if (this.onTileEvicted) {
+        const [zStr, xStr, yStr] = oldestKey.split('/');
+        this.onTileEvicted(+zStr, +xStr, +yStr);
+      }
     }
   }
 

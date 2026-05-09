@@ -96,8 +96,12 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
   // ---- Time ----
   const timeRow = makeRow("time");
   const timeOutput = document.createElement("output");
+  // Fixed width keeps the slider track from shifting horizontally as the
+  // label changes between e.g. "8:55 AM" (7 chars) and "11:55 PM" (8 chars).
+  // tabular-nums also prevents intra-label digit-width jitter.
   timeOutput.style.cssText =
-    "flex-shrink:0; font-variant-numeric:tabular-nums; text-align:left;";
+    "flex-shrink:0; font-variant-numeric:tabular-nums;" +
+    " text-align:right; width:5.25em; min-width:5.25em;";
   const timeSlider = document.createElement("input");
   timeSlider.type = "range";
   timeSlider.min = "0";
@@ -222,6 +226,25 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
   // time-driven lighting mode reads this every frame to compute solar
   // quantities without re-routing through the onChange callback.
   container.getUtcDate = getSelectedDate;
+
+  // Programmatic setters used by external "snap to sunrise / noon"
+  // buttons and by deep-linked URL state. Each updates the display
+  // and fires the onChange callback like a user edit would.
+  container.setTimeMinutes = (minutes) => {
+    timeSlider.value = String(Math.max(0, Math.min(1439, Math.round(minutes))));
+    computeAndNotify();
+  };
+  container.setDateISO = (iso) => {
+    if (!iso) return;
+    dateInput.value = iso;
+    computeAndNotify();
+  };
+  container.setTimezone = (tz) => {
+    if (!tz) return;
+    tzSelect.value = tz;
+    computeAndNotify();
+  };
+  container.getTimezone = () => tzSelect.value;
 
   return container;
 }

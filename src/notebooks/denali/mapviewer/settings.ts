@@ -37,12 +37,22 @@ export function createSettings(initial: Partial<Settings> = {}): Settings {
     slopeAspectOpacity: 0.95,
     treelineLower: 2000,
     treelineUpper: 2500,
-    contourOpacity: 0.5,
+    contourOpacity: 0.0,
     collisionBuffer: 4,
     occlusionBias: 0.03,
     atmosphereDensity: 0.35,
-    hillshadeOpacity: 0.95,
+    hillshadeStrength: 0.77,
     sunDirection: [0.5, 0.7, 0.5] as [number, number, number],
+    lightingEnabled: true,
+    shadowStrength: 0.75,
+    aoStrength: 0.8,
+    sunRadiusDeg: 0.265,
+    shadowSamples: 1,
+    // Mesh terrain is rendered N zoom levels coarser than imagery — visual
+    // detail comes from imagery and lighting at imagery resolution, not from
+    // vertex density. The lighting bake reads child tiles at this same offset
+    // below imagery so its output matches imagery scale.
+    meshTerrainOffset: 1,
     dirty: true,
     ...initial,
   } as Settings, {

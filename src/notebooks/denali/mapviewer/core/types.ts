@@ -75,8 +75,14 @@ export interface Settings {
   collisionBuffer: number;
   occlusionBias: number;
   atmosphereDensity: number;
-  hillshadeOpacity: number;
+  hillshadeStrength: number;
   sunDirection: [number, number, number];
+  lightingEnabled: boolean;
+  shadowStrength: number;
+  aoStrength: number;
+  sunRadiusDeg: number;
+  shadowSamples: number;
+  meshTerrainOffset: number;
   dirty: boolean;
 }
 

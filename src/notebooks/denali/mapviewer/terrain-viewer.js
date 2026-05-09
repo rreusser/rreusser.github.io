@@ -15,8 +15,10 @@ import { screenToRay, raycastTerrain } from './interaction/raycast.js';
 import { createSettings, createAttribution, estimateTreeline } from './settings.ts';
 import { cameraStateToHash, hashToCameraState } from './camera/hash-state.ts';
 import { FrustumOverlay } from './debug/frustum-overlay.js';
+import { MemoryTracker } from './debug/memory-tracker.js';
 import { CollisionManager } from './interaction/collision-manager.js';
 import { WorkerPool } from './workers/worker-pool.ts';
+import { LightingManager } from './lighting/lighting-manager.js';
 
 export class TerrainMap extends EventEmitter {
   /**
@@ -224,7 +226,7 @@ export class TerrainMap extends EventEmitter {
       () => new Worker(new URL('./workers/tile-decode.worker.ts', import.meta.url), { type: 'module' }),
     );
     this._tileManager = new TileManager(device, { tileUrl: tileUrlFromTemplate(terrain.tiles), encoding: terrain.encoding || 'terrain-rgb', workerPool: this._workerPool });
-    this._tileManager.setBindGroupLayout(gpu.textureBGL);
+    this._tileManager.setBindGroupLayout(gpu.textureBGL, gpu.fallbackShadingTexture, gpu.shadingSampler);
     this._tileManager.setBounds(this._terrainBounds);
 
     // Build base layers: each references a raster source
@@ -246,6 +248,22 @@ export class TerrainMap extends EventEmitter {
     this._minImageryZoom = layerDescriptors.length > 0 ? Math.min(...layerDescriptors.map(l => l.minzoom)) : Infinity;
     this._maxImageryZoom = layerDescriptors.length > 0 ? Math.max(...layerDescriptors.map(l => l.maxzoom)) : 0;
     this._imageryTileCache = new ImageryTileCache(device, layerDescriptors, gpu.imageryBGL, gpu.imagerySampler);
+
+    this._lightingManager = new LightingManager({
+      device,
+      gpu,
+      tileManager: this._tileManager,
+      settings: this.settings,
+    });
+    this._lightingManager.onShadingReady = () => { this._renderDirty = true; };
+
+    this.memoryTracker = new MemoryTracker({
+      gpu: this._gpu,
+      tileManager: this._tileManager,
+      imageryTileCache: this._imageryTileCache,
+      lightingManager: this._lightingManager,
+      getRenderList: () => this._cachedRenderList,
+    });
 
     this._coverageDirty = true;
     this._renderDirty = true;
@@ -290,18 +308,86 @@ export class TerrainMap extends EventEmitter {
     });
     await this._layerManager.initLayers(featureLayers, geojsonSources, options.font, options.simplifyFn);
 
-    this._tileManager.onTileResolved = () => {
+    this._tileManager.onTileResolved = (z, x, y) => {
       this._coverageDirty = true;
       this._renderDirty = true;
       this._refinementDirty = true;
       this._collisionManager.markStale();
       this._layerManager.invalidateLineElevations();
+      const entry = this._tileManager.getTile(z, x, y);
+      if (entry) this._lightingManager.onTileLoaded(z, x, y, entry);
+    };
+    this._tileManager.onTileEvicted = (z, x, y) => {
+      this._lightingManager.onTileEvicted(z, x, y);
     };
     this._imageryTileCache.onUpdate = () => { this._coverageDirty = true; this._renderDirty = true; };
 
     this._running = true;
     this._boundFrame = this._frame.bind(this);
+    // Tracks the previous idle/busy state so 'idle' fires only on the
+    // busy→idle edge, not every frame the map is sitting still.
+    this._wasIdle = false;
     requestAnimationFrame(this._boundFrame);
+  }
+
+  /**
+   * Returns true when nothing is in flight: no tile fetches queued or
+   * pending, no imagery fetches, no lighting bakes (static or shadow),
+   * no dirty coverage / render flags. Cheap to call.
+   */
+  isIdle() {
+    if (this._coverageDirty || this._renderDirty) return false;
+    if (this.camera && this.camera.dirty) return false;
+    // settings.dirty is only consumed inside _frame(); without checking
+    // it here, awaitIdle() could resolve synchronously between the
+    // setting write and the next animation frame, skipping the cascade
+    // (sun-direction change → shadow rebakes → final paint).
+    if (this.settings && this.settings.dirty) return false;
+    const tm = this._tileManager;
+    if (tm.requestQueue.length > 0 || tm.pending.size > 0) return false;
+    // Imagery layers each have their own queue + pending map.
+    if (this._imageryTileCache && this._imageryTileCache.layers) {
+      for (const layer of this._imageryTileCache.layers) {
+        const im = layer.imageryManager;
+        if (im && im.pending && im.pending.size > 0) return false;
+      }
+    }
+    const lm = this._lightingManager;
+    if (lm) {
+      if (lm._shadowDirtyKeys && lm._shadowDirtyKeys.size > 0) return false;
+      for (const state of lm.tiles.values()) {
+        if (state.staticInflight || state.shadowInflight) return false;
+        // missingChildren / missingParents that resolve to 404s never
+        // re-fire the bake — they don't keep us non-idle. Only inflight
+        // bakes do.
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Resolves on the next 'idle' event. If the map is already idle, the
+   * returned promise resolves on the next microtask so callers can
+   * consistently chain `await map.awaitIdle()` without worrying about
+   * synchronous early-resolution swallowing other handlers.
+   */
+  awaitIdle() {
+    if (this.isIdle()) return Promise.resolve();
+    return new Promise(resolve => this.once('idle', resolve));
+  }
+
+  // Called at the end of every _frame(). Emits 'idle' synchronously
+  // when transitioning from busy → idle so that an awaiting caller can
+  // capture canvas pixels (toDataURL etc.) immediately, before any
+  // subsequent state change starts new work.
+  _checkIdle() {
+    const idle = this.isIdle();
+    if (idle && !this._wasIdle) {
+      this._wasIdle = true;
+      this.emit('idle');
+    } else if (!idle) {
+      this._wasIdle = false;
+    }
   }
 
   _hitTest(clientX, clientY) {
@@ -328,6 +414,7 @@ export class TerrainMap extends EventEmitter {
       renderList: this._cachedRenderList,
       tileManager: this._tileManager,
       imageryTileCache: this._imageryTileCache,
+      lightingManager: this._lightingManager,
       exaggeration: this._currentExaggeration,
       globalElevScale: this._globalElevScale,
       lineLayers: this._layerManager._lineLayers,
@@ -375,6 +462,34 @@ export class TerrainMap extends EventEmitter {
       settings.dirty = false;
     }
 
+    // Toggling imagery on/off changes the wanted-tiles set (off = no
+    // imagery requests, gc clears the cache); kick coverage so the
+    // cleanup runs without waiting for camera movement.
+    if (this._lastShowImagery !== settings.showImagery) {
+      this._lastShowImagery = settings.showImagery;
+      this._coverageDirty = true;
+    }
+
+    // Detect inputs that require a shadow rebake: sun direction, sun
+    // radius, sample count. Strength sliders (ambient/ao/shadow/hillshade)
+    // are shader-side and don't need rebaking.
+    if (
+      this._lastSunDirection !== settings.sunDirection ||
+      this._lastSunRadiusDeg !== settings.sunRadiusDeg ||
+      this._lastShadowSamples !== settings.shadowSamples
+    ) {
+      this._lastSunDirection = settings.sunDirection;
+      this._lastSunRadiusDeg = settings.sunRadiusDeg;
+      this._lastShadowSamples = settings.shadowSamples;
+      this._lightingManager.onSunChanged();
+      this._renderDirty = true;
+    }
+
+    // Drive the lighting bake queue. tick() processes a small budget of
+    // bakes per frame; if more remain, we'll be called again next frame.
+    this._lightingManager.tick();
+    if (this._lightingManager._dirty) this._renderDirty = true;
+
     // Debounced path refinement (at most once per second)
     if (this._refinementDirty) {
       const now = performance.now();
@@ -387,7 +502,12 @@ export class TerrainMap extends EventEmitter {
       }
     }
 
-    if (!this._coverageDirty && !this._renderDirty && !camera.dirty) return;
+    if (!this._coverageDirty && !this._renderDirty && !camera.dirty) {
+      // Map is idle this frame too — fire the busy→idle edge if we
+      // were previously working but didn't enter the paint path.
+      this._checkIdle();
+      return;
+    }
 
     // Apply pending canvas resize (detected by ResizeObserver, no per-frame reflow)
     if (this._needsCanvasResize) {
@@ -437,6 +557,7 @@ export class TerrainMap extends EventEmitter {
       const maxElevY = this._MAX_ELEV_Y * this._currentExaggeration;
       this._tileManager.beginFrame();
       const hasImageryLayers = this._imageryTileCache.layers.length > 0;
+      const useImagery = hasImageryLayers && settings.showImagery;
       const minImageryZoom = this._minImageryZoom;
       const cache = this._imageryTileCache;
       // Track all imagery tiles touched during coverage (including pending ones
@@ -447,7 +568,7 @@ export class TerrainMap extends EventEmitter {
         this._currentExaggeration, settings.densityThreshold,
         this._terrainBounds, this._tileManager,
         this._maxTerrainZoom, this._maxImageryZoom,
-        hasImageryLayers ? (z, x, y) => {
+        useImagery ? (z, x, y) => {
           if (z < minImageryZoom) return true;
           if (!cache.overlapsAnyLayer(z, x, y)) return true;
           const key = `${z}/${x}/${y}`;
@@ -457,6 +578,7 @@ export class TerrainMap extends EventEmitter {
         } : null,
         this._globalElevScale,
         settings.imageryDensityThreshold,
+        settings.meshTerrainOffset,
       );
 
       // Add terrain tile keys from render list to wantedKeys (for GC)
@@ -474,22 +596,43 @@ export class TerrainMap extends EventEmitter {
 
       this._tileManager.cancelStale();
       this._tileManager.evict();
-      this._tileManager.stripQuadtrees();
-
-      // GC imagery tile cache: keep tiles in the render list + pending tiles
-      // that were touched during subdivision checks (so they survive until loaded)
-      const wantedImageryKeys = new Set(touchedImageryKeys);
+      const renderedTerrainKeys = new Set();
       for (const tile of this._cachedRenderList) {
-        wantedImageryKeys.add(`${tile.z}/${tile.x}/${tile.y}`);
+        renderedTerrainKeys.add(`${tile.terrainZ}/${tile.terrainX}/${tile.terrainY}`);
       }
-      this._imageryTileCache.gc(wantedImageryKeys);
+      this._tileManager.stripChainCpuData(renderedTerrainKeys);
+
+      // Register each unique mesh tile with LightingManager so it bakes
+      // lighting for them — and only them. Lighting child tiles loaded for
+      // bake input aren't registered (they're inputs, not bake targets).
+      for (const key of renderedTerrainKeys) {
+        const [zStr, xStr, yStr] = key.split('/');
+        this._lightingManager.ensureMeshTile(+zStr, +xStr, +yStr, settings.meshTerrainOffset);
+      }
+
+      // GC imagery tile cache: when imagery is toggled off, the wanted set
+      // is empty and gc() releases all GPU textures + cached bitmaps.
+      // Otherwise keep tiles in the render list + pending tiles that were
+      // touched during subdivision checks (so they survive until loaded).
+      if (!useImagery) {
+        this._imageryTileCache.gc(new Set());
+      } else {
+        const wantedImageryKeys = new Set(touchedImageryKeys);
+        for (const tile of this._cachedRenderList) {
+          wantedImageryKeys.add(`${tile.z}/${tile.x}/${tile.y}`);
+        }
+        this._imageryTileCache.gc(wantedImageryKeys);
+      }
 
       this._rebuildBVH();
       this._coverageDirty = false;
       this._renderDirty = true;
     }
 
-    if (!this._renderDirty) return;
+    if (!this._renderDirty) {
+      this._checkIdle();
+      return;
+    }
     this._renderDirty = false;
 
     // Collision detection (leading+trailing throttle, before prepare so hidden features are skipped)
@@ -518,6 +661,10 @@ export class TerrainMap extends EventEmitter {
 
     this.paint();
     this.emit('render');
+    // 'idle' fires synchronously after the paint when nothing else is
+    // pending — callers can `await map.awaitIdle()` then immediately
+    // capture the canvas.
+    this._checkIdle();
   }
 
   _rebuildBVH() {
@@ -708,6 +855,7 @@ export class TerrainMap extends EventEmitter {
     this._resizeObserver.disconnect();
     this.camera.destroy();
     this._layerManager.destroyAll();
+    this._lightingManager.destroy();
     this._workerPool.destroy();
     this._gpu.destroy();
   }

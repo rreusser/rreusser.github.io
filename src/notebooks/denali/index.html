@@ -40,6 +40,10 @@
         phi: 2.4972122538258654,
         theta: 0.13580281526641474,
       },
+      // Denali summit. Used to compute sun position; the global terrain
+      // bounds would otherwise default to (0, 0) (null island) and
+      // produce sunrise/sunset times for the equator.
+      location: { lat: 63.0692, lon: -151.0070 },
       base: [
         { id: 's2-imagery', source: 's2cloudless', blend: 'source-over' },
       ],
@@ -90,8 +94,11 @@
     import { createGPULines } from 'npm:webgpu-instanced-lines';
     import simplify from 'npm:simplify-js';
     import { expandable } from './lib/expandable.js';
+    import { createSnapshotButton } from './lib/snapshot.js';
     import { ElevationProfile } from './elevation-profile.js';
     import { gpx as gpxToGeoJSON } from 'npm:@tmcw/togeojson';
+    import { createMemoryWidget } from './mapviewer/debug/memory-tracker.js';
+    import { loadH264Encoder } from './lib/h264-mp4-encoder.js';
 
     const canvas = document.createElement('canvas');
     canvas.className = 'terrain';
@@ -170,6 +177,12 @@
     container.appendChild(viewer.attribution);
     container.appendChild(profilePanel);
 
+    const memoryWidget = createMemoryWidget(viewer.memoryTracker);
+    // Hidden by default — toggled from the Debug section in the controls.
+    memoryWidget.style.display = 'none';
+    container.appendChild(memoryWidget);
+    invalidation.then(() => memoryWidget.destroy());
+
     const dropOverlay = html`<div class="drop-overlay" style="display:none">Drop GeoJSON or GPX file</div>`;
     container.appendChild(dropOverlay);
 
@@ -205,6 +218,17 @@
       requestAnimationFrame(animate);
     });
 
+    // Snapshot button: triggers a redraw, awaits the busy→idle edge
+    // (tile fetches, lighting bakes, and the paint that follows them
+    // all settled), then captures canvas.toDataURL synchronously and
+    // downloads it. Using viewer.awaitIdle() instead of a single rAF
+    // means the captured image always reflects the fully-loaded scene.
+    const snapshotBtn = createSnapshotButton(canvas, {
+      filename: 'denali.png',
+      onSnapshot: () => viewer.triggerRedraw(),
+      awaitReady: () => viewer.awaitIdle(),
+    });
+
     display(expandable(container, {
       id: 'terrain-viewer',
       wide: true,
@@ -212,6 +236,7 @@
       height: 600,
       toggleOffset: [-12, -12],
       controls: '.terrain-controls',
+      buttons: [snapshotBtn],
       onResize(el, w, h) {
         canvas.style.width = `${w}px`;
         canvas.style.height = `${h}px`;
@@ -224,10 +249,10 @@
 
   <script id="controls" type="module">
     import SunCalc from 'npm:suncalc';
+    import { createSunCalendar } from './lib/sun-calendar.js';
 
     const controlsContainer = html`<div class="terrain-controls"></div>`;
 
-    const sunState = { date: new Date(), timeOfDay: 1, utcOffset: -8 };
     const location = viewer.location;
 
     function formatTime(decimal) {
@@ -236,11 +261,15 @@
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     }
 
+    // The sun-calendar widget below owns date / time / timezone state and
+    // hands us a UTC `Date` whenever the user interacts. This `updateSunDirection`
+    // converts that to the (x=east, y=up, z=south) sun direction the
+    // terrain renderer expects.
+    let sunCalendarEl; // assigned when we build the env section below
     function updateSunDirection() {
-      const tod = sunState.timeOfDay;
-      const d = sunState.date;
-      const sunDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(tod) - sunState.utcOffset, (tod % 1) * 60, 0));
-      const sunPos = SunCalc.getPosition(sunDate, location.lat, location.lon);
+      const utcDate = sunCalendarEl ? sunCalendarEl.getUtcDate() : null;
+      if (!utcDate) return;
+      const sunPos = SunCalc.getPosition(utcDate, location.lat, location.lon);
       const alt = sunPos.altitude;
       const az = sunPos.azimuth;
       viewer.settings.sunDirection = [
@@ -249,7 +278,6 @@
         Math.cos(alt) * Math.cos(az)
       ];
     }
-    updateSunDirection();
 
     function addControl(parent, input, onInput) {
       parent.appendChild(input);
@@ -642,10 +670,6 @@
       v => { viewer.settings.verticalExaggeration = v; }
     );
     addControl(analysisContent,
-      Inputs.range([0, 1], { value: viewer.settings.hillshadeOpacity, step: 0.01, label: "Hillshade opacity" }),
-      v => { viewer.settings.hillshadeOpacity = v; }
-    );
-    addControl(analysisContent,
       Inputs.range([0, 1], { value: viewer.settings.contourOpacity, step: 0.01, label: "Contour opacity" }),
       v => { viewer.settings.contourOpacity = v; }
     );
@@ -794,60 +818,76 @@
       v => { viewer.settings.treelineUpper = v; }
     );
 
-    // Environment section
-    const { section: environment, body: envContent } = createSection('Environment');
-    controlsContainer.appendChild(environment);
+    // Lighting section: ordered top-down as the user reads — global
+    // atmosphere first, then the master lighting toggle, then the three
+    // per-effect strength sliders, then sun-disk / sample quality, with
+    // the time-of-day calendar at the bottom.
+    const { section: lightingSection, body: lightingContent } = createSection('Lighting');
+    controlsContainer.appendChild(lightingSection);
 
-    addControl(envContent,
-      Inputs.date({ value: sunState.date, label: "Date" }),
-      v => { if (v) { sunState.date = v; updateSunDirection(); } }
+    addControl(lightingContent,
+      Inputs.range([0.05, 1], { value: viewer.settings.atmosphereDensity, step: 0.01, label: "Atmosphere density" }),
+      v => { viewer.settings.atmosphereDensity = v; }
+    );
+    addControl(lightingContent,
+      Inputs.range([0, 1], { value: viewer.settings.hillshadeStrength, step: 0.01, label: "Hillshade strength" }),
+      v => { viewer.settings.hillshadeStrength = v; }
+    );
+    addControl(lightingContent,
+      Inputs.range([0, 1], { value: viewer.settings.aoStrength, step: 0.01, label: "AO strength" }),
+      v => { viewer.settings.aoStrength = v; }
+    );
+    addControl(lightingContent,
+      Inputs.range([0, 1], { value: viewer.settings.shadowStrength, step: 0.01, label: "Cast shadow strength" }),
+      v => { viewer.settings.shadowStrength = v; }
+    );
+    addControl(lightingContent,
+      Inputs.range([0.05, 5], { value: viewer.settings.sunRadiusDeg, step: 0.01, label: "Sun radius (°)" }),
+      v => { viewer.settings.sunRadiusDeg = v; }
+    );
+    addControl(lightingContent,
+      Inputs.range([1, 16], { value: viewer.settings.shadowSamples, step: 1, label: "Shadow samples" }),
+      v => { viewer.settings.shadowSamples = v; }
     );
 
-    const timeInput = Inputs.range([0, 24], { value: sunState.timeOfDay, step: 1 / 60, label: "Time of day" });
-    const timeOutput = timeInput.querySelector('output');
-    if (timeOutput) timeOutput.textContent = formatTime(sunState.timeOfDay);
-    addControl(envContent, timeInput, v => {
-      sunState.timeOfDay = v;
-      if (timeOutput) timeOutput.textContent = formatTime(v);
-      updateSunDirection();
+    // Time-of-day controls at the bottom of the lighting section.
+    sunCalendarEl = createSunCalendar(SunCalc, {
+      getLocation: () => [location.lat, location.lon],
+      onChange: () => { updateSunDirection(); updateSunTimes(); },
     });
+    lightingContent.appendChild(sunCalendarEl);
 
-    const tzOptions = [
-      { label: 'AKST (UTC−9)', offset: -9 },
-      { label: 'AKDT (UTC−8)', offset: -8 },
-      { label: 'PST (UTC−8)', offset: -8 },
-      { label: 'PDT (UTC−7)', offset: -7 },
-      { label: 'MST (UTC−7)', offset: -7 },
-      { label: 'MDT (UTC−6)', offset: -6 },
-      { label: 'CST (UTC−6)', offset: -6 },
-      { label: 'CDT (UTC−5)', offset: -5 },
-      { label: 'EST (UTC−5)', offset: -5 },
-      { label: 'EDT (UTC−4)', offset: -4 },
-    ];
-    const defaultTz = 'AKDT (UTC-8)'; //location.lat > 55 ? 'AKDT (UTC−8)' : 'PDT (UTC−7)';
-    const tzSelect = Inputs.select(tzOptions.map(t => t.label), { value: defaultTz, label: "Time zone" });
-    addControl(envContent, tzSelect, v => {
-      const tz = tzOptions.find(t => t.label === v);
-      if (tz) sunState.utcOffset = tz.offset;
-      updateSunDirection();
-    });
-    // Apply default
-    const defaultTzEntry = tzOptions.find(t => t.label === defaultTz);
-    if (defaultTzEntry) sunState.utcOffset = defaultTzEntry.offset;
-    updateSunDirection();
-
-    // Astronomical times display
+    // Astronomical times display — buttons that snap the calendar's
+    // time slider to sunrise / golden-hour / noon / sunset for the
+    // currently selected date and timezone.
     const sunTimesEl = html`<div class="sun-times"></div>`;
-    envContent.appendChild(sunTimesEl);
+    lightingContent.appendChild(sunTimesEl);
 
-    function utcToLocal(date) {
-      return date.getTime() / 3600000 + sunState.utcOffset;
+    // Convert a UTC Date to the wall-clock minute-of-day in the
+    // calendar's selected timezone.
+    function wallMinutes(utcDate, tz) {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+      }).formatToParts(utcDate);
+      const h = parseInt(parts.find(p => p.type === 'hour').value, 10) % 24;
+      const m = parseInt(parts.find(p => p.type === 'minute').value, 10);
+      return h * 60 + m;
     }
 
     function updateSunTimes() {
-      const d = sunState.date;
-      const utcDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0));
-      const times = SunCalc.getTimes(utcDate, location.lat, location.lon);
+      if (!sunTimesEl || !sunCalendarEl) return;
+      const utcDate = sunCalendarEl.getUtcDate();
+      if (!utcDate) return;
+      const tz = sunCalendarEl.getTimezone();
+      // Anchor at solar noon UTC for the selected calendar date so that
+      // SunCalc.getTimes returns the day's sunrise / sunset for the
+      // user's chosen day rather than slipping a day across the IDL.
+      const dayKey = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(utcDate);
+      const [yyyy, mm, dd] = dayKey.split('-').map(Number);
+      const noonUtc = new Date(Date.UTC(yyyy, mm - 1, dd, 12, 0, 0));
+      const times = SunCalc.getTimes(noonUtc, location.lat, location.lon);
       const events = [
         ['Sunrise', times.sunrise],
         ['AM golden', times.goldenHourEnd],
@@ -857,29 +897,21 @@
       ];
       sunTimesEl.innerHTML = '';
       for (const [label, date] of events) {
-        const localHrs = utcToLocal(date);
-        const hrs = ((localHrs % 24) + 24) % 24;
+        if (!date || isNaN(+date)) continue;
+        const minutes = wallMinutes(date, tz);
+        const hrs = minutes / 60;
         const btn = html`<button class="sun-time-btn"><span class="sun-time-label">${label}</span><span class="sun-time-value">${formatTime(hrs)}</span></button>`;
-        btn.addEventListener('click', () => {
-          sunState.timeOfDay = hrs;
-          timeInput.value = hrs;
-          timeInput.dispatchEvent(new Event('input', { bubbles: true }));
-        });
+        btn.addEventListener('click', () => sunCalendarEl.setTimeMinutes(minutes));
         sunTimesEl.appendChild(btn);
       }
     }
+
+    // Now that updateSunTimes / sunTimesEl exist, default the timezone
+    // to Alaska (Denali). This fires the calendar's onChange handler,
+    // which is now safe to call.
+    sunCalendarEl.setTimezone('America/Anchorage');
+    updateSunDirection();
     updateSunTimes();
-
-    // Re-derive sun times when date or timezone changes
-    const origDateHandler = sunState._onDateChange;
-    const dateInput = envContent.querySelector('input[type="date"]');
-    if (dateInput) dateInput.addEventListener('input', () => setTimeout(updateSunTimes, 0));
-    tzSelect.addEventListener('input', () => setTimeout(updateSunTimes, 0));
-
-    addControl(envContent,
-      Inputs.range([0.05, 1], { value: viewer.settings.atmosphereDensity, step: 0.01, label: "Atmosphere density" }),
-      v => { viewer.settings.atmosphereDensity = v; }
-    );
 
     const { section: debug, body: debugContent } = createSection('Debug');
     controlsContainer.appendChild(debug);
@@ -889,12 +921,16 @@
       v => { viewer.fov = v; }
     );
     addControl(debugContent,
-      Inputs.range([0.2, 2], { value: 1 / viewer.settings.densityThreshold, step: 0.01, label: "Terrain detail" }),
+      Inputs.range([0.2, 4], { value: 1 / viewer.settings.densityThreshold, step: 0.01, label: "Terrain detail" }),
       v => { viewer.settings.densityThreshold = 1 / v; }
     );
     addControl(debugContent,
-      Inputs.range([0.2, 2], { value: 1 / viewer.settings.imageryDensityThreshold, step: 0.01, label: "Imagery detail" }),
+      Inputs.range([0.2, 4], { value: 1 / viewer.settings.imageryDensityThreshold, step: 0.01, label: "Imagery detail" }),
       v => { viewer.settings.imageryDensityThreshold = 1 / v; }
+    );
+    addControl(debugContent,
+      Inputs.toggle({ label: "Show memory overlay" }),
+      v => { memoryWidget.style.display = v ? '' : 'none'; }
     );
     addControl(debugContent,
       Inputs.toggle({ label: "Show tile borders" }),
@@ -912,6 +948,132 @@
       Inputs.toggle({ label: "Show collision boxes" }),
       v => { viewer.settings.showCollisionBoxes = v; }
     );
+
+    // ── Record section ─────────────────────────────────────────────
+    // Renders a 24-hour timelapse from the current view by stepping the
+    // sun calendar's time slider through 0..1440 minutes in even
+    // increments, awaiting viewer.awaitIdle() per frame so all tile
+    // fetches and lighting bakes settle, then encoding to MP4.
+    const { section: record, body: recordContent } = createSection('Record');
+    controlsContainer.appendChild(record);
+
+    const recordState = { frames: 240, fps: 30, qp: 22 };
+    addControl(recordContent,
+      Inputs.range([24, 1440], { value: recordState.frames, step: 1, label: "Frames" }),
+      v => { recordState.frames = Math.round(v); }
+    );
+    addControl(recordContent,
+      Inputs.range([10, 60], { value: recordState.fps, step: 1, label: "FPS" }),
+      v => { recordState.fps = Math.round(v); }
+    );
+    addControl(recordContent,
+      Inputs.range([10, 51], { value: recordState.qp, step: 1, label: "Quality (lower = better)" }),
+      v => { recordState.qp = Math.round(v); }
+    );
+
+    const recordBtn = html`<button class="draw-path-btn record-btn">Record 24h timelapse</button>`;
+    const recordStatus = html`<span class="record-status" style="margin-left:8px; font:11px system-ui,sans-serif; color:#666;"></span>`;
+    const recordRow = html`<div style="padding:4px 0;"></div>`;
+    recordRow.appendChild(recordBtn);
+    recordRow.appendChild(recordStatus);
+    recordContent.appendChild(recordRow);
+
+    let recording = false;
+    recordBtn.addEventListener('click', async () => {
+      if (recording) return;
+      recording = true;
+      recordBtn.disabled = true;
+      const origText = recordBtn.textContent;
+      recordBtn.textContent = 'Recording…';
+
+      // Save current time so we can restore it after the loop. The
+      // sun-calendar widget owns the source of truth, but we derive
+      // minutes-of-day from the UTC date + selected timezone.
+      const savedUtc = sunCalendarEl.getUtcDate();
+      const savedMinutes = wallMinutes(savedUtc, sunCalendarEl.getTimezone());
+
+      // Force-even canvas dimensions (h264 requires even macroblocks).
+      const w = canvas.width - (canvas.width & 1);
+      const h = canvas.height - (canvas.height & 1);
+
+      try {
+        const HME = await loadH264Encoder();
+        const enc = await HME.createH264MP4Encoder();
+        enc.outputFilename = 'denali-timelapse.mp4';
+        enc.width = w;
+        enc.height = h;
+        enc.frameRate = recordState.fps;
+        enc.quantizationParameter = recordState.qp;
+        enc.initialize();
+
+        // Off-DOM 2D canvas to read pixels back from the WebGPU canvas.
+        // toDataURL would force a base64 round-trip per frame; drawImage
+        // + getImageData skips it.
+        const tmp = document.createElement('canvas');
+        tmp.width = w;
+        tmp.height = h;
+        const tmpCtx = tmp.getContext('2d', { willReadFrequently: true });
+
+        const totalFrames = recordState.frames;
+        const t0 = performance.now();
+        const device = viewer._gpu.device;
+        for (let i = 0; i < totalFrames; i++) {
+          const minutes = Math.round((i / totalFrames) * 1440);
+          sunCalendarEl.setTimeMinutes(minutes);
+          // Defensive: also taint the camera so the very first iteration
+          // can't shortcut through isIdle in case settings.dirty was
+          // already cleared by a concurrent frame.
+          viewer.triggerRedraw();
+          await viewer.awaitIdle();
+          await device.queue.onSubmittedWorkDone();
+          // Read the canvas via toBlob → createImageBitmap. drawImage
+          // and createImageBitmap-from-canvas both come back as ALL
+          // BLACK on a WebGPU canvas (the swap-chain texture is
+          // consumed by the compositor and not exposed to those reader
+          // paths), but the toBlob / toDataURL code path explicitly
+          // captures the rendered content. Slower (PNG roundtrip per
+          // frame) but the only reliable readback we have without
+          // re-architecting the renderer to also write to an off-canvas
+          // capture texture.
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+          const bitmap = await createImageBitmap(blob);
+          tmpCtx.drawImage(bitmap, 0, 0, w, h);
+          bitmap.close();
+          const imageData = tmpCtx.getImageData(0, 0, w, h);
+          enc.addFrameRgba(imageData.data);
+          const pct = (((i + 1) / totalFrames) * 100).toFixed(1);
+          const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+          recordStatus.textContent = `Frame ${i + 1} / ${totalFrames} (${pct}%, ${elapsed}s)`;
+        }
+
+        recordStatus.textContent = 'Finalizing MP4…';
+        enc.finalize();
+        const bytes = enc.FS.readFile(enc.outputFilename);
+        enc.delete();
+
+        const blob = new Blob([bytes], { type: 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'denali-timelapse.mp4';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        const sec = ((performance.now() - t0) / 1000).toFixed(1);
+        recordStatus.textContent = `Done — ${(bytes.length / 1024 / 1024).toFixed(2)} MB in ${sec}s`;
+      } catch (err) {
+        console.error('record failed', err);
+        recordStatus.textContent = `Error: ${err.message}`;
+      } finally {
+        // Restore the user's original time selection.
+        sunCalendarEl.setTimeMinutes(savedMinutes);
+        recording = false;
+        recordBtn.disabled = false;
+        recordBtn.textContent = origText;
+      }
+    });
 
     display(controlsContainer);
   </script>
@@ -1041,6 +1203,45 @@ I mean, let's be clear. This is a totally half-baked one-off ad hoc renderer. It
         white-space: nowrap;
       }
 
+      .memory-widget {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        color: #ddd;
+        font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        border-radius: 4px;
+        pointer-events: auto;
+        user-select: text;
+        z-index: 3;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+        max-width: 360px;
+      }
+      .memory-widget-header {
+        padding: 5px 9px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        user-select: none;
+      }
+      .memory-widget-chevron {
+        font-size: 9px;
+        opacity: 0.7;
+        width: 8px;
+        display: inline-block;
+      }
+      .memory-widget-summary {
+        flex: 1;
+      }
+      .memory-widget-body {
+        margin: 0;
+        padding: 0 10px 8px;
+        white-space: pre;
+        font: inherit;
+        color: inherit;
+      }
+
       .terrain-attribution {
         position: absolute;
         bottom: 0;
@@ -1051,12 +1252,14 @@ I mean, let's be clear. This is a totally half-baked one-off ad hoc renderer. It
         border-top-left-radius: 2px;
         line-height: 1.4;
         pointer-events: auto;
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #222;
       }
-      .terrain-attribution a {
-        color: #333;
+      .terrain-attribution a[href] {
+        color: #222 !important;
         text-decoration: none;
       }
-      .terrain-attribution a:hover {
+      .terrain-attribution a[href]:hover {
         text-decoration: underline;
       }
 

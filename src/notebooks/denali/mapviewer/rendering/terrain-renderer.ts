@@ -4,6 +4,17 @@ import type { GPUContext } from './gpu-context.ts';
 import type { SkyRenderer } from './sky-renderer.ts';
 import type { TerrainMesh } from '../tiles/mesh.ts';
 
+// Reshape a [0,1] strength slider so equal slider movement gives equal
+// perceptual change rather than equal linear-light change. Endpoints are
+// preserved (0→0, 1→1); the middle of the slider gets pushed toward the
+// "more effect" side. Equivalent to applying a gamma curve to the
+// (1 - slider) "no-effect amount." Matches the typical sRGB display
+// gamma so dark output maps roughly linearly to slider position.
+function perceptualSlider(v: number, gamma = 2.2): number {
+  const t = Math.max(0, Math.min(1, v));
+  return 1.0 - Math.pow(1.0 - t, gamma);
+}
+
 export class TerrainRenderer {
   _gpu: GPUContext;
   _sky: SkyRenderer;
@@ -35,7 +46,7 @@ export class TerrainRenderer {
 
     this._mvpFloat32 = new Float32Array(16);
     this._modelFloat32 = new Float32Array(16);
-    this._uniformData = new Float32Array(56);
+    this._uniformData = new Float32Array(60);
     this._globalUniformData = new Float32Array(24);
   }
 
@@ -46,6 +57,7 @@ export class TerrainRenderer {
     renderList: any[];
     tileManager: any;
     imageryTileCache: any;
+    lightingManager: any;
     exaggeration: number;
     globalElevScale: number;
     lineLayers: any[];
@@ -56,7 +68,7 @@ export class TerrainRenderer {
     pixelRatio: number;
   }) {
     const {
-      canvas, camera, settings, renderList, tileManager, imageryTileCache,
+      canvas, camera, settings, renderList, tileManager, imageryTileCache, lightingManager,
       exaggeration, globalElevScale,
       lineLayers, circleLayers, textLayers,
       frustumOverlay, collisionManager, pixelRatio,
@@ -102,23 +114,29 @@ export class TerrainRenderer {
       ud[35] = 1 / (D + 2);
       ud[36] = settings.showTileBorders ? 1.0 : 0.0;
       ud[37] = settings.showImagery ? (hasImagery ? 1.0 : 0.0) : 1.0;
-      ud[38] = settings.hillshadeOpacity;
-      ud[39] = settings.slopeAngleOpacity;
-      ud[40] = settings.contourOpacity;
-      ud[41] = canvas.height;
-      ud[42] = settings.showWireframe ? 1.0 : 0.0;
-      ud[43] = settings.slopeAspectMaskAbove;
-      ud[44] = settings.slopeAspectMaskNear;
-      ud[45] = settings.slopeAspectMaskBelow;
-      ud[46] = settings.slopeAspectOpacity;
-      ud[47] = settings.treelineLower * 0.3048;
-      ud[48] = settings.treelineUpper * 0.3048;
-      ud[49] = D;                          // grid_data_size
+      ud[38] = settings.slopeAngleOpacity;
+      ud[39] = settings.contourOpacity;
+      ud[40] = canvas.height;
+      ud[41] = settings.showWireframe ? 1.0 : 0.0;
+      ud[42] = settings.slopeAspectMaskAbove;
+      ud[43] = settings.slopeAspectMaskNear;
+      ud[44] = settings.slopeAspectMaskBelow;
+      ud[45] = settings.slopeAspectOpacity;
+      ud[46] = settings.treelineLower * 0.3048;
+      ud[47] = settings.treelineUpper * 0.3048;
+      ud[48] = D;                          // grid_data_size
+      // ud[49] is implicit padding so the following vec2 lands at an 8-byte
+      // boundary (WGSL std140-ish layout for vec2<f32>).
+      ud[49] = 0;
       ud[50] = tile.terrainUvOffsetU;      // terrain_uv_offset.x
       ud[51] = tile.terrainUvOffsetV;      // terrain_uv_offset.y
       ud[52] = tile.terrainUvScaleU;       // terrain_uv_scale.x
       ud[53] = tile.terrainUvScaleV;       // terrain_uv_scale.y
       ud[54] = terrainCellSize;            // terrain_cell_size
+      ud[55] = settings.lightingEnabled ? 1.0 : 0.0; // lighting_enabled
+      ud[56] = perceptualSlider(settings.shadowStrength);    // shadow_strength
+      ud[57] = settings.aoStrength;        // ao_strength (atan tonemap handles its own curve)
+      ud[58] = perceptualSlider(settings.hillshadeStrength); // hillshade_strength
 
       let imageryBindGroup;
       if (!settings.showImagery) {
@@ -131,7 +149,7 @@ export class TerrainRenderer {
 
       const mesh = gpu.meshPool.getMesh(D);
 
-      device.queue.writeBuffer(gpu.uniformBuffer, tileIndex * gpu.UNIFORM_STRIDE, ud.buffer, ud.byteOffset, 224);
+      device.queue.writeBuffer(gpu.uniformBuffer, tileIndex * gpu.UNIFORM_STRIDE, ud.buffer, ud.byteOffset, 236);
       draws.push({
         offset: tileIndex * gpu.UNIFORM_STRIDE,
         bindGroup: terrainEntry.bindGroup,

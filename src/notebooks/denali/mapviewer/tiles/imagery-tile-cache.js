@@ -231,6 +231,10 @@ export class ImageryTileCache {
       { texture: entry.texture },
       [CANVAS_SIZE, CANVAS_SIZE],
     );
+    // Release the canvas after upload — _recomposite recreates lazily.
+    // Saves ~1 MB per imagery tile that took the canvas path.
+    entry.canvas = null;
+    entry.ctx = null;
   }
 
   /**

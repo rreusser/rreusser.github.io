@@ -12,7 +12,6 @@ struct Uniforms {
   texel_size: f32,
   show_tile_borders: f32,
   has_imagery: f32,
-  hillshade_opacity: f32,
   slope_angle_opacity: f32,
   contour_opacity: f32,
   viewport_height: f32,
@@ -27,6 +26,10 @@ struct Uniforms {
   terrain_uv_offset: vec2<f32>,
   terrain_uv_scale: vec2<f32>,
   terrain_cell_size: f32,
+  lighting_enabled: f32,
+  shadow_strength: f32,
+  ao_strength: f32,
+  hillshade_strength: f32,
 };
 `;
 
@@ -49,11 +52,10 @@ struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) uv: vec2<f32>,
   @location(1) world_position: vec3<f32>,
-  @location(2) shade: f32,
-  @location(3) elevation_m: f32,
-  @location(4) slope_angle: f32,
-  @location(5) slope_aspect_sin: f32,
-  @location(6) slope_aspect_cos: f32,
+  @location(2) elevation_m: f32,
+  @location(3) slope_angle: f32,
+  @location(4) slope_aspect_sin: f32,
+  @location(5) slope_aspect_cos: f32,
 };
 
 fn loadElevation(coord: vec2<i32>) -> f32 {
@@ -79,14 +81,23 @@ fn vs_main(@location(0) grid_pos: vec2<u32>) -> VertexOutput {
   let u = clamp(f32(inner_u) - 0.5, 0.0, D);
   let v = clamp(f32(inner_v) - 0.5, 0.0, D);
 
-  // Terrain texel coordinates: offset local inner coords into the parent
-  // elevation texture. When rendering a sub-tile of a coarser terrain tile,
-  // terrain_texel_offset shifts sampling into the correct sub-region of the
-  // 514x514 elevation texture. Each mesh vertex maps 1:1 onto a terrain texel.
-  let terrain_texel_offset_u = i32(round(uniforms.terrain_uv_offset.x * 512.0));
-  let terrain_texel_offset_v = i32(round(uniforms.terrain_uv_offset.y * 512.0));
-  let t_inner_u = inner_u + terrain_texel_offset_u;
-  let t_inner_v = inner_v + terrain_texel_offset_v;
+  // Map mesh inner coords (0..D+1) into the terrain elevation texture's
+  // inner texel coords (0..512). The mesh covers (terrain_uv_scale * 512)
+  // texels of terrain in each axis; each vertex therefore advances
+  // (terrain_uv_scale * 512 / D) texels. When the imagery zoom matches
+  // the terrain zoom this collapses to 1 texel per vertex (the original
+  // 1:1 mapping). When the mesh is finer than the terrain (heavy zoom
+  // delta during cold-load fallbacks), multiple vertices land on the
+  // same texel — correct, just low-resolution. The previous code added
+  // inner_u directly without scaling, which caused vertices at large
+  // delta to read texels far outside the imagery region, producing
+  // visible spike artifacts during loading.
+  let texels_per_vertex_u = uniforms.terrain_uv_scale.x * 512.0 / D;
+  let texels_per_vertex_v = uniforms.terrain_uv_scale.y * 512.0 / D;
+  let t_u_f = uniforms.terrain_uv_offset.x * 512.0 + f32(inner_u) * texels_per_vertex_u;
+  let t_v_f = uniforms.terrain_uv_offset.y * 512.0 + f32(inner_v) * texels_per_vertex_v;
+  let t_inner_u = i32(round(t_u_f));
+  let t_inner_v = i32(round(t_v_f));
 
   // Texel indices for elevation sampling (using terrain-space inner coords).
   // Interior: single texel. Boundary/skirt (<=0 or >=513): average two texels.
@@ -126,9 +137,9 @@ fn vs_main(@location(0) grid_pos: vec2<u32>) -> VertexOutput {
     out.position = uniforms.mvp * skirt_pos;
   }
 
-  // Hillshade: compute normal from neighbor elevations in terrain texel space.
-  // At tile borders, extend the stencil so it always spans 2 texels
-  // to avoid halving the gradient (which creates visible seams).
+  // Slope angle still derived from the elevation texture for the slope
+  // overlay + contour spacing; lit hillshade now comes from the baked
+  // shading texture in the fragment shader.
   var lu = t_inner_u - 1; var ru = t_inner_u + 1;
   if (lu < 0) { lu = 0; ru = 2; }
   else if (ru > 513) { ru = 513; lu = 511; }
@@ -145,10 +156,6 @@ fn vs_main(@location(0) grid_pos: vec2<u32>) -> VertexOutput {
   let dzdx = (zR - zL) / (2.0 * cellSize);
   let dzdy = (zD - zU) / (2.0 * cellSize);
 
-  let normal = vec3<f32>(-dzdx, 1.0, -dzdy);
-  let sun = globals.sun_direction.xyz;
-  let sun_horizon = smoothstep(-0.02, 0.02, sun.y);
-  out.shade = max(0.0, dot(normal, sun) * inverseSqrt(dot(normal, normal))) * sun_horizon;
   out.elevation_m = elevation - skirt_drop;
   let gradient_mag = sqrt(dzdx * dzdx + dzdy * dzdy);
   out.slope_angle = atan(gradient_mag) * 57.29578;
@@ -167,6 +174,8 @@ export const terrainFragmentShader = uniformStruct + `
 ` + atmosphereCode + /* wgsl */`
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(1) @binding(1) var shadingTexture: texture_2d<f32>;
+@group(1) @binding(2) var shadingSampler: sampler;
 @group(2) @binding(0) var<uniform> globals: GlobalUniforms;
 @group(3) @binding(0) var imageryTexture: texture_2d<f32>;
 @group(3) @binding(1) var imagerySampler: sampler;
@@ -238,13 +247,22 @@ fn contourLinearstep(edge0: f32, edge1: f32, x: f32) -> f32 {
   return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
 }
 
-fn blendedContours(elevation_ft: f32, tile_uv: vec2<f32>) -> f32 {
+// Returns (line_alpha, halo_alpha): the line itself at line_width, and a
+// wider halo at halo_width. Both share the same per-octave Shepard
+// weighting so they fade in/out together as zoom crosses a level.
+fn blendedContours(elevation_ft: f32, tile_uv: vec2<f32>) -> vec2<f32> {
   let D = uniforms.grid_data_size;
   let divisions = 5.0;       // 40 -> 200 -> 1000 -> 5000
   let base_spacing = 40.0;   // finest contour spacing in feet
   let min_spacing = 8.0;     // minimum pixels between contours before octave shift
   let line_width = 2.0;
+  let halo_width = line_width * 2.0;  // 200% of the line, drawn underneath
   let antialias = 1.0;
+  // Halo gets a softer edge so it doesn't read as a second hard stroke
+  // — its outer falloff spans more pixels than the line's, while the
+  // inner edge is still tied to the same line_width so the two
+  // transitions stay aligned.
+  let halo_antialias = 2.0;
   let n = 3.0;
 
   // All derivatives must be computed before any non-uniform control flow
@@ -252,7 +270,7 @@ fn blendedContours(elevation_ft: f32, tile_uv: vec2<f32>) -> f32 {
   let h_feet_pp = 0.5 * (fwidth(tile_uv.x) + fwidth(tile_uv.y))
     * (D + 2.0) * uniforms.terrain_cell_size * 3.28084;
 
-  if (elev_grad < 1e-6) { return 0.0; }
+  if (elev_grad < 1e-6) { return vec2<f32>(0.0, 0.0); }
 
   // Unclamped continuous octave from horizontal screen density.
   // Negative values mean the screen can resolve finer than base_spacing.
@@ -263,15 +281,21 @@ fn blendedContours(elevation_ft: f32, tile_uv: vec2<f32>) -> f32 {
   var width_scale = contour_spacing / elev_grad;
 
   // Shepard tone: each octave fades in, holds, and fades out
-  var contour_sum = 0.0;
+  var line_sum = 0.0;
+  var halo_sum = 0.0;
   for (var i = 0; i < 3; i++) {
     let t = f32(i) + 1.0 - fract(local_octave);
     let weight = smoothstep(0.0, 1.0, t) * smoothstep(n, n - 1.0, t);
 
     let dist_px = (0.5 - abs(fract(plot_var) - 0.5)) * width_scale;
-    contour_sum += weight * contourLinearstep(
+    line_sum += weight * contourLinearstep(
       0.5 * (line_width + antialias),
       0.5 * (line_width - antialias),
+      dist_px
+    );
+    halo_sum += weight * contourLinearstep(
+      0.5 * (halo_width + halo_antialias),
+      0.5 * (halo_width - halo_antialias),
       dist_px
     );
 
@@ -279,7 +303,7 @@ fn blendedContours(elevation_ft: f32, tile_uv: vec2<f32>) -> f32 {
     plot_var /= divisions;
   }
 
-  return contour_sum / n;
+  return vec2<f32>(line_sum, halo_sum) / n;
 }
 
 fn applyAtmosphere(color: vec3<f32>, world_pos: vec3<f32>) -> vec3<f32> {
@@ -305,11 +329,10 @@ fn applyAtmosphere(color: vec3<f32>, world_pos: vec3<f32>) -> vec3<f32> {
 fn fs_main(
   @location(0) uv: vec2<f32>,
   @location(1) world_position: vec3<f32>,
-  @location(2) shade: f32,
-  @location(3) elevation_m: f32,
-  @location(4) slope_angle: f32,
-  @location(5) slope_aspect_sin: f32,
-  @location(6) slope_aspect_cos: f32,
+  @location(2) elevation_m: f32,
+  @location(3) slope_angle: f32,
+  @location(4) slope_aspect_sin: f32,
+  @location(5) slope_aspect_cos: f32,
 ) -> @location(0) vec4<f32> {
   let D = uniforms.grid_data_size;
 
@@ -357,13 +380,66 @@ fn fs_main(
     base_color = pow(blended_srgb, vec3<f32>(2.2));
   }
 
-  let lit = base_color * mix(1.0, shade, uniforms.hillshade_opacity);
+  // Sample the baked shading (rgba8: nx, ny, ao, shadow). The shading
+  // texture lives in terrain-tile space, so transform the imagery uv
+  // (which is in mesh space, padded by the 1-texel skirt) the same way
+  // the imagery branch above does. Then re-project via terrain_uv_*
+  // for sub-tile rendering when the terrain tile is a parent of the
+  // current imagery tile.
+  let mesh_inner_uv = (uv * (D + 2.0) - 1.0) / D;
+  let shading_uv = uniforms.terrain_uv_offset + mesh_inner_uv * uniforms.terrain_uv_scale;
+  let shading = textureSampleLevel(shadingTexture, shadingSampler, shading_uv, 0.0);
+  let nx = shading.r * 2.0 - 1.0;
+  let ny = shading.g * 2.0 - 1.0;
+  let ao = shading.b;
+  let cast_shadow = shading.a;
+  let nz = sqrt(max(0.0, 1.0 - nx * nx - ny * ny));
+  // The bake stores nx = -df/dx (east-gradient surface tangent) and
+  // ny = +df/dz (south-gradient). The world-up normal is (-df/dx, 1,
+  // -df/dz) normalized, so the south component must be -ny.
+  let baked_normal = vec3<f32>(nx, nz, -ny);
+  let sun = globals.sun_direction.xyz;
+  let sun_horizon = smoothstep(-0.02, 0.02, sun.y);
+  let ndotl = max(0.0, dot(baked_normal, sun)) * sun_horizon;
+  // Subtractive lighting model. Baseline is the imagery / base color at
+  // full brightness; each effect *darkens* the surface independently.
+  //
+  //   hillshade_strength → modulates lambert (1 - ndotl) darkening.
+  //   shadow_strength    → modulates cast-shadow darkening.
+  //   ao_strength        → modulates AO darkening (atan tonemap).
+  //
+  // Hillshade and cast shadow both come from the sun and combine via a
+  // min() of brightnesses (= max of darknesses): a backside in cast
+  // shadow is no darker than just being a backside, since the sun can
+  // only fail to light a point one way at a time. AO multiplies on top
+  // because the sky is a separate light source — its occlusion darkens
+  // both lit and unlit areas.
+  // lighting_enabled is the master toggle.
+  let hillshade_brightness = mix(1.0, ndotl, clamp(uniforms.hillshade_strength, 0.0, 1.0));
+  let shadow_brightness = 1.0 - clamp(cast_shadow * uniforms.shadow_strength, 0.0, 1.0);
+  let direct_brightness = min(hillshade_brightness, shadow_brightness);
+  let aoC = clamp(uniforms.ao_strength, 0.0, 0.999999);
+  let aoS = aoC / (1.0 - aoC);
+  let aoShade = max(0.7 - ao, 0.0); //clamp(1.0 - ao, 0.0, 1.0);
+  let ao_factor = 1.0 - (2.0 / 3.14159265358979) * atan(aoS * aoShade);
+  let lit_factor = direct_brightness * ao_factor;
+  let lit = base_color * mix(1.0, lit_factor, uniforms.lighting_enabled);
   var terrain_color = clamp(lit, vec3<f32>(0.0), vec3<f32>(1.0));
 
-  // Elevation contours (adaptive Shepard-tone blending across octaves)
+  // Elevation contours (adaptive Shepard-tone blending across octaves).
+  // Single fragment-shader pass, applied AFTER lighting so shadows
+  // don't darken the contours. A moderate white halo at 200% line
+  // width mixes in first, then the full-opacity black line on top:
+  // on dark shadow backgrounds the halo lifts the local pixels to a
+  // mid-gray that the black line contrasts against, while on bright
+  // snow the halo is barely perceptible. Both are modulated by the
+  // contour_opacity slider.
   let elevation_ft = elevation_m * 3.28084;
-  let contour = clamp(blendedContours(elevation_ft, uv) * 2.0, 0.0, 1.0) * uniforms.contour_opacity;
-  terrain_color = mix(terrain_color, vec3<f32>(0.0), contour);
+  let contour_pair = clamp(blendedContours(elevation_ft, uv) * 2.0, vec2<f32>(0.0), vec2<f32>(1.0));
+  let halo_alpha = contour_pair.y * 0.05 * uniforms.contour_opacity;
+  let line_alpha = contour_pair.x * uniforms.contour_opacity;
+  terrain_color = mix(terrain_color, vec3<f32>(1.0), halo_alpha);
+  terrain_color = mix(terrain_color, vec3<f32>(0.0), line_alpha);
 
   // Apply atmospheric scattering
   var result = applyAtmosphere(terrain_color, world_position);

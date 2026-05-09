@@ -168,7 +168,12 @@ function tileAABB(z, x, y, maxElevY, verticalExaggeration, tileManager, globalEl
 
 const MAX_ZOOM = 14;
 const MIN_DATA_ZOOM = 4;
-const MAX_TILES = 200;
+// Cap on per-frame tile count emitted by selectTiles / selectImageryTiles.
+// Set generous enough to handle high imagery detail without truncating
+// the render list (which presents as tiles silently going missing in
+// some spatial region). MAX_TILES_PER_FRAME in gpu-context.ts must be
+// at least this large.
+const MAX_TILES = 1024;
 
 // Check if a child tile is resolved with renderable data. Non-flat tiles are
 // ready immediately. Flat tiles (404/missing) are ready only when all of their
@@ -374,17 +379,24 @@ function makeRenderTile(z, x, y, terrain) {
 // Imagery-driven tile selection. Subdivides to imagery resolution (beyond
 // terrain zoom when imagery is higher-res). Each returned RenderTile carries
 // a terrain tile reference with UV offset/scale for elevation sampling.
-export function selectImageryTiles(projView, canvasWidth, canvasHeight, maxElevY, verticalExaggeration, densityThreshold, sourceBounds, tileManager, maxTerrainZoom, maxImageryZoom, ensureImagery, globalElevScale, imageryDensityThreshold) {
+export function selectImageryTiles(projView, canvasWidth, canvasHeight, maxElevY, verticalExaggeration, densityThreshold, sourceBounds, tileManager, maxTerrainZoom, maxImageryZoom, ensureImagery, globalElevScale, imageryDensityThreshold, meshTerrainOffset) {
   const planes = extractFrustumPlanes(projView);
   const [eyeX, eyeY, eyeZ] = extractEyePosition(projView);
   addFarPlane(planes, eyeX, eyeY, eyeZ);
+  // Tell the tile manager where the camera is so it can pull queued
+  // tile fetches in distance order (closer tiles first) instead of
+  // strict FIFO, which tends to render horizon-first.
+  if (tileManager.setCameraPos) tileManager.setCameraPos(eyeX, eyeY, eyeZ);
   const result = [];
 
   const minDataZoom = (sourceBounds && sourceBounds.minZoom != null) ? sourceBounds.minZoom : MIN_DATA_ZOOM;
   const maxZoom = Math.max(maxTerrainZoom, maxImageryZoom);
   const imgThreshold = imageryDensityThreshold != null ? imageryDensityThreshold : densityThreshold;
+  // Mesh terrain coarser than imagery; lighting bake reads child tiles at
+  // imagery zoom (i.e., `meshOffset` levels below the mesh tile).
+  const meshOffset = Math.max(0, meshTerrainOffset | 0);
 
-  function traverse(z, x, y) {
+  function traverse(z, x, y, underFlatTerrain) {
     if (result.length >= MAX_TILES) return;
 
     const { minX, maxX, minY, maxY, minZ, maxZ } = tileAABB(z, x, y, maxElevY, verticalExaggeration, tileManager, globalElevScale);
@@ -398,35 +410,34 @@ export function selectImageryTiles(projView, canvasWidth, canvasHeight, maxElevY
     // Below data zoom: always recurse (no tiles exist at these levels)
     if (z < minDataZoom) {
       const cz = z + 1, cx = x * 2, cy = y * 2;
-      traverse(cz, cx, cy);
-      traverse(cz, cx + 1, cy);
-      traverse(cz, cx, cy + 1);
-      traverse(cz, cx + 1, cy + 1);
+      traverse(cz, cx, cy, underFlatTerrain);
+      traverse(cz, cx + 1, cy, underFlatTerrain);
+      traverse(cz, cx, cy + 1, underFlatTerrain);
+      traverse(cz, cx + 1, cy + 1, underFlatTerrain);
       return;
     }
 
     // --- Terrain tile handling (at/below terrain zoom) ---
-    // Track whether terrain at this tile is flat/missing so we avoid
-    // cascading child requests for areas with no terrain data.
-    let terrainIsFlat = false;
-    if (z <= maxTerrainZoom) {
+    // terrainIsFlat tracks whether *this* tile has no real elevation data —
+    // either it 404'd, or an ancestor did and we inherit the assumption to
+    // avoid flooding the network with cascading 404 requests.
+    let terrainIsFlat = underFlatTerrain;
+    if (z <= maxTerrainZoom && !underFlatTerrain) {
       const loaded = tileManager.hasTile(z, x, y);
 
       if (!loaded) {
-        // Failed tiles (404): fall through to render imagery on flat terrain.
-        // Don't recurse into children — cascading 404s flood the network.
-        if (!tileManager.isFailed(z, x, y)) {
+        if (tileManager.isFailed(z, x, y)) {
+          terrainIsFlat = true;
+        } else {
+          // Request this level for fallback rendering, but keep traversing
+          // so target-zoom descendants get requested in parallel rather than
+          // serially as each parent arrives.
           tileManager.requestTile(z, x, y);
-          return;
         }
-        terrainIsFlat = true;
       } else {
         const entry = tileManager.getTile(z, x, y);
         if (entry && entry.isFlat) terrainIsFlat = true;
       }
-
-      // Flat/failed terrain: fall through to render imagery on flat terrain
-      // via findBestTerrain's flat fallback. No recursion into children.
     }
 
     // --- Subdivision decision (imagery threshold drives tile coverage) ---
@@ -436,56 +447,27 @@ export function selectImageryTiles(projView, canvasWidth, canvasHeight, maxElevY
     if (shouldSubdivide) {
       const cz = z + 1, cx = x * 2, cy = y * 2;
 
-      let canSubdivide;
-      if (z < maxTerrainZoom && !terrainIsFlat) {
-        // Below terrain zoom with real terrain: require terrain children resolved
-        canSubdivide = (
-          childReady(tileManager, cz, cx, cy, maxTerrainZoom) &&
-          childReady(tileManager, cz, cx + 1, cy, maxTerrainZoom) &&
-          childReady(tileManager, cz, cx, cy + 1, maxTerrainZoom) &&
-          childReady(tileManager, cz, cx + 1, cy + 1, maxTerrainZoom)
-        );
-        if (canSubdivide && ensureImagery) {
-          // Use & (not &&) so all children get imagery requested
-          canSubdivide = !!(
-            ensureImagery(cz, cx, cy) &
-            ensureImagery(cz, cx + 1, cy) &
-            ensureImagery(cz, cx, cy + 1) &
-            ensureImagery(cz, cx + 1, cy + 1)
-          );
-        }
-      } else {
-        // At/above terrain zoom, or flat terrain: only need imagery for children
-        canSubdivide = !ensureImagery || !!(
-          ensureImagery(cz, cx, cy) &
-          ensureImagery(cz, cx + 1, cy) &
-          ensureImagery(cz, cx, cy + 1) &
-          ensureImagery(cz, cx + 1, cy + 1)
-        );
+      // Pre-request imagery for all four children unconditionally so they
+      // begin loading even when this level isn't ready to subdivide yet.
+      if (ensureImagery) {
+        ensureImagery(cz, cx, cy);
+        ensureImagery(cz, cx + 1, cy);
+        ensureImagery(cz, cx, cy + 1);
+        ensureImagery(cz, cx + 1, cy + 1);
       }
 
-      if (canSubdivide) {
-        const before = result.length;
-        traverse(cz, cx, cy);
-        traverse(cz, cx + 1, cy);
-        traverse(cz, cx, cy + 1);
-        traverse(cz, cx + 1, cy + 1);
-        if (result.length > before) return;
-        // Fall through to render parent as coverage
-      }
-
-      // Request missing terrain children for progressive loading.
-      // Skip when terrain is flat — children are likely to also 404.
-      if (z < maxTerrainZoom && !terrainIsFlat) {
-        for (let dy = 0; dy < 2; dy++) {
-          for (let dx = 0; dx < 2; dx++) {
-            const cxx = cx + dx, cyy = cy + dy;
-            if (!tileManager.hasTile(cz, cxx, cyy)) {
-              tileManager.requestTile(cz, cxx, cyy);
-            }
-          }
-        }
-      }
+      // Recurse unconditionally to drive target-zoom requests. Children that
+      // can't render yet (no terrain ancestor available) simply won't push to
+      // result, and we'll fall through to render this tile as fallback
+      // coverage. Propagate the flat-terrain flag so descendants under a
+      // known-flat ancestor don't issue terrain requests (assumed 404).
+      const before = result.length;
+      traverse(cz, cx, cy, terrainIsFlat);
+      traverse(cz, cx + 1, cy, terrainIsFlat);
+      traverse(cz, cx, cy + 1, terrainIsFlat);
+      traverse(cz, cx + 1, cy + 1, terrainIsFlat);
+      if (result.length > before) return;
+      // Fall through to render this tile as coverage
     }
 
     // --- Create RenderTile ---
@@ -498,6 +480,15 @@ export function selectImageryTiles(projView, canvasWidth, canvasHeight, maxElevY
       const zoomReduction = Math.ceil(Math.log2(densityThreshold / tileTerrainDensity));
       effectiveMaxTerrain = Math.max(minDataZoom, z - zoomReduction);
     }
+    // Push the mesh terrain coarser than imagery — visual detail comes from
+    // imagery + lighting, not vertex density. Cap relative to the imagery
+    // zoom `z` so this applies even when foreshortening hasn't reduced the
+    // density-driven cap. Lighting bake compensates by reading finer child
+    // tiles below.
+    if (meshOffset > 0) {
+      effectiveMaxTerrain = Math.min(effectiveMaxTerrain, z - meshOffset);
+    }
+    effectiveMaxTerrain = Math.max(minDataZoom, effectiveMaxTerrain);
     effectiveMaxTerrain = Math.min(effectiveMaxTerrain, maxTerrainZoom);
 
     const terrain = findBestTerrain(z, x, y, effectiveMaxTerrain, minDataZoom, tileManager);
@@ -509,10 +500,25 @@ export function selectImageryTiles(projView, canvasWidth, canvasHeight, maxElevY
       return;
     }
 
+    // Request lighting-zoom child tiles for the bake input. These cover the
+    // mesh tile's spatial area at imagery zoom; LightingManager composites
+    // them into a higher-resolution shading texture per mesh tile.
+    if (meshOffset > 0 && terrain.tz + meshOffset <= maxTerrainZoom) {
+      const lz = terrain.tz + meshOffset;
+      const stride = 1 << meshOffset;
+      const lxBase = terrain.tx << meshOffset;
+      const lyBase = terrain.ty << meshOffset;
+      for (let dy = 0; dy < stride; dy++) {
+        for (let dx = 0; dx < stride; dx++) {
+          tileManager.requestTile(lz, lxBase + dx, lyBase + dy);
+        }
+      }
+    }
+
     result.push(makeRenderTile(z, x, y, terrain));
   }
 
-  traverse(0, 0, 0);
+  traverse(0, 0, 0, false);
   return result;
 }
 
