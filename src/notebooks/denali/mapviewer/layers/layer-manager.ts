@@ -106,7 +106,7 @@ export class LayerManager {
         circleLayer.init(device, globalUniformBGL, format);
         circleLayer._collision = collision;
         circleLayer._sourceId = layerConfig.source;
-        this._circleLayers.push({ id: layerConfig.id, layer: circleLayer, config: layerConfig, visible: true, userCreated: false });
+        this._circleLayers.push({ id: layerConfig.id, layer: circleLayer, config: layerConfig, visible: layerConfig.visible !== false, userCreated: false });
       } else if (layerConfig.type === 'text') {
         const textLayer = new TextLayer(
           layerConfig,
@@ -115,7 +115,7 @@ export class LayerManager {
         );
         textLayer._collision = collision;
         textLayer._sourceId = layerConfig.source;
-        this._textLayers.push({ id: layerConfig.id, layer: textLayer, config: layerConfig, visible: true, userCreated: false });
+        this._textLayers.push({ id: layerConfig.id, layer: textLayer, config: layerConfig, visible: layerConfig.visible !== false, userCreated: false });
       } else if (layerConfig.type === 'line') {
         const lineLayer = new LineLayer(
           layerConfig,
@@ -123,7 +123,7 @@ export class LayerManager {
           (mx: number, my: number) => queryElev(mx, my),
         );
         lineLayer.init(device, format, this._globalUniformBuffer, this._createGPULines);
-        this._lineLayers.push({ id: layerConfig.id, layer: lineLayer, config: layerConfig, visible: true, userCreated: false, _sourceRef: loadedSources[layerConfig.source] });
+        this._lineLayers.push({ id: layerConfig.id, layer: lineLayer, config: layerConfig, visible: layerConfig.visible !== false, userCreated: false, _sourceRef: loadedSources[layerConfig.source] });
       }
     }
     await Promise.all(geojsonLoads);

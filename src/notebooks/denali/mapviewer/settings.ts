@@ -125,8 +125,8 @@ export function createSettings(initial: Partial<Settings> = {}): Settings {
     hillshadeStrength: 0.77,
     sunDirection: [0.5, 0.7, 0.5] as [number, number, number],
     lightingEnabled: true,
-    shadowStrength: 0.75,
-    aoStrength: 0.8,
+    shadowStrength: 0.77,
+    aoStrength: 0.7,
     sunRadiusDeg: 0.265,
     shadowSamples: 1,
     // Mesh terrain is rendered N zoom levels coarser than imagery — visual

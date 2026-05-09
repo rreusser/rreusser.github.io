@@ -159,40 +159,68 @@ export class CollisionManager {
       }
     }
 
-    // Filter out occluded items before collision
-    const visibleItems = [];
+    // Items sharing (sourceId, sourceFeatureIndex) — typically a circle
+    // and its label — are coupled: they show or hide as one visual unit.
+    // Collision runs on the union bbox of each group; occlusion of any
+    // member hides the whole group; the group's collision result is
+    // mirrored to every member.
+    const groups = new Map();
     for (const item of allItems) {
-      if (!item.occluded) visibleItems.push(item);
+      const key = item.sourceId + '\x00' + item.sourceFeatureIndex;
+      let g = groups.get(key);
+      if (!g) {
+        g = {
+          members: [],
+          minX: Infinity, maxX: -Infinity,
+          minY: Infinity, maxY: -Infinity,
+          depth: -Infinity,
+          anyOccluded: false,
+        };
+        groups.set(key, g);
+      }
+      g.members.push(item);
+      if (item.occluded) g.anyOccluded = true;
+      g.minX = Math.min(g.minX, item.screenX - item.halfW);
+      g.maxX = Math.max(g.maxX, item.screenX + item.halfW);
+      g.minY = Math.min(g.minY, item.screenY - item.halfH);
+      g.maxY = Math.max(g.maxY, item.screenY + item.halfH);
+      if (item.depth > g.depth) g.depth = item.depth;
     }
 
-    runCollision(visibleItems, collisionBuffer, cssW, cssH);
-
-    // Propagate: if any layer-feature for a source feature is hidden, hide all
-    const hiddenSources = new Map();
-    for (const item of allItems) {
-      if (item.occluded || !item.visible) {
-        let set = hiddenSources.get(item.sourceId);
-        if (!set) { set = new Set(); hiddenSources.set(item.sourceId, set); }
-        set.add(item.sourceFeatureIndex);
+    const groupItems = [];
+    for (const g of groups.values()) {
+      if (g.anyOccluded) {
+        for (const m of g.members) {
+          if (!m.occluded) m.visible = false;
+        }
+        continue;
       }
+      groupItems.push({
+        screenX: (g.minX + g.maxX) * 0.5,
+        screenY: (g.minY + g.maxY) * 0.5,
+        halfW: (g.maxX - g.minX) * 0.5,
+        halfH: (g.maxY - g.minY) * 0.5,
+        depth: g.depth,
+        _group: g,
+      });
     }
 
-    // Build visible sets per layer
-    const visibleByLayer = new Map();
-    for (const item of allItems) {
-      const srcSet = hiddenSources.get(item.sourceId);
-      if (srcSet && srcSet.has(item.sourceFeatureIndex)) {
-        if (!item.occluded) item.visible = false;
-      } else {
-        let set = visibleByLayer.get(item.layerIndex);
-        if (!set) { set = new Set(); visibleByLayer.set(item.layerIndex, set); }
-        set.add(item.featureIndex);
-      }
+    runCollision(groupItems, collisionBuffer, cssW, cssH);
+
+    for (const gi of groupItems) {
+      for (const m of gi._group.members) m.visible = gi.visible;
     }
 
     this._debugItems = allItems;
 
-    // Distribute visible sets back to layers
+    const visibleByLayer = new Map();
+    for (const item of allItems) {
+      if (!item.visible) continue;
+      let set = visibleByLayer.get(item.layerIndex);
+      if (!set) { set = new Set(); visibleByLayer.set(item.layerIndex, set); }
+      set.add(item.featureIndex);
+    }
+
     layerIdx = 0;
     for (const { layer, collision } of layers) {
       layer.setVisibleFeatures(collision ? (visibleByLayer.get(layerIdx) || new Set()) : null);

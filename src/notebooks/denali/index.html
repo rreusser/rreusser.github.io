@@ -27,10 +27,20 @@
           data: 'osm/peaks.geojson',
           attribution: '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
         },
+        'camps': {
+          type: 'geojson',
+          data: 'osm/camps.geojson',
+          attribution: '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+        },
+        'climbing-routes': {
+          type: 'geojson',
+          data: 'osm/route-segments.geojson',
+          attribution: '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+        },
         'fkt': {
           type: 'geojson',
           data: 'strava/fkt.geojson',
-          simplify: 0.0001,
+          simplify: 0.00002,
           attribution: '<a href="https://www.strava.com/activities/9223277277" target="_blank" rel="noopener">Strava</a>',
         },
       },
@@ -49,14 +59,27 @@
       ],
       features: [
         {
-          id: 'ski-tracks',
+          id: 'denali-fkt',
           type: 'line',
           source: 'fkt',
+          visible: false,
           paint: {
-            'line-color': '#ff8800',
-            'line-width': 5,
-            'line-border-color': '#331100',
-            'line-border-width': 2,
+            'line-color': '#e95f2a',
+            'line-width': 6,
+            'line-border-color': '#ffffffcc',
+            'line-border-width': 1,
+            'atmosphere-opacity': 0.5
+          }
+        },
+        {
+          id: 'west-buttress',
+          type: 'line',
+          source: 'climbing-routes',
+          paint: {
+            'line-color': '#2288dd',
+            'line-width': 6,
+            'line-border-color': '#ffffffcc',
+            'line-border-width': 1,
             'atmosphere-opacity': 0.5
           }
         },
@@ -67,7 +90,7 @@
           paint: {
             'circle-radius': 3,
             'circle-color': '#000000',
-            'circle-stroke-color': '#ffffff',
+            'circle-stroke-color': '#ffffffdd',
             'circle-stroke-width': 1.5,
             'atmosphere-opacity': 0.5
           }
@@ -82,6 +105,32 @@
             'text-color': '#000000',
             'text-halo-color': '#ffffff',
             'text-halo-width': 1.25,
+            'atmosphere-opacity': 0.5
+          }
+        },
+        {
+          id: 'camp-circles',
+          type: 'circle',
+          source: 'camps',
+          paint: {
+            'circle-radius': 3,
+            'circle-color': '#000000',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 1.5,
+            'atmosphere-opacity': 0.5
+          }
+        },
+        {
+          id: 'camp-labels',
+          type: 'text',
+          source: 'camps',
+          paint: {
+            'text-field': 'name',
+            'text-size': 14,
+            'text-color': '#330000',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 1.25,
+            'text-offset': [0, -8],
             'atmosphere-opacity': 0.5
           }
         },
@@ -170,12 +219,48 @@
       if (data) elevationProfile.update(data);
     });
 
+    const profileHoverDot = html`<div class="profile-hover-dot"></div>`;
+    let hoverPoint = null;
+
+    function updateHoverDot() {
+      if (!hoverPoint) {
+        profileHoverDot.style.display = 'none';
+        return;
+      }
+      const p = viewer.projectMercator(hoverPoint.mercatorX, hoverPoint.mercatorY, hoverPoint.elevation);
+      if (!p) {
+        profileHoverDot.style.display = 'none';
+        return;
+      }
+      profileHoverDot.style.display = 'block';
+      profileHoverDot.style.left = `${p.x}px`;
+      profileHoverDot.style.top = `${p.y}px`;
+    }
+
+    elevationProfile.onHover = (point) => {
+      hoverPoint = point;
+      if (point) {
+        const id = elevationProfile.activeLayerId;
+        const layer = id && viewer.getLayer(id);
+        const lc = layer?.paint?.['line-color'];
+        if (lc) {
+          const r = Math.round(lc[0] * 255), g = Math.round(lc[1] * 255), b = Math.round(lc[2] * 255);
+          profileHoverDot.style.background = `rgb(${r},${g},${b})`;
+        }
+        viewer.triggerRedraw();
+      }
+      updateHoverDot();
+    };
+
+    viewer.on('render', updateHoverDot);
+
     const container = html`<div style="position: relative">`;
     container.appendChild(canvas);
     container.appendChild(elevationLabel);
     container.appendChild(slopeLegend);
     container.appendChild(viewer.attribution);
     container.appendChild(profilePanel);
+    container.appendChild(profileHoverDot);
 
     const memoryWidget = createMemoryWidget(viewer.memoryTracker);
     // Hidden by default — toggled from the Debug section in the controls.
@@ -765,41 +850,45 @@
         svg.appendChild(text);
       }
 
-      // Legend below the rose, inside the SVG
-      const legendY = 185;
-      const legendItems = rings.map(r => r.label);
-      const legendSpacing = 60;
-      const legendStartX = cx - (legendItems.length - 1) * legendSpacing / 2;
+      // Leader-line callouts: a marker dot inside each ring, connected
+      // by a thin line to a label below the rose. Markers all sit on the
+      // 200° (S-SSW) radial so the three vertical leaders fan slightly
+      // and don't overlap.
+      const calloutAngle = 200;
+      const ca = (calloutAngle - 90) * Math.PI / 180;
+      const calloutCfg = [
+        { r: (rings[0].rInner + rings[0].rOuter) / 2, ly: 145, text: 'Above Treeline' },
+        { r: (rings[1].rInner + rings[1].rOuter) / 2, ly: 165, text: 'Near Treeline' },
+        { r: (rings[2].rInner + rings[2].rOuter) / 2, ly: 185, text: 'Below Treeline' },
+      ];
+      const labelStartX = 116;
+      for (const c of calloutCfg) {
+        const mx = cx + c.r * Math.cos(ca);
+        const my = cy + c.r * Math.sin(ca);
 
-      const legendHeader = document.createElementNS(ns, 'text');
-      legendHeader.setAttribute('x', cx.toFixed(1));
-      legendHeader.setAttribute('y', (legendY - 14).toFixed(1));
-      legendHeader.setAttribute('text-anchor', 'middle');
-      legendHeader.setAttribute('dominant-baseline', 'central');
-      legendHeader.setAttribute('font-size', '9');
-      legendHeader.setAttribute('font-family', 'system-ui, sans-serif');
-      legendHeader.setAttribute('fill', 'currentColor');
-      legendHeader.setAttribute('pointer-events', 'none');
-      legendHeader.textContent = 'Treeline zone';
-      svg.appendChild(legendHeader);
+        const dot = document.createElementNS(ns, 'circle');
+        dot.setAttribute('cx', mx.toFixed(1));
+        dot.setAttribute('cy', my.toFixed(1));
+        dot.setAttribute('r', '1.5');
+        dot.setAttribute('class', 'aspect-rose-dot');
+        dot.setAttribute('pointer-events', 'none');
+        svg.appendChild(dot);
 
-      for (let i = 0; i < legendItems.length; i++) {
-        const lx = legendStartX + i * legendSpacing;
-        const rect = document.createElementNS(ns, 'rect');
-        rect.setAttribute('x', lx - 16);
-        rect.setAttribute('y', legendY - 4);
-        rect.setAttribute('width', 8);
-        rect.setAttribute('height', 8);
-        rect.setAttribute('stroke-width', '0.5');
-        svg.appendChild(rect);
+        const line = document.createElementNS(ns, 'polyline');
+        line.setAttribute('points', `${mx.toFixed(1)},${my.toFixed(1)} ${mx.toFixed(1)},${c.ly} ${(labelStartX - 2).toFixed(1)},${c.ly}`);
+        line.setAttribute('class', 'aspect-rose-leader');
+        line.setAttribute('pointer-events', 'none');
+        svg.appendChild(line);
+
         const text = document.createElementNS(ns, 'text');
-        text.setAttribute('x', lx - 4);
-        text.setAttribute('y', legendY);
+        text.setAttribute('x', labelStartX);
+        text.setAttribute('y', c.ly);
         text.setAttribute('dominant-baseline', 'central');
         text.setAttribute('font-size', '9');
         text.setAttribute('font-family', 'system-ui, sans-serif');
         text.setAttribute('fill', 'currentColor');
-        text.textContent = legendItems[i];
+        text.setAttribute('pointer-events', 'none');
+        text.textContent = c.text;
         svg.appendChild(text);
       }
 
@@ -809,14 +898,20 @@
       wrapper.appendChild(svg);
       analysisContent.appendChild(wrapper);
     }
-    addControl(analysisContent,
-      Inputs.range([0, 13000], { value: viewer.settings.treelineLower, step: 50, label: "Lower treeline (ft)" }),
-      v => { viewer.settings.treelineLower = v; }
-    );
-    addControl(analysisContent,
-      Inputs.range([0, 13000], { value: viewer.settings.treelineUpper, step: 50, label: "Upper treeline (ft)" }),
-      v => { viewer.settings.treelineUpper = v; }
-    );
+    const treelineLowerInput = Inputs.range([0, 13000], { value: viewer.settings.treelineLower, step: 50, label: "Lower treeline (ft)" });
+    addControl(analysisContent, treelineLowerInput, v => { viewer.settings.treelineLower = v; });
+    const treelineUpperInput = Inputs.range([0, 13000], { value: viewer.settings.treelineUpper, step: 50, label: "Upper treeline (ft)" });
+    addControl(analysisContent, treelineUpperInput, v => { viewer.settings.treelineUpper = v; });
+
+    const treelineRecomputeBtn = html`<button class="layer-download-btn">Estimate from current view</button>`;
+    treelineRecomputeBtn.addEventListener('click', () => {
+      const tl = viewer.estimateTreelineForCurrentView();
+      treelineLowerInput.value = tl.lower;
+      treelineLowerInput.dispatchEvent(new Event('input', { bubbles: true }));
+      treelineUpperInput.value = tl.upper;
+      treelineUpperInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    analysisContent.appendChild(treelineRecomputeBtn);
 
     // Lighting section: ordered top-down as the user reads — global
     // atmosphere first, then the master lighting toggle, then the three
@@ -1595,10 +1690,29 @@ I mean, let's be clear. This is a totally half-baked one-off ad hoc renderer. It
         min-height: 0;
       }
 
+      .profile-hover-dot {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        margin: -6px 0 0 -6px;
+        border-radius: 50%;
+        background: #ff8800;
+        border: 2px solid #fff;
+        box-shadow: 0 0 4px rgba(0,0,0,0.5);
+        pointer-events: none;
+        display: none;
+        z-index: 4;
+        will-change: left, top;
+      }
+
       .aspect-rose path,
       .aspect-rose rect { fill: #fff; stroke: #333; }
       html[data-dark] .aspect-rose path,
       html[data-dark] .aspect-rose rect { fill: #2a2a2a; stroke: #666; }
+      .aspect-rose .aspect-rose-dot { fill: #333; stroke: none; }
+      .aspect-rose .aspect-rose-leader { fill: none; stroke: #333; stroke-width: 0.7; }
+      html[data-dark] .aspect-rose .aspect-rose-dot { fill: #ccc; }
+      html[data-dark] .aspect-rose .aspect-rose-leader { stroke: #ccc; }
 
       html[data-dark] .status { color: #aaa; }
 

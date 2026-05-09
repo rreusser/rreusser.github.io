@@ -1,0 +1,96 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -151.07683897142857,
+          63.06974564285714
+        ]
+      },
+      "properties": {
+        "backcountry": "yes",
+        "ele": "4300",
+        "name": "Camp 3",
+        "tourism": "camp_site",
+        "osm_id": 503180372,
+        "osm_type": "way"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -151.14656745,
+          63.074349500000004
+        ]
+      },
+      "properties": {
+        "backcountry": "yes",
+        "name": "Camp 2",
+        "tourism": "camp_site",
+        "osm_id": 1133167899,
+        "osm_type": "way"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -151.17099701666666,
+          62.967910683333336
+        ]
+      },
+      "properties": {
+        "backcountry": "yes",
+        "ele": "2100",
+        "name": "Basecamp",
+        "tourism": "camp_site",
+        "osm_id": 1133167906,
+        "osm_type": "way"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -151.18445995000002,
+          63.0304732
+        ]
+      },
+      "properties": {
+        "backcountry": "yes",
+        "ele": "2300",
+        "name": "Camp 1",
+        "tourism": "camp_site",
+        "osm_id": 1133167908,
+        "osm_type": "way"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -151.05401336666668,
+          63.07878366666666
+        ]
+      },
+      "properties": {
+        "backcountry": "yes",
+        "ele": "5240",
+        "fee": "no",
+        "internet_access": "no",
+        "name": "Camp 4",
+        "tourism": "camp_site",
+        "osm_id": 1133167937,
+        "osm_type": "way"
+      }
+    }
+  ]
+}

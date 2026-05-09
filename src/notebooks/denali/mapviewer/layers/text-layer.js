@@ -3,12 +3,7 @@
 
 import { createGPUText } from '../lib/webgpu-text/webgpu-text.ts';
 import { atmosphereCode } from '../shaders/atmosphere.js';
-
-function parseColor(hex) {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (!m) return [1, 0, 0, 1];
-  return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255, 1];
-}
+import { parseColor } from './parse-color.js';
 
 // Custom fragment shader body that applies atmosphere scattering to text.
 // msdfMedian3, msdfScreenPxRange, and msdfComposite are injected by the library.
@@ -51,10 +46,13 @@ fn getColor(uv: vec2f, color: vec4f, strokeColor: vec4f, strokeWidth: f32, msdf:
   let base = msdfComposite(uv, color, strokeColor, strokeWidth, msdf);
   if (base.a <= 0.0) { return vec4f(0.0); }
 
+  // No ACES tonemap — text colors are LDR UI elements; tonemapping
+  // would desaturate saturated colors so labels diverge from same-hex
+  // lines and circles.
   let linear_c = srgbToLinear(base.rgb);
   let atmos_c = applyAtmosphereText(linear_c, anchor.xyz);
   let mixed = mix(linear_c, atmos_c, textAtmos.atmosphere_opacity);
-  return vec4f(linearToSrgb(acesTonemap(mixed)), base.a);
+  return vec4f(linearToSrgb(mixed), base.a);
 }
 `;
 

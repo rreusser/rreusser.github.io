@@ -37,9 +37,15 @@ export class ElevationProfile {
     this._lineColor = null;
     this._distances = null;
     this._elevations = null;
+    this._coords = null;             // per-vertex { mercatorX, mercatorY }
+    this._segmentBreaks = null;      // distances (m) at which polylines join
+    this._onHover = null;            // (point|null) callback
     this._boundDraw = this._draw.bind(this);
     this._drawScheduled = false;
   }
+
+  /** Callback invoked with the hovered point ({mercatorX, mercatorY, elevation, distanceM}) or null. */
+  set onHover(fn) { this._onHover = fn; }
 
   createDOM() {
     const panel = document.createElement('div');
@@ -100,7 +106,10 @@ export class ElevationProfile {
     this._layerId = null;
     this._distances = null;
     this._elevations = null;
+    this._coords = null;
+    this._segmentBreaks = null;
     this._hoverIndex = -1;
+    this._onHover?.(null);
   }
 
   get activeLayerId() {
@@ -113,12 +122,22 @@ export class ElevationProfile {
   }
 
   _computeDistances(data) {
-    if (!data) { this._distances = null; this._elevations = null; return; }
+    if (!data) {
+      this._distances = null;
+      this._elevations = null;
+      this._coords = null;
+      this._segmentBreaks = null;
+      return;
+    }
     const allDist = [];
     const allElev = [];
+    const allCoords = [];
+    const breaks = [];
     let cumDist = 0;
 
-    for (const polyline of data) {
+    for (let pi = 0; pi < data.length; pi++) {
+      const polyline = data[pi];
+      if (pi > 0) breaks.push(cumDist);
       for (let i = 0; i < polyline.coords.length; i++) {
         if (i > 0) {
           const prev = polyline.coords[i - 1];
@@ -131,11 +150,14 @@ export class ElevationProfile {
         }
         allDist.push(cumDist);
         allElev.push(polyline.elevations[i]);
+        allCoords.push(polyline.coords[i]);
       }
     }
 
     this._distances = allDist;
     this._elevations = allElev;
+    this._coords = allCoords;
+    this._segmentBreaks = breaks;
   }
 
   _scheduleDraw() {
@@ -244,6 +266,23 @@ export class ElevationProfile {
       ctx.stroke();
       ctx.fillStyle = '#666';
       ctx.fillText(v.toFixed(1) + ' mi', px, marginTop + plotH + 4);
+    }
+
+    // Segment-break vertical lines (where polylines join). Theme-neutral
+    // mid-gray so they read on both light and dark backgrounds, with
+    // longer dashes than the x-axis gridlines so they're distinguishable.
+    if (this._segmentBreaks && this._segmentBreaks.length > 0) {
+      ctx.strokeStyle = 'rgba(120,120,120,0.6)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+      for (const d of this._segmentBreaks) {
+        const px = xScale(d);
+        ctx.beginPath();
+        ctx.moveTo(px, marginTop);
+        ctx.lineTo(px, marginTop + plotH);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
     }
 
     // Draw filled area and stroke, breaking at zero-elevation gaps
@@ -391,6 +430,7 @@ export class ElevationProfile {
     if (this._hoverIndex !== lo) {
       this._hoverIndex = lo;
       this._scheduleDraw();
+      this._emitHover();
     }
   }
 
@@ -398,6 +438,22 @@ export class ElevationProfile {
     if (this._hoverIndex >= 0) {
       this._hoverIndex = -1;
       this._scheduleDraw();
+      this._onHover?.(null);
     }
+  }
+
+  _emitHover() {
+    if (!this._onHover) return;
+    const i = this._hoverIndex;
+    if (i < 0 || !this._coords || !this._elevations) { this._onHover(null); return; }
+    const e = this._elevations[i];
+    if (!(e > 0)) { this._onHover(null); return; }
+    const c = this._coords[i];
+    this._onHover({
+      mercatorX: c.mercatorX,
+      mercatorY: c.mercatorY,
+      elevation: e,
+      distanceM: this._distances[i],
+    });
   }
 }

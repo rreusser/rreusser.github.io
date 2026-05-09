@@ -1,18 +1,13 @@
 // Instanced circle rendering for GeoJSON point features on terrain
 
 import { circleVertexShader, circleFragmentShader } from '../shaders/circle.js';
+import { parseColor } from './parse-color.js';
 
 const MAX_INSTANCES = 10000;
 
 // Per-instance: worldPos(3f) + radius(1f) + fillColor(4f) + strokeColor(4f) + strokeWidth(1f) + opacity(1f) = 14 floats = 56 bytes
 const INSTANCE_FLOATS = 14;
 const INSTANCE_BYTES = INSTANCE_FLOATS * 4;
-
-function parseColor(hex) {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (!m) return [1, 0, 0, 1];
-  return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255, 1];
-}
 
 export class CircleLayer {
   constructor(config, geojsonSource, queryElevationMercator) {

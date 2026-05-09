@@ -2,12 +2,12 @@
 // Uses webgpu-instanced-lines library for high-quality line rendering
 
 import { atmosphereCode } from '../shaders/atmosphere.js';
+import { parseColor } from './parse-color.js';
+export { parseColor };
 
-export function parseColor(hex) {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (!m) return [1, 0, 0, 1];
-  return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255, 1];
-}
+// CSS px. Total budget for the antialiased outer fade
+// (0.5*AA_WIDTH on each side of the visible edge in sdf units).
+const AA_WIDTH = 1.0;
 
 const lineVertexShaderBody = /* wgsl */`
 @group(1) @binding(0) var<storage, read> positions: array<vec4f>;
@@ -35,11 +35,12 @@ struct Vertex {
 fn getVertex(index: u32) -> Vertex {
   let p = positions[index];
   var clip = line.projectionView * p;
-  // Reversed-z depth bias: add a fraction of clip.w so the NDC offset is
-  // constant (distance-independent), lifting lines above terrain at all
-  // zoom levels without floating visibly at close range.
   clip.z += line.depthOffset * clip.w;
-  return Vertex(clip, line.lineWidth * line.pixelRatio, p.xyz);
+  // Geometric width passed to the lib (device px). Allocates space for
+  // the central stroke, the halo (one halo width — see fragment), and a
+  // 0.5*AA fade.
+  let geomWidthDev = (line.lineWidth + line.borderWidth + 0.5 * ${AA_WIDTH.toFixed(4)}) * line.pixelRatio;
+  return Vertex(clip, geomWidthDev, p.xyz);
 }
 `;
 
@@ -86,24 +87,25 @@ fn applyAtmosphereLine(color: vec3<f32>, world_pos: vec3<f32>) -> vec3<f32> {
 }
 
 fn getColor(lineCoord: vec2f, anchor: vec3f) -> vec4f {
-  let totalWidth = line.lineWidth * line.pixelRatio;
-  let borderW = line.borderWidth * line.pixelRatio;
+  let aaDev = ${AA_WIDTH.toFixed(4)} * line.pixelRatio;
+  let halfAa = 0.5 * aaDev;
+  let lineDev = line.lineWidth * line.pixelRatio;
+  let borderDev = line.borderWidth * line.pixelRatio;
+  let geomWidthDev = lineDev + borderDev + halfAa;
 
-  // SDF: distance from line center in pixels
-  let sdf = length(lineCoord) * totalWidth;
+  // sdf is in the same scale as geomWidthDev: 0 at center, geomWidthDev at edge.
+  let sdf = length(lineCoord) * geomWidthDev;
 
-  // Border edge at (totalWidth - borderWidth) from center
-  let borderEdge = totalWidth - borderW;
-  let t = smoothstep(borderEdge - 1.0, borderEdge + 1.0, sdf);
+  // Stroke → halo color transition centered on the stroke/halo boundary.
+  let t = smoothstep(lineDev - halfAa, lineDev + halfAa, sdf);
 
-  // Convert sRGB input colors to linear, blend in linear space
   let lineLinear = srgbToLinear(line.lineColor.rgb);
   let borderLinear = srgbToLinear(line.borderColor.rgb);
   var linear = mix(lineLinear, borderLinear, t);
   var alpha = mix(line.lineColor.a, line.borderColor.a, t);
 
-  // Anti-alias outer edge
-  let outerAlpha = 1.0 - smoothstep(totalWidth - 1.0, totalWidth + 1.0, sdf);
+  // Outer AA fade across the 0.5*AA region added to geomWidthDev.
+  let outerAlpha = 1.0 - smoothstep(geomWidthDev - aaDev, geomWidthDev, sdf);
   alpha *= outerAlpha;
 
   if (alpha <= 0.0) {

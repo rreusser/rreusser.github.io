@@ -752,6 +752,43 @@ export class TerrainMap extends EventEmitter {
   }
 
   /**
+   * Compute a treeline elevation range (feet) for the current camera-center
+   * latitude, using the same lat→treeline interpolation table used at init.
+   * @returns {{ lower: number, upper: number }}
+   */
+  estimateTreelineForCurrentView() {
+    const my = this.camera.state.center[2];
+    const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * my))) * 180 / Math.PI;
+    const treelineFt = Math.round(estimateTreeline(lat) * 3.28084);
+    return { lower: Math.max(0, treelineFt - 500), upper: treelineFt + 500 };
+  }
+
+  /**
+   * Project a Mercator coordinate + elevation to canvas CSS pixel space using
+   * the most recent projection-view matrix. Returns null if the point is
+   * behind the camera.
+   * @returns {{x: number, y: number}|null}
+   */
+  projectMercator(mx, my, elevM = 0) {
+    if (!this._globalElevScale) return null;
+    const wx = mx;
+    const wy = elevM * this._globalElevScale * this._currentExaggeration;
+    const wz = my;
+    const m = this._lastProjView;
+    const cx = m[0] * wx + m[4] * wy + m[8] * wz + m[12];
+    const cy = m[1] * wx + m[5] * wy + m[9] * wz + m[13];
+    const cw = m[3] * wx + m[7] * wy + m[11] * wz + m[15];
+    if (cw <= 0) return null;
+    const ndcX = cx / cw;
+    const ndcY = cy / cw;
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: (ndcX * 0.5 + 0.5) * rect.width,
+      y: (1 - (ndcY * 0.5 + 0.5)) * rect.height,
+    };
+  }
+
+  /**
    * Query terrain elevation at a Mercator coordinate.
    * Searches the current render list for the highest-zoom terrain tile covering (mx, my).
    * With imagery-driven rendering, each render tile carries a terrain tile reference;

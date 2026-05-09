@@ -137,11 +137,14 @@ fn fs_circle(in: FragInput) -> @location(0) vec4<f32> {
   let stroke_mix = smoothstep(in.radius_px - 0.5, in.radius_px + 0.5, dist);
   let color = mix(in.fill_color, in.stroke_color, stroke_mix);
 
-  // Apply atmosphere scattering + tonemap
+  // Apply atmosphere scattering in linear space, then convert back to sRGB.
+  // No ACES tonemap — circle colors are LDR UI elements that should match
+  // the user-authored hex; tonemapping desaturates saturated colors and
+  // makes circles appear different from lines using the same paint value.
   let linear_color = srgbToLinear(color.rgb);
   let atmos_color = applyAtmosphereCircle(linear_color, in.world_pos);
   let mixed = mix(linear_color, atmos_color, circle.atmosphere_opacity);
 
-  return vec4<f32>(linearToSrgb(acesTonemap(mixed)), color.a * outer_alpha * in.opacity);
+  return vec4<f32>(linearToSrgb(mixed), color.a * outer_alpha * in.opacity);
 }
 `;
