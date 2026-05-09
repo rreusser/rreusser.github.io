@@ -12,7 +12,7 @@ interface QueueEntry {
   key: string;
 }
 
-const MAX_CONCURRENT = 8;
+const DEFAULT_MAX_CONCURRENT = 8;
 
 export class ImageryManager {
   tileUrl: (z: number, x: number, y: number) => string;
@@ -26,8 +26,12 @@ export class ImageryManager {
   requestQueue: QueueEntry[];
   onTileLoaded: ((sz: number, sx: number, sy: number) => void) | null;
   bounds: ImageryBounds | null;
+  private _settings: any;
 
-  constructor({ tileUrl }: { tileUrl?: (z: number, x: number, y: number) => string } = {}) {
+  constructor({ tileUrl, settings = null }: {
+    tileUrl?: (z: number, x: number, y: number) => string;
+    settings?: any;
+  } = {}) {
     this.tileUrl = tileUrl || ((z, x, y) => `sentinel_tiles/${z}/${x}/${y}.webp`);
     this.fetched = new Map();
     this.pending = new Map();
@@ -39,6 +43,7 @@ export class ImageryManager {
     this.requestQueue = [];
     this.onTileLoaded = null;
     this.bounds = null;
+    this._settings = settings;
   }
 
   setBounds(bounds: ImageryBounds): void {
@@ -134,7 +139,8 @@ export class ImageryManager {
   }
 
   _processQueue(): void {
-    while (this.activeRequests < MAX_CONCURRENT && this.requestQueue.length > 0) {
+    const maxConcurrent = (this._settings && this._settings.maxConcurrentFetches) || DEFAULT_MAX_CONCURRENT;
+    while (this.activeRequests < maxConcurrent && this.requestQueue.length > 0) {
       const { z, x, y, key } = this.requestQueue.shift()!;
       if (this.fetched.has(key) || this.pending.has(key) || this.failed.has(key)) continue;
 

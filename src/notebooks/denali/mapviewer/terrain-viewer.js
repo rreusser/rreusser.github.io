@@ -224,8 +224,9 @@ export class TerrainMap extends EventEmitter {
 
     this._workerPool = new WorkerPool(
       () => new Worker(new URL('./workers/tile-decode.worker.ts', import.meta.url), { type: 'module' }),
+      this.settings.maxWorkers,
     );
-    this._tileManager = new TileManager(device, { tileUrl: tileUrlFromTemplate(terrain.tiles), encoding: terrain.encoding || 'terrain-rgb', workerPool: this._workerPool });
+    this._tileManager = new TileManager(device, { tileUrl: tileUrlFromTemplate(terrain.tiles), encoding: terrain.encoding || 'terrain-rgb', workerPool: this._workerPool, settings: this.settings });
     this._tileManager.setBindGroupLayout(gpu.textureBGL, gpu.fallbackShadingTexture, gpu.shadingSampler);
     this._tileManager.setBounds(this._terrainBounds);
 
@@ -235,7 +236,7 @@ export class TerrainMap extends EventEmitter {
       const src = rasterSources[layer.source];
       if (!src) throw new Error(`Base layer "${layer.id}" references unknown source "${layer.source}"`);
       const bounds = tilesetToMercatorBounds(src);
-      const mgr = new ImageryManager({ tileUrl: tileUrlFromTemplate(src.tiles) });
+      const mgr = new ImageryManager({ tileUrl: tileUrlFromTemplate(src.tiles), settings: this.settings });
       mgr.setBounds(bounds);
       layerDescriptors.push({
         imageryManager: mgr,

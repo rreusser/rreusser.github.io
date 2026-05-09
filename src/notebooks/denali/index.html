@@ -949,6 +949,23 @@
       v => { viewer.settings.showCollisionBoxes = v; }
     );
 
+    // Memory tuning. Defaults are auto-detected from device class
+    // (see detectQualityDefaults in mapviewer/settings.ts) — these
+    // controls are escape hatches for testing other budgets on a
+    // given device.
+    addControl(debugContent,
+      Inputs.range([10, 200], { value: viewer.settings.maxTerrainTiles, step: 1, label: `Max terrain tiles (auto: ${viewer.settings.qualityPreset})` }),
+      v => { viewer.settings.maxTerrainTiles = Math.round(v); }
+    );
+    addControl(debugContent,
+      Inputs.range([100, 1000], { value: viewer.settings.memoryBudgetMB ?? 1000, step: 25, label: "Memory budget (MB)" }),
+      v => { viewer.settings.memoryBudgetMB = v >= 1000 ? null : v; }
+    );
+    addControl(debugContent,
+      Inputs.toggle({ label: "Aggressive memory reclaim", value: viewer.settings.aggressiveMemoryReclaim }),
+      v => { viewer.settings.aggressiveMemoryReclaim = v; }
+    );
+
     // ── Record section ─────────────────────────────────────────────
     // Renders a 24-hour timelapse from the current view by stepping the
     // sun calendar's time slider through 0..1440 minutes in even

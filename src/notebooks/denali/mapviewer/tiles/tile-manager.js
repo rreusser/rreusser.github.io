@@ -2,8 +2,14 @@ import { buildElevationQuadtree } from '../interaction/elevation-quadtree.ts';
 
 // Async tile loading, LRU cache, GPU texture management
 
-const MAX_CACHE = 150;
-const MAX_CONCURRENT = 8;
+// Per-tile CPU cost (terrain only, post-decode):
+//   elevations Float32Array(514²)         ~1.06 MB
+//   quadtree (built lazily, rendered only) ~0.70 MB
+// Per-tile GPU cost: r32float texture(514²) ~1.06 MB
+// Tile-count cap is supplied by Settings.maxTerrainTiles (auto-detected
+// per device class — see settings.ts/detectQualityDefaults).
+const DEFAULT_MAX_CACHE = 150;
+const DEFAULT_MAX_CONCURRENT = 8;
 
 const decodeCanvas514 = new OffscreenCanvas(514, 514);
 const decodeCtx514 = decodeCanvas514.getContext('2d', { willReadFrequently: true });
@@ -68,12 +74,13 @@ function decodeTerrarium(bitmap) {
 }
 
 export class TileManager {
-  constructor(device, { tileUrl, encoding = 'terrain-rgb', workerPool = null } = {}) {
+  constructor(device, { tileUrl, encoding = 'terrain-rgb', workerPool = null, settings = null } = {}) {
     this.device = device;
     this.tileUrl = tileUrl || ((z, x, y) => `tiles/${z}/${x}/${y}.webp`);
     this._encoding = encoding;
     this._decode = encoding === 'terrarium' ? decodeTerrarium : decodeTerrainRGB;
     this._workerPool = workerPool;
+    this._settings = settings;
     this.cache = new Map(); // key -> { texture, bindGroup, lastUsed }
     this.pending = new Map(); // key -> AbortController
     this.failed = new Set(); // keys that 404'd (tile doesn't exist)
@@ -251,7 +258,8 @@ export class TileManager {
   }
 
   _processQueue() {
-    while (this.activeRequests < MAX_CONCURRENT && this.requestQueue.length > 0) {
+    const maxConcurrent = (this._settings && this._settings.maxConcurrentFetches) || DEFAULT_MAX_CONCURRENT;
+    while (this.activeRequests < maxConcurrent && this.requestQueue.length > 0) {
       // Pick the queued tile whose center is closest to the camera. With
       // no camera position set, _pickNextIndex returns 0 (FIFO).
       const idx = this._pickNextIndex();
@@ -404,23 +412,41 @@ export class TileManager {
   ensureQuadtree(z, x, y) {
     const entry = this.cache.get(this._key(z, x, y));
     if (!entry) return null;
+    // Elevations may have been stripped while the tile was off-screen
+    // (see stripChainCpuData under aggressiveMemoryReclaim). Without
+    // them we can't rebuild the quadtree, so raycasting silently no-ops
+    // on this tile until the next pan-away triggers a re-fetch.
+    if (!entry.elevations) return null;
     if (!entry.quadtree) {
       entry.quadtree = buildElevationQuadtree(entry.elevations);
     }
     return entry;
   }
 
-  // Drop the elevation quadtree from tiles not in the render list.
-  // Quadtrees (2.7 MB each) are rebuilt cheaply from `entry.elevations`
-  // by ensureQuadtree if the tile cycles back into raycast use, so this
-  // is purely an upper-bound CPU cost. Elevations are kept — stripping
-  // them breaks raycasting on tiles that re-enter the render list, and
-  // recovery would require a re-fetch.
+  // Drop CPU-only data from tiles that aren't carrying their weight
+  // this frame.
+  //
+  // Quadtrees (~0.7 MB each) are only needed for raycasting on rendered
+  // tiles, so we drop them from anything not in `renderedKeys`. They
+  // rebuild cheaply from `entry.elevations` if the tile cycles back.
+  //
+  // When settings.aggressiveMemoryReclaim is set, we also drop the
+  // Float32Array elevations themselves (~1 MB each) — but only for
+  // tiles outside `wantedKeys`, the broader set populated by every
+  // requestTile/hasTile/isResolved call this frame. Lighting bake
+  // input children are in wantedKeys but not renderedKeys, so this
+  // distinction matters: stripping their elevations would break the
+  // bake. The GPU texture and AABB cache survive the strip, so a
+  // re-rendered tile still draws. Tradeoff: raycasting that tile
+  // silently no-ops until the LRU evicts + re-fetches it.
   stripChainCpuData(renderedKeys) {
+    const aggressive = this._settings && this._settings.aggressiveMemoryReclaim;
     for (const [key, entry] of this.cache) {
       if (entry.isFlat) continue;
-      if (renderedKeys.has(key)) continue;
-      if (entry.quadtree) entry.quadtree = null;
+      if (!renderedKeys.has(key) && entry.quadtree) entry.quadtree = null;
+      if (aggressive && !this.wantedKeys.has(key) && entry.elevations) {
+        entry.elevations = null;
+      }
     }
   }
 
@@ -437,11 +463,18 @@ export class TileManager {
     // Count only non-flat tiles toward the cache limit. Flat tiles share a
     // single GPU texture and are essentially free — evicting them causes
     // tiles at maxTerrainZoom to disappear with no recovery path.
+    const maxCache = (this._settings && this._settings.maxTerrainTiles) || DEFAULT_MAX_CACHE;
+    const budgetMB = this._settings && this._settings.memoryBudgetMB;
+
     let realCount = 0;
     for (const entry of this.cache.values()) {
       if (!entry.isFlat) realCount++;
     }
-    while (realCount > MAX_CACHE) {
+
+    const overCount = () => realCount > maxCache;
+    const overBudget = () => budgetMB != null && this._estimateTerrainBytes() > budgetMB * 1024 * 1024;
+
+    while (overCount() || overBudget()) {
       let oldestKey = null, oldestTime = Infinity;
       for (const [key, entry] of this.cache) {
         if (this.wantedKeys.has(key)) continue;
@@ -461,6 +494,25 @@ export class TileManager {
         this.onTileEvicted(+zStr, +xStr, +yStr);
       }
     }
+  }
+
+  // Rough byte estimate of CPU + GPU resources owned by terrain tiles.
+  // Used by the memory-budget branch in evict(); not authoritative.
+  // Per non-flat tile: 1 MB GPU texture + (1 MB CPU elevations if held)
+  // + (0.7 MB CPU quadtree if held). Flat tiles share resources and are
+  // ignored here.
+  _estimateTerrainBytes() {
+    const TEX_BYTES = 514 * 514 * 4;
+    const ELEV_BYTES = 514 * 514 * 4;
+    const QT_BYTES = 87381 * 4 * 2; // mirrors LEVELS=9 in elevation-quadtree.ts
+    let total = 0;
+    for (const entry of this.cache.values()) {
+      if (entry.isFlat) continue;
+      total += TEX_BYTES;
+      if (entry.elevations) total += ELEV_BYTES;
+      if (entry.quadtree) total += QT_BYTES;
+    }
+    return total;
   }
 
   // Clear stale requests at the start of a coverage recomputation

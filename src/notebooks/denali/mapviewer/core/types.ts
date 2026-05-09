@@ -83,6 +83,16 @@ export interface Settings {
   sunRadiusDeg: number;
   shadowSamples: number;
   meshTerrainOffset: number;
+  // Memory / quality knobs. Defaults are auto-detected from device class.
+  // qualityPreset is informational; the individual knobs below are what
+  // the engine reads at runtime.
+  qualityPreset: 'desktop' | 'mobile' | 'low-mem';
+  maxTerrainTiles: number;
+  maxWorkers: number;
+  maxConcurrentFetches: number;
+  cacheShadingNormals: boolean;
+  aggressiveMemoryReclaim: boolean;
+  memoryBudgetMB: number | null;
   dirty: boolean;
 }
 

@@ -1,5 +1,13 @@
-const LEVELS = 10;
-const TOTAL_NODES = 349525;
+// Stored levels 0..LEVELS-1. The original tree had LEVELS=10 with a
+// per-cell leaf level that stored 4^9 = 262144 single-cell AABBs — 75%
+// of the entire tree. Those leaf AABBs are redundant: at the leaf, the
+// ray test reads four corner heights from `elevations[]` directly to
+// build triangles, and we already compute their min/max there. So we
+// store one fewer level (LEVELS=9) and let each stored leaf cover a
+// 2×2 cell block. At ray-leaf, we test up to four cells (with a quick
+// per-cell AABB rejection) instead of one.
+const LEVELS = 9;
+const TOTAL_NODES = ((1 << (2 * LEVELS)) - 1) / 3; // 87381
 
 const levelOffset = new Uint32Array(LEVELS);
 {
@@ -16,21 +24,29 @@ export function buildElevationQuadtree(elevations: Float32Array): { minElev: Flo
 
   const leafLevel = LEVELS - 1;
   const leafOff = levelOffset[leafLevel];
-  const leafSize = 512;
+  const leafSize = 1 << leafLevel; // 256
   const stride = 514;
 
+  // Each stored leaf covers a 2×2 cell block whose corner samples form
+  // a 3×3 grid in `elevations`. Min/max over those 9 samples is the
+  // tight AABB for that block.
   for (let row = 0; row < leafSize; row++) {
+    const baseR = row * 2 + 1;
     for (let col = 0; col < leafSize; col++) {
-      const r = row + 1;
-      const c = col + 1;
-      const tl = elevations[r * stride + c];
-      const tr = elevations[r * stride + c + 1];
-      const bl = elevations[(r + 1) * stride + c];
-      const br = elevations[(r + 1) * stride + c + 1];
-
+      const baseC = col * 2 + 1;
+      let mn = Infinity;
+      let mx = -Infinity;
+      for (let dr = 0; dr <= 2; dr++) {
+        const rowOff = (baseR + dr) * stride;
+        for (let dc = 0; dc <= 2; dc++) {
+          const e = elevations[rowOff + baseC + dc];
+          if (e < mn) mn = e;
+          if (e > mx) mx = e;
+        }
+      }
       const idx = leafOff + row * leafSize + col;
-      minElev[idx] = Math.min(tl, tr, bl, br);
-      maxElev[idx] = Math.max(tl, tr, bl, br);
+      minElev[idx] = mn;
+      maxElev[idx] = mx;
     }
   }
 
@@ -177,35 +193,55 @@ export function rayIntersectQuadtree(
     if (hit[0] >= bestT) continue;
 
     if (level === LEVELS - 1) {
-      const r = row + 1;
-      const c = col + 1;
-      const tlElev = elevations[r * stride + c];
-      const trElev = elevations[r * stride + c + 1];
-      const blElev = elevations[(r + 1) * stride + c];
-      const brElev = elevations[(r + 1) * stride + c + 1];
+      // Stored leaf covers a 2×2 cell block. Test each cell with a
+      // tight per-cell AABB cull before the two triangle tests.
+      const baseRow = row * 2;
+      const baseCol = col * 2;
+      for (let dr = 0; dr < 2; dr++) {
+        for (let dc = 0; dc < 2; dc++) {
+          const cellRow = baseRow + dr;
+          const cellCol = baseCol + dc;
+          const r = cellRow + 1;
+          const c = cellCol + 1;
+          const tlElev = elevations[r * stride + c];
+          const trElev = elevations[r * stride + c + 1];
+          const blElev = elevations[(r + 1) * stride + c];
+          const brElev = elevations[(r + 1) * stride + c + 1];
 
-      let t = rayTriangle(
-        ox, oy, oz, dx, dy, dz,
-        col, tlElev, row,
-        col, blElev, row + 1,
-        col + 1, trElev, row
-      );
-      if (t > 0 && t < bestT) {
-        bestT = t;
-        bestRow = row;
-        bestCol = col;
-      }
+          const cymin = Math.min(tlElev, trElev, blElev, brElev);
+          const cymax = Math.max(tlElev, trElev, blElev, brElev);
+          const cellHit = rayAABB(
+            ox, oy, oz, dx, dy, dz,
+            cellCol, cymin, cellRow,
+            cellCol + 1, cymax, cellRow + 1,
+          );
+          if (!cellHit) continue;
+          if (cellHit[0] >= bestT) continue;
 
-      t = rayTriangle(
-        ox, oy, oz, dx, dy, dz,
-        col + 1, trElev, row,
-        col, blElev, row + 1,
-        col + 1, brElev, row + 1
-      );
-      if (t > 0 && t < bestT) {
-        bestT = t;
-        bestRow = row;
-        bestCol = col;
+          let t = rayTriangle(
+            ox, oy, oz, dx, dy, dz,
+            cellCol, tlElev, cellRow,
+            cellCol, blElev, cellRow + 1,
+            cellCol + 1, trElev, cellRow,
+          );
+          if (t > 0 && t < bestT) {
+            bestT = t;
+            bestRow = cellRow;
+            bestCol = cellCol;
+          }
+
+          t = rayTriangle(
+            ox, oy, oz, dx, dy, dz,
+            cellCol + 1, trElev, cellRow,
+            cellCol, blElev, cellRow + 1,
+            cellCol + 1, brElev, cellRow + 1,
+          );
+          if (t > 0 && t < bestT) {
+            bestT = t;
+            bestRow = cellRow;
+            bestCol = cellCol;
+          }
+        }
       }
     } else {
       const childLevel = level + 1;

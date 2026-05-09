@@ -62,6 +62,7 @@ export class LightingManager {
 
     this._workerPool = new WorkerPool(
       () => new Worker(new URL('./bake.worker.js', import.meta.url), { type: 'module' }),
+      settings.maxWorkers,
     );
 
     this._initUpsamplePipeline();
@@ -129,8 +130,17 @@ export class LightingManager {
     if (!this.settings.lightingEnabled) return;
     for (const [key, state] of this.tiles) {
       if (state.cachedNx) {
+        // Fast path: cached LSAO lets us re-run only the shadow pass.
         state.shadowDirty = true;
         this._shadowDirtyKeys.add(key);
+      } else if (state.baked) {
+        // No cached normals: full re-bake. Drop the baked flag so
+        // _tryBake re-fires next time ensureMeshTile is called for
+        // this tile. Currently-rendered tiles refresh on the next
+        // frame; off-screen tiles refresh when they re-enter the
+        // render set. Without this, mobile (cacheShadingNormals=false)
+        // shows stale shading on tiles baked under the previous sun.
+        state.baked = false;
       }
     }
   }
@@ -180,7 +190,15 @@ export class LightingManager {
       compHMin: 0, compHMax: 0, horizonHMax: 0,
       missingParents: null,
       missingChildren: null,
+      // cachedNx/Ny/Ao let onSunChanged-driven shadow rebakes skip the
+      // LSAO sweeps and re-run only the shadow pass. Each is a Float32
+      // array sized compN²; ~3 MB total per lit mesh tile when compN=512.
+      // settings.cacheShadingNormals can disable the cache to reclaim
+      // that memory; sun changes then don't update existing tiles'
+      // shadows (re-render of stale baked tiles only) — acceptable when
+      // the sun is static or near-static at the time.
       cachedNx: null, cachedNy: null, cachedAo: null,
+      baked: false,
       staticInflight: false,
       shadowInflight: false,
       shadowDirty: false,
@@ -201,7 +219,7 @@ export class LightingManager {
     let py = state.y >> 1;
     while (pz >= 0) {
       const parent = this.tiles.get(`${pz}/${px}/${py}`);
-      if (parent && parent.cachedNx && parent.texture) {
+      if (parent && parent.baked && parent.texture) {
         const dz = state.z - pz;
         const scale = 1 << dz;
         const quadX = state.x & (scale - 1);
@@ -325,7 +343,7 @@ export class LightingManager {
   _tryBake(state) {
     if (!state) return;
     if (state.staticInflight) return;
-    if (state.cachedNx) return; // already baked; re-bakes go through _notifyChildResolved / _notifyParentLoaded
+    if (state.baked) return; // already baked; re-bakes go through _notifyChildResolved / _notifyParentLoaded
     const meshEntry = this.tileManager.getTile(state.z, state.x, state.y);
     if (!meshEntry || meshEntry.isFlat || !meshEntry.elevations) return;
     this._submitStaticBake(state.key, meshEntry);
@@ -509,9 +527,12 @@ export class LightingManager {
         { bytesPerRow: compN * 4, rowsPerImage: compN },
         { width: compN, height: compN, depthOrArrayLayers: 1 },
       );
-      s.cachedNx = result.nx;
-      s.cachedNy = result.ny;
-      s.cachedAo = result.ao;
+      if (this.settings.cacheShadingNormals) {
+        s.cachedNx = result.nx;
+        s.cachedNy = result.ny;
+        s.cachedAo = result.ao;
+      }
+      s.baked = true;
       this.tileManager.attachShading(s.z, s.x, s.y, s.view);
       if (this.onShadingReady) this.onShadingReady(s.z, s.x, s.y);
     }).catch((err) => {
@@ -618,7 +639,7 @@ export class LightingManager {
       if (state.cachedNx) cachedBytes += state.cachedNx.byteLength;
       if (state.cachedNy) cachedBytes += state.cachedNy.byteLength;
       if (state.cachedAo) cachedBytes += state.cachedAo.byteLength;
-      if (state.cachedNx) baked++;
+      if (state.baked) baked++;
       else pending++;
     }
     return {

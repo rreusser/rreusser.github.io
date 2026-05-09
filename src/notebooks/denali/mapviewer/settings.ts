@@ -1,5 +1,85 @@
 import type { Settings } from './core/types.ts';
 
+// Pick conservative quality defaults based on device class. Phones have
+// roughly an order of magnitude less memory than desktops, and the iOS
+// page-memory limit (Jetsam) kills tabs around 250-450 MB.
+//
+// The cache cap (maxTerrainTiles) is a soft cap — tile-coverage decides
+// how many tiles are *wanted* per frame, and evict() can't drop wanted
+// tiles. So we also raise the density thresholds, which reduces the
+// number of tiles selected by the coverage pass in the first place.
+// Halving linear density quarters the tile count, which dominates
+// every other knob here.
+//
+// Heuristics:
+//   - navigator.deviceMemory: RAM tier in GB (browsers clamp to 0.25-8)
+//   - navigator.userAgent: mobile UA string
+//   - maxTouchPoints + Mac UA: iPad-on-iPadOS (lies about being a Mac)
+//   - hardwareConcurrency: caps worker count
+export function detectQualityDefaults(): {
+  qualityPreset: 'desktop' | 'mobile' | 'low-mem';
+  maxTerrainTiles: number;
+  maxWorkers: number;
+  cacheShadingNormals: boolean;
+  aggressiveMemoryReclaim: boolean;
+  memoryBudgetMB: number | null;
+  densityThreshold: number;
+  imageryDensityThreshold: number;
+  maxConcurrentFetches: number;
+} {
+  const nav = typeof navigator !== 'undefined' ? navigator : ({} as Navigator);
+  const ua = (nav.userAgent || '').toLowerCase();
+  const isMobileUA = /android|iphone|ipad|ipod|mobile|tablet/.test(ua);
+  const isAppleMobile = (nav as any).maxTouchPoints > 1 && /macintosh|iphone|ipad|ipod/.test(ua);
+  const mobile = isMobileUA || isAppleMobile;
+  const cores = (nav as any).hardwareConcurrency || 4;
+  const ram = (nav as any).deviceMemory as number | undefined;
+
+  if (mobile && ram != null && ram <= 2) {
+    return {
+      qualityPreset: 'low-mem',
+      maxTerrainTiles: 20,
+      maxWorkers: 1,
+      cacheShadingNormals: false,
+      // Off by default. Stripping elevations from off-screen-but-cached
+      // tiles saves ~1 MB each (< 20 MB total at this cache size) but
+      // breaks lighting re-bakes triggered by sun changes — the bake
+      // worker reads elevations directly. The other knobs already
+      // dominate the memory savings; only flip this on if the budget
+      // still bites.
+      aggressiveMemoryReclaim: false,
+      memoryBudgetMB: 180,
+      densityThreshold: 3.0,
+      imageryDensityThreshold: 3.0,
+      maxConcurrentFetches: 3,
+    };
+  }
+  if (mobile) {
+    return {
+      qualityPreset: 'mobile',
+      maxTerrainTiles: 30,
+      maxWorkers: Math.min(2, Math.max(1, cores - 1)),
+      cacheShadingNormals: false,
+      aggressiveMemoryReclaim: false,
+      memoryBudgetMB: 280,
+      densityThreshold: 2.0,
+      imageryDensityThreshold: 2.0,
+      maxConcurrentFetches: 4,
+    };
+  }
+  return {
+    qualityPreset: 'desktop',
+    maxTerrainTiles: 150,
+    maxWorkers: Math.max(1, cores - 1),
+    cacheShadingNormals: true,
+    aggressiveMemoryReclaim: false,
+    memoryBudgetMB: null,
+    densityThreshold: 1.0,
+    imageryDensityThreshold: 1.0,
+    maxConcurrentFetches: 8,
+  };
+}
+
 export function estimateTreeline(lat: number): number {
   const pts: [number, number][] = [
     [-60, 0], [-45, 1500], [-30, 2800], [-15, 3800],
@@ -18,10 +98,11 @@ export function estimateTreeline(lat: number): number {
 }
 
 export function createSettings(initial: Partial<Settings> = {}): Settings {
+  const auto = detectQualityDefaults();
   return new Proxy({
     verticalExaggeration: 1.0,
-    densityThreshold: 1.0,
-    imageryDensityThreshold: 1.0,
+    densityThreshold: auto.densityThreshold,
+    imageryDensityThreshold: auto.imageryDensityThreshold,
     showTileBorders: false,
     freezeCoverage: false,
     enableCollision: true,
@@ -53,6 +134,13 @@ export function createSettings(initial: Partial<Settings> = {}): Settings {
     // vertex density. The lighting bake reads child tiles at this same offset
     // below imagery so its output matches imagery scale.
     meshTerrainOffset: 1,
+    qualityPreset: auto.qualityPreset,
+    maxTerrainTiles: auto.maxTerrainTiles,
+    maxWorkers: auto.maxWorkers,
+    maxConcurrentFetches: auto.maxConcurrentFetches,
+    cacheShadingNormals: auto.cacheShadingNormals,
+    aggressiveMemoryReclaim: auto.aggressiveMemoryReclaim,
+    memoryBudgetMB: auto.memoryBudgetMB,
     dirty: true,
     ...initial,
   } as Settings, {

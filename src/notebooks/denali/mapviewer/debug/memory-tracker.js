@@ -9,7 +9,7 @@
 const KB = 1024;
 const MB = 1024 * 1024;
 
-const QUADTREE_NODES = 349525; // matches LEVELS=10 in elevation-quadtree.ts
+const QUADTREE_NODES = 87381; // matches LEVELS=9 in elevation-quadtree.ts
 
 function fmtBytes(b) {
   if (b >= MB) return (b / MB).toFixed(1) + ' MB';
@@ -81,7 +81,7 @@ export class MemoryTracker {
     counts.terrainTiles = nonFlatTiles;
     counts.flatTiles = flatTiles;
     counts.quadtrees = quadtreeCount;
-    counts.cacheLimit = 150;
+    counts.cacheLimit = (this.tileManager._settings && this.tileManager._settings.maxTerrainTiles) || 150;
     counts.wantedKeys = this.tileManager.wantedKeys.size;
     counts.pendingFetches = this.tileManager.pending.size;
     counts.failedTiles = this.tileManager.failed.size;
