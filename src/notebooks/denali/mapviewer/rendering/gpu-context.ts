@@ -90,7 +90,7 @@ export class GPUContext {
       ],
     });
 
-    this.globalUniformBuffer = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.globalUniformBuffer = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.globalUniformBindGroup = device.createBindGroup({
       layout: this.globalUniformBGL,
       entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }],

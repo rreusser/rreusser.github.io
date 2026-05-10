@@ -47,7 +47,7 @@ export class TerrainRenderer {
     this._mvpFloat32 = new Float32Array(16);
     this._modelFloat32 = new Float32Array(16);
     this._uniformData = new Float32Array(60);
-    this._globalUniformData = new Float32Array(24);
+    this._globalUniformData = new Float32Array(28);
   }
 
   paint(params: {
@@ -66,12 +66,14 @@ export class TerrainRenderer {
     frustumOverlay: any;
     collisionManager: any;
     pixelRatio: number;
+    sunTerrainVisibility: number;
   }) {
     const {
       canvas, camera, settings, renderList, tileManager, imageryTileCache, lightingManager,
       exaggeration, globalElevScale,
       lineLayers, circleLayers, textLayers,
       frustumOverlay, collisionManager, pixelRatio,
+      sunTerrainVisibility,
     } = params;
 
     const gpu = this._gpu;
@@ -189,8 +191,9 @@ export class TerrainRenderer {
     const upZ = -Math.sin(theta) * Math.sin(phi);
     gu[16] = rightX; gu[17] = 0; gu[18] = rightZ; gu[19] = aspect;
     gu[20] = upX; gu[21] = upY; gu[22] = upZ; gu[23] = Math.tan(fov / 2);
+    gu[24] = sunTerrainVisibility; gu[25] = 0; gu[26] = 0; gu[27] = 0;
 
-    device.queue.writeBuffer(gpu.globalUniformBuffer, 0, gu.buffer, gu.byteOffset, 96);
+    device.queue.writeBuffer(gpu.globalUniformBuffer, 0, gu.buffer, gu.byteOffset, 112);
 
     gpu.ensureDepthTexture(canvas.width, canvas.height);
 

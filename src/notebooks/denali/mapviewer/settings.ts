@@ -155,9 +155,17 @@ export function createSettings(initial: Partial<Settings> = {}): Settings {
 export function createAttribution(sources: { attribution?: string }[]): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'terrain-attribution';
-  el.innerHTML = sources
-    .filter(s => s.attribution)
-    .map(s => s.attribution)
-    .join(' | ');
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const s of sources) {
+    if (!s.attribution) continue;
+    for (const part of s.attribution.split('|')) {
+      const trimmed = part.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      parts.push(trimmed);
+    }
+  }
+  el.innerHTML = parts.join(' | ');
   return el;
 }

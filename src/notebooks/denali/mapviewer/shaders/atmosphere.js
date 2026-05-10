@@ -8,6 +8,7 @@ struct GlobalUniforms {
   mie_params: vec4<f32>,        // x=beta_M, y=H_M, z=g_mie, w=sun_intensity
   cam_right: vec4<f32>,         // xyz=camera right dir (physical space), w=aspect_ratio
   cam_up: vec4<f32>,            // xyz=camera up dir (physical space), w=half_fov_tan
+  extra_params: vec4<f32>,      // x=sun_terrain_visibility (1=clear, 0=blocked)
 };
 
 // Numerically stable optical depth factor.
@@ -24,6 +25,10 @@ fn opticalDepthFactor(h_a: f32, h_b: f32, H: f32) -> f32 {
 
 // Transmittance from a point at height h toward the sun through the atmosphere.
 // Uses flat-earth air mass approximation: path length ~ H / sin(sun_altitude).
+// The sin_alt floor of 0.01 keeps the math stable at and below the horizon,
+// but on its own it leaves the sky stuck at a "just-after-sunset" color all
+// night long. Multiply by a smooth fade that ends at astronomical twilight
+// (~-18° solar altitude → sun_dir.y ≈ -0.31) so deep night actually goes dark.
 fn sunTransmittance(h: f32) -> vec3<f32> {
   let sun_dir = globals.sun_direction.xyz;
   let beta_R = globals.rayleigh_params.xyz;
@@ -33,7 +38,8 @@ fn sunTransmittance(h: f32) -> vec3<f32> {
   let sin_alt = max(sun_dir.y, 0.01);
   let tau_R = beta_R * H_R * exp(-h / H_R) / sin_alt;
   let tau_M = beta_M * H_M * exp(-h / H_M) / sin_alt;
-  return exp(-(tau_R + vec3<f32>(tau_M)));
+  let night_factor = mix(0.25, 1.0, smoothstep(-0.31, 0.0, sun_dir.y));
+  return exp(-(tau_R + vec3<f32>(tau_M))) * night_factor;
 }
 
 fn computeScattering(cam_h_m: f32, frag_h_m: f32, dist_m: f32, view_dir: vec3<f32>) -> array<vec3<f32>, 2> {
@@ -60,7 +66,7 @@ fn computeScattering(cam_h_m: f32, frag_h_m: f32, dist_m: f32, view_dir: vec3<f3
   let g2 = g * g;
   let denom = 1.0 + g2 - 2.0 * g * cos_theta;
   let P_M_raw = 0.0795775 * (1.0 - g2) / (denom * sqrt(denom));  // 1/(4*pi)
-  let sun_vis = smoothstep(-0.02, 0.02, sun_dir.y);
+  let sun_vis = smoothstep(-0.02, 0.02, sun_dir.y) * globals.extra_params.x;
   let P_M = mix(0.0795775, P_M_raw, sun_vis);
 
   // Inscatter using optical depth fractions

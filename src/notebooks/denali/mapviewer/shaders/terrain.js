@@ -42,6 +42,7 @@ struct GlobalUniforms {
   mie_params: vec4<f32>,
   cam_right: vec4<f32>,
   cam_up: vec4<f32>,
+  extra_params: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;

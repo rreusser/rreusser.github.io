@@ -64,8 +64,9 @@ fn fs_sky(@location(0) clip_pos: vec2<f32>) -> @location(0) vec4<f32> {
   let P_M_iso = 0.0795775 * (1.0 - g2) / (phase_denom * sqrt(phase_denom));
   // When the sun is below the horizon, suppress the directional Mie peak
   // (the ground occludes the sun) but keep isotropic Mie scattering for haze.
-  // Blend from full directional P_M to isotropic (g=0 → P_M = 0.0795775)
-  let sun_vis = smoothstep(-0.02, 0.02, sun_dir.y);
+  // Also fold in terrain occlusion (CPU-side raycast) so that when the sun
+  // is hidden behind a peak the bright halo collapses to isotropic haze.
+  let sun_vis = smoothstep(-0.02, 0.02, sun_dir.y) * globals.extra_params.x;
   let P_M = mix(0.0795775, P_M_iso, sun_vis);
 
   // Numerical single-scattering integration along view ray.
@@ -104,7 +105,7 @@ fn fs_sky(@location(0) clip_pos: vec2<f32>) -> @location(0) vec4<f32> {
 
   // Sun disk: angular radius = 0.2665° = 0.00465 rad, cos(0.00465) ≈ 0.9999892
   let cos_sun = dot(view_dir, sun_dir);
-  let sun_circle = smoothstep(0.9999792, 0.9999892, cos_sun) * step(0.0, view_dir.y);
+  let sun_circle = smoothstep(0.9999792, 0.9999892, cos_sun) * step(0.0, view_dir.y) * globals.extra_params.x;
   inscatter = mix(inscatter, vec3<f32>(10.0), sun_circle);
 
   return finalColor(inscatter);

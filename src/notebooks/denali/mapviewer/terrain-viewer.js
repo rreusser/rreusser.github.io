@@ -424,7 +424,33 @@ export class TerrainMap extends EventEmitter {
       frustumOverlay: this._frustumOverlay,
       collisionManager: this._collisionManager,
       pixelRatio: this._pixelRatio,
+      sunTerrainVisibility: this._computeSunTerrainVisibility(),
     });
+  }
+
+  /**
+   * Cast a ray from the camera eye in the sun direction; if it hits loaded
+   * terrain, the sun is occluded → return 0, otherwise 1. Skips work when
+   * the sun is below the horizon (the existing horizon smoothstep handles
+   * that case in-shader).
+   */
+  _computeSunTerrainVisibility() {
+    const sd = this.settings.sunDirection;
+    if (!sd || sd[1] <= 0) return 1.0;
+    if (!this._bvh) return 1.0;
+    const { phi, theta, distance, center } = this.camera.state;
+    const ox = center[0] + distance * Math.cos(theta) * Math.cos(phi);
+    const oy = center[1] + distance * Math.sin(theta);
+    const oz = center[2] + distance * Math.cos(theta) * Math.sin(phi);
+    const hit = raycastTerrain({
+      origin: [ox, oy, oz],
+      direction: sd,
+      bvh: this._bvh,
+      tileCache: this._tileManager,
+      tileList: this._bvhTileList,
+      verticalExaggeration: this._currentExaggeration,
+    });
+    return hit ? 0.0 : 1.0;
   }
 
   _frame() {
