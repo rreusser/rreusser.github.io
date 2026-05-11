@@ -55,6 +55,7 @@ const redirects = [
   ["/hertzsprung-russell/", "/sketches/hertzsprung-russell/"],
   ["/lawsons-klein-bottle/", "/sketches/lawsons-klein-bottle/"],
   ["/umbilic-torus/", "/sketches/umbilic-torus/"],
+  ["/strange-attractors/", "/sketches/strange-attractors/"],
 ];
 
 function htmlFor(targetUrl) {
