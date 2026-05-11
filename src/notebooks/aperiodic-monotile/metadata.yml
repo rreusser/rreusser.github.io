@@ -1,7 +1,7 @@
 publishedAt: April 25, 2026
 description: "Rendering the spectre a chiral aperiodic monotile of Smith, Myers, Kaplan, and Goodman-Strauss."
 hideFromIndex: false
-hideFromSearch: true
+hideFromSearch: false
 maxWidth: 640px
 tags:
   - math
