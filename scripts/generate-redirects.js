@@ -52,6 +52,9 @@ const redirects = [
   ["/path-integral-diffraction/", "/sketches/path-integral-diffraction/"],
   ["/hydrodynamic-instabilities/", "/sketches/hydrodynamic-instabilities/"],
   ["/clifford-torus/", "/sketches/clifford-torus/"],
+  ["/hertzsprung-russell/", "/sketches/hertzsprung-russell/"],
+  ["/lawsons-klein-bottle/", "/sketches/lawsons-klein-bottle/"],
+  ["/umbilic-torus/", "/sketches/umbilic-torus/"],
 ];
 
 function htmlFor(targetUrl) {
