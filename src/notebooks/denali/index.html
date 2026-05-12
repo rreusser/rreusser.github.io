@@ -952,12 +952,26 @@
     });
     analysisContent.appendChild(treelineRecomputeBtn);
 
-    // Lighting section: ordered top-down as the user reads — global
-    // atmosphere first, then the master lighting toggle, then the three
-    // per-effect strength sliders, then sun-disk / sample quality, with
-    // the time-of-day calendar at the bottom.
+    // Lighting section: time-of-day controls at the top (calendar then
+    // snap-to-event buttons), followed by atmosphere density, the three
+    // per-effect strength sliders, and sun-disk / sample quality.
     const { section: lightingSection, body: lightingContent } = createSection('Lighting');
     controlsContainer.appendChild(lightingSection);
+
+    sunCalendarEl = createSunCalendar(SunCalc, {
+      getLocation: () => {
+        const { lat, lon } = viewer.getViewLocation();
+        return [lat, lon];
+      },
+      onChange: () => { updateSunDirection(); updateSunTimes(); },
+    });
+    lightingContent.appendChild(sunCalendarEl);
+
+    // Astronomical times display — buttons that snap the calendar's
+    // time slider to sunrise / golden-hour / noon / sunset for the
+    // currently selected date and timezone.
+    const sunTimesEl = html`<div class="sun-times"></div>`;
+    lightingContent.appendChild(sunTimesEl);
 
     addControl(lightingContent,
       Inputs.range([0.05, 1], { value: viewer.settings.atmosphereDensity, step: 0.01, label: "Atmosphere density" }),
@@ -983,22 +997,6 @@
       Inputs.range([1, 16], { value: viewer.settings.shadowSamples, step: 1, label: "Shadow samples" }),
       v => { viewer.settings.shadowSamples = v; }
     );
-
-    // Time-of-day controls at the bottom of the lighting section.
-    sunCalendarEl = createSunCalendar(SunCalc, {
-      getLocation: () => {
-        const { lat, lon } = viewer.getViewLocation();
-        return [lat, lon];
-      },
-      onChange: () => { updateSunDirection(); updateSunTimes(); },
-    });
-    lightingContent.appendChild(sunCalendarEl);
-
-    // Astronomical times display — buttons that snap the calendar's
-    // time slider to sunrise / golden-hour / noon / sunset for the
-    // currently selected date and timezone.
-    const sunTimesEl = html`<div class="sun-times"></div>`;
-    lightingContent.appendChild(sunTimesEl);
 
     // Convert a UTC Date to the wall-clock minute-of-day in the
     // calendar's selected timezone.
