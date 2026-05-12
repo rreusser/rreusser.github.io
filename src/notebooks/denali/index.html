@@ -80,7 +80,8 @@
             'line-width': 6,
             'line-border-color': '#ffffffcc',
             'line-border-width': 1,
-            'atmosphere-opacity': 0.5
+            'atmosphere-opacity': 0.5,
+            'line-slope-shading': true
           }
         },
         {
@@ -433,6 +434,7 @@
       const row = html`<div class="layer-prop"><label>${label}</label><input type="color" class="layer-color" value="${hexFromColor(currentColor)}"></div>`;
       row.querySelector('input').addEventListener('input', (e) => onChange(e.target.value));
       container.appendChild(row);
+      return row;
     }
 
     function addRangeProp(container, label, value, min, max, step, onChange) {
@@ -441,6 +443,16 @@
       const span = row.querySelector('.layer-prop-value');
       input.addEventListener('input', () => { span.textContent = input.value; onChange(Number(input.value)); });
       container.appendChild(row);
+      return row;
+    }
+
+    function addCheckboxProp(container, label, checked, onChange) {
+      const row = html`<div class="layer-prop"><label>${label}</label><input type="checkbox" class="layer-checkbox"></div>`;
+      const input = row.querySelector('input');
+      input.checked = !!checked;
+      input.addEventListener('change', () => onChange(input.checked));
+      container.appendChild(row);
+      return row;
     }
 
     function rebuildLayerPanel() {
@@ -506,10 +518,19 @@
         const paint = entry.paint;
 
         if (entry.type === 'line') {
-          addColorProp(props, 'Color', paint['line-color'], v => viewer.setLayerPaint(id, 'line-color', v));
+          const colorRow = addColorProp(props, 'Color', paint['line-color'], v => viewer.setLayerPaint(id, 'line-color', v));
           addColorProp(props, 'Border', paint['line-border-color'], v => viewer.setLayerPaint(id, 'line-border-color', v));
           addRangeProp(props, 'Width', paint['line-width'], 1, 12, 0.5, v => viewer.setLayerPaint(id, 'line-width', v));
           addRangeProp(props, 'Border width', paint['line-border-width'], 0, 6, 0.5, v => viewer.setLayerPaint(id, 'line-border-width', v));
+          const setColorRowEnabled = (enabled) => {
+            colorRow.classList.toggle('layer-prop-disabled', !enabled);
+            colorRow.querySelector('input').disabled = !enabled;
+          };
+          setColorRowEnabled(!paint['line-slope-shading']);
+          addCheckboxProp(props, 'Slope shading', paint['line-slope-shading'], v => {
+            viewer.setLayerPaint(id, 'line-slope-shading', v);
+            setColorRowEnabled(!v);
+          });
           const dlBtn = html`<button class="layer-download-btn">Download GeoJSON</button>`;
           dlBtn.addEventListener('click', () => {
             const geojson = viewer.getLayerGeoJSON(id);
@@ -1551,6 +1572,8 @@ But let's be clear, this is a totally half-baked one-off ad hoc renderer. It use
         font-size: 11px;
         font-variant-numeric: tabular-nums;
       }
+      .layer-prop-disabled { opacity: 0.45; pointer-events: none; }
+      .layer-prop input[type="checkbox"] { margin: 0; cursor: pointer; }
       .layer-color {
         width: 24px;
         height: 20px;
