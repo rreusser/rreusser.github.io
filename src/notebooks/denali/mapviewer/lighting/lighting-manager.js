@@ -203,6 +203,14 @@ export class LightingManager {
       shadowInflight: false,
       shadowDirty: false,
       abortController: null,
+      // Zoom of the source that last wrote to this.texture via
+      // _tryFillFromAncestor's blit, or null if no blit has happened yet.
+      // _tryFillFromAncestor uses this to refuse downgrade blits — without
+      // this guard the cascade after a coarse-tile bake could replace
+      // higher-resolution upsampled data with much coarser data whenever
+      // the previous (closer) source had been evicted or had its `baked`
+      // flag flipped back to false by onSunChanged.
+      blitSourceZ: null,
     };
     this.tiles.set(key, state);
     this._tryFillFromAncestor(state);
@@ -220,6 +228,12 @@ export class LightingManager {
     while (pz >= 0) {
       const parent = this.tiles.get(`${pz}/${px}/${py}`);
       if (parent && parent.baked && parent.texture) {
+        // The walk goes deepest-zoom first, so this is the closest baked
+        // ancestor in `this.tiles`. If the descendant already holds blit
+        // data from a strictly closer source, this candidate is a
+        // downgrade — keep what we have. Same-zoom passes through so a
+        // shadow rebake on the same source can refresh the descendant.
+        if (state.blitSourceZ != null && pz < state.blitSourceZ) return false;
         const dz = state.z - pz;
         const scale = 1 << dz;
         const quadX = state.x & (scale - 1);
@@ -227,6 +241,7 @@ export class LightingManager {
         this._runUpsamplePass(parent.texture, state.texture, state.compN,
           quadX / scale, quadY / scale, 1 / scale);
         this.tileManager.attachShading(state.z, state.x, state.y, state.view);
+        state.blitSourceZ = pz;
         return true;
       }
       pz--;
