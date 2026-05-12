@@ -20,6 +20,19 @@ import { CollisionManager } from './interaction/collision-manager.js';
 import { WorkerPool } from './workers/worker-pool.ts';
 import { LightingManager } from './lighting/lighting-manager.js';
 
+function segmentDistanceSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
+  if (t < 0) t = 0; else if (t > 1) t = 1;
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  const ex = px - cx;
+  const ey = py - cy;
+  return ex * ex + ey * ey;
+}
+
 export class TerrainMap extends EventEmitter {
   /**
    * Create a TerrainMap instance. Use the async factory `TerrainMap.create()`.
@@ -286,6 +299,46 @@ export class TerrainMap extends EventEmitter {
     this._invProjView = new Float64Array(16);
 
     this.camera.rotateStartCallback = (clientX, clientY) => this._hitTest(clientX, clientY);
+
+    // Pointer-tap detection for picking line layers. We track each pointer's
+    // down position + timestamp and only fire a tap on pointerup if motion
+    // stayed inside the dead zone and the total duration was short. The
+    // 'drawing' canvas class (set by the notebook's pen tool) suppresses
+    // tap-picking so route-drawing clicks don't double-fire.
+    this._pickPointers = new Map();
+    this._pickDeadZonePx = 6;
+    this._pickMaxDurationMs = 500;
+    this._onPickPointerDown = (e) => {
+      if (this.canvas.classList.contains('drawing')) return;
+      // Only the primary mouse button; touch + pen have button === 0 too.
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      this._pickPointers.set(e.pointerId, {
+        x: e.clientX, y: e.clientY, t: performance.now(),
+      });
+    };
+    this._onPickPointerUp = (e) => {
+      const down = this._pickPointers.get(e.pointerId);
+      if (!down) return;
+      this._pickPointers.delete(e.pointerId);
+      if (this.canvas.classList.contains('drawing')) return;
+      const dx = e.clientX - down.x;
+      const dy = e.clientY - down.y;
+      if (dx * dx + dy * dy > this._pickDeadZonePx * this._pickDeadZonePx) return;
+      if (performance.now() - down.t > this._pickMaxDurationMs) return;
+      const hit = this.pickLineLayer(e.clientX, e.clientY);
+      if (hit) {
+        this.emit('linetap', {
+          ...hit,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          originalEvent: e,
+        });
+      }
+    };
+    this._onPickPointerCancel = (e) => { this._pickPointers.delete(e.pointerId); };
+    canvas.addEventListener('pointerdown', this._onPickPointerDown);
+    canvas.addEventListener('pointerup', this._onPickPointerUp);
+    canvas.addEventListener('pointercancel', this._onPickPointerCancel);
 
     // Watch for container resizes so the canvas always tracks its layout size
     this._needsCanvasResize = true;
@@ -815,6 +868,76 @@ export class TerrainMap extends EventEmitter {
   }
 
   /**
+   * Hit-test screen coordinates against visible line layers.
+   *
+   * Projects each polyline's cached world vertices through the most recent
+   * projectionView matrix and returns the layer whose nearest segment is
+   * within `tolerance` CSS pixels of (clientX, clientY). Returns the best
+   * match across all visible line layers, or null.
+   *
+   * @param {number} clientX
+   * @param {number} clientY
+   * @param {{ tolerance?: number }} [opts] tolerance in CSS pixels (default 8)
+   * @returns {{ id: string, polylineIndex: number, segmentIndex: number, distancePx: number } | null}
+   */
+  pickLineLayer(clientX, clientY, opts = {}) {
+    const tolerance = opts.tolerance != null ? opts.tolerance : 8;
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    const w = rect.width, h = rect.height;
+    const m = this._lastProjView;
+
+    let bestDist = Infinity;
+    let bestHit = null;
+
+    for (const entry of this._layerManager._lineLayers) {
+      if (!entry.visible) continue;
+      const layer = entry.layer;
+      const data = layer._positionData;
+      const polylines = layer._polylines;
+      if (!data || !polylines || polylines.length === 0) continue;
+
+      // Tolerance grows with the line's drawn width so wider routes stay
+      // pickable even if the click lands at the visible edge.
+      const halfWidth = ((layer._lineWidth || 0) + (layer._borderWidth || 0)) * 0.5;
+      const segTol = Math.max(tolerance, halfWidth + 3);
+      const segTolSq = segTol * segTol;
+
+      for (let pi = 0; pi < polylines.length; pi++) {
+        const poly = polylines[pi];
+        const off = poly.offset;
+        let prevSx = 0, prevSy = 0, prevValid = false;
+        for (let i = 0; i < poly.count; i++) {
+          const idx = (off + i) * 4;
+          const wx = data[idx];
+          const wy = data[idx + 1];
+          const wz = data[idx + 2];
+          const cx = m[0] * wx + m[4] * wy + m[8] * wz + m[12];
+          const cy = m[1] * wx + m[5] * wy + m[9] * wz + m[13];
+          const cw = m[3] * wx + m[7] * wy + m[11] * wz + m[15];
+          let sx = 0, sy = 0, valid = false;
+          if (cw > 0) {
+            sx = (cx / cw * 0.5 + 0.5) * w;
+            sy = (1 - (cy / cw * 0.5 + 0.5)) * h;
+            valid = true;
+          }
+          if (i > 0 && valid && prevValid) {
+            const dSq = segmentDistanceSq(px, py, prevSx, prevSy, sx, sy);
+            if (dSq < segTolSq && dSq < bestDist) {
+              bestDist = dSq;
+              bestHit = { id: entry.id, polylineIndex: pi, segmentIndex: i - 1, distancePx: Math.sqrt(dSq) };
+            }
+          }
+          prevSx = sx; prevSy = sy; prevValid = valid;
+        }
+      }
+    }
+    return bestHit;
+  }
+
+  /**
    * Query terrain elevation at a Mercator coordinate.
    * Searches the current render list for the highest-zoom terrain tile covering (mx, my).
    * With imagery-driven rendering, each render tile carries a terrain tile reference;
@@ -914,6 +1037,9 @@ export class TerrainMap extends EventEmitter {
   destroy() {
     this._running = false;
     clearTimeout(this._hashUpdateTimer);
+    this.canvas.removeEventListener('pointerdown', this._onPickPointerDown);
+    this.canvas.removeEventListener('pointerup', this._onPickPointerUp);
+    this.canvas.removeEventListener('pointercancel', this._onPickPointerCancel);
     this._collisionManager.destroy();
     this._frustumOverlay.destroy();
     this._resizeObserver.disconnect();

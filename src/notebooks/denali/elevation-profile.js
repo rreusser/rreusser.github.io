@@ -26,6 +26,18 @@ function niceInterval(range, targetTicks) {
   return nice * pow;
 }
 
+// Slope magnitude (in percent) -> CSS color string. Green for gentle, through
+// yellow/orange/red for steep, clamped at SLOPE_MAX for the legend ramp.
+const SLOPE_MAX = 35;
+function slopeColor(slopePct) {
+  const t = Math.min(1, Math.abs(slopePct) / SLOPE_MAX);
+  // Hue 120 (green) -> 0 (red); darken slightly at the top end so very-steep
+  // sections read distinctly from merely-steep.
+  const hue = 120 * (1 - t);
+  const lightness = 50 - 12 * t;
+  return `hsl(${hue.toFixed(1)}, 78%, ${lightness.toFixed(1)}%)`;
+}
+
 export class ElevationProfile {
   constructor() {
     this._panel = null;
@@ -47,6 +59,9 @@ export class ElevationProfile {
   /** Callback invoked with the hovered point ({mercatorX, mercatorY, elevation, distanceM}) or null. */
   set onHover(fn) { this._onHover = fn; }
 
+  /** Callback invoked with the active layer id (or null) whenever it changes. */
+  set onActiveChange(fn) { this._onActiveChange = fn; }
+
   createDOM() {
     const panel = document.createElement('div');
     panel.className = 'elevation-profile-panel';
@@ -57,6 +72,19 @@ export class ElevationProfile {
     const title = document.createElement('span');
     title.className = 'elevation-profile-title';
     header.appendChild(title);
+
+    // Compact slope-color legend. The gradient is generated from slopeColor()
+    // sampled at fixed stops so the chart and legend stay in sync.
+    const legend = document.createElement('div');
+    legend.className = 'elevation-profile-legend';
+    const stops = [0, 5, 10, 15, 20, 25, 30, 35];
+    const css = stops.map((s, i) => `${slopeColor(s)} ${(i / (stops.length - 1) * 100).toFixed(1)}%`).join(', ');
+    legend.innerHTML = `
+      <span class="elevation-profile-legend-label">0%</span>
+      <span class="elevation-profile-legend-bar" style="background:linear-gradient(to right, ${css})"></span>
+      <span class="elevation-profile-legend-label">${SLOPE_MAX}%+</span>
+    `;
+    header.appendChild(legend);
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'elevation-profile-close';
@@ -87,12 +115,14 @@ export class ElevationProfile {
   }
 
   show(layerId, title, data, lineColor) {
+    const prev = this._layerId;
     this._layerId = layerId;
     this._lineColor = lineColor;
     this._title.textContent = title;
     this._computeDistances(data);
     this._panel.classList.add('visible');
     this._scheduleDraw();
+    if (prev !== layerId) this._onActiveChange?.(layerId);
   }
 
   update(data) {
@@ -102,14 +132,18 @@ export class ElevationProfile {
   }
 
   hide() {
+    const prev = this._layerId;
     this._panel.classList.remove('visible');
     this._layerId = null;
     this._distances = null;
     this._elevations = null;
     this._coords = null;
     this._segmentBreaks = null;
+    this._segmentSlopes = null;
+    this._vertexSlopes = null;
     this._hoverIndex = -1;
     this._onHover?.(null);
+    if (prev !== null) this._onActiveChange?.(null);
   }
 
   get activeLayerId() {
@@ -127,6 +161,8 @@ export class ElevationProfile {
       this._elevations = null;
       this._coords = null;
       this._segmentBreaks = null;
+      this._segmentSlopes = null;
+      this._vertexSlopes = null;
       return;
     }
     const allDist = [];
@@ -158,6 +194,68 @@ export class ElevationProfile {
     this._elevations = allElev;
     this._coords = allCoords;
     this._segmentBreaks = breaks;
+    this._computeSlopes();
+  }
+
+  // Compute per-segment slope (dElev/dDist as a fraction) smoothed over a
+  // small distance window so per-vertex noise doesn't dominate the coloring.
+  // Segments with non-positive or unloaded elevations get NaN so the renderer
+  // can skip them (matching the existing zero-elevation gap handling).
+  _computeSlopes() {
+    const dist = this._distances;
+    const elev = this._elevations;
+    if (!dist || dist.length < 2) {
+      this._segmentSlopes = null;
+      this._vertexSlopes = null;
+      return;
+    }
+    const n = dist.length;
+    const rawSlopes = new Float64Array(n - 1);
+    const midDist = new Float64Array(n - 1);
+    for (let i = 0; i < n - 1; i++) {
+      const e1 = elev[i];
+      const e2 = elev[i + 1];
+      const dd = dist[i + 1] - dist[i];
+      midDist[i] = (dist[i] + dist[i + 1]) * 0.5;
+      if (dd <= 0 || !(e1 > 0) || !(e2 > 0)) {
+        rawSlopes[i] = NaN;
+      } else {
+        rawSlopes[i] = (e2 - e1) / dd;
+      }
+    }
+
+    // Centered moving-average smoothing with a ~80m window. Walking outward
+    // until the window is exceeded keeps the cost linear amortized.
+    const HALF_WINDOW = 40;
+    const smoothed = new Float64Array(n - 1);
+    for (let i = 0; i < n - 1; i++) {
+      if (isNaN(rawSlopes[i])) { smoothed[i] = NaN; continue; }
+      let sum = rawSlopes[i], cnt = 1;
+      for (let j = i + 1; j < n - 1; j++) {
+        if (midDist[j] - midDist[i] > HALF_WINDOW) break;
+        if (!isNaN(rawSlopes[j])) { sum += rawSlopes[j]; cnt++; }
+      }
+      for (let j = i - 1; j >= 0; j--) {
+        if (midDist[i] - midDist[j] > HALF_WINDOW) break;
+        if (!isNaN(rawSlopes[j])) { sum += rawSlopes[j]; cnt++; }
+      }
+      smoothed[i] = sum / cnt;
+    }
+    this._segmentSlopes = smoothed;
+
+    // Per-vertex slope = average of adjacent segment slopes (one-sided at ends).
+    const vSlopes = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = i > 0 ? smoothed[i - 1] : NaN;
+      const b = i < n - 1 ? smoothed[i] : NaN;
+      const va = isNaN(a) ? null : a;
+      const vb = isNaN(b) ? null : b;
+      if (va == null && vb == null) vSlopes[i] = NaN;
+      else if (va == null) vSlopes[i] = vb;
+      else if (vb == null) vSlopes[i] = va;
+      else vSlopes[i] = (va + vb) * 0.5;
+    }
+    this._vertexSlopes = vSlopes;
   }
 
   _scheduleDraw() {
@@ -230,7 +328,6 @@ export class ElevationProfile {
     const g = Math.round(lc[1] * 255);
     const b = Math.round(lc[2] * 255);
     const strokeColor = `rgb(${r},${g},${b})`;
-    const fillColor = `rgba(${r},${g},${b},0.3)`;
 
     // Gridlines
     ctx.font = '10px system-ui, sans-serif';
@@ -291,42 +388,46 @@ export class ElevationProfile {
     ctx.rect(marginLeft, marginTop, plotW, plotH);
     ctx.clip();
 
-    let inRun = false;
-    // Fill
-    ctx.fillStyle = fillColor;
-    for (let i = 0; i < distances.length; i++) {
-      const e = elevations[i];
-      if (e > 0) {
-        const px = xScale(distances[i]);
-        const py = yScale(e * M_TO_FT);
-        if (!inRun) {
-          ctx.beginPath();
-          ctx.moveTo(px, yScale(yMinFt));
-          ctx.lineTo(px, py);
-          inRun = true;
-        } else {
-          ctx.lineTo(px, py);
-        }
-      } else {
-        if (inRun) {
-          // Close the fill to the bottom
-          const prevPx = xScale(distances[i - 1]);
-          ctx.lineTo(prevPx, yScale(yMinFt));
-          ctx.closePath();
-          ctx.fill();
-          inRun = false;
-        }
+    // Per-segment fill colored by slope. Each segment renders as a quad
+    // (baseline-left, top-left, top-right, baseline-right) with a horizontal
+    // gradient interpolating between the two vertex-slope colors so the
+    // coloring reads continuously across the chart.
+    const segSlopes = this._segmentSlopes;
+    const vSlopes = this._vertexSlopes;
+    const yBaseline = yScale(yMinFt);
+    if (segSlopes) {
+      for (let i = 0; i < distances.length - 1; i++) {
+        const e1 = elevations[i];
+        const e2 = elevations[i + 1];
+        const dd = distances[i + 1] - distances[i];
+        if (!(e1 > 0) || !(e2 > 0) || dd <= 0) continue;
+        if (isNaN(segSlopes[i])) continue;
+
+        const x1 = xScale(distances[i]);
+        const x2 = xScale(distances[i + 1]);
+        const y1 = yScale(e1 * M_TO_FT);
+        const y2 = yScale(e2 * M_TO_FT);
+
+        const s1 = isNaN(vSlopes[i]) ? segSlopes[i] : vSlopes[i];
+        const s2 = isNaN(vSlopes[i + 1]) ? segSlopes[i] : vSlopes[i + 1];
+        const c1 = slopeColor(s1 * 100);
+        const c2 = slopeColor(s2 * 100);
+        const grad = ctx.createLinearGradient(x1, 0, x2, 0);
+        grad.addColorStop(0, c1);
+        grad.addColorStop(1, c2);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(x1, yBaseline);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x2, yBaseline);
+        ctx.closePath();
+        ctx.fill();
       }
-    }
-    if (inRun) {
-      const lastPx = xScale(distances[distances.length - 1]);
-      ctx.lineTo(lastPx, yScale(yMinFt));
-      ctx.closePath();
-      ctx.fill();
     }
 
     // Stroke the top edge
-    inRun = false;
+    let inRun = false;
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 1.5;
     for (let i = 0; i < distances.length; i++) {
@@ -380,7 +481,9 @@ export class ElevationProfile {
         // Tooltip
         const elevFt = Math.round(e * M_TO_FT).toLocaleString();
         const distMi = (distances[hi] * M_TO_MI).toFixed(2);
-        const text = `${elevFt} ft  /  ${distMi} mi`;
+        const slope = this._vertexSlopes ? this._vertexSlopes[hi] : NaN;
+        const slopeStr = isNaN(slope) ? '' : `  /  ${(slope * 100 >= 0 ? '+' : '')}${(slope * 100).toFixed(1)}%`;
+        const text = `${elevFt} ft  /  ${distMi} mi${slopeStr}`;
         ctx.font = '11px system-ui, sans-serif';
         const tm = ctx.measureText(text);
         const tw = tm.width + 10;
