@@ -198,9 +198,12 @@ export class ElevationProfile {
   }
 
   // Compute per-segment slope (dElev/dDist as a fraction) smoothed over a
-  // small distance window so per-vertex noise doesn't dominate the coloring.
-  // Segments with non-positive or unloaded elevations get NaN so the renderer
-  // can skip them (matching the existing zero-elevation gap handling).
+  // distance window so per-vertex noise doesn't dominate the coloring. The
+  // smoothing is length-weighted (sum of rises / sum of runs across the
+  // window) so a 2m subdivision spike doesn't count the same as a 60m
+  // straightaway — what we display is the honest average grade across the
+  // window. Segments with non-positive or unloaded elevations get NaN so
+  // the renderer can skip them (matching the existing gap handling).
   _computeSlopes() {
     const dist = this._distances;
     const elev = this._elevations;
@@ -210,36 +213,39 @@ export class ElevationProfile {
       return;
     }
     const n = dist.length;
-    const rawSlopes = new Float64Array(n - 1);
+    const rises = new Float64Array(n - 1);   // elev change per segment (m), NaN if invalid
+    const runs = new Float64Array(n - 1);    // horizontal distance per segment (m)
     const midDist = new Float64Array(n - 1);
     for (let i = 0; i < n - 1; i++) {
       const e1 = elev[i];
       const e2 = elev[i + 1];
       const dd = dist[i + 1] - dist[i];
       midDist[i] = (dist[i] + dist[i + 1]) * 0.5;
+      runs[i] = dd;
       if (dd <= 0 || !(e1 > 0) || !(e2 > 0)) {
-        rawSlopes[i] = NaN;
+        rises[i] = NaN;
       } else {
-        rawSlopes[i] = (e2 - e1) / dd;
+        rises[i] = e2 - e1;
       }
     }
 
-    // Centered moving-average smoothing with a ~80m window. Walking outward
-    // until the window is exceeded keeps the cost linear amortized.
-    const HALF_WINDOW = 40;
+    // Length-weighted average grade across a 150m window centered on each
+    // segment. Walking outward until the window is exceeded keeps the cost
+    // linear amortized.
+    const HALF_WINDOW = 75;
     const smoothed = new Float64Array(n - 1);
     for (let i = 0; i < n - 1; i++) {
-      if (isNaN(rawSlopes[i])) { smoothed[i] = NaN; continue; }
-      let sum = rawSlopes[i], cnt = 1;
-      for (let j = i + 1; j < n - 1; j++) {
+      if (isNaN(rises[i])) { smoothed[i] = NaN; continue; }
+      let totalRise = 0, totalRun = 0;
+      for (let j = i; j < n - 1; j++) {
         if (midDist[j] - midDist[i] > HALF_WINDOW) break;
-        if (!isNaN(rawSlopes[j])) { sum += rawSlopes[j]; cnt++; }
+        if (!isNaN(rises[j])) { totalRise += rises[j]; totalRun += runs[j]; }
       }
       for (let j = i - 1; j >= 0; j--) {
         if (midDist[i] - midDist[j] > HALF_WINDOW) break;
-        if (!isNaN(rawSlopes[j])) { sum += rawSlopes[j]; cnt++; }
+        if (!isNaN(rises[j])) { totalRise += rises[j]; totalRun += runs[j]; }
       }
-      smoothed[i] = sum / cnt;
+      smoothed[i] = totalRun > 0 ? totalRise / totalRun : NaN;
     }
     this._segmentSlopes = smoothed;
 
