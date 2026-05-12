@@ -20,6 +20,9 @@ export class ImageryManager {
   pending: Map<string, Promise<void>>;
   abortControllers: Map<string, AbortController>;
   failed: Set<string>;
+  // Keys whose last fetch failed transiently (5xx, network error); holds
+  // the setTimeout id until the backoff expires and the request is re-pushed.
+  _retryTimers: Map<string, ReturnType<typeof setTimeout>>;
   consumers: Map<string, Set<string>>;
   terrainToSat: Map<string, Set<string>>;
   activeRequests: number;
@@ -27,6 +30,7 @@ export class ImageryManager {
   onTileLoaded: ((sz: number, sx: number, sy: number) => void) | null;
   bounds: ImageryBounds | null;
   private _settings: any;
+  private _onOnline: (() => void) | null = null;
 
   constructor({ tileUrl, settings = null }: {
     tileUrl?: (z: number, x: number, y: number) => string;
@@ -37,6 +41,7 @@ export class ImageryManager {
     this.pending = new Map();
     this.abortControllers = new Map();
     this.failed = new Set();
+    this._retryTimers = new Map();
     this.consumers = new Map();
     this.terrainToSat = new Map();
     this.activeRequests = 0;
@@ -44,6 +49,10 @@ export class ImageryManager {
     this.onTileLoaded = null;
     this.bounds = null;
     this._settings = settings;
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      this._onOnline = () => this._wakeAllRetries();
+      window.addEventListener('online', this._onOnline);
+    }
   }
 
   setBounds(bounds: ImageryBounds): void {
@@ -80,6 +89,9 @@ export class ImageryManager {
     satSet.add(key);
 
     if (this.fetched.has(key) || this.failed.has(key) || this.pending.has(key)) return;
+    // A transient failure is waiting out its backoff; the retry timer will
+    // re-push when it expires.
+    if (this._retryTimers.has(key)) return;
 
     if (this.bounds && this._isOutOfBounds(z, x, y)) {
       this.failed.add(key);
@@ -161,22 +173,80 @@ export class ImageryManager {
     }
   }
 
+  // Schedule a retry for a transient failure. Mobile networks routinely
+  // produce 5xx / TypeError on fetch; the old behavior of marking the key
+  // permanently failed left imagery tiles blank with no recovery path since
+  // _onSatelliteTileLoaded only fires on success.
+  _scheduleRetry(z: number, x: number, y: number, key: string): void {
+    if (this._retryTimers.has(key)) return;
+    const timer = setTimeout(() => {
+      this._retryTimers.delete(key);
+      if (this.fetched.has(key) || this.failed.has(key) || this.pending.has(key)) return;
+      // If every consumer was released during the backoff, drop the retry —
+      // we'd waste a fetch on a tile no one wants.
+      const consumers = this.consumers.get(key);
+      if (!consumers || consumers.size === 0) return;
+      this.requestQueue.push({ z, x, y, key });
+      this._processQueue();
+    }, 3000);
+    this._retryTimers.set(key, timer);
+  }
+
+  _wakeAllRetries(): void {
+    for (const [key, timer] of this._retryTimers) {
+      clearTimeout(timer);
+      if (this.fetched.has(key) || this.failed.has(key) || this.pending.has(key)) continue;
+      const consumers = this.consumers.get(key);
+      if (!consumers || consumers.size === 0) continue;
+      const [zStr, xStr, yStr] = key.split('/');
+      this.requestQueue.push({ z: +zStr, x: +xStr, y: +yStr, key });
+    }
+    this._retryTimers.clear();
+    this._processQueue();
+  }
+
   async _loadTile(z: number, x: number, y: number, key: string, signal: AbortSignal): Promise<void> {
+    let response: Response;
     try {
       const url = this.tileUrl(z, x, y);
-      const response = await fetch(url, { signal });
-      if (!response.ok) {
-        this.failed.add(key);
+      response = await fetch(url, { signal });
+    } catch (e: any) {
+      if (e && e.name === 'AbortError') return;
+      // Network-layer error (offline, DNS, reset). Transient.
+      this._scheduleRetry(z, x, y, key);
+      return;
+    }
+    if (!response.ok) {
+      if (response.status >= 500) {
+        // Server failure — usually transient.
+        this._scheduleRetry(z, x, y, key);
         return;
       }
+      // 4xx: tile is authoritatively missing or forbidden. Permanent.
+      this.failed.add(key);
+      return;
+    }
+    try {
       const blob = await response.blob();
       const bitmap = await createImageBitmap(blob);
       this.fetched.set(key, bitmap);
 
       if (this.onTileLoaded) this.onTileLoaded(z, x, y);
     } catch (e: any) {
-      if (e.name === 'AbortError') return;
-      this.failed.add(key);
+      if (e && e.name === 'AbortError') return;
+      // Body stream / decode failure — treat as transient. The OS or radio
+      // can interrupt downloads mid-stream and the next attempt usually
+      // succeeds.
+      this._scheduleRetry(z, x, y, key);
+    }
+  }
+
+  destroy(): void {
+    for (const timer of this._retryTimers.values()) clearTimeout(timer);
+    this._retryTimers.clear();
+    if (this._onOnline && typeof window !== 'undefined' && window.removeEventListener) {
+      window.removeEventListener('online', this._onOnline);
+      this._onOnline = null;
     }
   }
 }
