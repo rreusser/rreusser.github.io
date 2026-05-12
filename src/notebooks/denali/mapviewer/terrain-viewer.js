@@ -2,6 +2,7 @@ import { EventEmitter } from './core/event-emitter.ts';
 import { GPUContext } from './rendering/gpu-context.ts';
 import { SkyRenderer } from './rendering/sky-renderer.ts';
 import { TerrainRenderer } from './rendering/terrain-renderer.ts';
+import { HoverMarker } from './rendering/hover-marker.js';
 import { LayerManager } from './layers/layer-manager.ts';
 import { createCameraController } from './camera/camera-controller.js';
 import { tilesetToMercatorBounds, tileUrlFromTemplate, lonToMercatorX, latToMercatorY } from './tiles/tile-math.js';
@@ -234,6 +235,9 @@ export class TerrainMap extends EventEmitter {
     this._frustumOverlay = new FrustumOverlay(device, format, this._pixelRatio, createGPULines);
     this._collisionManager = new CollisionManager(device, format);
     this._collisionManager.onWake = () => { this._renderDirty = true; };
+
+    this._hoverMarker = new HoverMarker();
+    this._hoverMarker.init(device, gpu.globalUniformBGL, format);
 
     this._workerPool = new WorkerPool(
       () => new Worker(new URL('./workers/tile-decode.worker.ts', import.meta.url), { type: 'module' }),
@@ -476,9 +480,22 @@ export class TerrainMap extends EventEmitter {
       textLayers: this._layerManager._textLayers,
       frustumOverlay: this._frustumOverlay,
       collisionManager: this._collisionManager,
+      hoverMarker: this._hoverMarker,
       pixelRatio: this._pixelRatio,
       sunTerrainVisibility: this._computeSunTerrainVisibility(),
     });
+  }
+
+  /**
+   * Set or clear the on-map hover marker shown for the elevation-profile
+   * hover position. Pass null to hide. The marker is rendered via WebGPU
+   * inside the map canvas, so it's intrinsically clipped to the map bounds.
+   *
+   * @param {{mercatorX: number, mercatorY: number, elevation: number, color: number[]} | null} point
+   */
+  setHoverPoint(point) {
+    this._hoverMarker.setPoint(point);
+    this.triggerRedraw();
   }
 
   /**
@@ -736,6 +753,9 @@ export class TerrainMap extends EventEmitter {
     }
 
     this._layerManager.prepareLayers(projectionView, canvas.width, canvas.height, this._pixelRatio, this._currentExaggeration, this._globalElevScale);
+    if (this._hoverMarker.isActive()) {
+      this._hoverMarker.prepare(projectionView, canvas.width, canvas.height, this._pixelRatio, this._currentExaggeration, this._globalElevScale);
+    }
 
     this.emit('elevationrefine');
 
@@ -1042,6 +1062,7 @@ export class TerrainMap extends EventEmitter {
     this.canvas.removeEventListener('pointercancel', this._onPickPointerCancel);
     this._collisionManager.destroy();
     this._frustumOverlay.destroy();
+    this._hoverMarker.destroy();
     this._resizeObserver.disconnect();
     this.camera.destroy();
     this._layerManager.destroyAll();
