@@ -61,6 +61,18 @@ export class TerrainMap extends EventEmitter {
     return this._location;
   }
 
+  /**
+   * Geographic location at the camera's current orbit center, derived from
+   * `camera.state.center` (mercator). Use this for sun calculations that
+   * should follow the view rather than the fixed init location.
+   */
+  getViewLocation() {
+    const [mx, , my] = this.camera.state.center;
+    const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * my))) * 180 / Math.PI;
+    const lon = (mx - 0.5) * 360;
+    return { lat, lon };
+  }
+
   /** Camera bearing in degrees (0 = north, 90 = east). */
   get bearing() {
     return 90 - this.camera.state.phi * 180 / Math.PI;

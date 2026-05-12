@@ -349,8 +349,6 @@
 
     const controlsContainer = html`<div class="terrain-controls"></div>`;
 
-    const location = viewer.location;
-
     function formatTime(decimal) {
       const h = Math.floor(decimal) % 24;
       const m = Math.round((decimal % 1) * 60);
@@ -365,7 +363,8 @@
     function updateSunDirection() {
       const utcDate = sunCalendarEl ? sunCalendarEl.getUtcDate() : null;
       if (!utcDate) return;
-      const sunPos = SunCalc.getPosition(utcDate, location.lat, location.lon);
+      const { lat, lon } = viewer.getViewLocation();
+      const sunPos = SunCalc.getPosition(utcDate, lat, lon);
       const alt = sunPos.altitude;
       const az = sunPos.azimuth;
       viewer.settings.sunDirection = [
@@ -987,7 +986,10 @@
 
     // Time-of-day controls at the bottom of the lighting section.
     sunCalendarEl = createSunCalendar(SunCalc, {
-      getLocation: () => [location.lat, location.lon],
+      getLocation: () => {
+        const { lat, lon } = viewer.getViewLocation();
+        return [lat, lon];
+      },
       onChange: () => { updateSunDirection(); updateSunTimes(); },
     });
     lightingContent.appendChild(sunCalendarEl);
@@ -1022,7 +1024,8 @@
       }).format(utcDate);
       const [yyyy, mm, dd] = dayKey.split('-').map(Number);
       const noonUtc = new Date(Date.UTC(yyyy, mm - 1, dd, 12, 0, 0));
-      const times = SunCalc.getTimes(noonUtc, location.lat, location.lon);
+      const { lat, lon } = viewer.getViewLocation();
+      const times = SunCalc.getTimes(noonUtc, lat, lon);
       const events = [
         ['Sunrise', times.sunrise],
         ['AM golden', times.goldenHourEnd],
@@ -1047,6 +1050,10 @@
     sunCalendarEl.setTimezone('America/Anchorage');
     updateSunDirection();
     updateSunTimes();
+
+    // Sun position and the sunrise/noon/sunset times depend on lat/lon, so
+    // recompute both whenever the camera settles on a new view.
+    viewer.on('moveend', () => { updateSunDirection(); updateSunTimes(); });
 
     const { section: debug, body: debugContent } = createSection('Debug');
     controlsContainer.appendChild(debug);
