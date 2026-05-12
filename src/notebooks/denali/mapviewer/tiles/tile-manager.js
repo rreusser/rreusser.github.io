@@ -83,7 +83,12 @@ export class TileManager {
     this._settings = settings;
     this.cache = new Map(); // key -> { texture, bindGroup, lastUsed }
     this.pending = new Map(); // key -> AbortController
-    this.failed = new Set(); // keys that 404'd (tile doesn't exist)
+    this.failed = new Set(); // keys that 404'd (tile doesn't exist — permanent)
+    // Keys whose last fetch failed transiently (5xx, network error). Holds
+    // the setTimeout id until the backoff expires; mobile networks routinely
+    // produce these and the old behavior of conflating them with 404 left
+    // tiles permanently blank.
+    this._retryTimers = new Map(); // key -> setTimeout id while backoff is in effect
     this.activeRequests = 0;
     this.requestQueue = [];
     this.bindGroupLayout = null; // set by main.js
@@ -96,6 +101,14 @@ export class TileManager {
     // coverage pass; null disables sorting (pure FIFO). Coordinates are
     // mercator world (X=east, Y=up, Z=south); tile centers use Y=0.
     this._cameraPos = null;
+
+    // Wake all suspended retries when the device comes back online — fetch
+    // failures during an offline interval are otherwise stuck waiting for
+    // their individual backoffs to expire one by one.
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      this._onOnline = () => this._wakeAllRetries();
+      window.addEventListener('online', this._onOnline);
+    }
   }
 
   // Called by selectImageryTiles each coverage pass so the request queue
@@ -234,6 +247,9 @@ export class TileManager {
     const key = this._key(z, x, y);
     this.wantedKeys.add(key);
     if (this.cache.has(key) || this.pending.has(key) || this.failed.has(key)) return;
+    // A transient failure is currently waiting out its backoff — the timer
+    // will fire onTileResolved when it expires and coverage will re-request.
+    if (this._retryTimers.has(key)) return;
 
     if (this.bounds && this._isOutOfBounds(z, x, y)) {
       this.failed.add(key);
@@ -301,16 +317,59 @@ export class TileManager {
     return dx * dx + dy * dy + dz * dz;
   }
 
+  // Schedule a retry for a transient failure (5xx, network error, body
+  // stream interruption). Mobile radios commonly produce these and the old
+  // behavior — conflating them with a 404 by marking the key permanently
+  // failed — left whole regions of the map blank with no recovery path.
+  // The fixed 3s backoff (cleared when the device returns online) keeps
+  // throughput bounded without giving up on the tile.
+  _scheduleRetry(z, x, y, key) {
+    if (this._retryTimers.has(key)) return;
+    const timer = setTimeout(() => {
+      this._retryTimers.delete(key);
+      if (this.cache.has(key) || this.failed.has(key) || this.pending.has(key)) return;
+      // Fire onTileResolved so terrain-viewer marks coverage dirty and the
+      // next frame re-requests the tile if it's still wanted. Re-pushing
+      // directly here would bypass the wantedKeys check and waste fetches
+      // on tiles that have scrolled out of view.
+      if (this.onTileResolved) this.onTileResolved(z, x, y);
+    }, 3000);
+    this._retryTimers.set(key, timer);
+  }
+
+  _wakeAllRetries() {
+    for (const [key, timer] of this._retryTimers) {
+      clearTimeout(timer);
+      const [zStr, xStr, yStr] = key.split('/');
+      if (this.onTileResolved) this.onTileResolved(+zStr, +xStr, +yStr);
+    }
+    this._retryTimers.clear();
+  }
+
   async _loadTile(z, x, y, key, signal) {
+    let response;
     try {
       const url = this.tileUrl(z, x, y);
-      const response = await fetch(url, { signal });
-      if (!response.ok) {
-        this.failed.add(key);
-        this._cacheFlatTile(key);
-        if (this.onTileResolved) this.onTileResolved(z, x, y);
+      response = await fetch(url, { signal });
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      // Network-layer error (no DNS, connection reset, offline). Transient.
+      this._scheduleRetry(z, x, y, key);
+      return;
+    }
+    if (!response.ok) {
+      if (response.status >= 500) {
+        // Server failure — usually transient (load shedding, gateway timeout).
+        this._scheduleRetry(z, x, y, key);
         return;
       }
+      // 4xx: tile is authoritatively missing or forbidden. Permanent.
+      this.failed.add(key);
+      this._cacheFlatTile(key);
+      if (this.onTileResolved) this.onTileResolved(z, x, y);
+      return;
+    }
+    try {
       const blob = await response.blob();
       const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none' });
 
@@ -388,10 +447,12 @@ export class TileManager {
 
       if (this.onTileResolved) this.onTileResolved(z, x, y);
     } catch (e) {
-      if (e.name === 'AbortError') return;
-      this.failed.add(key);
-      this._cacheFlatTile(key);
-      if (this.onTileResolved) this.onTileResolved(z, x, y);
+      if (e && e.name === 'AbortError') return;
+      // Body stream interruption or createImageBitmap rejection — usually
+      // transient on mobile (the OS may abort fetches mid-stream under
+      // memory pressure or radio handoff). Schedule a retry rather than
+      // permanently failing the tile.
+      this._scheduleRetry(z, x, y, key);
     }
   }
 
@@ -519,5 +580,14 @@ export class TileManager {
   beginFrame() {
     this.requestQueue = [];
     this.wantedKeys = new Set();
+  }
+
+  destroy() {
+    for (const timer of this._retryTimers.values()) clearTimeout(timer);
+    this._retryTimers.clear();
+    if (this._onOnline && typeof window !== 'undefined' && window.removeEventListener) {
+      window.removeEventListener('online', this._onOnline);
+      this._onOnline = null;
+    }
   }
 }

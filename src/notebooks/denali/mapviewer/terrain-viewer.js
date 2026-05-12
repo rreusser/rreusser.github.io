@@ -1079,6 +1079,12 @@ export class TerrainMap extends EventEmitter {
     this.camera.destroy();
     this._layerManager.destroyAll();
     this._lightingManager.destroy();
+    this._tileManager.destroy();
+    if (this._imageryTileCache && this._imageryTileCache.layers) {
+      for (const layer of this._imageryTileCache.layers) {
+        if (layer.imageryManager && layer.imageryManager.destroy) layer.imageryManager.destroy();
+      }
+    }
     this._workerPool.destroy();
     this._gpu.destroy();
   }
