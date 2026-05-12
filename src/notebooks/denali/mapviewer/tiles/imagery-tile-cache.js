@@ -7,6 +7,14 @@
 
 const CANVAS_SIZE = 512;
 
+// Mid-gray placeholder for tiles that have no real bitmap data and no
+// composited ancestor to fall back on. After the shader's srgbToLinear
+// converts it (~0.21 linear) and lighting/atmosphere are applied, this
+// reads as "neutral overcast terrain" — much closer to the eventual
+// imagery than the WebGPU zero-init black, which produced the
+// "dark with atmosphere only" look reported on mobile.
+const PLACEHOLDER_GRAY = 0.5;
+
 export class ImageryTileCache {
   /**
    * @param {GPUDevice} device
@@ -22,9 +30,139 @@ export class ImageryTileCache {
     this.entries = new Map(); // key -> entry
     this.onUpdate = null;
 
+    this._initUpsamplePipeline();
+
     for (const layer of layers) {
       layer.imageryManager.onTileLoaded = (sz, sx, sy) => this._onSatelliteTileLoaded(layer, sz, sx, sy);
     }
+  }
+
+  // Mirrors LightingManager's upsample pipeline: a fullscreen-triangle
+  // textured-blit that copies a sub-region of a source texture into a
+  // destination texture at a given UV offset and scale. Used to seed new
+  // imagery entries from an already-composited ancestor entry so newly
+  // created child tiles render parent imagery upsampled in place of black.
+  _initUpsamplePipeline() {
+    const wgsl = /* wgsl */`
+      struct VsOut {
+        @builtin(position) pos: vec4<f32>,
+        @location(0) uv: vec2<f32>,
+      };
+
+      struct Params {
+        uv_offset: vec2<f32>,
+        uv_scale: vec2<f32>,
+      };
+
+      @group(0) @binding(0) var srcTex: texture_2d<f32>;
+      @group(0) @binding(1) var srcSampler: sampler;
+      @group(0) @binding(2) var<uniform> params: Params;
+
+      @vertex
+      fn vs(@builtin(vertex_index) idx: u32) -> VsOut {
+        var pos = array<vec2<f32>, 3>(
+          vec2<f32>(-1.0, -1.0),
+          vec2<f32>( 3.0, -1.0),
+          vec2<f32>(-1.0,  3.0),
+        );
+        var uvs = array<vec2<f32>, 3>(
+          vec2<f32>(0.0, 1.0),
+          vec2<f32>(2.0, 1.0),
+          vec2<f32>(0.0, -1.0),
+        );
+        var out: VsOut;
+        out.pos = vec4<f32>(pos[idx], 0.0, 1.0);
+        out.uv = uvs[idx];
+        return out;
+      }
+
+      @fragment
+      fn fs(in: VsOut) -> @location(0) vec4<f32> {
+        let src_uv = params.uv_offset + in.uv * params.uv_scale;
+        return textureSample(srcTex, srcSampler, src_uv);
+      }
+    `;
+    const module = this.device.createShaderModule({ code: wgsl });
+    this._upsamplePipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module, entryPoint: 'vs' },
+      fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
+      primitive: { topology: 'triangle-list' },
+    });
+    this._upsampleSampler = this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+    });
+    this._upsampleUniformBuf = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+  }
+
+  _runUpsamplePass(srcTex, dstTex, uvOffsetX, uvOffsetY, uvScale) {
+    this.device.queue.writeBuffer(
+      this._upsampleUniformBuf, 0,
+      new Float32Array([uvOffsetX, uvOffsetY, uvScale, uvScale]),
+    );
+    const bindGroup = this.device.createBindGroup({
+      layout: this._upsamplePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: srcTex.createView() },
+        { binding: 1, resource: this._upsampleSampler },
+        { binding: 2, resource: { buffer: this._upsampleUniformBuf } },
+      ],
+    });
+    const encoder = this.device.createCommandEncoder({ label: 'imagery.upsample' });
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: dstTex.createView(),
+        loadOp: 'clear',
+        storeOp: 'store',
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      }],
+    });
+    pass.setPipeline(this._upsamplePipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(3);
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
+  }
+
+  _clearTextureToGray(texture) {
+    const encoder = this.device.createCommandEncoder({ label: 'imagery.clearGray' });
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: texture.createView(),
+        loadOp: 'clear',
+        storeOp: 'store',
+        clearValue: { r: PLACEHOLDER_GRAY, g: PLACEHOLDER_GRAY, b: PLACEHOLDER_GRAY, a: 1.0 },
+      }],
+    });
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
+  }
+
+  // Walk up the ancestor chain to find the closest entry that already has
+  // content, and blit its corresponding quadrant into the new entry's
+  // texture. Mirrors LightingManager._tryFillFromAncestor. Returns true
+  // if any ancestor was found.
+  _blitFromAncestorEntry(entry) {
+    const { iz, ix, iy } = entry;
+    for (let dz = 1; dz <= iz; dz++) {
+      const pz = iz - dz;
+      const px = ix >> dz;
+      const py = iy >> dz;
+      const parent = this.entries.get(this._key(pz, px, py));
+      if (parent && parent.hasContent) {
+        const scale = 1 << dz;
+        const quadX = ix & (scale - 1);
+        const quadY = iy & (scale - 1);
+        this._runUpsamplePass(parent.texture, entry.texture,
+          quadX / scale, quadY / scale, 1 / scale);
+        return true;
+      }
+    }
+    return false;
   }
 
   _key(z, x, y) {
@@ -93,12 +231,27 @@ export class ImageryTileCache {
     };
     this.entries.set(key, entry);
 
+    // Seed the texture with the best placeholder available before any
+    // network round-trip. Ancestor blit produces a smoothly upsampled view
+    // of the parent imagery in the right spatial location; the gray fill
+    // is a fallback when the cache has no ancestor (cold start). Either
+    // way the tile renders as something visually coherent immediately,
+    // instead of falling through the renderer's "no imagery" branch which
+    // — combined with hillshade and atmosphere — produced the near-black
+    // tiles reported on mobile. Real bitmap data overwrites the placeholder
+    // via _recomposite.
+    if (!this._blitFromAncestorEntry(entry)) {
+      this._clearTextureToGray(texture);
+    }
+    entry.hasContent = true;
+
     // Request satellite tiles from each layer
     for (const ld of layerData) {
       ld.imageryManager.requestTile(ld.satZ, ld.satX, ld.satY, key);
     }
 
-    // Composite what's available now
+    // Composite what's available now (overwrites the placeholder if any
+    // bitmap or bitmap-level ancestor has already loaded).
     this._recomposite(entry);
   }
 
