@@ -220,40 +220,24 @@
       if (data) elevationProfile.update(data);
     });
 
-    const profileHoverDot = html`<div class="profile-hover-dot"></div>`;
-    let hoverPoint = null;
-
-    function updateHoverDot() {
-      if (!hoverPoint) {
-        profileHoverDot.style.display = 'none';
-        return;
-      }
-      const p = viewer.projectMercator(hoverPoint.mercatorX, hoverPoint.mercatorY, hoverPoint.elevation);
-      if (!p) {
-        profileHoverDot.style.display = 'none';
-        return;
-      }
-      profileHoverDot.style.display = 'block';
-      profileHoverDot.style.left = `${p.x}px`;
-      profileHoverDot.style.top = `${p.y}px`;
-    }
-
+    // The on-map hover marker for the elevation profile is rendered via
+    // WebGPU (see HoverMarker), so it's intrinsically clipped to the map
+    // canvas and lives in the same render pass as the rest of the map.
     elevationProfile.onHover = (point) => {
-      hoverPoint = point;
-      if (point) {
-        const id = elevationProfile.activeLayerId;
-        const layer = id && viewer.getLayer(id);
-        const lc = layer?.paint?.['line-color'];
-        if (lc) {
-          const r = Math.round(lc[0] * 255), g = Math.round(lc[1] * 255), b = Math.round(lc[2] * 255);
-          profileHoverDot.style.background = `rgb(${r},${g},${b})`;
-        }
-        viewer.triggerRedraw();
+      if (!point) {
+        viewer.setHoverPoint(null);
+        return;
       }
-      updateHoverDot();
+      const id = elevationProfile.activeLayerId;
+      const layer = id && viewer.getLayer(id);
+      const lc = layer?.paint?.['line-color'] || [1, 0.53, 0, 1];
+      viewer.setHoverPoint({
+        mercatorX: point.mercatorX,
+        mercatorY: point.mercatorY,
+        elevation: point.elevation,
+        color: lc,
+      });
     };
-
-    viewer.on('render', updateHoverDot);
 
     // Toggle the elevation profile for a line layer.
     function toggleElevationProfile(layerId) {
@@ -288,7 +272,6 @@
     container.appendChild(slopeLegend);
     container.appendChild(viewer.attribution);
     container.appendChild(profilePanel);
-    container.appendChild(profileHoverDot);
 
     const memoryWidget = createMemoryWidget(viewer.memoryTracker);
     // Hidden by default — toggled from the Debug section in the controls.
@@ -1781,21 +1764,6 @@ But let's be clear, this is a totally half-baked one-off ad hoc renderer. It use
         flex: 1;
         width: 100%;
         min-height: 0;
-      }
-
-      .profile-hover-dot {
-        position: absolute;
-        width: 12px;
-        height: 12px;
-        margin: -6px 0 0 -6px;
-        border-radius: 50%;
-        background: #ff8800;
-        border: 2px solid #fff;
-        box-shadow: 0 0 4px rgba(0,0,0,0.5);
-        pointer-events: none;
-        display: none;
-        z-index: 4;
-        will-change: left, top;
       }
 
       .aspect-rose path,

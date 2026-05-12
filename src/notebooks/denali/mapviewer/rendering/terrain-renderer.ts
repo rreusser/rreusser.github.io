@@ -65,6 +65,7 @@ export class TerrainRenderer {
     textLayers: any[];
     frustumOverlay: any;
     collisionManager: any;
+    hoverMarker?: any;
     pixelRatio: number;
     sunTerrainVisibility: number;
   }) {
@@ -72,7 +73,7 @@ export class TerrainRenderer {
       canvas, camera, settings, renderList, tileManager, imageryTileCache, lightingManager,
       exaggeration, globalElevScale,
       lineLayers, circleLayers, textLayers,
-      frustumOverlay, collisionManager, pixelRatio,
+      frustumOverlay, collisionManager, hoverMarker, pixelRatio,
       sunTerrainVisibility,
     } = params;
 
@@ -246,6 +247,10 @@ export class TerrainRenderer {
     for (const entry of textLayers) {
       if (entry.visible) entry.layer.draw(pass);
     }
+
+    // Hover marker (single circle) sits on top of feature layers so it
+    // stays visible even when a route is partially occluded by terrain.
+    if (hoverMarker) hoverMarker.draw(pass, gpu.globalUniformBindGroup);
 
     // Collision debug bounding boxes
     if (settings.showCollisionBoxes) {
