@@ -149,6 +149,7 @@ export class LayerManager {
           'line-border-color': e.layer._borderColor,
           'line-width': e.layer._lineWidth,
           'line-border-width': e.layer._borderWidth,
+          'line-slope-shading': !!e.layer._slopeShading,
         },
       });
     }
@@ -234,6 +235,7 @@ export class LayerManager {
       else if (property === 'line-border-color') l._borderColor = color;
       else if (property === 'line-width') l._lineWidth = value;
       else if (property === 'line-border-width') l._borderWidth = value;
+      else if (property === 'line-slope-shading') l.setSlopeShading(value);
       this._onDirty();
       return;
     }
