@@ -165,6 +165,11 @@ export class TileManager {
   attachShading(z, x, y, shadingView) {
     const entry = this.cache.get(this._key(z, x, y));
     if (!entry || entry.isFlat) return;
+    // Skip the bind-group rebuild when the view is unchanged — the cascade
+    // from a bake completion may re-attach the same state.view repeatedly
+    // (the texture content changed, but the view didn't), and there's no
+    // need to allocate a fresh bind group in that case.
+    if (entry.shadingView === shadingView) return;
     entry.shadingView = shadingView;
     entry.bindGroup = this._createTileBindGroup(entry.texture, shadingView);
   }
