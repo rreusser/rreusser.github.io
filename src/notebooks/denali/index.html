@@ -254,6 +254,33 @@
 
     viewer.on('render', updateHoverDot);
 
+    // Toggle the elevation profile for a line layer.
+    function toggleElevationProfile(layerId) {
+      if (elevationProfile.activeLayerId === layerId) {
+        elevationProfile.hide();
+        return;
+      }
+      const layer = viewer.getLayer(layerId);
+      const data = viewer.getLayerElevationProfile(layerId);
+      if (!layer || !data) return;
+      elevationProfile.show(layerId, layerId, data, layer.paint['line-color']);
+    }
+
+    // Mountain-icon buttons in the layer panel reflect the active profile.
+    // The panel is rebuilt on layer add/delete, so we track current buttons
+    // in a Map and refresh their .active class whenever the profile changes.
+    const profileToggleButtons = new Map();
+    elevationProfile.onActiveChange = (activeId) => {
+      for (const [id, btn] of profileToggleButtons) {
+        btn.classList.toggle('active', id === activeId);
+      }
+    };
+
+    // Tapping a route on the map toggles its elevation profile. The viewer
+    // emits 'linetap' only when the pointer release stays inside its dead
+    // zone, so plain pan/orbit gestures don't trigger this.
+    viewer.on('linetap', (hit) => toggleElevationProfile(hit.id));
+
     const container = html`<div style="position: relative">`;
     container.appendChild(canvas);
     container.appendChild(elevationLabel);
@@ -418,6 +445,7 @@
 
     function rebuildLayerPanel() {
       layerList.innerHTML = '';
+      profileToggleButtons.clear();
 
       // Imagery row (no expandable props, just eye toggle)
       const imgRow = html`<div class="layer-row">
@@ -452,6 +480,18 @@
 
         row.appendChild(html`<span class="layer-name">${entry.id}</span>`);
 
+        if (entry.type === 'line') {
+          const profileToggle = html`<button class="layer-profile-toggle" title="Toggle elevation profile"></button>`;
+          profileToggle.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M1.5 13 L5.5 6 L8 9.5 L10.5 5.5 L14.5 13 Z"/></svg>`;
+          if (elevationProfile.activeLayerId === entry.id) profileToggle.classList.add('active');
+          profileToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleElevationProfile(entry.id);
+          });
+          row.appendChild(profileToggle);
+          profileToggleButtons.set(entry.id, profileToggle);
+        }
+
         const del = html`<button class="layer-delete" title="Remove layer">&times;</button>`;
         del.addEventListener('click', () => {
           viewer.removeLayer(entry.id);
@@ -484,11 +524,7 @@
           });
           props.appendChild(dlBtn);
           const profBtn = html`<button class="layer-download-btn">Elevation profile</button>`;
-          profBtn.addEventListener('click', () => {
-            const data = viewer.getLayerElevationProfile(id);
-            if (!data) return;
-            elevationProfile.show(id, entry.id, data, paint['line-color']);
-          });
+          profBtn.addEventListener('click', () => toggleElevationProfile(id));
           props.appendChild(profBtn);
         } else if (entry.type === 'circle') {
           addColorProp(props, 'Fill', paint['circle-color'], v => viewer.setLayerPaint(id, 'circle-color', v));
@@ -1471,6 +1507,22 @@ I mean, let's be clear. This is a totally half-baked one-off ad hoc renderer. It
       .layer-delete:hover {
         color: #d32f2f;
       }
+      .layer-profile-toggle {
+        background: none;
+        border: none;
+        padding: 2px;
+        cursor: pointer;
+        color: #888;
+        border-radius: 3px;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+      }
+      .layer-profile-toggle:hover { background: #eee; color: #444; }
+      .layer-profile-toggle.active { color: #1976d2; }
+      html[data-dark] .layer-profile-toggle { color: #888; }
+      html[data-dark] .layer-profile-toggle:hover { background: rgba(255,255,255,0.08); color: #ddd; }
+      html[data-dark] .layer-profile-toggle.active { color: #64b5f6; }
       .layer-props {
         display: flex;
         flex-direction: column;
@@ -1681,6 +1733,24 @@ I mean, let's be clear. This is a totally half-baked one-off ad hoc renderer. It
         align-items: center;
         justify-content: center;
       }
+      .elevation-profile-legend {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-family: system-ui, sans-serif;
+        font-size: 10px;
+        color: #666;
+        flex-shrink: 0;
+      }
+      .elevation-profile-legend-bar {
+        display: inline-block;
+        width: 64px;
+        height: 8px;
+        border-radius: 2px;
+        border: 1px solid rgba(0,0,0,0.15);
+      }
+      html[data-dark] .elevation-profile-legend { color: #aaa; }
+      html[data-dark] .elevation-profile-legend-bar { border-color: rgba(255,255,255,0.2); }
       .elevation-profile-close:hover {
         background: #e0e0e0;
       }
