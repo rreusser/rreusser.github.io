@@ -349,8 +349,6 @@
 
     const controlsContainer = html`<div class="terrain-controls"></div>`;
 
-    const location = viewer.location;
-
     function formatTime(decimal) {
       const h = Math.floor(decimal) % 24;
       const m = Math.round((decimal % 1) * 60);
@@ -365,7 +363,8 @@
     function updateSunDirection() {
       const utcDate = sunCalendarEl ? sunCalendarEl.getUtcDate() : null;
       if (!utcDate) return;
-      const sunPos = SunCalc.getPosition(utcDate, location.lat, location.lon);
+      const { lat, lon } = viewer.getViewLocation();
+      const sunPos = SunCalc.getPosition(utcDate, lat, lon);
       const alt = sunPos.altitude;
       const az = sunPos.azimuth;
       viewer.settings.sunDirection = [
@@ -953,12 +952,26 @@
     });
     analysisContent.appendChild(treelineRecomputeBtn);
 
-    // Lighting section: ordered top-down as the user reads — global
-    // atmosphere first, then the master lighting toggle, then the three
-    // per-effect strength sliders, then sun-disk / sample quality, with
-    // the time-of-day calendar at the bottom.
+    // Lighting section: time-of-day controls at the top (calendar then
+    // snap-to-event buttons), followed by atmosphere density, the three
+    // per-effect strength sliders, and sun-disk / sample quality.
     const { section: lightingSection, body: lightingContent } = createSection('Lighting');
     controlsContainer.appendChild(lightingSection);
+
+    sunCalendarEl = createSunCalendar(SunCalc, {
+      getLocation: () => {
+        const { lat, lon } = viewer.getViewLocation();
+        return [lat, lon];
+      },
+      onChange: () => { updateSunDirection(); updateSunTimes(); },
+    });
+    lightingContent.appendChild(sunCalendarEl);
+
+    // Astronomical times display — buttons that snap the calendar's
+    // time slider to sunrise / golden-hour / noon / sunset for the
+    // currently selected date and timezone.
+    const sunTimesEl = html`<div class="sun-times"></div>`;
+    lightingContent.appendChild(sunTimesEl);
 
     addControl(lightingContent,
       Inputs.range([0.05, 1], { value: viewer.settings.atmosphereDensity, step: 0.01, label: "Atmosphere density" }),
@@ -985,19 +998,6 @@
       v => { viewer.settings.shadowSamples = v; }
     );
 
-    // Time-of-day controls at the bottom of the lighting section.
-    sunCalendarEl = createSunCalendar(SunCalc, {
-      getLocation: () => [location.lat, location.lon],
-      onChange: () => { updateSunDirection(); updateSunTimes(); },
-    });
-    lightingContent.appendChild(sunCalendarEl);
-
-    // Astronomical times display — buttons that snap the calendar's
-    // time slider to sunrise / golden-hour / noon / sunset for the
-    // currently selected date and timezone.
-    const sunTimesEl = html`<div class="sun-times"></div>`;
-    lightingContent.appendChild(sunTimesEl);
-
     // Convert a UTC Date to the wall-clock minute-of-day in the
     // calendar's selected timezone.
     function wallMinutes(utcDate, tz) {
@@ -1022,7 +1022,8 @@
       }).format(utcDate);
       const [yyyy, mm, dd] = dayKey.split('-').map(Number);
       const noonUtc = new Date(Date.UTC(yyyy, mm - 1, dd, 12, 0, 0));
-      const times = SunCalc.getTimes(noonUtc, location.lat, location.lon);
+      const { lat, lon } = viewer.getViewLocation();
+      const times = SunCalc.getTimes(noonUtc, lat, lon);
       const events = [
         ['Sunrise', times.sunrise],
         ['AM golden', times.goldenHourEnd],
@@ -1047,6 +1048,10 @@
     sunCalendarEl.setTimezone('America/Anchorage');
     updateSunDirection();
     updateSunTimes();
+
+    // Sun position and the sunrise/noon/sunset times depend on lat/lon, so
+    // recompute both whenever the camera settles on a new view.
+    viewer.on('moveend', () => { updateSunDirection(); updateSunTimes(); });
 
     const { section: debug, body: debugContent } = createSection('Debug');
     controlsContainer.appendChild(debug);
