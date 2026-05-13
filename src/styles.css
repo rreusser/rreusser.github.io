@@ -717,6 +717,14 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
   color: #ebebeb;
 }
 
+/* On index pages, tighten the gap between the intro prose and the cards
+   that follow (overrides the 100px padding-bottom on main). The container's
+   own 50px bottom padding still provides breathing room above the footer. */
+.container:has(> .index-controls) main,
+.container:has(> .recent-notebooks) main {
+  padding-bottom: 24px;
+}
+
 /* Index controls (filter + view toggle) */
 .index-controls {
   display: flex;
