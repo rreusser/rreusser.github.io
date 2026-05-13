@@ -419,6 +419,9 @@ main .katex-display {
   color: var(--theme-foreground-muted);
 }
 
+.comment_content p {
+  color: var(--theme-foreground);
+}
 .comment_content p:first-child {
   margin-top: 10px;
 }
