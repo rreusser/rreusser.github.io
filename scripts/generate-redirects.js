@@ -56,6 +56,10 @@ const redirects = [
   ["/lawsons-klein-bottle/", "/sketches/lawsons-klein-bottle/"],
   ["/umbilic-torus/", "/sketches/umbilic-torus/"],
   ["/strange-attractors/", "/sketches/strange-attractors/"],
+  ["/double-pendulum/", "/sketches/double-pendulum/"],
+  ["/fluid-simulation", "/sketches/fluid-simulation/"],
+  ["/moire", "/sketches/moire/"],
+
 ];
 
 function htmlFor(targetUrl) {
