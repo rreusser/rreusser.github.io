@@ -57,8 +57,8 @@ const redirects = [
   ["/umbilic-torus/", "/sketches/umbilic-torus/"],
   ["/strange-attractors/", "/sketches/strange-attractors/"],
   ["/double-pendulum/", "/sketches/double-pendulum/"],
-  ["/fluid-simulation", "/sketches/fluid-simulation/"],
-  ["/moire", "/sketches/moire/"],
+  ["/fluid-simulation/", "/sketches/fluid-simulation/"],
+  ["/moire/", "/sketches/moire/"],
 
 ];
 
