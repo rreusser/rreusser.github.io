@@ -7,7 +7,7 @@
   <script id="2" type="text/markdown">
     I’ve made various attempts over the years to produce a robust line rendering library, at least robust and flexible enough for *my* needs. Something particularly interesting to me has been getting details of joins and caps right without sacrificing flexibility. I want custom attributes, custom shaders, in-shader projection and line width computation. Though I understand why it’s critical in some places, perfect handling of complex joins and self-intersections is much less interesting to me.
 
-    I’ll spare you details of all the intermediate attempts; [webgpu-instanced-lines](https://www.npmjs.com/package/webgpu-instanced-lines) is a library for high-performance, customizable line rendering for WebGPU using instanced triangle strips. It’s mostly a direct WebGPU port of [regl-gpu-lines](https://github.com/rreusser/regl-gpu-lines). This notebook is where I originally developed the implementation, but the source now lives on [GitHub](https://github.com/rreusser/webgpu-instanced-lines).
+    I’ll spare you details of all the intermediate attempts; [webgpu-instanced-lines](https://www.npmjs.com/package/webgpu-instanced-lines) is a library for high-performance, customizable line rendering for WebGPU using instanced triangle strips. It’s mostly a direct WebGPU port of [regl-gpu-lines](https://github.com/rreusser/regl-gpu-lines). This notebook is where I originally developed the implementation, but the source now lives on [GitHub](https://github.com/rreusser/webgpu-instanced-lines). For a live application of it, see [Strange Attractors in WebGPU](/notebooks/strange-attractors-in-webgpu/), which uses this library to draw millions of GPU-resident particle tracks per frame.
 
     ## Interactive Demo
 

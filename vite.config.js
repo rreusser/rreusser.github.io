@@ -188,23 +188,31 @@ export default defineConfig(async ({ command }) => {
             delete data.sourceUrl;
             delete data.author;
           }
-          if (isNotebooksIndex) {
+          if (isNotebooksIndex || isRootIndex) {
             // Add notebook links
-            data.index = await computeIndex();
-            // Add image URLs for template rendering
-            // In dev: ./slug/meta.ext, in build: ./meta/slug.ext
-            data.index = data.index.map((nb) => {
+            const fullIndex = (await computeIndex()).map((nb) => {
               const slug = nb.path.replace(/\/$/, '');
               const imageExt = nb.image ? nb.image.split('.').pop() : null;
+              // Card images on /notebooks resolve as ./slug/meta.ext in dev
+              // and /meta/slug.ext in build. The root index lives one
+              // directory up, so its relative paths gain a notebooks/ prefix.
+              const baseDev = isRootIndex ? `./notebooks/` : `./`;
               let imageUrl = null;
               if (imageExt) {
-                imageUrl = isDev ? `./${slug}/meta.${imageExt}` : `/meta/${slug}.${imageExt}`;
+                imageUrl = isDev ? `${baseDev}${slug}/meta.${imageExt}` : `/meta/${slug}.${imageExt}`;
               }
+              const linkPath = isRootIndex ? `/notebooks/${nb.path}` : nb.path;
               return {
                 ...nb,
+                path: linkPath,
                 imageUrl
               };
             });
+            if (isNotebooksIndex) {
+              data.index = fullIndex;
+            } else {
+              data.recentIndex = fullIndex.slice(0, 6);
+            }
           }
 
           return Handlebars.compile(template)(data);

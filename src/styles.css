@@ -680,6 +680,40 @@ a.index__tag:active {
   width: 15px;
 }
 
+/* Recent notebooks (root index) */
+.recent-notebooks {
+  max-width: 800px;
+  margin: 3em auto 1em;
+  padding: 0 0 1em;
+}
+
+.recent-notebooks__heading {
+  font-family: "Open Sans", sans-serif;
+  font-weight: 400;
+  font-size: 1.4em;
+  margin: 0 0 1em;
+  color: var(--theme-foreground);
+}
+
+.recent-notebooks__list {
+  margin: 0;
+}
+
+.recent-notebooks__list .index__description {
+  display: block;
+}
+
+.recent-notebooks__more {
+  margin: 1.5em 0 0;
+  font-family: "Open Sans", sans-serif;
+  font-size: 14px;
+}
+
+html[data-dark] .recent-notebooks__heading,
+html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
+  color: #ebebeb;
+}
+
 /* Index controls (filter + view toggle) */
 .index-controls {
   display: flex;

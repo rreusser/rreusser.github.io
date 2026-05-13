@@ -7,6 +7,8 @@
 *This notebook is a 2026 WebGPU update of my 2021 post, [Strange Attractors on the GPU, Part 1: Implementation](https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-1).*
 
 This notebook walks through simulating a strange attractor on the GPU and then rendering particle tracks as lines. The essential feature of this notebook is that it accomplishes both particle updates and rendering to the screen without data ever touching the CPU.
+
+Line rendering goes through [webgpu-instanced-lines](https://github.com/rreusser/webgpu-instanced-lines), a small library I wrote in the companion notebook [WebGPU Instanced Lines](/notebooks/webgpu-lines/), which builds variable-width lines with proper joins and caps out of instanced triangle strips.
   </script>
   <script id="webgpu-setup" type="module">
 import { createWebGPUContext } from './lib/webgpu-canvas.js';

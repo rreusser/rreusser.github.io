@@ -21,6 +21,8 @@ import { interval } from './lib/range-slider.js';
 
   <script id="intro" type="text/markdown">
 An implementation of [Boy's surface](https://en.wikipedia.org/wiki/Boy%27s_surface), an immersion of the real projective plane in three-dimensional Euclidean space. The parameterization is based on a formula by Robert Bryant and Rob Kusner. This is a WebGPU port of [an earlier version](https://rreusser.github.io/sketches/boys-surface/).
+
+The transparent rendering uses depth peeling: a small fixed number of forward passes, each producing the next-nearest layer of fragments, are composited back-to-front to approximate order-independent transparency. The same renderer (lightly adapted) drives [Costa's Minimal Surface](/notebooks/costa-surface/).
   </script>
 
   <script id="gpu-context" type="text/x-typescript">

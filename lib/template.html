@@ -121,6 +121,36 @@
     </div>
   </header>
   <div class="container">
+    <article>
+      {{#if title}}<h1 class="sr-only">{{title}}</h1>{{/if}}
+      <main id="main-content"></main>
+    </article>
+    {{#if recentIndex}}
+      <section class="recent-notebooks" aria-labelledby="recent-notebooks-heading">
+        <h2 id="recent-notebooks-heading" class="recent-notebooks__heading">Recent notebooks</h2>
+        <ul class="index index--list recent-notebooks__list">
+          {{#each recentIndex}}
+          <li class="index__item">
+            <div class="index__image-container">
+              {{#if imageUrl}}
+              <img class="index__image" src="{{imageUrl}}" alt="" width="1200" height="630" loading="lazy" />
+              {{else}}
+              <div class="index__placeholder"></div>
+              {{/if}}
+            </div>
+            <div class="index__content">
+              <h3 class="index__title"><a href="{{path}}" class="index__title-link">{{title}}</a></h3>
+              <div class="index__meta">
+                {{#if publishedAt}}<time class="index__date" datetime="{{publishedAtDate}}">{{publishedAt}}</time>{{/if}}
+              </div>
+              {{#if description}}<p class="index__description">{{description}}</p>{{/if}}
+            </div>
+          </li>
+          {{/each}}
+        </ul>
+        <p class="recent-notebooks__more"><a href="/notebooks/">All notebooks &rarr;</a></p>
+      </section>
+    {{/if}}
     {{#if index}}
       <div class="index-controls">
         <div id="index-filter-container"></div>
@@ -229,10 +259,6 @@
       </script>
     {{/if}}
 
-    <article>
-      {{#if title}}<h1 class="sr-only">{{title}}</h1>{{/if}}
-      <main id="main-content"></main>
-    </article>
     {{#if mastodonPostId}}
       <script src="/comments.js" type="module"></script>
       <style>

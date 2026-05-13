@@ -3,7 +3,7 @@
   <title>Zooming Aperiodic Monotile</title>
 
   <script id="title" type="text/markdown">
-    A basic spectre tile viewer that lets you pan and zoom out to the extent of floating point precision. Supertiles are generated on demand, and tiles that shrink below a few pixels collapse into instanced hexagons. It's a big laggy, and it's pretty easy to run into precision problems if you zoom out too far. TBH this whole thing came about because after pushing the limits to render 17M tile instances at the eigth substitution level, I was pretty curious: *how far can we push the recursion??* It turns out pretty far!
+    A basic spectre tile viewer that lets you pan and zoom out to the extent of floating point precision. Supertiles are generated on demand, and tiles that shrink below a few pixels collapse into instanced hexagons. It's a big laggy, and it's pretty easy to run into precision problems if you zoom out too far. TBH this whole thing came about because after pushing the limits to [render 17M tile instances at the eighth substitution level](/notebooks/aperiodic-monotile/), I was pretty curious: *how far can we push the recursion??* It turns out pretty far!
 
     The coloring works by assigning a distinct color to each of the supertiles. The color of each instance is computed based on its position in the hierarchy, using a Gaussian kernel as a function of log-zoom. This produces meaningful detail based on the features actually visible at the current view scale, and allows the influence of new substitution levels to fade in as you zoom in our out.
 
