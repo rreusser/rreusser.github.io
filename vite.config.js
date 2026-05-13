@@ -23,6 +23,29 @@ const GITHUB_BASE_URL = "https://github.com/rreusser/notebooks/tree/main/src";
 const META_IMAGE_BASE_URL = "https://rreusser.github.io/meta";
 const NOTEBOOKS_DIR = join(__dirname, "src/notebooks");
 const SRC_DIR = join(__dirname, "src");
+const SITE_ORIGIN = "https://rreusser.github.io";
+
+const PERSON_SCHEMA = {
+  "@type": "Person",
+  "@id": `${SITE_ORIGIN}/#person`,
+  name: "Ricky Reusser",
+  url: SITE_ORIGIN,
+  sameAs: [
+    "https://github.com/rreusser",
+    "https://bsky.app/profile/rreusser.bsky.social",
+    "https://mathstodon.xyz/@rreusser",
+    "https://observablehq.com/@rreusser",
+  ],
+};
+
+function stringifyJsonLd(obj) {
+  // Escape "<" so the JSON cannot break out of <script type="application/ld+json">,
+  // and also escape U+2028/U+2029 which are invalid in JS but legal in JSON.
+  return JSON.stringify(obj, null, 2)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
 
 
 // Tile URLs for src/notebooks/denali
@@ -188,9 +211,10 @@ export default defineConfig(async ({ command }) => {
             delete data.sourceUrl;
             delete data.author;
           }
+          let fullIndex = null;
           if (isNotebooksIndex || isRootIndex) {
             // Add notebook links
-            const fullIndex = (await computeIndex()).map((nb) => {
+            fullIndex = (await computeIndex()).map((nb) => {
               const slug = nb.path.replace(/\/$/, '');
               const imageExt = nb.image ? nb.image.split('.').pop() : null;
               // Card images on /notebooks resolve as ./slug/meta.ext in dev
@@ -215,9 +239,66 @@ export default defineConfig(async ({ command }) => {
             }
           }
 
+          // Structured data (JSON-LD)
+          let jsonLdObj = null;
+          if (isRootIndex) {
+            jsonLdObj = {
+              "@context": "https://schema.org",
+              "@graph": [
+                PERSON_SCHEMA,
+                {
+                  "@type": "WebSite",
+                  "@id": `${SITE_ORIGIN}/#website`,
+                  url: SITE_ORIGIN,
+                  name: data.title || "Ricky Reusser",
+                  description: data.description,
+                  publisher: { "@id": `${SITE_ORIGIN}/#person` },
+                },
+              ],
+            };
+          } else if (isNotebooksIndex) {
+            jsonLdObj = {
+              "@context": "https://schema.org",
+              "@type": "CollectionPage",
+              name: data.metaTitle || data.title || "Notebooks",
+              url: canonicalUrl,
+              description: data.description,
+              author: { "@id": `${SITE_ORIGIN}/#person` },
+              mainEntity: {
+                "@type": "ItemList",
+                itemListElement: fullIndex.map((nb, i) => ({
+                  "@type": "ListItem",
+                  position: i + 1,
+                  url: `${SITE_ORIGIN}/notebooks/${nb.path}`,
+                  name: nb.title,
+                })),
+              },
+            };
+          } else if (!is404 && data.title && data.publishedAtDate) {
+            jsonLdObj = {
+              "@context": "https://schema.org",
+              "@type": "Article",
+              headline: data.title,
+              url: canonicalUrl,
+              datePublished: data.publishedAtDate,
+              ...(data.description ? { description: data.description } : {}),
+              ...(data.image ? { image: data.image } : {}),
+              ...(data.tags?.length ? { keywords: data.tags.join(", ") } : {}),
+              author: PERSON_SCHEMA,
+            };
+          }
+          if (jsonLdObj) data.jsonLd = stringifyJsonLd(jsonLdObj);
+
           return Handlebars.compile(template)(data);
         },
         transformNotebook: async function (notebook, { filename }) {
+          // If metaTitle is set, swap it in as notebook.title so notebook-kit's
+          // <title> injection (see @observablehq/notebook-kit/dist/src/vite/observable.js)
+          // prepends the SEO title rather than the visible one. The H1 still comes from
+          // data.title in transformTemplate, which reads the source fresh.
+          const meta = await readMetadata(filename);
+          if (meta.metaTitle) notebook.title = meta.metaTitle;
+
           // Find the first markdown cell whose first non-empty line is an h1,
           // and remove that line. Warn if it isn't cell 0 (title buried after
           // other cells, e.g. a style cell).

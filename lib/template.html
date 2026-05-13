@@ -23,8 +23,8 @@
   <meta property="article:author" content="Ricky Reusser" />
   {{#if publishedAt}}<meta property="article:published_time" content="{{publishedAtDate}}" />{{/if}}
   <meta name="twitter:card" content="{{#if image}}summary_large_image{{else}}summary{{/if}}" />
-  <meta name="twitter:title" content="{{#if title}}{{title}}{{else}}Ricky Reusser's Notebooks{{/if}}" />
-  <meta property="og:title" content="{{#if title}}{{title}}{{else}}Ricky Reusser's Notebooks{{/if}}" />
+  <meta name="twitter:title" content="{{#if metaTitle}}{{metaTitle}}{{else}}{{#if title}}{{title}}{{else}}Ricky Reusser's Notebooks{{/if}}{{/if}}" />
+  <meta property="og:title" content="{{#if metaTitle}}{{metaTitle}}{{else}}{{#if title}}{{title}}{{else}}Ricky Reusser's Notebooks{{/if}}{{/if}}" />
   {{#if description}}
   <meta name="twitter:description" content="{{description}}" />
   <meta name="description" content="{{description}}" />
@@ -49,6 +49,7 @@
   {{/if}}
   <link rel="alternate" type="application/rss+xml" title="Ricky Reusser's Notebooks" href="/feed.xml" />
   <meta name="google-site-verification" content="KXGAL2Z3EABwICzkx8zUwRndwyFy1xusXRNM4TiCSWA" />
+  {{#if jsonLd}}<script type="application/ld+json">{{{jsonLd}}}</script>{{/if}}
   <style type="text/css">
     @import url("observable:styles/index.css");
     @import "@fontsource-variable/spline-sans-mono/wght.css";
@@ -97,7 +98,7 @@
     </div>
     {{#if tags}}
     <div class="header__tags">
-      {{#each tags}}<a href="/notebooks/?tag={{encodeURIComponent this}}" class="header__tag">{{this}}</a>{{/each}}
+      {{#each tags}}<a href="/notebooks/?tag={{encodeURIComponent this}}" class="header__tag" rel="nofollow">{{this}}</a>{{/each}}
     </div>
     {{/if}}
     <div class="resource-links">
@@ -192,7 +193,7 @@
               {{#if tags}}
               <div class="index__tags">
                 {{#each tags}}
-                <a href="?tag={{encodeURIComponent this}}" class="index__tag">{{this}}</a>
+                <a href="?tag={{encodeURIComponent this}}" class="index__tag" rel="nofollow">{{this}}</a>
                 {{/each}}
               </div>
               {{/if}}
