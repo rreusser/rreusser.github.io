@@ -1466,15 +1466,6 @@
     }
     rlCtx.putImageData(rlImg, 0, 0);
   </script>
-  <script id="75" type="text/markdown">
-    ## Zoom-dependent gradient attenuation
-
-    One annoyance is that shading fades at low zoom. Peaks survive downsampling well, but decimation reduces the gradient and fails to commute with nonlinearities in the shading function.
-
-    A quick check across a handful of Mapterhorn tiles suggests a rough power-law attenuation of average elevation gradient, so we reduce the horizontal grid spacing at low zoom to steepen gradients and leave shading visually similar in appearance.
-
-    This is one thing I'm not content with since I'd prefer a physicaily accurate function which does not *need* a correction factor. The map on this page uses tiles of the same zoom, but tiles with different zooms, like on a pitched 3D map, would show discontinuous shading due to this inconsistency.
-  </script>
   <script id="61" type="text/markdown">
     ## WebGPU implementation
 

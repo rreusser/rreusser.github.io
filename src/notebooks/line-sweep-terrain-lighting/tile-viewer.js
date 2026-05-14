@@ -123,7 +123,7 @@ function tilePxSizeMRef(z, N) {
 const SHADER = /* wgsl */ `
 struct Global {
   viewportPx: vec4<f32>,   // xy = viewport size, z = shadingMode (0=lambertian,1=relief), w = reliefStrength
-  sunDir: vec4<f32>,       // xyz = world-space sun direction, w = aoBoost (zoom-dependent)
+  sunDir: vec4<f32>,       // xyz = world-space sun direction, w unused
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
 };
@@ -256,12 +256,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // contrast curve. Applied after sRGB conversion for better
   // perceptual dynamic range.
   // ao was stored as rawAo^2; use directly.
-  // sunDir.w is a zoom-dependent multiplier that amplifies subtle
-  // occlusion at low zoom and tames it at high zoom.
   let aoLin = ao;
   let aoC = clamp(aoContrast, 0.0, 0.999999);
   let aoS = aoC / (1.0 - aoC);
-  let aoShade = clamp((1.0 - aoLin) * g.sunDir.w, 0.0, 1.0);
+  let aoShade = clamp(1.0 - aoLin, 0.0, 1.0);
   let aoFactor = 1.0 - (2.0 / 3.14159265) * atan(aoS * aoShade);
 
   let reliefMode = g.viewportPx.z;
@@ -1296,7 +1294,7 @@ export function createTileViewer(opts) {
 
     // Global uniform packing:
     //   f32[0..3]   = viewportPx (w,h,shadingMode,reliefStrength)
-    //   f32[4..7]   = sunDir.xyz, aoBoost
+    //   f32[4..7]   = sunDir.xyz, unused
     //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
     globalData[0] = viewportW;
@@ -1306,10 +1304,7 @@ export function createTileViewer(opts) {
     globalData[4] = lighting.sunX;
     globalData[5] = lighting.sunY;
     globalData[6] = lighting.sunZ;
-    // Zoom-dependent AO boost: multiplier on aoShade in the shader.
-    // 1.0 = no change. Values > 1 amplify, < 1 tame.
-    const aoBoost = 1.0;
-    globalData[7] = aoBoost;
+    globalData[7] = 0;
     globalData[8] = lighting.kAmbient;
     globalData[9] = lighting.kDirect;
     globalData[10] = lighting.aoStrength;
