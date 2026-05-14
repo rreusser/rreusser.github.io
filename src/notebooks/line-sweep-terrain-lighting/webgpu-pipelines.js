@@ -161,19 +161,100 @@ const HELPERS_WGSL = /* wgsl */ `
   }
 `;
 
+// LSAO-specific warmup: iterate at parent-pixel resolution along the
+// ray, single linear interp across the cross-ray axis, no deposit.
+// Parent-aligned canonical cx is a float; the hull stores it as such.
+function warmupBlockLsao() {
+  return /* wgsl */ `
+    {
+      let parentScaleF: f32 = 1.0 / u.invParentScale;
+      let Wf = f32(i32(u.W));
+      let Hf = f32(i32(u.H));
+      let warmupMarginX: f32 = Wf * parentScaleF * 0.5;
+      let warmupMarginY: f32 = Hf * parentScaleF * 0.5;
+      let WARMUP_STEPS: i32 = i32(u.warmupSteps);
+      let warmStart: i32 = cxEntry - WARMUP_STEPS;
+      let hN: i32 = i32(u.horizonN);
+      if (hN > 0) {
+        // Parent-aligned canonical cx values: cx_k = parentScale * (k +
+        // parentCenterOffset) - warmupMarginX. The set is symmetric
+        // around (W-1)/2, so it's invariant under flipX/flipY; under
+        // swap the integer parent index is hy instead of hx.
+        let firstK: i32 = max(
+          0,
+          i32(ceil(
+            (f32(warmStart) + warmupMarginX) * u.invParentScale - u.parentCenterOffset
+          ))
+        );
+        let lastK: i32 = i32(ceil(
+          (f32(cxEntry) + warmupMarginX) * u.invParentScale - u.parentCenterOffset
+        )) - 1;
+        for (var k: i32 = firstK; k <= lastK; k = k + 1) {
+          let cxF: f32 = parentScaleF * (f32(k) + u.parentCenterOffset) - warmupMarginX;
+          let yw: f32 = f32(b) + u.slope * cxF;
+          var ox_f: f32 = cxF;
+          var oy_f: f32 = yw;
+          if (u.swap != 0u) { ox_f = yw; oy_f = cxF; }
+          if (u.flipX != 0u) { ox_f = (Wf - 1.0) - ox_f; }
+          if (u.flipY != 0u) { oy_f = (Hf - 1.0) - oy_f; }
+          let hx_f: f32 = (ox_f + warmupMarginX) * u.invParentScale - u.parentCenterOffset;
+          let hy_f: f32 = (oy_f + warmupMarginY) * u.invParentScale - u.parentCenterOffset;
+          // Along-ray axis is integer by construction (hx for non-swap,
+          // hy for swap); cross-axis lerps two adjacent parent rows.
+          let alongI: i32 = select(i32(round(hx_f)), i32(round(hy_f)), u.swap != 0u);
+          let crossF: f32 = select(hy_f, hx_f, u.swap != 0u);
+          let crossI: i32 = i32(floor(crossF));
+          if (alongI < 0 || alongI >= hN) { continue; }
+          if (crossI < 0 || crossI + 1 >= hN) { continue; }
+          let idxLo: i32 = select(crossI * hN + alongI, alongI * hN + crossI, u.swap != 0u);
+          let idxHi: i32 = select((crossI + 1) * hN + alongI, alongI * hN + crossI + 1, u.swap != 0u);
+          let fc: f32 = crossF - f32(crossI);
+          let h0: f32 = horizon[idxLo];
+          let h1: f32 = horizon[idxHi];
+          let hW: f32 = (1.0 - fc) * h0 + fc * h1;
+
+          // Push onto the hull. No warmup deposit for LSAO: at 45°
+          // multiples slope is 0 or 1 so fy=0, the row split is (1,0),
+          // and the in-view branch contributes zero — main pass alone
+          // supplies one unit per comp pixel per direction.
+          loop {
+            if (hullPtr < 1) { break; }
+            let ax = hullCx[hullPtr - 1];
+            let ay = hullH[hullPtr - 1];
+            let bx = hullCx[hullPtr];
+            let by = hullH[hullPtr];
+            let crossP = (bx - ax) * (hW - ay) - (by - ay) * (cxF - ax);
+            if (crossP < 0.0) { break; }
+            hullPtr = hullPtr - 1;
+          }
+          hullPtr = min(hullPtr + 1, hullMax);
+          hullCx[hullPtr] = cxF;
+          hullH[hullPtr] = hW;
+        }
+      }
+    }
+  `;
+}
+
 // Optional parent-tile warmup, inlined into main(). Mirrors
-// sweep-core.js exactly: walk `WARMUP_STEPS = W` integer cx positions
-// ending at `cxEntry - 1`, bilinearly sample the half-resolution
-// horizon buffer, and push each onto the hull. When the prewarm
-// permutation flag is off this helper returns an empty string so the
-// compiled shader has zero overhead and the horizon binding can be a
-// 16-byte stub.
+// sweep-core.js exactly. When the prewarm permutation flag is off this
+// helper returns an empty string so the compiled shader has zero
+// overhead and the horizon binding can be a 16-byte stub.
+//
+// Two paths: LSAO walks parent pixel centres along the ray with a
+// single linear interp across the cross-ray axis and skips the warmup
+// deposit (zero-valued for 45°-multiple azimuths anyway, see
+// sweep-core.js for the derivation). Hard/soft walk integer cx
+// positions, bilinear-sample the horizon, and deposit edge-straddle
+// contributions to fill in partner-ray coverage at tile edges — needed
+// because their fractional sun azimuths produce non-trivial fy splits.
 //
 // Inlined rather than a WGSL function so it can read/write the
 // caller's local hull arrays without `ptr<function, ...>` plumbing,
 // which is awkward for fixed-size array pointers in older WGSL impls.
 function warmupBlock(prewarm, mode, lsaoFalloff) {
   if (!prewarm) return "";
+  if (mode === "lsao") return warmupBlockLsao();
   // Inject the same mode kernel the main loop uses. We rebind `hRay`
   // and `cx` as `let` aliases inside the deposit block so the kernel
   // (which reads those identifiers) works verbatim.
