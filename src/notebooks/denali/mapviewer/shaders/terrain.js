@@ -421,7 +421,7 @@ fn fs_main(
   let direct_brightness = min(hillshade_brightness, shadow_brightness);
   let aoC = clamp(uniforms.ao_strength, 0.0, 0.999999);
   let aoS = aoC / (1.0 - aoC);
-  let aoShade = max(0.7 - ao, 0.0); //clamp(1.0 - ao, 0.0, 1.0);
+  let aoShade = clamp(1.0 - ao, 0.0, 1.0);
   let ao_factor = 1.0 - (2.0 / 3.14159265358979) * atan(aoS * aoShade);
   let lit_factor = direct_brightness * ao_factor;
   let lit = base_color * mix(1.0, lit_factor, uniforms.lighting_enabled);
