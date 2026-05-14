@@ -120,32 +120,6 @@ function tilePxSizeMRef(z, N) {
   return EARTH_CIRCUMFERENCE_M / (Math.pow(2, z) * N);
 }
 
-// Zoom compensation for pyramid-attenuated gradients, implemented as
-// a horizontal contraction rather than a vertical inflation so the
-// elevation buffer stays untouched (and its other uses, including
-// horizon comparisons, hypsometric coloring, and cross-pass
-// consistency, are unaffected). For target exponent s:
-//
-//   pxSize_effective(z) = pxSize(z) · 2^((z − zRef) · s)
-//
-// At z = zRef the correction is 1×; at z < zRef it shrinks pxSize,
-// which boosts both the normals' gradient magnitude and LSAO's horizon
-// angles. s ≈ 0.5 matches the empirical mean-gradient attenuation
-// asymptote; the notebook exposes it as the "zoom compensation"
-// slider. The reference zoom is the viewer's native data zoom
-// (maxZoom).
-//
-// This correction is applied only to the normals and LSAO sweeps,
-// where what you're visualizing is the terrain's characteristic
-// gradient, which is what downsampling attenuates. Cast shadows use
-// the raw pxSize: their geometry is governed by peak-to-target
-// elevation differences, which survive downsampling well, so
-// compensating there would artificially lengthen low-zoom shadows.
-function pxSizeCorrection(z, zRef, zoomCompensation) {
-  if (!zoomCompensation) return 1;
-  return Math.pow(2, (z - zRef) * zoomCompensation);
-}
-
 const SHADER = /* wgsl */ `
 struct Global {
   viewportPx: vec4<f32>,   // xy = viewport size, z = shadingMode (0=lambertian,1=relief), w = reliefStrength
@@ -646,15 +620,6 @@ export function createTileViewer(opts) {
     reliefStrength: 1,
     bakeMode: "cpu",
     lsaoFalloff: "exp",
-    // Exponent for zoom-dependent pxSize contraction. Originally tuned
-    // to mask a brightness shift across zoom that we now believe was
-    // driven by sub-parent-pixel bilinear oversampling in the LSAO
-    // warmup adding "fictitious" hull energy at low zoom. With the
-    // warmup re-keyed to parent-pixel centres + single linear interp,
-    // that source of zoom dependence is gone, so the empirical
-    // correction has no physical basis. Default 0 (disabled); the
-    // slider still exposes it for A/B comparison.
-    zoomCompensation: 0,
     // Per-pixel sun-position mode (time-driven). When useTime is
     // truthy and solar is set, the composite shader derives sunDir
     // per fragment from the tile's geographic coordinates plus the
@@ -790,10 +755,7 @@ export function createTileViewer(opts) {
           // Every pass now works off a per-row pxSize built from the
           // equatorial (latitude-independent) pxSize times cos(lat)
           // per pixel row. The worker handles the build; the main
-          // thread just supplies the raw equatorial value plus the
-          // zoom-compensation factor. Normals and LSAO scale by it;
-          // shadow uses the raw per-row values.
-          const pxCorr = pxSizeCorrection(this.z, maxZoom, lighting.zoomCompensation);
+          // thread just supplies the raw equatorial value.
           const rawEqPxSizeM = tilePxSizeMRef(this.z, compN);
           // Store copies for later shadow rebakes. Rebakes rebuild
           // the per-row pxSize from the same raw equatorial value.
@@ -812,7 +774,6 @@ export function createTileViewer(opts) {
             heights: new Float32Array(comp.heights),
             N: compN,
             rawEqPxSizeM,
-            pxCorr,
             horizon: new Float32Array(horizon.heights),
             HN,
             azDeg,
@@ -904,12 +865,11 @@ export function createTileViewer(opts) {
   // once the tile is ready.
   // ------------------------------------------------------------------
   function runStaticBake(tile, compN) {
-    const pxCorr = pxSizeCorrection(tile.z, maxZoom, lighting.zoomCompensation);
     // Normals and LSAO both operate in Mercator mode: the shader
     // derives per-row cos(lat) from (tileY, z) and multiplies the
-    // zoom-compensated equatorial pxSize for each pixel's own latitude.
-    // Keeps slopes and horizon angles continuous across tile seams.
-    const eqPxSizeM = tilePxSizeMRef(tile.z, compN) * pxCorr;
+    // equatorial pxSize for each pixel's own latitude. Keeps slopes
+    // and horizon angles continuous across tile seams.
+    const eqPxSizeM = tilePxSizeMRef(tile.z, compN);
 
     // Normals uniform: { N: u32, tileY: u32, z: u32, eqPxSizeM: f32 }
     const normalsBuf = new ArrayBuffer(16);
@@ -1675,7 +1635,6 @@ export function createTileViewer(opts) {
       const prevS = lighting.shadowSamples;
       const prevMode = lighting.bakeMode;
       const prevFalloff = lighting.lsaoFalloff;
-      const prevZoomCompensation = lighting.zoomCompensation;
       const prevUseTime = lighting.useTime;
       const prevSolar = lighting.solar;
       const wasInteracting = lighting.sunInteracting;
@@ -1710,8 +1669,7 @@ export function createTileViewer(opts) {
       }
       if (
         prevMode !== lighting.bakeMode ||
-        prevFalloff !== lighting.lsaoFalloff ||
-        prevZoomCompensation !== lighting.zoomCompensation
+        prevFalloff !== lighting.lsaoFalloff
       ) {
         for (const tile of tiles.values()) tile.destroy();
         tiles.clear();
