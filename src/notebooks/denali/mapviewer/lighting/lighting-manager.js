@@ -31,14 +31,6 @@ import { sunDirectionToAzAlt } from './sun-math.js';
 const EARTH_CIRCUMFERENCE_M = 40075016.686;
 const PADDED_TILE_SIZE = 514;
 const BASE_COMP_N = 256;
-// Zoom-pyramid attenuation correction (line-sweep-terrain-lighting's
-// `zoomCompensation`). Gradients ∇h shrink under tile-pyramid
-// downsampling, so hillshade/LSAO weaken as zoom drops; pxCorr applies
-// a horizontal contraction (= gradient inflation) to compensate. The
-// 0.3 exponent matches the empirical mean-gradient asymptote tuned in
-// the original notebook. zRef is the source's deepest data zoom; mesh
-// tiles at z < zRef get a < 1 multiplier on pxSize.
-const ZOOM_COMPENSATION = 0.3;
 
 function compNFor(delta) {
   return BASE_COMP_N << delta;
@@ -46,11 +38,6 @@ function compNFor(delta) {
 
 function eqPxSizeAtZoom(z, compN) {
   return EARTH_CIRCUMFERENCE_M / ((1 << z) * compN);
-}
-
-function pxSizeCorrection(z, zRef) {
-  if (!ZOOM_COMPENSATION || zRef == null) return 1;
-  return Math.pow(2, (z - zRef) * ZOOM_COMPENSATION);
 }
 
 export class LightingManager {
@@ -526,8 +513,6 @@ export class LightingManager {
     }
 
     const eqPxSizeM = eqPxSizeAtZoom(state.z, compN);
-    const zRef = this.tileManager.bounds ? this.tileManager.bounds.maxZoom : null;
-    const pxCorr = pxSizeCorrection(state.z, zRef);
     const { azDeg, altDeg } = sunDirectionToAzAlt(this.settings.sunDirection);
     const sunRadiusDeg = Math.max(0, this.settings.sunRadiusDeg ?? 2.5);
     const shadowSamples = Math.max(1, Math.round(this.settings.shadowSamples ?? 6));
@@ -540,7 +525,7 @@ export class LightingManager {
       'lighting-bake-static',
       {
         z: state.z, x: state.x, y: state.y,
-        heights: compElev, N: compN, eqPxSizeM, pxCorr,
+        heights: compElev, N: compN, eqPxSizeM,
         horizon: state.horizonHeights || new Float32Array(0),
         HN: state.horizonHeights ? HN : 0,
         parentScale: parentScalePixel,

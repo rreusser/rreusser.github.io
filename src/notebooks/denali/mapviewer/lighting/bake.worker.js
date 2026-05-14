@@ -39,13 +39,6 @@ function buildRowPx(eqPxSizeM, z, tileY, N) {
   return rowPx;
 }
 
-function scaleRowPx(rowPx, scale) {
-  if (scale === 1) return rowPx;
-  const out = new Float32Array(rowPx.length);
-  for (let i = 0; i < rowPx.length; i++) out[i] = rowPx[i] * scale;
-  return out;
-}
-
 function computeNormals(heights, N, pxSizeByRow) {
   const nx = new Float32Array(N * N);
   const ny = new Float32Array(N * N);
@@ -160,24 +153,15 @@ self.onmessage = (e) => {
   const msg = e.data;
   if (msg.type === 'lighting-bake-static') {
     const {
-      id, z, x, y, heights, N, eqPxSizeM, pxCorr = 1,
+      id, z, x, y, heights, N, eqPxSizeM,
       horizon, HN, parentScale, horizonPN,
       azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff,
       compHMin, horizonHMax,
     } = msg;
-    // Two pxSize arrays:
-    //   shadowRowPx: raw lat-cos pxSize, drives cast-shadow geometry.
-    //     Must NOT be zoom-compensated — shadow geometry is set by real
-    //     elevation differences and must stay continuous across tile
-    //     seams. (Compensating here would lengthen low-zoom shadows.)
-    //   scaledRowPx: shadow * pxCorr, drives normals + LSAO. Both passes
-    //     read ∇h, which the tile pyramid attenuates as zoom drops; the
-    //     correction restores cross-zoom hillshade/AO consistency.
-    const shadowRowPx = buildRowPx(eqPxSizeM, z, y, N);
-    const scaledRowPx = scaleRowPx(shadowRowPx, pxCorr);
-    const { nx, ny } = computeNormals(heights, N, scaledRowPx);
-    const ao = computeLSAO(heights, N, scaledRowPx, horizon, HN, lsaoFalloff, parentScale, horizonPN);
-    const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
+    const rowPx = buildRowPx(eqPxSizeM, z, y, N);
+    const { nx, ny } = computeNormals(heights, N, rowPx);
+    const ao = computeLSAO(heights, N, rowPx, horizon, HN, lsaoFalloff, parentScale, horizonPN);
+    const shadow = computeShadow(heights, N, rowPx, horizon, HN,
       azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
       compHMin, horizonHMax, horizonPN);
     const packed = packRGBA(nx, ny, ao, shadow, N);
@@ -198,10 +182,8 @@ self.onmessage = (e) => {
       cachedNx, cachedNy, cachedAo,
       compHMin, horizonHMax,
     } = msg;
-    // Shadow re-bake uses raw rowPx — same reasoning as static bake:
-    // shadow geometry stays raw, never zoom-compensated.
-    const shadowRowPx = buildRowPx(eqPxSizeM, z, y, N);
-    const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
+    const rowPx = buildRowPx(eqPxSizeM, z, y, N);
+    const shadow = computeShadow(heights, N, rowPx, horizon, HN,
       azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
       compHMin, horizonHMax, horizonPN);
     const packed = packRGBA(cachedNx, cachedNy, cachedAo, shadow, N);

@@ -152,20 +152,13 @@ self.onmessage = (e) => {
   const msg = e.data;
   switch (msg.type) {
     case "bake": {
-      const { z, x, y, heights, N, rawEqPxSizeM, pxCorr, horizon, HN,
+      const { z, x, y, heights, N, rawEqPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff,
               parentScale = 2, compHMin, horizonHMax } = msg;
-      // Per-row cos(lat) drives pxSize for every pass: the raw
-      // latitude-dependent version for shadow (geometry is set by
-      // real elevation differences and must stay continuous across
-      // tile seams) and the zoom-compensated version for normals and LSAO
-      // (both read ∇h, which is what the tile pyramid attenuates).
-      const shadowRowPx = buildRowPx(rawEqPxSizeM, z, y, N);
-      const scaledRowPx = new Float32Array(N);
-      for (let i = 0; i < N; i++) scaledRowPx[i] = shadowRowPx[i] * pxCorr;
-      const { nx, ny } = computeNormals(heights, N, scaledRowPx);
-      const ao = computeLSAO(heights, N, scaledRowPx, horizon, HN, lsaoFalloff, parentScale);
-      const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
+      const rowPx = buildRowPx(rawEqPxSizeM, z, y, N);
+      const { nx, ny } = computeNormals(heights, N, rowPx);
+      const ao = computeLSAO(heights, N, rowPx, horizon, HN, lsaoFalloff, parentScale);
+      const shadow = computeShadow(heights, N, rowPx, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
                                    compHMin, horizonHMax);
       const packed = packRGBA(nx, ny, ao, shadow, N);
@@ -182,8 +175,8 @@ self.onmessage = (e) => {
               azDeg, altDeg, sunRadiusDeg, shadowSamples,
               cachedNx, cachedNy, cachedAo,
               parentScale = 2, compHMin, horizonHMax } = msg;
-      const shadowRowPx = buildRowPx(rawEqPxSizeM, z, y, N);
-      const shadow = computeShadow(heights, N, shadowRowPx, horizon, HN,
+      const rowPx = buildRowPx(rawEqPxSizeM, z, y, N);
+      const shadow = computeShadow(heights, N, rowPx, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
                                    compHMin, horizonHMax);
       const packed = packRGBA(cachedNx, cachedNy, cachedAo, shadow, N);

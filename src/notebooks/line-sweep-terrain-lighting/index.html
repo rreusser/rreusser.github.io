@@ -1466,15 +1466,6 @@
     }
     rlCtx.putImageData(rlImg, 0, 0);
   </script>
-  <script id="75" type="text/markdown">
-    ## Zoom-dependent gradient attenuation
-
-    One annoyance is that shading fades at low zoom. Peaks survive downsampling well, but decimation reduces the gradient and fails to commute with nonlinearities in the shading function.
-
-    A quick check across a handful of Mapterhorn tiles suggests a rough power-law attenuation of average elevation gradient, so we reduce the horizontal grid spacing at low zoom to steepen gradients and leave shading visually similar in appearance.
-
-    This is one thing I'm not content with since I'd prefer a physicaily accurate function which does not *need* a correction factor. The map on this page uses tiles of the same zoom, but tiles with different zooms, like on a pitched 3D map, would show discontinuous shading due to this inconsistency.
-  </script>
   <script id="61" type="text/markdown">
     ## WebGPU implementation
 
@@ -1941,11 +1932,6 @@
       label: "AO falloff",
       value: "e^(−sin α)",
     });
-    const zoomCompensationEl = Inputs.range([0, 1], {
-      label: "zoom compensation",
-      value: 0.3,
-      step: 0.01,
-    });
     const sunModeEl = Inputs.radio(
       new Map([["fixed angle", "fixed"], ["from time", "time"]]),
       { label: "sun mode", value: "fixed" },
@@ -1963,7 +1949,6 @@
     tileViewerControlsDiv.appendChild(shadowEl);
     tileViewerControlsDiv.appendChild(sunDiameterEl);
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
-    tileViewerControlsDiv.appendChild(zoomCompensationEl);
     tileViewerControlsDiv.appendChild(sunModeEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
@@ -1975,7 +1960,6 @@
       sunDiameterEl,
       shadowSamplesEl,
       aoFalloffEl,
-      zoomCompensationEl,
       sunModeEl,
       sunCalendarEl,
     };
@@ -2120,7 +2104,6 @@
         );
         const isDebug = c.bakeModeEl.value === "debug";
         const lsaoFalloff = c.aoFalloffEl.value === "e^(−sin α)" ? "exp" : "cos2";
-        const zoomCompensation = Number(c.zoomCompensationEl.value);
         const lightingUpdate = {
           sunX,
           sunY,
@@ -2136,7 +2119,6 @@
           reliefStrength,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
           lsaoFalloff,
-          zoomCompensation,
           useTime,
         };
         if (solar) lightingUpdate.solar = solar;
