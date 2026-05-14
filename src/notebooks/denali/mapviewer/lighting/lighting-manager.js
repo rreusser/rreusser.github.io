@@ -32,13 +32,15 @@ const EARTH_CIRCUMFERENCE_M = 40075016.686;
 const PADDED_TILE_SIZE = 514;
 const BASE_COMP_N = 256;
 // Zoom-pyramid attenuation correction (line-sweep-terrain-lighting's
-// `zoomCompensation`). Gradients ∇h shrink under tile-pyramid
-// downsampling, so hillshade/LSAO weaken as zoom drops; pxCorr applies
-// a horizontal contraction (= gradient inflation) to compensate. The
-// 0.3 exponent matches the empirical mean-gradient asymptote tuned in
-// the original notebook. zRef is the source's deepest data zoom; mesh
-// tiles at z < zRef get a < 1 multiplier on pxSize.
-const ZOOM_COMPENSATION = 0.3;
+// `zoomCompensation`). Originally a horizontal pxSize contraction tuned
+// to mask a brightness shift across zoom that we now believe was driven
+// by sub-parent-pixel bilinear oversampling in the LSAO warmup adding
+// "fictitious" hull energy at low zoom. With the warmup re-keyed to
+// parent-pixel centres + single linear interp, that source of zoom
+// dependence is gone, so the empirical correction has no physical
+// basis. Disabled (0) for now; keep the plumbing around so we can A/B
+// without ripping out the pxCorr threading through the bake call site.
+const ZOOM_COMPENSATION = 0;
 
 function compNFor(delta) {
   return BASE_COMP_N << delta;

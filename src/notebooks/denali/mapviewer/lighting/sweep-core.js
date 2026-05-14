@@ -357,24 +357,98 @@ export function sweepCore(opts) {
       cxEntry = viewW;
     }
 
-    // Optional warmup: bilinearly sample the half-resolution parent
-    // horizon buffer at exactly WARMUP_STEPS positions ending at
-    // (cxEntry − 1), pushing each onto the hull so that the ray
-    // enters the comp tile already carrying the horizon contributed
-    // by surrounding terrain.
+    // Optional warmup: sample the parent horizon buffer along the ray
+    // and push each sample onto the hull so that the ray enters the
+    // comp tile already carrying the horizon contributed by surrounding
+    // terrain.
     //
-    // In addition to populating the hull, the warmup *also deposits*
-    // the computed bit into any output row it straddles at the current
-    // cx. Without this, the row closest to the tile edge where the
-    // partner ray's yi would be −1 receives only the (1−f)·bit from
-    // the yi = 0 ray; the partner ray is still in the warmup and
-    // never deposits, so the total weight at that row falls below 1
-    // and the shadow reads as a visible seam. Using `hW` (the parent
-    // horizon sample) as the ray height for the bit query keeps the
-    // hull free of clamped tile-edge values and uses the best
-    // approximation we have for the physical terrain at that
-    // below-tile position.
-    if (hasHorizon) {
+    // LSAO walks parent pixel centres along the ray direction: every
+    // sample is at an integer parent index in the along-ray axis, so
+    // only the cross-ray axis needs interpolation (single linear lerp
+    // between two adjacent parent rows). This avoids the "fictitious
+    // bilinear energy" of sub-parent-pixel oversampling, where bilinear
+    // samples in concave-up cells lift the hull above the chord through
+    // real parent samples and introduce zoom-dependent perturbations
+    // that don't correspond to actual terrain features. Hard/soft modes
+    // continue to oversample at comp rate because their fractional sun
+    // azimuths rely on the warmup's `(1−fy, fy)` row split AND on the
+    // warmup deposit to fill in partner-ray coverage at tile edges; for
+    // LSAO at 8 azimuths of 45° the canonical slope is exactly 0 or 1,
+    // `fy = 0`, the row split degenerates to `(1, 0)`, and the warmup
+    // deposit's "in-view" branch contributes literally zero — the main
+    // pass alone supplies exactly one unit per comp pixel per direction
+    // — so we skip the deposit entirely.
+    //
+    // Using `hW` (the parent horizon sample) as the ray height for the
+    // bit query in the comp/soft warmup keeps the hull free of clamped
+    // tile-edge values and uses the best approximation we have for the
+    // physical terrain at that below-tile position.
+    if (hasHorizon && mode === "lsao") {
+      // Parent-aligned canonical cx values:
+      //   cx_k = parentScale * (k + parentCenterOffset) - warmupMarginX
+      // where k is the along-ray parent pixel index. The set is symmetric
+      // around (W-1)/2 so it's invariant under flipX/flipY and works for
+      // swap too (under swap the along-ray axis is canonical-x which maps
+      // to original-y, and the parent index that ends up integer is hyf
+      // instead of hxf; cross-axis interp uses the other one).
+      const warmStart = cxEntry - WARMUP_STEPS;
+      const firstK = Math.max(
+        0,
+        Math.ceil(
+          (warmStart + warmupMarginX) / parentScale - parentCenterOffset,
+        ),
+      );
+      const lastK =
+        Math.ceil(
+          (cxEntry + warmupMarginX) / parentScale - parentCenterOffset,
+        ) - 1;
+      for (let k = firstK; k <= lastK; k++) {
+        const cx = parentScale * (k + parentCenterOffset) - warmupMarginX;
+        const y = b + slope * cx;
+        let oxf = swap ? y : cx;
+        let oyf = swap ? cx : y;
+        if (flipX) oxf = W - 1 - oxf;
+        if (flipY) oyf = H - 1 - oyf;
+        const hxf = (oxf + warmupMarginX) * invParentScale - parentCenterOffset;
+        const hyf = (oyf + warmupMarginY) * invParentScale - parentCenterOffset;
+        // Along-ray axis is integer by construction (hxf for non-swap,
+        // hyf for swap). The other is float; lerp two adjacent parent
+        // samples in that axis only.
+        if (swap) {
+          const alongI = Math.round(hyf);
+          const crossF = hxf;
+          const crossI = Math.floor(crossF);
+          if (alongI < 0 || alongI >= HN) continue;
+          if (crossI < 0 || crossI + 1 >= HN) continue;
+          const idxLo = alongI * HN + crossI;
+          const idxHi = alongI * HN + crossI + 1;
+          const fc = crossF - crossI;
+          const hW = (1 - fc) * horizon[idxLo] + fc * horizon[idxHi];
+          if (horizonTouched) {
+            const tBit = b >= 0 ? 1 : 2;
+            horizonTouched[idxLo] |= tBit;
+            horizonTouched[idxHi] |= tBit;
+          }
+          pushHull(cx, hW);
+        } else {
+          const alongI = Math.round(hxf);
+          const crossF = hyf;
+          const crossI = Math.floor(crossF);
+          if (alongI < 0 || alongI >= HN) continue;
+          if (crossI < 0 || crossI + 1 >= HN) continue;
+          const idxLo = crossI * HN + alongI;
+          const idxHi = (crossI + 1) * HN + alongI;
+          const fc = crossF - crossI;
+          const hW = (1 - fc) * horizon[idxLo] + fc * horizon[idxHi];
+          if (horizonTouched) {
+            const tBit = b >= 0 ? 1 : 2;
+            horizonTouched[idxLo] |= tBit;
+            horizonTouched[idxHi] |= tBit;
+          }
+          pushHull(cx, hW);
+        }
+      }
+    } else if (hasHorizon) {
       const warmStart = cxEntry - WARMUP_STEPS;
       for (let cx = warmStart; cx < cxEntry; cx++) {
         const y = b + slope * cx;

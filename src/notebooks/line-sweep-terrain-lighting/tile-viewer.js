@@ -646,12 +646,15 @@ export function createTileViewer(opts) {
     reliefStrength: 1,
     bakeMode: "cpu",
     lsaoFalloff: "exp",
-    // Exponent for zoom-dependent pxSize contraction. 0 disables the
-    // correction (raw pxSize used); 0.5 matches the empirical
-    // mean-gradient attenuation asymptote. In practice that's
-    // visually too strong — subjective preference sits around 0.3
-    // (half the theoretical compensation).
-    zoomCompensation: 0.3,
+    // Exponent for zoom-dependent pxSize contraction. Originally tuned
+    // to mask a brightness shift across zoom that we now believe was
+    // driven by sub-parent-pixel bilinear oversampling in the LSAO
+    // warmup adding "fictitious" hull energy at low zoom. With the
+    // warmup re-keyed to parent-pixel centres + single linear interp,
+    // that source of zoom dependence is gone, so the empirical
+    // correction has no physical basis. Default 0 (disabled); the
+    // slider still exposes it for A/B comparison.
+    zoomCompensation: 0,
     // Per-pixel sun-position mode (time-driven). When useTime is
     // truthy and solar is set, the composite shader derives sunDir
     // per fragment from the tile's geographic coordinates plus the
