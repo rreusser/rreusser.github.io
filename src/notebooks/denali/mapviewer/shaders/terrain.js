@@ -419,7 +419,9 @@ fn fs_main(
   let hillshade_brightness = mix(1.0, ndotl, clamp(uniforms.hillshade_strength, 0.0, 1.0));
   let shadow_brightness = 1.0 - clamp(cast_shadow * uniforms.shadow_strength, 0.0, 1.0);
   let direct_brightness = min(hillshade_brightness, shadow_brightness);
-  let aoC = clamp(uniforms.ao_strength, 0.0, 0.999999);
+  // sqrt-warp the strength slider so the linear range gives more bite
+  // at low/mid settings — the underlying atan tonemap is steep near 1.
+  let aoC = clamp(sqrt(max(uniforms.ao_strength, 0.0)), 0.0, 0.999999);
   let aoS = aoC / (1.0 - aoC);
   let aoShade = clamp(1.0 - ao, 0.0, 1.0);
   let ao_factor = 1.0 - (2.0 / 3.14159265358979) * atan(aoS * aoShade);

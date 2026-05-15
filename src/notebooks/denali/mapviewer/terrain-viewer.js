@@ -595,10 +595,14 @@ export class TerrainMap extends EventEmitter {
     }
 
     // LSAO falloff change requires a full re-bake (the AO buffer
-    // depends on it). Cheap to detect, expensive to ignore.
+    // depends on it). Mark coverage dirty so the per-frame
+    // ensureMeshTile loop runs and feeds the cleared bakes back through
+    // _tryBake — without this, toggling the falloff without panning
+    // would leave the AO stale until the next coverage refresh.
     if (this._lastLsaoFalloff !== settings.lsaoFalloff) {
       this._lastLsaoFalloff = settings.lsaoFalloff;
       this._lightingManager.onAoSettingsChanged();
+      this._coverageDirty = true;
       this._renderDirty = true;
     }
 
