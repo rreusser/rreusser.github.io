@@ -82,6 +82,8 @@ export interface Settings {
   aoStrength: number;
   sunRadiusDeg: number;
   shadowSamples: number;
+  // LSAO falloff: 'cos2' = Lambertian cos²α visibility, 'exp' = Naaji's exp(−sin α).
+  lsaoFalloff: 'cos2' | 'exp';
   meshTerrainOffset: number;
   // Memory / quality knobs. Defaults are auto-detected from device class.
   // qualityPreset is informational; the individual knobs below are what

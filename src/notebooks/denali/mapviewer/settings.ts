@@ -129,6 +129,7 @@ export function createSettings(initial: Partial<Settings> = {}): Settings {
     aoStrength: 0.7,
     sunRadiusDeg: 0.265,
     shadowSamples: 1,
+    lsaoFalloff: 'cos2',
     // Mesh terrain is rendered N zoom levels coarser than imagery — visual
     // detail comes from imagery and lighting at imagery resolution, not from
     // vertex density. The lighting bake reads child tiles at this same offset

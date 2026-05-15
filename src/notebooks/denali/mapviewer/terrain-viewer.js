@@ -594,6 +594,14 @@ export class TerrainMap extends EventEmitter {
       this._renderDirty = true;
     }
 
+    // LSAO falloff change requires a full re-bake (the AO buffer
+    // depends on it). Cheap to detect, expensive to ignore.
+    if (this._lastLsaoFalloff !== settings.lsaoFalloff) {
+      this._lastLsaoFalloff = settings.lsaoFalloff;
+      this._lightingManager.onAoSettingsChanged();
+      this._renderDirty = true;
+    }
+
     // Drive the lighting bake queue. tick() processes a small budget of
     // bakes per frame; if more remain, we'll be called again next frame.
     this._lightingManager.tick();

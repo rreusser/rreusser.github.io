@@ -986,6 +986,13 @@
       v => { viewer.settings.aoStrength = v; }
     );
     addControl(lightingContent,
+      Inputs.radio(
+        new Map([["cos²α (Lambertian)", "cos2"], ["e^(−sin α) (Naaji)", "exp"]]),
+        { label: "AO falloff", value: viewer.settings.lsaoFalloff },
+      ),
+      v => { viewer.settings.lsaoFalloff = v; }
+    );
+    addControl(lightingContent,
       Inputs.range([0, 1], { value: viewer.settings.shadowStrength, step: 0.01, label: "Cast shadow strength" }),
       v => { viewer.settings.shadowStrength = v; }
     );
