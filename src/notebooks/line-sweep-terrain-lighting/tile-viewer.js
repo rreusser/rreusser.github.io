@@ -321,15 +321,18 @@ export function createTileViewer(opts) {
     // Parent-horizon zoom delta. At `parentDZ = dz` a 2×2 block of
     // (z - dz) parents guarantees a (2^dz + 1)×(2^dz + 1) target-tile
     // symmetric window around the comp tile at (1/2^dz) parent
-    // resolution. Default `dz = 2` (5×5 coverage at quarter-res)
-    // roughly doubles the blocker-search radius over `dz = 1` without
-    // extra fetches; distant blockers already matter less after
-    // cos²α / smoothstep falloff, so the coarser horizon tends to be
-    // a near-free win. `dz = 1` reproduces the original 3×3-tile /
-    // half-res behavior exactly.
-    parentDZ = 2,
+    // resolution. `dz = 2` gives 5×5 coverage at quarter-res; `dz = 1`
+    // is the original 3×3-tile / half-res behavior.
+    //
+    // Default `null` selects a zoom-adaptive dz that keeps the warmup
+    // ring covering a roughly constant *physical* radius (~40 km)
+    // regardless of zoom. As you zoom in past z ≈ 11 the comp tile
+    // shrinks faster than terrain steepness, so a fixed `dz = 2` stops
+    // reaching the blockers that actually shadow into the tile; the
+    // auto formula bumps `dz` by 1 every zoom past z = 11 to compensate.
+    // Pass a number to override.
+    parentDZ = null,
   } = opts;
-  const parentScale = 1 << parentDZ;
 
   container.style.position = container.style.position || "relative";
   container.style.overflow = "hidden";
@@ -356,7 +359,28 @@ export function createTileViewer(opts) {
     new URL("./tile-viewer-worker.js", import.meta.url),
     { type: "module" },
   );
-  worker.postMessage({ type: "init", tileUrl, parentDZ });
+
+  // The warmup ring's physical reach is (W/2) · parentScale · pxSize_comp,
+  // and pxSize_comp halves per zoom — so a fixed parentDZ shrinks the
+  // reach geometrically. Pin reach at ~40 km (covers a 7 km blocker at
+  // ~10° sun altitude), bumping parentDZ by 1 per zoom past z=11. The
+  // explicit `parentDZ` constructor opt overrides this if set.
+  function pickAutoParentDZ(z) {
+    const dz = Math.max(2, z - 9);
+    return Math.max(1, Math.min(dz, z - minZoom));
+  }
+  let currentParentDZ = -1;
+  let parentScale = 1;
+  function recomputeParentDZ() {
+    const newDZ = parentDZ != null
+      ? Math.max(1, parentDZ | 0)
+      : pickAutoParentDZ(baseZoom);
+    if (newDZ === currentParentDZ) return false;
+    currentParentDZ = newDZ;
+    parentScale = 1 << newDZ;
+    worker.postMessage({ type: "init", tileUrl, parentDZ: newDZ });
+    return true;
+  }
 
   // ------------------------------------------------------------------
   // CPU bake worker pool: parallel CPU-side tile baking as an
@@ -549,6 +573,7 @@ export function createTileViewer(opts) {
   const hashState = parseHash();
   let zoom = hashState ? hashState.zoom : initialZoom;
   let baseZoom = Math.round(zoom);
+  recomputeParentDZ();
   const initLat = hashState ? hashState.lat : initialCenter[0];
   const initLng = hashState ? hashState.lng : initialCenter[1];
   let [centerWorldX, centerWorldY] = latLngToWorld(
@@ -1265,6 +1290,10 @@ export function createTileViewer(opts) {
       }
       tiles.clear();
       baseZoom = newBaseZoom;
+      // Auto-parentDZ tracks baseZoom; re-pick after the flip. Stale
+      // tiles keep their old-parentScale horizon buffer for visual
+      // continuity (they're display-only, not re-baked).
+      recomputeParentDZ();
     }
     centerWorldX = newCenterWorldX;
     centerWorldY = newCenterWorldY;

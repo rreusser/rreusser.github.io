@@ -132,6 +132,19 @@ export class LightingManager {
     }
   }
 
+  // Invalidate all cached LSAO so the next render triggers a full
+  // re-bake. Called when settings affecting AO (e.g. lsaoFalloff)
+  // change. Shadow caches are kept since shadow geometry is unaffected.
+  onAoSettingsChanged() {
+    if (!this.settings.lightingEnabled) return;
+    for (const state of this.tiles.values()) {
+      state.cachedAo = null;
+      state.cachedNx = null;
+      state.cachedNy = null;
+      state.baked = false;
+    }
+  }
+
   tick() {
     if (!this.settings.lightingEnabled) return;
     if (this._shadowDirtyKeys.size === 0) return;
@@ -531,7 +544,7 @@ export class LightingManager {
         parentScale: parentScalePixel,
         horizonPN: HORIZON_PN,
         azDeg, altDeg, sunRadiusDeg, shadowSamples,
-        lsaoFalloff: 'cos2',
+        lsaoFalloff: this.settings.lsaoFalloff || 'cos2',
         compHMin, horizonHMax: state.horizonHMax,
       },
       {

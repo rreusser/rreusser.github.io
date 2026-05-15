@@ -401,7 +401,16 @@ fn fs_main(
   let baked_normal = vec3<f32>(nx, nz, -ny);
   let sun = globals.sun_direction.xyz;
   let sun_horizon = smoothstep(-0.02, 0.02, sun.y);
-  let ndotl = max(0.0, dot(baked_normal, sun)) * sun_horizon;
+  // Gate lambertian by cast shadow as well as the geometric horizon: a
+  // sun that's above the geometric horizon but still blocked by local
+  // terrain isn't actually lighting the surface, so it shouldn't
+  // produce a hillshade brighten either. Without this gate the
+  // geometric-horizon ramp lifts sun-facing slopes from 0.27 to ~0.28
+  // (capped by shadow_brightness) before the real terrain sunrise
+  // lifts cast_shadow, producing a faint "double sunrise" — a momentary
+  // first burst at geometric horizon, then the real second sunrise
+  // when the sun clears the local skyline.
+  let ndotl = max(0.0, dot(baked_normal, sun)) * sun_horizon * (1.0 - cast_shadow);
   // Subtractive lighting model. Baseline is the imagery / base color at
   // full brightness; each effect *darkens* the surface independently.
   //
@@ -419,7 +428,9 @@ fn fs_main(
   let hillshade_brightness = mix(1.0, ndotl, clamp(uniforms.hillshade_strength, 0.0, 1.0));
   let shadow_brightness = 1.0 - clamp(cast_shadow * uniforms.shadow_strength, 0.0, 1.0);
   let direct_brightness = min(hillshade_brightness, shadow_brightness);
-  let aoC = clamp(uniforms.ao_strength, 0.0, 0.999999);
+  // sqrt-warp the strength slider so the linear range gives more bite
+  // at low/mid settings — the underlying atan tonemap is steep near 1.
+  let aoC = clamp(sqrt(max(uniforms.ao_strength, 0.0)), 0.0, 0.999999);
   let aoS = aoC / (1.0 - aoC);
   let aoShade = clamp(1.0 - ao, 0.0, 1.0);
   let ao_factor = 1.0 - (2.0 / 3.14159265358979) * atan(aoS * aoShade);
