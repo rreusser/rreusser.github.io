@@ -1,0 +1,8 @@
+publishedAt: "May 17, 2026"
+maxWidth: 640px
+description: A thin-shell finite element simulation of an elastic Mobius strip, computing its equilibrium shape and flexural vibration modes
+tags:
+  - webgpu
+  - physics
+  - numerics
+  - math

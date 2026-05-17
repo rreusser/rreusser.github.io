@@ -1,0 +1,631 @@
+<!doctype html>
+<notebook theme="air">
+  <title>An Elastic Mobius Strip</title>
+
+  <script id="title" type="text/markdown">
+# An Elastic Mobius Strip
+
+A finite element simulation of a thin elastic surface, used to find the
+equilibrium shape of a Mobius strip and its flexural vibration modes.
+  </script>
+
+  <script id="intro" type="text/markdown">
+The strip is modeled as a Kirchhoff-Love thin shell discretized with a
+rotation-free triangle element: a constant-strain triangle carries the
+in-plane (membrane) energy, and a discrete dihedral hinge on every interior
+edge carries the bending energy. The only degrees of freedom are the vertex
+positions, so the surface is genuinely a 2D sheet moving in 3D.
+
+The stress-free reference is a flat rectangle. Nothing in the material
+"wants" to twist. The Mobius shape emerges entirely from gluing the two short
+ends of the mesh together with a flip, which makes the surface non-orientable
+and forbids a flat embedding. Minimizing the elastic energy from that glued
+topology produces the familiar elastic Mobius band.
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+import { createWebGPUContext } from './lib/webgpu-canvas.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
+import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js';
+import { createCameraSnapshotButton } from './lib/snapshot.js';
+import { createWebGPUCaptureHandler } from './lib/webgpu-snapshot.js';
+import { createFrameLoop } from './lib/frame-loop.js';
+import { collapseCodeBlocks } from './lib/collapsible-code.js';
+import {
+  createMobiusMesh, initialEmbedding, energyAndGradient, lumpedMassDiagonal,
+  membraneVonMises, bendingStress,
+} from './mobius-fem.js';
+import { newtonCG } from './optimize.js';
+import blas1 from './blas1.bundle.js';
+import { computeFlexuralModes } from './modes.js';
+import dsygvx from './dsygvx.bundle.js';
+import { shaderCode } from './shaders.js';
+import { createRenderer } from './renderer.js';
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+const { device, canvasFormat } = await createWebGPUContext();
+  </script>
+
+  <script id="state" type="text/x-typescript">
+// Persistent state, kept across reactive re-runs.
+const state = {
+  expandedState: { expanded: false },
+  sim: {
+    model: null as any,
+    X: null as Float64Array | null,
+    modes: null as any,
+    params: null as any,
+    topologyKey: '',
+  },
+  anim: { phase: 0, last: 0 },
+  staticDirty: true,
+  previewing: false, // true while relax() drives a live convergence preview
+  renderParams: {
+    view: 'Equilibrium',   // 'Equilibrium' | 'Flexural mode'
+    modeIndex: 1,
+    amplitude: 0.35,
+    animate: true,
+    speed: 1.0,
+    wireframe: false,
+    colorBy: 'Bending stress',
+  },
+};
+  </script>
+
+  <script id="theory-element" type="text/markdown">
+## The shell element
+
+Each triangle contributes a membrane energy from the in-plane Green strain
+${tex`\boldsymbol{\varepsilon} = \tfrac12 (F^\top F - I)`}, where ${tex`F`} is
+the ${tex`3\times 2`} deformation gradient from the flat rest triangle to its
+deformed position. With the plane-stress St. Venant-Kirchhoff law the energy
+density is ${tex`W = \mu\,\mathrm{tr}(\boldsymbol{\varepsilon}^2) + \tfrac12
+\lambda (\mathrm{tr}\,\boldsymbol{\varepsilon})^2`} and the Lame parameters
+follow from Young's modulus ${tex`E`} and Poisson ratio ${tex`\nu`}.
+  </script>
+
+  <script id="theory-bending" type="text/markdown">
+Bending lives on the interior edges. Each edge shared by two triangles is a
+hinge with dihedral angle ${tex`\theta`}; since the rest state is flat the
+rest angle is zero. The bending energy of a hinge is
+
+${tex.block`E_{\text{bend}} = \tfrac12\, D\, \frac{\bar{\ell}^2}{\bar{A}}\, \theta^2`}
+
+with flexural rigidity ${tex`D = E h^3 / (12(1-\nu^2))`}. The weight
+${tex`\bar{\ell}^2/\bar{A}`} is calibrated against an exactly rolled cylinder
+so the discrete energy converges to the continuum Kirchhoff value, which
+makes ${tex`D`} the true plate stiffness.
+  </script>
+
+  <script id="theory-modes" type="text/markdown">
+## Equilibrium and modes
+
+The equilibrium shape minimizes the total elastic energy over all vertex
+positions. The thin-shell energy is a long, curved, soft valley (the
+near-inextensible bending modes set against a far stiffer membrane), where
+gradient-only methods such as L-BFGS crawl for thousands of iterations. A
+truncated Newton-CG method is used instead: it gets curvature from
+Hessian-vector products formed by finite differences of the analytic
+gradient, with an inexact-Newton forcing sequence, and reaches the same (in
+fact lower-energy) equilibrium in roughly a hundred iterations. At an
+equilibrium ${tex`x^{*}`} the small vibrations solve the generalized
+symmetric eigenproblem
+
+${tex.block`K\,\phi = \omega^2 M\,\phi,`}
+
+where ${tex`K = \nabla^2 E(x^{*})`} is the stiffness (assembled by central
+differences of the analytic gradient) and ${tex`M`} is the lumped mass. The
+six near-zero eigenvalues are the rigid-body motions of the free-floating
+strip; the next smallest are the flexural modes. Only the lowest few are
+wanted, so this is solved with the generalized symmetric-definite subset
+driver ${tex`\texttt{dsygvx}`} from a Fortran-to-JavaScript translation of
+LAPACK. It computes just the requested eigenpairs by Cholesky factorization,
+reduction to a standard symmetric tridiagonal problem, bisection, and inverse
+iteration, which is several times faster than extracting the full spectrum.
+A dense solver is admittedly the wrong asymptotic tool for this sparse
+problem, but it cleanly exercises the linear-algebra interface.
+  </script>
+
+  <script id="controls" type="text/x-typescript">
+const controlsContainer = html`<div id="mobius-controls"></div>`;
+const add = (el: HTMLElement) => { controlsContainer.appendChild(el); return el; };
+
+add(html`<div style="font-weight:600;margin:2px 0">Geometry and material</div>`);
+const lengthInput = add(Inputs.range([2, 16], { label: 'Rest length', value: 10, step: 0.1 }));
+const widthInput = add(Inputs.range([0.1, 3], { label: 'Rest width', value: 1.0, step: 0.05 }));
+const nuInput = add(Inputs.range([16, 64], { label: 'Segments around', value: 36, step: 1 }));
+const nvInput = add(Inputs.range([3, 10], { label: 'Segments across', value: 5, step: 1 }));
+const thickInput = add(Inputs.range([0.005, 0.12], { label: 'Thickness', value: 0.03, step: 0.001 }));
+const poissonInput = add(Inputs.range([0, 0.49], { label: 'Poisson ratio', value: 0.35, step: 0.01 }));
+const reinitButton = add(Inputs.button('Reinitialize geometry', { label: ' ' }));
+
+add(html`<div style="font-weight:600;margin:8px 0 2px">Display</div>`);
+const displayInput = add(Inputs.radio(['Equilibrium', 'Flexural mode'], {
+  label: ' ', value: 'Equilibrium',
+}));
+const modeInput = add(Inputs.range([1, 10], { label: 'Mode #', value: 1, step: 1 }));
+const ampInput = add(Inputs.range([0, 1], { label: 'Amplitude', value: 0.35, step: 0.01 }));
+const speedInput = add(Inputs.range([0, 3], { label: 'Speed', value: 1, step: 0.05 }));
+const animateInput = add(Inputs.toggle({ label: 'Animate', value: true }));
+const colorByInput = add(Inputs.select(
+  ['Bending stress', 'Membrane stress', 'Width', 'Mode amplitude'],
+  { label: 'Color by', value: 'Bending stress' },
+));
+const wireInput = add(Inputs.toggle({ label: 'Wireframe', value: false }));
+
+const statusEl = add(html`<div id="mobius-status" style="font:12px/1.5 var(--monospace,monospace);margin-top:8px;white-space:pre-wrap;color:var(--theme-foreground-muted,#666)"></div>`);
+const setStatus = (s: string) => { statusEl.textContent = s; };
+
+// Progress indicator for the blocking computations.
+const progressLabel = html`<div style="font:12px/1.4 var(--monospace,monospace);color:var(--theme-foreground-muted,#666)"></div>`;
+const progressBar = html`<div style="height:100%;width:0%;background:var(--theme-foreground-focus,#3b82f6)"></div>` as HTMLElement;
+const progressTrack = html`<div style="height:6px;border-radius:3px;background:rgba(127,127,127,0.22);overflow:hidden;margin-top:3px"></div>`;
+progressTrack.appendChild(progressBar);
+const progressWrap = add(html`<div id="mobius-progress" style="display:none;margin-top:6px"></div>`) as HTMLElement;
+progressWrap.appendChild(progressLabel);
+progressWrap.appendChild(progressTrack);
+let progressPulse: Animation | null = null;
+function setProgress(text: string | null, frac: number | null) {
+  if (text == null) {
+    progressWrap.style.display = 'none';
+    if (progressPulse) { progressPulse.cancel(); progressPulse = null; }
+    return;
+  }
+  progressWrap.style.display = 'block';
+  progressLabel.textContent = text;
+  if (frac == null) {
+    progressBar.style.width = '100%';
+    if (!progressPulse) {
+      progressPulse = progressBar.animate(
+        [{ opacity: 0.25 }, { opacity: 0.7 }, { opacity: 0.25 }],
+        { duration: 1100, iterations: Infinity },
+      );
+    }
+  } else {
+    if (progressPulse) { progressPulse.cancel(); progressPulse = null; }
+    progressBar.style.opacity = '1';
+    progressBar.style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
+  }
+}
+  </script>
+
+  <script id="camera" type="text/x-typescript">
+const canvas = document.createElement('canvas');
+canvas.width = 800;
+canvas.height = 600;
+canvas.style.width = '100%';
+canvas.style.height = '100%';
+
+const camera = createUnifiedCamera(canvas, {
+  mode: 'arcball',
+  distance: 6.5,
+  orientation: [-0.35, 0.15, 0.05, 0.92],
+  center: [0, 0, 0],
+  near: 0.05,
+  far: 200,
+  renderContinuously: false,
+  observeResize: true,
+  canvas,
+});
+
+invalidation.then(() => camera.destroy());
+  </script>
+
+  <script id="main" type="text/x-typescript">
+const gpuContext = canvas.getContext('webgpu')!;
+gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+const renderer = createRenderer(device, canvasFormat, { code: shaderCode });
+
+let dispX = new Float32Array(0);
+
+const yieldFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+// Force an immediate repaint with the current buffers (used for the live
+// convergence preview, where we cannot wait for the camera-driven loop).
+function renderNow() {
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, true);
+}
+
+// --- Heavy operations, driven by direct button clicks (not reactivity). ---
+
+async function relaxImpl(reinit: boolean) {
+  const params = {
+    E: 1.0,
+    poisson: poissonInput.value as number,
+    thickness: thickInput.value as number,
+    density: 1.0,
+    bendingMode: 'analytic' as const,
+  };
+  const length = lengthInput.value as number;
+  const width = widthInput.value as number;
+  const nu = Math.round(nuInput.value as number);
+  const nv = Math.round(nvInput.value as number);
+  const topo = `${nu}x${nv}`;
+
+  setStatus(`Solving  L=${length} w=${width} nu=${nu} nv=${nv} h=${params.thickness} ...`);
+  await yieldFrame();
+
+  const model = createMobiusMesh({ length, width, nu, nv });
+  // Parameter tweaks warm-start from the current shape, so the strip morphs
+  // continuously. "Reinitialize geometry" (reinit) discards the current shape
+  // and reseeds from the clean analytic Mobius immersion -- the escape hatch
+  // when a state has folded into a bad, self-tangled local minimum. A mesh
+  // resolution change also forces a reseed (vertex count differs).
+  const sameTopo = !!state.sim.X && state.sim.X.length === model.Nv * 3;
+  const X0 = (reinit || !sameTopo)
+    ? initialEmbedding(model)
+    : (state.sim.X as Float64Array).slice();
+  const fun = (x: Float64Array, g: Float64Array) =>
+    energyAndGradient(model, x, params, g).energy;
+
+  // Show the starting shape immediately, then let it visibly relax: the
+  // optimizer's live iterate is streamed to the renderer via onProgress.
+  const topoChanged = topo !== state.sim.topologyKey || dispX.length !== model.Nv * 3;
+  if (topoChanged) {
+    renderer.initMesh(model);
+    dispX = new Float32Array(model.Nv * 3);
+  }
+  state.sim.model = model;
+  state.sim.params = params;
+  state.sim.modes = null;        // a new equilibrium invalidates old modes
+  state.previewing = true;
+  dispX.set(X0);
+  pushDisplay(dispX);
+  renderNow();
+
+  const t0 = performance.now();
+  const maxIt = 400; // outer Newton iterations (typically ~80-200 used)
+  const res = await newtonCG(fun, X0, {
+    maxIterations: maxIt, gradTol: 1e-7,
+    blas: blas1, // level-1 kernels powered by the blapack BLAS
+    yieldEvery: 1,
+    onProgress: async ({ iter, f, gInf, x }) => {
+      for (let i = 0; i < dispX.length; i++) dispX[i] = x[i];
+      pushDisplay(dispX);
+      renderNow();
+      setProgress(
+        `Solving (Newton-CG) · iter ${iter} · |grad| ${gInf.toExponential(1)} · E ${f.toExponential(2)}`,
+        Math.min(iter / (0.6 * maxIt), 0.98),
+      );
+      await yieldFrame();
+    },
+  });
+  const ms = Math.round(performance.now() - t0);
+
+  // Recenter for display.
+  let cx = 0, cy = 0, cz = 0;
+  for (let v = 0; v < model.Nv; v++) { cx += res.x[v*3]; cy += res.x[v*3+1]; cz += res.x[v*3+2]; }
+  cx /= model.Nv; cy /= model.Nv; cz /= model.Nv;
+  for (let v = 0; v < model.Nv; v++) { res.x[v*3]-=cx; res.x[v*3+1]-=cy; res.x[v*3+2]-=cz; }
+
+  let gInf = 0; for (const v of res.g) gInf = Math.max(gInf, Math.abs(v));
+  const e = energyAndGradient(model, res.x, params, null);
+
+  state.sim.X = res.x;
+  state.sim.topologyKey = topo;
+  state.previewing = false;
+  dispX.set(res.x);
+  state.anim.phase = 0;
+  state.staticDirty = true;
+  pushDisplay(dispX);
+  camera.triggerRepaint();
+
+  const head = res.converged
+    ? `Equilibrium reached in ${ms} ms, ${res.iterations} iterations.`
+    : `NOT converged: stopped at the ${res.iterations}-iteration cap (${ms} ms).\n` +
+      `The displayed shape is the best so far, not a true equilibrium. ` +
+      `Reduce the mesh resolution or thickness, or use Reinitialize.`;
+  setStatus(
+    `${head}\n` +
+    `energy = ${e.energy.toExponential(3)}  (membrane ${e.membrane.toExponential(2)}, bending ${e.bending.toExponential(2)})\n` +
+    `|grad|_inf = ${gInf.toExponential(2)} (target 1e-7),  vertices = ${model.Nv},  DOFs = ${3*model.Nv}`
+  );
+  setProgress(null, null);
+}
+
+// Serialize relaxes and coalesce rapid parameter changes into one re-solve.
+// A queued reinitialize wins over a queued warm-start (it is the recovery
+// action and must not be lost).
+let relaxing = false;
+let relaxQueued = false;
+let relaxQueuedReinit = false;
+async function relax(reinit = false) {
+  if (relaxing) {
+    relaxQueued = true;
+    relaxQueuedReinit = relaxQueuedReinit || reinit;
+    return;
+  }
+  relaxing = true;
+  try {
+    await relaxImpl(reinit);
+  } finally {
+    relaxing = false;
+    setProgress(null, null);
+    if (relaxQueued) {
+      relaxQueued = false;
+      const r = relaxQueuedReinit;
+      relaxQueuedReinit = false;
+      relax(r);
+    } else ensureView(); // honor the Display choice for the new equilibrium
+  }
+}
+
+// The Display control is the single source of truth for what is shown.
+// Selecting "Flexural mode" (or relaxing while it is selected) computes the
+// modes on demand if they are missing. Equilibrium is always available with
+// no computation.
+function ensureView() {
+  if (state.renderParams.view === 'Flexural mode'
+      && state.sim.model && state.sim.X
+      && !state.sim.modes && !computingModes && !relaxing) {
+    computeModes();
+  }
+}
+
+let computingModes = false;
+async function computeModes() {
+  const { model, X, params } = state.sim;
+  if (!model || !X) { setStatus('Relax to an equilibrium first.'); return; }
+  if (computingModes) return;
+  computingModes = true;
+  try {
+  setStatus(`Computing flexural modes  (dense dsygvx, n = ${3*model.Nv}) ...`);
+  await yieldFrame();
+  const massDiag = lumpedMassDiagonal(model, params);
+  const gradFn = (x: Float64Array, g: Float64Array) => { energyAndGradient(model, x, params, g); };
+  const t0 = performance.now();
+  const M = await computeFlexuralModes(model, X, massDiag, gradFn, dsygvx, {
+    nModes: 10, fdStep: 1e-5,
+    onProgress: async ({ phase, frac }) => {
+      if (phase === 'hessian') {
+        setProgress(`Assembling stiffness (FD Hessian) · ${Math.round((frac ?? 0) * 100)}%`, frac);
+      } else {
+        setProgress(`Running dense eigensolver dsygvx (n = ${3 * model.Nv})…`, null);
+      }
+      await yieldFrame();
+    },
+  });
+  const ms = Math.round(performance.now() - t0);
+  // A newer equilibrium may have replaced this one while we were computing;
+  // if so these modes are stale, discard them (ensureView will recompute).
+  if (state.sim.X !== X) return;
+  state.sim.modes = M;
+  state.anim.phase = 0;
+  state.staticDirty = true;
+  setProgress(null, null);
+  camera.triggerRepaint();
+
+  const lines = M.frequencies.map((w: number, k: number) =>
+    `  mode ${String(k+1).padStart(2)}:  omega = ${w.toFixed(4)}   (omega^2 = ${M.modes[k].lambda.toExponential(3)})`
+  ).join('\n');
+  setStatus(
+    `Flexural modes in ${ms} ms  (${M.rigidCount} rigid modes filtered)\n` + lines +
+    `\nSet Display to "Flexural mode" and pick "Mode #". "Animate" oscillates it.`
+  );
+  } finally {
+    computingModes = false;
+    setProgress(null, null);
+    ensureView(); // recompute if a newer equilibrium invalidated these
+  }
+}
+
+// Cheap render controls: read straight from the inputs each change.
+function syncParams() {
+  state.renderParams.view = displayInput.value as string;
+  state.renderParams.modeIndex = Math.round(modeInput.value as number);
+  state.renderParams.amplitude = ampInput.value as number;
+  state.renderParams.speed = speedInput.value as number;
+  state.renderParams.animate = animateInput.value as boolean;
+  state.renderParams.wireframe = wireInput.value as boolean;
+  state.renderParams.colorBy = colorByInput.value as string;
+  state.staticDirty = true;
+  ensureView(); // selecting "Flexural mode" computes modes on demand
+  camera.triggerRepaint();
+}
+
+// Geometry and material are reactive: changing any of them re-solves the
+// equilibrium automatically (on release, debounced), so the displayed model
+// always matches the parameters. The mesh resolution, length, width,
+// thickness and Poisson ratio are the "physical" inputs.
+const geomInputs = [
+  lengthInput, widthInput, nuInput, nvInput, thickInput, poissonInput,
+];
+let geomTimer = 0;
+function onGeometryChange() {
+  clearTimeout(geomTimer);
+  geomTimer = window.setTimeout(() => { relax(); }, 120);
+}
+for (const el of geomInputs) el.addEventListener('change', onGeometryChange);
+
+// Explicit opt-in: discard the current shape and re-solve from the clean
+// analytic immersion (untangle a folded/corrupted state).
+reinitButton.addEventListener('click', () => { relax(true); });
+
+controlsContainer.addEventListener('input', syncParams);
+syncParams();
+
+// --- Display loop. ---
+
+// Per-vertex scalar field for the chosen "Color by" mode, evaluated at the
+// currently displayed (possibly animated) positions so stress and bending
+// update live as a mode oscillates.
+function currentScalar(positions: Float32Array) {
+  const { model, params, modes } = state.sim;
+  const rp = state.renderParams;
+  switch (rp.colorBy) {
+    case 'Membrane stress':
+      return { field: membraneVonMises(model, positions, params), mode: 1 };
+    case 'Bending stress':
+      return { field: bendingStress(model, positions, params), mode: 1 };
+    case 'Mode amplitude': {
+      if (modes && modes.modes.length > 0) {
+        const idx = Math.min(Math.max(rp.modeIndex - 1, 0), modes.modes.length - 1);
+        const sh = modes.modes[idx].shape;
+        const f = new Float64Array(model.Nv);
+        for (let v = 0; v < model.Nv; v++)
+          f[v] = Math.hypot(sh[v*3], sh[v*3+1], sh[v*3+2]);
+        return { field: f, mode: 1 };
+      }
+      return { field: null, mode: 0 };
+    }
+    default:
+      return { field: null, mode: 0 };
+  }
+}
+
+function pushDisplay(positions: Float32Array) {
+  const { field, mode } = currentScalar(positions);
+  renderer.update(positions, field, mode);
+}
+
+// What is currently shown is an explicit choice (the Display control). When
+// "Flexural mode" is chosen but the modes are still being computed, this is
+// false and the equilibrium is shown until they are ready.
+function showingMode(): boolean {
+  const { modes } = state.sim;
+  return state.renderParams.view === 'Flexural mode'
+    && !!modes && modes.modes.length > 0;
+}
+
+// Returns true if the vertex buffers changed this frame.
+function computeDisplayed(): boolean {
+  const { model, X, modes } = state.sim;
+  if (!model || !X || dispX.length !== model.Nv * 3) return false;
+  // While relaxing, the convergence preview owns the display.
+  if (state.previewing) return false;
+  const rp = state.renderParams;
+  const mode = showingMode();
+  const animating = mode && rp.animate;
+
+  if (animating) {
+    const idx = Math.min(Math.max(rp.modeIndex - 1, 0), modes.modes.length - 1);
+    const shape = modes.modes[idx].shape;
+    const a = rp.amplitude * Math.sin(state.anim.phase);
+    for (let i = 0; i < dispX.length; i++) dispX[i] = X[i] + a * shape[i];
+    pushDisplay(dispX);
+    return true;
+  }
+  if (state.staticDirty) {
+    if (mode) {
+      // Frozen deflected mode shape, so it can be inspected without motion.
+      const idx = Math.min(Math.max(rp.modeIndex - 1, 0), modes.modes.length - 1);
+      const shape = modes.modes[idx].shape;
+      const a = rp.amplitude;
+      for (let i = 0; i < dispX.length; i++) dispX[i] = X[i] + a * shape[i];
+    } else {
+      dispX.set(X); // equilibrium
+    }
+    pushDisplay(dispX);
+    state.staticDirty = false;
+    return true;
+  }
+  return false;
+}
+
+const container = html`<div style="position:relative;width:100%;height:100%"></div>`;
+container.appendChild(canvas);
+
+camera.on('render', () => {
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, true);
+});
+camera.on('capture', createWebGPUCaptureHandler({
+  canvas,
+  render: () => renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, true),
+}));
+canvas.addEventListener('mousedown', () => {
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+});
+
+state.anim.last = performance.now();
+const loop = createFrameLoop((t) => {
+  const dt = Math.min(0.05, (t - state.anim.last) / 1000);
+  state.anim.last = t;
+  const animating = showingMode() && state.renderParams.animate;
+  const changed = computeDisplayed();
+  renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, changed);
+  if (animating) state.anim.phase += dt * state.renderParams.speed * 2.2;
+});
+invalidation.then(() => loop.cancel());
+
+let expandableContainer: HTMLElement;
+expandableContainer = expandable(container, {
+  id: 'mobius-viewer',
+  width: 720,
+  height: 540,
+  controls: controlsContainer,
+  state: state.expandedState,
+  buttons: [
+    {
+      icon: camera.getMode() === 'orbit' ? ICON_ORBIT : ICON_ARCBALL,
+      title: 'Toggle camera mode (orbit/arcball)',
+      onClick: (_content, _expanded, button) => {
+        const m = camera.getMode() === 'orbit' ? 'arcball' : 'orbit';
+        camera.setMode(m);
+        camera.triggerRepaint();
+        if (button) button.innerHTML = m === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
+      },
+    },
+    createCameraSnapshotButton(camera, { filename: 'mobius-strip.png' }),
+  ],
+  onResize(_el, w, h) {
+    canvas.width = Math.floor(w * devicePixelRatio);
+    canvas.height = Math.floor(h * devicePixelRatio);
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    camera.triggerRepaint();
+  },
+});
+
+display(expandableContainer);
+display(controlsContainer);
+
+// Initial equilibrium on load.
+await relax();
+camera.triggerRepaint();
+  </script>
+
+  <script id="notes" type="text/markdown">
+## Reading the picture
+
+By default the surface is colored by the peak bending fiber stress, which
+concentrates where the strip is forced to curve most sharply. "Color by" also
+offers the membrane von Mises stress, a width gradient that makes the
+one-sidedness visible (follow the band once around and the two edge colors
+swap, since a Mobius strip has a single side and a single edge), and the
+amplitude of the selected flexural mode, whose dark bands are its nodal lines.
+
+Smooth shading uses per-vertex normals built from the glued connectivity, so
+every vertex averages its full triangle ring. The surface is non-orientable,
+so no globally consistent normal exists, but the tangent plane is continuous
+everywhere and the lighting is two-sided, so the strip renders smoothly all
+the way around with no seam.
+
+The membrane stiffness is several orders of magnitude larger than the bending
+stiffness, so the relaxed shape is nearly inextensible: it bends rather than
+stretches, as a real strip of paper or metal would. Increasing the thickness
+stiffens bending relative to stretching and rounds out the shape; thin strips
+develop the sharper, more localized bend of the classical inextensible Mobius
+band.
+  </script>
+
+  <script id="numerics-note" type="text/markdown">
+## Numerical method
+
+The analytic energy gradient is verified against central differences to about
+${tex`10^{-10}`} relative error, the energy is exactly invariant under rigid
+motions, a flat unglued rectangle has exactly zero energy, and a rolled
+cylinder reproduces the continuum bending energy. The stiffness ${tex`K`} is
+formed by central differences of that gradient and is symmetric positive
+semidefinite with exactly six zero modes. The eigenpairs returned by
+${tex`\texttt{dsygvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
+\approx 10^{-15}`} and are ${tex`M`}-orthonormal, so the reported mode shapes
+and frequencies are accurate to machine precision for the discrete model.
+  </script>
+
+  <script id="collapse" type="text/x-typescript">
+collapseCodeBlocks({ maxHeight: 360, skip: ['imports'] });
+  </script>
+
+</notebook>
