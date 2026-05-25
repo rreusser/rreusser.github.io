@@ -73,10 +73,7 @@
     // from the controls cell; this cell never re-runs.
     const params = {
       M: [2, 1, 1, 1],
-      period: 8,
-      showEigen: false,
       showPaths: false,
-      paused: false,
       matrixDirty: true
     };
   </script>
@@ -255,10 +252,7 @@
       controlsContainer.appendChild(input);
       return Generators.input(input);
     }
-    const period = ctrl(Inputs.range([2, 20], { label: "Period (s)", value: 8, step: 0.5 }));
     const showPaths = ctrl(Inputs.toggle({ label: "Show paths", value: false }));
-    const showEigen = ctrl(Inputs.toggle({ label: "Show eigen-directions", value: false }));
-    const paused = ctrl(Inputs.toggle({ label: "Pause", value: false }));
 
     pushUpdate();
     display(controlsContainer);
@@ -266,10 +260,7 @@
   <script id="sync-params" type="text/x-typescript">
     // The matrix is mutated directly from the button handlers, so we only
     // need to sync the auxiliary controls here.
-    params.period = period;
     params.showPaths = showPaths;
-    params.showEigen = showEigen;
-    params.paused = paused;
     params.matrixDirty = true;
   </script>
   <script id="figure" type="text/x-typescript">
@@ -283,7 +274,6 @@
     svg.style.borderRadius = '6px';
     svg.style.border = '0.5px solid var(--theme-foreground-muted, rgba(0,0,0,0.15))';
 
-    const eigenG = document.createElementNS(ns, 'g');
     const pathsElement = document.createElementNS(ns, 'path');
     pathsElement.setAttribute('fill', 'none');
     pathsElement.setAttribute('stroke', '#185fa5');
@@ -293,7 +283,7 @@
     const originDot = document.createElementNS(ns, 'circle');
     originDot.setAttribute('r', '3.8');
     originDot.setAttribute('fill', '#185fa5');
-    svg.append(eigenG, pathsElement, dotsG, originDot);
+    svg.append(pathsElement, dotsG, originDot);
 
     // Dynamic dot pool — grown on demand. We don't know up front how many
     // lattice points fall in the visible window after Mt is applied, since
@@ -367,15 +357,6 @@
       return pts;
     }
 
-    const eigenLines: SVGLineElement[] = [0, 1].map(() => {
-      const l = document.createElementNS(ns, 'line');
-      l.setAttribute('stroke', 'var(--theme-foreground-muted, #888)');
-      l.setAttribute('stroke-width', '1');
-      l.setAttribute('stroke-dasharray', '4 3');
-      eigenG.appendChild(l);
-      return l;
-    });
-
     function resizeFigure(w: number, h: number) {
       figureState.width = w;
       figureState.height = h;
@@ -402,33 +383,14 @@
     }));
   </script>
   <script id="render-loop" type="text/x-typescript">
-    // Eigenvectors of M for the dashed stable/unstable guide lines. Returns
-    // an empty array if eigenvalues are not real and distinct.
-    function eigenDirections(M: number[]): [number, number][] {
-      const [a, b, c, d] = M;
-      const tr = a + d;
-      const det = a * d - b * c;
-      const disc = tr * tr - 4 * det;
-      if (disc <= 1e-9) return [];
-      const sD = Math.sqrt(disc);
-      const lams = [(tr + sD) / 2, (tr - sD) / 2];
-      return lams.map(lam => {
-        let vx: number, vy: number;
-        if (Math.abs(c) > 1e-9) { vx = lam - d; vy = c; }
-        else if (Math.abs(b) > 1e-9) { vx = b; vy = lam - a; }
-        else { vx = 1; vy = 0; }
-        const n = Math.hypot(vx, vy);
-        return [vx / n, vy / n] as [number, number];
-      });
-    }
-
+    const PERIOD_SEC = 8;
     let t = 0;
     let last = performance.now();
 
     const loop = createFrameLoop((now) => {
       const dt = (now - last) / 1000;
       last = now;
-      if (!params.paused) t = (t + dt / params.period) % 1;
+      t = (t + dt / PERIOD_SEC) % 1;
 
       const w = figureState.width, h = figureState.height;
       if (w === 0) return;
@@ -455,21 +417,6 @@
 
       if (params.matrixDirty) {
         params.matrixDirty = false;
-        const dirs = params.showEigen ? eigenDirections(params.M) : [];
-        eigenLines.forEach((line, k) => {
-          if (k < dirs.length) {
-            const [vx, vy] = dirs[k];
-            const L = Math.hypot(w, h);
-            line.setAttribute('x1', (cx - vx * L).toFixed(1));
-            line.setAttribute('y1', (cy + vy * L).toFixed(1));
-            line.setAttribute('x2', (cx + vx * L).toFixed(1));
-            line.setAttribute('y2', (cy - vy * L).toFixed(1));
-            line.setAttribute('stroke-opacity', '0.6');
-          } else {
-            line.setAttribute('stroke-opacity', '0');
-          }
-        });
-
         if (params.showPaths) {
           // Sample M^t at N+1 instants. The lattice points whose trajectory
           // ever enters the visible window are the union of visiblePts over
