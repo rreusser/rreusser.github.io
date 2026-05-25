@@ -89,7 +89,11 @@
       Ti: { M: [1,-1, 0, 1], tex: 'T^{-1}', desc: 'inverse horizontal shear' },
       L:  { M: [1, 0, 1, 1], tex: 'L',      desc: 'vertical shear y ← y + x' },
       Li: { M: [1, 0,-1, 1], tex: 'L^{-1}', desc: 'inverse vertical shear' },
-      S:  { M: [0,-1, 1, 0], tex: 'S',      desc: '90° rotation' }
+      S:  { M: [0,-1, 1, 0], tex: 'S',      desc: '90° rotation (counter-clockwise)' },
+      Si: { M: [0, 1,-1, 0], tex: 'S^{-1}', desc: '90° rotation (clockwise)' }
+    };
+    const inverseOf: Record<string, string> = {
+      T: 'Ti', Ti: 'T', L: 'Li', Li: 'L', S: 'Si', Si: 'S'
     };
 
     const presets: Record<string, string[]> = {
@@ -109,7 +113,19 @@
     }
 
     function applyOp(name: string) {
-      state.ops.push(name);
+      // If the new op is the inverse of the most recent one, cancel rather
+      // than appending (free-group reduction).
+      const last = state.ops[state.ops.length - 1];
+      if (last && inverseOf[last] === name) {
+        state.ops.pop();
+      } else {
+        state.ops.push(name);
+      }
+      // Catches non-adjacent cancellations like S^4 = I.
+      const m = computeM();
+      if (m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1) {
+        state.ops = [];
+      }
       pushUpdate();
     }
     function undo() {
