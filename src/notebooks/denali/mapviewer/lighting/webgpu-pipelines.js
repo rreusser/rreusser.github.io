@@ -280,20 +280,28 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
       let warmStart: i32 = cxEntry - WARMUP_STEPS;
       let hN: i32 = i32(u.horizonN);
       if (hN > 0) {
-        for (var cxw: i32 = warmStart; cxw < cxEntry; cxw = cxw + 1) {
-          let yw = f32(b) + u.slope * f32(cxw);
-          var ox_f: f32 = f32(cxw);
+        // Parent-rate hull pushes: place hull entries at parent pixel
+        // centres so hx_f = k exactly (or hy_f = k for swap), collapsing
+        // the bilinear to a 1-D cross-axis lerp with no along-ray bleed
+        // from the first parent pixel inside the comp tile. Matches the
+        // CPU sweep-core.js fix — see comments there for the derivation.
+        let firstK: i32 = max(
+          0,
+          i32(ceil(
+            (f32(warmStart) + warmupMarginX) * u.invParentScale - u.parentCenterOffset
+          ))
+        );
+        let lastK: i32 = i32(ceil(
+          (f32(cxEntry) + warmupMarginX) * u.invParentScale - u.parentCenterOffset
+        )) - 1;
+        for (var k: i32 = firstK; k <= lastK; k = k + 1) {
+          let cxF: f32 = parentScaleF * (f32(k) + u.parentCenterOffset) - warmupMarginX;
+          let yw: f32 = f32(b) + u.slope * cxF;
+          var ox_f: f32 = cxF;
           var oy_f: f32 = yw;
-          if (u.swap != 0u) { ox_f = yw; oy_f = f32(cxw); }
+          if (u.swap != 0u) { ox_f = yw; oy_f = cxF; }
           if (u.flipX != 0u) { ox_f = (Wf - 1.0) - ox_f; }
           if (u.flipY != 0u) { oy_f = (Hf - 1.0) - oy_f; }
-          // Child→horizon bilinear alignment, generalised to
-          // parentScale = 2^dz. Elevations live at pixel centres, so
-          // sampling at child pixel ox_f's centre maps to horizon
-          // pixel (ox_f + warmupMargin)*invParentScale -
-          // parentCenterOffset. See sweep-core.js for the full
-          // derivation; using Wf instead of warmupMarginX here was
-          // the tile-boundary-artifact bug at parentScale > 2.
           let hx_f: f32 = (ox_f + warmupMarginX) * u.invParentScale - u.parentCenterOffset;
           let hy_f: f32 = (oy_f + warmupMarginY) * u.invParentScale - u.parentCenterOffset;
           let hx_i: i32 = i32(floor(hx_f));
@@ -311,39 +319,6 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
             fx * (1.0 - fy2) * h10 +
             (1.0 - fx) * fy2 * h01 +
             fx * fy2 * h11;
-
-          // Deposit the edge-straddle contribution for any output row
-          // this warmup step lands on. Gated on cxw being in the
-          // canonical view range [0, viewW) — under a flipX/flipY
-          // sweep, negative canonical cx would pass through toOrig's
-          // (W - 1 - cx) and produce a numerically valid (but wrap-
-          // around) output index, depositing the ray's shadow into
-          // pixels on the wrong side of the tile. The main pass
-          // doesn't hit this because its cx iterator is already
-          // clamped to [cxEntry, viewW).
-          let inViewW: bool = cxw >= 0 && cxw < i32(u.viewW);
-          let yiw: i32 = i32(floor(yw));
-          let fyw: f32 = yw - f32(yiw);
-          let yjw: i32 = yiw + 1;
-          let loInW: bool = yiw >= 0 && yiw < i32(u.viewH);
-          let hiInW: bool = yjw >= 0 && yjw < i32(u.viewH);
-          if (inViewW && (loInW || hiInW)) {
-            let hRay: f32 = hW;
-            let cx: i32 = cxw;
-            let targetRow: i32 = select(yjw, yiw, loInW);
-            let pxSize = targetPxSize(cx, targetRow);
-            let dStep = pxSize * sqrt(1.0 + u.slope * u.slope);
-            let epsH = 0.5 * pxSize * u.tanAlt;
-            let invTwoEps = select(0.0, 1.0 / (2.0 * epsH), epsH > 0.0);
-            ${kernel}
-            let contribW = bit * u.weight;
-            let depLoW = u32(round((1.0 - fyw) * contribW * u.fpScale));
-            let depHiW = u32(round(fyw * contribW * u.fpScale));
-            if (loInW) { atomicAdd(&shadow[toOrig(cxw, yiw)], depLoW); }
-            if (hiInW) { atomicAdd(&shadow[toOrig(cxw, yjw)], depHiW); }
-          }
-
-          let cxF = f32(cxw);
           loop {
             if (hullPtr < 1) { break; }
             let ax = hullCx[hullPtr - 1];
@@ -357,6 +332,54 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
           hullPtr = min(hullPtr + 1, hullMax);
           hullCx[hullPtr] = cxF;
           hullH[hullPtr] = hW;
+        }
+
+        // Comp-rate edge-straddle deposits: fill shadow values for
+        // pixels at cx ∈ [0, cxEntry) that only the warmup visits.
+        // Hull is already populated by the parent-rate loop; no push.
+        for (var cxw: i32 = max(warmStart, 0); cxw < cxEntry; cxw = cxw + 1) {
+          let yw = f32(b) + u.slope * f32(cxw);
+          let yiw: i32 = i32(floor(yw));
+          let fyw: f32 = yw - f32(yiw);
+          let yjw: i32 = yiw + 1;
+          let loInW: bool = yiw >= 0 && yiw < i32(u.viewH);
+          let hiInW: bool = yjw >= 0 && yjw < i32(u.viewH);
+          if (!loInW && !hiInW) { continue; }
+          var ox_f: f32 = f32(cxw);
+          var oy_f: f32 = yw;
+          if (u.swap != 0u) { ox_f = yw; oy_f = f32(cxw); }
+          if (u.flipX != 0u) { ox_f = (Wf - 1.0) - ox_f; }
+          if (u.flipY != 0u) { oy_f = (Hf - 1.0) - oy_f; }
+          let hx_f: f32 = (ox_f + warmupMarginX) * u.invParentScale - u.parentCenterOffset;
+          let hy_f: f32 = (oy_f + warmupMarginY) * u.invParentScale - u.parentCenterOffset;
+          let hx_i: i32 = i32(floor(hx_f));
+          let hy_i: i32 = i32(floor(hy_f));
+          if (hx_i < 0 || hx_i + 1 >= hN) { continue; }
+          if (hy_i < 0 || hy_i + 1 >= hN) { continue; }
+          let fx: f32 = hx_f - f32(hx_i);
+          let fy2: f32 = hy_f - f32(hy_i);
+          let h00: f32 = horizon[hy_i * hN + hx_i];
+          let h10: f32 = horizon[hy_i * hN + hx_i + 1];
+          let h01: f32 = horizon[(hy_i + 1) * hN + hx_i];
+          let h11: f32 = horizon[(hy_i + 1) * hN + hx_i + 1];
+          let hW: f32 =
+            (1.0 - fx) * (1.0 - fy2) * h00 +
+            fx * (1.0 - fy2) * h10 +
+            (1.0 - fx) * fy2 * h01 +
+            fx * fy2 * h11;
+          let hRay: f32 = hW;
+          let cx: i32 = cxw;
+          let targetRow: i32 = select(yjw, yiw, loInW);
+          let pxSize = targetPxSize(cx, targetRow);
+          let dStep = pxSize * sqrt(1.0 + u.slope * u.slope);
+          let epsH = 0.5 * pxSize * u.tanAlt;
+          let invTwoEps = select(0.0, 1.0 / (2.0 * epsH), epsH > 0.0);
+          ${kernel}
+          let contribW = bit * u.weight;
+          let depLoW = u32(round((1.0 - fyw) * contribW * u.fpScale));
+          let depHiW = u32(round(fyw * contribW * u.fpScale));
+          if (loInW) { atomicAdd(&shadow[toOrig(cxw, yiw)], depLoW); }
+          if (hiInW) { atomicAdd(&shadow[toOrig(cxw, yjw)], depHiW); }
         }
       }
     }

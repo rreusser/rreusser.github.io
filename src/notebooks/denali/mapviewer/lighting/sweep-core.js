@@ -450,21 +450,80 @@ export function sweepCore(opts) {
       }
     } else if (hasHorizon) {
       const warmStart = cxEntry - WARMUP_STEPS;
-      for (let cx = warmStart; cx < cxEntry; cx++) {
+
+      // Parent-rate hull pushes: place hull entries at parent pixel centres
+      // (cxP = parentScale*(k+parentCenterOffset) − warmupMarginX) so that
+      // the bilinear formula gives hxf = k exactly (or hyf = k for swap).
+      // An exact integer index means fx = 0 (or fy = 0), collapsing the
+      // bilinear to a 1-D linear interp in the cross-ray axis at fixed
+      // along-ray column k — no pixel k+1 is touched. Without this, a
+      // comp-rate integer step at cx = −1 gives hxf = 127.25 for
+      // parentScale = 2, which blends in 25 % of parent pixel 128 (centred
+      // 1 child pixel inside the comp tile). If the comp tile has high
+      // terrain near its left edge that 25 % contribution inflates the hull
+      // entry and casts a false shadow on the first comp rows even when the
+      // sun is clearly above the outside terrain.
+      const firstK = Math.max(
+        0,
+        Math.ceil(
+          (warmStart + warmupMarginX) / parentScale - parentCenterOffset,
+        ),
+      );
+      const lastK =
+        Math.ceil(
+          (cxEntry + warmupMarginX) / parentScale - parentCenterOffset,
+        ) - 1;
+      for (let k = firstK; k <= lastK; k++) {
+        const cxP = parentScale * (k + parentCenterOffset) - warmupMarginX;
+        const yP = b + slope * cxP;
+        let oxfP = swap ? yP : cxP;
+        let oyfP = swap ? cxP : yP;
+        if (flipX) oxfP = W - 1 - oxfP;
+        if (flipY) oyfP = H - 1 - oyfP;
+        const hxfP = (oxfP + warmupMarginX) * invParentScale - parentCenterOffset;
+        const hyfP = (oyfP + warmupMarginY) * invParentScale - parentCenterOffset;
+        const hxiP = Math.floor(hxfP);
+        const hyiP = Math.floor(hyfP);
+        if (hxiP < 0 || hxiP + 1 >= HN) continue;
+        if (hyiP < 0 || hyiP + 1 >= HN) continue;
+        const fxP = hxfP - hxiP;
+        const fyP = hyfP - hyiP;
+        const h00P = horizon[hyiP * HN + hxiP];
+        const h10P = horizon[hyiP * HN + hxiP + 1];
+        const h01P = horizon[(hyiP + 1) * HN + hxiP];
+        const h11P = horizon[(hyiP + 1) * HN + hxiP + 1];
+        const hWP =
+          (1 - fxP) * (1 - fyP) * h00P +
+          fxP * (1 - fyP) * h10P +
+          (1 - fxP) * fyP * h01P +
+          fxP * fyP * h11P;
+        if (horizonTouched) {
+          const tBit = b >= 0 ? 1 : 2;
+          horizonTouched[hyiP * HN + hxiP] |= tBit;
+          horizonTouched[hyiP * HN + hxiP + 1] |= tBit;
+          horizonTouched[(hyiP + 1) * HN + hxiP] |= tBit;
+          horizonTouched[(hyiP + 1) * HN + hxiP + 1] |= tBit;
+        }
+        pushHull(cxP, hWP);
+      }
+
+      // Comp-rate edge-straddle deposits: for rays entering the canonical
+      // view from the top (b < 0, cxEntry > 0), pixels at cx ∈ [0, cxEntry)
+      // are only visited here — the main pass starts at cxEntry and never
+      // revisits them. Deposit their shadow contribution using the hull
+      // already populated by the parent-rate loop. No hull push here.
+      for (let cx = Math.max(warmStart, 0); cx < cxEntry; cx++) {
         const y = b + slope * cx;
+        const yi = Math.floor(y);
+        const fy = y - yi;
+        const yj = yi + 1;
+        const loIn = yi >= 0 && yi < viewH;
+        const hiIn = yj >= 0 && yj < viewH;
+        if (!loIn && !hiIn) continue;
         let oxf = swap ? y : cx;
         let oyf = swap ? cx : y;
         if (flipX) oxf = W - 1 - oxf;
         if (flipY) oyf = H - 1 - oyf;
-        // Elevations are defined at pixel centres. See the derivation
-        // of `warmupMargin` / `parentCenterOffset` above: this is the
-        // pixel-centre-preserving child→horizon map, generalised to
-        // parentScale = 2^dz. Without the `-parentCenterOffset` term,
-        // the hull entry pushed from the last warmup step at canonical
-        // cx = −1 would carry a height sampled from a half-parent-
-        // pixel-earlier physical position, producing a slope at the
-        // first comp pixel that's off by a pixel — and a faint
-        // shadow band along tile edges in LSAO.
         const hxf = (oxf + warmupMarginX) * invParentScale - parentCenterOffset;
         const hyf = (oyf + warmupMarginY) * invParentScale - parentCenterOffset;
         const hxi = Math.floor(hxf);
@@ -482,45 +541,11 @@ export function sweepCore(opts) {
           fx * (1 - fy2) * h10 +
           (1 - fx) * fy2 * h01 +
           fx * fy2 * h11;
-        if (horizonTouched) {
-          const tBit = b >= 0 ? 1 : 2;
-          horizonTouched[hyi * HN + hxi] |= tBit;
-          horizonTouched[hyi * HN + hxi + 1] |= tBit;
-          horizonTouched[(hyi + 1) * HN + hxi] |= tBit;
-          horizonTouched[(hyi + 1) * HN + hxi + 1] |= tBit;
-        }
-
-        // Deposit the edge-straddle contribution. This fires only at
-        // the few cx positions near the tile boundary where the ray's
-        // yj (or yi) is back in [0, viewH) AND cx is itself in the
-        // canonical view range [0, viewW). The cx guard matters
-        // because `toOrig` doesn't bounds-check its inputs — under
-        // a flipX/flipY sweep, a negative canonical cx maps through
-        // `W - 1 - cx` into an `ox > W − 1` that still produces a
-        // numerically valid (but physically meaningless) output index
-        // once the `oy*W + ox` is computed, which would deposit the
-        // ray's shadow into a wrap-around pixel on the opposite side
-        // of the tile. The main pass doesn't hit this because its
-        // cx iterator is already clamped to [cxEntry, viewW).
-        //
-        // `computeBit` must be called before the hull push, so it
-        // scans the hull *without* the current sample — matching
-        // the main pass's ordering.
-        const inView = cx >= 0 && cx < viewW;
-        const yi = Math.floor(y);
-        const fy = y - yi;
-        const yj = yi + 1;
-        const loIn = yi >= 0 && yi < viewH;
-        const hiIn = yj >= 0 && yj < viewH;
-        if (inView && (loIn || hiIn)) {
-          if (updateTargetPx) updateTargetPx(cx, loIn ? yi : yj);
-          const bit = computeBit(cx, hW);
-          const contrib = bit * weight;
-          if (loIn) out[toOrig(cx, yi)] += (1 - fy) * contrib;
-          if (hiIn) out[toOrig(cx, yj)] += fy * contrib;
-        }
-
-        pushHull(cx, hW);
+        if (updateTargetPx) updateTargetPx(cx, loIn ? yi : yj);
+        const bit = computeBit(cx, hW);
+        const contrib = bit * weight;
+        if (loIn) out[toOrig(cx, yi)] += (1 - fy) * contrib;
+        if (hiIn) out[toOrig(cx, yj)] += fy * contrib;
       }
     }
 
