@@ -212,15 +212,36 @@
       return { label: 'parabolic with λ ≤ 0 — no real flow', color: '#a04030', real: false, periodic };
     }
 
+    function formatOps(ops: string[]): string {
+      if (ops.length === 0) return 'I';
+      // Display in matrix-multiplication order (latest pressed appears leftmost).
+      const reversed = [...ops].reverse();
+      // Run-length encode consecutive identical generators so e.g.
+      // L · L · L renders as L^{3}.
+      const runs: [string, number][] = [];
+      for (const op of reversed) {
+        const last = runs[runs.length - 1];
+        if (last && last[0] === op) last[1]++;
+        else runs.push([op, 1]);
+      }
+      const isInverse = (op: string) => op === 'Ti' || op === 'Li' || op === 'Si';
+      return runs.map(([op, n]) => {
+        const base = op.charAt(0);
+        const sign = isInverse(op) ? -1 : 1;
+        const e = sign * n;
+        if (e === 1) return base;
+        if (e === -1) return `${base}^{-1}`;
+        return `${base}^{${e}}`;
+      }).join(' \\cdot ');
+    }
+
     function renderMatrixDisplay() {
       const M = params.M;
       const [a, b, c, d] = M;
       const det = a * d - b * c;
       const tr = a + d;
       const cls = classify(M);
-      const word = state.ops.length === 0
-        ? 'I'
-        : state.ops.map(k => generators[k].tex).reverse().join(' \\cdot ');
+      const word = formatOps(state.ops);
       matrixDisplay.replaceChildren(
         tex.block`M = ${word} = \begin{pmatrix} ${a} & ${b} \\ ${c} & ${d} \end{pmatrix}, \quad \det M = ${det}, \quad \operatorname{tr} M = ${tr}`,
         html`<div style="font-size: 13px; color: ${cls.color}; margin-top: 0.25rem;">
@@ -274,22 +295,77 @@
     originDot.setAttribute('fill', '#185fa5');
     svg.append(eigenG, pathsElement, dotsG, originDot);
 
-    const halfX = 16, halfY = 16;
-    const pts: [number, number][] = [];
-    for (let i = -halfX; i <= halfX; i++) {
-      for (let j = -halfY; j <= halfY; j++) {
-        if (i === 0 && j === 0) continue;
-        pts.push([i, j]);
+    // Dynamic dot pool — grown on demand. We don't know up front how many
+    // lattice points fall in the visible window after Mt is applied, since
+    // a stretched/sheared Mt has integer preimages of the window that spill
+    // far beyond any fixed grid. Instead, each frame we compute the integer
+    // points whose image under Mt lies in the visible rectangle.
+    const dotPool: SVGCircleElement[] = [];
+    let activeDotCount = 0;
+    dotsG.setAttribute('color', 'var(--theme-foreground, #2c2c2a)');
+
+    function ensureDots(n: number) {
+      while (dotPool.length < n) {
+        const c = document.createElementNS(ns, 'circle');
+        c.setAttribute('r', '2.3');
+        c.setAttribute('fill', 'currentColor');
+        dotsG.appendChild(c);
+        dotPool.push(c);
       }
     }
-    const circles: SVGCircleElement[] = pts.map(() => {
-      const c = document.createElementNS(ns, 'circle');
-      c.setAttribute('r', '2.3');
-      c.setAttribute('fill', 'currentColor');
-      dotsG.appendChild(c);
-      return c;
-    });
-    dotsG.setAttribute('color', 'var(--theme-foreground, #2c2c2a)');
+    function trimVisibleDots(n: number) {
+      for (let i = n; i < activeDotCount; i++) {
+        dotPool[i].setAttribute('display', 'none');
+      }
+      for (let i = activeDotCount; i < n; i++) {
+        dotPool[i].removeAttribute('display');
+      }
+      activeDotCount = n;
+    }
+
+    // Integer (i, j) such that Mt·(i,j) lies within [-W, W] × [-H, H] (with
+    // a small margin so dots don't pop at the edge). For each i we solve
+    // the two band constraints on j analytically, so we visit only points
+    // that will actually be drawn.
+    function visiblePts(Mt: number[], W: number, H: number, margin = 0.5): [number, number][] {
+      const [a, b, c, d] = Mt;
+      const det = a * d - b * c;
+      const W2 = W + margin, H2 = H + margin;
+      const pts: [number, number][] = [];
+      if (Math.abs(det) < 1e-9) return pts;
+
+      // Bounding box of i over the preimage parallelogram.
+      const ia = d / det, ib = -b / det;
+      let iLo = Infinity, iHi = -Infinity;
+      for (const sx of [-W2, W2]) for (const sy of [-H2, H2]) {
+        const i = ia * sx + ib * sy;
+        if (i < iLo) iLo = i;
+        if (i > iHi) iHi = i;
+      }
+      const iMin = Math.max(Math.floor(iLo), -500);
+      const iMax = Math.min(Math.ceil(iHi),  500);
+
+      for (let i = iMin; i <= iMax; i++) {
+        // |a·i + b·j| <= W2 and |c·i + d·j| <= H2 give two intervals for j.
+        let jLo = -Infinity, jHi = Infinity;
+        if (Math.abs(b) > 1e-12) {
+          const x0 = (-W2 - a * i) / b, x1 = (W2 - a * i) / b;
+          jLo = Math.max(jLo, Math.min(x0, x1));
+          jHi = Math.min(jHi, Math.max(x0, x1));
+        } else if (a * i < -W2 || a * i > W2) continue;
+        if (Math.abs(d) > 1e-12) {
+          const x0 = (-H2 - c * i) / d, x1 = (H2 - c * i) / d;
+          jLo = Math.max(jLo, Math.min(x0, x1));
+          jHi = Math.min(jHi, Math.max(x0, x1));
+        } else if (c * i < -H2 || c * i > H2) continue;
+        const jStart = Math.ceil(jLo), jEnd = Math.floor(jHi);
+        for (let j = jStart; j <= jEnd; j++) {
+          if (i === 0 && j === 0) continue;
+          pts.push([i, j]);
+        }
+      }
+      return pts;
+    }
 
     const eigenLines: SVGLineElement[] = [0, 1].map(() => {
       const l = document.createElementNS(ns, 'line');
@@ -359,16 +435,23 @@
       const cx = w / 2, cy = h / 2;
       const cs = figureState.cellSize;
 
+      // Visible window in data space (origin centered, y up).
+      const W = (w / 2) / cs, H = (h / 2) / cs;
+
       const Mt = powMt(params.M, t);
       const [a, b, c, d] = Mt;
 
+      const pts = visiblePts(Mt, W, H);
+      ensureDots(pts.length);
       for (let k = 0; k < pts.length; k++) {
         const [i, j] = pts[k];
         const qx = a * i + b * j;
         const qy = c * i + d * j;
-        circles[k].setAttribute('cx', (cx + qx * cs).toFixed(1));
-        circles[k].setAttribute('cy', (cy - qy * cs).toFixed(1));
+        const dot = dotPool[k];
+        dot.setAttribute('cx', (cx + qx * cs).toFixed(1));
+        dot.setAttribute('cy', (cy - qy * cs).toFixed(1));
       }
+      trimVisibleDots(pts.length);
 
       if (params.matrixDirty) {
         params.matrixDirty = false;
@@ -388,16 +471,23 @@
         });
 
         if (params.showPaths) {
-          // Sample M^t at N+1 instants and apply each sampled matrix to every
-          // lattice point. Concatenate into one SVG path with M/L commands
-          // separating per-point subpaths — far cheaper than one path element
-          // per dot.
+          // Sample M^t at N+1 instants. The lattice points whose trajectory
+          // ever enters the visible window are the union of visiblePts over
+          // a coarser subset of those samples.
           const N = 48;
+          const visStride = Math.max(1, Math.floor(N / 16));
           const Mts: number[][] = [];
           for (let q = 0; q <= N; q++) Mts.push(powMt(params.M, q / N));
+          const seen = new Set<number>();
+          const trajPts: [number, number][] = [];
+          for (let q = 0; q <= N; q += visStride) {
+            for (const ij of visiblePts(Mts[q], W, H, 0.5)) {
+              const key = ij[0] * 100003 + ij[1];
+              if (!seen.has(key)) { seen.add(key); trajPts.push(ij); }
+            }
+          }
           const parts: string[] = [];
-          for (let p = 0; p < pts.length; p++) {
-            const [i, j] = pts[p];
+          for (const [i, j] of trajPts) {
             let s = '';
             for (let q = 0; q <= N; q++) {
               const m = Mts[q];
