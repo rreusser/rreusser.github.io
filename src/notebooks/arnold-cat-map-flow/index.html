@@ -136,7 +136,11 @@
     function btn(label: string, onClick: () => void, title = ''): HTMLButtonElement {
       const b = html`<button type="button" title="${title}" style="
         font: inherit; font-size: 14px; padding: 4px 10px; margin: 2px;
-        border: 1px solid #bbb; border-radius: 4px; background: #fff; cursor: pointer;
+        border: 1px solid var(--theme-foreground-muted, #bbb);
+        border-radius: 4px;
+        background: var(--theme-background-alt, var(--theme-background, #fff));
+        color: var(--theme-foreground, #222);
+        cursor: pointer;
       ">${label}</button>` as HTMLButtonElement;
       b.addEventListener('click', onClick);
       return b;
@@ -144,7 +148,7 @@
 
     // Row 1: generators
     const genRow = html`<div style="margin: 0.5rem 0;">
-      <span style="font-size: 13px; color: #5f5e5a; margin-right: 0.5rem;">apply:</span>
+      <span style="font-size: 13px; color: var(--theme-foreground-muted, #5f5e5a); margin-right: 0.5rem;">apply:</span>
     </div>`;
     for (const [key, g] of Object.entries(generators)) {
       genRow.appendChild(btn(g.tex.replace('^{-1}', '⁻¹'), () => applyOp(key), g.desc));
@@ -155,7 +159,7 @@
 
     // Row 2: presets
     const presetRow = html`<div style="margin: 0.5rem 0;">
-      <span style="font-size: 13px; color: #5f5e5a; margin-right: 0.5rem;">load:</span>
+      <span style="font-size: 13px; color: var(--theme-foreground-muted, #5f5e5a); margin-right: 0.5rem;">load:</span>
     </div>`;
     for (const name of Object.keys(presets)) {
       presetRow.appendChild(btn(name, () => loadPreset(name)));
@@ -238,9 +242,9 @@
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('id', 'cat-map-svg');
     svg.style.display = 'block';
-    svg.style.background = '#fff';
+    svg.style.background = 'var(--theme-background-alt, var(--theme-background, #fff))';
     svg.style.borderRadius = '6px';
-    svg.style.border = '0.5px solid rgba(0,0,0,0.15)';
+    svg.style.border = '0.5px solid var(--theme-foreground-muted, rgba(0,0,0,0.15))';
 
     const eigenG = document.createElementNS(ns, 'g');
     const pathsElement = document.createElementNS(ns, 'path');
@@ -265,14 +269,15 @@
     const circles: SVGCircleElement[] = pts.map(() => {
       const c = document.createElementNS(ns, 'circle');
       c.setAttribute('r', '2.3');
-      c.setAttribute('fill', '#2c2c2a');
+      c.setAttribute('fill', 'currentColor');
       dotsG.appendChild(c);
       return c;
     });
+    dotsG.setAttribute('color', 'var(--theme-foreground, #2c2c2a)');
 
     const eigenLines: SVGLineElement[] = [0, 1].map(() => {
       const l = document.createElementNS(ns, 'line');
-      l.setAttribute('stroke', '#888');
+      l.setAttribute('stroke', 'var(--theme-foreground-muted, #888)');
       l.setAttribute('stroke-width', '1');
       l.setAttribute('stroke-dasharray', '4 3');
       eigenG.appendChild(l);
