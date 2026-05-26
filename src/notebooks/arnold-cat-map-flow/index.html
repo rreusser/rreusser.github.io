@@ -274,6 +274,7 @@
     svg.style.borderRadius = '6px';
     svg.style.border = '0.5px solid var(--theme-foreground-muted, rgba(0,0,0,0.15))';
 
+    const eigenG = document.createElementNS(ns, 'g');
     const pathsElement = document.createElementNS(ns, 'path');
     pathsElement.setAttribute('fill', 'none');
     pathsElement.setAttribute('stroke', '#185fa5');
@@ -283,7 +284,17 @@
     const originDot = document.createElementNS(ns, 'circle');
     originDot.setAttribute('r', '3.8');
     originDot.setAttribute('fill', '#185fa5');
-    svg.append(pathsElement, dotsG, originDot);
+    svg.append(eigenG, pathsElement, dotsG, originDot);
+
+    const eigenLines: SVGLineElement[] = [0, 1].map(() => {
+      const l = document.createElementNS(ns, 'line');
+      l.setAttribute('stroke', 'var(--theme-foreground-muted, #888)');
+      l.setAttribute('stroke-width', '1');
+      l.setAttribute('stroke-dasharray', '4 3');
+      l.setAttribute('stroke-opacity', '0');
+      eigenG.appendChild(l);
+      return l;
+    });
 
     // Dynamic dot pool — grown on demand. We don't know up front how many
     // lattice points fall in the visible window after Mt is applied, since
@@ -383,7 +394,28 @@
     }));
   </script>
   <script id="render-loop" type="text/x-typescript">
-    const PERIOD_SEC = 8;
+    // Unit eigenvectors of M for the dashed guide lines through the origin.
+    // Returns an empty array unless the two eigenvalues are real and distinct,
+    // which excludes the elliptic regime and the parabolic degenerate.
+    function eigenDirections(M: number[]): [number, number][] {
+      const [a, b, c, d] = M;
+      const tr = a + d;
+      const det = a * d - b * c;
+      const disc = tr * tr - 4 * det;
+      if (disc <= 1e-9) return [];
+      const sD = Math.sqrt(disc);
+      const lams = [(tr + sD) / 2, (tr - sD) / 2];
+      return lams.map(lam => {
+        let vx: number, vy: number;
+        if (Math.abs(c) > 1e-9) { vx = lam - d; vy = c; }
+        else if (Math.abs(b) > 1e-9) { vx = b; vy = lam - a; }
+        else { vx = 1; vy = 0; }
+        const n = Math.hypot(vx, vy);
+        return [vx / n, vy / n] as [number, number];
+      });
+    }
+
+    const PERIOD_SEC = 5;
     let t = 0;
     let last = performance.now();
 
@@ -417,6 +449,22 @@
 
       if (params.matrixDirty) {
         params.matrixDirty = false;
+
+        const dirs = eigenDirections(params.M);
+        eigenLines.forEach((line, k) => {
+          if (k < dirs.length) {
+            const [vx, vy] = dirs[k];
+            const L = Math.hypot(w, h);
+            line.setAttribute('x1', (cx - vx * L).toFixed(1));
+            line.setAttribute('y1', (cy + vy * L).toFixed(1));
+            line.setAttribute('x2', (cx + vx * L).toFixed(1));
+            line.setAttribute('y2', (cy - vy * L).toFixed(1));
+            line.setAttribute('stroke-opacity', '0.6');
+          } else {
+            line.setAttribute('stroke-opacity', '0');
+          }
+        });
+
         if (params.showPaths) {
           // Sample M^t at N+1 instants. The lattice points whose trajectory
           // ever enters the visible window are the union of visiblePts over
