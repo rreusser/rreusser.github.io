@@ -463,7 +463,7 @@ export function createInteractivePanelDiagram({ d3, html, Inputs, device, canvas
       panelLinesGroup.append("line")
         .attr("x1", xScale(p.x1)).attr("y1", yScale(p.y1))
         .attr("x2", xScale(p.x2)).attr("y2", yScale(p.y2))
-        .attr("stroke", "#333")
+        .attr("stroke", "currentColor")
         .attr("stroke-width", 4)
         .attr("stroke-linecap", "round");
     });
