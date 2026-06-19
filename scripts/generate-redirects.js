@@ -59,6 +59,7 @@ const redirects = [
   ["/double-pendulum/", "/sketches/double-pendulum/"],
   ["/fluid-simulation/", "/sketches/fluid-simulation/"],
   ["/moire/", "/sketches/moire/"],
+  ["/logistic-map/", "/sketches/logistic-map/"],
 
 ];
 
