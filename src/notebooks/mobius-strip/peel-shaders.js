@@ -1,9 +1,10 @@
 // Depth-peeling shaders for the Möbius strip transparent views.
 // Surface: two-sided Blinn-Phong with specular + Fresnel, premultiplied alpha.
-// Coloring is either two-tone faces (colorMode=0, used by the hero figure to
-// dramatize the one-sided topology) or a scalar field sampled through an
-// uploadable colormap LUT (colorMode=1). The LUT lets the legend's colormap
-// selector drive the surface colors without baking any palette into the shader.
+// Coloring is either a cyclic palette running along the strip's length
+// (colorMode=0, used by the hero figure: one continuous, looping color
+// transition with no seam or face discontinuity) or a scalar field sampled
+// through an uploadable colormap LUT (colorMode=1). The LUT lets the legend's
+// colormap selector drive the surface colors without baking a palette in.
 // Centerline tube: dark matte with specular highlight.
 // Composite: back-to-front premultiplied alpha blend of peeled layers.
 
@@ -17,7 +18,7 @@ struct Uniforms {
   specular   : f32,           // 148
   scalarMin  : f32,           // 152
   scalarMax  : f32,           // 156
-  colorMode  : f32,           // 160  0=two-tone faces, 1=scalar LUT
+  colorMode  : f32,           // 160  0=cyclic palette, 1=scalar LUT
   _pad0      : f32,           // 164
   _pad1      : f32,           // 168
   _pad2      : f32,           // 172
@@ -32,11 +33,11 @@ struct VSOut {
   @location(0) world     : vec3<f32>,
   @location(1) normal    : vec3<f32>,
   @location(2) scalar    : f32,
-  @location(3) face       : f32,
+  @location(3) arc       : f32,
 };
 
 // Surface vertex shader — aux: x=sv (width parameter, unused here), y=scalar,
-// z=face flag (1 = +offset face, 0 = −offset face, 0.5 = rim).
+// z=arc parameter (length around the strip, 0..1, drives the cyclic palette).
 @vertex
 fn vs(
   @location(0) pos    : vec3<f32>,
@@ -47,7 +48,7 @@ fn vs(
   o.world  = pos;
   o.normal = normal;
   o.scalar = aux.y;
-  o.face   = aux.z;
+  o.arc   = aux.z;
   o.pos    = u.projection * u.view * vec4<f32>(pos, 1.0);
   return o;
 }
@@ -62,7 +63,7 @@ fn vsTube(
   o.world  = pos;
   o.normal = normal;
   o.scalar = 0.0;
-  o.face   = 0.0;
+  o.arc   = 0.0;
   o.pos    = u.projection * u.view * vec4<f32>(pos, 1.0);
   return o;
 }
@@ -76,7 +77,17 @@ fn lightDir() -> vec3<f32> {
   ));
 }
 
-fn shadeSurface(world : vec3<f32>, rawNormal : vec3<f32>, sc : f32, face : f32) -> vec4<f32> {
+// Smooth cyclic palette (Inigo Quilez cosine form). Period 1 in t, so the
+// color arc closes seamlessly around the strip. Softened from a full-saturation
+// rainbow for a more pleasant look.
+fn cyclicPalette(t : f32) -> vec3<f32> {
+  let a = vec3<f32>(0.55, 0.55, 0.55);
+  let b = vec3<f32>(0.42, 0.42, 0.42);
+  let d = vec3<f32>(0.00, 0.33, 0.67);
+  return a + b * cos(6.28318530718 * (t + d));
+}
+
+fn shadeSurface(world : vec3<f32>, rawNormal : vec3<f32>, sc : f32, arc : f32) -> vec4<f32> {
   let V = normalize(u.eye - world);
   let N = select(-normalize(rawNormal), normalize(rawNormal), dot(rawNormal, V) > 0.0);
   let L = lightDir();
@@ -92,12 +103,9 @@ fn shadeSurface(world : vec3<f32>, rawNormal : vec3<f32>, sc : f32, face : f32) 
     let t = clamp((sc - u.scalarMin) / denom, 0.0, 1.0);
     base = textureSampleLevel(cmapTex, cmapSamp, vec2<f32>(t, 0.5), 0.0).rgb;
   } else {
-    // Two-tone faces: a warm and a cool tone on the strip's two offset faces.
-    // The half-twist carries one face into the other across the seam, so
-    // following the band shows the two colors meet on a single surface.
-    let warm = vec3<f32>(0.96, 0.62, 0.30);
-    let cool = vec3<f32>(0.28, 0.52, 0.88);
-    base = mix(cool, warm, clamp(face, 0.0, 1.0));
+    // Cyclic palette along the strip's length: one continuous, looping color
+    // transition. palette(0) == palette(1) closes it across the seam.
+    base = cyclicPalette(arc);
   }
 
   let ambient  = 0.28;
@@ -127,12 +135,12 @@ fn shadeTube(world : vec3<f32>, rawNormal : vec3<f32>) -> vec4<f32> {
 }
 
 @fragment fn fsFirst(in : VSOut) -> @location(0) vec4<f32> {
-  return shadeSurface(in.world, in.normal, in.scalar, in.face);
+  return shadeSurface(in.world, in.normal, in.scalar, in.arc);
 }
 @fragment fn fsPeel(in : VSOut, @builtin(sample_index) si : u32) -> @location(0) vec4<f32> {
   let prev = textureLoad(prevDepth, vec2<i32>(in.pos.xy), i32(si));
   if (in.pos.z <= prev + 1e-6) { discard; }
-  return shadeSurface(in.world, in.normal, in.scalar, in.face);
+  return shadeSurface(in.world, in.normal, in.scalar, in.arc);
 }
 @fragment fn fsFirstTube(in : VSOut) -> @location(0) vec4<f32> {
   return shadeTube(in.world, in.normal);

@@ -1,6 +1,7 @@
 // Transparent depth-peeling renderer for the Möbius strip views.
-// Used for both the intro figure (two-tone faces, transparent) and the main
-// interactive figure (scalar coloring through an uploadable colormap LUT).
+// Used for both the intro figure (a cyclic palette running along the strip,
+// transparent) and the main interactive figure (scalar coloring through an
+// uploadable colormap LUT).
 //
 // createPeelRenderer(device, canvasFormat, {peel, composite})
 //   .initMesh(model, initialPos, thickness)
@@ -9,7 +10,7 @@
 //   .render(gpuContext, params, camera, w, h, dirty)
 //
 // params: { opacity, specular, peelLayers }
-// colorMode: 0 = two-tone faces, 1 = scalar field via colormap LUT
+// colorMode: 0 = cyclic palette along the strip's length, 1 = scalar via LUT
 // range: optional [min, max] pinning the scalar color scale (else field min/max)
 
 const TUBE_SEGS = 8;
@@ -76,7 +77,7 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
     device.queue.writeTexture({ texture: colormapTexture }, rgba, { bytesPerRow: CMAP_SIZE * 4 }, { width: CMAP_SIZE, height: 1 });
   }
 
-  // Surface uses 3 vertex buffers: pos, normal, aux(sv, scalar, face)
+  // Surface uses 3 vertex buffers: pos, normal, aux(sv, scalar, loop)
   const vLayoutSurface = [
     { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
     { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
@@ -157,7 +158,7 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
   // Mesh state
   let nuMesh = 0, nvMesh = 0, NvMesh = 0, nTMesh = 0, trisMesh = null;
   let vtStart = null, vtList = null;
-  let vNrm = null, faceN = null, vAcc = null, boundaryLoop = null, svVert = null;
+  let vNrm = null, faceN = null, vAcc = null, boundaryLoop = null, svVert = null, uVert = null;
   let scalarMin = 0, scalarMax = 1, colorModeStored = 0;
 
   // Surface GPU buffers (non-indexed triangle soup: top + bottom + rim)
@@ -203,6 +204,14 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
     for (let v = 0; v < NvMesh; v++) svVert[v] = model.vertexUV[v * 2 + 1];
 
     const nu = nuMesh, nv = nvMesh;
+
+    // Length parameter per vertex: u = i / nu around the centerline, periodic.
+    // The hero's two-tone face coloring is replaced by a cyclic palette of u, so
+    // a continuous loop of color runs along the strip (palette(0) == palette(1)
+    // closes it across the seam) with no jagged triangle edge and no two-sided
+    // discontinuity. Vertex v = i*(nv+1) + j, so i = floor(v / (nv+1)).
+    uVert = new Float32Array(NvMesh);
+    for (let v = 0; v < NvMesh; v++) uVert[v] = Math.floor(v / (nv + 1)) / nu;
     boundaryLoop = new Int32Array(2 * nu);
     for (let i = 0; i < nu; i++) boundaryLoop[i] = i * (nv + 1);
     for (let i = 0; i < nu; i++) boundaryLoop[nu + i] = i * (nv + 1) + nv;
@@ -379,9 +388,11 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
         const rx = vNrm[p], ry = vNrm[p+1], rz = vNrm[p+2];
         surfacePosF[o3] = femPos[p]+hh*posS*rx; surfacePosF[o3+1] = femPos[p+1]+hh*posS*ry; surfacePosF[o3+2] = femPos[p+2]+hh*posS*rz;
         surfaceNrmF[o3] = s*rx; surfaceNrmF[o3+1] = s*ry; surfaceNrmF[o3+2] = s*rz;
-        // face = 1 for this (+offset) face. The half-twist carries it into the
-        // −offset face across the seam, so the two tones meet on one surface.
-        surfaceAuxF[o2] = svVert[v]; surfaceAuxF[o2+1] = femScalar ? femScalar[v] : 0; surfaceAuxF[o2+2] = 1;
+        // Loop parameter for the cyclic hero palette. Seam col-0 vertices get
+        // u = 1 (not 0) so seam triangles interpolate 0.98→1 the short way
+        // instead of winding backward through the whole palette.
+        surfaceAuxF[o2] = svVert[v]; surfaceAuxF[o2+1] = femScalar ? femScalar[v] : 0;
+        surfaceAuxF[o2+2] = seamCol0 ? 1.0 : uVert[v];
         o3 += 3; o2 += 3;
       }
     }
@@ -398,7 +409,8 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
         const rx = vNrm[p], ry = vNrm[p+1], rz = vNrm[p+2];
         surfacePosF[o3] = femPos[p]-hh*posS*rx; surfacePosF[o3+1] = femPos[p+1]-hh*posS*ry; surfacePosF[o3+2] = femPos[p+2]-hh*posS*rz;
         surfaceNrmF[o3] = -s*rx; surfaceNrmF[o3+1] = -s*ry; surfaceNrmF[o3+2] = -s*rz;
-        surfaceAuxF[o2] = svVert[v]; surfaceAuxF[o2+1] = femScalar ? femScalar[v] : 0; surfaceAuxF[o2+2] = 0;
+        surfaceAuxF[o2] = svVert[v]; surfaceAuxF[o2+1] = femScalar ? femScalar[v] : 0;
+        surfaceAuxF[o2+2] = seamCol0 ? 1.0 : uVert[v];
         o3 += 3; o2 += 3;
       }
     }
@@ -426,18 +438,23 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
       const bBotX=femPos[pb]-hh*nbx, bBotY=femPos[pb+1]-hh*nby, bBotZ=femPos[pb+2]-hh*nbz;
       const aBotX=femPos[pa]-hh*nax, aBotY=femPos[pa+1]-hh*nay, aBotZ=femPos[pa+2]-hh*naz;
       const svMid = (svVert[ka] + svVert[kb]) / 2;
+      // Loop parameter along the rim, matching the surface palette. Unwrap kb
+      // relative to ka so a quad straddling the seam interpolates the short way
+      // (the cyclic palette handles the out-of-[0,1] value).
+      const ua = uVert[ka];
+      let ub = uVert[kb];
+      if (ub - ua > 0.5) ub -= 1; else if (ua - ub > 0.5) ub += 1;
 
       const corners = [
         aTopX,aTopY,aTopZ, bTopX,bTopY,bTopZ, bBotX,bBotY,bBotZ,
         aTopX,aTopY,aTopZ, bBotX,bBotY,bBotZ, aBotX,aBotY,aBotZ,
       ];
-      // Per-corner face flag: top corners = 1, bottom corners = 0, so the rim
-      // gradients across the thickness from the warm face to the cool face.
-      const cornerFace = [1, 1, 0, 1, 0, 0];
+      // Per-corner loop parameter: a-corners take ua, b-corners take ub.
+      const cornerU = [ua, ub, ub, ua, ub, ua];
       for (let j = 0; j < 6; j++, o3 += 3, o2 += 3) {
         surfacePosF[o3] = corners[j*3]; surfacePosF[o3+1] = corners[j*3+1]; surfacePosF[o3+2] = corners[j*3+2];
         surfaceNrmF[o3] = rnx; surfaceNrmF[o3+1] = rny; surfaceNrmF[o3+2] = rnz;
-        surfaceAuxF[o2] = svMid; surfaceAuxF[o2+1] = 0; surfaceAuxF[o2+2] = cornerFace[j];
+        surfaceAuxF[o2] = svMid; surfaceAuxF[o2+1] = 0; surfaceAuxF[o2+2] = cornerU[j];
       }
     }
 
