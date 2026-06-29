@@ -1238,6 +1238,12 @@
         state.staticDirty = true;
         camera.triggerRepaint();
       },
+      // Double-click the legend to re-fit the scale to the current data range.
+      onReset: () => {
+        colorScale.auto = true;
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
     });
     colorLegend.element.style.right = '10px';
     colorLegend.element.style.bottom = '10px';
@@ -1582,7 +1588,8 @@
     developable surface, shown on a diverging scale about zero), and the amplitude
     of the selected flexural mode, whose dark bands are its nodal lines. The color
     legend in the lower right shows the active scale: drag it to pan, scroll to
-    zoom in on a range of values, and use the palette button to switch colormaps.
+    zoom in on a range of values, double-click to rescale to the data, and use the
+    palette button to switch colormaps.
 
     Smooth shading uses per-vertex normals built from the glued connectivity, so
     every vertex averages its full triangle ring. The surface is non-orientable,

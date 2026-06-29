@@ -60,6 +60,15 @@ const PLASMA_STOPS = [
   [0.0, 13, 8, 135], [0.25, 126, 3, 168], [0.5, 204, 71, 120], [0.75, 248, 149, 64],
   [1.0, 240, 249, 33],
 ];
+const INFERNO_STOPS = [
+  [0.0, 0, 0, 4], [0.13, 31, 12, 72], [0.25, 85, 15, 109], [0.38, 136, 34, 106],
+  [0.5, 186, 54, 85], [0.63, 227, 89, 51], [0.75, 249, 140, 10], [0.88, 249, 201, 50],
+  [1.0, 252, 255, 164],
+];
+const CIVIDIS_STOPS = [
+  [0.0, 0, 32, 77], [0.25, 60, 77, 108], [0.5, 124, 123, 120], [0.75, 188, 166, 90],
+  [1.0, 255, 233, 69],
+];
 // Cool-warm diverging (matches the diverging map used elsewhere in the repo):
 // blue → near-white at the midpoint → red.
 const COOLWARM_STOPS = [
@@ -69,7 +78,9 @@ const COOLWARM_STOPS = [
 export const COLORMAPS = [
   { name: 'turbo', label: 'Turbo', diverging: false, fn: turbo },
   { name: 'viridis', label: 'Viridis', diverging: false, fn: (t) => lerpStops(VIRIDIS_STOPS, t) },
+  { name: 'inferno', label: 'Inferno', diverging: false, fn: (t) => lerpStops(INFERNO_STOPS, t) },
   { name: 'plasma', label: 'Plasma', diverging: false, fn: (t) => lerpStops(PLASMA_STOPS, t) },
+  { name: 'cividis', label: 'Cividis', diverging: false, fn: (t) => lerpStops(CIVIDIS_STOPS, t) },
   { name: 'coolwarm', label: 'Cool–warm', diverging: true, fn: (t) => lerpStops(COOLWARM_STOPS, t) },
   { name: 'gray', label: 'Grayscale', diverging: false, fn: (t) => { const v = 30 + 205 * Math.min(Math.max(t, 0), 1); return [v, v, v]; } },
 ];
@@ -120,7 +131,7 @@ export function createColorLegend({
   colormap = 'turbo',
   colormaps = COLORMAPS,
   label = '',
-  barWidth = 13,
+  barWidth = 16,
   barHeight = 132,
   ticks = 5,
   format,
@@ -129,6 +140,7 @@ export function createColorLegend({
   showSelector = true,
   onRangeChange = () => {},
   onColormapChange = () => {},
+  onReset = () => {},
 } = {}) {
   const maps = colormaps;
   const findMap = (name) => maps.find((m) => m.name === name) || maps[0];
@@ -147,21 +159,24 @@ export function createColorLegend({
   element.style.cssText = [
     'position:absolute',
     'display:inline-flex', 'flex-direction:column', 'gap:3px',
+    // Padding both enlarges the interaction area (the bar alone is narrow) and
+    // gives the hover affordance room; box-sizing keeps the anchor offset exact.
+    'padding:5px', 'box-sizing:border-box', 'border-radius:7px',
+    'transition:background 0.12s ease-out, box-shadow 0.12s ease-out',
     `font:11px/1.25 var(--sans-serif, system-ui, sans-serif)`,
     `color:${FG}`,
     'user-select:none', '-webkit-user-select:none',
     'pointer-events:auto',
+    draggable || zoomable ? 'cursor:grab' : 'cursor:default',
   ].join(';');
 
-  // Header: title + palette button -------------------------------------------
-  const header = document.createElement('div');
-  header.style.cssText = 'display:flex;align-items:center;gap:8px;justify-content:space-between;min-width:0';
   // Halo so text stays readable over any figure background.
   const HALO = `text-shadow:0 0 3px ${BG},0 0 2px ${BG},0 0 1px ${BG}`;
-  const title = document.createElement('span');
-  title.textContent = label;
-  title.style.cssText = `font-weight:600;color:${FG};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${HALO}`;
-  header.appendChild(title);
+
+  // Header: just the palette button, right-aligned. The title is vertical (set
+  // up below) so its length never changes the widget width.
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;height:14px';
 
   let paletteBtn = null;
   if (showSelector) {
@@ -170,7 +185,7 @@ export function createColorLegend({
     paletteBtn.title = 'Choose color scale';
     paletteBtn.style.cssText = [
       'flex:0 0 auto', 'display:flex', 'align-items:center', 'justify-content:center',
-      'width:18px', 'height:16px', 'padding:0', 'cursor:pointer',
+      'width:18px', 'height:14px', 'padding:0', 'cursor:pointer',
       'border:none', 'border-radius:4px', 'background:transparent', `color:${FG}`,
       `filter:drop-shadow(0 0 1px ${BG}) drop-shadow(0 0 1px ${BG})`,
     ].join(';');
@@ -180,9 +195,24 @@ export function createColorLegend({
   }
   element.appendChild(header);
 
-  // Body: color bar (canvas) + ticks SVG -------------------------------------
+  // Body: vertical title + color bar (canvas) + ticks SVG --------------------
   const body = document.createElement('div');
   body.style.cssText = 'display:flex;align-items:stretch;gap:0';
+
+  // Vertical title to the left of the bar (ParaView style): a long label runs
+  // up the bar's height instead of widening the widget. Reads bottom-to-top.
+  const TITLE_W = 15;
+  const title = document.createElement('div');
+  title.textContent = label;
+  title.title = label;
+  title.style.cssText = [
+    `width:${TITLE_W}px`, `height:${barHeight}px`, 'flex:0 0 auto',
+    'writing-mode:vertical-rl', 'transform:rotate(180deg)',
+    'display:flex', 'align-items:center', 'justify-content:center',
+    'white-space:nowrap', 'overflow:hidden',
+    `font-weight:600`, `color:${FG}`, HALO,
+  ].join(';');
+  body.appendChild(title);
 
   // Canvas bar (not a CSS gradient): the LUT is written texel-exact so there is
   // no gradient-edge rounding (which produced a stray wrapped pixel at the end).
@@ -204,6 +234,14 @@ export function createColorLegend({
   body.appendChild(bar);
   body.appendChild(svg);
   element.appendChild(body);
+
+  // Pin the widget width to its fixed parts (vertical title + bar + labels), so
+  // a long label can never widen it and shove the right-anchored legend toward
+  // the figure center — the title just runs further up the bar instead. Wide
+  // tick labels overflow harmlessly (overflow is visible). box-sizing is
+  // border-box, so width includes the 5px padding on each side.
+  const SVG_MARGIN = 3;
+  element.style.width = `${TITLE_W + barWidth + SVG_MARGIN + SVG_W + 10}px`;
 
   // Colormap selector popup ---------------------------------------------------
   let popup = null;
@@ -227,8 +265,9 @@ export function createColorLegend({
         'background:transparent', `color:${FG}`,
         'font:11px/1.2 var(--sans-serif, system-ui, sans-serif)',
       ].join(';');
-      const sw = document.createElement('span');
-      sw.style.cssText = `width:44px;height:11px;border-radius:2px;border:1px solid rgba(127,127,127,0.35);background:${gradientCss(m.fn, 'to right')}`;
+      const sw = document.createElement('canvas');
+      sw.style.cssText = 'width:44px;height:11px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,0.25);display:block;flex:0 0 auto';
+      paintColormap(sw.getContext('2d'), sw, m.fn, 44, 11, false);
       const nm = document.createElement('span');
       nm.textContent = m.label;
       row.appendChild(sw); row.appendChild(nm);
@@ -266,32 +305,34 @@ export function createColorLegend({
   }
 
   // Rendering -----------------------------------------------------------------
-  function gradientCss(fn, dir) {
-    const n = 16;
-    const stops = [];
-    for (let i = 0; i <= n; i++) {
-      const [r, g, b] = fn(i / n);
-      stops.push(`rgb(${r | 0},${g | 0},${b | 0}) ${(i / n * 100).toFixed(1)}%`);
+  // Fill a canvas from the colormap, one device-pixel line per sample, so colors
+  // are texel-exact (a CSS gradient rounds its end stops, leaving a stray wrapped
+  // pixel). `vertical` runs max→min top→bottom (ParaView convention); otherwise
+  // min→max left→right.
+  function paintColormap(ctx, canvas, fn, cssW, cssH, vertical) {
+    const dpr = (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
+    const w = Math.max(1, Math.round(cssW * dpr));
+    const h = Math.max(1, Math.round(cssH * dpr));
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    if (vertical) {
+      for (let py = 0; py < h; py++) {
+        const t = 1 - py / (h - 1 || 1);
+        const [r, g, b] = fn(t);
+        ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
+        ctx.fillRect(0, py, w, 1);
+      }
+    } else {
+      for (let px = 0; px < w; px++) {
+        const t = px / (w - 1 || 1);
+        const [r, g, b] = fn(t);
+        ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
+        ctx.fillRect(px, 0, 1, h);
+      }
     }
-    return `linear-gradient(${dir}, ${stops.join(',')})`;
   }
 
-  // Draw the bar from the colormap, one device-pixel row per sample so the
-  // colors are texel-exact. Top of the bar is the maximum (ParaView convention).
-  function drawBar() {
-    const dpr = (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
-    const w = Math.max(1, Math.round(barWidth * dpr));
-    const h = Math.max(1, Math.round(barHeight * dpr));
-    if (bar.width !== w) bar.width = w;
-    if (bar.height !== h) bar.height = h;
-    for (let py = 0; py < h; py++) {
-      // py = 0 is the top → maximum value → t = 1.
-      const t = 1 - py / (h - 1 || 1);
-      const [r, g, b] = current.fn(t);
-      barCtx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
-      barCtx.fillRect(0, py, w, 1);
-    }
-  }
+  function drawBar() { paintColormap(barCtx, bar, current.fn, barWidth, barHeight, true); }
 
   function applyColormap(name) {
     const m = findMap(name);
@@ -335,11 +376,36 @@ export function createColorLegend({
   function render() { drawBar(); drawTicks(); }
 
   // Interaction ---------------------------------------------------------------
-  // Map a pixel y within the bar to a data value (top = hi, bottom = lo).
-  function valueAt(yPx) { return hi - (yPx / barHeight) * (hi - lo); }
+  // The whole widget (bar, ticks, labels) is the hit area — the bar alone is too
+  // narrow. Pixel positions map through the bar's vertical extent regardless of
+  // where in the widget the cursor is.
+  const overControls = (e) =>
+    (paletteBtn && paletteBtn.contains(e.target)) || (popup && popup.contains(e.target));
+  function barY(clientY) {
+    const rect = bar.getBoundingClientRect();
+    return Math.max(0, Math.min(barHeight, clientY - rect.top));
+  }
+
+  // Hover affordance: a faint background appears when the widget is interactive
+  // and the pointer is over it (or a drag is in progress), making the (otherwise
+  // chromeless) hit area discoverable.
+  let dragging = false;
+  const setHover = (on) => {
+    if (on) {
+      element.style.background = `color-mix(in srgb, ${BG} 60%, transparent)`;
+      element.style.boxShadow = '0 1px 8px rgba(0,0,0,0.12)';
+    } else if (!dragging) {
+      element.style.background = '';
+      element.style.boxShadow = '';
+    }
+  };
+  if (draggable || zoomable) {
+    element.addEventListener('mouseenter', () => setHover(true));
+    element.addEventListener('mouseleave', () => setHover(false));
+  }
 
   if (draggable) {
-    let startY = 0, startLo = 0, startHi = 0, dragging = false;
+    let startY = 0, startLo = 0, startHi = 0;
     const onMove = (e) => {
       if (!dragging) return;
       const span = startHi - startLo;
@@ -352,14 +418,15 @@ export function createColorLegend({
     };
     const onUp = () => {
       dragging = false;
-      bar.style.cursor = 'grab';
+      element.style.cursor = 'grab';
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      setHover(false);
     };
-    bar.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
+    element.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || overControls(e)) return;
       dragging = true; startY = e.clientY; startLo = lo; startHi = hi;
-      bar.style.cursor = 'grabbing';
+      element.style.cursor = 'grabbing';
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
       e.preventDefault(); e.stopPropagation();
@@ -367,9 +434,9 @@ export function createColorLegend({
   }
 
   if (zoomable) {
-    bar.addEventListener('wheel', (e) => {
-      const rect = bar.getBoundingClientRect();
-      const yPx = Math.max(0, Math.min(barHeight, e.clientY - rect.top));
+    element.addEventListener('wheel', (e) => {
+      if (overControls(e)) return;
+      const yPx = barY(e.clientY);
       const pivot = valueAt(yPx);
       const fracTop = yPx / barHeight;           // 0 at top (hi), 1 at bottom (lo)
       const factor = Math.exp(e.deltaY * 0.0015); // wheel down (deltaY>0) → zoom out
@@ -384,6 +451,16 @@ export function createColorLegend({
       e.preventDefault(); e.stopPropagation();
     }, { passive: false });
   }
+
+  // Double-click rescales to the data range (the consumer re-fits via onReset).
+  element.addEventListener('dblclick', (e) => {
+    if (overControls(e)) return;
+    e.preventDefault();
+    onReset();
+  });
+
+  // Map a pixel y within the bar to a data value (top = hi, bottom = lo).
+  function valueAt(yPx) { return hi - (yPx / barHeight) * (hi - lo); }
 
   render();
 
@@ -404,7 +481,7 @@ export function createColorLegend({
     getColormap() { return current.name; },
     isDiverging() { return !!current.diverging; },
     getColormapFn() { return current.fn; },
-    setLabel(text) { title.textContent = text; },
+    setLabel(text) { title.textContent = text; title.title = text; },
     // RGBA Uint8 LUT (length n*4) for GPU upload. Alpha is fully opaque.
     getLUT(n = 256) {
       const out = new Uint8Array(n * 4);
