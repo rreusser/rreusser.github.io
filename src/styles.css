@@ -150,6 +150,32 @@ hr {
   margin: 3em 0;
 }
 
+/* Pull-quote blockquote. Plain <blockquote> is left unstyled so that
+   code-generated or Markdown-default blockquotes are not affected. */
+blockquote.quote {
+  border-left: 3px solid var(--rrtheme-color);
+  margin: 1.5em 0;
+  padding: 0.4em 0 0.4em 1.25em;
+  font-style: italic;
+  color: var(--theme-foreground-alt);
+}
+
+blockquote.quote p {
+  margin: 0;
+}
+
+blockquote.quote .quote__attribution {
+  margin-top: 0.6em;
+  margin-bottom: 0;
+  font-style: normal;
+  font-size: 0.875em;
+  color: var(--theme-foreground-muted);
+}
+
+blockquote.quote .quote__attribution::before {
+  content: '\2014\a0';
+}
+
 /* Landing page section links (root index only, scoped via header.has-image) */
 body:has(header.has-image) main .observablehq--cell:first-child ul {
   list-style: none;

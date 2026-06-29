@@ -53,7 +53,7 @@ export function createUnifiedCamera(element, opts = {}) {
     theta: opts.theta !== undefined ? opts.theta : 0.3,
     
     // Arcball mode state
-    orientation: opts.orientation ? [...opts.orientation] : [0, 0, 0, 1],
+    orientation: opts.orientation ? quat.normalize(opts.orientation) : [0, 0, 0, 1],
   };
 
   const speeds = {
@@ -630,6 +630,9 @@ export function createUnifiedCamera(element, opts = {}) {
    */
   function setState(newState) {
     Object.assign(state, newState);
+    // Keep the arcball quaternion unit-length; an un-normalized incoming
+    // orientation would skew the camera basis vectors.
+    if (newState.orientation) state.orientation = quat.normalize(state.orientation);
     markDirty();
   }
 

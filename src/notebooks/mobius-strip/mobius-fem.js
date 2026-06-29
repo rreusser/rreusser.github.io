@@ -82,12 +82,23 @@ function packHinges(edgeMap, tris, triRestUV, triRestArea) {
 //
 // Returns a model object consumed by the energy/gradient routines below.
 export function createMobiusMesh({ length = 6, width = 1, nu = 60, nv = 8 } = {}) {
+  nv = nv - (nv % 2);          // even nv: keeps the brick offset symmetric across the seam
+  if (nv < 2) nv = 2;
   const du = length / nu;
   const dv = width / nv;
+  // Brick (staggered) triangular lattice instead of square-cells-split-by-a-
+  // diagonal. Odd across-rows are shifted half a cell along the length and the
+  // cell diagonal alternates direction by row parity, so every triangle is
+  // isosceles (base du, equal sides sqrt(du^2/4 + dv^2)) -- exactly equilateral
+  // when dv = du*sqrt(3)/2 -- far less anisotropic than the old right triangles.
+  // The offset is BOUNDED and symmetric under j -> nv-j (for nv even), so unlike
+  // a cumulative shear it lines up across the Mobius flip and wraps with no seam
+  // kink. The seam gluing itself is unchanged (column nu -> column 0, flipped).
+  const rowShift = (j) => (j & 1) * 0.5 * du; // 0 on even rows, du/2 on odd rows
   const Nv = nu * (nv + 1); // unique vertices (column nu is identified with 0)
 
-  // Unique vertex id for grid coordinate (i, j). Column nu maps back to column
-  // 0 with a row flip j -> nv - j (the single half-twist).
+  // Unique vertex id for grid coordinate (i, j). Column nu maps back to column 0
+  // with the half-twist flip j -> nv - j.
   function vid(i, j) {
     if (i === nu) {
       i = 0;
@@ -106,34 +117,35 @@ export function createMobiusMesh({ length = 6, width = 1, nu = 60, nv = 8 } = {}
   let t = 0;
 
   function corner(i, j) {
-    // Unwrapped rest coordinate (flat ribbon continues past the seam).
-    return [i * du, -0.5 * width + j * dv];
+    // Unwrapped rest coordinate (flat ribbon continues past the seam), with the
+    // brick row stagger.
+    return [i * du + rowShift(j), -0.5 * width + j * dv];
+  }
+
+  // Emit one triangle (3 vertex ids + its 3 rest-uv corners).
+  function emit(v0, v1, v2, uv0, uv1, uv2) {
+    tris[t * 3] = v0; tris[t * 3 + 1] = v1; tris[t * 3 + 2] = v2;
+    triRestUV[t * 6] = uv0[0]; triRestUV[t * 6 + 1] = uv0[1];
+    triRestUV[t * 6 + 2] = uv1[0]; triRestUV[t * 6 + 3] = uv1[1];
+    triRestUV[t * 6 + 4] = uv2[0]; triRestUV[t * 6 + 5] = uv2[1];
+    t++;
   }
 
   for (let i = 0; i < nu; i++) {
     for (let j = 0; j < nv; j++) {
-      const a = vid(i, j);
-      const b = vid(i + 1, j);
-      const c = vid(i + 1, j + 1);
-      const d = vid(i, j + 1);
-      const uvA = corner(i, j);
-      const uvB = corner(i + 1, j);
-      const uvC = corner(i + 1, j + 1);
-      const uvD = corner(i, j + 1);
-
-      // Triangle (a, b, c)
-      tris[t * 3] = a; tris[t * 3 + 1] = b; tris[t * 3 + 2] = c;
-      triRestUV[t * 6] = uvA[0]; triRestUV[t * 6 + 1] = uvA[1];
-      triRestUV[t * 6 + 2] = uvB[0]; triRestUV[t * 6 + 3] = uvB[1];
-      triRestUV[t * 6 + 4] = uvC[0]; triRestUV[t * 6 + 5] = uvC[1];
-      t++;
-
-      // Triangle (a, c, d)
-      tris[t * 3] = a; tris[t * 3 + 1] = c; tris[t * 3 + 2] = d;
-      triRestUV[t * 6] = uvA[0]; triRestUV[t * 6 + 1] = uvA[1];
-      triRestUV[t * 6 + 2] = uvC[0]; triRestUV[t * 6 + 3] = uvC[1];
-      triRestUV[t * 6 + 4] = uvD[0]; triRestUV[t * 6 + 5] = uvD[1];
-      t++;
+      const a = vid(i, j), b = vid(i + 1, j), c = vid(i + 1, j + 1), d = vid(i, j + 1);
+      const uvA = corner(i, j), uvB = corner(i + 1, j);
+      const uvC = corner(i + 1, j + 1), uvD = corner(i, j + 1);
+      // The diagonal alternates with row parity so the staggered cell splits into
+      // two isosceles triangles either way: odd rows lean one way (main diagonal
+      // a-c), even rows the other (anti-diagonal b-d).
+      if (j & 1) {
+        emit(a, b, c, uvA, uvB, uvC);
+        emit(a, c, d, uvA, uvC, uvD);
+      } else {
+        emit(a, b, d, uvA, uvB, uvD);
+        emit(b, c, d, uvB, uvC, uvD);
+      }
     }
   }
 
@@ -221,14 +233,16 @@ export function createMobiusMesh({ length = 6, width = 1, nu = 60, nv = 8 } = {}
 
 // Smooth analytic Mobius immersion, used only as the optimizer's initial
 // guess. Scaled so the centreline length is approximately the rest length L,
-// keeping the initial membrane strain small.
+// keeping the initial membrane strain small. The around-loop coordinate carries
+// the same brick row stagger as the rest grid (u = i*du + (j&1)*du/2), so the
+// initial triangles match their staggered rest shape and start ~strain-free.
 export function initialEmbedding(model) {
-  const { nu, nv, length, width, vid } = model;
+  const { nu, nv, length, width, du, vid } = model;
   const X = new Float64Array(model.Nv * 3);
   const R = length / (2 * Math.PI); // centreline radius so 2*pi*R = L
   for (let i = 0; i < nu; i++) {
-    const s = (i / nu) * 2 * Math.PI; // angle around the loop
     for (let j = 0; j <= nv; j++) {
+      const s = ((i * du + (j & 1) * 0.5 * du) / length) * 2 * Math.PI; // brick loop angle
       const vrel = (j / nv - 0.5) * width; // [-w/2, w/2]
       const half = 0.5 * s; // half-twist over one loop
       const r = R + vrel * Math.cos(half);
@@ -608,12 +622,94 @@ export function bendingStress(model, X, params) {
   return out;
 }
 
+// Discrete Gaussian curvature per vertex via the angle-deficit (Gauss-Bonnet)
+// estimator: K_v = (full - sum of incident triangle corner angles) / A_v, with
+// full = 2*pi for interior vertices and pi for the free long-boundary vertices,
+// and A_v the barycentric area (1/3 of incident deformed triangle areas).
+//
+// This is intrinsic, so the non-orientable gluing is irrelevant (angles are
+// orientation-free) and the seam vertices get a complete angle fan through the
+// glued connectivity. For a developable/ruled surface the strip is isometric to
+// the flat rectangle, so every angle sum matches its flat value and K -> 0; any
+// nonzero K is the discrete signature of stretching (membrane strain) or genuine
+// double curvature.
+//
+// Boundary handling: u is periodic (column nu glued to 0), so the ONLY boundary
+// vertices are the two long free edges at sv = 0 and sv = 1 (the across-width
+// parameter). The angle-deficit estimator is a faithful Gaussian-curvature
+// estimator only at INTERIOR vertices; at a free boundary the local Gauss-Bonnet
+// deficit is dominated by the boundary's geodesic curvature (how the edge turns
+// within the surface), not by Gaussian curvature, and the smaller one-sided
+// vertex area inflates it further. On a near-developable strip that paints a
+// bright, spurious rim. Since Gaussian curvature is continuous up to the
+// boundary, its true edge value is the interior limit, so we compute the deficit
+// on the interior and copy each boundary vertex from its inward neighbour (one
+// row in). This removes the rim while leaving the interior field untouched.
+// (Valid for createMobiusMesh, which has no short ends or corners.)
+export function gaussianCurvature(model, X) {
+  const { tris, nT, Nv, vertexUV, nu, nv, vid } = model;
+  const angleSum = new Float64Array(Nv);
+  const area = new Float64Array(Nv);
+
+  for (let k = 0; k < nT; k++) {
+    const a = tris[k * 3], b = tris[k * 3 + 1], c = tris[k * 3 + 2];
+    const ax = X[a*3], ay = X[a*3+1], az = X[a*3+2];
+    const bx = X[b*3], by = X[b*3+1], bz = X[b*3+2];
+    const cx = X[c*3], cy = X[c*3+1], cz = X[c*3+2];
+
+    // Edge vectors from each corner.
+    const abx = bx-ax, aby = by-ay, abz = bz-az;
+    const acx = cx-ax, acy = cy-ay, acz = cz-az;
+    const bcx = cx-bx, bcy = cy-by, bcz = cz-bz;
+
+    // Corner angles from normalized dot products (clamped for acos safety).
+    const angA = corner(abx, aby, abz, acx, acy, acz);
+    const angB = corner(-abx, -aby, -abz, bcx, bcy, bcz);
+    const angC = corner(-acx, -acy, -acz, -bcx, -bcy, -bcz);
+    angleSum[a] += angA; angleSum[b] += angB; angleSum[c] += angC;
+
+    // Barycentric area share: |ab x ac| / 2 is the triangle area; each corner
+    // gets a third.
+    const nx = aby*acz - abz*acy, ny = abz*acx - abx*acz, nz = abx*acy - aby*acx;
+    const third = Math.hypot(nx, ny, nz) / 6; // (area)/3 = (|cross|/2)/3
+    area[a] += third; area[b] += third; area[c] += third;
+  }
+
+  const out = new Float64Array(Nv);
+  const twoPi = 2 * Math.PI;
+  for (let v = 0; v < Nv; v++) {
+    const sv = vertexUV[v * 2 + 1];
+    const onBoundary = sv <= 1e-9 || sv >= 1 - 1e-9;
+    // Boundary deficits are unreliable (geodesic curvature, inflated area), so
+    // skip them; they are overwritten from the interior below.
+    out[v] = onBoundary || area[v] <= 0 ? 0 : (twoPi - angleSum[v]) / area[v];
+  }
+  // Copy each long-edge boundary vertex's value from its inward neighbour. nv >= 2
+  // always (the across-width segment count), so row 1 and row nv-1 are interior.
+  for (let i = 0; i < nu; i++) {
+    out[vid(i, 0)] = out[vid(i, 1)];
+    out[vid(i, nv)] = out[vid(i, nv - 1)];
+  }
+  return out;
+}
+
+// Interior angle at the corner whose two incident edge vectors are u and v.
+function corner(ux, uy, uz, vx, vy, vz) {
+  const lu = Math.sqrt(ux*ux + uy*uy + uz*uz);
+  const lv = Math.sqrt(vx*vx + vy*vy + vz*vz);
+  if (lu < 1e-300 || lv < 1e-300) return 0;
+  const c = (ux*vx + uy*vy + uz*vz) / (lu * lv);
+  return Math.acos(Math.min(1, Math.max(-1, c)));
+}
+
 // Build a regular (non-Mobius) flat strip mesh sharing the same code paths.
 // Used by the correctness tests (flat un-glued rectangle must have zero
 // energy and zero gradient).
 export function createFlatStrip({ length = 6, width = 1, nu = 60, nv = 8 } = {}) {
+  nv = nv - (nv % 2); if (nv < 2) nv = 2; // even nv, same brick lattice as createMobiusMesh
   const du = length / nu;
   const dv = width / nv;
+  const rowShift = (j) => (j & 1) * 0.5 * du;
   const Nv = (nu + 1) * (nv + 1);
   function vid(i, j) { return i * (nv + 1) + j; }
 
@@ -621,16 +717,18 @@ export function createFlatStrip({ length = 6, width = 1, nu = 60, nv = 8 } = {})
   const tris = new Int32Array(nT * 3);
   const triRestUV = new Float64Array(nT * 6);
   let t = 0;
-  const corner = (i, j) => [i * du, -0.5 * width + j * dv];
+  const corner = (i, j) => [i * du + rowShift(j), -0.5 * width + j * dv];
+  const emit = (v0, v1, v2, uv0, uv1, uv2) => {
+    tris[t * 3] = v0; tris[t * 3 + 1] = v1; tris[t * 3 + 2] = v2;
+    triRestUV.set([...uv0, ...uv1, ...uv2], t * 6); t++;
+  };
   for (let i = 0; i < nu; i++) {
     for (let j = 0; j < nv; j++) {
       const a = vid(i, j), b = vid(i + 1, j), c = vid(i + 1, j + 1), d = vid(i, j + 1);
       const uvA = corner(i, j), uvB = corner(i + 1, j),
             uvC = corner(i + 1, j + 1), uvD = corner(i, j + 1);
-      tris[t * 3] = a; tris[t * 3 + 1] = b; tris[t * 3 + 2] = c;
-      triRestUV.set([...uvA, ...uvB, ...uvC], t * 6); t++;
-      tris[t * 3] = a; tris[t * 3 + 1] = c; tris[t * 3 + 2] = d;
-      triRestUV.set([...uvA, ...uvC, ...uvD], t * 6); t++;
+      if (j & 1) { emit(a, b, c, uvA, uvB, uvC); emit(a, c, d, uvA, uvC, uvD); }
+      else { emit(a, b, d, uvA, uvB, uvD); emit(b, c, d, uvB, uvC, uvD); }
     }
   }
   const triDmInv = new Float64Array(nT * 4);
@@ -670,7 +768,7 @@ export function createFlatStrip({ length = 6, width = 1, nu = 60, nv = 8 } = {})
     for (let i = 0; i <= nu; i++)
       for (let j = 0; j <= nv; j++) {
         const id = vid(i, j) * 3;
-        X[id] = i * du; X[id + 1] = -0.5 * width + j * dv; X[id + 2] = 0;
+        X[id] = i * du + rowShift(j); X[id + 1] = -0.5 * width + j * dv; X[id + 2] = 0;
       }
     return X;
   }

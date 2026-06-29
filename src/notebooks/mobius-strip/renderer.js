@@ -73,8 +73,9 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
   let svVert = null;          // Float32Array(Nv): across-width parameter
   let vNrm = null;            // Float64Array(Nv*3): smooth per-vertex normal
   let faceN = null;           // Float64Array(nT*3): per-triangle face normal
+  let nuMesh = 0, nvMesh = 0, boundaryLoop = null;
 
-  // Non-indexed surface corner buffers (3 corners per triangle).
+  // Non-indexed surface corner buffers (top + bottom + rim).
   let cornerCount = 0;
   let posF = null, nrmF = null, auxF = null;
   let posBuffer = null, nrmBuffer = null, auxBuffer = null;
@@ -90,6 +91,8 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     Nv = model.Nv;
     nT = model.nT;
     tris = model.tris;
+    nuMesh = model.nu;
+    nvMesh = model.nv;
 
     // CSR adjacency: vertex -> incident triangle indices.
     const count = new Int32Array(Nv);
@@ -110,7 +113,14 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     vNrm = new Float64Array(Nv * 3);
     faceN = new Float64Array(nT * 3);
 
-    cornerCount = nT * 3;
+    // Single Möbius boundary loop: j=0 vertices, then j=nv vertices.
+    // Seam connects vid(nu-1,0)→vid(0,nv) and vid(nu-1,nv)→vid(0,0).
+    boundaryLoop = new Int32Array(2 * nuMesh);
+    for (let i = 0; i < nuMesh; i++) boundaryLoop[i] = i * (nvMesh + 1);
+    for (let i = 0; i < nuMesh; i++) boundaryLoop[nuMesh + i] = i * (nvMesh + 1) + nvMesh;
+
+    // top (nT*3) + bottom (nT*3) + rim (12*nu) corners
+    cornerCount = 2 * nT * 3 + 12 * nuMesh;
     posF = new Float32Array(cornerCount * 3);
     nrmF = new Float32Array(cornerCount * 3);
     auxF = new Float32Array(cornerCount * 2);
@@ -138,8 +148,10 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
   }
 
   // femPos: Float64|Float32 length 3*Nv. femScalar: length Nv or null.
-  function update(femPos, femScalar, colorMode) {
+  // thickness: physical half-thickness for extrusion (default 0.03).
+  function update(femPos, femScalar, colorMode, thickness = 0.03) {
     if (!tris) return;
+    const hh = thickness / 2;
 
     // Per-triangle face normals (unnormalized, area-weighted).
     for (let t = 0; t < nT; t++) {
@@ -181,20 +193,66 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       scalarMin = lo; scalarMax = hi;
     }
 
-    // Non-indexed corners; per-corner normal aligned to this triangle's face.
+    // Top surface: mid-surface + hh * face-aligned normal.
     let o3 = 0, o2 = 0;
     for (let t = 0; t < nT; t++) {
       const fx = faceN[t * 3], fy = faceN[t * 3 + 1], fz = faceN[t * 3 + 2];
       for (let c = 0; c < 3; c++) {
-        const v = tris[t * 3 + c];
-        const p = v * 3;
-        posF[o3] = femPos[p]; posF[o3 + 1] = femPos[p + 1]; posF[o3 + 2] = femPos[p + 2];
+        const v = tris[t * 3 + c], p = v * 3;
         let vnx = vNrm[p], vny = vNrm[p + 1], vnz = vNrm[p + 2];
         if (vnx * fx + vny * fy + vnz * fz < 0) { vnx = -vnx; vny = -vny; vnz = -vnz; }
+        posF[o3] = femPos[p] + hh * vnx; posF[o3 + 1] = femPos[p + 1] + hh * vny; posF[o3 + 2] = femPos[p + 2] + hh * vnz;
         nrmF[o3] = vnx; nrmF[o3 + 1] = vny; nrmF[o3 + 2] = vnz;
-        auxF[o2] = svVert[v];
-        auxF[o2 + 1] = activeColorMode === 1 ? femScalar[v] : 0;
+        auxF[o2] = svVert[v]; auxF[o2 + 1] = activeColorMode === 1 ? femScalar[v] : 0;
         o3 += 3; o2 += 2;
+      }
+    }
+
+    // Bottom surface: mid-surface - hh * face-aligned normal, normals negated.
+    for (let t = 0; t < nT; t++) {
+      const fx = faceN[t * 3], fy = faceN[t * 3 + 1], fz = faceN[t * 3 + 2];
+      for (let c = 0; c < 3; c++) {
+        const v = tris[t * 3 + c], p = v * 3;
+        let vnx = vNrm[p], vny = vNrm[p + 1], vnz = vNrm[p + 2];
+        if (vnx * fx + vny * fy + vnz * fz < 0) { vnx = -vnx; vny = -vny; vnz = -vnz; }
+        posF[o3] = femPos[p] - hh * vnx; posF[o3 + 1] = femPos[p + 1] - hh * vny; posF[o3 + 2] = femPos[p + 2] - hh * vnz;
+        nrmF[o3] = -vnx; nrmF[o3 + 1] = -vny; nrmF[o3 + 2] = -vnz;
+        auxF[o2] = svVert[v]; auxF[o2 + 1] = activeColorMode === 1 ? femScalar[v] : 0;
+        o3 += 3; o2 += 2;
+      }
+    }
+
+    // Rim: quads along the single Möbius boundary loop
+    const nBound = 2 * nuMesh;
+    for (let k = 0; k < nBound; k++) {
+      const ka = boundaryLoop[k], kb = boundaryLoop[(k + 1) % nBound];
+      const pa = ka * 3, pb = kb * 3;
+      const nax = vNrm[pa], nay = vNrm[pa + 1], naz = vNrm[pa + 2];
+      let nbx = vNrm[pb], nby = vNrm[pb + 1], nbz = vNrm[pb + 2];
+      // At the Möbius seam junction, na and nb are anti-aligned. Flip nb to
+      // match na so the rim quad has consistent top/bottom (not twisted).
+      if (nbx * nax + nby * nay + nbz * naz < 0) { nbx = -nbx; nby = -nby; nbz = -nbz; }
+      // Rim outward normal: edge_tangent × avg_surface_normal
+      const ex = femPos[pb]-femPos[pa], ey = femPos[pb+1]-femPos[pa+1], ez = femPos[pb+2]-femPos[pa+2];
+      const el = Math.hypot(ex, ey, ez) || 1;
+      const etx=ex/el, ety=ey/el, etz=ez/el;
+      const avx=nax+nbx, avy=nay+nby, avz=naz+nbz;
+      let rnx=ety*avz-etz*avy, rny=etz*avx-etx*avz, rnz=etx*avy-ety*avx;
+      const rl = Math.hypot(rnx, rny, rnz) || 1;
+      rnx/=rl; rny/=rl; rnz/=rl;
+      const aTopX=femPos[pa]+hh*nax, aTopY=femPos[pa+1]+hh*nay, aTopZ=femPos[pa+2]+hh*naz;
+      const bTopX=femPos[pb]+hh*nbx, bTopY=femPos[pb+1]+hh*nby, bTopZ=femPos[pb+2]+hh*nbz;
+      const bBotX=femPos[pb]-hh*nbx, bBotY=femPos[pb+1]-hh*nby, bBotZ=femPos[pb+2]-hh*nbz;
+      const aBotX=femPos[pa]-hh*nax, aBotY=femPos[pa+1]-hh*nay, aBotZ=femPos[pa+2]-hh*naz;
+      const corners = [
+        aTopX,aTopY,aTopZ, bTopX,bTopY,bTopZ, bBotX,bBotY,bBotZ,
+        aTopX,aTopY,aTopZ, bBotX,bBotY,bBotZ, aBotX,aBotY,aBotZ,
+      ];
+      const svMid = (svVert[ka] + svVert[kb]) / 2;
+      for (let j = 0; j < 6; j++, o3 += 3, o2 += 2) {
+        posF[o3] = corners[j*3]; posF[o3+1] = corners[j*3+1]; posF[o3+2] = corners[j*3+2];
+        nrmF[o3] = rnx; nrmF[o3+1] = rny; nrmF[o3+2] = rnz;
+        auxF[o2] = svMid; auxF[o2+1] = 0;
       }
     }
 
@@ -249,7 +307,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       colorAttachments: [{
         view: colorTex.createView(),
         resolveTarget: swapTex.createView(),
-        clearValue: params.background || { r: 0.07, g: 0.07, b: 0.09, a: 1 },
+        clearValue: params.background ?? { r: 0, g: 0, b: 0, a: 0 },
         loadOp: 'clear',
         storeOp: 'store',
       }],

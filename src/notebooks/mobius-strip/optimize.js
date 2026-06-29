@@ -25,6 +25,9 @@ export async function lbfgs(fun, x0, opts = {}) {
     maxIterations = 2000,
     m = 10,                 // history length
     gradTol = 1e-7,         // stop when ||g||_inf < gradTol
+    minIterations = 0,      // never report "converged" before this many steps
+    ftol = 0,              // relative energy improvement over ftolWindow (0 = off)
+    ftolWindow = 1,        // iterations over which that improvement is measured
     maxStep = Infinity,     // cap on step length (||alpha*dir|| <= maxStep)
     c1 = 1e-4,              // Armijo sufficient-decrease constant
     c2 = 0.9,               // strong-Wolfe curvature constant
@@ -135,7 +138,23 @@ export async function lbfgs(fun, x0, opts = {}) {
     if (onProgress && iter % yieldEvery === 0) {
       await onProgress({ iter, f, gInf, maxIterations, x });
     }
-    if (gInf < gradTol) { converged = true; break; }
+    // Convergence is only tested after minIterations, so a relax always makes
+    // real progress (e.g. switching solvers and re-relaxing actually iterates,
+    // rather than reporting "0 iterations, already converged"). On the thin-shell
+    // energy ||g||_inf can dip into the tolerance while the shape is still
+    // visibly settling along the soft bending valley, and the energy descends in
+    // flat-then-drop stretches, so the primary stop is a WINDOWED energy plateau:
+    // the relative energy improvement over the last ftolWindow iterations must
+    // fall below ftol. gradTol remains as a clean-gradient fast path.
+    if (iter >= minIterations) {
+      if (gInf < gradTol) { converged = true; break; }
+      if (ftol > 0 && energyHistory.length > ftolWindow) {
+        const L = energyHistory.length;
+        const fNow = energyHistory[L - 1];
+        const win = (energyHistory[L - 1 - ftolWindow] - fNow) / Math.max(1, Math.abs(fNow));
+        if (win < ftol) { converged = true; break; }
+      }
+    }
 
     // Two-loop recursion for the search direction r = -H g.
     vcopy(g, q);
@@ -216,6 +235,7 @@ export async function newtonCG(fun, x0, opts = {}) {
   const {
     maxIterations = 200,    // outer Newton iterations
     gradTol = 1e-7,
+    minIterations = 0,      // always take at least this many outer steps
     maxStep = Infinity,
     c1 = 1e-4,
     backtrack = 0.5,
@@ -283,7 +303,7 @@ export async function newtonCG(fun, x0, opts = {}) {
     if (onProgress && iter % yieldEvery === 0) {
       await onProgress({ iter, f, gInf, maxIterations, x });
     }
-    if (gInf < gradTol) { converged = true; break; }
+    if (iter >= minIterations && gInf < gradTol) { converged = true; break; }
 
     // Inexact-Newton CG solve of H d = -g. Forcing: ||r|| <= eta ||g||,
     // eta = min(0.5, sqrt(||g||)) for near-superlinear convergence.
@@ -338,4 +358,131 @@ export async function newtonCG(fun, x0, opts = {}) {
   }
 
   return { x, f, g, iterations: iter, converged, energyHistory };
+}
+
+// Banded modified-Newton with a direct sparse linear solve.
+// Each outer step assembles the stiffness K = Hessian(f) as a banded matrix
+// (via the injected coloring builder) and solves (K + mu I) d = -g with a
+// banded SPD Cholesky (injected dpbsv). mu is a Levenberg shift, raised until
+// the shifted matrix is positive definite (Cholesky succeeds) and lowered when
+// full steps are accepted.
+//
+// The thin-shell energy is non-convex away from equilibrium (the membrane term
+// produces negative-curvature directions under compression), so K alone is
+// usually indefinite and mu stays large; this makes the method robust but, in
+// practice, slower than L-BFGS here. It is offered mainly to exercise the
+// banded direct solver and contrast it with the matrix-free methods above.
+//
+// Banded capability is injected through opts.banded so this module stays free
+// of mesh/permutation knowledge:
+//   banded = { bw, dofPerm, invDofPerm, fdHessianBanded, dpbsv }
+// where dofPerm[oldDof] = newDof minimizes the half-bandwidth bw, and
+// fdHessianBanded(n, xPerm, gradFnPerm, bw, h, onProgress) returns the lower
+// band storage (strideAB1 = 1, strideAB2 = bw + 1) consumed directly by dpbsv.
+//
+// fun(x, g) is evaluated in original (unpermuted) DOF order, matching the other
+// solvers; this routine permutes internally so the assembled matrix is banded.
+export async function bandedNewton(fun, x0, opts = {}) {
+  const {
+    maxIterations = 100,
+    gradTol = 1e-6,
+    minIterations = 0,
+    fdStep = 1e-5,
+    c1 = 1e-4,
+    backtrack = 0.5,
+    maxLineSearch = 30,
+    muInit = 1e-3,
+    onIterate = null,
+    onProgress = null,
+    yieldEvery = 1,
+    banded = null,
+  } = opts;
+
+  if (!banded) throw new Error('bandedNewton requires opts.banded');
+  const { bw, dofPerm, invDofPerm, fdHessianBanded, dpbsv } = banded;
+
+  const n = x0.length;
+  const vdot = (a, b) => { let s = 0; for (let i = 0; i < n; i++) s += a[i] * b[i]; return s; };
+  const infNorm = (a) => { let m = 0; for (let i = 0; i < n; i++) m = Math.max(m, Math.abs(a[i])); return m; };
+
+  // Gradient in permuted DOF space: unpack to original, evaluate, repack.
+  const xOrig = new Float64Array(n);
+  const gOrig = new Float64Array(n);
+  function gradFnPerm(xp, gp) {
+    for (let i = 0; i < n; i++) xOrig[invDofPerm[i]] = xp[i];
+    fun(xOrig, gOrig);
+    for (let i = 0; i < n; i++) gp[dofPerm[i]] = gOrig[i];
+  }
+  // Energy at a permuted point (gradient ignored).
+  const gScratch = new Float64Array(n);
+  function funPerm(xp) {
+    for (let i = 0; i < n; i++) xOrig[invDofPerm[i]] = xp[i];
+    return fun(xOrig, gScratch);
+  }
+
+  // Equilibrium iterate lives in permuted space.
+  const xPerm = new Float64Array(n);
+  for (let i = 0; i < n; i++) xPerm[i] = x0[invDofPerm[i]];
+
+  const g = new Float64Array(n);
+  const step = new Float64Array(n);
+  const AB = new Float64Array((bw + 1) * n);
+  const xTrial = new Float64Array(n);
+
+  gradFnPerm(xPerm, g);
+  let f = funPerm(xPerm);
+  const energyHistory = [f];
+  let mu = muInit;
+  let iter = 0;
+  let converged = false;
+
+  for (iter = 0; iter < maxIterations; iter++) {
+    const gInf = infNorm(g);
+    if (onIterate) onIterate(iter, f, gInf);
+    if (onProgress && iter % yieldEvery === 0) {
+      await onProgress({ iter, f, gInf, maxIterations, x: xPerm, perm: true });
+    }
+    if (iter >= minIterations && gInf < gradTol) { converged = true; break; }
+
+    // Assemble banded stiffness K (lower band storage) once per outer step.
+    const K = await fdHessianBanded(n, xPerm, gradFnPerm, bw, fdStep);
+
+    // Solve (K + mu I) step = -g, raising mu until SPD (Cholesky succeeds).
+    let solved = false;
+    for (let tries = 0; tries < 30 && !solved; tries++) {
+      AB.set(K);
+      for (let j = 0; j < n; j++) AB[j * (bw + 1)] += mu; // shift diagonal
+      for (let i = 0; i < n; i++) step[i] = -g[i];        // RHS, overwritten with solution
+      const info = dpbsv('lower', n, bw, 1, AB, 1, bw + 1, 0, step, 1, n, 0);
+      if (info === 0) solved = true;
+      else mu *= 10;
+    }
+    if (!solved) break;
+
+    // Backtracking line search along the (descent) step.
+    const gd = vdot(g, step);
+    if (!(gd < 0)) { mu *= 10; continue; }
+    let t = 1, ok = false, fT = f;
+    for (let ls = 0; ls < maxLineSearch; ls++) {
+      for (let i = 0; i < n; i++) xTrial[i] = xPerm[i] + t * step[i];
+      fT = funPerm(xTrial);
+      if (Number.isFinite(fT) && fT <= f + c1 * t * gd) { ok = true; break; }
+      t *= backtrack;
+    }
+    if (!ok) { mu *= 10; continue; }
+
+    xPerm.set(xTrial);
+    gradFnPerm(xPerm, g);
+    f = fT;
+    energyHistory.push(f);
+    // Trust adjustment: full step -> relax damping; partial -> tighten.
+    if (t > 0.9) mu = Math.max(mu * 0.3, 1e-9);
+    else mu *= 2;
+  }
+
+  // Unpermute the final iterate and gradient back to original DOF order.
+  const x = new Float64Array(n);
+  const gOut = new Float64Array(n);
+  for (let i = 0; i < n; i++) { x[invDofPerm[i]] = xPerm[i]; gOut[invDofPerm[i]] = g[i]; }
+  return { x, f, g: gOut, iterations: iter, converged, energyHistory, bw };
 }
