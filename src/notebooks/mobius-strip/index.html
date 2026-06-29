@@ -1693,15 +1693,26 @@ ${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
     instead of the dense ones, turning an ${tex`O(n^3)`} reduction into ${tex`O(n\,b^2)`}.
 
     The spy plots below show the same matrix in both orderings (the second is what we
-    actually feed to the solver):
+    actually feed to the solver). Drag the resolution sliders to watch the pattern,
+    bandwidth, and density update with the mesh:
+  </script>
+
+  <script id="spy-controls" type="text/x-typescript">
+    // Reactive mesh-resolution controls for the spy view. The spy cell below
+    // references spyNu / spyNv, so dragging these re-runs it with a new mesh.
+    const spyControls = html`<div style="display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;margin:0 0 0.85rem"></div>`;
+    const spyCtrl = (input) => { spyControls.appendChild(input); return Generators.input(input); };
+    const spyNu = spyCtrl(Inputs.range([8, 128], { label: 'Segments around', step: 1, value: 64 }));
+    const spyNv = spyCtrl(Inputs.range([4, 32], { label: 'Segments across', step: 2, value: 10 }));
+    display(spyControls);
   </script>
 
   <script id="spy" type="text/x-typescript">
+    // Reactive on spyNu / spyNv: rebuilds the sparsity pattern and redraws when
+    // the resolution sliders change. The pattern is purely structural (which
+    // vertices share a triangle or hinge), so no FEM solve is needed.
     {
-      // Sparsity pattern of the stiffness matrix at the default resolution. The
-      // pattern is purely structural (which vertices share a triangle or hinge),
-      // so it is built from the mesh connectivity without any FEM solve.
-      const model = createMobiusMesh({ length: 2 * Math.PI, width: 1, nu: 64, nv: 10 });
+      const model = createMobiusMesh({ length: 2 * Math.PI, width: 1, nu: Math.round(spyNu), nv: Math.round(spyNv) });
       const { Nv, tris, nT, nHinges, hingeIdx } = model;
       const n = 3 * Nv;
       const { dofPerm, bw } = buildPermutation(model);
@@ -1730,36 +1741,46 @@ ${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
       const nnz = blocks.size * 9;
       const pct = (x: number) => `${(100 * x).toFixed(1)}%`;
 
-      // Theme-aware colors.
-      const readColor = (v: string, fb: string): string => {
-        const probe = document.createElement('div');
-        probe.style.cssText = `position:absolute;color:var(${v}, ${fb})`;
-        document.body.appendChild(probe);
-        const c = getComputedStyle(probe).color; probe.remove();
-        return c;
-      };
-      const pointColor = readColor('--theme-foreground-focus', '#3b82f6');
+      // Theme-aware point color, parsed to RGB for direct ImageData writes.
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;color:var(--theme-foreground-focus, #3b82f6)';
+      document.body.appendChild(probe);
+      const cm = getComputedStyle(probe).color.match(/[\d.]+/g) || ['59', '130', '246'];
+      probe.remove();
+      const pr = +cm[0] | 0, pg = +cm[1] | 0, pb = +cm[2] | 0;
 
+      // Spy via ImageData: only the nonzero pixels are written (the canvas's CSS
+      // background shows through the rest), which is fast enough to redraw live as
+      // the resolution sliders are dragged.
       function spy(px: number, orderOf: (d: number) => number): HTMLCanvasElement {
         const dpr = devicePixelRatio || 1;
+        const W = Math.max(1, Math.round(px * dpr));
         const cv = document.createElement('canvas');
-        cv.width = Math.round(px * dpr); cv.height = Math.round(px * dpr);
+        cv.width = W; cv.height = W;
         cv.style.cssText = `width:${px}px;height:${px}px;border:1px solid rgba(127,127,127,0.35);border-radius:4px;background:rgba(127,127,127,0.05);max-width:100%`;
         const ctx = cv.getContext('2d')!;
-        ctx.scale(dpr, dpr);
-        ctx.fillStyle = pointColor;
-        const s = px / n;
-        const d = Math.max(1, Math.ceil(s)); // dot size in CSS px
+        const img = ctx.createImageData(W, W);
+        const data = img.data;
+        const s = W / n;
+        const dot = Math.max(1, Math.floor(s)); // visible block size for coarse meshes
+        const plot = (i: number, j: number) => {
+          const x0 = Math.min(W - dot, (j * s) | 0), y0 = Math.min(W - dot, (i * s) | 0);
+          for (let dy = 0; dy < dot; dy++) {
+            let idx = ((y0 + dy) * W + x0) * 4;
+            for (let dx = 0; dx < dot; dx++) {
+              data[idx] = pr; data[idx + 1] = pg; data[idx + 2] = pb; data[idx + 3] = 255;
+              idx += 4;
+            }
+          }
+        };
         for (const key of blocks) {
           const va = Math.floor(key / Nv), vb = key % Nv;
           for (let ci = 0; ci < 3; ci++) {
             const i = orderOf(va * 3 + ci);
-            for (let cj = 0; cj < 3; cj++) {
-              const j = orderOf(vb * 3 + cj);
-              ctx.fillRect(Math.floor(j * s), Math.floor(i * s), d, d);
-            }
+            for (let cj = 0; cj < 3; cj++) plot(i, orderOf(vb * 3 + cj));
           }
         }
+        ctx.putImageData(img, 0, 0);
         return cv;
       }
 
@@ -1779,7 +1800,8 @@ ${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
       );
       fig.appendChild(rowEl);
       fig.appendChild(html`<figcaption style="margin-top:0.75rem;font:13px/1.5 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);text-align:center">
-        Stiffness-matrix sparsity (${n}&times;${n}, ${nnz.toLocaleString()} nonzeros, ${pct(nnz / (n * n))} dense).
+        Stiffness-matrix sparsity at ${model.nu}&times;${model.nv} segments (${n}&times;${n},
+        ${nnz.toLocaleString()} nonzeros, ${pct(nnz / (n * n))} dense).
         Reordering shrinks the bandwidth from ${natBw} to ${bw}, which is what makes the banded
         LAPACK path viable. Even so, only ${pct(nnz / (n * (2 * bw + 1)))} of the stored band is
         actually nonzero — the headroom a dedicated sparse solver could reclaim.
