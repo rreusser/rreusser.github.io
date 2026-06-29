@@ -112,7 +112,7 @@
       introCamera.destroy();
     });
 
-    const introContainer = html`<div style="position:relative;width:100%;aspect-ratio:8/5;max-height:450px"></div>`;
+    const introContainer = html`<div style="position:relative;width:100%;aspect-ratio:7/5;max-height:520px"></div>`;
     introContainer.appendChild(introCanvas);
     introCamera.on('resize', (w: number, h: number) => {
       introCanvas.width = Math.floor(w * devicePixelRatio);
@@ -121,7 +121,7 @@
       introCanvas.style.height = `${h}px`;
       introCamera.triggerRepaint();
     });
-    const introFigure = html`<figure style="margin:0 0 0.75rem"></figure>`;
+    const introFigure = html`<figure style="margin:0 0 2rem"></figure>`;
     introFigure.appendChild(introContainer);
     introFigure.appendChild(html`<figcaption style="margin-top:0.5rem;font:13px/1.5 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);text-align:center">
       An elastic-shell finite-element simulation of a Möbius strip. Drag a vertex to deform it.
@@ -276,6 +276,7 @@
     import { peelShaderCode, compositeShaderCode } from './peel-shaders.js';
     import { createPeelRenderer } from './peel-renderer.js';
     import { createColorLegend } from './lib/color-legend.js';
+    import { buildPermutation } from './modes.js';
   </script>
 
   <script id="gpu-context" type="text/x-typescript">
@@ -432,11 +433,11 @@
     // shape a well-defined starting point.
     add(html`<div style="font-weight:600;margin:2px 0">Computation</div>`);
     const btnStyle = `
-      display:inline-flex;align-items:center;gap:5px;
-      padding:5px 11px;font:12px/1 var(--sans-serif,system-ui,sans-serif);
+      display:inline-flex;align-items:center;gap:6px;
+      padding:8px 15px;font:13px/1 var(--sans-serif,system-ui,sans-serif);
       color:var(--theme-foreground,#222);background:var(--theme-background-alt,rgba(127,127,127,0.14));
       border:1px solid var(--theme-foreground-faint,rgba(0,0,0,0.18));
-      border-radius:6px;cursor:pointer`;
+      border-radius:7px;cursor:pointer`;
     // The three stages of the computation, shown as a pipeline:
     //   Elastic rod  →  Relax  →  Flexural modes
     // "Elastic rod" loads the COLSYS rod shape; "Relax" settles it to the shell
@@ -1675,6 +1676,134 @@ semidefinite with exactly six zero modes. The eigenpairs returned by
 ${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
 \approx 10^{-15}`} and are ${tex`M`}-orthonormal, so the reported mode shapes
     and frequencies are accurate to machine precision for the discrete model.
+  </script>
+
+  <script id="solver-note" type="text/markdown">
+    ## Under the hood: sparsity and solvers
+
+    The flexural modes solve the generalized eigenproblem ${tex`K\phi = \omega^2 M\phi`}
+    for the stiffness ${tex`K`} (the Hessian of the elastic energy) and the lumped
+    mass ${tex`M`}. ${tex`K`} is sparse — each vertex couples only to the handful of
+    others it shares a triangle or bending hinge with — but in the natural vertex
+    ordering the Möbius seam (the last column glued to the first, with a flip) ties
+    together vertices that are far apart in the index, so the nonzeros sprawl into a
+    very wide band. Interleaving the columns as ${tex`(0, n_u{-}1, 1, n_u{-}2, \dots)`}
+    puts each seam partner next to its mate and collapses the bandwidth dramatically.
+    That narrow band is what lets us hand the problem to LAPACK's *banded* routines
+    instead of the dense ones, turning an ${tex`O(n^3)`} reduction into ${tex`O(n\,b^2)`}.
+
+    The spy plots below show the same matrix in both orderings (the second is what we
+    actually feed to the solver):
+  </script>
+
+  <script id="spy" type="text/x-typescript">
+    {
+      // Sparsity pattern of the stiffness matrix at the default resolution. The
+      // pattern is purely structural (which vertices share a triangle or hinge),
+      // so it is built from the mesh connectivity without any FEM solve.
+      const model = createMobiusMesh({ length: 2 * Math.PI, width: 1, nu: 64, nv: 10 });
+      const { Nv, tris, nT, nHinges, hingeIdx } = model;
+      const n = 3 * Nv;
+      const { dofPerm, bw } = buildPermutation(model);
+
+      // Vertex adjacency (with self) → nonzero 3×3 blocks of K.
+      const blocks = new Set<number>();
+      const addPair = (a: number, b: number) => { blocks.add(a * Nv + b); blocks.add(b * Nv + a); };
+      for (let v = 0; v < Nv; v++) blocks.add(v * Nv + v);
+      for (let k = 0; k < nT; k++) {
+        const a = tris[k*3], b = tris[k*3+1], c = tris[k*3+2];
+        addPair(a, b); addPair(b, c); addPair(a, c);
+      }
+      for (let h = 0; h < nHinges; h++) {
+        const o = h * 4;
+        const q = [hingeIdx[o], hingeIdx[o+1], hingeIdx[o+2], hingeIdx[o+3]];
+        for (let a = 0; a < 4; a++) for (let c = a + 1; c < 4; c++) addPair(q[a], q[c]);
+      }
+
+      // Natural vertex bandwidth → DOF bandwidth (×3 + 2), for the caption.
+      let maxV = 0;
+      for (const key of blocks) {
+        const d = Math.abs(Math.floor(key / Nv) - (key % Nv));
+        if (d > maxV) maxV = d;
+      }
+      const natBw = maxV * 3 + 2;
+      const nnz = blocks.size * 9;
+      const pct = (x: number) => `${(100 * x).toFixed(1)}%`;
+
+      // Theme-aware colors.
+      const readColor = (v: string, fb: string): string => {
+        const probe = document.createElement('div');
+        probe.style.cssText = `position:absolute;color:var(${v}, ${fb})`;
+        document.body.appendChild(probe);
+        const c = getComputedStyle(probe).color; probe.remove();
+        return c;
+      };
+      const pointColor = readColor('--theme-foreground-focus', '#3b82f6');
+
+      function spy(px: number, orderOf: (d: number) => number): HTMLCanvasElement {
+        const dpr = devicePixelRatio || 1;
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(px * dpr); cv.height = Math.round(px * dpr);
+        cv.style.cssText = `width:${px}px;height:${px}px;border:1px solid rgba(127,127,127,0.35);border-radius:4px;background:rgba(127,127,127,0.05);max-width:100%`;
+        const ctx = cv.getContext('2d')!;
+        ctx.scale(dpr, dpr);
+        ctx.fillStyle = pointColor;
+        const s = px / n;
+        const d = Math.max(1, Math.ceil(s)); // dot size in CSS px
+        for (const key of blocks) {
+          const va = Math.floor(key / Nv), vb = key % Nv;
+          for (let ci = 0; ci < 3; ci++) {
+            const i = orderOf(va * 3 + ci);
+            for (let cj = 0; cj < 3; cj++) {
+              const j = orderOf(vb * 3 + cj);
+              ctx.fillRect(Math.floor(j * s), Math.floor(i * s), d, d);
+            }
+          }
+        }
+        return cv;
+      }
+
+      const PX = 300;
+      const panel = (cv: HTMLCanvasElement, heading: string, sub: string) => {
+        const wrap = html`<div style="display:flex;flex-direction:column;align-items:center;gap:6px;max-width:100%"></div>`;
+        wrap.appendChild(cv);
+        wrap.appendChild(html`<div style="text-align:center;font:12px/1.4 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777)"><strong style="color:var(--theme-foreground,#222)">${heading}</strong><br>${sub}</div>`);
+        return wrap;
+      };
+
+      const fig = html`<figure style="margin:0 0 1rem"></figure>`;
+      const rowEl = html`<div style="display:flex;flex-wrap:wrap;gap:24px;justify-content:center;align-items:flex-start"></div>`;
+      rowEl.append(
+        panel(spy(PX, (d) => d), 'Natural ordering', `bandwidth ≈ ${natBw} of ${n}`),
+        panel(spy(PX, (d) => dofPerm[d]), 'Bandwidth-reduced (used)', `bandwidth = ${bw} of ${n}`),
+      );
+      fig.appendChild(rowEl);
+      fig.appendChild(html`<figcaption style="margin-top:0.75rem;font:13px/1.5 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);text-align:center">
+        Stiffness-matrix sparsity (${n}&times;${n}, ${nnz.toLocaleString()} nonzeros, ${pct(nnz / (n * n))} dense).
+        Reordering shrinks the bandwidth from ${natBw} to ${bw}, which is what makes the banded
+        LAPACK path viable. Even so, only ${pct(nnz / (n * (2 * bw + 1)))} of the stored band is
+        actually nonzero — the headroom a dedicated sparse solver could reclaim.
+      </figcaption>`);
+      display(fig);
+    }
+  </script>
+
+  <script id="solver-routines" type="text/markdown">
+    The banded structure is the whole reason the LAPACK path pays off, and it also
+    marks the ceiling of this approach: a general banded solver still factors every
+    entry inside the band, most of which are zero. A sparsity-aware sparse direct or
+    iterative solver (with a fill-reducing ordering) is the natural next step.
+
+    The BLAS / LAPACK / Netlib routines we bundle and call directly — translated from
+    the reference Fortran to JavaScript, not counting their internal dependencies:
+
+    <ul>
+      <li><strong>BLAS level 1:</strong> <code>ddot</code>, <code>daxpy</code>, <code>dscal</code>, <code>dnrm2</code>, <code>dcopy</code> — the vector kernels behind the Newton–CG and L-BFGS relaxation.</li>
+      <li><strong>LAPACK <code>dpbsv</code></strong> — symmetric-positive-definite <em>banded</em> linear solve, used for the banded Newton step during relaxation.</li>
+      <li><strong>LAPACK <code>dsbgvx</code></strong> — symmetric-definite <em>banded</em> generalized eigensolver, the fast path for the flexural modes.</li>
+      <li><strong>LAPACK <code>dsygvx</code></strong> — symmetric-definite <em>dense</em> generalized eigensolver, the fallback the banded path is compared against.</li>
+      <li><strong>COLSYS</strong> — Netlib collocation solver for boundary-value ODEs, used for the Mahadevan–Keller elastic-rod shape that seeds the strip.</li>
+    </ul>
   </script>
 
   <script id="coda" type="text/markdown">
