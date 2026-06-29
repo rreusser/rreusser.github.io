@@ -286,13 +286,17 @@ export function createColorLegend({
   function togglePopup() { popup ? closePopup() : openPopup(); }
   function openPopup() {
     buildPopup();
-    // Defer the document listener so the click that opened the popup doesn't
-    // immediately close it.
-    setTimeout(() => document.addEventListener('mousedown', onDocDown), 0);
+    // Defer the document listeners so the press that opened the popup doesn't
+    // immediately close it. Listen for both mouse and touch dismissals.
+    setTimeout(() => {
+      document.addEventListener('mousedown', onDocDown);
+      document.addEventListener('touchstart', onDocDown);
+    }, 0);
   }
   function closePopup() {
     if (popup) { popup.remove(); popup = null; }
     document.removeEventListener('mousedown', onDocDown);
+    document.removeEventListener('touchstart', onDocDown);
   }
   // Ignore clicks inside the popup or on the palette button (its inner <svg>
   // would otherwise read as "outside" and close the popup before the button's
@@ -429,7 +433,7 @@ export function createColorLegend({
       element.style.cursor = 'grabbing';
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
-      e.preventDefault(); e.stopPropagation();
+      e.preventDefault();
     });
   }
 
@@ -458,6 +462,76 @@ export function createColorLegend({
     e.preventDefault();
     onReset();
   });
+
+  // Touch: one finger pans, two fingers pinch-zoom about their midpoint, and a
+  // double-tap rescales (dblclick doesn't fire reliably from touch). touch-action
+  // none keeps the browser from scrolling/zooming the page over the widget.
+  if (draggable || zoomable) {
+    element.style.touchAction = 'none';
+    let gesture = null;          // { mode, ... baseline captured at gesture start }
+    let lastTapAt = 0, tapMoved = false, tapStartY = 0;
+
+    const initGesture = (touches) => {
+      const rect = bar.getBoundingClientRect();
+      if (touches.length === 1 && draggable) {
+        gesture = { mode: 'pan', startY: touches[0].clientY, lo0: lo, hi0: hi };
+      } else if (touches.length >= 2 && zoomable) {
+        const a = touches[0], b = touches[1];
+        const dist0 = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY) || 1;
+        const fracTop = Math.max(0, Math.min(1, ((a.clientY + b.clientY) / 2 - rect.top) / barHeight));
+        const span0 = hi - lo;
+        gesture = { mode: 'pinch', dist0, span0, pivot: hi - fracTop * span0 };
+      } else {
+        gesture = null;
+      }
+    };
+
+    element.addEventListener('touchstart', (e) => {
+      if (overControls(e)) return;
+      if (e.touches.length === 1) { tapMoved = false; tapStartY = e.touches[0].clientY; }
+      dragging = true; setHover(true);
+      initGesture(e.touches);
+      e.preventDefault();
+    }, { passive: false });
+
+    element.addEventListener('touchmove', (e) => {
+      if (!gesture) return;
+      const rect = bar.getBoundingClientRect();
+      if (gesture.mode === 'pan' && e.touches.length === 1) {
+        const t = e.touches[0];
+        if (Math.abs(t.clientY - tapStartY) > 6) tapMoved = true;
+        const d = ((t.clientY - gesture.startY) / barHeight) * (gesture.hi0 - gesture.lo0);
+        lo = gesture.lo0 + d; hi = gesture.hi0 + d;
+      } else if (gesture.mode === 'pinch' && e.touches.length >= 2) {
+        const a = e.touches[0], b = e.touches[1];
+        const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY) || 1;
+        let span = gesture.span0 * (gesture.dist0 / dist); // spread apart → zoom in
+        const ref = Math.abs(gesture.pivot) || 1;
+        span = Math.max(ref * 1e-9, Math.min(ref * 1e12, span));
+        const fracTop = Math.max(0, Math.min(1, ((a.clientY + b.clientY) / 2 - rect.top) / barHeight));
+        hi = gesture.pivot + fracTop * span; lo = hi - span;
+      } else {
+        return;
+      }
+      drawTicks();
+      onRangeChange({ min: lo, max: hi });
+      e.preventDefault();
+    }, { passive: false });
+
+    const onTouchEnd = (e) => {
+      if (e.touches.length > 0) { initGesture(e.touches); return; } // a finger lifted; continue
+      // All fingers up. A quick, still single-finger tap counts toward a
+      // double-tap → rescale.
+      if (gesture && gesture.mode === 'pan' && !tapMoved) {
+        const now = (typeof performance !== 'undefined' ? performance.now() : 0);
+        if (now - lastTapAt < 300) { onReset(); lastTapAt = 0; }
+        else lastTapAt = now;
+      }
+      gesture = null; dragging = false; setHover(false);
+    };
+    element.addEventListener('touchend', onTouchEnd);
+    element.addEventListener('touchcancel', onTouchEnd);
+  }
 
   // Map a pixel y within the bar to a data value (top = hi, bottom = lo).
   function valueAt(yPx) { return hi - (yPx / barHeight) * (hi - lo); }

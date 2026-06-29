@@ -1450,44 +1450,36 @@
           worker.postMessage({ type: 'movePin', target: t });
         }
 
-        // mousedown (capture phase on the host) runs before the camera's own
-        // mousedown on the canvas, so a vertex grab can suppress camera rotation.
-        // Grabbing just pins a vertex on the already-running continuous solve; it
-        // does not start a separate solve, so the iteration mechanism (and the
-        // status readout) is the same whether or not a vertex is being dragged.
-        host.addEventListener('mousedown', (e: MouseEvent) => {
-          if (e.button !== 0 || activeDrag || !enabled()) return;
-          // Let clicks on overlay controls (e.g. buttons, the color legend) through.
-          if ((e.target as HTMLElement).closest('button, .color-legend')) return;
-          const v = pickVertex(cam, cnv, e.clientX, e.clientY);
-          if (v < 0) return; // missed: let the camera handle it (rotate)
-          e.preventDefault();
-          e.stopImmediatePropagation();
+        // Shared grab/move/release used by both mouse and touch. Grabbing just
+        // pins a vertex on the already-running continuous solve; it does not start
+        // a separate solve, so the iteration mechanism (and the status readout) is
+        // the same whether or not a vertex is being dragged. Returns true if a
+        // vertex was actually grabbed at (clientX, clientY).
+        function beginDrag(clientX: number, clientY: number): boolean {
+          const v = pickVertex(cam, cnv, clientX, clientY);
+          if (v < 0) return false; // missed: caller lets the camera handle it
           state.previewing = true;                 // the live solve owns the display
           setEquilibrium(false);                   // deforming: leave equilibrium (modes lock out)
           const X = displayedX();                  // grab from the shape currently on screen
           const grabPos = [X[v*3], X[v*3+1], X[v*3+2]];
           activeDrag = {
             v, grabPos,
-            startX: e.clientX, startY: e.clientY, curX: e.clientX, curY: e.clientY,
+            startX: clientX, startY: clientY, curX: clientX, curY: clientY,
             showRing: showRingAt,
           };
           cnv.style.cursor = 'grabbing';
+          showRingAt(grabPos[0], grabPos[1], grabPos[2]); // touch has no hover, so show it now
           worker.postMessage({ type: 'setPin', v, target: grabPos });
-          window.addEventListener('mousemove', onDragMove);
-          window.addEventListener('mouseup', onDragUp);
-        }, true);
-
-        function onDragMove(e: MouseEvent) {
-          if (!activeDrag) return;
-          activeDrag.curX = e.clientX; activeDrag.curY = e.clientY;
-          sendTarget();
-          e.preventDefault();
+          return true;
         }
 
-        function onDragUp() {
-          window.removeEventListener('mousemove', onDragMove);
-          window.removeEventListener('mouseup', onDragUp);
+        function moveDrag(clientX: number, clientY: number) {
+          if (!activeDrag) return;
+          activeDrag.curX = clientX; activeDrag.curY = clientY;
+          sendTarget();
+        }
+
+        function endDrag() {
           if (!activeDrag) return;
           // Release the pin; the same continuous solve relaxes back to the true
           // equilibrium and reports it (no separate spring-back pass).
@@ -1497,6 +1489,68 @@
           cnv.style.cursor = 'grab';
           hideRing();
           cameraEasing = true; // re-frame once toward the (now off-center) mesh
+        }
+
+        // Suppress browser touch gestures (scroll/zoom) over the figure so a
+        // vertex drag — and the camera's own touch controls — get the events.
+        cnv.style.touchAction = 'none';
+
+        // mousedown / touchstart (capture phase on the host) run before the
+        // camera's own handlers on the canvas, so a vertex grab can suppress
+        // camera rotation. A miss (or multi-touch) falls through to the camera.
+        host.addEventListener('mousedown', (e: MouseEvent) => {
+          if (e.button !== 0 || activeDrag || !enabled()) return;
+          // Let clicks on overlay controls (e.g. buttons, the color legend) through.
+          if ((e.target as HTMLElement).closest('button, .color-legend')) return;
+          if (!beginDrag(e.clientX, e.clientY)) return;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          window.addEventListener('mousemove', onDragMove);
+          window.addEventListener('mouseup', onDragUp);
+        }, true);
+
+        function onDragMove(e: MouseEvent) {
+          if (!activeDrag) return;
+          moveDrag(e.clientX, e.clientY);
+          e.preventDefault();
+        }
+
+        function onDragUp() {
+          window.removeEventListener('mousemove', onDragMove);
+          window.removeEventListener('mouseup', onDragUp);
+          endDrag();
+        }
+
+        host.addEventListener('touchstart', (e: TouchEvent) => {
+          // Extra fingers added mid-drag would otherwise reach the camera and
+          // start a pinch on top of the vertex drag — swallow them.
+          if (activeDrag) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+          if (!enabled()) return;
+          if (e.touches.length !== 1) return; // multi-touch → let the camera pinch/zoom
+          if ((e.target as HTMLElement).closest('button, .color-legend')) return;
+          const t = e.touches[0];
+          if (!beginDrag(t.clientX, t.clientY)) return; // miss → camera rotates
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          window.addEventListener('touchmove', onTouchDragMove, { passive: false });
+          window.addEventListener('touchend', onTouchDragEnd);
+          window.addEventListener('touchcancel', onTouchDragEnd);
+        }, { capture: true, passive: false });
+
+        function onTouchDragMove(e: TouchEvent) {
+          if (!activeDrag) return;
+          const t = e.touches[0];
+          if (!t) return;
+          moveDrag(t.clientX, t.clientY);
+          e.preventDefault(); // hold the gesture (no page scroll) while dragging
+        }
+
+        function onTouchDragEnd(e: TouchEvent) {
+          if (e.touches && e.touches.length > 0) return; // wait until the last finger lifts
+          window.removeEventListener('touchmove', onTouchDragMove);
+          window.removeEventListener('touchend', onTouchDragEnd);
+          window.removeEventListener('touchcancel', onTouchDragEnd);
+          endDrag();
         }
 
         // Hover: highlight the nearest vertex (only when nothing is being dragged).
@@ -1517,6 +1571,9 @@
         invalidation.then(() => {
           window.removeEventListener('mousemove', onDragMove);
           window.removeEventListener('mouseup', onDragUp);
+          window.removeEventListener('touchmove', onTouchDragMove);
+          window.removeEventListener('touchend', onTouchDragEnd);
+          window.removeEventListener('touchcancel', onTouchDragEnd);
           overlay.remove();
         });
       }
