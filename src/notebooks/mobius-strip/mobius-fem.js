@@ -570,54 +570,78 @@ export function membraneVonMises(model, X, params) {
   return acc;
 }
 
-// Bending energy density per vertex (hinge energy spread to incident
-// vertices, divided by vertex area). Highlights where the shell bends, which
-// is exactly where flexural modes localize.
-export function bendingDensity(model, X, params) {
-  const { nHinges, hingeIdx, hingeLbar, hingeAbar, vertexArea, Nv } = model;
-  const D = bendingModulus(params.E, params.poisson, params.thickness);
-  const acc = new Float64Array(Nv);
-  for (let hI = 0; hI < nHinges; hI++) {
-    const b = hI * 4;
-    const x0 = hingeIdx[b], x1 = hingeIdx[b + 1];
-    const x2 = hingeIdx[b + 2], x3 = hingeIdx[b + 3];
-    const i0 = x0 * 3, i1 = x1 * 3, i2 = x2 * 3, i3 = x3 * 3;
-    sub(_e, X, i1, X, i0);
-    sub(_u2, X, i2, X, i0);
-    sub(_u3, X, i3, X, i0);
-    cross(_N1, _e, _u2);
-    cross(_N2, _u3, _e);
-    const len_e = norm(_e);
-    if (len_e < 1e-300) continue;
-    const n1n2 = dot(_N1, _N2);
-    cross(_NxN, _N1, _N2);
-    const theta = Math.atan2(dot(_NxN, _e) / len_e, n1n2);
-    const lbar = hingeLbar[hI];
-    const E_e = 0.5 * D * (lbar * lbar) / hingeAbar[hI] * theta * theta;
-    acc[x0] += 0.25 * E_e; acc[x1] += 0.25 * E_e;
-    acc[x2] += 0.25 * E_e; acc[x3] += 0.25 * E_e;
-  }
-  for (let v = 0; v < Nv; v++) acc[v] /= vertexArea[v] || 1;
-  return acc;
-}
-
-// Peak bending (fiber) stress per vertex. For a Kirchhoff plate in pure
-// bending the energy density is e = 1/2 D kappa^2 with flexural rigidity
-// D = E h^3 / (12(1-nu^2)), and the maximum surface fiber stress is
-// sigma = E h /(2(1-nu^2)) * |kappa|. Since D is calibrated as the true plate
-// stiffness (Phase 1 cylinder gate), recovering kappa = sqrt(2 e / D) and
-// forming sigma gives a genuine stress, consistent with the model and
-// parallel to the membrane von Mises stress.
+// Peak bending (fiber) stress per vertex, sigma = P * |2H| with
+// P = E h / (2(1-nu^2)) and 2H the mean curvature (the surface fiber strain in
+// pure bending is z*kappa, peaking at z = h/2). The mean curvature is taken
+// from the cotangent-Laplacian / mixed-Voronoi-area operator (Meyer et al.),
+// which is a second-order, mesh-robust geometric estimator: it depends only on
+// the shape, not on the bending discretization, so the colouring converges with
+// mesh refinement. (The earlier estimator recovered kappa from the discrete
+// dihedral bending energy density; that energy's discrete-to-continuum constant
+// is mesh-dependent, especially on the staggered brick lattice, so it drifted
+// noticeably with resolution.) Orientation-free, so the non-orientable surface
+// is fine; the free long edges (open 1-rings) are filled from their inward
+// neighbour, as in gaussianCurvature.
 export function bendingStress(model, X, params) {
-  const e = bendingDensity(model, X, params);
-  const E = params.E;
-  const nu = params.poisson;
-  const h = params.thickness;
-  const D = bendingModulus(E, nu, h);
-  const P = (E * h) / (2 * (1 - nu * nu));
-  const out = new Float64Array(e.length);
-  for (let v = 0; v < e.length; v++) {
-    out[v] = P * Math.sqrt(Math.max(0, (2 * e[v]) / D));
+  const { tris, nT, Nv, nu, nv, vid } = model;
+  const E = params.E, nuP = params.poisson, h = params.thickness;
+  const P = (E * h) / (2 * (1 - nuP * nuP));
+
+  const Lx = new Float64Array(Nv), Ly = new Float64Array(Nv), Lz = new Float64Array(Nv);
+  const area = new Float64Array(Nv); // mixed Voronoi area
+
+  for (let k = 0; k < nT; k++) {
+    const a = tris[k * 3], b = tris[k * 3 + 1], c = tris[k * 3 + 2];
+    const a3 = a * 3, b3 = b * 3, c3 = c * 3;
+    const abx = X[b3]-X[a3], aby = X[b3+1]-X[a3+1], abz = X[b3+2]-X[a3+2];
+    const acx = X[c3]-X[a3], acy = X[c3+1]-X[a3+1], acz = X[c3+2]-X[a3+2];
+    const bcx = X[c3]-X[b3], bcy = X[c3+1]-X[b3+1], bcz = X[c3+2]-X[b3+2];
+    const crx = aby*acz-abz*acy, cry = abz*acx-abx*acz, crz = abx*acy-aby*acx;
+    const twoA = Math.hypot(crx, cry, crz);
+    if (twoA < 1e-300) continue;
+    const areaT = 0.5 * twoA;
+    // Cotangents of the three interior angles (dot of the two edges from the
+    // vertex over twice the area).
+    const cotA = (abx*acx + aby*acy + abz*acz) / twoA;       // edges AB, AC from A
+    const cotB = (-abx*bcx - aby*bcy - abz*bcz) / twoA;      // edges BA, BC from B
+    const cotC = (acx*bcx + acy*bcy + acz*bcz) / twoA;       // edges CA, CB from C
+    // L(x_i) = sum (cot opp)(x_j - x_i); assemble per edge (opposite vertex).
+    // edge (a,b) opp c:
+    Lx[a]+=cotC*(X[b3]-X[a3]); Ly[a]+=cotC*(X[b3+1]-X[a3+1]); Lz[a]+=cotC*(X[b3+2]-X[a3+2]);
+    Lx[b]+=cotC*(X[a3]-X[b3]); Ly[b]+=cotC*(X[a3+1]-X[b3+1]); Lz[b]+=cotC*(X[a3+2]-X[b3+2]);
+    // edge (b,c) opp a:
+    Lx[b]+=cotA*(X[c3]-X[b3]); Ly[b]+=cotA*(X[c3+1]-X[b3+1]); Lz[b]+=cotA*(X[c3+2]-X[b3+2]);
+    Lx[c]+=cotA*(X[b3]-X[c3]); Ly[c]+=cotA*(X[b3+1]-X[c3+1]); Lz[c]+=cotA*(X[b3+2]-X[c3+2]);
+    // edge (a,c) opp b:
+    Lx[a]+=cotB*(X[c3]-X[a3]); Ly[a]+=cotB*(X[c3+1]-X[a3+1]); Lz[a]+=cotB*(X[c3+2]-X[a3+2]);
+    Lx[c]+=cotB*(X[a3]-X[c3]); Ly[c]+=cotB*(X[a3+1]-X[c3+1]); Lz[c]+=cotB*(X[a3+2]-X[c3+2]);
+    // Mixed Voronoi area: Voronoi split for non-obtuse triangles, else area/2 at
+    // the obtuse vertex and area/4 at the others.
+    if (cotA < 0 || cotB < 0 || cotC < 0) {
+      const ha = areaT * 0.5, qa = areaT * 0.25;
+      if (cotA < 0) { area[a]+=ha; area[b]+=qa; area[c]+=qa; }
+      else if (cotB < 0) { area[b]+=ha; area[a]+=qa; area[c]+=qa; }
+      else { area[c]+=ha; area[a]+=qa; area[b]+=qa; }
+    } else {
+      const lab = abx*abx+aby*aby+abz*abz;
+      const lac = acx*acx+acy*acy+acz*acz;
+      const lbc = bcx*bcx+bcy*bcy+bcz*bcz;
+      area[a] += (cotC*lab + cotB*lac) / 8;
+      area[b] += (cotC*lab + cotA*lbc) / 8;
+      area[c] += (cotB*lac + cotA*lbc) / 8;
+    }
+  }
+
+  const out = new Float64Array(Nv);
+  for (let v = 0; v < Nv; v++) {
+    const m = area[v] > 1e-30 ? area[v] : 1;
+    out[v] = P * Math.hypot(Lx[v], Ly[v], Lz[v]) / (2 * m); // P * |2H|
+  }
+  // The free long edges have open 1-rings, so their curvature is unreliable;
+  // take the inward neighbour's value (same treatment as gaussianCurvature).
+  for (let i = 0; i < nu; i++) {
+    out[vid(i, 0)] = out[vid(i, 1)];
+    out[vid(i, nv)] = out[vid(i, nv - 1)];
   }
   return out;
 }

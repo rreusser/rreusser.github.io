@@ -160,12 +160,6 @@
 
     I resisted, but darn it if it wasn't right. For the first time ever, I could ask for code which computes the generalized eigenvalues of a real-valued matrix, let it churn through LAPACK modules, running Fortran and generated JavaScript side by side until the numerics match, and then directly confirm that the resulting output solves the requested problem.
 
-    <figure>
-      <img alt="Human batteries in the machine world from The Matrix (1999)" src="matrix.webp">
-      <figcaption>Farm-fresh BLAS/LAPACK modules, in my mental module of how this AI translation works. The Matrix (1999).</figcaption>
-    </figure>
-
-
     With a coherent strategy for translating these modules, I looked for some
     different problems to solve. It made pretty short work of Nakatsukasa, Sète, and Trefethen's [AAA Algorithm for Rational Approximation](https://arxiv.org/abs/1612.00337). This in particular was one that really caused me some problems
     since a generalized eigenvalue solver was hard to come by. 
@@ -1551,6 +1545,27 @@ semidefinite with exactly six zero modes. The eigenpairs returned by
 ${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
 \approx 10^{-15}`} and are ${tex`M`}-orthonormal, so the reported mode shapes
     and frequencies are accurate to machine precision for the discrete model.
+  </script>
+
+  <script id="coda" type="text/markdown">
+    ## Mass production
+
+    The strip was never really the point. The point is that the wall between "I can
+    picture this computation" and "it runs in a browser tab" has quietly come down.
+    The decades of Fortran that still power NumPy and MATLAB can be translated, one
+    verified module at a time, on demand. A career's worth of careful porting starts
+    to look less like scholarship and more like a supply chain: ask for a banded
+    generalized eigensolver, let it run against the reference until the numerics
+    agree, and harvest the result.
+
+    It is exhilarating, and a little uneasy. The same ease that grew this one strip
+    will grow the machinery wholesale, with all the usual questions of mass
+    production about who is left to inspect the crop.
+
+    <figure>
+      <img alt="Human batteries in the machine world from The Matrix (1999)" src="matrix.webp">
+      <figcaption>Farm-fresh BLAS/LAPACK modules, in my mental model of how this AI translation works. The Matrix (1999).</figcaption>
+    </figure>
   </script>
 
   <script id="collapse" type="text/x-typescript">
