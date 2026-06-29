@@ -120,8 +120,8 @@ export function createColorLegend({
   colormap = 'turbo',
   colormaps = COLORMAPS,
   label = '',
-  barWidth = 14,
-  barHeight = 150,
+  barWidth = 13,
+  barHeight = 132,
   ticks = 5,
   format,
   draggable = true,
@@ -137,23 +137,18 @@ export function createColorLegend({
   const fmt = format || ((v) => defaultFormat(v, (hi - lo) || Math.abs(v) || 1));
 
   const FG = 'var(--theme-foreground, #1b1e23)';
-  const MUTED = 'var(--theme-foreground-muted, #6b7280)';
   const BG = 'var(--theme-background, #fff)';
 
-  // Root panel ----------------------------------------------------------------
+  // Root: no panel box — the bar and labels float directly over the figure so
+  // the legend stays unobtrusive. Labels carry a text halo (drawn below) for
+  // legibility over whatever the figure shows.
   const element = document.createElement('div');
   element.className = 'color-legend';
   element.style.cssText = [
     'position:absolute',
-    'display:inline-flex', 'flex-direction:column', 'gap:5px',
-    'padding:7px 9px',
-    'border-radius:7px',
-    'border:1px solid rgba(127,127,127,0.28)',
-    `background:color-mix(in srgb, ${BG} 72%, transparent)`,
-    '-webkit-backdrop-filter:blur(3px)', 'backdrop-filter:blur(3px)',
-    'box-shadow:0 2px 10px rgba(0,0,0,0.12)',
+    'display:inline-flex', 'flex-direction:column', 'gap:3px',
     `font:11px/1.25 var(--sans-serif, system-ui, sans-serif)`,
-    `color:${MUTED}`,
+    `color:${FG}`,
     'user-select:none', '-webkit-user-select:none',
     'pointer-events:auto',
   ].join(';');
@@ -161,9 +156,11 @@ export function createColorLegend({
   // Header: title + palette button -------------------------------------------
   const header = document.createElement('div');
   header.style.cssText = 'display:flex;align-items:center;gap:8px;justify-content:space-between;min-width:0';
+  // Halo so text stays readable over any figure background.
+  const HALO = `text-shadow:0 0 3px ${BG},0 0 2px ${BG},0 0 1px ${BG}`;
   const title = document.createElement('span');
   title.textContent = label;
-  title.style.cssText = `font-weight:600;color:${FG};white-space:nowrap;overflow:hidden;text-overflow:ellipsis`;
+  title.style.cssText = `font-weight:600;color:${FG};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${HALO}`;
   header.appendChild(title);
 
   let paletteBtn = null;
@@ -173,9 +170,9 @@ export function createColorLegend({
     paletteBtn.title = 'Choose color scale';
     paletteBtn.style.cssText = [
       'flex:0 0 auto', 'display:flex', 'align-items:center', 'justify-content:center',
-      'width:20px', 'height:18px', 'padding:0', 'cursor:pointer',
-      'border:1px solid rgba(127,127,127,0.3)', 'border-radius:4px',
-      `background:color-mix(in srgb, ${BG} 60%, transparent)`, `color:${MUTED}`,
+      'width:18px', 'height:16px', 'padding:0', 'cursor:pointer',
+      'border:none', 'border-radius:4px', 'background:transparent', `color:${FG}`,
+      `filter:drop-shadow(0 0 1px ${BG}) drop-shadow(0 0 1px ${BG})`,
     ].join(';');
     paletteBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><circle cx="5.5" cy="6" r="0.6" fill="currentColor" stroke="none"/><circle cx="8" cy="5" r="0.6" fill="currentColor" stroke="none"/><circle cx="10.5" cy="6.5" r="0.6" fill="currentColor" stroke="none"/><circle cx="10" cy="9.5" r="0.6" fill="currentColor" stroke="none"/></svg>`;
     paletteBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup(); });
@@ -183,22 +180,26 @@ export function createColorLegend({
   }
   element.appendChild(header);
 
-  // Body: gradient bar + ticks SVG -------------------------------------------
+  // Body: color bar (canvas) + ticks SVG -------------------------------------
   const body = document.createElement('div');
   body.style.cssText = 'display:flex;align-items:stretch;gap:0';
 
-  const bar = document.createElement('div');
+  // Canvas bar (not a CSS gradient): the LUT is written texel-exact so there is
+  // no gradient-edge rounding (which produced a stray wrapped pixel at the end).
+  const bar = document.createElement('canvas');
   bar.style.cssText = [
     `width:${barWidth}px`, `height:${barHeight}px`, 'flex:0 0 auto',
-    'border-radius:2px', 'border:1px solid rgba(127,127,127,0.35)',
+    'display:block', 'border-radius:2px',
+    'box-shadow:0 0 0 1px rgba(0,0,0,0.25)',
     draggable ? 'cursor:grab' : 'cursor:default',
   ].join(';');
+  const barCtx = bar.getContext('2d');
 
   const svg = document.createElementNS(NS, 'svg');
-  const SVG_W = 46;
+  const SVG_W = 48;
   svg.setAttribute('width', String(SVG_W));
   svg.setAttribute('height', String(barHeight));
-  svg.style.cssText = 'overflow:visible;flex:0 0 auto';
+  svg.style.cssText = 'overflow:visible;flex:0 0 auto;margin-left:3px';
 
   body.appendChild(bar);
   body.appendChild(svg);
@@ -235,7 +236,7 @@ export function createColorLegend({
       row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
       row.addEventListener('click', (e) => {
         e.stopPropagation();
-        setColormap(m.name);
+        applyColormap(m.name);
         closePopup();
         onColormapChange(m.name);
       });
@@ -246,13 +247,23 @@ export function createColorLegend({
   function togglePopup() { popup ? closePopup() : openPopup(); }
   function openPopup() {
     buildPopup();
+    // Defer the document listener so the click that opened the popup doesn't
+    // immediately close it.
     setTimeout(() => document.addEventListener('mousedown', onDocDown), 0);
   }
   function closePopup() {
     if (popup) { popup.remove(); popup = null; }
     document.removeEventListener('mousedown', onDocDown);
   }
-  function onDocDown(e) { if (popup && !popup.contains(e.target) && e.target !== paletteBtn) closePopup(); }
+  // Ignore clicks inside the popup or on the palette button (its inner <svg>
+  // would otherwise read as "outside" and close the popup before the button's
+  // click handler could toggle it).
+  function onDocDown(e) {
+    if (!popup) return;
+    if (popup.contains(e.target)) return;
+    if (paletteBtn && paletteBtn.contains(e.target)) return;
+    closePopup();
+  }
 
   // Rendering -----------------------------------------------------------------
   function gradientCss(fn, dir) {
@@ -265,9 +276,28 @@ export function createColorLegend({
     return `linear-gradient(${dir}, ${stops.join(',')})`;
   }
 
+  // Draw the bar from the colormap, one device-pixel row per sample so the
+  // colors are texel-exact. Top of the bar is the maximum (ParaView convention).
   function drawBar() {
-    // Top of the bar is the maximum value (ParaView convention).
-    bar.style.background = gradientCss(current.fn, 'to top');
+    const dpr = (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
+    const w = Math.max(1, Math.round(barWidth * dpr));
+    const h = Math.max(1, Math.round(barHeight * dpr));
+    if (bar.width !== w) bar.width = w;
+    if (bar.height !== h) bar.height = h;
+    for (let py = 0; py < h; py++) {
+      // py = 0 is the top → maximum value → t = 1.
+      const t = 1 - py / (h - 1 || 1);
+      const [r, g, b] = current.fn(t);
+      barCtx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
+      barCtx.fillRect(0, py, w, 1);
+    }
+  }
+
+  function applyColormap(name) {
+    const m = findMap(name);
+    if (m === current) return;
+    current = m;
+    drawBar();
   }
 
   function drawTicks() {
@@ -290,6 +320,13 @@ export function createColorLegend({
       text.setAttribute('dominant-baseline', 'middle');
       text.setAttribute('font-size', '10');
       text.setAttribute('fill', 'currentColor');
+      // Halo: stroke the glyphs with the page background, painted under the fill,
+      // so labels stay legible over the figure without a panel behind them.
+      // Set via style (SVG presentation attributes don't resolve CSS var()).
+      text.style.stroke = BG;
+      text.style.strokeWidth = '2.5px';
+      text.style.paintOrder = 'stroke';
+      text.style.strokeLinejoin = 'round';
       text.textContent = fmt(v);
       svg.appendChild(text);
     }
@@ -361,11 +398,8 @@ export function createColorLegend({
     },
     getRange() { return { min: lo, max: hi }; },
     setColormap(name) {
-      const m = findMap(name);
-      if (m === current) return;
-      current = m;
-      drawBar();
-      if (popup) { closePopup(); }
+      applyColormap(name);
+      if (popup) closePopup();
     },
     getColormap() { return current.name; },
     isDiverging() { return !!current.diverging; },
