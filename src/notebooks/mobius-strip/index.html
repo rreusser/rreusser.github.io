@@ -275,6 +275,7 @@
     import { buildMeshBVH, raycastMesh, screenToRay } from './lib/ray-mesh.js';
     import { peelShaderCode, compositeShaderCode } from './peel-shaders.js';
     import { createPeelRenderer } from './peel-renderer.js';
+    import { createColorLegend } from './lib/color-legend.js';
   </script>
 
   <script id="gpu-context" type="text/x-typescript">
@@ -1104,9 +1105,10 @@
         case 'Bending stress':
           return { field: bendingStress(model, positions, params), mode: 1 };
         case 'Gaussian curvature':
-          // Near-zero for a developable (ruled) surface; signed (saddle vs dome),
-          // so use the diverging colormap (mode 2) centered at zero.
-          return { field: gaussianCurvature(model, positions), mode: 2 };
+          // Near-zero for a developable (ruled) surface; signed (saddle vs dome).
+          // The diverging colormap + symmetric range (chosen in onColorByChange)
+          // put zero on the neutral midpoint.
+          return { field: gaussianCurvature(model, positions), mode: 1 };
         case 'Mode amplitude': {
           if (modes && modes.modes.length > 0) {
             const idx = Math.min(Math.max(rp.modeIndex - 1, 0), modes.modes.length - 1);
@@ -1134,13 +1136,34 @@
       return isFinite(lo) ? [lo, hi] : undefined;
     }
 
+    // Color-scale state shared with the legend. `auto` re-fits the scale to the
+    // data each frame (and mirrors it onto the legend); once the user drags or
+    // zooms the legend, `auto` turns off and the pinned [min, max] holds. A
+    // signed field (Gaussian curvature) fits symmetrically about zero.
+    const colorScale = { auto: true, min: 0, max: 1 };
+    let colorLegend: any = null;
+    const isDivergingColorBy = () => state.renderParams.colorBy === 'Gaussian curvature';
+
+    // Resolve the color range for this frame. `autoField` is the field the auto
+    // fit measures (the peak-deflection field while a mode animates, so the scale
+    // does not pump as the oscillation crosses zero; the live field otherwise).
+    function resolveRange(autoField: Float64Array | null): [number, number] | undefined {
+      if (!colorScale.auto) return [colorScale.min, colorScale.max];
+      const r = scalarRange(autoField);
+      if (!r) return undefined;
+      let lo = r[0], hi = r[1];
+      if (isDivergingColorBy()) { const a = Math.max(Math.abs(lo), Math.abs(hi)) || 1e-20; lo = -a; hi = a; }
+      colorScale.min = lo; colorScale.max = hi;
+      if (colorLegend) colorLegend.setRange(lo, hi);
+      return [lo, hi];
+    }
+
     // The color field is always evaluated at the displayed `positions` (so values
-    // are per-frame), but an optional `range` pins the color scale. While a mode
-    // animates we pass the peak-deflection range so the scale stays fixed instead
-    // of rescaling (and amplifying noise) as the oscillation passes through zero.
+    // are per-frame). `autoField` (optional) pins the auto fit to a fixed field.
     let peakBuf = new Float32Array(0);
-    function pushDisplay(positions: Float32Array, range?: [number, number]) {
+    function pushDisplay(positions: Float32Array, autoField?: Float64Array | null) {
       const { field, mode } = currentScalar(positions);
+      const range = resolveRange(autoField !== undefined ? autoField : field);
       renderer.update(positions, field, mode, state.sim.params?.thickness ?? 0.03, range);
     }
 
@@ -1171,10 +1194,10 @@
         // zero, while the color values themselves remain per-frame.
         if (peakBuf.length !== dispX.length) peakBuf = new Float32Array(dispX.length);
         for (let i = 0; i < dispX.length; i++) peakBuf[i] = X[i] + rp.amplitude * shape[i];
-        const range = scalarRange(currentScalar(peakBuf).field);
+        const peakField = currentScalar(peakBuf).field;
         const a = rp.amplitude * Math.sin(state.anim.phase);
         for (let i = 0; i < dispX.length; i++) dispX[i] = X[i] + a * shape[i];
-        pushDisplay(dispX, range);
+        pushDisplay(dispX, peakField);
         return true;
       }
       if (state.staticDirty) {
@@ -1196,6 +1219,48 @@
 
     const container = html`<div style="position:relative;width:100%;height:100%"></div>`;
     container.appendChild(canvas);
+
+    // ParaView-style color-scale legend, lower-right of the figure. Dragging it
+    // pans the color scale and the mouse wheel zooms it; the palette button picks
+    // a different colormap. All three feed back into the rendered surface.
+    colorLegend = createColorLegend({
+      min: colorScale.min, max: colorScale.max,
+      colormap: 'turbo',
+      label: state.renderParams.colorBy,
+      onRangeChange: ({ min, max }: { min: number; max: number }) => {
+        colorScale.auto = false;
+        colorScale.min = min; colorScale.max = max;
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
+      onColormapChange: () => {
+        renderer.setColormap(colorLegend.getLUT());
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
+    });
+    colorLegend.element.style.right = '10px';
+    colorLegend.element.style.bottom = '10px';
+    container.appendChild(colorLegend.element);
+    // Seed the renderer's colormap LUT from the legend's initial colormap.
+    renderer.setColormap(colorLegend.getLUT());
+    invalidation.then(() => colorLegend.destroy());
+
+    // Switching "Color by" re-fits the scale (auto on) and picks a fitting
+    // colormap: diverging cool–warm for the signed Gaussian curvature, turbo for
+    // the non-negative stress/amplitude fields.
+    function onColorByChange() {
+      const cb = colorByInput.value as string;
+      colorScale.auto = true;
+      // Derive from the fresh input value: this listener runs before syncParams
+      // (which bubbles to the controls container) updates state.renderParams.
+      colorLegend.setColormap(cb === 'Gaussian curvature' ? 'coolwarm' : 'turbo');
+      colorLegend.setLabel(cb);
+      renderer.setColormap(colorLegend.getLUT());
+      state.staticDirty = true;
+      camera.triggerRepaint();
+    }
+    colorByInput.addEventListener('input', onColorByChange);
 
     camera.on('render', () => {
       if (!mainVisible) return;
@@ -1386,8 +1451,8 @@
         // status readout) is the same whether or not a vertex is being dragged.
         host.addEventListener('mousedown', (e: MouseEvent) => {
           if (e.button !== 0 || activeDrag || !enabled()) return;
-          // Let clicks on overlay controls (e.g. the restart button) through.
-          if ((e.target as HTMLElement).closest('button')) return;
+          // Let clicks on overlay controls (e.g. buttons, the color legend) through.
+          if ((e.target as HTMLElement).closest('button, .color-legend')) return;
           const v = pickVertex(cam, cnv, e.clientX, e.clientY);
           if (v < 0) return; // missed: let the camera handle it (rotate)
           e.preventDefault();
@@ -1513,10 +1578,11 @@
 
     By default the surface is colored by the peak bending fiber stress, which
     concentrates where the strip is forced to curve most sharply. "Color by" also
-    offers the membrane von Mises stress, a width gradient that makes the
-    one-sidedness visible (follow the band once around and the two edge colors
-    swap, since a Mobius strip has a single side and a single edge), and the
-    amplitude of the selected flexural mode, whose dark bands are its nodal lines.
+    offers the membrane von Mises stress, the Gaussian curvature (near zero for a
+    developable surface, shown on a diverging scale about zero), and the amplitude
+    of the selected flexural mode, whose dark bands are its nodal lines. The color
+    legend in the lower right shows the active scale: drag it to pan, scroll to
+    zoom in on a range of values, and use the palette button to switch colormaps.
 
     Smooth shading uses per-vertex normals built from the glued connectivity, so
     every vertex averages its full triangle ring. The surface is non-orientable,

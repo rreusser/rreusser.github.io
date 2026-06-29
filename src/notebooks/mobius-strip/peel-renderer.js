@@ -1,18 +1,21 @@
 // Transparent depth-peeling renderer for the Möbius strip views.
-// Used for both the intro figure (fixed blue, transparent) and the main
-// interactive figure (turbo scalar coloring, transparent background).
+// Used for both the intro figure (two-tone faces, transparent) and the main
+// interactive figure (scalar coloring through an uploadable colormap LUT).
 //
 // createPeelRenderer(device, canvasFormat, {peel, composite})
 //   .initMesh(model, initialPos, thickness)
-//   .update(femPos, femScalar, colorMode, thickness)
+//   .update(femPos, femScalar, colorMode, thickness, range?)
+//   .setColormap(uint8RGBA)   // 256×1 RGBA LUT for scalar coloring
 //   .render(gpuContext, params, camera, w, h, dirty)
 //
 // params: { opacity, specular, peelLayers }
-// colorMode: 0 = fixed steel-blue, 1 = turbo scalar field
+// colorMode: 0 = two-tone faces, 1 = scalar field via colormap LUT
+// range: optional [min, max] pinning the scalar color scale (else field min/max)
 
 const TUBE_SEGS = 8;
 const MAX_LAYERS = 6;
 const SAMPLES = 4;
+const CMAP_SIZE = 256;
 // Uniform layout (176 bytes):
 //   projection mat4(0), view mat4(64), eye vec3(128), pixelRatio f32(140),
 //   opacity f32(144), specular f32(148), scalarMin f32(152), scalarMax f32(156),
@@ -28,8 +31,30 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
+  // The colormap LUT (scalar coloring) and its sampler live in the uniform bind
+  // group alongside the uniform buffer, so every pipeline that binds group 0
+  // sees them. setColormap() rewrites the texture; until then it holds a
+  // grayscale ramp so scalar coloring is never an empty (black) texture.
+  const colormapTexture = device.createTexture({
+    size: [CMAP_SIZE, 1], format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  const colormapSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+  {
+    const ramp = new Uint8Array(CMAP_SIZE * 4);
+    for (let i = 0; i < CMAP_SIZE; i++) {
+      const v = Math.round(255 * i / (CMAP_SIZE - 1));
+      ramp[i * 4] = v; ramp[i * 4 + 1] = v; ramp[i * 4 + 2] = v; ramp[i * 4 + 3] = 255;
+    }
+    device.queue.writeTexture({ texture: colormapTexture }, ramp, { bytesPerRow: CMAP_SIZE * 4 }, { width: CMAP_SIZE, height: 1 });
+  }
+
   const uniformBGL = device.createBindGroupLayout({
-    entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }],
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+    ],
   });
   const depthBGL = device.createBindGroupLayout({
     entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth', multisampled: true } }],
@@ -40,14 +65,22 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
 
   const uniformBindGroup = device.createBindGroup({
     layout: uniformBGL,
-    entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+    entries: [
+      { binding: 0, resource: { buffer: uniformBuffer } },
+      { binding: 1, resource: colormapTexture.createView() },
+      { binding: 2, resource: colormapSampler },
+    ],
   });
 
-  // Surface uses 3 vertex buffers: pos, normal, aux(sv+scalar)
+  function setColormap(rgba) {
+    device.queue.writeTexture({ texture: colormapTexture }, rgba, { bytesPerRow: CMAP_SIZE * 4 }, { width: CMAP_SIZE, height: 1 });
+  }
+
+  // Surface uses 3 vertex buffers: pos, normal, aux(sv, scalar, face)
   const vLayoutSurface = [
     { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
     { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
-    { arrayStride: 8,  attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x2' }] },
+    { arrayStride: 12, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x3' }] },
   ];
   // Tube uses 2 vertex buffers: pos, normal (no aux)
   const vLayoutTube = [
@@ -177,7 +210,7 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
     surfaceCornerCount = 2 * nTMesh * 3 + 12 * nu;
     surfacePosF = new Float32Array(surfaceCornerCount * 3);
     surfaceNrmF = new Float32Array(surfaceCornerCount * 3);
-    surfaceAuxF = new Float32Array(surfaceCornerCount * 2);
+    surfaceAuxF = new Float32Array(surfaceCornerCount * 3);
     surfacePosBuffer = device.createBuffer({
       size: surfacePosF.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
@@ -300,18 +333,17 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
       // else keep the central-difference reference already in vNrm
     }
 
-    // Scalar range for the colormap. An explicit `range` (e.g. from the peak
-    // deflection of an animated mode) holds the scale fixed across frames;
-    // otherwise it is taken from the field's own min/max. For the diverging mode
-    // (colorMode 2, a signed field like Gaussian curvature) the range is forced
-    // symmetric about zero so zero lands on the neutral midpoint.
+    // Scalar range for the colormap. An explicit `range` (from the legend, or
+    // the peak deflection of an animated mode) holds the scale fixed across
+    // frames; otherwise it is taken from the field's own min/max. Any symmetry
+    // (e.g. a signed field centered on zero) is the caller's choice, baked into
+    // the `range` it passes.
     if (femScalar && colorMode > 0) {
-      let lo, hi;
       if (range) {
-        lo = range[0];
-        hi = range[1] > range[0] ? range[1] : range[0] + 1e-20;
+        scalarMin = range[0];
+        scalarMax = range[1] > range[0] ? range[1] : range[0] + 1e-20;
       } else {
-        lo = Infinity; hi = -Infinity;
+        let lo = Infinity, hi = -Infinity;
         for (let v = 0; v < Nv; v++) {
           const sv = femScalar[v];
           if (sv < lo) lo = sv;
@@ -319,11 +351,6 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
         }
         if (!isFinite(lo)) { lo = 0; hi = 1; }
         else if (!(hi > lo)) hi = lo + 1e-20;
-      }
-      if (colorMode > 1.5) {
-        const a = Math.max(Math.abs(lo), Math.abs(hi)) || 1e-20;
-        scalarMin = -a; scalarMax = a;
-      } else {
         scalarMin = lo; scalarMax = hi;
       }
     } else {
@@ -352,8 +379,10 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
         const rx = vNrm[p], ry = vNrm[p+1], rz = vNrm[p+2];
         surfacePosF[o3] = femPos[p]+hh*posS*rx; surfacePosF[o3+1] = femPos[p+1]+hh*posS*ry; surfacePosF[o3+2] = femPos[p+2]+hh*posS*rz;
         surfaceNrmF[o3] = s*rx; surfaceNrmF[o3+1] = s*ry; surfaceNrmF[o3+2] = s*rz;
-        surfaceAuxF[o2] = svVert[v]; surfaceAuxF[o2+1] = femScalar ? femScalar[v] : 0;
-        o3 += 3; o2 += 2;
+        // face = 1 for this (+offset) face. The half-twist carries it into the
+        // −offset face across the seam, so the two tones meet on one surface.
+        surfaceAuxF[o2] = svVert[v]; surfaceAuxF[o2+1] = femScalar ? femScalar[v] : 0; surfaceAuxF[o2+2] = 1;
+        o3 += 3; o2 += 3;
       }
     }
 
@@ -369,8 +398,8 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
         const rx = vNrm[p], ry = vNrm[p+1], rz = vNrm[p+2];
         surfacePosF[o3] = femPos[p]-hh*posS*rx; surfacePosF[o3+1] = femPos[p+1]-hh*posS*ry; surfacePosF[o3+2] = femPos[p+2]-hh*posS*rz;
         surfaceNrmF[o3] = -s*rx; surfaceNrmF[o3+1] = -s*ry; surfaceNrmF[o3+2] = -s*rz;
-        surfaceAuxF[o2] = svVert[v]; surfaceAuxF[o2+1] = femScalar ? femScalar[v] : 0;
-        o3 += 3; o2 += 2;
+        surfaceAuxF[o2] = svVert[v]; surfaceAuxF[o2+1] = femScalar ? femScalar[v] : 0; surfaceAuxF[o2+2] = 0;
+        o3 += 3; o2 += 3;
       }
     }
 
@@ -402,10 +431,13 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
         aTopX,aTopY,aTopZ, bTopX,bTopY,bTopZ, bBotX,bBotY,bBotZ,
         aTopX,aTopY,aTopZ, bBotX,bBotY,bBotZ, aBotX,aBotY,aBotZ,
       ];
-      for (let j = 0; j < 6; j++, o3 += 3, o2 += 2) {
+      // Per-corner face flag: top corners = 1, bottom corners = 0, so the rim
+      // gradients across the thickness from the warm face to the cool face.
+      const cornerFace = [1, 1, 0, 1, 0, 0];
+      for (let j = 0; j < 6; j++, o3 += 3, o2 += 3) {
         surfacePosF[o3] = corners[j*3]; surfacePosF[o3+1] = corners[j*3+1]; surfacePosF[o3+2] = corners[j*3+2];
         surfaceNrmF[o3] = rnx; surfaceNrmF[o3+1] = rny; surfaceNrmF[o3+2] = rnz;
-        surfaceAuxF[o2] = svMid; surfaceAuxF[o2+1] = 0;
+        surfaceAuxF[o2] = svMid; surfaceAuxF[o2+1] = 0; surfaceAuxF[o2+2] = cornerFace[j];
       }
     }
 
@@ -481,9 +513,9 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
     device.queue.writeBuffer(wirePosBuffer, 0, wirePosF);
   }
 
-  function update(femPos, femScalar, colorMode, thickness) {
+  function update(femPos, femScalar, colorMode, thickness, range) {
     if (!trisMesh) return;
-    _rebuild(femPos, femScalar, colorMode, thickness);
+    _rebuild(femPos, femScalar, colorMode, thickness, range);
   }
 
   function ensureTextures(w, h) {
@@ -660,5 +692,5 @@ export function createPeelRenderer(device, canvasFormat, shaderCodes) {
     return true;
   }
 
-  return { initMesh, update, render };
+  return { initMesh, update, render, setColormap };
 }

@@ -1,6 +1,9 @@
 // Depth-peeling shaders for the Möbius strip transparent views.
 // Surface: two-sided Blinn-Phong with specular + Fresnel, premultiplied alpha.
-// Supports fixed light-blue (colorMode=0), turbo scalar (1), or diverging scalar (2).
+// Coloring is either two-tone faces (colorMode=0, used by the hero figure to
+// dramatize the one-sided topology) or a scalar field sampled through an
+// uploadable colormap LUT (colorMode=1). The LUT lets the legend's colormap
+// selector drive the surface colors without baking any palette into the shader.
 // Centerline tube: dark matte with specular highlight.
 // Composite: back-to-front premultiplied alpha blend of peeled layers.
 
@@ -14,34 +17,37 @@ struct Uniforms {
   specular   : f32,           // 148
   scalarMin  : f32,           // 152
   scalarMax  : f32,           // 156
-  colorMode  : f32,           // 160  0=fixed blue, 1=turbo, 2=diverging
+  colorMode  : f32,           // 160  0=two-tone faces, 1=scalar LUT
   _pad0      : f32,           // 164
   _pad1      : f32,           // 168
   _pad2      : f32,           // 172
 };                             // Total: 176 bytes (multiple of 16)
 @group(0) @binding(0) var<uniform> u : Uniforms;
+@group(0) @binding(1) var cmapTex : texture_2d<f32>;
+@group(0) @binding(2) var cmapSamp : sampler;
 @group(1) @binding(0) var prevDepth : texture_depth_multisampled_2d;
 
 struct VSOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) world     : vec3<f32>,
   @location(1) normal    : vec3<f32>,
-  @location(2) sv        : f32,
-  @location(3) scalar    : f32,
+  @location(2) scalar    : f32,
+  @location(3) face       : f32,
 };
 
-// Surface vertex shader — has aux: x=sv (width parameter), y=scalar
+// Surface vertex shader — aux: x=sv (width parameter, unused here), y=scalar,
+// z=face flag (1 = +offset face, 0 = −offset face, 0.5 = rim).
 @vertex
 fn vs(
   @location(0) pos    : vec3<f32>,
   @location(1) normal : vec3<f32>,
-  @location(2) aux    : vec2<f32>,
+  @location(2) aux    : vec3<f32>,
 ) -> VSOut {
   var o : VSOut;
   o.world  = pos;
   o.normal = normal;
-  o.sv     = aux.x;
   o.scalar = aux.y;
+  o.face   = aux.z;
   o.pos    = u.projection * u.view * vec4<f32>(pos, 1.0);
   return o;
 }
@@ -55,8 +61,8 @@ fn vsTube(
   var o : VSOut;
   o.world  = pos;
   o.normal = normal;
-  o.sv     = 0.0;
   o.scalar = 0.0;
+  o.face   = 0.0;
   o.pos    = u.projection * u.view * vec4<f32>(pos, 1.0);
   return o;
 }
@@ -70,26 +76,7 @@ fn lightDir() -> vec3<f32> {
   ));
 }
 
-fn turbo(t : f32) -> vec3<f32> {
-  let x = clamp(t, 0.0, 1.0);
-  let r = 0.13572138 + x*(4.61539260 + x*(-42.66032258 + x*(132.13108234 + x*(-152.94239396 + x*59.28637943))));
-  let g = 0.09140261 + x*(2.19418839 + x*( 4.84296658 + x*(-14.18503333 + x*(  4.27729857 + x* 2.82956604))));
-  let b = 0.10667330 + x*(12.64194608 + x*(-60.58204836 + x*(110.36276771 + x*(-89.90310912 + x*27.34824973))));
-  return clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0));
-}
-
-// Coolwarm diverging map for signed fields (e.g. Gaussian curvature): blue for
-// negative, near-white at zero (t = 0.5), red for positive.
-fn diverging(t : f32) -> vec3<f32> {
-  let x = clamp(t, 0.0, 1.0);
-  let lo  = vec3<f32>(0.23, 0.30, 0.75);
-  let mid = vec3<f32>(0.95, 0.95, 0.95);
-  let hi  = vec3<f32>(0.71, 0.09, 0.16);
-  if (x < 0.5) { return mix(lo, mid, x * 2.0); }
-  return mix(mid, hi, (x - 0.5) * 2.0);
-}
-
-fn shadeSurface(world : vec3<f32>, rawNormal : vec3<f32>, sv : f32, sc : f32) -> vec4<f32> {
+fn shadeSurface(world : vec3<f32>, rawNormal : vec3<f32>, sc : f32, face : f32) -> vec4<f32> {
   let V = normalize(u.eye - world);
   let N = select(-normalize(rawNormal), normalize(rawNormal), dot(rawNormal, V) > 0.0);
   let L = lightDir();
@@ -99,19 +86,18 @@ fn shadeSurface(world : vec3<f32>, rawNormal : vec3<f32>, sv : f32, sc : f32) ->
   let NdotH = max(dot(N, H), 0.0);
 
   var base : vec3<f32>;
-  if (u.colorMode > 1.5) {
-    // Diverging scalar colormap (signed field; scalarMin/Max are symmetric so
-    // zero maps to the neutral midpoint).
+  if (u.colorMode > 0.5) {
+    // Scalar field through the uploaded colormap LUT.
     let denom = max(u.scalarMax - u.scalarMin, 1e-20);
-    base = diverging(clamp((sc - u.scalarMin) / denom, 0.0, 1.0));
-  } else if (u.colorMode > 0.5) {
-    // Turbo scalar colormap
-    let denom = max(u.scalarMax - u.scalarMin, 1e-20);
-    base = turbo(clamp((sc - u.scalarMin) / denom, 0.0, 1.0));
+    let t = clamp((sc - u.scalarMin) / denom, 0.0, 1.0);
+    base = textureSampleLevel(cmapTex, cmapSamp, vec2<f32>(t, 0.5), 0.0).rgb;
   } else {
-    // Width gradient: cerulean → marine, two-sided independent of orientation.
-    // Following the single Möbius edge once around shows the colour swap.
-    base = mix(vec3<f32>(0.54, 0.72, 1.00), vec3<f32>(0.26, 0.50, 0.90), clamp(sv, 0.0, 1.0));
+    // Two-tone faces: a warm and a cool tone on the strip's two offset faces.
+    // The half-twist carries one face into the other across the seam, so
+    // following the band shows the two colors meet on a single surface.
+    let warm = vec3<f32>(0.96, 0.62, 0.30);
+    let cool = vec3<f32>(0.28, 0.52, 0.88);
+    base = mix(cool, warm, clamp(face, 0.0, 1.0));
   }
 
   let ambient  = 0.28;
@@ -141,12 +127,12 @@ fn shadeTube(world : vec3<f32>, rawNormal : vec3<f32>) -> vec4<f32> {
 }
 
 @fragment fn fsFirst(in : VSOut) -> @location(0) vec4<f32> {
-  return shadeSurface(in.world, in.normal, in.sv, in.scalar);
+  return shadeSurface(in.world, in.normal, in.scalar, in.face);
 }
 @fragment fn fsPeel(in : VSOut, @builtin(sample_index) si : u32) -> @location(0) vec4<f32> {
   let prev = textureLoad(prevDepth, vec2<i32>(in.pos.xy), i32(si));
   if (in.pos.z <= prev + 1e-6) { discard; }
-  return shadeSurface(in.world, in.normal, in.sv, in.scalar);
+  return shadeSurface(in.world, in.normal, in.scalar, in.face);
 }
 @fragment fn fsFirstTube(in : VSOut) -> @location(0) vec4<f32> {
   return shadeTube(in.world, in.normal);
