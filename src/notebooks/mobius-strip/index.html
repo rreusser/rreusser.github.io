@@ -339,13 +339,9 @@
     builds ${tex`K`}: it needs only the products ${tex`K v`}, formed by
     finite-differencing the gradient, and finds ${tex`p`} with an inner
     conjugate-gradient loop. The second assembles ${tex`K`} as a banded matrix and
-    solves that system directly with the banded Cholesky routine
-    ${tex`\texttt{dpbsv}`}. Both settle into a slightly lower, smoother minimum
-    than L-BFGS at higher cost, and the banded solve is the slowest of the three,
-    since the strip's energy is far from convex away from rest and the assembled
-    matrix needs heavy damping to stay solvable. It is kept mainly because it
-    runs the same kind of translated Fortran linear algebra, a direct banded
-    factorization, that the eigensolver below relies on.
+    solves ${tex`K p = -\nabla E`} directly with the banded Cholesky routine
+    ${tex`\texttt{dpbsv}`} — the same kind of direct banded factorization the
+    eigensolver below relies on.
   </script>
 
   <script id="theory-bending" type="text/markdown">
@@ -366,14 +362,14 @@
   <script id="theory-modes" type="text/markdown">
     ## Getting it to run in a browser
 
-    None of this comes for free in a web page, and the Möbius topology adds a
-    twist of its own. Gluing the two ends of the mesh together connects vertices
-    that started out far apart, which (in the obvious numbering) smears ${tex`K`}
-    into a wide band and makes the solvers crawl. Renumbering the vertices so the
-    glued partners sit next to each other pulls everything back into a narrow
-    band, and that is what lets the banded routines above stay fast. Small fixes
-    like this, multiplied across every routine, are most of the work of carrying
-    forty-year-old Fortran into a setting it was never written for.
+    None of this comes for free in a web page, and the Möbius topology makes it
+    harder. Gluing the two ends of the mesh together connects vertices that started
+    out far apart, so in the obvious numbering the stiffness matrix ${tex`K`} spreads
+    into a wide band and the solvers crawl. Renumbering the vertices so the glued
+    partners sit next to each other pulls it back into a narrow band, which is what
+    keeps the banded routines fast. Small fixes like this, one routine at a time, are
+    most of the work of carrying forty-year-old Fortran into a setting it was never
+    written for.
 
     That narrow band is also where the approach stops short: a banded solver still
     grinds through every entry inside the band, and most of them are zero. A proper
@@ -496,10 +492,11 @@
 
   <script id="theory-modes-run" type="text/markdown">
     And it works. The strip below was relaxed, and its modes computed, entirely in
-    your browser. Drag a vertex and it re-settles in real time; switch to a
-    flexural mode and you are watching solutions of the eigenproblem above. That
-    is the whole point. Once the tedious translation is unlocked, you get to make
-    things, and bend them with your mouse.
+    your browser. Drag a vertex and it re-settles in real time; recolor it by stress
+    or curvature, change its thickness, or switch to a flexural mode and watch a
+    solution of the eigenproblem above. This is the part I was after: once the
+    translation is done, the solver is just there, and you can build something and
+    bend it with your mouse.
   </script>
 
   <script id="controls" type="text/x-typescript">
@@ -1757,32 +1754,6 @@
     camera.triggerRepaint();
   </script>
 
-  <script id="notes" type="text/markdown">
-    ## Reading the picture
-
-    By default the surface is colored by the peak bending fiber stress, which
-    concentrates where the strip is forced to curve most sharply. "Color by" also
-    offers the membrane von Mises stress, the Gaussian curvature (near zero for a
-    developable surface, shown on a diverging scale about zero), and the amplitude
-    of the selected flexural mode, whose dark bands are its nodal lines. The color
-    legend in the lower right shows the active scale: drag it to pan, scroll to
-    zoom in on a range of values, double-click to rescale to the data, and use the
-    palette button to switch colormaps.
-
-    Smooth shading uses per-vertex normals built from the glued connectivity, so
-    every vertex averages its full triangle ring. The surface is non-orientable,
-    so no globally consistent normal exists, but the tangent plane is continuous
-    everywhere and the lighting is two-sided, so the strip renders smoothly all
-    the way around with no seam.
-
-    The membrane stiffness is several orders of magnitude larger than the bending
-    stiffness, so the relaxed shape is nearly inextensible: it bends rather than
-    stretches, as a real strip of paper or metal would. Increasing the thickness
-    stiffens bending relative to stretching and rounds out the shape; thin strips
-    develop the sharper, more localized bend of the classical inextensible Mobius
-    band.
-  </script>
-
   <script id="numerics-note" type="text/markdown">
     ## Accuracy
 
@@ -1799,18 +1770,18 @@ ${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
   </script>
 
   <script id="coda" type="text/markdown">
-    ## Mass production
+    ## Where this leaves me
 
-    The strip was never really the point. The point is that the wall between "I can
-    picture this computation" and "it runs in a browser tab" has quietly come down.
-    The decades of Fortran under NumPy and MATLAB can be translated on demand, one
-    verified module at a time: ask for a banded generalized eigensolver, run it against
-    the reference until the numbers agree, and keep the result. What used to be a
-    career's worth of careful porting starts to look more like a supply chain.
+    The part I keep coming back to is that all of it ran here, in the browser — no
+    server, no Python, no black box. The same numerics that sit under NumPy and MATLAB,
+    translated to JavaScript and checked against the Fortran until the numbers matched,
+    doing real work in a tab.
 
-    That is exhilarating, and a little uneasy. The same process that produced this one
-    strip scales to the whole library — which only sharpens the old question of who is
-    left to check the work.
+    I find that exciting, and a little uneasy. Translating one banded eigensolver by
+    hand used to be a serious undertaking; now it is close to routine, so the rest of
+    the library is within reach too — and I am honestly not sure who is left to check
+    that all of it is right. But for one Möbius strip I can bend with my mouse, I am
+    glad I did it.
 
     <figure>
       <img alt="Human batteries in the machine world from The Matrix (1999)" src="matrix.webp">
