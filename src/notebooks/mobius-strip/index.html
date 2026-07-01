@@ -134,7 +134,7 @@
 
     This struck a nerve for a couple reasons. First, I spent lots of time in school computing equilibrium shapes and bending modes in rods, bars, plates, etc. [Details of whatever I did](thesis.pdf) are mostly lost to the sands of time, but the mechanics of materials remains close to my heart.
 
-    Second, a trend I noticed in school is that we would spend weeks, sometimes months, laboring over problems we didn't understand. In my view, the tools were failing to make the problems tangible in the way I knew they could. Rather than results and stastistics at the end of a computation, I wanted to interact with the problems directly and gain enough confidence in my intuitive grasp of the problem to believe the results.
+    Second, a trend I noticed in school is that we would spend weeks, sometimes months, laboring over problems we didn't understand. In my view, the tools were failing to make the problems tangible in the way I knew they could. Rather than results and statistics at the end of a computation, I wanted to interact with the problems directly and gain enough confidence in my intuitive grasp of the problem to believe the results.
 
     A quote from Bret Victor captures what I believe was left on the table as a result:
 
@@ -145,7 +145,7 @@
 
     My lukewarm take, having accomplished little to significantly improve the situation, is that fifteen years later not much has changed.
 
-    While I listened to the episode, I felt strangely compelled to compute the equilibrium shape an bending modes of a Möbius strip. Bending modes are an eigenvalue problem. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a large matrix? Well, good luck. Unless you rely on someone to host a Python-based notebook in an environment like [Colab](https://colab.research.google.com/), you'll probably have to [compile Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), if you can manage.
+    While I listened to the episode, I felt strangely compelled to compute the equilibrium shape and bending modes of a Möbius strip. Bending modes are an eigenvalue problem. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a large matrix? Well, good luck. Unless you rely on someone to host a Python-based notebook in an environment like [Colab](https://colab.research.google.com/), you'll probably have to [compile Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), if you can manage.
 
     That's no jab at the people who have put in an immense amount of work into these problems. It's genuinely challenging, stubborn work. My sense has always been that there's no hope but to translate Fortran-based LAPACK (which still powers [NumPy](https://numpy.org/), by the way) into idiomatic JavaScript. But apart from all the other concerns, LAPACK's heavy use of `goto` makes translation to modern control flow particularly difficult. Maybe I lacked imagination or insight, but the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) which told me it was all trivially feasible didn't actually help me get the job done.
 
@@ -242,7 +242,7 @@
     sheet means solving large systems of equations over and over. Finding the
     modes means solving an eigenvalue problem. In Python this is a non-event:
     SciPy hands the matrices to LAPACK, the Fortran library that has quietly sat
-    under numpy, MATLAB, and most scientific computing for forty years. In the
+    under NumPy, MATLAB, and most scientific computing for forty years. In the
     browser there is nothing of the kind.
 
     The obvious workaround is to compile a C++ library to WebAssembly, and I did
@@ -1679,22 +1679,19 @@ ${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
   </script>
 
   <script id="solver-note" type="text/markdown">
-    ## Under the hood: sparsity and solvers
+    ## The sparsity pattern
 
-    The flexural modes solve the generalized eigenproblem ${tex`K\phi = \omega^2 M\phi`}
-    for the stiffness ${tex`K`} (the Hessian of the elastic energy) and the lumped
-    mass ${tex`M`}. ${tex`K`} is sparse — each vertex couples only to the handful of
-    others it shares a triangle or bending hinge with — but in the natural vertex
-    ordering the Möbius seam (the last column glued to the first, with a flip) ties
-    together vertices that are far apart in the index, so the nonzeros sprawl into a
-    very wide band. Interleaving the columns as ${tex`(0, n_u{-}1, 1, n_u{-}2, \dots)`}
-    puts each seam partner next to its mate and collapses the bandwidth dramatically.
-    That narrow band is what lets us hand the problem to LAPACK's *banded* routines
-    instead of the dense ones, turning an ${tex`O(n^3)`} reduction into ${tex`O(n\,b^2)`}.
+    That renumbering is worth seeing directly. The stiffness ${tex`K`} is sparse — each
+    vertex couples only to the few others it shares a triangle or bending hinge with —
+    but in the natural numbering the Möbius seam links vertices that sit far apart in
+    the index, scattering those couplings into a wide band. Interleaving the columns so
+    each seam partner sits beside its mate pulls them back into a tight one, and only
+    the tight band is cheap enough for LAPACK's banded routines, which turn an
+    ${tex`O(n^3)`} reduction into ${tex`O(n\,b^2)`}.
 
-    The spy plots below show the same matrix in both orderings (the second is what we
-    actually feed to the solver). Drag the resolution sliders to watch the pattern,
-    bandwidth, and density update with the mesh:
+    The plots show the same matrix both ways — the second is the ordering actually
+    handed to the solver. Drag the resolution sliders to watch the pattern, bandwidth,
+    and density track the mesh:
   </script>
 
   <script id="spy-controls" type="text/x-typescript">
@@ -1833,15 +1830,14 @@ ${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
 
     The strip was never really the point. The point is that the wall between "I can
     picture this computation" and "it runs in a browser tab" has quietly come down.
-    The decades of Fortran that still power NumPy and MATLAB can be translated, one
-    verified module at a time, on demand. A career's worth of careful porting starts
-    to look less like scholarship and more like a supply chain: ask for a banded
-    generalized eigensolver, let it run against the reference until the numerics
-    agree, and harvest the result.
+    The decades of Fortran under NumPy and MATLAB can be translated on demand, one
+    verified module at a time: ask for a banded generalized eigensolver, run it against
+    the reference until the numbers agree, and keep the result. What used to be a
+    career's worth of careful porting starts to look more like a supply chain.
 
-    It is exhilarating, and a little uneasy. The same ease that grew this one strip
-    will grow the machinery wholesale, with all the usual questions of mass
-    production about who is left to inspect the crop.
+    That is exhilarating, and a little uneasy. The same process that produced this one
+    strip scales to the whole library — which only sharpens the old question of who is
+    left to check the work.
 
     <figure>
       <img alt="Human batteries in the machine world from The Matrix (1999)" src="matrix.webp">
