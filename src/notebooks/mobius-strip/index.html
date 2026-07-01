@@ -130,47 +130,49 @@
   </script>
 
   <script id="motivation-paper" type="text/markdown">
-    In a 2025 episode of the Quanta Magazine podcast The Joy of Why, [Does Form Really Shape Function?](https://www.quantamagazine.org/does-form-really-shape-function-20250612/), host Steven Strogatz recalls that the first work of guest [L. Mahadevan](https://www.physics.harvard.edu/people/facpages/mahadevan) with which he's acquainted is Mahadevan's graduate school analysis of the equilibrium shape of an elastic Möbius strip. Strogatz finds the work particularly charming because compared to the *topology*, no one talks very much about the *geometry* of Möbius strips.
+    In a 2025 episode of the Quanta Magazine podcast *The Joy of Why*, [Does Form Really Shape Function?](https://www.quantamagazine.org/does-form-really-shape-function-20250612/), host Steven Strogatz recalls that the first thing he knew his guest [L. Mahadevan](https://www.physics.harvard.edu/people/facpages/mahadevan) for was a graduate-school analysis of the equilibrium shape of an elastic Möbius strip. Strogatz finds it charming because, compared to the *topology*, hardly anyone talks about the *geometry* of Möbius strips.
 
-    This struck a nerve for a couple reasons. First, I spent lots of time in school computing equilibrium shapes and bending modes in rods, bars, plates, etc. [Details of whatever I did](thesis.pdf) are mostly lost to the sands of time, but the mechanics of materials remains close to my heart.
+    This struck a nerve for a couple reasons. First, I spent a lot of time in school computing equilibrium shapes and bending modes in rods, bars, plates, and the like. [The details of what I did](thesis.pdf) are mostly lost to me now, but the mechanics of materials stuck with me.
 
-    Second, a trend I noticed in school is that we would spend weeks, sometimes months, laboring over problems we didn't understand. In my view, the tools were failing to make the problems tangible in the way I knew they could. Rather than results and statistics at the end of a computation, I wanted to interact with the problems directly and gain enough confidence in my intuitive grasp of the problem to believe the results.
+    Second, a lot of school was spent laboring for weeks, sometimes months, over problems we didn't really understand. The tools weren't making them tangible the way I knew they could be. I didn't want results and statistics at the end of a computation; I wanted to interact with the problem directly, until I understood it well enough to trust the answer.
 
-    A quote from Bret Victor captures what I believe was left on the table as a result:
+    Bret Victor captures what gets lost:
 
     <blockquote class="quote">
       <p>If there is any delay in that feedback loop between thinking of something and seeing it and building on it, then there is this whole world of ideas which will never be.</p>
       <p class="quote__attribution">Bret Victor, <cite><a href="https://jamesclear.com/great-speeches/inventing-on-principle-by-bret-victor">Inventing on Principle</a></cite></p>
     </blockquote>
 
-    My lukewarm take, having accomplished little to significantly improve the situation, is that fifteen years later not much has changed.
+    Fifteen years later, having done little about it myself, I don't think much has changed.
 
     While I listened to the episode, I felt strangely compelled to compute the equilibrium shape and bending modes of a Möbius strip. Bending modes are an eigenvalue problem. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a large matrix? Well, good luck. Unless you rely on someone to host a Python-based notebook in an environment like [Colab](https://colab.research.google.com/), you'll probably have to [compile Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), if you can manage.
 
-    That's no jab at the people who have put in an immense amount of work into these problems. It's genuinely challenging, stubborn work. My sense has always been that there's no hope but to translate Fortran-based LAPACK (which still powers [NumPy](https://numpy.org/), by the way) into idiomatic JavaScript. But apart from all the other concerns, LAPACK's heavy use of `goto` makes translation to modern control flow particularly difficult. Maybe I lacked imagination or insight, but the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) which told me it was all trivially feasible didn't actually help me get the job done.
+    That's no jab at the people who have put an immense amount of work into these problems. It's genuinely challenging, stubborn work. My sense has always been that there's no hope but to translate Fortran-based LAPACK (which still powers [NumPy](https://numpy.org/), by the way) into idiomatic JavaScript. But LAPACK's heavy use of `goto` makes translation to modern control flow especially hard. Maybe I lacked imagination or insight, but the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) telling me it was all trivially feasible didn't actually help me get the job done.
 
     <figure>
       <img alt="XKCD #292" src="https://imgs.xkcd.com/comics/goto.png">
       <figcaption>Obligatory <a href="https://m.xkcd.com/292/">XKCD #292</a>. How bad can thousands of little <code>gotos</code> be?</figcaption>
     </figure>
 
-    Enter [Stdlib](https://github.com/stdlib-js/stdlib), the only project I'm aware of which takes rigorous numerical analysis in JavaScript seriously. I [contributed](https://github.com/stdlib-js/stdlib/pull/4789) [translations](https://github.com/stdlib-js/stdlib/pull/4703) of a [number](https://github.com/stdlib-js/stdlib/pull/4725) of [modules](https://github.com/stdlib-js/stdlib/pull/4738) by [hand](https://github.com/stdlib-js/stdlib/pull/4772). I believe the greater project shows a lot of promise, but I wasn't on pace to finish the translation task before about 2050, and I gave up. I tried translating modules by hand. I tried to write programs to automate the translation. I tried waiting for someone else to find a clever workaround. None of it has happened.
+    Enter [Stdlib](https://github.com/stdlib-js/stdlib), the only project I'm aware of that takes rigorous numerical analysis in JavaScript seriously. I [contributed](https://github.com/stdlib-js/stdlib/pull/4789) [translations](https://github.com/stdlib-js/stdlib/pull/4703) of a [number](https://github.com/stdlib-js/stdlib/pull/4725) of [modules](https://github.com/stdlib-js/stdlib/pull/4738) by [hand](https://github.com/stdlib-js/stdlib/pull/4772). I think the project shows real promise, but at my rate I wouldn't have finished the translation before about 2050, and I gave up. I tried translating modules by hand. I tried to write programs to automate it. I tried waiting for someone else to find a clever workaround. None of it panned out.
 
-    I might lose some readers here, but earlier this year, I threw Claude Code at improving my program for automated translation. This was a program which would parse Fortran into an Abstract Syntax Tree (AST), apply a sequence of transformations to the AST, convert the Fortran AST to a JavaScript AST, and finally produce JavaScript code as output. I thought the tight feedback loop between translation machinery and verifiable output was a recipe for success, but Claude politely informed me that my work was only impeding its ability to ingest Fortran code and produce JavaScript code directly.
+    I might lose some readers here, but earlier this year I threw Claude Code at improving my automated translator. It parsed Fortran into an abstract syntax tree, ran a sequence of transformations, converted that to a JavaScript syntax tree, and emitted code. I thought that pipeline, with its tight loop between machinery and verifiable output, was the right idea. Claude politely informed me it was mostly getting in the way of reading the Fortran and writing the JavaScript directly.
 
-    I resisted, but darn it if it wasn't right. For the first time ever, I could ask for code which computes the generalized eigenvalues of a real-valued matrix, let it churn through LAPACK modules, running Fortran and generated JavaScript side by side until the numerics match, and then directly confirm that the resulting output solves the requested problem.
+    I resisted, but darn it if it wasn't right. For the first time, I could ask for something like the generalized eigenvalues of a real matrix, let it work through the LAPACK modules — running Fortran and the generated JavaScript side by side until the numbers matched — and confirm the result actually solved the problem I'd asked for.
 
-    With a coherent strategy for translating these modules, I looked for some
-    different problems to solve. It made pretty short work of Nakatsukasa, Sète, and Trefethen's [AAA Algorithm for Rational Approximation](https://arxiv.org/abs/1612.00337). This in particular was one that really caused me some problems
-    since a generalized eigenvalue solver was hard to come by. 
+    With a working approach, I went looking for other problems. It made short work of
+    Nakatsukasa, Sète, and Trefethen's [AAA algorithm for rational approximation](https://arxiv.org/abs/1612.00337) —
+    one that had stumped me before, since it needs a generalized eigenvalue solver I
+    never had.
 
-    This notebook ticks off the elastic Mobius strip, which was another problem
-    that screamed at me: oh, that requires a proper eigenvalue solver.
+    This notebook is the elastic Möbius strip: another problem I'd long filed under
+    "needs a real eigenvalue solver."
 
-    There's more history to this problem than just throwing a numerical solver at it.
-    Sadowsky [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy
-    minimization problem in 1930. Mahadevan and Keller in [The Shape of a Mobius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf) solved it properly in 1993,
-    treating the band as a thin elastic rod and matching their computed centerline.
+    There's more to this problem than throwing a solver at it. Sadowsky
+    [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy-minimization
+    problem in 1930. Mahadevan and Keller solved it properly in 1993 in [The Shape of a
+    Möbius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf),
+    treating the band as a thin elastic rod and computing its centerline.
   </script>
 
   <script id="motivation-js" type="text/markdown">
@@ -251,11 +253,10 @@
     by hand across the JavaScript and WebAssembly boundary never felt ergonomic
     enough to see through.
 
-    So the route that finally worked is the gap the first half of this story is
-    about. The solvers running below are the AI-assisted translations of that
-    Fortran, checked number for number against the reference. The whole
-    computation happens in the page you are reading: no server, no Python, no
-    WebAssembly black box.
+    What finally worked was translation, not compilation. The solvers running below
+    are AI-assisted translations of that Fortran, checked number for number against
+    the reference. The whole computation happens in the page you are reading: no
+    server, no Python, no WebAssembly black box.
   </script>
 
   <script id="imports" type="text/x-typescript">
@@ -1755,18 +1756,17 @@
   </script>
 
   <script id="numerics-note" type="text/markdown">
-    ## Accuracy
+    ## Is it right?
 
-    These checks verify both the FEM code and the translated solver. The analytic
-    energy gradient is verified against central differences to about
-    ${tex`10^{-10}`} relative error, the energy is exactly invariant under rigid
-motions, a flat unglued rectangle has exactly zero energy, and a rolled
-cylinder reproduces the continuum bending energy. The stiffness ${tex`K`} is
-formed by central differences of that gradient and is symmetric positive
-semidefinite with exactly six zero modes. The eigenpairs returned by
-${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
-\approx 10^{-15}`} and are ${tex`M`}-orthonormal, so the reported mode shapes
-    and frequencies are accurate to machine precision for the discrete model.
+    Getting an answer is one thing; getting the right one is the point. Each
+    translated routine was validated against its Fortran original — run side by side
+    on the same inputs until the outputs agreed to the last digits — so the linear
+    algebra here does exactly what the reference does. The assembled problem gets the
+    same scrutiny: the elastic energy is invariant under rigid motion, a flat unglued
+    rectangle has zero energy, a rolled cylinder reproduces the known bending energy,
+    and the computed modes satisfy ${tex`K\phi = \omega^2 M\phi`} to round-off. The
+    shapes and frequencies you see are the correct solutions of the discrete model,
+    not just something that looks about right.
   </script>
 
   <script id="coda" type="text/markdown">
