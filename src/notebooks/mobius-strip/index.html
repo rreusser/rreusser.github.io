@@ -178,9 +178,9 @@
   <script id="motivation-js" type="text/markdown">
     ## Making a Möbius strip
 
-    Rather than a 1D rod, I model the strip as what it physically is: a thin
-    elastic sheet. Cut the sheet into triangles, let every corner move freely in
-    space, and ask it to find the shape that stores the least elastic energy. Two
+    Rather than a 1D rod, this notebook models the strip as a thin elastic sheet.
+    Cut the sheet into triangles, let every corner move freely in space, and ask it
+    to find the shape that stores the least elastic energy. Two
     things push back. The sheet strongly resists being stretched in its own plane,
     its membrane response, and it resists folding much more gently, its bending
     response. A flat rectangle is perfectly content. But glue its two short ends
@@ -400,7 +400,7 @@
       const figWrap = html`<div></div>`;
       body.appendChild(figWrap);
 
-      body.appendChild(html`<p style="margin:1rem 0 0.4rem">The BLAS / LAPACK / Netlib routines we bundle and call directly — translated from the reference Fortran, not counting their internal dependencies:</p>
+      body.appendChild(html`<p style="margin:1rem 0 0.4rem">The BLAS / LAPACK / Netlib routines this notebook bundles and calls directly — translated from the reference Fortran, not counting their internal dependencies:</p>
         <ul style="margin:0">
           <li><strong>BLAS level 1:</strong> <code>ddot</code>, <code>daxpy</code>, <code>dscal</code>, <code>dnrm2</code>, <code>dcopy</code> — the vector kernels behind the Newton–CG and L-BFGS relaxation.</li>
           <li><strong>LAPACK <code>dpbsv</code></strong> — symmetric-positive-definite <em>banded</em> linear solve, for the banded Newton step.</li>
