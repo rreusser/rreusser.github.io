@@ -464,6 +464,7 @@
       <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dpbsv"><code>dpbsv</code></a></strong> — the banded Cholesky solve behind the banded Newton step.</li>
       <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dsbgvx"><code>dsbgvx</code></a></strong> — the banded generalized eigensolver, the fast path for the flexural modes.</li>
       <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dsygvx"><code>dsygvx</code></a></strong> — its dense counterpart, kept as a cross-check.</li>
+      <li><strong>BLAS level 3 <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/dgemm"><code>dgemm</code></a></strong> — matrix–matrix multiplication, never called directly but doing the heavy lifting inside the dense eigensolver and the banded factorization. It accordingly got <a href="https://github.com/rreusser/blahpack/blob/main/bench/dgemm-opt/reports/dgemm-optimization.md">the most optimization attention</a> of any routine, register tiling and all.</li>
     </ul>
 
     And it works. The strip below was relaxed, and its modes computed, entirely in
