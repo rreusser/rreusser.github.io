@@ -170,9 +170,11 @@
   <script id="motivation-js" type="text/markdown">
     ## Computing the shape of a Möbius strip
 
-    The shape of a Möbius strip is a problem with some history. Sadowsky [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy-minimization problem in 1930 but didn't quite get to an answer. Mahadevan and Keller solved it in 1993 in [The Shape of a Möbius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf), treating the band as a thin elastic rod and computing its centerline.
+    The shape of a Möbius strip is a problem with some history. Sadowsky [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy-minimization problem in 1930 but didn't quite get to an answer. Mahadevan and Keller solved it in 1993 in [The Shape of a Möbius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf), treating the band as a thin elastic rod — a one-dimensional idealization that reduces the strip to its centerline — and solving the resulting boundary-value problem with [COLSYS](https://www.netlib.org/ode/), a Fortran collocation solver from Netlib.
 
-    Rather than a 1D rod, this notebook models the strip as a thin elastic sheet.  Cut the sheet into triangles, let every corner move freely in space, and ask it to find the shape that stores the least elastic energy. Two things push back. The sheet strongly resists being stretched in its own plane, its membrane response, and it resists folding much more gently, its bending response. A flat rectangle is perfectly content. But glue its two short ends together with a half-twist and it can no longer lie flat, so it buckles into the Möbius shape entirely on its own.
+    This notebook starts in the same place, with the same tool: a JavaScript translation of that very COLSYS solves the same rod equations, and its solution is the strip's starting shape — the "Elastic rod" stage of the pipeline in the figures.
+
+    But a rod knows only its centerline. A real strip has width: it stretches and shears across its surface, and its stresses vary from the center out to the free edge. For a more physically faithful answer, this notebook models the strip as a thin elastic sheet. Cut the sheet into triangles, let every corner move freely in space, and ask it to find the shape that stores the least elastic energy. Two things push back. The sheet strongly resists being stretched in its own plane, its membrane response, and it resists folding much more gently, its bending response. A flat rectangle is perfectly content. But glue its two short ends together with a half-twist and it can no longer lie flat, so it buckles into the Möbius shape entirely on its own.
 
     <figure style="width:100%;max-width:560px;margin-inline:auto">
       <svg viewBox="0 30 460 214" width="560" style="width:100%;height:auto;display:block;font-family:var(--sans-serif,system-ui,sans-serif)" stroke="currentColor" fill="none">
@@ -226,13 +228,15 @@
   <script id="intro" type="text/markdown">
     ## It's a linear algebra problem
 
-    Finding that resting shape, and then the gentle modes the strip would wobble
-    in if you flicked it, is a linear algebra problem underneath. Settling the
-    sheet means solving large systems of equations over and over. Finding the
-    modes means solving an eigenvalue problem. In Python this is a non-event:
-    SciPy hands the matrices to LAPACK, the Fortran library that has quietly sat
-    under NumPy, MATLAB, and most scientific computing for forty years. In the
-    browser there is nothing of the kind.
+    The triangles turn the physics into linear algebra. Stack every vertex
+    coordinate into one long vector ${tex`x`}. The elastic energy ${tex`E(x)`} is
+    the sum of the membrane and bending terms from the figure above, and the
+    resting strip is the ${tex`x`} that makes it smallest. Settling the sheet means
+    solving large systems of equations over and over, and the gentle modes the
+    strip would wobble in if you flicked it are an eigenvalue problem. In Python
+    this is a non-event: SciPy hands the matrices to LAPACK, the Fortran library
+    that has quietly sat under NumPy, MATLAB, and most scientific computing for
+    forty years. In the browser there is nothing of the kind.
 
     The obvious workaround is to compile a C++ library to WebAssembly, and I did
     get a [proof of concept](https://observablehq.com/@rreusser/eigen) running with
@@ -307,18 +311,12 @@
   <script id="theory-element" type="text/markdown">
     ## Finding the shape and its modes
 
-    A little structure shows why this needs real linear algebra, and which
-    routines do the work. Stack every vertex coordinate into one long vector
-    ${tex`x`}. The elastic energy ${tex`E(x)`} is just the sum of the membrane and
-    bending terms from the figure above, and the resting strip is the ${tex`x`}
-    that makes it as small as possible.
-
-    That minimum is found by default with
+    The energy minimum is found by default with
     [L-BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS), a quasi-Newton
-    method that needs only the energy and its gradient ${tex`\nabla E`} and never
-    forms a matrix at all. Its inner loop is nothing heavier than dot products and
-    scaled vector sums, the ${tex`\texttt{ddot}`} and ${tex`\texttt{daxpy}`} level
-    of BLAS.
+    method that needs only the energy ${tex`E`} and its gradient ${tex`\nabla E`}
+    and never forms a matrix at all. Its inner loop is nothing heavier than dot
+    products and scaled vector sums, the ${tex`\texttt{ddot}`} and
+    ${tex`\texttt{daxpy}`} level of BLAS.
 
     Two Newton solvers are offered alongside it. Both aim each step with the
     stiffness matrix ${tex`K`} — the curvature of the energy — by solving
