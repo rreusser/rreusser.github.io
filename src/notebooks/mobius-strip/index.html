@@ -160,13 +160,10 @@
 
     I resisted, but darn it if it wasn't right. For the first time, I could ask for something like the generalized eigenvalues of a real matrix, let it work through the LAPACK modules — running Fortran and the generated JavaScript side by side until the numbers matched — and confirm the result actually solved the problem I'd asked for.
 
-    With a working approach, I went looking for other problems. It made short work of
-    Nakatsukasa, Sète, and Trefethen's [AAA algorithm for rational approximation](https://arxiv.org/abs/1612.00337) —
-    one that had stumped me before, since it needs a generalized eigenvalue solver I
-    never had.
-
-    This notebook is the elastic Möbius strip: another problem I'd long filed under
-    "needs a real eigenvalue solver."
+    With a working approach, I went looking for problems I'd long filed under "needs
+    a real eigenvalue solver." Nakatsukasa, Sète, and Trefethen's
+    [AAA algorithm for rational approximation](https://arxiv.org/abs/1612.00337) fell
+    first. This notebook is the second: the elastic Möbius strip.
 
     There's more to this problem than throwing a solver at it. Sadowsky
     [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy-minimization
@@ -333,15 +330,11 @@
     scaled vector sums, the ${tex`\texttt{ddot}`} and ${tex`\texttt{daxpy}`} level
     of BLAS.
 
-    Two Newton solvers are offered alongside it. A Newton method uses the
-    curvature of the energy, the stiffness matrix ${tex`K`} that says how
-    ${tex`E`} bends around the current shape, to aim each step, solving
-    ${tex`K p = -\nabla E`} for the update ${tex`p`}. The first, Newton-CG, never
-    builds ${tex`K`}: it needs only the products ${tex`K v`}, formed by
-    finite-differencing the gradient, and finds ${tex`p`} with an inner
-    conjugate-gradient loop. The second assembles ${tex`K`} as a banded matrix and
-    solves ${tex`K p = -\nabla E`} directly with the banded Cholesky routine
-    ${tex`\texttt{dpbsv}`} — the same kind of direct banded factorization the
+    Two Newton solvers are offered alongside it. Both aim each step with the
+    stiffness matrix ${tex`K`} — the curvature of the energy — by solving
+    ${tex`K p = -\nabla E`}: one matrix-free (Newton-CG), and one that assembles
+    ${tex`K`} as a banded matrix for the banded Cholesky routine
+    ${tex`\texttt{dpbsv}`}, the same kind of direct banded factorization the
     eigensolver below relies on.
   </script>
 
@@ -1758,10 +1751,10 @@
   <script id="numerics-note" type="text/markdown">
     ## Is it right?
 
-    Getting an answer is one thing; getting the right one is the point. Each
-    translated routine was validated against its Fortran original — run side by side
-    on the same inputs until the outputs agreed to the last digits — so the linear
-    algebra here does exactly what the reference does. The assembled problem gets the
+    None of this is worth much if the numbers are wrong. Each translated routine was
+    validated against its Fortran original — run side by side on the same inputs
+    until the outputs agreed to the last digits — so the linear algebra here does
+    exactly what the reference does. The assembled problem gets the
     same scrutiny: the elastic energy is invariant under rigid motion, a flat unglued
     rectangle has zero energy, a rolled cylinder reproduces the known bending energy,
     and the computed modes satisfy ${tex`K\phi = \omega^2 M\phi`} to round-off. The
@@ -1772,10 +1765,9 @@
   <script id="coda" type="text/markdown">
     ## Where this leaves me
 
-    The part I keep coming back to is that all of it ran here, in the browser — no
-    server, no Python, no black box. The same numerics that sit under NumPy and MATLAB,
-    translated to JavaScript and checked against the Fortran until the numbers matched,
-    doing real work in a tab.
+    The part I keep coming back to is that all of it ran here, in a browser tab —
+    the same numerics that sit under NumPy and MATLAB, translated to JavaScript and
+    checked against the Fortran until the numbers matched.
 
     I find that exciting, and a little uneasy. Translating one banded eigensolver by
     hand used to be a serious undertaking; now it is close to routine, so the rest of
