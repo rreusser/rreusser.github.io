@@ -238,16 +238,9 @@
     that has quietly sat under NumPy, MATLAB, and most scientific computing for
     forty years. In the browser there is nothing of the kind.
 
-    The obvious workaround is to compile a C++ library to WebAssembly, and I did
-    get a [proof of concept](https://observablehq.com/@rreusser/eigen) running with
-    Eigen. But it covers only a fraction of LAPACK's routines, and shuttling memory
-    by hand across the JavaScript and WebAssembly boundary never felt ergonomic
-    enough to see through.
-
-    What finally worked was translation, not compilation. The solvers running below
-    are AI-assisted translations of that Fortran, checked number for number against
-    the reference. The whole computation happens in the page you are reading: no
-    server, no Python, no WebAssembly black box.
+    The solvers running below are AI-assisted translations of that Fortran, checked
+    number for number against the reference. The whole computation happens in the
+    page you are reading: no server, no Python, no WebAssembly black box.
   </script>
 
   <script id="imports" type="text/x-typescript">
@@ -342,16 +335,13 @@
   </script>
 
   <script id="theory-modes" type="text/markdown">
-    ## Getting it to run in a browser
+    ## The Möbius seam
 
-    None of this comes for free in a web page, and the Möbius topology makes it
-    harder. Gluing the two ends of the mesh together connects vertices that started
-    out far apart, so in the obvious numbering the stiffness matrix ${tex`K`} spreads
-    into a wide band and the solvers crawl. Renumbering the vertices so the glued
-    partners sit next to each other pulls it back into a narrow band, which is what
-    keeps the banded routines fast. Small fixes like this, one routine at a time, are
-    most of the work of carrying forty-year-old Fortran into a setting it was never
-    written for.
+    One wrinkle deserves a mention. Gluing the two ends of the mesh together connects
+    vertices that started out far apart, so in the obvious numbering the stiffness
+    matrix ${tex`K`} spreads into a wide band and the solvers crawl. Renumbering the
+    vertices so the glued partners sit next to each other pulls it back into a narrow
+    band, which is what keeps the banded routines fast.
 
     That narrow band is also where the approach stops short: a banded solver still
     grinds through every entry inside the band, and most of them are zero. A proper
@@ -365,7 +355,7 @@
     // the solver routines behind it. The sliders re-render imperatively.
     {
       const details = html`<details style="margin:0.5rem 0 1.75rem;border:1px solid rgba(127,127,127,0.28);border-radius:8px;padding:0.5rem 0.9rem 0.9rem"></details>`;
-      details.appendChild(html`<summary style="cursor:pointer;font-weight:600">A closer look: the sparsity pattern and the solver routines</summary>`);
+      details.appendChild(html`<summary style="cursor:pointer;font-weight:600">A closer look: the sparsity pattern</summary>`);
       const body = html`<div style="margin-top:0.85rem"></div>`;
       details.appendChild(body);
 
@@ -380,15 +370,6 @@
 
       const figWrap = html`<div></div>`;
       body.appendChild(figWrap);
-
-      body.appendChild(html`<p style="margin:1rem 0 0.4rem">The BLAS / LAPACK / Netlib routines this notebook bundles and calls directly — translated from the reference Fortran, not counting their internal dependencies:</p>
-        <ul style="margin:0">
-          <li><strong>BLAS level 1:</strong> <code>ddot</code>, <code>daxpy</code>, <code>dscal</code>, <code>dnrm2</code>, <code>dcopy</code> — the vector kernels behind the Newton–CG and L-BFGS relaxation.</li>
-          <li><strong>LAPACK <code>dpbsv</code></strong> — symmetric-positive-definite <em>banded</em> linear solve, for the banded Newton step.</li>
-          <li><strong>LAPACK <code>dsbgvx</code></strong> — symmetric-definite <em>banded</em> generalized eigensolver, the fast path for the flexural modes.</li>
-          <li><strong>LAPACK <code>dsygvx</code></strong> — symmetric-definite <em>dense</em> generalized eigensolver, the fallback the banded path is checked against.</li>
-          <li><strong>COLSYS</strong> — Netlib collocation solver for boundary-value ODEs, for the Mahadevan–Keller elastic-rod shape that seeds the strip.</li>
-        </ul>`);
 
       // Theme-aware point color, parsed to RGB for direct ImageData writes.
       const probe = document.createElement('div');
@@ -473,6 +454,16 @@
   </script>
 
   <script id="theory-modes-run" type="text/markdown">
+    Altogether, that's the translated Fortran doing the work on this page:
+
+    <ul>
+      <li><strong>COLSYS</strong> — the Netlib boundary-value solver, for the Mahadevan–Keller elastic-rod shape that seeds the strip.</li>
+      <li><strong>BLAS level 1:</strong> <code>ddot</code>, <code>daxpy</code>, <code>dscal</code>, <code>dnrm2</code>, <code>dcopy</code> — the vector kernels inside the L-BFGS and Newton-CG relaxation.</li>
+      <li><strong>LAPACK <code>dpbsv</code></strong> — the banded Cholesky solve behind the banded Newton step.</li>
+      <li><strong>LAPACK <code>dsbgvx</code></strong> — the banded generalized eigensolver, the fast path for the flexural modes.</li>
+      <li><strong>LAPACK <code>dsygvx</code></strong> — its dense counterpart, kept as a cross-check.</li>
+    </ul>
+
     And it works. The strip below was relaxed, and its modes computed, entirely in
     your browser. Drag a vertex and it re-settles in real time; recolor it by stress
     or curvature, change its thickness, or switch to a flexural mode and watch a
