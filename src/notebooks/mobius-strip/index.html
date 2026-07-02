@@ -130,59 +130,49 @@
   </script>
 
   <script id="motivation-paper" type="text/markdown">
-    Everything you hear about a Möbius strip is about its *topology*: one side, one edge. Hardly anyone talks about its *geometry* — the shape a real, springy strip settles into when you actually make one. That observation comes from Steven Strogatz in a 2025 episode of the Quanta Magazine podcast *The Joy of Why*, [Does Form Really Shape Function?](https://www.quantamagazine.org/does-form-really-shape-function-20250612/), where he recalls being charmed that the first work he knew his guest [L. Mahadevan](https://www.physics.harvard.edu/people/facpages/mahadevan) for was a graduate-school analysis of exactly that shape: the equilibrium of an elastic Möbius strip.
+    Everyone likes to talk about the topology of a Möbius strip, but you don't usually hear too much about the *geometry*, the shape it would actually make if you assembled it out of a strip of elastic material. That observation comes from Steven Strogatz in a 2025 episode of the Quanta Magazine podcast *The Joy of Why*, [Does Form Really Shape Function?](https://www.quantamagazine.org/does-form-really-shape-function-20250612/), in which he recalls being charmed that the first work he knew his guest [L. Mahadevan](https://www.physics.harvard.edu/people/facpages/mahadevan) for was a graduate-school analysis of the equilibrium shape of an elastic Möbius strip.
 
-    This struck a nerve for a couple reasons. First, I spent a lot of time in school computing equilibrium shapes and bending modes in rods, bars, plates, and the like. [The details of what I did](thesis.pdf) are mostly lost to me now, but the mechanics of materials stuck with me.
+    This struck a nerve for a couple reasons. First, I studied Engineering Mechanics in school and spent a lot of time computing shapes, bending modes, and wave propagation in rods, bars, plates, and the like. [The details of what I did](thesis.pdf) feel lost to the sands of time at this point, but the mechanics of materials will always have a special place in my heart.
 
-    Second, a lot of school was spent laboring for weeks, sometimes months, over problems we didn't really understand. The tools weren't making them tangible the way I knew they could be. I didn't want results and statistics at the end of a computation; I wanted to interact with the problem directly, until I understood it well enough to trust the answer.
+    Second, we all labored in school for weeks, sometimes months, over problems and MATLAB or Fortran codes we didn't really understand. Maybe I'm underappreciating the rite of passage that is wrestling with these problems and eventually triumphing, but it never seemed right to me to take a problem that feels---in principle---so viscerally tangible, and reduce it to some opaque Fortran code that spits out `NaN` for some incomprehensible reason. I wanted to interact with the problem until I *felt* it enough to trust the answer.
 
-    Bret Victor captures what gets lost:
+    Bret Victor summarizes what gets lost when these feedback loops don't exist:
 
     <blockquote class="quote">
       <p>If there is any delay in that feedback loop between thinking of something and seeing it and building on it, then there is this whole world of ideas which will never be.</p>
       <p class="quote__attribution">Bret Victor, <cite><a href="https://jamesclear.com/great-speeches/inventing-on-principle-by-bret-victor">Inventing on Principle</a></cite></p>
     </blockquote>
 
-    Fifteen years later, having done little about it myself, I don't think much has changed.
+    Fifteen years later, having done little about it myself, I think there's still a lot of opportunity here.
 
-    While I listened to the episode, I felt strangely compelled to compute the equilibrium shape and bending modes of a Möbius strip. Bending modes are an eigenvalue problem. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a large matrix? Well, good luck. Unless you rely on someone to host a Python-based notebook in an environment like [Colab](https://colab.research.google.com/), you'll probably have to [compile Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), if you can manage.
+    Not even finishing the episode, I felt immediately compelled to build something on the web which computes the equilibrium shape and bending modes of a Möbius strip, just to see if I could. The equilibrium shape is an energy minimization problem. Bending modes are an eigenvalue problem.
 
-    That's no jab at the people who have put an immense amount of work into these problems. It's genuinely challenging, stubborn work. My sense has always been that there's no hope but to translate Fortran-based LAPACK (which still powers [NumPy](https://numpy.org/), by the way) into idiomatic JavaScript. But LAPACK's heavy use of `goto` makes translation to modern control flow especially hard. Maybe I lacked imagination or insight, but the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) telling me it was all trivially feasible didn't actually help me get the job done.
+    Already though, I knew exactly where I always hit a brick wall when I had these urges. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a banded matrix? Well, good luck. If you want to do any serious analysis, these details matter. Unless you rely on a hosted, Python-based notebook environment like [Colab](https://colab.research.google.com/), you'll probably have to [compile Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), if you can manage.
+
+    That's no jab at the people who have put lots of work into these problems. It's genuinely challenging, stubborn work. [BLAS](https://www.netlib.org/blas/) (Basic Linear Algebra Subprograms) and [LAPACK](https://www.netlib.org/lapack/) (Linear Algrebra PACKage) are the bedrock of numerical computing (they still power [NumPy](https://numpy.org/), by the way), but they're written in Fortran which, no matter how you approach it, makes them nontrivial---and even if you can, just sorta *awful*---to run on the web.
+
+    My sense has always been that there's no hope but to translate BLAS and LAPACK into idiomatic JavaScript. I know exactly where they belong: in [Stdlib](https://github.com/stdlib-js/stdlib), the only project I'm aware of that takes rigorous numerical computing in JavaScript seriously. I [contributed](https://github.com/stdlib-js/stdlib/pull/4789) [translations](https://github.com/stdlib-js/stdlib/pull/4703) of a [number](https://github.com/stdlib-js/stdlib/pull/4725) of [modules](https://github.com/stdlib-js/stdlib/pull/4738) by [hand](https://github.com/stdlib-js/stdlib/pull/4772), but I was on track to finish sometime around 2050.
+
+    Maybe I lacked imagination or insight or just the raw technical chops, but even though the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) told me it was trivially feasible to untangle LAPACK's heavy use of goto, it didn't actually help me get the work done on a reasonable timeline. I tried translating modules by hand, I tried to write programs to automate it, and I tried waiting for someone else to figure it out. None of it has panned out.
 
     <figure>
       <img alt="XKCD #292" src="https://imgs.xkcd.com/comics/goto.png">
       <figcaption>Obligatory <a href="https://m.xkcd.com/292/">XKCD #292</a>. How bad can thousands of little <code>gotos</code> be?</figcaption>
     </figure>
 
-    Enter [Stdlib](https://github.com/stdlib-js/stdlib), the only project I'm aware of that takes rigorous numerical analysis in JavaScript seriously. I [contributed](https://github.com/stdlib-js/stdlib/pull/4789) [translations](https://github.com/stdlib-js/stdlib/pull/4703) of a [number](https://github.com/stdlib-js/stdlib/pull/4725) of [modules](https://github.com/stdlib-js/stdlib/pull/4738) by [hand](https://github.com/stdlib-js/stdlib/pull/4772). I think the project shows real promise, but at my rate I wouldn't have finished the translation before about 2050, and I gave up. I tried translating modules by hand. I tried to write programs to automate it. I tried waiting for someone else to find a clever workaround. None of it panned out.
+    I might lose some readers here, but earlier this year I threw Claude Code at improving my automated translator. I had written a program a year prior which would parse Fortran code, run a sequence of carefully constructed transforms, and output JavaScript. It worked, but only sort of. I figured AI would have an easy time navigating a tight translation loop with a clear reference implementation and easily demonstrable correctness, but after some confusion on my part, Claude politely informed that my code was only getting in its way. Instead, it was just sidestepping me and performing the translation directly.
 
-    I might lose some readers here, but earlier this year I threw Claude Code at improving my automated translator. It parsed Fortran into an abstract syntax tree, ran a sequence of transformations, converted that to a JavaScript syntax tree, and emitted code. I thought that pipeline, with its tight loop between machinery and verifiable output, was the right idea. Claude politely informed me it was mostly getting in the way of reading the Fortran and writing the JavaScript directly.
+    I resisted, but darn it if it wasn't right. For the first time, I could simply ask for the generalized eigenvalues of a real matrix, let it churn through the LAPACK module dependency tree, and confirm the result actually solved the problem I'd asked for.
 
-    I resisted, but darn it if it wasn't right. For the first time, I could ask for something like the generalized eigenvalues of a real matrix, let it work through the LAPACK modules — running Fortran and the generated JavaScript side by side until the numbers matched — and confirm the result actually solved the problem I'd asked for.
-
-    With a working approach, I went looking for problems I'd long filed under "needs
-    a real eigenvalue solver." Nakatsukasa, Sète, and Trefethen's
-    [AAA algorithm for rational approximation](https://arxiv.org/abs/1612.00337) fell
-    first. This notebook is the second: the elastic Möbius strip.
-
-    There's more to this problem than throwing a solver at it. Sadowsky
-    [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy-minimization
-    problem in 1930. Mahadevan and Keller solved it properly in 1993 in [The Shape of a
-    Möbius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf),
-    treating the band as a thin elastic rod and computing its centerline.
+    So new in 2025-2026 is that you can finally just will these capabilities into existence.
   </script>
 
   <script id="motivation-js" type="text/markdown">
-    ## Making a Möbius strip
+    ## Computing the shape of a Möbius strip
 
-    Rather than a 1D rod, this notebook models the strip as a thin elastic sheet.
-    Cut the sheet into triangles, let every corner move freely in space, and ask it
-    to find the shape that stores the least elastic energy. Two
-    things push back. The sheet strongly resists being stretched in its own plane,
-    its membrane response, and it resists folding much more gently, its bending
-    response. A flat rectangle is perfectly content. But glue its two short ends
-    together with a half-twist and it can no longer lie flat, so it buckles into
-    the Möbius shape entirely on its own.
+    The shape of a Möbius strip is a problem with some history. Sadowsky [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy-minimization problem in 1930 but didn't quite get to an answer. Mahadevan and Keller solved it in 1993 in [The Shape of a Möbius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf), treating the band as a thin elastic rod and computing its centerline.
+
+    Rather than a 1D rod, this notebook models the strip as a thin elastic sheet.  Cut the sheet into triangles, let every corner move freely in space, and ask it to find the shape that stores the least elastic energy. Two things push back. The sheet strongly resists being stretched in its own plane, its membrane response, and it resists folding much more gently, its bending response. A flat rectangle is perfectly content. But glue its two short ends together with a half-twist and it can no longer lie flat, so it buckles into the Möbius shape entirely on its own.
 
     <figure style="width:100%;max-width:560px;margin-inline:auto">
       <svg viewBox="0 30 460 214" width="560" style="width:100%;height:auto;display:block;font-family:var(--sans-serif,system-ui,sans-serif)" stroke="currentColor" fill="none">
