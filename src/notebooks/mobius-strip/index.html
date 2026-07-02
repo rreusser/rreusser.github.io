@@ -164,6 +164,8 @@
 
     I resisted, but darn it if it wasn't right. For the first time, I could simply ask for the generalized eigenvalues of a real matrix, let it churn through the LAPACK module dependency tree, and confirm the result actually solved the problem I'd asked for.
 
+    That work is accumulating in [blahpack](https://github.com/rreusser/blahpack), a haphazardly chosen project name that stuck. [Progress currently stands](https://rreusser.github.io/blahpack/progress.html) at about 878 of some 2,200 modules — the double and complex-double variants — though only about half of the 2,200 are unique anyway, since routines come in single- and double-precision twins.
+
     So new in 2025-2026 is that you can finally just will these capabilities into existence.
   </script>
 
@@ -457,11 +459,11 @@
     Altogether, that's the translated Fortran doing the work on this page:
 
     <ul>
-      <li><strong>COLSYS</strong> — the Netlib boundary-value solver, for the Mahadevan–Keller elastic-rod shape that seeds the strip.</li>
-      <li><strong>BLAS level 1:</strong> <code>ddot</code>, <code>daxpy</code>, <code>dscal</code>, <code>dnrm2</code>, <code>dcopy</code> — the vector kernels inside the L-BFGS and Newton-CG relaxation.</li>
-      <li><strong>LAPACK <code>dpbsv</code></strong> — the banded Cholesky solve behind the banded Newton step.</li>
-      <li><strong>LAPACK <code>dsbgvx</code></strong> — the banded generalized eigensolver, the fast path for the flexural modes.</li>
-      <li><strong>LAPACK <code>dsygvx</code></strong> — its dense counterpart, kept as a cross-check.</li>
+      <li><strong><a href="https://www.netlib.org/ode/">COLSYS</a></strong> — the Netlib boundary-value solver, for the Mahadevan–Keller elastic-rod shape that seeds the strip.</li>
+      <li><strong>BLAS level 1:</strong> <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/ddot"><code>ddot</code></a>, <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/daxpy"><code>daxpy</code></a>, <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/dscal"><code>dscal</code></a>, <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/dnrm2"><code>dnrm2</code></a>, <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/dcopy"><code>dcopy</code></a> — the vector kernels inside the L-BFGS and Newton-CG relaxation.</li>
+      <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dpbsv"><code>dpbsv</code></a></strong> — the banded Cholesky solve behind the banded Newton step.</li>
+      <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dsbgvx"><code>dsbgvx</code></a></strong> — the banded generalized eigensolver, the fast path for the flexural modes.</li>
+      <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dsygvx"><code>dsygvx</code></a></strong> — its dense counterpart, kept as a cross-check.</li>
     </ul>
 
     And it works. The strip below was relaxed, and its modes computed, entirely in
