@@ -112,7 +112,7 @@
       introCamera.destroy();
     });
 
-    const introContainer = html`<div style="position:relative;width:100%;aspect-ratio:8/5;max-height:450px"></div>`;
+    const introContainer = html`<div style="position:relative;width:100%;aspect-ratio:7/5;max-height:520px"></div>`;
     introContainer.appendChild(introCanvas);
     introCamera.on('resize', (w: number, h: number) => {
       introCanvas.width = Math.floor(w * devicePixelRatio);
@@ -121,7 +121,7 @@
       introCanvas.style.height = `${h}px`;
       introCamera.triggerRepaint();
     });
-    const introFigure = html`<figure style="margin:0 0 0.75rem"></figure>`;
+    const introFigure = html`<figure style="margin:0 0 2rem"></figure>`;
     introFigure.appendChild(introContainer);
     introFigure.appendChild(html`<figcaption style="margin-top:0.5rem;font:13px/1.5 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);text-align:center">
       An elastic-shell finite-element simulation of a Möbius strip. Drag a vertex to deform it.
@@ -130,60 +130,51 @@
   </script>
 
   <script id="motivation-paper" type="text/markdown">
-    In a 2025 episode of the Quanta Magazine podcast The Joy of Why, [Does Form Really Shape Function?](https://www.quantamagazine.org/does-form-really-shape-function-20250612/), host Steven Strogatz recalls that the first work of guest [L. Mahadevan](https://www.physics.harvard.edu/people/facpages/mahadevan) with which he's acquainted is Mahadevan's graduate school analysis of the equilibrium shape of an elastic Möbius strip. Strogatz finds the work particularly charming because compared to the *topology*, no one talks very much about the *geometry* of Möbius strips.
+    Everyone likes to talk about the topology of a Möbius strip, but you don't usually hear too much about the *geometry*, the shape it would actually make if you assembled it out of a strip of elastic material. That observation comes from Steven Strogatz in a 2025 episode of the Quanta Magazine podcast *The Joy of Why*, [Does Form Really Shape Function?](https://www.quantamagazine.org/does-form-really-shape-function-20250612/), in which he recalls being charmed that the first work he knew his guest [L. Mahadevan](https://www.physics.harvard.edu/people/facpages/mahadevan) for was a graduate-school analysis of the equilibrium shape of an elastic Möbius strip.
 
-    This struck a nerve for a couple reasons. First, I spent lots of time in school computing equilibrium shapes and bending modes in rods, bars, plates, etc. [Details of whatever I did](thesis.pdf) are mostly lost to the sands of time, but the mechanics of materials remains close to my heart.
+    This struck a nerve for a couple reasons. First, I studied Engineering Mechanics in school and spent a lot of time computing shapes, bending modes, and wave propagation in rods, bars, plates, and the like. [The details of what I did](thesis.pdf) feel lost to the sands of time at this point, but the mechanics of materials will always have a special place in my heart.
 
-    Second, a trend I noticed in school is that we would spend weeks, sometimes months, laboring over problems we didn't understand. In my view, the tools were failing to make the problems tangible in the way I knew they could. Rather than results and stastistics at the end of a computation, I wanted to interact with the problems directly and gain enough confidence in my intuitive grasp of the problem to believe the results.
+    Second, we all labored in school for weeks, sometimes months, over problems and MATLAB or Fortran codes we didn't really understand. Maybe I'm underappreciating the rite of passage that is wrestling with these problems and eventually triumphing, but it never seemed right to me to take a problem that feels---in principle---so viscerally tangible, and reduce it to some opaque Fortran code that spits out `NaN` for some incomprehensible reason. I wanted to interact with the problem until I *felt* it enough to trust the answer.
 
-    A quote from Bret Victor captures what I believe was left on the table as a result:
+    Bret Victor summarizes what gets lost when these feedback loops don't exist:
 
     <blockquote class="quote">
       <p>If there is any delay in that feedback loop between thinking of something and seeing it and building on it, then there is this whole world of ideas which will never be.</p>
       <p class="quote__attribution">Bret Victor, <cite><a href="https://jamesclear.com/great-speeches/inventing-on-principle-by-bret-victor">Inventing on Principle</a></cite></p>
     </blockquote>
 
-    My lukewarm take, having accomplished little to significantly improve the situation, is that fifteen years later not much has changed.
+    Fifteen years later, having done little about it myself, I think there's still a lot of opportunity here.
 
-    While I listened to the episode, I felt strangely compelled to compute the equilibrium shape an bending modes of a Möbius strip. Bending modes are an eigenvalue problem. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a large matrix? Well, good luck. Unless you rely on someone to host a Python-based notebook in an environment like [Colab](https://colab.research.google.com/), you'll probably have to [compile Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), if you can manage.
+    Not even finishing the episode, I felt immediately compelled to build something on the web which computes the equilibrium shape and bending modes of a Möbius strip, just to see if I could. The equilibrium shape is an energy minimization problem. Bending modes are an eigenvalue problem.
 
-    That's no jab at the people who have put in an immense amount of work into these problems. It's genuinely challenging, stubborn work. My sense has always been that there's no hope but to translate Fortran-based LAPACK (which still powers [NumPy](https://numpy.org/), by the way) into idiomatic JavaScript. But apart from all the other concerns, LAPACK's heavy use of `goto` makes translation to modern control flow particularly difficult. Maybe I lacked imagination or insight, but the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) which told me it was all trivially feasible didn't actually help me get the job done.
+    Already though, I knew exactly where I always hit a brick wall when I had these urges. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a banded matrix? Well, good luck. If you want to do any serious analysis, these details matter. Unless you rely on a hosted, Python-based notebook environment like [Colab](https://colab.research.google.com/), you'll probably have to [compile Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), if you can manage.
+
+    That's no jab at the people who have put lots of work into these problems. It's genuinely challenging, stubborn work. [BLAS](https://www.netlib.org/blas/) (Basic Linear Algebra Subprograms) and [LAPACK](https://www.netlib.org/lapack/) (Linear Algrebra PACKage) are the bedrock of numerical computing (they still power [NumPy](https://numpy.org/), by the way), but they're written in Fortran which, no matter how you approach it, makes them nontrivial---and even if you can, just sorta *awful*---to run on the web.
+
+    My sense has always been that there's no hope but to translate BLAS and LAPACK into idiomatic JavaScript. I know exactly where they belong: in [Stdlib](https://github.com/stdlib-js/stdlib), the only project I'm aware of that takes rigorous numerical computing in JavaScript seriously. I [contributed](https://github.com/stdlib-js/stdlib/pull/4789) [translations](https://github.com/stdlib-js/stdlib/pull/4703) of a [number](https://github.com/stdlib-js/stdlib/pull/4725) of [modules](https://github.com/stdlib-js/stdlib/pull/4738) by [hand](https://github.com/stdlib-js/stdlib/pull/4772), but I was on track to finish sometime around 2050.
+
+    Maybe I lacked imagination or insight or just the raw technical chops, but even though the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) told me it was trivially feasible to untangle LAPACK's heavy use of goto, it didn't actually help me get the work done on a reasonable timeline. I tried translating modules by hand, I tried to write programs to automate it, and I tried waiting for someone else to figure it out. None of it has panned out.
 
     <figure>
       <img alt="XKCD #292" src="https://imgs.xkcd.com/comics/goto.png">
       <figcaption>Obligatory <a href="https://m.xkcd.com/292/">XKCD #292</a>. How bad can thousands of little <code>gotos</code> be?</figcaption>
     </figure>
 
-    Enter [Stdlib](https://github.com/stdlib-js/stdlib), the only project I'm aware of which takes rigorous numerical analysis in JavaScript seriously. I [contributed](https://github.com/stdlib-js/stdlib/pull/4789) [translations](https://github.com/stdlib-js/stdlib/pull/4703) of a [number](https://github.com/stdlib-js/stdlib/pull/4725) of [modules](https://github.com/stdlib-js/stdlib/pull/4738) by [hand](https://github.com/stdlib-js/stdlib/pull/4772). I believe the greater project shows a lot of promise, but I wasn't on pace to finish the translation task before about 2050, and I gave up. I tried translating modules by hand. I tried to write programs to automate the translation. I tried waiting for someone else to find a clever workaround. None of it has happened.
+    I might lose some readers here, but earlier this year I threw Claude Code at improving my automated translator. I had written a program a year prior which would parse Fortran code, run a sequence of carefully constructed transforms, and output JavaScript. It worked, but only sort of. I figured AI would have an easy time navigating a tight translation loop with a clear reference implementation and easily demonstrable correctness, but after some confusion on my part, Claude politely informed that my code was only getting in its way. Instead, it was just sidestepping me and performing the translation directly.
 
-    I might lose some readers here, but earlier this year, I threw Claude Code at improving my program for automated translation. This was a program which would parse Fortran into an Abstract Syntax Tree (AST), apply a sequence of transformations to the AST, convert the Fortran AST to a JavaScript AST, and finally produce JavaScript code as output. I thought the tight feedback loop between translation machinery and verifiable output was a recipe for success, but Claude politely informed me that my work was only impeding its ability to ingest Fortran code and produce JavaScript code directly.
+    I resisted, but darn it if it wasn't right. For the first time, I could simply ask for the generalized eigenvalues of a real matrix, let it churn through the LAPACK module dependency tree, and confirm the result actually solved the problem I'd asked for.
 
-    I resisted, but darn it if it wasn't right. For the first time ever, I could ask for code which computes the generalized eigenvalues of a real-valued matrix, let it churn through LAPACK modules, running Fortran and generated JavaScript side by side until the numerics match, and then directly confirm that the resulting output solves the requested problem.
-
-    With a coherent strategy for translating these modules, I looked for some
-    different problems to solve. It made pretty short work of Nakatsukasa, Sète, and Trefethen's [AAA Algorithm for Rational Approximation](https://arxiv.org/abs/1612.00337). This in particular was one that really caused me some problems
-    since a generalized eigenvalue solver was hard to come by. 
-
-    This notebook ticks off the elastic Mobius strip, which was another problem
-    that screamed at me: oh, that requires a proper eigenvalue solver.
-
-    There's more history to this problem than just throwing a numerical solver at it.
-    Sadowsky [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy
-    minimization problem in 1930. Mahadevan and Keller in [The Shape of a Mobius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf) solved it properly in 1993,
-    treating the band as a thin elastic rod and matching their computed centerline.
+    So new in 2025-2026 is that you can finally just will these capabilities into existence.
   </script>
 
   <script id="motivation-js" type="text/markdown">
-    ## Making a Möbius strip
+    ## Computing the shape of a Möbius strip
 
-    Rather than a 1D rod, I model the strip as what it physically is: a thin
-    elastic sheet. Cut the sheet into triangles, let every corner move freely in
-    space, and ask it to find the shape that stores the least elastic energy. Two
-    things push back. The sheet strongly resists being stretched in its own plane,
-    its membrane response, and it resists folding much more gently, its bending
-    response. A flat rectangle is perfectly content. But glue its two short ends
-    together with a half-twist and it can no longer lie flat, so it buckles into
-    the Möbius shape entirely on its own.
+    The shape of a Möbius strip is a problem with some history. Sadowsky [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy-minimization problem in 1930 but didn't quite get to an answer. Mahadevan and Keller solved it in 1993 in [The Shape of a Möbius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf), treating the band as a thin elastic rod — a one-dimensional idealization that reduces the strip to its centerline — and solving the resulting boundary-value problem with [COLSYS](https://www.netlib.org/ode/), a Fortran collocation solver from Netlib.
+
+    This notebook starts in the same place, with the same tool: a JavaScript translation of that very COLSYS solves the same rod equations, continuation scheme and all, and its solution is the strip's starting shape — the "Elastic rod" stage of the pipeline in the figures.
+
+    But a rod knows only its centerline. A real strip has width: it stretches and shears across its surface, and its stresses vary from the center out to the free edge. For a more physically faithful answer, this notebook models the strip as a thin elastic sheet. Cut the sheet into triangles, let every corner move freely in space, and ask it to find the shape that stores the least elastic energy. Two things push back. The sheet strongly resists being stretched in its own plane, its membrane response, and it resists folding much more gently, its bending response. A flat rectangle is perfectly content. But glue its two short ends together with a half-twist and it can no longer lie flat, so it buckles into the Möbius shape entirely on its own.
 
     <figure style="width:100%;max-width:560px;margin-inline:auto">
       <svg viewBox="0 30 460 214" width="560" style="width:100%;height:auto;display:block;font-family:var(--sans-serif,system-ui,sans-serif)" stroke="currentColor" fill="none">
@@ -235,27 +226,21 @@
   </script>
 
   <script id="intro" type="text/markdown">
-    ## Which means linear algebra
+    ## It's a linear algebra problem
 
-    Finding that resting shape, and then the gentle modes the strip would wobble
-    in if you flicked it, is a linear algebra problem underneath. Settling the
-    sheet means solving large systems of equations over and over. Finding the
-    modes means solving an eigenvalue problem. In Python this is a non-event:
-    SciPy hands the matrices to LAPACK, the Fortran library that has quietly sat
-    under numpy, MATLAB, and most scientific computing for forty years. In the
-    browser there is nothing of the kind.
+    The triangles turn the physics into linear algebra. Stack every vertex
+    coordinate into one long vector ${tex`x`}. The elastic energy ${tex`E(x)`} is
+    the sum of the membrane and bending terms from the figure above, and the
+    resting strip is the ${tex`x`} that makes it smallest. Settling the sheet means
+    solving large systems of equations over and over, and the gentle modes the
+    strip would wobble in if you flicked it are an eigenvalue problem. In Python
+    this is a non-event: SciPy hands the matrices to LAPACK, the Fortran library
+    that has quietly sat under NumPy, MATLAB, and most scientific computing for
+    forty years. In the browser there is nothing of the kind.
 
-    The obvious workaround is to compile a C++ library to WebAssembly, and I did
-    get a [proof of concept](https://observablehq.com/@rreusser/eigen) running with
-    Eigen. But it covers only a fraction of LAPACK's routines, and shuttling memory
-    by hand across the JavaScript and WebAssembly boundary never felt ergonomic
-    enough to see through.
-
-    So the route that finally worked is the gap the first half of this story is
-    about. The solvers running below are the AI-assisted translations of that
-    Fortran, checked number for number against the reference. The whole
-    computation happens in the page you are reading: no server, no Python, no
-    WebAssembly black box.
+    The solvers running below are AI-assisted translations of that Fortran, checked
+    number for number against the reference. The whole computation happens in the
+    page you are reading: no server, no Python, no WebAssembly black box.
   </script>
 
   <script id="imports" type="text/x-typescript">
@@ -275,6 +260,8 @@
     import { buildMeshBVH, raycastMesh, screenToRay } from './lib/ray-mesh.js';
     import { peelShaderCode, compositeShaderCode } from './peel-shaders.js';
     import { createPeelRenderer } from './peel-renderer.js';
+    import { createColorLegend } from './lib/color-legend.js';
+    import { buildPermutation } from './modes.js';
   </script>
 
   <script id="gpu-context" type="text/x-typescript">
@@ -315,35 +302,21 @@
   </script>
 
   <script id="theory-element" type="text/markdown">
-    ## The shape of the computation
+    ## Finding the shape and its modes
 
-    A little structure shows why this needs real linear algebra, and which
-    routines do the work. Stack every vertex coordinate into one long vector
-    ${tex`x`}. The elastic energy ${tex`E(x)`} is just the sum of the membrane and
-    bending terms from the figure above, and the resting strip is the ${tex`x`}
-    that makes it as small as possible.
-
-    That minimum is found by default with
+    The energy minimum is found by default with
     [L-BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS), a quasi-Newton
-    method that needs only the energy and its gradient ${tex`\nabla E`} and never
-    forms a matrix at all. Its inner loop is nothing heavier than dot products and
-    scaled vector sums, the ${tex`\texttt{ddot}`} and ${tex`\texttt{daxpy}`} level
-    of BLAS.
+    method that needs only the energy ${tex`E`} and its gradient ${tex`\nabla E`}
+    and never forms a matrix at all. Its inner loop is nothing heavier than dot
+    products and scaled vector sums, the ${tex`\texttt{ddot}`} and
+    ${tex`\texttt{daxpy}`} level of BLAS.
 
-    Two Newton solvers are offered alongside it. A Newton method uses the
-    curvature of the energy, the stiffness matrix ${tex`K`} that says how
-    ${tex`E`} bends around the current shape, to aim each step, solving
-    ${tex`K p = -\nabla E`} for the update ${tex`p`}. The first, Newton-CG, never
-    builds ${tex`K`}: it needs only the products ${tex`K v`}, formed by
-    finite-differencing the gradient, and finds ${tex`p`} with an inner
-    conjugate-gradient loop. The second assembles ${tex`K`} as a banded matrix and
-    solves that system directly with the banded Cholesky routine
-    ${tex`\texttt{dpbsv}`}. Both settle into a slightly lower, smoother minimum
-    than L-BFGS at higher cost, and the banded solve is the slowest of the three,
-    since the strip's energy is far from convex away from rest and the assembled
-    matrix needs heavy damping to stay solvable. It is kept mainly because it
-    runs the same kind of translated Fortran linear algebra, a direct banded
-    factorization, that the eigensolver below relies on.
+    Two Newton solvers are offered alongside it. Both aim each step with the
+    stiffness matrix ${tex`K`} — the curvature of the energy — by solving
+    ${tex`K p = -\nabla E`}: one matrix-free (Newton-CG), and one that assembles
+    ${tex`K`} as a banded matrix for the banded Cholesky routine
+    ${tex`\texttt{dpbsv}`}, the same kind of direct banded factorization the
+    eigensolver below relies on.
   </script>
 
   <script id="theory-bending" type="text/markdown">
@@ -362,22 +335,141 @@
   </script>
 
   <script id="theory-modes" type="text/markdown">
-    ## Getting it to run in a browser
+    ## The Möbius seam
 
-    None of this comes for free in a web page, and the Möbius topology adds a
-    twist of its own. Gluing the two ends of the mesh together connects vertices
-    that started out far apart, which (in the obvious numbering) smears ${tex`K`}
-    into a wide band and makes the solvers crawl. Renumbering the vertices so the
-    glued partners sit next to each other pulls everything back into a narrow
-    band, and that is what lets the banded routines above stay fast. Small fixes
-    like this, multiplied across every routine, are most of the work of carrying
-    forty-year-old Fortran into a setting it was never written for.
+    One wrinkle deserves a mention. Gluing the two ends of the mesh together connects
+    vertices that started out far apart, so in the obvious numbering the stiffness
+    matrix ${tex`K`} spreads into a wide band and the solvers crawl. Renumbering the
+    vertices so the glued partners sit next to each other pulls it back into a narrow
+    band, which is what keeps the banded routines fast.
+
+    That narrow band is also where the approach stops short: a banded solver still
+    grinds through every entry inside the band, and most of them are zero. A proper
+    sparse solver would skip them — but the band is small enough here that it wasn't
+    worth writing one, a compromise the aside below makes concrete.
+  </script>
+
+  <script id="sparsity-aside" type="text/x-typescript">
+    // Optional deep-dive, collapsed by default so it doesn't interrupt the arc:
+    // the stiffness-matrix sparsity pattern (structural only — no FEM solve) and
+    // the solver routines behind it. The sliders re-render imperatively.
+    {
+      const details = html`<details style="margin:0.5rem 0 1.75rem;border:1px solid rgba(127,127,127,0.28);border-radius:8px;padding:0.5rem 0.9rem 0.9rem"></details>`;
+      details.appendChild(html`<summary style="cursor:pointer;font-weight:600">A closer look: the sparsity pattern</summary>`);
+      const body = html`<div style="margin-top:0.85rem"></div>`;
+      details.appendChild(body);
+
+      body.appendChild(html`<p style="margin:0 0 0.85rem">The stiffness matrix is sparse — each vertex couples only to the few others it shares a triangle or bending hinge with. In the natural numbering the Möbius seam links vertices far apart in the index, scattering those couplings into a wide band; interleaving the columns so each seam partner sits beside its mate pulls them into a tight one. Only the tight band is cheap enough for the banded LAPACK routines. Drag the sliders to watch the pattern, bandwidth, and density track the mesh.</p>`);
+
+      // Imperative controls (read .value, listen 'input') — no cross-cell reactivity.
+      const controls = html`<div style="display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;margin:0 0 0.85rem"></div>`;
+      const nuInput = Inputs.range([8, 128], { label: 'Segments around', step: 1, value: 64 });
+      const nvInput = Inputs.range([4, 32], { label: 'Segments across', step: 2, value: 10 });
+      controls.append(nuInput, nvInput);
+      body.appendChild(controls);
+
+      const figWrap = html`<div></div>`;
+      body.appendChild(figWrap);
+
+      // Theme-aware point color, parsed to RGB for direct ImageData writes.
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;color:var(--theme-foreground-focus, #3b82f6)';
+      document.body.appendChild(probe);
+      const cmatch = getComputedStyle(probe).color.match(/[\d.]+/g) || ['59', '130', '246'];
+      probe.remove();
+      const pr = +cmatch[0] | 0, pg = +cmatch[1] | 0, pb = +cmatch[2] | 0;
+
+      function spy(px: number, n: number, blocks: Set<number>, Nv: number, orderOf: (d: number) => number): HTMLCanvasElement {
+        const dpr = devicePixelRatio || 1;
+        const W = Math.max(1, Math.round(px * dpr));
+        const cv = document.createElement('canvas');
+        cv.width = W; cv.height = W;
+        cv.style.cssText = `width:${px}px;height:${px}px;border:1px solid rgba(127,127,127,0.35);border-radius:4px;background:rgba(127,127,127,0.05);max-width:100%`;
+        const ctx = cv.getContext('2d')!;
+        const img = ctx.createImageData(W, W);
+        const data = img.data;
+        const s = W / n;
+        const dot = Math.max(1, Math.floor(s));
+        const plot = (i: number, j: number) => {
+          const x0 = Math.min(W - dot, (j * s) | 0), y0 = Math.min(W - dot, (i * s) | 0);
+          for (let dy = 0; dy < dot; dy++) {
+            let idx = ((y0 + dy) * W + x0) * 4;
+            for (let dx = 0; dx < dot; dx++) { data[idx] = pr; data[idx+1] = pg; data[idx+2] = pb; data[idx+3] = 255; idx += 4; }
+          }
+        };
+        for (const key of blocks) {
+          const va = Math.floor(key / Nv), vb = key % Nv;
+          for (let ci = 0; ci < 3; ci++) { const i = orderOf(va*3+ci); for (let cj = 0; cj < 3; cj++) plot(i, orderOf(vb*3+cj)); }
+        }
+        ctx.putImageData(img, 0, 0);
+        return cv;
+      }
+
+      const pct = (x: number) => `${(100 * x).toFixed(1)}%`;
+      const panel = (cv: HTMLCanvasElement, heading: string, sub: string) => {
+        const wrap = html`<div style="display:flex;flex-direction:column;align-items:center;gap:6px;max-width:100%"></div>`;
+        wrap.appendChild(cv);
+        wrap.appendChild(html`<div style="text-align:center;font:12px/1.4 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777)"><strong style="color:var(--theme-foreground,#222)">${heading}</strong><br>${sub}</div>`);
+        return wrap;
+      };
+
+      function render() {
+        const model = createMobiusMesh({ length: 2 * Math.PI, width: 1, nu: Math.round(nuInput.value as number), nv: Math.round(nvInput.value as number) });
+        const { Nv, tris, nT, nHinges, hingeIdx } = model;
+        const n = 3 * Nv;
+        const { dofPerm, bw } = buildPermutation(model);
+
+        const blocks = new Set<number>();
+        const addPair = (a: number, b: number) => { blocks.add(a * Nv + b); blocks.add(b * Nv + a); };
+        for (let v = 0; v < Nv; v++) blocks.add(v * Nv + v);
+        for (let k = 0; k < nT; k++) { const a = tris[k*3], b = tris[k*3+1], c = tris[k*3+2]; addPair(a, b); addPair(b, c); addPair(a, c); }
+        for (let h = 0; h < nHinges; h++) { const o = h*4; const q = [hingeIdx[o], hingeIdx[o+1], hingeIdx[o+2], hingeIdx[o+3]]; for (let a = 0; a < 4; a++) for (let c = a+1; c < 4; c++) addPair(q[a], q[c]); }
+
+        let maxV = 0;
+        for (const key of blocks) { const d = Math.abs(Math.floor(key / Nv) - (key % Nv)); if (d > maxV) maxV = d; }
+        const natBw = maxV * 3 + 2;
+        const nnz = blocks.size * 9;
+
+        const PX = 280;
+        const fig = html`<figure style="margin:0"></figure>`;
+        const rowEl = html`<div style="display:flex;flex-wrap:wrap;gap:24px;justify-content:center;align-items:flex-start"></div>`;
+        rowEl.append(
+          panel(spy(PX, n, blocks, Nv, (d) => d), 'Natural ordering', `bandwidth ≈ ${natBw} of ${n}`),
+          panel(spy(PX, n, blocks, Nv, (d) => dofPerm[d]), 'Bandwidth-reduced (used)', `bandwidth = ${bw} of ${n}`),
+        );
+        fig.appendChild(rowEl);
+        fig.appendChild(html`<figcaption style="margin-top:0.75rem;font:13px/1.5 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);text-align:center">
+          ${model.nu}&times;${model.nv} segments &rarr; ${n}&times;${n} matrix, ${nnz.toLocaleString()} nonzeros (${pct(nnz / (n * n))} dense).
+          Reordering shrinks the bandwidth from ${natBw} to ${bw}; even then only ${pct(nnz / (n * (2 * bw + 1)))}
+          of the stored band is actually nonzero — the room a sparse solver would reclaim.
+        </figcaption>`);
+        figWrap.replaceChildren(fig);
+      }
+      render();
+      nuInput.addEventListener('input', render);
+      nvInput.addEventListener('input', render);
+
+      display(details);
+    }
+  </script>
+
+  <script id="theory-modes-run" type="text/markdown">
+    Altogether, that's the translated Fortran doing the work on this page:
+
+    <ul>
+      <li><strong>COLSYS</strong> — the Netlib boundary-value solver, for the Mahadevan–Keller elastic-rod shape that seeds the strip.</li>
+      <li><strong>BLAS level 1:</strong> <code>ddot</code>, <code>daxpy</code>, <code>dscal</code>, <code>dnrm2</code>, <code>dcopy</code> — the vector kernels inside the L-BFGS and Newton-CG relaxation.</li>
+      <li><strong>LAPACK <code>dpbsv</code></strong> — the banded Cholesky solve behind the banded Newton step.</li>
+      <li><strong>LAPACK <code>dsbgvx</code></strong> — the banded generalized eigensolver, the fast path for the flexural modes.</li>
+      <li><strong>LAPACK <code>dsygvx</code></strong> — its dense counterpart, kept as a cross-check.</li>
+    </ul>
 
     And it works. The strip below was relaxed, and its modes computed, entirely in
-    your browser. Drag a vertex and it re-settles in real time; switch to a
-    flexural mode and you are watching solutions of the eigenproblem above. That
-    is the whole point. Once the tedious translation is unlocked, you get to make
-    things, and bend them with your mouse.
+    your browser. Drag a vertex and it re-settles in real time; recolor it by stress
+    or curvature, change its thickness, or switch to a flexural mode and watch a
+    solution of the eigenproblem above. This is the part I was after: once the
+    translation is done, the solver is just there, and you can build something and
+    bend it with your mouse.
   </script>
 
   <script id="controls" type="text/x-typescript">
@@ -431,11 +523,11 @@
     // shape a well-defined starting point.
     add(html`<div style="font-weight:600;margin:2px 0">Computation</div>`);
     const btnStyle = `
-      display:inline-flex;align-items:center;gap:5px;
-      padding:5px 11px;font:12px/1 var(--sans-serif,system-ui,sans-serif);
+      display:inline-flex;align-items:center;gap:6px;
+      padding:8px 15px;font:13px/1 var(--sans-serif,system-ui,sans-serif);
       color:var(--theme-foreground,#222);background:var(--theme-background-alt,rgba(127,127,127,0.14));
       border:1px solid var(--theme-foreground-faint,rgba(0,0,0,0.18));
-      border-radius:6px;cursor:pointer`;
+      border-radius:7px;cursor:pointer`;
     // The three stages of the computation, shown as a pipeline:
     //   Elastic rod  →  Relax  →  Flexural modes
     // "Elastic rod" loads the COLSYS rod shape; "Relax" settles it to the shell
@@ -1104,9 +1196,10 @@
         case 'Bending stress':
           return { field: bendingStress(model, positions, params), mode: 1 };
         case 'Gaussian curvature':
-          // Near-zero for a developable (ruled) surface; signed (saddle vs dome),
-          // so use the diverging colormap (mode 2) centered at zero.
-          return { field: gaussianCurvature(model, positions), mode: 2 };
+          // Near-zero for a developable (ruled) surface; signed (saddle vs dome).
+          // The diverging colormap + symmetric range (chosen in onColorByChange)
+          // put zero on the neutral midpoint.
+          return { field: gaussianCurvature(model, positions), mode: 1 };
         case 'Mode amplitude': {
           if (modes && modes.modes.length > 0) {
             const idx = Math.min(Math.max(rp.modeIndex - 1, 0), modes.modes.length - 1);
@@ -1134,13 +1227,34 @@
       return isFinite(lo) ? [lo, hi] : undefined;
     }
 
+    // Color-scale state shared with the legend. `auto` re-fits the scale to the
+    // data each frame (and mirrors it onto the legend); once the user drags or
+    // zooms the legend, `auto` turns off and the pinned [min, max] holds. A
+    // signed field (Gaussian curvature) fits symmetrically about zero.
+    const colorScale = { auto: true, min: 0, max: 1 };
+    let colorLegend: any = null;
+    const isDivergingColorBy = () => state.renderParams.colorBy === 'Gaussian curvature';
+
+    // Resolve the color range for this frame. `autoField` is the field the auto
+    // fit measures (the peak-deflection field while a mode animates, so the scale
+    // does not pump as the oscillation crosses zero; the live field otherwise).
+    function resolveRange(autoField: Float64Array | null): [number, number] | undefined {
+      if (!colorScale.auto) return [colorScale.min, colorScale.max];
+      const r = scalarRange(autoField);
+      if (!r) return undefined;
+      let lo = r[0], hi = r[1];
+      if (isDivergingColorBy()) { const a = Math.max(Math.abs(lo), Math.abs(hi)) || 1e-20; lo = -a; hi = a; }
+      colorScale.min = lo; colorScale.max = hi;
+      if (colorLegend) colorLegend.setRange(lo, hi);
+      return [lo, hi];
+    }
+
     // The color field is always evaluated at the displayed `positions` (so values
-    // are per-frame), but an optional `range` pins the color scale. While a mode
-    // animates we pass the peak-deflection range so the scale stays fixed instead
-    // of rescaling (and amplifying noise) as the oscillation passes through zero.
+    // are per-frame). `autoField` (optional) pins the auto fit to a fixed field.
     let peakBuf = new Float32Array(0);
-    function pushDisplay(positions: Float32Array, range?: [number, number]) {
+    function pushDisplay(positions: Float32Array, autoField?: Float64Array | null) {
       const { field, mode } = currentScalar(positions);
+      const range = resolveRange(autoField !== undefined ? autoField : field);
       renderer.update(positions, field, mode, state.sim.params?.thickness ?? 0.03, range);
     }
 
@@ -1171,10 +1285,10 @@
         // zero, while the color values themselves remain per-frame.
         if (peakBuf.length !== dispX.length) peakBuf = new Float32Array(dispX.length);
         for (let i = 0; i < dispX.length; i++) peakBuf[i] = X[i] + rp.amplitude * shape[i];
-        const range = scalarRange(currentScalar(peakBuf).field);
+        const peakField = currentScalar(peakBuf).field;
         const a = rp.amplitude * Math.sin(state.anim.phase);
         for (let i = 0; i < dispX.length; i++) dispX[i] = X[i] + a * shape[i];
-        pushDisplay(dispX, range);
+        pushDisplay(dispX, peakField);
         return true;
       }
       if (state.staticDirty) {
@@ -1196,6 +1310,54 @@
 
     const container = html`<div style="position:relative;width:100%;height:100%"></div>`;
     container.appendChild(canvas);
+
+    // ParaView-style color-scale legend, lower-right of the figure. Dragging it
+    // pans the color scale and the mouse wheel zooms it; the palette button picks
+    // a different colormap. All three feed back into the rendered surface.
+    colorLegend = createColorLegend({
+      min: colorScale.min, max: colorScale.max,
+      colormap: 'turbo',
+      label: state.renderParams.colorBy,
+      onRangeChange: ({ min, max }: { min: number; max: number }) => {
+        colorScale.auto = false;
+        colorScale.min = min; colorScale.max = max;
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
+      onColormapChange: () => {
+        renderer.setColormap(colorLegend.getLUT());
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
+      // Double-click the legend to re-fit the scale to the current data range.
+      onReset: () => {
+        colorScale.auto = true;
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
+    });
+    colorLegend.element.style.right = '10px';
+    colorLegend.element.style.bottom = '10px';
+    container.appendChild(colorLegend.element);
+    // Seed the renderer's colormap LUT from the legend's initial colormap.
+    renderer.setColormap(colorLegend.getLUT());
+    invalidation.then(() => colorLegend.destroy());
+
+    // Switching "Color by" re-fits the scale (auto on) and picks a fitting
+    // colormap: diverging cool–warm for the signed Gaussian curvature, turbo for
+    // the non-negative stress/amplitude fields.
+    function onColorByChange() {
+      const cb = colorByInput.value as string;
+      colorScale.auto = true;
+      // Derive from the fresh input value: this listener runs before syncParams
+      // (which bubbles to the controls container) updates state.renderParams.
+      colorLegend.setColormap(cb === 'Gaussian curvature' ? 'coolwarm' : 'turbo');
+      colorLegend.setLabel(cb);
+      renderer.setColormap(colorLegend.getLUT());
+      state.staticDirty = true;
+      camera.triggerRepaint();
+    }
+    colorByInput.addEventListener('input', onColorByChange);
 
     camera.on('render', () => {
       if (!mainVisible) return;
@@ -1379,44 +1541,36 @@
           worker.postMessage({ type: 'movePin', target: t });
         }
 
-        // mousedown (capture phase on the host) runs before the camera's own
-        // mousedown on the canvas, so a vertex grab can suppress camera rotation.
-        // Grabbing just pins a vertex on the already-running continuous solve; it
-        // does not start a separate solve, so the iteration mechanism (and the
-        // status readout) is the same whether or not a vertex is being dragged.
-        host.addEventListener('mousedown', (e: MouseEvent) => {
-          if (e.button !== 0 || activeDrag || !enabled()) return;
-          // Let clicks on overlay controls (e.g. the restart button) through.
-          if ((e.target as HTMLElement).closest('button')) return;
-          const v = pickVertex(cam, cnv, e.clientX, e.clientY);
-          if (v < 0) return; // missed: let the camera handle it (rotate)
-          e.preventDefault();
-          e.stopImmediatePropagation();
+        // Shared grab/move/release used by both mouse and touch. Grabbing just
+        // pins a vertex on the already-running continuous solve; it does not start
+        // a separate solve, so the iteration mechanism (and the status readout) is
+        // the same whether or not a vertex is being dragged. Returns true if a
+        // vertex was actually grabbed at (clientX, clientY).
+        function beginDrag(clientX: number, clientY: number): boolean {
+          const v = pickVertex(cam, cnv, clientX, clientY);
+          if (v < 0) return false; // missed: caller lets the camera handle it
           state.previewing = true;                 // the live solve owns the display
           setEquilibrium(false);                   // deforming: leave equilibrium (modes lock out)
           const X = displayedX();                  // grab from the shape currently on screen
           const grabPos = [X[v*3], X[v*3+1], X[v*3+2]];
           activeDrag = {
             v, grabPos,
-            startX: e.clientX, startY: e.clientY, curX: e.clientX, curY: e.clientY,
+            startX: clientX, startY: clientY, curX: clientX, curY: clientY,
             showRing: showRingAt,
           };
           cnv.style.cursor = 'grabbing';
+          showRingAt(grabPos[0], grabPos[1], grabPos[2]); // touch has no hover, so show it now
           worker.postMessage({ type: 'setPin', v, target: grabPos });
-          window.addEventListener('mousemove', onDragMove);
-          window.addEventListener('mouseup', onDragUp);
-        }, true);
-
-        function onDragMove(e: MouseEvent) {
-          if (!activeDrag) return;
-          activeDrag.curX = e.clientX; activeDrag.curY = e.clientY;
-          sendTarget();
-          e.preventDefault();
+          return true;
         }
 
-        function onDragUp() {
-          window.removeEventListener('mousemove', onDragMove);
-          window.removeEventListener('mouseup', onDragUp);
+        function moveDrag(clientX: number, clientY: number) {
+          if (!activeDrag) return;
+          activeDrag.curX = clientX; activeDrag.curY = clientY;
+          sendTarget();
+        }
+
+        function endDrag() {
           if (!activeDrag) return;
           // Release the pin; the same continuous solve relaxes back to the true
           // equilibrium and reports it (no separate spring-back pass).
@@ -1426,6 +1580,68 @@
           cnv.style.cursor = 'grab';
           hideRing();
           cameraEasing = true; // re-frame once toward the (now off-center) mesh
+        }
+
+        // Suppress browser touch gestures (scroll/zoom) over the figure so a
+        // vertex drag — and the camera's own touch controls — get the events.
+        cnv.style.touchAction = 'none';
+
+        // mousedown / touchstart (capture phase on the host) run before the
+        // camera's own handlers on the canvas, so a vertex grab can suppress
+        // camera rotation. A miss (or multi-touch) falls through to the camera.
+        host.addEventListener('mousedown', (e: MouseEvent) => {
+          if (e.button !== 0 || activeDrag || !enabled()) return;
+          // Let clicks on overlay controls (e.g. buttons, the color legend) through.
+          if ((e.target as HTMLElement).closest('button, .color-legend')) return;
+          if (!beginDrag(e.clientX, e.clientY)) return;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          window.addEventListener('mousemove', onDragMove);
+          window.addEventListener('mouseup', onDragUp);
+        }, true);
+
+        function onDragMove(e: MouseEvent) {
+          if (!activeDrag) return;
+          moveDrag(e.clientX, e.clientY);
+          e.preventDefault();
+        }
+
+        function onDragUp() {
+          window.removeEventListener('mousemove', onDragMove);
+          window.removeEventListener('mouseup', onDragUp);
+          endDrag();
+        }
+
+        host.addEventListener('touchstart', (e: TouchEvent) => {
+          // Extra fingers added mid-drag would otherwise reach the camera and
+          // start a pinch on top of the vertex drag — swallow them.
+          if (activeDrag) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+          if (!enabled()) return;
+          if (e.touches.length !== 1) return; // multi-touch → let the camera pinch/zoom
+          if ((e.target as HTMLElement).closest('button, .color-legend')) return;
+          const t = e.touches[0];
+          if (!beginDrag(t.clientX, t.clientY)) return; // miss → camera rotates
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          window.addEventListener('touchmove', onTouchDragMove, { passive: false });
+          window.addEventListener('touchend', onTouchDragEnd);
+          window.addEventListener('touchcancel', onTouchDragEnd);
+        }, { capture: true, passive: false });
+
+        function onTouchDragMove(e: TouchEvent) {
+          if (!activeDrag) return;
+          const t = e.touches[0];
+          if (!t) return;
+          moveDrag(t.clientX, t.clientY);
+          e.preventDefault(); // hold the gesture (no page scroll) while dragging
+        }
+
+        function onTouchDragEnd(e: TouchEvent) {
+          if (e.touches && e.touches.length > 0) return; // wait until the last finger lifts
+          window.removeEventListener('touchmove', onTouchDragMove);
+          window.removeEventListener('touchend', onTouchDragEnd);
+          window.removeEventListener('touchcancel', onTouchDragEnd);
+          endDrag();
         }
 
         // Hover: highlight the nearest vertex (only when nothing is being dragged).
@@ -1446,6 +1662,9 @@
         invalidation.then(() => {
           window.removeEventListener('mousemove', onDragMove);
           window.removeEventListener('mouseup', onDragUp);
+          window.removeEventListener('touchmove', onTouchDragMove);
+          window.removeEventListener('touchend', onTouchDragEnd);
+          window.removeEventListener('touchcancel', onTouchDragEnd);
           overlay.remove();
         });
       }
@@ -1508,59 +1727,32 @@
     camera.triggerRepaint();
   </script>
 
-  <script id="notes" type="text/markdown">
-    ## Reading the picture
-
-    By default the surface is colored by the peak bending fiber stress, which
-    concentrates where the strip is forced to curve most sharply. "Color by" also
-    offers the membrane von Mises stress, a width gradient that makes the
-    one-sidedness visible (follow the band once around and the two edge colors
-    swap, since a Mobius strip has a single side and a single edge), and the
-    amplitude of the selected flexural mode, whose dark bands are its nodal lines.
-
-    Smooth shading uses per-vertex normals built from the glued connectivity, so
-    every vertex averages its full triangle ring. The surface is non-orientable,
-    so no globally consistent normal exists, but the tangent plane is continuous
-    everywhere and the lighting is two-sided, so the strip renders smoothly all
-    the way around with no seam.
-
-    The membrane stiffness is several orders of magnitude larger than the bending
-    stiffness, so the relaxed shape is nearly inextensible: it bends rather than
-    stretches, as a real strip of paper or metal would. Increasing the thickness
-    stiffens bending relative to stretching and rounds out the shape; thin strips
-    develop the sharper, more localized bend of the classical inextensible Mobius
-    band.
-  </script>
-
   <script id="numerics-note" type="text/markdown">
-    ## Accuracy
+    ## Is it right?
 
-    These checks verify both the FEM code and the translated solver. The analytic
-    energy gradient is verified against central differences to about
-    ${tex`10^{-10}`} relative error, the energy is exactly invariant under rigid
-motions, a flat unglued rectangle has exactly zero energy, and a rolled
-cylinder reproduces the continuum bending energy. The stiffness ${tex`K`} is
-formed by central differences of that gradient and is symmetric positive
-semidefinite with exactly six zero modes. The eigenpairs returned by
-${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
-\approx 10^{-15}`} and are ${tex`M`}-orthonormal, so the reported mode shapes
-    and frequencies are accurate to machine precision for the discrete model.
+    None of this is worth much if the numbers are wrong. Each translated routine was
+    validated against its Fortran original — run side by side on the same inputs
+    until the outputs agreed to the last digits — so the linear algebra here does
+    exactly what the reference does. The assembled problem gets the
+    same scrutiny: the elastic energy is invariant under rigid motion, a flat unglued
+    rectangle has zero energy, a rolled cylinder reproduces the known bending energy,
+    and the computed modes satisfy ${tex`K\phi = \omega^2 M\phi`} to round-off. The
+    shapes and frequencies you see are the correct solutions of the discrete model,
+    not just something that looks about right.
   </script>
 
   <script id="coda" type="text/markdown">
-    ## Mass production
+    ## Where this leaves me
 
-    The strip was never really the point. The point is that the wall between "I can
-    picture this computation" and "it runs in a browser tab" has quietly come down.
-    The decades of Fortran that still power NumPy and MATLAB can be translated, one
-    verified module at a time, on demand. A career's worth of careful porting starts
-    to look less like scholarship and more like a supply chain: ask for a banded
-    generalized eigensolver, let it run against the reference until the numerics
-    agree, and harvest the result.
+    The part I keep coming back to is that all of it ran here, in a browser tab —
+    the same numerics that sit under NumPy and MATLAB, translated to JavaScript and
+    checked against the Fortran until the numbers matched.
 
-    It is exhilarating, and a little uneasy. The same ease that grew this one strip
-    will grow the machinery wholesale, with all the usual questions of mass
-    production about who is left to inspect the crop.
+    I find that exciting, and a little uneasy. Translating one banded eigensolver by
+    hand used to be a serious undertaking; now it is close to routine, so the rest of
+    the library is within reach too — and I am honestly not sure who is left to check
+    that all of it is right. But for one Möbius strip I can bend with my mouse, I am
+    glad I did it.
 
     <figure>
       <img alt="Human batteries in the machine world from The Matrix (1999)" src="matrix.webp">
