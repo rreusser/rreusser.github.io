@@ -1,4 +1,4 @@
-// Profiling harness for docs/plans/mobius-modes-fix-a-inverse-iteration.md:
+// Profiling harness for docs/plans/mobius-modes-fix-a-arpack-shift-invert.md:
 // replicates the Möbius notebook's solve pipeline at the default 64×10 mesh.
 //
 //   node --cpu-prof --cpu-prof-dir=/tmp --cpu-prof-name=solve.cpuprofile \
