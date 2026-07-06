@@ -164,9 +164,13 @@ is genuinely license-less Netlib-era code — ARPACK is not in that bucket.)
 - [x] Timing gate: 9.3× on the eigensolve at 64×10 (≥5× target met); 25× at
       96×16. High-resolution memory ceiling removed (no n×n matrix).
 - [ ] Interim (optional, zero-code): superseded — the real path landed.
-- [ ] Article beat once landed: dsbgvx spent 85% of its time building a 2112²
-      matrix used for 14 vectors; the reference world's answer to this regime
-      is ARPACK, so ARPACK is what got translated next. (Prose update pending.)
+- [x] Article beat: the notebook prose now frames the eigensolver as an
+      algorithm-choice question following the bandwidth setup — dsbgvx reduces
+      the whole band and spends its time on an n×n rotation matrix used for a
+      handful of vectors (scales like n³), while shift-invert Lanczos (dsband)
+      factors K−σM once and iterates, ~9× faster at the default mesh and past
+      25× at 96×16. Updated in `index.html` (`theory-bending`, `theory-modes`,
+      routines list).
 
 ## Results
 

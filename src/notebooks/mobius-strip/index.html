@@ -329,11 +329,12 @@
 
     with the same stiffness ${tex`K`} and a mass matrix ${tex`M`}. The eigenvalues
     ${tex`\omega^2`} are the squared frequencies and the eigenvectors ${tex`\phi`}
-    are the mode shapes. This goes to a symmetric eigensolver,
-    ${tex`\texttt{dsbgvx}`} for the banded case or ${tex`\texttt{dsygvx}`} for the
-    dense one, again translated from Fortran. The lowest six eigenvalues come out
-    near zero, the rigid-body motions of a strip floating freely in space; the
-    modes worth looking at are the next ones up.
+    are the mode shapes. This goes to a symmetric eigensolver, again translated
+    from Fortran: shift-invert Lanczos (ARPACK's ${tex`\texttt{dsband}`}) for the
+    few lowest modes, with the banded ${tex`\texttt{dsbgvx}`} and dense
+    ${tex`\texttt{dsygvx}`} kept alongside as cross-checks. The lowest six
+    eigenvalues come out near zero, the rigid-body motions of a strip floating
+    freely in space; the modes worth looking at are the next ones up.
   </script>
 
   <script id="theory-modes" type="text/markdown">
@@ -344,6 +345,19 @@
     matrix ${tex`K`} spreads into a wide band and the solvers crawl. Renumbering the
     vertices so the glued partners sit next to each other pulls it back into a narrow
     band, which is what keeps the banded routines fast.
+
+    Which eigensolver runs on that band matters as much as the band itself. Only a
+    few of the lowest modes are wanted, yet the classic banded routine
+    (${tex`\texttt{dsbgvx}`}) reduces the entire band to tridiagonal form, and most
+    of that cost goes into accumulating an ${tex`n\times n`} rotation matrix used
+    only to recover those few eigenvectors, work that scales like ${tex`n^3`}. A
+    better fit for a handful of eigenpairs is shift-invert Lanczos (ARPACK's
+    ${tex`\texttt{dsband}`}): factor ${tex`K-\sigma M`} once as a band, then apply
+    its inverse a few dozen times to converge on the lowest frequencies, never
+    forming an ${tex`n\times n`} matrix. On the default mesh the mode solve runs
+    about 9 times faster, and the advantage grows with resolution, past 25 times
+    on a ${tex`96\times16`} mesh, because it is precisely the ${tex`n\times n`}
+    work that shift-invert skips.
 
     That narrow band is also where the approach stops short: a banded solver still
     grinds through every entry inside the band, and most of them are zero. A proper
@@ -462,8 +476,9 @@
       <li><strong><a href="https://www.netlib.org/ode/">COLSYS</a></strong> — the Netlib boundary-value solver, for the Mahadevan–Keller elastic-rod shape that seeds the strip.</li>
       <li><strong>BLAS level 1:</strong> <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/ddot"><code>ddot</code></a>, <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/daxpy"><code>daxpy</code></a>, <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/dscal"><code>dscal</code></a>, <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/dnrm2"><code>dnrm2</code></a>, <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/dcopy"><code>dcopy</code></a> — the vector kernels inside the L-BFGS and Newton-CG relaxation.</li>
       <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dpbsv"><code>dpbsv</code></a></strong> — the banded Cholesky solve behind the banded Newton step.</li>
-      <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dsbgvx"><code>dsbgvx</code></a></strong> — the banded generalized eigensolver, the fast path for the flexural modes.</li>
-      <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dsygvx"><code>dsygvx</code></a></strong> — its dense counterpart, kept as a cross-check.</li>
+      <li><strong>ARPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/arpack/base/dsband"><code>dsband</code></a></strong> — implicitly restarted Lanczos in shift-invert mode, the fast path for the flexural modes: a few of the lowest eigenpairs from one banded factorization, no <em>n</em>×<em>n</em> reduction.</li>
+      <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dsbgvx"><code>dsbgvx</code></a></strong> — the banded generalized eigensolver, kept as a cross-check.</li>
+      <li><strong>LAPACK <a href="https://github.com/rreusser/blahpack/tree/main/lib/lapack/base/dsygvx"><code>dsygvx</code></a></strong> — the dense eigensolver, kept as a cross-check.</li>
       <li><strong>BLAS level 3 <a href="https://github.com/rreusser/blahpack/tree/main/lib/blas/base/dgemm"><code>dgemm</code></a></strong> — matrix–matrix multiplication, never called directly but doing the heavy lifting inside the dense eigensolver and the banded factorization. It accordingly got <a href="https://github.com/rreusser/blahpack/blob/main/bench/dgemm-opt/reports/dgemm-optimization.md">the most optimization attention</a> of any routine, register tiling and all.</li>
     </ul>
 
