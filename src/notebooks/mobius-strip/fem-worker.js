@@ -1,9 +1,10 @@
 import { createMobiusMesh, energyAndGradient, lumpedMassDiagonal } from './mobius-fem.js';
 import { newtonCG, lbfgs, bandedNewton } from './optimize.js';
 import blas1 from './blas1.bundle.js';
-import { computeFlexuralModes, computeFlexuralModesDense, buildPermutation, fdHessianBanded } from './modes.js';
+import { computeFlexuralModes, computeFlexuralModesDense, computeFlexuralModesArpack, buildPermutation, fdHessianBanded } from './modes.js';
 import dsbgvx from './dsbgvx-bundle.js';
 import dsygvx from './dsygvx.bundle.js';
+import dsband from './dsband-bundle.js';
 import dpbsv from './dpbsv-bundle.js';
 
 let cancelled = false;
@@ -342,9 +343,15 @@ async function handleComputeModes({ gen, modelParams, XBuf, opts }) {
     };
 
     const t0 = performance.now();
-    const result = (solver === 'dense')
-      ? await computeFlexuralModesDense(model, X, massDiag, gradFn, dsygvx, { ...opts, onProgress })
-      : await computeFlexuralModes(model, X, massDiag, gradFn, dsbgvx, { ...opts, onProgress });
+    let result;
+    if (solver === 'dense') {
+      result = await computeFlexuralModesDense(model, X, massDiag, gradFn, dsygvx, { ...opts, onProgress });
+    } else if (solver === 'dsbgvx') {
+      result = await computeFlexuralModes(model, X, massDiag, gradFn, dsbgvx, { ...opts, onProgress });
+    } else {
+      // Default banded path: ARPACK shift-invert (dsband).
+      result = await computeFlexuralModesArpack(model, X, massDiag, gradFn, dsband, { ...opts, onProgress });
+    }
     const ms = Math.round(performance.now() - t0);
 
     const serializedModes = result.modes.map(m => ({ lambda: m.lambda, omega: m.omega, shape: m.shape.buffer }));

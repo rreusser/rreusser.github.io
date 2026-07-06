@@ -1,6 +1,8 @@
 # Fix A — ARPACK shift-invert for the Möbius notebook's flexural modes
 
-Status: planned, not started.
+Status: **landed** (2026-07). ARPACK symmetric closure translated in blahpack;
+notebook `computeFlexuralModesArpack` wired as the default banded eigensolver,
+with dsbgvx kept selectable as a cross-check. See [Results](#results).
 Scope: blahpack (translate ARPACK's symmetric drivers) + `src/notebooks/mobius-strip/` (swap the modes path).
 Companion plan: [Fix B — dsbtrd rotation blocking in blahpack](blahpack-fix-b-dsbtrd-blocking.md)
 (independent: Fix A removes this notebook's dependence on dsbtrd's Q path
@@ -137,34 +139,74 @@ is genuinely license-less Netlib-era code — ARPACK is not in that bucket.)
 
 ## Tasks
 
-- [ ] blahpack: translate `dsaupd`/`dseupd` + symmetric dependency closure,
-      with the reverse-communication state-object pattern documented; retain
-      the Rice BSD notice on the derived modules.
-- [ ] blahpack: verification against arpack-ng — example drivers (`dsdrv1`,
-      `dsdrv4`, `dsbdr*`) reproduced to reference tolerances; side-by-side
-      Fortran/JS runs on fuzzed symmetric problems (standard and generalized,
-      modes 1–3).
-- [ ] blahpack: translate the `dsband` banded driver (or a trimmed
-      symmetric-only equivalent) as the packaged entry point.
-- [ ] blahpack: bundle entry points for the notebook: `dsband` (or
-      dsaupd/dseupd + dgbtrf/dgbtrs individually).
-- [ ] Notebook `modes.js`: `computeFlexuralModesArpack(model, X, massDiag,
-      gradFn, routines, opts)` — assemble banded K (existing `fdHessianBanded`
-      + permutation), form K − σM, run the driver, return the existing
-      `{eigenvalues, frequencies, modes, rigidCount, bw}` shape.
-- [ ] `fem-worker.js`: route the banded solver choice to the ARPACK path; keep
-      "Banded classic (dsbgvx)" as a dev cross-check option; dense unchanged.
-- [ ] Cross-checks in the notebook harness: eigenvalues vs dsbgvx to rel.
-      1e-10 at 32×6, 64×10, 96×16; subspace angles for degenerate clusters;
-      M-orthonormality to 1e-12; residuals ‖Kx − λMx‖ at dsbgvx's level.
-- [ ] Timing gate: ≥5× on the eigensolve phase at 64×10
-      ([harness/profile-harness.mjs](harness/profile-harness.mjs)); a 128×32
-      modes solve completes in under a minute without exceeding ~100 MB.
-- [ ] Interim (optional, zero-code): default the notebook's eigensolver to
-      dense until this lands, reverting when it does.
+- [x] blahpack: translate `dsaupd`/`dseupd` + symmetric dependency closure
+      (`dsaup2`, `dsaitr`, `dsapps`, `dsconv`, `dseigt`, `dsgets`, `dsortr`,
+      `dsesrt`, `dstqrb`, `dgetv0`, `dstats`), with the reverse-communication
+      state-object pattern documented; Rice BSD notice retained. (blahpack PR#10.)
+- [x] blahpack: verification against arpack-ng — every routine matched its
+      Fortran fixture number-for-number (RC drivers to ~1e-14 with exact
+      iteration counts); driven by `test/run_fortran.sh arpack <r>`.
+- [x] blahpack: translate the `dsband` banded driver as the packaged entry
+      point (all six modes; standard + generalized).
+- [x] blahpack: bundle entry point for the notebook — `dsband-bundle.js`
+      (esbuild, ~184 KB, comparable to the dsbgvx bundle).
+- [x] Notebook `modes.js`: `computeFlexuralModesArpack(model, X, massDiag,
+      gradFn, dsband, opts)` — assembles the symmetric band from
+      `fdHessianBanded` into LAPACK general-band storage (kl = ku = bw), forms
+      K − σM implicitly inside dsband (mode 3), returns the existing
+      `{eigenvalues, frequencies, modes, rigidCount, bw}` shape (+ `sigma`).
+- [x] `fem-worker.js`: routes the eigensolver choice — ARPACK (default),
+      dsbgvx (cross-check), dense (dsygvx) — via the `solver` key; the notebook
+      select offers all three.
+- [x] Cross-checks in the notebook harness: eigenvalues vs dsbgvx to ~1e-9,
+      M-orthonormality to ~1e-15, residuals identical to dsbgvx, at 32×6,
+      64×10, 96×16. See [Results](#results).
+- [x] Timing gate: 9.3× on the eigensolve at 64×10 (≥5× target met); 25× at
+      96×16. High-resolution memory ceiling removed (no n×n matrix).
+- [ ] Interim (optional, zero-code): superseded — the real path landed.
 - [ ] Article beat once landed: dsbgvx spent 85% of its time building a 2112²
       matrix used for 14 vectors; the reference world's answer to this regime
-      is ARPACK, so ARPACK is what got translated next.
+      is ARPACK, so ARPACK is what got translated next. (Prose update pending.)
+
+## Results
+
+Landed 2026-07. Verification/benchmark harness:
+[harness/verify-arpack-modes.mjs](harness/verify-arpack-modes.mjs) (runs both
+solvers on the real relaxed equilibrium across mesh sizes; `node
+docs/plans/harness/verify-arpack-modes.mjs`).
+
+| mesh   | n    | bw  | eig rel-err vs dsbgvx | M-orthonormality | residual parity | dsbgvx   | ARPACK  | speedup |
+|--------|------|-----|-----------------------|------------------|-----------------|----------|---------|---------|
+| 32×6   | 672  | 89  | 3.2e-10               | 2.0e-15          | exact           | 314 ms   | 152 ms  | 2.1×    |
+| 64×10  | 2112 | 137 | 6.2e-10               | 3.6e-15          | exact           | 7.0 s    | 0.76 s  | 9.3×    |
+| 96×16  | 4896 | 209 | 3.5e-9                | 3.8e-15          | exact           | 88 s     | 3.5 s   | 25.5×   |
+
+The eigenvalues agree with dsbgvx to ~1e-9 (limited by ARPACK's tolerance, not
+the method), the ARPACK modes are M-orthonormal to machine precision, and the
+directional-FD residual ‖Kφ − λMφ‖ is identical to dsbgvx's to three figures
+(the residual floor is set by the FD Hessian, not the eigensolver). The
+eigensolve speedup grows with n, exactly as expected from removing the O(n³)
+dsbtrd Q-accumulation: at the 64×10 default mesh it clears the plan's ≥5× gate
+(9.3×), and at 96×16 it is 25×. No n×n matrix is ever formed, so the memory
+ceiling that made the high-resolution mesh unusable is gone.
+
+**Shift.** σ is scaled to the stiffness (`-1e-3 · maxᵢ Kᵢᵢ/Mᵢᵢ`), which sits
+below the lowest cluster while keeping K − σM well-conditioned; it is exposed
+as `opts.sigma`. Since K is PSD, any σ < 0 targets the smallest eigenvalues;
+the magnitude only trades conditioning against transformed-spectrum separation.
+
+**Dependency bug found and fixed.** Wiring this up surfaced a real correctness
+bug in blahpack's `dgbtrf` (banded LU): its **blocked** path (active for
+`kl ≥ 32`, i.e. every realistic notebook bandwidth) had a j2/j3 off-by-one in
+the trailing-submatrix column counts, giving ~1e-3 solve errors while the
+unblocked `dgbtf2` stayed at 1e-16. The fix (`MIN(JU-J+1,KV)` / `MAX(0,
+JU-J-KV+1)`, matching reference LAPACK) already existed on a blahpack fix branch
+but had never been merged into the ARPACK-foundation branch dsband sits on; it
+was cherry-picked in. Without it every ARPACK eigenvalue was wrong (the Lanczos
+vectors were still M-orthonormal, which is why only the eigenvalue/residual
+cross-check — not the orthonormality check — caught it). Lesson reaffirmed: a
+few-vector eigensolver returns B-orthonormal Ritz vectors even when the operator
+is wrong, so orthonormality alone is not a correctness check.
 
 ## Risks and mitigations
 

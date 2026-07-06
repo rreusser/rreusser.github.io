@@ -572,8 +572,8 @@
         : 'newton-cg';
     };
 
-    const solverInput = add(Inputs.select(['Banded (dsbgvx)', 'Dense (dsygvx)'], {
-      label: 'Eigensolver', value: 'Banded (dsbgvx)',
+    const solverInput = add(Inputs.select(['Banded ARPACK (dsband)', 'Banded (dsbgvx)', 'Dense (dsygvx)'], {
+      label: 'Eigensolver', value: 'Banded ARPACK (dsband)',
     }));
     const modeInput = add(Inputs.range([1, 20], { label: 'Mode #', value: 1, step: 1 }));
 
@@ -877,7 +877,8 @@
       if (gen !== modesGeneration) return;
       const model = state.sim.model;
       const n = model ? 3 * model.Nv : 0;
-      const solverName = (solverInput.value as string).startsWith('Dense') ? 'dsygvx' : 'dsbgvx';
+      const sv = solverInput.value as string;
+      const solverName = sv.startsWith('Dense') ? 'dsygvx' : sv.startsWith('Banded ARPACK') ? 'dsband' : 'dsbgvx';
       if (phase === 'hessian') {
         setProgress(`Assembling stiffness (FD Hessian) · ${Math.round((frac ?? 0) * 100)}%`, frac);
       } else {
@@ -898,7 +899,8 @@
       setProgress(null, null);
       camera.triggerRepaint();
       computingModes = false;
-      const solverUsed = (solverInput.value as string).startsWith('Dense') ? 'dsygvx (dense)' : 'dsbgvx (banded)';
+      const svd = solverInput.value as string;
+      const solverUsed = svd.startsWith('Dense') ? 'dsygvx (dense)' : svd.startsWith('Banded ARPACK') ? 'dsband (ARPACK shift-invert)' : 'dsbgvx (banded)';
       const model = state.sim.model;
       const n = model ? 3 * model.Nv : 0;
       console.log(`[eigensolver] ${solverUsed}  n=${n}  bw=${bw}  time=${ms} ms`);
@@ -1102,8 +1104,9 @@
       if (!atEquilibrium || !model || !X) { setStatus('Relax to an equilibrium first.'); return; }
       if (computingModes) worker.postMessage({ type: 'cancel' });
 
-      const solver = (solverInput.value as string).startsWith('Dense') ? 'dense' : 'banded';
-      const solverLabel = solver === 'dense' ? 'dsygvx (dense)' : 'dsbgvx (banded)';
+      const svValue = solverInput.value as string;
+      const solver = svValue.startsWith('Dense') ? 'dense' : svValue.startsWith('Banded ARPACK') ? 'arpack' : 'dsbgvx';
+      const solverLabel = solver === 'dense' ? 'dsygvx (dense)' : solver === 'arpack' ? 'dsband (ARPACK shift-invert)' : 'dsbgvx (banded)';
       // Use setProgress (with the bar) so the modes solve is visibly "happening"
       // in the same status line/progress bar as the equilibrium computation.
       setProgress(`Computing flexural modes (${solverLabel}, n = ${3 * model.Nv})…`, null);

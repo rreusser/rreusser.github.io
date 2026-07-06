@@ -209,6 +209,150 @@ export async function computeFlexuralModes(model, X, massDiag, gradFn, dsbgvx, o
   };
 }
 
+// Compute the lowest flexural modes via ARPACK shift-invert (blahpack dsband).
+//
+// Instead of reducing the whole banded pencil to tridiagonal form (dsbgvx,
+// which spends ~85% of its time accumulating an n x n orthogonal Q used only to
+// back-transform a handful of vectors), this runs the implicitly restarted
+// Lanczos method in shift-invert mode: OP = (K - sigma*M)^-1 M with which='LM'
+// in the transformed spectrum converges fastest to the eigenvalues nearest
+// sigma. With sigma < 0 (K is PSD, so K - sigma*M is PD and factors safely)
+// that cluster is the lowest one -- the rigid and low flexural modes together.
+// Per solve: one banded LU (dgbtrf) of K - sigma*M plus a few tens of banded
+// solves (dgbtrs), no O(n^3) reduction and no n x n matrix anywhere.
+//
+//   dsband : injected blahpack dsband (default export of dsband-bundle.js)
+//   opts.sigma : shift (default a small negative multiple of the stiffness
+//                scale); must lie below the wanted eigenvalues
+//   opts.ncvFactor : Lanczos basis size as a multiple of nev (default 2)
+//
+// Returns the same shape as computeFlexuralModes.
+export async function computeFlexuralModesArpack(model, X, massDiag, gradFn, dsband, opts = {}) {
+  const { nModes = 8, fdStep = 1e-5, onProgress = null, sigma: sigmaOpt, ncvFactor = 2 } = opts;
+  const Nv = model.Nv;
+  const n = 3 * Nv;
+
+  const { dofPerm, invDofPerm, bw } = buildPermutation(model);
+
+  const xPerm = new Float64Array(n);
+  for (let i = 0; i < n; i++) xPerm[i] = X[invDofPerm[i]];
+
+  const xOld = new Float64Array(n);
+  const gOld = new Float64Array(n);
+  function gradFnPerm(xp, gp) {
+    for (let i = 0; i < n; i++) xOld[invDofPerm[i]] = xp[i];
+    gradFn(xOld, gOld);
+    for (let i = 0; i < n; i++) gp[dofPerm[i]] = gOld[i];
+  }
+
+  // Banded stiffness K in lower-triangular band storage (bw+1) x n.
+  const ABlo = await fdHessianBanded(n, xPerm, gradFnPerm, bw, fdStep, onProgress);
+
+  // Permuted diagonal mass.
+  const massPerm = new Float64Array(n);
+  for (let i = 0; i < n; i++) massPerm[i] = massDiag[invDofPerm[i]];
+
+  // Expand to LAPACK general band storage with kl = ku = bw (what dgbtrf/dgbtrs
+  // and dsband expect): element (I,J) lives at KB[(2*bw + I - J) + J*lda], with
+  // lda = 3*bw+1 (bw fill rows on top for the LU). K is symmetric, so each
+  // lower-band entry is mirrored into the upper band. M is diagonal.
+  const lda = (3 * bw) + 1;
+  const diagRow = 2 * bw;
+  const KB = new Float64Array(lda * n);
+  const MB = new Float64Array(lda * n);
+  for (let j = 0; j < n; j++) {
+    KB[diagRow + (j * lda)] = ABlo[0 + (j * (bw + 1))];
+    MB[diagRow + (j * lda)] = massPerm[j];
+    for (let d = 1; d <= bw; d++) {
+      const i = j + d;
+      if (i >= n) break;
+      const val = ABlo[d + (j * (bw + 1))];
+      KB[(diagRow + d) + (j * lda)] = val;          // subdiagonal (i=j+d, col=j)
+      KB[(diagRow - d) + ((j + d) * lda)] = val;    // superdiagonal, by symmetry
+    }
+  }
+
+  // Shift below the spectrum. K is PSD; sigma < 0 makes K - sigma*M positive
+  // definite (safe factorization) and places the wanted low cluster as the
+  // largest eigenvalues of the shift-inverted operator. The magnitude only
+  // affects conditioning/convergence: scale it to the stiffness so it tracks
+  // the problem. A characteristic omega^2 is max_i K[i,i]/M[i,i]; a small
+  // fraction of it sits comfortably below the lowest flexural eigenvalues.
+  let scale = 0;
+  for (let i = 0; i < n; i++) {
+    const r = MB[diagRow + (i * lda)];
+    if (r > 0) {
+      const q = KB[diagRow + (i * lda)] / r;
+      if (q > scale) scale = q;
+    }
+  }
+  const sigma = (sigmaOpt !== undefined) ? sigmaOpt : -1e-3 * scale;
+
+  if (onProgress) await onProgress({ phase: 'eigensolve', frac: null });
+
+  const want = Math.min(n, 6 + nModes);
+  const nev = want;
+  const ncv = Math.min(n, Math.max((ncvFactor * nev) + 1, nev + 2));
+  const lworkl = (ncv * ncv) + (8 * ncv);
+
+  const d = new Float64Array(nev);
+  const Z = new Float64Array(n * nev);
+  const V = new Float64Array(n * ncv);
+  const RFAC = new Float64Array(lda * n);
+  const resid = new Float64Array(n);
+  const workd = new Float64Array(3 * n);
+  const workl = new Float64Array(lworkl);
+  const iparam = new Int32Array(11);
+  iparam[2] = Math.max(300, 3 * nev); // max Arnoldi iterations
+  iparam[6] = 3;                      // shift-invert mode
+  const iwork = new Int32Array(n);
+  const select = new Int32Array(ncv);
+
+  // infoIn = 0: ARPACK generates a (deterministic) random starting residual.
+  const info = dsband(
+    true, 'all', select,
+    d, Z, n, sigma, n,
+    KB, MB, lda, RFAC, bw, bw,
+    'LM', 'generalized', nev, 0.0,
+    resid, ncv, V, n, iparam,
+    workd, workl, lworkl, iwork, 0,
+  );
+  if (info < 0) throw new Error(`dsband failed (info=${info})`);
+  const M = iparam[4]; // number of converged Ritz values
+
+  const rigidCount = Math.min(6, M);
+
+  function packMode(k) {
+    const massNorm = new Float64Array(n);
+    for (let i = 0; i < n; i++) massNorm[i] = Z[dofPerm[i] + k * n];
+    let mx = 0;
+    for (let v = 0; v < Nv; v++) {
+      const dd = Math.hypot(massNorm[v * 3], massNorm[v * 3 + 1], massNorm[v * 3 + 2]);
+      if (dd > mx) mx = dd;
+    }
+    const s = mx > 0 ? 1 / mx : 1;
+    const shape = new Float64Array(n);
+    for (let i = 0; i < n; i++) shape[i] = massNorm[i] * s;
+    const lambda = d[k];
+    return { lambda, omega: Math.sqrt(Math.max(lambda, 0)), shape, shapeMassNorm: massNorm };
+  }
+
+  const all = [];
+  for (let k = 0; k < M; k++) all.push(packMode(k));
+  const flex = all.slice(rigidCount, rigidCount + nModes);
+
+  return {
+    eigenvalues: Array.from(d.slice(0, M)),
+    frequencies: flex.map((m) => m.omega),
+    modes: flex,
+    rigidCount,
+    rigidEigenvalues: Array.from(d.slice(0, rigidCount)),
+    all,
+    bw,
+    sigma,
+  };
+}
+
 // Dense FD Hessian: 2n gradient evaluations, full column-major storage.
 async function fdHessianDense(n, x, gradFn, h, onProgress) {
   const A = new Float64Array(n * n);
