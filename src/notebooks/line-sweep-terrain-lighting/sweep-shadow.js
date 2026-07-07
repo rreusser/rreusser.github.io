@@ -1,4 +1,4 @@
-import { sweepCore } from "./sweep-core.js";
+import { sweepCore } from "./lib/line-sweep-core.js";
 
 // Hard-threshold shadow for a point sun. Thin wrapper around `sweepCore`
 // in 'hard' mode; see sweep-core.js for the algorithm. `horizon`/`HN`

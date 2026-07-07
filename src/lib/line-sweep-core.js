@@ -1,5 +1,14 @@
 // Unified CPU line-sweep core for heightfield shading.
 //
+// SHARED between notebooks. Imported via the per-notebook `./lib/`
+// symlink (src/lib) by both `line-sweep-terrain-lighting` and the
+// `denali` map viewer's CPU lighting bake, so a fix here reaches both.
+// It is self-contained (no npm imports, no outer-scope references) so
+// `sweepCoreSource = sweepCore.toString()` stays valid inside a Web
+// Worker blob. The GPU compute port that used to mirror this lives in
+// each notebook's own `webgpu-pipelines.js`; only the CPU path is
+// shared (denali does not use the GPU bake).
+//
 // All four notebook figures (hard-threshold shadow, parent-tile pre-pass,
 // soft shadow, LSAO ambient occlusion) are instances of the same
 // traversal. A single canonical reparameterization walks arbitrary-azimuth

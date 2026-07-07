@@ -4,7 +4,7 @@
 // the driver, which averages sweeps at small azimuth offsets across
 // the sun disk.
 
-import { sweepCoreSource } from "./sweep-core.js";
+import { sweepCoreSource } from "./lib/line-sweep-core.js";
 
 // See lsao-sweep.js for the rationale — binding the stringified source
 // to a known `sweepCore` identifier survives minification that would

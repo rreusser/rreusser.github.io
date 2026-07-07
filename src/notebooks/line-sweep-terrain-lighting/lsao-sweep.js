@@ -12,7 +12,7 @@
 // angles, the contribution of a distant tall blocker falls off like
 // 1 / distance² rather than lingering on a long exponential shoulder.
 
-import { sweepCore, sweepCoreSource } from "./sweep-core.js";
+import { sweepCore, sweepCoreSource } from "./lib/line-sweep-core.js";
 
 export function sweepLsaoDirection(W, H, elev, azDeg, pxSizeM, weight) {
   return sweepCore({
