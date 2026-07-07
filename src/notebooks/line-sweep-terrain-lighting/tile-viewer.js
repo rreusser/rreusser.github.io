@@ -22,7 +22,8 @@
 //                      has moved since last submission. Clears the
 //                      shared atomic shadow buffer, runs one hard-
 //                      shadow sweep per visible tile (with parent-
-//                      tile prewarm assembled from 4 z-1 neighbours),
+//                      tile prewarm assembled from 4 (z − parentDZ)
+//                      parents),
 //                      then fullscreen alpha-blits the result into
 //                      the tile texture's A channel. RGB is preserved
 //                      via `writeMask: GPUColorWrite.ALPHA`.
@@ -324,13 +325,18 @@ export function createTileViewer(opts) {
     // resolution. `dz = 2` gives 5×5 coverage at quarter-res; `dz = 1`
     // is the original 3×3-tile / half-res behavior.
     //
-    // Default `null` selects a zoom-adaptive dz that keeps the warmup
-    // ring covering a roughly constant *physical* radius (~40 km)
-    // regardless of zoom. As you zoom in past z ≈ 11 the comp tile
-    // shrinks faster than terrain steepness, so a fixed `dz = 2` stops
-    // reaching the blockers that actually shadow into the tile; the
-    // auto formula bumps `dz` by 1 every zoom past z = 11 to compensate.
-    // Pass a number to override.
+    // Default `null` selects dz = 2 wherever the pyramid allows it
+    // (dz = 1 right above minZoom). dz is deliberately capped at 2: the
+    // seam error at a tile's sun-facing edges is dominated by how well
+    // the ring resolves blockers just across the boundary, and that
+    // error grows roughly linearly with 2^dz — at dz ≥ 3 the near
+    // field degrades so much that the ring is barely better than no
+    // prewarm at all within a parent texel of the seam. The price of
+    // the cap is warmup reach: the ring spans W·2^dz/2 child pixels
+    // (~5 km at z = 14), so very long low-sun shadows from terrain
+    // beyond that are truncated. Extending reach without wrecking the
+    // near field would take a second, coarser far-field ring, not a
+    // bigger dz. Pass a number to override.
     parentDZ = null,
   } = opts;
 
@@ -360,14 +366,13 @@ export function createTileViewer(opts) {
     { type: "module" },
   );
 
-  // The warmup ring's physical reach is (W/2) · parentScale · pxSize_comp,
-  // and pxSize_comp halves per zoom — so a fixed parentDZ shrinks the
-  // reach geometrically. Pin reach at ~40 km (covers a 7 km blocker at
-  // ~10° sun altitude), bumping parentDZ by 1 per zoom past z=11. The
-  // explicit `parentDZ` constructor opt overrides this if set.
+  // Auto parentDZ: always 2 when the pyramid has a level there, 1 just
+  // above minZoom. Never more — a coarser ring resolves the blockers
+  // immediately across the tile seam so poorly that the sun-facing
+  // seam line gets *worse* with every extra level (see the constructor
+  // opt comment for the reach trade-off this accepts).
   function pickAutoParentDZ(z) {
-    const dz = Math.max(2, z - 9);
-    return Math.max(1, Math.min(dz, z - minZoom));
+    return Math.max(1, Math.min(2, z - minZoom));
   }
   let currentParentDZ = -1;
   let parentScale = 1;

@@ -159,6 +159,41 @@ const HELPERS_WGSL = /* wgsl */ `
     let lat: f32 = atan(sinh(nMerc));
     return u.eqPxSizeM * cos(lat);
   }
+
+  // Bilinear horizon sample at an arbitrary canonical (cx, cy).
+  // Returns vec2(height, 1.0), or vec2(0, 0) when there's no horizon
+  // bound (horizonN == 0, e.g. the non-prewarm stub buffer) or the
+  // position falls outside the ring. Mirrors sweep-core.js
+  // sampleHorizonAt: used by the main loop for rays straddling the
+  // tile boundary in the cross-ray axis, where clamping to the edge
+  // row used to draw a constant seam line along downstream tile edges.
+  fn sampleHorizonAt(cxF: f32, cyF: f32) -> vec2<f32> {
+    let hN: i32 = i32(u.horizonN);
+    if (hN <= 0) { return vec2<f32>(0.0, 0.0); }
+    let parentScaleF: f32 = 1.0 / u.invParentScale;
+    let warmupMarginX: f32 = f32(u.W) * parentScaleF * 0.5;
+    let warmupMarginY: f32 = f32(u.H) * parentScaleF * 0.5;
+    var ox_f: f32 = cxF;
+    var oy_f: f32 = cyF;
+    if (u.swap != 0u) { ox_f = cyF; oy_f = cxF; }
+    if (u.flipX != 0u) { ox_f = f32(u.W) - 1.0 - ox_f; }
+    if (u.flipY != 0u) { oy_f = f32(u.H) - 1.0 - oy_f; }
+    let hx_f: f32 = (ox_f + warmupMarginX) * u.invParentScale - u.parentCenterOffset;
+    let hy_f: f32 = (oy_f + warmupMarginY) * u.invParentScale - u.parentCenterOffset;
+    let hx_i: i32 = i32(floor(hx_f));
+    let hy_i: i32 = i32(floor(hy_f));
+    if (hx_i < 0 || hx_i + 1 >= hN || hy_i < 0 || hy_i + 1 >= hN) {
+      return vec2<f32>(0.0, 0.0);
+    }
+    let fx: f32 = hx_f - f32(hx_i);
+    let fy: f32 = hy_f - f32(hy_i);
+    let h: f32 =
+      (1.0 - fx) * (1.0 - fy) * horizon[hy_i * hN + hx_i] +
+      fx * (1.0 - fy) * horizon[hy_i * hN + hx_i + 1] +
+      (1.0 - fx) * fy * horizon[(hy_i + 1) * hN + hx_i] +
+      fx * fy * horizon[(hy_i + 1) * hN + hx_i + 1];
+    return vec2<f32>(h, 1.0);
+  }
 `;
 
 // LSAO-specific warmup: iterate at parent-pixel resolution along the
@@ -522,10 +557,20 @@ function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
         if (loIn) { iLo = toOrig(cx, yi); }
         if (hiIn) { iHi = toOrig(cx, yj); }
 
+        // Ray height. When one bracketing row is outside the view,
+        // prefer the horizon ring's estimate of the terrain there over
+        // clamping to the edge row — mirrors sweep-core.js.
         var hLo: f32 = 0.0;
         var hHi: f32 = 0.0;
         if (loIn) { hLo = elev[iLo]; } else { hLo = elev[iHi]; }
         if (hiIn) { hHi = elev[iHi]; } else { hHi = hLo; }
+        if (!loIn) {
+          let hOut = sampleHorizonAt(f32(cx), f32(yi));
+          if (hOut.y != 0.0) { hLo = hOut.x; }
+        } else if (!hiIn) {
+          let hOut = sampleHorizonAt(f32(cx), f32(yj));
+          if (hOut.y != 0.0) { hHi = hOut.x; }
+        }
         let hRay = (1.0 - fy) * hLo + fy * hHi;
 
         // Per-target pxSize and its derived sweep constants, from the
