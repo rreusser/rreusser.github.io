@@ -1,6 +1,7 @@
 // WebGPU pipeline builder for the unified line-sweep kernel.
 //
-// The CPU reference is `sweepCore` in `sweep-core.js`. This module
+// The CPU reference is `sweepCore` in the shared `./lib/line-sweep-core.js`.
+// This module
 // produces specialized WGSL compute shaders for every (mode, prewarm)
 // combination it's asked for, caches the resulting `GPUComputePipeline`
 // objects, and exposes a small set of helpers for the notebook to wire
@@ -98,7 +99,7 @@ export function packUniforms(opts) {
   u32[9] = z >>> 0;
   u32[10] = useMercator ? 1 : 0;
   // Full warmup margin, in child pixels, if caller didn't precompute a
-  // tighter bound. Matches sweep-core.js's default WARMUP_STEPS.
+  // tighter bound. Matches line-sweep-core.js's default WARMUP_STEPS.
   const fullWarmup = (W * parentScale) >> 1;
   u32[11] = (warmupSteps !== null ? warmupSteps : fullWarmup) >>> 0;
   f32[12] = slope;
@@ -112,7 +113,7 @@ export function packUniforms(opts) {
   f32[19] = tanRange > 0 ? 1 / tanRange : 0;
   i32[20] = bMin;
   i32[21] = bMax;
-  // See sweep-core.js for the derivation. Child pixel `oxf`'s center
+  // See line-sweep-core.js for the derivation. Child pixel `oxf`'s center
   // (child-space position oxf + 0.5) maps to horizon pixel
   //   (oxf + W) * invParentScale - parentCenterOffset,
   // where parentCenterOffset = 0.5 * (1 - invParentScale) encodes the
@@ -237,14 +238,14 @@ function warmupBlockLsao() {
 }
 
 // Optional parent-tile warmup, inlined into main(). Mirrors
-// sweep-core.js exactly. When the prewarm permutation flag is off this
+// line-sweep-core.js exactly. When the prewarm permutation flag is off this
 // helper returns an empty string so the compiled shader has zero
 // overhead and the horizon binding can be a 16-byte stub.
 //
 // Two paths: LSAO walks parent pixel centres along the ray with a
 // single linear interp across the cross-ray axis and skips the warmup
 // deposit (zero-valued for 45°-multiple azimuths anyway, see
-// sweep-core.js for the derivation). Hard/soft walk integer cx
+// line-sweep-core.js for the derivation). Hard/soft walk integer cx
 // positions, bilinear-sample the horizon, and deposit edge-straddle
 // contributions to fill in partner-ray coverage at tile edges — needed
 // because their fractional sun azimuths produce non-trivial fy splits.
@@ -284,7 +285,7 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
         // centres so hx_f = k exactly (or hy_f = k for swap), collapsing
         // the bilinear to a 1-D cross-axis lerp with no along-ray bleed
         // from the first parent pixel inside the comp tile. Matches the
-        // CPU sweep-core.js fix — see comments there for the derivation.
+        // CPU line-sweep-core.js fix — see comments there for the derivation.
         let firstK: i32 = max(
           0,
           i32(ceil(
@@ -392,7 +393,7 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
 function modeKernelWGSL(mode, lsaoFalloff = "cos2") {
   if (mode === "hard") {
     // Hard threshold via the G-correction trick. Linearstep over ±epsH
-    // gives ½-pixel edge AA along the sweep axis. Matches sweep-core.js
+    // gives ½-pixel edge AA along the sweep axis. Matches line-sweep-core.js
     // mode === 'hard' exactly. Reads `dStep`, `epsH`, `invTwoEps` from
     // the surrounding scope — set per-target by the caller.
     return /* wgsl */ `
@@ -437,7 +438,7 @@ function modeKernelWGSL(mode, lsaoFalloff = "cos2") {
   }
   // LSAO: max sin α, deposit either cos²α = 1 − sin²α (Lambertian)
   // or exp(−sin α) (Naaji's original). Early-continue when dz <= 0
-  // matches sweep-core.js exactly so a target on a ridge isn't pulled
+  // matches line-sweep-core.js exactly so a target on a ridge isn't pulled
   // down by lower blockers behind it.
   const finalBit =
     lsaoFalloff === "exp" ? `exp(-bestSin)` : `1.0 - bestSin * bestSin`;
@@ -497,7 +498,7 @@ function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
       let hullMax: i32 = i32(HULL_SIZE) - 1;
 
       // Where does this ray first enter the comp view [0, viewH)?
-      // Mirrors sweep-core.js cxEntry.
+      // Mirrors line-sweep-core.js cxEntry.
       var cxEntry: i32 = 0;
       if (b < 0 && u.slope > 0.0) {
         let raw = i32(ceil(f32(-b) / u.slope));
@@ -530,7 +531,7 @@ function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
 
         // Per-target pxSize and its derived sweep constants, from the
         // target pixel's own original row. Mirrors the CPU
-        // updateTargetPx path in sweep-core.js.
+        // updateTargetPx path in line-sweep-core.js.
         let targetRow: i32 = select(yj, yi, loIn);
         let pxSize = targetPxSize(cx, targetRow);
         let dStep = pxSize * sqrt(1.0 + u.slope * u.slope);
@@ -1224,7 +1225,7 @@ export function deriveSweepParams({
   const useMercator = eqPxSizeM !== undefined;
   const outEqPxSizeM = useMercator ? eqPxSizeM : (pxSizeM || 0);
 
-  // Elevation-bound warmup trim. See sweep-core.js for the full
+  // Elevation-bound warmup trim. See line-sweep-core.js for the full
   // derivation; this is the same formula running on the CPU side so
   // the packed uniform `warmupSteps` matches what sweepCore would
   // compute internally. LSAO is a horizon-slope scan with no

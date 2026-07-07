@@ -2,7 +2,7 @@
 //
 // Every per-tile bake pass runs on the GPU. A `rgba8unorm` texture per
 // tile holds (nx, ny, ao, shadow) just like the old CPU path, but now
-// the assembly runs through the same `sweep-core` kernels the notebook
+// the assembly runs through the same `line-sweep-core` kernels the notebook
 // already builds for its interactive figures:
 //
 //   R = (nx + 1) / 2      world-space surface normal, x
