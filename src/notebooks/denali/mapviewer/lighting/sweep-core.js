@@ -293,6 +293,39 @@ export function sweepCore(opts) {
     }
   }
 
+  // Bilinear horizon sample at an arbitrary canonical (cx, cy), or null
+  // when there's no horizon or the position falls outside the ring.
+  //
+  // Used by the main pass for rays that straddle the tile boundary in
+  // the cross-ray axis (yi = −1 or yj = viewH): the row just outside
+  // the tile used to clamp to the edge row's elevation, which disagrees
+  // with the neighbouring tile's view of the same ray and drew a
+  // constant seam line along every tile's downstream edge — independent
+  // of parent resolution, and dominant at low sun where the hard-mode
+  // smoothing window epsH is only a few metres. The ring covers all
+  // four sides of the comp tile, so sample it instead.
+  const sampleHorizonAt = (cx, cy) => {
+    if (!hasHorizon) return null;
+    let oxf = swap ? cy : cx;
+    let oyf = swap ? cx : cy;
+    if (flipX) oxf = W - 1 - oxf;
+    if (flipY) oyf = H - 1 - oyf;
+    const hxf = (oxf + warmupMarginX) * invParentScale - parentCenterOffset;
+    const hyf = (oyf + warmupMarginY) * invParentScale - parentCenterOffset;
+    const hxi = Math.floor(hxf);
+    const hyi = Math.floor(hyf);
+    if (hxi < 0 || hxi + 1 >= HN) return null;
+    if (hyi < 0 || hyi + 1 >= HN) return null;
+    const fx = hxf - hxi;
+    const fy = hyf - hyi;
+    return (
+      (1 - fx) * (1 - fy) * horizon[hyi * HN + hxi] +
+      fx * (1 - fy) * horizon[hyi * HN + hxi + 1] +
+      (1 - fx) * fy * horizon[(hyi + 1) * HN + hxi] +
+      fx * fy * horizon[(hyi + 1) * HN + hxi + 1]
+    );
+  };
+
   // Mode-specific shadow bit at (cx, hRay) against the current hull.
   // Called from both the warmup's tile-edge deposit and the main pass
   // so they share one kernel per mode. Closes over the per-scanline
@@ -562,8 +595,18 @@ export function sweepCore(opts) {
       const iLo = loIn ? toOrig(cx, yi) : -1;
       const iHi = hiIn ? toOrig(cx, yj) : -1;
 
-      const hLo = loIn ? elev[iLo] : elev[iHi];
-      const hHi = hiIn ? elev[iHi] : hLo;
+      // Ray height. When one of the two bracketing rows is outside the
+      // view, prefer the horizon ring's estimate of the actual terrain
+      // there over clamping to the edge row — see sampleHorizonAt.
+      let hLo = loIn ? elev[iLo] : elev[iHi];
+      let hHi = hiIn ? elev[iHi] : hLo;
+      if (!loIn) {
+        const hOut = sampleHorizonAt(cx, yi);
+        if (hOut !== null) hLo = hOut;
+      } else if (!hiIn) {
+        const hOut = sampleHorizonAt(cx, yj);
+        if (hOut !== null) hHi = hOut;
+      }
       const hRay = (1 - f) * hLo + f * hHi;
 
       if (updateTargetPx) updateTargetPx(cx, loIn ? yi : yj);

@@ -130,6 +130,12 @@ export function createSettings(initial: Partial<Settings> = {}): Settings {
     sunRadiusDeg: 0.265,
     shadowSamples: 1,
     lsaoFalloff: 'cos2',
+    // Parent-tile horizon reach for the shadow prewarm, in zoom levels
+    // above the comp tile. 2 keeps blockers at a fine ~1-tile ring; 3
+    // reaches farther (tall off-tile massifs shadow neighbours) at the
+    // cost of coarser blocks and stronger tile-edge artifacts. Clamped
+    // to [1, 3] in the lighting manager.
+    horizonParentDZ: 2,
     // Mesh terrain is rendered N zoom levels coarser than imagery — visual
     // detail comes from imagery and lighting at imagery resolution, not from
     // vertex density. The lighting bake reads child tiles at this same offset

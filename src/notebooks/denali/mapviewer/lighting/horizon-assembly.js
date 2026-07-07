@@ -15,19 +15,30 @@
 import { downsampleInner } from './downsample.js';
 
 export const COMP_N = 256;          // bake grid resolution
-export const PARENT_DZ = 2;         // parent zoom delta
+export const PARENT_DZ = 2;         // default parent zoom delta
 export const PARENT_SCALE = 1 << PARENT_DZ;  // child tiles per parent dim
 export const PN = 256;              // parent pixels per dim (matches COMP_N)
-export const HN = (PN * (PARENT_SCALE + 1)) / PARENT_SCALE;  // 320
+export const HN = (PN * (PARENT_SCALE + 1)) / PARENT_SCALE;  // 320 at dz=2
+
+// Horizon grid dim for a given zoom delta. The ring spans an (s+1)-tile
+// window at parent resolution, s = 2^dz child tiles per parent tile, so
+// HN = PN·(s+1)/s: 384 at dz=1, 320 at dz=2, 288 at dz=3. Smaller dz
+// means a finer ring over a shorter reach; larger dz reaches farther
+// but aggregates blockers into coarser blocks, which strengthens the
+// artifacts near a tile's sun-facing edges. Callers pick the trade-off.
+export function horizonN(dz) {
+  const s = 1 << dz;
+  return (PN * (s + 1)) / s;
+}
 
 // Returns the parent tile coords needed to assemble the horizon for
 // the given child tile, with off-map keys filtered out. Lighting can
 // use this to ask the tile manager to fetch missing parents at low
-// priority.
-export function getRequiredParents(z, x, y) {
-  const parentZ = z - PARENT_DZ;
+// priority. `dz` is the parent zoom delta (default 2).
+export function getRequiredParents(z, x, y, dz = PARENT_DZ) {
+  const parentZ = z - dz;
   if (parentZ < 0) return [];
-  const s = PARENT_SCALE;
+  const s = 1 << dz;
   const qx = Math.floor((x - s / 2) / s);
   const qy = Math.floor((y - s / 2) / s);
   const nParent = 1 << parentZ;
@@ -45,13 +56,16 @@ export function getRequiredParents(z, x, y) {
 }
 
 // Assemble the horizon buffer. Returns { heights, hMin, hMax,
-// missingParents } where heights is HN×HN Float32. Missing parents are
-// zero-filled and reported so the caller can schedule re-bake. Returns
-// null if parentZ < 0 (caller should bake without prewarm).
-export function assembleHorizon(z, x, y, tileManager) {
-  const parentZ = z - PARENT_DZ;
+// missingParents, HN, parentScale } where heights is HN×HN Float32 and
+// HN/parentScale reflect the zoom delta `dz` actually used (both vary
+// with dz, so callers must read them from the result rather than the
+// module-level dz=2 constants). Missing parents are zero-filled and
+// reported so the caller can schedule re-bake. Returns null if
+// parentZ < 0 (caller should bake without prewarm).
+export function assembleHorizon(z, x, y, tileManager, dz = PARENT_DZ) {
+  const parentZ = z - dz;
   if (parentZ < 0) return null;
-  const s = PARENT_SCALE;
+  const s = 1 << dz;
   const qx = Math.floor((x - s / 2) / s);
   const qy = Math.floor((y - s / 2) / s);
   const nParent = 1 << parentZ;
@@ -89,17 +103,21 @@ export function assembleHorizon(z, x, y, tileManager) {
     }
   }
 
-  // Extract the HN×HN window centered on the target child tile.
+  // Extract the hn×hn window centered on the target child tile. hn
+  // depends on dz (= PN·(s+1)/s); the symmetric (s+1)-tile window always
+  // fits inside the 2·PN block for any dz, so the same 2×2 parent
+  // assembly serves every zoom delta.
+  const hn = (PN * (s + 1)) / s;
   const compTileXInBlock = (x - s * qx) * (PN / s);
   const compTileYInBlock = (y - s * qy) * (PN / s);
   const startX = compTileXInBlock - PN / 2;
   const startY = compTileYInBlock - PN / 2;
-  const heights = new Float32Array(HN * HN);
+  const heights = new Float32Array(hn * hn);
   let hMin = Infinity, hMax = -Infinity;
-  for (let j = 0; j < HN; j++) {
+  for (let j = 0; j < hn; j++) {
     const srcRow = (startY + j) * BN + startX;
-    const dstRow = j * HN;
-    for (let i = 0; i < HN; i++) {
+    const dstRow = j * hn;
+    for (let i = 0; i < hn; i++) {
       const v = block[srcRow + i];
       heights[dstRow + i] = v;
       if (v < hMin) hMin = v;
@@ -113,5 +131,5 @@ export function assembleHorizon(z, x, y, tileManager) {
     if (missing) missingParents.add(`${parentZ}/${px}/${py}`);
   }
 
-  return { heights, hMin, hMax, missingParents };
+  return { heights, hMin, hMax, missingParents, HN: hn, parentScale: s };
 }

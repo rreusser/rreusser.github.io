@@ -606,6 +606,16 @@ export class TerrainMap extends EventEmitter {
       this._renderDirty = true;
     }
 
+    // Horizon parent-Δz change re-assembles the ring at a new zoom and
+    // reach, so every cached bake is stale — full re-bake, same as an
+    // AO settings change.
+    if (this._lastHorizonParentDZ !== settings.horizonParentDZ) {
+      this._lastHorizonParentDZ = settings.horizonParentDZ;
+      this._lightingManager.onHorizonSettingsChanged();
+      this._coverageDirty = true;
+      this._renderDirty = true;
+    }
+
     // Drive the lighting bake queue. tick() processes a small budget of
     // bakes per frame; if more remain, we'll be called again next frame.
     this._lightingManager.tick();
