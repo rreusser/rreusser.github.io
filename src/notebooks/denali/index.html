@@ -1004,6 +1004,10 @@
       Inputs.range([1, 16], { value: viewer.settings.shadowSamples, step: 1, label: "Shadow samples" }),
       v => { viewer.settings.shadowSamples = v; }
     );
+    addControl(lightingContent,
+      Inputs.range([1, 3], { value: viewer.settings.horizonParentDZ, step: 1, label: "Horizon reach (Δz)" }),
+      v => { viewer.settings.horizonParentDZ = Math.round(v); }
+    );
 
     // Convert a UTC Date to the wall-clock minute-of-day in the
     // calendar's selected timezone.

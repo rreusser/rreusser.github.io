@@ -84,6 +84,10 @@ export interface Settings {
   shadowSamples: number;
   // LSAO falloff: 'cos2' = Lambertian cos²α visibility, 'exp' = Naaji's exp(−sin α).
   lsaoFalloff: 'cos2' | 'exp';
+  // Parent-tile horizon reach for the shadow prewarm, in zoom levels
+  // above the comp tile. Clamped to [1, 3] at use. Larger = farther
+  // reach, coarser blockers, stronger tile-edge artifacts.
+  horizonParentDZ: number;
   meshTerrainOffset: number;
   // Memory / quality knobs. Defaults are auto-detected from device class.
   // qualityPreset is informational; the individual knobs below are what

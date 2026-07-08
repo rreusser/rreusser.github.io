@@ -1,10 +1,10 @@
 // Soft-shadow worker pool. The sweep itself is `sweepCore` in 'soft'
-// mode (see sweep-core.js): an altitude-direction penumbra via
+// mode (see line-sweep-core.js): an altitude-direction penumbra via
 // smoothstep over ±1.5·sunRadius. Azimuth is integrated externally by
 // the driver, which averages sweeps at small azimuth offsets across
 // the sun disk.
 
-import { sweepCoreSource } from "./sweep-core.js";
+import { sweepCoreSource } from "./lib/line-sweep-core.js";
 
 // See lsao-sweep.js for the rationale — binding the stringified source
 // to a known `sweepCore` identifier survives minification that would

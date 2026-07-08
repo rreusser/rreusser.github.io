@@ -1,5 +1,14 @@
 // Unified CPU line-sweep core for heightfield shading.
 //
+// SHARED between notebooks. Imported via the per-notebook `./lib/`
+// symlink (src/lib) by both `line-sweep-terrain-lighting` and the
+// `denali` map viewer's CPU lighting bake, so a fix here reaches both.
+// It is self-contained (no npm imports, no outer-scope references) so
+// `sweepCoreSource = sweepCore.toString()` stays valid inside a Web
+// Worker blob. The GPU compute port that used to mirror this lives in
+// each notebook's own `webgpu-pipelines.js`; only the CPU path is
+// shared (denali does not use the GPU bake).
+//
 // All four notebook figures (hard-threshold shadow, parent-tile pre-pass,
 // soft shadow, LSAO ambient occlusion) are instances of the same
 // traversal. A single canonical reparameterization walks arbitrary-azimuth
@@ -66,6 +75,14 @@ export function sweepCore(opts) {
     // margin, same as before.
     compElevMin = null,
     horizonElevMax = null,
+    // Horizon's parent-pixel resolution (e.g. 256). Used to size the
+    // warmup margin: the horizon ring extends `horizonPN/2` parent pixels
+    // beyond the comp tile, regardless of the bake grid `W`. Defaults to
+    // `W` to preserve the original behavior when bake grid == horizon
+    // grid (i.e. compN == PN). When the bake grid is larger (compN > PN),
+    // the warmup must NOT scale with `W` or it walks past available
+    // horizon data and parent blockers fail to contribute.
+    horizonPN = null,
   } = opts;
 
   // Shadow-casting modes traverse *away* from the sun; LSAO is a
@@ -218,8 +235,14 @@ export function sweepCore(opts) {
   // boundary artefacts.
   const invParentScale = 1 / parentScale;
   const parentCenterOffset = 0.5 * (1 - invParentScale);
-  const warmupMarginX = (W * parentScale) >> 1;
-  const warmupMarginY = (H * parentScale) >> 1;
+  // Margin = (horizonPN/2) parent pixels × parentScale child-pixels-per-
+  // parent-pixel. When the bake grid equals the horizon grid (compN==PN)
+  // this collapses to the original (W*parentScale)/2; when the bake grid
+  // is finer, the margin still spans only the available horizon ring.
+  const _horizonPN_X = horizonPN != null ? horizonPN : W;
+  const _horizonPN_Y = horizonPN != null ? horizonPN : H;
+  const warmupMarginX = (_horizonPN_X * parentScale) >> 1;
+  const warmupMarginY = (_horizonPN_Y * parentScale) >> 1;
 
   // Elevation-bound warmup reduction. At sun altitude `altMin` (the
   // shallowest angle that still contributes shadow for the current
@@ -433,19 +456,16 @@ export function sweepCore(opts) {
         // Along-ray axis is integer by construction (hxf for non-swap,
         // hyf for swap). The other is float; lerp two adjacent parent
         // samples in that axis only.
-        let alongI, crossF, idxLo, idxHi;
         if (swap) {
-          alongI = Math.round(hyf);
-          crossF = hxf;
+          const alongI = Math.round(hyf);
+          const crossF = hxf;
           const crossI = Math.floor(crossF);
           if (alongI < 0 || alongI >= HN) continue;
           if (crossI < 0 || crossI + 1 >= HN) continue;
-          idxLo = alongI * HN + crossI;
-          idxHi = alongI * HN + crossI + 1;
+          const idxLo = alongI * HN + crossI;
+          const idxHi = alongI * HN + crossI + 1;
           const fc = crossF - crossI;
-          const h0 = horizon[idxLo];
-          const h1 = horizon[idxHi];
-          const hW = (1 - fc) * h0 + fc * h1;
+          const hW = (1 - fc) * horizon[idxLo] + fc * horizon[idxHi];
           if (horizonTouched) {
             const tBit = b >= 0 ? 1 : 2;
             horizonTouched[idxLo] |= tBit;
@@ -453,17 +473,15 @@ export function sweepCore(opts) {
           }
           pushHull(cx, hW);
         } else {
-          alongI = Math.round(hxf);
-          crossF = hyf;
+          const alongI = Math.round(hxf);
+          const crossF = hyf;
           const crossI = Math.floor(crossF);
           if (alongI < 0 || alongI >= HN) continue;
           if (crossI < 0 || crossI + 1 >= HN) continue;
-          idxLo = crossI * HN + alongI;
-          idxHi = (crossI + 1) * HN + alongI;
+          const idxLo = crossI * HN + alongI;
+          const idxHi = (crossI + 1) * HN + alongI;
           const fc = crossF - crossI;
-          const h0 = horizon[idxLo];
-          const h1 = horizon[idxHi];
-          const hW = (1 - fc) * h0 + fc * h1;
+          const hW = (1 - fc) * horizon[idxLo] + fc * horizon[idxHi];
           if (horizonTouched) {
             const tBit = b >= 0 ? 1 : 2;
             horizonTouched[idxLo] |= tBit;

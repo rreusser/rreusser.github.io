@@ -1,6 +1,6 @@
 // Line-sweep ambient occlusion, adapted from Karim Naaji's LSAO
 // (https://karim.naaji.fr/lsao.html). The per-direction computation
-// is `sweepCore` in 'lsao' mode (see sweep-core.js), which maintains
+// is `sweepCore` in 'lsao' mode (see line-sweep-core.js), which maintains
 // a push-pruned upper convex hull along each ray and deposits
 // cos²α = 1 − sin²α — the Lambertian cosine-weighted visible fraction
 // of one azimuthal sky slice — scaled by `weight`. Multiple directions
@@ -12,7 +12,7 @@
 // angles, the contribution of a distant tall blocker falls off like
 // 1 / distance² rather than lingering on a long exponential shoulder.
 
-import { sweepCore, sweepCoreSource } from "./sweep-core.js";
+import { sweepCore, sweepCoreSource } from "./lib/line-sweep-core.js";
 
 export function sweepLsaoDirection(W, H, elev, azDeg, pxSizeM, weight) {
   return sweepCore({

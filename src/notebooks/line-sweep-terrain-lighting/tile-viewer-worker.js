@@ -25,7 +25,7 @@
 // 2^parentDZ + 1 target tiles wide (3 at dz=1, 5 at dz=2, 9 at dz=3)
 // and HN = PN * (s+1)/s parent pixels where s = 2^parentDZ. The
 // parent-pixel → child-pixel scale is `s`, i.e. one parent pixel
-// covers `s` child pixels — see sweep-core.js for the matching
+// covers `s` child pixels — see line-sweep-core.js for the matching
 // bilinear-sample alignment math.
 
 let tileUrl = "";

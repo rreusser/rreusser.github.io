@@ -614,7 +614,7 @@
     //
     // At Δz=1 this is the original 3·N/2 half-res buffer; at Δz=2 a
     // 5·N/4 quarter-res buffer covering 5×5 comp-tile extents; at Δz=3
-    // a 9·N/8 eighth-res buffer covering 9×9 extents. See sweep-core.js
+    // a 9·N/8 eighth-res buffer covering 9×9 extents. See line-sweep-core.js
     // for the matching bilinear-sample alignment math.
     const tileHorizon = await (async () => {
       const dz = parentDZ;

@@ -24,7 +24,7 @@
 // per tile so sun changes don't reassemble parent samples.
 
 import { WorkerPool } from '../workers/worker-pool.ts';
-import { assembleHorizon, PN as HORIZON_PN, HN, PARENT_SCALE } from './horizon-assembly.js';
+import { assembleHorizon, PN as HORIZON_PN, PARENT_DZ } from './horizon-assembly.js';
 import { downsampleInner } from './downsample.js';
 import { sunDirectionToAzAlt } from './sun-math.js';
 
@@ -145,6 +145,35 @@ export class LightingManager {
     }
   }
 
+  // Parent zoom delta for the horizon ring, clamped to [1, 3]. dz = 2
+  // is the default (finer ring, ~1 tile of reach on each side); dz = 3
+  // trades near-edge sharpness for reach so tall off-tile massifs
+  // (e.g. Denali itself) can shadow neighbouring tiles. Larger dz
+  // aggregates blockers into coarser blocks and strengthens tile-edge
+  // artifacts, so we cap at 3.
+  _parentDZ() {
+    const raw = this.settings.horizonParentDZ ?? PARENT_DZ;
+    return Math.max(1, Math.min(3, raw | 0));
+  }
+
+  // Invalidate every cached bake (normals + LSAO) so the next render
+  // re-assembles the horizon ring at the current horizonParentDZ and
+  // re-bakes. Call when horizonParentDZ changes: HN and the parent
+  // reach both change, so cached normals/AO computed against the old
+  // ring are stale. Missing parents at the new zoom are fetched lazily
+  // and re-baked through the existing onTileLoaded path.
+  onHorizonSettingsChanged() {
+    if (!this.settings.lightingEnabled) return;
+    for (const state of this.tiles.values()) {
+      state.cachedAo = null;
+      state.cachedNx = null;
+      state.cachedNy = null;
+      state.horizonHeights = null;
+      state.horizonHN = 0;
+      state.baked = false;
+    }
+  }
+
   tick() {
     if (!this.settings.lightingEnabled) return;
     if (this._shadowDirtyKeys.size === 0) return;
@@ -187,6 +216,11 @@ export class LightingManager {
       lightingDelta, compN,
       texture, view,
       horizonHeights: null,
+      // HN and spatial parent scale of the assembled ring; both depend
+      // on horizonParentDZ and are cached so the shadow re-bake matches
+      // the static bake's ring.
+      horizonHN: 0,
+      parentScaleSpatial: 1 << PARENT_DZ,
       compHMin: 0, compHMax: 0, horizonHMax: 0,
       missingParents: null,
       missingChildren: null,
@@ -514,15 +548,23 @@ export class LightingManager {
     state.compHMin = compHMin;
     state.compHMax = compHMax;
 
-    const horizon = assembleHorizon(state.z, state.x, state.y, this.tileManager);
+    const dz = this._parentDZ();
+    const horizon = assembleHorizon(state.z, state.x, state.y, this.tileManager, dz);
     if (horizon) {
       state.horizonHeights = horizon.heights;
       state.missingParents = horizon.missingParents;
       state.horizonHMax = horizon.hMax;
+      // HN and the spatial parent scale both depend on dz, so cache the
+      // values this bake used. The shadow re-bake reuses the same ring
+      // and must pass the matching HN / parentScale.
+      state.horizonHN = horizon.HN;
+      state.parentScaleSpatial = horizon.parentScale;
     } else {
       state.horizonHeights = null;
       state.missingParents = null;
       state.horizonHMax = 0;
+      state.horizonHN = 0;
+      state.parentScaleSpatial = 1 << dz;
     }
 
     const eqPxSizeM = eqPxSizeAtZoom(state.z, compN);
@@ -531,16 +573,16 @@ export class LightingManager {
     const shadowSamples = Math.max(1, Math.round(this.settings.shadowSamples ?? 6));
 
     // parentScale = "child (bake) pixels per horizon (parent) pixel".
-    // = (compN / PN) × PARENT_SCALE_spatial. Horizon stays at PN
+    // = (compN / PN) × parentScaleSpatial. Horizon stays at PN
     // resolution regardless of compN, so this scales with compN.
-    const parentScalePixel = (compN * PARENT_SCALE) / HORIZON_PN;
+    const parentScalePixel = (compN * state.parentScaleSpatial) / HORIZON_PN;
     this._workerPool.submit(
       'lighting-bake-static',
       {
         z: state.z, x: state.x, y: state.y,
         heights: compElev, N: compN, eqPxSizeM,
         horizon: state.horizonHeights || new Float32Array(0),
-        HN: state.horizonHeights ? HN : 0,
+        HN: state.horizonHeights ? state.horizonHN : 0,
         parentScale: parentScalePixel,
         horizonPN: HORIZON_PN,
         azDeg, altDeg, sunRadiusDeg, shadowSamples,
@@ -601,14 +643,16 @@ export class LightingManager {
     const shadowSamples = Math.max(1, Math.round(this.settings.shadowSamples ?? 6));
     const horizonBuf = state.horizonHeights;
 
-    const parentScalePixel = (compN * PARENT_SCALE) / HORIZON_PN;
+    // Reuse the ring the static bake assembled — HN and the spatial
+    // parent scale must match the dz that produced state.horizonHeights.
+    const parentScalePixel = (compN * (state.parentScaleSpatial || (1 << this._parentDZ()))) / HORIZON_PN;
     this._workerPool.submit(
       'lighting-bake-shadow',
       {
         z: state.z, x: state.x, y: state.y,
         heights: compElev, N: compN, eqPxSizeM,
         horizon: horizonBuf || new Float32Array(0),
-        HN: horizonBuf ? HN : 0,
+        HN: horizonBuf ? state.horizonHN : 0,
         parentScale: parentScalePixel,
         horizonPN: HORIZON_PN,
         azDeg, altDeg, sunRadiusDeg, shadowSamples,
