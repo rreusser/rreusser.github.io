@@ -1,0 +1,405 @@
+<!doctype html>
+<notebook theme="air">
+  <title>SmoothLife: Conway's Game of Life on a Continuous Domain</title>
+
+  <script id="intro" type="text/markdown">
+    # SmoothLife
+
+    Conway's [Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life) lives on a grid of cells that are strictly on or off, updated in discrete ticks by counting integer neighbors. **SmoothLife**, introduced by Stephan Rafler in [*Generalization of Conway's "Game of Life" to a continuous domain*](https://arxiv.org/abs/1111.1567), asks what happens when you let all of that go continuous: the state becomes a real number in ${tex`[0, 1]`}, the neighborhood becomes a smooth disc instead of eight discrete squares, and time advances in small increments rather than sudden ticks.
+
+    The result keeps the flavor of the original — gliders, oscillators, and self-organizing structures — but everything moves and morphs fluidly, like a living organism rather than a checkerboard. This page is a WebGPU rewrite of [an old sketch of mine](https://github.com/rreusser/sketches/tree/master/src/src/smooth-life); the simulation below runs entirely on your GPU.
+  </script>
+
+  <script id="webgpu-check" type="module">
+    if (!navigator.gpu) {
+      display(html`<div style="color: #b00; padding: 16px; border: 1px solid #f0caca; background: #fff6f6; border-radius: 6px;">
+        <strong>WebGPU is not available.</strong> This notebook needs a WebGPU-capable browser (Chrome/Edge 113+, or Safari 18+ / Firefox with WebGPU enabled). The explanations below still work without it.
+      </div>`);
+    }
+  </script>
+
+  <script id="imports" type="module">
+    import { createWebGPUContext, isWebGPUAvailable } from './lib/webgpu-canvas.js';
+    import { expandable } from './lib/expandable.js';
+    import { interval } from './lib/range-slider.js';
+    import { createSmoothLife } from './smooth-life.js';
+  </script>
+
+  <script id="context" type="module">
+    const gpu = isWebGPUAvailable() ? await createWebGPUContext() : null;
+    const device = gpu?.device;
+    const canvasFormat = gpu?.canvasFormat;
+    if (device) invalidation.then(() => device.destroy());
+  </script>
+
+  <script id="presets" type="module">
+    // Named parameter sets. "Classic" reproduces the original sketch, which
+    // already produces SmoothLife's characteristic gliders.
+    const PRESETS = {
+      'Classic gliders': { ra: 12, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.115, mode: 0 },
+      'Smooth blobs':    { ra: 14, b1: 0.245, b2: 0.360, d1: 0.480, d2: 0.780, alphaN: 0.035, alphaM: 0.170, dt: 0.090, mode: 0 },
+      'Fine texture':    { ra: 8,  b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.130, mode: 0 },
+      'Waves (increment)': { ra: 12, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.060, mode: 1 },
+    };
+  </script>
+
+  <script id="resolution-input" type="module">
+    const NInput = Inputs.select([256, 512, 1024], { value: 512, label: 'Grid size', format: (n) => `${n}×${n}` });
+    const N = view(NInput);
+  </script>
+
+  <script id="main-simulation" type="module">
+    if (!device) {
+      display(html`<div style="color:#666; padding:12px; background:#f9f9f9; border-radius:6px; font-size:13px;">WebGPU unavailable — interactive simulation skipped.</div>`);
+    } else {
+      // ---- Persistent UI/render state (survives nothing here; cell rebuilds only on N change) ----
+      const simState = { playing: true, dirty: true, visible: true };
+
+      const sim = createSmoothLife(device, { N });
+      sim.initialize({ fill: 0.5 });
+      const renderer = sim.createRenderer(canvasFormat);
+
+      // ---- Canvas ----
+      const canvas = document.createElement('canvas');
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      canvas.style.display = 'block';
+      canvas.style.cursor = 'crosshair';
+      canvas.style.touchAction = 'none';
+      const ctx = canvas.getContext('webgpu');
+      ctx.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      function resizeCanvas(w, h) {
+        const pw = Math.max(1, Math.round(w * dpr));
+        const ph = Math.max(1, Math.round(h * dpr));
+        if (canvas.width !== pw || canvas.height !== ph) {
+          canvas.width = pw;
+          canvas.height = ph;
+        }
+        simState.dirty = true;
+      }
+
+      // ---- Controls ----
+      const controls = html`<div id="sl-controls"></div>`;
+
+      const presetSelect = Inputs.select(Object.keys(PRESETS), { label: 'Preset', value: 'Classic gliders' });
+      const birthInput = interval([0, 1], { label: 'Birth interval', value: [0.269, 0.340], step: 0.001, distribution: 'box' });
+      const deathInput = interval([0, 1], { label: 'Survival interval', value: [0.523, 0.746], step: 0.001, distribution: 'box' });
+      const raInput = Inputs.range([3, 24], { label: 'Cell radius', value: 12, step: 0.5 });
+      const alphaNInput = Inputs.range([0.005, 0.2], { label: 'Neighborhood sharpness αₙ', value: 0.028, step: 0.001 });
+      const alphaMInput = Inputs.range([0.02, 0.4], { label: 'Cell sharpness αₘ', value: 0.147, step: 0.001 });
+      const dtInput = Inputs.range([0.02, 0.4], { label: 'Time step Δt', value: 0.115, step: 0.005 });
+      const modeInput = Inputs.select(new Map([['Relax to target', 0], ['Increment (2s−1)', 1], ['Discrete snap', 2]]), {
+        label: 'Time stepping', value: 0
+      });
+      const stepsInput = Inputs.range([1, 8], { label: 'Steps / frame', value: 1, step: 1 });
+      const colormapInput = Inputs.select(new Map([['Grayscale', 0], ['Magma', 1], ['Viridis', 2], ['Ice', 3]]), {
+        label: 'Colormap', value: 1
+      });
+      const brushInput = Inputs.range([0.01, 0.25], { label: 'Brush size', value: 0.06, step: 0.005 });
+
+      function syncParams() {
+        const birth = birthInput.value.range;
+        const death = deathInput.value.range;
+        sim.setParams({
+          ra: raInput.value,
+          b1: birth[0], b2: birth[1],
+          d1: death[0], d2: death[1],
+          alphaN: alphaNInput.value,
+          alphaM: alphaMInput.value,
+          dt: dtInput.value,
+          mode: modeInput.value,
+          colormap: colormapInput.value,
+        });
+        simState.dirty = true;
+      }
+
+      function applyPreset(name) {
+        const p = PRESETS[name];
+        if (!p) return;
+        raInput.value = p.ra;
+        birthInput.value = { range: [p.b1, p.b2], invert: false };
+        deathInput.value = { range: [p.d1, p.d2], invert: false };
+        alphaNInput.value = p.alphaN;
+        alphaMInput.value = p.alphaM;
+        dtInput.value = p.dt;
+        modeInput.value = p.mode;
+        syncParams();
+      }
+
+      presetSelect.addEventListener('input', () => applyPreset(presetSelect.value));
+      for (const el of [birthInput, deathInput, raInput, alphaNInput, alphaMInput, dtInput, modeInput, colormapInput]) {
+        el.addEventListener('input', syncParams);
+      }
+
+      // ---- Buttons ----
+      const btnStyle = 'padding:4px 10px; cursor:pointer; font-size:12px;';
+      const playBtn = html`<button style="${btnStyle}">Pause</button>`;
+      playBtn.onclick = () => {
+        simState.playing = !simState.playing;
+        playBtn.textContent = simState.playing ? 'Pause' : 'Play';
+        simState.dirty = true;
+      };
+      const restartBtn = html`<button style="${btnStyle}">Restart</button>`;
+      restartBtn.onclick = () => { sim.initialize({ fill: 0.5 }); simState.dirty = true; };
+      const clearBtn = html`<button style="${btnStyle}">Clear</button>`;
+      // radius*hardness (= N) exceeds the max torus distance from center (≈0.71N),
+      // so the brush covers the whole field uniformly and erases it to zero.
+      clearBtn.onclick = () => { sim.paint(N / 2, N / 2, N * 2, -1, { hardness: 0.5 }); simState.dirty = true; };
+      const downloadBtn = html`<button style="${btnStyle}">Download PNG</button>`;
+      downloadBtn.onclick = () => {
+        // Force a fresh render, then read the canvas synchronously.
+        renderer.render(ctx.getCurrentTexture().createView());
+        const url = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'smooth-life.png';
+        a.click();
+      };
+
+      controls.append(
+        html`<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">${playBtn}${restartBtn}${clearBtn}${downloadBtn}</div>`,
+        presetSelect,
+        birthInput,
+        deathInput,
+        raInput,
+        alphaNInput,
+        alphaMInput,
+        dtInput,
+        modeInput,
+        stepsInput,
+        colormapInput,
+        brushInput,
+      );
+      display(controls);
+
+      // ---- Painting ----
+      function eventToCell(e) {
+        const rect = canvas.getBoundingClientRect();
+        const src = e.touches ? e.touches[0] : e;
+        const u = (src.clientX - rect.left) / rect.width;
+        const v = (src.clientY - rect.top) / rect.height;
+        return [u * N, v * N];
+      }
+      let painting = false;
+      function doPaint(e, erase) {
+        const [cx, cy] = eventToCell(e);
+        const radius = brushInput.value * N;
+        sim.paint(cx, cy, radius, erase ? -1 : 1, { hardness: 0.4 });
+        simState.dirty = true;
+      }
+      const onMouseUp = () => { painting = false; };
+      canvas.addEventListener('mousedown', (e) => { painting = true; doPaint(e, e.button === 2 || e.shiftKey); e.preventDefault(); });
+      canvas.addEventListener('mousemove', (e) => { if (painting) doPaint(e, (e.buttons & 2) !== 0 || e.shiftKey); });
+      window.addEventListener('mouseup', onMouseUp);
+      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+      canvas.addEventListener('touchstart', (e) => { painting = true; doPaint(e, false); e.preventDefault(); }, { passive: false });
+      canvas.addEventListener('touchmove', (e) => { if (painting) { doPaint(e, false); e.preventDefault(); } }, { passive: false });
+      canvas.addEventListener('touchend', () => { painting = false; });
+
+      // ---- Figure + expandable ----
+      const figure = html`<figure style="margin:0;">${canvas}</figure>`;
+      // expandable() clamps this nominal size to the available column width, so
+      // no reactive `width` dependency is needed (which would reset the sim on resize).
+      const initialSize = 560;
+      display(expandable(figure, {
+        id: 'smooth-life',
+        width: initialSize,
+        height: initialSize,
+        controls: '#sl-controls',
+        onResize(el, w, h) { resizeCanvas(w, h); },
+      }));
+
+      // ---- Visibility (pause when scrolled away) ----
+      const io = new IntersectionObserver((entries) => { simState.visible = entries[0].isIntersecting; }, { threshold: 0.01 });
+      io.observe(canvas);
+
+      // ---- Render loop ----
+      let raf;
+      function frame() {
+        if (simState.visible) {
+          if (simState.playing) {
+            sim.step(Math.round(stepsInput.value));
+            simState.dirty = true;
+          }
+          if (simState.dirty) {
+            renderer.render(ctx.getCurrentTexture().createView());
+            simState.dirty = false;
+          }
+        }
+        raf = requestAnimationFrame(frame);
+      }
+      frame();
+
+      invalidation.then(() => {
+        cancelAnimationFrame(raf);
+        io.disconnect();
+        window.removeEventListener('mouseup', onMouseUp);
+        sim.destroy();
+      });
+    }
+  </script>
+
+  <script id="usage" type="text/markdown">
+    **Draw** with the mouse (or finger) to seed new life; **shift-drag** or right-drag to erase. The field wraps around at the edges, so structures that drift off one side reappear on the other. Try the presets, then push the birth and survival intervals around and watch the population reorganize.
+  </script>
+
+  <script id="discrete-to-continuous" type="text/markdown">
+    ## From counting neighbors to measuring density
+
+    In the original Game of Life, each cell looks at its eight neighbors, counts how many are alive, and applies two rules: a dead cell with exactly three live neighbors is *born*, and a live cell *survives* only with two or three live neighbors. Everything else dies.
+
+    SmoothLife replaces "count of eight neighbors" with two continuous averages taken over discs centered on each point. Let ${tex`f(\mathbf{x}) \in [0,1]`} be the state field. Define an **inner fill** ${tex`m`} — the average of ${tex`f`} over a small disc of radius ${tex`r_i`} — and an **outer fill** ${tex`n`} — the average over the surrounding annulus out to radius ${tex`r_a`}.
+
+    ${tex.block`m = \frac{1}{|D_i|}\int_{D_i} f(\mathbf{x} + \mathbf{y})\, d\mathbf{y}, \qquad n = \frac{1}{|A|}\int_{A} f(\mathbf{x} + \mathbf{y})\, d\mathbf{y}`}
+
+    Here ${tex`m`} plays the role of "is *this* cell alive?" and ${tex`n`} plays the role of "how crowded is the neighborhood?" Rafler uses a radius ratio of ${tex`r_a / r_i = 3`}, matching the ratio of the Moore neighborhood's outer extent to a single cell.
+  </script>
+
+  <script id="kernel-figure" type="module">
+    // Illustrative figure of the two sampling regions, with an adjustable ratio.
+    const size = Math.min(width, 380);
+    const cx = size / 2, cy = size / 2;
+    const ra = size * 0.34;
+
+    const ratioInput = Inputs.range([2, 5], { label: 'Radius ratio rₐ / rᵢ', value: 3, step: 0.1 });
+
+    const svg = d3.create('svg').attr('width', size).attr('height', size).attr('viewBox', `0 0 ${size} ${size}`).style('max-width', '100%').style('height', 'auto');
+    // Annulus (neighborhood) = big disc with the inner disc knocked out.
+    const annulus = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('r', ra).attr('fill', '#dc2626').attr('fill-opacity', 0.18);
+    const knockout = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('fill', 'var(--theme-background, #fff)');
+    const innerFill = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('fill', '#2563eb').attr('fill-opacity', 0.3);
+    const outerStroke = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('r', ra).attr('fill', 'none').attr('stroke', '#dc2626').attr('stroke-width', 1.5);
+    const innerStroke = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('fill', 'none').attr('stroke', '#2563eb').attr('stroke-width', 1.5);
+    const riLine = svg.append('line').attr('x1', cx).attr('y1', cy).attr('stroke', '#2563eb').attr('stroke-width', 1.5);
+    svg.append('line').attr('x1', cx).attr('y1', cy).attr('x2', cx + ra * Math.cos(-0.6)).attr('y2', cy + ra * Math.sin(-0.6)).attr('stroke', '#dc2626').attr('stroke-width', 1.5);
+    const riLabel = svg.append('text').attr('y', cy - 6).attr('text-anchor', 'middle').attr('font-size', 13).attr('fill', '#2563eb').text('rᵢ');
+    svg.append('text').attr('x', cx + ra * 0.55 * Math.cos(-0.6)).attr('y', cy + ra * 0.55 * Math.sin(-0.6) - 6).attr('font-size', 13).attr('fill', '#dc2626').text('rₐ');
+    const mLabel = svg.append('text').attr('x', cx).attr('text-anchor', 'middle').attr('font-size', 12).attr('fill', '#1e40af').text('m');
+    svg.append('text').attr('x', cx).attr('y', cy - ra + 16).attr('text-anchor', 'middle').attr('font-size', 12).attr('fill', '#b91c1c').text('n');
+
+    function drawKernel() {
+      const ri = ra / ratioInput.value;
+      knockout.attr('r', ri);
+      innerFill.attr('r', ri);
+      innerStroke.attr('r', ri);
+      riLine.attr('x2', cx + ri).attr('y2', cy);
+      riLabel.attr('x', cx + ri / 2);
+      mLabel.attr('y', cy + ri * 0.5 + 4);
+    }
+    ratioInput.addEventListener('input', drawKernel);
+    drawKernel();
+
+    display(ratioInput);
+    display(html`<figure style="max-width:${size}px;">
+      ${svg.node()}
+      <figcaption>The inner disc (blue) measures the cell's own fill ${tex`m`}; the surrounding annulus (red) measures the neighborhood fill ${tex`n`}. Rafler's default ratio is ${tex`r_a / r_i = 3`}.</figcaption>
+    </figure>`);
+  </script>
+
+  <script id="transition-intro" type="text/markdown">
+    ## The transition function
+
+    Given the two measurements ${tex`m`} and ${tex`n`}, a *transition function* ${tex`s(n, m)`} decides the target state. It generalizes Conway's birth/survival counts into two intervals with soft edges.
+
+    The soft edge is a logistic step, ${tex`\sigma_\alpha(x, a) = \bigl(1 + e^{-4(x-a)/\alpha}\bigr)^{-1}`}, which rises smoothly from 0 to 1 near ${tex`x = a`} over a width set by ${tex`\alpha`}. From it we build a soft interval indicator that is 1 between ${tex`a`} and ${tex`b`}:
+
+    ${tex.block`\sigma_{[a,b]}(x) = \sigma_{\alpha_n}(x, a)\,\bigl(1 - \sigma_{\alpha_n}(x, b)\bigr)`}
+
+    A cell is "born" when it is empty (${tex`m \approx 0`}) and its neighborhood fill ${tex`n`} lands in the birth interval ${tex`[b_1, b_2]`}; it "survives" when it is full (${tex`m \approx 1`}) and ${tex`n`} lands in the survival interval ${tex`[d_1, d_2]`}. The parameter ${tex`\alpha_m`} interpolates between these two regimes as ${tex`m`} crosses ${tex`\tfrac12`}:
+
+    ${tex.block`s(n, m) = \sigma_{[\,\ell_1(m),\, \ell_2(m)\,]}(n), \qquad \ell_k(m) = b_k\bigl(1 - \sigma_{\alpha_m}(m, \tfrac12)\bigr) + d_k\,\sigma_{\alpha_m}(m, \tfrac12)`}
+
+    The heatmap below plots ${tex`s(n, m)`} across all combinations of neighborhood fill ${tex`n`} (horizontal) and cell fill ${tex`m`} (vertical). Bright regions are where a point turns on. Adjust the intervals and watch the "alive" region move.
+  </script>
+
+  <script id="transition-figure" type="module">
+    const w = Math.min(width, 380);
+
+    const birthInput2 = interval([0, 1], { label: 'Birth [b₁,b₂]', value: [0.269, 0.340], step: 0.001, distribution: 'box' });
+    const deathInput2 = interval([0, 1], { label: 'Survival [d₁,d₂]', value: [0.523, 0.746], step: 0.001, distribution: 'box' });
+    const anInput = Inputs.range([0.005, 0.15], { label: 'αₙ', value: 0.028, step: 0.001 });
+    const amInput = Inputs.range([0.02, 0.35], { label: 'αₘ', value: 0.147, step: 0.001 });
+
+    const cv = document.createElement('canvas');
+    const res = 200;
+    cv.width = res; cv.height = res;
+    cv.style.width = w + 'px';
+    cv.style.height = w + 'px';
+    cv.style.maxWidth = '100%';
+    cv.style.border = '1px solid var(--theme-foreground-faintest, #ddd)';
+    const c2d = cv.getContext('2d');
+    const img = c2d.createImageData(res, res);
+
+    const sigma1 = (x, a, alpha) => 1 / (1 + Math.exp(-(x - a) * 4 / alpha));
+    const sigmaAB = (x, a, bb, alpha) => sigma1(x, a, alpha) * (1 - sigma1(x, bb, alpha));
+    const sigmaM = (x, y, m, alpha) => x * (1 - sigma1(m, 0.5, alpha)) + y * sigma1(m, 0.5, alpha);
+
+    function drawTransition() {
+      const bv = birthInput2.value.range;
+      const dv = deathInput2.value.range;
+      const anv = anInput.value;
+      const amv = amInput.value;
+      for (let j = 0; j < res; j++) {
+        const m = 1 - j / (res - 1); // top row = full cell (m=1)
+        for (let i = 0; i < res; i++) {
+          const n = i / (res - 1);
+          const s = sigmaAB(n, sigmaM(bv[0], dv[0], m, amv), sigmaM(bv[1], dv[1], m, amv), anv);
+          const t = Math.max(0, Math.min(1, s));
+          const idx = 4 * (j * res + i);
+          img.data[idx] = 255 * Math.min(1, 0.1 + 1.4 * t);
+          img.data[idx + 1] = 255 * Math.min(1, Math.max(0, 1.6 * t - 0.6));
+          img.data[idx + 2] = 255 * Math.min(1, 0.3 + 0.5 * t - 0.4 * t * t);
+          img.data[idx + 3] = 255;
+        }
+      }
+      c2d.putImageData(img, 0, 0);
+    }
+    for (const el of [birthInput2, deathInput2, anInput, amInput]) el.addEventListener('input', drawTransition);
+    drawTransition();
+
+    display(html`<div style="margin-bottom:8px;">${birthInput2}${deathInput2}${anInput}${amInput}</div>`);
+    display(html`<figure style="max-width:${w}px;">
+      <div style="position:relative; width:${w}px; max-width:100%;">
+        ${cv}
+        <div style="position:absolute; left:0; bottom:-20px; font-size:11px; color:#666;">n = 0</div>
+        <div style="position:absolute; right:0; bottom:-20px; font-size:11px; color:#666;">n = 1 →</div>
+        <div style="position:absolute; left:-4px; top:-2px; font-size:11px; color:#666; transform:translateX(-100%);">m=1</div>
+        <div style="position:absolute; left:-4px; bottom:-2px; font-size:11px; color:#666; transform:translateX(-100%);">m=0</div>
+      </div>
+      <figcaption style="margin-top:24px;">Transition function ${tex`s(n, m)`}. Bottom row (${tex`m \approx 0`}, empty cell) shows the birth interval; top row (${tex`m \approx 1`}, full cell) shows the survival interval. Bright = turns on.</figcaption>
+    </figure>`);
+  </script>
+
+  <script id="time-stepping" type="text/markdown">
+    ## Continuous time
+
+    A discrete update would simply set ${tex`f \leftarrow s(n, m)`} each tick, but that reintroduces the sudden jumps SmoothLife is trying to avoid. Instead the field relaxes toward the target over a small time step ${tex`\Delta t`}:
+
+    ${tex.block`f \leftarrow f + \Delta t\,\bigl(s(n, m) - f\bigr)`}
+
+    Small ${tex`\Delta t`} yields smooth, fluid motion; larger values sharpen the dynamics until they approach the discrete rule. Rafler also proposes an *increment* form, ${tex`f \leftarrow f + \Delta t\,(2s - 1)`}, which pushes toward 0 or 1 rather than toward ${tex`s`} and tends to produce rippling, wave-like behavior. Both are available in the controls above as the time-stepping mode.
+  </script>
+
+  <script id="implementation" type="text/markdown">
+    ## Implementation
+
+    Each update needs both disc averages, which are circular convolutions of the field with a filled disc (radius ${tex`r_i`}) and a larger disc (radius ${tex`r_a`}); the annulus average is a weighted difference of the two. The original sketch unrolled the convolution into WebGL by generating GLSL source with one texture tap per kernel pixel, which makes the cost grow as ${tex`r_a^2`}. This version instead borrows the FFT machinery from the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/): the cost becomes independent of the radius, and the circular convolution matches the periodic (toroidal) domain exactly.
+
+    A convolution is a product in the frequency domain, and the Fourier transform of a normalized disc of radius ${tex`R`} is the analytical *jinc* function
+
+    ${tex.block`\mathcal{F}\!\left[\tfrac{1}{\pi R^2}\,\mathbb{1}_{|\mathbf{x}| \le R}\right](\mathbf{k}) = \frac{2\,J_1(|\mathbf{k}|R)}{|\mathbf{k}|R}`}
+
+    where ${tex`J_1`} is a Bessel function of the first kind. Because this equals 1 at ${tex`\mathbf{k} = 0`}, multiplying the field's spectrum by it computes a true average, with no kernel textures to store. The two discs are packed into a single complex convolution: multiplying the spectrum ${tex`\hat f`} by ${tex`\hat G_{r_i} + i\,\hat G_{r_a}`} and taking one inverse FFT recovers the ${tex`r_i`}-disc average in the real part and the ${tex`r_a`}-disc average in the imaginary part, since both convolutions are real. Each step is then one forward FFT, one spectral multiply, one inverse FFT, and a pointwise transition pass. The FFT itself is a Cooley–Tukey compute shader run as row-FFT, transpose, column-FFT, transpose.
+  </script>
+
+  <script id="references" type="text/markdown">
+    ## References
+
+    - Stephan Rafler, [*Generalization of Conway's "Game of Life" to a continuous domain — SmoothLife*](https://arxiv.org/abs/1111.1567) (2011).
+    - Tim Hutton et al., [Ready](https://github.com/GollyGang/ready), a cross-platform reaction-diffusion and continuous-CA explorer.
+    - The original WebGL sketch this page replaces: [rreusser/sketches · smooth-life](https://github.com/rreusser/sketches/tree/master/src/src/smooth-life).
+    - Related on this site: [Multi-scale Turing patterns in WebGPU](https://rreusser.github.io/notebooks/multiscale-turing-patterns/) and [3D reaction-diffusion](https://rreusser.github.io/notebooks/3d-reaction-diffusion/).
+  </script>
+</notebook>

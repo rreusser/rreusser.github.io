@@ -1,0 +1,7 @@
+publishedAt: "July 9, 2026"
+description: "Conway's Game of Life generalized to a continuous domain, computed in WebGPU"
+maxWidth: 640px
+tags:
+  - webgpu
+  - pde
+  - cellular-automata

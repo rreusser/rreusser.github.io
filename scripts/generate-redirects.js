@@ -41,7 +41,7 @@ const redirects = [
   ["/random-polynomial-roots/", "/sketches/random-polynomial-roots/"],
   ["/rule-30/", "/sketches/rule-30/"],
   ["/schwarzschild-spacetime/", "/sketches/schwarzschild-spacetime/"],
-  ["/smooth-life/", "/sketches/smooth-life/"],
+  ["/smooth-life/", "/notebooks/smooth-life/"],
   ["/spherical-harmonics/", "/sketches/spherical-harmonics/"],
   ["/things-i-learned-the-hard-way-using-react-native/", "/notebooks/things-i-learned-the-hard-way-using-react-native/"],
   ["/ueda-attractor/", "/sketches/ueda-attractor/"],
