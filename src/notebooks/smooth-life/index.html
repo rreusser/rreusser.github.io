@@ -308,8 +308,15 @@
         onResize(el, w, h) { resizeCanvas(w, h); },
       }));
 
-      // ---- Diagnostic readout (field mean/min/max) ----
-      const statsEl = html`<div style="font-family: var(--monospace, monospace); font-size: 11px; color: #888; margin-top: 6px;">field: …</div>`;
+      // ---- Diagnostic readout (field-value histogram + mean) ----
+      const statsText = html`<div style="font-family: var(--monospace, monospace); font-size: 11px; color: #888;">field: …</div>`;
+      const histBars = Array.from({ length: 20 }, () => {
+        const bar = document.createElement('div');
+        bar.style.cssText = 'flex:1; background: var(--theme-foreground-focus, #3b82f6); height:1px; align-self:flex-end; min-height:1px;';
+        return bar;
+      });
+      const histEl = html`<div style="display:flex; align-items:flex-end; gap:1px; height:40px; width:200px; margin-top:4px; border-bottom:1px solid #ccc;">${histBars}</div>`;
+      const statsEl = html`<div style="margin-top:6px;">${statsText}<div style="font-size:10px; color:#aaa;">value histogram (0 → 1)</div>${histEl}</div>`;
       display(statsEl);
 
       // ---- Visibility (pause when scrolled away) ----
@@ -330,9 +337,12 @@
             simState.dirty = false;
           }
         }
-        if (++frameCount % 30 === 0) {
+        if (++frameCount % 20 === 0) {
           sim.readStats().then((s) => {
-            if (s) statsEl.textContent = `field: mean ${s.mean.toFixed(3)}  min ${s.min.toFixed(3)}  max ${s.max.toFixed(3)}`;
+            if (!s) return;
+            statsText.textContent = `field: mean ${s.mean.toFixed(3)}  min ${s.min.toFixed(3)}  max ${s.max.toFixed(3)}`;
+            const peak = Math.max(1e-6, ...s.hist);
+            s.hist.forEach((frac, i) => { histBars[i].style.height = `${Math.round((frac / peak) * 40)}px`; });
           }).catch(() => {});
         }
         raf = requestAnimationFrame(frame);

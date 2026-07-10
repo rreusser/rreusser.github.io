@@ -806,15 +806,21 @@ export function createSmoothLife(device, options = {}) {
       device.queue.submit([encoder.finish()]);
       await stagingBuffer.mapAsync(GPUMapMode.READ);
       const data = new Float32Array(stagingBuffer.getMappedRange());
+      const bins = 20;
+      const hist = new Float64Array(bins);
       let sum = 0, mn = Infinity, mx = -Infinity;
       for (let i = 0; i < N * N; i++) {
         const v = data[i * 2];
         sum += v;
         if (v < mn) mn = v;
         if (v > mx) mx = v;
+        let b = Math.floor(v * bins);
+        if (b < 0) b = 0; else if (b >= bins) b = bins - 1;
+        hist[b]++;
       }
       stagingBuffer.unmap();
-      return { mean: sum / (N * N), min: mn, max: mx };
+      const total = N * N;
+      return { mean: sum / total, min: mn, max: mx, hist: Array.from(hist, (c) => c / total) };
     } finally {
       statsPending = false;
     }
@@ -824,5 +830,5 @@ export function createSmoothLife(device, options = {}) {
     for (const b of [field, fhat, conv, temp[0], temp[1], convBuffer, updateBuffer, initBuffer, paintBuffer, renderBuffer]) b.destroy();
   }
 
-  return { N, params, initialize, step, paint, render, createRenderer, setParams, destroy };
+  return { N, params, initialize, step, paint, render, createRenderer, setParams, readStats, destroy };
 }
