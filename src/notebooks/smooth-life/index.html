@@ -67,6 +67,8 @@
 
       const survOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
       const birthOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
+      const anOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
+      const amOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
 
       const values = () => ({ birth: birthSlider.value, survival: survivalSlider.value, alphaN: +anInput.value, alphaM: +amInput.value, blendMode: +blendInput.value });
 
@@ -90,6 +92,8 @@
         c2d.putImageData(img, 0, 0);
         survOut.textContent = `[${dv[0].toFixed(3)}, ${dv[1].toFixed(3)}]`;
         birthOut.textContent = `[${bv[0].toFixed(3)}, ${bv[1].toFixed(3)}]`;
+        anOut.textContent = anv.toFixed(3);
+        amOut.textContent = amv.toFixed(3);
       }
 
       [survivalSlider, birthSlider, anInput, amInput, blendInput].forEach((el) => el.addEventListener('input', () => { draw(); onInput(values()); }));
@@ -104,10 +108,10 @@
         <div style="padding:0 8.5px;">${cv}</div>
         ${birthSlider}
         <div style="${row}"><span>Birth · empty cell (m ≈ 0)</span>${birthOut}</div>
-        <div style="text-align:center; margin:3px 0 8px;">neighborhood fill n: 0 → 1</div>
+        <div style="text-align:center; margin:3px 0 8px;">horizontal axis: neighborhood fill n, empty (0) → full (1)</div>
         <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
-          <label style="${ctl}">αₙ ${anInput}</label>
-          <label style="${ctl}">αₘ ${amInput}</label>
+          <label style="${ctl}">αₙ ${anInput} ${anOut}</label>
+          <label style="${ctl}">αₘ ${amInput} ${amOut}</label>
           <label style="${ctl}">Blending ${blendInput}</label>
         </div>
       </div>`;
