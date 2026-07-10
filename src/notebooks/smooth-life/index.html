@@ -166,7 +166,7 @@
 
       let sim = createSmoothLife(device, {
         N: NInput.value, ra: dp.ra, innerRatio: dp.ratio, b1: dp.b1, b2: dp.b2, d1: dp.d1, d2: dp.d2,
-        alphaN: dp.alphaN, alphaM: dp.alphaM, dt: dp.dt, mode: dp.mode, blendMode: dp.blendMode, colormap: dp.colormap,
+        alphaN: dp.alphaN, alphaM: dp.alphaM, dt: dp.dt, mode: dp.mode, blendMode: dp.blendMode, kernel: dp.kernel ?? 0, colormap: dp.colormap,
       });
       sim.initialize({ fill: dp.fill });
       let renderer = sim.createRenderer(canvasFormat);
@@ -229,6 +229,7 @@
 
       const raInput = Inputs.range([3, 24], { label: 'Cell radius rₐ', value: dp.ra, step: 0.5 });
       const ratioInput = Inputs.range([2, 5], { label: 'Radius ratio rₐ/rᵢ', value: dp.ratio, step: 0.1 });
+      const kernelInput = Inputs.select(new Map([['Disc (jinc)', 0], ['Gaussian', 1]]), { label: 'Kernel', value: dp.kernel ?? 0 });
       const dtInput = Inputs.range([0.02, 0.4], { label: 'Time step Δt', value: dp.dt, step: 0.005 });
       const modeInput = Inputs.select(new Map([['Relax to target', 0], ['Increment (2s−1)', 1], ['Discrete snap', 2]]), {
         label: 'Time stepping', value: dp.mode
@@ -244,6 +245,7 @@
         sim.setParams({
           ra: raInput.value,
           innerRatio: ratioInput.value,
+          kernel: kernelInput.value,
           dt: dtInput.value,
           mode: modeInput.value,
           colormap: colormapInput.value,
@@ -268,7 +270,7 @@
       }
 
       presetSelect.addEventListener('input', () => applyPreset(presetSelect.value));
-      for (const el of [raInput, ratioInput, dtInput, modeInput, colormapInput]) {
+      for (const el of [raInput, ratioInput, kernelInput, dtInput, modeInput, colormapInput]) {
         el.addEventListener('input', syncParams);
       }
       // Changing the initial density reseeds the field so you can hunt for the
@@ -308,6 +310,7 @@
         html`<div style="margin:8px 0 12px;">${diagram.element}</div>`,
         raInput,
         ratioInput,
+        kernelInput,
         dtInput,
         modeInput,
         stepsInput,
@@ -563,6 +566,8 @@
     The kinship with the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/) runs deeper than a borrowed Fourier transform: the two are the same activator–inhibitor machine seen through different nonlinearities. Turing's recipe watches a field through a narrow **activator** and a wider **inhibitor** and drives the update by their *difference* — short-range activation minus long-range inhibition, which breaks symmetry into spots and stripes. SmoothLife measures the same two scales: the inner disc ${tex`m`} is the short-range, self-reinforcing lens and the outer annulus ${tex`n`} the long-range, crowd-sensing one, and its transition ${tex`s(n, m)`} plays the role of the difference — on where the near field is full and the far field is not too crowded. Only the combining rule differs: Turing sums the two and squashes with an ${tex`\arctan`}; SmoothLife feeds them through the windowed birth/survival function.
 
     Where that window is gentle the two nearly coincide — linearize ${tex`s(n,m) - f`} and it *is* a short-range-activation / long-range-inhibition operator. The **Turing spots** preset freezes into the same static spot-and-worm lattice the Turing notebook produces from the very same convolutions. The life-like repertoire — gliders, oscillators, migrating blobs — only appears once the window is sharp enough to make the rule strongly nonlinear, pushing the system past a plain Turing instability. Seen this way, SmoothLife is a Turing pattern tuned to the edge of chaos.
+
+    The **Kernel** control leans further into the analogy: swapping the disc for a Gaussian of matched width turns the two disc averages into a literal difference of Gaussians — Turing's original activator–inhibitor pair. The gliders generally soften or dissolve, since the crisp disc edge is part of what makes the rule sharp enough to be life-like.
   </script>
 
   <script id="references" type="text/markdown">

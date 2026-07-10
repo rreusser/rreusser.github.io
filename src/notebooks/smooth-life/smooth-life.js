@@ -126,6 +126,14 @@ fn disk_avg(kmag: f32, r: f32) -> f32 {
   return 2.0 * bessel_j1(kr) / kr;
 }
 
+// Fourier transform of a normalized Gaussian whose second moment matches a disc
+// of radius r (i.e. sigma = r/2): exp(-(kr)^2/8). Also 1 at k=0, so it is a
+// drop-in alternative to disk_avg with a soft, ringing-free profile.
+fn gauss_avg(kmag: f32, r: f32) -> f32 {
+  let kr = kmag * r;
+  return exp(-0.125 * kr * kr);
+}
+
 fn wavenumber(coord: vec2<u32>, res: vec2<f32>) -> vec2<f32> {
   var kx = f32(coord.x);
   var ky = f32(coord.y);
@@ -152,6 +160,7 @@ struct ConvolveParams {
   res: vec2<u32>,
   ri: f32,
   ra: f32,
+  kernel: u32,   // 0 = disc (jinc), 1 = Gaussian
 };
 @group(0) @binding(0) var<storage, read_write> fhat: array<vec2<f32>>;
 @group(0) @binding(1) var<uniform> P: ConvolveParams;
@@ -165,8 +174,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let k = wavenumber(vec2<u32>(x, y), vec2<f32>(P.res));
   let kmag = length(k);
-  let gri = disk_avg(kmag, P.ri);
-  let gra = disk_avg(kmag, P.ra);
+  var gri: f32;
+  var gra: f32;
+  if (P.kernel == 1u) {
+    gri = gauss_avg(kmag, P.ri);
+    gra = gauss_avg(kmag, P.ra);
+  } else {
+    gri = disk_avg(kmag, P.ri);
+    gra = disk_avg(kmag, P.ra);
+  }
 
   // Multiply spectrum by the complex kernel (Ĝ_ri + i·Ĝ_ra). After the inverse
   // FFT the real part is the ri-disc average and the imag part the ra-disc one.
@@ -441,6 +457,7 @@ export function createSmoothLife(device, options = {}) {
     d2: options.d2 ?? 0.746,
     mode: options.mode ?? 0,
     blendMode: options.blendMode ?? 0,   // 0 = blend band outputs (reference), 1 = blend thresholds
+    kernel: options.kernel ?? 0,         // 0 = disc (jinc), 1 = Gaussian
     fill: options.fill ?? 0.5,
     colormap: options.colormap ?? 1,
     gamma: options.gamma ?? 1.0,
@@ -490,7 +507,7 @@ export function createSmoothLife(device, options = {}) {
   });
 
   // --- Uniform buffers ---
-  const convBuffer = device.createBuffer({ label: 'sl-conv-params', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const convBuffer = device.createBuffer({ label: 'sl-conv-params', size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const updateBuffer = device.createBuffer({ label: 'sl-update-params', size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const initBuffer = device.createBuffer({ label: 'sl-init-params', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const paintBuffer = device.createBuffer({ label: 'sl-paint-params', size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -561,12 +578,13 @@ export function createSmoothLife(device, options = {}) {
   function ri() { return params.ra / params.innerRatio; }
 
   function writeConvUniforms() {
-    const buf = new ArrayBuffer(16);
+    const buf = new ArrayBuffer(32);
     const u = new Uint32Array(buf);
     const f = new Float32Array(buf);
     u[0] = N; u[1] = N;
     f[2] = ri();
     f[3] = params.ra;
+    u[4] = params.kernel >>> 0;
     device.queue.writeBuffer(convBuffer, 0, buf);
   }
   function writeUpdateUniforms() {
