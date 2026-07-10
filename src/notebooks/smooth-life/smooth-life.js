@@ -257,12 +257,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let ra2 = P.ra * P.ra;
   let n = (ra2 * discRa - ri2 * m) / max(ra2 - ri2, 1e-6);  // annulus average
 
-  let s = sigmaAB(
-    n,
-    sigmaM(P.b1, P.d1, m, P.alphaM),
-    sigmaM(P.b2, P.d2, m, P.alphaM),
-    P.alphaN
-  );
+  // Ready/Rafler SmoothLifeL: evaluate the birth and survival bands on n
+  // separately, then blend the two results by the cell fill m. (This differs
+  // from blending the band thresholds first — they agree only at m=0 and m=1.)
+  let birth = sigmaAB(n, P.b1, P.b2, P.alphaN);
+  let survival = sigmaAB(n, P.d1, P.d2, P.alphaN);
+  let s = sigmaM(birth, survival, m, P.alphaM);
 
   let prev = field[idx].x;
   var next: f32;
