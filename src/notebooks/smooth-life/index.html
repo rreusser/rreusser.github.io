@@ -21,7 +21,7 @@
   <script id="imports" type="module">
     import { createWebGPUContext, isWebGPUAvailable } from './lib/webgpu-canvas.js';
     import { expandable } from './lib/expandable.js';
-    import { interval } from './lib/range-slider.js';
+    import { interval, rangeInput } from './lib/range-slider.js';
     import { createSmoothLife } from './smooth-life.js';
   </script>
 
@@ -436,20 +436,26 @@
   </script>
 
   <script id="transition-figure" type="module">
-    const w = Math.min(width, 380);
+    // The birth and survival bands are dragged directly on the diagram: survival
+    // along the top edge (m≈1), birth along the bottom edge (m≈0). The slider
+    // track is inset by the thumb radius (~8.5px), so the square heatmap is inset
+    // to match, keeping the thumbs aligned with the n-axis.
+    const w = Math.min(width, 400);
+    const INSET = 8.5;
+    const cw = w - 2 * INSET;   // heatmap display size (square)
+    const res = 220;
 
-    const birthInput2 = interval([0, 1], { label: 'Birth [b₁,b₂]', value: [0.269, 0.340], step: 0.001, distribution: 'box' });
-    const deathInput2 = interval([0, 1], { label: 'Survival [d₁,d₂]', value: [0.523, 0.746], step: 0.001, distribution: 'box' });
-    const anInput = Inputs.range([0.005, 0.15], { label: 'αₙ', value: 0.028, step: 0.001 });
-    const amInput = Inputs.range([0.02, 0.35], { label: 'αₘ', value: 0.147, step: 0.001 });
+    const BIRTH = '#16a34a';    // green
+    const SURV = '#2563eb';     // blue
+
+    const survivalSlider = rangeInput({ min: 0, max: 1, value: [0.365, 0.549], step: 0.001, width: '100%', color: SURV });
+    const birthSlider = rangeInput({ min: 0, max: 1, value: [0.257, 0.336], step: 0.001, width: '100%', color: BIRTH });
+    const anInput = Inputs.range([0.005, 0.15], { label: 'αₙ (band edge)', value: 0.028, step: 0.001 });
+    const amInput = Inputs.range([0.02, 0.35], { label: 'αₘ (m crossover)', value: 0.147, step: 0.001 });
 
     const cv = document.createElement('canvas');
-    const res = 200;
     cv.width = res; cv.height = res;
-    cv.style.width = w + 'px';
-    cv.style.height = w + 'px';
-    cv.style.maxWidth = '100%';
-    cv.style.border = '1px solid var(--theme-foreground-faintest, #ddd)';
+    cv.style.cssText = `position:absolute; left:${INSET}px; top:0; width:${cw}px; height:${cw}px;`;
     const c2d = cv.getContext('2d');
     const img = c2d.createImageData(res, res);
 
@@ -457,11 +463,11 @@
     const sigmaAB = (x, a, bb, alpha) => sigma1(x, a, alpha) * (1 - sigma1(x, bb, alpha));
     const sigmaM = (x, y, m, alpha) => x * (1 - sigma1(m, 0.5, alpha)) + y * sigma1(m, 0.5, alpha);
 
+    const survOut = html`<b style="font-variant-numeric:tabular-nums; color:${SURV};"></b>`;
+    const birthOut = html`<b style="font-variant-numeric:tabular-nums; color:${BIRTH};"></b>`;
+
     function drawTransition() {
-      const bv = birthInput2.value.range;
-      const dv = deathInput2.value.range;
-      const anv = anInput.value;
-      const amv = amInput.value;
+      const bv = birthSlider.value, dv = survivalSlider.value, anv = anInput.value, amv = amInput.value;
       for (let j = 0; j < res; j++) {
         const m = 1 - j / (res - 1); // top row = full cell (m=1)
         for (let i = 0; i < res; i++) {
@@ -476,20 +482,34 @@
         }
       }
       c2d.putImageData(img, 0, 0);
+      // Guide lines connecting each band's thresholds into the region where it acts:
+      // survival (blue) across the top half, birth (green) across the bottom half.
+      c2d.lineWidth = 1.5;
+      c2d.globalAlpha = 0.6;
+      const vline = (x, color, y0, y1) => { c2d.strokeStyle = color; c2d.beginPath(); c2d.moveTo(x * res, y0 * res); c2d.lineTo(x * res, y1 * res); c2d.stroke(); };
+      vline(dv[0], SURV, 0, 0.5); vline(dv[1], SURV, 0, 0.5);
+      vline(bv[0], BIRTH, 0.5, 1); vline(bv[1], BIRTH, 0.5, 1);
+      c2d.globalAlpha = 1;
+      survOut.textContent = `[${dv[0].toFixed(3)}, ${dv[1].toFixed(3)}]`;
+      birthOut.textContent = `[${bv[0].toFixed(3)}, ${bv[1].toFixed(3)}]`;
     }
-    for (const el of [birthInput2, deathInput2, anInput, amInput]) el.addEventListener('input', drawTransition);
+    for (const el of [survivalSlider, birthSlider, anInput, amInput]) el.addEventListener('input', drawTransition);
     drawTransition();
 
-    display(html`<div style="margin-bottom:8px;">${birthInput2}${deathInput2}${anInput}${amInput}</div>`);
+    const lbl = 'font-size:12px; display:flex; justify-content:space-between; align-items:baseline;';
+    const diagram = html`<div style="position:relative; width:${w}px; max-width:100%;">
+      <div style="${lbl} color:${SURV};"><span>Survival band — full cell (m ≈ 1)</span>${survOut}</div>
+      <div>${survivalSlider}</div>
+      <div style="position:relative; width:${w}px; height:${cw}px;">${cv}</div>
+      <div>${birthSlider}</div>
+      <div style="${lbl} color:${BIRTH};"><span>Birth band — empty cell (m ≈ 0)</span>${birthOut}</div>
+      <div style="font-size:11px; color:#888; text-align:center; margin-top:2px;">neighborhood fill n:&nbsp; 0 → 1</div>
+    </div>`;
+
     display(html`<figure style="max-width:${w}px;">
-      <div style="position:relative; width:${w}px; max-width:100%;">
-        ${cv}
-        <div style="position:absolute; left:0; bottom:-20px; font-size:11px; color:#666;">n = 0</div>
-        <div style="position:absolute; right:0; bottom:-20px; font-size:11px; color:#666;">n = 1 →</div>
-        <div style="position:absolute; left:-4px; top:-2px; font-size:11px; color:#666; transform:translateX(-100%);">m=1</div>
-        <div style="position:absolute; left:-4px; bottom:-2px; font-size:11px; color:#666; transform:translateX(-100%);">m=0</div>
-      </div>
-      <figcaption style="margin-top:24px;">Transition function ${tex`s(n, m)`}. Bottom row (${tex`m \approx 0`}, empty cell) shows the birth interval; top row (${tex`m \approx 1`}, full cell) shows the survival interval. Bright = turns on.</figcaption>
+      ${diagram}
+      <div style="margin-top:10px;">${anInput}${amInput}</div>
+      <figcaption>Drag the <b style="color:${BIRTH}">birth band</b> along the bottom and the <b style="color:${SURV}">survival band</b> along the top to reshape the transition function ${tex`s(n, m)`} directly. Bright = turns on. The heatmap spans neighborhood fill ${tex`n`} horizontally and cell fill ${tex`m`} vertically.</figcaption>
     </figure>`);
   </script>
 
