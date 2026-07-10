@@ -107,6 +107,9 @@
       const modeInput = Inputs.select(new Map([['Relax to target', 0], ['Increment (2s−1)', 1], ['Discrete snap', 2]]), {
         label: 'Time stepping', value: dp.mode
       });
+      const methodInput = Inputs.select(new Map([['FFT (fast)', 0], ['Direct (brute force)', 1]]), {
+        label: 'Convolution', value: 0
+      });
       const stepsInput = Inputs.range([1, 8], { label: 'Steps / frame', value: dp.steps, step: 1 });
       const colormapInput = Inputs.select(new Map([['Grayscale', 0], ['Magma', 1], ['Viridis', 2], ['Ice', 3]]), {
         label: 'Colormap', value: dp.colormap
@@ -126,6 +129,7 @@
           alphaM: alphaMInput.value,
           dt: dtInput.value,
           mode: modeInput.value,
+          method: methodInput.value,
           colormap: colormapInput.value,
         });
         simState.dirty = true;
@@ -151,7 +155,7 @@
       }
 
       presetSelect.addEventListener('input', () => applyPreset(presetSelect.value));
-      for (const el of [birthInput, deathInput, raInput, ratioInput, alphaNInput, alphaMInput, dtInput, modeInput, colormapInput]) {
+      for (const el of [birthInput, deathInput, raInput, ratioInput, alphaNInput, alphaMInput, dtInput, modeInput, methodInput, colormapInput]) {
         el.addEventListener('input', syncParams);
       }
       // Changing the initial density reseeds the field so you can hunt for the
@@ -194,6 +198,7 @@
         alphaMInput,
         dtInput,
         modeInput,
+        methodInput,
         stepsInput,
         fillInput,
         colormapInput,

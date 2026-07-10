@@ -178,6 +178,52 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 `;
 
+// Brute-force direct convolution (no FFT). Computes the two disc averages by
+// summing an antialiased disc over the neighborhood with periodic wrap. Only a
+// local sum per cell, so it avoids the global f32 accumulation of the FFT path —
+// useful as a correctness cross-check. Writes conv[idx] = (D_ri, D_ra), matching
+// the FFT path so the update shader is unchanged.
+const WGSL_DIRECT = /* wgsl */ `
+struct DirectParams {
+  res: vec2<u32>,
+  ri: f32,
+  ra: f32,
+};
+@group(0) @binding(0) var<storage, read> field: array<vec2<f32>>;
+@group(0) @binding(1) var<storage, read_write> conv: array<vec2<f32>>;
+@group(0) @binding(2) var<uniform> P: DirectParams;
+
+override KR: i32 = 22;
+
+fn wrapi(i: i32, n: i32) -> i32 { return (i % n + n) % n; }
+
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let N = i32(P.res.x);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= N || y >= N) { return; }
+  let ri = P.ri;
+  let ra = P.ra;
+
+  var mAcc = 0.0; var mArea = 0.0;
+  var raAcc = 0.0; var raArea = 0.0;
+  for (var dy = -KR; dy <= KR; dy = dy + 1) {
+    let iy = wrapi(y + dy, N);
+    for (var dx = -KR; dx <= KR; dx = dx + 1) {
+      let r = sqrt(f32(dx * dx + dy * dy));
+      let outer = clamp(ra - r + 0.5, 0.0, 1.0);
+      if (outer <= 0.0) { continue; }
+      let inner = clamp(ri - r + 0.5, 0.0, 1.0);
+      let v = field[u32(iy) * P.res.x + u32(wrapi(x + dx, N))].x;
+      mAcc = mAcc + v * inner; mArea = mArea + inner;
+      raAcc = raAcc + v * outer; raArea = raArea + outer;
+    }
+  }
+  conv[u32(y) * P.res.x + u32(x)] = vec2<f32>(mAcc / max(mArea, 1e-6), raAcc / max(raArea, 1e-6));
+}
+`;
+
 const WGSL_UPDATE = /* wgsl */ `
 struct UpdateParams {
   N: u32,
@@ -436,6 +482,7 @@ export function createSmoothLife(device, options = {}) {
     d1: options.d1 ?? 0.523,
     d2: options.d2 ?? 0.746,
     mode: options.mode ?? 0,
+    method: options.method ?? 0,   // 0 = FFT convolution, 1 = brute-force direct
     fill: options.fill ?? 0.5,
     colormap: options.colormap ?? 1,
     gamma: options.gamma ?? 1.0,
@@ -483,6 +530,13 @@ export function createSmoothLife(device, options = {}) {
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
     ],
   });
+  const directLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+    ],
+  });
 
   // --- Uniform buffers ---
   const convBuffer = device.createBuffer({ label: 'sl-conv-params', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -513,6 +567,24 @@ export function createSmoothLife(device, options = {}) {
     compute: { module: device.createShaderModule({ label: 'sl-paint', code: WGSL_PAINT }), entryPoint: 'main' },
   });
   const renderModule = device.createShaderModule({ label: 'sl-render', code: WGSL_RENDER });
+
+  // Direct-convolution pipeline, specialized on the integer kernel radius (KR)
+  // via an override constant; rebuilt only when the radius crosses an integer.
+  const directModule = device.createShaderModule({ label: 'sl-direct', code: WGSL_DIRECT });
+  const directPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [directLayout] });
+  const directPipelines = new Map();
+  function getDirectPipeline(kr) {
+    let p = directPipelines.get(kr);
+    if (!p) {
+      p = device.createComputePipeline({
+        label: `sl-direct-kr${kr}`,
+        layout: directPipelineLayout,
+        compute: { module: directModule, entryPoint: 'main', constants: { KR: kr } },
+      });
+      directPipelines.set(kr, p);
+    }
+    return p;
+  }
 
   // --- Bind groups ---
   const convBindGroup = device.createBindGroup({
@@ -549,6 +621,14 @@ export function createSmoothLife(device, options = {}) {
     entries: [
       { binding: 0, resource: { buffer: field } },
       { binding: 1, resource: { buffer: renderBuffer } },
+    ],
+  });
+  const directBindGroup = device.createBindGroup({
+    layout: directLayout,
+    entries: [
+      { binding: 0, resource: { buffer: field } },
+      { binding: 1, resource: { buffer: conv } },
+      { binding: 2, resource: { buffer: convBuffer } },
     ],
   });
 
@@ -620,37 +700,50 @@ export function createSmoothLife(device, options = {}) {
     device.queue.submit([encoder.finish()]);
   }
 
+  function computeConvDirect() {
+    const kr = Math.max(1, Math.ceil(params.ra) + 1);
+    const pipeline = getDirectPipeline(kr);
+    const encoder = device.createCommandEncoder({ label: 'sl-direct' });
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, directBindGroup);
+    pass.dispatchWorkgroups(dispatch, dispatch, 1);
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+  }
+
+  function computeConvFFT() {
+    // Forward FFT of the field (real part holds f).
+    executeFFT2D({ device, pipelines: fftPipelines, input: field, output: fhat, temp, N, forward: true, splitNormalization: true });
+    // Multiply spectrum by the packed disc kernels (in place).
+    {
+      const encoder = device.createCommandEncoder({ label: 'sl-convolve' });
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(convPipeline);
+      pass.setBindGroup(0, convBindGroup);
+      pass.dispatchWorkgroups(dispatch, dispatch, 1);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    }
+    // Inverse FFT: real part -> ri-disc average, imag part -> ra-disc average.
+    executeFFT2D({ device, pipelines: fftPipelines, input: fhat, output: conv, temp, N, forward: false, splitNormalization: true });
+  }
+
   function step(count = 1) {
     writeConvUniforms();
     writeUpdateUniforms();
     for (let i = 0; i < count; i++) {
-      // Forward FFT of the field (real part holds f).
-      executeFFT2D({ device, pipelines: fftPipelines, input: field, output: fhat, temp, N, forward: true, splitNormalization: true });
-
-      // Multiply spectrum by the packed disc kernels (in place).
-      {
-        const encoder = device.createCommandEncoder({ label: 'sl-convolve' });
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(convPipeline);
-        pass.setBindGroup(0, convBindGroup);
-        pass.dispatchWorkgroups(dispatch, dispatch, 1);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-      }
-
-      // Inverse FFT: real part -> ri-disc average, imag part -> ra-disc average.
-      executeFFT2D({ device, pipelines: fftPipelines, input: fhat, output: conv, temp, N, forward: false, splitNormalization: true });
+      if (params.method === 1) computeConvDirect();
+      else computeConvFFT();
 
       // Apply the transition rule and step the field.
-      {
-        const encoder = device.createCommandEncoder({ label: 'sl-update' });
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(updatePipeline);
-        pass.setBindGroup(0, updateBindGroup);
-        pass.dispatchWorkgroups(dispatch, dispatch, 1);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-      }
+      const encoder = device.createCommandEncoder({ label: 'sl-update' });
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(updatePipeline);
+      pass.setBindGroup(0, updateBindGroup);
+      pass.dispatchWorkgroups(dispatch, dispatch, 1);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
     }
   }
 
