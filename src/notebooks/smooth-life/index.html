@@ -184,8 +184,6 @@
 
       // ---- Canvas ----
       const canvas = document.createElement('canvas');
-      canvas.style.width = '100%';
-      canvas.style.height = '100%';
       canvas.style.display = 'block';
       canvas.style.cursor = 'crosshair';
       canvas.style.touchAction = 'none';
@@ -200,6 +198,10 @@
           canvas.width = pw;
           canvas.height = ph;
         }
+        // Explicit CSS size (like the other notebooks) so the figcaption lays out
+        // below the canvas instead of fighting a height:100% canvas.
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
         sim.params.aspect = pw / ph;
         simState.dirty = true;
       }
@@ -211,7 +213,7 @@
 
       // The transition diagram IS the birth/survival/α/blend control.
       const diagram = createTransitionDiagram({
-        maxWidth: 560,
+        maxWidth: 320,
         birth: [dp.b1, dp.b2], survival: [dp.d1, dp.d2], alphaN: dp.alphaN, alphaM: dp.alphaM, blendMode: 0,
         onInput: (v) => {
           sim.setParams({ b1: v.birth[0], b2: v.birth[1], d1: v.survival[0], d2: v.survival[1], alphaN: v.alphaN, alphaM: v.alphaM, blendMode: v.blendMode });
@@ -292,10 +294,11 @@
         a.click();
       };
 
+      // Diagram first; all the other controls sit below it.
       controls.append(
+        html`<div style="margin-bottom:12px;">${diagram.element}</div>`,
         html`<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">${playBtn}${restartBtn}${clearBtn}${downloadBtn}</div>`,
         presetSelect,
-        html`<div style="margin:10px 0 6px;">${diagram.element}</div>`,
         raInput,
         ratioInput,
         dtInput,
@@ -306,7 +309,6 @@
         colormapInput,
         brushInput,
       );
-      display(controls);
 
       // ---- Interaction: paint, pan, zoom ----
       function eventUV(clientX, clientY) {
@@ -398,19 +400,30 @@
       });
 
       // ---- Figure + expandable ----
-      // Wrap the canvas in a <figure> and hand that to expandable(), exactly like
-      // the other notebooks. expandable() owns sizing (it clamps its nominal size
-      // to the container's offsetWidth), so the content must fill it and we must
-      // not wrap expandable's output in another element.
-      const figure = html`<figure style="margin:0;">${canvas}</figure>`;
-      const initialSize = 560;
+      // Wrap the canvas (and a brief figcaption + usage details) in a <figure> and
+      // hand that to expandable(), like the other notebooks. expandable() owns
+      // sizing and grows to include the caption/details via scrollHeight.
+      const figure = html`<figure style="margin:0;">
+        ${canvas}
+        <figcaption style="margin-top:8px;">Continuous SmoothLife, computed in WebGPU.</figcaption>
+      </figure>`;
       display(expandable(figure, {
         id: 'smooth-life',
-        width: initialSize,
-        height: initialSize,
+        wide: true,
+        aspectRatio: 1,
+        maxWidth: 760,
+        width: 560,
+        height: 560,
         controls: '#sl-controls',
         onResize(el, w, h) { resizeCanvas(w, h); },
       }));
+      // Usage lives in a collapsed details just under the figure (kept outside the
+      // expandable content so toggling it open doesn't fight expandable's sizing).
+      display(html`<details style="margin-top:6px; font-size:14px;">
+        <summary style="cursor:pointer;">How to interact</summary>
+        <div style="margin-top:4px;">Draw with the mouse (or one finger) to seed life; shift-drag to erase. Scroll to zoom, ⌥/Ctrl/⌘-drag (or two-finger drag) to pan, and double-click to reset the view. Edit the birth and survival bands directly on the transition diagram in the controls below.</div>
+      </details>`);
+      display(controls);
 
       // ---- Visibility (pause when scrolled away) ----
       const io = new IntersectionObserver((entries) => { simState.visible = entries[0].isIntersecting; }, { threshold: 0.01 });
@@ -442,10 +455,8 @@
     }
   </script>
 
-  <script id="usage" type="text/markdown">
-    **Draw** with the mouse (or one finger) to seed new life; **shift-drag** to erase. **Scroll** to zoom, **⌥/Ctrl/⌘-drag** (or two-finger drag) to pan, and **double-click** to reset the view. The field wraps around at the edges, so structures that drift off one side reappear on the other, and zooming out tiles these copies. Try the presets, adjust the initial density and radius ratio, then push the birth and survival intervals around and watch the population reorganize.
-
-    The **Rafler gliders** preset carries the canonical SmoothLifeL parameters (outer radius 20, birth ${tex`[0.257, 0.336]`}, survival ${tex`[0.365, 0.549]`}, ${tex`2s-1`} time stepping) from the well-known SmoothLife video. Its bistable dynamics are sensitive to numerical precision at large radius, so it can settle into a filled state rather than the sparse gliders; lowering the initial density and grid size helps.
+  <script id="preset-note" type="text/markdown">
+    Drag the birth and survival bands on the transition diagram to reshape the rule, and try the presets. The **Rafler gliders** preset carries the canonical SmoothLifeL parameters from the well-known SmoothLife video (outer radius 20, birth ${tex`[0.257, 0.336]`}, survival ${tex`[0.365, 0.549]`}, ${tex`2s-1`} time stepping). It lives in a fairly narrow regime — if it fills in or dies out, nudge the initial density. The field wraps at the edges, so structures that drift off one side reappear on the other.
   </script>
 
   <script id="discrete-to-continuous" type="text/markdown">
