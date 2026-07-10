@@ -38,13 +38,16 @@
     // rendering: outer radius 20, ratio 3, birth [0.257,0.336], survival
     // [0.365,0.549], and 2s−1 Euler time stepping (Δt = 0.05), shown in grayscale.
     const PRESETS = {
-      'Rafler gliders':    { ra: 20, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.05, mode: 1, colormap: 0, steps: 4 },
-      'Soft gliders':      { ra: 12, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.115, mode: 0, colormap: 1, steps: 1 },
-      'Smooth blobs':      { ra: 14, b1: 0.245, b2: 0.360, d1: 0.480, d2: 0.780, alphaN: 0.035, alphaM: 0.170, dt: 0.090, mode: 0, colormap: 1, steps: 1 },
-      'Fine texture':      { ra: 8,  b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.130, mode: 0, colormap: 1, steps: 1 },
-      'Waves (increment)': { ra: 12, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.060, mode: 1, colormap: 3, steps: 2 },
+      'Rafler gliders':    { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.05, mode: 1, colormap: 0, steps: 4, fill: 0.4 },
+      'Soft gliders':      { ra: 12, ratio: 3, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.115, mode: 0, colormap: 1, steps: 1, fill: 0.5 },
+      'Smooth blobs':      { ra: 14, ratio: 3, b1: 0.245, b2: 0.360, d1: 0.480, d2: 0.780, alphaN: 0.035, alphaM: 0.170, dt: 0.090, mode: 0, colormap: 1, steps: 1, fill: 0.5 },
+      'Fine texture':      { ra: 8,  ratio: 3, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.130, mode: 0, colormap: 1, steps: 1, fill: 0.5 },
+      'Waves (increment)': { ra: 12, ratio: 3, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.060, mode: 1, colormap: 3, steps: 2, fill: 0.5 },
     };
-    const DEFAULT_PRESET = 'Rafler gliders';
+    // "Soft gliders" (the original sketch's parameters) is the default because it
+    // is robust on the GPU. "Rafler gliders" reproduces the video's canonical
+    // parameters but is numerically finicky (see notes) — kept as an option.
+    const DEFAULT_PRESET = 'Soft gliders';
   </script>
 
   <script id="resolution-input" type="module">
@@ -62,10 +65,10 @@
       // Landing state = the iconic Rafler/Hutton gliders.
       const dp = PRESETS[DEFAULT_PRESET];
       const sim = createSmoothLife(device, {
-        N, ra: dp.ra, b1: dp.b1, b2: dp.b2, d1: dp.d1, d2: dp.d2,
+        N, ra: dp.ra, innerRatio: dp.ratio, b1: dp.b1, b2: dp.b2, d1: dp.d1, d2: dp.d2,
         alphaN: dp.alphaN, alphaM: dp.alphaM, dt: dp.dt, mode: dp.mode, colormap: dp.colormap,
       });
-      sim.initialize({ fill: 0.5 });
+      sim.initialize({ fill: dp.fill });
       const renderer = sim.createRenderer(canvasFormat);
 
       // ---- Canvas ----
@@ -96,7 +99,8 @@
       const presetSelect = Inputs.select(Object.keys(PRESETS), { label: 'Preset', value: DEFAULT_PRESET });
       const birthInput = interval([0, 1], { label: 'Birth interval', value: [dp.b1, dp.b2], step: 0.001, distribution: 'box' });
       const deathInput = interval([0, 1], { label: 'Survival interval', value: [dp.d1, dp.d2], step: 0.001, distribution: 'box' });
-      const raInput = Inputs.range([3, 24], { label: 'Cell radius', value: dp.ra, step: 0.5 });
+      const raInput = Inputs.range([3, 24], { label: 'Cell radius rₐ', value: dp.ra, step: 0.5 });
+      const ratioInput = Inputs.range([2, 5], { label: 'Radius ratio rₐ/rᵢ', value: dp.ratio, step: 0.1 });
       const alphaNInput = Inputs.range([0.005, 0.2], { label: 'Neighborhood sharpness αₙ', value: dp.alphaN, step: 0.001 });
       const alphaMInput = Inputs.range([0.02, 0.4], { label: 'Cell sharpness αₘ', value: dp.alphaM, step: 0.001 });
       const dtInput = Inputs.range([0.02, 0.4], { label: 'Time step Δt', value: dp.dt, step: 0.005 });
@@ -107,6 +111,7 @@
       const colormapInput = Inputs.select(new Map([['Grayscale', 0], ['Magma', 1], ['Viridis', 2], ['Ice', 3]]), {
         label: 'Colormap', value: dp.colormap
       });
+      const fillInput = Inputs.range([0.05, 0.9], { label: 'Initial density', value: dp.fill, step: 0.01 });
       const brushInput = Inputs.range([0.01, 0.25], { label: 'Brush size', value: 0.06, step: 0.005 });
 
       function syncParams() {
@@ -114,6 +119,7 @@
         const death = deathInput.value.range;
         sim.setParams({
           ra: raInput.value,
+          innerRatio: ratioInput.value,
           b1: birth[0], b2: birth[1],
           d1: death[0], d2: death[1],
           alphaN: alphaNInput.value,
@@ -129,6 +135,7 @@
         const p = PRESETS[name];
         if (!p) return;
         raInput.value = p.ra;
+        if (p.ratio !== undefined) ratioInput.value = p.ratio;
         birthInput.value = { range: [p.b1, p.b2], invert: false };
         deathInput.value = { range: [p.d1, p.d2], invert: false };
         alphaNInput.value = p.alphaN;
@@ -137,15 +144,19 @@
         modeInput.value = p.mode;
         if (p.colormap !== undefined) colormapInput.value = p.colormap;
         if (p.steps !== undefined) stepsInput.value = p.steps;
+        if (p.fill !== undefined) fillInput.value = p.fill;
         syncParams();
-        // Reinitialize so the blob scale matches the new radius, then restart from a clean seed.
-        sim.initialize({ fill: 0.5 });
+        // Reseed so the blob scale matches the new radius/density.
+        sim.initialize({ fill: fillInput.value });
       }
 
       presetSelect.addEventListener('input', () => applyPreset(presetSelect.value));
-      for (const el of [birthInput, deathInput, raInput, alphaNInput, alphaMInput, dtInput, modeInput, colormapInput]) {
+      for (const el of [birthInput, deathInput, raInput, ratioInput, alphaNInput, alphaMInput, dtInput, modeInput, colormapInput]) {
         el.addEventListener('input', syncParams);
       }
+      // Changing the initial density reseeds the field so you can hunt for the
+      // glider regime (low density) vs. the filled/holes phase (high density).
+      fillInput.addEventListener('input', () => { sim.initialize({ fill: fillInput.value }); simState.dirty = true; });
 
       // ---- Buttons ----
       const btnStyle = 'padding:4px 10px; cursor:pointer; font-size:12px;';
@@ -156,7 +167,7 @@
         simState.dirty = true;
       };
       const restartBtn = html`<button style="${btnStyle}">Restart</button>`;
-      restartBtn.onclick = () => { sim.initialize({ fill: 0.5 }); simState.dirty = true; };
+      restartBtn.onclick = () => { sim.initialize({ fill: fillInput.value }); simState.dirty = true; };
       const clearBtn = html`<button style="${btnStyle}">Clear</button>`;
       // radius*hardness (= N) exceeds the max torus distance from center (≈0.71N),
       // so the brush covers the whole field uniformly and erases it to zero.
@@ -178,11 +189,13 @@
         birthInput,
         deathInput,
         raInput,
+        ratioInput,
         alphaNInput,
         alphaMInput,
         dtInput,
         modeInput,
         stepsInput,
+        fillInput,
         colormapInput,
         brushInput,
       );
@@ -321,9 +334,9 @@
   </script>
 
   <script id="usage" type="text/markdown">
-    The page opens on the **Rafler gliders** preset — the canonical SmoothLifeL parameters (outer radius 20, birth ${tex`[0.257, 0.336]`}, survival ${tex`[0.365, 0.549]`}, ${tex`2s-1`} time stepping) from the well-known SmoothLife video, in grayscale.
+    **Draw** with the mouse (or one finger) to seed new life; **shift-drag** to erase. **Scroll** to zoom, **⌥/Ctrl/⌘-drag** (or two-finger drag) to pan, and **double-click** to reset the view. The field wraps around at the edges, so structures that drift off one side reappear on the other, and zooming out tiles these copies. Try the presets, adjust the initial density and radius ratio, then push the birth and survival intervals around and watch the population reorganize.
 
-    **Draw** with the mouse (or one finger) to seed new life; **shift-drag** to erase. **Scroll** to zoom, **⌥/Ctrl/⌘-drag** (or two-finger drag) to pan, and **double-click** to reset the view. The field wraps around at the edges, so structures that drift off one side reappear on the other, and zooming out tiles these copies. Try the other presets, then push the birth and survival intervals around and watch the population reorganize.
+    The **Rafler gliders** preset carries the canonical SmoothLifeL parameters (outer radius 20, birth ${tex`[0.257, 0.336]`}, survival ${tex`[0.365, 0.549]`}, ${tex`2s-1`} time stepping) from the well-known SmoothLife video. Its bistable dynamics are sensitive to numerical precision at large radius, so it can settle into a filled state rather than the sparse gliders; lowering the initial density and grid size helps.
   </script>
 
   <script id="discrete-to-continuous" type="text/markdown">
