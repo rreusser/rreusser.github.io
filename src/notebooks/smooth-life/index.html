@@ -308,12 +308,17 @@
         onResize(el, w, h) { resizeCanvas(w, h); },
       }));
 
+      // ---- Diagnostic readout (field mean/min/max) ----
+      const statsEl = html`<div style="font-family: var(--monospace, monospace); font-size: 11px; color: #888; margin-top: 6px;">field: …</div>`;
+      display(statsEl);
+
       // ---- Visibility (pause when scrolled away) ----
       const io = new IntersectionObserver((entries) => { simState.visible = entries[0].isIntersecting; }, { threshold: 0.01 });
       io.observe(canvas);
 
       // ---- Render loop ----
       let raf;
+      let frameCount = 0;
       function frame() {
         if (simState.visible) {
           if (simState.playing) {
@@ -324,6 +329,11 @@
             renderer.render(ctx.getCurrentTexture().createView());
             simState.dirty = false;
           }
+        }
+        if (++frameCount % 30 === 0) {
+          sim.readStats().then((s) => {
+            if (s) statsEl.textContent = `field: mean ${s.mean.toFixed(3)}  min ${s.min.toFixed(3)}  max ${s.max.toFixed(3)}`;
+          }).catch(() => {});
         }
         raf = requestAnimationFrame(frame);
       }

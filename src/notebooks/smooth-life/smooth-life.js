@@ -794,6 +794,32 @@ export function createSmoothLife(device, options = {}) {
     Object.assign(params, patch);
   }
 
+  // Read back field statistics (mean/min/max of the real part) for diagnostics.
+  const stagingBuffer = device.createBuffer({ label: 'sl-staging', size: complexSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  let statsPending = false;
+  async function readStats() {
+    if (statsPending) return null;
+    statsPending = true;
+    try {
+      const encoder = device.createCommandEncoder({ label: 'sl-stats-copy' });
+      encoder.copyBufferToBuffer(field, 0, stagingBuffer, 0, complexSize);
+      device.queue.submit([encoder.finish()]);
+      await stagingBuffer.mapAsync(GPUMapMode.READ);
+      const data = new Float32Array(stagingBuffer.getMappedRange());
+      let sum = 0, mn = Infinity, mx = -Infinity;
+      for (let i = 0; i < N * N; i++) {
+        const v = data[i * 2];
+        sum += v;
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+      stagingBuffer.unmap();
+      return { mean: sum / (N * N), min: mn, max: mx };
+    } finally {
+      statsPending = false;
+    }
+  }
+
   function destroy() {
     for (const b of [field, fhat, conv, temp[0], temp[1], convBuffer, updateBuffer, initBuffer, paintBuffer, renderBuffer]) b.destroy();
   }
