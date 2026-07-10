@@ -33,12 +33,14 @@
   </script>
 
   <script id="presets" type="module">
-    // Named parameter sets. "Rafler gliders" reproduces the canonical SmoothLifeL
-    // parameters from Stephan Rafler's paper, popularized by Tim Hutton's Ready
-    // rendering: outer radius 20, ratio 3, birth [0.257,0.336], survival
-    // [0.365,0.549], and 2s−1 Euler time stepping (Δt = 0.05), shown in grayscale.
+    // Named parameter sets. "Rafler gliders" follows the SmoothLifeL parameters
+    // from Stephan Rafler's paper (popularized by Tim Hutton's Ready rendering):
+    // outer radius 20, ratio 3, birth [0.257,0.336], 2s-1 Euler stepping (dt=0.05),
+    // grayscale. Its survival band is shifted up to [0.430,0.614] from the paper's
+    // [0.365,0.549] to reach the balanced/gliding regime under this
+    // implementation's disc normalization instead of a filled state.
     const PRESETS = {
-      'Rafler gliders':    { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.05, mode: 1, colormap: 0, steps: 4, fill: 0.4 },
+      'Rafler gliders':    { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.430, d2: 0.614, alphaN: 0.028, alphaM: 0.147, dt: 0.05, mode: 1, colormap: 0, steps: 4, fill: 0.4 },
       'Soft gliders':      { ra: 12, ratio: 3, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.115, mode: 0, colormap: 1, steps: 1, fill: 0.5 },
       'Smooth blobs':      { ra: 14, ratio: 3, b1: 0.245, b2: 0.360, d1: 0.480, d2: 0.780, alphaN: 0.035, alphaM: 0.170, dt: 0.090, mode: 0, colormap: 1, steps: 1, fill: 0.5 },
       'Fine texture':      { ra: 8,  ratio: 3, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.130, mode: 0, colormap: 1, steps: 1, fill: 0.5 },
