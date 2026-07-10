@@ -398,20 +398,19 @@
       });
 
       // ---- Figure + expandable ----
-      // expandable() clamps this nominal size to the available column width, so
-      // no reactive `width` dependency is needed (which would reset the sim on resize).
+      // Wrap the canvas in a <figure> and hand that to expandable(), exactly like
+      // the other notebooks. expandable() owns sizing (it clamps its nominal size
+      // to the container's offsetWidth), so the content must fill it and we must
+      // not wrap expandable's output in another element.
+      const figure = html`<figure style="margin:0;">${canvas}</figure>`;
       const initialSize = 560;
-      const expandableEl = expandable(canvas, {
+      display(expandable(figure, {
         id: 'smooth-life',
         width: initialSize,
         height: initialSize,
         controls: '#sl-controls',
         onResize(el, w, h) { resizeCanvas(w, h); },
-      });
-      display(html`<figure style="margin:0;">
-        ${expandableEl}
-        <figcaption>SmoothLife. Draw to seed life; shift-drag to erase. Scroll to zoom, ⌥/Ctrl/⌘-drag (or two-finger) to pan, double-click to reset. Edit the birth and survival bands directly on the transition diagram in the controls.</figcaption>
-      </figure>`);
+      }));
 
       // ---- Visibility (pause when scrolled away) ----
       const io = new IntersectionObserver((entries) => { simState.visible = entries[0].isIntersecting; }, { threshold: 0.01 });
