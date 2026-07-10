@@ -65,10 +65,8 @@
       const sigmaAB = (x, a, b, al) => sigma1(x, a, al) * (1 - sigma1(x, b, al));
       const sigmaM = (x, y, m, al) => x * (1 - sigma1(m, 0.5, al)) + y * sigma1(m, 0.5, al);
 
-      const muted = 'var(--theme-foreground-muted, #666)';
-      const faint = 'var(--theme-foreground-faint, #999)';
-      const survOut = html`<span style="font-variant-numeric:tabular-nums; color:${faint};"></span>`;
-      const birthOut = html`<span style="font-variant-numeric:tabular-nums; color:${faint};"></span>`;
+      const survOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
+      const birthOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
 
       const values = () => ({ birth: birthSlider.value, survival: survivalSlider.value, alphaN: +anInput.value, alphaM: +amInput.value, blendMode: +blendInput.value });
 
@@ -98,20 +96,20 @@
       blendInput.addEventListener('change', () => { draw(); onInput(values()); });
       draw();
 
-      const row = `font-size:12px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; color:${muted};`;
-      const small = `font-size:11px; display:flex; align-items:center; gap:6px; color:${muted};`;
-      const element = html`<div style="width:100%; max-width:${maxWidth}px;">
+      const row = 'display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin:3px 0;';
+      const ctl = 'display:flex; align-items:center; gap:6px;';
+      const element = html`<div style="width:100%; max-width:${maxWidth}px; font:13px/1.5 var(--sans-serif, system-ui, sans-serif);">
         <div style="${row}"><span>Survival · full cell (m ≈ 1)</span>${survOut}</div>
         ${survivalSlider}
         <div style="padding:0 8.5px;">${cv}</div>
         ${birthSlider}
         <div style="${row}"><span>Birth · empty cell (m ≈ 0)</span>${birthOut}</div>
-        <div style="font-size:11px; color:${faint}; text-align:center; margin-top:2px;">neighborhood fill n:&nbsp; 0 → 1</div>
-        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:8px;">
-          <label style="${small}">αₙ ${anInput}</label>
-          <label style="${small}">αₘ ${amInput}</label>
+        <div style="text-align:center; margin:3px 0 8px;">neighborhood fill n: 0 → 1</div>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+          <label style="${ctl}">αₙ ${anInput}</label>
+          <label style="${ctl}">αₘ ${amInput}</label>
+          <label style="${ctl}">Blending ${blendInput}</label>
         </div>
-        <label style="${small} margin-top:6px;">Blending ${blendInput}</label>
       </div>`;
 
       function setValues(v) {
@@ -270,7 +268,7 @@
       fillInput.addEventListener('input', () => { sim.initialize({ fill: fillInput.value }); simState.dirty = true; });
 
       // ---- Buttons ----
-      const btnStyle = 'padding:4px 10px; cursor:pointer; font-size:12px;';
+      const btnStyle = 'padding:5px 12px; cursor:pointer; font:13px var(--sans-serif, system-ui, sans-serif);';
       const playBtn = html`<button style="${btnStyle}">Pause</button>`;
       playBtn.onclick = () => {
         simState.playing = !simState.playing;
