@@ -300,11 +300,12 @@
         a.click();
       };
 
-      // Action buttons on top, then the transition diagram, then the parameters.
+      // Preset at the very top, then action buttons, the transition diagram, and
+      // finally the parameters.
       controls.append(
-        html`<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">${playBtn}${restartBtn}${clearBtn}${downloadBtn}</div>`,
-        html`<div style="margin:8px 0 12px;">${diagram.element}</div>`,
         presetSelect,
+        html`<div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">${playBtn}${restartBtn}${clearBtn}${downloadBtn}</div>`,
+        html`<div style="margin:8px 0 12px;">${diagram.element}</div>`,
         raInput,
         ratioInput,
         dtInput,
