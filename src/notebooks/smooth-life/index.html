@@ -207,7 +207,11 @@
       }
 
       // ---- Controls ----
-      const controls = html`<div id="sl-controls"></div>`;
+      // Standard block margin (matching figure/p/table globally) so the controls
+      // sit below the figcaption with the same vertical rhythm as the rest of the
+      // page — this cell displays figure + controls + details together, so unlike
+      // the other notebooks they don't get inter-cell spacing for free.
+      const controls = html`<div id="sl-controls" style="margin:1rem 0 0;"></div>`;
 
       const presetSelect = Inputs.select(Object.keys(PRESETS), { label: 'Preset', value: DEFAULT_PRESET });
 
@@ -560,6 +564,18 @@
     ${tex.block`\mathcal{F}\!\left[\tfrac{1}{\pi R^2}\,\mathbb{1}_{|\mathbf{x}| \le R}\right](\mathbf{k}) = \frac{2\,J_1(|\mathbf{k}|R)}{|\mathbf{k}|R}`}
 
     where ${tex`J_1`} is a Bessel function of the first kind. Because this equals 1 at ${tex`\mathbf{k} = 0`}, multiplying the field's spectrum by it computes a true average, with no kernel textures to store. The two discs are packed into a single complex convolution: multiplying the spectrum ${tex`\hat f`} by ${tex`\hat G_{r_i} + i\,\hat G_{r_a}`} and taking one inverse FFT recovers the ${tex`r_i`}-disc average in the real part and the ${tex`r_a`}-disc average in the imaginary part, since both convolutions are real. Each step is then one forward FFT, one spectral multiply, one inverse FFT, and a pointwise transition pass. The FFT itself is a Cooley–Tukey compute shader run as row-FFT, transpose, column-FFT, transpose.
+  </script>
+
+  <script id="turing-kinship" type="text/markdown">
+    ## A Turing pattern in disguise
+
+    The kinship with the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/) runs deeper than a borrowed Fourier transform. The two notebooks are, at heart, the *same machine* — an activator–inhibitor system — seen through two different nonlinearities.
+
+    Recall Turing's recipe: watch a field through two circular lenses of different size, a narrow **activator** that reinforces a peak and a wider **inhibitor** that suppresses its surroundings, and drive the update by their *difference*. Short-range activation minus long-range inhibition is what spontaneously breaks symmetry into spots and stripes. That notebook computes exactly this — two disc (or Gaussian) convolutions per step, subtracted — using the very ${tex`2J_1(kr)/kr`} kernel derived above.
+
+    SmoothLife measures the same two scales. The inner-disc average ${tex`m`} is the short-range, self-reinforcing lens: a full cell whose interior stays full tends to survive. The outer annulus ${tex`n`} is the long-range, crowd-sensing lens: too much mass in the surround and the cell dies. The transition ${tex`s(n, m)`} then plays the role of the difference — it *turns a point on where the near field is full and the far field is not too crowded, and off otherwise*. The ingredients are identical; only the combining rule differs. Turing adds the two measurements linearly and squashes the sum with an ${tex`\arctan`}; SmoothLife feeds them through the windowed birth/survival function.
+
+    Where that window is gentle, the difference is slight. Linearize ${tex`s(n,m) - f`} about its operating point and it becomes precisely a short-range-activation / long-range-inhibition kernel — a Turing operator. Choose the **Smooth blobs** or **Fine texture** preset above and the field relaxes into the same labyrinth of stripes and spots the Turing notebook produces from the very same convolutions; at some parameters the two are visually indistinguishable. The extra repertoire that earns SmoothLife its name — gliders, oscillators, migrating blobs — only emerges once the transition window is sharp enough to make the rule *strongly* nonlinear, pushing the system past a plain Turing instability into a regime that computes. Seen this way, SmoothLife is a Turing pattern tuned to the edge of chaos.
   </script>
 
   <script id="references" type="text/markdown">
