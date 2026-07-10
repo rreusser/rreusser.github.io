@@ -470,13 +470,11 @@
   <script id="discrete-to-continuous" type="text/markdown">
     ## From counting neighbors to measuring density
 
-    In the original Game of Life, each cell looks at its eight neighbors, counts how many are alive, and applies two rules: a dead cell with exactly three live neighbors is *born*, and a live cell *survives* only with two or three live neighbors. Everything else dies.
-
-    SmoothLife replaces "count of eight neighbors" with two continuous averages taken over discs centered on each point. Let ${tex`f(\mathbf{x}) \in [0,1]`} be the state field. Define an **inner fill** ${tex`m`} — the average of ${tex`f`} over a small disc of radius ${tex`r_i`} — and an **outer fill** ${tex`n`} — the average over the surrounding annulus out to radius ${tex`r_a`}.
+    SmoothLife replaces Conway's "count of eight neighbors" with two continuous averages over discs centered on each point. With ${tex`f(\mathbf{x}) \in [0,1]`} the state field, define an **inner fill** ${tex`m`} — the average of ${tex`f`} over a small disc of radius ${tex`r_i`} — and an **outer fill** ${tex`n`} — the average over the surrounding annulus out to ${tex`r_a`}:
 
     ${tex.block`m = \frac{1}{|D_i|}\int_{D_i} f(\mathbf{x} + \mathbf{y})\, d\mathbf{y}, \qquad n = \frac{1}{|A|}\int_{A} f(\mathbf{x} + \mathbf{y})\, d\mathbf{y}`}
 
-    Here ${tex`m`} plays the role of "is *this* cell alive?" and ${tex`n`} plays the role of "how crowded is the neighborhood?" Rafler uses a radius ratio of ${tex`r_a / r_i = 3`}, matching the ratio of the Moore neighborhood's outer extent to a single cell.
+    Here ${tex`m`} is "is *this* cell alive?" and ${tex`n`} is "how crowded is the neighborhood?" Rafler uses a radius ratio ${tex`r_a / r_i = 3`}, matching the Moore neighborhood's outer extent relative to a single cell.
   </script>
 
   <script id="kernel-figure" type="module">
@@ -523,19 +521,9 @@
   <script id="transition-intro" type="text/markdown">
     ## The transition function
 
-    Given the two measurements ${tex`m`} and ${tex`n`}, a *transition function* ${tex`s(n, m)`} decides the target state. It generalizes Conway's birth/survival counts into two intervals with soft edges.
+    A *transition function* ${tex`s(n, m)`} turns the two measurements into a target state: a cell is *born* when it is empty (${tex`m \approx 0`}) and its neighborhood fill ${tex`n`} lands in a birth interval ${tex`[b_1, b_2]`}, and *survives* when it is full (${tex`m \approx 1`}) and ${tex`n`} lands in a survival interval ${tex`[d_1, d_2]`}. Both intervals have soft, logistic edges of width ${tex`\alpha_n`}, and the birth/survival crossover at ${tex`m = \tfrac12`} is softened by ${tex`\alpha_m`}. Rafler's paper gives the exact sigmoid algebra; the diagram below plots the resulting ${tex`s(n, m)`} — bright where a point turns on — and lets you drag the two bands directly.
 
-    The soft edge is a logistic step, ${tex`\sigma_\alpha(x, a) = \bigl(1 + e^{-4(x-a)/\alpha}\bigr)^{-1}`}, which rises smoothly from 0 to 1 near ${tex`x = a`} over a width set by ${tex`\alpha`}. From it we build a soft interval indicator that is 1 between ${tex`a`} and ${tex`b`}:
-
-    ${tex.block`\sigma_{[a,b]}(x) = \sigma_{\alpha_n}(x, a)\,\bigl(1 - \sigma_{\alpha_n}(x, b)\bigr)`}
-
-    A cell is "born" when it is empty (${tex`m \approx 0`}) and its neighborhood fill ${tex`n`} lands in the birth interval ${tex`[b_1, b_2]`}; it "survives" when it is full (${tex`m \approx 1`}) and ${tex`n`} lands in the survival interval ${tex`[d_1, d_2]`}. We evaluate both interval indicators on ${tex`n`} and then blend the two results as ${tex`m`} crosses ${tex`\tfrac12`}, with the crossover softened by ${tex`\alpha_m`}:
-
-    ${tex.block`s(n, m) = \bigl(1 - \sigma_{\alpha_m}(m, \tfrac12)\bigr)\,\sigma_{[b_1, b_2]}(n) + \sigma_{\alpha_m}(m, \tfrac12)\,\sigma_{[d_1, d_2]}(n)`}
-
-    There is a subtlety in the order of operations. Blending the two band *outputs* by ${tex`m`} — the form above — is what the reference implementations ([Ready](https://github.com/GollyGang/ready), Rafler) use. An earlier version of this page instead blended the band *thresholds* by ${tex`m`} and then evaluated a single band, ${tex`s(n,m) = \sigma_{[\,\ell_1(m),\, \ell_2(m)\,]}(n)`} with ${tex`\ell_k(m) = (1-\sigma_{\alpha_m})b_k + \sigma_{\alpha_m} d_k`}. The two agree exactly at ${tex`m = 0`} and ${tex`m = 1`} but differ at partial fill, and that difference is enough to shift which patterns survive — it is why the gliders needed retuning until the order was corrected. The **Blending** control on the diagram switches between the two so you can see the effect.
-
-    The heatmap below plots ${tex`s(n, m)`} across all combinations of neighborhood fill ${tex`n`} (horizontal) and cell fill ${tex`m`} (vertical). Bright regions are where a point turns on. Adjust the intervals and watch the "alive" region move.
+    One place we deviate from a naïve reading of the rule is worth a note. The birth and survival bands must be blended by ${tex`m`} at the level of their *outputs*, ${tex`s = (1-\sigma_{\alpha_m})\,\sigma_{[b_1,b_2]}(n) + \sigma_{\alpha_m}\,\sigma_{[d_1,d_2]}(n)`}, the way [Ready](https://github.com/GollyGang/ready) and Rafler do — not by interpolating the band *thresholds* and evaluating a single band, which an earlier version of this page did. The two agree only at ${tex`m = 0`} and ${tex`m = 1`}; at partial fill they differ enough to break the gliders. The **Blending** control switches between them.
   </script>
 
   <script id="transition-figure" type="module">
@@ -550,11 +538,11 @@
   <script id="time-stepping" type="text/markdown">
     ## Continuous time
 
-    A discrete update would simply set ${tex`f \leftarrow s(n, m)`} each tick, but that reintroduces the sudden jumps SmoothLife is trying to avoid. Instead the field relaxes toward the target over a small time step ${tex`\Delta t`}:
+    Rather than snapping to the target each tick, the field relaxes toward it over a small time step ${tex`\Delta t`}:
 
     ${tex.block`f \leftarrow f + \Delta t\,\bigl(s(n, m) - f\bigr)`}
 
-    Small ${tex`\Delta t`} yields smooth, fluid motion; larger values sharpen the dynamics until they approach the discrete rule. Rafler also proposes an *increment* form, ${tex`f \leftarrow f + \Delta t\,(2s - 1)`}, which pushes toward 0 or 1 rather than toward ${tex`s`} and tends to produce rippling, wave-like behavior. Both are available in the controls above as the time-stepping mode.
+    Small ${tex`\Delta t`} gives smooth, fluid motion; larger values approach the discrete rule. Rafler's *increment* variant, ${tex`f \leftarrow f + \Delta t\,(2s - 1)`}, pushes toward 0 or 1 instead and tends to ripple. Both are in the controls as the time-stepping mode.
   </script>
 
   <script id="implementation" type="text/markdown">
@@ -572,13 +560,9 @@
   <script id="turing-kinship" type="text/markdown">
     ## A Turing pattern in disguise
 
-    The kinship with the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/) runs deeper than a borrowed Fourier transform. The two notebooks are, at heart, the *same machine* — an activator–inhibitor system — seen through two different nonlinearities.
+    The kinship with the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/) runs deeper than a borrowed Fourier transform: the two are the same activator–inhibitor machine seen through different nonlinearities. Turing's recipe watches a field through a narrow **activator** and a wider **inhibitor** and drives the update by their *difference* — short-range activation minus long-range inhibition, which breaks symmetry into spots and stripes. SmoothLife measures the same two scales: the inner disc ${tex`m`} is the short-range, self-reinforcing lens and the outer annulus ${tex`n`} the long-range, crowd-sensing one, and its transition ${tex`s(n, m)`} plays the role of the difference — on where the near field is full and the far field is not too crowded. Only the combining rule differs: Turing sums the two and squashes with an ${tex`\arctan`}; SmoothLife feeds them through the windowed birth/survival function.
 
-    Recall Turing's recipe: watch a field through two circular lenses of different size, a narrow **activator** that reinforces a peak and a wider **inhibitor** that suppresses its surroundings, and drive the update by their *difference*. Short-range activation minus long-range inhibition is what spontaneously breaks symmetry into spots and stripes. That notebook computes exactly this — two disc (or Gaussian) convolutions per step, subtracted — using the very ${tex`2J_1(kr)/kr`} kernel derived above.
-
-    SmoothLife measures the same two scales. The inner-disc average ${tex`m`} is the short-range, self-reinforcing lens: a full cell whose interior stays full tends to survive. The outer annulus ${tex`n`} is the long-range, crowd-sensing lens: too much mass in the surround and the cell dies. The transition ${tex`s(n, m)`} then plays the role of the difference — it *turns a point on where the near field is full and the far field is not too crowded, and off otherwise*. The ingredients are identical; only the combining rule differs. Turing adds the two measurements linearly and squashes the sum with an ${tex`\arctan`}; SmoothLife feeds them through the windowed birth/survival function.
-
-    Where that window is gentle, the difference is slight. Linearize ${tex`s(n,m) - f`} about its operating point and it becomes precisely a short-range-activation / long-range-inhibition kernel — a Turing operator. Choose the **Smooth blobs** or **Fine texture** preset above and the field relaxes into the same labyrinth of stripes and spots the Turing notebook produces from the very same convolutions; at some parameters the two are visually indistinguishable. The extra repertoire that earns SmoothLife its name — gliders, oscillators, migrating blobs — only emerges once the transition window is sharp enough to make the rule *strongly* nonlinear, pushing the system past a plain Turing instability into a regime that computes. Seen this way, SmoothLife is a Turing pattern tuned to the edge of chaos.
+    Where that window is gentle the two nearly coincide — linearize ${tex`s(n,m) - f`} and it *is* a short-range-activation / long-range-inhibition operator. The **Turing spots** preset freezes into the same static spot-and-worm lattice the Turing notebook produces from the very same convolutions. The life-like repertoire — gliders, oscillators, migrating blobs — only appears once the window is sharp enough to make the rule strongly nonlinear, pushing the system past a plain Turing instability. Seen this way, SmoothLife is a Turing pattern tuned to the edge of chaos.
   </script>
 
   <script id="references" type="text/markdown">
