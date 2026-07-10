@@ -28,31 +28,36 @@
   <script id="transition-diagram-factory" type="module">
     // A direct-manipulation transition-function control: the survival band is a
     // slider along the top edge (m≈1), the birth band along the bottom edge
-    // (m≈0), with the s(n,m) heatmap between them. onInput fires {birth, survival,
-    // alphaN, alphaM} on any change. Used both as the simulation's threshold
-    // control and as the article's teaching figure.
+    // (m≈0), with the s(n,m) heatmap between them. Responsive (fills its
+    // container up to maxWidth). onInput fires {birth, survival, alphaN, alphaM,
+    // blendMode} on any change.
     function createTransitionDiagram({
-      width = 300, birth = [0.257, 0.336], survival = [0.365, 0.549],
-      alphaN = 0.028, alphaM = 0.147, onInput = () => {}
+      maxWidth = 420, birth = [0.257, 0.336], survival = [0.365, 0.549],
+      alphaN = 0.028, alphaM = 0.147, blendMode = 0, onInput = () => {}
     } = {}) {
-      const INSET = 8.5;
-      const cw = width - 2 * INSET;
       const res = 200;
-      const BIRTH = '#16a34a', SURV = '#2563eb';
+      const survivalSlider = rangeInput({ min: 0, max: 1, value: survival.slice(), step: 0.001, width: '100%' });
+      const birthSlider = rangeInput({ min: 0, max: 1, value: birth.slice(), step: 0.001, width: '100%' });
+      // Zero the slider's default margin so its track aligns with the padded canvas.
+      survivalSlider.style.margin = '0'; birthSlider.style.margin = '0';
 
-      const survivalSlider = rangeInput({ min: 0, max: 1, value: survival.slice(), step: 0.001, width: '100%', color: SURV });
-      const birthSlider = rangeInput({ min: 0, max: 1, value: birth.slice(), step: 0.001, width: '100%', color: BIRTH });
       const mkAlpha = (min, max, val) => {
         const i = document.createElement('input');
-        i.type = 'range'; i.min = min; i.max = max; i.step = 0.001; i.value = val; i.style.width = '160px';
+        i.type = 'range'; i.min = min; i.max = max; i.step = 0.001; i.value = val; i.style.width = '120px';
         return i;
       };
       const anInput = mkAlpha(0.005, 0.15, alphaN);
       const amInput = mkAlpha(0.02, 0.35, alphaM);
+      const blendInput = document.createElement('select');
+      for (const [label, val] of [['blend band outputs (reference)', '0'], ['blend band thresholds (original)', '1']]) {
+        const o = document.createElement('option'); o.textContent = label; o.value = val; blendInput.appendChild(o);
+      }
+      blendInput.value = String(blendMode);
+      blendInput.style.fontSize = '12px';
 
       const cv = document.createElement('canvas');
       cv.width = res; cv.height = res;
-      cv.style.cssText = `position:absolute; left:${INSET}px; top:0; width:${cw}px; height:${cw}px;`;
+      cv.style.cssText = 'width:100%; aspect-ratio:1; display:block;';
       const c2d = cv.getContext('2d');
       const img = c2d.createImageData(res, res);
 
@@ -60,18 +65,22 @@
       const sigmaAB = (x, a, b, al) => sigma1(x, a, al) * (1 - sigma1(x, b, al));
       const sigmaM = (x, y, m, al) => x * (1 - sigma1(m, 0.5, al)) + y * sigma1(m, 0.5, al);
 
-      const survOut = html`<b style="font-variant-numeric:tabular-nums; color:${SURV};"></b>`;
-      const birthOut = html`<b style="font-variant-numeric:tabular-nums; color:${BIRTH};"></b>`;
+      const muted = 'var(--theme-foreground-muted, #666)';
+      const faint = 'var(--theme-foreground-faint, #999)';
+      const survOut = html`<span style="font-variant-numeric:tabular-nums; color:${faint};"></span>`;
+      const birthOut = html`<span style="font-variant-numeric:tabular-nums; color:${faint};"></span>`;
 
-      const values = () => ({ birth: birthSlider.value, survival: survivalSlider.value, alphaN: +anInput.value, alphaM: +amInput.value });
+      const values = () => ({ birth: birthSlider.value, survival: survivalSlider.value, alphaN: +anInput.value, alphaM: +amInput.value, blendMode: +blendInput.value });
 
       function draw() {
-        const bv = birthSlider.value, dv = survivalSlider.value, anv = +anInput.value, amv = +amInput.value;
+        const bv = birthSlider.value, dv = survivalSlider.value, anv = +anInput.value, amv = +amInput.value, blend = +blendInput.value;
         for (let j = 0; j < res; j++) {
           const m = 1 - j / (res - 1);
           for (let i = 0; i < res; i++) {
             const n = i / (res - 1);
-            const s = sigmaM(sigmaAB(n, bv[0], bv[1], anv), sigmaAB(n, dv[0], dv[1], anv), m, amv);
+            const s = blend === 0
+              ? sigmaM(sigmaAB(n, bv[0], bv[1], anv), sigmaAB(n, dv[0], dv[1], anv), m, amv)
+              : sigmaAB(n, sigmaM(bv[0], dv[0], m, amv), sigmaM(bv[1], dv[1], m, amv), anv);
             const t = Math.max(0, Math.min(1, s));
             const idx = 4 * (j * res + i);
             img.data[idx] = 255 * Math.min(1, 0.1 + 1.4 * t);
@@ -81,31 +90,28 @@
           }
         }
         c2d.putImageData(img, 0, 0);
-        c2d.lineWidth = 1.5; c2d.globalAlpha = 0.6;
-        const vline = (x, color, y0, y1) => { c2d.strokeStyle = color; c2d.beginPath(); c2d.moveTo(x * res, y0 * res); c2d.lineTo(x * res, y1 * res); c2d.stroke(); };
-        vline(dv[0], SURV, 0, 0.5); vline(dv[1], SURV, 0, 0.5);
-        vline(bv[0], BIRTH, 0.5, 1); vline(bv[1], BIRTH, 0.5, 1);
-        c2d.globalAlpha = 1;
         survOut.textContent = `[${dv[0].toFixed(3)}, ${dv[1].toFixed(3)}]`;
         birthOut.textContent = `[${bv[0].toFixed(3)}, ${bv[1].toFixed(3)}]`;
       }
 
-      [survivalSlider, birthSlider, anInput, amInput].forEach((el) => el.addEventListener('input', () => { draw(); onInput(values()); }));
+      [survivalSlider, birthSlider, anInput, amInput, blendInput].forEach((el) => el.addEventListener('input', () => { draw(); onInput(values()); }));
+      blendInput.addEventListener('change', () => { draw(); onInput(values()); });
       draw();
 
-      const lbl = 'font-size:12px; display:flex; justify-content:space-between; align-items:baseline; gap:8px;';
-      const element = html`<div style="width:${width}px; max-width:100%;">
-        <div style="${lbl} color:${SURV};"><span>Survival · full cell (m ≈ 1)</span>${survOut}</div>
-        <div>${survivalSlider}</div>
-        <div style="position:relative; width:${width}px; max-width:100%; height:${cw}px;">${cv}</div>
-        <div>${birthSlider}</div>
-        <div style="${lbl} color:${BIRTH};"><span>Birth · empty cell (m ≈ 0)</span>${birthOut}</div>
-        <div style="font-size:11px; color:#888; text-align:center; margin-top:2px;">neighborhood fill n:&nbsp; 0 → 1</div>
-        <details style="margin-top:6px;">
-          <summary style="font-size:11px; cursor:pointer; color:#888;">edge sharpness (αₙ, αₘ)</summary>
-          <label style="font-size:11px; display:flex; align-items:center; gap:6px; margin-top:3px;">αₙ ${anInput}</label>
-          <label style="font-size:11px; display:flex; align-items:center; gap:6px; margin-top:3px;">αₘ ${amInput}</label>
-        </details>
+      const row = `font-size:12px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; color:${muted};`;
+      const small = `font-size:11px; display:flex; align-items:center; gap:6px; color:${muted};`;
+      const element = html`<div style="width:100%; max-width:${maxWidth}px;">
+        <div style="${row}"><span>Survival · full cell (m ≈ 1)</span>${survOut}</div>
+        ${survivalSlider}
+        <div style="padding:0 8.5px;">${cv}</div>
+        ${birthSlider}
+        <div style="${row}"><span>Birth · empty cell (m ≈ 0)</span>${birthOut}</div>
+        <div style="font-size:11px; color:${faint}; text-align:center; margin-top:2px;">neighborhood fill n:&nbsp; 0 → 1</div>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:8px;">
+          <label style="${small}">αₙ ${anInput}</label>
+          <label style="${small}">αₘ ${amInput}</label>
+        </div>
+        <label style="${small} margin-top:6px;">Blending ${blendInput}</label>
       </div>`;
 
       function setValues(v) {
@@ -113,6 +119,7 @@
         if (v.survival) survivalSlider.value = v.survival.slice();
         if (v.alphaN != null) anInput.value = v.alphaN;
         if (v.alphaM != null) amInput.value = v.alphaM;
+        if (v.blendMode != null) blendInput.value = String(v.blendMode);
         draw();
         onInput(values());
       }
@@ -146,26 +153,36 @@
     const DEFAULT_PRESET = 'Soft gliders';
   </script>
 
-  <script id="resolution-input" type="module">
-    const NInput = Inputs.select([256, 512, 1024], { value: 512, label: 'Grid size', format: (n) => `${n}×${n}` });
-    const N = view(NInput);
-  </script>
-
   <script id="main-simulation" type="module">
     if (!device) {
       display(html`<div style="color:#666; padding:12px; background:#f9f9f9; border-radius:6px; font-size:13px;">WebGPU unavailable — interactive simulation skipped.</div>`);
     } else {
-      // ---- Persistent UI/render state (survives nothing here; cell rebuilds only on N change) ----
+      // ---- Persistent UI/render state (this cell is built once; grid-size changes
+      // rebuild only the sim in place, leaving all the controls untouched) ----
       const simState = { playing: true, dirty: true, visible: true };
 
-      // Landing state = the iconic Rafler/Hutton gliders.
       const dp = PRESETS[DEFAULT_PRESET];
-      const sim = createSmoothLife(device, {
-        N, ra: dp.ra, innerRatio: dp.ratio, b1: dp.b1, b2: dp.b2, d1: dp.d1, d2: dp.d2,
+      const NInput = Inputs.select([256, 512, 1024], { value: 512, label: 'Grid size', format: (n) => `${n}×${n}` });
+
+      let sim = createSmoothLife(device, {
+        N: NInput.value, ra: dp.ra, innerRatio: dp.ratio, b1: dp.b1, b2: dp.b2, d1: dp.d1, d2: dp.d2,
         alphaN: dp.alphaN, alphaM: dp.alphaM, dt: dp.dt, mode: dp.mode, colormap: dp.colormap,
       });
       sim.initialize({ fill: dp.fill });
-      const renderer = sim.createRenderer(canvasFormat);
+      let renderer = sim.createRenderer(canvasFormat);
+
+      // Rebuild the sim at a new grid size, carrying all current parameters over.
+      NInput.addEventListener('input', () => {
+        const newN = NInput.value;
+        if (newN === sim.N) return;
+        const carried = { ...sim.params, N: newN };
+        sim.destroy();
+        sim = createSmoothLife(device, carried);
+        renderer = sim.createRenderer(canvasFormat);
+        sim.initialize({ fill: fillInput.value });
+        sim.params.aspect = canvas.width / Math.max(1, canvas.height);
+        simState.dirty = true;
+      });
 
       // ---- Canvas ----
       const canvas = document.createElement('canvas');
@@ -194,12 +211,12 @@
 
       const presetSelect = Inputs.select(Object.keys(PRESETS), { label: 'Preset', value: DEFAULT_PRESET });
 
-      // The transition diagram IS the birth/survival/α control.
+      // The transition diagram IS the birth/survival/α/blend control.
       const diagram = createTransitionDiagram({
-        width: 280,
-        birth: [dp.b1, dp.b2], survival: [dp.d1, dp.d2], alphaN: dp.alphaN, alphaM: dp.alphaM,
+        maxWidth: 560,
+        birth: [dp.b1, dp.b2], survival: [dp.d1, dp.d2], alphaN: dp.alphaN, alphaM: dp.alphaM, blendMode: 0,
         onInput: (v) => {
-          sim.setParams({ b1: v.birth[0], b2: v.birth[1], d1: v.survival[0], d2: v.survival[1], alphaN: v.alphaN, alphaM: v.alphaM });
+          sim.setParams({ b1: v.birth[0], b2: v.birth[1], d1: v.survival[0], d2: v.survival[1], alphaN: v.alphaN, alphaM: v.alphaM, blendMode: v.blendMode });
           simState.dirty = true;
         },
       });
@@ -209,9 +226,6 @@
       const dtInput = Inputs.range([0.02, 0.4], { label: 'Time step Δt', value: dp.dt, step: 0.005 });
       const modeInput = Inputs.select(new Map([['Relax to target', 0], ['Increment (2s−1)', 1], ['Discrete snap', 2]]), {
         label: 'Time stepping', value: dp.mode
-      });
-      const methodInput = Inputs.select(new Map([['FFT (fast)', 0], ['Direct (brute force)', 1]]), {
-        label: 'Convolution', value: 0
       });
       const stepsInput = Inputs.range([1, 8], { label: 'Steps / frame', value: dp.steps, step: 1 });
       const colormapInput = Inputs.select(new Map([['Grayscale', 0], ['Magma', 1], ['Viridis', 2], ['Ice', 3]]), {
@@ -226,7 +240,6 @@
           innerRatio: ratioInput.value,
           dt: dtInput.value,
           mode: modeInput.value,
-          method: methodInput.value,
           colormap: colormapInput.value,
         });
         simState.dirty = true;
@@ -239,7 +252,6 @@
         if (p.ratio !== undefined) ratioInput.value = p.ratio;
         dtInput.value = p.dt;
         modeInput.value = p.mode;
-        if (p.colormap !== undefined) colormapInput.value = p.colormap;
         if (p.steps !== undefined) stepsInput.value = p.steps;
         if (p.fill !== undefined) fillInput.value = p.fill;
         // Updates the diagram and pushes the band/α params via its onInput.
@@ -250,7 +262,7 @@
       }
 
       presetSelect.addEventListener('input', () => applyPreset(presetSelect.value));
-      for (const el of [raInput, ratioInput, dtInput, modeInput, methodInput, colormapInput]) {
+      for (const el of [raInput, ratioInput, dtInput, modeInput, colormapInput]) {
         el.addEventListener('input', syncParams);
       }
       // Changing the initial density reseeds the field so you can hunt for the
@@ -270,7 +282,7 @@
       const clearBtn = html`<button style="${btnStyle}">Clear</button>`;
       // radius*hardness (= N) exceeds the max torus distance from center (≈0.71N),
       // so the brush covers the whole field uniformly and erases it to zero.
-      clearBtn.onclick = () => { sim.paint(N / 2, N / 2, N * 2, -1, { hardness: 0.5 }); simState.dirty = true; };
+      clearBtn.onclick = () => { sim.paint(sim.N / 2, sim.N / 2, sim.N * 2, -1, { hardness: 0.5 }); simState.dirty = true; };
       const downloadBtn = html`<button style="${btnStyle}">Download PNG</button>`;
       downloadBtn.onclick = () => {
         // Force a fresh render, then read the canvas synchronously.
@@ -286,9 +298,15 @@
         html`<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">${playBtn}${restartBtn}${clearBtn}${downloadBtn}</div>`,
         presetSelect,
         html`<div style="margin:10px 0 6px;">${diagram.element}</div>`,
-        html`<details style="margin-bottom:6px;"><summary style="font-size:12px; cursor:pointer;">Simulation & display</summary>
-          <div style="padding-top:6px;">${raInput}${ratioInput}${dtInput}${modeInput}${methodInput}${stepsInput}${fillInput}${colormapInput}${brushInput}</div>
-        </details>`,
+        raInput,
+        ratioInput,
+        dtInput,
+        modeInput,
+        stepsInput,
+        fillInput,
+        NInput,
+        colormapInput,
+        brushInput,
       );
       display(controls);
 
@@ -304,8 +322,8 @@
       }
       function paintUV(u, v, erase) {
         const [fu, fv] = uvToField(u, v);
-        const radius = brushInput.value * N;
-        sim.paint(fu * N, fv * N, radius, erase ? -1 : 1, { hardness: 0.4 });
+        const radius = brushInput.value * sim.N;
+        sim.paint(fu * sim.N, fv * sim.N, radius, erase ? -1 : 1, { hardness: 0.4 });
         simState.dirty = true;
       }
       function zoomAtUV(u, v, factor) {
@@ -382,28 +400,20 @@
       });
 
       // ---- Figure + expandable ----
-      const figure = html`<figure style="margin:0;">${canvas}</figure>`;
       // expandable() clamps this nominal size to the available column width, so
       // no reactive `width` dependency is needed (which would reset the sim on resize).
       const initialSize = 560;
-      display(expandable(figure, {
+      const expandableEl = expandable(canvas, {
         id: 'smooth-life',
         width: initialSize,
         height: initialSize,
         controls: '#sl-controls',
         onResize(el, w, h) { resizeCanvas(w, h); },
-      }));
-
-      // ---- Diagnostic readout (field-value histogram + mean) ----
-      const statsText = html`<div style="font-family: var(--monospace, monospace); font-size: 11px; color: #888;">field: …</div>`;
-      const histBars = Array.from({ length: 20 }, () => {
-        const bar = document.createElement('div');
-        bar.style.cssText = 'flex:1; background: var(--theme-foreground-focus, #3b82f6); height:1px; align-self:flex-end; min-height:1px;';
-        return bar;
       });
-      const histEl = html`<div style="display:flex; align-items:flex-end; gap:1px; height:40px; width:200px; margin-top:4px; border-bottom:1px solid #ccc;">${histBars}</div>`;
-      const statsEl = html`<div style="margin-top:6px;">${statsText}<div style="font-size:10px; color:#aaa;">value histogram (0 → 1)</div>${histEl}</div>`;
-      display(statsEl);
+      display(html`<figure style="margin:0;">
+        ${expandableEl}
+        <figcaption>SmoothLife. Draw to seed life; shift-drag to erase. Scroll to zoom, ⌥/Ctrl/⌘-drag (or two-finger) to pan, double-click to reset. Edit the birth and survival bands directly on the transition diagram in the controls.</figcaption>
+      </figure>`);
 
       // ---- Visibility (pause when scrolled away) ----
       const io = new IntersectionObserver((entries) => { simState.visible = entries[0].isIntersecting; }, { threshold: 0.01 });
@@ -411,7 +421,6 @@
 
       // ---- Render loop ----
       let raf;
-      let frameCount = 0;
       function frame() {
         if (simState.visible) {
           if (simState.playing) {
@@ -422,14 +431,6 @@
             renderer.render(ctx.getCurrentTexture().createView());
             simState.dirty = false;
           }
-        }
-        if (++frameCount % 20 === 0) {
-          sim.readStats().then((s) => {
-            if (!s) return;
-            statsText.textContent = `field: mean ${s.mean.toFixed(3)}  min ${s.min.toFixed(3)}  max ${s.max.toFixed(3)}`;
-            const peak = Math.max(1e-6, ...s.hist);
-            s.hist.forEach((frac, i) => { histBars[i].style.height = `${Math.round((frac / peak) * 40)}px`; });
-          }).catch(() => {});
         }
         raf = requestAnimationFrame(frame);
       }
@@ -516,17 +517,17 @@
 
     ${tex.block`s(n, m) = \bigl(1 - \sigma_{\alpha_m}(m, \tfrac12)\bigr)\,\sigma_{[b_1, b_2]}(n) + \sigma_{\alpha_m}(m, \tfrac12)\,\sigma_{[d_1, d_2]}(n)`}
 
-    Blending the two band *outputs* is what the reference implementations do; it differs from blending the band *thresholds* everywhere except ${tex`m = 0`} and ${tex`m = 1`}.
+    There is a subtlety in the order of operations. Blending the two band *outputs* by ${tex`m`} — the form above — is what the reference implementations ([Ready](https://github.com/GollyGang/ready), Rafler) use. An earlier version of this page instead blended the band *thresholds* by ${tex`m`} and then evaluated a single band, ${tex`s(n,m) = \sigma_{[\,\ell_1(m),\, \ell_2(m)\,]}(n)`} with ${tex`\ell_k(m) = (1-\sigma_{\alpha_m})b_k + \sigma_{\alpha_m} d_k`}. The two agree exactly at ${tex`m = 0`} and ${tex`m = 1`} but differ at partial fill, and that difference is enough to shift which patterns survive — it is why the gliders needed retuning until the order was corrected. The **Blending** control on the diagram switches between the two so you can see the effect.
 
     The heatmap below plots ${tex`s(n, m)`} across all combinations of neighborhood fill ${tex`n`} (horizontal) and cell fill ${tex`m`} (vertical). Bright regions are where a point turns on. Adjust the intervals and watch the "alive" region move.
   </script>
 
   <script id="transition-figure" type="module">
-    const tfWidth = Math.min(width, 400);
-    const tfDiagram = createTransitionDiagram({ width: tfWidth });
+    const tfWidth = Math.min(width, 420);
+    const tfDiagram = createTransitionDiagram({ maxWidth: tfWidth });
     display(html`<figure style="max-width:${tfWidth}px;">
       ${tfDiagram.element}
-      <figcaption>Drag the <b style="color:#16a34a">birth band</b> along the bottom and the <b style="color:#2563eb">survival band</b> along the top to reshape the transition function ${tex`s(n, m)`} directly. Bright = turns on; the heatmap spans neighborhood fill ${tex`n`} horizontally and cell fill ${tex`m`} vertically. This is the same control used in the simulation above.</figcaption>
+      <figcaption>Drag the birth band along the bottom and the survival band along the top to reshape the transition function ${tex`s(n, m)`} directly. Bright = turns on; the heatmap spans neighborhood fill ${tex`n`} horizontally and cell fill ${tex`m`} vertically. This is the same control used in the simulation above.</figcaption>
     </figure>`);
   </script>
 
