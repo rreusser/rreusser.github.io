@@ -330,6 +330,10 @@ struct RenderParams {
   N: u32,
   colormap: u32,
   gamma: f32,
+  aspect: f32,   // canvas width / height
+  cx: f32,       // view center in field-normalized coords
+  cy: f32,
+  zoom: f32,     // 1 = one field copy fits the shorter canvas dimension
   pad: f32,
 };
 @group(0) @binding(0) var<storage, read> field: array<vec2<f32>>;
@@ -392,7 +396,13 @@ fn viridis(t: f32) -> vec3<f32> {
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4<f32> {
   let N = i32(P.N);
-  var v = clamp(sampleBilinear(in.uv, N), 0.0, 1.0);
+  // Map screen uv to field coords, keeping field cells square regardless of the
+  // canvas aspect ratio. The periodic field tiles into any leftover space.
+  let fuv = vec2<f32>(
+    P.cx + (in.uv.x - 0.5) * (P.aspect / P.zoom),
+    P.cy + (in.uv.y - 0.5) / P.zoom
+  );
+  var v = clamp(sampleBilinear(fuv, N), 0.0, 1.0);
   v = pow(v, P.gamma);
   var col: vec3<f32>;
   if (P.colormap == 0u) {
@@ -427,6 +437,11 @@ export function createSmoothLife(device, options = {}) {
     fill: options.fill ?? 0.5,
     colormap: options.colormap ?? 1,
     gamma: options.gamma ?? 1.0,
+    // View transform (for aspect-correct display + zoom/pan).
+    aspect: options.aspect ?? 1.0,
+    cx: options.cx ?? 0.5,
+    cy: options.cy ?? 0.5,
+    zoom: options.zoom ?? 1.0,
   };
 
   // Complex (vec2<f32>) buffers, N×N.
@@ -472,7 +487,7 @@ export function createSmoothLife(device, options = {}) {
   const updateBuffer = device.createBuffer({ label: 'sl-update-params', size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const initBuffer = device.createBuffer({ label: 'sl-init-params', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const paintBuffer = device.createBuffer({ label: 'sl-paint-params', size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const renderBuffer = device.createBuffer({ label: 'sl-render-params', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const renderBuffer = device.createBuffer({ label: 'sl-render-params', size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
   // --- Pipelines ---
   const convPipeline = device.createComputePipeline({
@@ -566,12 +581,16 @@ export function createSmoothLife(device, options = {}) {
     device.queue.writeBuffer(updateBuffer, 0, buf);
   }
   function writeRenderUniforms() {
-    const buf = new ArrayBuffer(16);
+    const buf = new ArrayBuffer(32);
     const u = new Uint32Array(buf);
     const f = new Float32Array(buf);
     u[0] = N;
     u[1] = params.colormap >>> 0;
     f[2] = params.gamma;
+    f[3] = params.aspect;
+    f[4] = params.cx;
+    f[5] = params.cy;
+    f[6] = params.zoom;
     device.queue.writeBuffer(renderBuffer, 0, buf);
   }
 

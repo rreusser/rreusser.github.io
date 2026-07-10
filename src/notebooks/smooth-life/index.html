@@ -77,6 +77,7 @@
           canvas.width = pw;
           canvas.height = ph;
         }
+        sim.params.aspect = pw / ph;
         simState.dirty = true;
       }
 
@@ -174,29 +175,94 @@
       );
       display(controls);
 
-      // ---- Painting ----
-      function eventToCell(e) {
+      // ---- Interaction: paint, pan, zoom ----
+      function eventUV(clientX, clientY) {
         const rect = canvas.getBoundingClientRect();
-        const src = e.touches ? e.touches[0] : e;
-        const u = (src.clientX - rect.left) / rect.width;
-        const v = (src.clientY - rect.top) / rect.height;
-        return [u * N, v * N];
+        return [(clientX - rect.left) / rect.width, (clientY - rect.top) / rect.height];
       }
-      let painting = false;
-      function doPaint(e, erase) {
-        const [cx, cy] = eventToCell(e);
+      // Inverse of the shader's screen->field mapping.
+      function uvToField(u, v) {
+        const { aspect, zoom, cx, cy } = sim.params;
+        return [cx + (u - 0.5) * (aspect / zoom), cy + (v - 0.5) / zoom];
+      }
+      function paintUV(u, v, erase) {
+        const [fu, fv] = uvToField(u, v);
         const radius = brushInput.value * N;
-        sim.paint(cx, cy, radius, erase ? -1 : 1, { hardness: 0.4 });
+        sim.paint(fu * N, fv * N, radius, erase ? -1 : 1, { hardness: 0.4 });
         simState.dirty = true;
       }
-      const onMouseUp = () => { painting = false; };
-      canvas.addEventListener('mousedown', (e) => { painting = true; doPaint(e, e.button === 2 || e.shiftKey); e.preventDefault(); });
-      canvas.addEventListener('mousemove', (e) => { if (painting) doPaint(e, (e.buttons & 2) !== 0 || e.shiftKey); });
+      function zoomAtUV(u, v, factor) {
+        const { aspect } = sim.params;
+        const z1 = Math.max(0.25, Math.min(64, sim.params.zoom * factor));
+        const [fu, fv] = uvToField(u, v);
+        sim.params.cx = fu - (u - 0.5) * (aspect / z1);
+        sim.params.cy = fv - (v - 0.5) / z1;
+        sim.params.zoom = z1;
+        simState.dirty = true;
+      }
+      function panByUV(du, dv) {
+        const { aspect, zoom } = sim.params;
+        sim.params.cx -= du * (aspect / zoom);
+        sim.params.cy -= dv / zoom;
+        simState.dirty = true;
+      }
+      function resetView() { sim.params.cx = 0.5; sim.params.cy = 0.5; sim.params.zoom = 1; simState.dirty = true; }
+
+      // Mouse: plain drag paints, shift-drag erases, ⌥/⌃/⌘ or middle-drag pans,
+      // wheel zooms about the cursor, double-click resets the view.
+      const isPan = (e) => e.button === 1 || e.altKey || e.ctrlKey || e.metaKey;
+      let mode = null, lastUV = null;
+      canvas.addEventListener('mousedown', (e) => {
+        const [u, v] = eventUV(e.clientX, e.clientY);
+        if (isPan(e)) { mode = 'pan'; lastUV = [u, v]; canvas.style.cursor = 'grabbing'; }
+        else { mode = e.shiftKey ? 'erase' : 'paint'; paintUV(u, v, mode === 'erase'); }
+        e.preventDefault();
+      });
+      canvas.addEventListener('mousemove', (e) => {
+        if (!mode) return;
+        const [u, v] = eventUV(e.clientX, e.clientY);
+        if (mode === 'pan') { panByUV(u - lastUV[0], v - lastUV[1]); lastUV = [u, v]; }
+        else paintUV(u, v, mode === 'erase');
+      });
+      const onMouseUp = () => { mode = null; canvas.style.cursor = 'crosshair'; };
       window.addEventListener('mouseup', onMouseUp);
       canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-      canvas.addEventListener('touchstart', (e) => { painting = true; doPaint(e, false); e.preventDefault(); }, { passive: false });
-      canvas.addEventListener('touchmove', (e) => { if (painting) { doPaint(e, false); e.preventDefault(); } }, { passive: false });
-      canvas.addEventListener('touchend', () => { painting = false; });
+      canvas.addEventListener('dblclick', (e) => { resetView(); e.preventDefault(); });
+      canvas.addEventListener('wheel', (e) => {
+        const [u, v] = eventUV(e.clientX, e.clientY);
+        zoomAtUV(u, v, Math.exp(-e.deltaY * 0.0015));
+        e.preventDefault();
+      }, { passive: false });
+
+      // Touch: one finger paints, two fingers pan and pinch-zoom.
+      let touchMode = null, touchLast = null;
+      function twoFingerInfo(e) {
+        const [a, b] = [e.touches[0], e.touches[1]];
+        const uv = eventUV((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        return { uv, dist };
+      }
+      canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) { touchMode = 'paint'; const [u, v] = eventUV(e.touches[0].clientX, e.touches[0].clientY); paintUV(u, v, false); }
+        else if (e.touches.length >= 2) { touchMode = 'pan'; touchLast = twoFingerInfo(e); }
+        e.preventDefault();
+      }, { passive: false });
+      canvas.addEventListener('touchmove', (e) => {
+        if (touchMode === 'paint' && e.touches.length === 1) {
+          const [u, v] = eventUV(e.touches[0].clientX, e.touches[0].clientY);
+          paintUV(u, v, false);
+        } else if (e.touches.length >= 2) {
+          const info = twoFingerInfo(e);
+          panByUV(info.uv[0] - touchLast.uv[0], info.uv[1] - touchLast.uv[1]);
+          if (touchLast.dist > 0) zoomAtUV(info.uv[0], info.uv[1], info.dist / touchLast.dist);
+          touchLast = info;
+        }
+        e.preventDefault();
+      }, { passive: false });
+      canvas.addEventListener('touchend', (e) => {
+        if (e.touches.length === 0) touchMode = null;
+        else if (e.touches.length === 1) { touchMode = 'paint'; }
+      });
 
       // ---- Figure + expandable ----
       const figure = html`<figure style="margin:0;">${canvas}</figure>`;
@@ -242,7 +308,7 @@
   </script>
 
   <script id="usage" type="text/markdown">
-    **Draw** with the mouse (or finger) to seed new life; **shift-drag** or right-drag to erase. The field wraps around at the edges, so structures that drift off one side reappear on the other. Try the presets, then push the birth and survival intervals around and watch the population reorganize.
+    **Draw** with the mouse (or one finger) to seed new life; **shift-drag** to erase. **Scroll** to zoom, **⌥/Ctrl/⌘-drag** (or two-finger drag) to pan, and **double-click** to reset the view. The field wraps around at the edges, so structures that drift off one side reappear on the other, and zooming out tiles these copies. Try the presets, then push the birth and survival intervals around and watch the population reorganize.
   </script>
 
   <script id="discrete-to-continuous" type="text/markdown">
