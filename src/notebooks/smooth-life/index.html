@@ -224,6 +224,7 @@
         onInput: (v) => {
           sim.setParams({ b1: v.birth[0], b2: v.birth[1], d1: v.survival[0], d2: v.survival[1], alphaN: v.alphaN, alphaM: v.alphaM, blendMode: v.blendMode });
           simState.dirty = true;
+          maybeRestart();
         },
       });
 
@@ -239,7 +240,15 @@
         label: 'Colormap', value: dp.colormap
       });
       const fillInput = Inputs.range([0.05, 0.9], { label: 'Initial density', value: dp.fill, step: 0.01 });
+      const autoRestartInput = Inputs.toggle({ label: 'Auto-restart on change', value: false });
       const brushInput = Inputs.range([0.01, 0.25], { label: 'Brush size', value: 0.06, step: 0.005 });
+
+      // When enabled, reseed the field on any rule-shaping change so you can
+      // sweep a parameter through a regime that quickly dies out or fills in
+      // without hitting Restart each time.
+      function maybeRestart() {
+        if (autoRestartInput.value) { sim.initialize({ fill: fillInput.value }); simState.dirty = true; }
+      }
 
       function syncParams() {
         sim.setParams({
@@ -272,6 +281,12 @@
       presetSelect.addEventListener('input', () => applyPreset(presetSelect.value));
       for (const el of [raInput, ratioInput, kernelInput, dtInput, modeInput, colormapInput]) {
         el.addEventListener('input', syncParams);
+      }
+      // Reseed on rule-shaping changes when auto-restart is on (colormap excluded
+      // — it's display-only). syncParams runs first so the new radius sets the
+      // seed scale.
+      for (const el of [raInput, ratioInput, kernelInput, dtInput, modeInput]) {
+        el.addEventListener('input', maybeRestart);
       }
       // Changing the initial density reseeds the field so you can hunt for the
       // glider regime (low density) vs. the filled/holes phase (high density).
@@ -315,6 +330,7 @@
         modeInput,
         stepsInput,
         fillInput,
+        autoRestartInput,
         NInput,
         colormapInput,
         brushInput,
