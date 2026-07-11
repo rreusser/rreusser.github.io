@@ -538,51 +538,12 @@
     Here ${tex`m`} is "is *this* cell alive?" and ${tex`n`} is "how crowded is the neighborhood?" Rafler uses a radius ratio ${tex`r_a / r_i = 3`}, matching the Moore neighborhood's outer extent relative to a single cell.
   </script>
 
-  <script id="kernel-figure" type="module">
-    // Illustrative figure of the two sampling regions, with an adjustable ratio.
-    const size = Math.min(width, 380);
-    const cx = size / 2, cy = size / 2;
-    const ra = size * 0.34;
-
-    const ratioInput = Inputs.range([2, 5], { label: 'Radius ratio rₐ / rᵢ', value: 3, step: 0.1 });
-
-    const svg = d3.create('svg').attr('width', size).attr('height', size).attr('viewBox', `0 0 ${size} ${size}`).style('max-width', '100%').style('height', 'auto');
-    // Annulus (neighborhood) = big disc with the inner disc knocked out.
-    const annulus = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('r', ra).attr('fill', '#dc2626').attr('fill-opacity', 0.18);
-    const knockout = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('fill', 'var(--theme-background, #fff)');
-    const innerFill = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('fill', '#2563eb').attr('fill-opacity', 0.3);
-    const outerStroke = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('r', ra).attr('fill', 'none').attr('stroke', '#dc2626').attr('stroke-width', 1.5);
-    const innerStroke = svg.append('circle').attr('cx', cx).attr('cy', cy).attr('fill', 'none').attr('stroke', '#2563eb').attr('stroke-width', 1.5);
-    const riLine = svg.append('line').attr('x1', cx).attr('y1', cy).attr('stroke', '#2563eb').attr('stroke-width', 1.5);
-    svg.append('line').attr('x1', cx).attr('y1', cy).attr('x2', cx + ra * Math.cos(-0.6)).attr('y2', cy + ra * Math.sin(-0.6)).attr('stroke', '#dc2626').attr('stroke-width', 1.5);
-    const riLabel = svg.append('text').attr('y', cy - 6).attr('text-anchor', 'middle').attr('font-size', 13).attr('fill', '#2563eb').text('rᵢ');
-    svg.append('text').attr('x', cx + ra * 0.55 * Math.cos(-0.6)).attr('y', cy + ra * 0.55 * Math.sin(-0.6) - 6).attr('font-size', 13).attr('fill', '#dc2626').text('rₐ');
-    const mLabel = svg.append('text').attr('x', cx).attr('text-anchor', 'middle').attr('font-size', 12).attr('fill', '#1e40af').text('m');
-    svg.append('text').attr('x', cx).attr('y', cy - ra + 16).attr('text-anchor', 'middle').attr('font-size', 12).attr('fill', '#b91c1c').text('n');
-
-    function drawKernel() {
-      const ri = ra / ratioInput.value;
-      knockout.attr('r', ri);
-      innerFill.attr('r', ri);
-      innerStroke.attr('r', ri);
-      riLine.attr('x2', cx + ri).attr('y2', cy);
-      riLabel.attr('x', cx + ri / 2);
-      mLabel.attr('y', cy + ri * 0.5 + 4);
-    }
-    ratioInput.addEventListener('input', drawKernel);
-    drawKernel();
-
-    display(ratioInput);
-    display(html`<figure style="max-width:${size}px;">
-      ${svg.node()}
-      <figcaption>The inner disc (blue) measures the cell's own fill ${tex`m`}; the surrounding annulus (red) measures the neighborhood fill ${tex`n`}. Rafler's default ratio is ${tex`r_a / r_i = 3`}.</figcaption>
-    </figure>`);
-  </script>
-
   <script id="transition-intro" type="text/markdown">
     ## The transition function
 
-    A *transition function* ${tex`s(n, m)`} turns the two measurements into a target state: a cell is *born* when it is empty (${tex`m \approx 0`}) and its neighborhood fill ${tex`n`} lands in a birth interval ${tex`[b_1, b_2]`}, and *survives* when it is full (${tex`m \approx 1`}) and ${tex`n`} lands in a survival interval ${tex`[d_1, d_2]`}. Both intervals have soft, logistic edges of width ${tex`\alpha_n`}, and the birth/survival crossover at ${tex`m = \tfrac12`} is softened by ${tex`\alpha_m`}. Rafler's paper gives the exact sigmoid algebra; the diagram below plots the resulting ${tex`s(n, m)`} — bright where a point turns on — and lets you drag the two bands directly.
+    A *transition function* ${tex`s(n, m)`} turns the two measurements into a target state: a cell is *born* when it is empty (${tex`m \approx 0`}) and its neighborhood fill ${tex`n`} lands in a birth interval ${tex`[b_1, b_2]`}, and *survives* when it is full (${tex`m \approx 1`}) and ${tex`n`} lands in a survival interval ${tex`[d_1, d_2]`}. Both intervals have soft, logistic edges; Rafler's paper gives the exact sigmoid algebra.
+
+    The diagram below *is* that rule, drawn as a map over every combination of neighborhood fill ${tex`n`} (horizontal) and cell fill ${tex`m`} (vertical), bright where ${tex`s \to 1`}. Every cell in the simulation reads off its own ${tex`(n, m)`} coordinate and relaxes toward the brightness it finds there. The birth band lives along the bottom edge (empty cells) and the survival band along the top (full cells) — drag either to reshape the rule the simulation runs.
 
     One place we deviate from a naïve reading of the rule is worth a note. The birth and survival bands must be blended by ${tex`m`} at the level of their *outputs*, ${tex`s = (1-\sigma_{\alpha_m})\,\sigma_{[b_1,b_2]}(n) + \sigma_{\alpha_m}\,\sigma_{[d_1,d_2]}(n)`}, the way [Ready](https://github.com/GollyGang/ready) and Rafler do — not by interpolating the band *thresholds* and evaluating a single band, which an earlier version of this page did. The two agree only at ${tex`m = 0`} and ${tex`m = 1`}; at partial fill they differ enough to break the gliders. The **Blending** control switches between them.
   </script>
@@ -592,7 +553,7 @@
     const tfDiagram = createTransitionDiagram({ maxWidth: tfWidth });
     display(html`<figure style="max-width:${tfWidth}px;">
       ${tfDiagram.element}
-      <figcaption>Drag the birth band along the bottom and the survival band along the top to reshape the transition function ${tex`s(n, m)`} directly. Bright = turns on; the heatmap spans neighborhood fill ${tex`n`} horizontally and cell fill ${tex`m`} vertically. This is the same control used in the simulation above.</figcaption>
+      <figcaption>The transition map ${tex`s(n, m)`} — the same control used in the simulation above. Drag either band to reshape the rule.</figcaption>
     </figure>`);
   </script>
 
