@@ -138,16 +138,16 @@
   </script>
 
   <script id="presets" type="module">
-    // Named parameter sets. "Rafler gliders" follows the SmoothLifeL parameters
-    // from Stephan Rafler's paper (popularized by Tim Hutton's Ready rendering):
-    // outer radius 20, ratio 3, birth [0.257,0.336], 2s-1 Euler stepping (dt=0.05),
-    // grayscale, survival [0.365,0.549].
+    // Named parameter sets. "SmoothLifeL" is Rafler's glider ruleset from the 2011
+    // paper (implemented in Tim Hutton's Ready and his well-known SmoothLife video):
+    // outer radius 20, ratio 3, birth [0.257,0.336], survival [0.365,0.549],
+    // 2s-1 Euler stepping (dt=0.05).
     // blendMode 0 = blend band outputs (Ready/Rafler reference); 1 = blend band
     // thresholds (the original sketch's convention). The soft-blob family keeps
     // blendMode 1 (tuned under the original convention).
     const PRESETS = {
-      'Rafler gliders':    { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.05, mode: 1, blendMode: 0, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
-      'Rafler (relax)':    { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.10, mode: 0, blendMode: 0, kernel: 0, colormap: 3, steps: 2, fill: 0.4 },
+      'SmoothLifeL':         { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.05, mode: 1, blendMode: 0, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
+      'SmoothLifeL (relax)': { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.10, mode: 0, blendMode: 0, kernel: 0, colormap: 3, steps: 2, fill: 0.4 },
       'Soft gliders':      { ra: 12, ratio: 3, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.115, mode: 0, blendMode: 1, kernel: 0, colormap: 1, steps: 1, fill: 0.5 },
       'Smooth blobs':      { ra: 14, ratio: 3, b1: 0.245, b2: 0.360, d1: 0.480, d2: 0.780, alphaN: 0.150, alphaM: 0.350, dt: 0.090, mode: 0, blendMode: 1, kernel: 0, colormap: 1, steps: 1, fill: 0.5 },
       // A sharp-n / soft-m rule that freezes into a static bimodal spot-and-worm
@@ -165,7 +165,7 @@
       // A filamentary web that keeps rearranging and never quite settles.
       'Living web':        { ra: 19.5, ratio: 3, b1: 0.266, b2: 0.337, d1: 0.377, d2: 0.521, alphaN: 0.072, alphaM: 0.080, dt: 0.13, mode: 0, blendMode: 1, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
     };
-    const DEFAULT_PRESET = 'Rafler gliders';
+    const DEFAULT_PRESET = 'SmoothLifeL';
   </script>
 
   <script id="main-simulation" type="module">
@@ -522,7 +522,7 @@
   </script>
 
   <script id="preset-note" type="text/markdown">
-    Drag the birth and survival bands on the transition diagram to reshape the rule, and try the presets. The **Rafler gliders** preset carries the canonical SmoothLifeL parameters from the well-known SmoothLife video (outer radius 20, birth ${tex`[0.257, 0.336]`}, survival ${tex`[0.365, 0.549]`}, ${tex`2s-1`} time stepping). It lives in a fairly narrow regime — if it fills in or dies out, nudge the initial density. The field wraps at the edges, so structures that drift off one side reappear on the other.
+    Drag the birth and survival bands on the transition diagram to reshape the rule, and try the presets. The **SmoothLifeL** preset is Rafler's glider ruleset from the [2011 paper](https://arxiv.org/abs/1111.1567) — the one Tim Hutton rendered in the well-known SmoothLife video (outer radius 20, birth ${tex`[0.257, 0.336]`}, survival ${tex`[0.365, 0.549]`}, ${tex`2s-1`} time stepping). It lives in a fairly narrow regime — if it fills in or dies out, nudge the initial density. The field wraps at the edges, so structures that drift off one side reappear on the other.
   </script>
 
   <script id="discrete-to-continuous" type="text/markdown">
