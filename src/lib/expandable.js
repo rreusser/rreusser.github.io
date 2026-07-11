@@ -29,6 +29,7 @@
  * @param {boolean} [options.wide=false] - Bleed figure beyond article column width
  * @param {number} [options.maxWidth=1200] - Max width for wide layout
  * @param {number} [options.aspectRatio] - Override aspect ratio for wide layout
+ * @param {number} [options.minHeight] - Floor on the collapsed height, so an aspect-ratio figure doesn't get too short on narrow (mobile) viewports
  * @param {Array} [options.buttons] - Extra buttons: { icon, title, onClick }
  * @param {string} [options.id] - Hash fragment identifier (e.g. 'my-figure' → #my-figure). Auto-generated as fig-1, fig-2, etc. if omitted.
  * @returns {HTMLElement} The expandable container element
@@ -199,6 +200,7 @@ export function expandable(content, {
   wide = false,
   maxWidth = 1200,
   aspectRatio,
+  minHeight,
   buttons = [],
   id
 }) {
@@ -272,6 +274,8 @@ export function expandable(content, {
     // (fixed height regardless of figure width — appropriate for wide cinematic figures).
     // For normal layout: scale height proportionally with width.
     h = aspectRatio ? Math.round(w / aspectRatio) : (wide ? height : Math.round(height * w / width));
+    // Keep an aspect-ratio figure from getting too short on narrow viewports.
+    if (minHeight) h = Math.max(h, minHeight);
 
     contentWrapper.style.width = `${w}px`;
     contentWrapper.style.height = `${h}px`;
