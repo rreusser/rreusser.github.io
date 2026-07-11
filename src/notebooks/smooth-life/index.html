@@ -177,7 +177,9 @@
       const simState = { playing: true, dirty: true, visible: true };
 
       const dp = PRESETS[DEFAULT_PRESET];
-      const NInput = Inputs.select([256, 512, 1024], { value: 1024, label: 'Grid size', format: (n) => `${n}×${n}` });
+      // Default to a lighter grid on mobile, where GPU/memory budgets are tighter.
+      const isMobile = window.innerWidth < 640;
+      const NInput = Inputs.select([256, 512, 1024], { value: isMobile ? 512 : 1024, label: 'Grid size', format: (n) => `${n}×${n}` });
 
       let sim = createSmoothLife(device, {
         N: NInput.value, ra: dp.ra, innerRatio: dp.ratio, b1: dp.b1, b2: dp.b2, d1: dp.d1, d2: dp.d2,
