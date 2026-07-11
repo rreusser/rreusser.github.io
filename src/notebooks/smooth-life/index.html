@@ -308,6 +308,29 @@
       };
       const restartBtn = html`<button style="${btnStyle}">Restart</button>`;
       restartBtn.onclick = () => { sim.initialize({ fill: fillInput.value }); simState.dirty = true; };
+      // Draw a fresh rule from the life-like part of parameter space (biased ranges
+      // rather than uniform, so a random draw lands on something interesting more
+      // often than not), push it through the controls + diagram, and reseed.
+      const randomizeBtn = html`<button style="${btnStyle}">Randomize</button>`;
+      randomizeBtn.onclick = () => {
+        const rnd = (a, b) => a + Math.random() * (b - a);
+        const snap = (x, s) => Math.round(x / s) * s;
+        raInput.value = snap(rnd(6, 22), 0.5);
+        ratioInput.value = snap(rnd(2, 5), 0.1);
+        dtInput.value = snap(rnd(0.03, 0.3), 0.005);
+        modeInput.value = Math.random() < 0.5 ? 0 : 1;
+        const b1 = rnd(0.10, 0.40), d1 = rnd(0.20, 0.60);
+        diagram.setValues({
+          birth: [b1, Math.min(b1 + rnd(0.03, 0.25), 0.95)],
+          survival: [d1, Math.min(d1 + rnd(0.05, 0.30), 0.98)],
+          alphaN: rnd(0.005, 0.08),
+          alphaM: rnd(0.05, 0.30),
+          blendMode: Math.random() < 0.5 ? 0 : 1,
+        });
+        syncParams();
+        sim.initialize({ fill: fillInput.value });
+        simState.dirty = true;
+      };
       const clearBtn = html`<button style="${btnStyle}">Clear</button>`;
       // radius*hardness (= N) exceeds the max torus distance from center (≈0.71N),
       // so the brush covers the whole field uniformly and erases it to zero.
@@ -327,7 +350,7 @@
       // finally the parameters.
       controls.append(
         presetSelect,
-        html`<div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">${playBtn}${restartBtn}${clearBtn}${downloadBtn}</div>`,
+        html`<div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">${playBtn}${restartBtn}${randomizeBtn}${clearBtn}${downloadBtn}</div>`,
         html`<div style="margin:8px 0 12px;">${diagram.element}</div>`,
         raInput,
         ratioInput,
