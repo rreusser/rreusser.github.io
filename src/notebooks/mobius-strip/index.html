@@ -368,21 +368,55 @@
   </script>
 
   <script id="theory-bending" type="text/markdown">
-    Once the strip is at rest in its equibrium shape, consider what happens when it is nudged. Expanding the
-    energy to second order in a small displacement ${tex`\mathbf{u}`} away from the
+    Just for fun, I decided to compute the vibrational bending modes as well. Nudge the strip away
+    from its resting shape and Newton's law governs what happens next, in terms of two matrices: the
+    stiffness ${tex`K = \nabla^2 E`}, the curvature of the energy at the minimum, and a mass matrix
+    ${tex`M`} carrying the inertia of the moving vertices. Looking for motions in which every vertex
+    oscillates in step at a single frequency turns that into a generalized eigenvalue problem.
+
+    <details style="margin:0.5rem 0 1.75rem;border:1px solid rgba(127,127,127,0.28);border-radius:8px;padding:0.5rem 0.9rem 0.9rem">
+    <summary style="cursor:pointer;font-weight:600">The eigenvalue problem for bending modes</summary>
+
+    Expanding the energy to second order in a small displacement ${tex`\mathbf{u}`} away from the
     equilibrium shape gives
 
     ${tex.block`E(\mathbf{x} + \mathbf{u}) \approx E(\mathbf{x}) + \tfrac{1}{2}\,\mathbf{u}^{\top} K\,\mathbf{u}.`}
 
-    (There is no term linear in ${tex`\mathbf{u}`} since the energy vanishes at equilibrium.)
+    (There is no term linear in ${tex`\mathbf{u}`} since the gradient vanishes at equilibrium.)
     The matrix ${tex`K = \nabla^2 E`} is the curvature of the energy, representing
-    restoring force per unit of displacement. Kinetic energy of the moving elements enters as the
-    mass matrix ${tex`M.`}. The bending modes are thus solutions of the generalized eigenvalue problem,
+    restoring force per unit of displacement.
 
-    ${tex.block`K\,\phi = \omega^2 M\,\phi.`}
+    That is an energy, though, and a vibration is a motion, so it takes one more step to connect the
+    two. The elastic force is the negative gradient of the energy, and differentiating the expansion
+    above with respect to the displacement drops the constant and leaves the quadratic term,
 
-    The eigenvalues ${tex`\omega^2`} are the squared frequencies and the eigenvectors ${tex`\phi`}
-    are the mode shapes. After some trial and error using different LAPACK solvers which
+    ${tex.block`\mathbf{f}(\mathbf{u}) \;=\; -\nabla_{\mathbf{u}} E(\mathbf{x} + \mathbf{u}) \;\approx\; -K\,\mathbf{u},`}
+
+    using ${tex`\nabla_{\mathbf{u}}\!\left(\tfrac{1}{2}\,\mathbf{u}^{\top} K\,\mathbf{u}\right) = K\,\mathbf{u}`}
+    for symmetric ${tex`K`}. Equivalently, expand the gradient itself rather than the energy:
+    ${tex`\nabla E(\mathbf{x} + \mathbf{u}) = \nabla E(\mathbf{x}) + K\,\mathbf{u} + O(\lVert\mathbf{u}\rVert^2)`},
+    whose first term is zero precisely because the strip sits at equilibrium. Either way the strip
+    pushes back in proportion to how far it has been displaced, which is Hooke's law with a matrix
+    where the spring constant used to be.
+
+    The kinetic energy of the moving vertices,
+    ${tex`T = \tfrac{1}{2}\,\dot{\mathbf{u}}^{\top} M\,\dot{\mathbf{u}}`}, supplies their inertia
+    through the mass matrix ${tex`M`}. Newton's law for the nudged strip is then simply
+
+    ${tex.block`M\,\ddot{\mathbf{u}} = -K\,\mathbf{u}.`}
+
+    A vibration mode is a motion in which every vertex oscillates in step at one frequency, the
+    shape itself held fixed. For harmonic motion at frequency ${tex`\omega`} the acceleration is
+    just ${tex`\ddot{\mathbf{u}} = -\omega^2\,\mathbf{u}`}, so the two time derivatives collapse to
+    a factor of ${tex`-\omega^2`}, the minus signs cancel from both sides, and what survives is the
+    eigenvalue problem below.
+
+    </details>
+
+    ${tex.block`K\,\mathbf{u} = \omega^2 M\,\mathbf{u}.`}
+
+    The eigenvalues ${tex`\omega^2`} are the squared frequencies and the eigenvectors
+    ${tex`\mathbf{u}`} are the mode shapes. After some trial and error using different LAPACK solvers which
     exploit different optimizations like the banded and symmetric nature of the matrices,
     I settled on ARPACK's ${tex`\texttt{dsband}`} method for computing the lowest-order
     modes, with the banded ${tex`\texttt{dsbgvx}`} and dense ${tex`\texttt{dsygvx}`} from LAPACK
@@ -401,7 +435,7 @@
       const body = html`<div style="margin-top:0.85rem"></div>`;
       details.appendChild(body);
 
-      body.appendChild(html`<p style="margin:0 0 0.85rem">Since each triangle shares only two vertices with each neighbor, the stiffness matrix is sparse. Gluing the the mesh together where it wraps, though, connects vertices that started out far apart. The obvious vertex numbering therefore scatters the pairings and and ${tex`K`} spreads into a wide band, dramatically slowing down general solvers. Renumbering the vertices so each seam partner sits beside its mate pulls it back into a narrow band, and only a narrow band is cheap enough for the banded LAPACK routines. Drag the sliders to watch the pattern, bandwidth, and density track the mesh.</p>`);
+      body.appendChild(html`<p style="margin:0 0 0.85rem">Since each triangle shares only two vertices with each neighbor, the stiffness matrix is sparse. Gluing the the mesh together where it wraps, though, connects vertices that started out far apart. The obvious vertex numbering therefore scatters the pairings and and ${tex`K`} spreads into a wide band (note entries in the lower-left and upper-right corners of the lefthand matrix below), effectively increasing the bandwidth to the full size of the matrix. Renumbering the vertices so each seam partner sits beside its mate pulls it back into a narrow band, and only a narrow band is cheap enough for the banded LAPACK routines. Drag the sliders to watch the pattern, bandwidth, and density track the mesh.</p>`);
 
       // Imperative controls (read .value, listen 'input') — no cross-cell reactivity.
       const controls = html`<div style="display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;margin:0 0 0.85rem"></div>`;
@@ -510,8 +544,6 @@
   </script>
 
   <script id="theory-modes-run" type="text/markdown">
-    In total, this page uses ${depsCount} translated routines to perform the computations, though only about ten are called directly. 
-
     The figure below shows the computation with additional controls over the simulation and visualization.
   </script>
 
@@ -1771,6 +1803,215 @@
     camera.triggerRepaint();
   </script>
 
+  <script id="numerics-note" type="text/markdown">
+    The simulation is validated in a number of different ways. The elastic rod solution
+    is validated against the paper. Multiple algorithms are compared for the equilibrium and
+    bending mode steps of the computation. The linear algebra routines are compared to the
+    original Fortran throughout the translation process and error residuals checked for
+    converence. The elastic energy is validated for a flat strip and for an untwisted ring as
+    well as across mesh resolutions and triangle aspect ratios.
+
+    A few problems were found. A number of linear algebra routines had errors, for example
+    containing a 0- vs 1-indexed integer error in a branch which covered larger matrices.
+    The first attempt at finite element problem setup only worked for equilateral triangular
+    elements and had to be upgraded.
+
+    The button below runs a series of checks using the same functions as the above simulation.
+  </script>
+
+  <script id="validation-checks" type="text/x-typescript">
+    // Live validation table for the "Is it right?" section. Each row is one
+    // invariant of the elastic model with an analytic expectation; the checks
+    // run on small meshes in the main thread (well under a second total) and
+    // exercise exactly the energyAndGradient code the simulation uses.
+    const valBtnStyle = `
+      display:inline-flex;align-items:center;gap:6px;
+      padding:8px 15px;font:13px/1 var(--sans-serif,system-ui,sans-serif);
+      color:var(--theme-foreground,#222);background:var(--theme-background-alt,rgba(127,127,127,0.14));
+      border:1px solid var(--theme-foreground-faint,rgba(0,0,0,0.18));
+      border-radius:7px;cursor:pointer`;
+    const valCellStyle = `padding:5px 10px;border-bottom:1px solid var(--theme-foreground-faint,rgba(127,127,127,0.25));font:13px/1.45 var(--sans-serif,system-ui,sans-serif)`;
+    const valNumStyle = `${valCellStyle};font-family:var(--monospace,monospace);font-size:12px;white-space:nowrap`;
+
+    const validationButton = html`<button style="${valBtnStyle}">Run validation checks</button>` as HTMLButtonElement;
+    const validationTableWrap = html`<div style="overflow-x:auto;margin-top:10px"></div>`;
+    const validationRoot = html`<div style="margin:0.75rem 0"></div>`;
+    validationRoot.append(validationButton, validationTableWrap);
+
+    function runValidationChecks() {
+      const params = { E: 1, poisson: 0.35, thickness: 0.03 };
+      const h = params.thickness;
+      const D = (params.E * h * h * h) / (12 * (1 - params.poisson * params.poisson));
+      const L = 2 * Math.PI, W = 1;
+      const maxAbs = (a: Float64Array) => { let m = 0; for (const v of a) m = Math.max(m, Math.abs(v)); return m; };
+
+      // Flat unglued rectangle at its flat embedding: the rest state.
+      function flatRest() {
+        const m = createFlatStrip({ length: L, width: W, nu: 48, nv: 8 });
+        const g = new Float64Array(m.Nv * 3);
+        const r = energyAndGradient(m, m.flatEmbedding(), params, g);
+        return { E: Math.abs(r.energy), g: maxAbs(g) };
+      }
+
+      // Rest metric of the Mobius mesh: total area, and each interior edge's
+      // rest length recomputed from BOTH incident triangles' unwrapped charts
+      // (the seam triangles use different charts of the same flat strip).
+      function restMetric() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 64, nv: 10 });
+        let area = 0;
+        for (const a of m.triRestArea) area += a;
+        const lens = new Map<number, number[]>();
+        const key = (p: number, q: number) => (p < q ? p * m.Nv + q : q * m.Nv + p);
+        for (let k = 0; k < m.nT; k++) {
+          const m0 = m.triDmInv[k * 4], m1 = m.triDmInv[k * 4 + 1];
+          const m2 = m.triDmInv[k * 4 + 2], m3 = m.triDmInv[k * 4 + 3];
+          const det = m0 * m3 - m1 * m2;
+          const e1x = m3 / det, e1y = -m2 / det;   // rest edge r1 - r0
+          const e2x = -m1 / det, e2y = m0 / det;   // rest edge r2 - r0
+          const i0 = m.tris[k * 3], i1 = m.tris[k * 3 + 1], i2 = m.tris[k * 3 + 2];
+          const push = (p: number, q: number, len: number) => {
+            const kk = key(p, q);
+            if (!lens.has(kk)) lens.set(kk, []);
+            lens.get(kk)!.push(len);
+          };
+          push(i0, i1, Math.hypot(e1x, e1y));
+          push(i0, i2, Math.hypot(e2x, e2y));
+          push(i1, i2, Math.hypot(e2x - e1x, e2y - e1y));
+        }
+        let mismatch = 0;
+        for (const ll of lens.values())
+          if (ll.length === 2) mismatch = Math.max(mismatch, Math.abs(ll[0] - ll[1]) / Math.max(ll[0], ll[1]));
+        return { areaErr: Math.abs(area - L * W) / (L * W), mismatch };
+      }
+
+      // Energy of a bent configuration must not change under rigid motion.
+      function rigidInvariance() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 64, nv: 10 });
+        const X = initialEmbedding(m);
+        const E0 = energyAndGradient(m, X, params, null).energy;
+        const c = Math.cos(0.7), s = Math.sin(0.7), t = 1 - c;
+        const [ax, ay, az] = [1 / Math.sqrt(14), 2 / Math.sqrt(14), 3 / Math.sqrt(14)];
+        const Y = new Float64Array(X.length);
+        for (let v = 0; v < m.Nv; v++) {
+          const x = X[v * 3], y = X[v * 3 + 1], z = X[v * 3 + 2];
+          Y[v * 3]     = (t*ax*ax + c)    * x + (t*ax*ay - s*az) * y + (t*ax*az + s*ay) * z + 0.3;
+          Y[v * 3 + 1] = (t*ax*ay + s*az) * x + (t*ay*ay + c)    * y + (t*ay*az - s*ax) * z - 0.2;
+          Y[v * 3 + 2] = (t*ax*az - s*ay) * x + (t*ay*az + s*ax) * y + (t*az*az + c)    * z + 0.5;
+        }
+        const E1 = energyAndGradient(m, Y, params, null).energy;
+        return Math.abs(E1 - E0) / E0;
+      }
+
+      // Analytic gradient vs central finite differences of the energy, at a
+      // randomly perturbed (deterministic seed) configuration.
+      function gradientVsFD() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 24, nv: 6 });
+        const X = initialEmbedding(m);
+        let seed = 42;
+        const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5);
+        for (let i = 0; i < X.length; i++) X[i] += 0.05 * rnd();
+        const g = new Float64Array(X.length);
+        energyAndGradient(m, X, params, g);
+        const eps = 1e-6;
+        let worst = 0;
+        for (let sIdx = 0; sIdx < 45; sIdx++) {
+          const i = (sIdx * 37) % X.length;
+          const save = X[i];
+          X[i] = save + eps; const fp = energyAndGradient(m, X, params, null).energy;
+          X[i] = save - eps; const fm = energyAndGradient(m, X, params, null).energy;
+          X[i] = save;
+          const fd = (fp - fm) / (2 * eps);
+          worst = Math.max(worst, Math.abs(fd - g[i]) / Math.max(1e-8, Math.abs(fd)));
+        }
+        return worst;
+      }
+
+      // Rolling the flat strip onto a cylinder of radius R is an isometry, so
+      // the bending energy must reproduce the plate value (D/2) * area / R^2
+      // regardless of the mesh cell aspect (the quadrature area is the interior
+      // vertices' share, since free-boundary vertices carry no bending energy).
+      function cylinderRatio(aspect: number) {
+        const R = 1.5, nu = 64, nv = 10;
+        const dv = W / nv, du = dv * aspect, len = nu * du;
+        const m = createFlatStrip({ length: len, width: W, nu, nv });
+        const flat = m.flatEmbedding();
+        const X = new Float64Array(m.Nv * 3);
+        for (let v = 0; v < m.Nv; v++) {
+          const u = flat[v * 3];
+          X[v * 3] = R * Math.sin(u / R);
+          X[v * 3 + 1] = flat[v * 3 + 1];
+          X[v * 3 + 2] = R * (1 - Math.cos(u / R));
+        }
+        const r = energyAndGradient(m, X, params, null);
+        let aInt = 0;
+        for (let v = 0; v < m.Nv; v++) if (m.bendInterior[v]) aInt += m.bendAreaBar[v];
+        return r.bending / (0.5 * D * aInt / (R * R));
+      }
+
+      type Row = { name: string, expected: string, run: () => { value: string, ok: boolean } };
+      const fmt = (x: number) => x === 0 ? '0' : x.toExponential(1);
+      const checks: Row[] = [
+        { name: 'Flat rectangle: energy', expected: '0 (it is the rest state)',
+          run: () => { const r = flatRest(); return { value: fmt(r.E), ok: r.E < 1e-24 }; } },
+        { name: 'Flat rectangle: gradient', expected: '0 (no residual force)',
+          run: () => { const r = flatRest(); return { value: fmt(r.g), ok: r.g < 1e-14 }; } },
+        { name: 'Total rest area vs L·w (relative)', expected: '0 (round-off)',
+          run: () => { const r = restMetric(); return { value: fmt(r.areaErr), ok: r.areaErr < 1e-12 }; } },
+        { name: 'Seam rest lengths, both charts (relative)', expected: '0 (round-off)',
+          run: () => { const r = restMetric(); return { value: fmt(r.mismatch), ok: r.mismatch < 1e-12 }; } },
+        { name: 'Energy change under rigid motion (relative)', expected: '0 (round-off)',
+          run: () => { const r = rigidInvariance(); return { value: fmt(r), ok: r < 1e-10 }; } },
+        { name: 'Analytic gradient vs finite differences (relative)', expected: '0 (to FD accuracy, ~1e-6)',
+          run: () => { const r = gradientVsFD(); return { value: fmt(r), ok: r < 1e-5 }; } },
+        { name: 'Rolled cylinder / plate energy, square cells (du/dv = 1)', expected: '1 within 2%',
+          run: () => { const r = cylinderRatio(1); return { value: r.toFixed(4), ok: Math.abs(r - 1) < 0.02 }; } },
+        { name: 'Rolled cylinder / plate energy, stretched cells (du/dv = 2)', expected: '1 within 2%',
+          run: () => { const r = cylinderRatio(2); return { value: r.toFixed(4), ok: Math.abs(r - 1) < 0.02 }; } },
+      ];
+
+      const table = html`<table style="border-collapse:collapse;min-width:480px">
+        <thead><tr>
+          <th style="${valCellStyle};text-align:left">Check</th>
+          <th style="${valCellStyle};text-align:right">Computed</th>
+          <th style="${valCellStyle};text-align:left">Expected</th>
+          <th style="${valCellStyle};text-align:left"></th>
+        </tr></thead>
+      </table>`;
+      const tbody = html`<tbody></tbody>`;
+      table.appendChild(tbody);
+      validationTableWrap.replaceChildren(table);
+
+      let allOk = true;
+      for (const check of checks) {
+        let value = 'error', ok = false;
+        try {
+          ({ value, ok } = check.run());
+        } catch (err) {
+          value = String(err);
+        }
+        allOk = allOk && ok;
+        tbody.appendChild(html`<tr>
+          <td style="${valCellStyle}">${check.name}</td>
+          <td style="${valNumStyle};text-align:right">${value}</td>
+          <td style="${valCellStyle};color:var(--theme-foreground-muted,#777)">${check.expected}</td>
+          <td style="${valCellStyle};font-weight:600;color:${ok ? '#2ea043' : '#e5534b'}">${ok ? 'PASS' : 'FAIL'}</td>
+        </tr>`);
+      }
+      tbody.appendChild(html`<tr><td colspan="4" style="${valCellStyle};font-weight:600;color:${allOk ? '#2ea043' : '#e5534b'}">
+        ${allOk ? 'All checks passed.' : 'Some checks FAILED.'}</td></tr>`);
+    }
+
+    validationButton.addEventListener('click', runValidationChecks);
+    display(validationRoot);
+  </script>
+
+
+  <script type="text/markdown" id="modules-explanation">>
+    Including modules and their dependents for all variants of the algorithms implemented above, this page uses ${depsCount} translated routines, though only about ten are called directly. They've been validated and optimized. Additionally, about [899 of 1111](https://rreusser.github.io/blahpack/progress.html) BLAS/LAPACK algorithms have been translated in the blahpack repository.
+
+    The figure below shows all modules and the dependency chains. Click a node to navigate to the source code.
+  </script>
+
   <script id="deps-data" type="text/x-typescript">
     // Every BLAS / LAPACK / ARPACK / COLSYS routine this page actually runs, and
     // which calls which. Node set and edges are derived from the Fortran sources
@@ -2052,222 +2293,20 @@
     }
   </script>
 
-  <script id="numerics-note" type="text/markdown">
-    ## Is it right?
-
-    None of this is worth much if the numbers are wrong. Each translated routine was
-    validated against its Fortran original — run side by side on the same inputs
-    until the outputs agreed to the last digits — so the linear algebra here does
-    exactly what the reference does. The assembled problem gets the
-    same scrutiny: the elastic energy is invariant under rigid motion, a flat unglued
-    rectangle has zero energy, a rolled cylinder reproduces the known bending energy,
-    and the computed modes satisfy ${tex`K\phi = \omega^2 M\phi`} to round-off. The
-    shapes and frequencies you see are the correct solutions of the discrete model,
-    not just something that looks about right.
-
-    Claims like that should be checkable, so the button below reruns the core
-    checks right here in the page, against the same energy and gradient code that
-    drives every figure above.
-  </script>
-
-  <script id="validation-checks" type="text/x-typescript">
-    // Live validation table for the "Is it right?" section. Each row is one
-    // invariant of the elastic model with an analytic expectation; the checks
-    // run on small meshes in the main thread (well under a second total) and
-    // exercise exactly the energyAndGradient code the simulation uses.
-    const valBtnStyle = `
-      display:inline-flex;align-items:center;gap:6px;
-      padding:8px 15px;font:13px/1 var(--sans-serif,system-ui,sans-serif);
-      color:var(--theme-foreground,#222);background:var(--theme-background-alt,rgba(127,127,127,0.14));
-      border:1px solid var(--theme-foreground-faint,rgba(0,0,0,0.18));
-      border-radius:7px;cursor:pointer`;
-    const valCellStyle = `padding:5px 10px;border-bottom:1px solid var(--theme-foreground-faint,rgba(127,127,127,0.25));font:13px/1.45 var(--sans-serif,system-ui,sans-serif)`;
-    const valNumStyle = `${valCellStyle};font-family:var(--monospace,monospace);font-size:12px;white-space:nowrap`;
-
-    const validationButton = html`<button style="${valBtnStyle}">Run validation checks</button>` as HTMLButtonElement;
-    const validationTableWrap = html`<div style="overflow-x:auto;margin-top:10px"></div>`;
-    const validationRoot = html`<div style="margin:0.75rem 0"></div>`;
-    validationRoot.append(validationButton, validationTableWrap);
-
-    function runValidationChecks() {
-      const params = { E: 1, poisson: 0.35, thickness: 0.03 };
-      const h = params.thickness;
-      const D = (params.E * h * h * h) / (12 * (1 - params.poisson * params.poisson));
-      const L = 2 * Math.PI, W = 1;
-      const maxAbs = (a: Float64Array) => { let m = 0; for (const v of a) m = Math.max(m, Math.abs(v)); return m; };
-
-      // Flat unglued rectangle at its flat embedding: the rest state.
-      function flatRest() {
-        const m = createFlatStrip({ length: L, width: W, nu: 48, nv: 8 });
-        const g = new Float64Array(m.Nv * 3);
-        const r = energyAndGradient(m, m.flatEmbedding(), params, g);
-        return { E: Math.abs(r.energy), g: maxAbs(g) };
-      }
-
-      // Rest metric of the Mobius mesh: total area, and each interior edge's
-      // rest length recomputed from BOTH incident triangles' unwrapped charts
-      // (the seam triangles use different charts of the same flat strip).
-      function restMetric() {
-        const m = createMobiusMesh({ length: L, width: W, nu: 64, nv: 10 });
-        let area = 0;
-        for (const a of m.triRestArea) area += a;
-        const lens = new Map<number, number[]>();
-        const key = (p: number, q: number) => (p < q ? p * m.Nv + q : q * m.Nv + p);
-        for (let k = 0; k < m.nT; k++) {
-          const m0 = m.triDmInv[k * 4], m1 = m.triDmInv[k * 4 + 1];
-          const m2 = m.triDmInv[k * 4 + 2], m3 = m.triDmInv[k * 4 + 3];
-          const det = m0 * m3 - m1 * m2;
-          const e1x = m3 / det, e1y = -m2 / det;   // rest edge r1 - r0
-          const e2x = -m1 / det, e2y = m0 / det;   // rest edge r2 - r0
-          const i0 = m.tris[k * 3], i1 = m.tris[k * 3 + 1], i2 = m.tris[k * 3 + 2];
-          const push = (p: number, q: number, len: number) => {
-            const kk = key(p, q);
-            if (!lens.has(kk)) lens.set(kk, []);
-            lens.get(kk)!.push(len);
-          };
-          push(i0, i1, Math.hypot(e1x, e1y));
-          push(i0, i2, Math.hypot(e2x, e2y));
-          push(i1, i2, Math.hypot(e2x - e1x, e2y - e1y));
-        }
-        let mismatch = 0;
-        for (const ll of lens.values())
-          if (ll.length === 2) mismatch = Math.max(mismatch, Math.abs(ll[0] - ll[1]) / Math.max(ll[0], ll[1]));
-        return { areaErr: Math.abs(area - L * W) / (L * W), mismatch };
-      }
-
-      // Energy of a bent configuration must not change under rigid motion.
-      function rigidInvariance() {
-        const m = createMobiusMesh({ length: L, width: W, nu: 64, nv: 10 });
-        const X = initialEmbedding(m);
-        const E0 = energyAndGradient(m, X, params, null).energy;
-        const c = Math.cos(0.7), s = Math.sin(0.7), t = 1 - c;
-        const [ax, ay, az] = [1 / Math.sqrt(14), 2 / Math.sqrt(14), 3 / Math.sqrt(14)];
-        const Y = new Float64Array(X.length);
-        for (let v = 0; v < m.Nv; v++) {
-          const x = X[v * 3], y = X[v * 3 + 1], z = X[v * 3 + 2];
-          Y[v * 3]     = (t*ax*ax + c)    * x + (t*ax*ay - s*az) * y + (t*ax*az + s*ay) * z + 0.3;
-          Y[v * 3 + 1] = (t*ax*ay + s*az) * x + (t*ay*ay + c)    * y + (t*ay*az - s*ax) * z - 0.2;
-          Y[v * 3 + 2] = (t*ax*az - s*ay) * x + (t*ay*az + s*ax) * y + (t*az*az + c)    * z + 0.5;
-        }
-        const E1 = energyAndGradient(m, Y, params, null).energy;
-        return Math.abs(E1 - E0) / E0;
-      }
-
-      // Analytic gradient vs central finite differences of the energy, at a
-      // randomly perturbed (deterministic seed) configuration.
-      function gradientVsFD() {
-        const m = createMobiusMesh({ length: L, width: W, nu: 24, nv: 6 });
-        const X = initialEmbedding(m);
-        let seed = 42;
-        const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5);
-        for (let i = 0; i < X.length; i++) X[i] += 0.05 * rnd();
-        const g = new Float64Array(X.length);
-        energyAndGradient(m, X, params, g);
-        const eps = 1e-6;
-        let worst = 0;
-        for (let sIdx = 0; sIdx < 45; sIdx++) {
-          const i = (sIdx * 37) % X.length;
-          const save = X[i];
-          X[i] = save + eps; const fp = energyAndGradient(m, X, params, null).energy;
-          X[i] = save - eps; const fm = energyAndGradient(m, X, params, null).energy;
-          X[i] = save;
-          const fd = (fp - fm) / (2 * eps);
-          worst = Math.max(worst, Math.abs(fd - g[i]) / Math.max(1e-8, Math.abs(fd)));
-        }
-        return worst;
-      }
-
-      // Rolling the flat strip onto a cylinder of radius R is an isometry, so
-      // the bending energy must reproduce the plate value (D/2) * area / R^2
-      // regardless of the mesh cell aspect (the quadrature area is the interior
-      // vertices' share, since free-boundary vertices carry no bending energy).
-      function cylinderRatio(aspect: number) {
-        const R = 1.5, nu = 64, nv = 10;
-        const dv = W / nv, du = dv * aspect, len = nu * du;
-        const m = createFlatStrip({ length: len, width: W, nu, nv });
-        const flat = m.flatEmbedding();
-        const X = new Float64Array(m.Nv * 3);
-        for (let v = 0; v < m.Nv; v++) {
-          const u = flat[v * 3];
-          X[v * 3] = R * Math.sin(u / R);
-          X[v * 3 + 1] = flat[v * 3 + 1];
-          X[v * 3 + 2] = R * (1 - Math.cos(u / R));
-        }
-        const r = energyAndGradient(m, X, params, null);
-        let aInt = 0;
-        for (let v = 0; v < m.Nv; v++) if (m.bendInterior[v]) aInt += m.bendAreaBar[v];
-        return r.bending / (0.5 * D * aInt / (R * R));
-      }
-
-      type Row = { name: string, expected: string, run: () => { value: string, ok: boolean } };
-      const fmt = (x: number) => x === 0 ? '0' : x.toExponential(1);
-      const checks: Row[] = [
-        { name: 'Flat rectangle: energy', expected: '0 (it is the rest state)',
-          run: () => { const r = flatRest(); return { value: fmt(r.E), ok: r.E < 1e-24 }; } },
-        { name: 'Flat rectangle: gradient', expected: '0 (no residual force)',
-          run: () => { const r = flatRest(); return { value: fmt(r.g), ok: r.g < 1e-14 }; } },
-        { name: 'Total rest area vs L·w (relative)', expected: '0 (round-off)',
-          run: () => { const r = restMetric(); return { value: fmt(r.areaErr), ok: r.areaErr < 1e-12 }; } },
-        { name: 'Seam rest lengths, both charts (relative)', expected: '0 (round-off)',
-          run: () => { const r = restMetric(); return { value: fmt(r.mismatch), ok: r.mismatch < 1e-12 }; } },
-        { name: 'Energy change under rigid motion (relative)', expected: '0 (round-off)',
-          run: () => { const r = rigidInvariance(); return { value: fmt(r), ok: r < 1e-10 }; } },
-        { name: 'Analytic gradient vs finite differences (relative)', expected: '0 (to FD accuracy, ~1e-6)',
-          run: () => { const r = gradientVsFD(); return { value: fmt(r), ok: r < 1e-5 }; } },
-        { name: 'Rolled cylinder / plate energy, square cells (du/dv = 1)', expected: '1 within 2%',
-          run: () => { const r = cylinderRatio(1); return { value: r.toFixed(4), ok: Math.abs(r - 1) < 0.02 }; } },
-        { name: 'Rolled cylinder / plate energy, stretched cells (du/dv = 2)', expected: '1 within 2%',
-          run: () => { const r = cylinderRatio(2); return { value: r.toFixed(4), ok: Math.abs(r - 1) < 0.02 }; } },
-      ];
-
-      const table = html`<table style="border-collapse:collapse;min-width:480px">
-        <thead><tr>
-          <th style="${valCellStyle};text-align:left">Check</th>
-          <th style="${valCellStyle};text-align:right">Computed</th>
-          <th style="${valCellStyle};text-align:left">Expected</th>
-          <th style="${valCellStyle};text-align:left"></th>
-        </tr></thead>
-      </table>`;
-      const tbody = html`<tbody></tbody>`;
-      table.appendChild(tbody);
-      validationTableWrap.replaceChildren(table);
-
-      let allOk = true;
-      for (const check of checks) {
-        let value = 'error', ok = false;
-        try {
-          ({ value, ok } = check.run());
-        } catch (err) {
-          value = String(err);
-        }
-        allOk = allOk && ok;
-        tbody.appendChild(html`<tr>
-          <td style="${valCellStyle}">${check.name}</td>
-          <td style="${valNumStyle};text-align:right">${value}</td>
-          <td style="${valCellStyle};color:var(--theme-foreground-muted,#777)">${check.expected}</td>
-          <td style="${valCellStyle};font-weight:600;color:${ok ? '#2ea043' : '#e5534b'}">${ok ? 'PASS' : 'FAIL'}</td>
-        </tr>`);
-      }
-      tbody.appendChild(html`<tr><td colspan="4" style="${valCellStyle};font-weight:600;color:${allOk ? '#2ea043' : '#e5534b'}">
-        ${allOk ? 'All checks passed.' : 'Some checks FAILED.'}</td></tr>`);
-    }
-
-    validationButton.addEventListener('click', runValidationChecks);
-    display(validationRoot);
-  </script>
-
   <script id="coda" type="text/markdown">
-    ## Where this leaves me
+    ## Conclusion
 
-    The part I keep coming back to is that all of it ran here, in a browser tab —
-    the same numerics that sit under NumPy and MATLAB, translated to JavaScript and
-    checked against the Fortran until the numbers matched.
+    In the end, it's exciting and unnerving. I tried for quite a while to translate and
+    enable this sort of computation, failing repeatedly to maintain enough velocity
+    to get very far. On one hand, AI enables so much of what I always wanted to explore
+    and present, on the other hand it devalues it.
 
-    I find that exciting, and a little uneasy. Translating one banded eigensolver by
-    hand used to be a serious undertaking; now it is close to routine, so the rest of
-    the library is within reach too — and I am honestly not sure who is left to check
-    that all of it is right. But for one Möbius strip I can bend with my mouse, I am
-    glad I did it.
+    I have a hard time understanding the availablity of BLAS and LAPACK on the web as *evil*,
+    so I probably continue validating and optimizing the routines. They need to be wrapped
+    up in more convenient interfaces. They need human judgement. Or more precisely, I guess,
+    they need a human to unleash a wave of agents to tend to them, as if farming.
+
+    The future is weird.
 
     <figure>
       <img alt="Human batteries in the machine world from The Matrix (1999)" src="matrix.webp">
