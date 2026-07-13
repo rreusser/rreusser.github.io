@@ -1,0 +1,553 @@
+<!doctype html>
+<notebook theme="air">
+  <title>SmoothLife: Conway's Game of Life on a Continuous Domain</title>
+
+  <script id="intro" type="text/markdown">
+    # SmoothLife
+
+    Conway's [Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life) lives on a grid of cells that are strictly on or off, updated in discrete ticks by counting integer neighbors. **SmoothLife**, introduced by Stephan Rafler in [*Generalization of Conway's "Game of Life" to a continuous domain*](https://arxiv.org/abs/1111.1567), asks what happens when you let all of that go continuous: the state becomes a real number in ${tex`[0, 1]`}, the neighborhood becomes a smooth disc instead of eight discrete squares, and time advances in small increments rather than sudden ticks.
+
+    The result preserves some of the gliders, oscillators, and self-organizing structures which make the original game of life so interesting, but adds an organic feel to it. This page is a WebGPU rewrite of [an old sketch of mine](https://github.com/rreusser/sketches/tree/master/src/src/smooth-life); the simulation below runs entirely in WebGPU.
+  </script>
+
+  <script id="webgpu-check" type="module">
+    if (!navigator.gpu) {
+      display(html`<div style="color: #b00; padding: 16px; border: 1px solid #f0caca; background: #fff6f6; border-radius: 6px;">
+        <strong>WebGPU is not available.</strong> This notebook needs a WebGPU-capable browser (Chrome/Edge 113+, or Safari 18+ / Firefox with WebGPU enabled). The explanations below still work without it.
+      </div>`);
+    }
+  </script>
+
+  <script id="imports" type="module">
+    import { createWebGPUContext, isWebGPUAvailable } from './lib/webgpu-canvas.js';
+    import { expandable } from './lib/expandable.js';
+    import { rangeInput } from './lib/range-slider.js';
+    import { createSmoothLife } from './smooth-life.js';
+  </script>
+
+  <script id="transition-diagram-factory" type="module">
+    // A direct-manipulation transition-function control: the survival band is a
+    // slider along the top edge (m≈1), the birth band along the bottom edge
+    // (m≈0), with the s(n,m) heatmap between them. Responsive (fills its
+    // container up to maxWidth). onInput fires {birth, survival, alphaN, alphaM,
+    // blendMode} on any change.
+    function createTransitionDiagram({
+      maxWidth = 420, birth = [0.257, 0.336], survival = [0.365, 0.549],
+      alphaN = 0.028, alphaM = 0.147, blendMode = 0, onInput = () => {}
+    } = {}) {
+      const res = 200;
+      const survivalSlider = rangeInput({ min: 0, max: 1, value: survival.slice(), step: 0.001, width: '100%' });
+      const birthSlider = rangeInput({ min: 0, max: 1, value: birth.slice(), step: 0.001, width: '100%' });
+      // Zero the slider's default margin so its track aligns with the padded canvas.
+      survivalSlider.style.margin = '0'; birthSlider.style.margin = '0';
+
+      const mkAlpha = (min, max, val) => {
+        const i = document.createElement('input');
+        i.type = 'range'; i.min = min; i.max = max; i.step = 0.001; i.value = val; i.style.width = '120px';
+        return i;
+      };
+      const anInput = mkAlpha(0.005, 0.15, alphaN);
+      const amInput = mkAlpha(0.02, 0.35, alphaM);
+      const blendInput = document.createElement('select');
+      for (const [label, val] of [['blend band outputs (reference)', '0'], ['blend band thresholds (original)', '1']]) {
+        const o = document.createElement('option'); o.textContent = label; o.value = val; blendInput.appendChild(o);
+      }
+      blendInput.value = String(blendMode);
+      blendInput.style.fontSize = '12px';
+
+      const cv = document.createElement('canvas');
+      cv.width = res; cv.height = res;
+      cv.style.cssText = 'width:100%; aspect-ratio:1; display:block;';
+      const c2d = cv.getContext('2d');
+      const img = c2d.createImageData(res, res);
+
+      const sigma1 = (x, a, al) => 1 / (1 + Math.exp(-(x - a) * 4 / al));
+      const sigmaAB = (x, a, b, al) => sigma1(x, a, al) * (1 - sigma1(x, b, al));
+      const sigmaM = (x, y, m, al) => x * (1 - sigma1(m, 0.5, al)) + y * sigma1(m, 0.5, al);
+
+      const survOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
+      const birthOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
+      const anOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
+      const amOut = html`<span style="font-variant-numeric:tabular-nums;"></span>`;
+
+      const values = () => ({ birth: birthSlider.value, survival: survivalSlider.value, alphaN: +anInput.value, alphaM: +amInput.value, blendMode: +blendInput.value });
+
+      function draw() {
+        const bv = birthSlider.value, dv = survivalSlider.value, anv = +anInput.value, amv = +amInput.value, blend = +blendInput.value;
+        for (let j = 0; j < res; j++) {
+          const m = 1 - j / (res - 1);
+          for (let i = 0; i < res; i++) {
+            const n = i / (res - 1);
+            const s = blend === 0
+              ? sigmaM(sigmaAB(n, bv[0], bv[1], anv), sigmaAB(n, dv[0], dv[1], anv), m, amv)
+              : sigmaAB(n, sigmaM(bv[0], dv[0], m, amv), sigmaM(bv[1], dv[1], m, amv), anv);
+            const t = Math.max(0, Math.min(1, s));
+            const idx = 4 * (j * res + i);
+            img.data[idx] = 255 * Math.min(1, 0.1 + 1.4 * t);
+            img.data[idx + 1] = 255 * Math.min(1, Math.max(0, 1.6 * t - 0.6));
+            img.data[idx + 2] = 255 * Math.min(1, 0.3 + 0.5 * t - 0.4 * t * t);
+            img.data[idx + 3] = 255;
+          }
+        }
+        c2d.putImageData(img, 0, 0);
+        survOut.textContent = `[${dv[0].toFixed(3)}, ${dv[1].toFixed(3)}]`;
+        birthOut.textContent = `[${bv[0].toFixed(3)}, ${bv[1].toFixed(3)}]`;
+        anOut.textContent = anv.toFixed(3);
+        amOut.textContent = amv.toFixed(3);
+      }
+
+      [survivalSlider, birthSlider, anInput, amInput, blendInput].forEach((el) => el.addEventListener('input', () => { draw(); onInput(values()); }));
+      blendInput.addEventListener('change', () => { draw(); onInput(values()); });
+      draw();
+
+      const row = 'display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin:3px 0;';
+      const ctl = 'display:flex; align-items:center; gap:6px;';
+      const element = html`<div style="width:100%; max-width:${maxWidth}px; font:13px/1.5 var(--sans-serif, system-ui, sans-serif);">
+        <div style="${row}"><span>Survival · full cell (m ≈ 1)</span>${survOut}</div>
+        ${survivalSlider}
+        <div style="padding:0 8.5px;">${cv}</div>
+        ${birthSlider}
+        <div style="${row}"><span>Birth · empty cell (m ≈ 0)</span>${birthOut}</div>
+        <div style="text-align:center; margin:3px 0 8px;">horizontal axis: neighborhood fill n, empty (0) → full (1)</div>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+          <label style="${ctl}">αₙ ${anInput} ${anOut}</label>
+          <label style="${ctl}">αₘ ${amInput} ${amOut}</label>
+          <label style="${ctl}">Blending ${blendInput}</label>
+        </div>
+      </div>`;
+
+      function setValues(v) {
+        if (v.birth) birthSlider.value = v.birth.slice();
+        if (v.survival) survivalSlider.value = v.survival.slice();
+        if (v.alphaN != null) anInput.value = v.alphaN;
+        if (v.alphaM != null) amInput.value = v.alphaM;
+        if (v.blendMode != null) blendInput.value = String(v.blendMode);
+        draw();
+        onInput(values());
+      }
+
+      return { element, getValues: values, setValues };
+    }
+  </script>
+
+  <script id="context" type="module">
+    const gpu = isWebGPUAvailable() ? await createWebGPUContext() : null;
+    const device = gpu?.device;
+    const canvasFormat = gpu?.canvasFormat;
+    if (device) invalidation.then(() => device.destroy());
+  </script>
+
+  <script id="presets" type="module">
+    // Named parameter sets. "SmoothLifeL" is Rafler's glider ruleset from the 2011
+    // paper (implemented in Tim Hutton's Ready and his well-known SmoothLife video):
+    // outer radius 20, ratio 3, birth [0.257,0.336], survival [0.365,0.549],
+    // 2s-1 Euler stepping (dt=0.05).
+    // blendMode 0 = blend band outputs (Ready/Rafler reference); 1 = blend band
+    // thresholds (the original sketch's convention). The soft-blob family keeps
+    // blendMode 1 (tuned under the original convention).
+    const PRESETS = {
+      'SmoothLifeL':         { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.05, mode: 1, blendMode: 0, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
+      'SmoothLifeL (relax)': { ra: 20, ratio: 3, b1: 0.257, b2: 0.336, d1: 0.365, d2: 0.549, alphaN: 0.028, alphaM: 0.147, dt: 0.10, mode: 0, blendMode: 0, kernel: 0, colormap: 3, steps: 2, fill: 0.4 },
+      'Soft gliders':      { ra: 12, ratio: 3, b1: 0.269, b2: 0.340, d1: 0.523, d2: 0.746, alphaN: 0.028, alphaM: 0.147, dt: 0.115, mode: 0, blendMode: 1, kernel: 0, colormap: 1, steps: 1, fill: 0.5 },
+      'Smooth blobs':      { ra: 14, ratio: 3, b1: 0.245, b2: 0.360, d1: 0.480, d2: 0.780, alphaN: 0.150, alphaM: 0.350, dt: 0.090, mode: 0, blendMode: 1, kernel: 0, colormap: 1, steps: 1, fill: 0.5 },
+      // A sharp-n / soft-m rule that freezes into a static bimodal spot-and-worm
+      // lattice — the Turing-pattern regime the "in disguise" section describes.
+      'Turing spots':      { ra: 20, ratio: 2.5, b1: 0.288, b2: 0.727, d1: 0.425, d2: 0.609, alphaN: 0.005, alphaM: 0.350, dt: 0.17, mode: 0, blendMode: 1, kernel: 0, colormap: 3, steps: 2, fill: 0.4 },
+      'Pulsation':         { ra: 12, ratio: 4, b1: 0.206, b2: 0.511, d1: 0.609, d2: 0.696, alphaN: 0.028, alphaM: 0.147, dt: 0.115, mode: 0, blendMode: 1, kernel: 0, colormap: 3, steps: 1, fill: 0.5 },
+      // Filaments that grow along their length while contracting at the ends.
+      'Filaments':         { ra: 16.5, ratio: 2.3, b1: 0.355, b2: 0.398, d1: 0.383, d2: 0.667, alphaN: 0.026, alphaM: 0.066, dt: 0.075, mode: 1, blendMode: 0, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
+      // Worms that wander and chase one another around the field.
+      'Chasing worms':     { ra: 19.5, ratio: 2.4, b1: 0.198, b2: 0.242, d1: 0.258, d2: 0.486, alphaN: 0.068, alphaM: 0.159, dt: 0.21, mode: 1, blendMode: 1, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
+      // Three coexisting phases: empty, half-filled honeycomb, and filled honeycomb.
+      'Honeycomb phases':  { ra: 10, ratio: 2.8, b1: 0.299, b2: 0.439, d1: 0.540, d2: 0.830, alphaN: 0.030, alphaM: 0.141, dt: 0.155, mode: 0, blendMode: 0, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
+      // Tiny dots that never settle, endlessly chasing one another.
+      'Restless dots':     { ra: 22, ratio: 3.7, b1: 0.263, b2: 0.401, d1: 0.535, d2: 0.690, alphaN: 0.009, alphaM: 0.172, dt: 0.19, mode: 0, blendMode: 1, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
+      // A filamentary web that keeps rearranging and never quite settles.
+      'Living web':        { ra: 19.5, ratio: 3, b1: 0.266, b2: 0.337, d1: 0.377, d2: 0.521, alphaN: 0.072, alphaM: 0.080, dt: 0.13, mode: 0, blendMode: 1, kernel: 0, colormap: 3, steps: 4, fill: 0.4 },
+    };
+    const DEFAULT_PRESET = 'SmoothLifeL';
+  </script>
+
+  <script id="main-simulation" type="module">
+    if (!device) {
+      display(html`<div style="color:#666; padding:12px; background:#f9f9f9; border-radius:6px; font-size:13px;">WebGPU unavailable — interactive simulation skipped.</div>`);
+    } else {
+      // ---- Persistent UI/render state (this cell is built once; grid-size changes
+      // rebuild only the sim in place, leaving all the controls untouched) ----
+      const simState = { playing: true, dirty: true, visible: true };
+
+      const dp = PRESETS[DEFAULT_PRESET];
+      // Default to a lighter grid on mobile, where GPU/memory budgets are tighter.
+      const isMobile = window.innerWidth < 640;
+      const NInput = Inputs.select([256, 512, 1024], { value: isMobile ? 512 : 1024, label: 'Grid size', format: (n) => `${n}×${n}` });
+
+      let sim = createSmoothLife(device, {
+        N: NInput.value, ra: dp.ra, innerRatio: dp.ratio, b1: dp.b1, b2: dp.b2, d1: dp.d1, d2: dp.d2,
+        alphaN: dp.alphaN, alphaM: dp.alphaM, dt: dp.dt, mode: dp.mode, blendMode: dp.blendMode, kernel: dp.kernel ?? 0, colormap: dp.colormap,
+      });
+      sim.initialize({ fill: dp.fill });
+      let renderer = sim.createRenderer(canvasFormat);
+
+      // Rebuild the sim at a new grid size, carrying all current parameters over.
+      NInput.addEventListener('input', () => {
+        const newN = NInput.value;
+        if (newN === sim.N) return;
+        const carried = { ...sim.params, N: newN };
+        sim.destroy();
+        sim = createSmoothLife(device, carried);
+        renderer = sim.createRenderer(canvasFormat);
+        sim.initialize({ fill: fillInput.value });
+        sim.params.aspect = canvas.width / Math.max(1, canvas.height);
+        simState.dirty = true;
+      });
+
+      // ---- Canvas ----
+      const canvas = document.createElement('canvas');
+      canvas.style.display = 'block';
+      canvas.style.cursor = 'crosshair';
+      canvas.style.touchAction = 'none';
+      const ctx = canvas.getContext('webgpu');
+      ctx.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      function resizeCanvas(w, h) {
+        const pw = Math.max(1, Math.round(w * dpr));
+        const ph = Math.max(1, Math.round(h * dpr));
+        if (canvas.width !== pw || canvas.height !== ph) {
+          canvas.width = pw;
+          canvas.height = ph;
+        }
+        // Explicit CSS size (like the other notebooks) so the figcaption lays out
+        // below the canvas instead of fighting a height:100% canvas.
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+        sim.params.aspect = pw / ph;
+        simState.dirty = true;
+      }
+
+      // ---- Controls ----
+      // Standard block margin (matching figure/p/table globally) so the controls
+      // sit below the figcaption with the same vertical rhythm as the rest of the
+      // page — this cell displays figure + controls + details together, so unlike
+      // the other notebooks they don't get inter-cell spacing for free.
+      const controls = html`<div id="sl-controls" style="margin:1rem 0 0;"></div>`;
+
+      const presetSelect = Inputs.select(Object.keys(PRESETS), { label: 'Preset', value: DEFAULT_PRESET });
+
+      // The transition diagram IS the birth/survival/α/blend control.
+      const diagram = createTransitionDiagram({
+        maxWidth: 320,
+        birth: [dp.b1, dp.b2], survival: [dp.d1, dp.d2], alphaN: dp.alphaN, alphaM: dp.alphaM, blendMode: dp.blendMode,
+        onInput: (v) => {
+          sim.setParams({ b1: v.birth[0], b2: v.birth[1], d1: v.survival[0], d2: v.survival[1], alphaN: v.alphaN, alphaM: v.alphaM, blendMode: v.blendMode });
+          simState.dirty = true;
+          maybeRestart();
+        },
+      });
+
+      const raInput = Inputs.range([3, 24], { label: 'Cell radius rₐ', value: dp.ra, step: 0.5 });
+      const ratioInput = Inputs.range([2, 5], { label: 'Radius ratio rₐ/rᵢ', value: dp.ratio, step: 0.1 });
+      const kernelInput = Inputs.select(new Map([['Disc (jinc)', 0], ['Gaussian', 1]]), { label: 'Kernel', value: dp.kernel ?? 0 });
+      const dtInput = Inputs.range([0.02, 0.4], { label: 'Time step Δt', value: dp.dt, step: 0.005 });
+      const modeInput = Inputs.select(new Map([['Relax to target', 0], ['Increment (2s−1)', 1], ['Discrete snap', 2]]), {
+        label: 'Time stepping', value: dp.mode
+      });
+      const stepsInput = Inputs.range([1, 8], { label: 'Steps / frame', value: dp.steps, step: 1 });
+      const colormapInput = Inputs.select(new Map([['Grayscale', 0], ['Magma', 1], ['Viridis', 2], ['Ice', 3]]), {
+        label: 'Colormap', value: dp.colormap
+      });
+      const fillInput = Inputs.range([0.05, 0.9], { label: 'Initial density', value: dp.fill, step: 0.01 });
+      const autoRestartInput = Inputs.toggle({ label: 'Auto-restart on change', value: false });
+      const brushInput = Inputs.range([0.01, 0.25], { label: 'Brush size', value: 0.06, step: 0.005 });
+
+      // When enabled, reseed the field on any rule-shaping change so you can
+      // sweep a parameter through a regime that quickly dies out or fills in
+      // without hitting Restart each time.
+      function maybeRestart() {
+        if (autoRestartInput.value) { sim.initialize({ fill: fillInput.value }); simState.dirty = true; }
+      }
+
+      function syncParams() {
+        sim.setParams({
+          ra: raInput.value,
+          innerRatio: ratioInput.value,
+          kernel: kernelInput.value,
+          dt: dtInput.value,
+          mode: modeInput.value,
+          colormap: colormapInput.value,
+        });
+        simState.dirty = true;
+      }
+
+      function applyPreset(name) {
+        const p = PRESETS[name];
+        if (!p) return;
+        raInput.value = p.ra;
+        if (p.ratio !== undefined) ratioInput.value = p.ratio;
+        if (p.kernel !== undefined) kernelInput.value = p.kernel;
+        dtInput.value = p.dt;
+        modeInput.value = p.mode;
+        if (p.steps !== undefined) stepsInput.value = p.steps;
+        if (p.fill !== undefined) fillInput.value = p.fill;
+        // Updates the diagram and pushes the band/α/blend params via its onInput.
+        diagram.setValues({ birth: [p.b1, p.b2], survival: [p.d1, p.d2], alphaN: p.alphaN, alphaM: p.alphaM, blendMode: p.blendMode });
+        syncParams();
+        // Reseed so the blob scale matches the new radius/density.
+        sim.initialize({ fill: fillInput.value });
+      }
+
+      presetSelect.addEventListener('input', () => applyPreset(presetSelect.value));
+      for (const el of [raInput, ratioInput, kernelInput, dtInput, modeInput, colormapInput]) {
+        el.addEventListener('input', syncParams);
+      }
+      // Reseed on rule-shaping changes when auto-restart is on (colormap excluded
+      // — it's display-only). syncParams runs first so the new radius sets the
+      // seed scale.
+      for (const el of [raInput, ratioInput, kernelInput, dtInput, modeInput]) {
+        el.addEventListener('input', maybeRestart);
+      }
+      // Changing the initial density reseeds the field so you can hunt for the
+      // glider regime (low density) vs. the filled/holes phase (high density).
+      fillInput.addEventListener('input', () => { sim.initialize({ fill: fillInput.value }); simState.dirty = true; });
+
+      // ---- Buttons ----
+      const btnStyle = 'padding:5px 12px; cursor:pointer; font:13px var(--sans-serif, system-ui, sans-serif);';
+      const playBtn = html`<button style="${btnStyle}">Pause</button>`;
+      playBtn.onclick = () => {
+        simState.playing = !simState.playing;
+        playBtn.textContent = simState.playing ? 'Pause' : 'Play';
+        simState.dirty = true;
+      };
+      const restartBtn = html`<button style="${btnStyle}">Restart</button>`;
+      restartBtn.onclick = () => { sim.initialize({ fill: fillInput.value }); simState.dirty = true; };
+      // Draw a fresh rule from the life-like part of parameter space (biased ranges
+      // rather than uniform, so a random draw lands on something interesting more
+      // often than not), push it through the controls + diagram, and reseed.
+      const randomizeBtn = html`<button style="${btnStyle}">Randomize</button>`;
+      randomizeBtn.onclick = () => {
+        const rnd = (a, b) => a + Math.random() * (b - a);
+        const snap = (x, s) => Math.round(x / s) * s;
+        raInput.value = snap(rnd(6, 22), 0.5);
+        ratioInput.value = snap(rnd(2, 5), 0.1);
+        dtInput.value = snap(rnd(0.03, 0.3), 0.005);
+        modeInput.value = Math.random() < 0.5 ? 0 : 1;
+        const b1 = rnd(0.10, 0.40), d1 = rnd(0.20, 0.60);
+        diagram.setValues({
+          birth: [b1, Math.min(b1 + rnd(0.03, 0.25), 0.95)],
+          survival: [d1, Math.min(d1 + rnd(0.05, 0.30), 0.98)],
+          alphaN: rnd(0.005, 0.08),
+          alphaM: rnd(0.05, 0.30),
+          blendMode: Math.random() < 0.5 ? 0 : 1,
+        });
+        syncParams();
+        sim.initialize({ fill: fillInput.value });
+        simState.dirty = true;
+      };
+      const clearBtn = html`<button style="${btnStyle}">Clear</button>`;
+      // radius*hardness (= N) exceeds the max torus distance from center (≈0.71N),
+      // so the brush covers the whole field uniformly and erases it to zero.
+      clearBtn.onclick = () => { sim.paint(sim.N / 2, sim.N / 2, sim.N * 2, -1, { hardness: 0.5 }); simState.dirty = true; };
+      const downloadBtn = html`<button style="${btnStyle}">Download PNG</button>`;
+      downloadBtn.onclick = () => {
+        // Force a fresh render, then read the canvas synchronously.
+        renderer.render(ctx.getCurrentTexture().createView());
+        const url = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'smooth-life.png';
+        a.click();
+      };
+
+      // Preset at the very top, then action buttons, the transition diagram, and
+      // finally the parameters.
+      controls.append(
+        presetSelect,
+        html`<div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">${playBtn}${restartBtn}${randomizeBtn}${clearBtn}${downloadBtn}</div>`,
+        html`<div style="margin:8px 0 12px;">${diagram.element}</div>`,
+        raInput,
+        ratioInput,
+        kernelInput,
+        dtInput,
+        modeInput,
+        stepsInput,
+        fillInput,
+        NInput,
+        colormapInput,
+        brushInput,
+        autoRestartInput,
+      );
+
+      // ---- Interaction: paint, pan, zoom ----
+      function eventUV(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        return [(clientX - rect.left) / rect.width, (clientY - rect.top) / rect.height];
+      }
+      // Inverse of the shader's screen->field mapping.
+      function uvToField(u, v) {
+        const { aspect, zoom, cx, cy } = sim.params;
+        return [cx + (u - 0.5) * (aspect / zoom), cy + (v - 0.5) / zoom];
+      }
+      function paintUV(u, v, erase) {
+        const [fu, fv] = uvToField(u, v);
+        const radius = brushInput.value * sim.N;
+        sim.paint(fu * sim.N, fv * sim.N, radius, erase ? -1 : 1, { hardness: 0.4 });
+        simState.dirty = true;
+      }
+      function zoomAtUV(u, v, factor) {
+        const { aspect } = sim.params;
+        const z1 = Math.max(0.25, Math.min(64, sim.params.zoom * factor));
+        const [fu, fv] = uvToField(u, v);
+        sim.params.cx = fu - (u - 0.5) * (aspect / z1);
+        sim.params.cy = fv - (v - 0.5) / z1;
+        sim.params.zoom = z1;
+        simState.dirty = true;
+      }
+      function panByUV(du, dv) {
+        const { aspect, zoom } = sim.params;
+        sim.params.cx -= du * (aspect / zoom);
+        sim.params.cy -= dv / zoom;
+        simState.dirty = true;
+      }
+      function resetView() { sim.params.cx = 0.5; sim.params.cy = 0.5; sim.params.zoom = 1; simState.dirty = true; }
+
+      // Mouse: plain drag paints, shift-drag erases, ⌥/⌃/⌘ or middle-drag pans,
+      // wheel zooms about the cursor, double-click resets the view.
+      const isPan = (e) => e.button === 1 || e.altKey || e.ctrlKey || e.metaKey;
+      let mode = null, lastUV = null;
+      canvas.addEventListener('mousedown', (e) => {
+        const [u, v] = eventUV(e.clientX, e.clientY);
+        if (isPan(e)) { mode = 'pan'; lastUV = [u, v]; canvas.style.cursor = 'grabbing'; }
+        else { mode = e.shiftKey ? 'erase' : 'paint'; paintUV(u, v, mode === 'erase'); }
+        e.preventDefault();
+      });
+      canvas.addEventListener('mousemove', (e) => {
+        if (!mode) return;
+        const [u, v] = eventUV(e.clientX, e.clientY);
+        if (mode === 'pan') { panByUV(u - lastUV[0], v - lastUV[1]); lastUV = [u, v]; }
+        else paintUV(u, v, mode === 'erase');
+      });
+      const onMouseUp = () => { mode = null; canvas.style.cursor = 'crosshair'; };
+      window.addEventListener('mouseup', onMouseUp);
+      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+      canvas.addEventListener('dblclick', (e) => { resetView(); e.preventDefault(); });
+      canvas.addEventListener('wheel', (e) => {
+        const [u, v] = eventUV(e.clientX, e.clientY);
+        zoomAtUV(u, v, Math.exp(-e.deltaY * 0.0015));
+        e.preventDefault();
+      }, { passive: false });
+
+      // Touch: one finger paints, two fingers pan and pinch-zoom.
+      let touchMode = null, touchLast = null;
+      function twoFingerInfo(e) {
+        const [a, b] = [e.touches[0], e.touches[1]];
+        const uv = eventUV((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        return { uv, dist };
+      }
+      canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) { touchMode = 'paint'; const [u, v] = eventUV(e.touches[0].clientX, e.touches[0].clientY); paintUV(u, v, false); }
+        else if (e.touches.length >= 2) { touchMode = 'pan'; touchLast = twoFingerInfo(e); }
+        e.preventDefault();
+      }, { passive: false });
+      canvas.addEventListener('touchmove', (e) => {
+        if (touchMode === 'paint' && e.touches.length === 1) {
+          const [u, v] = eventUV(e.touches[0].clientX, e.touches[0].clientY);
+          paintUV(u, v, false);
+        } else if (e.touches.length >= 2) {
+          const info = twoFingerInfo(e);
+          panByUV(info.uv[0] - touchLast.uv[0], info.uv[1] - touchLast.uv[1]);
+          if (touchLast.dist > 0) zoomAtUV(info.uv[0], info.uv[1], info.dist / touchLast.dist);
+          touchLast = info;
+        }
+        e.preventDefault();
+      }, { passive: false });
+      canvas.addEventListener('touchend', (e) => {
+        if (e.touches.length === 0) touchMode = null;
+        else if (e.touches.length === 1) { touchMode = 'paint'; }
+      });
+
+      // ---- Figure + expandable ----
+      // Wrap the canvas (and a brief figcaption + usage details) in a <figure> and
+      // hand that to expandable(), like the other notebooks. expandable() owns
+      // sizing and grows to include the caption/details via scrollHeight.
+      const figure = html`<figure style="margin:0;">
+        ${canvas}
+        <figcaption style="margin-top:8px;">Continuous SmoothLife, computed in WebGPU.</figcaption>
+      </figure>`;
+      // Wide aspect: at the default view (zoom 1) the field covers the full height
+      // and the periodic domain repeats a little on the left and right.
+      display(expandable(figure, {
+        id: 'smooth-life',
+        wide: true,
+        aspectRatio: 16 / 9,
+        minHeight: 360,
+        maxWidth: 900,
+        width: 720,
+        height: 405,
+        controls: '#sl-controls',
+        onResize(el, w, h) { resizeCanvas(w, h); },
+      }));
+      display(controls);
+      // Usage lives in a collapsed details below all the controls.
+      display(html`<details style="margin-top:10px;">
+        <summary style="cursor:pointer;">How to interact</summary>
+        <div style="margin-top:4px;">Draw with the mouse (or one finger) to seed life; shift-drag to erase. Scroll to zoom, ⌥/Ctrl/⌘-drag (or two-finger drag) to pan, and double-click to reset the view. Edit the birth and survival bands directly on the transition diagram in the controls above.</div>
+      </details>`);
+
+      // ---- Visibility (pause when scrolled away) ----
+      const io = new IntersectionObserver((entries) => { simState.visible = entries[0].isIntersecting; }, { threshold: 0.01 });
+      io.observe(canvas);
+
+      // ---- Render loop ----
+      let raf;
+      function frame() {
+        if (simState.visible) {
+          if (simState.playing) {
+            sim.step(Math.round(stepsInput.value));
+            simState.dirty = true;
+          }
+          if (simState.dirty) {
+            renderer.render(ctx.getCurrentTexture().createView());
+            simState.dirty = false;
+          }
+        }
+        raf = requestAnimationFrame(frame);
+      }
+      frame();
+
+      invalidation.then(() => {
+        cancelAnimationFrame(raf);
+        io.disconnect();
+        window.removeEventListener('mouseup', onMouseUp);
+        sim.destroy();
+      });
+    }
+  </script>
+
+  <script id="preset-note" type="text/markdown">
+    Drag the birth and survival bands on the transition diagram to reshape the rule, and try the presets. The **SmoothLifeL** preset is Rafler's glider ruleset from the [2011 paper](https://arxiv.org/abs/1111.1567) — the one Tim Hutton rendered in the well-known SmoothLife video (outer radius 20, birth ${tex`[0.257, 0.336]`}, survival ${tex`[0.365, 0.549]`}, ${tex`2s-1`} time stepping). It lives in a fairly narrow regime — if it fills in or dies out, nudge the initial density. The field wraps at the edges, so structures that drift off one side reappear on the other.
+  </script>
+
+  <script id="implementation" type="text/markdown">
+    ## Implementation
+
+    Rafler's original paper is the place to go for a brief and accessible description of the method, so I'll only add a couple notes on my particular implementation.
+
+    Each update needs two disc averages, which are circular convolutions of the field with a filled disc (radius ${tex`r_i`}) and a larger disc (radius ${tex`r_a`}). The annulus average is a weighted difference of the two. The original sketch unrolled the convolution into WebGL by generating GLSL source with one texture tap per kernel pixel, which makes the cost grow as ${tex`r_a^2`}. This version borrows FFT machinery from the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/).
+
+    A convolution is a product in the frequency domain, and the Fourier transform of a normalized disc of radius ${tex`R`} is the analytical *jinc* function
+
+    ${tex.block`\mathcal{F}\!\left[\tfrac{1}{\pi R^2}\,\mathbb{1}_{|\mathbf{x}| \le R}\right](\mathbf{k}) = \frac{2\,J_1(|\mathbf{k}|R)}{|\mathbf{k}|R}`}
+
+    where ${tex`J_1`} is a Bessel function of the first kind. Because this equals 1 at ${tex`\mathbf{k} = 0`}, multiplying the field's spectrum by it computes a true average, with no kernel textures to store. The two discs are packed into a single complex convolution: multiplying the spectrum ${tex`\hat f`} by ${tex`\hat G_{r_i} + i\,\hat G_{r_a}`} and taking one inverse FFT recovers the ${tex`r_i`}-disc average in the real part and the ${tex`r_a`}-disc average in the imaginary part, since both convolutions are real. Each step is then one forward FFT, one spectral multiply, one inverse FFT, and a pointwise transition pass. The FFT itself is a Cooley–Tukey compute shader run as row-FFT, transpose, column-FFT, transpose.
+  </script>
+
+  <script id="references" type="text/markdown">
+    ## References
+
+    - Stephan Rafler, [*Generalization of Conway's "Game of Life" to a continuous domain — SmoothLife*](https://arxiv.org/abs/1111.1567) (2011).
+    - Tim Hutton et al., [Ready](https://github.com/GollyGang/ready), a cross-platform reaction-diffusion and continuous-CA explorer.
+    - The original WebGL sketch this page replaces: [rreusser/sketches · smooth-life](https://rreusser.github.io/sketches/smooth-life/).
+    - Related on this site: [Multi-scale Turing patterns in WebGPU](https://rreusser.github.io/notebooks/multiscale-turing-patterns/) and [3D reaction-diffusion](https://rreusser.github.io/notebooks/3d-reaction-diffusion/).
+  </script>
+</notebook>
