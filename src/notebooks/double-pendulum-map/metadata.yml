@@ -6,3 +6,7 @@ tags:
   - chaos
   - physics
   - webgl
+seeAlso:
+  - periodic-planar-three-body-orbits
+  - chaotic-magnetic-pendulum
+  - malkus-waterwheel

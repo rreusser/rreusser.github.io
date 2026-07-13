@@ -5,3 +5,6 @@ maxWidth: 640px
 tags:
   - math
   - numerics
+seeAlso:
+  - shanks-transformation
+  - knocking-down-the-gates-with-jacobi

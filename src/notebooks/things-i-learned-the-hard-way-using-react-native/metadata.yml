@@ -3,3 +3,7 @@ description: A collection of lessons learned from eight months of React Native d
 maxWidth: 640px
 tags:
   - programming
+seeAlso:
+  - a-series-of-unfortunate-things-i-programmed-one-time
+  - plot-with-zoom
+  - rewriting-my-website-in-observable-notebook-kit

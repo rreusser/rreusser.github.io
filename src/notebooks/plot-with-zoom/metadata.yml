@@ -5,3 +5,7 @@ mastodonPostId: '115892519884431495'
 tags:
   - tutorial
   - programming
+seeAlso:
+  - things-i-learned-the-hard-way-using-react-native
+  - hello-observable-notebooks-2
+  - rewriting-my-website-in-observable-notebook-kit

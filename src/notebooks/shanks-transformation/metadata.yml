@@ -6,3 +6,6 @@ maxWidth: 640px
 tags:
   - math
   - numerics
+seeAlso:
+  - computing-pi-with-the-bailey-borwein-plouffe-formula
+  - knocking-down-the-gates-with-jacobi

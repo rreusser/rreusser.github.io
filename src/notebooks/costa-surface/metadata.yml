@@ -4,3 +4,7 @@ description: Costa's minimal surface, a thrice-punctured torus with two catenoid
 tags:
   - webgpu
   - math
+seeAlso:
+  - lawsons-klein-bottle
+  - boys-surface
+  - mobius-strip

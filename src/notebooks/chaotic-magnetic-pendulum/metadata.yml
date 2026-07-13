@@ -8,3 +8,7 @@ tags:
   - physics
   - webgl
   - webgpu
+seeAlso:
+  - double-pendulum-map
+  - periodic-planar-three-body-orbits
+  - malkus-waterwheel

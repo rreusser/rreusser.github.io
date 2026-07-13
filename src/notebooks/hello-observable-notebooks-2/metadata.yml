@@ -5,3 +5,6 @@ mastodonPostId: "114964101103184925"
 tags:
   - tutorial
   - meta
+seeAlso:
+  - rewriting-my-website-in-observable-notebook-kit
+  - plot-with-zoom

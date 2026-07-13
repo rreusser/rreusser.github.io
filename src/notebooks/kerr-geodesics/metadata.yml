@@ -6,3 +6,7 @@ description: Interactive visualization of particle and light paths around a spin
 tags:
   - webgpu
   - physics
+seeAlso:
+  - particle-mesh-gravity
+  - visualizing-sloan-digital-sky-survey-data
+  - chaotic-magnetic-pendulum

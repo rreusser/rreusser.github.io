@@ -6,3 +6,7 @@ mastodonPostId: '115880796645265443'
 tags:
   - webgpu
   - pde
+seeAlso:
+  - multiscale-turing-patterns
+  - particle-mesh-gravity
+  - perfectly-matched-layers-for-the-wave-equation

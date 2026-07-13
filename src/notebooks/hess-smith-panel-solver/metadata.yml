@@ -4,3 +4,7 @@ maxWidth: 640px
 tags:
   - physics
   - aerodynamics
+seeAlso:
+  - perfectly-matched-layers-for-the-wave-equation
+  - fast-generalized-winding-numbers-in-2d
+  - mobius-strip

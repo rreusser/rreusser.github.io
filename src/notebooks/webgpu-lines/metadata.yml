@@ -4,3 +4,7 @@ maxWidth: 720px
 tags:
   - webgpu
   - graphics
+seeAlso:
+  - transparency-for-3d-surfaces
+  - adaptive-contouring-in-fragment-shaders
+  - line-sweep-terrain-lighting

@@ -5,3 +5,7 @@ observableUrl: 'https://observablehq.com/@rreusser/sliced-optimal-transport'
 tags:
   - algorithms
   - image processing
+seeAlso:
+  - webgpu-voronoi-diagrams-using-the-jump-flooding-algorithm
+  - aligning-3d-scans
+  - bicubic-texture-interpolation-using-linear-filtering

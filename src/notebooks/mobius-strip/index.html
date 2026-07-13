@@ -77,7 +77,8 @@
       const model = state.sim.model;
       const thick = state.sim.params?.thickness ?? introDefaultThickness;
       const sameTopology = model?.nu === introModel.nu && model?.nv === introModel.nv;
-      let changed = false; // did the displayed buffer change this frame?
+      let changed = false;         // did the displayed buffer change this frame?
+      let introShown: any = null;  // the positions actually on screen this frame
       if (sameTopology) {
         const rp = state.renderParams;
         const modes = state.sim.modes;
@@ -85,6 +86,7 @@
         const animatingMode = !state.previewing && rp.view === 'Flexural mode'
           && modes && modes.modes.length > 0 && rp.amplitude > 0;
         if (base && base.length === introModel.Nv * 3) {
+          introShown = base;
           if (animatingMode) {
             const idx = Math.min(Math.max(rp.modeIndex - 1, 0), modes.modes.length - 1);
             const shape = modes.modes[idx].shape;
@@ -95,12 +97,22 @@
             introPhase += dt * rp.speed * 2.2;
             introLastBase = null; // animating: refresh the static upload next time
             changed = true;
+            introShown = introBuf;
           } else if (base !== introLastBase) {
             introRenderer.update(base, null, 0, thick);
             introLastBase = base;
             changed = true;
           }
         }
+      }
+      // Same one-shot re-framing rule the main viewer follows, but driven from this
+      // loop: the hero sits at the top of the page, so it is usually the only
+      // viewer on screen when it is dragged, and the main loop stops running while
+      // the main viewer is scrolled out of view.
+      if (state.camera.easeHero && !state.camera.dragging) {
+        const eased = easeCameraToCentroid(introCamera, introShown, introModel.Nv);
+        // Stop once it has settled and the spring-back is no longer streaming.
+        if (!eased && !state.previewing) state.camera.easeHero = false;
       }
       // Pass `changed` so the updated buffer is actually drawn: render() skips the
       // draw when neither the camera nor this flag is dirty.
@@ -112,7 +124,7 @@
       introCamera.destroy();
     });
 
-    const introContainer = html`<div style="position:relative;width:100%;aspect-ratio:8/5;max-height:450px"></div>`;
+    const introContainer = html`<div style="position:relative;width:100%;aspect-ratio:7/5;max-height:520px"></div>`;
     introContainer.appendChild(introCanvas);
     introCamera.on('resize', (w: number, h: number) => {
       introCanvas.width = Math.floor(w * devicePixelRatio);
@@ -121,7 +133,7 @@
       introCanvas.style.height = `${h}px`;
       introCamera.triggerRepaint();
     });
-    const introFigure = html`<figure style="margin:0 0 0.75rem"></figure>`;
+    const introFigure = html`<figure style="margin:0 0 2rem"></figure>`;
     introFigure.appendChild(introContainer);
     introFigure.appendChild(html`<figcaption style="margin-top:0.5rem;font:13px/1.5 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);text-align:center">
       An elastic-shell finite-element simulation of a Möbius strip. Drag a vertex to deform it.
@@ -130,135 +142,116 @@
   </script>
 
   <script id="motivation-paper" type="text/markdown">
-    In a 2025 episode of the Quanta Magazine podcast The Joy of Why, [Does Form Really Shape Function?](https://www.quantamagazine.org/does-form-really-shape-function-20250612/), host Steven Strogatz recalls that the first work of guest [L. Mahadevan](https://www.physics.harvard.edu/people/facpages/mahadevan) with which he's acquainted is Mahadevan's graduate school analysis of the equilibrium shape of an elastic Möbius strip. Strogatz finds the work particularly charming because compared to the *topology*, no one talks very much about the *geometry* of Möbius strips.
+    Everyone likes to talk about the topology of a Möbius strip, but you don't usually hear too much about the _geometry_, the shape it would actually make if you assembled it out of a strip of elastic material. Steven Strogatz put this thought in my head in the introduction to a 2025 episode of the Quanta Magazine podcast _The Joy of Why_, [Does Form Really Shape Function?](https://www.quantamagazine.org/does-form-really-shape-function-20250612/). He recalls being charmed that the first work for which he knew his guest [L. Mahadevan](https://www.physics.harvard.edu/people/facpages/mahadevan) was a graduate-school analysis of the equilibrium shape of an elastic Möbius strip.
 
-    This struck a nerve for a couple reasons. First, I spent lots of time in school computing equilibrium shapes and bending modes in rods, bars, plates, etc. [Details of whatever I did](thesis.pdf) are mostly lost to the sands of time, but the mechanics of materials remains close to my heart.
+    The image of an elastic Möbius strip stuck in my head for a couple reasons. First, I studied Engineering Mechanics in school and spent a lot of time computing shapes, bending modes, and wave propagation in rods, bars, plates, and the like. [The details of what I did](thesis.pdf) feel lost to time at this point, but the mechanics of materials will always have a special place in my heart.
 
-    Second, a trend I noticed in school is that we would spend weeks, sometimes months, laboring over problems we didn't understand. In my view, the tools were failing to make the problems tangible in the way I knew they could. Rather than results and stastistics at the end of a computation, I wanted to interact with the problems directly and gain enough confidence in my intuitive grasp of the problem to believe the results.
+    Second, we all labored in school for weeks, sometimes months, over problems and MATLAB or Fortran codes we didn't really understand. Maybe I'm underappreciating the rite of passage that is wrestling with these problems and eventually triumphing, but it never seemed right to me to take a problem that feels---in principle---so viscerally tangible, and reduce it to some opaque Fortran code that spits out `NaN` for some incomprehensible reason. I wanted to interact with the problem until I _felt_ it enough to trust the answer.
 
-    A quote from Bret Victor captures what I believe was left on the table as a result:
+    Bret Victor summarizes what gets lost when these feedback loops don't exist:
 
     <blockquote class="quote">
       <p>If there is any delay in that feedback loop between thinking of something and seeing it and building on it, then there is this whole world of ideas which will never be.</p>
       <p class="quote__attribution">Bret Victor, <cite><a href="https://jamesclear.com/great-speeches/inventing-on-principle-by-bret-victor">Inventing on Principle</a></cite></p>
     </blockquote>
 
-    My lukewarm take, having accomplished little to significantly improve the situation, is that fifteen years later not much has changed.
+    Fifteen years later, having done little about it myself, I think there's still a lot of opportunity here.
 
-    While I listened to the episode, I felt strangely compelled to compute the equilibrium shape an bending modes of a Möbius strip. Bending modes are an eigenvalue problem. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a large matrix? Well, good luck. Unless you rely on someone to host a Python-based notebook in an environment like [Colab](https://colab.research.google.com/), you'll probably have to [compile Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), if you can manage.
+    So, not even finishing the episode, I felt immediately compelled to build something on the web which computes the equilibrium shape and bending modes of a Möbius strip. The equilibrium shape is an energy minimization problem. Bending modes are an eigenvalue problem.
 
-    That's no jab at the people who have put in an immense amount of work into these problems. It's genuinely challenging, stubborn work. My sense has always been that there's no hope but to translate Fortran-based LAPACK (which still powers [NumPy](https://numpy.org/), by the way) into idiomatic JavaScript. But apart from all the other concerns, LAPACK's heavy use of `goto` makes translation to modern control flow particularly difficult. Maybe I lacked imagination or insight, but the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) which told me it was all trivially feasible didn't actually help me get the job done.
+    Already though, I knew exactly where I always hit a brick wall when I try these things. Want to put something on the web that requires eigenvalues? [ML.js](https://mljs.github.io/matrix/classes/EigenvalueDecomposition.html) works great. Maybe plug it into an [Observable](https://observablehq.com/) notebook. But do you need generalized eigenvalues? Eigenvalues of a banded matrix? Of a complex Hermitian matrix? Limited eigenvalues of a banded matrix? Well, good luck. If you want to do any serious analysis, these details matter. One option is to rely on a hosted notebook environment like Google [Colab](https://colab.research.google.com/), but for a variety of reasons, that doesn't suit my particular taste.
+
+
+    That's no jab at the people who have put a lot of work into these problems. It's genuinely challenging, stubborn work. [BLAS](https://www.netlib.org/blas/) (Basic Linear Algebra Subprograms) and [LAPACK](https://www.netlib.org/lapack/) (Linear Algrebra PACKage) are the bedrock of numerical computing (they still power [NumPy](https://numpy.org/), by the way). LAPACK in particular comprises about 2,200 modules, about half of which are unique up to 32-bit vs. 64-bit precision, but they're written in Fortran which, no matter how you approach it, makes them nontrivial to run on the web. Heavy use of goto-based control flow makes translation delicate and difficult, and [compiling Fortran to WebAssembly](https://gws.phd/posts/fortran_wasm/), opts you into a terrible world of build scripts, opaque errors, and manual memory management.
+
+    My sense has always been that there's no hope but to translate BLAS and LAPACK into idiomatic JavaScript. I'm not alone in thinking this, and there is long-running work under way in the [Stdlib](https://github.com/stdlib-js/stdlib) project to confront this challenge head-on. I've contributed to the project from time to time, but although I've [contributed](https://github.com/stdlib-js/stdlib/pull/4789) [translations](https://github.com/stdlib-js/stdlib/pull/4703) of a [number](https://github.com/stdlib-js/stdlib/pull/4725) of [modules](https://github.com/stdlib-js/stdlib/pull/4738) by [hand](https://github.com/stdlib-js/stdlib/pull/4772), I was on track to finish sometime around 2050.
+
+    Maybe I lack imagination or determination or just the raw technical ability, but even though the [Böhm–Jacopini theorem](https://en.wikipedia.org/wiki/Structured_program_theorem) tells me it's just an exercise for the reader to untangle LAPACK's heavy use of goto, it hasn't actually helped me get the work done. I've tried translating modules by hand, I've tried to automate the translation, and I've tried waiting for someone else to figure it out. Nothing has panned out.
 
     <figure>
       <img alt="XKCD #292" src="https://imgs.xkcd.com/comics/goto.png">
       <figcaption>Obligatory <a href="https://m.xkcd.com/292/">XKCD #292</a>. How bad can thousands of little <code>gotos</code> be?</figcaption>
     </figure>
 
-    Enter [Stdlib](https://github.com/stdlib-js/stdlib), the only project I'm aware of which takes rigorous numerical analysis in JavaScript seriously. I [contributed](https://github.com/stdlib-js/stdlib/pull/4789) [translations](https://github.com/stdlib-js/stdlib/pull/4703) of a [number](https://github.com/stdlib-js/stdlib/pull/4725) of [modules](https://github.com/stdlib-js/stdlib/pull/4738) by [hand](https://github.com/stdlib-js/stdlib/pull/4772). I believe the greater project shows a lot of promise, but I wasn't on pace to finish the translation task before about 2050, and I gave up. I tried translating modules by hand. I tried to write programs to automate the translation. I tried waiting for someone else to find a clever workaround. None of it has happened.
+    I might lose some readers here, but earlier this year I threw Claude Code at improving the automated translation routines I'd struggled to build a year prior. My code would parse Fortran modules, run a sequence of carefully constructed transforms, and output JavaScript. I figured AI would have an easy time tightening up the details which had eluded me, but after some confusion on my part, Claude politely informed that my code was only getting in its way. Instead, it was just sidestepping me and performing the translation directly.
 
-    I might lose some readers here, but earlier this year, I threw Claude Code at improving my program for automated translation. This was a program which would parse Fortran into an Abstract Syntax Tree (AST), apply a sequence of transformations to the AST, convert the Fortran AST to a JavaScript AST, and finally produce JavaScript code as output. I thought the tight feedback loop between translation machinery and verifiable output was a recipe for success, but Claude politely informed me that my work was only impeding its ability to ingest Fortran code and produce JavaScript code directly.
+    I resisted, but darn it if it wasn't right. All I really had to do was ask for the generalized eigenvalues of a real matrix, let it churn through the LAPACK module dependency tree, and confirm the result actually solved the problem I'd asked for. If there were an infinite amount of work, I'd have held my ground and demanded a *process* rather than just working output. It's a finite amount of work though which Claude Code is only becoming increasingly capable of managing.
 
-    I resisted, but darn it if it wasn't right. For the first time ever, I could ask for code which computes the generalized eigenvalues of a real-valued matrix, let it churn through LAPACK modules, running Fortran and generated JavaScript side by side until the numerics match, and then directly confirm that the resulting output solves the requested problem.
+    That work is accumulating in [blahpack](https://github.com/rreusser/blahpack), which is either a portmanteau or an expression of what it feels like to be a a programmer in 2026, your choice. [Progress currently stands](https://rreusser.github.io/blahpack/progress.html) at about 878 of some 2,200 modules — the double and complex-double variants — though only about half of the 2,200 are unique anyway, since routines come in single- and double-precision twins.
 
-    With a coherent strategy for translating these modules, I looked for some
-    different problems to solve. It made pretty short work of Nakatsukasa, Sète, and Trefethen's [AAA Algorithm for Rational Approximation](https://arxiv.org/abs/1612.00337). This in particular was one that really caused me some problems
-    since a generalized eigenvalue solver was hard to come by. 
-
-    This notebook ticks off the elastic Mobius strip, which was another problem
-    that screamed at me: oh, that requires a proper eigenvalue solver.
-
-    There's more history to this problem than just throwing a numerical solver at it.
-    Sadowsky [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy
-    minimization problem in 1930. Mahadevan and Keller in [The Shape of a Mobius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf) solved it properly in 1993,
-    treating the band as a thin elastic rod and matching their computed centerline.
+    So new in 2025-2026 is that you can finally just will these capabilities into existence.
   </script>
 
   <script id="motivation-js" type="text/markdown">
-    ## Making a Möbius strip
+    ## Computing the shape of a Möbius strip
 
-    Rather than a 1D rod, I model the strip as what it physically is: a thin
-    elastic sheet. Cut the sheet into triangles, let every corner move freely in
-    space, and ask it to find the shape that stores the least elastic energy. Two
-    things push back. The sheet strongly resists being stretched in its own plane,
-    its membrane response, and it resists folding much more gently, its bending
-    response. A flat rectangle is perfectly content. But glue its two short ends
-    together with a half-twist and it can no longer lie flat, so it buckles into
-    the Möbius shape entirely on its own.
+    The shape of a Möbius strip is a problem with some history. Sadowsky [posed its resting shape](https://arxiv.org/abs/1408.3034) as an energy-minimization problem in 1930 but didn't quite get to an answer. Mahadevan and Keller solved it in 1993 in [The Shape of a Möbius Band](https://softmath.seas.harvard.edu/wp-content/uploads/2019/10/pre2000-20.pdf), treating the band as a thin elastic rod and solving the resulting boundary-value problem numerically.
+
+    This notebook starts with the elastic rod solution, using a one-shotted AI JavaScript translation of the same [COLSYS](https://www.netlib.org/ode/) solver used by Mahadevan and Keller. From there, this notebook cuts up the geometry into a mesh of triangles and models the Möbius strip as a thin elastic sheet.  Discrete triangles turn the continuous physics problem into a linear algebra problem.  Using the numerical [finite element method](https://en.wikipedia.org/wiki/Finite_element_method) (FEM), each triangle resists in-plane stretching and bending with respect to its neighbors.
 
     <figure style="width:100%;max-width:560px;margin-inline:auto">
-      <svg viewBox="0 30 460 214" width="560" style="width:100%;height:auto;display:block;font-family:var(--sans-serif,system-ui,sans-serif)" stroke="currentColor" fill="none">
+      <svg viewBox="0 44 436 202" width="560" style="width:100%;height:auto;display:block;font-family:var(--sans-serif,system-ui,sans-serif)" stroke="currentColor" fill="none">
         <defs>
           <marker id="mob-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
             <path d="M0,1 L10,5 L0,9 z" fill="currentColor" stroke="none"/>
           </marker>
         </defs>
-        <!-- (a) membrane: one triangle, in-plane stretch + vertex DOFs -->
-        <polygon points="58,176 198,176 108,72" stroke-width="2" fill="currentColor" fill-opacity="0.07"/>
-        <!-- every vertex carries the same 3D position DOFs: up, and 30 deg
-             north and south of east (isometric x/y/z triad) -->
-        <g stroke-width="1.3" opacity="0.8">
-          <line x1="108" y1="72" x2="108" y2="56" marker-end="url(#mob-ah)"/>
-          <line x1="108" y1="72" x2="122" y2="64" marker-end="url(#mob-ah)"/>
-          <line x1="108" y1="72" x2="122" y2="80" marker-end="url(#mob-ah)"/>
-          <line x1="58" y1="176" x2="58" y2="160" marker-end="url(#mob-ah)"/>
-          <line x1="58" y1="176" x2="72" y2="168" marker-end="url(#mob-ah)"/>
-          <line x1="58" y1="176" x2="72" y2="184" marker-end="url(#mob-ah)"/>
-          <line x1="198" y1="176" x2="198" y2="160" marker-end="url(#mob-ah)"/>
-          <line x1="198" y1="176" x2="212" y2="168" marker-end="url(#mob-ah)"/>
-          <line x1="198" y1="176" x2="212" y2="184" marker-end="url(#mob-ah)"/>
+        <!-- (a) membrane: a plane-stress element inside one plain triangle.
+             Geometry (triangle, element outline) is gray; stress arrows are
+             full-strength, all outside the faces, distinguished only by
+             direction: normal arrows perpendicular, shear arrows tangent. -->
+        <polygon points="40,190 216,190 128,52" stroke-width="2" fill="currentColor" fill-opacity="0.07"/>
+        <rect x="106" y="116" width="44" height="44" stroke-width="1.3" opacity="0.5" fill="currentColor" fill-opacity="0.1"/>
+        <g stroke-width="1.6">
+          <!-- normal stress: perpendicular, out of each face midpoint -->
+          <line x1="150" y1="138" x2="174" y2="138" marker-end="url(#mob-ah)"/>
+          <line x1="106" y1="138" x2="82" y2="138" marker-end="url(#mob-ah)"/>
+          <line x1="128" y1="116" x2="128" y2="92" marker-end="url(#mob-ah)"/>
+          <line x1="128" y1="160" x2="128" y2="184" marker-end="url(#mob-ah)"/>
+          <!-- complementary shear: tangent to each face, heads meeting at opposite corners -->
+          <line x1="156" y1="156" x2="156" y2="120" marker-end="url(#mob-ah)"/>
+          <line x1="100" y1="120" x2="100" y2="156" marker-end="url(#mob-ah)"/>
+          <line x1="110" y1="110" x2="146" y2="110" marker-end="url(#mob-ah)"/>
+          <line x1="146" y1="166" x2="110" y2="166" marker-end="url(#mob-ah)"/>
         </g>
-        <circle cx="58" cy="176" r="4" fill="currentColor" stroke="none"/>
-        <circle cx="198" cy="176" r="4" fill="currentColor" stroke="none"/>
-        <circle cx="108" cy="72" r="4" fill="currentColor" stroke="none"/>
-        <text x="150" y="50" font-size="11" stroke="none" fill="currentColor" opacity="0.75">moves in 3D</text>
-        <!-- in-plane stretch / shear -->
-        <line x1="84" y1="197" x2="172" y2="197" stroke-width="1.5" marker-start="url(#mob-ah)" marker-end="url(#mob-ah)"/>
+        <circle cx="40" cy="190" r="4" fill="currentColor" stroke="none"/>
+        <circle cx="216" cy="190" r="4" fill="currentColor" stroke="none"/>
+        <circle cx="128" cy="52" r="4" fill="currentColor" stroke="none"/>
         <text x="128" y="219" text-anchor="middle" font-size="12" font-weight="600" stroke="none" fill="currentColor">(a) membrane</text>
         <text x="128" y="234" text-anchor="middle" font-size="10" stroke="none" fill="currentColor" opacity="0.85">stretch &amp; shear in-plane</text>
-        <!-- (b) bending: two triangles folded about their shared edge, isometric -->
-        <polygon points="285,170 378,104 306,98" stroke-width="1.7" fill="currentColor" fill-opacity="0.05"/>
-        <polygon points="285,170 378,104 360,176" stroke-width="1.7" fill="currentColor" fill-opacity="0.12"/>
-        <line x1="285" y1="170" x2="378" y2="104" stroke-width="2.8"/>
-        <circle cx="306" cy="98" r="4" fill="currentColor" stroke="none"/>
-        <circle cx="360" cy="176" r="4" fill="currentColor" stroke="none"/>
-        <circle cx="285" cy="170" r="4" fill="currentColor" stroke="none"/>
-        <circle cx="378" cy="104" r="4" fill="currentColor" stroke="none"/>
-        <path d="M 293.4 141.2 A 30 30 0 0 1 314.9 172.4" stroke-width="1.5" opacity="0.85"/>
-        <text x="299" y="166" text-anchor="middle" font-size="16" font-style="italic" paint-order="stroke" stroke="var(--theme-background,#ffffff)" stroke-width="3.5" stroke-linejoin="round" fill="currentColor">&#952;</text>
-        <text x="332" y="219" text-anchor="middle" font-size="12" font-weight="600" stroke="none" fill="currentColor">(b) bending</text>
-        <text x="332" y="234" text-anchor="middle" font-size="10" stroke="none" fill="currentColor" opacity="0.85">fold about shared edge</text>
+        <!-- (b) bending: two triangles hinged at a 110 deg dihedral about their shared
+             edge, orthographic projection from a camera looking obliquely down the
+             crease (azimuth 12 deg, elevation 25 deg) so the fold actually reads.
+             Theta is measured about the crease, between the two rays perpendicular
+             to it lying one in each face, so it is the dihedral and not a corner. -->
+        <polygon points="339.6,110.1 308.4,172.1 247.5,71.9" stroke-width="1.7" fill="currentColor" fill-opacity="0.05"/>
+        <polygon points="339.6,110.1 308.4,172.1 400.5,105.1" stroke-width="1.7" fill="currentColor" fill-opacity="0.12"/>
+        <line x1="339.6" y1="110.1" x2="308.4" y2="172.1" stroke-width="2.8"/>
+        <!-- construction: perpendiculars to the crease, one in each face -->
+        <g stroke-width="1.1" stroke-dasharray="3 2.5" opacity="0.65">
+          <line x1="324" y1="141.1" x2="287.0" y2="113.8"/>
+          <line x1="324" y1="141.1" x2="364.2" y2="118.7"/>
+        </g>
+        <path d="M 299.9 123.3 A 30 30 0 0 1 350.2 126.5" stroke-width="1.5" opacity="0.9"/>
+        <circle cx="324" cy="141.1" r="2" fill="currentColor" stroke="none" opacity="0.7"/>
+        <circle cx="247.5" cy="71.9" r="4" fill="currentColor" stroke="none"/>
+        <circle cx="400.5" cy="105.1" r="4" fill="currentColor" stroke="none"/>
+        <circle cx="339.6" cy="110.1" r="4" fill="currentColor" stroke="none"/>
+        <circle cx="308.4" cy="172.1" r="4" fill="currentColor" stroke="none"/>
+        <text x="313" y="106" text-anchor="middle" font-size="16" font-style="italic" paint-order="stroke" stroke="var(--theme-background,#ffffff)" stroke-width="3.5" stroke-linejoin="round" fill="currentColor">&#952;</text>
+        <text x="324" y="219" text-anchor="middle" font-size="12" font-weight="600" stroke="none" fill="currentColor">(b) bending</text>
+        <text x="324" y="234" text-anchor="middle" font-size="10" stroke="none" fill="currentColor" opacity="0.85">curvature away from flat</text>
       </svg>
-      <figcaption>A triangular shell element. Vertex positions are the only
-      unknowns. (a) Membrane stress resists in-plane stretching; (b) bending
-      stress resists folding neighboring triangles about a shared edge.</figcaption>
+      <figcaption>Triangular shell elements. 3D Vertex positions are the
+      unknowns. (a) Membrane stress resists stretching and shearing within the
+      plane of the triangle; (b) bending stress resists the surface curving
+      away from flat, measured at each vertex from the fold of the surrounding
+      triangles.</figcaption>
     </figure>
   </script>
 
-  <script id="intro" type="text/markdown">
-    ## Which means linear algebra
-
-    Finding that resting shape, and then the gentle modes the strip would wobble
-    in if you flicked it, is a linear algebra problem underneath. Settling the
-    sheet means solving large systems of equations over and over. Finding the
-    modes means solving an eigenvalue problem. In Python this is a non-event:
-    SciPy hands the matrices to LAPACK, the Fortran library that has quietly sat
-    under numpy, MATLAB, and most scientific computing for forty years. In the
-    browser there is nothing of the kind.
-
-    The obvious workaround is to compile a C++ library to WebAssembly, and I did
-    get a [proof of concept](https://observablehq.com/@rreusser/eigen) running with
-    Eigen. But it covers only a fraction of LAPACK's routines, and shuttling memory
-    by hand across the JavaScript and WebAssembly boundary never felt ergonomic
-    enough to see through.
-
-    So the route that finally worked is the gap the first half of this story is
-    about. The solvers running below are the AI-assisted translations of that
-    Fortran, checked number for number against the reference. The whole
-    computation happens in the page you are reading: no server, no Python, no
-    WebAssembly black box.
-  </script>
-
   <script id="imports" type="text/x-typescript">
+    import * as d3 from 'npm:d3@7';
     import { createWebGPUContext } from './lib/webgpu-canvas.js';
     import { createUnifiedCamera } from './lib/unified-camera.js';
     import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js';
@@ -267,7 +260,7 @@
     import { createFrameLoop } from './lib/frame-loop.js';
     import { collapseCodeBlocks } from './lib/collapsible-code.js';
     import {
-      createMobiusMesh, initialEmbedding,
+      createMobiusMesh, createFlatStrip, initialEmbedding, energyAndGradient,
       membraneVonMises, bendingStress, gaussianCurvature,
     } from './mobius-fem.js';
     import { rodEmbedding } from './mobius-rod.js';
@@ -275,6 +268,8 @@
     import { buildMeshBVH, raycastMesh, screenToRay } from './lib/ray-mesh.js';
     import { peelShaderCode, compositeShaderCode } from './peel-shaders.js';
     import { createPeelRenderer } from './peel-renderer.js';
+    import { createColorLegend } from './lib/color-legend.js';
+    import { buildPermutation } from './modes.js';
   </script>
 
   <script id="gpu-context" type="text/x-typescript">
@@ -296,6 +291,14 @@
       anim: { phase: 0, last: 0 },
       staticDirty: true,
       previewing: false, // true while relax() drives a live convergence preview
+      // One-shot camera re-framing, shared by both viewers. Set on each event that
+      // moves the shape (drag release, solve settled, preview start/end), then
+      // eased toward the mesh centroid until it settles and cleared. Not a
+      // perpetual ease, which would fight the user panning into part of the model.
+      // Each viewer owns a flag and clears it from its own frame loop, so the one
+      // on screen re-frames itself; the hero cannot depend on the main viewer's
+      // loop, which stops running while the main viewer is scrolled out of view.
+      camera: { easeMain: false, easeHero: false, dragging: false },
       renderParams: {
         view: 'Equilibrium',   // 'Equilibrium' | 'Flexural mode'
         modeIndex: 1,
@@ -314,70 +317,234 @@
     };
   </script>
 
+  <script id="camera-ease" type="text/x-typescript">
+    // Neither viewer ever recenters the mesh. Instead each eases its own focal
+    // point toward the mesh centroid a little per frame, so a dragged, off-center
+    // strip re-frames smoothly without the geometry itself jumping. Returns true
+    // (and taints the camera, which renders it) if the focal point moved.
+    // This lives in its own cell so both viewers can call it: the main cell
+    // already depends on the hero's canvas, so the helper cannot live there.
+    const CAMERA_EASE = 0.1;
+
+    function centroidOf(pos: any, Nv: number): number[] | null {
+      if (!pos || !Nv || pos.length !== Nv * 3) return null;
+      let cx = 0, cy = 0, cz = 0;
+      for (let v = 0; v < Nv; v++) { cx += pos[v*3]; cy += pos[v*3+1]; cz += pos[v*3+2]; }
+      return [cx / Nv, cy / Nv, cz / Nv];
+    }
+
+    function easeCameraToCentroid(cam: any, pos: any, Nv: number): boolean {
+      const c = centroidOf(pos, Nv);
+      if (!c) return false;
+      const cen = cam.state.center;
+      const dx = c[0] - cen[0], dy = c[1] - cen[1], dz = c[2] - cen[2];
+      if (dx*dx + dy*dy + dz*dz < 1e-7) return false;
+      cen[0] += CAMERA_EASE * dx; cen[1] += CAMERA_EASE * dy; cen[2] += CAMERA_EASE * dz;
+      cam.taint();
+      return true;
+    }
+
+    // Hard reset: drop the focal point straight onto the centroid, no easing. For
+    // a shape that is *loaded* outright rather than deformed (the Elastic rod
+    // button restarts the pipeline), drifting the camera in just reads as lag.
+    function snapCameraToCentroid(cam: any, pos: any, Nv: number): void {
+      const c = centroidOf(pos, Nv);
+      if (!c) return;
+      const cen = cam.state.center;
+      cen[0] = c[0]; cen[1] = c[1]; cen[2] = c[2];
+      cam.taint();
+    }
+  </script>
+
   <script id="theory-element" type="text/markdown">
-    ## The shape of the computation
-
-    A little structure shows why this needs real linear algebra, and which
-    routines do the work. Stack every vertex coordinate into one long vector
-    ${tex`x`}. The elastic energy ${tex`E(x)`} is just the sum of the membrane and
-    bending terms from the figure above, and the resting strip is the ${tex`x`}
-    that makes it as small as possible.
-
-    That minimum is found by default with
-    [L-BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS), a quasi-Newton
-    method that needs only the energy and its gradient ${tex`\nabla E`} and never
-    forms a matrix at all. Its inner loop is nothing heavier than dot products and
-    scaled vector sums, the ${tex`\texttt{ddot}`} and ${tex`\texttt{daxpy}`} level
-    of BLAS.
-
-    Two Newton solvers are offered alongside it. A Newton method uses the
-    curvature of the energy, the stiffness matrix ${tex`K`} that says how
-    ${tex`E`} bends around the current shape, to aim each step, solving
-    ${tex`K p = -\nabla E`} for the update ${tex`p`}. The first, Newton-CG, never
-    builds ${tex`K`}: it needs only the products ${tex`K v`}, formed by
-    finite-differencing the gradient, and finds ${tex`p`} with an inner
-    conjugate-gradient loop. The second assembles ${tex`K`} as a banded matrix and
-    solves that system directly with the banded Cholesky routine
-    ${tex`\texttt{dpbsv}`}. Both settle into a slightly lower, smoother minimum
-    than L-BFGS at higher cost, and the banded solve is the slowest of the three,
-    since the strip's energy is far from convex away from rest and the assembled
-    matrix needs heavy damping to stay solvable. It is kept mainly because it
-    runs the same kind of translated Fortran linear algebra, a direct banded
-    factorization, that the eigensolver below relies on.
+    Adding up the membrane and bending stresses of each triangle yields an overall
+    elastic energy ${tex`E(\mathbf{x}),`} where ${tex`\mathbf{x}`} is a vector containing
+    the ${tex`3n`} coordinates of all ${tex`n`} vertex positions.
+    The equilibrium shape the strip is the one that minimizes energy ${tex`E(\mathbf{x}).`}
+    The minimum is found with the [L-BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS)
+    method which requires the energy ${tex`E`} and its gradient ${tex`\nabla E.`}
+    The inner loop uses just dot products and vector sums, correponsing to the `ddot`
+    and `daxpy` BLAS methods.
   </script>
 
   <script id="theory-bending" type="text/markdown">
-    Once the strip is at rest, the shapes it would naturally ring in, its
-    vibration modes, are the solutions of a generalized eigenvalue problem
+    Just for fun, I decided to compute the vibrational bending modes as well. Nudge the strip away
+    from its resting shape and Newton's law governs what happens next, in terms of two matrices: the
+    stiffness ${tex`K = \nabla^2 E`}, the curvature of the energy at the minimum, and a mass matrix
+    ${tex`M`} carrying the inertia of the moving vertices. Looking for motions in which every vertex
+    oscillates in step at a single frequency turns that into a generalized eigenvalue problem.
 
-    ${tex.block`K\,\phi = \omega^2 M\,\phi,`}
+    <details style="margin:0.5rem 0 1.75rem;border:1px solid rgba(127,127,127,0.28);border-radius:8px;padding:0.5rem 0.9rem 0.9rem">
+    <summary style="cursor:pointer;font-weight:600">The eigenvalue problem for bending modes</summary>
 
-    with the same stiffness ${tex`K`} and a mass matrix ${tex`M`}. The eigenvalues
-    ${tex`\omega^2`} are the squared frequencies and the eigenvectors ${tex`\phi`}
-    are the mode shapes. This goes to a symmetric eigensolver,
-    ${tex`\texttt{dsbgvx}`} for the banded case or ${tex`\texttt{dsygvx}`} for the
-    dense one, again translated from Fortran. The lowest six eigenvalues come out
-    near zero, the rigid-body motions of a strip floating freely in space; the
-    modes worth looking at are the next ones up.
+    Expanding the energy to second order in a small displacement ${tex`\mathbf{u}`} away from the
+    equilibrium shape gives
+
+    ${tex.block`E(\mathbf{x} + \mathbf{u}) \approx E(\mathbf{x}) + \tfrac{1}{2}\,\mathbf{u}^{\top} K\,\mathbf{u}.`}
+
+    (There is no term linear in ${tex`\mathbf{u}`} since the gradient vanishes at equilibrium.)
+    The matrix ${tex`K = \nabla^2 E`} is the curvature of the energy, representing
+    restoring force per unit of displacement.
+
+    That is an energy, though, and a vibration is a motion, so it takes one more step to connect the
+    two. The elastic force is the negative gradient of the energy, and differentiating the expansion
+    above with respect to the displacement drops the constant and leaves the quadratic term,
+
+    ${tex.block`\mathbf{f}(\mathbf{u}) \;=\; -\nabla_{\mathbf{u}} E(\mathbf{x} + \mathbf{u}) \;\approx\; -K\,\mathbf{u},`}
+
+    using ${tex`\nabla_{\mathbf{u}}\!\left(\tfrac{1}{2}\,\mathbf{u}^{\top} K\,\mathbf{u}\right) = K\,\mathbf{u}`}
+    for symmetric ${tex`K`}. Equivalently, expand the gradient itself rather than the energy:
+    ${tex`\nabla E(\mathbf{x} + \mathbf{u}) = \nabla E(\mathbf{x}) + K\,\mathbf{u} + O(\lVert\mathbf{u}\rVert^2)`},
+    whose first term is zero precisely because the strip sits at equilibrium. Either way the strip
+    pushes back in proportion to how far it has been displaced, which is Hooke's law with a matrix
+    where the spring constant used to be.
+
+    The kinetic energy of the moving vertices,
+    ${tex`T = \tfrac{1}{2}\,\dot{\mathbf{u}}^{\top} M\,\dot{\mathbf{u}}`}, supplies their inertia
+    through the mass matrix ${tex`M`}. Newton's law for the nudged strip is then simply
+
+    ${tex.block`M\,\ddot{\mathbf{u}} = -K\,\mathbf{u}.`}
+
+    A vibration mode is a motion in which every vertex oscillates in step at one frequency, the
+    shape itself held fixed. For harmonic motion at frequency ${tex`\omega`} the acceleration is
+    just ${tex`\ddot{\mathbf{u}} = -\omega^2\,\mathbf{u}`}, so the two time derivatives collapse to
+    a factor of ${tex`-\omega^2`}, the minus signs cancel from both sides, and what survives is the
+    eigenvalue problem below.
+
+    </details>
+
+    ${tex.block`K\,\mathbf{u} = \omega^2 M\,\mathbf{u}.`}
+
+    The eigenvalues ${tex`\omega^2`} are the squared frequencies and the eigenvectors
+    ${tex`\mathbf{u}`} are the mode shapes. After some trial and error using different LAPACK solvers which
+    exploit different optimizations like the banded and symmetric nature of the matrices,
+    I settled on ARPACK's ${tex`\texttt{dsband}`} method for computing the lowest-order
+    modes, with the banded ${tex`\texttt{dsbgvx}`} and dense ${tex`\texttt{dsygvx}`} from LAPACK
+    kept as cross-checks.
   </script>
 
-  <script id="theory-modes" type="text/markdown">
-    ## Getting it to run in a browser
+  <script id="sparsity-aside" type="text/x-typescript">
+    // Optional deep-dive, collapsed by default so it doesn't interrupt the arc.
+    // Holds the practical efficiency story end to end: the Mobius seam's effect on
+    // the bandwidth, the interactive sparsity pattern (structural only, no FEM
+    // solve), the choice of eigensolver, and where the banded approach stops short.
+    // The sliders re-render imperatively.
+    {
+      const details = html`<details style="margin:0.5rem 0 1.75rem;border:1px solid rgba(127,127,127,0.28);border-radius:8px;padding:0.5rem 0.9rem 0.9rem"></details>`;
+      details.appendChild(html`<summary style="cursor:pointer;font-weight:600">Some notes on sparsity</summary>`);
+      const body = html`<div style="margin-top:0.85rem"></div>`;
+      details.appendChild(body);
 
-    None of this comes for free in a web page, and the Möbius topology adds a
-    twist of its own. Gluing the two ends of the mesh together connects vertices
-    that started out far apart, which (in the obvious numbering) smears ${tex`K`}
-    into a wide band and makes the solvers crawl. Renumbering the vertices so the
-    glued partners sit next to each other pulls everything back into a narrow
-    band, and that is what lets the banded routines above stay fast. Small fixes
-    like this, multiplied across every routine, are most of the work of carrying
-    forty-year-old Fortran into a setting it was never written for.
+      body.appendChild(html`<p style="margin:0 0 0.85rem">Since each triangle shares only two vertices with each neighbor, the stiffness matrix is sparse. Gluing the the mesh together where it wraps, though, connects vertices that started out far apart. The obvious vertex numbering therefore scatters the pairings and and ${tex`K`} spreads into a wide band (note entries in the lower-left and upper-right corners of the lefthand matrix below), effectively increasing the bandwidth to the full size of the matrix. Renumbering the vertices so each seam partner sits beside its mate pulls it back into a narrow band, and only a narrow band is cheap enough for the banded LAPACK routines. Drag the sliders to watch the pattern, bandwidth, and density track the mesh.</p>`);
 
-    And it works. The strip below was relaxed, and its modes computed, entirely in
-    your browser. Drag a vertex and it re-settles in real time; switch to a
-    flexural mode and you are watching solutions of the eigenproblem above. That
-    is the whole point. Once the tedious translation is unlocked, you get to make
-    things, and bend them with your mouse.
+      // Imperative controls (read .value, listen 'input') — no cross-cell reactivity.
+      const controls = html`<div style="display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;margin:0 0 0.85rem"></div>`;
+      const nuInput = Inputs.range([8, 128], { label: 'Segments around', step: 1, value: 64 });
+      const nvInput = Inputs.range([4, 32], { label: 'Segments across', step: 2, value: 10 });
+      controls.append(nuInput, nvInput);
+      body.appendChild(controls);
+
+      const figWrap = html`<div></div>`;
+      body.appendChild(figWrap);
+
+      // Theme-aware point color, parsed to RGB for direct ImageData writes.
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;color:var(--theme-foreground-focus, #3b82f6)';
+      document.body.appendChild(probe);
+      const cmatch = getComputedStyle(probe).color.match(/[\d.]+/g) || ['59', '130', '246'];
+      probe.remove();
+      const pr = +cmatch[0] | 0, pg = +cmatch[1] | 0, pb = +cmatch[2] | 0;
+
+      function spy(px: number, n: number, blocks: Set<number>, Nv: number, orderOf: (d: number) => number): HTMLCanvasElement {
+        const dpr = devicePixelRatio || 1;
+        const W = Math.max(1, Math.round(px * dpr));
+        const cv = document.createElement('canvas');
+        cv.width = W; cv.height = W;
+        cv.style.cssText = `width:${px}px;height:${px}px;border:1px solid rgba(127,127,127,0.35);border-radius:4px;background:rgba(127,127,127,0.05);max-width:100%`;
+        const ctx = cv.getContext('2d')!;
+        const img = ctx.createImageData(W, W);
+        const data = img.data;
+        const s = W / n;
+        const dot = Math.max(1, Math.floor(s));
+        const plot = (i: number, j: number) => {
+          const x0 = Math.min(W - dot, (j * s) | 0), y0 = Math.min(W - dot, (i * s) | 0);
+          for (let dy = 0; dy < dot; dy++) {
+            let idx = ((y0 + dy) * W + x0) * 4;
+            for (let dx = 0; dx < dot; dx++) { data[idx] = pr; data[idx+1] = pg; data[idx+2] = pb; data[idx+3] = 255; idx += 4; }
+          }
+        };
+        for (const key of blocks) {
+          const va = Math.floor(key / Nv), vb = key % Nv;
+          for (let ci = 0; ci < 3; ci++) { const i = orderOf(va*3+ci); for (let cj = 0; cj < 3; cj++) plot(i, orderOf(vb*3+cj)); }
+        }
+        ctx.putImageData(img, 0, 0);
+        return cv;
+      }
+
+      const pct = (x: number) => `${(100 * x).toFixed(1)}%`;
+      const panel = (cv: HTMLCanvasElement, heading: string, sub: string) => {
+        const wrap = html`<div style="display:flex;flex-direction:column;align-items:center;gap:6px;max-width:100%"></div>`;
+        wrap.appendChild(cv);
+        wrap.appendChild(html`<div style="text-align:center;font:12px/1.4 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777)"><strong style="color:var(--theme-foreground,#222)">${heading}</strong><br>${sub}</div>`);
+        return wrap;
+      };
+
+      function render() {
+        const model = createMobiusMesh({ length: 2 * Math.PI, width: 1, nu: Math.round(nuInput.value as number), nv: Math.round(nvInput.value as number) });
+        const { Nv } = model;
+        const n = 3 * Nv;
+        const { dofPerm, bw } = buildPermutation(model);
+
+        // Structural nonzeros: each vertex couples to its Laplacian 1-ring and,
+        // through the quadratic bending residual at each vertex, to every pair
+        // within that ring (the 2-ring stencil). Covers the membrane triangles too.
+        const nbrs: number[][] = Array.from({ length: Nv }, () => []);
+        for (let e = 0; e < model.nLap; e++) { nbrs[model.lapI[e]].push(model.lapJ[e]); nbrs[model.lapJ[e]].push(model.lapI[e]); }
+        const blocks = new Set<number>();
+        const addPair = (a: number, b: number) => { blocks.add(a * Nv + b); blocks.add(b * Nv + a); };
+        for (let v = 0; v < Nv; v++) {
+          blocks.add(v * Nv + v);
+          const nb = nbrs[v];
+          for (let a = 0; a < nb.length; a++) {
+            addPair(v, nb[a]);
+            for (let b = a + 1; b < nb.length; b++) addPair(nb[a], nb[b]);
+          }
+        }
+
+        let maxV = 0;
+        for (const key of blocks) { const d = Math.abs(Math.floor(key / Nv) - (key % Nv)); if (d > maxV) maxV = d; }
+        const natBw = maxV * 3 + 2;
+        const nnz = blocks.size * 9;
+
+        const PX = 280;
+        const fig = html`<figure style="margin:0"></figure>`;
+        const rowEl = html`<div style="display:flex;flex-wrap:wrap;gap:24px;justify-content:center;align-items:flex-start"></div>`;
+        rowEl.append(
+          panel(spy(PX, n, blocks, Nv, (d) => d), 'Natural ordering', `bandwidth ≈ ${natBw} of ${n}`),
+          panel(spy(PX, n, blocks, Nv, (d) => dofPerm[d]), 'Bandwidth-reduced (used)', `bandwidth = ${bw} of ${n}`),
+        );
+        fig.appendChild(rowEl);
+        fig.appendChild(html`<figcaption style="margin-top:0.75rem;font:13px/1.5 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);text-align:center">
+          ${model.nu}&times;${model.nv} segments &rarr; ${n}&times;${n} matrix, ${nnz.toLocaleString()} nonzeros (${pct(nnz / (n * n))} dense).
+          Reordering shrinks the bandwidth from ${natBw} to ${bw}; even then only ${pct(nnz / (n * (2 * bw + 1)))}
+          of the stored band is actually nonzero, which is the room a sparse solver would reclaim.
+        </figcaption>`);
+        figWrap.replaceChildren(fig);
+      }
+      render();
+      nuInput.addEventListener('input', render);
+      nvInput.addEventListener('input', render);
+
+      body.appendChild(html`<p style="margin:0.85rem 0 0">Which eigensolver runs on that band matters as much as the band itself. Only a few of the lowest modes are wanted, yet the classic banded routine (<code>dsbgvx</code>) reduces the entire band to tridiagonal form, and most of that cost goes into accumulating an ${tex`n\times n`} rotation matrix used only to recover those few eigenvectors, work that scales like ${tex`n^3`}. A better fit for a handful of eigenpairs is shift-invert Lanczos (ARPACK's (<code>dsband</code>): factor ${tex`K-\sigma M`} once as a band, then apply its inverse a few dozen times to converge on the lowest frequencies, never forming an ${tex`n\times n`} matrix. On the default mesh the mode solve runs about 9 times faster, and the advantage grows with resolution, past 25 times on a ${tex`96\times16`} mesh, because it is precisely the ${tex`n\times n`} work that shift-invert skips.</p>`);
+
+      body.appendChild(html`<p style="margin:0.85rem 0 0">That narrow band is also where this approach stops short. A banded solver still grinds through every entry inside the band, and most of them are zero. A proper sparse solver would skip them, but the band is small enough here that it was not worth writing one.</p>`);
+
+      display(details);
+    }
+  </script>
+
+  <script id="theory-modes-run" type="text/markdown">
+    The figure below shows the computation with additional controls over the simulation and visualization.
   </script>
 
   <script id="controls" type="text/x-typescript">
@@ -431,11 +598,11 @@
     // shape a well-defined starting point.
     add(html`<div style="font-weight:600;margin:2px 0">Computation</div>`);
     const btnStyle = `
-      display:inline-flex;align-items:center;gap:5px;
-      padding:5px 11px;font:12px/1 var(--sans-serif,system-ui,sans-serif);
+      display:inline-flex;align-items:center;gap:6px;
+      padding:8px 15px;font:13px/1 var(--sans-serif,system-ui,sans-serif);
       color:var(--theme-foreground,#222);background:var(--theme-background-alt,rgba(127,127,127,0.14));
       border:1px solid var(--theme-foreground-faint,rgba(0,0,0,0.18));
-      border-radius:6px;cursor:pointer`;
+      border-radius:7px;cursor:pointer`;
     // The three stages of the computation, shown as a pipeline:
     //   Elastic rod  →  Relax  →  Flexural modes
     // "Elastic rod" loads the COLSYS rod shape; "Relax" settles it to the shell
@@ -477,8 +644,8 @@
         : 'newton-cg';
     };
 
-    const solverInput = add(Inputs.select(['Banded (dsbgvx)', 'Dense (dsygvx)'], {
-      label: 'Eigensolver', value: 'Banded (dsbgvx)',
+    const solverInput = add(Inputs.select(['Banded ARPACK (dsband)', 'Banded (dsbgvx)', 'Dense (dsygvx)'], {
+      label: 'Eigensolver', value: 'Banded ARPACK (dsband)',
     }));
     const modeInput = add(Inputs.range([1, 20], { label: 'Mode #', value: 1, step: 1 }));
 
@@ -556,10 +723,23 @@
     // move the highlight ring). The solve itself is the shared continuous worker
     // loop with a pin — there is no separate drag solve.
     let activeDrag: any = null;
-    // One-shot camera re-framing: set true on each drag release, eased toward the
-    // mesh centroid until it settles, then cleared. Not a perpetual ease (that
-    // would fight the user panning/zooming into part of the model).
-    let cameraEasing = false;
+    // Arm the one-shot re-framing on both viewers. Each eases itself from its own
+    // frame loop (see state.camera), so whichever one is on screen re-frames.
+    const reframeViewers = () => {
+      state.camera.easeMain = true;
+      state.camera.easeHero = true;
+    };
+
+    // Re-frame both viewers at once, cancelling any ease in flight. The eased path
+    // suits a shape that MOVES (drag release, spring-back, a settling solve); this
+    // one suits a shape that is REPLACED wholesale, where easing would only look
+    // like the camera lagging behind a cut.
+    const snapViewers = (pos: any, Nv: number) => {
+      state.camera.easeMain = false;
+      state.camera.easeHero = false;
+      snapCameraToCentroid(camera, pos, Nv);
+      snapCameraToCentroid(introCamera, pos, Nv);
+    };
 
     // Whether the main canvas is on screen. The one solver always runs in the
     // worker, but rendering a figure that is scrolled out of view is wasted GPU,
@@ -775,14 +955,15 @@
       relaxing = false;
       // Only a converged free solve is a valid equilibrium for the mode view.
       setEquilibrium(converged);
-      cameraEasing = true; // re-frame both viewers onto the settled shape
+      reframeViewers(); // re-frame both viewers onto the settled shape
     }
 
     function onModesProgress({ gen, phase, frac }: any) {
       if (gen !== modesGeneration) return;
       const model = state.sim.model;
       const n = model ? 3 * model.Nv : 0;
-      const solverName = (solverInput.value as string).startsWith('Dense') ? 'dsygvx' : 'dsbgvx';
+      const sv = solverInput.value as string;
+      const solverName = sv.startsWith('Dense') ? 'dsygvx' : sv.startsWith('Banded ARPACK') ? 'dsband' : 'dsbgvx';
       if (phase === 'hessian') {
         setProgress(`Assembling stiffness (FD Hessian) · ${Math.round((frac ?? 0) * 100)}%`, frac);
       } else {
@@ -803,7 +984,8 @@
       setProgress(null, null);
       camera.triggerRepaint();
       computingModes = false;
-      const solverUsed = (solverInput.value as string).startsWith('Dense') ? 'dsygvx (dense)' : 'dsbgvx (banded)';
+      const svd = solverInput.value as string;
+      const solverUsed = svd.startsWith('Dense') ? 'dsygvx (dense)' : svd.startsWith('Banded ARPACK') ? 'dsband (ARPACK shift-invert)' : 'dsbgvx (banded)';
       const model = state.sim.model;
       const n = model ? 3 * model.Nv : 0;
       console.log(`[eigensolver] ${solverUsed}  n=${n}  bw=${bw}  time=${ms} ms`);
@@ -860,7 +1042,7 @@
         poisson: poissonInput.value as number,
         thickness: thickInput.value as number,
         density: 1.0,
-        bendingMode: 'analytic' as const,
+        bendingMode: 'quadratic' as const,
       };
       const length = lengthInput.value as number;
       const width = 1.0;
@@ -890,7 +1072,7 @@
       state.sim.modes = null;
       state.previewing = true;
       setEquilibrium(false);   // solving: not at equilibrium until it converges
-      cameraEasing = true;     // re-frame both viewers onto the new shape
+      reframeViewers();       // re-frame both viewers onto the new shape
       dispX.set(X0);
       pushDisplay(dispX);
       renderNow();
@@ -920,7 +1102,7 @@
         poisson: poissonInput.value as number,
         thickness: thickInput.value as number,
         density: 1.0,
-        bendingMode: 'analytic' as const,
+        bendingMode: 'quadratic' as const,
       };
       const length = lengthInput.value as number;
       const width = 1.0;
@@ -936,7 +1118,7 @@
       relaxing = false;
       state.previewing = false;
       setEquilibrium(false); // an un-relaxed shape: lock out the modes view
-      cameraEasing = true;   // re-frame both viewers onto it
+      reframeViewers();     // re-frame both viewers onto it
       setProgress(null, null);
 
       const topoChanged = topo !== state.sim.topologyKey || dispX.length !== model.Nv * 3;
@@ -992,6 +1174,10 @@
       const r = buildRod();
       if (!r) return;
       showShape(r.model, r.X0);
+      // showShape() arms the ease (it is the shared path for the live geometry
+      // preview, where easing is right). Loading the rod is a hard cut back to the
+      // pipeline's entry point, so override that and land on the shape at once.
+      snapViewers(r.X0, r.model.Nv);
       seedWorker(r.model, r.X0);
       const { alpha, beta, closure } = r.info;
       setStatus(
@@ -1007,8 +1193,9 @@
       if (!atEquilibrium || !model || !X) { setStatus('Relax to an equilibrium first.'); return; }
       if (computingModes) worker.postMessage({ type: 'cancel' });
 
-      const solver = (solverInput.value as string).startsWith('Dense') ? 'dense' : 'banded';
-      const solverLabel = solver === 'dense' ? 'dsygvx (dense)' : 'dsbgvx (banded)';
+      const svValue = solverInput.value as string;
+      const solver = svValue.startsWith('Dense') ? 'dense' : svValue.startsWith('Banded ARPACK') ? 'arpack' : 'dsbgvx';
+      const solverLabel = solver === 'dense' ? 'dsygvx (dense)' : solver === 'arpack' ? 'dsband (ARPACK shift-invert)' : 'dsbgvx (banded)';
       // Use setProgress (with the bar) so the modes solve is visibly "happening"
       // in the same status line/progress bar as the equilibrium computation.
       setProgress(`Computing flexural modes (${solverLabel}, n = ${3 * model.Nv})…`, null);
@@ -1104,9 +1291,10 @@
         case 'Bending stress':
           return { field: bendingStress(model, positions, params), mode: 1 };
         case 'Gaussian curvature':
-          // Near-zero for a developable (ruled) surface; signed (saddle vs dome),
-          // so use the diverging colormap (mode 2) centered at zero.
-          return { field: gaussianCurvature(model, positions), mode: 2 };
+          // Near-zero for a developable (ruled) surface; signed (saddle vs dome).
+          // The diverging colormap + symmetric range (chosen in onColorByChange)
+          // put zero on the neutral midpoint.
+          return { field: gaussianCurvature(model, positions), mode: 1 };
         case 'Mode amplitude': {
           if (modes && modes.modes.length > 0) {
             const idx = Math.min(Math.max(rp.modeIndex - 1, 0), modes.modes.length - 1);
@@ -1134,13 +1322,34 @@
       return isFinite(lo) ? [lo, hi] : undefined;
     }
 
+    // Color-scale state shared with the legend. `auto` re-fits the scale to the
+    // data each frame (and mirrors it onto the legend); once the user drags or
+    // zooms the legend, `auto` turns off and the pinned [min, max] holds. A
+    // signed field (Gaussian curvature) fits symmetrically about zero.
+    const colorScale = { auto: true, min: 0, max: 1 };
+    let colorLegend: any = null;
+    const isDivergingColorBy = () => state.renderParams.colorBy === 'Gaussian curvature';
+
+    // Resolve the color range for this frame. `autoField` is the field the auto
+    // fit measures (the peak-deflection field while a mode animates, so the scale
+    // does not pump as the oscillation crosses zero; the live field otherwise).
+    function resolveRange(autoField: Float64Array | null): [number, number] | undefined {
+      if (!colorScale.auto) return [colorScale.min, colorScale.max];
+      const r = scalarRange(autoField);
+      if (!r) return undefined;
+      let lo = r[0], hi = r[1];
+      if (isDivergingColorBy()) { const a = Math.max(Math.abs(lo), Math.abs(hi)) || 1e-20; lo = -a; hi = a; }
+      colorScale.min = lo; colorScale.max = hi;
+      if (colorLegend) colorLegend.setRange(lo, hi);
+      return [lo, hi];
+    }
+
     // The color field is always evaluated at the displayed `positions` (so values
-    // are per-frame), but an optional `range` pins the color scale. While a mode
-    // animates we pass the peak-deflection range so the scale stays fixed instead
-    // of rescaling (and amplifying noise) as the oscillation passes through zero.
+    // are per-frame). `autoField` (optional) pins the auto fit to a fixed field.
     let peakBuf = new Float32Array(0);
-    function pushDisplay(positions: Float32Array, range?: [number, number]) {
+    function pushDisplay(positions: Float32Array, autoField?: Float64Array | null) {
       const { field, mode } = currentScalar(positions);
+      const range = resolveRange(autoField !== undefined ? autoField : field);
       renderer.update(positions, field, mode, state.sim.params?.thickness ?? 0.03, range);
     }
 
@@ -1171,10 +1380,10 @@
         // zero, while the color values themselves remain per-frame.
         if (peakBuf.length !== dispX.length) peakBuf = new Float32Array(dispX.length);
         for (let i = 0; i < dispX.length; i++) peakBuf[i] = X[i] + rp.amplitude * shape[i];
-        const range = scalarRange(currentScalar(peakBuf).field);
+        const peakField = currentScalar(peakBuf).field;
         const a = rp.amplitude * Math.sin(state.anim.phase);
         for (let i = 0; i < dispX.length; i++) dispX[i] = X[i] + a * shape[i];
-        pushDisplay(dispX, range);
+        pushDisplay(dispX, peakField);
         return true;
       }
       if (state.staticDirty) {
@@ -1197,6 +1406,54 @@
     const container = html`<div style="position:relative;width:100%;height:100%"></div>`;
     container.appendChild(canvas);
 
+    // ParaView-style color-scale legend, lower-right of the figure. Dragging it
+    // pans the color scale and the mouse wheel zooms it; the palette button picks
+    // a different colormap. All three feed back into the rendered surface.
+    colorLegend = createColorLegend({
+      min: colorScale.min, max: colorScale.max,
+      colormap: 'turbo',
+      label: state.renderParams.colorBy,
+      onRangeChange: ({ min, max }: { min: number; max: number }) => {
+        colorScale.auto = false;
+        colorScale.min = min; colorScale.max = max;
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
+      onColormapChange: () => {
+        renderer.setColormap(colorLegend.getLUT());
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
+      // Double-click the legend to re-fit the scale to the current data range.
+      onReset: () => {
+        colorScale.auto = true;
+        state.staticDirty = true;
+        camera.triggerRepaint();
+      },
+    });
+    colorLegend.element.style.right = '10px';
+    colorLegend.element.style.bottom = '10px';
+    container.appendChild(colorLegend.element);
+    // Seed the renderer's colormap LUT from the legend's initial colormap.
+    renderer.setColormap(colorLegend.getLUT());
+    invalidation.then(() => colorLegend.destroy());
+
+    // Switching "Color by" re-fits the scale (auto on) and picks a fitting
+    // colormap: diverging cool–warm for the signed Gaussian curvature, turbo for
+    // the non-negative stress/amplitude fields.
+    function onColorByChange() {
+      const cb = colorByInput.value as string;
+      colorScale.auto = true;
+      // Derive from the fresh input value: this listener runs before syncParams
+      // (which bubbles to the controls container) updates state.renderParams.
+      colorLegend.setColormap(cb === 'Gaussian curvature' ? 'coolwarm' : 'turbo');
+      colorLegend.setLabel(cb);
+      renderer.setColormap(colorLegend.getLUT());
+      state.staticDirty = true;
+      camera.triggerRepaint();
+    }
+    colorByInput.addEventListener('input', onColorByChange);
+
     camera.on('render', () => {
       if (!mainVisible) return;
       renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, true);
@@ -1208,26 +1465,6 @@
     canvas.addEventListener('mousedown', () => {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     });
-
-    // The mesh is never recentered; instead each viewer eases its focal point
-    // toward the mesh centroid a little each frame, so a dragged, off-center mesh
-    // re-frames smoothly without the mesh itself jumping. Returns true (and marks
-    // the camera dirty, which renders it) if the focal point moved this frame.
-    const CAMERA_EASE = 0.1;
-    function easeCameraToCentroid(cam: any): boolean {
-      const m = state.sim.model;
-      if (!m || dispX.length !== m.Nv * 3) return false;
-      const Nv = m.Nv;
-      let cx = 0, cy = 0, cz = 0;
-      for (let v = 0; v < Nv; v++) { cx += dispX[v*3]; cy += dispX[v*3+1]; cz += dispX[v*3+2]; }
-      cx /= Nv; cy /= Nv; cz /= Nv;
-      const cen = cam.state.center;
-      const dx = cx - cen[0], dy = cy - cen[1], dz = cz - cen[2];
-      if (dx*dx + dy*dy + dz*dz < 1e-7) return false;
-      cen[0] += CAMERA_EASE * dx; cen[1] += CAMERA_EASE * dy; cen[2] += CAMERA_EASE * dz;
-      cam.taint();
-      return true;
-    }
 
     const mainIO = new IntersectionObserver((entries) => {
       mainVisible = entries.some((e) => e.isIntersecting);
@@ -1244,16 +1481,15 @@
       if (!mainVisible) return; // don't render while scrolled out of view
       const animating = showingMode() && state.renderParams.amplitude > 0;
       const changed = computeDisplayed();
-      // Re-frame both viewers by easing toward the mesh centroid -- only after a
-      // drag release (cameraEasing), and only until it settles. It is a one-shot,
-      // not a perpetual ease, so it never fights the user panning/zooming into
-      // part of the model afterward.
+      // Re-frame this viewer by easing toward the mesh centroid, only once armed
+      // and only until it settles. It is a one-shot, not a perpetual ease, so it
+      // never fights the user panning/zooming into part of the model afterward.
+      // The hero runs the same rule from its own loop.
       let easedMain = false;
-      if (cameraEasing && !activeDrag) {
-        easedMain = easeCameraToCentroid(camera);       // renders the main via taint
-        const easedIntro = easeCameraToCentroid(introCamera);
-        // Stop once both have settled and the spring-back is no longer streaming.
-        if (!easedMain && !easedIntro && !state.previewing) cameraEasing = false;
+      if (state.camera.easeMain && !state.camera.dragging) {
+        easedMain = easeCameraToCentroid(camera, dispX, state.sim.model?.Nv ?? 0); // renders via taint
+        // Stop once it has settled and the spring-back is no longer streaming.
+        if (!easedMain && !state.previewing) state.camera.easeMain = false;
       }
       if (!easedMain) renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, changed);
       if (animating) state.anim.phase += dt * state.renderParams.speed * 2.2;
@@ -1379,53 +1615,109 @@
           worker.postMessage({ type: 'movePin', target: t });
         }
 
-        // mousedown (capture phase on the host) runs before the camera's own
-        // mousedown on the canvas, so a vertex grab can suppress camera rotation.
-        // Grabbing just pins a vertex on the already-running continuous solve; it
-        // does not start a separate solve, so the iteration mechanism (and the
-        // status readout) is the same whether or not a vertex is being dragged.
-        host.addEventListener('mousedown', (e: MouseEvent) => {
-          if (e.button !== 0 || activeDrag || !enabled()) return;
-          // Let clicks on overlay controls (e.g. the restart button) through.
-          if ((e.target as HTMLElement).closest('button')) return;
-          const v = pickVertex(cam, cnv, e.clientX, e.clientY);
-          if (v < 0) return; // missed: let the camera handle it (rotate)
-          e.preventDefault();
-          e.stopImmediatePropagation();
+        // Shared grab/move/release used by both mouse and touch. Grabbing just
+        // pins a vertex on the already-running continuous solve; it does not start
+        // a separate solve, so the iteration mechanism (and the status readout) is
+        // the same whether or not a vertex is being dragged. Returns true if a
+        // vertex was actually grabbed at (clientX, clientY).
+        function beginDrag(clientX: number, clientY: number): boolean {
+          const v = pickVertex(cam, cnv, clientX, clientY);
+          if (v < 0) return false; // missed: caller lets the camera handle it
           state.previewing = true;                 // the live solve owns the display
           setEquilibrium(false);                   // deforming: leave equilibrium (modes lock out)
           const X = displayedX();                  // grab from the shape currently on screen
           const grabPos = [X[v*3], X[v*3+1], X[v*3+2]];
           activeDrag = {
             v, grabPos,
-            startX: e.clientX, startY: e.clientY, curX: e.clientX, curY: e.clientY,
+            startX: clientX, startY: clientY, curX: clientX, curY: clientY,
             showRing: showRingAt,
           };
+          state.camera.dragging = true; // both viewers hold off re-framing mid-drag
           cnv.style.cursor = 'grabbing';
+          showRingAt(grabPos[0], grabPos[1], grabPos[2]); // touch has no hover, so show it now
           worker.postMessage({ type: 'setPin', v, target: grabPos });
+          return true;
+        }
+
+        function moveDrag(clientX: number, clientY: number) {
+          if (!activeDrag) return;
+          activeDrag.curX = clientX; activeDrag.curY = clientY;
+          sendTarget();
+        }
+
+        function endDrag() {
+          if (!activeDrag) return;
+          // Release the pin; the same continuous solve relaxes back to the true
+          // equilibrium and reports it (no separate spring-back pass).
+          worker.postMessage({ type: 'clearPin' });
+          activeDrag = null;
+          state.camera.dragging = false;
+          pickCache = null; // shape changes as it springs back
+          cnv.style.cursor = 'grab';
+          hideRing();
+          reframeViewers(); // re-frame once toward the (now off-center) mesh
+        }
+
+        // Suppress browser touch gestures (scroll/zoom) over the figure so a
+        // vertex drag — and the camera's own touch controls — get the events.
+        cnv.style.touchAction = 'none';
+
+        // mousedown / touchstart (capture phase on the host) run before the
+        // camera's own handlers on the canvas, so a vertex grab can suppress
+        // camera rotation. A miss (or multi-touch) falls through to the camera.
+        host.addEventListener('mousedown', (e: MouseEvent) => {
+          if (e.button !== 0 || activeDrag || !enabled()) return;
+          // Let clicks on overlay controls (e.g. buttons, the color legend) through.
+          if ((e.target as HTMLElement).closest('button, .color-legend')) return;
+          if (!beginDrag(e.clientX, e.clientY)) return;
+          e.preventDefault();
+          e.stopImmediatePropagation();
           window.addEventListener('mousemove', onDragMove);
           window.addEventListener('mouseup', onDragUp);
         }, true);
 
         function onDragMove(e: MouseEvent) {
           if (!activeDrag) return;
-          activeDrag.curX = e.clientX; activeDrag.curY = e.clientY;
-          sendTarget();
+          moveDrag(e.clientX, e.clientY);
           e.preventDefault();
         }
 
         function onDragUp() {
           window.removeEventListener('mousemove', onDragMove);
           window.removeEventListener('mouseup', onDragUp);
+          endDrag();
+        }
+
+        host.addEventListener('touchstart', (e: TouchEvent) => {
+          // Extra fingers added mid-drag would otherwise reach the camera and
+          // start a pinch on top of the vertex drag — swallow them.
+          if (activeDrag) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+          if (!enabled()) return;
+          if (e.touches.length !== 1) return; // multi-touch → let the camera pinch/zoom
+          if ((e.target as HTMLElement).closest('button, .color-legend')) return;
+          const t = e.touches[0];
+          if (!beginDrag(t.clientX, t.clientY)) return; // miss → camera rotates
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          window.addEventListener('touchmove', onTouchDragMove, { passive: false });
+          window.addEventListener('touchend', onTouchDragEnd);
+          window.addEventListener('touchcancel', onTouchDragEnd);
+        }, { capture: true, passive: false });
+
+        function onTouchDragMove(e: TouchEvent) {
           if (!activeDrag) return;
-          // Release the pin; the same continuous solve relaxes back to the true
-          // equilibrium and reports it (no separate spring-back pass).
-          worker.postMessage({ type: 'clearPin' });
-          activeDrag = null;
-          pickCache = null; // shape changes as it springs back
-          cnv.style.cursor = 'grab';
-          hideRing();
-          cameraEasing = true; // re-frame once toward the (now off-center) mesh
+          const t = e.touches[0];
+          if (!t) return;
+          moveDrag(t.clientX, t.clientY);
+          e.preventDefault(); // hold the gesture (no page scroll) while dragging
+        }
+
+        function onTouchDragEnd(e: TouchEvent) {
+          if (e.touches && e.touches.length > 0) return; // wait until the last finger lifts
+          window.removeEventListener('touchmove', onTouchDragMove);
+          window.removeEventListener('touchend', onTouchDragEnd);
+          window.removeEventListener('touchcancel', onTouchDragEnd);
+          endDrag();
         }
 
         // Hover: highlight the nearest vertex (only when nothing is being dragged).
@@ -1446,6 +1738,9 @@
         invalidation.then(() => {
           window.removeEventListener('mousemove', onDragMove);
           window.removeEventListener('mouseup', onDragUp);
+          window.removeEventListener('touchmove', onTouchDragMove);
+          window.removeEventListener('touchend', onTouchDragEnd);
+          window.removeEventListener('touchcancel', onTouchDragEnd);
           overlay.remove();
         });
       }
@@ -1508,59 +1803,510 @@
     camera.triggerRepaint();
   </script>
 
-  <script id="notes" type="text/markdown">
-    ## Reading the picture
+  <script id="numerics-note" type="text/markdown">
+    The simulation is validated in a number of different ways. The elastic rod solution
+    is validated against the paper. Multiple algorithms are compared for the equilibrium and
+    bending mode steps of the computation. The linear algebra routines are compared to the
+    original Fortran throughout the translation process and error residuals checked for
+    converence. The elastic energy is validated for a flat strip and for an untwisted ring as
+    well as across mesh resolutions and triangle aspect ratios.
 
-    By default the surface is colored by the peak bending fiber stress, which
-    concentrates where the strip is forced to curve most sharply. "Color by" also
-    offers the membrane von Mises stress, a width gradient that makes the
-    one-sidedness visible (follow the band once around and the two edge colors
-    swap, since a Mobius strip has a single side and a single edge), and the
-    amplitude of the selected flexural mode, whose dark bands are its nodal lines.
+    A few problems were found. A number of linear algebra routines had errors, for example
+    containing a 0- vs 1-indexed integer error in a branch which covered larger matrices.
+    The first attempt at finite element problem setup only worked for equilateral triangular
+    elements and had to be upgraded.
 
-    Smooth shading uses per-vertex normals built from the glued connectivity, so
-    every vertex averages its full triangle ring. The surface is non-orientable,
-    so no globally consistent normal exists, but the tangent plane is continuous
-    everywhere and the lighting is two-sided, so the strip renders smoothly all
-    the way around with no seam.
-
-    The membrane stiffness is several orders of magnitude larger than the bending
-    stiffness, so the relaxed shape is nearly inextensible: it bends rather than
-    stretches, as a real strip of paper or metal would. Increasing the thickness
-    stiffens bending relative to stretching and rounds out the shape; thin strips
-    develop the sharper, more localized bend of the classical inextensible Mobius
-    band.
+    The button below runs a series of checks using the same functions as the above simulation.
   </script>
 
-  <script id="numerics-note" type="text/markdown">
-    ## Accuracy
+  <script id="validation-checks" type="text/x-typescript">
+    // Live validation table for the "Is it right?" section. Each row is one
+    // invariant of the elastic model with an analytic expectation; the checks
+    // run on small meshes in the main thread (well under a second total) and
+    // exercise exactly the energyAndGradient code the simulation uses.
+    const valBtnStyle = `
+      display:inline-flex;align-items:center;gap:6px;
+      padding:8px 15px;font:13px/1 var(--sans-serif,system-ui,sans-serif);
+      color:var(--theme-foreground,#222);background:var(--theme-background-alt,rgba(127,127,127,0.14));
+      border:1px solid var(--theme-foreground-faint,rgba(0,0,0,0.18));
+      border-radius:7px;cursor:pointer`;
+    const valCellStyle = `padding:5px 10px;border-bottom:1px solid var(--theme-foreground-faint,rgba(127,127,127,0.25));font:13px/1.45 var(--sans-serif,system-ui,sans-serif)`;
+    const valNumStyle = `${valCellStyle};font-family:var(--monospace,monospace);font-size:12px;white-space:nowrap`;
 
-    These checks verify both the FEM code and the translated solver. The analytic
-    energy gradient is verified against central differences to about
-    ${tex`10^{-10}`} relative error, the energy is exactly invariant under rigid
-motions, a flat unglued rectangle has exactly zero energy, and a rolled
-cylinder reproduces the continuum bending energy. The stiffness ${tex`K`} is
-formed by central differences of that gradient and is symmetric positive
-semidefinite with exactly six zero modes. The eigenpairs returned by
-${tex`\texttt{dsbgvx}`} satisfy ${tex`\lVert K\phi - \omega^2 M\phi\rVert
-\approx 10^{-15}`} and are ${tex`M`}-orthonormal, so the reported mode shapes
-    and frequencies are accurate to machine precision for the discrete model.
+    const validationButton = html`<button style="${valBtnStyle}">Run validation checks</button>` as HTMLButtonElement;
+    const validationTableWrap = html`<div style="overflow-x:auto;margin-top:10px"></div>`;
+    const validationRoot = html`<div style="margin:0.75rem 0"></div>`;
+    validationRoot.append(validationButton, validationTableWrap);
+
+    function runValidationChecks() {
+      const params = { E: 1, poisson: 0.35, thickness: 0.03 };
+      const h = params.thickness;
+      const D = (params.E * h * h * h) / (12 * (1 - params.poisson * params.poisson));
+      const L = 2 * Math.PI, W = 1;
+      const maxAbs = (a: Float64Array) => { let m = 0; for (const v of a) m = Math.max(m, Math.abs(v)); return m; };
+
+      // Flat unglued rectangle at its flat embedding: the rest state.
+      function flatRest() {
+        const m = createFlatStrip({ length: L, width: W, nu: 48, nv: 8 });
+        const g = new Float64Array(m.Nv * 3);
+        const r = energyAndGradient(m, m.flatEmbedding(), params, g);
+        return { E: Math.abs(r.energy), g: maxAbs(g) };
+      }
+
+      // Rest metric of the Mobius mesh: total area, and each interior edge's
+      // rest length recomputed from BOTH incident triangles' unwrapped charts
+      // (the seam triangles use different charts of the same flat strip).
+      function restMetric() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 64, nv: 10 });
+        let area = 0;
+        for (const a of m.triRestArea) area += a;
+        const lens = new Map<number, number[]>();
+        const key = (p: number, q: number) => (p < q ? p * m.Nv + q : q * m.Nv + p);
+        for (let k = 0; k < m.nT; k++) {
+          const m0 = m.triDmInv[k * 4], m1 = m.triDmInv[k * 4 + 1];
+          const m2 = m.triDmInv[k * 4 + 2], m3 = m.triDmInv[k * 4 + 3];
+          const det = m0 * m3 - m1 * m2;
+          const e1x = m3 / det, e1y = -m2 / det;   // rest edge r1 - r0
+          const e2x = -m1 / det, e2y = m0 / det;   // rest edge r2 - r0
+          const i0 = m.tris[k * 3], i1 = m.tris[k * 3 + 1], i2 = m.tris[k * 3 + 2];
+          const push = (p: number, q: number, len: number) => {
+            const kk = key(p, q);
+            if (!lens.has(kk)) lens.set(kk, []);
+            lens.get(kk)!.push(len);
+          };
+          push(i0, i1, Math.hypot(e1x, e1y));
+          push(i0, i2, Math.hypot(e2x, e2y));
+          push(i1, i2, Math.hypot(e2x - e1x, e2y - e1y));
+        }
+        let mismatch = 0;
+        for (const ll of lens.values())
+          if (ll.length === 2) mismatch = Math.max(mismatch, Math.abs(ll[0] - ll[1]) / Math.max(ll[0], ll[1]));
+        return { areaErr: Math.abs(area - L * W) / (L * W), mismatch };
+      }
+
+      // Energy of a bent configuration must not change under rigid motion.
+      function rigidInvariance() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 64, nv: 10 });
+        const X = initialEmbedding(m);
+        const E0 = energyAndGradient(m, X, params, null).energy;
+        const c = Math.cos(0.7), s = Math.sin(0.7), t = 1 - c;
+        const [ax, ay, az] = [1 / Math.sqrt(14), 2 / Math.sqrt(14), 3 / Math.sqrt(14)];
+        const Y = new Float64Array(X.length);
+        for (let v = 0; v < m.Nv; v++) {
+          const x = X[v * 3], y = X[v * 3 + 1], z = X[v * 3 + 2];
+          Y[v * 3]     = (t*ax*ax + c)    * x + (t*ax*ay - s*az) * y + (t*ax*az + s*ay) * z + 0.3;
+          Y[v * 3 + 1] = (t*ax*ay + s*az) * x + (t*ay*ay + c)    * y + (t*ay*az - s*ax) * z - 0.2;
+          Y[v * 3 + 2] = (t*ax*az - s*ay) * x + (t*ay*az + s*ax) * y + (t*az*az + c)    * z + 0.5;
+        }
+        const E1 = energyAndGradient(m, Y, params, null).energy;
+        return Math.abs(E1 - E0) / E0;
+      }
+
+      // Analytic gradient vs central finite differences of the energy, at a
+      // randomly perturbed (deterministic seed) configuration.
+      function gradientVsFD() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 24, nv: 6 });
+        const X = initialEmbedding(m);
+        let seed = 42;
+        const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5);
+        for (let i = 0; i < X.length; i++) X[i] += 0.05 * rnd();
+        const g = new Float64Array(X.length);
+        energyAndGradient(m, X, params, g);
+        const eps = 1e-6;
+        let worst = 0;
+        for (let sIdx = 0; sIdx < 45; sIdx++) {
+          const i = (sIdx * 37) % X.length;
+          const save = X[i];
+          X[i] = save + eps; const fp = energyAndGradient(m, X, params, null).energy;
+          X[i] = save - eps; const fm = energyAndGradient(m, X, params, null).energy;
+          X[i] = save;
+          const fd = (fp - fm) / (2 * eps);
+          worst = Math.max(worst, Math.abs(fd - g[i]) / Math.max(1e-8, Math.abs(fd)));
+        }
+        return worst;
+      }
+
+      // Rolling the flat strip onto a cylinder of radius R is an isometry, so
+      // the bending energy must reproduce the plate value (D/2) * area / R^2
+      // regardless of the mesh cell aspect (the quadrature area is the interior
+      // vertices' share, since free-boundary vertices carry no bending energy).
+      function cylinderRatio(aspect: number) {
+        const R = 1.5, nu = 64, nv = 10;
+        const dv = W / nv, du = dv * aspect, len = nu * du;
+        const m = createFlatStrip({ length: len, width: W, nu, nv });
+        const flat = m.flatEmbedding();
+        const X = new Float64Array(m.Nv * 3);
+        for (let v = 0; v < m.Nv; v++) {
+          const u = flat[v * 3];
+          X[v * 3] = R * Math.sin(u / R);
+          X[v * 3 + 1] = flat[v * 3 + 1];
+          X[v * 3 + 2] = R * (1 - Math.cos(u / R));
+        }
+        const r = energyAndGradient(m, X, params, null);
+        let aInt = 0;
+        for (let v = 0; v < m.Nv; v++) if (m.bendInterior[v]) aInt += m.bendAreaBar[v];
+        return r.bending / (0.5 * D * aInt / (R * R));
+      }
+
+      type Row = { name: string, expected: string, run: () => { value: string, ok: boolean } };
+      const fmt = (x: number) => x === 0 ? '0' : x.toExponential(1);
+      const checks: Row[] = [
+        { name: 'Flat rectangle: energy', expected: '0 (it is the rest state)',
+          run: () => { const r = flatRest(); return { value: fmt(r.E), ok: r.E < 1e-24 }; } },
+        { name: 'Flat rectangle: gradient', expected: '0 (no residual force)',
+          run: () => { const r = flatRest(); return { value: fmt(r.g), ok: r.g < 1e-14 }; } },
+        { name: 'Total rest area vs L·w (relative)', expected: '0 (round-off)',
+          run: () => { const r = restMetric(); return { value: fmt(r.areaErr), ok: r.areaErr < 1e-12 }; } },
+        { name: 'Seam rest lengths, both charts (relative)', expected: '0 (round-off)',
+          run: () => { const r = restMetric(); return { value: fmt(r.mismatch), ok: r.mismatch < 1e-12 }; } },
+        { name: 'Energy change under rigid motion (relative)', expected: '0 (round-off)',
+          run: () => { const r = rigidInvariance(); return { value: fmt(r), ok: r < 1e-10 }; } },
+        { name: 'Analytic gradient vs finite differences (relative)', expected: '0 (to FD accuracy, ~1e-6)',
+          run: () => { const r = gradientVsFD(); return { value: fmt(r), ok: r < 1e-5 }; } },
+        { name: 'Rolled cylinder / plate energy, square cells (du/dv = 1)', expected: '1 within 2%',
+          run: () => { const r = cylinderRatio(1); return { value: r.toFixed(4), ok: Math.abs(r - 1) < 0.02 }; } },
+        { name: 'Rolled cylinder / plate energy, stretched cells (du/dv = 2)', expected: '1 within 2%',
+          run: () => { const r = cylinderRatio(2); return { value: r.toFixed(4), ok: Math.abs(r - 1) < 0.02 }; } },
+      ];
+
+      const table = html`<table style="border-collapse:collapse;min-width:480px">
+        <thead><tr>
+          <th style="${valCellStyle};text-align:left">Check</th>
+          <th style="${valCellStyle};text-align:right">Computed</th>
+          <th style="${valCellStyle};text-align:left">Expected</th>
+          <th style="${valCellStyle};text-align:left"></th>
+        </tr></thead>
+      </table>`;
+      const tbody = html`<tbody></tbody>`;
+      table.appendChild(tbody);
+      validationTableWrap.replaceChildren(table);
+
+      let allOk = true;
+      for (const check of checks) {
+        let value = 'error', ok = false;
+        try {
+          ({ value, ok } = check.run());
+        } catch (err) {
+          value = String(err);
+        }
+        allOk = allOk && ok;
+        tbody.appendChild(html`<tr>
+          <td style="${valCellStyle}">${check.name}</td>
+          <td style="${valNumStyle};text-align:right">${value}</td>
+          <td style="${valCellStyle};color:var(--theme-foreground-muted,#777)">${check.expected}</td>
+          <td style="${valCellStyle};font-weight:600;color:${ok ? '#2ea043' : '#e5534b'}">${ok ? 'PASS' : 'FAIL'}</td>
+        </tr>`);
+      }
+      tbody.appendChild(html`<tr><td colspan="4" style="${valCellStyle};font-weight:600;color:${allOk ? '#2ea043' : '#e5534b'}">
+        ${allOk ? 'All checks passed.' : 'Some checks FAILED.'}</td></tr>`);
+    }
+
+    validationButton.addEventListener('click', runValidationChecks);
+    display(validationRoot);
+  </script>
+
+
+  <script type="text/markdown" id="modules-explanation">>
+    Including modules and their dependents for all variants of the algorithms implemented above, this page uses ${depsCount} translated routines, though only about ten are called directly. They've been validated and optimized. Additionally, about [899 of 1111](https://rreusser.github.io/blahpack/progress.html) BLAS/LAPACK algorithms have been translated in the blahpack repository.
+
+    The figure below shows all modules and the dependency chains. Click a node to navigate to the source code.
+  </script>
+
+  <script id="deps-data" type="text/x-typescript">
+    // Every BLAS / LAPACK / ARPACK / COLSYS routine this page actually runs, and
+    // which calls which. Node set and edges are derived from the Fortran sources
+    // (CALL statements + EXTERNAL declarations) and cross-checked against the
+    // routines physically present in the shipped bundles: every routine on disk
+    // appears here, and nothing here is absent from disk.
+    const depsGraph = await fetch(new URL('deps-graph.json', document.baseURI)).then((r) => r.json());
+    const depsCount = depsGraph.nodes.length;
+  </script>
+
+  <script id="deps-graph" type="text/x-typescript">
+    // The call graph is a pure DAG (the one exception is dpotrf2, LAPACK's
+    // recursive Cholesky, which calls itself), so it is drawn as a layered stack
+    // rather than a force-directed hairball: a routine always sits below every
+    // routine that calls it. Row 0 is what the notebook calls directly; the BLAS
+    // kernels settle to the bottom, which is exactly what "BLAS is the bottom of
+    // the stack" means. No force simulation, so the layout is deterministic.
+    {
+      const dark = matchMedia('(prefers-color-scheme: dark)').matches
+        || document.documentElement.dataset.theme === 'dark';
+      // Categorical slots 1/3/4/6 of the validated palette: blue, yellow, green,
+      // red. ARPACK was violet, but against BLAS blue that is a colourblind ΔE of
+      // 2.5 in dark mode — the same colour, in effect. Green scores 104.2 against
+      // the same blue. The weakest remaining pair is green vs yellow (ΔE 10.3 in
+      // dark), which is inside the floor band and so is legal only because every
+      // node carries a direct label and the roster below is a table view.
+      const PKG: any = {
+        blas:   { label: 'BLAS',   color: dark ? '#3987e5' : '#2a78d6' },
+        lapack: { label: 'LAPACK', color: dark ? '#c98500' : '#eda100' },
+        arpack: { label: 'ARPACK', color: '#008300' },
+        colsys: { label: 'COLSYS', color: dark ? '#e66767' : '#e34948' },
+      };
+
+      // Labels alternate above/below within a row, so same-side neighbours get two
+      // slots of clearance. In the widest row (27 nodes across the main band) that
+      // is ~57 units per label, which is what lets the type be this large.
+      const W = 1000, H = 780, PAD_X = 16, TOP = 46, BOT = 42;
+      const nodes = depsGraph.nodes.map((d: any) => ({ ...d }));
+      const byId = new Map<string, any>(nodes.map((n: any) => [n.id, n]));
+      const dag = depsGraph.edges.filter(([a, b]: any) => a !== b); // drop dpotrf2's self-call
+      const selfCalls = depsGraph.edges.filter(([a, b]: any) => a === b).map(([a]: any) => a);
+
+      const callees = new Map<string, string[]>(nodes.map((n: any) => [n.id, []]));
+      const callers = new Map<string, string[]>(nodes.map((n: any) => [n.id, []]));
+      for (const [a, b] of dag) { callees.get(a)!.push(b); callers.get(b)!.push(a); }
+
+      // Longest-path layering: a routine sits one row below its deepest caller.
+      const level = new Map<string, number>(nodes.map((n: any) => [n.id, 0]));
+      for (let i = 0; i < nodes.length; i++) {
+        let changed = false;
+        for (const [a, b] of dag) {
+          const want = level.get(a)! + 1;
+          if (want > level.get(b)!) { level.set(b, want); changed = true; }
+        }
+        if (!changed) break;
+      }
+      const maxLevel = Math.max(...level.values());
+      for (const n of nodes) n.level = level.get(n.id)!;
+
+      // COLSYS shares no routine with the other three (it carries its own
+      // almost-block-diagonal solver), so it is a separate connected component.
+      // Give it its own band on the right instead of letting it interleave.
+      const isColsys = (n: any) => n.pkg === 'colsys';
+      const mainBand = [PAD_X, W * 0.79];
+      const colBand = [W * 0.835, W - PAD_X];
+
+      const rows: any[][] = Array.from({ length: maxLevel + 1 }, () => []);
+      for (const n of nodes) rows[n.level].push(n);
+
+      const spread = (list: any[], [x0, x1]: number[]) => {
+        list.forEach((n, i) => { n.x = x0 + ((i + 0.5) * (x1 - x0)) / list.length; });
+      };
+      const layoutRow = (row: any[]) => {
+        spread(row.filter((n) => !isColsys(n)), mainBand);
+        spread(row.filter(isColsys), colBand);
+      };
+      for (const row of rows) {
+        row.sort((a, b) => (isColsys(a) ? 1 : 0) - (isColsys(b) ? 1 : 0) || a.id.localeCompare(b.id));
+        layoutRow(row);
+      }
+
+      // Barycenter sweeps: order each row by the mean x of its neighbours in the
+      // adjacent row, which is the standard way to pull the edge crossings out.
+      const meanX = (ids: string[]) =>
+        ids.length ? ids.reduce((s, id) => s + byId.get(id)!.x, 0) / ids.length : null;
+      for (let pass = 0; pass < 12; pass++) {
+        const down = pass % 2 === 0;
+        const order = down ? [...rows.keys()] : [...rows.keys()].reverse();
+        for (const L of order) {
+          const row = rows[L];
+          if (!row.length) continue;
+          const key = (n: any) => meanX(down ? callers.get(n.id)! : callees.get(n.id)!) ?? n.x;
+          const k = new Map(row.map((n) => [n.id, key(n)]));
+          row.sort((a, b) =>
+            (isColsys(a) ? 1 : 0) - (isColsys(b) ? 1 : 0) || k.get(a.id)! - k.get(b.id)!);
+          layoutRow(row);
+        }
+      }
+
+      const rowH = (H - TOP - BOT) / Math.max(1, maxLevel);
+      for (const n of nodes) n.y = TOP + n.level * rowH;
+      // Stagger labels above/below alternately so neighbours get twice the room.
+      for (const row of rows) row.forEach((n, i) => { n.up = i % 2 === 0; });
+
+      const radius = (d: any) => (d.entry ? 7 : 4) + Math.sqrt(d.fanIn) * 1.5;
+      const edges = dag.map(([a, b]: any) => ({ s: byId.get(a)!, t: byId.get(b)! }));
+
+      const svg = d3.create('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .style('width', '100%')
+        .style('height', 'auto')
+        .style('display', 'block')
+        .style('font-family', 'var(--sans-serif, system-ui, sans-serif)');
+
+      const linkSel = svg.append('g')
+        .attr('fill', 'none')
+        .attr('stroke', 'currentColor')
+        .selectAll('path')
+        .data(edges)
+        .join('path')
+        .attr('d', (e: any) => {
+          const y1 = e.s.y + radius(e.s), y2 = e.t.y - radius(e.t), my = (y1 + y2) / 2;
+          return `M${e.s.x},${y1} C${e.s.x},${my} ${e.t.x},${my} ${e.t.x},${y2}`;
+        })
+        .attr('stroke-width', 0.7)
+        .attr('stroke-opacity', 0.14);
+
+      // dpotrf2 calls itself: draw the recursion rather than quietly dropping it.
+      const loopSel = svg.append('g')
+        .attr('fill', 'none')
+        .attr('stroke', 'currentColor')
+        .selectAll('path')
+        .data(selfCalls.map((id: string) => byId.get(id)!))
+        .join('path')
+        .attr('d', (d: any) => {
+          const r = radius(d) + 4;
+          return `M${d.x - r * 0.7},${d.y - r * 0.7} A${r},${r} 0 1 1 ${d.x + r * 0.7},${d.y - r * 0.7}`;
+        })
+        .attr('stroke-width', 1)
+        .attr('stroke-opacity', 0.55);
+
+      const nodeSel = svg.append('g')
+        .selectAll('a')
+        .data(nodes)
+        .join('a')
+        .attr('href', (d: any) => d.url)
+        .attr('target', '_blank')
+        .attr('rel', 'noopener')
+        .attr('transform', (d: any) => `translate(${d.x},${d.y})`)
+        .style('cursor', 'pointer');
+
+      // Invisible hit target, larger than the mark itself.
+      nodeSel.append('circle').attr('r', 11).attr('fill', 'transparent');
+
+      nodeSel.append('circle')
+        .attr('r', radius)
+        .attr('fill', (d: any) => PKG[d.pkg].color)
+        .attr('stroke', 'var(--theme-background, #fff)')
+        .attr('stroke-width', 1); // surface ring, so overlapping marks stay separable
+
+      // The ten routines the notebook calls itself wear a detached ring. The old
+      // cue was a 2px vs 1px stroke, which is invisible at this size and made the
+      // legend's ring swatch point at nothing.
+      nodeSel.filter((d: any) => !!d.entry)
+        .append('circle')
+        .attr('r', (d: any) => radius(d) + 4)
+        .attr('fill', 'none')
+        .attr('stroke', 'var(--theme-foreground, #111)')
+        .attr('stroke-width', 1.5);
+
+      nodeSel.append('text')
+        .text((d: any) => d.id)
+        .attr('text-anchor', 'middle')
+        .attr('y', (d: any) => (d.up ? -radius(d) - (d.entry ? 10 : 7) : radius(d) + (d.entry ? 19 : 16)))
+        .attr('font-size', (d: any) => (d.entry ? 17 : 14))
+        .attr('font-weight', 600)
+        // Text wears text tokens, never the series colour.
+        .attr('fill', 'var(--theme-foreground, #111)')
+        .attr('paint-order', 'stroke')
+        .attr('stroke', 'var(--theme-background, #fff)')
+        .attr('stroke-width', 2.5)
+        .attr('stroke-linejoin', 'round');
+
+      // --- Hover. The status block is a FIXED height with single-line, clipped
+      // rows. If it grew with its content it would reflow the page, shifting the
+      // SVG out from under the cursor, firing mouseleave, and flickering forever.
+      const line = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+      const status = html`<div style="height:4.65em;margin:0 0 0.4rem;font:13px/1.55 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);pointer-events:none"></div>`;
+      const l1 = html`<div style="${line}"></div>`;
+      // The routine's own description, harvested from each module's package.json in
+      // blahpack (and from the netlib-ode doc comments for COLSYS), so this line is
+      // the library's own words rather than anything restated here.
+      const l2 = html`<div style="${line};color:var(--theme-foreground,#111)"></div>`;
+      const l3 = html`<div style="${line}"></div>`;
+      status.append(l1, l2, l3);
+
+      const fmt = (ids: string[]) => ids.slice().sort().map((s) => `<code>${s}</code>`).join(', ');
+      const BLURB: any = {
+        blas: 'Basic Linear Algebra Subprograms: the vector and matrix kernels everything else stands on',
+        lapack: 'Linear Algebra PACKage: factorizations, solvers and eigensolvers, built on BLAS',
+        arpack: 'Implicitly restarted Lanczos, for a few eigenpairs of a large sparse or banded matrix',
+        colsys: 'Collocation solver for boundary-value ODEs, carrying its own block-structured linear algebra',
+      };
+      function resetStatus() {
+        l1.innerHTML = 'Hover a routine to isolate it. Click to open the translated source.';
+        l2.innerHTML = '';
+        l3.innerHTML = '';
+      }
+      function focus(d: any | null) {
+        if (!d) {
+          linkSel.attr('stroke-opacity', 0.14).attr('stroke-width', 0.7);
+          loopSel.attr('stroke-opacity', 0.55);
+          nodeSel.style('opacity', 1);
+          resetStatus();
+          return;
+        }
+        const outs = callees.get(d.id)!, ins = callers.get(d.id)!;
+        const near = new Set([d.id, ...outs, ...ins]);
+        nodeSel.style('opacity', (n: any) => (near.has(n.id) ? 1 : 0.1));
+        linkSel
+          .attr('stroke-opacity', (e: any) => (e.s.id === d.id || e.t.id === d.id ? 0.8 : 0.03))
+          .attr('stroke-width', (e: any) => (e.s.id === d.id || e.t.id === d.id ? 1.3 : 0.7));
+        loopSel.attr('stroke-opacity', (n: any) => (n.id === d.id ? 0.9 : 0.06));
+        l1.innerHTML = `<strong style="color:var(--theme-foreground,#111)">${d.id}</strong>`
+          + ` &middot; ${PKG[d.pkg].label}`
+          + (d.entry ? ` &middot; called by the notebook: ${d.entry}` : '')
+          + (selfCalls.includes(d.id) ? ' &middot; recursive' : '');
+        l2.textContent = d.desc ?? '';
+        // Say nothing about empty sides: an absent "calls" line already says it
+        // calls nothing, and naming it a leaf adds no information.
+        l3.innerHTML = [
+          outs.length ? `calls ${fmt(outs)}` : '',
+          ins.length ? `called by ${fmt(ins)}` : '',
+        ].filter(Boolean).join(' &nbsp;|&nbsp; ');
+      }
+      resetStatus();
+      nodeSel.on('mouseenter', (_e: any, d: any) => focus(d)).on('mouseleave', () => focus(null));
+
+      // --- Legend. Identity is never carried by colour alone, and each swatch is
+      // also a filter: hovering one isolates that library.
+      function filterPkg(key: string | null) {
+        if (!key) { focus(null); return; }
+        nodeSel.style('opacity', (n: any) => (n.pkg === key ? 1 : 0.08));
+        // Keep an edge lit only when it lies wholly inside the library, so what
+        // survives is that library's own internal structure.
+        linkSel
+          .attr('stroke-opacity', (e: any) => (e.s.pkg === key && e.t.pkg === key ? 0.5 : 0.03))
+          .attr('stroke-width', 0.7);
+        loopSel.attr('stroke-opacity', (n: any) => (n.pkg === key ? 0.9 : 0.06));
+        const entries = nodes.filter((n: any) => n.pkg === key && n.entry).map((n: any) => n.id);
+        l1.innerHTML = `<strong style="color:var(--theme-foreground,#111)">${PKG[key].label}</strong>`
+          + ` &middot; ${counts[key]} routines`;
+        l2.textContent = BLURB[key];
+        l3.innerHTML = entries.length ? `called by the notebook: ${fmt(entries)}` : '';
+      }
+
+      const counts: any = {};
+      for (const n of nodes) counts[n.pkg] = (counts[n.pkg] ?? 0) + 1;
+      const legend = html`<div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 0.5rem;font:13px/1.4 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777)"></div>`;
+      for (const key of ['blas', 'lapack', 'arpack', 'colsys']) {
+        const item = html`<span style="display:inline-flex;align-items:center;gap:6px;cursor:default"><span style="width:10px;height:10px;border-radius:50%;background:${PKG[key].color};display:inline-block"></span>${PKG[key].label} <strong style="color:var(--theme-foreground,#222)">${counts[key]}</strong></span>`;
+        item.addEventListener('mouseenter', () => filterPkg(key));
+        item.addEventListener('mouseleave', () => filterPkg(null));
+        legend.appendChild(item);
+      }
+      // Swatch drawn to match the node mark exactly: filled dot, detached ring.
+      legend.appendChild(html`<span style="display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" style="display:block;overflow:visible"><circle cx="8" cy="8" r="3.4" fill="var(--theme-foreground-muted,#777)"/><circle cx="8" cy="8" r="6.4" fill="none" stroke="var(--theme-foreground,#222)" stroke-width="1.5"/></svg>called by the notebook directly</span>`);
+
+      // width:100% is load-bearing. A bare <figure> here shrink-to-fits, so the
+      // nowrap status line below would widen it whenever the hover text got long,
+      // which widens the width:100% svg, which grows its height, which slides the
+      // node out from under the cursor -> mouseleave -> text resets -> figure
+      // shrinks -> mouseenter. That is an infinite hover flicker. Pinning the
+      // width makes the figure's geometry independent of the status text.
+      const fig = html`<figure style="margin:0 0 2rem;width:100%"></figure>`;
+      fig.append(legend, status, svg.node()!);
+
+      display(fig);
+    }
   </script>
 
   <script id="coda" type="text/markdown">
-    ## Mass production
+    ## Conclusion
 
-    The strip was never really the point. The point is that the wall between "I can
-    picture this computation" and "it runs in a browser tab" has quietly come down.
-    The decades of Fortran that still power NumPy and MATLAB can be translated, one
-    verified module at a time, on demand. A career's worth of careful porting starts
-    to look less like scholarship and more like a supply chain: ask for a banded
-    generalized eigensolver, let it run against the reference until the numerics
-    agree, and harvest the result.
+    In the end, it's exciting and unnerving. I tried for quite a while to translate and
+    enable this sort of computation, failing repeatedly to maintain enough velocity
+    to get very far. On one hand, AI enables so much of what I always wanted to explore
+    and present, on the other hand it devalues it.
 
-    It is exhilarating, and a little uneasy. The same ease that grew this one strip
-    will grow the machinery wholesale, with all the usual questions of mass
-    production about who is left to inspect the crop.
+    I have a hard time understanding the availablity of BLAS and LAPACK on the web as *evil*,
+    so I probably continue validating and optimizing the routines. They need to be wrapped
+    up in more convenient interfaces. They need human judgement. Or more precisely, I guess,
+    they need a human to unleash a wave of agents to tend to them, as if farming.
+
+    The future is weird.
 
     <figure>
       <img alt="Human batteries in the machine world from The Matrix (1999)" src="matrix.webp">

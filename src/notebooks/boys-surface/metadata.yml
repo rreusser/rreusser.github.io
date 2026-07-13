@@ -4,3 +4,7 @@ description: Boy's surface, an immersion of the real projective plane in three-d
 tags:
   - webgpu
   - math
+seeAlso:
+  - lawsons-klein-bottle
+  - costa-surface
+  - sphere-eversion

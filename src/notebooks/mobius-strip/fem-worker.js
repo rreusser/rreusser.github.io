@@ -1,9 +1,10 @@
 import { createMobiusMesh, energyAndGradient, lumpedMassDiagonal } from './mobius-fem.js';
 import { newtonCG, lbfgs, bandedNewton } from './optimize.js';
 import blas1 from './blas1.bundle.js';
-import { computeFlexuralModes, computeFlexuralModesDense, buildPermutation, fdHessianBanded } from './modes.js';
+import { computeFlexuralModes, computeFlexuralModesDense, computeFlexuralModesArpack, buildPermutation, fdHessianBanded, buildVertexAdjacency, stencilVertexBandwidth } from './modes.js';
 import dsbgvx from './dsbgvx-bundle.js';
 import dsygvx from './dsygvx.bundle.js';
+import dsband from './dsband-bundle.js';
 import dpbsv from './dpbsv-bundle.js';
 
 let cancelled = false;
@@ -26,9 +27,11 @@ function yieldToEventLoop() {
 
 // Fill a SIZE×SIZE grid with '#' where the actual mesh connectivity has a
 // structural nonzero (K[i,j] != 0 by structure) in the corresponding block.
+// The coupling stencil is each vertex with its full Laplacian 1-ring, all
+// pairs (covers the membrane triangles and the quadratic bending 2-ring).
 // dofPerm maps original DOF -> reordered DOF; pass null for original ordering.
 function sparsityGrid(model, dofPerm, n, SIZE) {
-  const { tris, nT, nHinges, hingeIdx } = model;
+  const { off, nbr } = buildVertexAdjacency(model);
   const grid = new Uint8Array(SIZE * SIZE);
   const inv = n / SIZE;
 
@@ -45,16 +48,13 @@ function sparsityGrid(model, dofPerm, n, SIZE) {
     }
   }
 
-  for (let k = 0; k < nT; k++) {
-    const v0 = tris[k * 3], v1 = tris[k * 3 + 1], v2 = tris[k * 3 + 2];
-    mark(v0, v0); mark(v1, v1); mark(v2, v2);
-    mark(v0, v1); mark(v1, v2); mark(v0, v2);
-  }
-  for (let h = 0; h < nHinges; h++) {
-    const b = h * 4;
-    for (let a = 0; a < 4; a++)
-      for (let c = a; c < 4; c++)
-        mark(hingeIdx[b + a], hingeIdx[b + c]);
+  for (let v = 0; v < model.Nv; v++) {
+    mark(v, v);
+    const s0 = off[v], s1 = off[v + 1];
+    for (let s = s0; s < s1; s++) {
+      mark(v, nbr[s]);
+      for (let t = s + 1; t < s1; t++) mark(nbr[s], nbr[t]);
+    }
   }
   return grid;
 }
@@ -65,17 +65,7 @@ function logSparsityDiagram(model) {
   const { dofPerm, bw } = buildPermutation(model);
 
   // Original DOF ordering bandwidth
-  let bvOrig = 0;
-  for (let k = 0; k < model.nT; k++) {
-    const v0 = model.tris[k*3], v1 = model.tris[k*3+1], v2 = model.tris[k*3+2];
-    bvOrig = Math.max(bvOrig, Math.abs(v0-v1), Math.abs(v1-v2), Math.abs(v0-v2));
-  }
-  for (let h = 0; h < model.nHinges; h++) {
-    const b4 = h * 4;
-    for (let a = 0; a < 4; a++) for (let c = a+1; c < 4; c++)
-      bvOrig = Math.max(bvOrig, Math.abs(model.hingeIdx[b4+a] - model.hingeIdx[b4+c]));
-  }
-  const bwOrig = bvOrig * 3 + 2;
+  const bwOrig = stencilVertexBandwidth(model, null) * 3 + 2;
 
   const gOrig = sparsityGrid(model, null,    n, SIZE);
   const gPerm = sparsityGrid(model, dofPerm, n, SIZE);
@@ -127,7 +117,7 @@ const LBFGS_MEMORY = 30;
 // L-BFGS is the default: it is much faster and its shape is adequate here. It
 // settles at a slightly higher-energy critical point than the Newton solvers
 // (which reach the true smooth minimum at higher cost); Newton-CG and
-// banded-Newton remain available for comparison. See verify-solvers.mjs.
+// banded-Newton remain available for comparison. See test/solvers.mjs.
 const GRAD_TOL = 1e-7;
 
 // One continuous solve with an optional pin -- the single iteration mechanism
@@ -342,9 +332,15 @@ async function handleComputeModes({ gen, modelParams, XBuf, opts }) {
     };
 
     const t0 = performance.now();
-    const result = (solver === 'dense')
-      ? await computeFlexuralModesDense(model, X, massDiag, gradFn, dsygvx, { ...opts, onProgress })
-      : await computeFlexuralModes(model, X, massDiag, gradFn, dsbgvx, { ...opts, onProgress });
+    let result;
+    if (solver === 'dense') {
+      result = await computeFlexuralModesDense(model, X, massDiag, gradFn, dsygvx, { ...opts, onProgress });
+    } else if (solver === 'dsbgvx') {
+      result = await computeFlexuralModes(model, X, massDiag, gradFn, dsbgvx, { ...opts, onProgress });
+    } else {
+      // Default banded path: ARPACK shift-invert (dsband).
+      result = await computeFlexuralModesArpack(model, X, massDiag, gradFn, dsband, { ...opts, onProgress });
+    }
     const ms = Math.round(performance.now() - t0);
 
     const serializedModes = result.modes.map(m => ({ lambda: m.lambda, omega: m.omega, shape: m.shape.buffer }));

@@ -5,3 +5,7 @@ observableUrl: https://observablehq.com/@rreusser/multiscale-turing-pattern-bot-
 tags:
   - webgpu
   - pde
+seeAlso:
+  - simulating-the-2d-kuramoto-sivashinsky-equation-in-webgpu
+  - particle-mesh-gravity
+  - perfectly-matched-layers-for-the-wave-equation

@@ -5,3 +5,7 @@ observableUrl: https://observablehq.com/@rreusser/malkus-waterwheel
 tags:
   - chaos
   - physics
+seeAlso:
+  - chaotic-magnetic-pendulum
+  - double-pendulum-map
+  - periodic-planar-three-body-orbits
