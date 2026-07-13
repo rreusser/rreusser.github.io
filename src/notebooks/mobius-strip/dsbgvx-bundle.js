@@ -24,9 +24,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/@stdlib/assert/has-symbol-support/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-symbol-support/lib/main.js
 var require_main = __commonJS({
-  "node_modules/@stdlib/assert/has-symbol-support/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-symbol-support/lib/main.js"(exports, module) {
     "use strict";
     function hasSymbolSupport() {
       return typeof Symbol === "function" && typeof /* @__PURE__ */ Symbol("foo") === "symbol";
@@ -35,18 +35,18 @@ var require_main = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-symbol-support/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-symbol-support/lib/index.js
 var require_lib = __commonJS({
-  "node_modules/@stdlib/assert/has-symbol-support/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-symbol-support/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/assert/has-tostringtag-support/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-tostringtag-support/lib/main.js
 var require_main2 = __commonJS({
-  "node_modules/@stdlib/assert/has-tostringtag-support/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-tostringtag-support/lib/main.js"(exports, module) {
     "use strict";
     var hasSymbols = require_lib();
     var FLG = hasSymbols();
@@ -57,27 +57,27 @@ var require_main2 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-tostringtag-support/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-tostringtag-support/lib/index.js
 var require_lib2 = __commonJS({
-  "node_modules/@stdlib/assert/has-tostringtag-support/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-tostringtag-support/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main2();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/tostring.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/tostring.js
 var require_tostring = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/tostring.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/tostring.js"(exports, module) {
     "use strict";
     var toStr = Object.prototype.toString;
     module.exports = toStr;
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/main.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/main.js
 var require_main3 = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/main.js"(exports, module) {
     "use strict";
     var toStr = require_tostring();
     function nativeClass(v) {
@@ -87,9 +87,9 @@ var require_main3 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-own-property/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-own-property/lib/main.js
 var require_main4 = __commonJS({
-  "node_modules/@stdlib/assert/has-own-property/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-own-property/lib/main.js"(exports, module) {
     "use strict";
     var has = Object.prototype.hasOwnProperty;
     function hasOwnProp(value, property) {
@@ -102,36 +102,36 @@ var require_main4 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-own-property/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-own-property/lib/index.js
 var require_lib3 = __commonJS({
-  "node_modules/@stdlib/assert/has-own-property/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-own-property/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main4();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/symbol/ctor/lib/main.js
+// ../notes/node_modules/@stdlib/symbol/ctor/lib/main.js
 var require_main5 = __commonJS({
-  "node_modules/@stdlib/symbol/ctor/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/symbol/ctor/lib/main.js"(exports, module) {
     "use strict";
     var Sym = typeof Symbol === "function" ? Symbol : void 0;
     module.exports = Sym;
   }
 });
 
-// node_modules/@stdlib/symbol/ctor/lib/index.js
+// ../notes/node_modules/@stdlib/symbol/ctor/lib/index.js
 var require_lib4 = __commonJS({
-  "node_modules/@stdlib/symbol/ctor/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/symbol/ctor/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main5();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/tostringtag.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/tostringtag.js
 var require_tostringtag = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/tostringtag.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/tostringtag.js"(exports, module) {
     "use strict";
     var Symbol2 = require_lib4();
     var toStrTag = typeof Symbol2 === "function" ? Symbol2.toStringTag : "";
@@ -139,9 +139,9 @@ var require_tostringtag = __commonJS({
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/polyfill.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/polyfill.js
 var require_polyfill = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/polyfill.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/polyfill.js"(exports, module) {
     "use strict";
     var hasOwnProp = require_lib3();
     var toStringTag = require_tostringtag();
@@ -172,9 +172,9 @@ var require_polyfill = __commonJS({
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/index.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/index.js
 var require_lib5 = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/index.js"(exports, module) {
     "use strict";
     var hasToStringTag = require_lib2();
     var builtin = require_main3();
@@ -189,9 +189,9 @@ var require_lib5 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/is-int32array/lib/main.js
+// ../notes/node_modules/@stdlib/assert/is-int32array/lib/main.js
 var require_main6 = __commonJS({
-  "node_modules/@stdlib/assert/is-int32array/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/is-int32array/lib/main.js"(exports, module) {
     "use strict";
     var nativeClass = require_lib5();
     var hasInt32Array = typeof Int32Array === "function";
@@ -203,45 +203,45 @@ var require_main6 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/is-int32array/lib/index.js
+// ../notes/node_modules/@stdlib/assert/is-int32array/lib/index.js
 var require_lib6 = __commonJS({
-  "node_modules/@stdlib/assert/is-int32array/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/is-int32array/lib/index.js"(exports, module) {
     "use strict";
     var isInt32Array = require_main6();
     module.exports = isInt32Array;
   }
 });
 
-// node_modules/@stdlib/constants/int32/max/lib/index.js
+// ../notes/node_modules/@stdlib/constants/int32/max/lib/index.js
 var require_lib7 = __commonJS({
-  "node_modules/@stdlib/constants/int32/max/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/constants/int32/max/lib/index.js"(exports, module) {
     "use strict";
     var INT32_MAX = 2147483647 | 0;
     module.exports = INT32_MAX;
   }
 });
 
-// node_modules/@stdlib/constants/int32/min/lib/index.js
+// ../notes/node_modules/@stdlib/constants/int32/min/lib/index.js
 var require_lib8 = __commonJS({
-  "node_modules/@stdlib/constants/int32/min/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/constants/int32/min/lib/index.js"(exports, module) {
     "use strict";
     var INT32_MIN = -2147483648 | 0;
     module.exports = INT32_MIN;
   }
 });
 
-// node_modules/@stdlib/assert/has-int32array-support/lib/int32array.js
+// ../notes/node_modules/@stdlib/assert/has-int32array-support/lib/int32array.js
 var require_int32array = __commonJS({
-  "node_modules/@stdlib/assert/has-int32array-support/lib/int32array.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-int32array-support/lib/int32array.js"(exports, module) {
     "use strict";
     var main = typeof Int32Array === "function" ? Int32Array : null;
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/assert/has-int32array-support/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-int32array-support/lib/main.js
 var require_main7 = __commonJS({
-  "node_modules/@stdlib/assert/has-int32array-support/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-int32array-support/lib/main.js"(exports, module) {
     "use strict";
     var isInt32Array = require_lib6();
     var INT32_MAX = require_lib7();
@@ -267,27 +267,27 @@ var require_main7 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-int32array-support/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-int32array-support/lib/index.js
 var require_lib9 = __commonJS({
-  "node_modules/@stdlib/assert/has-int32array-support/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-int32array-support/lib/index.js"(exports, module) {
     "use strict";
     var hasInt32ArraySupport = require_main7();
     module.exports = hasInt32ArraySupport;
   }
 });
 
-// node_modules/@stdlib/array/int32/lib/main.js
+// ../notes/node_modules/@stdlib/array/int32/lib/main.js
 var require_main8 = __commonJS({
-  "node_modules/@stdlib/array/int32/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/int32/lib/main.js"(exports, module) {
     "use strict";
     var ctor = typeof Int32Array === "function" ? Int32Array : void 0;
     module.exports = ctor;
   }
 });
 
-// node_modules/@stdlib/array/int32/lib/polyfill.js
+// ../notes/node_modules/@stdlib/array/int32/lib/polyfill.js
 var require_polyfill2 = __commonJS({
-  "node_modules/@stdlib/array/int32/lib/polyfill.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/int32/lib/polyfill.js"(exports, module) {
     "use strict";
     function polyfill() {
       throw new Error("not implemented");
@@ -296,9 +296,9 @@ var require_polyfill2 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/array/int32/lib/index.js
+// ../notes/node_modules/@stdlib/array/int32/lib/index.js
 var require_lib10 = __commonJS({
-  "node_modules/@stdlib/array/int32/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/int32/lib/index.js"(exports, module) {
     "use strict";
     var hasInt32ArraySupport = require_lib9();
     var builtin = require_main8();
@@ -313,36 +313,36 @@ var require_lib10 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/math/base/special/sqrt/lib/main.js
+// ../notes/node_modules/@stdlib/math/base/special/sqrt/lib/main.js
 var require_main9 = __commonJS({
-  "node_modules/@stdlib/math/base/special/sqrt/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/special/sqrt/lib/main.js"(exports, module) {
     "use strict";
     var sqrt3 = Math.sqrt;
     module.exports = sqrt3;
   }
 });
 
-// node_modules/@stdlib/math/base/special/sqrt/lib/index.js
+// ../notes/node_modules/@stdlib/math/base/special/sqrt/lib/index.js
 var require_lib11 = __commonJS({
-  "node_modules/@stdlib/math/base/special/sqrt/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/special/sqrt/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main9();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/constants/float64/pinf/lib/index.js
+// ../notes/node_modules/@stdlib/constants/float64/pinf/lib/index.js
 var require_lib12 = __commonJS({
-  "node_modules/@stdlib/constants/float64/pinf/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/constants/float64/pinf/lib/index.js"(exports, module) {
     "use strict";
     var FLOAT64_PINF = Number.POSITIVE_INFINITY;
     module.exports = FLOAT64_PINF;
   }
 });
 
-// node_modules/@stdlib/math/base/assert/is-positive-zero/lib/main.js
+// ../notes/node_modules/@stdlib/math/base/assert/is-positive-zero/lib/main.js
 var require_main10 = __commonJS({
-  "node_modules/@stdlib/math/base/assert/is-positive-zero/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/assert/is-positive-zero/lib/main.js"(exports, module) {
     "use strict";
     var PINF = require_lib12();
     function isPositiveZero(x) {
@@ -352,18 +352,18 @@ var require_main10 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/math/base/assert/is-positive-zero/lib/index.js
+// ../notes/node_modules/@stdlib/math/base/assert/is-positive-zero/lib/index.js
 var require_lib13 = __commonJS({
-  "node_modules/@stdlib/math/base/assert/is-positive-zero/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/assert/is-positive-zero/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main10();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/math/base/assert/is-nan/lib/main.js
+// ../notes/node_modules/@stdlib/math/base/assert/is-nan/lib/main.js
 var require_main11 = __commonJS({
-  "node_modules/@stdlib/math/base/assert/is-nan/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/assert/is-nan/lib/main.js"(exports, module) {
     "use strict";
     function isnan(x) {
       return x !== x;
@@ -372,18 +372,18 @@ var require_main11 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/math/base/assert/is-nan/lib/index.js
+// ../notes/node_modules/@stdlib/math/base/assert/is-nan/lib/index.js
 var require_lib14 = __commonJS({
-  "node_modules/@stdlib/math/base/assert/is-nan/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/assert/is-nan/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main11();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/math/base/special/max/lib/main.js
+// ../notes/node_modules/@stdlib/math/base/special/max/lib/main.js
 var require_main12 = __commonJS({
-  "node_modules/@stdlib/math/base/special/max/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/special/max/lib/main.js"(exports, module) {
     "use strict";
     var isPositiveZero = require_lib13();
     var isnan = require_lib14();
@@ -410,35 +410,35 @@ var require_main12 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/math/base/special/max/lib/index.js
+// ../notes/node_modules/@stdlib/math/base/special/max/lib/index.js
 var require_lib15 = __commonJS({
-  "node_modules/@stdlib/math/base/special/max/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/special/max/lib/index.js"(exports, module) {
     "use strict";
     var max4 = require_main12();
     module.exports = max4;
   }
 });
 
-// node_modules/@stdlib/number/ctor/lib/main.js
+// ../notes/node_modules/@stdlib/number/ctor/lib/main.js
 var require_main13 = __commonJS({
-  "node_modules/@stdlib/number/ctor/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/number/ctor/lib/main.js"(exports, module) {
     "use strict";
     module.exports = Number;
   }
 });
 
-// node_modules/@stdlib/number/ctor/lib/index.js
+// ../notes/node_modules/@stdlib/number/ctor/lib/index.js
 var require_lib16 = __commonJS({
-  "node_modules/@stdlib/number/ctor/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/number/ctor/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main13();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/constants/float64/ninf/lib/index.js
+// ../notes/node_modules/@stdlib/constants/float64/ninf/lib/index.js
 var require_lib17 = __commonJS({
-  "node_modules/@stdlib/constants/float64/ninf/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/constants/float64/ninf/lib/index.js"(exports, module) {
     "use strict";
     var Number2 = require_lib16();
     var FLOAT64_NINF = Number2.NEGATIVE_INFINITY;
@@ -446,9 +446,9 @@ var require_lib17 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/math/base/assert/is-negative-zero/lib/main.js
+// ../notes/node_modules/@stdlib/math/base/assert/is-negative-zero/lib/main.js
 var require_main14 = __commonJS({
-  "node_modules/@stdlib/math/base/assert/is-negative-zero/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/assert/is-negative-zero/lib/main.js"(exports, module) {
     "use strict";
     var NINF = require_lib17();
     function isNegativeZero(x) {
@@ -458,18 +458,18 @@ var require_main14 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/math/base/assert/is-negative-zero/lib/index.js
+// ../notes/node_modules/@stdlib/math/base/assert/is-negative-zero/lib/index.js
 var require_lib18 = __commonJS({
-  "node_modules/@stdlib/math/base/assert/is-negative-zero/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/assert/is-negative-zero/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main14();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/math/base/special/min/lib/main.js
+// ../notes/node_modules/@stdlib/math/base/special/min/lib/main.js
 var require_main15 = __commonJS({
-  "node_modules/@stdlib/math/base/special/min/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/special/min/lib/main.js"(exports, module) {
     "use strict";
     var isNegativeZero = require_lib18();
     var isnan = require_lib14();
@@ -496,36 +496,36 @@ var require_main15 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/math/base/special/min/lib/index.js
+// ../notes/node_modules/@stdlib/math/base/special/min/lib/index.js
 var require_lib19 = __commonJS({
-  "node_modules/@stdlib/math/base/special/min/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/special/min/lib/index.js"(exports, module) {
     "use strict";
     var min4 = require_main15();
     module.exports = min4;
   }
 });
 
-// node_modules/@stdlib/math/base/special/floor/lib/main.js
+// ../notes/node_modules/@stdlib/math/base/special/floor/lib/main.js
 var require_main16 = __commonJS({
-  "node_modules/@stdlib/math/base/special/floor/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/special/floor/lib/main.js"(exports, module) {
     "use strict";
     var floor3 = Math.floor;
     module.exports = floor3;
   }
 });
 
-// node_modules/@stdlib/math/base/special/floor/lib/index.js
+// ../notes/node_modules/@stdlib/math/base/special/floor/lib/index.js
 var require_lib20 = __commonJS({
-  "node_modules/@stdlib/math/base/special/floor/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/math/base/special/floor/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main16();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/assert/is-float64array/lib/main.js
+// ../notes/node_modules/@stdlib/assert/is-float64array/lib/main.js
 var require_main17 = __commonJS({
-  "node_modules/@stdlib/assert/is-float64array/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/is-float64array/lib/main.js"(exports, module) {
     "use strict";
     var nativeClass = require_lib5();
     var hasFloat64Array = typeof Float64Array === "function";
@@ -537,27 +537,27 @@ var require_main17 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/is-float64array/lib/index.js
+// ../notes/node_modules/@stdlib/assert/is-float64array/lib/index.js
 var require_lib21 = __commonJS({
-  "node_modules/@stdlib/assert/is-float64array/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/is-float64array/lib/index.js"(exports, module) {
     "use strict";
     var isFloat64Array = require_main17();
     module.exports = isFloat64Array;
   }
 });
 
-// node_modules/@stdlib/assert/has-float64array-support/lib/float64array.js
+// ../notes/node_modules/@stdlib/assert/has-float64array-support/lib/float64array.js
 var require_float64array = __commonJS({
-  "node_modules/@stdlib/assert/has-float64array-support/lib/float64array.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-float64array-support/lib/float64array.js"(exports, module) {
     "use strict";
     var main = typeof Float64Array === "function" ? Float64Array : null;
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/assert/has-float64array-support/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-float64array-support/lib/main.js
 var require_main18 = __commonJS({
-  "node_modules/@stdlib/assert/has-float64array-support/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-float64array-support/lib/main.js"(exports, module) {
     "use strict";
     var isFloat64Array = require_lib21();
     var GlobalFloat64Array = require_float64array();
@@ -579,27 +579,27 @@ var require_main18 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-float64array-support/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-float64array-support/lib/index.js
 var require_lib22 = __commonJS({
-  "node_modules/@stdlib/assert/has-float64array-support/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-float64array-support/lib/index.js"(exports, module) {
     "use strict";
     var hasFloat64ArraySupport = require_main18();
     module.exports = hasFloat64ArraySupport;
   }
 });
 
-// node_modules/@stdlib/array/float64/lib/main.js
+// ../notes/node_modules/@stdlib/array/float64/lib/main.js
 var require_main19 = __commonJS({
-  "node_modules/@stdlib/array/float64/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/float64/lib/main.js"(exports, module) {
     "use strict";
     var ctor = typeof Float64Array === "function" ? Float64Array : void 0;
     module.exports = ctor;
   }
 });
 
-// node_modules/@stdlib/array/float64/lib/polyfill.js
+// ../notes/node_modules/@stdlib/array/float64/lib/polyfill.js
 var require_polyfill3 = __commonJS({
-  "node_modules/@stdlib/array/float64/lib/polyfill.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/float64/lib/polyfill.js"(exports, module) {
     "use strict";
     function polyfill() {
       throw new Error("not implemented");
@@ -608,9 +608,9 @@ var require_polyfill3 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/array/float64/lib/index.js
+// ../notes/node_modules/@stdlib/array/float64/lib/index.js
 var require_lib23 = __commonJS({
-  "node_modules/@stdlib/array/float64/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/float64/lib/index.js"(exports, module) {
     "use strict";
     var hasFloat64ArraySupport = require_lib22();
     var builtin = require_main19();
@@ -625,16 +625,16 @@ var require_lib23 = __commonJS({
   }
 });
 
-// lib/lapack/base/dsbgvx/lib/base.js
+// ../notes/lib/lapack/base/dsbgvx/lib/base.js
 var import_lib12 = __toESM(require_lib10(), 1);
 
-// lib/lapack/base/dpbstf/lib/base.js
+// ../notes/lib/lapack/base/dpbstf/lib/base.js
 var import_lib = __toESM(require_lib11(), 1);
 var import_lib2 = __toESM(require_lib15(), 1);
 var import_lib3 = __toESM(require_lib19(), 1);
 var import_lib4 = __toESM(require_lib20(), 1);
 
-// lib/blas/base/dscal/lib/base.js
+// ../notes/lib/blas/base/dscal/lib/base.js
 var M = 5;
 function dscal(N, da, x, strideX, offsetX) {
   var ix;
@@ -673,52 +673,282 @@ function dscal(N, da, x, strideX, offsetX) {
 }
 var base_default = dscal;
 
-// lib/blas/base/dsyr/lib/base.js
+// ../notes/lib/blas/base/dsyr/lib/base.js
 function dsyr(uplo, N, alpha, x, strideX, offsetX, A, strideA1, strideA2, offsetA) {
-  var temp;
+  var upper;
   var sa1;
   var sa2;
+  var sx;
+  var x0;
+  var x1;
+  var x2;
+  var x3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var xv;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
+  var n4;
   var ix;
   var jx;
+  var jj;
   var i;
   var j;
+  var k;
   if (N === 0 || alpha === 0) {
     return A;
   }
+  upper = uplo === "upper";
   sa1 = strideA1;
   sa2 = strideA2;
-  if (uplo === "upper") {
+  sx = strideX;
+  n4 = N - N % 4;
+  if (Math.abs(sa1) <= Math.abs(sa2)) {
     jx = offsetX;
-    for (j = 0; j < N; j++) {
-      if (x[jx] !== 0) {
-        temp = alpha * x[jx];
-        ix = offsetX;
-        for (i = 0; i <= j; i++) {
-          A[offsetA + i * sa1 + j * sa2] += x[ix] * temp;
-          ix += strideX;
+    for (j = 0; j < n4; j += 4) {
+      t0 = x[jx];
+      t1 = x[jx + sx];
+      t2 = x[jx + 2 * sx];
+      t3 = x[jx + 3 * sx];
+      if (t0 !== 0 && t1 !== 0 && t2 !== 0 && t3 !== 0) {
+        t0 *= alpha;
+        t1 *= alpha;
+        t2 *= alpha;
+        t3 *= alpha;
+        if (upper) {
+          a0 = offsetA + j * sa2;
+          a1 = a0 + sa2;
+          a2 = a1 + sa2;
+          a3 = a2 + sa2;
+          ix = offsetX;
+          for (i = 0; i <= j; i++) {
+            xv = x[ix];
+            A[a0] += xv * t0;
+            A[a1] += xv * t1;
+            A[a2] += xv * t2;
+            A[a3] += xv * t3;
+            a0 += sa1;
+            a1 += sa1;
+            a2 += sa1;
+            a3 += sa1;
+            ix += sx;
+          }
+          x0 = x[ix];
+          x1 = x[ix + sx];
+          x2 = x[ix + 2 * sx];
+          A[a1] += x0 * t1;
+          A[a2] += x0 * t2;
+          A[a2 + sa1] += x1 * t2;
+          A[a3] += x0 * t3;
+          A[a3 + sa1] += x1 * t3;
+          A[a3 + 2 * sa1] += x2 * t3;
+        } else {
+          x0 = x[jx];
+          x1 = x[jx + sx];
+          x2 = x[jx + 2 * sx];
+          a0 = offsetA + j * sa2 + j * sa1;
+          A[a0] += x0 * t0;
+          A[a0 + sa1] += x1 * t0;
+          A[a0 + 2 * sa1] += x2 * t0;
+          a1 = a0 + sa2 + sa1;
+          A[a1] += x1 * t1;
+          A[a1 + sa1] += x2 * t1;
+          a2 = a1 + sa2 + sa1;
+          A[a2] += x2 * t2;
+          a0 = offsetA + j * sa2 + (j + 3) * sa1;
+          a1 = a0 + sa2;
+          a2 = a1 + sa2;
+          a3 = a2 + sa2;
+          ix = jx + 3 * sx;
+          for (i = j + 3; i < N; i++) {
+            xv = x[ix];
+            A[a0] += xv * t0;
+            A[a1] += xv * t1;
+            A[a2] += xv * t2;
+            A[a3] += xv * t3;
+            a0 += sa1;
+            a1 += sa1;
+            a2 += sa1;
+            a3 += sa1;
+            ix += sx;
+          }
+        }
+      } else {
+        jj = jx;
+        for (k = j; k < j + 4; k++) {
+          xv = x[jj];
+          if (xv !== 0) {
+            t0 = alpha * xv;
+            if (upper) {
+              a0 = offsetA + k * sa2;
+              ix = offsetX;
+              for (i = 0; i <= k; i++) {
+                A[a0] += x[ix] * t0;
+                a0 += sa1;
+                ix += sx;
+              }
+            } else {
+              a0 = offsetA + k * sa2 + k * sa1;
+              ix = jj;
+              for (i = k; i < N; i++) {
+                A[a0] += x[ix] * t0;
+                a0 += sa1;
+                ix += sx;
+              }
+            }
+          }
+          jj += sx;
         }
       }
-      jx += strideX;
+      jx += 4 * sx;
+    }
+    for (j = n4; j < N; j++) {
+      xv = x[jx];
+      if (xv !== 0) {
+        t0 = alpha * xv;
+        if (upper) {
+          a0 = offsetA + j * sa2;
+          ix = offsetX;
+          for (i = 0; i <= j; i++) {
+            A[a0] += x[ix] * t0;
+            a0 += sa1;
+            ix += sx;
+          }
+        } else {
+          a0 = offsetA + j * sa2 + j * sa1;
+          ix = jx;
+          for (i = j; i < N; i++) {
+            A[a0] += x[ix] * t0;
+            a0 += sa1;
+            ix += sx;
+          }
+        }
+      }
+      jx += sx;
     }
   } else {
-    jx = offsetX;
-    for (j = 0; j < N; j++) {
-      if (x[jx] !== 0) {
-        temp = alpha * x[jx];
-        ix = jx;
-        for (i = j; i < N; i++) {
-          A[offsetA + i * sa1 + j * sa2] += x[ix] * temp;
-          ix += strideX;
+    jj = offsetX;
+    for (i = 0; i < n4; i += 4) {
+      x0 = x[jj];
+      x1 = x[jj + sx];
+      x2 = x[jj + 2 * sx];
+      x3 = x[jj + 3 * sx];
+      if (upper) {
+        if (x0 !== 0) {
+          t0 = alpha * x0;
+          A[offsetA + i * sa1 + i * sa2] += x0 * t0;
+        }
+        if (x1 !== 0) {
+          t1 = alpha * x1;
+          a0 = offsetA + i * sa1 + (i + 1) * sa2;
+          A[a0] += x0 * t1;
+          A[a0 + sa1] += x1 * t1;
+        }
+        if (x2 !== 0) {
+          t2 = alpha * x2;
+          a0 = offsetA + i * sa1 + (i + 2) * sa2;
+          A[a0] += x0 * t2;
+          A[a0 + sa1] += x1 * t2;
+          A[a0 + 2 * sa1] += x2 * t2;
+        }
+        a0 = offsetA + i * sa1 + (i + 3) * sa2;
+        a1 = a0 + sa1;
+        a2 = a1 + sa1;
+        a3 = a2 + sa1;
+        jx = jj + 3 * sx;
+        for (j = i + 3; j < N; j++) {
+          xv = x[jx];
+          if (xv !== 0) {
+            t0 = alpha * xv;
+            A[a0] += x0 * t0;
+            A[a1] += x1 * t0;
+            A[a2] += x2 * t0;
+            A[a3] += x3 * t0;
+          }
+          a0 += sa2;
+          a1 += sa2;
+          a2 += sa2;
+          a3 += sa2;
+          jx += sx;
+        }
+      } else {
+        a0 = offsetA + i * sa1;
+        a1 = a0 + sa1;
+        a2 = a1 + sa1;
+        a3 = a2 + sa1;
+        jx = offsetX;
+        for (j = 0; j <= i; j++) {
+          xv = x[jx];
+          if (xv !== 0) {
+            t0 = alpha * xv;
+            A[a0] += x0 * t0;
+            A[a1] += x1 * t0;
+            A[a2] += x2 * t0;
+            A[a3] += x3 * t0;
+          }
+          a0 += sa2;
+          a1 += sa2;
+          a2 += sa2;
+          a3 += sa2;
+          jx += sx;
+        }
+        if (x1 !== 0) {
+          t1 = alpha * x1;
+          a0 = offsetA + (i + 1) * sa1 + (i + 1) * sa2;
+          A[a0] += x1 * t1;
+          A[a0 + sa1] += x2 * t1;
+          A[a0 + 2 * sa1] += x3 * t1;
+        }
+        if (x2 !== 0) {
+          t2 = alpha * x2;
+          a0 = offsetA + (i + 2) * sa1 + (i + 2) * sa2;
+          A[a0] += x2 * t2;
+          A[a0 + sa1] += x3 * t2;
+        }
+        if (x3 !== 0) {
+          t3 = alpha * x3;
+          A[offsetA + (i + 3) * sa1 + (i + 3) * sa2] += x3 * t3;
         }
       }
-      jx += strideX;
+      jj += 4 * sx;
+    }
+    for (i = n4; i < N; i++) {
+      x0 = x[jj];
+      if (upper) {
+        a0 = offsetA + i * sa1 + i * sa2;
+        jx = jj;
+        for (j = i; j < N; j++) {
+          xv = x[jx];
+          if (xv !== 0) {
+            A[a0] += x0 * (alpha * xv);
+          }
+          a0 += sa2;
+          jx += sx;
+        }
+      } else {
+        a0 = offsetA + i * sa1;
+        jx = offsetX;
+        for (j = 0; j <= i; j++) {
+          xv = x[jx];
+          if (xv !== 0) {
+            A[a0] += x0 * (alpha * xv);
+          }
+          a0 += sa2;
+          jx += sx;
+        }
+      }
+      jj += sx;
     }
   }
   return A;
 }
 var base_default2 = dsyr;
 
-// lib/lapack/base/dpbstf/lib/base.js
+// ../notes/lib/lapack/base/dpbstf/lib/base.js
 function dpbstf(uplo, N, kd, AB, strideAB1, strideAB2, offsetAB) {
   var sa1;
   var sa2;
@@ -793,36 +1023,151 @@ function dpbstf(uplo, N, kd, AB, strideAB1, strideAB2, offsetAB) {
 }
 var base_default3 = dpbstf;
 
-// lib/lapack/base/dsbgst/lib/base.js
+// ../notes/lib/lapack/base/dsbgst/lib/base.js
 var import_lib5 = __toESM(require_lib23(), 1);
 
-// lib/blas/base/dger/lib/base.js
+// ../notes/lib/blas/base/dger/lib/base.js
 function dger(M5, N, alpha, x, strideX, offsetX, y, strideY, offsetY, A, strideA1, strideA2, offsetA) {
-  var temp;
+  var yv;
+  var x0;
+  var x1;
+  var x2;
+  var x3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
+  var m4;
+  var n4;
   var ix;
   var jy;
+  var jj;
+  var aj;
   var i;
   var j;
+  var k;
   if (M5 === 0 || N === 0 || alpha === 0) {
     return A;
   }
-  jy = offsetY;
-  for (j = 0; j < N; j++) {
-    if (y[jy] !== 0) {
-      temp = alpha * y[jy];
-      ix = offsetX;
-      for (i = 0; i < M5; i++) {
-        A[offsetA + i * strideA1 + j * strideA2] += x[ix] * temp;
-        ix += strideX;
+  if (Math.abs(strideA1) <= Math.abs(strideA2)) {
+    n4 = N - N % 4;
+    jy = offsetY;
+    for (j = 0; j < n4; j += 4) {
+      t0 = y[jy];
+      t1 = y[jy + strideY];
+      t2 = y[jy + 2 * strideY];
+      t3 = y[jy + 3 * strideY];
+      if (t0 !== 0 && t1 !== 0 && t2 !== 0 && t3 !== 0) {
+        t0 *= alpha;
+        t1 *= alpha;
+        t2 *= alpha;
+        t3 *= alpha;
+        a0 = offsetA + j * strideA2;
+        a1 = a0 + strideA2;
+        a2 = a1 + strideA2;
+        a3 = a2 + strideA2;
+        ix = offsetX;
+        for (i = 0; i < M5; i++) {
+          x0 = x[ix];
+          A[a0] += x0 * t0;
+          A[a1] += x0 * t1;
+          A[a2] += x0 * t2;
+          A[a3] += x0 * t3;
+          a0 += strideA1;
+          a1 += strideA1;
+          a2 += strideA1;
+          a3 += strideA1;
+          ix += strideX;
+        }
+      } else {
+        jj = jy;
+        aj = offsetA + j * strideA2;
+        for (k = 0; k < 4; k++) {
+          yv = y[jj];
+          if (yv !== 0) {
+            t0 = alpha * yv;
+            a0 = aj;
+            ix = offsetX;
+            for (i = 0; i < M5; i++) {
+              A[a0] += x[ix] * t0;
+              a0 += strideA1;
+              ix += strideX;
+            }
+          }
+          jj += strideY;
+          aj += strideA2;
+        }
       }
+      jy += 4 * strideY;
     }
-    jy += strideY;
+    for (; j < N; j++) {
+      yv = y[jy];
+      if (yv !== 0) {
+        t0 = alpha * yv;
+        a0 = offsetA + j * strideA2;
+        ix = offsetX;
+        for (i = 0; i < M5; i++) {
+          A[a0] += x[ix] * t0;
+          a0 += strideA1;
+          ix += strideX;
+        }
+      }
+      jy += strideY;
+    }
+  } else {
+    m4 = M5 - M5 % 4;
+    ix = offsetX;
+    for (i = 0; i < m4; i += 4) {
+      x0 = x[ix];
+      x1 = x[ix + strideX];
+      x2 = x[ix + 2 * strideX];
+      x3 = x[ix + 3 * strideX];
+      a0 = offsetA + i * strideA1;
+      a1 = a0 + strideA1;
+      a2 = a1 + strideA1;
+      a3 = a2 + strideA1;
+      jy = offsetY;
+      for (j = 0; j < N; j++) {
+        yv = y[jy];
+        if (yv !== 0) {
+          t0 = alpha * yv;
+          A[a0] += x0 * t0;
+          A[a1] += x1 * t0;
+          A[a2] += x2 * t0;
+          A[a3] += x3 * t0;
+        }
+        a0 += strideA2;
+        a1 += strideA2;
+        a2 += strideA2;
+        a3 += strideA2;
+        jy += strideY;
+      }
+      ix += 4 * strideX;
+    }
+    for (; i < M5; i++) {
+      x0 = x[ix];
+      a0 = offsetA + i * strideA1;
+      jy = offsetY;
+      for (j = 0; j < N; j++) {
+        yv = y[jy];
+        if (yv !== 0) {
+          A[a0] += x0 * (alpha * yv);
+        }
+        a0 += strideA2;
+        jy += strideY;
+      }
+      ix += strideX;
+    }
   }
   return A;
 }
 var base_default4 = dger;
 
-// lib/blas/base/drot/lib/base.js
+// ../notes/lib/blas/base/drot/lib/base.js
 function drot(N, x, strideX, offsetX, y, strideY, offsetY, c, s) {
   var temp;
   var ix;
@@ -844,7 +1189,7 @@ function drot(N, x, strideX, offsetX, y, strideY, offsetY, c, s) {
 }
 var base_default5 = drot;
 
-// lib/lapack/base/dlar2v/lib/base.js
+// ../notes/lib/lapack/base/dlar2v/lib/base.js
 function dlar2v(N, x, strideX, offsetX, y, strideY, offsetY, z, strideZ, offsetZ, c, strideC, offsetC, s, strideS, offsetS) {
   var ci;
   var si;
@@ -892,7 +1237,7 @@ function dlar2v(N, x, strideX, offsetX, y, strideY, offsetY, z, strideZ, offsetZ
 }
 var base_default6 = dlar2v;
 
-// lib/lapack/base/dlargv/lib/base.js
+// ../notes/lib/lapack/base/dlargv/lib/base.js
 function dlargv(N, x, strideX, offsetX, y, strideY, offsetY, c, strideC, offsetC) {
   var tt;
   var ix;
@@ -934,7 +1279,7 @@ function dlargv(N, x, strideX, offsetX, y, strideY, offsetY, c, strideC, offsetC
 }
 var base_default7 = dlargv;
 
-// lib/lapack/base/dlartg/lib/base.js
+// ../notes/lib/lapack/base/dlartg/lib/base.js
 var SAFMIN = 22250738585072014e-324;
 var SAFMAX = 449423283715579e293;
 var RTMIN = Math.sqrt(SAFMIN);
@@ -974,7 +1319,7 @@ function dlartg(f, g, out) {
 }
 var base_default8 = dlartg;
 
-// lib/lapack/base/dlartv/lib/base.js
+// ../notes/lib/lapack/base/dlartv/lib/base.js
 function dlartv(N, x, strideX, offsetX, y, strideY, offsetY, c, strideC, offsetC, s, strideS, offsetS) {
   var xi;
   var yi;
@@ -1000,7 +1345,7 @@ function dlartv(N, x, strideX, offsetX, y, strideY, offsetY, c, strideC, offsetC
 }
 var base_default9 = dlartv;
 
-// lib/lapack/base/dlaset/lib/base.js
+// ../notes/lib/lapack/base/dlaset/lib/base.js
 function dlaset(uplo, M5, N, alpha, beta, A, strideA1, strideA2, offsetA) {
   var idx;
   var mn;
@@ -1041,12 +1386,12 @@ function dlaset(uplo, M5, N, alpha, beta, A, strideA1, strideA2, offsetA) {
 }
 var base_default10 = dlaset;
 
-// lib/lapack/base/dsbgst/lib/base.js
+// ../notes/lib/lapack/base/dsbgst/lib/base.js
 var DLARTG_OUT = new import_lib5.default(3);
 function idx2(o, s1, s2, i, j) {
   return o + i * s1 + j * s2;
 }
-function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, strideBB1, strideBB2, offsetBB, X, strideX1, strideX2, offsetX, WORK, strideWORK, offsetWORK) {
+function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, strideBB1, strideBB2, offsetBB, X, strideX1, strideX2, offsetX, WORK, strideWork, offsetWork) {
   var update;
   var wantx;
   var upper;
@@ -1159,13 +1504,13 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         if (update) {
           if (i - k + ka < N && i - k > 1) {
             base_default8(AB[idx2(oA, sA1, sA2, k, i - k + ka - 1)], ra1, DLARTG_OUT);
-            WORK[offsetWORK + (N + i - k + ka - M5 - 1) * strideWORK] = DLARTG_OUT[0];
-            WORK[offsetWORK + (i - k + ka - M5 - 1) * strideWORK] = DLARTG_OUT[1];
+            WORK[offsetWork + (N + i - k + ka - M5 - 1) * strideWork] = DLARTG_OUT[0];
+            WORK[offsetWork + (i - k + ka - M5 - 1) * strideWork] = DLARTG_OUT[1];
             ra = DLARTG_OUT[2];
             t = -BB[idx2(oB, sB1, sB2, kb1 - k - 1, i - 1)] * ra1;
             p = idx2(oA, sA1, sA2, 0, i - k + ka - 1);
-            WORK[offsetWORK + (i - k - 1) * strideWORK] = WORK[offsetWORK + (N + i - k + ka - M5 - 1) * strideWORK] * t - WORK[offsetWORK + (i - k + ka - M5 - 1) * strideWORK] * AB[p];
-            AB[p] = WORK[offsetWORK + (i - k + ka - M5 - 1) * strideWORK] * t + WORK[offsetWORK + (N + i - k + ka - M5 - 1) * strideWORK] * AB[p];
+            WORK[offsetWork + (i - k - 1) * strideWork] = WORK[offsetWork + (N + i - k + ka - M5 - 1) * strideWork] * t - WORK[offsetWork + (i - k + ka - M5 - 1) * strideWork] * AB[p];
+            AB[p] = WORK[offsetWork + (i - k + ka - M5 - 1) * strideWork] * t + WORK[offsetWork + (N + i - k + ka - M5 - 1) * strideWork] * AB[p];
             ra1 = ra;
           }
         }
@@ -1179,33 +1524,33 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         }
         nrt = Math.floor((N - j2t + ka) / ka1);
         for (j = j2t; j <= j1; j += ka1) {
-          WORK[offsetWORK + (j - M5 - 1) * strideWORK] = WORK[offsetWORK + (j - M5 - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, 0, j)];
-          AB[idx2(oA, sA1, sA2, 0, j)] = WORK[offsetWORK + (N + j - M5 - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, 0, j)];
+          WORK[offsetWork + (j - M5 - 1) * strideWork] = WORK[offsetWork + (j - M5 - 1) * strideWork] * AB[idx2(oA, sA1, sA2, 0, j)];
+          AB[idx2(oA, sA1, sA2, 0, j)] = WORK[offsetWork + (N + j - M5 - 1) * strideWork] * AB[idx2(oA, sA1, sA2, 0, j)];
         }
         if (nrt > 0) {
-          base_default7(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2t), WORK, ka1 * strideWORK, offsetWORK + (j2t - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (N + j2t - M5 - 1) * strideWORK);
+          base_default7(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2t), WORK, ka1 * strideWork, offsetWork + (j2t - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (N + j2t - M5 - 1) * strideWork);
         }
         if (nr > 0) {
           for (l = 1; l <= ka - 1; l++) {
-            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - l - 1, j2), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - M5 - 1) * strideWORK);
+            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - l - 1, j2), WORK, ka1 * strideWork, offsetWork + (N + j2 - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - M5 - 1) * strideWork);
           }
-          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - 1, j2), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - M5 - 1) * strideWORK);
+          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - 1, j2), WORK, ka1 * strideWork, offsetWork + (N + j2 - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - M5 - 1) * strideWork);
         }
         for (l = ka - 1; l >= kb - k + 1; l--) {
           nrt = Math.floor((N - j2 + l) / ka1);
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j2 + ka1 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 + ka1 - l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - M5 - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j2 + ka1 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 + ka1 - l - 1), WORK, ka1 * strideWork, offsetWork + (N + j2 - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - M5 - 1) * strideWork);
           }
         }
         if (wantx) {
           for (j = j2; j <= j1; j += ka1) {
-            base_default5(N - M5, X, strideX1, offsetX + M5 * strideX1 + (j - 1) * strideX2, X, strideX1, offsetX + M5 * strideX1 + j * strideX2, WORK[offsetWORK + (N + j - M5 - 1) * strideWORK], WORK[offsetWORK + (j - M5 - 1) * strideWORK]);
+            base_default5(N - M5, X, strideX1, offsetX + M5 * strideX1 + (j - 1) * strideX2, X, strideX1, offsetX + M5 * strideX1 + j * strideX2, WORK[offsetWork + (N + j - M5 - 1) * strideWork], WORK[offsetWork + (j - M5 - 1) * strideWork]);
           }
         }
       }
       if (update) {
         if (i2 <= N && kbt > 0) {
-          WORK[offsetWORK + (i - kbt - 1) * strideWORK] = -BB[idx2(oB, sB1, sB2, kb1 - kbt - 1, i - 1)] * ra1;
+          WORK[offsetWork + (i - kbt - 1) * strideWork] = -BB[idx2(oB, sB1, sB2, kb1 - kbt - 1, i - 1)] * ra1;
         }
       }
       for (k = kb; k >= 1; k--) {
@@ -1217,22 +1562,22 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         for (l = kb - k; l >= 1; l--) {
           nrt = Math.floor((N - j2 + ka + l) / ka1);
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j2 - l), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 - l), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - ka - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - ka - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j2 - l), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 - l), WORK, ka1 * strideWork, offsetWork + (N + j2 - ka - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - ka - 1) * strideWork);
           }
         }
         nr = Math.floor((N - j2 + ka) / ka1);
         j1 = j2 + (nr - 1) * ka1;
         for (j = j1; j >= j2; j -= ka1) {
-          WORK[offsetWORK + (j - 1) * strideWORK] = WORK[offsetWORK + (j - ka - 1) * strideWORK];
-          WORK[offsetWORK + (N + j - 1) * strideWORK] = WORK[offsetWORK + (N + j - ka - 1) * strideWORK];
+          WORK[offsetWork + (j - 1) * strideWork] = WORK[offsetWork + (j - ka - 1) * strideWork];
+          WORK[offsetWork + (N + j - 1) * strideWork] = WORK[offsetWork + (N + j - ka - 1) * strideWork];
         }
         for (j = j2; j <= j1; j += ka1) {
-          WORK[offsetWORK + (j - 1) * strideWORK] = WORK[offsetWORK + (j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, 0, j)];
-          AB[idx2(oA, sA1, sA2, 0, j)] = WORK[offsetWORK + (N + j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, 0, j)];
+          WORK[offsetWork + (j - 1) * strideWork] = WORK[offsetWork + (j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, 0, j)];
+          AB[idx2(oA, sA1, sA2, 0, j)] = WORK[offsetWork + (N + j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, 0, j)];
         }
         if (update) {
           if (i - k < N - ka && k <= kbt) {
-            WORK[offsetWORK + (i - k + ka - 1) * strideWORK] = WORK[offsetWORK + (i - k - 1) * strideWORK];
+            WORK[offsetWork + (i - k + ka - 1) * strideWork] = WORK[offsetWork + (i - k - 1) * strideWork];
           }
         }
       }
@@ -1241,21 +1586,21 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         nr = Math.floor((N - j2 + ka) / ka1);
         j1 = j2 + (nr - 1) * ka1;
         if (nr > 0) {
-          base_default7(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2 - 1), WORK, ka1 * strideWORK, offsetWORK + (j2 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (N + j2 - 1) * strideWORK);
+          base_default7(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2 - 1), WORK, ka1 * strideWork, offsetWork + (j2 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (N + j2 - 1) * strideWork);
           for (l = 1; l <= ka - 1; l++) {
-            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - l - 1, j2), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - 1) * strideWORK);
+            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - l - 1, j2), WORK, ka1 * strideWork, offsetWork + (N + j2 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - 1) * strideWork);
           }
-          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - 1, j2), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - 1) * strideWORK);
+          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - 1, j2), WORK, ka1 * strideWork, offsetWork + (N + j2 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - 1) * strideWork);
         }
         for (l = ka - 1; l >= kb - k + 1; l--) {
           nrt = Math.floor((N - j2 + l) / ka1);
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j2 + ka1 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 + ka1 - l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j2 + ka1 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 + ka1 - l - 1), WORK, ka1 * strideWork, offsetWork + (N + j2 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - 1) * strideWork);
           }
         }
         if (wantx) {
           for (j = j2; j <= j1; j += ka1) {
-            base_default5(N - M5, X, strideX1, offsetX + M5 * strideX1 + (j - 1) * strideX2, X, strideX1, offsetX + M5 * strideX1 + j * strideX2, WORK[offsetWORK + (N + j - 1) * strideWORK], WORK[offsetWORK + (j - 1) * strideWORK]);
+            base_default5(N - M5, X, strideX1, offsetX + M5 * strideX1 + (j - 1) * strideX2, X, strideX1, offsetX + M5 * strideX1 + j * strideX2, WORK[offsetWork + (N + j - 1) * strideWork], WORK[offsetWork + (j - 1) * strideWork]);
           }
         }
       }
@@ -1264,14 +1609,14 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         for (l = kb - k; l >= 1; l--) {
           nrt = Math.floor((N - j2 + l) / ka1);
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j2 + ka1 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 + ka1 - l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - M5 - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j2 + ka1 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 + ka1 - l - 1), WORK, ka1 * strideWork, offsetWork + (N + j2 - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - M5 - 1) * strideWork);
           }
         }
       }
       if (kb > 1) {
         for (j = N - 1; j >= i - kb + 2 * ka + 1; j--) {
-          WORK[offsetWORK + (N + j - M5 - 1) * strideWORK] = WORK[offsetWORK + (N + j - ka - M5 - 1) * strideWORK];
-          WORK[offsetWORK + (j - M5 - 1) * strideWORK] = WORK[offsetWORK + (j - ka - M5 - 1) * strideWORK];
+          WORK[offsetWork + (N + j - M5 - 1) * strideWork] = WORK[offsetWork + (N + j - ka - M5 - 1) * strideWork];
+          WORK[offsetWork + (j - M5 - 1) * strideWork] = WORK[offsetWork + (j - ka - M5 - 1) * strideWork];
         }
       }
     } else {
@@ -1313,13 +1658,13 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         if (update) {
           if (i - k + ka < N && i - k > 1) {
             base_default8(AB[idx2(oA, sA1, sA2, ka1 - k - 1, i - 1)], ra1, DLARTG_OUT);
-            WORK[offsetWORK + (N + i - k + ka - M5 - 1) * strideWORK] = DLARTG_OUT[0];
-            WORK[offsetWORK + (i - k + ka - M5 - 1) * strideWORK] = DLARTG_OUT[1];
+            WORK[offsetWork + (N + i - k + ka - M5 - 1) * strideWork] = DLARTG_OUT[0];
+            WORK[offsetWork + (i - k + ka - M5 - 1) * strideWork] = DLARTG_OUT[1];
             ra = DLARTG_OUT[2];
             t = -BB[idx2(oB, sB1, sB2, k, i - k - 1)] * ra1;
             p = idx2(oA, sA1, sA2, ka1 - 1, i - k - 1);
-            WORK[offsetWORK + (i - k - 1) * strideWORK] = WORK[offsetWORK + (N + i - k + ka - M5 - 1) * strideWORK] * t - WORK[offsetWORK + (i - k + ka - M5 - 1) * strideWORK] * AB[p];
-            AB[p] = WORK[offsetWORK + (i - k + ka - M5 - 1) * strideWORK] * t + WORK[offsetWORK + (N + i - k + ka - M5 - 1) * strideWORK] * AB[p];
+            WORK[offsetWork + (i - k - 1) * strideWork] = WORK[offsetWork + (N + i - k + ka - M5 - 1) * strideWork] * t - WORK[offsetWork + (i - k + ka - M5 - 1) * strideWork] * AB[p];
+            AB[p] = WORK[offsetWork + (i - k + ka - M5 - 1) * strideWork] * t + WORK[offsetWork + (N + i - k + ka - M5 - 1) * strideWork] * AB[p];
             ra1 = ra;
           }
         }
@@ -1333,33 +1678,33 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         }
         nrt = Math.floor((N - j2t + ka) / ka1);
         for (j = j2t; j <= j1; j += ka1) {
-          WORK[offsetWORK + (j - M5 - 1) * strideWORK] = WORK[offsetWORK + (j - M5 - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)];
-          AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)] = WORK[offsetWORK + (N + j - M5 - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)];
+          WORK[offsetWork + (j - M5 - 1) * strideWork] = WORK[offsetWork + (j - M5 - 1) * strideWork] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)];
+          AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)] = WORK[offsetWork + (N + j - M5 - 1) * strideWork] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)];
         }
         if (nrt > 0) {
-          base_default7(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2t - ka - 1), WORK, ka1 * strideWORK, offsetWORK + (j2t - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (N + j2t - M5 - 1) * strideWORK);
+          base_default7(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2t - ka - 1), WORK, ka1 * strideWork, offsetWork + (j2t - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (N + j2t - M5 - 1) * strideWork);
         }
         if (nr > 0) {
           for (l = 1; l <= ka - 1; l++) {
-            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l + 1, j2 - l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - M5 - 1) * strideWORK);
+            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l + 1, j2 - l - 1), WORK, ka1 * strideWork, offsetWork + (N + j2 - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - M5 - 1) * strideWork);
           }
-          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2), AB, sA2 * ka1, idx2(oA, sA1, sA2, 1, j2 - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - M5 - 1) * strideWORK);
+          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2), AB, sA2 * ka1, idx2(oA, sA1, sA2, 1, j2 - 1), WORK, ka1 * strideWork, offsetWork + (N + j2 - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - M5 - 1) * strideWork);
         }
         for (l = ka - 1; l >= kb - k + 1; l--) {
           nrt = Math.floor((N - j2 + l) / ka1);
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - M5 - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2), WORK, ka1 * strideWork, offsetWork + (N + j2 - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - M5 - 1) * strideWork);
           }
         }
         if (wantx) {
           for (j = j2; j <= j1; j += ka1) {
-            base_default5(N - M5, X, strideX1, offsetX + M5 * strideX1 + (j - 1) * strideX2, X, strideX1, offsetX + M5 * strideX1 + j * strideX2, WORK[offsetWORK + (N + j - M5 - 1) * strideWORK], WORK[offsetWORK + (j - M5 - 1) * strideWORK]);
+            base_default5(N - M5, X, strideX1, offsetX + M5 * strideX1 + (j - 1) * strideX2, X, strideX1, offsetX + M5 * strideX1 + j * strideX2, WORK[offsetWork + (N + j - M5 - 1) * strideWork], WORK[offsetWork + (j - M5 - 1) * strideWork]);
           }
         }
       }
       if (update) {
         if (i2 <= N && kbt > 0) {
-          WORK[offsetWORK + (i - kbt - 1) * strideWORK] = -BB[idx2(oB, sB1, sB2, kbt, i - kbt - 1)] * ra1;
+          WORK[offsetWork + (i - kbt - 1) * strideWork] = -BB[idx2(oB, sB1, sB2, kbt, i - kbt - 1)] * ra1;
         }
       }
       for (k = kb; k >= 1; k--) {
@@ -1371,22 +1716,22 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         for (l = kb - k; l >= 1; l--) {
           nrt = Math.floor((N - j2 + ka + l) / ka1);
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j2 - ka - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2 - ka), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - ka - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - ka - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j2 - ka - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2 - ka), WORK, ka1 * strideWork, offsetWork + (N + j2 - ka - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - ka - 1) * strideWork);
           }
         }
         nr = Math.floor((N - j2 + ka) / ka1);
         j1 = j2 + (nr - 1) * ka1;
         for (j = j1; j >= j2; j -= ka1) {
-          WORK[offsetWORK + (j - 1) * strideWORK] = WORK[offsetWORK + (j - ka - 1) * strideWORK];
-          WORK[offsetWORK + (N + j - 1) * strideWORK] = WORK[offsetWORK + (N + j - ka - 1) * strideWORK];
+          WORK[offsetWork + (j - 1) * strideWork] = WORK[offsetWork + (j - ka - 1) * strideWork];
+          WORK[offsetWork + (N + j - 1) * strideWork] = WORK[offsetWork + (N + j - ka - 1) * strideWork];
         }
         for (j = j2; j <= j1; j += ka1) {
-          WORK[offsetWORK + (j - 1) * strideWORK] = WORK[offsetWORK + (j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)];
-          AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)] = WORK[offsetWORK + (N + j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)];
+          WORK[offsetWork + (j - 1) * strideWork] = WORK[offsetWork + (j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)];
+          AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)] = WORK[offsetWork + (N + j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - ka)];
         }
         if (update) {
           if (i - k < N - ka && k <= kbt) {
-            WORK[offsetWORK + (i - k + ka - 1) * strideWORK] = WORK[offsetWORK + (i - k - 1) * strideWORK];
+            WORK[offsetWork + (i - k + ka - 1) * strideWork] = WORK[offsetWork + (i - k - 1) * strideWork];
           }
         }
       }
@@ -1395,21 +1740,21 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         nr = Math.floor((N - j2 + ka) / ka1);
         j1 = j2 + (nr - 1) * ka1;
         if (nr > 0) {
-          base_default7(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2 - ka - 1), WORK, ka1 * strideWORK, offsetWORK + (j2 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (N + j2 - 1) * strideWORK);
+          base_default7(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j2 - ka - 1), WORK, ka1 * strideWork, offsetWork + (j2 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (N + j2 - 1) * strideWork);
           for (l = 1; l <= ka - 1; l++) {
-            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l + 1, j2 - l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - 1) * strideWORK);
+            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j2 - l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l + 1, j2 - l - 1), WORK, ka1 * strideWork, offsetWork + (N + j2 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - 1) * strideWork);
           }
-          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2), AB, sA2 * ka1, idx2(oA, sA1, sA2, 1, j2 - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - 1) * strideWORK);
+          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j2), AB, sA2 * ka1, idx2(oA, sA1, sA2, 1, j2 - 1), WORK, ka1 * strideWork, offsetWork + (N + j2 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - 1) * strideWork);
         }
         for (l = ka - 1; l >= kb - k + 1; l--) {
           nrt = Math.floor((N - j2 + l) / ka1);
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2), WORK, ka1 * strideWork, offsetWork + (N + j2 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - 1) * strideWork);
           }
         }
         if (wantx) {
           for (j = j2; j <= j1; j += ka1) {
-            base_default5(N - M5, X, strideX1, offsetX + M5 * strideX1 + (j - 1) * strideX2, X, strideX1, offsetX + M5 * strideX1 + j * strideX2, WORK[offsetWORK + (N + j - 1) * strideWORK], WORK[offsetWORK + (j - 1) * strideWORK]);
+            base_default5(N - M5, X, strideX1, offsetX + M5 * strideX1 + (j - 1) * strideX2, X, strideX1, offsetX + M5 * strideX1 + j * strideX2, WORK[offsetWork + (N + j - 1) * strideWork], WORK[offsetWork + (j - 1) * strideWork]);
           }
         }
       }
@@ -1418,14 +1763,14 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         for (l = kb - k; l >= 1; l--) {
           nrt = Math.floor((N - j2 + l) / ka1);
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2), WORK, ka1 * strideWORK, offsetWORK + (N + j2 - M5 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j2 - M5 - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j2 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j2), WORK, ka1 * strideWork, offsetWork + (N + j2 - M5 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j2 - M5 - 1) * strideWork);
           }
         }
       }
       if (kb > 1) {
         for (j = N - 1; j >= i - kb + 2 * ka + 1; j--) {
-          WORK[offsetWORK + (N + j - M5 - 1) * strideWORK] = WORK[offsetWORK + (N + j - ka - M5 - 1) * strideWORK];
-          WORK[offsetWORK + (j - M5 - 1) * strideWORK] = WORK[offsetWORK + (j - ka - M5 - 1) * strideWORK];
+          WORK[offsetWork + (N + j - M5 - 1) * strideWork] = WORK[offsetWork + (N + j - ka - M5 - 1) * strideWork];
+          WORK[offsetWork + (j - M5 - 1) * strideWork] = WORK[offsetWork + (j - ka - M5 - 1) * strideWork];
         }
       }
     }
@@ -1498,13 +1843,13 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         if (update) {
           if (i + k - ka1 > 0 && i + k < M5) {
             base_default8(AB[idx2(oA, sA1, sA2, k, i - 1)], ra1, DLARTG_OUT);
-            WORK[offsetWORK + (N + i + k - ka - 1) * strideWORK] = DLARTG_OUT[0];
-            WORK[offsetWORK + (i + k - ka - 1) * strideWORK] = DLARTG_OUT[1];
+            WORK[offsetWork + (N + i + k - ka - 1) * strideWork] = DLARTG_OUT[0];
+            WORK[offsetWork + (i + k - ka - 1) * strideWork] = DLARTG_OUT[1];
             ra = DLARTG_OUT[2];
             t = -BB[idx2(oB, sB1, sB2, kb1 - k - 1, i + k - 1)] * ra1;
             p = idx2(oA, sA1, sA2, 0, i + k - 1);
-            WORK[offsetWORK + (M5 - kb + i + k - 1) * strideWORK] = WORK[offsetWORK + (N + i + k - ka - 1) * strideWORK] * t - WORK[offsetWORK + (i + k - ka - 1) * strideWORK] * AB[p];
-            AB[p] = WORK[offsetWORK + (i + k - ka - 1) * strideWORK] * t + WORK[offsetWORK + (N + i + k - ka - 1) * strideWORK] * AB[p];
+            WORK[offsetWork + (M5 - kb + i + k - 1) * strideWork] = WORK[offsetWork + (N + i + k - ka - 1) * strideWork] * t - WORK[offsetWork + (i + k - ka - 1) * strideWork] * AB[p];
+            AB[p] = WORK[offsetWork + (i + k - ka - 1) * strideWork] * t + WORK[offsetWork + (N + i + k - ka - 1) * strideWork] * AB[p];
             ra1 = ra;
           }
         }
@@ -1518,34 +1863,34 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         }
         nrt = Math.floor((j2t + ka - 1) / ka1);
         for (j = j1; j <= j2t; j += ka1) {
-          WORK[offsetWORK + (j - 1) * strideWORK] = WORK[offsetWORK + (j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, 0, j + ka - 2)];
-          AB[idx2(oA, sA1, sA2, 0, j + ka - 2)] = WORK[offsetWORK + (N + j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, 0, j + ka - 2)];
+          WORK[offsetWork + (j - 1) * strideWork] = WORK[offsetWork + (j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, 0, j + ka - 2)];
+          AB[idx2(oA, sA1, sA2, 0, j + ka - 2)] = WORK[offsetWork + (N + j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, 0, j + ka - 2)];
         }
         if (nrt > 0) {
-          base_default7(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 + ka - 1), WORK, ka1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (N + j1 - 1) * strideWORK);
+          base_default7(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 + ka - 1), WORK, ka1 * strideWork, offsetWork + (j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (N + j1 - 1) * strideWork);
         }
         if (nr > 0) {
           for (l = 1; l <= ka - 1; l++) {
-            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - l - 1, j1 + l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - l - 1, j1 + l - 1), WORK, ka1 * strideWork, offsetWork + (N + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j1 - 1) * strideWork);
           }
-          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - 1, j1 - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - 1, j1 - 1), WORK, ka1 * strideWork, offsetWork + (N + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j1 - 1) * strideWork);
         }
         for (l = ka - 1; l >= kb - k + 1; l--) {
           nrt = Math.floor((j2 + l - 1) / ka1);
           j1t = j2 - (nrt - 1) * ka1;
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j1t - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1t - 2), WORK, ka1 * strideWORK, offsetWORK + (N + j1t - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j1t - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j1t - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1t - 2), WORK, ka1 * strideWork, offsetWork + (N + j1t - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j1t - 1) * strideWork);
           }
         }
         if (wantx) {
           for (j = j1; j <= j2; j += ka1) {
-            base_default5(nx, X, strideX1, offsetX + (j - 1) * strideX2, X, strideX1, offsetX + (j - 2) * strideX2, WORK[offsetWORK + (N + j - 1) * strideWORK], WORK[offsetWORK + (j - 1) * strideWORK]);
+            base_default5(nx, X, strideX1, offsetX + (j - 1) * strideX2, X, strideX1, offsetX + (j - 2) * strideX2, WORK[offsetWork + (N + j - 1) * strideWork], WORK[offsetWork + (j - 1) * strideWork]);
           }
         }
       }
       if (update) {
         if (i2 > 0 && kbt > 0) {
-          WORK[offsetWORK + (M5 - kb + i + kbt - 1) * strideWORK] = -BB[idx2(oB, sB1, sB2, kb1 - kbt - 1, i + kbt - 1)] * ra1;
+          WORK[offsetWork + (M5 - kb + i + kbt - 1) * strideWork] = -BB[idx2(oB, sB1, sB2, kb1 - kbt - 1, i + kbt - 1)] * ra1;
         }
       }
       for (k = kb; k >= 1; k--) {
@@ -1558,22 +1903,22 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
           nrt = Math.floor((j2 + ka + l - 1) / ka1);
           j1t = j2 - (nrt - 1) * ka1;
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j1t + ka - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1t + ka - 2), WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1t + ka - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1t + ka - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j1t + ka - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1t + ka - 2), WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1t + ka - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1t + ka - 1) * strideWork);
           }
         }
         nr = Math.floor((j2 + ka - 1) / ka1);
         j1 = j2 - (nr - 1) * ka1;
         for (j = j1; j <= j2; j += ka1) {
-          WORK[offsetWORK + (M5 - kb + j - 1) * strideWORK] = WORK[offsetWORK + (M5 - kb + j + ka - 1) * strideWORK];
-          WORK[offsetWORK + (N + M5 - kb + j - 1) * strideWORK] = WORK[offsetWORK + (N + M5 - kb + j + ka - 1) * strideWORK];
+          WORK[offsetWork + (M5 - kb + j - 1) * strideWork] = WORK[offsetWork + (M5 - kb + j + ka - 1) * strideWork];
+          WORK[offsetWork + (N + M5 - kb + j - 1) * strideWork] = WORK[offsetWork + (N + M5 - kb + j + ka - 1) * strideWork];
         }
         for (j = j1; j <= j2; j += ka1) {
-          WORK[offsetWORK + (M5 - kb + j - 1) * strideWORK] = WORK[offsetWORK + (M5 - kb + j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, 0, j + ka - 2)];
-          AB[idx2(oA, sA1, sA2, 0, j + ka - 2)] = WORK[offsetWORK + (N + M5 - kb + j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, 0, j + ka - 2)];
+          WORK[offsetWork + (M5 - kb + j - 1) * strideWork] = WORK[offsetWork + (M5 - kb + j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, 0, j + ka - 2)];
+          AB[idx2(oA, sA1, sA2, 0, j + ka - 2)] = WORK[offsetWork + (N + M5 - kb + j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, 0, j + ka - 2)];
         }
         if (update) {
           if (i + k > ka1 && k <= kbt) {
-            WORK[offsetWORK + (M5 - kb + i + k - ka - 1) * strideWORK] = WORK[offsetWORK + (M5 - kb + i + k - 1) * strideWORK];
+            WORK[offsetWork + (M5 - kb + i + k - ka - 1) * strideWork] = WORK[offsetWork + (M5 - kb + i + k - 1) * strideWork];
           }
         }
       }
@@ -1582,22 +1927,22 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         nr = Math.floor((j2 + ka - 1) / ka1);
         j1 = j2 - (nr - 1) * ka1;
         if (nr > 0) {
-          base_default7(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 + ka - 1), WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1 - 1) * strideWORK);
+          base_default7(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 + ka - 1), WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1 - 1) * strideWork);
           for (l = 1; l <= ka - 1; l++) {
-            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - l - 1, j1 + l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1 - 1) * strideWORK);
+            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - l - 1, j1 + l - 1), WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1 - 1) * strideWork);
           }
-          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - 1, j1 - 1), WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1 - 1) * strideWORK);
+          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka - 1, j1 - 1), WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1 - 1) * strideWork);
         }
         for (l = ka - 1; l >= kb - k + 1; l--) {
           nrt = Math.floor((j2 + l - 1) / ka1);
           j1t = j2 - (nrt - 1) * ka1;
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j1t - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1t - 2), WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1t - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1t - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j1t - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1t - 2), WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1t - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1t - 1) * strideWork);
           }
         }
         if (wantx) {
           for (j = j1; j <= j2; j += ka1) {
-            base_default5(nx, X, strideX1, offsetX + (j - 1) * strideX2, X, strideX1, offsetX + (j - 2) * strideX2, WORK[offsetWORK + (N + M5 - kb + j - 1) * strideWORK], WORK[offsetWORK + (M5 - kb + j - 1) * strideWORK]);
+            base_default5(nx, X, strideX1, offsetX + (j - 1) * strideX2, X, strideX1, offsetX + (j - 2) * strideX2, WORK[offsetWork + (N + M5 - kb + j - 1) * strideWork], WORK[offsetWork + (M5 - kb + j - 1) * strideWork]);
           }
         }
       }
@@ -1607,14 +1952,14 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
           nrt = Math.floor((j2 + l - 1) / ka1);
           j1t = j2 - (nrt - 1) * ka1;
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j1t - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1t - 2), WORK, ka1 * strideWORK, offsetWORK + (N + j1t - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j1t - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, l - 1, j1t - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1t - 2), WORK, ka1 * strideWork, offsetWork + (N + j1t - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j1t - 1) * strideWork);
           }
         }
       }
       if (kb > 1) {
         for (j = 2; j <= Math.min(i + kb, M5) - 2 * ka - 1; j++) {
-          WORK[offsetWORK + (N + j - 1) * strideWORK] = WORK[offsetWORK + (N + j + ka - 1) * strideWORK];
-          WORK[offsetWORK + (j - 1) * strideWORK] = WORK[offsetWORK + (j + ka - 1) * strideWORK];
+          WORK[offsetWork + (N + j - 1) * strideWork] = WORK[offsetWork + (N + j + ka - 1) * strideWork];
+          WORK[offsetWork + (j - 1) * strideWork] = WORK[offsetWork + (j + ka - 1) * strideWork];
         }
       }
     } else {
@@ -1656,13 +2001,13 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         if (update) {
           if (i + k - ka1 > 0 && i + k < M5) {
             base_default8(AB[idx2(oA, sA1, sA2, ka1 - k - 1, i + k - ka - 1)], ra1, DLARTG_OUT);
-            WORK[offsetWORK + (N + i + k - ka - 1) * strideWORK] = DLARTG_OUT[0];
-            WORK[offsetWORK + (i + k - ka - 1) * strideWORK] = DLARTG_OUT[1];
+            WORK[offsetWork + (N + i + k - ka - 1) * strideWork] = DLARTG_OUT[0];
+            WORK[offsetWork + (i + k - ka - 1) * strideWork] = DLARTG_OUT[1];
             ra = DLARTG_OUT[2];
             t = -BB[idx2(oB, sB1, sB2, k, i - 1)] * ra1;
             p = idx2(oA, sA1, sA2, ka1 - 1, i + k - ka - 1);
-            WORK[offsetWORK + (M5 - kb + i + k - 1) * strideWORK] = WORK[offsetWORK + (N + i + k - ka - 1) * strideWORK] * t - WORK[offsetWORK + (i + k - ka - 1) * strideWORK] * AB[p];
-            AB[p] = WORK[offsetWORK + (i + k - ka - 1) * strideWORK] * t + WORK[offsetWORK + (N + i + k - ka - 1) * strideWORK] * AB[p];
+            WORK[offsetWork + (M5 - kb + i + k - 1) * strideWork] = WORK[offsetWork + (N + i + k - ka - 1) * strideWork] * t - WORK[offsetWork + (i + k - ka - 1) * strideWork] * AB[p];
+            AB[p] = WORK[offsetWork + (i + k - ka - 1) * strideWork] * t + WORK[offsetWork + (N + i + k - ka - 1) * strideWork] * AB[p];
             ra1 = ra;
           }
         }
@@ -1676,34 +2021,34 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         }
         nrt = Math.floor((j2t + ka - 1) / ka1);
         for (j = j1; j <= j2t; j += ka1) {
-          WORK[offsetWORK + (j - 1) * strideWORK] = WORK[offsetWORK + (j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)];
-          AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)] = WORK[offsetWORK + (N + j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)];
+          WORK[offsetWork + (j - 1) * strideWork] = WORK[offsetWork + (j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)];
+          AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)] = WORK[offsetWork + (N + j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)];
         }
         if (nrt > 0) {
-          base_default7(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 1), WORK, ka1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (N + j1 - 1) * strideWORK);
+          base_default7(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 1), WORK, ka1 * strideWork, offsetWork + (j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (N + j1 - 1) * strideWork);
         }
         if (nr > 0) {
           for (l = 1; l <= ka - 1; l++) {
-            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l + 1, j1 - 2), WORK, ka1 * strideWORK, offsetWORK + (N + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l + 1, j1 - 2), WORK, ka1 * strideWork, offsetWork + (N + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j1 - 1) * strideWork);
           }
-          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, 1, j1 - 2), WORK, ka1 * strideWORK, offsetWORK + (N + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, 1, j1 - 2), WORK, ka1 * strideWork, offsetWork + (N + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j1 - 1) * strideWork);
         }
         for (l = ka - 1; l >= kb - k + 1; l--) {
           nrt = Math.floor((j2 + l - 1) / ka1);
           j1t = j2 - (nrt - 1) * ka1;
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j1t - ka1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1t - ka1 + l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j1t - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j1t - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j1t - ka1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1t - ka1 + l - 1), WORK, ka1 * strideWork, offsetWork + (N + j1t - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j1t - 1) * strideWork);
           }
         }
         if (wantx) {
           for (j = j1; j <= j2; j += ka1) {
-            base_default5(nx, X, strideX1, offsetX + (j - 1) * strideX2, X, strideX1, offsetX + (j - 2) * strideX2, WORK[offsetWORK + (N + j - 1) * strideWORK], WORK[offsetWORK + (j - 1) * strideWORK]);
+            base_default5(nx, X, strideX1, offsetX + (j - 1) * strideX2, X, strideX1, offsetX + (j - 2) * strideX2, WORK[offsetWork + (N + j - 1) * strideWork], WORK[offsetWork + (j - 1) * strideWork]);
           }
         }
       }
       if (update) {
         if (i2 > 0 && kbt > 0) {
-          WORK[offsetWORK + (M5 - kb + i + kbt - 1) * strideWORK] = -BB[idx2(oB, sB1, sB2, kbt, i - 1)] * ra1;
+          WORK[offsetWork + (M5 - kb + i + kbt - 1) * strideWork] = -BB[idx2(oB, sB1, sB2, kbt, i - 1)] * ra1;
         }
       }
       for (k = kb; k >= 1; k--) {
@@ -1716,22 +2061,22 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
           nrt = Math.floor((j2 + ka + l - 1) / ka1);
           j1t = j2 - (nrt - 1) * ka1;
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j1t + l - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1t + l - 2), WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1t + ka - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1t + ka - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j1t + l - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1t + l - 2), WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1t + ka - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1t + ka - 1) * strideWork);
           }
         }
         nr = Math.floor((j2 + ka - 1) / ka1);
         j1 = j2 - (nr - 1) * ka1;
         for (j = j1; j <= j2; j += ka1) {
-          WORK[offsetWORK + (M5 - kb + j - 1) * strideWORK] = WORK[offsetWORK + (M5 - kb + j + ka - 1) * strideWORK];
-          WORK[offsetWORK + (N + M5 - kb + j - 1) * strideWORK] = WORK[offsetWORK + (N + M5 - kb + j + ka - 1) * strideWORK];
+          WORK[offsetWork + (M5 - kb + j - 1) * strideWork] = WORK[offsetWork + (M5 - kb + j + ka - 1) * strideWork];
+          WORK[offsetWork + (N + M5 - kb + j - 1) * strideWork] = WORK[offsetWork + (N + M5 - kb + j + ka - 1) * strideWork];
         }
         for (j = j1; j <= j2; j += ka1) {
-          WORK[offsetWORK + (M5 - kb + j - 1) * strideWORK] = WORK[offsetWORK + (M5 - kb + j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)];
-          AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)] = WORK[offsetWORK + (N + M5 - kb + j - 1) * strideWORK] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)];
+          WORK[offsetWork + (M5 - kb + j - 1) * strideWork] = WORK[offsetWork + (M5 - kb + j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)];
+          AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)] = WORK[offsetWork + (N + M5 - kb + j - 1) * strideWork] * AB[idx2(oA, sA1, sA2, ka1 - 1, j - 2)];
         }
         if (update) {
           if (i + k > ka1 && k <= kbt) {
-            WORK[offsetWORK + (M5 - kb + i + k - ka - 1) * strideWORK] = WORK[offsetWORK + (M5 - kb + i + k - 1) * strideWORK];
+            WORK[offsetWork + (M5 - kb + i + k - ka - 1) * strideWork] = WORK[offsetWork + (M5 - kb + i + k - 1) * strideWork];
           }
         }
       }
@@ -1740,22 +2085,22 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
         nr = Math.floor((j2 + ka - 1) / ka1);
         j1 = j2 - (nr - 1) * ka1;
         if (nr > 0) {
-          base_default7(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 1), WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1 - 1) * strideWORK);
+          base_default7(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - 1, j1 - 1), WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1 - 1) * strideWork);
           for (l = 1; l <= ka - 1; l++) {
-            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l + 1, j1 - 2), WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1 - 1) * strideWORK);
+            base_default9(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, l, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, l + 1, j1 - 2), WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1 - 1) * strideWork);
           }
-          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, 1, j1 - 2), WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1 - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1 - 1) * strideWORK);
+          base_default6(nr, AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, 0, j1 - 2), AB, sA2 * ka1, idx2(oA, sA1, sA2, 1, j1 - 2), WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1 - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1 - 1) * strideWork);
         }
         for (l = ka - 1; l >= kb - k + 1; l--) {
           nrt = Math.floor((j2 + l - 1) / ka1);
           j1t = j2 - (nrt - 1) * ka1;
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j1t - ka1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1t - ka1 + l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + M5 - kb + j1t - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (M5 - kb + j1t - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j1t - ka1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1t - ka1 + l - 1), WORK, ka1 * strideWork, offsetWork + (N + M5 - kb + j1t - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (M5 - kb + j1t - 1) * strideWork);
           }
         }
         if (wantx) {
           for (j = j1; j <= j2; j += ka1) {
-            base_default5(nx, X, strideX1, offsetX + (j - 1) * strideX2, X, strideX1, offsetX + (j - 2) * strideX2, WORK[offsetWORK + (N + M5 - kb + j - 1) * strideWORK], WORK[offsetWORK + (M5 - kb + j - 1) * strideWORK]);
+            base_default5(nx, X, strideX1, offsetX + (j - 1) * strideX2, X, strideX1, offsetX + (j - 2) * strideX2, WORK[offsetWork + (N + M5 - kb + j - 1) * strideWork], WORK[offsetWork + (M5 - kb + j - 1) * strideWork]);
           }
         }
       }
@@ -1765,14 +2110,14 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
           nrt = Math.floor((j2 + l - 1) / ka1);
           j1t = j2 - (nrt - 1) * ka1;
           if (nrt > 0) {
-            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j1t - ka1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1t - ka1 + l - 1), WORK, ka1 * strideWORK, offsetWORK + (N + j1t - 1) * strideWORK, WORK, ka1 * strideWORK, offsetWORK + (j1t - 1) * strideWORK);
+            base_default9(nrt, AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l, j1t - ka1 + l - 1), AB, sA2 * ka1, idx2(oA, sA1, sA2, ka1 - l - 1, j1t - ka1 + l - 1), WORK, ka1 * strideWork, offsetWork + (N + j1t - 1) * strideWork, WORK, ka1 * strideWork, offsetWork + (j1t - 1) * strideWork);
           }
         }
       }
       if (kb > 1) {
         for (j = 2; j <= Math.min(i + kb, M5) - 2 * ka - 1; j++) {
-          WORK[offsetWORK + (N + j - 1) * strideWORK] = WORK[offsetWORK + (N + j + ka - 1) * strideWORK];
-          WORK[offsetWORK + (j - 1) * strideWORK] = WORK[offsetWORK + (j + ka - 1) * strideWORK];
+          WORK[offsetWork + (N + j - 1) * strideWork] = WORK[offsetWork + (N + j + ka - 1) * strideWork];
+          WORK[offsetWork + (j - 1) * strideWork] = WORK[offsetWork + (j + ka - 1) * strideWork];
         }
       }
     }
@@ -1780,10 +2125,10 @@ function dsbgst(vect, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, s
 }
 var base_default11 = dsbgst;
 
-// lib/lapack/base/dsbtrd/lib/base.js
+// ../notes/lib/lapack/base/dsbtrd/lib/base.js
 var import_lib6 = __toESM(require_lib23(), 1);
 var rot = new import_lib6.default(3);
-function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, strideD, offsetD, e, strideE, offsetE, Q, strideQ1, strideQ2, offsetQ, WORK, strideWORK, offsetWORK) {
+function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, strideD, offsetD, e, strideE, offsetE, Q, strideQ1, strideQ2, offsetQ, WORK, strideWork, offsetWork) {
   var iqaend;
   var j1end;
   var initq;
@@ -1837,15 +2182,15 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
           j1 += kdn;
           j2 += kdn;
           if (nr > 0) {
-            base_default7(nr, AB, inca, offsetAB + (j1 - 2) * strideAB2, WORK, kd1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK, d, kd1 * strideD, offsetD + (j1 - 1) * strideD);
+            base_default7(nr, AB, inca, offsetAB + (j1 - 2) * strideAB2, WORK, kd1 * strideWork, offsetWork + (j1 - 1) * strideWork, d, kd1 * strideD, offsetD + (j1 - 1) * strideD);
             if (nr >= 2 * kd - 1) {
               for (l = 1; l <= kd - 1; l++) {
-                base_default9(nr, AB, inca, offsetAB + l * strideAB1 + (j1 - 2) * strideAB2, AB, inca, offsetAB + (l - 1) * strideAB1 + (j1 - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+                base_default9(nr, AB, inca, offsetAB + l * strideAB1 + (j1 - 2) * strideAB2, AB, inca, offsetAB + (l - 1) * strideAB1 + (j1 - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWork, offsetWork + (j1 - 1) * strideWork);
               }
             } else {
               jend = j1 + (nr - 1) * kd1;
               for (jinc = j1; jinc <= jend; jinc += kd1) {
-                base_default5(kdm1, AB, strideAB1, offsetAB + strideAB1 + (jinc - 2) * strideAB2, AB, strideAB1, offsetAB + (jinc - 1) * strideAB2, d[offsetD + (jinc - 1) * strideD], WORK[offsetWORK + (jinc - 1) * strideWORK]);
+                base_default5(kdm1, AB, strideAB1, offsetAB + strideAB1 + (jinc - 2) * strideAB2, AB, strideAB1, offsetAB + (jinc - 1) * strideAB2, d[offsetD + (jinc - 1) * strideD], WORK[offsetWork + (jinc - 1) * strideWork]);
               }
             }
           }
@@ -1853,16 +2198,16 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
             if (k <= N - i + 1) {
               base_default8(AB[offsetAB + (kd - k + 2) * strideAB1 + (i + k - 3) * strideAB2], AB[offsetAB + (kd - k + 1) * strideAB1 + (i + k - 2) * strideAB2], rot);
               d[offsetD + (i + k - 2) * strideD] = rot[0];
-              WORK[offsetWORK + (i + k - 2) * strideWORK] = rot[1];
+              WORK[offsetWork + (i + k - 2) * strideWork] = rot[1];
               temp = rot[2];
               AB[offsetAB + (kd - k + 2) * strideAB1 + (i + k - 3) * strideAB2] = temp;
-              base_default5(k - 3, AB, strideAB1, offsetAB + (kd - k + 3) * strideAB1 + (i + k - 3) * strideAB2, AB, strideAB1, offsetAB + (kd - k + 2) * strideAB1 + (i + k - 2) * strideAB2, d[offsetD + (i + k - 2) * strideD], WORK[offsetWORK + (i + k - 2) * strideWORK]);
+              base_default5(k - 3, AB, strideAB1, offsetAB + (kd - k + 3) * strideAB1 + (i + k - 3) * strideAB2, AB, strideAB1, offsetAB + (kd - k + 2) * strideAB1 + (i + k - 2) * strideAB2, d[offsetD + (i + k - 2) * strideD], WORK[offsetWork + (i + k - 2) * strideWork]);
             }
             nr += 1;
             j1 -= kdn + 1;
           }
           if (nr > 0) {
-            base_default6(nr, AB, inca, offsetAB + kd * strideAB1 + (j1 - 2) * strideAB2, AB, inca, offsetAB + kd * strideAB1 + (j1 - 1) * strideAB2, AB, inca, offsetAB + (kd - 1) * strideAB1 + (j1 - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+            base_default6(nr, AB, inca, offsetAB + kd * strideAB1 + (j1 - 2) * strideAB2, AB, inca, offsetAB + kd * strideAB1 + (j1 - 1) * strideAB2, AB, inca, offsetAB + (kd - 1) * strideAB1 + (j1 - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWork, offsetWork + (j1 - 1) * strideWork);
           }
           if (nr > 0) {
             if (2 * kd - 1 < nr) {
@@ -1873,20 +2218,20 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
                   nrt = nr;
                 }
                 if (nrt > 0) {
-                  base_default9(nrt, AB, inca, offsetAB + (kd - l - 1) * strideAB1 + (j1 + l - 1) * strideAB2, AB, inca, offsetAB + (kd - l) * strideAB1 + (j1 + l - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+                  base_default9(nrt, AB, inca, offsetAB + (kd - l - 1) * strideAB1 + (j1 + l - 1) * strideAB2, AB, inca, offsetAB + (kd - l) * strideAB1 + (j1 + l - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWork, offsetWork + (j1 - 1) * strideWork);
                 }
               }
             } else {
               j1end = j1 + kd1 * (nr - 2);
               if (j1end >= j1) {
                 for (jinc = j1; jinc <= j1end; jinc += kd1) {
-                  base_default5(kd - 1, AB, incx, offsetAB + (kd - 2) * strideAB1 + jinc * strideAB2, AB, incx, offsetAB + (kd - 1) * strideAB1 + jinc * strideAB2, d[offsetD + (jinc - 1) * strideD], WORK[offsetWORK + (jinc - 1) * strideWORK]);
+                  base_default5(kd - 1, AB, incx, offsetAB + (kd - 2) * strideAB1 + jinc * strideAB2, AB, incx, offsetAB + (kd - 1) * strideAB1 + jinc * strideAB2, d[offsetD + (jinc - 1) * strideD], WORK[offsetWork + (jinc - 1) * strideWork]);
                 }
               }
               lend = Math.min(kdm1, N - j2);
               last = j1end + kd1;
               if (lend > 0) {
-                base_default5(lend, AB, incx, offsetAB + (kd - 2) * strideAB1 + last * strideAB2, AB, incx, offsetAB + (kd - 1) * strideAB1 + last * strideAB2, d[offsetD + (last - 1) * strideD], WORK[offsetWORK + (last - 1) * strideWORK]);
+                base_default5(lend, AB, incx, offsetAB + (kd - 2) * strideAB1 + last * strideAB2, AB, incx, offsetAB + (kd - 1) * strideAB1 + last * strideAB2, d[offsetD + (last - 1) * strideD], WORK[offsetWork + (last - 1) * strideWork]);
               }
             }
           }
@@ -1905,11 +2250,11 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
                 iqb = Math.max(1, j - ibl);
                 nq = 1 + iqaend - iqb;
                 iqaend = Math.min(iqaend + kd, iqend);
-                base_default5(nq, Q, strideQ1, offsetQ + (iqb - 1) * strideQ1 + (j - 2) * strideQ2, Q, strideQ1, offsetQ + (iqb - 1) * strideQ1 + (j - 1) * strideQ2, d[offsetD + (j - 1) * strideD], WORK[offsetWORK + (j - 1) * strideWORK]);
+                base_default5(nq, Q, strideQ1, offsetQ + (iqb - 1) * strideQ1 + (j - 2) * strideQ2, Q, strideQ1, offsetQ + (iqb - 1) * strideQ1 + (j - 1) * strideQ2, d[offsetD + (j - 1) * strideD], WORK[offsetWork + (j - 1) * strideWork]);
               }
             } else {
               for (j = j1; j <= j2; j += kd1) {
-                base_default5(N, Q, strideQ1, offsetQ + (j - 2) * strideQ2, Q, strideQ1, offsetQ + (j - 1) * strideQ2, d[offsetD + (j - 1) * strideD], WORK[offsetWORK + (j - 1) * strideWORK]);
+                base_default5(N, Q, strideQ1, offsetQ + (j - 2) * strideQ2, Q, strideQ1, offsetQ + (j - 1) * strideQ2, d[offsetD + (j - 1) * strideD], WORK[offsetWork + (j - 1) * strideWork]);
               }
             }
           }
@@ -1918,7 +2263,7 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
             j2 -= kdn + 1;
           }
           for (j = j1; j <= j2; j += kd1) {
-            WORK[offsetWORK + (j + kd - 1) * strideWORK] = WORK[offsetWORK + (j - 1) * strideWORK] * AB[offsetAB + (j + kd - 1) * strideAB2];
+            WORK[offsetWork + (j + kd - 1) * strideWork] = WORK[offsetWork + (j - 1) * strideWork] * AB[offsetAB + (j + kd - 1) * strideAB2];
             AB[offsetAB + (j + kd - 1) * strideAB2] = d[offsetD + (j - 1) * strideD] * AB[offsetAB + (j + kd - 1) * strideAB2];
           }
         }
@@ -1946,15 +2291,15 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
           j1 += kdn;
           j2 += kdn;
           if (nr > 0) {
-            base_default7(nr, AB, inca, offsetAB + kd * strideAB1 + (j1 - kd1 - 1) * strideAB2, WORK, kd1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK, d, kd1 * strideD, offsetD + (j1 - 1) * strideD);
+            base_default7(nr, AB, inca, offsetAB + kd * strideAB1 + (j1 - kd1 - 1) * strideAB2, WORK, kd1 * strideWork, offsetWork + (j1 - 1) * strideWork, d, kd1 * strideD, offsetD + (j1 - 1) * strideD);
             if (nr > 2 * kd - 1) {
               for (l = 1; l <= kd - 1; l++) {
-                base_default9(nr, AB, inca, offsetAB + (kd - l) * strideAB1 + (j1 - kd1 + l - 1) * strideAB2, AB, inca, offsetAB + (kd - l + 1) * strideAB1 + (j1 - kd1 + l - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+                base_default9(nr, AB, inca, offsetAB + (kd - l) * strideAB1 + (j1 - kd1 + l - 1) * strideAB2, AB, inca, offsetAB + (kd - l + 1) * strideAB1 + (j1 - kd1 + l - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWork, offsetWork + (j1 - 1) * strideWork);
               }
             } else {
               jend = j1 + kd1 * (nr - 1);
               for (jinc = j1; jinc <= jend; jinc += kd1) {
-                base_default5(kdm1, AB, incx, offsetAB + (kd - 1) * strideAB1 + (jinc - kd - 1) * strideAB2, AB, incx, offsetAB + kd * strideAB1 + (jinc - kd - 1) * strideAB2, d[offsetD + (jinc - 1) * strideD], WORK[offsetWORK + (jinc - 1) * strideWORK]);
+                base_default5(kdm1, AB, incx, offsetAB + (kd - 1) * strideAB1 + (jinc - kd - 1) * strideAB2, AB, incx, offsetAB + kd * strideAB1 + (jinc - kd - 1) * strideAB2, d[offsetD + (jinc - 1) * strideD], WORK[offsetWork + (jinc - 1) * strideWork]);
               }
             }
           }
@@ -1962,16 +2307,16 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
             if (k <= N - i + 1) {
               base_default8(AB[offsetAB + (k - 2) * strideAB1 + (i - 1) * strideAB2], AB[offsetAB + (k - 1) * strideAB1 + (i - 1) * strideAB2], rot);
               d[offsetD + (i + k - 2) * strideD] = rot[0];
-              WORK[offsetWORK + (i + k - 2) * strideWORK] = rot[1];
+              WORK[offsetWork + (i + k - 2) * strideWork] = rot[1];
               temp = rot[2];
               AB[offsetAB + (k - 2) * strideAB1 + (i - 1) * strideAB2] = temp;
-              base_default5(k - 3, AB, incx, offsetAB + (k - 3) * strideAB1 + i * strideAB2, AB, incx, offsetAB + (k - 2) * strideAB1 + i * strideAB2, d[offsetD + (i + k - 2) * strideD], WORK[offsetWORK + (i + k - 2) * strideWORK]);
+              base_default5(k - 3, AB, incx, offsetAB + (k - 3) * strideAB1 + i * strideAB2, AB, incx, offsetAB + (k - 2) * strideAB1 + i * strideAB2, d[offsetD + (i + k - 2) * strideD], WORK[offsetWork + (i + k - 2) * strideWork]);
             }
             nr += 1;
             j1 -= kdn + 1;
           }
           if (nr > 0) {
-            base_default6(nr, AB, inca, offsetAB + (j1 - 2) * strideAB2, AB, inca, offsetAB + (j1 - 1) * strideAB2, AB, inca, offsetAB + strideAB1 + (j1 - 2) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+            base_default6(nr, AB, inca, offsetAB + (j1 - 2) * strideAB2, AB, inca, offsetAB + (j1 - 1) * strideAB2, AB, inca, offsetAB + strideAB1 + (j1 - 2) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWork, offsetWork + (j1 - 1) * strideWork);
           }
           if (nr > 0) {
             if (nr > 2 * kd - 1) {
@@ -1982,20 +2327,20 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
                   nrt = nr;
                 }
                 if (nrt > 0) {
-                  base_default9(nrt, AB, inca, offsetAB + (l + 1) * strideAB1 + (j1 - 2) * strideAB2, AB, inca, offsetAB + l * strideAB1 + (j1 - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWORK, offsetWORK + (j1 - 1) * strideWORK);
+                  base_default9(nrt, AB, inca, offsetAB + (l + 1) * strideAB1 + (j1 - 2) * strideAB2, AB, inca, offsetAB + l * strideAB1 + (j1 - 1) * strideAB2, d, kd1 * strideD, offsetD + (j1 - 1) * strideD, WORK, kd1 * strideWork, offsetWork + (j1 - 1) * strideWork);
                 }
               }
             } else {
               j1end = j1 + kd1 * (nr - 2);
               if (j1end >= j1) {
                 for (jinc = j1; jinc <= j1end; jinc += kd1) {
-                  base_default5(kdm1, AB, strideAB1, offsetAB + 2 * strideAB1 + (jinc - 2) * strideAB2, AB, strideAB1, offsetAB + strideAB1 + (jinc - 1) * strideAB2, d[offsetD + (jinc - 1) * strideD], WORK[offsetWORK + (jinc - 1) * strideWORK]);
+                  base_default5(kdm1, AB, strideAB1, offsetAB + 2 * strideAB1 + (jinc - 2) * strideAB2, AB, strideAB1, offsetAB + strideAB1 + (jinc - 1) * strideAB2, d[offsetD + (jinc - 1) * strideD], WORK[offsetWork + (jinc - 1) * strideWork]);
                 }
               }
               lend = Math.min(kdm1, N - j2);
               last = j1end + kd1;
               if (lend > 0) {
-                base_default5(lend, AB, strideAB1, offsetAB + 2 * strideAB1 + (last - 2) * strideAB2, AB, strideAB1, offsetAB + strideAB1 + (last - 1) * strideAB2, d[offsetD + (last - 1) * strideD], WORK[offsetWORK + (last - 1) * strideWORK]);
+                base_default5(lend, AB, strideAB1, offsetAB + 2 * strideAB1 + (last - 2) * strideAB2, AB, strideAB1, offsetAB + strideAB1 + (last - 1) * strideAB2, d[offsetD + (last - 1) * strideD], WORK[offsetWork + (last - 1) * strideWork]);
               }
             }
           }
@@ -2014,11 +2359,11 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
                 iqb = Math.max(1, j - ibl);
                 nq = 1 + iqaend - iqb;
                 iqaend = Math.min(iqaend + kd, iqend);
-                base_default5(nq, Q, strideQ1, offsetQ + (iqb - 1) * strideQ1 + (j - 2) * strideQ2, Q, strideQ1, offsetQ + (iqb - 1) * strideQ1 + (j - 1) * strideQ2, d[offsetD + (j - 1) * strideD], WORK[offsetWORK + (j - 1) * strideWORK]);
+                base_default5(nq, Q, strideQ1, offsetQ + (iqb - 1) * strideQ1 + (j - 2) * strideQ2, Q, strideQ1, offsetQ + (iqb - 1) * strideQ1 + (j - 1) * strideQ2, d[offsetD + (j - 1) * strideD], WORK[offsetWork + (j - 1) * strideWork]);
               }
             } else {
               for (j = j1; j <= j2; j += kd1) {
-                base_default5(N, Q, strideQ1, offsetQ + (j - 2) * strideQ2, Q, strideQ1, offsetQ + (j - 1) * strideQ2, d[offsetD + (j - 1) * strideD], WORK[offsetWORK + (j - 1) * strideWORK]);
+                base_default5(N, Q, strideQ1, offsetQ + (j - 2) * strideQ2, Q, strideQ1, offsetQ + (j - 1) * strideQ2, d[offsetD + (j - 1) * strideD], WORK[offsetWork + (j - 1) * strideWork]);
               }
             }
           }
@@ -2027,7 +2372,7 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
             j2 -= kdn + 1;
           }
           for (j = j1; j <= j2; j += kd1) {
-            WORK[offsetWORK + (j + kd - 1) * strideWORK] = WORK[offsetWORK + (j - 1) * strideWORK] * AB[offsetAB + kd * strideAB1 + (j - 1) * strideAB2];
+            WORK[offsetWork + (j + kd - 1) * strideWork] = WORK[offsetWork + (j - 1) * strideWork] * AB[offsetAB + kd * strideAB1 + (j - 1) * strideAB2];
             AB[offsetAB + kd * strideAB1 + (j - 1) * strideAB2] = d[offsetD + (j - 1) * strideD] * AB[offsetAB + kd * strideAB1 + (j - 1) * strideAB2];
           }
         }
@@ -2050,7 +2395,7 @@ function dsbtrd(vect, uplo, N, kd, AB, strideAB1, strideAB2, offsetAB, d, stride
 }
 var base_default12 = dsbtrd;
 
-// lib/lapack/base/dlamch/lib/base.js
+// ../notes/lib/lapack/base/dlamch/lib/base.js
 var EPS = 11102230246251565e-32;
 var SFMIN = 22250738585072014e-324;
 var BASE = 2;
@@ -2107,7 +2452,7 @@ function dlamch(cmach) {
 }
 var base_default13 = dlamch;
 
-// lib/lapack/base/dlassq/lib/base.js
+// ../notes/lib/lapack/base/dlassq/lib/base.js
 var TSML = Math.pow(2, -511);
 var TBIG = Math.pow(2, 486);
 var SSML = Math.pow(2, 537);
@@ -2219,7 +2564,7 @@ function dlassq(N, x, stride, offset, scale, sumsq) {
 }
 var base_default14 = dlassq;
 
-// lib/lapack/base/dlanst/lib/base.js
+// ../notes/lib/lapack/base/dlanst/lib/base.js
 function dlanst(norm, N, d, strideD, offsetD, e, strideE, offsetE) {
   var anorm;
   var sum;
@@ -2285,7 +2630,7 @@ function dlanst(norm, N, d, strideD, offsetD, e, strideE, offsetE) {
 }
 var base_default15 = dlanst;
 
-// lib/lapack/base/dlapy2/lib/base.js
+// ../notes/lib/lapack/base/dlapy2/lib/base.js
 function dlapy2(x, y) {
   var xabs;
   var yabs;
@@ -2308,7 +2653,7 @@ function dlapy2(x, y) {
 }
 var base_default16 = dlapy2;
 
-// lib/lapack/base/dlae2/lib/base.js
+// ../notes/lib/lapack/base/dlae2/lib/base.js
 function dlae2(a, b, c) {
   var acmn;
   var acmx;
@@ -2356,7 +2701,7 @@ function dlae2(a, b, c) {
 }
 var base_default17 = dlae2;
 
-// lib/lapack/base/dlascl/lib/base.js
+// ../notes/lib/lapack/base/dlascl/lib/base.js
 function dlascl(type, kl, ku, cfrom, cto, M5, N, A, strideA1, strideA2, offsetA) {
   var smlnum;
   var bignum;
@@ -2497,7 +2842,7 @@ function dlascl(type, kl, ku, cfrom, cto, M5, N, A, strideA1, strideA2, offsetA)
 }
 var base_default18 = dlascl;
 
-// lib/lapack/base/dlasrt/lib/base.js
+// ../notes/lib/lapack/base/dlasrt/lib/base.js
 var SELECT = 20;
 function dlasrt(id, N, d, stride, offset) {
   var stkpnt;
@@ -2639,7 +2984,7 @@ function dlasrt(id, N, d, stride, offset) {
 }
 var base_default19 = dlasrt;
 
-// lib/lapack/base/dsterf/lib/base.js
+// ../notes/lib/lapack/base/dsterf/lib/base.js
 var MAXIT = 30;
 function dsterf(N, d, strideD, offsetD, e, strideE, offsetE) {
   var ssfmax;
@@ -2887,10 +3232,10 @@ function dsterf(N, d, strideD, offsetD, e, strideE, offsetE) {
 }
 var base_default20 = dsterf;
 
-// lib/lapack/base/dsteqr/lib/base.js
+// ../notes/lib/lapack/base/dsteqr/lib/base.js
 var import_lib7 = __toESM(require_lib23(), 1);
 
-// lib/lapack/base/dlaev2/lib/base.js
+// ../notes/lib/lapack/base/dlaev2/lib/base.js
 function dlaev2(a, b, c) {
   var acmn;
   var acmx;
@@ -2976,7 +3321,7 @@ function dlaev2(a, b, c) {
 }
 var base_default21 = dlaev2;
 
-// lib/lapack/base/dlasr/lib/base.js
+// ../notes/lib/lapack/base/dlasr/lib/base.js
 function dlasr(side, pivot, direct, M5, N, c, strideC, offsetC, s, strideS, offsetS, A, strideA1, strideA2, offsetA) {
   var ctemp;
   var stemp;
@@ -3199,7 +3544,7 @@ function dlasr(side, pivot, direct, M5, N, c, strideC, offsetC, s, strideS, offs
 }
 var base_default22 = dlasr;
 
-// lib/blas/base/dswap/lib/base.js
+// ../notes/lib/blas/base/dswap/lib/base.js
 function dswap(N, x, strideX, offsetX, y, strideY, offsetY) {
   var tmp;
   var ix;
@@ -3221,9 +3566,9 @@ function dswap(N, x, strideX, offsetX, y, strideY, offsetY) {
 }
 var base_default23 = dswap;
 
-// lib/lapack/base/dsteqr/lib/base.js
+// ../notes/lib/lapack/base/dsteqr/lib/base.js
 var MAXIT2 = 30;
-function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1, strideZ2, offsetZ, WORK, strideWORK, offsetWORK) {
+function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, offsetWork) {
   var nmaxit;
   var ssfmax;
   var ssfmin;
@@ -3362,9 +3707,9 @@ function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1,
         if (m === l + 1) {
           if (icompz > 0) {
             obj = base_default21(d[offsetD + l * strideD], e[offsetE + l * strideE], d[offsetD + (l + 1) * strideD]);
-            WORK[offsetWORK + l * strideWORK] = obj.cs1;
-            WORK[offsetWORK + (N - 1 + l) * strideWORK] = obj.sn1;
-            base_default22("right", "variable", "backward", N, 2, WORK, strideWORK, offsetWORK + l * strideWORK, WORK, strideWORK, offsetWORK + (N - 1 + l) * strideWORK, Z, strideZ1, strideZ2, offsetZ + l * strideZ2);
+            WORK[offsetWork + l * strideWork] = obj.cs1;
+            WORK[offsetWork + (N - 1 + l) * strideWork] = obj.sn1;
+            base_default22("right", "variable", "backward", N, 2, WORK, strideWork, offsetWork + l * strideWork, WORK, strideWork, offsetWork + (N - 1 + l) * strideWork, Z, strideZ1, strideZ2, offsetZ + l * strideZ2);
             d[offsetD + l * strideD] = obj.rt1;
             d[offsetD + (l + 1) * strideD] = obj.rt2;
           } else {
@@ -3405,13 +3750,13 @@ function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1,
           d[offsetD + (i + 1) * strideD] = g + p;
           g = c * r - b;
           if (icompz > 0) {
-            WORK[offsetWORK + i * strideWORK] = c;
-            WORK[offsetWORK + (N - 1 + i) * strideWORK] = -s;
+            WORK[offsetWork + i * strideWork] = c;
+            WORK[offsetWork + (N - 1 + i) * strideWork] = -s;
           }
         }
         if (icompz > 0) {
           mm = m - l + 1;
-          base_default22("right", "variable", "backward", N, mm, WORK, strideWORK, offsetWORK + l * strideWORK, WORK, strideWORK, offsetWORK + (N - 1 + l) * strideWORK, Z, strideZ1, strideZ2, offsetZ + l * strideZ2);
+          base_default22("right", "variable", "backward", N, mm, WORK, strideWork, offsetWork + l * strideWork, WORK, strideWork, offsetWork + (N - 1 + l) * strideWork, Z, strideZ1, strideZ2, offsetZ + l * strideZ2);
         }
         d[offsetD + l * strideD] -= p;
         e[offsetE + l * strideE] = g;
@@ -3447,9 +3792,9 @@ function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1,
         if (m === l - 1) {
           if (icompz > 0) {
             obj = base_default21(d[offsetD + (l - 1) * strideD], e[offsetE + (l - 1) * strideE], d[offsetD + l * strideD]);
-            WORK[offsetWORK + m * strideWORK] = obj.cs1;
-            WORK[offsetWORK + (N - 1 + m) * strideWORK] = obj.sn1;
-            base_default22("right", "variable", "forward", N, 2, WORK, strideWORK, offsetWORK + m * strideWORK, WORK, strideWORK, offsetWORK + (N - 1 + m) * strideWORK, Z, strideZ1, strideZ2, offsetZ + (l - 1) * strideZ2);
+            WORK[offsetWork + m * strideWork] = obj.cs1;
+            WORK[offsetWork + (N - 1 + m) * strideWork] = obj.sn1;
+            base_default22("right", "variable", "forward", N, 2, WORK, strideWork, offsetWork + m * strideWork, WORK, strideWork, offsetWork + (N - 1 + m) * strideWork, Z, strideZ1, strideZ2, offsetZ + (l - 1) * strideZ2);
             d[offsetD + (l - 1) * strideD] = obj.rt1;
             d[offsetD + l * strideD] = obj.rt2;
           } else {
@@ -3490,13 +3835,13 @@ function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1,
           d[offsetD + i * strideD] = g + p;
           g = c * r - b;
           if (icompz > 0) {
-            WORK[offsetWORK + i * strideWORK] = c;
-            WORK[offsetWORK + (N - 1 + i) * strideWORK] = s;
+            WORK[offsetWork + i * strideWork] = c;
+            WORK[offsetWork + (N - 1 + i) * strideWork] = s;
           }
         }
         if (icompz > 0) {
           mm = l - m + 1;
-          base_default22("right", "variable", "forward", N, mm, WORK, strideWORK, offsetWORK + m * strideWORK, WORK, strideWORK, offsetWORK + (N - 1 + m) * strideWORK, Z, strideZ1, strideZ2, offsetZ + m * strideZ2);
+          base_default22("right", "variable", "forward", N, mm, WORK, strideWork, offsetWork + m * strideWork, WORK, strideWork, offsetWork + (N - 1 + m) * strideWork, Z, strideZ1, strideZ2, offsetZ + m * strideZ2);
         }
         d[offsetD + l * strideD] -= p;
         e[offsetE + (l - 1) * strideE] = g;
@@ -3546,15 +3891,15 @@ function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1,
 }
 var base_default24 = dsteqr;
 
-// lib/lapack/base/dstebz/lib/base.js
+// ../notes/lib/lapack/base/dstebz/lib/base.js
 var import_lib8 = __toESM(require_lib23(), 1);
 var import_lib9 = __toESM(require_lib10(), 1);
 
-// lib/lapack/base/dlaebz/lib/base.js
+// ../notes/lib/lapack/base/dlaebz/lib/base.js
 var abs = Math.abs;
 var min2 = Math.min;
 var max2 = Math.max;
-function dlaebz(ijob, nitmax, N, mmax, minp, nbmin, abstol, reltol, pivmin, d, strideD, offsetD, e, strideE, offsetE, E2, strideE2, offsetE2, NVAL, strideNVAL, offsetNVAL, AB, strideAB1, strideAB2, offsetAB, c, strideC, offsetC, mout, NAB, strideNAB1, strideNAB2, offsetNAB, WORK, strideWORK, offsetWORK, IWORK, strideIWORK, offsetIWORK) {
+function dlaebz(ijob, nitmax, N, mmax, minp, nbmin, abstol, reltol, pivmin, d, strideD, offsetD, e, strideE, offsetE, E2, strideE2, offsetE2, NVAL, strideNVAL, offsetNVAL, AB, strideAB1, strideAB2, offsetAB, c, strideC, offsetC, mout, NAB, strideNAB1, strideNAB2, offsetNAB, WORK, strideWork, offsetWork, IWORK, strideIWork, offsetIWork) {
   var klnew;
   var kfnew;
   var itmp1;
@@ -3608,27 +3953,27 @@ function dlaebz(ijob, nitmax, N, mmax, minp, nbmin, abstol, reltol, pivmin, d, s
   for (jit = 0; jit < nitmax; jit++) {
     if (kl - kf >= nbmin && nbmin > 0) {
       for (ji = kf; ji < kl; ji++) {
-        WORK[offsetWORK + ji * strideWORK] = d[offsetD] - c[offsetC + ji * strideC];
-        IWORK[offsetIWORK + ji * strideIWORK] = 0;
-        if (WORK[offsetWORK + ji * strideWORK] <= pivmin) {
-          IWORK[offsetIWORK + ji * strideIWORK] = 1;
-          WORK[offsetWORK + ji * strideWORK] = min2(WORK[offsetWORK + ji * strideWORK], -pivmin);
+        WORK[offsetWork + ji * strideWork] = d[offsetD] - c[offsetC + ji * strideC];
+        IWORK[offsetIWork + ji * strideIWork] = 0;
+        if (WORK[offsetWork + ji * strideWork] <= pivmin) {
+          IWORK[offsetIWork + ji * strideIWork] = 1;
+          WORK[offsetWork + ji * strideWork] = min2(WORK[offsetWork + ji * strideWork], -pivmin);
         }
         for (j = 1; j < N; j++) {
-          WORK[offsetWORK + ji * strideWORK] = d[offsetD + j * strideD] - E2[offsetE2 + (j - 1) * strideE2] / WORK[offsetWORK + ji * strideWORK] - c[offsetC + ji * strideC];
-          if (WORK[offsetWORK + ji * strideWORK] <= pivmin) {
-            IWORK[offsetIWORK + ji * strideIWORK] += 1;
-            WORK[offsetWORK + ji * strideWORK] = min2(WORK[offsetWORK + ji * strideWORK], -pivmin);
+          WORK[offsetWork + ji * strideWork] = d[offsetD + j * strideD] - E2[offsetE2 + (j - 1) * strideE2] / WORK[offsetWork + ji * strideWork] - c[offsetC + ji * strideC];
+          if (WORK[offsetWork + ji * strideWork] <= pivmin) {
+            IWORK[offsetIWork + ji * strideIWork] += 1;
+            WORK[offsetWork + ji * strideWork] = min2(WORK[offsetWork + ji * strideWork], -pivmin);
           }
         }
       }
       if (ijob <= 2) {
         klnew = kl;
         for (ji = kf; ji < kl; ji++) {
-          IWORK[offsetIWORK + ji * strideIWORK] = min2(NAB[offsetNAB + ji * strideNAB1 + strideNAB2], max2(NAB[offsetNAB + ji * strideNAB1], IWORK[offsetIWORK + ji * strideIWORK]));
-          if (IWORK[offsetIWORK + ji * strideIWORK] === NAB[offsetNAB + ji * strideNAB1 + strideNAB2]) {
+          IWORK[offsetIWork + ji * strideIWork] = min2(NAB[offsetNAB + ji * strideNAB1 + strideNAB2], max2(NAB[offsetNAB + ji * strideNAB1], IWORK[offsetIWork + ji * strideIWork]));
+          if (IWORK[offsetIWork + ji * strideIWork] === NAB[offsetNAB + ji * strideNAB1 + strideNAB2]) {
             AB[offsetAB + ji * strideAB1 + strideAB2] = c[offsetC + ji * strideC];
-          } else if (IWORK[offsetIWORK + ji * strideIWORK] === NAB[offsetNAB + ji * strideNAB1]) {
+          } else if (IWORK[offsetIWork + ji * strideIWork] === NAB[offsetNAB + ji * strideNAB1]) {
             AB[offsetAB + ji * strideAB1] = c[offsetC + ji * strideC];
           } else {
             klnew += 1;
@@ -3636,9 +3981,9 @@ function dlaebz(ijob, nitmax, N, mmax, minp, nbmin, abstol, reltol, pivmin, d, s
               AB[offsetAB + (klnew - 1) * strideAB1 + strideAB2] = AB[offsetAB + ji * strideAB1 + strideAB2];
               NAB[offsetNAB + (klnew - 1) * strideNAB1 + strideNAB2] = NAB[offsetNAB + ji * strideNAB1 + strideNAB2];
               AB[offsetAB + (klnew - 1) * strideAB1] = c[offsetC + ji * strideC];
-              NAB[offsetNAB + (klnew - 1) * strideNAB1] = IWORK[offsetIWORK + ji * strideIWORK];
+              NAB[offsetNAB + (klnew - 1) * strideNAB1] = IWORK[offsetIWork + ji * strideIWork];
               AB[offsetAB + ji * strideAB1 + strideAB2] = c[offsetC + ji * strideC];
-              NAB[offsetNAB + ji * strideNAB1 + strideNAB2] = IWORK[offsetIWORK + ji * strideIWORK];
+              NAB[offsetNAB + ji * strideNAB1 + strideNAB2] = IWORK[offsetIWork + ji * strideIWork];
             } else {
               info = mmax + 1;
             }
@@ -3651,13 +3996,13 @@ function dlaebz(ijob, nitmax, N, mmax, minp, nbmin, abstol, reltol, pivmin, d, s
         kl = klnew;
       } else {
         for (ji = kf; ji < kl; ji++) {
-          if (IWORK[offsetIWORK + ji * strideIWORK] <= NVAL[offsetNVAL + ji * strideNVAL]) {
+          if (IWORK[offsetIWork + ji * strideIWork] <= NVAL[offsetNVAL + ji * strideNVAL]) {
             AB[offsetAB + ji * strideAB1] = c[offsetC + ji * strideC];
-            NAB[offsetNAB + ji * strideNAB1] = IWORK[offsetIWORK + ji * strideIWORK];
+            NAB[offsetNAB + ji * strideNAB1] = IWORK[offsetIWork + ji * strideIWork];
           }
-          if (IWORK[offsetIWORK + ji * strideIWORK] >= NVAL[offsetNVAL + ji * strideNVAL]) {
+          if (IWORK[offsetIWork + ji * strideIWork] >= NVAL[offsetNVAL + ji * strideNVAL]) {
             AB[offsetAB + ji * strideAB1 + strideAB2] = c[offsetC + ji * strideC];
-            NAB[offsetNAB + ji * strideNAB1 + strideNAB2] = IWORK[offsetIWORK + ji * strideIWORK];
+            NAB[offsetNAB + ji * strideNAB1 + strideNAB2] = IWORK[offsetIWork + ji * strideIWork];
           }
         }
       }
@@ -3751,7 +4096,7 @@ function dlaebz(ijob, nitmax, N, mmax, minp, nbmin, abstol, reltol, pivmin, d, s
 }
 var base_default25 = dlaebz;
 
-// lib/lapack/base/dstebz/lib/base.js
+// ../notes/lib/lapack/base/dstebz/lib/base.js
 var abs2 = Math.abs;
 var min3 = Math.min;
 var max3 = Math.max;
@@ -3764,7 +4109,7 @@ var TWO = 2;
 var HALF = 0.5;
 var FUDGE = 2.1;
 var RELFAC = 2;
-function dstebz(range, order, N, vl, vu, il, iu, abstol, d, strideD, offsetD, e, strideE, offsetE, M5, nsplit, w, strideW, offsetW, IBLOCK, strideIBLOCK, offsetIBLOCK, ISPLIT, strideISPLIT, offsetISPLIT, WORK, strideWORK, offsetWORK, IWORK, strideIWORK, offsetIWORK) {
+function dstebz(range, order, N, vl, vu, il, iu, abstol, d, strideD, offsetD, e, strideE, offsetE, M5, nsplit, w, strideW, offsetW, IBLOCK, strideIBLOCK, offsetIBLOCK, ISPLIT, strideISPLIT, offsetISPLIT, WORK, strideWork, offsetWork, IWORK, strideIWork, offsetIWork) {
   var iwScratch;
   var wScratch;
   var nabWork;
@@ -3880,16 +4225,16 @@ function dstebz(range, order, N, vl, vu, il, iu, abstol, d, strideD, offsetD, e,
     return info;
   }
   nsp = 1;
-  WORK[offsetWORK + (N - 1) * strideWORK] = ZERO;
+  WORK[offsetWork + (N - 1) * strideWork] = ZERO;
   pivmin = ONE;
   for (j = 1; j < N; j++) {
     tmp1 = e[offsetE + (j - 1) * strideE] * e[offsetE + (j - 1) * strideE];
     if (abs2(d[offsetD + j * strideD] * d[offsetD + (j - 1) * strideD]) * ulp * ulp + safemn > tmp1) {
       ISPLIT[offsetISPLIT + (nsp - 1) * strideISPLIT] = j;
       nsp += 1;
-      WORK[offsetWORK + (j - 1) * strideWORK] = ZERO;
+      WORK[offsetWork + (j - 1) * strideWork] = ZERO;
     } else {
-      WORK[offsetWORK + (j - 1) * strideWORK] = tmp1;
+      WORK[offsetWork + (j - 1) * strideWork] = tmp1;
       pivmin = max3(pivmin, tmp1);
     }
   }
@@ -3901,7 +4246,7 @@ function dstebz(range, order, N, vl, vu, il, iu, abstol, d, strideD, offsetD, e,
     gl = d[offsetD];
     tmp1 = ZERO;
     for (j = 0; j < N - 1; j++) {
-      tmp2 = sqrt2(WORK[offsetWORK + j * strideWORK]);
+      tmp2 = sqrt2(WORK[offsetWork + j * strideWork]);
       gu = max3(gu, d[offsetD + j * strideD] + tmp1 + tmp2);
       gl = min3(gl, d[offsetD + j * strideD] - tmp1 - tmp2);
       tmp1 = tmp2;
@@ -3936,7 +4281,7 @@ function dstebz(range, order, N, vl, vu, il, iu, abstol, d, strideD, offsetD, e,
     nabWork[3] = N + 1;
     nvalWork[0] = il - 1;
     nvalWork[1] = iu;
-    iinfo = base_default25(3, itmax, N, 2, 2, nb, atoli, rtoli, pivmin, d, strideD, offsetD, e, strideE, offsetE, WORK, strideWORK, offsetWORK, nvalWork, 1, 0, abWork, 1, 2, 0, cWork, 1, 0, mout, nabWork, 1, 2, 0, wScratch, 1, 0, iwScratch, 1, 0);
+    iinfo = base_default25(3, itmax, N, 2, 2, nb, atoli, rtoli, pivmin, d, strideD, offsetD, e, strideE, offsetE, WORK, strideWork, offsetWork, nvalWork, 1, 0, abWork, 1, 2, 0, cWork, 1, 0, mout, nabWork, 1, 2, 0, wScratch, 1, 0, iwScratch, 1, 0);
     if (nvalWork[1] === iu) {
       wl = abWork[0];
       wlu = abWork[2];
@@ -4038,13 +4383,13 @@ function dstebz(range, order, N, vl, vu, il, iu, abstol, d, strideD, offsetD, e,
       iwScratch = new import_lib9.default(in_);
       abWork[0] = gl;
       abWork[in_] = gu;
-      iinfo = base_default25(1, 0, in_, in_, 1, nb, atoli, rtoli, pivmin, d, strideD, offsetD + ibegin * strideD, e, strideE, offsetE + ibegin * strideE, WORK, strideWORK, offsetWORK + ibegin * strideWORK, idumma, 1, 0, abWork, 1, in_, 0, cWork, 1, 0, mout, nabWork, 1, in_, 0, wScratch, 1, 0, iwScratch, 1, 0);
+      iinfo = base_default25(1, 0, in_, in_, 1, nb, atoli, rtoli, pivmin, d, strideD, offsetD + ibegin * strideD, e, strideE, offsetE + ibegin * strideE, WORK, strideWork, offsetWork + ibegin * strideWork, idumma, 1, 0, abWork, 1, in_, 0, cWork, 1, 0, mout, nabWork, 1, in_, 0, wScratch, 1, 0, iwScratch, 1, 0);
       nwl += nabWork[0];
       nwu += nabWork[in_];
       iwoff = m - nabWork[0];
       im = mout[0];
       itmax = floor2((log(gu - gl + pivmin) - log(pivmin)) / log(TWO)) + 2;
-      iinfo = base_default25(2, itmax, in_, in_, 1, nb, atoli, rtoli, pivmin, d, strideD, offsetD + ibegin * strideD, e, strideE, offsetE + ibegin * strideE, WORK, strideWORK, offsetWORK + ibegin * strideWORK, idumma, 1, 0, abWork, 1, in_, 0, cWork, 1, 0, mout, nabWork, 1, in_, 0, wScratch, 1, 0, iwScratch, 1, 0);
+      iinfo = base_default25(2, itmax, in_, in_, 1, nb, atoli, rtoli, pivmin, d, strideD, offsetD + ibegin * strideD, e, strideE, offsetE + ibegin * strideE, WORK, strideWork, offsetWork + ibegin * strideWork, idumma, 1, 0, abWork, 1, in_, 0, cWork, 1, 0, mout, nabWork, 1, in_, 0, wScratch, 1, 0, iwScratch, 1, 0);
       iout = mout[0];
       for (j = 0; j < iout; j++) {
         tmp1 = HALF * (abWork[j] + abWork[j + in_]);
@@ -4152,13 +4497,13 @@ function dstebz(range, order, N, vl, vu, il, iu, abstol, d, strideD, offsetD, e,
 }
 var base_default26 = dstebz;
 
-// lib/lapack/base/dstein/lib/base.js
+// ../notes/lib/lapack/base/dstein/lib/base.js
 var import_lib11 = __toESM(require_lib10(), 1);
 
-// lib/lapack/base/dlarnv/lib/base.js
+// ../notes/lib/lapack/base/dlarnv/lib/base.js
 var import_lib10 = __toESM(require_lib23(), 1);
 
-// lib/lapack/base/dlaruv/lib/base.js
+// ../notes/lib/lapack/base/dlaruv/lib/base.js
 var IPW2 = 4096;
 var R = 1 / IPW2;
 var MM_TABLE = [
@@ -4732,7 +5077,7 @@ function dlaruv(iseed, strideISEED, offsetISEED, N, x, strideX, offsetX) {
 }
 var base_default27 = dlaruv;
 
-// lib/lapack/base/dlarnv/lib/base.js
+// ../notes/lib/lapack/base/dlarnv/lib/base.js
 var LV = 128;
 var TWOPI = 6.283185307179586;
 function dlarnv(idist, iseed, strideISEED, offsetISEED, N, x, stride, offset) {
@@ -4772,7 +5117,7 @@ function dlarnv(idist, iseed, strideISEED, offsetISEED, N, x, stride, offset) {
 }
 var base_default28 = dlarnv;
 
-// lib/blas/base/dcopy/lib/base.js
+// ../notes/lib/blas/base/dcopy/lib/base.js
 var M2 = 7;
 function dcopy(N, x, strideX, offsetX, y, strideY, offsetY) {
   var ix;
@@ -4818,7 +5163,7 @@ function dcopy(N, x, strideX, offsetX, y, strideY, offsetY) {
 }
 var base_default29 = dcopy;
 
-// lib/blas/base/ddot/lib/base.js
+// ../notes/lib/blas/base/ddot/lib/base.js
 var M3 = 5;
 function ddot(N, x, strideX, offsetX, y, strideY, offsetY) {
   var dtemp;
@@ -4860,11 +5205,13 @@ function ddot(N, x, strideX, offsetX, y, strideY, offsetY) {
 }
 var base_default30 = ddot;
 
-// lib/blas/base/dnrm2/lib/base.js
+// ../notes/lib/blas/base/dnrm2/lib/base.js
 var TSML2 = 14916681462400413e-170;
 var TBIG2 = 1997919072202235e131;
 var SSML2 = 44989137945431964e145;
 var SBIG2 = 11113793747425387e-178;
+var SSQ_SML = 1e-140;
+var SSQ_BIG = 1e140;
 function dnrm2(N, x, stride, offset) {
   var notbig;
   var sumsq;
@@ -4876,9 +5223,58 @@ function dnrm2(N, x, stride, offset) {
   var scl;
   var ax;
   var ix;
+  var s0;
+  var s1;
+  var s2;
+  var s3;
+  var v0;
+  var v1;
+  var v2;
+  var v3;
+  var m;
   var i;
   if (N <= 0) {
     return 0;
+  }
+  s0 = 0;
+  s1 = 0;
+  s2 = 0;
+  s3 = 0;
+  ix = offset;
+  m = N - N % 4;
+  if (stride === 1) {
+    for (i = 0; i < m; i += 4) {
+      v0 = x[ix];
+      v1 = x[ix + 1];
+      v2 = x[ix + 2];
+      v3 = x[ix + 3];
+      s0 += v0 * v0;
+      s1 += v1 * v1;
+      s2 += v2 * v2;
+      s3 += v3 * v3;
+      ix += 4;
+    }
+  } else {
+    for (i = 0; i < m; i += 4) {
+      v0 = x[ix];
+      v1 = x[ix + stride];
+      v2 = x[ix + 2 * stride];
+      v3 = x[ix + 3 * stride];
+      s0 += v0 * v0;
+      s1 += v1 * v1;
+      s2 += v2 * v2;
+      s3 += v3 * v3;
+      ix += 4 * stride;
+    }
+  }
+  for (; i < N; i++) {
+    v0 = x[ix];
+    s0 += v0 * v0;
+    ix += stride;
+  }
+  sumsq = s0 + s1 + (s2 + s3);
+  if (sumsq > SSQ_SML && sumsq < SSQ_BIG) {
+    return Math.sqrt(sumsq);
   }
   scl = 1;
   sumsq = 0;
@@ -4932,7 +5328,7 @@ function dnrm2(N, x, stride, offset) {
 }
 var base_default31 = dnrm2;
 
-// lib/blas/base/daxpy/lib/base.js
+// ../notes/lib/blas/base/daxpy/lib/base.js
 var M4 = 4;
 function daxpy(N, alpha, x, strideX, offsetX, y, strideY, offsetY) {
   var ix;
@@ -4978,7 +5374,7 @@ function daxpy(N, alpha, x, strideX, offsetX, y, strideY, offsetY) {
 }
 var base_default32 = daxpy;
 
-// lib/blas/base/idamax/lib/base.js
+// ../notes/lib/blas/base/idamax/lib/base.js
 function idamax(N, x, strideX, offsetX) {
   var dmax;
   var imax;
@@ -5005,7 +5401,7 @@ function idamax(N, x, strideX, offsetX) {
 }
 var base_default33 = idamax;
 
-// lib/lapack/base/dlagtf/lib/base.js
+// ../notes/lib/lapack/base/dlagtf/lib/base.js
 var EPS2 = base_default13("Epsilon");
 function dlagtf(N, a, strideA, offsetA, lambda, b, strideB, offsetB, c, strideC, offsetC, tol, d, strideD, offsetD, IN, strideIN, offsetIN) {
   var scale1;
@@ -5102,7 +5498,7 @@ function dlagtf(N, a, strideA, offsetA, lambda, b, strideB, offsetB, c, strideC,
 }
 var base_default34 = dlagtf;
 
-// lib/lapack/base/dlagts/lib/base.js
+// ../notes/lib/lapack/base/dlagts/lib/base.js
 var EPS3 = base_default13("Epsilon");
 var SFMIN2 = base_default13("Safe minimum");
 var BIGNUM = 1 / SFMIN2;
@@ -5275,14 +5671,14 @@ function dlagts(job, N, a, strideA, offsetA, b, strideB, offsetB, c, strideC, of
 }
 var base_default35 = dlagts;
 
-// lib/lapack/base/dstein/lib/base.js
+// ../notes/lib/lapack/base/dstein/lib/base.js
 var MAXITS = 5;
 var EXTRA = 2;
 var ODM3 = 1e-3;
 var ODM1 = 0.1;
 var TEN = 10;
 var EPS4 = base_default13("Precision");
-function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, offsetW, IBLOCK, strideIBLOCK, offsetIBLOCK, ISPLIT, strideISPLIT, offsetISPLIT, Z, strideZ1, strideZ2, offsetZ, WORK, strideWORK, offsetWORK, IWORK, strideIWORK, offsetIWORK, IFAIL, strideIFAIL, offsetIFAIL) {
+function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, offsetW, IBLOCK, strideIBLOCK, offsetIBLOCK, ISPLIT, strideISPLIT, offsetISPLIT, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, offsetWork, IWORK, strideIWork, offsetIWork, IFAIL, strideIFAIL, offsetIFAIL) {
   var nrmchk;
   var dtpcrt;
   var indrv1;
@@ -5296,7 +5692,6 @@ function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, off
   var iseed;
   var gpind;
   var ortol;
-  var iinfo;
   var jblk;
   var jmax;
   var info;
@@ -5341,11 +5736,11 @@ function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, off
     return 0;
   }
   iseed = new import_lib11.default([1, 1, 1, 1]);
-  indrv1 = offsetWORK;
-  indrv2 = indrv1 + N * strideWORK;
-  indrv3 = indrv2 + N * strideWORK;
-  indrv4 = indrv3 + N * strideWORK;
-  indrv5 = indrv4 + N * strideWORK;
+  indrv1 = offsetWork;
+  indrv2 = indrv1 + N * strideWork;
+  indrv3 = indrv2 + N * strideWork;
+  indrv4 = indrv3 + N * strideWork;
+  indrv5 = indrv4 + N * strideWork;
   j1 = 0;
   for (nblk = 1; nblk <= IBLOCK[offsetIBLOCK + (M5 - 1) * strideIBLOCK]; nblk++) {
     if (nblk === 1) {
@@ -5375,7 +5770,7 @@ function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, off
       xj = w[offsetW + j * strideW];
       if (blksiz === 1) {
         WORK[indrv1] = 1;
-        _storeEigenvector(N, Z, strideZ1, strideZ2, offsetZ, WORK, strideWORK, indrv1, b1, blksiz, j);
+        _storeEigenvector(N, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, indrv1, b1, blksiz, j);
         xjm = xj;
         if (j === M5 - 1) {
           j1 = M5;
@@ -5392,12 +5787,12 @@ function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, off
       }
       its = 0;
       nrmchk = 0;
-      base_default28(2, iseed, 1, 0, blksiz, WORK, strideWORK, indrv1);
-      base_default29(blksiz, d, strideD, offsetD + b1 * strideD, WORK, strideWORK, indrv4);
-      base_default29(blksiz - 1, e, strideE, offsetE + b1 * strideE, WORK, strideWORK, indrv2 + strideWORK);
-      base_default29(blksiz - 1, e, strideE, offsetE + b1 * strideE, WORK, strideWORK, indrv3);
+      base_default28(2, iseed, 1, 0, blksiz, WORK, strideWork, indrv1);
+      base_default29(blksiz, d, strideD, offsetD + b1 * strideD, WORK, strideWork, indrv4);
+      base_default29(blksiz - 1, e, strideE, offsetE + b1 * strideE, WORK, strideWork, indrv2 + strideWork);
+      base_default29(blksiz - 1, e, strideE, offsetE + b1 * strideE, WORK, strideWork, indrv3);
       tol = 0;
-      base_default34(blksiz, WORK, strideWORK, indrv4, xj, WORK, strideWORK, indrv2 + strideWORK, WORK, strideWORK, indrv3, tol, WORK, strideWORK, indrv5, IWORK, strideIWORK, offsetIWORK);
+      base_default34(blksiz, WORK, strideWork, indrv4, xj, WORK, strideWork, indrv2 + strideWork, WORK, strideWork, indrv3, tol, WORK, strideWork, indrv5, IWORK, strideIWork, offsetIWork);
       while (true) {
         its++;
         if (its > MAXITS) {
@@ -5405,23 +5800,23 @@ function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, off
           IFAIL[offsetIFAIL + (info - 1) * strideIFAIL] = j + 1;
           break;
         }
-        jmax = base_default33(blksiz, WORK, strideWORK, indrv1);
-        scl = blksiz * onenrm * Math.max(EPS4, Math.abs(WORK[indrv4 + (blksiz - 1) * strideWORK])) / Math.abs(WORK[indrv1 + jmax * strideWORK]);
-        base_default(blksiz, scl, WORK, strideWORK, indrv1);
-        base_default35(-1, blksiz, WORK, strideWORK, indrv4, WORK, strideWORK, indrv2 + strideWORK, WORK, strideWORK, indrv3, WORK, strideWORK, indrv5, IWORK, strideIWORK, offsetIWORK, WORK, strideWORK, indrv1, tol);
+        jmax = base_default33(blksiz, WORK, strideWork, indrv1);
+        scl = blksiz * onenrm * Math.max(EPS4, Math.abs(WORK[indrv4 + (blksiz - 1) * strideWork])) / Math.abs(WORK[indrv1 + jmax * strideWork]);
+        base_default(blksiz, scl, WORK, strideWork, indrv1);
+        base_default35(-1, blksiz, WORK, strideWork, indrv4, WORK, strideWork, indrv2 + strideWork, WORK, strideWork, indrv3, WORK, strideWork, indrv5, IWORK, strideIWork, offsetIWork, WORK, strideWork, indrv1, tol);
         if (jblk !== 1) {
           if (Math.abs(xj - xjm) > ortol) {
             gpind = j;
           }
           if (gpind !== j) {
             for (i = gpind; i < j; i++) {
-              ztr = -base_default30(blksiz, WORK, strideWORK, indrv1, Z, strideZ1, offsetZ + b1 * strideZ1 + i * strideZ2);
-              base_default32(blksiz, ztr, Z, strideZ1, offsetZ + b1 * strideZ1 + i * strideZ2, WORK, strideWORK, indrv1);
+              ztr = -base_default30(blksiz, WORK, strideWork, indrv1, Z, strideZ1, offsetZ + b1 * strideZ1 + i * strideZ2);
+              base_default32(blksiz, ztr, Z, strideZ1, offsetZ + b1 * strideZ1 + i * strideZ2, WORK, strideWork, indrv1);
             }
           }
         }
-        jmax = base_default33(blksiz, WORK, strideWORK, indrv1);
-        nrm = Math.abs(WORK[indrv1 + jmax * strideWORK]);
+        jmax = base_default33(blksiz, WORK, strideWork, indrv1);
+        nrm = Math.abs(WORK[indrv1 + jmax * strideWork]);
         if (nrm < dtpcrt) {
           continue;
         }
@@ -5431,13 +5826,13 @@ function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, off
         }
         break;
       }
-      scl = 1 / base_default31(blksiz, WORK, strideWORK, indrv1);
-      jmax = base_default33(blksiz, WORK, strideWORK, indrv1);
-      if (WORK[indrv1 + jmax * strideWORK] < 0) {
+      scl = 1 / base_default31(blksiz, WORK, strideWork, indrv1);
+      jmax = base_default33(blksiz, WORK, strideWork, indrv1);
+      if (WORK[indrv1 + jmax * strideWork] < 0) {
         scl = -scl;
       }
-      base_default(blksiz, scl, WORK, strideWORK, indrv1);
-      _storeEigenvector(N, Z, strideZ1, strideZ2, offsetZ, WORK, strideWORK, indrv1, b1, blksiz, j);
+      base_default(blksiz, scl, WORK, strideWork, indrv1);
+      _storeEigenvector(N, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, indrv1, b1, blksiz, j);
       xjm = xj;
       if (j === M5 - 1) {
         j1 = M5;
@@ -5446,18 +5841,18 @@ function dstein(N, d, strideD, offsetD, e, strideE, offsetE, M5, w, strideW, off
   }
   return info;
 }
-function _storeEigenvector(N, Z, strideZ1, strideZ2, offsetZ, WORK, strideWORK, indrv1, b1, blksiz, j) {
+function _storeEigenvector(N, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, indrv1, b1, blksiz, j) {
   var i;
   for (i = 0; i < N; i++) {
     Z[offsetZ + i * strideZ1 + j * strideZ2] = 0;
   }
   for (i = 0; i < blksiz; i++) {
-    Z[offsetZ + (b1 + i) * strideZ1 + j * strideZ2] = WORK[indrv1 + i * strideWORK];
+    Z[offsetZ + (b1 + i) * strideZ1 + j * strideZ2] = WORK[indrv1 + i * strideWork];
   }
 }
 var base_default36 = dstein;
 
-// lib/lapack/base/dlacpy/lib/base.js
+// ../notes/lib/lapack/base/dlacpy/lib/base.js
 function dlacpy(uplo, M5, N, A, strideA1, strideA2, offsetA, B, strideB1, strideB2, offsetB) {
   var da0;
   var db0;
@@ -5492,14 +5887,27 @@ function dlacpy(uplo, M5, N, A, strideA1, strideA2, offsetA, B, strideB1, stride
 }
 var base_default37 = dlacpy;
 
-// lib/blas/base/dgemv/lib/base.js
+// ../notes/lib/blas/base/dgemv/lib/base.js
 function dgemv(trans, M5, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, offsetX, beta, y, strideY, offsetY) {
   var noTrans;
-  var temp;
   var leny;
-  var sa1;
-  var sa2;
-  var ia;
+  var lenx;
+  var sb1;
+  var sb2;
+  var s0;
+  var s1;
+  var s2;
+  var s3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var xv;
+  var m4;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
   var ix;
   var iy;
   var jx;
@@ -5510,12 +5918,16 @@ function dgemv(trans, M5, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, 
   if (M5 === 0 || N === 0 || alpha === 0 && beta === 1) {
     return y;
   }
-  sa1 = strideA1;
-  sa2 = strideA2;
   if (noTrans) {
     leny = M5;
+    lenx = N;
+    sb1 = strideA1;
+    sb2 = strideA2;
   } else {
     leny = N;
+    lenx = M5;
+    sb1 = strideA2;
+    sb2 = strideA1;
   }
   if (beta !== 1) {
     iy = offsetY;
@@ -5534,40 +5946,90 @@ function dgemv(trans, M5, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, 
   if (alpha === 0) {
     return y;
   }
-  if (noTrans) {
-    jx = offsetX;
-    for (j = 0; j < N; j++) {
-      temp = alpha * x[jx];
-      iy = offsetY;
-      ia = offsetA + j * sa2;
-      for (i = 0; i < M5; i++) {
-        y[iy] += temp * A[ia];
-        iy += strideY;
-        ia += sa1;
+  if (Math.abs(sb2) <= Math.abs(sb1)) {
+    m4 = leny - leny % 4;
+    iy = offsetY;
+    for (i = 0; i < m4; i += 4) {
+      s0 = 0;
+      s1 = 0;
+      s2 = 0;
+      s3 = 0;
+      a0 = offsetA + i * sb1;
+      a1 = a0 + sb1;
+      a2 = a1 + sb1;
+      a3 = a2 + sb1;
+      ix = offsetX;
+      for (j = 0; j < lenx; j++) {
+        xv = x[ix];
+        s0 += A[a0] * xv;
+        s1 += A[a1] * xv;
+        s2 += A[a2] * xv;
+        s3 += A[a3] * xv;
+        a0 += sb2;
+        a1 += sb2;
+        a2 += sb2;
+        a3 += sb2;
+        ix += strideX;
       }
-      jx += strideX;
+      y[iy] += alpha * s0;
+      y[iy + strideY] += alpha * s1;
+      y[iy + 2 * strideY] += alpha * s2;
+      y[iy + 3 * strideY] += alpha * s3;
+      iy += 4 * strideY;
+    }
+    for (; i < leny; i++) {
+      s0 = 0;
+      a0 = offsetA + i * sb1;
+      ix = offsetX;
+      for (j = 0; j < lenx; j++) {
+        s0 += A[a0] * x[ix];
+        a0 += sb2;
+        ix += strideX;
+      }
+      y[iy] += alpha * s0;
+      iy += strideY;
     }
   } else {
-    jy = offsetY;
-    for (j = 0; j < N; j++) {
-      temp = 0;
-      ix = offsetX;
-      ia = offsetA + j * sa2;
-      for (i = 0; i < M5; i++) {
-        temp += A[ia] * x[ix];
-        ix += strideX;
-        ia += sa1;
+    m4 = lenx - lenx % 4;
+    jx = offsetX;
+    for (j = 0; j < m4; j += 4) {
+      t0 = alpha * x[jx];
+      t1 = alpha * x[jx + strideX];
+      t2 = alpha * x[jx + 2 * strideX];
+      t3 = alpha * x[jx + 3 * strideX];
+      a0 = offsetA + j * sb2;
+      a1 = a0 + sb2;
+      a2 = a1 + sb2;
+      a3 = a2 + sb2;
+      jy = offsetY;
+      for (i = 0; i < leny; i++) {
+        y[jy] += t0 * A[a0] + t1 * A[a1] + t2 * A[a2] + t3 * A[a3];
+        a0 += sb1;
+        a1 += sb1;
+        a2 += sb1;
+        a3 += sb1;
+        jy += strideY;
       }
-      y[jy] += alpha * temp;
-      jy += strideY;
+      jx += 4 * strideX;
+    }
+    for (; j < lenx; j++) {
+      t0 = alpha * x[jx];
+      a0 = offsetA + j * sb2;
+      jy = offsetY;
+      for (i = 0; i < leny; i++) {
+        y[jy] += t0 * A[a0];
+        a0 += sb1;
+        jy += strideY;
+      }
+      jx += strideX;
     }
   }
   return y;
 }
 var base_default38 = dgemv;
 
-// lib/lapack/base/dsbgvx/lib/base.js
-function dsbgvx(jobz, range, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, strideBB1, strideBB2, offsetBB, Q, strideQ1, strideQ2, offsetQ, vl, vu, il, iu, abstol, out, w, strideW, offsetW, Z, strideZ1, strideZ2, offsetZ, WORK, strideWORK, offsetWORK, IWORK, strideIWORK, offsetIWORK, IFAIL, strideIFAIL, offsetIFAIL) {
+// ../notes/lib/lapack/base/dsbgvx/lib/base.js
+function dsbgvx(jobz, range, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, strideBB1, strideBB2, offsetBB, Q, strideQ1, strideQ2, offsetQ, vl, vu, il, iu, abstol, out, w, strideW, offsetW, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, offsetWork, IWORK, strideIWork, offsetIWork, IFAIL, strideIFAIL, offsetIFAIL) {
   var indeig;
   var nsplit;
   var indibl;
@@ -5604,16 +6066,16 @@ function dsbgvx(jobz, range, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB
     out.M = 0;
     return N + info;
   }
-  base_default11(wantz ? "update" : "none", uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, strideBB1, strideBB2, offsetBB, Q, strideQ1, strideQ2, offsetQ, WORK, strideWORK, offsetWORK);
-  indd = offsetWORK;
-  inde = indd + N * strideWORK;
-  indwrk = inde + N * strideWORK;
+  base_default11(wantz ? "update" : "none", uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB, BB, strideBB1, strideBB2, offsetBB, Q, strideQ1, strideQ2, offsetQ, WORK, strideWork, offsetWork);
+  indd = offsetWork;
+  inde = indd + N * strideWork;
+  indwrk = inde + N * strideWork;
   if (wantz) {
     vect = "update";
   } else {
     vect = "none";
   }
-  base_default12(vect, uplo, N, ka, AB, strideAB1, strideAB2, offsetAB, WORK, strideWORK, indd, WORK, strideWORK, inde, Q, strideQ1, strideQ2, offsetQ, WORK, strideWORK, indwrk);
+  base_default12(vect, uplo, N, ka, AB, strideAB1, strideAB2, offsetAB, WORK, strideWork, indd, WORK, strideWork, inde, Q, strideQ1, strideQ2, offsetQ, WORK, strideWork, indwrk);
   test = false;
   if (indeig) {
     if (il === 1 && iu === N) {
@@ -5621,20 +6083,20 @@ function dsbgvx(jobz, range, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB
     }
   }
   if ((alleig || test) && abstol <= 0) {
-    base_default29(N, WORK, strideWORK, indd, w, strideW, offsetW);
-    indee = indwrk + 2 * N * strideWORK;
+    base_default29(N, WORK, strideWork, indd, w, strideW, offsetW);
+    indee = indwrk + 2 * N * strideWork;
     if (wantz) {
       base_default37("all", N, N, Q, strideQ1, strideQ2, offsetQ, Z, strideZ1, strideZ2, offsetZ);
-      base_default29(N - 1, WORK, strideWORK, inde, WORK, strideWORK, indee);
-      info = base_default24("update", N, w, strideW, offsetW, WORK, strideWORK, indee, Z, strideZ1, strideZ2, offsetZ, WORK, strideWORK, indwrk);
+      base_default29(N - 1, WORK, strideWork, inde, WORK, strideWork, indee);
+      info = base_default24("update", N, w, strideW, offsetW, WORK, strideWork, indee, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, indwrk);
       if (info === 0) {
         for (i = 0; i < N; i++) {
           IFAIL[offsetIFAIL + i * strideIFAIL] = 0;
         }
       }
     } else {
-      base_default29(N - 1, WORK, strideWORK, inde, WORK, strideWORK, indee);
-      info = base_default20(N, w, strideW, offsetW, WORK, strideWORK, indee);
+      base_default29(N - 1, WORK, strideWork, inde, WORK, strideWork, indee);
+      info = base_default20(N, w, strideW, offsetW, WORK, strideWork, indee);
     }
     if (info === 0) {
       M5 = N;
@@ -5649,18 +6111,18 @@ function dsbgvx(jobz, range, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB
     } else {
       order = "entire";
     }
-    indibl = offsetIWORK;
-    indisp = indibl + N * strideIWORK;
-    indiwo = indisp + N * strideIWORK;
+    indibl = offsetIWork;
+    indisp = indibl + N * strideIWork;
+    indiwo = indisp + N * strideIWork;
     Mout = new import_lib12.default(1);
     nsplit = new import_lib12.default(1);
-    base_default26(range, order, N, vl, vu, il, iu, abstol, WORK, strideWORK, indd, WORK, strideWORK, inde, Mout, nsplit, w, strideW, offsetW, IWORK, strideIWORK, indibl, IWORK, strideIWORK, indisp, WORK, strideWORK, indwrk, IWORK, strideIWORK, indiwo);
+    base_default26(range, order, N, vl, vu, il, iu, abstol, WORK, strideWork, indd, WORK, strideWork, inde, Mout, nsplit, w, strideW, offsetW, IWORK, strideIWork, indibl, IWORK, strideIWork, indisp, WORK, strideWork, indwrk, IWORK, strideIWork, indiwo);
     M5 = Mout[0];
     if (wantz && M5 > 0) {
-      info = base_default36(N, WORK, strideWORK, indd, WORK, strideWORK, inde, M5, w, strideW, offsetW, IWORK, strideIWORK, indibl, IWORK, strideIWORK, indisp, Z, strideZ1, strideZ2, offsetZ, WORK, strideWORK, indwrk, IWORK, strideIWORK, indiwo, IFAIL, strideIFAIL, offsetIFAIL);
+      info = base_default36(N, WORK, strideWork, indd, WORK, strideWork, inde, M5, w, strideW, offsetW, IWORK, strideIWork, indibl, IWORK, strideIWork, indisp, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, indwrk, IWORK, strideIWork, indiwo, IFAIL, strideIFAIL, offsetIFAIL);
       for (j = 0; j < M5; j++) {
-        base_default29(N, Z, strideZ1, offsetZ + j * strideZ2, WORK, strideWORK, offsetWORK);
-        base_default38("no-transpose", N, N, 1, Q, strideQ1, strideQ2, offsetQ, WORK, strideWORK, offsetWORK, 0, Z, strideZ1, offsetZ + j * strideZ2);
+        base_default29(N, Z, strideZ1, offsetZ + j * strideZ2, WORK, strideWork, offsetWork);
+        base_default38("no-transpose", N, N, 1, Q, strideQ1, strideQ2, offsetQ, WORK, strideWork, offsetWork, 0, Z, strideZ1, offsetZ + j * strideZ2);
       }
     }
   }
@@ -5675,11 +6137,11 @@ function dsbgvx(jobz, range, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB
         }
       }
       if (i >= 0) {
-        itmp1 = IWORK[offsetIWORK + i * strideIWORK];
+        itmp1 = IWORK[offsetIWork + i * strideIWork];
         w[offsetW + i * strideW] = w[offsetW + j * strideW];
-        IWORK[offsetIWORK + i * strideIWORK] = IWORK[offsetIWORK + j * strideIWORK];
+        IWORK[offsetIWork + i * strideIWork] = IWORK[offsetIWork + j * strideIWork];
         w[offsetW + j * strideW] = tmp1;
-        IWORK[offsetIWORK + j * strideIWORK] = itmp1;
+        IWORK[offsetIWork + j * strideIWork] = itmp1;
         base_default23(N, Z, strideZ1, offsetZ + i * strideZ2, Z, strideZ1, offsetZ + j * strideZ2);
         if (info !== 0) {
           itmp1 = IFAIL[offsetIFAIL + i * strideIFAIL];
@@ -5693,28 +6155,26 @@ function dsbgvx(jobz, range, uplo, N, ka, kb, AB, strideAB1, strideAB2, offsetAB
   return info;
 }
 var base_default39 = dsbgvx;
-
-// ../../../../../private/tmp/dsbgvx-entry.js
-var dsbgvx_entry_default = base_default39;
 export {
-  dsbgvx_entry_default as default
+  base_default39 as default
 };
 /**
-* @license Apache-2.0
+* @license MIT
 *
-* Copyright (c) 2025 The Stdlib Authors.
+* Copyright (c) 2026 Ricky Reusser.
 *
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
+* Derived from the BLAS 3.12.0 reference implementation (BSD-3-Clause).
+* See LICENSE.txt in the repository root for the full license text and
+* upstream attribution.
+*/
+/**
+* @license MIT
 *
-*    http://www.apache.org/licenses/LICENSE-2.0
+* Copyright (c) 2026 Ricky Reusser.
 *
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
+* Derived from the LAPACK 3.12.0 reference implementation (BSD-3-Clause).
+* See LICENSE.txt in the repository root for the full license text and
+* upstream attribution.
 */
 /*! Bundled license information:
 

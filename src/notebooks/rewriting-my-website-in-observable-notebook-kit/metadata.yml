@@ -4,3 +4,7 @@ description: How I migrated this website from Idyll to Observable Notebook Kit
 tags:
   - programming
   - meta
+seeAlso:
+  - things-i-learned-the-hard-way-using-react-native
+  - hello-observable-notebooks-2
+  - plot-with-zoom

@@ -5,3 +5,7 @@ observableUrl: https://observablehq.com/@rreusser/faking-transparency-for-3d-sur
 tags:
   - webgpu
   - graphics
+seeAlso:
+  - webgpu-lines
+  - adaptive-contouring-in-fragment-shaders
+  - denali

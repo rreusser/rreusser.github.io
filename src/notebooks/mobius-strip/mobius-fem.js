@@ -7,10 +7,12 @@
 // shape on energy minimization.
 //
 // Energy = membrane (constant-strain triangle, St. Venant-Kirchhoff, plane
-// stress) + bending (discrete dihedral hinge, flat rest angle). Position-only
-// DOFs, no transverse shear. Orientation-free: dihedral angles are defined
-// per-edge from the two incident triangles in their stored connectivity order,
-// never from a global normal field (the surface is non-orientable).
+// stress) + bending (quadratic rest-metric cotan-Laplacian model; see
+// bendingQuadratic). Position-only DOFs, no transverse shear. Orientation-free
+// throughout: nothing uses a global normal field (the surface is
+// non-orientable) -- the bending energy is a squared mean-curvature-vector
+// magnitude and the legacy dihedral hinge defines its angle per-edge from the
+// two incident triangles in their stored connectivity order.
 //
 // Pure module: typed arrays only, no npm imports.
 
@@ -71,6 +73,79 @@ function packHinges(edgeMap, tris, triRestUV, triRestArea) {
     hingeIdx: Int32Array.from(idx),
     hingeLbar: Float64Array.from(lbarArr),
     hingeAbar: Float64Array.from(abarArr),
+  };
+}
+
+// Build the quadratic bending operator: the cotan Laplacian of the REST
+// metric plus mixed-Voronoi rest vertex areas (Meyer et al.), consumed by
+// bendingQuadratic below. Cotangents and areas are computed per triangle from
+// its rest UV chart, so they are intrinsic (chart-consistent across the Mobius
+// seam) and orientation-free. Weights are accumulated per undirected edge:
+// w_ij = 1/2 (cot alpha + cot beta) over the edge's incident triangles.
+// Boundary vertices (any vertex on an edge with a single incident triangle)
+// are flagged: the Laplacian does not estimate curvature there, so the energy
+// skips them (free-edge natural boundary condition).
+function buildQuadraticBending(tris, triRestUV, nT, Nv, edgeMap) {
+  const wAcc = new Map(); // undirected edge key -> accumulated cotan weight
+  const ekey = (p, q) => (p < q ? p * Nv + q : q * Nv + p);
+  const addW = (p, q, w) => {
+    const k = ekey(p, q);
+    wAcc.set(k, (wAcc.get(k) || 0) + w);
+  };
+  const areaBar = new Float64Array(Nv); // mixed Voronoi rest area
+
+  for (let k = 0; k < nT; k++) {
+    const o = k * 6;
+    const a = tris[k * 3], b = tris[k * 3 + 1], c = tris[k * 3 + 2];
+    const abx = triRestUV[o + 2] - triRestUV[o],     aby = triRestUV[o + 3] - triRestUV[o + 1];
+    const acx = triRestUV[o + 4] - triRestUV[o],     acy = triRestUV[o + 5] - triRestUV[o + 1];
+    const bcx = triRestUV[o + 4] - triRestUV[o + 2], bcy = triRestUV[o + 5] - triRestUV[o + 3];
+    const twoA = Math.abs(abx * acy - aby * acx);
+    const areaT = 0.5 * twoA;
+    // Cotangents of the three rest corner angles.
+    const cotA = (abx * acx + aby * acy) / twoA;
+    const cotB = (-abx * bcx - aby * bcy) / twoA;
+    const cotC = (acx * bcx + acy * bcy) / twoA;
+    addW(a, b, 0.5 * cotC);
+    addW(b, c, 0.5 * cotA);
+    addW(a, c, 0.5 * cotB);
+    // Mixed Voronoi area: Voronoi split for non-obtuse triangles, else area/2
+    // at the obtuse corner and area/4 at the others.
+    if (cotA < 0 || cotB < 0 || cotC < 0) {
+      const ha = areaT * 0.5, qa = areaT * 0.25;
+      if (cotA < 0) { areaBar[a] += ha; areaBar[b] += qa; areaBar[c] += qa; }
+      else if (cotB < 0) { areaBar[b] += ha; areaBar[a] += qa; areaBar[c] += qa; }
+      else { areaBar[c] += ha; areaBar[a] += qa; areaBar[b] += qa; }
+    } else {
+      const lab = abx * abx + aby * aby;
+      const lac = acx * acx + acy * acy;
+      const lbc = bcx * bcx + bcy * bcy;
+      areaBar[a] += (cotC * lab + cotB * lac) / 8;
+      areaBar[b] += (cotC * lab + cotA * lbc) / 8;
+      areaBar[c] += (cotB * lac + cotA * lbc) / 8;
+    }
+  }
+
+  const bendInterior = new Uint8Array(Nv).fill(1);
+  for (const rec of edgeMap.values())
+    if (rec.tris.length === 1) { bendInterior[rec.p] = 0; bendInterior[rec.q] = 0; }
+
+  const nLap = wAcc.size;
+  const lapI = new Int32Array(nLap);
+  const lapJ = new Int32Array(nLap);
+  const lapW = new Float64Array(nLap);
+  let e = 0;
+  for (const [k, w] of wAcc) {
+    lapI[e] = Math.floor(k / Nv);
+    lapJ[e] = k % Nv;
+    lapW[e] = w;
+    e++;
+  }
+  return {
+    nLap, lapI, lapJ, lapW, bendAreaBar: areaBar, bendInterior,
+    // Scratch for bendingQuadratic (y = L x, z = D y / Abar): allocated once
+    // per model; the energy is evaluated ~10^5 times per relax.
+    _bendY: new Float64Array(Nv * 3), _bendZ: new Float64Array(Nv * 3),
   };
 }
 
@@ -204,6 +279,10 @@ export function createMobiusMesh({ length = 6, width = 1, nu = 60, nv = 8 } = {}
   //   triangle areas.
   const hinges = packHinges(edgeMap, tris, triRestUV, triRestArea);
 
+  // Quadratic bending operator (rest-metric cotan Laplacian), the default
+  // bending model; see bendingQuadratic.
+  const bendOp = buildQuadraticBending(tris, triRestUV, nT, Nv, edgeMap);
+
   // Per-unique-vertex parameter coordinates, for orientation-independent
   // coloring of the (non-orientable) surface. su in [0,1) runs once around
   // the loop; sv in [0,1] runs across the width. Following su past 1 lands on
@@ -227,7 +306,7 @@ export function createMobiusMesh({ length = 6, width = 1, nu = 60, nv = 8 } = {}
 
   return {
     nu, nv, length, width, du, dv, Nv, nT,
-    tris, triDmInv, triRestArea, ...hinges, vertexArea, vertexUV, vid,
+    tris, triDmInv, triRestArea, ...hinges, ...bendOp, vertexArea, vertexUV, vid,
   };
 }
 
@@ -351,14 +430,23 @@ function membrane(model, X, params, grad) {
 }
 
 // ---------------------------------------------------------------------------
-// Bending energy and gradient (discrete dihedral hinge). Per hinge with shared
-// edge (x0, x1) and opposite vertices (x2, x3):
+// LEGACY bending energy and gradient (discrete dihedral hinge), kept only for
+// comparison via params.bendingMode = 'hinge'. Per hinge with shared edge
+// (x0, x1) and opposite vertices (x2, x3):
 //   N1 = (x1 - x0) x (x2 - x0)   (triangle 1 normal, unnormalized)
 //   N2 = (x3 - x0) x (x1 - x0)   (triangle 2 normal; flat config -> N1 || N2)
 //   theta = atan2( (N1 x N2) . e_hat , N1 . N2 )
-//   E_e = D * (3 lbar^2 / Abar) * (theta - thetaBar)^2,  thetaBar = 0 (flat).
+//   E_e = (D/2) * (lbar^2 / Abar) * (theta - thetaBar)^2,  thetaBar = 0 (flat).
 // Gradient of theta uses the standard closed forms (Bridson / Tamstorf &
 // Grinspun, "Discrete bending forces and their Jacobians").
+//
+// WHY LEGACY: the constant lbar^2/Abar matches the continuum plate energy only
+// on the equilateral brick lattice (dv = du*sqrt(3)/2). At any other cell
+// aspect the effective flexural rigidity is off by an O(1), direction-dependent
+// factor that does NOT vanish with refinement (rolled-cylinder gate: 0.54x at
+// du/dv=0.39, 0.83x at du/dv~1, 2.8x at du/dv=1.96), so the equilibrium shape
+// changed whenever the resolution sliders changed the cell aspect. The default
+// model is now bendingQuadratic below, which needs no lattice calibration.
 // ---------------------------------------------------------------------------
 
 const _e = new Float64Array(3);
@@ -394,10 +482,8 @@ function bending(model, X, params, grad) {
     const sinPart = dot(_NxN, _e) / len_e; // (N1 x N2).e / |e|
     const theta = Math.atan2(sinPart, n1n2);
 
-    // Physical flexural energy (D/2) integral (2H)^2 dA. The hinge weight
-    // lbar^2 / Abar is calibrated against an exactly-rolled cylinder so the
-    // discrete energy converges to the continuum value (see Phase 1 gate d):
-    // D is then the true plate flexural rigidity.
+    // Hinge weight lbar^2 / Abar: matches the continuum (D/2) integral (2H)^2 dA
+    // only on the equilateral lattice (see the LEGACY note above).
     const lbar = hingeLbar[hI];
     const weight = 0.5 * D * (lbar * lbar) / hingeAbar[hI];
     energy += weight * theta * theta; // thetaBar = 0
@@ -486,8 +572,77 @@ function bendingFDGrad(model, X, params, grad) {
 }
 
 // ---------------------------------------------------------------------------
+// Bending energy and gradient (DEFAULT): quadratic rest-metric bending
+// (Bergou et al., "A Quadratic Bending Model for Inextensible Surfaces").
+//
+//   E = (D/2) sum_v |(Lbar x)_v|^2 / Abar_v      (interior vertices only)
+//
+// where Lbar is the cotan Laplacian of the FLAT REST metric ((Lbar x)_v =
+// sum_j w_vj (x_j - x_v), w from buildQuadraticBending) and Abar_v the mixed
+// Voronoi rest area. Why this is the right discretization here:
+//
+//  * (Lbar x)_v / Abar_v is the discrete mean-curvature vector of the deformed
+//    surface whenever the deformation is an isometry of the flat rest state
+//    (rest cotans = deformed cotans then), and the membrane term keeps the
+//    strip near-isometric (h << 1: membrane stiffness ~ h, bending ~ h^3). So
+//    the sum converges to the continuum plate energy (D/2) integral (2H)^2 dA
+//    with NO lattice-dependent calibration constant -- the rolled-cylinder gate
+//    converges to 1 at every cell aspect and roll direction, where the dihedral
+//    hinge model was off by an O(1) aspect-dependent factor.
+//  * Orientation-free (no normals anywhere), so the non-orientable gluing is
+//    handled by connectivity alone, like the rest of the model.
+//  * Exactly quadratic in x: the gradient D Lbar^T diag(1/Abar) Lbar x is
+//    closed-form (two Laplacian sweeps), and the bending Hessian is constant
+//    and PSD, which the Newton solvers appreciate.
+//  * Boundary vertices are skipped (open 1-rings do not estimate curvature);
+//    that is the free-edge natural boundary condition, with an O(dv) quadrature
+//    error along the free edges that vanishes under refinement.
+// ---------------------------------------------------------------------------
+
+function bendingQuadratic(model, X, params, grad) {
+  const { nLap, lapI, lapJ, lapW, bendAreaBar, bendInterior, Nv } = model;
+  const y = model._bendY, z = model._bendZ;
+  const D = bendingModulus(params.E, params.poisson, params.thickness);
+
+  // y = Lbar x (per coordinate).
+  y.fill(0);
+  for (let e = 0; e < nLap; e++) {
+    const i = lapI[e] * 3, j = lapJ[e] * 3, w = lapW[e];
+    const dx = X[j] - X[i], dy = X[j + 1] - X[i + 1], dz = X[j + 2] - X[i + 2];
+    y[i] += w * dx; y[i + 1] += w * dy; y[i + 2] += w * dz;
+    y[j] -= w * dx; y[j + 1] -= w * dy; y[j + 2] -= w * dz;
+  }
+
+  // Energy and the weighted residual z = D * y / Abar (interior mask applied).
+  let energy = 0;
+  for (let v = 0; v < Nv; v++) {
+    const b = v * 3;
+    if (!bendInterior[v]) { z[b] = 0; z[b + 1] = 0; z[b + 2] = 0; continue; }
+    const s = D / bendAreaBar[v];
+    const yx = y[b], yy = y[b + 1], yz = y[b + 2];
+    energy += 0.5 * s * (yx * yx + yy * yy + yz * yz);
+    z[b] = s * yx; z[b + 1] = s * yy; z[b + 2] = s * yz;
+  }
+
+  // grad += Lbar^T z = Lbar z (Lbar is symmetric).
+  if (grad) {
+    for (let e = 0; e < nLap; e++) {
+      const i = lapI[e] * 3, j = lapJ[e] * 3, w = lapW[e];
+      const dx = z[j] - z[i], dy = z[j + 1] - z[i + 1], dz = z[j + 2] - z[i + 2];
+      grad[i] += w * dx; grad[i + 1] += w * dy; grad[i + 2] += w * dz;
+      grad[j] -= w * dx; grad[j + 1] -= w * dy; grad[j + 2] -= w * dz;
+    }
+  }
+  return energy;
+}
+
+// ---------------------------------------------------------------------------
 // Total energy and gradient.
-//   params = { E, poisson, thickness, bendingMode? 'analytic' | 'fd' }
+//   params = { E, poisson, thickness, bendingMode? }
+//   bendingMode: 'quadratic' (default) the rest-metric quadratic model above;
+//                'hinge' (alias 'analytic') the legacy dihedral hinge;
+//                'fd' the hinge energy with finite-difference gradient
+//                (verification oracle for the hinge gradient).
 // ---------------------------------------------------------------------------
 
 // Reused result object: this is called ~10^5 times per relax and most
@@ -499,9 +654,11 @@ const _eg = { energy: 0, membrane: 0, bending: 0 };
 export function energyAndGradient(model, X, params, grad) {
   if (grad) grad.fill(0);
   const em = membrane(model, X, params, grad);
-  const eb = (params.bendingMode === 'fd' ? bendingFDGrad : bending)(
-    model, X, params, grad,
-  );
+  const mode = params.bendingMode;
+  const bendFn = mode === 'fd' ? bendingFDGrad
+    : (mode === 'hinge' || mode === 'analytic') ? bending
+    : bendingQuadratic;
+  const eb = bendFn(model, X, params, grad);
   _eg.energy = em + eb;
   _eg.membrane = em;
   _eg.bending = eb;
@@ -780,6 +937,7 @@ export function createFlatStrip({ length = 6, width = 1, nu = 60, nv = 8 } = {})
     }
   }
   const hinges = packHinges(edgeMap, tris, triRestUV, triRestArea);
+  const bendOp = buildQuadraticBending(tris, triRestUV, nT, Nv, edgeMap);
   const vertexArea = new Float64Array(Nv);
   for (let k = 0; k < nT; k++) {
     const a = triRestArea[k] / 3;
@@ -798,6 +956,6 @@ export function createFlatStrip({ length = 6, width = 1, nu = 60, nv = 8 } = {})
   }
   return {
     nu, nv, length, width, du, dv, Nv, nT,
-    tris, triDmInv, triRestArea, ...hinges, vertexArea, vid, flatEmbedding,
+    tris, triDmInv, triRestArea, ...hinges, ...bendOp, vertexArea, vid, flatEmbedding,
   };
 }

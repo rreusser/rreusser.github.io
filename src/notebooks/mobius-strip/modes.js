@@ -1,23 +1,68 @@
 // Flexural (small-vibration) modes of the relaxed elastic Mobius strip.
 //
 // At equilibrium x*, modes solve K phi = omega^2 M phi (stiffness K, lumped
-// diagonal mass M). Natural vertex ordering (vid(i,j) = i*(nv+1)+j) gives
-// Hessian bandwidth ~703 vertices because the Mobius seam (column nu glued to
-// column 0 with a row flip) creates long-range connectivity. Interleaving
-// columns as (0, nu-1, 1, nu-2, ...) places the seam partners adjacent in the
-// new ordering, collapsing bandwidth to ~23 vertices (bw ~ 69 DOFs).
+// diagonal mass M). Natural vertex ordering (vid(i,j) = i*(nv+1)+j) gives a
+// huge Hessian bandwidth because the Mobius seam (column nu glued to column 0
+// with a row flip) creates long-range connectivity. Interleaving columns as
+// (0, nu-1, 1, nu-2, ...) places the seam partners adjacent in the new
+// ordering, collapsing the bandwidth to a few dozen vertices. The quadratic
+// bending model couples each vertex to its full 2-ring (any two vertices
+// sharing a Laplacian neighbor interact through that neighbor's mean-curvature
+// residual), roughly doubling the vertex bandwidth relative to the old
+// dihedral-hinge stencil; the bandwidth below is computed from the true
+// stencil, not assumed.
 //
 // This enables:
-//  - Banded FD Hessian with (2*bw+1)-coloring: ~286 gradient evaluations
-//    instead of 2*n = 4224 (15x fewer).
-//  - dsbgvx (LAPACK banded generalized eigensolver) instead of dense dsygvx:
-//    O(n * bw^2) ~ 10M flops vs O(n^3) ~ 9.4G flops for the reduction step
-//    (roughly 900x fewer for n = 2112, bw = 69).
+//  - Banded FD Hessian with (2*bw+1)-coloring: O(bw) gradient evaluations
+//    instead of 2*n (an order of magnitude fewer).
+//  - Banded eigensolvers (ARPACK dsband shift-invert / LAPACK dsbgvx) instead
+//    of the dense dsygvx: O(n * bw^2) vs O(n^3) where n = 3*Nv.
+
+// Symmetric vertex adjacency (CSR) from the model's Laplacian edge list. This
+// edge set contains every triangle edge, so it covers the membrane coupling
+// and (as 2-ring pairs) both bending models' stencils.
+export function buildVertexAdjacency(model) {
+  const { Nv, nLap, lapI, lapJ } = model;
+  const deg = new Int32Array(Nv);
+  for (let e = 0; e < nLap; e++) { deg[lapI[e]]++; deg[lapJ[e]]++; }
+  const off = new Int32Array(Nv + 1);
+  for (let v = 0; v < Nv; v++) off[v + 1] = off[v] + deg[v];
+  const nbr = new Int32Array(off[Nv]);
+  const cur = Int32Array.from(off.subarray(0, Nv));
+  for (let e = 0; e < nLap; e++) {
+    nbr[cur[lapI[e]]++] = lapJ[e];
+    nbr[cur[lapJ[e]]++] = lapI[e];
+  }
+  return { off, nbr };
+}
+
+// Max vertex-index distance between any two coupled vertices under an optional
+// permutation (identity when vertPerm is null). Hessian entry (a, b) can be
+// nonzero only when a and b lie in some vertex's stencil {v} union N(v)
+// (membrane: triangle edges; bending: Laplacian 2-ring; the hinge quadruples
+// are a subset of the 2-ring), so the max spread of any stencil under the
+// permutation bounds the half-bandwidth exactly.
+export function stencilVertexBandwidth(model, vertPerm = null) {
+  const { Nv } = model;
+  const { off, nbr } = buildVertexAdjacency(model);
+  let bvMax = 0;
+  for (let v = 0; v < Nv; v++) {
+    let mn = vertPerm ? vertPerm[v] : v;
+    let mx = mn;
+    for (let s = off[v]; s < off[v + 1]; s++) {
+      const p = vertPerm ? vertPerm[nbr[s]] : nbr[s];
+      if (p < mn) mn = p;
+      if (p > mx) mx = p;
+    }
+    if (mx - mn > bvMax) bvMax = mx - mn;
+  }
+  return bvMax;
+}
 
 // Build interleaved column permutation minimizing Hessian bandwidth.
 // Returns { dofPerm, invDofPerm, bw } where dofPerm[oldDof] = newDof.
 export function buildPermutation(model) {
-  const { nu, nv, tris, nT, nHinges, hingeIdx, Nv } = model;
+  const { nu, nv, Nv } = model;
   const n = 3 * Nv;
 
   // colPerm[newCol] = oldCol: new col 0 -> old col 0, new col 1 -> old col nu-1, ...
@@ -39,22 +84,9 @@ export function buildPermutation(model) {
     }
   }
 
-  // Compute actual vertex bandwidth from triangles and hinges
-  let bvMax = 0;
-  function chk(va, vb) {
-    const d = Math.abs(vertPerm[va] - vertPerm[vb]);
-    if (d > bvMax) bvMax = d;
-  }
-  for (let k = 0; k < nT; k++) {
-    const v0 = tris[k * 3], v1 = tris[k * 3 + 1], v2 = tris[k * 3 + 2];
-    chk(v0, v1); chk(v1, v2); chk(v0, v2);
-  }
-  for (let h = 0; h < nHinges; h++) {
-    const b = h * 4;
-    for (let a = 0; a < 4; a++) for (let c = a + 1; c < 4; c++) chk(hingeIdx[b + a], hingeIdx[b + c]);
-  }
-
-  // DOF bandwidth: vertex distance bvMax -> DOF distance bvMax*3+2
+  // Actual vertex bandwidth of the energy's coupling stencil under the
+  // permutation. DOF bandwidth: vertex distance bvMax -> DOF distance bvMax*3+2.
+  const bvMax = stencilVertexBandwidth(model, vertPerm);
   const bw = bvMax * 3 + 2;
 
   // dofPerm[oldDof] = newDof

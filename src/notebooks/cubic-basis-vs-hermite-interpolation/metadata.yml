@@ -4,3 +4,7 @@ maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/cubic-basis-vs-hermite-interpolation
 tags:
   - math
+seeAlso:
+  - bicubic-texture-interpolation-using-linear-filtering
+  - aligning-3d-scans
+  - shanks-transformation

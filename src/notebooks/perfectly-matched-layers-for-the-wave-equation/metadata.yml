@@ -5,3 +5,7 @@ observableUrl: https://www.shadertoy.com/view/l3ccRr
 tags:
   - webgl
   - pde
+seeAlso:
+  - simulating-the-2d-kuramoto-sivashinsky-equation-in-webgpu
+  - multiscale-turing-patterns
+  - particle-mesh-gravity

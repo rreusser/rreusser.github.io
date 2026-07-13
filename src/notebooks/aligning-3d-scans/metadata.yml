@@ -3,3 +3,7 @@ description: "Automatically orienting 3D scans by computing principal axes from 
 maxWidth: 640px
 tags:
   - math
+seeAlso:
+  - point-cloud-point-opacity
+  - sliced-optimal-transport
+  - transparency-for-3d-surfaces

@@ -5,3 +5,7 @@ observableUrl: https://observablehq.com/@rreusser/lawsons-klein-bottle
 tags:
   - webgpu
   - math
+seeAlso:
+  - boys-surface
+  - costa-surface
+  - sphere-eversion

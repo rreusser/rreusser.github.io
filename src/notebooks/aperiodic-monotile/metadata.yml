@@ -6,3 +6,7 @@ maxWidth: 640px
 tags:
   - math
   - webgpu
+seeAlso:
+  - zooming-aperiodic-monotile
+  - charmin-nanotubes-and-toiletpaperfullerenes
+  - webgpu-voronoi-diagrams-using-the-jump-flooding-algorithm

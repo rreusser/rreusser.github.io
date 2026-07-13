@@ -335,43 +335,273 @@ var base_default = dscal;
 
 // ../notes/lib/blas/base/dsyr/lib/base.js
 function dsyr(uplo, N, alpha, x, strideX, offsetX, A, strideA1, strideA2, offsetA) {
-  var temp;
+  var upper;
   var sa1;
   var sa2;
+  var sx;
+  var x0;
+  var x1;
+  var x2;
+  var x3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var xv;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
+  var n4;
   var ix;
   var jx;
+  var jj;
   var i;
   var j;
+  var k;
   if (N === 0 || alpha === 0) {
     return A;
   }
+  upper = uplo === "upper";
   sa1 = strideA1;
   sa2 = strideA2;
-  if (uplo === "upper") {
+  sx = strideX;
+  n4 = N - N % 4;
+  if (Math.abs(sa1) <= Math.abs(sa2)) {
     jx = offsetX;
-    for (j = 0; j < N; j++) {
-      if (x[jx] !== 0) {
-        temp = alpha * x[jx];
-        ix = offsetX;
-        for (i = 0; i <= j; i++) {
-          A[offsetA + i * sa1 + j * sa2] += x[ix] * temp;
-          ix += strideX;
+    for (j = 0; j < n4; j += 4) {
+      t0 = x[jx];
+      t1 = x[jx + sx];
+      t2 = x[jx + 2 * sx];
+      t3 = x[jx + 3 * sx];
+      if (t0 !== 0 && t1 !== 0 && t2 !== 0 && t3 !== 0) {
+        t0 *= alpha;
+        t1 *= alpha;
+        t2 *= alpha;
+        t3 *= alpha;
+        if (upper) {
+          a0 = offsetA + j * sa2;
+          a1 = a0 + sa2;
+          a2 = a1 + sa2;
+          a3 = a2 + sa2;
+          ix = offsetX;
+          for (i = 0; i <= j; i++) {
+            xv = x[ix];
+            A[a0] += xv * t0;
+            A[a1] += xv * t1;
+            A[a2] += xv * t2;
+            A[a3] += xv * t3;
+            a0 += sa1;
+            a1 += sa1;
+            a2 += sa1;
+            a3 += sa1;
+            ix += sx;
+          }
+          x0 = x[ix];
+          x1 = x[ix + sx];
+          x2 = x[ix + 2 * sx];
+          A[a1] += x0 * t1;
+          A[a2] += x0 * t2;
+          A[a2 + sa1] += x1 * t2;
+          A[a3] += x0 * t3;
+          A[a3 + sa1] += x1 * t3;
+          A[a3 + 2 * sa1] += x2 * t3;
+        } else {
+          x0 = x[jx];
+          x1 = x[jx + sx];
+          x2 = x[jx + 2 * sx];
+          a0 = offsetA + j * sa2 + j * sa1;
+          A[a0] += x0 * t0;
+          A[a0 + sa1] += x1 * t0;
+          A[a0 + 2 * sa1] += x2 * t0;
+          a1 = a0 + sa2 + sa1;
+          A[a1] += x1 * t1;
+          A[a1 + sa1] += x2 * t1;
+          a2 = a1 + sa2 + sa1;
+          A[a2] += x2 * t2;
+          a0 = offsetA + j * sa2 + (j + 3) * sa1;
+          a1 = a0 + sa2;
+          a2 = a1 + sa2;
+          a3 = a2 + sa2;
+          ix = jx + 3 * sx;
+          for (i = j + 3; i < N; i++) {
+            xv = x[ix];
+            A[a0] += xv * t0;
+            A[a1] += xv * t1;
+            A[a2] += xv * t2;
+            A[a3] += xv * t3;
+            a0 += sa1;
+            a1 += sa1;
+            a2 += sa1;
+            a3 += sa1;
+            ix += sx;
+          }
+        }
+      } else {
+        jj = jx;
+        for (k = j; k < j + 4; k++) {
+          xv = x[jj];
+          if (xv !== 0) {
+            t0 = alpha * xv;
+            if (upper) {
+              a0 = offsetA + k * sa2;
+              ix = offsetX;
+              for (i = 0; i <= k; i++) {
+                A[a0] += x[ix] * t0;
+                a0 += sa1;
+                ix += sx;
+              }
+            } else {
+              a0 = offsetA + k * sa2 + k * sa1;
+              ix = jj;
+              for (i = k; i < N; i++) {
+                A[a0] += x[ix] * t0;
+                a0 += sa1;
+                ix += sx;
+              }
+            }
+          }
+          jj += sx;
         }
       }
-      jx += strideX;
+      jx += 4 * sx;
+    }
+    for (j = n4; j < N; j++) {
+      xv = x[jx];
+      if (xv !== 0) {
+        t0 = alpha * xv;
+        if (upper) {
+          a0 = offsetA + j * sa2;
+          ix = offsetX;
+          for (i = 0; i <= j; i++) {
+            A[a0] += x[ix] * t0;
+            a0 += sa1;
+            ix += sx;
+          }
+        } else {
+          a0 = offsetA + j * sa2 + j * sa1;
+          ix = jx;
+          for (i = j; i < N; i++) {
+            A[a0] += x[ix] * t0;
+            a0 += sa1;
+            ix += sx;
+          }
+        }
+      }
+      jx += sx;
     }
   } else {
-    jx = offsetX;
-    for (j = 0; j < N; j++) {
-      if (x[jx] !== 0) {
-        temp = alpha * x[jx];
-        ix = jx;
-        for (i = j; i < N; i++) {
-          A[offsetA + i * sa1 + j * sa2] += x[ix] * temp;
-          ix += strideX;
+    jj = offsetX;
+    for (i = 0; i < n4; i += 4) {
+      x0 = x[jj];
+      x1 = x[jj + sx];
+      x2 = x[jj + 2 * sx];
+      x3 = x[jj + 3 * sx];
+      if (upper) {
+        if (x0 !== 0) {
+          t0 = alpha * x0;
+          A[offsetA + i * sa1 + i * sa2] += x0 * t0;
+        }
+        if (x1 !== 0) {
+          t1 = alpha * x1;
+          a0 = offsetA + i * sa1 + (i + 1) * sa2;
+          A[a0] += x0 * t1;
+          A[a0 + sa1] += x1 * t1;
+        }
+        if (x2 !== 0) {
+          t2 = alpha * x2;
+          a0 = offsetA + i * sa1 + (i + 2) * sa2;
+          A[a0] += x0 * t2;
+          A[a0 + sa1] += x1 * t2;
+          A[a0 + 2 * sa1] += x2 * t2;
+        }
+        a0 = offsetA + i * sa1 + (i + 3) * sa2;
+        a1 = a0 + sa1;
+        a2 = a1 + sa1;
+        a3 = a2 + sa1;
+        jx = jj + 3 * sx;
+        for (j = i + 3; j < N; j++) {
+          xv = x[jx];
+          if (xv !== 0) {
+            t0 = alpha * xv;
+            A[a0] += x0 * t0;
+            A[a1] += x1 * t0;
+            A[a2] += x2 * t0;
+            A[a3] += x3 * t0;
+          }
+          a0 += sa2;
+          a1 += sa2;
+          a2 += sa2;
+          a3 += sa2;
+          jx += sx;
+        }
+      } else {
+        a0 = offsetA + i * sa1;
+        a1 = a0 + sa1;
+        a2 = a1 + sa1;
+        a3 = a2 + sa1;
+        jx = offsetX;
+        for (j = 0; j <= i; j++) {
+          xv = x[jx];
+          if (xv !== 0) {
+            t0 = alpha * xv;
+            A[a0] += x0 * t0;
+            A[a1] += x1 * t0;
+            A[a2] += x2 * t0;
+            A[a3] += x3 * t0;
+          }
+          a0 += sa2;
+          a1 += sa2;
+          a2 += sa2;
+          a3 += sa2;
+          jx += sx;
+        }
+        if (x1 !== 0) {
+          t1 = alpha * x1;
+          a0 = offsetA + (i + 1) * sa1 + (i + 1) * sa2;
+          A[a0] += x1 * t1;
+          A[a0 + sa1] += x2 * t1;
+          A[a0 + 2 * sa1] += x3 * t1;
+        }
+        if (x2 !== 0) {
+          t2 = alpha * x2;
+          a0 = offsetA + (i + 2) * sa1 + (i + 2) * sa2;
+          A[a0] += x2 * t2;
+          A[a0 + sa1] += x3 * t2;
+        }
+        if (x3 !== 0) {
+          t3 = alpha * x3;
+          A[offsetA + (i + 3) * sa1 + (i + 3) * sa2] += x3 * t3;
         }
       }
-      jx += strideX;
+      jj += 4 * sx;
+    }
+    for (i = n4; i < N; i++) {
+      x0 = x[jj];
+      if (upper) {
+        a0 = offsetA + i * sa1 + i * sa2;
+        jx = jj;
+        for (j = i; j < N; j++) {
+          xv = x[jx];
+          if (xv !== 0) {
+            A[a0] += x0 * (alpha * xv);
+          }
+          a0 += sa2;
+          jx += sx;
+        }
+      } else {
+        a0 = offsetA + i * sa1;
+        jx = offsetX;
+        for (j = 0; j <= i; j++) {
+          xv = x[jx];
+          if (xv !== 0) {
+            A[a0] += x0 * (alpha * xv);
+          }
+          a0 += sa2;
+          jx += sx;
+        }
+      }
+      jj += sx;
     }
   }
   return A;
@@ -472,11 +702,24 @@ var base_default4 = ddot;
 // ../notes/lib/blas/base/dgemv/lib/base.js
 function dgemv(trans, M3, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, offsetX, beta, y, strideY, offsetY) {
   var noTrans;
-  var temp;
   var leny;
-  var sa1;
-  var sa2;
-  var ia;
+  var lenx;
+  var sb1;
+  var sb2;
+  var s0;
+  var s1;
+  var s2;
+  var s3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var xv;
+  var m4;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
   var ix;
   var iy;
   var jx;
@@ -487,12 +730,16 @@ function dgemv(trans, M3, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, 
   if (M3 === 0 || N === 0 || alpha === 0 && beta === 1) {
     return y;
   }
-  sa1 = strideA1;
-  sa2 = strideA2;
   if (noTrans) {
     leny = M3;
+    lenx = N;
+    sb1 = strideA1;
+    sb2 = strideA2;
   } else {
     leny = N;
+    lenx = M3;
+    sb1 = strideA2;
+    sb2 = strideA1;
   }
   if (beta !== 1) {
     iy = offsetY;
@@ -511,32 +758,82 @@ function dgemv(trans, M3, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, 
   if (alpha === 0) {
     return y;
   }
-  if (noTrans) {
-    jx = offsetX;
-    for (j = 0; j < N; j++) {
-      temp = alpha * x[jx];
-      iy = offsetY;
-      ia = offsetA + j * sa2;
-      for (i = 0; i < M3; i++) {
-        y[iy] += temp * A[ia];
-        iy += strideY;
-        ia += sa1;
+  if (Math.abs(sb2) <= Math.abs(sb1)) {
+    m4 = leny - leny % 4;
+    iy = offsetY;
+    for (i = 0; i < m4; i += 4) {
+      s0 = 0;
+      s1 = 0;
+      s2 = 0;
+      s3 = 0;
+      a0 = offsetA + i * sb1;
+      a1 = a0 + sb1;
+      a2 = a1 + sb1;
+      a3 = a2 + sb1;
+      ix = offsetX;
+      for (j = 0; j < lenx; j++) {
+        xv = x[ix];
+        s0 += A[a0] * xv;
+        s1 += A[a1] * xv;
+        s2 += A[a2] * xv;
+        s3 += A[a3] * xv;
+        a0 += sb2;
+        a1 += sb2;
+        a2 += sb2;
+        a3 += sb2;
+        ix += strideX;
       }
-      jx += strideX;
+      y[iy] += alpha * s0;
+      y[iy + strideY] += alpha * s1;
+      y[iy + 2 * strideY] += alpha * s2;
+      y[iy + 3 * strideY] += alpha * s3;
+      iy += 4 * strideY;
+    }
+    for (; i < leny; i++) {
+      s0 = 0;
+      a0 = offsetA + i * sb1;
+      ix = offsetX;
+      for (j = 0; j < lenx; j++) {
+        s0 += A[a0] * x[ix];
+        a0 += sb2;
+        ix += strideX;
+      }
+      y[iy] += alpha * s0;
+      iy += strideY;
     }
   } else {
-    jy = offsetY;
-    for (j = 0; j < N; j++) {
-      temp = 0;
-      ix = offsetX;
-      ia = offsetA + j * sa2;
-      for (i = 0; i < M3; i++) {
-        temp += A[ia] * x[ix];
-        ix += strideX;
-        ia += sa1;
+    m4 = lenx - lenx % 4;
+    jx = offsetX;
+    for (j = 0; j < m4; j += 4) {
+      t0 = alpha * x[jx];
+      t1 = alpha * x[jx + strideX];
+      t2 = alpha * x[jx + 2 * strideX];
+      t3 = alpha * x[jx + 3 * strideX];
+      a0 = offsetA + j * sb2;
+      a1 = a0 + sb2;
+      a2 = a1 + sb2;
+      a3 = a2 + sb2;
+      jy = offsetY;
+      for (i = 0; i < leny; i++) {
+        y[jy] += t0 * A[a0] + t1 * A[a1] + t2 * A[a2] + t3 * A[a3];
+        a0 += sb1;
+        a1 += sb1;
+        a2 += sb1;
+        a3 += sb1;
+        jy += strideY;
       }
-      y[jy] += alpha * temp;
-      jy += strideY;
+      jx += 4 * strideX;
+    }
+    for (; j < lenx; j++) {
+      t0 = alpha * x[jx];
+      a0 = offsetA + j * sb2;
+      jy = offsetY;
+      for (i = 0; i < leny; i++) {
+        y[jy] += t0 * A[a0];
+        a0 += sb1;
+        jy += strideY;
+      }
+      jx += strideX;
     }
   }
   return y;
@@ -589,218 +886,329 @@ var base_default6 = dpotf2;
 
 // ../notes/lib/blas/base/dtrsm/lib/base.js
 function dtrsm(side, uplo, transa, diag, M3, N, alpha, A, strideA1, strideA2, offsetA, B, strideB1, strideB2, offsetB) {
+  var c00;
+  var c01;
+  var c02;
+  var c03;
+  var c10;
+  var c11;
+  var c12;
+  var c13;
+  var c20;
+  var c21;
+  var c22;
+  var c23;
+  var c30;
+  var c31;
+  var c32;
+  var c33;
   var nounit;
-  var lside;
-  var upper;
-  var temp;
-  var sa1;
-  var sa2;
-  var sb1;
-  var sb2;
-  var ia;
-  var ib;
+  var eupper;
+  var ea1;
+  var ea2;
+  var eb1;
+  var eb2;
+  var oa;
+  var ob;
+  var MM;
+  var NN;
+  var u01;
+  var u02;
+  var u03;
+  var u12;
+  var u13;
+  var u23;
+  var d0;
+  var d1;
+  var d2;
+  var d3;
+  var x0;
+  var x1;
+  var x2;
+  var x3;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
+  var b0;
+  var b1;
+  var b2;
+  var b3;
+  var pa0;
+  var pa1;
+  var pa2;
+  var pa3;
+  var pb0;
+  var pb1;
+  var pb2;
+  var pb3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var pa;
+  var pb;
+  var pk;
+  var pl;
+  var rem;
+  var nb;
+  var kl;
+  var i0;
   var i;
   var j;
-  var k;
-  lside = side === "left";
-  nounit = diag === "non-unit";
-  upper = uplo === "upper";
+  var l;
   if (M3 === 0 || N === 0) {
     return B;
   }
-  sa1 = strideA1;
-  sa2 = strideA2;
-  sb1 = strideB1;
-  sb2 = strideB2;
   if (alpha === 0) {
     for (j = 0; j < N; j++) {
-      ib = offsetB + j * sb2;
+      pb = offsetB + j * strideB2;
       for (i = 0; i < M3; i++) {
-        B[ib] = 0;
-        ib += sb1;
+        B[pb] = 0;
+        pb += strideB1;
       }
     }
     return B;
   }
-  if (lside) {
+  nounit = diag === "non-unit";
+  if (side === "left") {
+    MM = M3;
+    NN = N;
+    eb1 = strideB1;
+    eb2 = strideB2;
     if (transa === "no-transpose") {
-      if (upper) {
-        for (j = 0; j < N; j++) {
-          if (alpha !== 1) {
-            ib = offsetB + j * sb2;
-            for (i = 0; i < M3; i++) {
-              B[ib] *= alpha;
-              ib += sb1;
-            }
-          }
-          for (k = M3 - 1; k >= 0; k--) {
-            ib = offsetB + k * sb1 + j * sb2;
-            if (B[ib] !== 0) {
-              if (nounit) {
-                B[ib] /= A[offsetA + k * sa1 + k * sa2];
-              }
-              ia = offsetA + k * sa2;
-              for (i = 0; i < k; i++) {
-                B[offsetB + i * sb1 + j * sb2] -= B[ib] * A[ia];
-                ia += sa1;
-              }
-            }
-          }
-        }
-      } else {
-        for (j = 0; j < N; j++) {
-          if (alpha !== 1) {
-            ib = offsetB + j * sb2;
-            for (i = 0; i < M3; i++) {
-              B[ib] *= alpha;
-              ib += sb1;
-            }
-          }
-          for (k = 0; k < M3; k++) {
-            ib = offsetB + k * sb1 + j * sb2;
-            if (B[ib] !== 0) {
-              if (nounit) {
-                B[ib] /= A[offsetA + k * sa1 + k * sa2];
-              }
-              for (i = k + 1; i < M3; i++) {
-                B[offsetB + i * sb1 + j * sb2] -= B[ib] * A[offsetA + i * sa1 + k * sa2];
-              }
-            }
-          }
-        }
-      }
-    } else if (upper) {
-      for (j = 0; j < N; j++) {
-        for (i = 0; i < M3; i++) {
-          temp = alpha * B[offsetB + i * sb1 + j * sb2];
-          ia = offsetA + i * sa2;
-          for (k = 0; k < i; k++) {
-            temp -= A[ia] * B[offsetB + k * sb1 + j * sb2];
-            ia += sa1;
-          }
-          if (nounit) {
-            temp /= A[offsetA + i * sa1 + i * sa2];
-          }
-          B[offsetB + i * sb1 + j * sb2] = temp;
-        }
-      }
+      ea1 = strideA1;
+      ea2 = strideA2;
+      eupper = uplo === "upper";
     } else {
-      for (j = 0; j < N; j++) {
-        for (i = M3 - 1; i >= 0; i--) {
-          temp = alpha * B[offsetB + i * sb1 + j * sb2];
-          for (k = i + 1; k < M3; k++) {
-            temp -= A[offsetA + k * sa1 + i * sa2] * B[offsetB + k * sb1 + j * sb2];
-          }
-          if (nounit) {
-            temp /= A[offsetA + i * sa1 + i * sa2];
-          }
-          B[offsetB + i * sb1 + j * sb2] = temp;
-        }
-      }
-    }
-  } else if (transa === "no-transpose") {
-    if (upper) {
-      for (j = 0; j < N; j++) {
-        if (alpha !== 1) {
-          ib = offsetB + j * sb2;
-          for (i = 0; i < M3; i++) {
-            B[ib] *= alpha;
-            ib += sb1;
-          }
-        }
-        for (k = 0; k < j; k++) {
-          if (A[offsetA + k * sa1 + j * sa2] !== 0) {
-            for (i = 0; i < M3; i++) {
-              B[offsetB + i * sb1 + j * sb2] -= A[offsetA + k * sa1 + j * sa2] * B[offsetB + i * sb1 + k * sb2];
-            }
-          }
-        }
-        if (nounit) {
-          temp = 1 / A[offsetA + j * sa1 + j * sa2];
-          ib = offsetB + j * sb2;
-          for (i = 0; i < M3; i++) {
-            B[ib] *= temp;
-            ib += sb1;
-          }
-        }
-      }
-    } else {
-      for (j = N - 1; j >= 0; j--) {
-        if (alpha !== 1) {
-          ib = offsetB + j * sb2;
-          for (i = 0; i < M3; i++) {
-            B[ib] *= alpha;
-            ib += sb1;
-          }
-        }
-        for (k = j + 1; k < N; k++) {
-          if (A[offsetA + k * sa1 + j * sa2] !== 0) {
-            for (i = 0; i < M3; i++) {
-              B[offsetB + i * sb1 + j * sb2] -= A[offsetA + k * sa1 + j * sa2] * B[offsetB + i * sb1 + k * sb2];
-            }
-          }
-        }
-        if (nounit) {
-          temp = 1 / A[offsetA + j * sa1 + j * sa2];
-          ib = offsetB + j * sb2;
-          for (i = 0; i < M3; i++) {
-            B[ib] *= temp;
-            ib += sb1;
-          }
-        }
-      }
-    }
-  } else if (upper) {
-    for (k = N - 1; k >= 0; k--) {
-      if (nounit) {
-        temp = 1 / A[offsetA + k * sa1 + k * sa2];
-        ib = offsetB + k * sb2;
-        for (i = 0; i < M3; i++) {
-          B[ib] *= temp;
-          ib += sb1;
-        }
-      }
-      for (j = 0; j < k; j++) {
-        if (A[offsetA + j * sa1 + k * sa2] !== 0) {
-          temp = A[offsetA + j * sa1 + k * sa2];
-          for (i = 0; i < M3; i++) {
-            B[offsetB + i * sb1 + j * sb2] -= temp * B[offsetB + i * sb1 + k * sb2];
-          }
-        }
-      }
-      if (alpha !== 1) {
-        ib = offsetB + k * sb2;
-        for (i = 0; i < M3; i++) {
-          B[ib] *= alpha;
-          ib += sb1;
-        }
-      }
+      ea1 = strideA2;
+      ea2 = strideA1;
+      eupper = uplo !== "upper";
     }
   } else {
-    for (k = 0; k < N; k++) {
+    MM = N;
+    NN = M3;
+    eb1 = strideB2;
+    eb2 = strideB1;
+    if (transa === "no-transpose") {
+      ea1 = strideA2;
+      ea2 = strideA1;
+      eupper = uplo !== "upper";
+    } else {
+      ea1 = strideA1;
+      ea2 = strideA2;
+      eupper = uplo === "upper";
+    }
+  }
+  oa = offsetA;
+  ob = offsetB;
+  if (!eupper) {
+    oa += (MM - 1) * (ea1 + ea2);
+    ea1 = -ea1;
+    ea2 = -ea2;
+    ob += (MM - 1) * eb1;
+    eb1 = -eb1;
+  }
+  rem = MM % 4;
+  nb = NN - NN % 4;
+  for (j = 0; j < nb; j += 4) {
+    for (i0 = MM - 4; i0 >= rem; i0 -= 4) {
+      c00 = 0;
+      c10 = 0;
+      c20 = 0;
+      c30 = 0;
+      c01 = 0;
+      c11 = 0;
+      c21 = 0;
+      c31 = 0;
+      c02 = 0;
+      c12 = 0;
+      c22 = 0;
+      c32 = 0;
+      c03 = 0;
+      c13 = 0;
+      c23 = 0;
+      c33 = 0;
+      kl = MM - i0 - 4;
+      pa0 = oa + i0 * ea1 + (i0 + 4) * ea2;
+      pa1 = pa0 + ea1;
+      pa2 = pa1 + ea1;
+      pa3 = pa2 + ea1;
+      pb0 = ob + (i0 + 4) * eb1 + j * eb2;
+      pb1 = pb0 + eb2;
+      pb2 = pb1 + eb2;
+      pb3 = pb2 + eb2;
+      for (l = 0; l < kl; l++) {
+        pk = l * ea2;
+        a0 = A[pa0 + pk];
+        a1 = A[pa1 + pk];
+        a2 = A[pa2 + pk];
+        a3 = A[pa3 + pk];
+        pl = l * eb1;
+        b0 = B[pb0 + pl];
+        b1 = B[pb1 + pl];
+        b2 = B[pb2 + pl];
+        b3 = B[pb3 + pl];
+        c00 += a0 * b0;
+        c10 += a1 * b0;
+        c20 += a2 * b0;
+        c30 += a3 * b0;
+        c01 += a0 * b1;
+        c11 += a1 * b1;
+        c21 += a2 * b1;
+        c31 += a3 * b1;
+        c02 += a0 * b2;
+        c12 += a1 * b2;
+        c22 += a2 * b2;
+        c32 += a3 * b2;
+        c03 += a0 * b3;
+        c13 += a1 * b3;
+        c23 += a2 * b3;
+        c33 += a3 * b3;
+      }
+      pa = oa + i0 * ea1 + i0 * ea2;
+      u01 = A[pa + ea2];
+      u02 = A[pa + 2 * ea2];
+      u03 = A[pa + 3 * ea2];
+      u12 = A[pa + ea1 + 2 * ea2];
+      u13 = A[pa + ea1 + 3 * ea2];
+      u23 = A[pa + 2 * ea1 + 3 * ea2];
       if (nounit) {
-        temp = 1 / A[offsetA + k * sa1 + k * sa2];
-        ib = offsetB + k * sb2;
-        for (i = 0; i < M3; i++) {
-          B[ib] *= temp;
-          ib += sb1;
-        }
+        d0 = A[pa];
+        d1 = A[pa + ea1 + ea2];
+        d2 = A[pa + 2 * (ea1 + ea2)];
+        d3 = A[pa + 3 * (ea1 + ea2)];
       }
-      for (j = k + 1; j < N; j++) {
-        if (A[offsetA + j * sa1 + k * sa2] !== 0) {
-          temp = A[offsetA + j * sa1 + k * sa2];
-          for (i = 0; i < M3; i++) {
-            B[offsetB + i * sb1 + j * sb2] -= temp * B[offsetB + i * sb1 + k * sb2];
-          }
-        }
+      pb = ob + i0 * eb1 + j * eb2;
+      x3 = alpha * B[pb + 3 * eb1] - c30;
+      if (nounit) {
+        x3 /= d3;
       }
-      if (alpha !== 1) {
-        ib = offsetB + k * sb2;
-        for (i = 0; i < M3; i++) {
-          B[ib] *= alpha;
-          ib += sb1;
-        }
+      x2 = alpha * B[pb + 2 * eb1] - c20 - u23 * x3;
+      if (nounit) {
+        x2 /= d2;
       }
+      x1 = alpha * B[pb + eb1] - c10 - u12 * x2 - u13 * x3;
+      if (nounit) {
+        x1 /= d1;
+      }
+      x0 = alpha * B[pb] - c00 - u01 * x1 - u02 * x2 - u03 * x3;
+      if (nounit) {
+        x0 /= d0;
+      }
+      B[pb] = x0;
+      B[pb + eb1] = x1;
+      B[pb + 2 * eb1] = x2;
+      B[pb + 3 * eb1] = x3;
+      pb += eb2;
+      x3 = alpha * B[pb + 3 * eb1] - c31;
+      if (nounit) {
+        x3 /= d3;
+      }
+      x2 = alpha * B[pb + 2 * eb1] - c21 - u23 * x3;
+      if (nounit) {
+        x2 /= d2;
+      }
+      x1 = alpha * B[pb + eb1] - c11 - u12 * x2 - u13 * x3;
+      if (nounit) {
+        x1 /= d1;
+      }
+      x0 = alpha * B[pb] - c01 - u01 * x1 - u02 * x2 - u03 * x3;
+      if (nounit) {
+        x0 /= d0;
+      }
+      B[pb] = x0;
+      B[pb + eb1] = x1;
+      B[pb + 2 * eb1] = x2;
+      B[pb + 3 * eb1] = x3;
+      pb += eb2;
+      x3 = alpha * B[pb + 3 * eb1] - c32;
+      if (nounit) {
+        x3 /= d3;
+      }
+      x2 = alpha * B[pb + 2 * eb1] - c22 - u23 * x3;
+      if (nounit) {
+        x2 /= d2;
+      }
+      x1 = alpha * B[pb + eb1] - c12 - u12 * x2 - u13 * x3;
+      if (nounit) {
+        x1 /= d1;
+      }
+      x0 = alpha * B[pb] - c02 - u01 * x1 - u02 * x2 - u03 * x3;
+      if (nounit) {
+        x0 /= d0;
+      }
+      B[pb] = x0;
+      B[pb + eb1] = x1;
+      B[pb + 2 * eb1] = x2;
+      B[pb + 3 * eb1] = x3;
+      pb += eb2;
+      x3 = alpha * B[pb + 3 * eb1] - c33;
+      if (nounit) {
+        x3 /= d3;
+      }
+      x2 = alpha * B[pb + 2 * eb1] - c23 - u23 * x3;
+      if (nounit) {
+        x2 /= d2;
+      }
+      x1 = alpha * B[pb + eb1] - c13 - u12 * x2 - u13 * x3;
+      if (nounit) {
+        x1 /= d1;
+      }
+      x0 = alpha * B[pb] - c03 - u01 * x1 - u02 * x2 - u03 * x3;
+      if (nounit) {
+        x0 /= d0;
+      }
+      B[pb] = x0;
+      B[pb + eb1] = x1;
+      B[pb + 2 * eb1] = x2;
+      B[pb + 3 * eb1] = x3;
+    }
+    for (i = rem - 1; i >= 0; i--) {
+      pb = ob + i * eb1 + j * eb2;
+      t0 = alpha * B[pb];
+      t1 = alpha * B[pb + eb2];
+      t2 = alpha * B[pb + 2 * eb2];
+      t3 = alpha * B[pb + 3 * eb2];
+      pa = oa + i * ea1 + (i + 1) * ea2;
+      pb = ob + (i + 1) * eb1 + j * eb2;
+      for (l = i + 1; l < MM; l++) {
+        a0 = A[pa];
+        pa += ea2;
+        t0 -= a0 * B[pb];
+        t1 -= a0 * B[pb + eb2];
+        t2 -= a0 * B[pb + 2 * eb2];
+        t3 -= a0 * B[pb + 3 * eb2];
+        pb += eb1;
+      }
+      if (nounit) {
+        d0 = A[oa + i * (ea1 + ea2)];
+        t0 /= d0;
+        t1 /= d0;
+        t2 /= d0;
+        t3 /= d0;
+      }
+      pb = ob + i * eb1 + j * eb2;
+      B[pb] = t0;
+      B[pb + eb2] = t1;
+      B[pb + 2 * eb2] = t2;
+      B[pb + 3 * eb2] = t3;
+    }
+  }
+  for (j = nb; j < NN; j++) {
+    for (i = MM - 1; i >= 0; i--) {
+      t0 = alpha * B[ob + i * eb1 + j * eb2];
+      pa = oa + i * ea1 + (i + 1) * ea2;
+      pb = ob + (i + 1) * eb1 + j * eb2;
+      for (l = i + 1; l < MM; l++) {
+        t0 -= A[pa] * B[pb];
+        pa += ea2;
+        pb += eb1;
+      }
+      if (nounit) {
+        t0 /= A[oa + i * (ea1 + ea2)];
+      }
+      B[ob + i * eb1 + j * eb2] = t0;
     }
   }
   return B;
@@ -809,29 +1217,68 @@ var base_default7 = dtrsm;
 
 // ../notes/lib/blas/base/dsyrk/lib/base.js
 function dsyrk(uplo, trans, N, K, alpha, A, strideA1, strideA2, offsetA, beta, C, strideC1, strideC2, offsetC) {
-  var upper;
-  var nota;
-  var temp;
-  var sa1;
-  var sa2;
+  var c00;
+  var c01;
+  var c02;
+  var c03;
+  var c10;
+  var c11;
+  var c12;
+  var c13;
+  var c20;
+  var c21;
+  var c22;
+  var c23;
+  var c30;
+  var c31;
+  var c32;
+  var c33;
+  var pa0;
+  var pa1;
+  var pa2;
+  var pa3;
+  var pb0;
+  var pb1;
+  var pb2;
+  var pb3;
+  var pcc;
+  var pak;
   var sc1;
   var sc2;
+  var up;
+  var nt;
+  var ar;
+  var ak;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
+  var b0;
+  var b1;
+  var b2;
+  var b3;
+  var pc;
   var ic;
-  var ia;
+  var nb;
+  var jj;
+  var ii;
+  var pa;
+  var pb;
+  var tt;
   var i;
   var j;
   var l;
-  upper = uplo === "upper";
-  nota = trans === "no-transpose";
+  up = uplo === "upper";
+  nt = trans === "no-transpose";
   if (N === 0 || (alpha === 0 || K === 0) && beta === 1) {
     return C;
   }
-  sa1 = strideA1;
-  sa2 = strideA2;
   sc1 = strideC1;
   sc2 = strideC2;
-  if (alpha === 0) {
-    if (upper) {
+  ar = nt ? strideA1 : strideA2;
+  ak = nt ? strideA2 : strideA1;
+  if (beta !== 1) {
+    if (up) {
       if (beta === 0) {
         for (j = 0; j < N; j++) {
           ic = offsetC + j * sc2;
@@ -866,92 +1313,218 @@ function dsyrk(uplo, trans, N, K, alpha, A, strideA1, strideA2, offsetA, beta, C
         }
       }
     }
+  }
+  if (alpha === 0 || K === 0) {
     return C;
   }
-  if (nota) {
-    if (upper) {
-      for (j = 0; j < N; j++) {
-        if (beta === 0) {
-          ic = offsetC + j * sc2;
-          for (i = 0; i <= j; i++) {
-            C[ic] = 0;
-            ic += sc1;
-          }
-        } else if (beta !== 1) {
-          ic = offsetC + j * sc2;
-          for (i = 0; i <= j; i++) {
-            C[ic] *= beta;
-            ic += sc1;
-          }
-        }
+  nb = N - N % 4;
+  if (up) {
+    for (j = 0; j < nb; j += 4) {
+      pb0 = offsetA + j * ar;
+      pb1 = pb0 + ar;
+      pb2 = pb1 + ar;
+      pb3 = pb2 + ar;
+      for (i = 0; i + 3 <= j; i += 4) {
+        c00 = 0;
+        c10 = 0;
+        c20 = 0;
+        c30 = 0;
+        c01 = 0;
+        c11 = 0;
+        c21 = 0;
+        c31 = 0;
+        c02 = 0;
+        c12 = 0;
+        c22 = 0;
+        c32 = 0;
+        c03 = 0;
+        c13 = 0;
+        c23 = 0;
+        c33 = 0;
+        pa0 = offsetA + i * ar;
+        pa1 = pa0 + ar;
+        pa2 = pa1 + ar;
+        pa3 = pa2 + ar;
         for (l = 0; l < K; l++) {
-          if (A[offsetA + j * sa1 + l * sa2] !== 0) {
-            temp = alpha * A[offsetA + j * sa1 + l * sa2];
-            ia = offsetA + l * sa2;
-            ic = offsetC + j * sc2;
-            for (i = 0; i <= j; i++) {
-              C[ic] += temp * A[ia];
-              ia += sa1;
-              ic += sc1;
-            }
-          }
+          pak = l * ak;
+          a0 = A[pa0 + pak];
+          a1 = A[pa1 + pak];
+          a2 = A[pa2 + pak];
+          a3 = A[pa3 + pak];
+          b0 = A[pb0 + pak];
+          b1 = A[pb1 + pak];
+          b2 = A[pb2 + pak];
+          b3 = A[pb3 + pak];
+          c00 += a0 * b0;
+          c10 += a1 * b0;
+          c20 += a2 * b0;
+          c30 += a3 * b0;
+          c01 += a0 * b1;
+          c11 += a1 * b1;
+          c21 += a2 * b1;
+          c31 += a3 * b1;
+          c02 += a0 * b2;
+          c12 += a1 * b2;
+          c22 += a2 * b2;
+          c32 += a3 * b2;
+          c03 += a0 * b3;
+          c13 += a1 * b3;
+          c23 += a2 * b3;
+          c33 += a3 * b3;
         }
+        pc = offsetC + i * sc1 + j * sc2;
+        pcc = pc;
+        C[pcc] += alpha * c00;
+        C[pcc + sc1] += alpha * c10;
+        C[pcc + 2 * sc1] += alpha * c20;
+        C[pcc + 3 * sc1] += alpha * c30;
+        pcc = pc + sc2;
+        C[pcc] += alpha * c01;
+        C[pcc + sc1] += alpha * c11;
+        C[pcc + 2 * sc1] += alpha * c21;
+        C[pcc + 3 * sc1] += alpha * c31;
+        pcc = pc + 2 * sc2;
+        C[pcc] += alpha * c02;
+        C[pcc + sc1] += alpha * c12;
+        C[pcc + 2 * sc1] += alpha * c22;
+        C[pcc + 3 * sc1] += alpha * c32;
+        pcc = pc + 3 * sc2;
+        C[pcc] += alpha * c03;
+        C[pcc + sc1] += alpha * c13;
+        C[pcc + 2 * sc1] += alpha * c23;
+        C[pcc + 3 * sc1] += alpha * c33;
       }
-    } else {
-      for (j = 0; j < N; j++) {
-        if (beta === 0) {
-          ic = offsetC + j * sc1 + j * sc2;
-          for (i = j; i < N; i++) {
-            C[ic] = 0;
-            ic += sc1;
+      for (jj = j; jj < j + 4; jj++) {
+        pb = offsetA + jj * ar;
+        for (ii = i; ii <= jj; ii++) {
+          tt = 0;
+          pa = offsetA + ii * ar;
+          for (l = 0; l < K; l++) {
+            tt += A[pa + l * ak] * A[pb + l * ak];
           }
-        } else if (beta !== 1) {
-          ic = offsetC + j * sc1 + j * sc2;
-          for (i = j; i < N; i++) {
-            C[ic] *= beta;
-            ic += sc1;
-          }
-        }
-        for (l = 0; l < K; l++) {
-          if (A[offsetA + j * sa1 + l * sa2] !== 0) {
-            temp = alpha * A[offsetA + j * sa1 + l * sa2];
-            ia = offsetA + j * sa1 + l * sa2;
-            ic = offsetC + j * sc1 + j * sc2;
-            for (i = j; i < N; i++) {
-              C[ic] += temp * A[ia];
-              ia += sa1;
-              ic += sc1;
-            }
-          }
+          C[offsetC + ii * sc1 + jj * sc2] += alpha * tt;
         }
       }
     }
-  } else if (upper) {
-    for (j = 0; j < N; j++) {
-      for (i = 0; i <= j; i++) {
-        temp = 0;
+    for (jj = nb; jj < N; jj++) {
+      pb = offsetA + jj * ar;
+      for (ii = 0; ii <= jj; ii++) {
+        tt = 0;
+        pa = offsetA + ii * ar;
         for (l = 0; l < K; l++) {
-          temp += A[offsetA + l * sa1 + i * sa2] * A[offsetA + l * sa1 + j * sa2];
+          tt += A[pa + l * ak] * A[pb + l * ak];
         }
-        if (beta === 0) {
-          C[offsetC + i * sc1 + j * sc2] = alpha * temp;
-        } else {
-          C[offsetC + i * sc1 + j * sc2] = alpha * temp + beta * C[offsetC + i * sc1 + j * sc2];
-        }
+        C[offsetC + ii * sc1 + jj * sc2] += alpha * tt;
       }
     }
   } else {
-    for (j = 0; j < N; j++) {
-      for (i = j; i < N; i++) {
-        temp = 0;
+    for (j = 0; j < nb; j += 4) {
+      pb0 = offsetA + j * ar;
+      pb1 = pb0 + ar;
+      pb2 = pb1 + ar;
+      pb3 = pb2 + ar;
+      for (jj = j; jj < j + 4; jj++) {
+        pb = offsetA + jj * ar;
+        for (ii = jj; ii < j + 4; ii++) {
+          tt = 0;
+          pa = offsetA + ii * ar;
+          for (l = 0; l < K; l++) {
+            tt += A[pa + l * ak] * A[pb + l * ak];
+          }
+          C[offsetC + ii * sc1 + jj * sc2] += alpha * tt;
+        }
+      }
+      for (i = j + 4; i + 4 <= N; i += 4) {
+        c00 = 0;
+        c10 = 0;
+        c20 = 0;
+        c30 = 0;
+        c01 = 0;
+        c11 = 0;
+        c21 = 0;
+        c31 = 0;
+        c02 = 0;
+        c12 = 0;
+        c22 = 0;
+        c32 = 0;
+        c03 = 0;
+        c13 = 0;
+        c23 = 0;
+        c33 = 0;
+        pa0 = offsetA + i * ar;
+        pa1 = pa0 + ar;
+        pa2 = pa1 + ar;
+        pa3 = pa2 + ar;
         for (l = 0; l < K; l++) {
-          temp += A[offsetA + l * sa1 + i * sa2] * A[offsetA + l * sa1 + j * sa2];
+          pak = l * ak;
+          a0 = A[pa0 + pak];
+          a1 = A[pa1 + pak];
+          a2 = A[pa2 + pak];
+          a3 = A[pa3 + pak];
+          b0 = A[pb0 + pak];
+          b1 = A[pb1 + pak];
+          b2 = A[pb2 + pak];
+          b3 = A[pb3 + pak];
+          c00 += a0 * b0;
+          c10 += a1 * b0;
+          c20 += a2 * b0;
+          c30 += a3 * b0;
+          c01 += a0 * b1;
+          c11 += a1 * b1;
+          c21 += a2 * b1;
+          c31 += a3 * b1;
+          c02 += a0 * b2;
+          c12 += a1 * b2;
+          c22 += a2 * b2;
+          c32 += a3 * b2;
+          c03 += a0 * b3;
+          c13 += a1 * b3;
+          c23 += a2 * b3;
+          c33 += a3 * b3;
         }
-        if (beta === 0) {
-          C[offsetC + i * sc1 + j * sc2] = alpha * temp;
-        } else {
-          C[offsetC + i * sc1 + j * sc2] = alpha * temp + beta * C[offsetC + i * sc1 + j * sc2];
+        pc = offsetC + i * sc1 + j * sc2;
+        pcc = pc;
+        C[pcc] += alpha * c00;
+        C[pcc + sc1] += alpha * c10;
+        C[pcc + 2 * sc1] += alpha * c20;
+        C[pcc + 3 * sc1] += alpha * c30;
+        pcc = pc + sc2;
+        C[pcc] += alpha * c01;
+        C[pcc + sc1] += alpha * c11;
+        C[pcc + 2 * sc1] += alpha * c21;
+        C[pcc + 3 * sc1] += alpha * c31;
+        pcc = pc + 2 * sc2;
+        C[pcc] += alpha * c02;
+        C[pcc + sc1] += alpha * c12;
+        C[pcc + 2 * sc1] += alpha * c22;
+        C[pcc + 3 * sc1] += alpha * c32;
+        pcc = pc + 3 * sc2;
+        C[pcc] += alpha * c03;
+        C[pcc + sc1] += alpha * c13;
+        C[pcc + 2 * sc1] += alpha * c23;
+        C[pcc + 3 * sc1] += alpha * c33;
+      }
+      for (jj = j; jj < j + 4; jj++) {
+        pb = offsetA + jj * ar;
+        for (ii = i; ii < N; ii++) {
+          tt = 0;
+          pa = offsetA + ii * ar;
+          for (l = 0; l < K; l++) {
+            tt += A[pa + l * ak] * A[pb + l * ak];
+          }
+          C[offsetC + ii * sc1 + jj * sc2] += alpha * tt;
         }
+      }
+    }
+    for (jj = nb; jj < N; jj++) {
+      pb = offsetA + jj * ar;
+      for (ii = jj; ii < N; ii++) {
+        tt = 0;
+        pa = offsetA + ii * ar;
+        for (l = 0; l < K; l++) {
+          tt += A[pa + l * ak] * A[pb + l * ak];
+        }
+        C[offsetC + ii * sc1 + jj * sc2] += alpha * tt;
       }
     }
   }
@@ -1032,7 +1605,7 @@ function dgemm(transa, transb, M3, N, K, alpha, A, strideA1, strideA2, offsetA, 
   ak = nota ? strideA2 : strideA1;
   bk = notb ? strideB1 : strideB2;
   bn = notb ? strideB2 : strideB1;
-  if (alpha === 0) {
+  if (alpha === 0 || K === 0) {
     for (j = 0; j < N; j++) {
       pc = offsetC + j * strideC2;
       if (beta === 0) {
@@ -1451,21 +2024,22 @@ export {
   base_default13 as default
 };
 /**
-* @license Apache-2.0
+* @license MIT
 *
-* Copyright (c) 2025 The Stdlib Authors.
+* Copyright (c) 2026 Ricky Reusser.
 *
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
+* Derived from the BLAS 3.12.0 reference implementation (BSD-3-Clause).
+* See LICENSE.txt in the repository root for the full license text and
+* upstream attribution.
+*/
+/**
+* @license MIT
 *
-*    http://www.apache.org/licenses/LICENSE-2.0
+* Copyright (c) 2026 Ricky Reusser.
 *
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
+* Derived from the LAPACK 3.12.0 reference implementation (BSD-3-Clause).
+* See LICENSE.txt in the repository root for the full license text and
+* upstream attribution.
 */
 /*! Bundled license information:
 

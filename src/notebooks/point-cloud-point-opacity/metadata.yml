@@ -5,3 +5,7 @@ observableUrl: https://observablehq.com/@rreusser/selecting-the-right-opacity-fo
 tags:
   - webgl
   - graphics
+seeAlso:
+  - adaptive-contouring-in-fragment-shaders
+  - bicubic-texture-interpolation-using-linear-filtering
+  - transparency-for-3d-surfaces

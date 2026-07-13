@@ -5,3 +5,7 @@ observableUrl: 'https://observablehq.com/@rreusser/gpu-voronoi-diagrams-using-th
 tags:
   - webgpu
   - algorithms
+seeAlso:
+  - sliced-optimal-transport
+  - fast-generalized-winding-numbers-in-2d
+  - adaptive-contouring-in-fragment-shaders

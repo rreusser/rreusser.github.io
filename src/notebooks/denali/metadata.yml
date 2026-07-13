@@ -5,3 +5,7 @@ tags:
   - webgpu
   - graphics
   - maps
+seeAlso:
+  - line-sweep-terrain-lighting
+  - night-and-day
+  - webgpu-lines

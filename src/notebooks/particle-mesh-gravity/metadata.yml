@@ -6,3 +6,7 @@ tags:
   - webgpu
   - physics
   - pde
+seeAlso:
+  - multiscale-turing-patterns
+  - simulating-the-2d-kuramoto-sivashinsky-equation-in-webgpu
+  - kerr-geodesics

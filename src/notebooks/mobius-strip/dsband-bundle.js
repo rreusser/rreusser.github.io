@@ -24,18 +24,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/@stdlib/utils/define-property/lib/define_property.js
+// ../notes/node_modules/@stdlib/utils/define-property/lib/define_property.js
 var require_define_property = __commonJS({
-  "node_modules/@stdlib/utils/define-property/lib/define_property.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/define-property/lib/define_property.js"(exports, module) {
     "use strict";
     var main = typeof Object.defineProperty === "function" ? Object.defineProperty : null;
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/utils/define-property/lib/has_define_property_support.js
+// ../notes/node_modules/@stdlib/utils/define-property/lib/has_define_property_support.js
 var require_has_define_property_support = __commonJS({
-  "node_modules/@stdlib/utils/define-property/lib/has_define_property_support.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/define-property/lib/has_define_property_support.js"(exports, module) {
     "use strict";
     var defineProperty = require_define_property();
     function hasDefinePropertySupport() {
@@ -50,18 +50,18 @@ var require_has_define_property_support = __commonJS({
   }
 });
 
-// node_modules/@stdlib/utils/define-property/lib/builtin.js
+// ../notes/node_modules/@stdlib/utils/define-property/lib/builtin.js
 var require_builtin = __commonJS({
-  "node_modules/@stdlib/utils/define-property/lib/builtin.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/define-property/lib/builtin.js"(exports, module) {
     "use strict";
     var defineProperty = Object.defineProperty;
     module.exports = defineProperty;
   }
 });
 
-// node_modules/@stdlib/string/base/format-interpolate/lib/is_number.js
+// ../notes/node_modules/@stdlib/string/base/format-interpolate/lib/is_number.js
 var require_is_number = __commonJS({
-  "node_modules/@stdlib/string/base/format-interpolate/lib/is_number.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-interpolate/lib/is_number.js"(exports, module) {
     "use strict";
     function isNumber(value) {
       return typeof value === "number";
@@ -70,9 +70,9 @@ var require_is_number = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/base/format-interpolate/lib/zero_pad.js
+// ../notes/node_modules/@stdlib/string/base/format-interpolate/lib/zero_pad.js
 var require_zero_pad = __commonJS({
-  "node_modules/@stdlib/string/base/format-interpolate/lib/zero_pad.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-interpolate/lib/zero_pad.js"(exports, module) {
     "use strict";
     function startsWithMinus(str) {
       return str[0] === "-";
@@ -105,9 +105,9 @@ var require_zero_pad = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/base/format-interpolate/lib/format_integer.js
+// ../notes/node_modules/@stdlib/string/base/format-interpolate/lib/format_integer.js
 var require_format_integer = __commonJS({
-  "node_modules/@stdlib/string/base/format-interpolate/lib/format_integer.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-interpolate/lib/format_integer.js"(exports, module) {
     "use strict";
     var isNumber = require_is_number();
     var zeroPad = require_zero_pad();
@@ -180,9 +180,9 @@ var require_format_integer = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/base/format-interpolate/lib/is_string.js
+// ../notes/node_modules/@stdlib/string/base/format-interpolate/lib/is_string.js
 var require_is_string = __commonJS({
-  "node_modules/@stdlib/string/base/format-interpolate/lib/is_string.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-interpolate/lib/is_string.js"(exports, module) {
     "use strict";
     function isString(value) {
       return typeof value === "string";
@@ -191,9 +191,9 @@ var require_is_string = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/base/format-interpolate/lib/format_double.js
+// ../notes/node_modules/@stdlib/string/base/format-interpolate/lib/format_double.js
 var require_format_double = __commonJS({
-  "node_modules/@stdlib/string/base/format-interpolate/lib/format_double.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-interpolate/lib/format_double.js"(exports, module) {
     "use strict";
     var isNumber = require_is_number();
     var abs = Math.abs;
@@ -262,9 +262,9 @@ var require_format_double = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/base/format-interpolate/lib/space_pad.js
+// ../notes/node_modules/@stdlib/string/base/format-interpolate/lib/space_pad.js
 var require_space_pad = __commonJS({
-  "node_modules/@stdlib/string/base/format-interpolate/lib/space_pad.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-interpolate/lib/space_pad.js"(exports, module) {
     "use strict";
     function spaces(n) {
       var out = "";
@@ -286,9 +286,9 @@ var require_space_pad = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/base/format-interpolate/lib/main.js
+// ../notes/node_modules/@stdlib/string/base/format-interpolate/lib/main.js
 var require_main = __commonJS({
-  "node_modules/@stdlib/string/base/format-interpolate/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-interpolate/lib/main.js"(exports, module) {
     "use strict";
     var formatInteger = require_format_integer();
     var isString = require_is_string();
@@ -444,18 +444,18 @@ var require_main = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/base/format-interpolate/lib/index.js
+// ../notes/node_modules/@stdlib/string/base/format-interpolate/lib/index.js
 var require_lib = __commonJS({
-  "node_modules/@stdlib/string/base/format-interpolate/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-interpolate/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/string/base/format-tokenize/lib/main.js
+// ../notes/node_modules/@stdlib/string/base/format-tokenize/lib/main.js
 var require_main2 = __commonJS({
-  "node_modules/@stdlib/string/base/format-tokenize/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-tokenize/lib/main.js"(exports, module) {
     "use strict";
     var RE = /%(?:([1-9]\d*)\$)?([0 +\-#]*)(\*|\d+)?(?:(\.)(\*|\d+)?)?[hlL]?([%A-Za-z])/g;
     function parse(match) {
@@ -498,18 +498,18 @@ var require_main2 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/base/format-tokenize/lib/index.js
+// ../notes/node_modules/@stdlib/string/base/format-tokenize/lib/index.js
 var require_lib2 = __commonJS({
-  "node_modules/@stdlib/string/base/format-tokenize/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/base/format-tokenize/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main2();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/string/format/lib/is_string.js
+// ../notes/node_modules/@stdlib/string/format/lib/is_string.js
 var require_is_string2 = __commonJS({
-  "node_modules/@stdlib/string/format/lib/is_string.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/format/lib/is_string.js"(exports, module) {
     "use strict";
     function isString(value) {
       return typeof value === "string";
@@ -518,9 +518,9 @@ var require_is_string2 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/format/lib/main.js
+// ../notes/node_modules/@stdlib/string/format/lib/main.js
 var require_main3 = __commonJS({
-  "node_modules/@stdlib/string/format/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/format/lib/main.js"(exports, module) {
     "use strict";
     var interpolate = require_lib();
     var tokenize = require_lib2();
@@ -541,18 +541,18 @@ var require_main3 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/string/format/lib/index.js
+// ../notes/node_modules/@stdlib/string/format/lib/index.js
 var require_lib3 = __commonJS({
-  "node_modules/@stdlib/string/format/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/string/format/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main3();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/utils/define-property/lib/polyfill.js
+// ../notes/node_modules/@stdlib/utils/define-property/lib/polyfill.js
 var require_polyfill = __commonJS({
-  "node_modules/@stdlib/utils/define-property/lib/polyfill.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/define-property/lib/polyfill.js"(exports, module) {
     "use strict";
     var format3 = require_lib3();
     var objectProtoype = Object.prototype;
@@ -601,9 +601,9 @@ var require_polyfill = __commonJS({
   }
 });
 
-// node_modules/@stdlib/utils/define-property/lib/index.js
+// ../notes/node_modules/@stdlib/utils/define-property/lib/index.js
 var require_lib4 = __commonJS({
-  "node_modules/@stdlib/utils/define-property/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/define-property/lib/index.js"(exports, module) {
     "use strict";
     var hasDefinePropertySupport = require_has_define_property_support();
     var builtin = require_builtin();
@@ -618,9 +618,9 @@ var require_lib4 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/utils/define-nonenumerable-read-only-property/lib/main.js
+// ../notes/node_modules/@stdlib/utils/define-nonenumerable-read-only-property/lib/main.js
 var require_main4 = __commonJS({
-  "node_modules/@stdlib/utils/define-nonenumerable-read-only-property/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/define-nonenumerable-read-only-property/lib/main.js"(exports, module) {
     "use strict";
     var defineProperty = require_lib4();
     function setNonEnumerableReadOnly(obj, prop, value) {
@@ -635,18 +635,18 @@ var require_main4 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/utils/define-nonenumerable-read-only-property/lib/index.js
+// ../notes/node_modules/@stdlib/utils/define-nonenumerable-read-only-property/lib/index.js
 var require_lib5 = __commonJS({
-  "node_modules/@stdlib/utils/define-nonenumerable-read-only-property/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/define-nonenumerable-read-only-property/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main4();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/assert/has-symbol-support/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-symbol-support/lib/main.js
 var require_main5 = __commonJS({
-  "node_modules/@stdlib/assert/has-symbol-support/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-symbol-support/lib/main.js"(exports, module) {
     "use strict";
     function hasSymbolSupport() {
       return typeof Symbol === "function" && typeof /* @__PURE__ */ Symbol("foo") === "symbol";
@@ -655,18 +655,18 @@ var require_main5 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-symbol-support/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-symbol-support/lib/index.js
 var require_lib6 = __commonJS({
-  "node_modules/@stdlib/assert/has-symbol-support/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-symbol-support/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main5();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/assert/has-tostringtag-support/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-tostringtag-support/lib/main.js
 var require_main6 = __commonJS({
-  "node_modules/@stdlib/assert/has-tostringtag-support/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-tostringtag-support/lib/main.js"(exports, module) {
     "use strict";
     var hasSymbols = require_lib6();
     var FLG = hasSymbols();
@@ -677,27 +677,27 @@ var require_main6 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-tostringtag-support/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-tostringtag-support/lib/index.js
 var require_lib7 = __commonJS({
-  "node_modules/@stdlib/assert/has-tostringtag-support/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-tostringtag-support/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main6();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/tostring.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/tostring.js
 var require_tostring = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/tostring.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/tostring.js"(exports, module) {
     "use strict";
     var toStr = Object.prototype.toString;
     module.exports = toStr;
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/main.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/main.js
 var require_main7 = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/main.js"(exports, module) {
     "use strict";
     var toStr = require_tostring();
     function nativeClass(v) {
@@ -707,9 +707,9 @@ var require_main7 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-own-property/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-own-property/lib/main.js
 var require_main8 = __commonJS({
-  "node_modules/@stdlib/assert/has-own-property/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-own-property/lib/main.js"(exports, module) {
     "use strict";
     var has = Object.prototype.hasOwnProperty;
     function hasOwnProp(value, property) {
@@ -722,36 +722,36 @@ var require_main8 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-own-property/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-own-property/lib/index.js
 var require_lib8 = __commonJS({
-  "node_modules/@stdlib/assert/has-own-property/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-own-property/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main8();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/symbol/ctor/lib/main.js
+// ../notes/node_modules/@stdlib/symbol/ctor/lib/main.js
 var require_main9 = __commonJS({
-  "node_modules/@stdlib/symbol/ctor/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/symbol/ctor/lib/main.js"(exports, module) {
     "use strict";
     var Sym = typeof Symbol === "function" ? Symbol : void 0;
     module.exports = Sym;
   }
 });
 
-// node_modules/@stdlib/symbol/ctor/lib/index.js
+// ../notes/node_modules/@stdlib/symbol/ctor/lib/index.js
 var require_lib9 = __commonJS({
-  "node_modules/@stdlib/symbol/ctor/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/symbol/ctor/lib/index.js"(exports, module) {
     "use strict";
     var main = require_main9();
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/tostringtag.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/tostringtag.js
 var require_tostringtag = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/tostringtag.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/tostringtag.js"(exports, module) {
     "use strict";
     var Symbol2 = require_lib9();
     var toStrTag = typeof Symbol2 === "function" ? Symbol2.toStringTag : "";
@@ -759,9 +759,9 @@ var require_tostringtag = __commonJS({
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/polyfill.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/polyfill.js
 var require_polyfill2 = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/polyfill.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/polyfill.js"(exports, module) {
     "use strict";
     var hasOwnProp = require_lib8();
     var toStringTag = require_tostringtag();
@@ -792,9 +792,9 @@ var require_polyfill2 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/utils/native-class/lib/index.js
+// ../notes/node_modules/@stdlib/utils/native-class/lib/index.js
 var require_lib10 = __commonJS({
-  "node_modules/@stdlib/utils/native-class/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/utils/native-class/lib/index.js"(exports, module) {
     "use strict";
     var hasToStringTag = require_lib7();
     var builtin = require_main7();
@@ -809,9 +809,9 @@ var require_lib10 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/is-int32array/lib/main.js
+// ../notes/node_modules/@stdlib/assert/is-int32array/lib/main.js
 var require_main10 = __commonJS({
-  "node_modules/@stdlib/assert/is-int32array/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/is-int32array/lib/main.js"(exports, module) {
     "use strict";
     var nativeClass = require_lib10();
     var hasInt32Array = typeof Int32Array === "function";
@@ -823,45 +823,45 @@ var require_main10 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/is-int32array/lib/index.js
+// ../notes/node_modules/@stdlib/assert/is-int32array/lib/index.js
 var require_lib11 = __commonJS({
-  "node_modules/@stdlib/assert/is-int32array/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/is-int32array/lib/index.js"(exports, module) {
     "use strict";
     var isInt32Array = require_main10();
     module.exports = isInt32Array;
   }
 });
 
-// node_modules/@stdlib/constants/int32/max/lib/index.js
+// ../notes/node_modules/@stdlib/constants/int32/max/lib/index.js
 var require_lib12 = __commonJS({
-  "node_modules/@stdlib/constants/int32/max/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/constants/int32/max/lib/index.js"(exports, module) {
     "use strict";
     var INT32_MAX = 2147483647 | 0;
     module.exports = INT32_MAX;
   }
 });
 
-// node_modules/@stdlib/constants/int32/min/lib/index.js
+// ../notes/node_modules/@stdlib/constants/int32/min/lib/index.js
 var require_lib13 = __commonJS({
-  "node_modules/@stdlib/constants/int32/min/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/constants/int32/min/lib/index.js"(exports, module) {
     "use strict";
     var INT32_MIN = -2147483648 | 0;
     module.exports = INT32_MIN;
   }
 });
 
-// node_modules/@stdlib/assert/has-int32array-support/lib/int32array.js
+// ../notes/node_modules/@stdlib/assert/has-int32array-support/lib/int32array.js
 var require_int32array = __commonJS({
-  "node_modules/@stdlib/assert/has-int32array-support/lib/int32array.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-int32array-support/lib/int32array.js"(exports, module) {
     "use strict";
     var main = typeof Int32Array === "function" ? Int32Array : null;
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/assert/has-int32array-support/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-int32array-support/lib/main.js
 var require_main11 = __commonJS({
-  "node_modules/@stdlib/assert/has-int32array-support/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-int32array-support/lib/main.js"(exports, module) {
     "use strict";
     var isInt32Array = require_lib11();
     var INT32_MAX = require_lib12();
@@ -887,27 +887,27 @@ var require_main11 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-int32array-support/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-int32array-support/lib/index.js
 var require_lib14 = __commonJS({
-  "node_modules/@stdlib/assert/has-int32array-support/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-int32array-support/lib/index.js"(exports, module) {
     "use strict";
     var hasInt32ArraySupport = require_main11();
     module.exports = hasInt32ArraySupport;
   }
 });
 
-// node_modules/@stdlib/array/int32/lib/main.js
+// ../notes/node_modules/@stdlib/array/int32/lib/main.js
 var require_main12 = __commonJS({
-  "node_modules/@stdlib/array/int32/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/int32/lib/main.js"(exports, module) {
     "use strict";
     var ctor = typeof Int32Array === "function" ? Int32Array : void 0;
     module.exports = ctor;
   }
 });
 
-// node_modules/@stdlib/array/int32/lib/polyfill.js
+// ../notes/node_modules/@stdlib/array/int32/lib/polyfill.js
 var require_polyfill3 = __commonJS({
-  "node_modules/@stdlib/array/int32/lib/polyfill.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/int32/lib/polyfill.js"(exports, module) {
     "use strict";
     function polyfill() {
       throw new Error("not implemented");
@@ -916,9 +916,9 @@ var require_polyfill3 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/array/int32/lib/index.js
+// ../notes/node_modules/@stdlib/array/int32/lib/index.js
 var require_lib15 = __commonJS({
-  "node_modules/@stdlib/array/int32/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/int32/lib/index.js"(exports, module) {
     "use strict";
     var hasInt32ArraySupport = require_lib14();
     var builtin = require_main12();
@@ -933,9 +933,9 @@ var require_lib15 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/is-float64array/lib/main.js
+// ../notes/node_modules/@stdlib/assert/is-float64array/lib/main.js
 var require_main13 = __commonJS({
-  "node_modules/@stdlib/assert/is-float64array/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/is-float64array/lib/main.js"(exports, module) {
     "use strict";
     var nativeClass = require_lib10();
     var hasFloat64Array = typeof Float64Array === "function";
@@ -947,27 +947,27 @@ var require_main13 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/is-float64array/lib/index.js
+// ../notes/node_modules/@stdlib/assert/is-float64array/lib/index.js
 var require_lib16 = __commonJS({
-  "node_modules/@stdlib/assert/is-float64array/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/is-float64array/lib/index.js"(exports, module) {
     "use strict";
     var isFloat64Array = require_main13();
     module.exports = isFloat64Array;
   }
 });
 
-// node_modules/@stdlib/assert/has-float64array-support/lib/float64array.js
+// ../notes/node_modules/@stdlib/assert/has-float64array-support/lib/float64array.js
 var require_float64array = __commonJS({
-  "node_modules/@stdlib/assert/has-float64array-support/lib/float64array.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-float64array-support/lib/float64array.js"(exports, module) {
     "use strict";
     var main = typeof Float64Array === "function" ? Float64Array : null;
     module.exports = main;
   }
 });
 
-// node_modules/@stdlib/assert/has-float64array-support/lib/main.js
+// ../notes/node_modules/@stdlib/assert/has-float64array-support/lib/main.js
 var require_main14 = __commonJS({
-  "node_modules/@stdlib/assert/has-float64array-support/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-float64array-support/lib/main.js"(exports, module) {
     "use strict";
     var isFloat64Array = require_lib16();
     var GlobalFloat64Array = require_float64array();
@@ -989,27 +989,27 @@ var require_main14 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/assert/has-float64array-support/lib/index.js
+// ../notes/node_modules/@stdlib/assert/has-float64array-support/lib/index.js
 var require_lib17 = __commonJS({
-  "node_modules/@stdlib/assert/has-float64array-support/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/assert/has-float64array-support/lib/index.js"(exports, module) {
     "use strict";
     var hasFloat64ArraySupport = require_main14();
     module.exports = hasFloat64ArraySupport;
   }
 });
 
-// node_modules/@stdlib/array/float64/lib/main.js
+// ../notes/node_modules/@stdlib/array/float64/lib/main.js
 var require_main15 = __commonJS({
-  "node_modules/@stdlib/array/float64/lib/main.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/float64/lib/main.js"(exports, module) {
     "use strict";
     var ctor = typeof Float64Array === "function" ? Float64Array : void 0;
     module.exports = ctor;
   }
 });
 
-// node_modules/@stdlib/array/float64/lib/polyfill.js
+// ../notes/node_modules/@stdlib/array/float64/lib/polyfill.js
 var require_polyfill4 = __commonJS({
-  "node_modules/@stdlib/array/float64/lib/polyfill.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/float64/lib/polyfill.js"(exports, module) {
     "use strict";
     function polyfill() {
       throw new Error("not implemented");
@@ -1018,9 +1018,9 @@ var require_polyfill4 = __commonJS({
   }
 });
 
-// node_modules/@stdlib/array/float64/lib/index.js
+// ../notes/node_modules/@stdlib/array/float64/lib/index.js
 var require_lib18 = __commonJS({
-  "node_modules/@stdlib/array/float64/lib/index.js"(exports, module) {
+  "../notes/node_modules/@stdlib/array/float64/lib/index.js"(exports, module) {
     "use strict";
     var hasFloat64ArraySupport = require_lib17();
     var builtin = require_main15();
@@ -1035,16 +1035,16 @@ var require_lib18 = __commonJS({
   }
 });
 
-// lib/arpack/base/dsband/lib/main.js
+// ../notes/lib/arpack/base/dsband/lib/main.js
 var import_lib11 = __toESM(require_lib5(), 1);
 
-// lib/arpack/base/dsband/lib/dsband.js
+// ../notes/lib/arpack/base/dsband/lib/dsband.js
 var import_lib9 = __toESM(require_lib3(), 1);
 
-// lib/arpack/base/dsband/lib/base.js
+// ../notes/lib/arpack/base/dsband/lib/base.js
 var import_lib8 = __toESM(require_lib15(), 1);
 
-// lib/blas/base/dcopy/lib/base.js
+// ../notes/lib/blas/base/dcopy/lib/base.js
 var M = 7;
 function dcopy(N, x, strideX, offsetX, y, strideY, offsetY) {
   var ix;
@@ -1090,7 +1090,7 @@ function dcopy(N, x, strideX, offsetX, y, strideY, offsetY) {
 }
 var base_default = dcopy;
 
-// lib/blas/base/daxpy/lib/base.js
+// ../notes/lib/blas/base/daxpy/lib/base.js
 var M2 = 4;
 function daxpy(N, alpha, x, strideX, offsetX, y, strideY, offsetY) {
   var ix;
@@ -1136,7 +1136,7 @@ function daxpy(N, alpha, x, strideX, offsetX, y, strideY, offsetY) {
 }
 var base_default2 = daxpy;
 
-// lib/blas/base/dgbmv/lib/base.js
+// ../notes/lib/blas/base/dgbmv/lib/base.js
 function dgbmv(trans, M5, N, kl, ku, alpha, A, strideA1, strideA2, offsetA, x, strideX, offsetX, beta, y, strideY, offsetY) {
   var leny;
   var temp;
@@ -1216,10 +1216,10 @@ function dgbmv(trans, M5, N, kl, ku, alpha, A, strideA1, strideA2, offsetA, x, s
 }
 var base_default3 = dgbmv;
 
-// lib/lapack/base/dgbtrf/lib/base.js
+// ../notes/lib/lapack/base/dgbtrf/lib/base.js
 var import_lib = __toESM(require_lib18(), 1);
 
-// lib/blas/base/idamax/lib/base.js
+// ../notes/lib/blas/base/idamax/lib/base.js
 function idamax(N, x, strideX, offsetX) {
   var dmax;
   var imax;
@@ -1246,33 +1246,148 @@ function idamax(N, x, strideX, offsetX) {
 }
 var base_default4 = idamax;
 
-// lib/blas/base/dger/lib/base.js
+// ../notes/lib/blas/base/dger/lib/base.js
 function dger(M5, N, alpha, x, strideX, offsetX, y, strideY, offsetY, A, strideA1, strideA2, offsetA) {
-  var temp;
+  var yv;
+  var x0;
+  var x1;
+  var x2;
+  var x3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
+  var m4;
+  var n4;
   var ix;
   var jy;
+  var jj;
+  var aj;
   var i;
   var j;
+  var k;
   if (M5 === 0 || N === 0 || alpha === 0) {
     return A;
   }
-  jy = offsetY;
-  for (j = 0; j < N; j++) {
-    if (y[jy] !== 0) {
-      temp = alpha * y[jy];
-      ix = offsetX;
-      for (i = 0; i < M5; i++) {
-        A[offsetA + i * strideA1 + j * strideA2] += x[ix] * temp;
-        ix += strideX;
+  if (Math.abs(strideA1) <= Math.abs(strideA2)) {
+    n4 = N - N % 4;
+    jy = offsetY;
+    for (j = 0; j < n4; j += 4) {
+      t0 = y[jy];
+      t1 = y[jy + strideY];
+      t2 = y[jy + 2 * strideY];
+      t3 = y[jy + 3 * strideY];
+      if (t0 !== 0 && t1 !== 0 && t2 !== 0 && t3 !== 0) {
+        t0 *= alpha;
+        t1 *= alpha;
+        t2 *= alpha;
+        t3 *= alpha;
+        a0 = offsetA + j * strideA2;
+        a1 = a0 + strideA2;
+        a2 = a1 + strideA2;
+        a3 = a2 + strideA2;
+        ix = offsetX;
+        for (i = 0; i < M5; i++) {
+          x0 = x[ix];
+          A[a0] += x0 * t0;
+          A[a1] += x0 * t1;
+          A[a2] += x0 * t2;
+          A[a3] += x0 * t3;
+          a0 += strideA1;
+          a1 += strideA1;
+          a2 += strideA1;
+          a3 += strideA1;
+          ix += strideX;
+        }
+      } else {
+        jj = jy;
+        aj = offsetA + j * strideA2;
+        for (k = 0; k < 4; k++) {
+          yv = y[jj];
+          if (yv !== 0) {
+            t0 = alpha * yv;
+            a0 = aj;
+            ix = offsetX;
+            for (i = 0; i < M5; i++) {
+              A[a0] += x[ix] * t0;
+              a0 += strideA1;
+              ix += strideX;
+            }
+          }
+          jj += strideY;
+          aj += strideA2;
+        }
       }
+      jy += 4 * strideY;
     }
-    jy += strideY;
+    for (; j < N; j++) {
+      yv = y[jy];
+      if (yv !== 0) {
+        t0 = alpha * yv;
+        a0 = offsetA + j * strideA2;
+        ix = offsetX;
+        for (i = 0; i < M5; i++) {
+          A[a0] += x[ix] * t0;
+          a0 += strideA1;
+          ix += strideX;
+        }
+      }
+      jy += strideY;
+    }
+  } else {
+    m4 = M5 - M5 % 4;
+    ix = offsetX;
+    for (i = 0; i < m4; i += 4) {
+      x0 = x[ix];
+      x1 = x[ix + strideX];
+      x2 = x[ix + 2 * strideX];
+      x3 = x[ix + 3 * strideX];
+      a0 = offsetA + i * strideA1;
+      a1 = a0 + strideA1;
+      a2 = a1 + strideA1;
+      a3 = a2 + strideA1;
+      jy = offsetY;
+      for (j = 0; j < N; j++) {
+        yv = y[jy];
+        if (yv !== 0) {
+          t0 = alpha * yv;
+          A[a0] += x0 * t0;
+          A[a1] += x1 * t0;
+          A[a2] += x2 * t0;
+          A[a3] += x3 * t0;
+        }
+        a0 += strideA2;
+        a1 += strideA2;
+        a2 += strideA2;
+        a3 += strideA2;
+        jy += strideY;
+      }
+      ix += 4 * strideX;
+    }
+    for (; i < M5; i++) {
+      x0 = x[ix];
+      a0 = offsetA + i * strideA1;
+      jy = offsetY;
+      for (j = 0; j < N; j++) {
+        yv = y[jy];
+        if (yv !== 0) {
+          A[a0] += x0 * (alpha * yv);
+        }
+        a0 += strideA2;
+        jy += strideY;
+      }
+      ix += strideX;
+    }
   }
   return A;
 }
 var base_default5 = dger;
 
-// lib/blas/base/dscal/lib/base.js
+// ../notes/lib/blas/base/dscal/lib/base.js
 var M3 = 5;
 function dscal(N, da, x, strideX, offsetX) {
   var ix;
@@ -1311,7 +1426,7 @@ function dscal(N, da, x, strideX, offsetX) {
 }
 var base_default6 = dscal;
 
-// lib/blas/base/dswap/lib/base.js
+// ../notes/lib/blas/base/dswap/lib/base.js
 function dswap(N, x, strideX, offsetX, y, strideY, offsetY) {
   var tmp;
   var ix;
@@ -1333,7 +1448,7 @@ function dswap(N, x, strideX, offsetX, y, strideY, offsetY) {
 }
 var base_default7 = dswap;
 
-// lib/lapack/base/dgbtf2/lib/base.js
+// ../notes/lib/lapack/base/dgbtf2/lib/base.js
 function dgbtf2(M5, N, kl, ku, AB, strideAB1, strideAB2, offsetAB, IPIV, strideIPIV, offsetIPIV) {
   var info;
   var sa1;
@@ -1387,7 +1502,7 @@ function dgbtf2(M5, N, kl, ku, AB, strideAB1, strideAB2, offsetAB, IPIV, strideI
 }
 var base_default8 = dgbtf2;
 
-// lib/blas/base/dgemm/lib/base.js
+// ../notes/lib/blas/base/dgemm/lib/base.js
 var MC = 128;
 var NC = 64;
 var KC = 256;
@@ -1626,7 +1741,7 @@ function dgemm(transa, transb, M5, N, K, alpha, A, strideA1, strideA2, offsetA, 
 }
 var base_default9 = dgemm;
 
-// lib/lapack/base/dlaswp/lib/base.js
+// ../notes/lib/lapack/base/dlaswp/lib/base.js
 var BLOCK_SIZE = 32;
 function dlaswp(N, A, strideA1, strideA2, offsetA, k1, k2, inck, IPIV, strideIPIV, offsetIPIV) {
   var nrows;
@@ -1688,227 +1803,338 @@ function dlaswp(N, A, strideA1, strideA2, offsetA, k1, k2, inck, IPIV, strideIPI
 }
 var base_default10 = dlaswp;
 
-// lib/blas/base/dtrsm/lib/base.js
+// ../notes/lib/blas/base/dtrsm/lib/base.js
 function dtrsm(side, uplo, transa, diag, M5, N, alpha, A, strideA1, strideA2, offsetA, B, strideB1, strideB2, offsetB) {
+  var c00;
+  var c01;
+  var c02;
+  var c03;
+  var c10;
+  var c11;
+  var c12;
+  var c13;
+  var c20;
+  var c21;
+  var c22;
+  var c23;
+  var c30;
+  var c31;
+  var c32;
+  var c33;
   var nounit;
-  var lside;
-  var upper;
-  var temp;
-  var sa1;
-  var sa2;
-  var sb1;
-  var sb2;
-  var ia;
-  var ib;
+  var eupper;
+  var ea1;
+  var ea2;
+  var eb1;
+  var eb2;
+  var oa;
+  var ob;
+  var MM;
+  var NN;
+  var u01;
+  var u02;
+  var u03;
+  var u12;
+  var u13;
+  var u23;
+  var d0;
+  var d1;
+  var d2;
+  var d3;
+  var x0;
+  var x1;
+  var x2;
+  var x3;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
+  var b0;
+  var b1;
+  var b2;
+  var b3;
+  var pa0;
+  var pa1;
+  var pa2;
+  var pa3;
+  var pb0;
+  var pb1;
+  var pb2;
+  var pb3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var pa;
+  var pb;
+  var pk;
+  var pl;
+  var rem;
+  var nb;
+  var kl;
+  var i0;
   var i;
   var j;
-  var k;
-  lside = side === "left";
-  nounit = diag === "non-unit";
-  upper = uplo === "upper";
+  var l;
   if (M5 === 0 || N === 0) {
     return B;
   }
-  sa1 = strideA1;
-  sa2 = strideA2;
-  sb1 = strideB1;
-  sb2 = strideB2;
   if (alpha === 0) {
     for (j = 0; j < N; j++) {
-      ib = offsetB + j * sb2;
+      pb = offsetB + j * strideB2;
       for (i = 0; i < M5; i++) {
-        B[ib] = 0;
-        ib += sb1;
+        B[pb] = 0;
+        pb += strideB1;
       }
     }
     return B;
   }
-  if (lside) {
+  nounit = diag === "non-unit";
+  if (side === "left") {
+    MM = M5;
+    NN = N;
+    eb1 = strideB1;
+    eb2 = strideB2;
     if (transa === "no-transpose") {
-      if (upper) {
-        for (j = 0; j < N; j++) {
-          if (alpha !== 1) {
-            ib = offsetB + j * sb2;
-            for (i = 0; i < M5; i++) {
-              B[ib] *= alpha;
-              ib += sb1;
-            }
-          }
-          for (k = M5 - 1; k >= 0; k--) {
-            ib = offsetB + k * sb1 + j * sb2;
-            if (B[ib] !== 0) {
-              if (nounit) {
-                B[ib] /= A[offsetA + k * sa1 + k * sa2];
-              }
-              ia = offsetA + k * sa2;
-              for (i = 0; i < k; i++) {
-                B[offsetB + i * sb1 + j * sb2] -= B[ib] * A[ia];
-                ia += sa1;
-              }
-            }
-          }
-        }
-      } else {
-        for (j = 0; j < N; j++) {
-          if (alpha !== 1) {
-            ib = offsetB + j * sb2;
-            for (i = 0; i < M5; i++) {
-              B[ib] *= alpha;
-              ib += sb1;
-            }
-          }
-          for (k = 0; k < M5; k++) {
-            ib = offsetB + k * sb1 + j * sb2;
-            if (B[ib] !== 0) {
-              if (nounit) {
-                B[ib] /= A[offsetA + k * sa1 + k * sa2];
-              }
-              for (i = k + 1; i < M5; i++) {
-                B[offsetB + i * sb1 + j * sb2] -= B[ib] * A[offsetA + i * sa1 + k * sa2];
-              }
-            }
-          }
-        }
-      }
-    } else if (upper) {
-      for (j = 0; j < N; j++) {
-        for (i = 0; i < M5; i++) {
-          temp = alpha * B[offsetB + i * sb1 + j * sb2];
-          ia = offsetA + i * sa2;
-          for (k = 0; k < i; k++) {
-            temp -= A[ia] * B[offsetB + k * sb1 + j * sb2];
-            ia += sa1;
-          }
-          if (nounit) {
-            temp /= A[offsetA + i * sa1 + i * sa2];
-          }
-          B[offsetB + i * sb1 + j * sb2] = temp;
-        }
-      }
+      ea1 = strideA1;
+      ea2 = strideA2;
+      eupper = uplo === "upper";
     } else {
-      for (j = 0; j < N; j++) {
-        for (i = M5 - 1; i >= 0; i--) {
-          temp = alpha * B[offsetB + i * sb1 + j * sb2];
-          for (k = i + 1; k < M5; k++) {
-            temp -= A[offsetA + k * sa1 + i * sa2] * B[offsetB + k * sb1 + j * sb2];
-          }
-          if (nounit) {
-            temp /= A[offsetA + i * sa1 + i * sa2];
-          }
-          B[offsetB + i * sb1 + j * sb2] = temp;
-        }
-      }
-    }
-  } else if (transa === "no-transpose") {
-    if (upper) {
-      for (j = 0; j < N; j++) {
-        if (alpha !== 1) {
-          ib = offsetB + j * sb2;
-          for (i = 0; i < M5; i++) {
-            B[ib] *= alpha;
-            ib += sb1;
-          }
-        }
-        for (k = 0; k < j; k++) {
-          if (A[offsetA + k * sa1 + j * sa2] !== 0) {
-            for (i = 0; i < M5; i++) {
-              B[offsetB + i * sb1 + j * sb2] -= A[offsetA + k * sa1 + j * sa2] * B[offsetB + i * sb1 + k * sb2];
-            }
-          }
-        }
-        if (nounit) {
-          temp = 1 / A[offsetA + j * sa1 + j * sa2];
-          ib = offsetB + j * sb2;
-          for (i = 0; i < M5; i++) {
-            B[ib] *= temp;
-            ib += sb1;
-          }
-        }
-      }
-    } else {
-      for (j = N - 1; j >= 0; j--) {
-        if (alpha !== 1) {
-          ib = offsetB + j * sb2;
-          for (i = 0; i < M5; i++) {
-            B[ib] *= alpha;
-            ib += sb1;
-          }
-        }
-        for (k = j + 1; k < N; k++) {
-          if (A[offsetA + k * sa1 + j * sa2] !== 0) {
-            for (i = 0; i < M5; i++) {
-              B[offsetB + i * sb1 + j * sb2] -= A[offsetA + k * sa1 + j * sa2] * B[offsetB + i * sb1 + k * sb2];
-            }
-          }
-        }
-        if (nounit) {
-          temp = 1 / A[offsetA + j * sa1 + j * sa2];
-          ib = offsetB + j * sb2;
-          for (i = 0; i < M5; i++) {
-            B[ib] *= temp;
-            ib += sb1;
-          }
-        }
-      }
-    }
-  } else if (upper) {
-    for (k = N - 1; k >= 0; k--) {
-      if (nounit) {
-        temp = 1 / A[offsetA + k * sa1 + k * sa2];
-        ib = offsetB + k * sb2;
-        for (i = 0; i < M5; i++) {
-          B[ib] *= temp;
-          ib += sb1;
-        }
-      }
-      for (j = 0; j < k; j++) {
-        if (A[offsetA + j * sa1 + k * sa2] !== 0) {
-          temp = A[offsetA + j * sa1 + k * sa2];
-          for (i = 0; i < M5; i++) {
-            B[offsetB + i * sb1 + j * sb2] -= temp * B[offsetB + i * sb1 + k * sb2];
-          }
-        }
-      }
-      if (alpha !== 1) {
-        ib = offsetB + k * sb2;
-        for (i = 0; i < M5; i++) {
-          B[ib] *= alpha;
-          ib += sb1;
-        }
-      }
+      ea1 = strideA2;
+      ea2 = strideA1;
+      eupper = uplo !== "upper";
     }
   } else {
-    for (k = 0; k < N; k++) {
+    MM = N;
+    NN = M5;
+    eb1 = strideB2;
+    eb2 = strideB1;
+    if (transa === "no-transpose") {
+      ea1 = strideA2;
+      ea2 = strideA1;
+      eupper = uplo !== "upper";
+    } else {
+      ea1 = strideA1;
+      ea2 = strideA2;
+      eupper = uplo === "upper";
+    }
+  }
+  oa = offsetA;
+  ob = offsetB;
+  if (!eupper) {
+    oa += (MM - 1) * (ea1 + ea2);
+    ea1 = -ea1;
+    ea2 = -ea2;
+    ob += (MM - 1) * eb1;
+    eb1 = -eb1;
+  }
+  rem = MM % 4;
+  nb = NN - NN % 4;
+  for (j = 0; j < nb; j += 4) {
+    for (i0 = MM - 4; i0 >= rem; i0 -= 4) {
+      c00 = 0;
+      c10 = 0;
+      c20 = 0;
+      c30 = 0;
+      c01 = 0;
+      c11 = 0;
+      c21 = 0;
+      c31 = 0;
+      c02 = 0;
+      c12 = 0;
+      c22 = 0;
+      c32 = 0;
+      c03 = 0;
+      c13 = 0;
+      c23 = 0;
+      c33 = 0;
+      kl = MM - i0 - 4;
+      pa0 = oa + i0 * ea1 + (i0 + 4) * ea2;
+      pa1 = pa0 + ea1;
+      pa2 = pa1 + ea1;
+      pa3 = pa2 + ea1;
+      pb0 = ob + (i0 + 4) * eb1 + j * eb2;
+      pb1 = pb0 + eb2;
+      pb2 = pb1 + eb2;
+      pb3 = pb2 + eb2;
+      for (l = 0; l < kl; l++) {
+        pk = l * ea2;
+        a0 = A[pa0 + pk];
+        a1 = A[pa1 + pk];
+        a2 = A[pa2 + pk];
+        a3 = A[pa3 + pk];
+        pl = l * eb1;
+        b0 = B[pb0 + pl];
+        b1 = B[pb1 + pl];
+        b2 = B[pb2 + pl];
+        b3 = B[pb3 + pl];
+        c00 += a0 * b0;
+        c10 += a1 * b0;
+        c20 += a2 * b0;
+        c30 += a3 * b0;
+        c01 += a0 * b1;
+        c11 += a1 * b1;
+        c21 += a2 * b1;
+        c31 += a3 * b1;
+        c02 += a0 * b2;
+        c12 += a1 * b2;
+        c22 += a2 * b2;
+        c32 += a3 * b2;
+        c03 += a0 * b3;
+        c13 += a1 * b3;
+        c23 += a2 * b3;
+        c33 += a3 * b3;
+      }
+      pa = oa + i0 * ea1 + i0 * ea2;
+      u01 = A[pa + ea2];
+      u02 = A[pa + 2 * ea2];
+      u03 = A[pa + 3 * ea2];
+      u12 = A[pa + ea1 + 2 * ea2];
+      u13 = A[pa + ea1 + 3 * ea2];
+      u23 = A[pa + 2 * ea1 + 3 * ea2];
       if (nounit) {
-        temp = 1 / A[offsetA + k * sa1 + k * sa2];
-        ib = offsetB + k * sb2;
-        for (i = 0; i < M5; i++) {
-          B[ib] *= temp;
-          ib += sb1;
-        }
+        d0 = A[pa];
+        d1 = A[pa + ea1 + ea2];
+        d2 = A[pa + 2 * (ea1 + ea2)];
+        d3 = A[pa + 3 * (ea1 + ea2)];
       }
-      for (j = k + 1; j < N; j++) {
-        if (A[offsetA + j * sa1 + k * sa2] !== 0) {
-          temp = A[offsetA + j * sa1 + k * sa2];
-          for (i = 0; i < M5; i++) {
-            B[offsetB + i * sb1 + j * sb2] -= temp * B[offsetB + i * sb1 + k * sb2];
-          }
-        }
+      pb = ob + i0 * eb1 + j * eb2;
+      x3 = alpha * B[pb + 3 * eb1] - c30;
+      if (nounit) {
+        x3 /= d3;
       }
-      if (alpha !== 1) {
-        ib = offsetB + k * sb2;
-        for (i = 0; i < M5; i++) {
-          B[ib] *= alpha;
-          ib += sb1;
-        }
+      x2 = alpha * B[pb + 2 * eb1] - c20 - u23 * x3;
+      if (nounit) {
+        x2 /= d2;
       }
+      x1 = alpha * B[pb + eb1] - c10 - u12 * x2 - u13 * x3;
+      if (nounit) {
+        x1 /= d1;
+      }
+      x0 = alpha * B[pb] - c00 - u01 * x1 - u02 * x2 - u03 * x3;
+      if (nounit) {
+        x0 /= d0;
+      }
+      B[pb] = x0;
+      B[pb + eb1] = x1;
+      B[pb + 2 * eb1] = x2;
+      B[pb + 3 * eb1] = x3;
+      pb += eb2;
+      x3 = alpha * B[pb + 3 * eb1] - c31;
+      if (nounit) {
+        x3 /= d3;
+      }
+      x2 = alpha * B[pb + 2 * eb1] - c21 - u23 * x3;
+      if (nounit) {
+        x2 /= d2;
+      }
+      x1 = alpha * B[pb + eb1] - c11 - u12 * x2 - u13 * x3;
+      if (nounit) {
+        x1 /= d1;
+      }
+      x0 = alpha * B[pb] - c01 - u01 * x1 - u02 * x2 - u03 * x3;
+      if (nounit) {
+        x0 /= d0;
+      }
+      B[pb] = x0;
+      B[pb + eb1] = x1;
+      B[pb + 2 * eb1] = x2;
+      B[pb + 3 * eb1] = x3;
+      pb += eb2;
+      x3 = alpha * B[pb + 3 * eb1] - c32;
+      if (nounit) {
+        x3 /= d3;
+      }
+      x2 = alpha * B[pb + 2 * eb1] - c22 - u23 * x3;
+      if (nounit) {
+        x2 /= d2;
+      }
+      x1 = alpha * B[pb + eb1] - c12 - u12 * x2 - u13 * x3;
+      if (nounit) {
+        x1 /= d1;
+      }
+      x0 = alpha * B[pb] - c02 - u01 * x1 - u02 * x2 - u03 * x3;
+      if (nounit) {
+        x0 /= d0;
+      }
+      B[pb] = x0;
+      B[pb + eb1] = x1;
+      B[pb + 2 * eb1] = x2;
+      B[pb + 3 * eb1] = x3;
+      pb += eb2;
+      x3 = alpha * B[pb + 3 * eb1] - c33;
+      if (nounit) {
+        x3 /= d3;
+      }
+      x2 = alpha * B[pb + 2 * eb1] - c23 - u23 * x3;
+      if (nounit) {
+        x2 /= d2;
+      }
+      x1 = alpha * B[pb + eb1] - c13 - u12 * x2 - u13 * x3;
+      if (nounit) {
+        x1 /= d1;
+      }
+      x0 = alpha * B[pb] - c03 - u01 * x1 - u02 * x2 - u03 * x3;
+      if (nounit) {
+        x0 /= d0;
+      }
+      B[pb] = x0;
+      B[pb + eb1] = x1;
+      B[pb + 2 * eb1] = x2;
+      B[pb + 3 * eb1] = x3;
+    }
+    for (i = rem - 1; i >= 0; i--) {
+      pb = ob + i * eb1 + j * eb2;
+      t0 = alpha * B[pb];
+      t1 = alpha * B[pb + eb2];
+      t2 = alpha * B[pb + 2 * eb2];
+      t3 = alpha * B[pb + 3 * eb2];
+      pa = oa + i * ea1 + (i + 1) * ea2;
+      pb = ob + (i + 1) * eb1 + j * eb2;
+      for (l = i + 1; l < MM; l++) {
+        a0 = A[pa];
+        pa += ea2;
+        t0 -= a0 * B[pb];
+        t1 -= a0 * B[pb + eb2];
+        t2 -= a0 * B[pb + 2 * eb2];
+        t3 -= a0 * B[pb + 3 * eb2];
+        pb += eb1;
+      }
+      if (nounit) {
+        d0 = A[oa + i * (ea1 + ea2)];
+        t0 /= d0;
+        t1 /= d0;
+        t2 /= d0;
+        t3 /= d0;
+      }
+      pb = ob + i * eb1 + j * eb2;
+      B[pb] = t0;
+      B[pb + eb2] = t1;
+      B[pb + 2 * eb2] = t2;
+      B[pb + 3 * eb2] = t3;
+    }
+  }
+  for (j = nb; j < NN; j++) {
+    for (i = MM - 1; i >= 0; i--) {
+      t0 = alpha * B[ob + i * eb1 + j * eb2];
+      pa = oa + i * ea1 + (i + 1) * ea2;
+      pb = ob + (i + 1) * eb1 + j * eb2;
+      for (l = i + 1; l < MM; l++) {
+        t0 -= A[pa] * B[pb];
+        pa += ea2;
+        pb += eb1;
+      }
+      if (nounit) {
+        t0 /= A[oa + i * (ea1 + ea2)];
+      }
+      B[ob + i * eb1 + j * eb2] = t0;
     }
   }
   return B;
 }
 var base_default11 = dtrsm;
 
-// lib/lapack/base/dgbtrf/lib/base.js
+// ../notes/lib/lapack/base/dgbtrf/lib/base.js
 var NB = 32;
 var NBMAX = 64;
 var LDWORK = NBMAX + 1;
@@ -2082,7 +2308,7 @@ function dgbtrf(M5, N, kl, ku, AB, strideAB1, strideAB2, offsetAB, IPIV, strideI
 }
 var base_default12 = dgbtrf;
 
-// lib/blas/base/dtbsv/lib/base.js
+// ../notes/lib/blas/base/dtbsv/lib/base.js
 function dtbsv(uplo, trans, diag, N, K, A, strideA1, strideA2, offsetA, x, strideX, offsetX) {
   var nounit;
   var kplus1;
@@ -2188,14 +2414,27 @@ function dtbsv(uplo, trans, diag, N, K, A, strideA1, strideA2, offsetA, x, strid
 }
 var base_default13 = dtbsv;
 
-// lib/blas/base/dgemv/lib/base.js
+// ../notes/lib/blas/base/dgemv/lib/base.js
 function dgemv(trans, M5, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, offsetX, beta, y, strideY, offsetY) {
   var noTrans;
-  var temp;
   var leny;
-  var sa1;
-  var sa2;
-  var ia;
+  var lenx;
+  var sb1;
+  var sb2;
+  var s0;
+  var s1;
+  var s2;
+  var s3;
+  var t0;
+  var t1;
+  var t2;
+  var t3;
+  var xv;
+  var m4;
+  var a0;
+  var a1;
+  var a2;
+  var a3;
   var ix;
   var iy;
   var jx;
@@ -2206,12 +2445,16 @@ function dgemv(trans, M5, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, 
   if (M5 === 0 || N === 0 || alpha === 0 && beta === 1) {
     return y;
   }
-  sa1 = strideA1;
-  sa2 = strideA2;
   if (noTrans) {
     leny = M5;
+    lenx = N;
+    sb1 = strideA1;
+    sb2 = strideA2;
   } else {
     leny = N;
+    lenx = M5;
+    sb1 = strideA2;
+    sb2 = strideA1;
   }
   if (beta !== 1) {
     iy = offsetY;
@@ -2230,39 +2473,89 @@ function dgemv(trans, M5, N, alpha, A, strideA1, strideA2, offsetA, x, strideX, 
   if (alpha === 0) {
     return y;
   }
-  if (noTrans) {
-    jx = offsetX;
-    for (j = 0; j < N; j++) {
-      temp = alpha * x[jx];
-      iy = offsetY;
-      ia = offsetA + j * sa2;
-      for (i = 0; i < M5; i++) {
-        y[iy] += temp * A[ia];
-        iy += strideY;
-        ia += sa1;
+  if (Math.abs(sb2) <= Math.abs(sb1)) {
+    m4 = leny - leny % 4;
+    iy = offsetY;
+    for (i = 0; i < m4; i += 4) {
+      s0 = 0;
+      s1 = 0;
+      s2 = 0;
+      s3 = 0;
+      a0 = offsetA + i * sb1;
+      a1 = a0 + sb1;
+      a2 = a1 + sb1;
+      a3 = a2 + sb1;
+      ix = offsetX;
+      for (j = 0; j < lenx; j++) {
+        xv = x[ix];
+        s0 += A[a0] * xv;
+        s1 += A[a1] * xv;
+        s2 += A[a2] * xv;
+        s3 += A[a3] * xv;
+        a0 += sb2;
+        a1 += sb2;
+        a2 += sb2;
+        a3 += sb2;
+        ix += strideX;
       }
-      jx += strideX;
+      y[iy] += alpha * s0;
+      y[iy + strideY] += alpha * s1;
+      y[iy + 2 * strideY] += alpha * s2;
+      y[iy + 3 * strideY] += alpha * s3;
+      iy += 4 * strideY;
+    }
+    for (; i < leny; i++) {
+      s0 = 0;
+      a0 = offsetA + i * sb1;
+      ix = offsetX;
+      for (j = 0; j < lenx; j++) {
+        s0 += A[a0] * x[ix];
+        a0 += sb2;
+        ix += strideX;
+      }
+      y[iy] += alpha * s0;
+      iy += strideY;
     }
   } else {
-    jy = offsetY;
-    for (j = 0; j < N; j++) {
-      temp = 0;
-      ix = offsetX;
-      ia = offsetA + j * sa2;
-      for (i = 0; i < M5; i++) {
-        temp += A[ia] * x[ix];
-        ix += strideX;
-        ia += sa1;
+    m4 = lenx - lenx % 4;
+    jx = offsetX;
+    for (j = 0; j < m4; j += 4) {
+      t0 = alpha * x[jx];
+      t1 = alpha * x[jx + strideX];
+      t2 = alpha * x[jx + 2 * strideX];
+      t3 = alpha * x[jx + 3 * strideX];
+      a0 = offsetA + j * sb2;
+      a1 = a0 + sb2;
+      a2 = a1 + sb2;
+      a3 = a2 + sb2;
+      jy = offsetY;
+      for (i = 0; i < leny; i++) {
+        y[jy] += t0 * A[a0] + t1 * A[a1] + t2 * A[a2] + t3 * A[a3];
+        a0 += sb1;
+        a1 += sb1;
+        a2 += sb1;
+        a3 += sb1;
+        jy += strideY;
       }
-      y[jy] += alpha * temp;
-      jy += strideY;
+      jx += 4 * strideX;
+    }
+    for (; j < lenx; j++) {
+      t0 = alpha * x[jx];
+      a0 = offsetA + j * sb2;
+      jy = offsetY;
+      for (i = 0; i < leny; i++) {
+        y[jy] += t0 * A[a0];
+        a0 += sb1;
+        jy += strideY;
+      }
+      jx += strideX;
     }
   }
   return y;
 }
 var base_default14 = dgemv;
 
-// lib/lapack/base/dgbtrs/lib/base.js
+// ../notes/lib/lapack/base/dgbtrs/lib/base.js
 function dgbtrs(trans, N, kl, ku, nrhs, AB, strideAB1, strideAB2, offsetAB, IPIV, strideIPIV, offsetIPIV, B, strideB1, strideB2, offsetB) {
   var notran;
   var lnoti;
@@ -2318,7 +2611,7 @@ function dgbtrs(trans, N, kl, ku, nrhs, AB, strideAB1, strideAB2, offsetAB, IPIV
 }
 var base_default15 = dgbtrs;
 
-// lib/lapack/base/dlacpy/lib/base.js
+// ../notes/lib/lapack/base/dlacpy/lib/base.js
 function dlacpy(uplo, M5, N, A, strideA1, strideA2, offsetA, B, strideB1, strideB2, offsetB) {
   var da0;
   var db0;
@@ -2353,10 +2646,10 @@ function dlacpy(uplo, M5, N, A, strideA1, strideA2, offsetA, B, strideB1, stride
 }
 var base_default16 = dlacpy;
 
-// lib/arpack/base/dsaupd/lib/base.js
+// ../notes/lib/arpack/base/dsaupd/lib/base.js
 var import_lib5 = __toESM(require_lib15(), 1);
 
-// lib/lapack/base/dlamch/lib/base.js
+// ../notes/lib/lapack/base/dlamch/lib/base.js
 var EPS = 11102230246251565e-32;
 var SFMIN = 22250738585072014e-324;
 var BASE = 2;
@@ -2413,7 +2706,7 @@ function dlamch(cmach) {
 }
 var base_default17 = dlamch;
 
-// lib/blas/base/ddot/lib/base.js
+// ../notes/lib/blas/base/ddot/lib/base.js
 var M4 = 5;
 function ddot(N, x, strideX, offsetX, y, strideY, offsetY) {
   var dtemp;
@@ -2455,11 +2748,13 @@ function ddot(N, x, strideX, offsetX, y, strideY, offsetY) {
 }
 var base_default18 = ddot;
 
-// lib/blas/base/dnrm2/lib/base.js
+// ../notes/lib/blas/base/dnrm2/lib/base.js
 var TSML = 14916681462400413e-170;
 var TBIG = 1997919072202235e131;
 var SSML = 44989137945431964e145;
 var SBIG = 11113793747425387e-178;
+var SSQ_SML = 1e-140;
+var SSQ_BIG = 1e140;
 function dnrm2(N, x, stride, offset) {
   var notbig;
   var sumsq;
@@ -2471,9 +2766,58 @@ function dnrm2(N, x, stride, offset) {
   var scl;
   var ax;
   var ix;
+  var s0;
+  var s1;
+  var s2;
+  var s3;
+  var v0;
+  var v1;
+  var v2;
+  var v3;
+  var m;
   var i;
   if (N <= 0) {
     return 0;
+  }
+  s0 = 0;
+  s1 = 0;
+  s2 = 0;
+  s3 = 0;
+  ix = offset;
+  m = N - N % 4;
+  if (stride === 1) {
+    for (i = 0; i < m; i += 4) {
+      v0 = x[ix];
+      v1 = x[ix + 1];
+      v2 = x[ix + 2];
+      v3 = x[ix + 3];
+      s0 += v0 * v0;
+      s1 += v1 * v1;
+      s2 += v2 * v2;
+      s3 += v3 * v3;
+      ix += 4;
+    }
+  } else {
+    for (i = 0; i < m; i += 4) {
+      v0 = x[ix];
+      v1 = x[ix + stride];
+      v2 = x[ix + 2 * stride];
+      v3 = x[ix + 3 * stride];
+      s0 += v0 * v0;
+      s1 += v1 * v1;
+      s2 += v2 * v2;
+      s3 += v3 * v3;
+      ix += 4 * stride;
+    }
+  }
+  for (; i < N; i++) {
+    v0 = x[ix];
+    s0 += v0 * v0;
+    ix += stride;
+  }
+  sumsq = s0 + s1 + (s2 + s3);
+  if (sumsq > SSQ_SML && sumsq < SSQ_BIG) {
+    return Math.sqrt(sumsq);
   }
   scl = 1;
   sumsq = 0;
@@ -2527,13 +2871,13 @@ function dnrm2(N, x, stride, offset) {
 }
 var base_default19 = dnrm2;
 
-// lib/arpack/base/dgetv0/lib/base.js
+// ../notes/lib/arpack/base/dgetv0/lib/base.js
 var import_lib3 = __toESM(require_lib15(), 1);
 
-// lib/lapack/base/dlarnv/lib/base.js
+// ../notes/lib/lapack/base/dlarnv/lib/base.js
 var import_lib2 = __toESM(require_lib18(), 1);
 
-// lib/lapack/base/dlaruv/lib/base.js
+// ../notes/lib/lapack/base/dlaruv/lib/base.js
 var IPW2 = 4096;
 var R = 1 / IPW2;
 var MM_TABLE = [
@@ -3107,7 +3451,7 @@ function dlaruv(iseed, strideISEED, offsetISEED, N, x, strideX, offsetX) {
 }
 var base_default20 = dlaruv;
 
-// lib/lapack/base/dlarnv/lib/base.js
+// ../notes/lib/lapack/base/dlarnv/lib/base.js
 var LV = 128;
 var TWOPI = 6.283185307179586;
 function dlarnv(idist, iseed, strideISEED, offsetISEED, N, x, stride, offset) {
@@ -3147,7 +3491,7 @@ function dlarnv(idist, iseed, strideISEED, offsetISEED, N, x, stride, offset) {
 }
 var base_default21 = dlarnv;
 
-// lib/arpack/base/dgetv0/lib/base.js
+// ../notes/lib/arpack/base/dgetv0/lib/base.js
 function dgetv0(state, ido, bmat, itry, initv, N, j, V, strideV1, strideV2, offsetV, resid, strideResid, offsetResid, rnorm, ipntr, strideIpntr, offsetIpntr, workd, strideWorkd, offsetWorkd) {
   var entry;
   var ierr;
@@ -3269,7 +3613,7 @@ function dgetv0(state, ido, bmat, itry, initv, N, j, V, strideV1, strideV2, offs
 }
 var base_default22 = dgetv0;
 
-// lib/lapack/base/dlascl/lib/base.js
+// ../notes/lib/lapack/base/dlascl/lib/base.js
 function dlascl(type, kl, ku, cfrom, cto, M5, N, A, strideA1, strideA2, offsetA) {
   var smlnum;
   var bignum;
@@ -3410,7 +3754,7 @@ function dlascl(type, kl, ku, cfrom, cto, M5, N, A, strideA1, strideA2, offsetA)
 }
 var base_default23 = dlascl;
 
-// lib/arpack/base/dsaitr/lib/base.js
+// ../notes/lib/arpack/base/dsaitr/lib/base.js
 function dsaitr(state, ido, bmat, N, k, np, mode, resid, strideResid, offsetResid, rnorm, V, strideV1, strideV2, offsetV, H, strideH1, strideH2, offsetH, ipntr, strideIpntr, offsetIpntr, workd, strideWorkd, offsetWorkd) {
   var generalized;
   var rnorm1;
@@ -3638,10 +3982,10 @@ function dsaitr(state, ido, bmat, N, k, np, mode, resid, strideResid, offsetResi
 }
 var base_default24 = dsaitr;
 
-// lib/arpack/base/dstqrb/lib/base.js
+// ../notes/lib/arpack/base/dstqrb/lib/base.js
 var import_lib4 = __toESM(require_lib18(), 1);
 
-// lib/lapack/base/dlassq/lib/base.js
+// ../notes/lib/lapack/base/dlassq/lib/base.js
 var TSML2 = Math.pow(2, -511);
 var TBIG2 = Math.pow(2, 486);
 var SSML2 = Math.pow(2, 537);
@@ -3753,7 +4097,7 @@ function dlassq(N, x, stride, offset, scale, sumsq) {
 }
 var base_default25 = dlassq;
 
-// lib/lapack/base/dlanst/lib/base.js
+// ../notes/lib/lapack/base/dlanst/lib/base.js
 function dlanst(norm, N, d, strideD, offsetD, e, strideE, offsetE) {
   var anorm;
   var sum;
@@ -3819,7 +4163,7 @@ function dlanst(norm, N, d, strideD, offsetD, e, strideE, offsetE) {
 }
 var base_default26 = dlanst;
 
-// lib/lapack/base/dlapy2/lib/base.js
+// ../notes/lib/lapack/base/dlapy2/lib/base.js
 function dlapy2(x, y) {
   var xabs;
   var yabs;
@@ -3842,7 +4186,7 @@ function dlapy2(x, y) {
 }
 var base_default27 = dlapy2;
 
-// lib/lapack/base/dlae2/lib/base.js
+// ../notes/lib/lapack/base/dlae2/lib/base.js
 function dlae2(a, b, c) {
   var acmn;
   var acmx;
@@ -3890,7 +4234,7 @@ function dlae2(a, b, c) {
 }
 var base_default28 = dlae2;
 
-// lib/lapack/base/dlaev2/lib/base.js
+// ../notes/lib/lapack/base/dlaev2/lib/base.js
 function dlaev2(a, b, c) {
   var acmn;
   var acmx;
@@ -3976,7 +4320,7 @@ function dlaev2(a, b, c) {
 }
 var base_default29 = dlaev2;
 
-// lib/lapack/base/dlartg/lib/base.js
+// ../notes/lib/lapack/base/dlartg/lib/base.js
 var SAFMIN = 22250738585072014e-324;
 var SAFMAX = 449423283715579e293;
 var RTMIN = Math.sqrt(SAFMIN);
@@ -4016,7 +4360,7 @@ function dlartg(f, g, out) {
 }
 var base_default30 = dlartg;
 
-// lib/lapack/base/dlasr/lib/base.js
+// ../notes/lib/lapack/base/dlasr/lib/base.js
 function dlasr(side, pivot, direct, M5, N, c, strideC, offsetC, s, strideS, offsetS, A, strideA1, strideA2, offsetA) {
   var ctemp;
   var stemp;
@@ -4239,7 +4583,7 @@ function dlasr(side, pivot, direct, M5, N, c, strideC, offsetC, s, strideS, offs
 }
 var base_default31 = dlasr;
 
-// lib/lapack/base/dlasrt/lib/base.js
+// ../notes/lib/lapack/base/dlasrt/lib/base.js
 var SELECT = 20;
 function dlasrt(id, N, d, stride, offset) {
   var stkpnt;
@@ -4381,7 +4725,7 @@ function dlasrt(id, N, d, stride, offset) {
 }
 var base_default32 = dlasrt;
 
-// lib/arpack/base/dstqrb/lib/base.js
+// ../notes/lib/arpack/base/dstqrb/lib/base.js
 var MAXIT = 30;
 function dstqrb(N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ, offsetZ, WORK, strideWork, offsetWork) {
   var nmaxit;
@@ -4713,7 +5057,7 @@ function dstqrb(N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ, offsetZ
 }
 var base_default33 = dstqrb;
 
-// lib/arpack/base/dseigt/lib/base.js
+// ../notes/lib/arpack/base/dseigt/lib/base.js
 function dseigt(rnorm, N, H, strideH1, strideH2, offsetH, eig, strideEig, offsetEig, bounds, strideBounds, offsetBounds, workl, strideWorkl, offsetWorkl) {
   var ierr;
   var ib;
@@ -4733,7 +5077,7 @@ function dseigt(rnorm, N, H, strideH1, strideH2, offsetH, eig, strideEig, offset
 }
 var base_default34 = dseigt;
 
-// lib/arpack/base/dsortr/lib/base.js
+// ../notes/lib/arpack/base/dsortr/lib/base.js
 function dsortr(which, apply, N, x1, strideX1, offsetX1, x2, strideX2, offsetX2) {
   var igap;
   var swap;
@@ -4781,7 +5125,7 @@ function dsortr(which, apply, N, x1, strideX1, offsetX1, x2, strideX2, offsetX2)
 }
 var base_default35 = dsortr;
 
-// lib/arpack/base/dsgets/lib/base.js
+// ../notes/lib/arpack/base/dsgets/lib/base.js
 function dsgets(ishift, which, kev, np, ritz, strideRitz, offsetRitz, bounds, strideBounds, offsetBounds, shifts, strideShifts, offsetShifts) {
   var kevd2;
   var mn;
@@ -4805,7 +5149,7 @@ function dsgets(ishift, which, kev, np, ritz, strideRitz, offsetRitz, bounds, st
 }
 var base_default36 = dsgets;
 
-// lib/arpack/base/dsconv/lib/base.js
+// ../notes/lib/arpack/base/dsconv/lib/base.js
 function dsconv(N, ritz, strideRITZ, offsetRITZ, bounds, strideBOUNDS, offsetBOUNDS, tol) {
   var eps23;
   var nconv;
@@ -4829,7 +5173,7 @@ function dsconv(N, ritz, strideRITZ, offsetRITZ, bounds, strideBOUNDS, offsetBOU
 }
 var base_default37 = dsconv;
 
-// lib/lapack/base/dlaset/lib/base.js
+// ../notes/lib/lapack/base/dlaset/lib/base.js
 function dlaset(uplo, M5, N, alpha, beta, A, strideA1, strideA2, offsetA) {
   var idx;
   var mn;
@@ -4870,7 +5214,7 @@ function dlaset(uplo, M5, N, alpha, beta, A, strideA1, strideA2, offsetA) {
 }
 var base_default38 = dlaset;
 
-// lib/arpack/base/dsapps/lib/base.js
+// ../notes/lib/arpack/base/dsapps/lib/base.js
 function dsapps(n, kev, np, shift, strideShift, offsetShift, v, strideV1, strideV2, offsetV, h, strideH1, strideH2, offsetH, resid, strideResid, offsetResid, q, strideQ1, strideQ2, offsetQ, workd, strideWorkd, offsetWorkd) {
   var epsmch;
   var kplusp;
@@ -5010,7 +5354,7 @@ function dsapps(n, kev, np, shift, strideShift, offsetShift, v, strideV1, stride
 }
 var base_default39 = dsapps;
 
-// lib/arpack/base/dsaup2/lib/base.js
+// ../notes/lib/arpack/base/dsaup2/lib/base.js
 function opposite(which) {
   if (which === "LM") {
     return "SM";
@@ -5224,7 +5568,7 @@ function dsaup2(state, ido, bmat, N, which, nev, np, tol, resid, strideResid, of
 }
 var base_default40 = dsaup2;
 
-// lib/arpack/base/dsaupd/lib/base.js
+// ../notes/lib/arpack/base/dsaupd/lib/base.js
 function dsaupd(state, ido, bmat, N, which, nev, tol, resid, strideResid, offsetResid, ncv, V, strideV1, strideV2, offsetV, iparam, strideIparam, offsetIparam, ipntr, strideIpntr, offsetIpntr, workd, strideWorkd, offsetWorkd, workl, strideWorkl, offsetWorkl, lworkl, infoIn) {
   var ishift;
   var bounds;
@@ -5332,10 +5676,10 @@ function dsaupd(state, ido, bmat, N, which, nev, tol, resid, strideResid, offset
 }
 var base_default41 = dsaupd;
 
-// lib/arpack/base/dseupd/lib/base.js
+// ../notes/lib/arpack/base/dseupd/lib/base.js
 var import_lib7 = __toESM(require_lib18(), 1);
 
-// lib/lapack/base/dlarfg/lib/base.js
+// ../notes/lib/lapack/base/dlarfg/lib/base.js
 function dlarfg(N, alpha, offsetAlpha, x, strideX, offsetX, tau, offsetTau) {
   var rsafmn;
   var safmin;
@@ -5378,7 +5722,7 @@ function dlarfg(N, alpha, offsetAlpha, x, strideX, offsetX, tau, offsetTau) {
 }
 var base_default42 = dlarfg;
 
-// lib/lapack/base/iladlr/lib/base.js
+// ../notes/lib/lapack/base/iladlr/lib/base.js
 function iladlr(M5, N, A, strideA1, strideA2, offsetA) {
   var result;
   var i;
@@ -5403,7 +5747,7 @@ function iladlr(M5, N, A, strideA1, strideA2, offsetA) {
 }
 var base_default43 = iladlr;
 
-// lib/lapack/base/iladlc/lib/base.js
+// ../notes/lib/lapack/base/iladlc/lib/base.js
 function iladlc(M5, N, A, strideA1, strideA2, offsetA) {
   var i;
   var j;
@@ -5424,7 +5768,7 @@ function iladlc(M5, N, A, strideA1, strideA2, offsetA) {
 }
 var base_default44 = iladlc;
 
-// lib/lapack/base/dlarf/lib/base.js
+// ../notes/lib/lapack/base/dlarf/lib/base.js
 function dlarf(side, M5, N, v, strideV, offsetV, tau, C, strideC1, strideC2, offsetC, WORK, strideWork, offsetWork) {
   var applyLeft;
   var lastv;
@@ -5466,7 +5810,7 @@ function dlarf(side, M5, N, v, strideV, offsetV, tau, C, strideC1, strideC2, off
 }
 var base_default45 = dlarf;
 
-// lib/lapack/base/dgeqr2/lib/base.js
+// ../notes/lib/lapack/base/dgeqr2/lib/base.js
 function dgeqr2(M5, N, A, strideA1, strideA2, offsetA, TAU, strideTAU, offsetTAU, WORK, strideWork, offsetWork) {
   var alpha;
   var aii;
@@ -5487,7 +5831,7 @@ function dgeqr2(M5, N, A, strideA1, strideA2, offsetA, TAU, strideTAU, offsetTAU
 }
 var base_default46 = dgeqr2;
 
-// lib/lapack/base/dorm2r/lib/base.js
+// ../notes/lib/lapack/base/dorm2r/lib/base.js
 function dorm2r(side, trans, M5, N, K, A, strideA1, strideA2, offsetA, TAU, strideTAU, offsetTAU, C, strideC1, strideC2, offsetC, WORK, strideWork, offsetWork) {
   var notran;
   var left;
@@ -5540,7 +5884,7 @@ function dorm2r(side, trans, M5, N, K, A, strideA1, strideA2, offsetA, TAU, stri
 }
 var base_default47 = dorm2r;
 
-// lib/lapack/base/dsteqr/lib/base.js
+// ../notes/lib/lapack/base/dsteqr/lib/base.js
 var import_lib6 = __toESM(require_lib18(), 1);
 var MAXIT2 = 30;
 function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1, strideZ2, offsetZ, WORK, strideWork, offsetWork) {
@@ -5866,7 +6210,7 @@ function dsteqr(compz, N, d, strideD, offsetD, e, strideE, offsetE, Z, strideZ1,
 }
 var base_default48 = dsteqr;
 
-// lib/arpack/base/dsesrt/lib/base.js
+// ../notes/lib/arpack/base/dsesrt/lib/base.js
 function dsesrt(which, apply, N, x, strideX, offsetX, na, A, strideA1, strideA2, offsetA) {
   var igap;
   var swap;
@@ -5908,7 +6252,7 @@ function dsesrt(which, apply, N, x, strideX, offsetX, na, A, strideA1, strideA2,
 }
 var base_default49 = dsesrt;
 
-// lib/arpack/base/dseupd/lib/base.js
+// ../notes/lib/arpack/base/dseupd/lib/base.js
 function dseupd(rvec, howmny, select, strideSelect, offsetSelect, d, strideD, offsetD, z, strideZ1, strideZ2, offsetZ, sigma, bmat, N, which, nev, tol, resid, strideResid, offsetResid, ncv, v, strideV1, strideV2, offsetV, iparam, strideIparam, offsetIparam, ipntr, strideIpntr, offsetIpntr, workd, strideWorkd, offsetWorkd, workl, strideWorkl, offsetWorkl, lworkl) {
   var leftptr;
   var rghtptr;
@@ -6156,7 +6500,7 @@ function dseupd(rvec, howmny, select, strideSelect, offsetSelect, d, strideD, of
 }
 var base_default50 = dseupd;
 
-// lib/arpack/base/dsband/lib/base.js
+// ../notes/lib/arpack/base/dsband/lib/base.js
 function dsband(rvec, howmny, select, strideSelect, offsetSelect, d, strideD, offsetD, Z, strideZ1, strideZ2, offsetZ, sigma, N, AB, strideAB1, strideAB2, offsetAB, MB, strideMB1, strideMB2, offsetMB, RFAC, strideRFAC1, strideRFAC2, offsetRFAC, kl, ku, which, bmat, nev, tol, resid, strideResid, offsetResid, ncv, V, strideV1, strideV2, offsetV, iparam, strideIparam, offsetIparam, workd, strideWorkd, offsetWorkd, workl, strideWorkl, offsetWorkl, lworkl, iwork, strideIwork, offsetIwork, infoIn) {
   var abBand;
   var mbBand;
@@ -6306,7 +6650,7 @@ function dsband(rvec, howmny, select, strideSelect, offsetSelect, d, strideD, of
 }
 var base_default51 = dsband;
 
-// lib/arpack/base/dsband/lib/dsband.js
+// ../notes/lib/arpack/base/dsband/lib/dsband.js
 function dsband2(rvec, howmny, select, d, Z, ldz, sigma, N, AB, MB, lda, RFAC, kl, ku, which, bmat, nev, tol, resid, ncv, V, ldv, iparam, workd, workl, lworkl, iwork, infoIn) {
   if (bmat !== "standard" && bmat !== "generalized") {
     throw new TypeError((0, import_lib9.default)("invalid argument. Sixteenth argument must be one of `standard` or `generalized`. Value: `%s`.", bmat));
@@ -6327,7 +6671,7 @@ function dsband2(rvec, howmny, select, d, Z, ldz, sigma, N, AB, MB, lda, RFAC, k
 }
 var dsband_default = dsband2;
 
-// lib/arpack/base/dsband/lib/ndarray.js
+// ../notes/lib/arpack/base/dsband/lib/ndarray.js
 var import_lib10 = __toESM(require_lib3(), 1);
 function dsband3(rvec, howmny, select, strideSelect, offsetSelect, d, strideD, offsetD, Z, strideZ1, strideZ2, offsetZ, sigma, N, AB, strideAB1, strideAB2, offsetAB, MB, strideMB1, strideMB2, offsetMB, RFAC, strideRFAC1, strideRFAC2, offsetRFAC, kl, ku, which, bmat, nev, tol, resid, strideResid, offsetResid, ncv, V, strideV1, strideV2, offsetV, iparam, strideIparam, offsetIparam, workd, strideWorkd, offsetWorkd, workl, strideWorkl, offsetWorkl, lworkl, iwork, strideIwork, offsetIwork, infoIn) {
   if (bmat !== "standard" && bmat !== "generalized") {
@@ -6349,7 +6693,7 @@ function dsband3(rvec, howmny, select, strideSelect, offsetSelect, d, strideD, o
 }
 var ndarray_default = dsband3;
 
-// lib/arpack/base/dsband/lib/main.js
+// ../notes/lib/arpack/base/dsband/lib/main.js
 (0, import_lib11.default)(dsband_default, "ndarray", ndarray_default);
 var main_default = dsband_default;
 export {

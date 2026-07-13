@@ -6,3 +6,7 @@ maxWidth: 640px
 tags:
   - math
   - physics
+seeAlso:
+  - double-pendulum-map
+  - malkus-waterwheel
+  - shanks-transformation

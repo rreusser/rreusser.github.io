@@ -240,12 +240,13 @@
         <circle cx="308.4" cy="172.1" r="4" fill="currentColor" stroke="none"/>
         <text x="313" y="106" text-anchor="middle" font-size="16" font-style="italic" paint-order="stroke" stroke="var(--theme-background,#ffffff)" stroke-width="3.5" stroke-linejoin="round" fill="currentColor">&#952;</text>
         <text x="324" y="219" text-anchor="middle" font-size="12" font-weight="600" stroke="none" fill="currentColor">(b) bending</text>
-        <text x="324" y="234" text-anchor="middle" font-size="10" stroke="none" fill="currentColor" opacity="0.85">fold about shared edge</text>
+        <text x="324" y="234" text-anchor="middle" font-size="10" stroke="none" fill="currentColor" opacity="0.85">curvature away from flat</text>
       </svg>
-      <figcaption>Triangular shell elements. 3D Vertex positions are the 
+      <figcaption>Triangular shell elements. 3D Vertex positions are the
       unknowns. (a) Membrane stress resists stretching and shearing within the
-      plane of the triangle; (b) bending stress resists folding neighboring
-      triangles about a shared edge.</figcaption>
+      plane of the triangle; (b) bending stress resists the surface curving
+      away from flat, measured at each vertex from the fold of the surrounding
+      triangles.</figcaption>
     </figure>
   </script>
 
@@ -259,7 +260,7 @@
     import { createFrameLoop } from './lib/frame-loop.js';
     import { collapseCodeBlocks } from './lib/collapsible-code.js';
     import {
-      createMobiusMesh, initialEmbedding,
+      createMobiusMesh, createFlatStrip, initialEmbedding, energyAndGradient,
       membraneVonMises, bendingStress, gaussianCurvature,
     } from './mobius-fem.js';
     import { rodEmbedding } from './mobius-rod.js';
@@ -456,15 +457,25 @@
 
       function render() {
         const model = createMobiusMesh({ length: 2 * Math.PI, width: 1, nu: Math.round(nuInput.value as number), nv: Math.round(nvInput.value as number) });
-        const { Nv, tris, nT, nHinges, hingeIdx } = model;
+        const { Nv } = model;
         const n = 3 * Nv;
         const { dofPerm, bw } = buildPermutation(model);
 
+        // Structural nonzeros: each vertex couples to its Laplacian 1-ring and,
+        // through the quadratic bending residual at each vertex, to every pair
+        // within that ring (the 2-ring stencil). Covers the membrane triangles too.
+        const nbrs: number[][] = Array.from({ length: Nv }, () => []);
+        for (let e = 0; e < model.nLap; e++) { nbrs[model.lapI[e]].push(model.lapJ[e]); nbrs[model.lapJ[e]].push(model.lapI[e]); }
         const blocks = new Set<number>();
         const addPair = (a: number, b: number) => { blocks.add(a * Nv + b); blocks.add(b * Nv + a); };
-        for (let v = 0; v < Nv; v++) blocks.add(v * Nv + v);
-        for (let k = 0; k < nT; k++) { const a = tris[k*3], b = tris[k*3+1], c = tris[k*3+2]; addPair(a, b); addPair(b, c); addPair(a, c); }
-        for (let h = 0; h < nHinges; h++) { const o = h*4; const q = [hingeIdx[o], hingeIdx[o+1], hingeIdx[o+2], hingeIdx[o+3]]; for (let a = 0; a < 4; a++) for (let c = a+1; c < 4; c++) addPair(q[a], q[c]); }
+        for (let v = 0; v < Nv; v++) {
+          blocks.add(v * Nv + v);
+          const nb = nbrs[v];
+          for (let a = 0; a < nb.length; a++) {
+            addPair(v, nb[a]);
+            for (let b = a + 1; b < nb.length; b++) addPair(nb[a], nb[b]);
+          }
+        }
 
         let maxV = 0;
         for (const key of blocks) { const d = Math.abs(Math.floor(key / Nv) - (key % Nv)); if (d > maxV) maxV = d; }
@@ -498,288 +509,6 @@
     }
   </script>
 
-  <script id="deps-data" type="text/x-typescript">
-    // Every BLAS / LAPACK / ARPACK / COLSYS routine this page actually runs, and
-    // which calls which. Node set and edges are derived from the Fortran sources
-    // (CALL statements + EXTERNAL declarations) and cross-checked against the
-    // routines physically present in the shipped bundles: every routine on disk
-    // appears here, and nothing here is absent from disk.
-    const depsGraph = await fetch(new URL('deps-graph.json', document.baseURI)).then((r) => r.json());
-    const depsCount = depsGraph.nodes.length;
-  </script>
-
-  <script id="deps-graph" type="text/x-typescript">
-    // The call graph is a pure DAG (the one exception is dpotrf2, LAPACK's
-    // recursive Cholesky, which calls itself), so it is drawn as a layered stack
-    // rather than a force-directed hairball: a routine always sits below every
-    // routine that calls it. Row 0 is what the notebook calls directly; the BLAS
-    // kernels settle to the bottom, which is exactly what "BLAS is the bottom of
-    // the stack" means. No force simulation, so the layout is deterministic.
-    {
-      const dark = matchMedia('(prefers-color-scheme: dark)').matches
-        || document.documentElement.dataset.theme === 'dark';
-      // Categorical slots 1/3/4/6 of the validated palette: blue, yellow, green,
-      // red. ARPACK was violet, but against BLAS blue that is a colourblind ΔE of
-      // 2.5 in dark mode — the same colour, in effect. Green scores 104.2 against
-      // the same blue. The weakest remaining pair is green vs yellow (ΔE 10.3 in
-      // dark), which is inside the floor band and so is legal only because every
-      // node carries a direct label and the roster below is a table view.
-      const PKG: any = {
-        blas:   { label: 'BLAS',   color: dark ? '#3987e5' : '#2a78d6' },
-        lapack: { label: 'LAPACK', color: dark ? '#c98500' : '#eda100' },
-        arpack: { label: 'ARPACK', color: '#008300' },
-        colsys: { label: 'COLSYS', color: dark ? '#e66767' : '#e34948' },
-      };
-
-      // Labels alternate above/below within a row, so same-side neighbours get two
-      // slots of clearance. In the widest row (27 nodes across the main band) that
-      // is ~57 units per label, which is what lets the type be this large.
-      const W = 1000, H = 780, PAD_X = 16, TOP = 46, BOT = 42;
-      const nodes = depsGraph.nodes.map((d: any) => ({ ...d }));
-      const byId = new Map<string, any>(nodes.map((n: any) => [n.id, n]));
-      const dag = depsGraph.edges.filter(([a, b]: any) => a !== b); // drop dpotrf2's self-call
-      const selfCalls = depsGraph.edges.filter(([a, b]: any) => a === b).map(([a]: any) => a);
-
-      const callees = new Map<string, string[]>(nodes.map((n: any) => [n.id, []]));
-      const callers = new Map<string, string[]>(nodes.map((n: any) => [n.id, []]));
-      for (const [a, b] of dag) { callees.get(a)!.push(b); callers.get(b)!.push(a); }
-
-      // Longest-path layering: a routine sits one row below its deepest caller.
-      const level = new Map<string, number>(nodes.map((n: any) => [n.id, 0]));
-      for (let i = 0; i < nodes.length; i++) {
-        let changed = false;
-        for (const [a, b] of dag) {
-          const want = level.get(a)! + 1;
-          if (want > level.get(b)!) { level.set(b, want); changed = true; }
-        }
-        if (!changed) break;
-      }
-      const maxLevel = Math.max(...level.values());
-      for (const n of nodes) n.level = level.get(n.id)!;
-
-      // COLSYS shares no routine with the other three (it carries its own
-      // almost-block-diagonal solver), so it is a separate connected component.
-      // Give it its own band on the right instead of letting it interleave.
-      const isColsys = (n: any) => n.pkg === 'colsys';
-      const mainBand = [PAD_X, W * 0.79];
-      const colBand = [W * 0.835, W - PAD_X];
-
-      const rows: any[][] = Array.from({ length: maxLevel + 1 }, () => []);
-      for (const n of nodes) rows[n.level].push(n);
-
-      const spread = (list: any[], [x0, x1]: number[]) => {
-        list.forEach((n, i) => { n.x = x0 + ((i + 0.5) * (x1 - x0)) / list.length; });
-      };
-      const layoutRow = (row: any[]) => {
-        spread(row.filter((n) => !isColsys(n)), mainBand);
-        spread(row.filter(isColsys), colBand);
-      };
-      for (const row of rows) {
-        row.sort((a, b) => (isColsys(a) ? 1 : 0) - (isColsys(b) ? 1 : 0) || a.id.localeCompare(b.id));
-        layoutRow(row);
-      }
-
-      // Barycenter sweeps: order each row by the mean x of its neighbours in the
-      // adjacent row, which is the standard way to pull the edge crossings out.
-      const meanX = (ids: string[]) =>
-        ids.length ? ids.reduce((s, id) => s + byId.get(id)!.x, 0) / ids.length : null;
-      for (let pass = 0; pass < 12; pass++) {
-        const down = pass % 2 === 0;
-        const order = down ? [...rows.keys()] : [...rows.keys()].reverse();
-        for (const L of order) {
-          const row = rows[L];
-          if (!row.length) continue;
-          const key = (n: any) => meanX(down ? callers.get(n.id)! : callees.get(n.id)!) ?? n.x;
-          const k = new Map(row.map((n) => [n.id, key(n)]));
-          row.sort((a, b) =>
-            (isColsys(a) ? 1 : 0) - (isColsys(b) ? 1 : 0) || k.get(a.id)! - k.get(b.id)!);
-          layoutRow(row);
-        }
-      }
-
-      const rowH = (H - TOP - BOT) / Math.max(1, maxLevel);
-      for (const n of nodes) n.y = TOP + n.level * rowH;
-      // Stagger labels above/below alternately so neighbours get twice the room.
-      for (const row of rows) row.forEach((n, i) => { n.up = i % 2 === 0; });
-
-      const radius = (d: any) => (d.entry ? 7 : 4) + Math.sqrt(d.fanIn) * 1.5;
-      const edges = dag.map(([a, b]: any) => ({ s: byId.get(a)!, t: byId.get(b)! }));
-
-      const svg = d3.create('svg')
-        .attr('viewBox', `0 0 ${W} ${H}`)
-        .style('width', '100%')
-        .style('height', 'auto')
-        .style('display', 'block')
-        .style('font-family', 'var(--sans-serif, system-ui, sans-serif)');
-
-      const linkSel = svg.append('g')
-        .attr('fill', 'none')
-        .attr('stroke', 'currentColor')
-        .selectAll('path')
-        .data(edges)
-        .join('path')
-        .attr('d', (e: any) => {
-          const y1 = e.s.y + radius(e.s), y2 = e.t.y - radius(e.t), my = (y1 + y2) / 2;
-          return `M${e.s.x},${y1} C${e.s.x},${my} ${e.t.x},${my} ${e.t.x},${y2}`;
-        })
-        .attr('stroke-width', 0.7)
-        .attr('stroke-opacity', 0.14);
-
-      // dpotrf2 calls itself: draw the recursion rather than quietly dropping it.
-      const loopSel = svg.append('g')
-        .attr('fill', 'none')
-        .attr('stroke', 'currentColor')
-        .selectAll('path')
-        .data(selfCalls.map((id: string) => byId.get(id)!))
-        .join('path')
-        .attr('d', (d: any) => {
-          const r = radius(d) + 4;
-          return `M${d.x - r * 0.7},${d.y - r * 0.7} A${r},${r} 0 1 1 ${d.x + r * 0.7},${d.y - r * 0.7}`;
-        })
-        .attr('stroke-width', 1)
-        .attr('stroke-opacity', 0.55);
-
-      const nodeSel = svg.append('g')
-        .selectAll('a')
-        .data(nodes)
-        .join('a')
-        .attr('href', (d: any) => d.url)
-        .attr('target', '_blank')
-        .attr('rel', 'noopener')
-        .attr('transform', (d: any) => `translate(${d.x},${d.y})`)
-        .style('cursor', 'pointer');
-
-      // Invisible hit target, larger than the mark itself.
-      nodeSel.append('circle').attr('r', 11).attr('fill', 'transparent');
-
-      nodeSel.append('circle')
-        .attr('r', radius)
-        .attr('fill', (d: any) => PKG[d.pkg].color)
-        .attr('stroke', 'var(--theme-background, #fff)')
-        .attr('stroke-width', 1); // surface ring, so overlapping marks stay separable
-
-      // The ten routines the notebook calls itself wear a detached ring. The old
-      // cue was a 2px vs 1px stroke, which is invisible at this size and made the
-      // legend's ring swatch point at nothing.
-      nodeSel.filter((d: any) => !!d.entry)
-        .append('circle')
-        .attr('r', (d: any) => radius(d) + 4)
-        .attr('fill', 'none')
-        .attr('stroke', 'var(--theme-foreground, #111)')
-        .attr('stroke-width', 1.5);
-
-      nodeSel.append('text')
-        .text((d: any) => d.id)
-        .attr('text-anchor', 'middle')
-        .attr('y', (d: any) => (d.up ? -radius(d) - (d.entry ? 10 : 7) : radius(d) + (d.entry ? 19 : 16)))
-        .attr('font-size', (d: any) => (d.entry ? 16 : 13))
-        .attr('font-weight', 600)
-        // Text wears text tokens, never the series colour.
-        .attr('fill', (d: any) => (d.entry
-          ? 'var(--theme-foreground, #111)'
-          : 'var(--theme-foreground-muted, #777)'))
-        .attr('paint-order', 'stroke')
-        .attr('stroke', 'var(--theme-background, #fff)')
-        .attr('stroke-width', 2.5)
-        .attr('stroke-linejoin', 'round');
-
-      // --- Hover. The status block is a FIXED height with single-line, clipped
-      // rows. If it grew with its content it would reflow the page, shifting the
-      // SVG out from under the cursor, firing mouseleave, and flickering forever.
-      const line = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-      const status = html`<div style="height:4.65em;margin:0 0 0.4rem;font:13px/1.55 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);pointer-events:none"></div>`;
-      const l1 = html`<div style="${line}"></div>`;
-      // The routine's own description, harvested from each module's package.json in
-      // blahpack (and from the netlib-ode doc comments for COLSYS), so this line is
-      // the library's own words rather than anything restated here.
-      const l2 = html`<div style="${line};color:var(--theme-foreground,#111)"></div>`;
-      const l3 = html`<div style="${line}"></div>`;
-      status.append(l1, l2, l3);
-
-      const fmt = (ids: string[]) => ids.slice().sort().map((s) => `<code>${s}</code>`).join(', ');
-      const BLURB: any = {
-        blas: 'Basic Linear Algebra Subprograms: the vector and matrix kernels everything else stands on',
-        lapack: 'Linear Algebra PACKage: factorizations, solvers and eigensolvers, built on BLAS',
-        arpack: 'Implicitly restarted Lanczos, for a few eigenpairs of a large sparse or banded matrix',
-        colsys: 'Collocation solver for boundary-value ODEs, carrying its own block-structured linear algebra',
-      };
-      function resetStatus() {
-        l1.innerHTML = 'Hover a routine to isolate it. Click to open the translated source.';
-        l2.innerHTML = '';
-        l3.innerHTML = '';
-      }
-      function focus(d: any | null) {
-        if (!d) {
-          linkSel.attr('stroke-opacity', 0.14).attr('stroke-width', 0.7);
-          loopSel.attr('stroke-opacity', 0.55);
-          nodeSel.style('opacity', 1);
-          resetStatus();
-          return;
-        }
-        const outs = callees.get(d.id)!, ins = callers.get(d.id)!;
-        const near = new Set([d.id, ...outs, ...ins]);
-        nodeSel.style('opacity', (n: any) => (near.has(n.id) ? 1 : 0.1));
-        linkSel
-          .attr('stroke-opacity', (e: any) => (e.s.id === d.id || e.t.id === d.id ? 0.8 : 0.03))
-          .attr('stroke-width', (e: any) => (e.s.id === d.id || e.t.id === d.id ? 1.3 : 0.7));
-        loopSel.attr('stroke-opacity', (n: any) => (n.id === d.id ? 0.9 : 0.06));
-        l1.innerHTML = `<strong style="color:var(--theme-foreground,#111)">${d.id}</strong>`
-          + ` &middot; ${PKG[d.pkg].label}`
-          + (d.entry ? ` &middot; called by the notebook: ${d.entry}` : '')
-          + (selfCalls.includes(d.id) ? ' &middot; recursive' : '');
-        l2.textContent = d.desc ?? '';
-        // Say nothing about empty sides: an absent "calls" line already says it
-        // calls nothing, and naming it a leaf adds no information.
-        l3.innerHTML = [
-          outs.length ? `calls ${fmt(outs)}` : '',
-          ins.length ? `called by ${fmt(ins)}` : '',
-        ].filter(Boolean).join(' &nbsp;|&nbsp; ');
-      }
-      resetStatus();
-      nodeSel.on('mouseenter', (_e: any, d: any) => focus(d)).on('mouseleave', () => focus(null));
-
-      // --- Legend. Identity is never carried by colour alone, and each swatch is
-      // also a filter: hovering one isolates that library.
-      function filterPkg(key: string | null) {
-        if (!key) { focus(null); return; }
-        nodeSel.style('opacity', (n: any) => (n.pkg === key ? 1 : 0.08));
-        // Keep an edge lit only when it lies wholly inside the library, so what
-        // survives is that library's own internal structure.
-        linkSel
-          .attr('stroke-opacity', (e: any) => (e.s.pkg === key && e.t.pkg === key ? 0.5 : 0.03))
-          .attr('stroke-width', 0.7);
-        loopSel.attr('stroke-opacity', (n: any) => (n.pkg === key ? 0.9 : 0.06));
-        const entries = nodes.filter((n: any) => n.pkg === key && n.entry).map((n: any) => n.id);
-        l1.innerHTML = `<strong style="color:var(--theme-foreground,#111)">${PKG[key].label}</strong>`
-          + ` &middot; ${counts[key]} routines`;
-        l2.textContent = BLURB[key];
-        l3.innerHTML = entries.length ? `called by the notebook: ${fmt(entries)}` : '';
-      }
-
-      const counts: any = {};
-      for (const n of nodes) counts[n.pkg] = (counts[n.pkg] ?? 0) + 1;
-      const legend = html`<div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 0.5rem;font:13px/1.4 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777)"></div>`;
-      for (const key of ['blas', 'lapack', 'arpack', 'colsys']) {
-        const item = html`<span style="display:inline-flex;align-items:center;gap:6px;cursor:default"><span style="width:10px;height:10px;border-radius:50%;background:${PKG[key].color};display:inline-block"></span>${PKG[key].label} <strong style="color:var(--theme-foreground,#222)">${counts[key]}</strong></span>`;
-        item.addEventListener('mouseenter', () => filterPkg(key));
-        item.addEventListener('mouseleave', () => filterPkg(null));
-        legend.appendChild(item);
-      }
-      // Swatch drawn to match the node mark exactly: filled dot, detached ring.
-      legend.appendChild(html`<span style="display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" style="display:block;overflow:visible"><circle cx="8" cy="8" r="3.4" fill="var(--theme-foreground-muted,#777)"/><circle cx="8" cy="8" r="6.4" fill="none" stroke="var(--theme-foreground,#222)" stroke-width="1.5"/></svg>called by the notebook directly</span>`);
-
-      // width:100% is load-bearing. A bare <figure> here shrink-to-fits, so the
-      // nowrap status line below would widen it whenever the hover text got long,
-      // which widens the width:100% svg, which grows its height, which slides the
-      // node out from under the cursor -> mouseleave -> text resets -> figure
-      // shrinks -> mouseenter. That is an infinite hover flicker. Pinning the
-      // width makes the figure's geometry independent of the status text.
-      const fig = html`<figure style="margin:0 0 2rem;width:100%"></figure>`;
-      fig.append(legend, status, svg.node()!);
-
-      display(fig);
-    }
-  </script>
   <script id="theory-modes-run" type="text/markdown">
     In total, this page uses ${depsCount} translated routines to perform the computations, though only about ten are called directly. 
 
@@ -1281,7 +1010,7 @@
         poisson: poissonInput.value as number,
         thickness: thickInput.value as number,
         density: 1.0,
-        bendingMode: 'analytic' as const,
+        bendingMode: 'quadratic' as const,
       };
       const length = lengthInput.value as number;
       const width = 1.0;
@@ -1341,7 +1070,7 @@
         poisson: poissonInput.value as number,
         thickness: thickInput.value as number,
         density: 1.0,
-        bendingMode: 'analytic' as const,
+        bendingMode: 'quadratic' as const,
       };
       const length = lengthInput.value as number;
       const width = 1.0;
@@ -2042,6 +1771,287 @@
     camera.triggerRepaint();
   </script>
 
+  <script id="deps-data" type="text/x-typescript">
+    // Every BLAS / LAPACK / ARPACK / COLSYS routine this page actually runs, and
+    // which calls which. Node set and edges are derived from the Fortran sources
+    // (CALL statements + EXTERNAL declarations) and cross-checked against the
+    // routines physically present in the shipped bundles: every routine on disk
+    // appears here, and nothing here is absent from disk.
+    const depsGraph = await fetch(new URL('deps-graph.json', document.baseURI)).then((r) => r.json());
+    const depsCount = depsGraph.nodes.length;
+  </script>
+
+  <script id="deps-graph" type="text/x-typescript">
+    // The call graph is a pure DAG (the one exception is dpotrf2, LAPACK's
+    // recursive Cholesky, which calls itself), so it is drawn as a layered stack
+    // rather than a force-directed hairball: a routine always sits below every
+    // routine that calls it. Row 0 is what the notebook calls directly; the BLAS
+    // kernels settle to the bottom, which is exactly what "BLAS is the bottom of
+    // the stack" means. No force simulation, so the layout is deterministic.
+    {
+      const dark = matchMedia('(prefers-color-scheme: dark)').matches
+        || document.documentElement.dataset.theme === 'dark';
+      // Categorical slots 1/3/4/6 of the validated palette: blue, yellow, green,
+      // red. ARPACK was violet, but against BLAS blue that is a colourblind ΔE of
+      // 2.5 in dark mode — the same colour, in effect. Green scores 104.2 against
+      // the same blue. The weakest remaining pair is green vs yellow (ΔE 10.3 in
+      // dark), which is inside the floor band and so is legal only because every
+      // node carries a direct label and the roster below is a table view.
+      const PKG: any = {
+        blas:   { label: 'BLAS',   color: dark ? '#3987e5' : '#2a78d6' },
+        lapack: { label: 'LAPACK', color: dark ? '#c98500' : '#eda100' },
+        arpack: { label: 'ARPACK', color: '#008300' },
+        colsys: { label: 'COLSYS', color: dark ? '#e66767' : '#e34948' },
+      };
+
+      // Labels alternate above/below within a row, so same-side neighbours get two
+      // slots of clearance. In the widest row (27 nodes across the main band) that
+      // is ~57 units per label, which is what lets the type be this large.
+      const W = 1000, H = 780, PAD_X = 16, TOP = 46, BOT = 42;
+      const nodes = depsGraph.nodes.map((d: any) => ({ ...d }));
+      const byId = new Map<string, any>(nodes.map((n: any) => [n.id, n]));
+      const dag = depsGraph.edges.filter(([a, b]: any) => a !== b); // drop dpotrf2's self-call
+      const selfCalls = depsGraph.edges.filter(([a, b]: any) => a === b).map(([a]: any) => a);
+
+      const callees = new Map<string, string[]>(nodes.map((n: any) => [n.id, []]));
+      const callers = new Map<string, string[]>(nodes.map((n: any) => [n.id, []]));
+      for (const [a, b] of dag) { callees.get(a)!.push(b); callers.get(b)!.push(a); }
+
+      // Longest-path layering: a routine sits one row below its deepest caller.
+      const level = new Map<string, number>(nodes.map((n: any) => [n.id, 0]));
+      for (let i = 0; i < nodes.length; i++) {
+        let changed = false;
+        for (const [a, b] of dag) {
+          const want = level.get(a)! + 1;
+          if (want > level.get(b)!) { level.set(b, want); changed = true; }
+        }
+        if (!changed) break;
+      }
+      const maxLevel = Math.max(...level.values());
+      for (const n of nodes) n.level = level.get(n.id)!;
+
+      // COLSYS shares no routine with the other three (it carries its own
+      // almost-block-diagonal solver), so it is a separate connected component.
+      // Give it its own band on the right instead of letting it interleave.
+      const isColsys = (n: any) => n.pkg === 'colsys';
+      const mainBand = [PAD_X, W * 0.79];
+      const colBand = [W * 0.835, W - PAD_X];
+
+      const rows: any[][] = Array.from({ length: maxLevel + 1 }, () => []);
+      for (const n of nodes) rows[n.level].push(n);
+
+      const spread = (list: any[], [x0, x1]: number[]) => {
+        list.forEach((n, i) => { n.x = x0 + ((i + 0.5) * (x1 - x0)) / list.length; });
+      };
+      const layoutRow = (row: any[]) => {
+        spread(row.filter((n) => !isColsys(n)), mainBand);
+        spread(row.filter(isColsys), colBand);
+      };
+      for (const row of rows) {
+        row.sort((a, b) => (isColsys(a) ? 1 : 0) - (isColsys(b) ? 1 : 0) || a.id.localeCompare(b.id));
+        layoutRow(row);
+      }
+
+      // Barycenter sweeps: order each row by the mean x of its neighbours in the
+      // adjacent row, which is the standard way to pull the edge crossings out.
+      const meanX = (ids: string[]) =>
+        ids.length ? ids.reduce((s, id) => s + byId.get(id)!.x, 0) / ids.length : null;
+      for (let pass = 0; pass < 12; pass++) {
+        const down = pass % 2 === 0;
+        const order = down ? [...rows.keys()] : [...rows.keys()].reverse();
+        for (const L of order) {
+          const row = rows[L];
+          if (!row.length) continue;
+          const key = (n: any) => meanX(down ? callers.get(n.id)! : callees.get(n.id)!) ?? n.x;
+          const k = new Map(row.map((n) => [n.id, key(n)]));
+          row.sort((a, b) =>
+            (isColsys(a) ? 1 : 0) - (isColsys(b) ? 1 : 0) || k.get(a.id)! - k.get(b.id)!);
+          layoutRow(row);
+        }
+      }
+
+      const rowH = (H - TOP - BOT) / Math.max(1, maxLevel);
+      for (const n of nodes) n.y = TOP + n.level * rowH;
+      // Stagger labels above/below alternately so neighbours get twice the room.
+      for (const row of rows) row.forEach((n, i) => { n.up = i % 2 === 0; });
+
+      const radius = (d: any) => (d.entry ? 7 : 4) + Math.sqrt(d.fanIn) * 1.5;
+      const edges = dag.map(([a, b]: any) => ({ s: byId.get(a)!, t: byId.get(b)! }));
+
+      const svg = d3.create('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .style('width', '100%')
+        .style('height', 'auto')
+        .style('display', 'block')
+        .style('font-family', 'var(--sans-serif, system-ui, sans-serif)');
+
+      const linkSel = svg.append('g')
+        .attr('fill', 'none')
+        .attr('stroke', 'currentColor')
+        .selectAll('path')
+        .data(edges)
+        .join('path')
+        .attr('d', (e: any) => {
+          const y1 = e.s.y + radius(e.s), y2 = e.t.y - radius(e.t), my = (y1 + y2) / 2;
+          return `M${e.s.x},${y1} C${e.s.x},${my} ${e.t.x},${my} ${e.t.x},${y2}`;
+        })
+        .attr('stroke-width', 0.7)
+        .attr('stroke-opacity', 0.14);
+
+      // dpotrf2 calls itself: draw the recursion rather than quietly dropping it.
+      const loopSel = svg.append('g')
+        .attr('fill', 'none')
+        .attr('stroke', 'currentColor')
+        .selectAll('path')
+        .data(selfCalls.map((id: string) => byId.get(id)!))
+        .join('path')
+        .attr('d', (d: any) => {
+          const r = radius(d) + 4;
+          return `M${d.x - r * 0.7},${d.y - r * 0.7} A${r},${r} 0 1 1 ${d.x + r * 0.7},${d.y - r * 0.7}`;
+        })
+        .attr('stroke-width', 1)
+        .attr('stroke-opacity', 0.55);
+
+      const nodeSel = svg.append('g')
+        .selectAll('a')
+        .data(nodes)
+        .join('a')
+        .attr('href', (d: any) => d.url)
+        .attr('target', '_blank')
+        .attr('rel', 'noopener')
+        .attr('transform', (d: any) => `translate(${d.x},${d.y})`)
+        .style('cursor', 'pointer');
+
+      // Invisible hit target, larger than the mark itself.
+      nodeSel.append('circle').attr('r', 11).attr('fill', 'transparent');
+
+      nodeSel.append('circle')
+        .attr('r', radius)
+        .attr('fill', (d: any) => PKG[d.pkg].color)
+        .attr('stroke', 'var(--theme-background, #fff)')
+        .attr('stroke-width', 1); // surface ring, so overlapping marks stay separable
+
+      // The ten routines the notebook calls itself wear a detached ring. The old
+      // cue was a 2px vs 1px stroke, which is invisible at this size and made the
+      // legend's ring swatch point at nothing.
+      nodeSel.filter((d: any) => !!d.entry)
+        .append('circle')
+        .attr('r', (d: any) => radius(d) + 4)
+        .attr('fill', 'none')
+        .attr('stroke', 'var(--theme-foreground, #111)')
+        .attr('stroke-width', 1.5);
+
+      nodeSel.append('text')
+        .text((d: any) => d.id)
+        .attr('text-anchor', 'middle')
+        .attr('y', (d: any) => (d.up ? -radius(d) - (d.entry ? 10 : 7) : radius(d) + (d.entry ? 19 : 16)))
+        .attr('font-size', (d: any) => (d.entry ? 17 : 14))
+        .attr('font-weight', 600)
+        // Text wears text tokens, never the series colour.
+        .attr('fill', 'var(--theme-foreground, #111)')
+        .attr('paint-order', 'stroke')
+        .attr('stroke', 'var(--theme-background, #fff)')
+        .attr('stroke-width', 2.5)
+        .attr('stroke-linejoin', 'round');
+
+      // --- Hover. The status block is a FIXED height with single-line, clipped
+      // rows. If it grew with its content it would reflow the page, shifting the
+      // SVG out from under the cursor, firing mouseleave, and flickering forever.
+      const line = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+      const status = html`<div style="height:4.65em;margin:0 0 0.4rem;font:13px/1.55 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777);pointer-events:none"></div>`;
+      const l1 = html`<div style="${line}"></div>`;
+      // The routine's own description, harvested from each module's package.json in
+      // blahpack (and from the netlib-ode doc comments for COLSYS), so this line is
+      // the library's own words rather than anything restated here.
+      const l2 = html`<div style="${line};color:var(--theme-foreground,#111)"></div>`;
+      const l3 = html`<div style="${line}"></div>`;
+      status.append(l1, l2, l3);
+
+      const fmt = (ids: string[]) => ids.slice().sort().map((s) => `<code>${s}</code>`).join(', ');
+      const BLURB: any = {
+        blas: 'Basic Linear Algebra Subprograms: the vector and matrix kernels everything else stands on',
+        lapack: 'Linear Algebra PACKage: factorizations, solvers and eigensolvers, built on BLAS',
+        arpack: 'Implicitly restarted Lanczos, for a few eigenpairs of a large sparse or banded matrix',
+        colsys: 'Collocation solver for boundary-value ODEs, carrying its own block-structured linear algebra',
+      };
+      function resetStatus() {
+        l1.innerHTML = 'Hover a routine to isolate it. Click to open the translated source.';
+        l2.innerHTML = '';
+        l3.innerHTML = '';
+      }
+      function focus(d: any | null) {
+        if (!d) {
+          linkSel.attr('stroke-opacity', 0.14).attr('stroke-width', 0.7);
+          loopSel.attr('stroke-opacity', 0.55);
+          nodeSel.style('opacity', 1);
+          resetStatus();
+          return;
+        }
+        const outs = callees.get(d.id)!, ins = callers.get(d.id)!;
+        const near = new Set([d.id, ...outs, ...ins]);
+        nodeSel.style('opacity', (n: any) => (near.has(n.id) ? 1 : 0.1));
+        linkSel
+          .attr('stroke-opacity', (e: any) => (e.s.id === d.id || e.t.id === d.id ? 0.8 : 0.03))
+          .attr('stroke-width', (e: any) => (e.s.id === d.id || e.t.id === d.id ? 1.3 : 0.7));
+        loopSel.attr('stroke-opacity', (n: any) => (n.id === d.id ? 0.9 : 0.06));
+        l1.innerHTML = `<strong style="color:var(--theme-foreground,#111)">${d.id}</strong>`
+          + ` &middot; ${PKG[d.pkg].label}`
+          + (d.entry ? ` &middot; called by the notebook: ${d.entry}` : '')
+          + (selfCalls.includes(d.id) ? ' &middot; recursive' : '');
+        l2.textContent = d.desc ?? '';
+        // Say nothing about empty sides: an absent "calls" line already says it
+        // calls nothing, and naming it a leaf adds no information.
+        l3.innerHTML = [
+          outs.length ? `calls ${fmt(outs)}` : '',
+          ins.length ? `called by ${fmt(ins)}` : '',
+        ].filter(Boolean).join(' &nbsp;|&nbsp; ');
+      }
+      resetStatus();
+      nodeSel.on('mouseenter', (_e: any, d: any) => focus(d)).on('mouseleave', () => focus(null));
+
+      // --- Legend. Identity is never carried by colour alone, and each swatch is
+      // also a filter: hovering one isolates that library.
+      function filterPkg(key: string | null) {
+        if (!key) { focus(null); return; }
+        nodeSel.style('opacity', (n: any) => (n.pkg === key ? 1 : 0.08));
+        // Keep an edge lit only when it lies wholly inside the library, so what
+        // survives is that library's own internal structure.
+        linkSel
+          .attr('stroke-opacity', (e: any) => (e.s.pkg === key && e.t.pkg === key ? 0.5 : 0.03))
+          .attr('stroke-width', 0.7);
+        loopSel.attr('stroke-opacity', (n: any) => (n.pkg === key ? 0.9 : 0.06));
+        const entries = nodes.filter((n: any) => n.pkg === key && n.entry).map((n: any) => n.id);
+        l1.innerHTML = `<strong style="color:var(--theme-foreground,#111)">${PKG[key].label}</strong>`
+          + ` &middot; ${counts[key]} routines`;
+        l2.textContent = BLURB[key];
+        l3.innerHTML = entries.length ? `called by the notebook: ${fmt(entries)}` : '';
+      }
+
+      const counts: any = {};
+      for (const n of nodes) counts[n.pkg] = (counts[n.pkg] ?? 0) + 1;
+      const legend = html`<div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 0.5rem;font:13px/1.4 var(--sans-serif,system-ui,sans-serif);color:var(--theme-foreground-muted,#777)"></div>`;
+      for (const key of ['blas', 'lapack', 'arpack', 'colsys']) {
+        const item = html`<span style="display:inline-flex;align-items:center;gap:6px;cursor:default"><span style="width:10px;height:10px;border-radius:50%;background:${PKG[key].color};display:inline-block"></span>${PKG[key].label} <strong style="color:var(--theme-foreground,#222)">${counts[key]}</strong></span>`;
+        item.addEventListener('mouseenter', () => filterPkg(key));
+        item.addEventListener('mouseleave', () => filterPkg(null));
+        legend.appendChild(item);
+      }
+      // Swatch drawn to match the node mark exactly: filled dot, detached ring.
+      legend.appendChild(html`<span style="display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" style="display:block;overflow:visible"><circle cx="8" cy="8" r="3.4" fill="var(--theme-foreground-muted,#777)"/><circle cx="8" cy="8" r="6.4" fill="none" stroke="var(--theme-foreground,#222)" stroke-width="1.5"/></svg>called by the notebook directly</span>`);
+
+      // width:100% is load-bearing. A bare <figure> here shrink-to-fits, so the
+      // nowrap status line below would widen it whenever the hover text got long,
+      // which widens the width:100% svg, which grows its height, which slides the
+      // node out from under the cursor -> mouseleave -> text resets -> figure
+      // shrinks -> mouseenter. That is an infinite hover flicker. Pinning the
+      // width makes the figure's geometry independent of the status text.
+      const fig = html`<figure style="margin:0 0 2rem;width:100%"></figure>`;
+      fig.append(legend, status, svg.node()!);
+
+      display(fig);
+    }
+  </script>
+
   <script id="numerics-note" type="text/markdown">
     ## Is it right?
 
@@ -2054,6 +2064,196 @@
     and the computed modes satisfy ${tex`K\phi = \omega^2 M\phi`} to round-off. The
     shapes and frequencies you see are the correct solutions of the discrete model,
     not just something that looks about right.
+
+    Claims like that should be checkable, so the button below reruns the core
+    checks right here in the page, against the same energy and gradient code that
+    drives every figure above.
+  </script>
+
+  <script id="validation-checks" type="text/x-typescript">
+    // Live validation table for the "Is it right?" section. Each row is one
+    // invariant of the elastic model with an analytic expectation; the checks
+    // run on small meshes in the main thread (well under a second total) and
+    // exercise exactly the energyAndGradient code the simulation uses.
+    const valBtnStyle = `
+      display:inline-flex;align-items:center;gap:6px;
+      padding:8px 15px;font:13px/1 var(--sans-serif,system-ui,sans-serif);
+      color:var(--theme-foreground,#222);background:var(--theme-background-alt,rgba(127,127,127,0.14));
+      border:1px solid var(--theme-foreground-faint,rgba(0,0,0,0.18));
+      border-radius:7px;cursor:pointer`;
+    const valCellStyle = `padding:5px 10px;border-bottom:1px solid var(--theme-foreground-faint,rgba(127,127,127,0.25));font:13px/1.45 var(--sans-serif,system-ui,sans-serif)`;
+    const valNumStyle = `${valCellStyle};font-family:var(--monospace,monospace);font-size:12px;white-space:nowrap`;
+
+    const validationButton = html`<button style="${valBtnStyle}">Run validation checks</button>` as HTMLButtonElement;
+    const validationTableWrap = html`<div style="overflow-x:auto;margin-top:10px"></div>`;
+    const validationRoot = html`<div style="margin:0.75rem 0"></div>`;
+    validationRoot.append(validationButton, validationTableWrap);
+
+    function runValidationChecks() {
+      const params = { E: 1, poisson: 0.35, thickness: 0.03 };
+      const h = params.thickness;
+      const D = (params.E * h * h * h) / (12 * (1 - params.poisson * params.poisson));
+      const L = 2 * Math.PI, W = 1;
+      const maxAbs = (a: Float64Array) => { let m = 0; for (const v of a) m = Math.max(m, Math.abs(v)); return m; };
+
+      // Flat unglued rectangle at its flat embedding: the rest state.
+      function flatRest() {
+        const m = createFlatStrip({ length: L, width: W, nu: 48, nv: 8 });
+        const g = new Float64Array(m.Nv * 3);
+        const r = energyAndGradient(m, m.flatEmbedding(), params, g);
+        return { E: Math.abs(r.energy), g: maxAbs(g) };
+      }
+
+      // Rest metric of the Mobius mesh: total area, and each interior edge's
+      // rest length recomputed from BOTH incident triangles' unwrapped charts
+      // (the seam triangles use different charts of the same flat strip).
+      function restMetric() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 64, nv: 10 });
+        let area = 0;
+        for (const a of m.triRestArea) area += a;
+        const lens = new Map<number, number[]>();
+        const key = (p: number, q: number) => (p < q ? p * m.Nv + q : q * m.Nv + p);
+        for (let k = 0; k < m.nT; k++) {
+          const m0 = m.triDmInv[k * 4], m1 = m.triDmInv[k * 4 + 1];
+          const m2 = m.triDmInv[k * 4 + 2], m3 = m.triDmInv[k * 4 + 3];
+          const det = m0 * m3 - m1 * m2;
+          const e1x = m3 / det, e1y = -m2 / det;   // rest edge r1 - r0
+          const e2x = -m1 / det, e2y = m0 / det;   // rest edge r2 - r0
+          const i0 = m.tris[k * 3], i1 = m.tris[k * 3 + 1], i2 = m.tris[k * 3 + 2];
+          const push = (p: number, q: number, len: number) => {
+            const kk = key(p, q);
+            if (!lens.has(kk)) lens.set(kk, []);
+            lens.get(kk)!.push(len);
+          };
+          push(i0, i1, Math.hypot(e1x, e1y));
+          push(i0, i2, Math.hypot(e2x, e2y));
+          push(i1, i2, Math.hypot(e2x - e1x, e2y - e1y));
+        }
+        let mismatch = 0;
+        for (const ll of lens.values())
+          if (ll.length === 2) mismatch = Math.max(mismatch, Math.abs(ll[0] - ll[1]) / Math.max(ll[0], ll[1]));
+        return { areaErr: Math.abs(area - L * W) / (L * W), mismatch };
+      }
+
+      // Energy of a bent configuration must not change under rigid motion.
+      function rigidInvariance() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 64, nv: 10 });
+        const X = initialEmbedding(m);
+        const E0 = energyAndGradient(m, X, params, null).energy;
+        const c = Math.cos(0.7), s = Math.sin(0.7), t = 1 - c;
+        const [ax, ay, az] = [1 / Math.sqrt(14), 2 / Math.sqrt(14), 3 / Math.sqrt(14)];
+        const Y = new Float64Array(X.length);
+        for (let v = 0; v < m.Nv; v++) {
+          const x = X[v * 3], y = X[v * 3 + 1], z = X[v * 3 + 2];
+          Y[v * 3]     = (t*ax*ax + c)    * x + (t*ax*ay - s*az) * y + (t*ax*az + s*ay) * z + 0.3;
+          Y[v * 3 + 1] = (t*ax*ay + s*az) * x + (t*ay*ay + c)    * y + (t*ay*az - s*ax) * z - 0.2;
+          Y[v * 3 + 2] = (t*ax*az - s*ay) * x + (t*ay*az + s*ax) * y + (t*az*az + c)    * z + 0.5;
+        }
+        const E1 = energyAndGradient(m, Y, params, null).energy;
+        return Math.abs(E1 - E0) / E0;
+      }
+
+      // Analytic gradient vs central finite differences of the energy, at a
+      // randomly perturbed (deterministic seed) configuration.
+      function gradientVsFD() {
+        const m = createMobiusMesh({ length: L, width: W, nu: 24, nv: 6 });
+        const X = initialEmbedding(m);
+        let seed = 42;
+        const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5);
+        for (let i = 0; i < X.length; i++) X[i] += 0.05 * rnd();
+        const g = new Float64Array(X.length);
+        energyAndGradient(m, X, params, g);
+        const eps = 1e-6;
+        let worst = 0;
+        for (let sIdx = 0; sIdx < 45; sIdx++) {
+          const i = (sIdx * 37) % X.length;
+          const save = X[i];
+          X[i] = save + eps; const fp = energyAndGradient(m, X, params, null).energy;
+          X[i] = save - eps; const fm = energyAndGradient(m, X, params, null).energy;
+          X[i] = save;
+          const fd = (fp - fm) / (2 * eps);
+          worst = Math.max(worst, Math.abs(fd - g[i]) / Math.max(1e-8, Math.abs(fd)));
+        }
+        return worst;
+      }
+
+      // Rolling the flat strip onto a cylinder of radius R is an isometry, so
+      // the bending energy must reproduce the plate value (D/2) * area / R^2
+      // regardless of the mesh cell aspect (the quadrature area is the interior
+      // vertices' share, since free-boundary vertices carry no bending energy).
+      function cylinderRatio(aspect: number) {
+        const R = 1.5, nu = 64, nv = 10;
+        const dv = W / nv, du = dv * aspect, len = nu * du;
+        const m = createFlatStrip({ length: len, width: W, nu, nv });
+        const flat = m.flatEmbedding();
+        const X = new Float64Array(m.Nv * 3);
+        for (let v = 0; v < m.Nv; v++) {
+          const u = flat[v * 3];
+          X[v * 3] = R * Math.sin(u / R);
+          X[v * 3 + 1] = flat[v * 3 + 1];
+          X[v * 3 + 2] = R * (1 - Math.cos(u / R));
+        }
+        const r = energyAndGradient(m, X, params, null);
+        let aInt = 0;
+        for (let v = 0; v < m.Nv; v++) if (m.bendInterior[v]) aInt += m.bendAreaBar[v];
+        return r.bending / (0.5 * D * aInt / (R * R));
+      }
+
+      type Row = { name: string, expected: string, run: () => { value: string, ok: boolean } };
+      const fmt = (x: number) => x === 0 ? '0' : x.toExponential(1);
+      const checks: Row[] = [
+        { name: 'Flat rectangle: energy', expected: '0 (it is the rest state)',
+          run: () => { const r = flatRest(); return { value: fmt(r.E), ok: r.E < 1e-24 }; } },
+        { name: 'Flat rectangle: gradient', expected: '0 (no residual force)',
+          run: () => { const r = flatRest(); return { value: fmt(r.g), ok: r.g < 1e-14 }; } },
+        { name: 'Total rest area vs L·w (relative)', expected: '0 (round-off)',
+          run: () => { const r = restMetric(); return { value: fmt(r.areaErr), ok: r.areaErr < 1e-12 }; } },
+        { name: 'Seam rest lengths, both charts (relative)', expected: '0 (round-off)',
+          run: () => { const r = restMetric(); return { value: fmt(r.mismatch), ok: r.mismatch < 1e-12 }; } },
+        { name: 'Energy change under rigid motion (relative)', expected: '0 (round-off)',
+          run: () => { const r = rigidInvariance(); return { value: fmt(r), ok: r < 1e-10 }; } },
+        { name: 'Analytic gradient vs finite differences (relative)', expected: '0 (to FD accuracy, ~1e-6)',
+          run: () => { const r = gradientVsFD(); return { value: fmt(r), ok: r < 1e-5 }; } },
+        { name: 'Rolled cylinder / plate energy, square cells (du/dv = 1)', expected: '1 within 2%',
+          run: () => { const r = cylinderRatio(1); return { value: r.toFixed(4), ok: Math.abs(r - 1) < 0.02 }; } },
+        { name: 'Rolled cylinder / plate energy, stretched cells (du/dv = 2)', expected: '1 within 2%',
+          run: () => { const r = cylinderRatio(2); return { value: r.toFixed(4), ok: Math.abs(r - 1) < 0.02 }; } },
+      ];
+
+      const table = html`<table style="border-collapse:collapse;min-width:480px">
+        <thead><tr>
+          <th style="${valCellStyle};text-align:left">Check</th>
+          <th style="${valCellStyle};text-align:right">Computed</th>
+          <th style="${valCellStyle};text-align:left">Expected</th>
+          <th style="${valCellStyle};text-align:left"></th>
+        </tr></thead>
+      </table>`;
+      const tbody = html`<tbody></tbody>`;
+      table.appendChild(tbody);
+      validationTableWrap.replaceChildren(table);
+
+      let allOk = true;
+      for (const check of checks) {
+        let value = 'error', ok = false;
+        try {
+          ({ value, ok } = check.run());
+        } catch (err) {
+          value = String(err);
+        }
+        allOk = allOk && ok;
+        tbody.appendChild(html`<tr>
+          <td style="${valCellStyle}">${check.name}</td>
+          <td style="${valNumStyle};text-align:right">${value}</td>
+          <td style="${valCellStyle};color:var(--theme-foreground-muted,#777)">${check.expected}</td>
+          <td style="${valCellStyle};font-weight:600;color:${ok ? '#2ea043' : '#e5534b'}">${ok ? 'PASS' : 'FAIL'}</td>
+        </tr>`);
+      }
+      tbody.appendChild(html`<tr><td colspan="4" style="${valCellStyle};font-weight:600;color:${allOk ? '#2ea043' : '#e5534b'}">
+        ${allOk ? 'All checks passed.' : 'Some checks FAILED.'}</td></tr>`);
+    }
+
+    validationButton.addEventListener('click', runValidationChecks);
+    display(validationRoot);
   </script>
 
   <script id="coda" type="text/markdown">

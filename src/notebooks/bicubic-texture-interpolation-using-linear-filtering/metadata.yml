@@ -5,3 +5,7 @@ observableUrl: https://observablehq.com/@rreusser/bicubic-texture-interpolation-
 tags:
   - webgl
   - graphics
+seeAlso:
+  - adaptive-contouring-in-fragment-shaders
+  - point-cloud-point-opacity
+  - webgpu-lines

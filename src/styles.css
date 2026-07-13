@@ -743,12 +743,26 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
   color: #ebebeb;
 }
 
+/* See also (notebook pages). Reuses the recent-notebooks card list, but sits at
+   the article's reading width and is ruled off from the notebook body above it. */
+.see-also {
+  max-width: 640px;
+  margin: 0 auto 1em;
+  padding-top: 2.5em;
+  border-top: 1px solid rgba(128, 128, 128, 0.3);
+}
+
 /* On index pages, tighten the gap between the intro prose and the cards
    that follow (overrides the 100px padding-bottom on main). The container's
    own 50px bottom padding still provides breathing room above the footer. */
 .container:has(> .index-controls) main,
-.container:has(> .recent-notebooks) main {
+.container:has(> .recent-notebooks:not(.see-also)) main {
   padding-bottom: 24px;
+}
+
+/* A notebook body wants more air above the rule than an index intro does. */
+.container:has(> .see-also) main {
+  padding-bottom: 60px;
 }
 
 /* Index controls (filter + view toggle) */
@@ -1213,30 +1227,42 @@ html[data-dark] main details[open] {
   border-left-color: #444;
 }
 
-/* Index page dark overrides */
-html[data-dark] .index__item {
+/* Index page dark overrides.
+   Cards also appear in the "See also" section of notebook pages, and a notebook
+   that declares a dark theme of its own (near-midnight, ink, ...) never gets
+   data-dark: the theme script only sets that when it has to force a light
+   notebook dark. So every card rule needs the theme-is-dark variant too. */
+html[data-dark] .index__item,
+html.theme-is-dark:not([data-light]) .index__item {
   background: #222222;
   border-color: rgba(255, 255, 255, 0.08);
 }
-html[data-dark] .index__item:hover {
+html[data-dark] .index__item:hover,
+html.theme-is-dark:not([data-light]) .index__item:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
-html[data-dark] .index__image-container {
+html[data-dark] .index__image-container,
+html.theme-is-dark:not([data-light]) .index__image-container {
   background: linear-gradient(135deg, #333 0%, #2a2a2a 100%);
 }
-html[data-dark] .index__placeholder {
+html[data-dark] .index__placeholder,
+html.theme-is-dark:not([data-light]) .index__placeholder {
   background: linear-gradient(135deg, #333 0%, #2a2a2a 50%, #222 100%);
 }
-html[data-dark] .index__placeholder::after {
+html[data-dark] .index__placeholder::after,
+html.theme-is-dark:not([data-light]) .index__placeholder::after {
   border-color: #555;
 }
-html[data-dark] .index__title {
+html[data-dark] .index__title,
+html.theme-is-dark:not([data-light]) .index__title {
   color: #ddd;
 }
-html[data-dark] .index__item:hover .index__title-link {
+html[data-dark] .index__item:hover .index__title-link,
+html.theme-is-dark:not([data-light]) .index__item:hover .index__title-link {
   color: #d55b5b;
 }
-html[data-dark] .index__date {
+html[data-dark] .index__date,
+html.theme-is-dark:not([data-light]) .index__date {
   color: #999;
 }
 html[data-dark] .index__tag {
@@ -1270,10 +1296,12 @@ html[data-dark] .index__active-filter {
 html[data-dark] .index__filter-label {
   color: #aaa;
 }
-html[data-dark] .index__description {
+html[data-dark] .index__description,
+html.theme-is-dark:not([data-light]) .index__description {
   color: #aaa;
 }
-html[data-dark] .index--list .index__item {
+html[data-dark] .index--list .index__item,
+html.theme-is-dark:not([data-light]) .index--list .index__item {
   border-color: rgba(255, 255, 255, 0.06);
 }
 html[data-dark] .index-view-btn {

@@ -5,3 +5,7 @@ observableUrl: https://observablehq.com/@rreusser/locally-scaled-domain-coloring
 tags:
   - webgl
   - graphics
+seeAlso:
+  - bicubic-texture-interpolation-using-linear-filtering
+  - point-cloud-point-opacity
+  - webgpu-lines

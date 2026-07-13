@@ -5,3 +5,7 @@ observableUrl: https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-
 tags:
   - webgpu
   - chaos
+seeAlso:
+  - clifford-and-de-jong-attractors
+  - malkus-waterwheel
+  - chaotic-magnetic-pendulum

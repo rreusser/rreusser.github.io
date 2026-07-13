@@ -153,6 +153,33 @@ async function computeIndex() {
   return notebooks;
 }
 
+// Resolve a notebook's `seeAlso` slugs (written by scripts/generate-see-also.js)
+// into cards. Reads titles with a regex rather than deserializing every notebook,
+// since this runs once per page rather than once per build.
+async function resolveSeeAlso(slugs, { isDev }) {
+  const items = [];
+  for (const slug of slugs) {
+    const dir = join(NOTEBOOKS_DIR, slug);
+    const html = join(dir, "index.html");
+    if (!(await fileExists(html))) {
+      console.warn(`[seeAlso] unknown notebook slug "${slug}"`);
+      continue;
+    }
+    const meta = await readMetadata(html);
+    const title = (await readFile(html, "utf8")).match(/<title>([^<]*)<\/title>/)?.[1];
+    const ext = meta.image?.split(".").pop();
+    items.push({
+      path: `/notebooks/${slug}/`,
+      title: title || slug,
+      description: meta.description,
+      publishedAt: meta.publishedAt,
+      publishedAtDate: meta.publishedAtDate,
+      imageUrl: ext ? (isDev ? `/notebooks/${slug}/meta.${ext}` : `/meta/${slug}.${ext}`) : null,
+    });
+  }
+  return items;
+}
+
 function copyStaticAssets(patterns) {
   return {
     name: 'copy-static-assets',
@@ -211,6 +238,10 @@ export default defineConfig(async ({ command }) => {
             delete data.sourceUrl;
             delete data.author;
           }
+          if (!isRootIndex && !isNotebooksIndex && !is404 && metadata.seeAlso?.length) {
+            data.seeAlsoItems = await resolveSeeAlso(metadata.seeAlso, { isDev });
+          }
+
           let fullIndex = null;
           if (isNotebooksIndex || isRootIndex) {
             // Add notebook links
