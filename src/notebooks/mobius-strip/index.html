@@ -2018,7 +2018,7 @@
     // (CALL statements + EXTERNAL declarations) and cross-checked against the
     // routines physically present in the shipped bundles: every routine on disk
     // appears here, and nothing here is absent from disk.
-    const depsGraph = await fetch(new URL('deps-graph.json', document.baseURI)).then((r) => r.json());
+    import depsGraph from './deps-graph.json';
     const depsCount = depsGraph.nodes.length;
   </script>
 
