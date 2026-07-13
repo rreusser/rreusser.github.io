@@ -7,7 +7,7 @@
 
     Conway's [Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life) lives on a grid of cells that are strictly on or off, updated in discrete ticks by counting integer neighbors. **SmoothLife**, introduced by Stephan Rafler in [*Generalization of Conway's "Game of Life" to a continuous domain*](https://arxiv.org/abs/1111.1567), asks what happens when you let all of that go continuous: the state becomes a real number in ${tex`[0, 1]`}, the neighborhood becomes a smooth disc instead of eight discrete squares, and time advances in small increments rather than sudden ticks.
 
-    The result keeps the flavor of the original — gliders, oscillators, and self-organizing structures — but everything moves and morphs fluidly, like a living organism rather than a checkerboard. This page is a WebGPU rewrite of [an old sketch of mine](https://github.com/rreusser/sketches/tree/master/src/src/smooth-life); the simulation below runs entirely on your GPU.
+    The result preserves some of the gliders, oscillators, and self-organizing structures which make the original game of life so interesting, but adds an organic feel to it. This page is a WebGPU rewrite of [an old sketch of mine](https://github.com/rreusser/sketches/tree/master/src/src/smooth-life); the simulation below runs entirely in WebGPU.
   </script>
 
   <script id="webgpu-check" type="module">
@@ -371,10 +371,10 @@
         modeInput,
         stepsInput,
         fillInput,
-        autoRestartInput,
         NInput,
         colormapInput,
         brushInput,
+        autoRestartInput,
       );
 
       // ---- Interaction: paint, pan, zoom ----
@@ -528,49 +528,12 @@
     Drag the birth and survival bands on the transition diagram to reshape the rule, and try the presets. The **SmoothLifeL** preset is Rafler's glider ruleset from the [2011 paper](https://arxiv.org/abs/1111.1567) — the one Tim Hutton rendered in the well-known SmoothLife video (outer radius 20, birth ${tex`[0.257, 0.336]`}, survival ${tex`[0.365, 0.549]`}, ${tex`2s-1`} time stepping). It lives in a fairly narrow regime — if it fills in or dies out, nudge the initial density. The field wraps at the edges, so structures that drift off one side reappear on the other.
   </script>
 
-  <script id="discrete-to-continuous" type="text/markdown">
-    ## From counting neighbors to measuring density
-
-    SmoothLife replaces Conway's "count of eight neighbors" with two continuous averages over discs centered on each point. With ${tex`f(\mathbf{x}) \in [0,1]`} the state field, define an **inner fill** ${tex`m`} — the average of ${tex`f`} over a small disc of radius ${tex`r_i`} — and an **outer fill** ${tex`n`} — the average over the surrounding annulus out to ${tex`r_a`}:
-
-    ${tex.block`m = \frac{1}{|D_i|}\int_{D_i} f(\mathbf{x} + \mathbf{y})\, d\mathbf{y}, \qquad n = \frac{1}{|A|}\int_{A} f(\mathbf{x} + \mathbf{y})\, d\mathbf{y}`}
-
-    Here ${tex`m`} is "is *this* cell alive?" and ${tex`n`} is "how crowded is the neighborhood?" Rafler uses a radius ratio ${tex`r_a / r_i = 3`}, matching the Moore neighborhood's outer extent relative to a single cell.
-  </script>
-
-  <script id="transition-intro" type="text/markdown">
-    ## The transition function
-
-    A *transition function* ${tex`s(n, m)`} turns the two measurements into a target state: a cell is *born* when it is empty (${tex`m \approx 0`}) and its neighborhood fill ${tex`n`} lands in a birth interval ${tex`[b_1, b_2]`}, and *survives* when it is full (${tex`m \approx 1`}) and ${tex`n`} lands in a survival interval ${tex`[d_1, d_2]`}. Both intervals have soft, logistic edges; Rafler's paper gives the exact sigmoid algebra.
-
-    The diagram below *is* that rule, drawn as a map over every combination of neighborhood fill ${tex`n`} (horizontal) and cell fill ${tex`m`} (vertical), bright where ${tex`s \to 1`}. Every cell in the simulation reads off its own ${tex`(n, m)`} coordinate and relaxes toward the brightness it finds there. The birth band lives along the bottom edge (empty cells) and the survival band along the top (full cells) — drag either to reshape the rule the simulation runs.
-
-    One place we deviate from a naïve reading of the rule is worth a note. The birth and survival bands must be blended by ${tex`m`} at the level of their *outputs*, ${tex`s = (1-\sigma_{\alpha_m})\,\sigma_{[b_1,b_2]}(n) + \sigma_{\alpha_m}\,\sigma_{[d_1,d_2]}(n)`}, the way [Ready](https://github.com/GollyGang/ready) and Rafler do — not by interpolating the band *thresholds* and evaluating a single band, which an earlier version of this page did. The two agree only at ${tex`m = 0`} and ${tex`m = 1`}; at partial fill they differ enough to break the gliders. The **Blending** control switches between them.
-  </script>
-
-  <script id="transition-figure" type="module">
-    const tfWidth = Math.min(width, 420);
-    const tfDiagram = createTransitionDiagram({ maxWidth: tfWidth });
-    display(html`<figure style="max-width:${tfWidth}px;">
-      ${tfDiagram.element}
-      <figcaption>The transition map ${tex`s(n, m)`} — the same control used in the simulation above. Drag either band to reshape the rule.</figcaption>
-    </figure>`);
-  </script>
-
-  <script id="time-stepping" type="text/markdown">
-    ## Continuous time
-
-    Rather than snapping to the target each tick, the field relaxes toward it over a small time step ${tex`\Delta t`}:
-
-    ${tex.block`f \leftarrow f + \Delta t\,\bigl(s(n, m) - f\bigr)`}
-
-    Small ${tex`\Delta t`} gives smooth, fluid motion; larger values approach the discrete rule. Rafler's *increment* variant, ${tex`f \leftarrow f + \Delta t\,(2s - 1)`}, pushes toward 0 or 1 instead and tends to ripple. Both are in the controls as the time-stepping mode.
-  </script>
-
   <script id="implementation" type="text/markdown">
     ## Implementation
 
-    Each update needs both disc averages, which are circular convolutions of the field with a filled disc (radius ${tex`r_i`}) and a larger disc (radius ${tex`r_a`}); the annulus average is a weighted difference of the two. The original sketch unrolled the convolution into WebGL by generating GLSL source with one texture tap per kernel pixel, which makes the cost grow as ${tex`r_a^2`}. This version instead borrows the FFT machinery from the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/): the cost becomes independent of the radius, and the circular convolution matches the periodic (toroidal) domain exactly.
+    Rafler's original paper is the place to go for a brief and accessible description of the method, so I'll only add a couple notes on my particular implementation.
+
+    Each update needs two disc averages, which are circular convolutions of the field with a filled disc (radius ${tex`r_i`}) and a larger disc (radius ${tex`r_a`}). The annulus average is a weighted difference of the two. The original sketch unrolled the convolution into WebGL by generating GLSL source with one texture tap per kernel pixel, which makes the cost grow as ${tex`r_a^2`}. This version borrows FFT machinery from the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/).
 
     A convolution is a product in the frequency domain, and the Fourier transform of a normalized disc of radius ${tex`R`} is the analytical *jinc* function
 
@@ -579,22 +542,12 @@
     where ${tex`J_1`} is a Bessel function of the first kind. Because this equals 1 at ${tex`\mathbf{k} = 0`}, multiplying the field's spectrum by it computes a true average, with no kernel textures to store. The two discs are packed into a single complex convolution: multiplying the spectrum ${tex`\hat f`} by ${tex`\hat G_{r_i} + i\,\hat G_{r_a}`} and taking one inverse FFT recovers the ${tex`r_i`}-disc average in the real part and the ${tex`r_a`}-disc average in the imaginary part, since both convolutions are real. Each step is then one forward FFT, one spectral multiply, one inverse FFT, and a pointwise transition pass. The FFT itself is a Cooley–Tukey compute shader run as row-FFT, transpose, column-FFT, transpose.
   </script>
 
-  <script id="turing-kinship" type="text/markdown">
-    ## A Turing pattern in disguise
-
-    The kinship with the [multi-scale Turing pattern notebook](https://rreusser.github.io/notebooks/multiscale-turing-patterns/) runs deeper than a borrowed Fourier transform: the two are the same activator–inhibitor machine seen through different nonlinearities. Turing's recipe watches a field through a narrow **activator** and a wider **inhibitor** and drives the update by their *difference* — short-range activation minus long-range inhibition, which breaks symmetry into spots and stripes. SmoothLife measures the same two scales: the inner disc ${tex`m`} is the short-range, self-reinforcing lens and the outer annulus ${tex`n`} the long-range, crowd-sensing one, and its transition ${tex`s(n, m)`} plays the role of the difference — on where the near field is full and the far field is not too crowded. Only the combining rule differs: Turing sums the two and squashes with an ${tex`\arctan`}; SmoothLife feeds them through the windowed birth/survival function.
-
-    Where that window is gentle the two nearly coincide — linearize ${tex`s(n,m) - f`} and it *is* a short-range-activation / long-range-inhibition operator. The **Turing spots** preset freezes into the same static spot-and-worm lattice the Turing notebook produces from the very same convolutions. The life-like repertoire — gliders, oscillators, migrating blobs — only appears once the window is sharp enough to make the rule strongly nonlinear, pushing the system past a plain Turing instability. Seen this way, SmoothLife is a Turing pattern tuned to the edge of chaos.
-
-    The **Kernel** control leans further into the analogy: swapping the disc for a Gaussian of matched width turns the two disc averages into a literal difference of Gaussians — Turing's original activator–inhibitor pair. The gliders generally soften or dissolve, since the crisp disc edge is part of what makes the rule sharp enough to be life-like.
-  </script>
-
   <script id="references" type="text/markdown">
     ## References
 
     - Stephan Rafler, [*Generalization of Conway's "Game of Life" to a continuous domain — SmoothLife*](https://arxiv.org/abs/1111.1567) (2011).
     - Tim Hutton et al., [Ready](https://github.com/GollyGang/ready), a cross-platform reaction-diffusion and continuous-CA explorer.
-    - The original WebGL sketch this page replaces: [rreusser/sketches · smooth-life](https://github.com/rreusser/sketches/tree/master/src/src/smooth-life).
+    - The original WebGL sketch this page replaces: [rreusser/sketches · smooth-life](https://rreusser.github.io/sketches/smooth-life/).
     - Related on this site: [Multi-scale Turing patterns in WebGPU](https://rreusser.github.io/notebooks/multiscale-turing-patterns/) and [3D reaction-diffusion](https://rreusser.github.io/notebooks/3d-reaction-diffusion/).
   </script>
 </notebook>

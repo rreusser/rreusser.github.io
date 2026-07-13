@@ -5,3 +5,7 @@ tags:
   - webgpu
   - pde
   - cellular-automata
+seeAlso:
+  - multiscale-turing-patterns
+  - simulating-the-2d-kuramoto-sivashinsky-equation-in-webgpu
+  - particle-mesh-gravity
