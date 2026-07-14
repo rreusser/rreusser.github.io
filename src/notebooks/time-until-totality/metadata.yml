@@ -1,0 +1,11 @@
+publishedAt: "July 14, 2026"
+description: "A world map colored by how long until each location next sees totality."
+maxWidth: 640px
+tags:
+  - maps
+  - astronomy
+  - data visualization
+seeAlso:
+  - visualizing-sloan-digital-sky-survey-data
+  - night-and-day
+  - denali

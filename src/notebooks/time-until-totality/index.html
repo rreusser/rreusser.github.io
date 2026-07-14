@@ -1,0 +1,453 @@
+<!doctype html>
+<notebook theme="near-midnight">
+  <title>Time Until Totality</title>
+
+  <script id="intro" type="text/markdown">
+  I vaguely remember my first solar eclipse. I was probably eight years old. We either looked at the sun through x-ray film or we stuck our heads inside cardboard boxes with a pinhold projecting the eclipse on the opposite side, I don't remember. What I do know is that I failed to appreciate just how rare it was.
+
+  This notebook was inspired by the post below. Points on earth see a total eclipse about [once every 400 years](https://www.rmg.co.uk/stories/space-astronomy/solar-eclipses-explained). How long *you* have to wait is a different question.
+    </script>
+
+  <script id="bsky" type="application/vnd.observable.javascript">
+    import {bluesky} from "observable:@tophtucker/bluesky"
+  </script>
+  <script id="skeet" type="module">
+    const post = await bluesky('https://bsky.app/profile/theohonohan.bsky.social/post/3mpwk5geyzk2x');
+    // follow the viewer's system light/dark preference (same signal the site theme uses)
+    post.querySelector('.bluesky-embed')?.setAttribute('data-bluesky-embed-color-mode', 'system');
+    display(post);
+  </script>
+
+
+  <script id="intro2" type="text/markdown">
+The map below colors each point on Earth by how long until it next sees totality. The time is computed by marching the Moon's shadow across the globe for roughly 1,500 years. Click to outline every total eclipse passing through the selected point. 
+  </script>
+
+  <script id="styles" type="text/html">
+    <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.css" />
+    <style>
+      .map-wrapper { width: 100%; height: 100%; }
+      .map-container { width: 100%; height: 100%; position: relative; background: #0b0b12; }
+      .map-container canvas { outline: none; }
+      .ec-legend {
+        position: absolute; left: 10px; bottom: 40px; z-index: 5;
+        background: rgba(10, 10, 18, 0.72); color: #eee; padding: 8px 10px;
+        border-radius: 6px; font: 12px/1.3 sans-serif; pointer-events: auto;
+        cursor: pointer;
+      }
+      .ec-legend:hover { background: rgba(22, 24, 34, 0.86); }
+      .ec-legend-title {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .ec-legend-title .ec-actions { display: inline-flex; align-items: center; gap: 9px; }
+      .ec-legend-title .caret { font-size: 11px; opacity: 0.7; white-space: nowrap; }
+      .ec-legend-title .hint { display: inline-flex; opacity: 0.75; }
+      .ec-legend-title .hint svg { display: block; }
+      .ec-legend:hover .hint { opacity: 1; }
+      .ec-picker {
+        position: absolute; left: 10px; bottom: 116px; z-index: 6; width: 190px;
+        background: rgba(12, 14, 20, 0.94); color: #eee; padding: 6px;
+        border-radius: 6px; font: 12px/1.3 sans-serif;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+      }
+      .ec-picker[hidden] { display: none; }
+      .ec-picker-head { font-weight: 600; opacity: 0.75; margin: 2px 4px 6px; }
+      .ec-picker-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 3px 4px; border-radius: 4px; cursor: pointer;
+      }
+      .ec-picker-row:hover { background: rgba(255, 255, 255, 0.14); }
+      .ec-picker-row .sw { width: 84px; height: 12px; border-radius: 2px; flex: none; }
+      .ec-picker-row.active .nm { font-weight: 600; }
+      .ec-table { margin-top: 1em; font: 13px/1.4 sans-serif; }
+      .ec-table .head { font-weight: 600; margin-bottom: 6px; }
+      .ec-table table { border-collapse: collapse; }
+      .ec-table th, .ec-table td {
+        text-align: left; padding: 3px 22px 3px 0; border-bottom: 1px solid rgba(128,128,128,0.25);
+      }
+      .ec-table th.num, .ec-table td.num {
+        text-align: right; padding-right: 0; font-variant-numeric: tabular-nums;
+      }
+      .ec-table .muted { opacity: 0.65; }
+      .ec-table tbody tr[data-id] { cursor: default; }
+      .ec-table tbody tr[data-id]:hover { background: rgba(128,128,128,0.18); }
+      .ec-legend .bar {
+        height: 10px; width: 220px; border-radius: 2px; margin: 4px 0 2px;
+        background: linear-gradient(to right,
+          #fde725, #b5de2b, #6ece58, #35b779, #1f9e89,
+          #26828e, #31688e, #3e4989, #482878, #440154);
+      }
+      .ec-legend .labels { display: flex; justify-content: space-between; }
+      .ec-readout {
+        position: absolute; top: 10px; left: 10px; z-index: 5;
+        background: rgba(10, 10, 18, 0.7); color: #fff; padding: 6px 10px;
+        border-radius: 6px; font: 13px/1.2 sans-serif; pointer-events: none;
+      }
+      /* keep the notebook theme's link color off Mapbox's attribution links */
+      .mapboxgl-ctrl-attrib a[href] { color: rgba(0, 0, 0, 0.75) !important; }
+      /* clip the Bluesky embed's rounded card so its light interior corners don't show */
+      .bluesky-embed { border-radius: 32px; overflow: hidden; }
+    </style>
+  </script>
+
+  <script id="imports" type="module">
+    import mapboxgl from 'npm:mapbox-gl@3.25.0';
+    import * as d3 from 'npm:d3@7';
+    import { VectorTile } from 'npm:@mapbox/vector-tile@2';
+    import Pbf from 'npm:pbf@4';
+    import { expandable } from './lib/expandable.js';
+    import SnapshotControl from './lib/download-control.js';
+    import { ECLIPSE_RASTER_BASE, ECLIPSE_VECTOR_BASE, ECLIPSE_GEOJSON_BASE } from './asset-urls.js';
+  </script>
+
+  <script id="figure" type="module">
+    const wrapper = html`<div class="map-wrapper" style="position: relative;">
+      <div class="map-container" id="ec-map"></div>
+      <div class="ec-readout" id="ec-readout">Click a band to read its eclipse date</div>
+      <div class="ec-legend" id="ec-legend"></div>
+    </div>`;
+
+    const expandableState = { expanded: false, resizeMap: null, snapshot: null };
+
+    const CAMERA_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+
+    const container = expandable(wrapper, {
+      id: 'eclipse-map',
+      width: Math.min(width, 900),
+      height: 600,
+      state: expandableState,
+      wide: true,
+      buttons: [{ icon: CAMERA_ICON, title: 'Download snapshot', onClick: () => expandableState.snapshot?.() }],
+      onResize(el, w, h) {
+        const m = el.querySelector('#ec-map');
+        if (m) { m.style.width = `${w}px`; m.style.height = `${h}px`; }
+        if (expandableState.resizeMap) expandableState.resizeMap();
+      }
+    });
+
+    display(container);
+  </script>
+
+  <script id="map" type="module">
+    mapboxgl.accessToken = 'pk.eyJ1IjoicnNyZXVzc2VyIiwiYSI6ImNtYnh6eGdoejFpZXMya3B1azNxcjM4a3gifQ.U3_1xdf6dopJTX3TAuWAiQ';
+
+    const tilesBase = new URL(`${ECLIPSE_RASTER_BASE}/`, document.baseURI).href;
+    const manifest = await (await fetch(tilesBase + 'manifest.json')).json();
+    const EPOCH = Date.parse(manifest.epoch + 'T00:00:00Z');
+    const MAXV = 2 ** 24 - 1;
+    const LO = Math.log(manifest.y0), HI = Math.log(manifest.yearsMaxEff);
+    const CMIN = Math.log(1.0);   // color-scale floor: <= 1 year clamps to the brightest color
+    // shared decode: 24-bit value m -> log years -> years
+    const mToYears = (m) => Math.exp(LO + (m / MAXV) * (HI - LO));
+
+    const map = new mapboxgl.Map({
+      container: wrapper.querySelector('#ec-map'),
+      style: 'mapbox://styles/mapbox/dark-v11',
+      center: [0, 20],
+      zoom: 1.51,
+      projection: 'mercator',
+      attributionControl: true,
+      preserveDrawingBuffer: true       // required so the snapshot control can read the canvas
+    });
+    let disposed = false;
+    invalidation.then(() => { disposed = true; });   // set before teardown so late callbacks bail
+    expandableState.resizeMap = () => map.resize();
+    invalidation.then(() => map.remove());
+
+    await map.once('load');
+    // drive the snapshot from the expandable's button bar (avoids overlapping the expand toggle)
+    const snapshotter = new SnapshotControl();
+    snapshotter._map = map;
+    expandableState.snapshot = () => snapshotter.download();
+
+    map.addSource('eclipse', {
+      type: 'raster',
+      tiles: [tilesBase + '{z}/{x}/{y}.webp'],
+      tileSize: manifest.tileSize,
+      minzoom: 0,
+      maxzoom: manifest.zmax
+    });
+
+    // color palettes: d3 interpolators quantized into a log-spaced ramp. Each
+    // carries a reverse flag so "soon" lands on the salient/warm end.
+    const SAMPLES = 16;
+    const PALETTES = [
+      ['Viridis', d3.interpolateViridis, true],
+      ['Spectral', d3.interpolateSpectral, false],
+      ['Turbo', d3.interpolateTurbo, true],
+      ['Inferno', d3.interpolateInferno, true],
+      ['Magma', d3.interpolateMagma, true],
+      ['Plasma', d3.interpolatePlasma, true],
+      ['Cividis', d3.interpolateCividis, true],
+    ];
+    const sampleColors = ([, interp, rev]) => {
+      const cs = d3.quantize(interp, SAMPLES);
+      return rev ? cs.reverse() : cs;
+    };
+    const stopsFor = (cs) =>
+      cs.flatMap((c, i) => [CMIN + i / (cs.length - 1) * (HI - CMIN), c]);
+    let committed = PALETTES[0];                 // Spectral by default
+    const rampStops = stopsFor(sampleColors(committed));
+    // GPU decode: raster-value = LO + dot(mix, rgb),  m = R*65536 + G*256 + B
+    const k = (HI - LO) / MAXV;
+
+    // insert beneath the admin boundaries so country borders and labels draw on top
+    const firstAdmin = map.getStyle().layers.find((l) => l.id.startsWith('admin'));
+    const beforeId = firstAdmin ? firstAdmin.id
+      : map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+
+    map.addLayer({
+      id: 'eclipse',
+      type: 'raster',
+      source: 'eclipse',
+      paint: {
+        'raster-color': ['interpolate', ['linear'], ['raster-value'], ...rampStops],
+        'raster-color-mix': [k * 255 * 65536, k * 255 * 256, k * 255, LO],
+        'raster-color-range': [LO, HI],
+        'raster-color-range-transition': { duration: 0, delay: 0 },
+        'raster-color-mix-transition': { duration: 0, delay: 0 },
+        'raster-resampling': 'nearest',
+        'raster-opacity': 1.0,
+        'raster-fade-duration': 0
+      }
+    }, beforeId);
+
+    // reuse the dark style's own water polygons (composite/water): a low-opacity
+    // fill to sink the oceans back toward the basemap (so land reads as land),
+    // and the coastline drawn on top of the heat map
+    map.addLayer({
+      id: 'ocean-mute',
+      type: 'fill',
+      source: 'composite',
+      'source-layer': 'water',
+      paint: { 'fill-color': '#0a0e14', 'fill-opacity': 0.45 }
+    }, beforeId);
+    map.addLayer({
+      id: 'coastline',
+      type: 'line',
+      source: 'composite',
+      'source-layer': 'water',
+      paint: {
+        'line-color': '#8a97a5',
+        'line-opacity': 0.6,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 4, 0.8, 8, 1.4]
+      }
+    }, beforeId);
+
+    // legend + wheel-adjustable far cutoff (scroll the legend to change how far
+    // into the future stays visible; the ramp's top sliver is transparent, so
+    // near eclipses clamp to the palette min and far ones clamp to hidden)
+    const legend = wrapper.querySelector('#ec-legend');
+    legend.innerHTML = `<div class="ec-legend-title"><span>Years until next total eclipse</span><span class="ec-actions"><span class="hint" title="Scroll here to change how far into the future is shown"><svg viewBox="0 0 12 24" width="9" height="17" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,3.5 6,1 8.5,3.5"/><rect x="1.5" y="6.5" width="9" height="13" rx="4.5"/><line x1="6" y1="9" x2="6" y2="11.5"/><polyline points="3.5,20.5 6,23 8.5,20.5"/></svg></span><span class="caret" title="Click to change color palette">palette &#9662;</span></span></div><div class="bar"></div><div class="ticks" style="position:relative;height:1.1em;width:220px"></div>`;
+
+    let cutoffLog = HI;                           // >= this (log-years) renders transparent
+    let curColors = sampleColors(committed);
+    const rampExpr = () => {
+      const eps = (cutoffLog - CMIN) / 1024;      // one quantization step -> the transparent sliver
+      const stops = curColors.flatMap((c, i) =>
+        [CMIN + i / (curColors.length - 1) * (cutoffLog - eps - CMIN), c]);
+      const clear = d3.rgb(curColors.at(-1)); clear.opacity = 0;   // same hue, alpha 0
+      stops.push(cutoffLog, clear + '');
+      return ['interpolate', ['linear'], ['raster-value'], ...stops];
+    };
+    const renderTicks = () => {
+      const hiY = Math.exp(cutoffLog);
+      legend.querySelector('.ticks').innerHTML = [1, 10, 100, 1000, 3000, 10000]
+        .filter((t) => t <= hiY * 1.001)
+        .map((t) => `<span style="position:absolute;left:${(Math.log(t) - CMIN) / (cutoffLog - CMIN) * 100}%;transform:translateX(-50%)">${t}</span>`)
+        .join('');
+    };
+    const applyAll = () => {
+      if (disposed || !map.getLayer('eclipse')) return;   // map torn down (cell re-run) -> skip
+      map.setPaintProperty('eclipse', 'raster-color', rampExpr());
+      map.setPaintProperty('eclipse', 'raster-color-range', [CMIN, cutoffLog]);
+      legend.querySelector('.bar').style.background = `linear-gradient(to right, ${curColors.join(', ')})`;
+      renderTicks();
+    };
+    const applyColors = (cs) => { curColors = cs; applyAll(); };
+    applyAll();
+
+    legend.addEventListener('wheel', (e) => {     // scroll to move the far cutoff
+      e.preventDefault();
+      const span = HI - CMIN;
+      cutoffLog = Math.min(HI, Math.max(CMIN + 0.08 * span, cutoffLog - e.deltaY * 0.0016 * span));
+      applyAll();
+    }, { passive: false });
+
+    const picker = html`<div class="ec-picker" hidden></div>`;
+    picker.appendChild(html`<div class="ec-picker-head">Palette</div>`);
+    const rows = PALETTES.map((p) => {
+      const cs = sampleColors(p);
+      const row = html`<div class="ec-picker-row"><span class="sw"></span><span class="nm">${p[0]}</span></div>`;
+      row.querySelector('.sw').style.background = `linear-gradient(to right, ${cs.join(',')})`;
+      row.addEventListener('mouseenter', () => applyColors(cs));   // live preview
+      row.addEventListener('click', (e) => { e.stopPropagation(); committed = p; markActive(); closePicker(); });
+      picker.appendChild(row);
+      return row;
+    });
+    wrapper.appendChild(picker);
+    const markActive = () =>
+      rows.forEach((r, i) => r.classList.toggle('active', PALETTES[i] === committed));
+    markActive();
+
+    const onDown = (e) => { if (!picker.contains(e.target) && !legend.contains(e.target)) closePicker(); };
+    const onKey = (e) => { if (e.key === 'Escape') closePicker(); };
+    const openPicker = () => {
+      picker.hidden = false;
+      document.addEventListener('mousedown', onDown, true);
+      document.addEventListener('keydown', onKey);
+    };
+    function closePicker() {
+      picker.hidden = true;
+      applyColors(sampleColors(committed));      // revert any hover preview
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onKey);
+    }
+    legend.title = 'Scroll here to change how far into the future is shown';
+    legend.addEventListener('click', () => (picker.hidden ? openPicker() : closePicker()));
+    invalidation.then(closePicker);
+
+    // click to decode the exact date from the same lossless tiles
+    const readout = wrapper.querySelector('#ec-readout');
+    const decoder = document.createElement('canvas');
+    decoder.width = decoder.height = manifest.tileSize;
+    const dctx = decoder.getContext('2d', { willReadFrequently: true });
+
+    async function queryYears(lng, lat) {
+      const Z = manifest.zmax, N = 2 ** Z, T = manifest.tileSize;
+      const fx = (lng + 180) / 360 * N;
+      const latR = lat * Math.PI / 180;
+      const fy = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * N;
+      const tx = Math.floor(fx), ty = Math.floor(fy);
+      if (tx < 0 || ty < 0 || tx >= N || ty >= N) return null;
+      const px = Math.min(T - 1, Math.floor((fx - tx) * T));
+      const py = Math.min(T - 1, Math.floor((fy - ty) * T));
+      const resp = await fetch(`${tilesBase}${Z}/${tx}/${ty}.webp`);
+      if (!resp.ok) return null;               // empty tile: no eclipse here
+      const bmp = await createImageBitmap(await resp.blob());
+      dctx.clearRect(0, 0, T, T);
+      dctx.drawImage(bmp, 0, 0);
+      const d = dctx.getImageData(px, py, 1, 1).data;
+      if (d[3] === 0) return null;
+      return mToYears(d[0] * 65536 + d[1] * 256 + d[2]);
+    }
+
+    // --- click augmentation: every future total eclipse over the point ---
+    const queryBase = new URL(`${ECLIPSE_VECTOR_BASE}/`, document.baseURI).href;
+    const outlineBase = new URL(`${ECLIPSE_GEOJSON_BASE}/`, document.baseURI).href;
+
+    map.addSource('selected-eclipses', { type: 'geojson', promoteId: 'id', data: { type: 'FeatureCollection', features: [] } });
+    const hov = (a, b) => ['case', ['boolean', ['feature-state', 'hover'], false], a, b];
+    map.addLayer({
+      id: 'selected-fill', type: 'fill', source: 'selected-eclipses',
+      filter: ['==', ['get', 'kind'], 'fill'],
+      paint: { 'fill-color': '#ffffff', 'fill-opacity': hov(0.22, 0.07) }
+    });
+    map.addLayer({
+      id: 'selected-eclipses', type: 'line', source: 'selected-eclipses',
+      filter: ['==', ['get', 'kind'], 'outline'],
+      paint: { 'line-color': '#ffffff', 'line-width': hov(2.2, 1.0), 'line-opacity': hov(1.0, 0.6) }
+    });
+    map.addSource('click-point', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'click-point', type: 'circle', source: 'click-point',
+      paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#000', 'circle-stroke-width': 1.5 }
+    });
+
+    // even-odd point-in-polygon across all rings of an MVT feature (tile coords)
+    const pointInFeature = (rings, x, y) => {
+      let inside = false;
+      for (const ring of rings) {
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const a = ring[i], b = ring[j];
+          if (((a.y > y) !== (b.y > y)) &&
+              (x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x)) inside = !inside;
+        }
+      }
+      return inside;
+    };
+
+    // fetch the single z6 query tile under the point, intersect, return outline features
+    async function eclipsesAt(lng, lat) {
+      const Z = 6, N = 2 ** Z;
+      const fx = (lng + 180) / 360 * N;
+      const latR = lat * Math.PI / 180;
+      const fy = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * N;
+      const tx = Math.floor(fx), ty = Math.floor(fy);
+      if (tx < 0 || ty < 0 || tx >= N || ty >= N) return [];
+      const resp = await fetch(`${queryBase}${Z}/${tx}/${ty}.pbf`);
+      if (!resp.ok) return [];                     // no eclipse-covered tile here
+      const layer = new VectorTile(new Pbf(await resp.arrayBuffer())).layers.eclipses;
+      if (!layer) return [];
+      const E = layer.extent, lx = (fx - tx) * E, ly = (fy - ty) * E;
+      const ids = new Set();                     // many quads share an eclipse id
+      for (let i = 0; i < layer.length; i++) {
+        const f = layer.feature(i);
+        if (pointInFeature(f.loadGeometry(), lx, ly)) ids.add(f.properties.id);
+      }
+      const fcs = await Promise.all([...ids].map((id) => fetch(`${outlineBase}${id}.json`).then((r) => r.json())));
+      return fcs.flatMap((fc) => fc.features);   // outline + fill features per eclipse
+    }
+
+    const tableEl = html`<div class="ec-table"><span class="muted">Click the map to list every total eclipse that crosses that point over the next ${Math.round(manifest.yearsMax)} years.</span></div>`;
+    display(tableEl);
+
+    // hover a table row -> intensify that eclipse via feature-state
+    let hoverId = null;
+    const setHover = (id) => {
+      if (hoverId !== null) map.removeFeatureState({ source: 'selected-eclipses', id: hoverId });
+      hoverId = id;
+      if (id !== null) map.setFeatureState({ source: 'selected-eclipses', id }, { hover: true });
+    };
+    tableEl.addEventListener('mouseover', (e) => {
+      const tr = e.target.closest('tr[data-id]');
+      if (tr) setHover(+tr.dataset.id);
+    });
+    tableEl.addEventListener('mouseleave', () => setHover(null));
+
+    const fmtLngLat = (lng, lat) =>
+      `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(2)}°${lng >= 0 ? 'E' : 'W'}`;
+
+    function renderTable(lng, lat, feats) {
+      const byId = new Map();
+      for (const f of feats) if (!byId.has(f.properties.id)) byId.set(f.properties.id, f.properties.date);
+      if (!byId.size) {
+        tableEl.innerHTML = `<span class="muted">No total eclipse crosses ${fmtLngLat(lng, lat)} in the next ${Math.round(manifest.yearsMax)} years.</span>`;
+        return;
+      }
+      const now = Date.now();
+      const fmtDate = (date) => new Date(Date.parse(date + 'T00:00:00Z'))
+        .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+      const rows = [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([id, date]) => {
+        const yrs = (Date.parse(date + 'T00:00:00Z') - now) / (365.25 * 86400000);
+        return `<tr data-id="${id}"><td>${fmtDate(date)}</td><td class="num">${yrs < 0 ? '—' : Math.round(yrs)}</td></tr>`;
+      }).join('');
+      tableEl.innerHTML =
+        `<div class="head">${byId.size} total eclipse${byId.size > 1 ? 's' : ''} over ${fmtLngLat(lng, lat)}</div>` +
+        `<table><thead><tr><th>Date</th><th class="num">Years from now</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    map.on('mousemove', () => { map.getCanvas().style.cursor = 'crosshair'; });
+    map.on('click', async (e) => {
+      const lat = e.lngLat.lat;
+      const lng = ((e.lngLat.lng + 180) % 360 + 360) % 360 - 180;   // wrap repeated world copies into [-180,180]
+      readout.textContent = 'Reading…';
+      const [years, feats] = await Promise.all([queryYears(lng, lat), eclipsesAt(lng, lat)]);
+      readout.textContent = years == null
+        ? 'No total eclipse here within the computed span'
+        : `Next total eclipse here: ${new Date(EPOCH + years * 365.25 * 86400000).toISOString().slice(0, 10)} (in ${Math.round(years)} years)`;
+      map.getSource('selected-eclipses').setData({ type: 'FeatureCollection', features: feats });
+      map.getSource('click-point').setData({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [e.lngLat.lng, lat] }, properties: {} }] });
+      hoverId = null;                            // features replaced; clear stale hover
+      renderTable(lng, lat, feats);
+    });
+  </script>
+
+  <script id="method" type="text/markdown">
+The map above displays precomputed eclipse paths based on [DE440](https://ssd.jpl.nasa.gov/planets/eph_export.html) ephemeris for near-term eclipses and [DE441](https://ssd.jpl.nasa.gov/planets/eph_export.html) past the year 3,000. I largely farmed out the eclipse computation to Claude Code and cross-checked the accuracy, but although I believe it's valid, I don't make any academic claims here about correctness.
+
+Displaying and querying the paths is a little tricky. The paths are displayed by way of pre-baked WebP raster image tiles, colored with Mapbox's [`raster-color`](https://docs.mapbox.com/style-spec/reference/layers/#paint-raster-raster-color) feature (which, for better or for worse, I wrote when I worked there). Years are encoded logarithmically as RGB triples and decoded and colored at runtime.
+
+When the map is clicked, a zoom level 6 vector map tile is fetched, decoded, and the ID of all intersecting eclipse paths computed. Then, a GeoJSON path is fetched and displayed for each matching eclipse path. It's a bit convoluted, but even with decimationa and aggregation, it wasn't otherwise straightforward to display all 1,116 vector outlines.
+  </script>
+</notebook>

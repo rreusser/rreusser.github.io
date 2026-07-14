@@ -4,6 +4,14 @@ icebox
 .notebook-kit-debug
 src/notebooks/webgpu-lines/regl-gpu-lines
 src/notebooks/denali/data
+# baked eclipse assets: served from S3 in production, kept locally for dev
+src/notebooks/time-until-totality/tiles
+src/notebooks/time-until-totality/query
+src/notebooks/time-until-totality/outlines
+# ephemerides + intermediates for the bake (1.5 GB of DE441 alone)
+src/notebooks/time-until-totality/compute/*.bsp
+src/notebooks/time-until-totality/compute/eclipse_bands.geojson
+src/notebooks/time-until-totality/compute/eclipse-query.geojson
 .janus
 www
 opencode.json

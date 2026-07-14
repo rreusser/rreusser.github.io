@@ -1,0 +1,4 @@
+skyfield>=1.54
+numpy>=2
+pillow>=10
+matplotlib>=3.8

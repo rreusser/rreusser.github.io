@@ -51,6 +51,22 @@ function stringifyJsonLd(obj) {
 // Tile URLs for src/notebooks/denali
 const S3_BASE = "https://s3.us-east-1.amazonaws.com/tilesets.rreusser.github.io";
 
+// Baked asset bases for src/notebooks/time-until-totality. The three sets are
+// separate tilesets in the bucket: a webp raster pyramid of years-until-totality,
+// z6 vector tiles used to resolve a click to eclipse ids, and one GeoJSON file
+// per eclipse. In dev they are read from the (gitignored) notebook directory.
+const eclipseUrls = {
+  raster: process.env.NODE_ENV === "production"
+    ? `${S3_BASE}/time-until-totality-raster-v1`
+    : "tiles",
+  vector: process.env.NODE_ENV === "production"
+    ? `${S3_BASE}/time-until-totality-vector-v1`
+    : "query",
+  geojson: process.env.NODE_ENV === "production"
+    ? `${S3_BASE}/time-until-totality-geojson-v1`
+    : "outlines",
+};
+
 const tileUrls = {
   terrain: process.env.NODE_ENV === "production"
     ? `${S3_BASE}/denali-arcticdem-srtm30-v1/{z}/{x}/{y}.webp`
@@ -186,7 +202,12 @@ function copyStaticAssets(patterns) {
     apply: 'build',
     async closeBundle() {
       for (const pattern of patterns) {
-        const files = glob.sync(join(SRC_DIR, pattern), { nodir: true, absolute: true });
+        const files = glob.sync(join(SRC_DIR, pattern), {
+          nodir: true,
+          absolute: true,
+          // bake inputs/intermediates (ephemerides, source geojson) never ship
+          ignore: [join(SRC_DIR, "notebooks/**/compute/**")],
+        });
         for (const file of files) {
           const rel = relative(SRC_DIR, file);
           const dest = join(__dirname, 'www', rel);
@@ -382,6 +403,9 @@ export default defineConfig(async ({ command }) => {
       __TILE_URL_SENTINEL__: JSON.stringify(tileUrls.sentinel),
       __TILE_URL_TAHOE__: JSON.stringify(tileUrls.tahoe),
       __TILE_URL_TAHOE_SENTINEL__: JSON.stringify(tileUrls.tahoeSentinel),
+      __ECLIPSE_RASTER_BASE__: JSON.stringify(eclipseUrls.raster),
+      __ECLIPSE_VECTOR_BASE__: JSON.stringify(eclipseUrls.vector),
+      __ECLIPSE_GEOJSON_BASE__: JSON.stringify(eclipseUrls.geojson),
     },
   };
 });
