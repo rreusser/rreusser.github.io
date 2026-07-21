@@ -262,6 +262,9 @@ export default defineConfig(async ({ command }) => {
           if (!isRootIndex && !isNotebooksIndex && !is404 && metadata.seeAlso?.length) {
             data.seeAlsoItems = await resolveSeeAlso(metadata.seeAlso, { isDev });
           }
+          // giscus comments render on every article page (not the index pages
+          // or 404), independent of whether a seeAlso list exists.
+          data.showComments = !isRootIndex && !isNotebooksIndex && !is404;
 
           let fullIndex = null;
           if (isNotebooksIndex || isRootIndex) {

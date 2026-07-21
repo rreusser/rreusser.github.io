@@ -126,6 +126,58 @@
       {{#if title}}<h1 class="sr-only">{{title}}</h1>{{/if}}
       <main id="main-content"></main>
     </article>
+    {{#if showComments}}
+      <section class="giscus-comments" aria-label="Comments">
+        <div class="giscus"></div>
+      </section>
+      <script>
+        (function () {
+          const container = document.querySelector('.giscus-comments .giscus');
+          if (!container) return;
+          const themeFor = (dark) => dark ? 'dark' : 'light';
+          const isDark = () => document.documentElement.classList.contains('theme-is-dark');
+
+          const s = document.createElement('script');
+          s.src = 'https://giscus.app/client.js';
+          s.setAttribute('data-repo', 'rreusser/rreusser.github.io');
+          s.setAttribute('data-repo-id', 'R_kgDOPXUREQ');
+          s.setAttribute('data-category', 'Announcements');
+          s.setAttribute('data-category-id', 'DIC_kwDOPXUREc4DBlrr');
+          s.setAttribute('data-mapping', 'pathname');
+          s.setAttribute('data-strict', '1');
+          s.setAttribute('data-reactions-enabled', '1');
+          s.setAttribute('data-emit-metadata', '0');
+          s.setAttribute('data-input-position', 'top');
+          s.setAttribute('data-theme', themeFor(isDark()));
+          s.setAttribute('data-lang', 'en');
+          s.setAttribute('data-loading', 'lazy');
+          s.crossOrigin = 'anonymous';
+          s.async = true;
+          container.appendChild(s);
+
+          // Keep giscus in sync with the site's dark/light toggle by watching
+          // the theme-is-dark class the header script maintains.
+          new MutationObserver(function () {
+            const frame = document.querySelector('iframe.giscus-frame');
+            if (!frame) return;
+            frame.contentWindow.postMessage(
+              { giscus: { setConfig: { theme: themeFor(isDark()) } } },
+              'https://giscus.app'
+            );
+          }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+        })();
+      </script>
+    {{/if}}
+    {{#if mastodonPostId}}
+      <script src="/comments.js" type="module"></script>
+      <style>
+        #comment-root {
+          margin: auto;
+          max-width: 640px;
+        }
+      </style>
+      <div id="comment-root" data-post-id="{{mastodonPostId}}"></div>
+    {{/if}}
     {{#if seeAlsoItems}}
       <section class="recent-notebooks see-also" aria-labelledby="see-also-heading">
         <h2 id="see-also-heading" class="recent-notebooks__heading">See also</h2>
@@ -286,16 +338,6 @@
       </script>
     {{/if}}
 
-    {{#if mastodonPostId}}
-      <script src="/comments.js" type="module"></script>
-      <style>
-        #comment-root {
-          margin: auto;
-          max-width: 640px;
-        }
-      </style>
-      <div id="comment-root" data-post-id="{{mastodonPostId}}"></div>
-    {{/if}}
   </div>
   <footer>
     <div class="footer__attrib">&copy; {{currentYear}} Ricky Reusser</div>

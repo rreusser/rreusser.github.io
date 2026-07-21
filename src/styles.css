@@ -752,6 +752,15 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
   border-top: 1px solid rgba(128, 128, 128, 0.3);
 }
 
+/* giscus comments (notebook pages). Sits at the article's reading width and is
+   ruled off from the notebook body above it, matching the see-also treatment. */
+.giscus-comments {
+  max-width: 640px;
+  margin: 0 auto 1em;
+  padding-top: 2.5em;
+  border-top: 1px solid rgba(128, 128, 128, 0.3);
+}
+
 /* On index pages, tighten the gap between the intro prose and the cards
    that follow (overrides the 100px padding-bottom on main). The container's
    own 50px bottom padding still provides breathing room above the footer. */
@@ -760,8 +769,10 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
   padding-bottom: 24px;
 }
 
-/* A notebook body wants more air above the rule than an index intro does. */
-.container:has(> .see-also) main {
+/* A notebook body wants more air above the rule than an index intro does.
+   giscus is above see-also on every article page, so it's the usual first rule. */
+.container:has(> .see-also) main,
+.container:has(> .giscus-comments) main {
   padding-bottom: 60px;
 }
 
