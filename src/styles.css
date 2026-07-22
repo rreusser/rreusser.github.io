@@ -764,7 +764,7 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
 /* On index pages, tighten the gap between the intro prose and the cards
    that follow (overrides the 100px padding-bottom on main). The container's
    own 50px bottom padding still provides breathing room above the footer. */
-.container:has(> .index-controls) main,
+.container:has(> .nbindex) main,
 .container:has(> .recent-notebooks:not(.see-also)) main {
   padding-bottom: 24px;
 }
@@ -776,48 +776,189 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
   padding-bottom: 60px;
 }
 
-/* Index controls (filter + view toggle) */
-.index-controls {
+/* Notebooks index (year-grouped typographic list; full-color thumbnails always
+   shown in the left column).
+   The active-filter indicator above the list is shared with the old markup, so
+   its .index__active-filter / .index__filter-* styles above still apply. */
+.nbindex {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Reused for the "See also" and homepage "Recent notebooks" lists, which are
+   flat (no year groups) and carry no date. Fills the narrower section it sits in. */
+.nbindex--compact {
+  max-width: none;
+}
+
+.nbindex__group-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
+  align-items: baseline;
+  gap: 20px;
+  margin: 38px 0 6px;
 }
 
-.index-view-toggle {
+.nbindex__group:first-child .nbindex__group-header {
+  margin-top: 8px;
+}
+
+.nbindex__year {
+  font-family: var(--monospace);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: #ca4747;
+}
+
+.nbindex__rule {
+  flex: 1;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.nbindex__count {
+  font-family: var(--monospace);
+  font-size: 12px;
+  color: #9a9a9a;
+}
+
+.nbindex__row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 128px 1fr;
+  gap: 22px;
+  padding: 15px 14px;
+  margin: 0 -14px;
+  border-radius: 8px;
+  transition: background 0.18s ease;
+}
+
+.nbindex__row:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.nbindex__media {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 7px;
 }
 
-.index-view-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 8px;
-  border: 1px solid #ddd;
-  background: #fff;
-  cursor: pointer;
-  color: #999;
-  border-radius: 4px;
-  transition: all 0.15s ease;
+.nbindex__thumbwrap {
+  width: 128px;
+  height: 72px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #ececec;
 }
 
-.index-view-btn svg {
+.nbindex__thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   display: block;
 }
 
-.index-view-btn:hover {
-  border-color: #ccc;
-  color: #666;
+.nbindex__thumb--empty {
+  background: linear-gradient(135deg, #e8e8e8 0%, #d6d6d6 100%);
 }
 
-.index-view-btn.active {
-  background: #f0f0f0;
-  border-color: #ccc;
-  color: #333;
+.nbindex__date {
+  font-family: var(--monospace);
+  font-size: 12px;
+  color: #6f6f6f;
+  letter-spacing: 0.02em;
+}
+
+.nbindex__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.nbindex__title {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.25;
+  color: #262626;
+  margin: 0;
+}
+
+/* a.-qualified so these beat the base `a[href]` link color (equal specificity,
+   won on source order). */
+a.nbindex__title-link {
+  color: #262626;
+  text-decoration: none;
+}
+
+/* Overlay makes the whole row clickable while keeping the tag links (which sit
+   above it via z-index) independently navigable. */
+.nbindex__title-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+}
+
+.nbindex__row:hover .nbindex__title-link {
+  color: #ca4747;
+}
+
+/* Metadata footer row, sits below the description. Above the row's click overlay
+   via z-index so individual tags remain independently navigable. */
+.nbindex__tags {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+a.nbindex__tag,
+a.nbindex__tag:visited,
+a.nbindex__tag:active {
+  font-family: var(--monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a8a8a;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a.nbindex__tag:hover {
+  color: #ca4747;
+}
+
+.nbindex__desc {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.5;
+  color: #5f5f5f;
+  max-width: 640px;
+  margin: 0;
+}
+
+/* Narrow screens: keep the thumbnail (smaller) and tighten the title. Touch
+   devices don't hover, so the grayscale->color reveal simply doesn't fire; the
+   desaturated thumbnail is the resting state. */
+@media (max-width: 640px) {
+  .nbindex {
+    max-width: none;
+  }
+  .nbindex__row {
+    grid-template-columns: 96px 1fr;
+    gap: 16px;
+  }
+  .nbindex__thumbwrap {
+    width: 96px;
+    height: 54px;
+  }
+  .nbindex__title {
+    font-size: 19px;
+  }
 }
 
 /* Description (hidden in grid, shown in list) */
@@ -868,10 +1009,6 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
   .index {
     grid-template-columns: 1fr;
     gap: 16px;
-  }
-  /* Hide view toggle on narrow screens - always show grid */
-  .index-view-toggle {
-    display: none;
   }
   /* Force grid view styles even if index--list class is present */
   .index--list {
@@ -1090,7 +1227,6 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
 html,
 .container,
 .index__item,
-.index-view-btn,
 .index__active-filter {
   transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, filter 0.3s ease;
 }
@@ -1315,17 +1451,58 @@ html[data-dark] .index--list .index__item,
 html.theme-is-dark:not([data-light]) .index--list .index__item {
   border-color: rgba(255, 255, 255, 0.06);
 }
-html[data-dark] .index-view-btn {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: #2a2a2a;
-  color: #aaa;
+/* Notebooks index dark overrides. Mirrors the prototype's dark tokens. Uses both
+   the data-dark (light notebook forced dark) and theme-is-dark:not([data-light])
+   (notebook with its own dark theme) selector families, per the card convention. */
+html[data-dark] .nbindex__year,
+html.theme-is-dark:not([data-light]) .nbindex__year {
+  color: #e06b5b;
 }
-html[data-dark] .index-view-btn:hover {
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #ddd;
+html[data-dark] .nbindex__rule,
+html.theme-is-dark:not([data-light]) .nbindex__rule {
+  background: rgba(255, 255, 255, 0.08);
 }
-html[data-dark] .index-view-btn.active {
-  background: #3a3a3a;
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #eee;
+html[data-dark] .nbindex__count,
+html.theme-is-dark:not([data-light]) .nbindex__count {
+  color: #5c5c5c;
+}
+html[data-dark] .nbindex__row:hover,
+html.theme-is-dark:not([data-light]) .nbindex__row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+html[data-dark] .nbindex__date,
+html.theme-is-dark:not([data-light]) .nbindex__date {
+  color: #6f6f6f;
+}
+html[data-dark] .nbindex__thumbwrap,
+html.theme-is-dark:not([data-light]) .nbindex__thumbwrap {
+  background: #262626;
+}
+html[data-dark] .nbindex__thumb--empty,
+html.theme-is-dark:not([data-light]) .nbindex__thumb--empty {
+  background: linear-gradient(135deg, #333 0%, #262626 100%);
+}
+html[data-dark] .container a.nbindex__title-link,
+html.theme-is-dark:not([data-light]) .container a.nbindex__title-link {
+  color: #ededed;
+}
+html[data-dark] .container .nbindex__row:hover a.nbindex__title-link,
+html.theme-is-dark:not([data-light]) .container .nbindex__row:hover a.nbindex__title-link {
+  color: #f0897a;
+}
+html[data-dark] .container a.nbindex__tag,
+html[data-dark] .container a.nbindex__tag:visited,
+html[data-dark] .container a.nbindex__tag:active,
+html.theme-is-dark:not([data-light]) .container a.nbindex__tag,
+html.theme-is-dark:not([data-light]) .container a.nbindex__tag:visited,
+html.theme-is-dark:not([data-light]) .container a.nbindex__tag:active {
+  color: #7d7d7d;
+}
+html[data-dark] .nbindex__tag:hover,
+html.theme-is-dark:not([data-light]) .nbindex__tag:hover {
+  color: #f0897a;
+}
+html[data-dark] .nbindex__desc,
+html.theme-is-dark:not([data-light]) .nbindex__desc {
+  color: #a2a2a2;
 }

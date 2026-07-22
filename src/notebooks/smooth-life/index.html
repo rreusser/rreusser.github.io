@@ -1,13 +1,13 @@
 <!doctype html>
 <notebook theme="air">
-  <title>SmoothLife: Conway's Game of Life on a Continuous Domain</title>
+  <title>SmoothLife</title>
 
   <script id="intro" type="text/markdown">
     # SmoothLife
 
-    Conway's [Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life) lives on a grid of cells that are strictly on or off, updated in discrete ticks by counting integer neighbors. **SmoothLife**, introduced by Stephan Rafler in [*Generalization of Conway's "Game of Life" to a continuous domain*](https://arxiv.org/abs/1111.1567), asks what happens when you let all of that go continuous: the state becomes a real number in ${tex`[0, 1]`}, the neighborhood becomes a smooth disc instead of eight discrete squares, and time advances in small increments rather than sudden ticks.
+    Conway's [Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life) lives on a grid of cells that are strictly on or off, updated in discrete ticks by counting integer neighbors. **SmoothLife**, introduced by Stephan Rafler in [*Generalization of Conway's "Game of Life" to a continuous domain*](https://arxiv.org/abs/1111.1567), asks what happens when you let all of that go continuous: the state becomes a real number in ${tex`[0, 1]`}, the neighborhood becomes a smooth disc instead of eight discrete squares, and time advances in small increments rather than discrete steps.
 
-    The result preserves some of the gliders, oscillators, and self-organizing structures which make the original game of life so interesting, but adds an organic feel to it. This page is a WebGPU rewrite of [an old sketch of mine](https://github.com/rreusser/sketches/tree/master/src/src/smooth-life); the simulation below runs entirely in WebGPU.
+    The result preserves some of the gliders, oscillators, and self-organizing structures which make the original game of life so interesting, but adds an organic feel to it. This page is a WebGPU rewrite of [an old sketch of mine](https://github.com/rreusser/sketches/tree/master/src/src/smooth-life).
   </script>
 
   <script id="webgpu-check" type="module">

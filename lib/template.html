@@ -181,159 +181,135 @@
     {{#if seeAlsoItems}}
       <section class="recent-notebooks see-also" aria-labelledby="see-also-heading">
         <h2 id="see-also-heading" class="recent-notebooks__heading">See also</h2>
-        <ul class="index index--list recent-notebooks__list">
+        <div class="nbindex nbindex--compact">
           {{#each seeAlsoItems}}
-          <li class="index__item">
-            <div class="index__image-container">
-              {{#if imageUrl}}
-              <img class="index__image" src="{{imageUrl}}" alt="" width="1200" height="630" loading="lazy" />
-              {{else}}
-              <div class="index__placeholder"></div>
+          <div class="nbindex__row">
+            <div class="nbindex__media">
+              <div class="nbindex__thumbwrap">
+                {{#if imageUrl}}
+                <img class="nbindex__thumb" src="{{imageUrl}}" alt="" width="128" height="72" loading="lazy" />
+                {{else}}
+                <div class="nbindex__thumb nbindex__thumb--empty"></div>
+                {{/if}}
+              </div>
+            </div>
+            <div class="nbindex__body">
+              <h3 class="nbindex__title"><a href="{{path}}" class="nbindex__title-link">{{title}}</a></h3>
+              {{#if description}}<p class="nbindex__desc">{{description}}</p>{{/if}}
+              {{#if tags}}
+              <div class="nbindex__tags">
+                {{#each tags}}<a href="/notebooks/?tag={{encodeURIComponent this}}" class="nbindex__tag" rel="nofollow">{{this}}</a>{{/each}}
+              </div>
               {{/if}}
             </div>
-            <div class="index__content">
-              <h3 class="index__title"><a href="{{path}}" class="index__title-link">{{title}}</a></h3>
-              <div class="index__meta">
-                {{#if publishedAt}}<time class="index__date" datetime="{{publishedAtDate}}">{{publishedAt}}</time>{{/if}}
-              </div>
-              {{#if description}}<p class="index__description">{{description}}</p>{{/if}}
-            </div>
-          </li>
+          </div>
           {{/each}}
-        </ul>
+        </div>
         <p class="recent-notebooks__more"><a href="/notebooks/">All notebooks &rarr;</a></p>
       </section>
     {{/if}}
     {{#if recentIndex}}
       <section class="recent-notebooks" aria-labelledby="recent-notebooks-heading">
         <h2 id="recent-notebooks-heading" class="recent-notebooks__heading">Recent notebooks</h2>
-        <ul class="index index--list recent-notebooks__list">
+        <div class="nbindex nbindex--compact">
           {{#each recentIndex}}
-          <li class="index__item">
-            <div class="index__image-container">
-              {{#if imageUrl}}
-              <img class="index__image" src="{{imageUrl}}" alt="" width="1200" height="630" loading="lazy" />
-              {{else}}
-              <div class="index__placeholder"></div>
+          <div class="nbindex__row"{{#if tags}} data-tags="{{#each tags}}{{this}}{{#unless @last}},{{/unless}}{{/each}}"{{/if}}>
+            <div class="nbindex__media">
+              <div class="nbindex__thumbwrap">
+                {{#if imageUrl}}
+                <img class="nbindex__thumb" src="{{imageUrl}}" alt="" width="128" height="72" loading="lazy" />
+                {{else}}
+                <div class="nbindex__thumb nbindex__thumb--empty"></div>
+                {{/if}}
+              </div>
+            </div>
+            <div class="nbindex__body">
+              <h3 class="nbindex__title"><a href="{{path}}" class="nbindex__title-link">{{title}}</a></h3>
+              {{#if description}}<p class="nbindex__desc">{{description}}</p>{{/if}}
+              {{#if tags}}
+              <div class="nbindex__tags">
+                {{#each tags}}<a href="/notebooks/?tag={{encodeURIComponent this}}" class="nbindex__tag" rel="nofollow">{{this}}</a>{{/each}}
+              </div>
               {{/if}}
             </div>
-            <div class="index__content">
-              <h3 class="index__title"><a href="{{path}}" class="index__title-link">{{title}}</a></h3>
-              <div class="index__meta">
-                {{#if publishedAt}}<time class="index__date" datetime="{{publishedAtDate}}">{{publishedAt}}</time>{{/if}}
-              </div>
-              {{#if description}}<p class="index__description">{{description}}</p>{{/if}}
-            </div>
-          </li>
+          </div>
           {{/each}}
-        </ul>
+        </div>
         <p class="recent-notebooks__more"><a href="/notebooks/">All notebooks &rarr;</a></p>
       </section>
     {{/if}}
-    {{#if index}}
-      <div class="index-controls">
-        <div id="index-filter-container"></div>
-        <div class="index-view-toggle" role="group" aria-label="View options">
-          <button class="index-view-btn index-view-btn--grid active" data-view="grid" title="Grid view" aria-label="Grid view" aria-pressed="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <rect x="1" y="1" width="6" height="6" rx="1"/>
-              <rect x="9" y="1" width="6" height="6" rx="1"/>
-              <rect x="1" y="9" width="6" height="6" rx="1"/>
-              <rect x="9" y="9" width="6" height="6" rx="1"/>
-            </svg>
-          </button>
-          <button class="index-view-btn index-view-btn--list" data-view="list" title="List view" aria-label="List view" aria-pressed="false">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <rect x="1" y="2" width="3" height="3" rx="0.5"/>
-              <rect x="6" y="2.5" width="9" height="2" rx="0.5"/>
-              <rect x="1" y="6.5" width="3" height="3" rx="0.5"/>
-              <rect x="6" y="7" width="9" height="2" rx="0.5"/>
-              <rect x="1" y="11" width="3" height="3" rx="0.5"/>
-              <rect x="6" y="11.5" width="9" height="2" rx="0.5"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-      <ul class="index" id="index-list">
-        {{#each index}}
-        <li class="index__item"{{#if tags}} data-tags="{{#each tags}}{{this}}{{#unless @last}},{{/unless}}{{/each}}"{{/if}}>
-          <div class="index__image-container">
-            {{#if imageUrl}}
-            <img class="index__image" src="{{imageUrl}}" alt="" width="1200" height="630" {{#if @first}}fetchpriority="high"{{else}}loading="lazy"{{/if}} />
-            {{else}}
-            <div class="index__placeholder"></div>
-            {{/if}}
+    {{#if indexGroups}}
+      <div id="index-filter-container"></div>
+      <div class="nbindex" id="index-list">
+        {{#each indexGroups}}
+        <section class="nbindex__group" data-year="{{year}}">
+          <div class="nbindex__group-header">
+            <span class="nbindex__year">{{year}}</span>
+            <span class="nbindex__rule"></span>
+            <span class="nbindex__count" data-count="{{countLabel}}">{{countLabel}}</span>
           </div>
-          <div class="index__content">
-            <h2 class="index__title"><a href="{{path}}" class="index__title-link">{{title}}</a></h2>
-            <div class="index__meta">
-              {{#if publishedAt}}<time class="index__date" datetime="{{publishedAtDate}}">{{publishedAt}}</time>{{/if}}
+          {{#each items}}
+          <div class="nbindex__row"{{#if tags}} data-tags="{{#each tags}}{{this}}{{#unless @last}},{{/unless}}{{/each}}"{{/if}}>
+            <div class="nbindex__media">
+              <div class="nbindex__thumbwrap">
+                {{#if imageUrl}}
+                <img class="nbindex__thumb" src="{{imageUrl}}" alt="" width="128" height="72" loading="lazy" />
+                {{else}}
+                <div class="nbindex__thumb nbindex__thumb--empty"></div>
+                {{/if}}
+              </div>
+              {{#if shortDate}}<span class="nbindex__date">{{shortDate}}</span>{{/if}}
+            </div>
+            <div class="nbindex__body">
+              <h2 class="nbindex__title"><a href="{{path}}" class="nbindex__title-link">{{title}}</a></h2>
+              {{#if description}}<p class="nbindex__desc">{{description}}</p>{{/if}}
               {{#if tags}}
-              <div class="index__tags">
-                {{#each tags}}
-                <a href="?tag={{encodeURIComponent this}}" class="index__tag" rel="nofollow">{{this}}</a>
-                {{/each}}
+              <div class="nbindex__tags">
+                {{#each tags}}<a href="/notebooks/?tag={{encodeURIComponent this}}" class="nbindex__tag" rel="nofollow">{{this}}</a>{{/each}}
               </div>
               {{/if}}
             </div>
-            {{#if description}}<p class="index__description">{{description}}</p>{{/if}}
           </div>
-        </li>
+          {{/each}}
+        </section>
         {{/each}}
-      </ul>
+      </div>
       <script>
         (function() {
           const urlParams = new URLSearchParams(window.location.search);
           const activeTag = urlParams.get('tag');
-          const indexList = document.getElementById('index-list');
-          const viewBtns = document.querySelectorAll('.index-view-btn');
+          if (!activeTag) return;
 
-          // View toggle
-          const savedView = localStorage.getItem('indexView') || 'list';
-          if (savedView === 'list') {
-            indexList.classList.add('index--list');
-            viewBtns.forEach(btn => {
-              const isActive = btn.dataset.view === 'list';
-              btn.classList.toggle('active', isActive);
-              btn.setAttribute('aria-pressed', isActive);
-            });
-          }
+          // Show filter indicator
+          const filterContainer = document.getElementById('index-filter-container');
+          filterContainer.innerHTML = `
+            <div class="index__active-filter">
+              <span class="index__filter-label">Filtered by:</span>
+              <span class="index__filter-tag">
+                ${activeTag}
+                <a href="./" class="index__filter-remove" aria-label="Remove filter">×</a>
+              </span>
+            </div>
+          `;
 
-          viewBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-              const view = btn.dataset.view;
-              indexList.classList.toggle('index--list', view === 'list');
-              viewBtns.forEach(b => {
-                const isActive = b.dataset.view === view;
-                b.classList.toggle('active', isActive);
-                b.setAttribute('aria-pressed', isActive);
-              });
-              localStorage.setItem('indexView', view);
+          // Filter rows (case-insensitive), then update per-year counts and hide
+          // year groups that end up empty.
+          const activeTagLower = activeTag.toLowerCase();
+          document.querySelectorAll('.nbindex__group').forEach(group => {
+            let visible = 0;
+            group.querySelectorAll('.nbindex__row').forEach(row => {
+              const tags = (row.dataset.tags || '').split(',').filter(Boolean);
+              const match = tags.some(t => t.toLowerCase() === activeTagLower);
+              row.style.display = match ? '' : 'none';
+              if (match) visible++;
             });
+            if (visible === 0) {
+              group.style.display = 'none';
+            } else {
+              const count = group.querySelector('.nbindex__count');
+              if (count) count.textContent = `${visible} notebook${visible === 1 ? '' : 's'}`;
+            }
           });
-
-          if (activeTag) {
-            // Show filter indicator
-            const filterContainer = document.getElementById('index-filter-container');
-            filterContainer.innerHTML = `
-              <div class="index__active-filter">
-                <span class="index__filter-label">Filtered by:</span>
-                <span class="index__filter-tag">
-                  ${activeTag}
-                  <a href="./" class="index__filter-remove" aria-label="Remove filter">×</a>
-                </span>
-              </div>
-            `;
-
-            // Filter items (case-insensitive)
-            const activeTagLower = activeTag.toLowerCase();
-            document.querySelectorAll('.index__item').forEach(item => {
-              const tags = (item.dataset.tags || '').split(',').filter(Boolean);
-              if (!tags.some(t => t.toLowerCase() === activeTagLower)) {
-                item.style.display = 'none';
-              }
-            });
-          }
         })();
       </script>
     {{/if}}

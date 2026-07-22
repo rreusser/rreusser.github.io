@@ -143,6 +143,41 @@ async function readMetadata(filename) {
   return meta;
 }
 
+const MONTH_ABBR = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+// Format an ISO date (YYYY-MM-DD) as an uppercase short date like "JUL 14, 2026".
+// Parsed by hand rather than via Date to avoid timezone drift on the day field.
+function shortDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${MONTH_ABBR[Number(m) - 1]} ${Number(d)}, ${y}`;
+}
+
+// Group the (already newest-first) index into per-year sections for the notebooks
+// index listing. Within-year order is preserved from the sorted input, so it stays
+// newest-first. Undated notebooks (no publishedAt) fall into a trailing group.
+function groupIndexByYear(notebooks) {
+  const groups = new Map();
+  for (const nb of notebooks) {
+    const year = nb.publishedAtDate ? nb.publishedAtDate.slice(0, 4) : "Undated";
+    if (!groups.has(year)) groups.set(year, []);
+    groups.get(year).push({ ...nb, shortDate: shortDate(nb.publishedAtDate) });
+  }
+  const years = [...groups.keys()].sort((a, b) => {
+    if (a === "Undated") return 1;
+    if (b === "Undated") return -1;
+    return Number(b) - Number(a);
+  });
+  return years.map((year) => {
+    const items = groups.get(year);
+    return {
+      year,
+      items,
+      countLabel: `${items.length} notebook${items.length === 1 ? "" : "s"}`,
+    };
+  });
+}
+
 async function computeIndex() {
   const currentPaths = glob.sync(join(NOTEBOOKS_DIR, "**", "*.html"), {
     nodir: true,
@@ -188,6 +223,7 @@ async function resolveSeeAlso(slugs, { isDev }) {
       path: `/notebooks/${slug}/`,
       title: title || slug,
       description: meta.description,
+      tags: meta.tags,
       publishedAt: meta.publishedAt,
       publishedAtDate: meta.publishedAtDate,
       imageUrl: ext ? (isDev ? `/notebooks/${slug}/meta.${ext}` : `/meta/${slug}.${ext}`) : null,
@@ -289,6 +325,7 @@ export default defineConfig(async ({ command }) => {
             });
             if (isNotebooksIndex) {
               data.index = fullIndex;
+              data.indexGroups = groupIndexByYear(fullIndex);
             } else {
               data.recentIndex = fullIndex.slice(0, 6);
             }
