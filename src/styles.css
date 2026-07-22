@@ -752,13 +752,66 @@ html.theme-is-dark:not([data-light]) .recent-notebooks__heading {
   border-top: 1px solid rgba(128, 128, 128, 0.3);
 }
 
-/* giscus comments (notebook pages). Sits at the article's reading width and is
-   ruled off from the notebook body above it, matching the see-also treatment. */
-.giscus-comments {
+/* Comments (notebook pages). A collapsible "> Comments" disclosure holding the
+   giscus and Mastodon widgets. Sits at the article's reading width and is ruled
+   off from the notebook body above it, matching the see-also treatment. */
+.comments-toggle {
   max-width: 640px;
   margin: 0 auto 1em;
   padding-top: 2.5em;
   border-top: 1px solid rgba(128, 128, 128, 0.3);
+  font-family: var(--sans-serif);
+}
+
+/* Matches .recent-notebooks__heading ("See also") so the two section labels
+   read as a set. */
+.comments-toggle__summary {
+  cursor: pointer;
+  font-family: "Open Sans", sans-serif;
+  font-weight: 400;
+  font-size: 1.4em;
+  color: var(--theme-foreground);
+  list-style: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+}
+.comments-toggle__count {
+  color: var(--theme-foreground-muted);
+}
+.comments-toggle__count:not(:empty) {
+  margin-left: 0.35em;
+}
+/* Replace the default disclosure marker with a triangle that rotates from
+   pointing right (">") when closed to pointing down ("v") when open. */
+.comments-toggle__summary::-webkit-details-marker {
+  display: none;
+}
+.comments-toggle__summary::before {
+  content: "\25B8"; /* ▸ */
+  display: inline-block;
+  margin-right: 0.45em;
+  font-size: 0.7em;
+  transition: transform 0.15s ease;
+}
+.comments-toggle[open] > .comments-toggle__summary::before {
+  transform: rotate(90deg);
+}
+
+html[data-dark] .comments-toggle__summary,
+html.theme-is-dark:not([data-light]) .comments-toggle__summary {
+  color: #ebebeb;
+}
+
+.comments-toggle__body {
+  padding-top: 0.5em;
+}
+
+/* The two widgets already carry their own spacing; keep them from butting into
+   each other when both render. */
+.comments-toggle__body #comment-root {
+  margin: 1em auto 0;
+  max-width: 640px;
 }
 
 /* On index pages, tighten the gap between the intro prose and the cards

@@ -127,6 +127,9 @@
       <main id="main-content"></main>
     </article>
     {{#if showComments}}
+      <details class="comments-toggle">
+        <summary class="comments-toggle__summary">Comments<span class="comments-toggle__count"></span></summary>
+        <div class="comments-toggle__body">
       <section class="giscus-comments" aria-label="Comments">
         <div class="giscus"></div>
       </section>
@@ -167,16 +170,12 @@
           }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
         })();
       </script>
-    {{/if}}
-    {{#if mastodonPostId}}
-      <script src="/comments.js" type="module"></script>
-      <style>
-        #comment-root {
-          margin: auto;
-          max-width: 640px;
-        }
-      </style>
-      <div id="comment-root" data-post-id="{{mastodonPostId}}"></div>
+      {{#if mastodonPostId}}
+        <script src="/comments.js" type="module"></script>
+        <div id="comment-root" data-post-id="{{mastodonPostId}}"></div>
+      {{/if}}
+        </div>
+      </details>
     {{/if}}
     {{#if seeAlsoItems}}
       <section class="recent-notebooks see-also" aria-labelledby="see-also-heading">

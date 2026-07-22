@@ -37,6 +37,11 @@ export default function Comments ({postId}) {
       const comments = await loadComments(postId);
       setComments(comments.descendants);
       setError(null);
+      // Surface the reply count in the collapsible "Comments" label, if present.
+      const countEl = document.querySelector('.comments-toggle__count');
+      if (countEl && comments.descendants.length) {
+        countEl.textContent = `(${comments.descendants.length})`;
+      }
     } catch (e) {
       setError('Unable to load comments');
     }
