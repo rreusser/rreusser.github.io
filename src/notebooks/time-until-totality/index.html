@@ -444,7 +444,7 @@
     ## Implementation
 The map at the top of the page displays precomputed eclipse paths based on [DE440](https://ssd.jpl.nasa.gov/planets/eph_export.html) ephemeris for near-term eclipses and [DE441](https://ssd.jpl.nasa.gov/planets/eph_export.html) past the year 3,000. I largely farmed out the eclipse computation to Claude Code and cross-checked the accuracy, but although I believe it's valid, I don't make any academic claims here about correctness.
 
-Displaying and querying the paths is a little tricky. The paths are displayed by way of pre-baked WebP raster image tiles, colored with Mapbox's [`raster-color`](https://docs.mapbox.com/style-spec/reference/layers/#paint-raster-raster-color) feature (which, for better or for worse, I wrote when I worked there). Years are encoded logarithmically as RGB triples and decoded and colored at runtime.
+Displaying and querying the paths is a little tricky. The paths are displayed by way of pre-baked WebP raster image tiles, colored with Mapbox's [`raster-color`](https://docs.mapbox.com/style-spec/reference/layers/#paint-raster-raster-color) feature (which, for better or for worse, probably worse, I worked on when I worked there). Years are encoded logarithmically as RGB triples and decoded and colored at runtime.
 
 When the map is clicked, a zoom level 6 vector map tile is fetched, decoded, and the ID of all intersecting eclipse paths computed. Then, a GeoJSON path is fetched and displayed for each matching eclipse path. It's a bit convoluted, but even with decimationa and aggregation, it wasn't otherwise straightforward to display all 1,116 vector outlines.
   </script>
