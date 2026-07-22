@@ -1,11 +1,10 @@
-publishedAt: July 19, 2026
+publishedAt: July 21, 2026
 description: Thoughts on anonymity, accidental and otherwise
-hideFromSearch: true
+hideFromSearch: false
 hideFromIndex: false
 maxWidth: 640px
 tags:
-  - personal
-  - essay
+  - writing
 seeAlso:
   - of-noise-and-neighbors
   - a-series-of-unfortunate-things-i-programmed-one-time
