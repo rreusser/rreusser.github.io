@@ -1,5 +1,5 @@
 publishedAt: "January 10, 2026"
-description: "The 2D Kuramoto-Sivashinsky equation, a chaotic PDE modeling pattern formation in combustion fronts and thin films."
+description: "The 2D Kuramoto-Sivashinsky equation, a chaotic PDE modeling pattern formation in combustion fronts and thin films"
 maxWidth: "640px"
 observableUrl: https://observablehq.com/@rreusser/kuramoto-sivashinsky-equation-in-2d
 mastodonPostId: '115880796645265443'

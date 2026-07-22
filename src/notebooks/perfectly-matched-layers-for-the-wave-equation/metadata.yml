@@ -1,5 +1,5 @@
 publishedAt: "December 31, 2025"
-description: "An explanation and WebGL implementation of Perfectly Matched Layers for absorbing boundary conditions in the scalar wave equation."
+description: "An quick application of Perfectly Matched Layers for absorbing boundary conditions"
 maxWidth: 640px
 observableUrl: https://www.shadertoy.com/view/l3ccRr
 tags:

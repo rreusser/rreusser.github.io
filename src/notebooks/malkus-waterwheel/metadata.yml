@@ -1,5 +1,5 @@
 publishedAt: "February 13, 2021"
-description: "Interactive simulation of a chaotic mechanical system whose dynamics map to the Lorenz attractor."
+description: "A chaotic mechanical system whose dynamics map to the Lorenz attractor"
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/malkus-waterwheel
 tags:

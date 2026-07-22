@@ -1,6 +1,6 @@
 publishedAt: "May 17, 2026"
 maxWidth: 640px
-description: A thin-shell finite element simulation of an elastic Mobius strip, computing its equilibrium shape and flexural vibration modes
+description: Möbius strips as a test problem for doing some real linear algebra in the browser
 hideFromIndex: false
 hideFromSearch: false
 tags:

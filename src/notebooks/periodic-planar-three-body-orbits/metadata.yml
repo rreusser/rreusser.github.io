@@ -1,5 +1,5 @@
 publishedAt: "September 1, 2019"
-description: "Interactive catalog of periodic three-body orbits with topological classification via free group words."
+description: "A catalog of periodic three-body orbits with topological classification via free group words"
 maxWidth: 640px
 observableUrl: 'https://observablehq.com/@rreusser/periodic-planar-three-body-orbits'
 tags:

@@ -1,5 +1,5 @@
 publishedAt: May 24, 2021
-description: Computing hexadecimal digits of π at arbitrary positions using the Bailey-Borwein-Plouffe formula.
+description: Computing hexadecimal digits of π at arbitrary positions using the Bailey-Borwein-Plouffe formula
 observableUrl: https://observablehq.com/@rreusser/computing-with-the-bailey-borwein-plouffe-formula
 maxWidth: 640px
 tags:

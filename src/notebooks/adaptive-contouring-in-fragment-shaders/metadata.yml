@@ -1,5 +1,5 @@
 publishedAt: "November 21, 2020"
-description: "Adaptive contour rendering in fragment shaders using screen-space derivatives for smooth, resolution-independent contour lines."
+description: "Adaptive contour rendering in fragment shaders using screen-space derivatives for smooth, resolution-independent contour lines"
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/locally-scaled-domain-coloring-part-1-contour-plots
 tags:

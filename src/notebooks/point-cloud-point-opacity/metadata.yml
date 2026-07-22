@@ -1,5 +1,5 @@
 publishedAt: "December 8, 2020"
-description: "Deriving the formula for point opacity in large point cloud visualizations to maintain consistent visual density."
+description: "An opacity formula for consistent visual appearance in brute-force point cloud rendering"
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/selecting-the-right-opacity-for-2d-point-clouds
 tags:

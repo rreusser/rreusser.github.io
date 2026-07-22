@@ -1,5 +1,5 @@
 publishedAt: "November 3, 2019"
-description: "2D gravitational N-body simulation using the particle-mesh method."
+description: "2D gravitational N-body simulation using the particle-mesh method"
 maxWidth: 640px
 observableUrl: 'https://observablehq.com/@rreusser/2d-n-body-gravity-with-poissons-equation'
 tags:

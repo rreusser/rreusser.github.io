@@ -1,5 +1,5 @@
 publishedAt: November 28, 2023
-description: Approximate pixel redistribution between images using sliced optimal transport.
+description: Approximate pixel redistribution between images using sliced optimal transport
 maxWidth: 640px
 observableUrl: 'https://observablehq.com/@rreusser/sliced-optimal-transport'
 tags:

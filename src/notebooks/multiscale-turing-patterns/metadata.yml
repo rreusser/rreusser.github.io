@@ -1,5 +1,5 @@
 publishedAt: "January 20, 2026"
-description: "Interactive multi-scale Turing patterns computed in WebGPU"
+description: "Interactive multi-scale Turing patterns in WebGPU"
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/multiscale-turing-pattern-bot-v2
 tags:

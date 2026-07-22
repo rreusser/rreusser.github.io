@@ -1,5 +1,5 @@
 publishedAt: "January 17, 2026"
-description: "Strange attractors — chaotic dynamical systems whose trajectories trace out intricate fractal structures"
+description: "Integrating and rendering strange attractors in WebGPU from start to finish"
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/strange-attractors-on-the-gpu-part-1
 tags:

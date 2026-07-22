@@ -1,5 +1,5 @@
 publishedAt: "January 6, 2023"
-description: "Smooth bicubic texture filtering using the GPU's built-in bilinear interpolation."
+description: "Smooth bicubic texture filtering using the GPU's built-in bilinear interpolation"
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/bicubic-texture-interpolation-using-linear-filtering
 tags:

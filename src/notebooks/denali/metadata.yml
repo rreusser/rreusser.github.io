@@ -1,5 +1,5 @@
 publishedAt: "February 8, 2026"
-description: "Interactive 3D terrain viewer for the Denali region built from scratch with WebGPU"
+description: "Cobbling together a 3D WebGPU terrain viewer"
 maxWidth: '640px'
 tags:
   - webgpu

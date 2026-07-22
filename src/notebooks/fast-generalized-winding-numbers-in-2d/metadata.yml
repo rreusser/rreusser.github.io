@@ -1,5 +1,5 @@
 publishedAt: "September 7, 2022"
-description: "Fast generalized winding numbers in 2D for robust inside-outside queries on arbitrary polygons."
+description: "Fast generalized winding numbers in 2D for robust inside-outside queries on arbitrary polygons"
 maxWidth: 640px
 observableUrl: https://observablehq.com/@rreusser/fast-generalized-winding-numbers-in-2d
 tags:
