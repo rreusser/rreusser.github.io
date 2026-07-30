@@ -1,0 +1,1062 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Coupled Oscillators to Quantum Fields</title>
+
+  <script id="title" type="text/markdown">
+    # Coupled Oscillators to Quantum Fields
+  </script>
+
+  <script id="intro-1" type="text/markdown">
+    Quantum field theory almost always starts the same way. Take a row of masses connected by springs, split every motion into normal modes, and let the spacing go to zero. Out comes a field. None of this is mysterious. You can watch the beads bounce, decompose the wiggle into standing waves, and see that each mode is an independent harmonic oscillator with its own frequency. It is all classical mechanics.
+
+    Then you impose a single commutation relation, ${tex`[\hat q,\hat p]=i\hbar`}, and the whole thing turns into a real quantum theory. Particles appear. The vacuum acquires energy. Empty space fluctuates. For a lot of us the story is tangible right up to that step, and then it goes magical.
+  </script>
+
+  <script id="intro-2" type="text/markdown">
+    This notebook is an attempt to make that step tangible too, using reduced dimensionality and one recurring picture. The reductions are these. Space is one dimensional, a line of oscillators rather than a lattice filling a room. And the quantum state, which formally lives in an infinite dimensional Hilbert space, is drawn one mode at a time in its two dimensional **phase space** ${tex`(x,p)`} using the [Wigner function](https://en.wikipedia.org/wiki/Wigner_quasiprobability_distribution). Alongside it we keep the familiar wavefunction ${tex`\psi(x)`}.
+
+    The claim the diagrams are meant to earn is that the commutation relation does exactly one thing, and it is geometric. It forbids the state from being a point. Everything that feels magical about first quantization is that one fact, applied to each mode of the field.
+  </script>
+
+  <script id="imports" type="text/x-typescript" pinned="">
+    import { expandable } from './lib/expandable.js'
+    import { createFrameLoop } from './lib/frame-loop.js'
+    import { observeTheme } from './lib/theme.js'
+    import { collapseCodeBlocks } from './lib/collapsible-code.js'
+    import {
+      psiN, laguerre, wignerNumber, wignerCoherent, wignerCat,
+      coherentPsi, catPsi, poisson, catOccupation
+    } from './qho.js'
+  </script>
+
+  <script id="palette" type="text/x-typescript">
+    // Stable theme-aware palette plus a registry of redraw callbacks. Figures
+    // register a hook so a theme switch nudges them to repaint without tearing
+    // down their persistent canvases.
+    const palette = {
+      isDark: false, fg: '#1b1e23', bg: '#ffffff', panel: '#fbfbfd',
+      muted: '#8a9099', grid: '#00000018', border: '#00000022',
+      accent: '#3355ee', accent2: '#c7363e', good: '#2a9d5c',
+      wignerZero: [247, 247, 247]
+    };
+    const redrawHooks = new Set();
+    const stopThemePalette = observeTheme(({ isDark }) => {
+      palette.isDark = isDark;
+      palette.fg = isDark ? '#e8eaed' : '#1b1e23';
+      palette.bg = isDark ? '#0f1216' : '#ffffff';
+      palette.panel = isDark ? '#171b21' : '#fbfbfd';
+      palette.muted = isDark ? '#868d97' : '#8a9099';
+      palette.grid = isDark ? '#ffffff14' : '#00000014';
+      palette.border = isDark ? '#ffffff2a' : '#00000022';
+      palette.accent = isDark ? '#7d97ff' : '#3355ee';
+      palette.accent2 = isDark ? '#ff6f78' : '#c7363e';
+      palette.good = isDark ? '#54c98a' : '#2a9d5c';
+      palette.wignerZero = isDark ? [23, 27, 33] : [247, 247, 247];
+      redrawHooks.forEach((fn) => { try { fn(); } catch (e) {} });
+    });
+    invalidation.then(stopThemePalette);
+  </script>
+
+  <script id="draw-helpers" type="text/x-typescript">
+    // Shared Canvas 2D helpers used by every figure. No external dependencies.
+    const heatScratch = document.createElement('canvas');
+
+    // A linear map from [a0,a1] onto [b0,b1].
+    function mapLin(a0, a1, b0, b1) {
+      const s = (b1 - b0) / ((a1 - a0) || 1);
+      return (v) => b0 + (v - a0) * s;
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    // Diverging blue–white–red map for the Wigner function. scale is the value
+    // mapped to full saturation; zero is the neutral (theme background) colour.
+    function wignerRGB(v, scale, zero, out) {
+      let t = v / (scale || 1);
+      t = Math.max(-1, Math.min(1, t));
+      const g = Math.sign(t) * Math.pow(Math.abs(t), 0.78);
+      const neg = [46, 92, 196];
+      const pos = [201, 52, 60];
+      if (g >= 0) {
+        out[0] = zero[0] + (pos[0] - zero[0]) * g;
+        out[1] = zero[1] + (pos[1] - zero[1]) * g;
+        out[2] = zero[2] + (pos[2] - zero[2]) * g;
+      } else {
+        const u = -g;
+        out[0] = zero[0] + (neg[0] - zero[0]) * u;
+        out[1] = zero[1] + (neg[1] - zero[1]) * u;
+        out[2] = zero[2] + (neg[2] - zero[2]) * u;
+      }
+    }
+
+    // Render a scalar field fn(x,p) over a pixel rect as a heatmap.
+    function drawHeat(ctx, rect, fn, opts) {
+      const res = opts.res || 100;
+      const { xmin, xmax, pmin, pmax, scale, zero } = opts;
+      if (heatScratch.width !== res) { heatScratch.width = res; heatScratch.height = res; }
+      const sctx = heatScratch.getContext('2d');
+      const img = sctx.createImageData(res, res);
+      const d = img.data;
+      const rgb = [0, 0, 0];
+      for (let j = 0; j < res; j++) {
+        const p = pmax + (pmin - pmax) * (j + 0.5) / res;
+        for (let i = 0; i < res; i++) {
+          const x = xmin + (xmax - xmin) * (i + 0.5) / res;
+          wignerRGB(fn(x, p), scale, zero, rgb);
+          const k = 4 * (j * res + i);
+          d[k] = rgb[0]; d[k + 1] = rgb[1]; d[k + 2] = rgb[2]; d[k + 3] = 255;
+        }
+      }
+      sctx.putImageData(img, 0, 0);
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(heatScratch, rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
+    }
+
+    // Panel background + border, optional title.
+    function panelBg(ctx, rect, pal, title) {
+      ctx.save();
+      roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 7);
+      ctx.fillStyle = pal.panel;
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = pal.border;
+      ctx.stroke();
+      if (title) {
+        ctx.fillStyle = pal.muted;
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(title, rect.x + 9, rect.y + 7);
+      }
+      ctx.restore();
+    }
+
+    function setupCanvas(canvas, ctx, w, h) {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  </script>
+
+  <script id="s1-head" type="text/markdown">
+    ## 1. A row of springs, and its normal modes
+
+    Start with ${tex`N`} equal masses on a line, each tied to its neighbours by identical springs and to a fixed rail by a weaker spring of stiffness ${tex`M^2`}. Writing ${tex`x_i`} for the transverse displacement of mass ${tex`i`}, the energy is
+
+    ${tex.block`H=\sum_i\left[\tfrac12\,p_i^2+\tfrac12\,(x_{i+1}-x_i)^2+\tfrac12\,M^2 x_i^2\right].`}
+
+    This is a pile of coupled oscillators, but the coupling untangles. There is a set of standing-wave patterns, the normal modes, that oscillate rigidly without exchanging energy. Mode ${tex`m`} has shape ${tex`\sin\!\big(m\pi i/(N{+}1)\big)`} and frequency
+
+    ${tex.block`\omega_m=\sqrt{M^2+4\sin^2\!\frac{m\pi}{2(N{+}1)}}.`}
+
+    Excite one mode and the chain rings as a pure standing wave. Add a second and you get two independent clocks running at once, which read out as beats. Drag the amplitudes to build up any motion you like from these independent pieces.
+  </script>
+
+  <script id="s1-controls" type="text/x-typescript">
+    const chainControls = html`<div class="chain-controls controls-panel"></div>`;
+    function chainCtrl(input) { chainControls.appendChild(input); return Generators.input(input); }
+
+    const chainN = chainCtrl(Inputs.range([4, 24], { label: 'Masses N', value: 12, step: 1 }));
+    const chainMode1 = chainCtrl(Inputs.range([1, 10], { label: 'Mode a', value: 1, step: 1 }));
+    const chainAmp1 = chainCtrl(Inputs.range([0, 1], { label: 'Amplitude a', value: 1, step: 0.01 }));
+    const chainMode2 = chainCtrl(Inputs.range([1, 10], { label: 'Mode b', value: 3, step: 1 }));
+    const chainAmp2 = chainCtrl(Inputs.range([0, 1], { label: 'Amplitude b', value: 0, step: 0.01 }));
+    const chainMass = chainCtrl(Inputs.range([0, 1.5], { label: 'Rail stiffness M', value: 0.3, step: 0.01 }));
+    const chainSpeed = chainCtrl(Inputs.range([0, 2], { label: 'Speed', value: 1, step: 0.01 }));
+    display(chainControls);
+  </script>
+
+  <script id="s1-state" type="text/x-typescript">
+    const chainFig = (() => {
+      const canvas = document.createElement('canvas');
+      canvas.id = 'chain-canvas';
+      const ctx = canvas.getContext('2d');
+      const state = {
+        w: 700, h: 300, last: null, tSim: 0,
+        N: 12, m1: 1, a1: 1, m2: 3, a2: 0, M: 0.3, speed: 1, dirty: true
+      };
+      return { canvas, ctx, state, ui: { expanded: false } };
+    })();
+  </script>
+
+  <script id="s1-sync" type="text/x-typescript">
+    chainFig.state.N = chainN;
+    chainFig.state.m1 = chainMode1;
+    chainFig.state.a1 = chainAmp1;
+    chainFig.state.m2 = chainMode2;
+    chainFig.state.a2 = chainAmp2;
+    chainFig.state.M = chainMass;
+    chainFig.state.speed = chainSpeed;
+    chainFig.state.dirty = true;
+  </script>
+
+  <script id="s1-loop" type="text/x-typescript">
+    {
+      const { canvas, ctx, state } = chainFig;
+      const omega = (m, N, M) =>
+        Math.sqrt(M * M + 4 * Math.sin((m * Math.PI) / (2 * (N + 1))) ** 2);
+
+      function frame(now) {
+        if (state.last == null) state.last = now;
+        const dt = Math.min(0.05, (now - state.last) / 1000);
+        state.last = now;
+        if (state.speed > 0) state.tSim += dt * state.speed;
+        else if (!state.dirty) return;
+        state.dirty = false;
+
+        const pal = palette;
+        const { w, h, N, m1, a1, m2, a2, M } = state;
+        ctx.clearRect(0, 0, w, h);
+
+        const padX = 34;
+        const x0 = padX, x1 = w - padX;
+        const yMid = h * 0.5;
+        const amp = Math.min(h * 0.34, 78);
+        // Keep the summed displacement inside the panel even when both modes
+        // run at full amplitude, without shrinking a single lone mode.
+        const A = amp / Math.max(1, a1 + a2);
+        const t = state.tSim;
+
+        const disp = (frac) => {
+          const iCont = frac * (N + 1);
+          return (
+            a1 * Math.sin((m1 * Math.PI * iCont) / (N + 1)) * Math.cos(omega(m1, N, M) * t) +
+            a2 * Math.sin((m2 * Math.PI * iCont) / (N + 1)) * Math.cos(omega(m2, N, M) * t)
+          );
+        };
+
+        // Equilibrium rail
+        ctx.strokeStyle = pal.grid;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x0, yMid); ctx.lineTo(x1, yMid); ctx.stroke();
+
+        // The connecting string (fine sampling through the masses)
+        ctx.strokeStyle = pal.isDark ? '#5a6472' : '#b9c0cc';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        const S = 240;
+        for (let s = 0; s <= S; s++) {
+          const frac = s / S;
+          const px = x0 + (x1 - x0) * frac;
+          const py = yMid - A * disp(frac);
+          if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+
+        // Walls
+        ctx.fillStyle = pal.muted;
+        for (const wx of [x0, x1]) ctx.fillRect(wx - 3, yMid - amp - 8, 6, 2 * amp + 16);
+
+        // Masses
+        for (let i = 1; i <= N; i++) {
+          const frac = i / (N + 1);
+          const px = x0 + (x1 - x0) * frac;
+          const py = yMid - A * disp(frac);
+          ctx.beginPath();
+          ctx.arc(px, py, 5.5, 0, 2 * Math.PI);
+          ctx.fillStyle = pal.accent;
+          ctx.fill();
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = pal.bg;
+          ctx.stroke();
+        }
+
+        // Labels
+        ctx.fillStyle = pal.muted;
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        const w1 = omega(m1, N, M), w2 = omega(m2, N, M);
+        let label = `mode a: m=${m1}, ω=${w1.toFixed(2)}`;
+        if (a2 > 0.001) label += `    mode b: m=${m2}, ω=${w2.toFixed(2)}`;
+        ctx.fillText(label, padX, 8);
+      }
+
+      const loop = createFrameLoop(frame);
+      invalidation.then(() => loop.cancel());
+      const redraw = () => { state.dirty = true; };
+      redrawHooks.add(redraw);
+      invalidation.then(() => redrawHooks.delete(redraw));
+    }
+  </script>
+
+  <script id="s1-display" type="text/x-typescript" pinned="">
+    const chainFigure = html`<figure>
+      ${chainFig.canvas}
+      <figcaption>A chain of masses on springs. Each normal mode is an independent oscillator; a general motion is their superposition.</figcaption>
+    </figure>`;
+
+    display(expandable(chainFigure, {
+      id: 'chain',
+      width: Math.min(width, 720),
+      height: 300,
+      controls: '.chain-controls',
+      state: chainFig.ui,
+      onResize(el, w, h) {
+        setupCanvas(chainFig.canvas, chainFig.ctx, w, h);
+        chainFig.state.w = w; chainFig.state.h = h; chainFig.state.dirty = true;
+      }
+    }));
+  </script>
+
+  <script id="s1-disp-head" type="text/markdown">
+    The frequencies sit on a **dispersion curve**. Plotting ${tex`\omega`} against wavenumber ${tex`k=m\pi/(N{+}1)`}, the discrete modes trace out ${tex`\omega=\sqrt{M^2+4\sin^2(k/2)}`}. For long wavelengths (small ${tex`k`}) this bends down onto the continuum law ${tex`\omega=\sqrt{k^2+M^2}`}, which is exactly the relativistic dispersion of a field of mass ${tex`M`}. The lattice is a regulator; the continuum is what survives when the spacing shrinks.
+  </script>
+
+  <script id="s1-dispersion" type="text/x-typescript">
+    {
+      const N = chainN, M = chainMass;
+      const lattice = [];
+      for (let m = 1; m <= N; m++) {
+        const k = (m * Math.PI) / (N + 1);
+        lattice.push({ k, w: Math.sqrt(M * M + 4 * Math.sin(k / 2) ** 2), m });
+      }
+      const cont = [];
+      for (let i = 0; i <= 80; i++) {
+        const k = (Math.PI * i) / 80;
+        cont.push({ k, w: Math.sqrt(k * k + M * M) });
+      }
+      const active = [chainMode1, chainMode2]
+        .filter((m, i) => m <= N && (i === 0 ? chainAmp1 : chainAmp2) > 0.001)
+        .map((m) => lattice[m - 1]);
+
+      display(Plot.plot({
+        width: Math.min(width, 720),
+        height: 240,
+        marginLeft: 44,
+        marginBottom: 36,
+        x: { label: 'wavenumber k', domain: [0, Math.PI] },
+        y: { label: 'frequency ω', domain: [0, 2.2], grid: true },
+        marks: [
+          Plot.line(cont, { x: 'k', y: 'w', stroke: '#8a9099', strokeDasharray: '3,3' }),
+          Plot.dot(lattice, { x: 'k', y: 'w', fill: '#3355ee', r: 3 }),
+          Plot.dot(active, { x: 'k', y: 'w', fill: '#c7363e', r: 6 }),
+          Plot.text(active, { x: 'k', y: 'w', text: (d) => `m=${d.m}`, dy: -14, fill: '#c7363e' })
+        ]
+      }));
+    }
+  </script>
+
+  <script id="s1-tail" type="text/markdown">
+    So far nothing is quantum. Each mode ${tex`k`} is an ordinary oscillator, ${tex`H_k=\tfrac12\big(p_k^2+\omega_k^2\,q_k^2\big)`}, and the field is just the bookkeeping that reassembles the modes into a shape in space. To go further we zoom all the way in, to a single one of these oscillators.
+  </script>
+
+  <script id="s2-head" type="text/markdown">
+    ## 2. One oscillator, and the thing the commutator does
+
+    Classically a single mode is a point circling in its phase plane ${tex`(x,p)`}, its energy fixing the radius. Quantizing means promoting ${tex`x`} and ${tex`p`} to operators with
+
+    ${tex.block`[\hat x,\hat p]=i\hbar.`}
+
+    The cleanest way to see what that costs is the Wigner function ${tex`W(x,p)`}, a quasiprobability over the same phase plane that a classical distribution would live on. The commutator forbids ${tex`W`} from concentrating to a point. The tightest it can get is a blob of area set by ${tex`\hbar`}, the minimum-uncertainty state, with ${tex`\Delta x\,\Delta p=\hbar/2`}.
+
+    Below, one mode is prepared in that minimum blob and set orbiting (a coherent state). The slider sets the mean number of quanta ${tex`\bar n=E/\hbar\omega`}, which at fixed ${tex`\hbar`} is a proxy for energy and, read the other way, for ${tex`1/\hbar`}. Turn it up and the blob shrinks against its orbit until it is effectively the classical point. Turn it down toward ${tex`\bar n\sim1`} and the irreducible blob fills a good fraction of the orbit. The wavefunction ${tex`\psi(x)`} is the same state, projected onto the position axis.
+  </script>
+
+  <script id="s2-controls" type="text/x-typescript">
+    const heroControls = html`<div class="hero-controls controls-panel"></div>`;
+    function heroCtrl(input) { heroControls.appendChild(input); return Generators.input(input); }
+    const heroNbar = heroCtrl(Inputs.range([0.15, 40], { label: 'mean quanta n̄', value: 6, step: 0.05, transform: Math.log }));
+    const heroSpeed = heroCtrl(Inputs.range([0, 2], { label: 'Speed', value: 1, step: 0.01 }));
+    const heroShowClassical = heroCtrl(Inputs.toggle({ label: 'Classical point', value: true }));
+    display(heroControls);
+  </script>
+
+  <script id="s2-state" type="text/x-typescript">
+    const heroFig = (() => {
+      const canvas = document.createElement('canvas');
+      canvas.id = 'hero-canvas';
+      const ctx = canvas.getContext('2d');
+      const state = {
+        w: 720, h: 360, last: null, tSim: 0,
+        nbar: 6, speed: 1, showClassical: true, W: 8, dirty: true
+      };
+      return { canvas, ctx, state, ui: { expanded: false } };
+    })();
+  </script>
+
+  <script id="s2-sync" type="text/x-typescript">
+    heroFig.state.nbar = heroNbar;
+    heroFig.state.speed = heroSpeed;
+    heroFig.state.showClassical = heroShowClassical;
+    heroFig.state.W = Math.max(4, Math.sqrt(2 * heroNbar) + 3.2);
+    heroFig.state.dirty = true;
+  </script>
+
+  <script id="s2-loop" type="text/x-typescript">
+    {
+      const { canvas, ctx, state } = heroFig;
+      const scale = 1 / Math.PI; // peak of a coherent Wigner blob
+
+      function frame(now) {
+        if (state.last == null) state.last = now;
+        const dt = Math.min(0.05, (now - state.last) / 1000);
+        state.last = now;
+        if (state.speed > 0) state.tSim += dt * state.speed;
+        else if (!state.dirty) return;
+        state.dirty = false;
+
+        const pal = palette;
+        const { w, h } = state;
+        ctx.clearRect(0, 0, w, h);
+
+        const gap = 16, padL = 12, padR = 12, padT = 32, padB = 14;
+        const colW = (w - padL - padR - gap) / 2;
+        const size = Math.min(colW, h - padT - padB);
+        const top = padT + (h - padT - padB - size) / 2;
+        // ψ panel fills its column; the Wigner panel must stay square so the
+        // circular orbit and rings are not distorted into ellipses.
+        const psiRect = { x: padL, y: top, w: colW, h: size };
+        const wigRect = { x: padL + colW + gap + (colW - size) / 2, y: top, w: size, h: size };
+
+        const r = Math.sqrt(2 * state.nbar);
+        const theta = state.tSim;
+        const xc = r * Math.cos(theta);
+        const pc = -r * Math.sin(theta);
+        const W = state.W;
+
+        // ---- Wigner panel ----
+        panelBg(ctx, wigRect, pal, 'phase space  W(x, p)');
+        drawHeat(ctx, wigRect, (x, p) => wignerCoherent(x, p, xc, pc), {
+          xmin: -W, xmax: W, pmin: -W, pmax: W, res: 108, scale, zero: pal.wignerZero
+        });
+        roundRect(ctx, wigRect.x, wigRect.y, wigRect.w, wigRect.h, 7);
+        ctx.save(); ctx.clip();
+        const mx = mapLin(-W, W, wigRect.x, wigRect.x + wigRect.w);
+        const my = mapLin(-W, W, wigRect.y + wigRect.h, wigRect.y);
+        // axes
+        ctx.strokeStyle = pal.isDark ? '#ffffff30' : '#00000028';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(mx(-W), my(0)); ctx.lineTo(mx(W), my(0)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(mx(0), my(-W)); ctx.lineTo(mx(0), my(W)); ctx.stroke();
+        // classical orbit
+        ctx.strokeStyle = pal.isDark ? '#ffffff55' : '#00000055';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.ellipse(mx(0), my(0), Math.abs(mx(r) - mx(0)), Math.abs(my(r) - my(0)), 0, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // classical point
+        if (state.showClassical) {
+          ctx.beginPath();
+          ctx.arc(mx(xc), my(pc), 4, 0, 2 * Math.PI);
+          ctx.fillStyle = pal.fg;
+          ctx.fill();
+          ctx.lineWidth = 1.5; ctx.strokeStyle = pal.bg; ctx.stroke();
+        }
+        ctx.restore();
+        ctx.fillStyle = pal.muted;
+        ctx.font = '11px system-ui, sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+        ctx.fillText('red +   blue −', wigRect.x + wigRect.w - 8, wigRect.y + wigRect.h - 6);
+
+        // ---- Wavefunction panel ----
+        panelBg(ctx, psiRect, pal, 'wavefunction  ψ(x)');
+        const innerL = psiRect.x + 8, innerR = psiRect.x + psiRect.w - 8;
+        const baseY = psiRect.y + psiRect.h * 0.62;
+        const psiScale = psiRect.h * 0.30 / (1 / Math.sqrt(Math.sqrt(Math.PI)));
+        const densScale = psiRect.h * 0.34 / (1 / Math.sqrt(Math.PI));
+        const sx = mapLin(-W, W, innerL, innerR);
+        ctx.save();
+        roundRect(ctx, psiRect.x, psiRect.y, psiRect.w, psiRect.h, 7); ctx.clip();
+        // baseline
+        ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(innerL, baseY); ctx.lineTo(innerR, baseY); ctx.stroke();
+        // |psi|^2 fill
+        const NP = 220;
+        ctx.beginPath();
+        for (let s = 0; s <= NP; s++) {
+          const x = -W + (2 * W * s) / NP;
+          const psi = coherentPsi(x, xc, pc);
+          const dens = psi.re * psi.re + psi.im * psi.im;
+          const px = sx(x), py = baseY - dens * densScale;
+          if (s === 0) ctx.moveTo(px, baseY);
+          ctx.lineTo(px, py);
+        }
+        ctx.lineTo(sx(W), baseY); ctx.closePath();
+        ctx.fillStyle = pal.isDark ? '#7d97ff33' : '#3355ee22';
+        ctx.fill();
+        // Re psi line
+        ctx.beginPath();
+        for (let s = 0; s <= NP; s++) {
+          const x = -W + (2 * W * s) / NP;
+          const psi = coherentPsi(x, xc, pc);
+          const px = sx(x), py = baseY - psi.re * psiScale;
+          if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.strokeStyle = pal.accent; ctx.lineWidth = 1.8; ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = pal.muted;
+        ctx.font = '11px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillText('|ψ|² shaded,  Re ψ line', psiRect.x + 9, psiRect.y + psiRect.h - 6);
+
+        // readout
+        ctx.fillStyle = pal.fg;
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        ctx.fillText(`n̄ = ${state.nbar.toFixed(2)}    orbit r = ${r.toFixed(2)}    Δx Δp = ½ ℏ  (minimum)`, psiRect.x + 2, psiRect.y - 11);
+      }
+
+      const loop = createFrameLoop(frame);
+      invalidation.then(() => loop.cancel());
+      const redraw = () => { state.dirty = true; };
+      redrawHooks.add(redraw);
+      invalidation.then(() => redrawHooks.delete(redraw));
+    }
+  </script>
+
+  <script id="s2-display" type="text/x-typescript" pinned="">
+    const heroFigure = html`<figure>
+      ${heroFig.canvas}
+      <figcaption>One mode as a coherent state. Left: ψ(x). Right: the Wigner blob orbiting the classical trajectory. Large n̄ (small ℏ) is the classical limit; small n̄ is where the blob's irreducible size matters.</figcaption>
+    </figure>`;
+
+    display(expandable(heroFigure, {
+      id: 'hero',
+      width: Math.min(width, 720),
+      height: 360,
+      controls: '.hero-controls',
+      state: heroFig.ui,
+      onResize(el, w, h) {
+        setupCanvas(heroFig.canvas, heroFig.ctx, w, h);
+        heroFig.state.w = w; heroFig.state.h = h; heroFig.state.dirty = true;
+      }
+    }));
+  </script>
+
+  <script id="s2-tail" type="text/markdown">
+    That single blob is the whole ballgame. Because it cannot shrink to a point, the lowest state is not at rest: the oscillator keeps a residual jiggle even with no quanta in it, the **zero-point motion**. Because its area is quantized, the energies it can hold come in a discrete ladder. Both follow from the commutator, and the next figure reads them off.
+  </script>
+
+  <script id="s3-head" type="text/markdown">
+    ## 3. Where the particles are hiding
+
+    Solving one quantized oscillator gives an evenly spaced ladder of energies,
+
+    ${tex.block`E_n=\hbar\omega\big(n+\tfrac12\big),\qquad n=0,1,2,\dots`}
+
+    The integer ${tex`n`} counts identical **quanta** in the mode. That is the whole origin of particles: a particle of the field is one rung of one mode's ladder. The raising operator ${tex`\hat a^\dagger`} with ${tex`\hat a^\dagger|n\rangle=\sqrt{n{+}1}\,|n{+}1\rangle`} adds one; ${tex`\hat a`} removes one. The ground state ${tex`|0\rangle`} has no quanta yet still carries ${tex`\tfrac12\hbar\omega`}, the zero-point energy of that blob.
+
+    Switch between states below. A **number state** ${tex`|n\rangle`} has a definite particle count; its Wigner function is a set of rings that dip **negative**, a value no honest probability could take, which is the sharp fingerprint of non-classicality. A **coherent state** is the closest a mode comes to a classical wave, a single positive blob, and its quanta follow a Poisson spread. A **cat** superposes two coherent lobes and grows interference fringes between them.
+  </script>
+
+  <script id="s3-controls" type="text/x-typescript">
+    const stateControls = html`<div class="state-controls controls-panel"></div>`;
+    function stateCtrl(input) { stateControls.appendChild(input); return Generators.input(input); }
+    const stKind = stateCtrl(Inputs.select(['Number |n⟩', 'Coherent |α⟩', 'Cat'], { label: 'State', value: 'Number |n⟩' }));
+    const stN = stateCtrl(Inputs.range([0, 12], { label: 'quanta n  (â†/â)', value: 2, step: 1 }));
+    const stAmp = stateCtrl(Inputs.range([0.4, 3.4], { label: 'amplitude', value: 2.0, step: 0.01 }));
+    const stSpeed = stateCtrl(Inputs.range([0, 2], { label: 'Speed', value: 1, step: 0.01 }));
+    display(stateControls);
+  </script>
+
+  <script id="s3-state" type="text/x-typescript">
+    const stateFig = (() => {
+      const canvas = document.createElement('canvas');
+      canvas.id = 'state-canvas';
+      const ctx = canvas.getContext('2d');
+      const state = {
+        w: 720, h: 380, last: null, tSim: 0,
+        kind: 'Number |n⟩', n: 2, amp: 2, speed: 1, W: 6, dirty: true
+      };
+      return { canvas, ctx, state, ui: { expanded: false } };
+    })();
+  </script>
+
+  <script id="s3-sync" type="text/x-typescript">
+    stateFig.state.kind = stKind;
+    stateFig.state.n = stN;
+    stateFig.state.amp = stAmp;
+    stateFig.state.speed = stSpeed;
+    {
+      const s = stateFig.state;
+      const turn = s.kind === 'Number |n⟩' ? Math.sqrt(2 * (s.n + 1)) : s.amp;
+      s.W = Math.max(4.5, turn + 3);
+    }
+    stateFig.state.dirty = true;
+  </script>
+
+  <script id="s3-loop" type="text/x-typescript">
+    {
+      const { canvas, ctx, state } = stateFig;
+      const nMax = 12;
+
+      function occupation(kind, n, a2) {
+        const P = [];
+        for (let m = 0; m <= nMax; m++) {
+          if (kind === 'Number |n⟩') P.push(m === n ? 1 : 0);
+          else if (kind === 'Coherent |α⟩') P.push(poisson(m, a2));
+          else P.push(catOccupation(m, a2));
+        }
+        return P;
+      }
+
+      function frame(now) {
+        if (state.last == null) state.last = now;
+        const dt = Math.min(0.05, (now - state.last) / 1000);
+        state.last = now;
+        const animated = state.kind !== 'Number |n⟩';
+        if (animated && state.speed > 0) state.tSim += dt * state.speed;
+        else if (!state.dirty) return;
+        state.dirty = false;
+
+        const pal = palette;
+        const { w, h } = state;
+        ctx.clearRect(0, 0, w, h);
+
+        const gap = 14, padL = 12, padR = 12, padT = 26, padB = 14;
+        const ladderW = Math.min(150, w * 0.24);
+        const rest = w - padL - padR - ladderW - 2 * gap;
+        const colW = rest / 2;
+        const size = Math.min(colW, h - padT - padB);
+        const top = padT + (h - padT - padB - size) / 2;
+        const ladRect = { x: padL, y: top, w: ladderW, h: size };
+        const psiRect = { x: padL + ladderW + gap, y: top, w: colW, h: size };
+        const wigRect = { x: psiRect.x + colW + gap + (colW - size) / 2, y: top, w: size, h: size };
+
+        const W = state.W;
+        const a2 = (state.amp * state.amp) / 2; // |alpha|^2
+        const theta = state.tSim;
+
+        // amplitude and phase-space centre(s)
+        let psiFn, wigFn, lobes;
+        if (state.kind === 'Number |n⟩') {
+          const n = state.n;
+          psiFn = (x) => ({ re: psiN(n, x), im: 0 });
+          wigFn = (x, p) => wignerNumber(n, x, p);
+          lobes = [];
+        } else if (state.kind === 'Coherent |α⟩') {
+          const R = state.amp;
+          const xc = R * Math.cos(theta), pc = -R * Math.sin(theta);
+          psiFn = (x) => coherentPsi(x, xc, pc);
+          wigFn = (x, p) => wignerCoherent(x, p, xc, pc);
+          lobes = [[xc, pc]];
+        } else {
+          const R = state.amp;
+          const xc = R * Math.cos(theta), pc = -R * Math.sin(theta);
+          psiFn = (x) => catPsi(x, xc, pc, a2);
+          wigFn = (x, p) => wignerCat(x, p, xc, pc, a2);
+          lobes = [[xc, pc], [-xc, -pc]];
+        }
+
+        // ---- energy ladder + occupation ----
+        panelBg(ctx, ladRect, pal, 'energy  Eₙ = ℏω(n+½)');
+        const P = occupation(state.kind, state.n, a2);
+        const eMax = nMax + 1.2;
+        const ey = mapLin(0, eMax, ladRect.y + ladRect.h - 10, ladRect.y + 22);
+        const barX0 = ladRect.x + 16;
+        const barX1 = ladRect.x + ladRect.w - 10;
+        let wMin = 0;
+        for (let m = 0; m <= nMax; m++) {
+          const E = m + 0.5;
+          const y = ey(E);
+          const filled = P[m] > 1e-4;
+          ctx.strokeStyle = filled ? pal.accent : pal.grid;
+          ctx.lineWidth = filled ? 2 : 1;
+          ctx.beginPath(); ctx.moveTo(barX0, y); ctx.lineTo(barX1, y); ctx.stroke();
+          if (filled) {
+            const bw = (barX1 - barX0) * Math.min(1, P[m]);
+            ctx.fillStyle = pal.isDark ? '#7d97ff44' : '#3355ee2e';
+            ctx.fillRect(barX0, y - 5, bw, 10);
+          }
+        }
+        ctx.fillStyle = pal.muted;
+        ctx.font = '11px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('n=0', barX0 - 2, ey(0.5) + 12);
+
+        // ---- wavefunction ----
+        panelBg(ctx, psiRect, pal, 'ψ(x)');
+        const innerL = psiRect.x + 8, innerR = psiRect.x + psiRect.w - 8;
+        const baseY = psiRect.y + psiRect.h * 0.62;
+        // find scales
+        let maxAbs = 0.4, maxDens = 0.2;
+        const NP = 240;
+        for (let s = 0; s <= NP; s++) {
+          const x = -W + (2 * W * s) / NP;
+          const psi = psiFn(x);
+          maxAbs = Math.max(maxAbs, Math.abs(psi.re));
+          maxDens = Math.max(maxDens, psi.re * psi.re + psi.im * psi.im);
+        }
+        const psiScale = (psiRect.h * 0.30) / (maxAbs * 1.1);
+        const densScale = (psiRect.h * 0.34) / (maxDens * 1.1);
+        const sx = mapLin(-W, W, innerL, innerR);
+        ctx.save();
+        roundRect(ctx, psiRect.x, psiRect.y, psiRect.w, psiRect.h, 7); ctx.clip();
+        ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(innerL, baseY); ctx.lineTo(innerR, baseY); ctx.stroke();
+        ctx.beginPath();
+        for (let s = 0; s <= NP; s++) {
+          const x = -W + (2 * W * s) / NP;
+          const psi = psiFn(x);
+          const dens = psi.re * psi.re + psi.im * psi.im;
+          const px = sx(x), py = baseY - dens * densScale;
+          if (s === 0) ctx.moveTo(px, baseY);
+          ctx.lineTo(px, py);
+        }
+        ctx.lineTo(sx(W), baseY); ctx.closePath();
+        ctx.fillStyle = pal.isDark ? '#7d97ff33' : '#3355ee22';
+        ctx.fill();
+        ctx.beginPath();
+        for (let s = 0; s <= NP; s++) {
+          const x = -W + (2 * W * s) / NP;
+          const psi = psiFn(x);
+          const px = sx(x), py = baseY - psi.re * psiScale;
+          if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.strokeStyle = pal.accent; ctx.lineWidth = 1.8; ctx.stroke();
+        ctx.restore();
+
+        // ---- Wigner ----
+        panelBg(ctx, wigRect, pal, 'W(x, p)');
+        drawHeat(ctx, wigRect, wigFn, {
+          xmin: -W, xmax: W, pmin: -W, pmax: W, res: 112, scale: 1 / Math.PI, zero: pal.wignerZero
+        });
+        // sample the minimum for the negativity readout
+        for (let j = 0; j <= 40; j++) for (let i = 0; i <= 40; i++) {
+          const x = -W + (2 * W * i) / 40, p = -W + (2 * W * j) / 40;
+          wMin = Math.min(wMin, wigFn(x, p));
+        }
+        roundRect(ctx, wigRect.x, wigRect.y, wigRect.w, wigRect.h, 7);
+        ctx.save(); ctx.clip();
+        const mx = mapLin(-W, W, wigRect.x, wigRect.x + wigRect.w);
+        const my = mapLin(-W, W, wigRect.y + wigRect.h, wigRect.y);
+        ctx.strokeStyle = pal.isDark ? '#ffffff28' : '#00000022';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(mx(-W), my(0)); ctx.lineTo(mx(W), my(0)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(mx(0), my(-W)); ctx.lineTo(mx(0), my(W)); ctx.stroke();
+        ctx.restore();
+
+        // readout
+        ctx.fillStyle = pal.fg;
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        const cls = wMin < -0.003
+          ? `min W = ${wMin.toFixed(3)} < 0  →  non-classical`
+          : `min W ≈ 0  →  classical-like`;
+        ctx.fillText(cls, wigRect.x + 2, wigRect.y - 10);
+        const meanN = state.kind === 'Number |n⟩' ? state.n
+          : state.kind === 'Coherent |α⟩' ? a2 : null;
+        const nText = meanN == null ? 'even quanta only' : `n̄ = ${meanN.toFixed(2)}`;
+        ctx.fillStyle = pal.muted;
+        ctx.fillText(nText, psiRect.x + 2, psiRect.y - 10);
+      }
+
+      const loop = createFrameLoop(frame);
+      invalidation.then(() => loop.cancel());
+      const redraw = () => { state.dirty = true; };
+      redrawHooks.add(redraw);
+      invalidation.then(() => redrawHooks.delete(redraw));
+    }
+  </script>
+
+  <script id="s3-display" type="text/x-typescript" pinned="">
+    const stateFigure = html`<figure>
+      ${stateFig.canvas}
+      <figcaption>Left: the energy ladder, with occupied rungs highlighted. Middle: ψ(x). Right: the Wigner function. Number states ring and go negative; coherent states stay a single positive blob.</figcaption>
+    </figure>`;
+
+    display(expandable(stateFigure, {
+      id: 'states',
+      width: Math.min(width, 720),
+      height: 380,
+      controls: '.state-controls',
+      state: stateFig.ui,
+      onResize(el, w, h) {
+        setupCanvas(stateFig.canvas, stateFig.ctx, w, h);
+        stateFig.state.w = w; stateFig.state.h = h; stateFig.state.dirty = true;
+      }
+    }));
+  </script>
+
+  <script id="s3-tail" type="text/markdown">
+    Notice the trade. The number state has a razor-sharp particle count but its phase is smeared all the way around the circle, and its wavefunction spreads over the whole oscillator. The coherent state has a well-defined amplitude and phase, so it looks like a little classical wave, but its particle number is uncertain. You cannot have both, and that is again the blob refusing to be a point. This is why a laser, a genuinely classical-looking electromagnetic wave, is built from coherent states rather than states of definite photon number.
+  </script>
+
+  <script id="s4-head" type="text/markdown">
+    ## 4. Back to the field
+
+    Now do this to every mode at once. The field is quantized by handing each normal mode its own oscillator ladder, its own blob, its own ${tex`\hat a_k^\dagger`}. The vacuum ${tex`|0\rangle`} is every mode in its ground state, and a particle of wavenumber ${tex`k`} is a single quantum raised in that one mode, ${tex`\hat a_k^\dagger|0\rangle`}.
+
+    The tiles below are the modes, each drawn as its own little phase space. Click a tile to cycle it through vacuum, a coherent excitation, and one or two quanta. Underneath, the modes are reassembled into the field over space: the line is the mean field ${tex`\langle\phi(x)\rangle`} and the shaded band is its quantum spread ${tex`\sqrt{\langle\phi^2\rangle-\langle\phi\rangle^2}`}.
+  </script>
+
+  <script id="s4-controls" type="text/x-typescript">
+    const fieldControls = html`<div class="field-controls controls-panel"></div>`;
+    function fieldCtrl(input) { fieldControls.appendChild(input); return Generators.input(input); }
+    const fldPreset = fieldCtrl(Inputs.select(
+      ['Vacuum', 'One particle (mode 3)', 'Coherent wave (mode 2)', 'Localized wavepacket'],
+      { label: 'Preset', value: 'Coherent wave (mode 2)' }
+    ));
+    const fldMass = fieldCtrl(Inputs.range([0, 1.2], { label: 'field mass M', value: 0.3, step: 0.01 }));
+    const fldSpeed = fieldCtrl(Inputs.range([0, 2], { label: 'Speed', value: 1, step: 0.01 }));
+    display(fieldControls);
+  </script>
+
+  <script id="s4-state" type="text/x-typescript">
+    const K = 7; // number of modes shown
+    const fieldFig = (() => {
+      const canvas = document.createElement('canvas');
+      canvas.id = 'field-canvas';
+      const ctx = canvas.getContext('2d');
+      // each mode: { kind: 'vac'|'coh'|'num', amp, phase, n }
+      const modes = [];
+      for (let m = 1; m <= K; m++) modes.push({ kind: 'vac', amp: 0, phase: 0, n: 0 });
+      const state = {
+        w: 720, h: 460, last: null, tSim: 0,
+        M: 0.3, speed: 1, modes, tiles: [], dirty: true
+      };
+      return { canvas, ctx, state, ui: { expanded: false } };
+    })();
+
+    function fieldApplyPreset(name, modes) {
+      for (const md of modes) { md.kind = 'vac'; md.amp = 0; md.phase = 0; md.n = 0; }
+      if (name === 'One particle (mode 3)') {
+        modes[2].kind = 'num'; modes[2].n = 1;
+      } else if (name === 'Coherent wave (mode 2)') {
+        modes[1].kind = 'coh'; modes[1].amp = 2.2; modes[1].phase = 0;
+      } else if (name === 'Localized wavepacket') {
+        const k0 = 3;
+        for (let i = 0; i < modes.length; i++) {
+          const m = i + 1;
+          const a = 2.4 * Math.exp(-((m - k0) ** 2) / 2.2);
+          if (a > 0.05) { modes[i].kind = 'coh'; modes[i].amp = a; modes[i].phase = 0; }
+        }
+      }
+    }
+  </script>
+
+  <script id="s4-sync" type="text/x-typescript">
+    fieldFig.state.M = fldMass;
+    fieldFig.state.speed = fldSpeed;
+    fieldApplyPreset(fldPreset, fieldFig.state.modes);
+    fieldFig.state.dirty = true;
+  </script>
+
+  <script id="s4-loop" type="text/x-typescript">
+    {
+      const { canvas, ctx, state } = fieldFig;
+      const L = Math.PI;                       // box length so k_m = m
+      const kOf = (m) => m;                    // wavenumber of mode m (m=1..K)
+      const omegaOf = (m) => Math.sqrt(state.M * state.M + kOf(m) ** 2);
+
+      // mode spatial profile u_m(x) = sqrt(2/L) sin(k_m x)
+      const uOf = (m, x) => Math.sqrt(2 / L) * Math.sin(kOf(m) * x);
+
+      // <q_m>(t) and Var(q_m) for the mode's state
+      function qMean(md, m, t) {
+        if (md.kind === 'coh') return md.amp * Math.cos(omegaOf(m) * t - md.phase);
+        return 0; // vacuum, number: zero mean
+      }
+      function qVar(md) {
+        if (md.kind === 'num') return md.n + 0.5;
+        return 0.5; // vacuum, coherent: minimum uncertainty
+      }
+
+      // click cycles a tile's state
+      const onClick = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left, py = e.clientY - rect.top;
+        for (const t of state.tiles) {
+          if (px >= t.x && px <= t.x + t.w && py >= t.y && py <= t.y + t.h) {
+            const md = state.modes[t.i];
+            if (md.kind === 'vac') { md.kind = 'coh'; md.amp = 2.0; md.phase = 0; }
+            else if (md.kind === 'coh') { md.kind = 'num'; md.n = 1; }
+            else if (md.kind === 'num' && md.n < 2) { md.n += 1; }
+            else { md.kind = 'vac'; md.amp = 0; md.n = 0; }
+            state.dirty = true;
+            break;
+          }
+        }
+      };
+      canvas.style.cursor = 'pointer';
+      canvas.addEventListener('click', onClick);
+      invalidation.then(() => canvas.removeEventListener('click', onClick));
+
+      function frame(now) {
+        if (state.last == null) state.last = now;
+        const dt = Math.min(0.05, (now - state.last) / 1000);
+        state.last = now;
+        if (state.speed > 0) state.tSim += dt * state.speed;
+        else if (!state.dirty) return;
+        state.dirty = false;
+
+        const pal = palette;
+        const { w, h } = state;
+        ctx.clearRect(0, 0, w, h);
+        const t = state.tSim;
+
+        // layout: tile row on top, field panel below
+        const padX = 12, padT = 26, gap = 8;
+        const tileRow = { x: padX, y: padT, w: w - 2 * padX, h: Math.min(150, h * 0.42) };
+        const tileSize = Math.min((tileRow.w - (K - 1) * gap) / K, tileRow.h);
+        const rowY = tileRow.y + (tileRow.h - tileSize) / 2;
+        state.tiles = [];
+
+        // tiles
+        ctx.fillStyle = pal.muted;
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        ctx.fillText('modes  (click a tile to add / change quanta)', padX + 2, padT - 10);
+
+        for (let i = 0; i < K; i++) {
+          const m = i + 1;
+          const md = state.modes[i];
+          const tx = tileRow.x + i * (tileSize + gap);
+          const tRect = { x: tx, y: rowY, w: tileSize, h: tileSize };
+          state.tiles.push({ x: tx, y: rowY, w: tileSize, h: tileSize, i });
+          const Wt = 3.2;
+          let fn;
+          if (md.kind === 'num') {
+            fn = (x, p) => wignerNumber(md.n, x, p);
+          } else if (md.kind === 'coh') {
+            const xc = md.amp * Math.cos(omegaOf(m) * t - md.phase);
+            const pc = -md.amp * Math.sin(omegaOf(m) * t - md.phase);
+            fn = (x, p) => wignerCoherent(x, p, xc, pc);
+          } else {
+            fn = (x, p) => wignerCoherent(x, p, 0, 0);
+          }
+          drawHeat(ctx, tRect, fn, {
+            xmin: -Wt, xmax: Wt, pmin: -Wt, pmax: Wt, res: 60, scale: 1 / Math.PI, zero: pal.wignerZero
+          });
+          roundRect(ctx, tRect.x, tRect.y, tRect.w, tRect.h, 5);
+          ctx.lineWidth = 1; ctx.strokeStyle = pal.border; ctx.stroke();
+          // label
+          ctx.fillStyle = pal.muted;
+          ctx.font = '10px system-ui, sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+          let tag = 'vac';
+          if (md.kind === 'coh') tag = 'coh';
+          else if (md.kind === 'num') tag = md.n + 'q';
+          ctx.fillText(`k=${m} · ${tag}`, tRect.x + tRect.w / 2, tRect.y + tRect.h + 3);
+        }
+
+        // field panel
+        const fpY = rowY + tileSize + 26;
+        const fp = { x: padX, y: fpY, w: w - 2 * padX, h: h - fpY - 12 };
+        panelBg(ctx, fp, pal, 'field over space  ⟨φ(x)⟩ ± spread');
+        const innerL = fp.x + 10, innerR = fp.x + fp.w - 10;
+        const midY = fp.y + fp.h * 0.56;
+        const sx = mapLin(0, L, innerL, innerR);
+        const vScale = fp.h * 0.16;
+
+        const NPTS = 200;
+        const xs = [], mean = [], sd = [];
+        for (let s = 0; s <= NPTS; s++) {
+          const x = (L * s) / NPTS;
+          let mu = 0, varr = 0;
+          for (let i = 0; i < K; i++) {
+            const m = i + 1;
+            const u = uOf(m, x);
+            mu += u * qMean(state.modes[i], m, t);
+            varr += u * u * qVar(state.modes[i]);
+          }
+          xs.push(x); mean.push(mu); sd.push(Math.sqrt(varr));
+        }
+
+        ctx.save();
+        roundRect(ctx, fp.x, fp.y, fp.w, fp.h, 7); ctx.clip();
+        // zero line
+        ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(innerL, midY); ctx.lineTo(innerR, midY); ctx.stroke();
+        // spread band
+        ctx.beginPath();
+        for (let s = 0; s <= NPTS; s++) ctx.lineTo(sx(xs[s]), midY - (mean[s] + sd[s]) * vScale);
+        for (let s = NPTS; s >= 0; s--) ctx.lineTo(sx(xs[s]), midY - (mean[s] - sd[s]) * vScale);
+        ctx.closePath();
+        ctx.fillStyle = pal.isDark ? '#9aa4b81f' : '#5560701c';
+        ctx.fill();
+        // mean field
+        ctx.beginPath();
+        for (let s = 0; s <= NPTS; s++) {
+          const px = sx(xs[s]), py = midY - mean[s] * vScale;
+          if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.strokeStyle = pal.accent; ctx.lineWidth = 2; ctx.stroke();
+        ctx.restore();
+
+        // caption of meaning
+        ctx.fillStyle = pal.muted;
+        ctx.font = '11px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillText('flat mean + fat band = particles with no classical waveform;  oscillating line = classical wave',
+          fp.x + 10, fp.y + fp.h - 7);
+      }
+
+      const loop = createFrameLoop(frame);
+      invalidation.then(() => loop.cancel());
+      const redraw = () => { state.dirty = true; };
+      redrawHooks.add(redraw);
+      invalidation.then(() => redrawHooks.delete(redraw));
+    }
+  </script>
+
+  <script id="s4-display" type="text/x-typescript" pinned="">
+    const fieldFigure = html`<figure>
+      ${fieldFig.canvas}
+      <figcaption>Every mode is its own oscillator. Coherent excitations build a classical-looking wave; a lone quantum leaves the mean field flat but fattens the fluctuation band. Click tiles or use the presets.</figcaption>
+    </figure>`;
+
+    display(expandable(fieldFigure, {
+      id: 'field',
+      width: Math.min(width, 720),
+      height: 460,
+      controls: '.field-controls',
+      state: fieldFig.ui,
+      onResize(el, w, h) {
+        setupCanvas(fieldFig.canvas, fieldFig.ctx, w, h);
+        fieldFig.state.w = w; fieldFig.state.h = h; fieldFig.state.dirty = true;
+      }
+    }));
+  </script>
+
+  <script id="s4-tail-1" type="text/markdown">
+    Three things are worth pausing on. Put a coherent excitation in one mode and the mean field is a clean oscillating wave. This is the classical limit of the field, the electromagnetic wave you already trust. Put a single quantum in one mode instead and the mean field stays flat everywhere, yet the fluctuation band bulges in that mode's pattern. The particle is unmistakably present, it carries energy, but it has no classical waveform and no location. A state of definite momentum is spread across all of space.
+
+    To make a particle that is somewhere, you superpose many modes with matched phases, the wavepacket preset. The band gathers into a lump that moves. Localization costs a spread of momenta, the same uncertainty trade from the single oscillator, now wearing its field-theory clothes.
+  </script>
+
+  <script id="s4-tail-2" type="text/markdown">
+    And the vacuum is never quite empty. Even with every tile in its ground state, the band has a finite thickness, because every mode's blob has that irreducible size. That residual thickness is the zero-point energy, and letting the boundary conditions reshape it is the [Casimir effect](https://en.wikipedia.org/wiki/Casimir_effect). The magic of the vacuum is the same blob, summed over modes.
+  </script>
+
+  <script id="closing" type="text/markdown">
+    ## What was actually magic
+
+    Nothing in first quantization was extra. The mode decomposition was classical, and quantization was one quantum harmonic oscillator, repeated once per mode. The commutator ${tex`[\hat x,\hat p]=i\hbar`} bought a single geometric fact, that the state cannot be a point in phase space, and from that one fact came zero-point motion, a discrete ladder whose rungs we name particles, the coherent states that recover classical waves, and a vacuum that fluctuates. Seen through the Wigner blob, the leap from springs to fields is short.
+
+    Two honest omissions. This whole story is **free** field theory, quadratic and exactly solvable. Interactions add terms like ${tex`\phi^4`} that couple the modes, and then the oscillators no longer decouple, which is where scattering, renormalization, and most of the real difficulty of QFT begin. And a real relativistic field needs a complex or multi-component version to carry antiparticles and spin. But the tangible core, the part that felt magical, is just the blob.
+  </script>
+
+  <script id="impl-head" type="text/markdown">
+    ## Implementation notes
+
+    Every figure is a plain Canvas 2D panel driven by a `requestAnimationFrame` loop, with the oscillator mathematics in a small [`qho.js`](./qho.js) module. The one convention worth stating: units with ${tex`\hbar=m=\omega=1`} and quadratures whose vacuum has variance ${tex`1/2`}, so the Wigner function is ${tex`W(x,p)=\tfrac1\pi\!\int\psi^*(x{+}y)\,\psi(x{-}y)\,e^{2ipy}\,dy`} and ${tex`W(0,0)=\pm1/\pi`}. The closed forms used for the coherent, number, and cat states were checked against direct numerical integration of that integral to machine precision before being trusted here.
+  </script>
+
+  <script id="impl-qho" type="text/x-typescript" pinned="">
+    // The number-state Wigner function (rings), for reference. Full module in qho.js.
+    function wignerNumberRef(n, x, p) {
+      const r2 = x * x + p * p;
+      const sign = n % 2 === 0 ? 1 : -1;
+      return (sign / Math.PI) * Math.exp(-r2) * laguerre(n, 2 * r2);
+    }
+  </script>
+
+  <script id="collapse" type="text/x-typescript">
+    collapseCodeBlocks({ maxHeight: 520 });
+  </script>
+</notebook>
