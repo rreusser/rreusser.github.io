@@ -128,9 +128,45 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
+    // Unified pointer/touch drag handling. `down` returns true if it grabbed
+    // something (only then do we capture the pointer and preventDefault, so a
+    // touch on empty space still behaves normally); `move` returns true while a
+    // drag is live. Pointer capture keeps the drag alive when the finger leaves
+    // the canvas, and touch-action: none (set in makeFigure) stops the page from
+    // scrolling or zooming out from under the gesture.
+    function attachDrag(canvas, handlers) {
+      const { down, move, up } = handlers;
+      const onDown = (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        const started = down ? down(e) : true;
+        if (started === false) return;
+        try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      const onMove = (e) => {
+        if (move && move(e)) { e.preventDefault(); e.stopPropagation(); }
+      };
+      const onUp = (e) => {
+        if (up) up(e);
+        try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      };
+      canvas.addEventListener('pointerdown', onDown);
+      canvas.addEventListener('pointermove', onMove);
+      canvas.addEventListener('pointerup', onUp);
+      canvas.addEventListener('pointercancel', onUp);
+      invalidation.then(() => {
+        canvas.removeEventListener('pointerdown', onDown);
+        canvas.removeEventListener('pointermove', onMove);
+        canvas.removeEventListener('pointerup', onUp);
+        canvas.removeEventListener('pointercancel', onUp);
+      });
+    }
+
     function makeFigure(id, h0, init, draw, attach) {
       const canvas = document.createElement('canvas');
       canvas.id = id + '-canvas';
+      canvas.style.touchAction = 'none';
       const ctx = canvas.getContext('2d');
       const state = Object.assign({ w: 720, h: h0, last: null, tSim: 0, dirty: true, anim: true }, init);
       const fig = { canvas, ctx, state, ui: { expanded: false } };
@@ -237,20 +273,15 @@
           st.thick = clamp(p.x - r.frontX, 6, r.maxThick);
           st.dirty = true;
         };
-        const down = (e) => {
-          const r = st.backRect; if (!r) return;
-          const p = canvasPos(canvas, e);
-          if (p.x > r.frontX - 10 && p.x < r.frontX + r.maxThick + 60) { st.drag = true; setThick(e); e.preventDefault(); }
-        };
-        const move = (e) => { if (st.drag) setThick(e); };
-        const up = () => { st.drag = false; };
-        canvas.addEventListener('pointerdown', down);
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-        invalidation.then(() => {
-          canvas.removeEventListener('pointerdown', down);
-          window.removeEventListener('pointermove', move);
-          window.removeEventListener('pointerup', up);
+        attachDrag(canvas, {
+          down: (e) => {
+            const r = st.backRect; if (!r) return false;
+            const p = canvasPos(canvas, e);
+            if (p.x > r.frontX - 10 && p.x < r.frontX + r.maxThick + 60) { st.drag = true; setThick(e); return true; }
+            return false;
+          },
+          move: (e) => { if (st.drag) { setThick(e); return true; } return false; },
+          up: () => { st.drag = false; }
         });
       }
 
@@ -339,31 +370,26 @@
 
       function attach(fig) {
         const { canvas, state: st } = fig;
-        const down = (e) => {
-          if (!st.nodes) return;
-          const p = canvasPos(canvas, e); const { sx, sy } = geom(st);
-          let best = -1, bd = 18 * 18;
-          st.nodes.forEach((nd, i) => {
-            if (i === 0 || i === st.nodes.length - 1) return;
-            const dx = p.x - sx(nd.t), dy = p.y - sy(nd.x); const dd = dx * dx + dy * dy;
-            if (dd < bd) { bd = dd; best = i; }
-          });
-          if (best >= 0) { st.drag = best; st.dirty = true; e.preventDefault(); }
-        };
-        const move = (e) => {
-          if (st.drag < 0) return;
-          const p = canvasPos(canvas, e); const { syInv } = geom(st);
-          st.nodes[st.drag].x = clamp(syInv(p.y), xLo, xHi);
-          st.dirty = true;
-        };
-        const up = () => { st.drag = -1; };
-        canvas.addEventListener('pointerdown', down);
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-        invalidation.then(() => {
-          canvas.removeEventListener('pointerdown', down);
-          window.removeEventListener('pointermove', move);
-          window.removeEventListener('pointerup', up);
+        attachDrag(canvas, {
+          down: (e) => {
+            if (!st.nodes) return false;
+            const p = canvasPos(canvas, e); const { sx, sy } = geom(st);
+            let best = -1, bd = 20 * 20;
+            st.nodes.forEach((nd, i) => {
+              if (i === 0 || i === st.nodes.length - 1) return;
+              const dx = p.x - sx(nd.t), dy = p.y - sy(nd.x); const dd = dx * dx + dy * dy;
+              if (dd < bd) { bd = dd; best = i; }
+            });
+            if (best >= 0) { st.drag = best; st.dirty = true; return true; }
+            return false;
+          },
+          move: (e) => {
+            if (st.drag < 0) return false;
+            const p = canvasPos(canvas, e); const { syInv } = geom(st);
+            st.nodes[st.drag].x = clamp(syInv(p.y), xLo, xHi);
+            st.dirty = true; return true;
+          },
+          up: () => { st.drag = -1; }
         });
       }
 
@@ -465,20 +491,15 @@
           st.logm = clamp(inv(p.x), Math.log(mLo), Math.log(mHi));
           st.dirty = true;
         };
-        const down = (e) => {
-          const tr = st.massTrack; if (!tr) return;
-          const p = canvasPos(canvas, e);
-          if (Math.abs(p.y - tr.y) < 24 && p.x > tr.x0 - 14 && p.x < tr.x1 + 14) { st.drag = true; setMass(e); e.preventDefault(); }
-        };
-        const move = (e) => { if (st.drag) setMass(e); };
-        const up = () => { st.drag = false; };
-        canvas.addEventListener('pointerdown', down);
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-        invalidation.then(() => {
-          canvas.removeEventListener('pointerdown', down);
-          window.removeEventListener('pointermove', move);
-          window.removeEventListener('pointerup', up);
+        attachDrag(canvas, {
+          down: (e) => {
+            const tr = st.massTrack; if (!tr) return false;
+            const p = canvasPos(canvas, e);
+            if (Math.abs(p.y - tr.y) < 26 && p.x > tr.x0 - 16 && p.x < tr.x1 + 16) { st.drag = true; setMass(e); return true; }
+            return false;
+          },
+          move: (e) => { if (st.drag) { setMass(e); return true; } return false; },
+          up: () => { st.drag = false; }
         });
       }
 
@@ -570,17 +591,11 @@
           st.x0 = clamp(sxi(p.x), -Lx / 2 + 3, 0);
           st.dirty = true;
         };
-        const down = (e) => { st.drag = true; setX0(e); e.preventDefault(); };
-        const move = (e) => { if (st.drag) setX0(e); };
-        const up = () => { st.drag = false; };
-        canvas.addEventListener('pointerdown', down);
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
         canvas.style.cursor = 'ew-resize';
-        invalidation.then(() => {
-          canvas.removeEventListener('pointerdown', down);
-          window.removeEventListener('pointermove', move);
-          window.removeEventListener('pointerup', up);
+        attachDrag(canvas, {
+          down: (e) => { st.drag = true; setX0(e); return true; },
+          move: (e) => { if (st.drag) { setX0(e); return true; } return false; },
+          up: () => { st.drag = false; }
         });
       }
 
@@ -677,20 +692,21 @@
 
       function attach(fig) {
         const { canvas, state: st } = fig;
-        const down = (e) => {
-          const p = canvasPos(canvas, e);
-          for (const r of st.rungs) {
-            if (p.x >= r.x0 - 6 && p.x <= r.x1 + 6 && Math.abs(p.y - r.y) < 12) {
-              const i = st.active.indexOf(r.n);
-              if (i >= 0) { if (st.active.length > 1) st.active.splice(i, 1); }
-              else { if (st.active.length >= 2) st.active = [r.n]; else st.active.push(r.n); }
-              st.dirty = true; e.preventDefault(); break;
-            }
-          }
-        };
-        canvas.addEventListener('pointerdown', down);
         canvas.style.cursor = 'pointer';
-        invalidation.then(() => canvas.removeEventListener('pointerdown', down));
+        attachDrag(canvas, {
+          down: (e) => {
+            const p = canvasPos(canvas, e);
+            for (const r of st.rungs) {
+              if (p.x >= r.x0 - 6 && p.x <= r.x1 + 6 && Math.abs(p.y - r.y) < 14) {
+                const i = st.active.indexOf(r.n);
+                if (i >= 0) { if (st.active.length > 1) st.active.splice(i, 1); }
+                else { if (st.active.length >= 2) st.active = [r.n]; else st.active.push(r.n); }
+                st.dirty = true; return true;
+              }
+            }
+            return false;
+          }
+        });
       }
 
       return makeFigure('fig5', 340, init, draw, attach);
