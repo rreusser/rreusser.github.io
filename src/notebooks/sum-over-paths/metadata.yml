@@ -1,0 +1,10 @@
+publishedAt: "July 31, 2026"
+description: "An interactive walk through Feynman's sum-over-paths quantum theory, one rotating arrow at a time"
+maxWidth: 760px
+tags:
+  - physics
+  - interactive
+seeAlso:
+  - kerr-geodesics
+  - perfectly-matched-layers-for-the-wave-equation
+  - malkus-waterwheel

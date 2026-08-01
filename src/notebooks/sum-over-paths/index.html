@@ -1,0 +1,717 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Feynman's Sum Over Paths</title>
+
+  <script id="title" type="text/markdown">
+    # Feynman's Sum Over Paths
+  </script>
+
+  <script id="intro-1" type="text/markdown">
+    Feynman's version of quantum mechanics is a single instruction to a particle: **explore every path.** An electron going from here to there does not pick a route. It tries all of them at once, and what we observe is the sum of their contributions.
+
+    Each path carries a tiny rotating arrow, an imaginary **quantum stopwatch**, whose hand turns by the classical action along that path measured in units of ${tex`\hbar`}. To get the chance of arriving somewhere, you lay the arrows for all the paths **tip to tail** and read off the length of the arrow that closes the chain. The probability is that length squared. That one picture, elaborated, is the whole of quantum mechanics.
+  </script>
+
+  <script id="intro-2" type="text/markdown">
+    The sequence of figures below follows the teaching approach of Taylor, Vokos, O'Meara, and Thornber, *Teaching Feynman's sum-over-paths quantum theory* (Computers in Physics 12, 190, 1998), who built an entire introductory course on this single metaphor. Every figure is something to drag or click. No formalism is required to follow the argument; the arrows do the work.
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+    import { expandable } from './lib/expandable.js'
+    import { createFrameLoop } from './lib/frame-loop.js'
+    import { observeTheme } from './lib/theme.js'
+    import {
+      arrow, actionUniformField, classicalUniformField,
+      propagateFreeUniform, psiN, energyN
+    } from './spq.js'
+  </script>
+
+  <script id="palette" type="text/x-typescript">
+    const palette = {
+      isDark: false, fg: '#1b1e23', bg: '#ffffff', panel: '#fbfbfd',
+      muted: '#8a9099', faint: '#00000012', grid: '#00000020', border: '#00000022',
+      accent: '#3355ee', accentSoft: '#3355ee22', warm: '#c7363e', good: '#2a9d5c'
+    };
+    const redrawHooks = new Set();
+    const stopThemePalette = observeTheme(({ isDark }) => {
+      palette.isDark = isDark;
+      palette.fg = isDark ? '#e8eaed' : '#1b1e23';
+      palette.bg = isDark ? '#0f1216' : '#ffffff';
+      palette.panel = isDark ? '#171b21' : '#fbfbfd';
+      palette.muted = isDark ? '#868d97' : '#8a9099';
+      palette.faint = isDark ? '#ffffff10' : '#00000012';
+      palette.grid = isDark ? '#ffffff20' : '#00000020';
+      palette.border = isDark ? '#ffffff2a' : '#00000022';
+      palette.accent = isDark ? '#7d97ff' : '#3355ee';
+      palette.accentSoft = isDark ? '#7d97ff2a' : '#3355ee22';
+      palette.warm = isDark ? '#ff6f78' : '#c7363e';
+      palette.good = isDark ? '#54c98a' : '#2a9d5c';
+      redrawHooks.forEach((fn) => { try { fn(); } catch (e) {} });
+    });
+    invalidation.then(stopThemePalette);
+  </script>
+
+  <script id="draw-helpers" type="text/x-typescript">
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+    function mapLin(a0, a1, b0, b1) {
+      const s = (b1 - b0) / ((a1 - a0) || 1);
+      return (v) => b0 + (v - a0) * s;
+    }
+
+    function canvasPos(canvas, e) {
+      const r = canvas.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function panelBg(ctx, rect, pal, title) {
+      ctx.save();
+      roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 7);
+      ctx.fillStyle = pal.panel; ctx.fill();
+      ctx.lineWidth = 1; ctx.strokeStyle = pal.border; ctx.stroke();
+      if (title) {
+        ctx.fillStyle = pal.muted; ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText(title, rect.x + 9, rect.y + 7);
+      }
+      ctx.restore();
+    }
+
+    // Draw a vector (arrow) in screen coordinates.
+    function drawVec(ctx, x1, y1, x2, y2, color, lw) {
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      const ang = Math.atan2(y2 - y1, x2 - x1);
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      const hs = Math.min(len, Math.max(4, lw * 2.4));
+      if (hs < 1) return;
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - hs * Math.cos(ang - 0.42), y2 - hs * Math.sin(ang - 0.42));
+      ctx.lineTo(x2 - hs * Math.cos(ang + 0.42), y2 - hs * Math.sin(ang + 0.42));
+      ctx.closePath(); ctx.fill();
+    }
+
+    // A stopwatch: circle with a hand at angle phi (math convention, y up).
+    function drawClock(ctx, cx, cy, r, phi, color, pal) {
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+      ctx.strokeStyle = pal.border; ctx.lineWidth = 1; ctx.stroke();
+      drawVec(ctx, cx, cy, cx + r * Math.cos(phi), cy - r * Math.sin(phi), color, 2);
+    }
+
+    // Lay complex arrows tip-to-tail from (ox,oy) with y up; draw path + resultant.
+    function drawChain(ctx, ox, oy, arrows, scale, pathColor, resColor) {
+      let x = ox, y = oy;
+      ctx.strokeStyle = pathColor; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, y);
+      for (const a of arrows) { x += a.re * scale; y -= a.im * scale; ctx.lineTo(x, y); }
+      ctx.stroke();
+      drawVec(ctx, ox, oy, x, y, resColor, 2.5);
+      return { x, y };
+    }
+
+    function setupCanvas(canvas, ctx, w, h) {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function makeFigure(id, h0, init, draw, attach) {
+      const canvas = document.createElement('canvas');
+      canvas.id = id + '-canvas';
+      const ctx = canvas.getContext('2d');
+      const state = Object.assign({ w: 720, h: h0, last: null, tSim: 0, dirty: true, anim: true }, init);
+      const fig = { canvas, ctx, state, ui: { expanded: false } };
+      function frame(now) {
+        if (state.last == null) state.last = now;
+        const dt = Math.min(0.05, (now - state.last) / 1000);
+        state.last = now;
+        if (state.anim && !state.frozen) state.tSim += dt;
+        else if (!state.dirty) return;
+        state.dirty = false;
+        draw(ctx, state, now);
+      }
+      const loop = createFrameLoop(frame);
+      invalidation.then(() => loop.cancel());
+      const redraw = () => { state.dirty = true; };
+      redrawHooks.add(redraw);
+      invalidation.then(() => redrawHooks.delete(redraw));
+      if (attach) attach(fig);
+      return fig;
+    }
+  </script>
+
+  <!-- ==================== FIGURE 1: PHOTON ==================== -->
+  <script id="s1-head" type="text/markdown">
+    ## 1. Two paths, two arrows
+
+    Feynman starts with light. Shine a stream of photons at a sheet of glass and about 4% reflect from the front surface, another 4% from the back. You might expect 8% total, but the measured reflection swings anywhere from 0% to 16% depending on the glass thickness. The sum-over-paths account: a photon can reflect off the front **or** the back, two paths, each carrying a stopwatch arrow. The back path is longer, so its arrow winds further before arriving. Add the two arrows tip to tail, square the resultant, and you get the reflection probability.
+
+    **Drag the back surface** to change the thickness and watch the two arrows fall in and out of step.
+  </script>
+
+  <script id="s1-fig" type="text/x-typescript">
+    const fig1 = (() => {
+      const A = 0.2;              // amplitude of each reflection (~4% each)
+      const n = 1.5;             // refractive index
+      const lambda = 120;        // wavelength in the same units as thickness
+      const init = { anim: false, thick: 95, backRect: null, drag: false };
+
+      function delta(d) { return (4 * Math.PI * n * d) / lambda; }
+      function twoArrows(d) {
+        // front reflection carries an extra π (external reflection)
+        return [arrow(Math.PI, A), arrow(delta(d), A)];
+      }
+
+      function draw(ctx, st, now) {
+        const pal = palette;
+        const { w, h } = st;
+        ctx.clearRect(0, 0, w, h);
+        const pad = 14, gap = 14;
+        const leftW = (w - 2 * pad - gap) * 0.54;
+        const left = { x: pad, y: pad, w: leftW, h: h - 2 * pad };
+        const right = { x: pad + leftW + gap, y: pad, w: w - 2 * pad - gap - leftW, h: h - 2 * pad };
+
+        // ---- glass schematic ----
+        panelBg(ctx, left, pal, 'photon reflecting off a glass sheet');
+        const frontX = left.x + left.w * 0.34;
+        const maxThick = left.w * 0.42;
+        const d = clamp(st.thick, 6, maxThick);
+        const backX = frontX + d;
+        st.backRect = { x: backX - 8, frontX, maxThick };
+        ctx.save();
+        ctx.fillStyle = pal.isDark ? '#26405233' : '#8fc4e022';
+        ctx.fillRect(frontX, left.y + 24, backX - frontX, left.h - 48);
+        ctx.strokeStyle = pal.accent; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(frontX, left.y + 24); ctx.lineTo(frontX, left.y + left.h - 24); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(backX, left.y + 24); ctx.lineTo(backX, left.y + left.h - 24); ctx.stroke();
+        ctx.restore();
+        const rayY = left.y + left.h * 0.5;
+        const srcX = left.x + 14;
+        drawVec(ctx, srcX, rayY - 30, frontX, rayY - 3, pal.muted, 1.3);       // incoming
+        drawVec(ctx, frontX, rayY - 3, srcX, rayY - 30, pal.warm, 1.6);        // front reflection
+        drawVec(ctx, backX, rayY + 3, srcX + 10, rayY + 32, pal.accent, 1.6);  // back reflection
+        ctx.setLineDash([3, 3]); ctx.strokeStyle = pal.muted; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(frontX, rayY - 3); ctx.lineTo(backX, rayY + 3); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = pal.muted; ctx.font = '11px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText('drag →', backX + 2, left.y + left.h - 22);
+        ctx.fillText(`thickness ${(d / lambda).toFixed(2)} λ`, (frontX + backX) / 2, left.y + 6);
+
+        // ---- arrows + resultant ----
+        panelBg(ctx, right, pal, 'add the two arrows');
+        const cy = right.y + right.h * 0.42;
+        const ar = twoArrows(d);
+        const scale = Math.min(right.w, right.h) * 0.9;
+        drawClock(ctx, right.x + right.w * 0.3, right.y + right.h - 42, 15, Math.PI, pal.warm, pal);
+        drawClock(ctx, right.x + right.w * 0.64, right.y + right.h - 42, 15, delta(d), pal.accent, pal);
+        ctx.fillStyle = pal.muted; ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText('front', right.x + right.w * 0.3, right.y + right.h - 24);
+        ctx.fillText('back', right.x + right.w * 0.64, right.y + right.h - 24);
+        const startX = right.x + right.w * 0.5 - (ar[0].re + ar[1].re) * scale * 0.5;
+        const end = drawChain(ctx, startX, cy, ar, scale, pal.grid, pal.warm);
+        const R = ((end.x - startX) ** 2 + (end.y - cy) ** 2) / (scale * scale);
+        ctx.fillStyle = pal.fg; ctx.font = '13px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillText(`reflection = |resultant|² = ${(R * 100).toFixed(1)}%`, right.x + right.w / 2, right.y + right.h - 4);
+      }
+
+      function attach(fig) {
+        const { canvas, state: st } = fig;
+        const setThick = (e) => {
+          const r = st.backRect; if (!r) return;
+          const p = canvasPos(canvas, e);
+          st.thick = clamp(p.x - r.frontX, 6, r.maxThick);
+          st.dirty = true;
+        };
+        const down = (e) => {
+          const r = st.backRect; if (!r) return;
+          const p = canvasPos(canvas, e);
+          if (p.x > r.frontX - 10 && p.x < r.frontX + r.maxThick + 60) { st.drag = true; setThick(e); e.preventDefault(); }
+        };
+        const move = (e) => { if (st.drag) setThick(e); };
+        const up = () => { st.drag = false; };
+        canvas.addEventListener('pointerdown', down);
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        invalidation.then(() => {
+          canvas.removeEventListener('pointerdown', down);
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+        });
+      }
+
+      return makeFigure('fig1', 300, init, draw, attach);
+    })();
+  </script>
+
+  <script id="s1-display" type="text/x-typescript">
+    display(expandable(html`<figure>${fig1.canvas}
+      <figcaption>Two reflection paths, two stopwatch arrows. Their tip-to-tail sum, squared, is the reflection probability — swinging from 0% to 16% as the back arrow winds.</figcaption></figure>`, {
+      id: 'photon', width: Math.min(width, 720), height: 300, state: fig1.ui,
+      onResize(el, w, h) { setupCanvas(fig1.canvas, fig1.ctx, w, h); fig1.state.w = w; fig1.state.h = h; fig1.state.dirty = true; }
+    }));
+  </script>
+
+  <script id="s1-tail" type="text/markdown">
+    Two arrows already give interference. The full theory is the same move with *every* path, and to know how fast each arrow turns for a particle with mass we first need one idea from classical mechanics.
+  </script>
+
+  <!-- ==================== FIGURE 2: LEAST ACTION ==================== -->
+  <script id="s2-head" type="text/markdown">
+    ## 2. The classical path is the one of least action
+
+    Throw a stone up and it comes back down along one particular worldline in space and time. Of all the worldlines it *could* follow between launch and landing, the real one makes the **action** stationary, here smallest. Action is the running total of kinetic minus potential energy along the path,
+
+    ${tex.block`S=\int (\text{KE}-\text{PE})\,dt.`}
+
+    **Drag the dots** to reshape the stone's worldline and hunt for the smallest action. The flat "sit on the floor" path has ${tex`S=0`}; arching upward trades a little kinetic energy for a lot of negative potential and drives ${tex`S`} lower, until you overshoot.
+  </script>
+
+  <script id="s2-fig" type="text/x-typescript">
+    const fig2 = (() => {
+      const g = 9.8, m = 1, T = 1.0, K = 9;
+      const xLo = -0.2, xHi = 1.6;
+      const init = { anim: false, nodes: null, drag: -1, Smin: 0 };
+
+      function ensure(st) {
+        if (st.nodes) return;
+        st.nodes = [];
+        for (let i = 0; i < K; i++) st.nodes.push({ t: (T * i) / (K - 1), x: 0 });
+        const cl = classicalUniformField(0, 0, 0, T, g);
+        st.Smin = actionUniformField(st.nodes.map((nd) => ({ t: nd.t, x: cl(nd.t) })), m, g);
+      }
+
+      function geom(st) {
+        const pad = 16; const rect = { x: pad, y: pad, w: st.w - 2 * pad, h: st.h - 2 * pad };
+        return {
+          rect,
+          sx: mapLin(0, T, rect.x + 34, rect.x + rect.w - 20),
+          sy: mapLin(xLo, xHi, rect.y + rect.h - 24, rect.y + 24),
+          syInv: mapLin(rect.y + rect.h - 24, rect.y + 24, xLo, xHi)
+        };
+      }
+
+      function draw(ctx, st, now) {
+        ensure(st);
+        const pal = palette;
+        ctx.clearRect(0, 0, st.w, st.h);
+        const { rect, sx, sy } = geom(st);
+        panelBg(ctx, rect, pal, 'worldline of a thrown stone  (time →, height ↑)');
+        ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(sx(0), sy(0)); ctx.lineTo(sx(T), sy(0)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(sx(0), sy(xLo)); ctx.lineTo(sx(0), sy(xHi)); ctx.stroke();
+        ctx.fillStyle = pal.muted; ctx.font = '11px system-ui, sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillText('height', sx(0) - 6, sy(1.5));
+
+        const S = actionUniformField(st.nodes, m, g);
+        const near = S < st.Smin + 0.15;
+        ctx.beginPath();
+        st.nodes.forEach((nd, i) => { const px = sx(nd.t), py = sy(nd.x); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+        ctx.strokeStyle = near ? pal.good : pal.accent; ctx.lineWidth = 2.2; ctx.stroke();
+        st.nodes.forEach((nd, i) => {
+          const fixed = i === 0 || i === K - 1;
+          ctx.beginPath(); ctx.arc(sx(nd.t), sy(nd.x), fixed ? 4 : 6, 0, 2 * Math.PI);
+          ctx.fillStyle = fixed ? pal.muted : (near ? pal.good : pal.accent);
+          ctx.fill(); ctx.strokeStyle = pal.bg; ctx.lineWidth = 1.5; ctx.stroke();
+        });
+
+        ctx.fillStyle = pal.fg; ctx.font = '13px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText(`action S = ${S.toFixed(2)}`, rect.x + 14, rect.y + 10);
+        ctx.fillStyle = near ? pal.good : pal.muted; ctx.font = '12px system-ui, sans-serif';
+        ctx.fillText(near ? 'least action — this is the classical path' : `least possible ≈ ${st.Smin.toFixed(2)}`, rect.x + 14, rect.y + 28);
+      }
+
+      function attach(fig) {
+        const { canvas, state: st } = fig;
+        const down = (e) => {
+          if (!st.nodes) return;
+          const p = canvasPos(canvas, e); const { sx, sy } = geom(st);
+          let best = -1, bd = 18 * 18;
+          st.nodes.forEach((nd, i) => {
+            if (i === 0 || i === st.nodes.length - 1) return;
+            const dx = p.x - sx(nd.t), dy = p.y - sy(nd.x); const dd = dx * dx + dy * dy;
+            if (dd < bd) { bd = dd; best = i; }
+          });
+          if (best >= 0) { st.drag = best; st.dirty = true; e.preventDefault(); }
+        };
+        const move = (e) => {
+          if (st.drag < 0) return;
+          const p = canvasPos(canvas, e); const { syInv } = geom(st);
+          st.nodes[st.drag].x = clamp(syInv(p.y), xLo, xHi);
+          st.dirty = true;
+        };
+        const up = () => { st.drag = -1; };
+        canvas.addEventListener('pointerdown', down);
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        invalidation.then(() => {
+          canvas.removeEventListener('pointerdown', down);
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+        });
+      }
+
+      return makeFigure('fig2', 320, init, draw, attach);
+    })();
+  </script>
+
+  <script id="s2-display" type="text/x-typescript">
+    display(expandable(html`<figure>${fig2.canvas}
+      <figcaption>Drag the worldline to minimize the action. The classical trajectory is the one that makes S stationary.</figcaption></figure>`, {
+      id: 'least-action', width: Math.min(width, 720), height: 320, state: fig2.ui,
+      onResize(el, w, h) { setupCanvas(fig2.canvas, fig2.ctx, w, h); fig2.state.w = w; fig2.state.h = h; fig2.state.dirty = true; }
+    }));
+  </script>
+
+  <script id="s2-tail" type="text/markdown">
+    Here is Feynman's one postulate. The number of turns a particle's stopwatch makes along a path is its action divided by ${tex`\hbar`}, so the arrow winds at a rate set by ${tex`(\text{KE}-\text{PE})`}. Now we can sum arrows for an electron.
+  </script>
+
+  <!-- ==================== FIGURE 3: ELECTRON, CLASSICAL LIMIT ==================== -->
+  <script id="s3-head" type="text/markdown">
+    ## 3. Summing every path, and where the classical path comes from
+
+    Take an electron that starts and ends at the same place, some time apart. Every worldline between those two events contributes an arrow that winds by ${tex`S/\hbar`}. Paths that wander far out and back rack up a lot of action, so their arrows spin quickly and, from one path to the next, point every which way and cancel. Only the paths near the **least-action** path, the straight worldline, keep their arrows roughly aligned and add up.
+
+    Laid tip to tail, the arrows coil into a spiral, and the resultant is dominated by that stationary path. **Drag the mass** and watch it happen: the heavier the particle, the faster the arrows wind, the tighter the surviving bundle, until only the single classical path is left. That is the classical limit, emerging from the sum.
+  </script>
+
+  <script id="s3-fig" type="text/x-typescript">
+    const fig3 = (() => {
+      const T = 1, etaMax = 3.2, NP = 121;
+      const mLo = 0.4, mHi = 50;
+      const init = { anim: false, logm: Math.log(1.2), massTrack: null, drag: false };
+
+      function draw(ctx, st, now) {
+        const pal = palette;
+        const { w, h } = st;
+        ctx.clearRect(0, 0, w, h);
+        const pad = 14, gap = 14;
+        const colW = (w - 2 * pad - gap) / 2;
+        const size = Math.min(colW, h - 2 * pad);
+        const stp = { x: pad, y: pad, w: colW, h: h - 2 * pad };
+        const spi = { x: pad + colW + gap + (colW - size) / 2, y: pad + (h - 2 * pad - size) / 2, w: size, h: size };
+
+        const m = Math.exp(st.logm);
+        const etas = [];
+        for (let i = 0; i < NP; i++) etas.push(-etaMax + (2 * etaMax * i) / (NP - 1));
+        const pencil = Math.sqrt((Math.PI * T) / (2 * m));
+
+        // ---- spacetime panel ----
+        panelBg(ctx, stp, pal, 'worldlines  (space →, time ↑)');
+        const sx = mapLin(-etaMax, etaMax, stp.x + 16, stp.x + stp.w - 16);
+        const sy = mapLin(0, T, stp.y + stp.h - 40, stp.y + 30);
+        for (let i = 0; i < NP; i += 4) {
+          const eta = etas[i];
+          const inPencil = Math.abs(eta) <= pencil;
+          ctx.strokeStyle = inPencil ? pal.accent : pal.faint;
+          ctx.lineWidth = inPencil ? 1.2 : 1;
+          ctx.beginPath();
+          ctx.moveTo(sx(0), sy(0)); ctx.lineTo(sx(eta), sy(T / 2)); ctx.lineTo(sx(0), sy(T));
+          ctx.stroke();
+        }
+        ctx.strokeStyle = pal.warm; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(sx(0), sy(0)); ctx.lineTo(sx(0), sy(T)); ctx.stroke();
+        for (const tt of [0, T]) { ctx.beginPath(); ctx.arc(sx(0), sy(tt), 4, 0, 2 * Math.PI); ctx.fillStyle = pal.fg; ctx.fill(); }
+
+        // mass track
+        const trkY = stp.y + stp.h - 14, trkX0 = stp.x + 46, trkX1 = stp.x + stp.w - 16;
+        st.massTrack = { x0: trkX0, x1: trkX1, y: trkY };
+        ctx.strokeStyle = pal.grid; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(trkX0, trkY); ctx.lineTo(trkX1, trkY); ctx.stroke();
+        const mt = mapLin(Math.log(mLo), Math.log(mHi), trkX0, trkX1);
+        ctx.beginPath(); ctx.arc(mt(st.logm), trkY, 6, 0, 2 * Math.PI); ctx.fillStyle = pal.accent; ctx.fill();
+        ctx.strokeStyle = pal.bg; ctx.lineWidth = 1.5; ctx.stroke(); ctx.lineCap = 'butt';
+        ctx.fillStyle = pal.muted; ctx.font = '11px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillText('mass (drag)', trkX0, trkY - 8);
+
+        // ---- spiral panel ----
+        panelBg(ctx, spi, pal, 'arrows added tip to tail');
+        const ar = etas.map((eta) => arrow((2 * m * eta * eta) / T));
+        const scale = (spi.w * 0.82) / Math.max(6, Math.sqrt(ar.length) * 1.7);
+        let cxr = 0, cyr = 0; for (const a of ar) { cxr += a.re; cyr += a.im; }
+        const ox = spi.x + spi.w / 2 - (cxr * scale) / 2;
+        const oy = spi.y + spi.h / 2 + (cyr * scale) / 2;
+        drawChain(ctx, ox, oy, ar, scale, pal.accent, pal.warm);
+
+        ctx.fillStyle = pal.fg; ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+        ctx.fillText(`mass = ${m.toFixed(1)}`, stp.x + stp.w - 10, stp.y + 8);
+      }
+
+      function attach(fig) {
+        const { canvas, state: st } = fig;
+        const setMass = (e) => {
+          const tr = st.massTrack; if (!tr) return;
+          const p = canvasPos(canvas, e);
+          const inv = mapLin(tr.x0, tr.x1, Math.log(mLo), Math.log(mHi));
+          st.logm = clamp(inv(p.x), Math.log(mLo), Math.log(mHi));
+          st.dirty = true;
+        };
+        const down = (e) => {
+          const tr = st.massTrack; if (!tr) return;
+          const p = canvasPos(canvas, e);
+          if (Math.abs(p.y - tr.y) < 24 && p.x > tr.x0 - 14 && p.x < tr.x1 + 14) { st.drag = true; setMass(e); e.preventDefault(); }
+        };
+        const move = (e) => { if (st.drag) setMass(e); };
+        const up = () => { st.drag = false; };
+        canvas.addEventListener('pointerdown', down);
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        invalidation.then(() => {
+          canvas.removeEventListener('pointerdown', down);
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+        });
+      }
+
+      return makeFigure('fig3', 360, init, draw, attach);
+    })();
+  </script>
+
+  <script id="s3-display" type="text/x-typescript">
+    display(expandable(html`<figure>${fig3.canvas}
+      <figcaption>Left: worldlines between two events; the highlighted bundle is the paths whose arrows stay within half a turn of the classical (straight) path. Right: the arrows coiling into a spiral. Drag the mass to squeeze the bundle onto the classical path.</figcaption></figure>`, {
+      id: 'sum-over-paths', width: Math.min(width, 720), height: 360, state: fig3.ui,
+      onResize(el, w, h) { setupCanvas(fig3.canvas, fig3.ctx, w, h); fig3.state.w = w; fig3.state.h = h; fig3.state.dirty = true; }
+    }));
+  </script>
+
+  <script id="s3-tail" type="text/markdown">
+    Heavy things move classically not because quantum mechanics switches off, but because their action is enormous in units of ${tex`\hbar`}, so all but the least-action path cancels. Turn the mass back down and the electron's freedom to explore returns. This one mechanism is the seamless bridge between the quantum and classical worlds.
+  </script>
+
+  <!-- ==================== FIGURE 4: WAVEFUNCTION + PROPAGATOR ==================== -->
+  <script id="s4-head" type="text/markdown">
+    ## 4. The wavefunction and how it moves
+
+    Instead of a single detection event, ask for the arrow at *every* place at a given time. That row of arrows is the **wavefunction**, and its squared length at each point is the probability of finding the particle there. A rule called the **propagator** carries the whole row forward: to build each new arrow, sum the contributions arriving from all the old ones. For a free particle the rule can be written exactly, and it makes a wave packet drift and spread.
+
+    Below, a packet is propagated forward as time runs. **Drag it** to relaunch from a new spot, and watch the arrows wind while the packet broadens.
+  </script>
+
+  <script id="s4-fig" type="text/x-typescript">
+    const fig4 = (() => {
+      const N = 161, Lx = 32;
+      const dx = Lx / (N - 1);
+      const xs = Array.from({ length: N }, (_, i) => -Lx / 2 + i * dx);
+      const s0 = 1.6, k0 = 1.3, m = 1;
+      const tMin = 1.2, tMax = 9;
+
+      function psi0(x0) {
+        return xs.map((x) => {
+          const g = Math.exp(-((x - x0) ** 2) / (4 * s0 * s0));
+          return { re: g * Math.cos(k0 * x), im: g * Math.sin(k0 * x) };
+        });
+      }
+      const init = { anim: true, x0: -9 };
+
+      function draw(ctx, st, now) {
+        const pal = palette;
+        const { w, h } = st;
+        ctx.clearRect(0, 0, w, h);
+        const pad = 16;
+        const rect = { x: pad, y: pad, w: w - 2 * pad, h: h - 2 * pad };
+        panelBg(ctx, rect, pal, 'wavefunction propagating in time');
+        const period = 6;
+        const frac = 0.5 - 0.5 * Math.cos((2 * Math.PI * st.tSim) / period);
+        const T = tMin + (tMax - tMin) * frac;
+
+        const psi = propagateFreeUniform(psi0(st.x0), dx, T, m);
+        const sx = mapLin(-Lx / 2, Lx / 2, rect.x + 14, rect.x + rect.w - 14);
+        const baseY = rect.y + rect.h * 0.60;
+        let mx = 1e-6; for (const p of psi) mx = Math.max(mx, Math.hypot(p.re, p.im));
+        const aScale = (rect.h * 0.30) / mx;
+        const dScale = (rect.h * 0.34) / (mx * mx);
+
+        ctx.save(); roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 7); ctx.clip();
+        ctx.strokeStyle = pal.faint; ctx.beginPath(); ctx.moveTo(sx(-Lx / 2), baseY); ctx.lineTo(sx(Lx / 2), baseY); ctx.stroke();
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) { const d2 = psi[i].re ** 2 + psi[i].im ** 2; const px = sx(xs[i]), py = baseY - d2 * dScale; if (i === 0) ctx.moveTo(px, baseY); ctx.lineTo(px, py); }
+        ctx.lineTo(sx(Lx / 2), baseY); ctx.closePath(); ctx.fillStyle = pal.accentSoft; ctx.fill();
+        for (let i = 2; i < N; i += 3) {
+          const p = psi[i]; const len = Math.hypot(p.re, p.im); if (len < mx * 0.06) continue;
+          const ang = Math.atan2(p.im, p.re);
+          drawVec(ctx, sx(xs[i]), baseY, sx(xs[i]) + Math.cos(ang) * len * aScale, baseY - Math.sin(ang) * len * aScale, pal.accent, 1.4);
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = pal.warm; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(sx(st.x0), rect.y + 24); ctx.lineTo(sx(st.x0), rect.y + rect.h - 10); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = pal.muted; ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText('start (drag)', sx(st.x0), rect.y + 8);
+        ctx.fillStyle = pal.fg; ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+        ctx.fillText(`elapsed time T = ${T.toFixed(1)}`, rect.x + rect.w - 12, rect.y + 8);
+      }
+
+      function attach(fig) {
+        const { canvas, state: st } = fig;
+        const setX0 = (e) => {
+          const pad = 16; const rect = { x: pad, w: st.w - 2 * pad };
+          const sxi = mapLin(rect.x + 14, rect.x + rect.w - 14, -Lx / 2, Lx / 2);
+          const p = canvasPos(canvas, e);
+          st.x0 = clamp(sxi(p.x), -Lx / 2 + 3, 0);
+          st.dirty = true;
+        };
+        const down = (e) => { st.drag = true; setX0(e); e.preventDefault(); };
+        const move = (e) => { if (st.drag) setX0(e); };
+        const up = () => { st.drag = false; };
+        canvas.addEventListener('pointerdown', down);
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        canvas.style.cursor = 'ew-resize';
+        invalidation.then(() => {
+          canvas.removeEventListener('pointerdown', down);
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+        });
+      }
+
+      return makeFigure('fig4', 300, init, draw, attach);
+    })();
+  </script>
+
+  <script id="s4-display" type="text/x-typescript">
+    display(expandable(html`<figure>${fig4.canvas}
+      <figcaption>The wavefunction as a comb of arrows, marched forward by the free-particle propagator. It drifts at its group velocity and spreads. Drag to relaunch.</figcaption></figure>`, {
+      id: 'wavefunction', width: Math.min(width, 720), height: 300, state: fig4.ui,
+      onResize(el, w, h) { setupCanvas(fig4.canvas, fig4.ctx, w, h); fig4.state.w = w; fig4.state.h = h; fig4.state.dirty = true; }
+    }));
+  </script>
+
+  <script id="s4-tail" type="text/markdown">
+    A finite packet always spreads, because its shape has curvature that the propagator turns into motion. Chasing which shapes *don't* spread leads straight to the Schrödinger equation, and to the last idea here.
+  </script>
+
+  <!-- ==================== FIGURE 5: STATIONARY STATES ==================== -->
+  <script id="s5-head" type="text/markdown">
+    ## 5. Stationary states and discrete energy
+
+    Put the particle in a bowl-shaped potential and let a lump of wavefunction propagate and the probability sloshes back and forth. But a few special shapes do not slosh at all. For these **stationary states**, every arrow in the wavefunction rotates in perfect unison, so the squared lengths never change. Only certain shapes rotate cleanly this way, and the more wiggles a shape has, the faster its arrows must turn. Faster rotation means higher energy, so the allowed energies form a **discrete ladder**.
+
+    **Click the rungs** to occupy an energy level. One rung is a stationary state, arrows turning together. Click a second and the mismatched rates make it slosh.
+  </script>
+
+  <script id="s5-fig" type="text/x-typescript">
+    const fig5 = (() => {
+      const nMax = 6;
+      const init = { anim: true, active: [1], rungs: [] };
+
+      function draw(ctx, st, now) {
+        const pal = palette;
+        const { w, h } = st;
+        ctx.clearRect(0, 0, w, h);
+        const pad = 14, gap = 14;
+        const ladderW = Math.min(120, w * 0.2);
+        const lad = { x: pad, y: pad, w: ladderW, h: h - 2 * pad };
+        const rect = { x: pad + ladderW + gap, y: pad, w: w - 2 * pad - ladderW - gap, h: h - 2 * pad };
+        const t = st.tSim;
+
+        // ladder
+        panelBg(ctx, lad, pal, 'energy');
+        const eMax = nMax + 1.4;
+        const ey = mapLin(0, eMax, lad.y + lad.h - 12, lad.y + 26);
+        st.rungs = [];
+        for (let n = 0; n <= nMax; n++) {
+          const y = ey(n + 0.5); const on = st.active.includes(n);
+          st.rungs.push({ n, y, x0: lad.x + 12, x1: lad.x + lad.w - 10 });
+          ctx.beginPath(); ctx.moveTo(lad.x + 12, y); ctx.lineTo(lad.x + lad.w - 10, y);
+          ctx.strokeStyle = on ? pal.accent : pal.grid; ctx.lineWidth = on ? 2.5 : 1; ctx.stroke();
+          ctx.fillStyle = on ? pal.accent : pal.muted; ctx.font = '10px system-ui, sans-serif';
+          ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('n=' + n, lad.x + 12, y - 8);
+        }
+
+        // wavefunction
+        panelBg(ctx, rect, pal, 'ψ(x, t) as rotating arrows');
+        const active = st.active.length ? st.active : [0];
+        const c = 1 / Math.sqrt(active.length);
+        const W = 5.5;
+        const sx = mapLin(-W, W, rect.x + 14, rect.x + rect.w - 14);
+        const baseY = rect.y + rect.h * 0.56;
+        const NPP = 160;
+        const psiAt = (x) => {
+          let re = 0, im = 0;
+          for (const n of active) { const ph = -energyN(n) * t; const a = c * psiN(n, x); re += a * Math.cos(ph); im += a * Math.sin(ph); }
+          return { re, im };
+        };
+        let mx = 1e-6; const vals = [];
+        for (let i = 0; i <= NPP; i++) { const x = -W + (2 * W * i) / NPP; const p = psiAt(x); vals.push(p); mx = Math.max(mx, Math.hypot(p.re, p.im)); }
+        const dScale = (rect.h * 0.34) / (mx * mx);
+        const aScale = (rect.h * 0.26) / mx;
+        ctx.save(); roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 7); ctx.clip();
+        ctx.strokeStyle = pal.faint; ctx.beginPath(); ctx.moveTo(sx(-W), baseY); ctx.lineTo(sx(W), baseY); ctx.stroke();
+        ctx.beginPath();
+        for (let i = 0; i <= NPP; i++) { const x = -W + (2 * W * i) / NPP; const d2 = vals[i].re ** 2 + vals[i].im ** 2; const px = sx(x), py = baseY - d2 * dScale; if (i === 0) ctx.moveTo(px, baseY); ctx.lineTo(px, py); }
+        ctx.lineTo(sx(W), baseY); ctx.closePath(); ctx.fillStyle = pal.accentSoft; ctx.fill();
+        for (let i = 6; i <= NPP; i += 8) {
+          const x = -W + (2 * W * i) / NPP; const p = vals[i]; const len = Math.hypot(p.re, p.im); if (len < mx * 0.08) continue;
+          const ang = Math.atan2(p.im, p.re);
+          drawVec(ctx, sx(x), baseY, sx(x) + Math.cos(ang) * len * aScale, baseY - Math.sin(ang) * len * aScale, pal.accent, 1.4);
+        }
+        ctx.restore();
+
+        ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillStyle = active.length === 1 ? pal.good : pal.warm;
+        ctx.fillText(active.length === 1
+          ? 'one level: arrows rotate in unison → |ψ|² stands still (stationary)'
+          : 'two levels: different rotation rates → |ψ|² sloshes',
+          rect.x + 4, rect.y - 4);
+      }
+
+      function attach(fig) {
+        const { canvas, state: st } = fig;
+        const down = (e) => {
+          const p = canvasPos(canvas, e);
+          for (const r of st.rungs) {
+            if (p.x >= r.x0 - 6 && p.x <= r.x1 + 6 && Math.abs(p.y - r.y) < 12) {
+              const i = st.active.indexOf(r.n);
+              if (i >= 0) { if (st.active.length > 1) st.active.splice(i, 1); }
+              else { if (st.active.length >= 2) st.active = [r.n]; else st.active.push(r.n); }
+              st.dirty = true; e.preventDefault(); break;
+            }
+          }
+        };
+        canvas.addEventListener('pointerdown', down);
+        canvas.style.cursor = 'pointer';
+        invalidation.then(() => canvas.removeEventListener('pointerdown', down));
+      }
+
+      return makeFigure('fig5', 340, init, draw, attach);
+    })();
+  </script>
+
+  <script id="s5-display" type="text/x-typescript">
+    display(expandable(html`<figure>${fig5.canvas}
+      <figcaption>Occupy one level and the wavefunction's arrows rotate in unison — a stationary state. Occupy two and the mismatched rates make the probability slosh. Clean unison rotation is possible only at discrete energies.</figcaption></figure>`, {
+      id: 'stationary-states', width: Math.min(width, 720), height: 340, state: fig5.ui,
+      onResize(el, w, h) { setupCanvas(fig5.canvas, fig5.ctx, w, h); fig5.state.w = w; fig5.state.h = h; fig5.state.dirty = true; }
+    }));
+  </script>
+
+  <script id="closing" type="text/markdown">
+    ## One metaphor, all the way down
+
+    Everything here came from a single rule and a single picture: explore all paths, each carrying a rotating arrow, and add the arrows. Interference of light, the classical principle of least action, the emergence of classical motion for heavy things, the wavefunction and its spreading, and the discrete energies of bound states all fall out of it, with barely an equation.
+
+    The approach keeps going. The propagator is a Green's function; "adding arrows for all paths" becomes the path integral; and letting the paths include the creation and annihilation of particles is the road to Feynman diagrams and quantum field theory. But the core idea is the one you have been dragging around above.
+
+    This notebook follows the curriculum of E. F. Taylor, S. Vokos, J. M. O'Meara, and N. S. Thornber, *Teaching Feynman's sum-over-paths quantum theory*, Computers in Physics **12**, 190 (1998). The path and propagator math is in a small companion module, [`spq.js`](./spq.js), checked numerically before use.
+  </script>
+</notebook>
