@@ -92,11 +92,13 @@
     event: null,             // { title, desc, amount, note, kind }
   };
   const PAUSE_DURATION = 5.0; // seconds of frozen "breaking news" (or dismiss early)
-  const DEPOSIT_R = 1.0;      // release-over-bin: everything this close drops in
+  const DEPOSIT_R = 1.0;      // on release, loot this close is freed from the claw
+  const BIN_FLOOR_Y = 1.0;    // loot registers once it falls this low in the bin
   const keys = new Set();
   const floaters = [];       // rising "+$X" labels
   const binPile = [];        // decorative tokens in the bin
   const eventQueue = [];     // policy events waiting to be shown, one at a time
+  const decoupled = [];      // released loot set to fall through the claw
 
   let game = null;           // { world, head, leftFinger, rightFinger, loot, target }
 
@@ -225,8 +227,11 @@
     return { x: p.x, y: p.y - 0.62 };
   }
 
-  function overBin(x) {
-    return x > DIV_X + 0.15 && x < WORLD_W - 0.05;
+  // toggle whether a loot body collides with the claw (group -1 = claw parts).
+  // Setting it to the claw's group lets released loot fall straight through the
+  // talons instead of snagging on the hook.
+  function setClawCollision(item, on) {
+    for (let f = item.body.getFixtureList(); f; f = f.getNext()) f.setFilterGroupIndex(on ? 0 : -1);
   }
 
   function doGrab() {
@@ -247,15 +252,16 @@
     if (!game) { state.grabbed = []; state.welds = []; return; }
     for (const w of state.welds) game.world.destroyJoint(w);
     state.welds = [];
-    // Opening the claw over the slush fund deposits everything in it right
-    // away, at any height — no need to lower it in. Elsewhere, the loot just
-    // drops back onto the pile.
-    if (overBin(grabPoint(game).x)) {
-      const gp = grabPoint(game);
-      for (const item of game.loot) {
-        if (item.collected) continue;
-        const q = item.body.getPosition();
-        if (Math.hypot(q.x - gp.x, q.y - gp.y) < DEPOSIT_R) collect(item);
+    // Let go: everything held (and any hitchhikers near the claw) is unwelded
+    // and set to fall straight through the talons, so it drops cleanly rather
+    // than snagging in the hook. It scores only once it lands in the bin.
+    const gp = grabPoint(game);
+    for (const item of game.loot) {
+      if (item.collected) continue;
+      const q = item.body.getPosition();
+      if (Math.hypot(q.x - gp.x, q.y - gp.y) < DEPOSIT_R) {
+        setClawCollision(item, false);
+        if (!decoupled.includes(item)) decoupled.push(item);
       }
     }
     state.grabbed = [];
@@ -367,13 +373,26 @@
     setFingerMotors(g, state.closing);
     g.world.step(dt, 8, 3);
 
-    // Fallback scoring for loot that physically comes to rest in the bin
-    // (e.g. hitchhikers that tumble in). Held loot is skipped so carrying a
-    // clump across the top of the bin never scores until you open the claw.
+    // Re-enable claw collision once a released item has fallen clear of the
+    // claw, so the pile stays pushable on later grabs.
+    const gp = grabPoint(g);
+    for (let i = decoupled.length - 1; i >= 0; i--) {
+      const item = decoupled[i];
+      if (item.collected) { decoupled.splice(i, 1); continue; }
+      const q = item.body.getPosition();
+      if (Math.hypot(q.x - gp.x, q.y - gp.y) > DEPOSIT_R + 0.5) {
+        setClawCollision(item, true);
+        decoupled.splice(i, 1);
+      }
+    }
+
+    // Score loot once it has fallen to the bottom of the bin — so releasing
+    // over the slush fund makes it drop in and register on arrival, not mid-air.
+    // Held loot is skipped so carrying a clump over the bin never scores early.
     for (const item of g.loot) {
       if (item.collected || state.grabbed.includes(item)) continue;
       const q = item.body.getPosition();
-      if (q.x > DIV_X + 0.15 && q.x < WORLD_W - 0.1 && q.y < DIV_H + 0.2) collect(item);
+      if (q.x > DIV_X + 0.15 && q.x < WORLD_W - 0.1 && q.y < BIN_FLOOR_Y) collect(item);
     }
   }
 
@@ -979,6 +998,7 @@
     state.pauseTimer = 0;
     state.event = null;
     eventQueue.length = 0;
+    decoupled.length = 0;
     floaters.length = 0;
     binPile.length = 0;
     keys.clear();
