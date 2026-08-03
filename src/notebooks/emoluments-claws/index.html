@@ -145,9 +145,11 @@
       }, head, b, new Vec2(px, py)));
       return { body: b, joint };
     };
-    // left finger: +angle closes (foot swings toward centre); right finger mirrored
-    const left = finger(1, -0.6, 0.28);
-    const right = finger(-1, -0.28, 0.6);
+    // left finger: +angle closes (foot swings toward centre); right finger mirrored.
+    // The open limit is wide so releasing over the bin actually drops the loot
+    // instead of cradling it in the hook.
+    const left = finger(1, -1.0, 0.28);
+    const right = finger(-1, -0.28, 1.0);
 
     // scatter the loot and let it settle
     const loot = [];
@@ -302,11 +304,15 @@
     setFingerMotors(g, state.closing);
     g.world.step(dt, 8, 3);
 
-    // score anything that has come to rest in the bin
+    // Score anything released into the bin column. The threshold sits just
+    // above the divider top so letting go over the bin counts immediately —
+    // you don't have to lower the claw down inside it. Items still held in the
+    // claw are skipped (item === state.grabbed), so carrying loot across the
+    // top of the bin never scores until you actually open the claw.
     for (const item of g.loot) {
       if (item.collected || item === state.grabbed) continue;
       const q = item.body.getPosition();
-      if (q.x > DIV_X + 0.15 && q.x < WORLD_W - 0.1 && q.y < 1.6) collect(item);
+      if (q.x > DIV_X + 0.15 && q.x < WORLD_W - 0.1 && q.y < DIV_H + 0.2) collect(item);
     }
   }
 
