@@ -42,7 +42,10 @@
   const HEAD_MIN_X = 0.9, HEAD_MAX_X = 9.1;
   const HEAD_MIN_Y = 0.95, HEAD_MAX_Y = 6.15;
 
-  const GRAB_R = 0.62;                  // capture radius at the fingertips
+  // The claw only grabs loot actually inside its grasp — a tight box between
+  // the talons — rather than magnetising anything nearby.
+  const GRIP_HW = 0.42;                 // half-width of the grasp
+  const GRIP_TOP = 0.15, GRIP_BOT = 0.9; // grasp depth below the head
   const N_CASH = 20, N_COIN = 16, N_DOC = 5;   // more than you can clear in a minute
 
   // finger geometry, shared between fixtures and rendering (local frame,
@@ -236,12 +239,14 @@
 
   function doGrab() {
     if (!game) return;
-    const gp = grabPoint(game);
-    // weld every loose item near the fingertips — you can scoop a whole clump
+    const hp = game.head.getPosition();
+    // weld only loot within the grasp box — several items can be scooped at
+    // once, but nothing outside the talons gets magnetised in
     for (const item of game.loot) {
       if (item.collected || state.grabbed.includes(item)) continue;
       const q = item.body.getPosition();
-      if (Math.hypot(q.x - gp.x, q.y - gp.y) < GRAB_R) {
+      const dx = q.x - hp.x, dy = q.y - hp.y;
+      if (Math.abs(dx) < GRIP_HW && dy < -GRIP_TOP && dy > -GRIP_BOT) {
         state.grabbed.push(item);
         state.welds.push(game.world.createJoint(new WeldJoint({ frequencyHz: 0 }, game.head, item.body, item.body.getPosition())));
       }
@@ -620,8 +625,8 @@
 
     // rococo corner flourishes
     const m = sc(0.15);
-    cScroll(g, sx(0.55), friezeBot + sc(0.25), sc(0.42), 0.5, false);
-    cScroll(g, sx(WORLD_W - 0.55), friezeBot + sc(0.25), sc(0.42), 0.5, true);
+    cScroll(g, sx(0.5), friezeBot + sc(0.2), sc(0.36), 0, false);
+    cScroll(g, sx(WORLD_W - 0.5), friezeBot + sc(0.2), sc(0.36), 0, true);
   }
 
   function drawCash(body) {
