@@ -29,7 +29,9 @@
   // ------------------------------------------------------------------ config
   const WORLD_W = 10, WORLD_H = 7;      // physics world extent, in metres
   const DT = 1 / 60;                    // fixed physics timestep
-  const GAME_TIME = 60;                 // seconds on the clock
+  const SIM_SPEED = 1.7;                // run physics faster than wall-clock so
+                                        // it feels arcade-snappy, not slow-mo
+  const GAME_TIME = 60;                 // seconds on the clock (stays real-time)
   const V_CASH = 1000000, V_COIN = 10000000;   // $1M a stack, $10M a bitcoin
 
   const DIV_X = 6.9, DIV_H = 2.6;       // divider between pile and bin
@@ -1026,11 +1028,11 @@
         if (state.pauseTimer <= 0) { state.paused = false; state.event = null; }
         acc = 0;
       } else {
-        state.time -= frameDt;
+        state.time -= frameDt;                 // the game clock stays real-time
         if (state.time <= 0) { state.time = 0; endGame(); }
-        acc += frameDt;
+        acc += frameDt * SIM_SPEED;            // but advance physics faster
         let n = 0;
-        while (acc >= DT && n < 6) { stepGame(DT); acc -= DT; n++; if (state.paused) break; }
+        while (acc >= DT && n < 10) { stepGame(DT); acc -= DT; n++; if (state.paused) break; }
       }
     }
     render(now);
