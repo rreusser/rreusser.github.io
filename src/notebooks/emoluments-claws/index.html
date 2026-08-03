@@ -71,7 +71,7 @@
     pauseTimer: 0,
     event: null,             // { title, desc, amount, note, kind }
   };
-  const PAUSE_DURATION = 2.6; // seconds of frozen "breaking news"
+  const PAUSE_DURATION = 5.0; // seconds of frozen "breaking news" (or dismiss early)
   const keys = new Set();
   const floaters = [];       // rising "+$X" labels
   const binPile = [];        // decorative tokens in the bin
@@ -278,6 +278,11 @@
     keys.clear();
     sndAlert();
     setTimeout(() => (ev.kind === 'good' ? sndFanfare() : sndBuzzer()), 260);
+  }
+
+  function dismissEvent() {
+    // let the card fade out gracefully rather than snapping away
+    if (state.pauseTimer > 0.3) state.pauseTimer = 0.28;
   }
 
   function stepGame(dt) {
@@ -558,7 +563,7 @@
     ctx.font = `500 ${Math.min(16, cw * 0.038)}px system-ui, sans-serif`;
     const descLines = wrapText(ev.desc, cw - pad * 2);
     const lineH = Math.min(22, cw * 0.052);
-    const ch = 118 + descLines.length * lineH;
+    const ch = 142 + descLines.length * lineH;
 
     // card
     ctx.fillStyle = '#12161f';
@@ -599,6 +604,13 @@
       ctx.fillStyle = ev.amount < 0 ? '#ff6b6b' : '#69db7c';
       ctx.font = `900 ${Math.min(30, cw * 0.07)}px system-ui, sans-serif`;
       ctx.fillText(fmt(ev.amount), 0, y + 8);
+    }
+    // dismiss hint, once the grace window has passed
+    if (elapsed > 0.35) {
+      ctx.globalAlpha = alpha * (0.55 + 0.45 * Math.sin(now / 320));
+      ctx.fillStyle = '#adb5bd';
+      ctx.font = `600 ${Math.min(12, cw * 0.028)}px system-ui, sans-serif`;
+      ctx.fillText('Press any key to continue', 0, ch / 2 - 14);
     }
     ctx.restore();
   }
@@ -730,7 +742,13 @@
       return;
     }
     // playing
-    if (state.paused) return;   // frozen while a policy event is on screen
+    if (state.paused) {
+      // any fresh key press dismisses the breaking-news card (ignore the
+      // auto-repeat of a key that was already held when the event fired,
+      // and a brief grace window so it can't be skipped before it's read)
+      if (!e.repeat && PAUSE_DURATION - state.pauseTimer > 0.35) dismissEvent();
+      return;
+    }
     if (k === ' ' || k === 'Spacebar') {
       if (!state.closing) { state.closing = true; doGrab(); sndGrab(); }
     } else if (MOVE_KEYS.has(k)) {
@@ -752,6 +770,7 @@
   function onPointerDown() {
     container.focus();
     if (state.phase === 'ready' || state.phase === 'over') startGame();
+    else if (state.paused && PAUSE_DURATION - state.pauseTimer > 0.35) dismissEvent();
   }
 
   container.addEventListener('keydown', onKeyDown);
