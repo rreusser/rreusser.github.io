@@ -31,6 +31,9 @@
   const DT = 1 / 60;                    // fixed physics timestep
   const SIM_SPEED = 1.7;                // run physics faster than wall-clock so
                                         // it feels arcade-snappy, not slow-mo
+  const CLAW_CTRL = 1.0;                // claw control speed, in wall-clock terms
+                                        // and independent of SIM_SPEED (raise for
+                                        // a faster claw, lower for finer control)
   const GAME_TIME = 60;                 // seconds on the clock (stays real-time)
   const V_CASH = 1000000, V_COIN = 10000000;   // $1M a stack, $10M a bitcoin
 
@@ -82,16 +85,18 @@
     btcValue: 0,             // dollars currently held as bitcoin (multipliable)
     cashValue: 0,            // dollars currently held as cash (multipliable)
     closing: false,
-    grabbed: null,
-    weld: null,
+    grabbed: [],             // items currently welded to the claw (multi-grab)
+    welds: [],               // the weld joints, parallel to `grabbed`
     paused: false,           // frozen while a policy event is on screen
     pauseTimer: 0,
     event: null,             // { title, desc, amount, note, kind }
   };
   const PAUSE_DURATION = 5.0; // seconds of frozen "breaking news" (or dismiss early)
+  const DEPOSIT_R = 1.0;      // release-over-bin: everything this close drops in
   const keys = new Set();
   const floaters = [];       // rising "+$X" labels
   const binPile = [];        // decorative tokens in the bin
+  const eventQueue = [];     // policy events waiting to be shown, one at a time
 
   let game = null;           // { world, head, leftFinger, rightFinger, loot, target }
 
@@ -220,26 +225,40 @@
     return { x: p.x, y: p.y - 0.62 };
   }
 
+  function overBin(x) {
+    return x > DIV_X + 0.15 && x < WORLD_W - 0.05;
+  }
+
   function doGrab() {
-    if (!game || state.grabbed) return;
+    if (!game) return;
     const gp = grabPoint(game);
-    let best = null, bestd = GRAB_R;
+    // weld every loose item near the fingertips — you can scoop a whole clump
     for (const item of game.loot) {
-      if (item.collected) continue;
+      if (item.collected || state.grabbed.includes(item)) continue;
       const q = item.body.getPosition();
-      const d = Math.hypot(q.x - gp.x, q.y - gp.y);
-      if (d < bestd) { bestd = d; best = item; }
-    }
-    if (best) {
-      state.grabbed = best;
-      state.weld = game.world.createJoint(new WeldJoint({ frequencyHz: 0 }, game.head, best.body, best.body.getPosition()));
+      if (Math.hypot(q.x - gp.x, q.y - gp.y) < GRAB_R) {
+        state.grabbed.push(item);
+        state.welds.push(game.world.createJoint(new WeldJoint({ frequencyHz: 0 }, game.head, item.body, item.body.getPosition())));
+      }
     }
   }
 
   function doRelease() {
-    if (game && state.weld) { game.world.destroyJoint(state.weld); }
-    state.weld = null;
-    state.grabbed = null;
+    if (!game) { state.grabbed = []; state.welds = []; return; }
+    for (const w of state.welds) game.world.destroyJoint(w);
+    state.welds = [];
+    // Opening the claw over the slush fund deposits everything in it right
+    // away, at any height — no need to lower it in. Elsewhere, the loot just
+    // drops back onto the pile.
+    if (overBin(grabPoint(game).x)) {
+      const gp = grabPoint(game);
+      for (const item of game.loot) {
+        if (item.collected) continue;
+        const q = item.body.getPosition();
+        if (Math.hypot(q.x - gp.x, q.y - gp.y) < DEPOSIT_R) collect(item);
+      }
+    }
+    state.grabbed = [];
   }
 
   function collect(item) {
@@ -304,14 +323,23 @@
   }
 
   function triggerEvent() {
+    // apply the effect now (so multiple docs deposited together resolve in
+    // sequence) and queue its card; cards are shown one at a time
     const ev = pickEvent();
     const res = ev.apply();
-    state.event = { title: ev.title, desc: ev.desc, amount: res.amount, note: res.note, kind: ev.kind };
+    eventQueue.push({ title: ev.title, desc: ev.desc, amount: res.amount, note: res.note, kind: ev.kind });
+    showNextEvent();
+  }
+
+  function showNextEvent() {
+    if (state.paused || !eventQueue.length) return;
+    state.event = eventQueue.shift();
     state.paused = true;
     state.pauseTimer = PAUSE_DURATION;
     keys.clear();
     sndAlert();
-    setTimeout(() => (ev.kind === 'good' ? sndFanfare() : sndBuzzer()), 260);
+    const kind = state.event.kind;
+    setTimeout(() => (kind === 'good' ? sndFanfare() : sndBuzzer()), 260);
   }
 
   function dismissEvent() {
@@ -321,8 +349,11 @@
 
   function stepGame(dt) {
     const g = game;
-    // drive the claw head toward a key-controlled target
-    const MOVE_X = 5.2, MOVE_Y = 4.2;
+    // Drive the claw toward a key-controlled target. The control rates are
+    // scaled by 1/SIM_SPEED so the claw's *wall-clock* speed is independent of
+    // the physics time-scale — a snappy simulation with a controllable claw.
+    const cs = CLAW_CTRL / SIM_SPEED;
+    const MOVE_X = 5.2 * cs, MOVE_Y = 4.2 * cs;
     if (keys.has('ArrowLeft')) g.target.x -= MOVE_X * dt;
     if (keys.has('ArrowRight')) g.target.x += MOVE_X * dt;
     if (keys.has('ArrowUp')) g.target.y += MOVE_Y * dt;
@@ -331,18 +362,16 @@
     g.target.y = Math.max(HEAD_MIN_Y, Math.min(HEAD_MAX_Y, g.target.y));
     const p = g.head.getPosition();
     const clamp = (v, m) => Math.max(-m, Math.min(m, v));
-    g.head.setLinearVelocity(new Vec2(clamp((g.target.x - p.x) * 12, 7), clamp((g.target.y - p.y) * 12, 6)));
+    g.head.setLinearVelocity(new Vec2(clamp((g.target.x - p.x) * 12 * cs, 7 * cs), clamp((g.target.y - p.y) * 12 * cs, 6 * cs)));
 
     setFingerMotors(g, state.closing);
     g.world.step(dt, 8, 3);
 
-    // Score anything released into the bin column. The threshold sits just
-    // above the divider top so letting go over the bin counts immediately —
-    // you don't have to lower the claw down inside it. Items still held in the
-    // claw are skipped (item === state.grabbed), so carrying loot across the
-    // top of the bin never scores until you actually open the claw.
+    // Fallback scoring for loot that physically comes to rest in the bin
+    // (e.g. hitchhikers that tumble in). Held loot is skipped so carrying a
+    // clump across the top of the bin never scores until you open the claw.
     for (const item of g.loot) {
-      if (item.collected || item === state.grabbed) continue;
+      if (item.collected || state.grabbed.includes(item)) continue;
       const q = item.body.getPosition();
       if (q.x > DIV_X + 0.15 && q.x < WORLD_W - 0.1 && q.y < DIV_H + 0.2) collect(item);
     }
@@ -937,7 +966,6 @@
 
   // -------------------------------------------------------------- game flow
   function startGame() {
-    doRelease();
     game = buildWorld();
     state.phase = 'playing';
     state.time = GAME_TIME;
@@ -945,9 +973,12 @@
     state.btcValue = 0;
     state.cashValue = 0;
     state.closing = false;
+    state.grabbed = [];
+    state.welds = [];
     state.paused = false;
     state.pauseTimer = 0;
     state.event = null;
+    eventQueue.length = 0;
     floaters.length = 0;
     binPile.length = 0;
     keys.clear();
@@ -960,7 +991,9 @@
     state.best = Math.max(state.best, state.score);
     state.closing = false;
     keys.clear();
-    doRelease();
+    if (game) for (const w of state.welds) game.world.destroyJoint(w);
+    state.welds = [];
+    state.grabbed = [];
   }
 
   // ------------------------------------------------------------------ input
