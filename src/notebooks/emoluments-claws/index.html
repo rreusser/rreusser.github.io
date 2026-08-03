@@ -9,7 +9,7 @@
   <script id="intro" type="text/markdown">
     Every good arcade needs a rigged claw machine, and every good grifter needs a way to move other people's money into their own bin. **Emoluments Claws** is both: a tiny [Box2D](https://box2d.org/) game (via the pure-JavaScript port [planck.js](https://piqnt.com/planck.js/)) in which you have sixty seconds to grab as many stacks of hundred-dollar bills and as much bitcoin as you can and drop it all into the collection bin.
 
-    Click the machine to focus it, then use the **arrow keys** to fly the claw and **hold the spacebar** to grab. Lift your loot over the divider and let go over the bin on the right. Cash stacks are worth \$10,000 apiece; a bitcoin is worth \$100,000. Collect as much as possible before the buzzer.
+    Click the machine to focus it, then use the **arrow keys** to fly the claw and **hold the spacebar** to grab. Lift your loot over the divider and let go over the bin on the right. Cash stacks are worth \$1,000,000 apiece; a bitcoin is worth \$10,000,000. Collect as much as possible before the buzzer.
 
     Watch for the **sealed documents** scattered in the pile. Drop one in the bin and it triggers a breaking-news event — an executive order or a bit of deregulation might retroactively multiply the bitcoin you've already banked, but an activist judge or an SEC investigation could claw a chunk of it right back. Bank your bitcoin *before* you cash in a document, and the multipliers pay off big.
   </script>
@@ -30,7 +30,7 @@
   const WORLD_W = 10, WORLD_H = 7;      // physics world extent, in metres
   const DT = 1 / 60;                    // fixed physics timestep
   const GAME_TIME = 60;                 // seconds on the clock
-  const V_CASH = 10000, V_COIN = 100000;
+  const V_CASH = 1000000, V_COIN = 10000000;   // $1M a stack, $10M a bitcoin
 
   const DIV_X = 6.9, DIV_H = 2.6;       // divider between pile and bin
   const RAIL_Y = 6.45;                  // height of the gantry rail
@@ -287,11 +287,11 @@
     { kind: 'good', weight: 3, title: 'CRYPTO DEREGULATION', desc: 'All oversight abolished by decree. Bitcoin holdings ×2.5.', apply: () => multBtc(2.5) },
     { kind: 'good', weight: 1, title: 'PRESIDENTIAL MEME COIN', desc: 'The market goes parabolic. Bitcoin holdings ×4!', apply: () => multBtc(4) },
     { kind: 'good', weight: 2, title: 'OFFSHORE TAX LOOPHOLE', desc: 'A friendly shell company doubles your cash.', apply: () => multCash(2) },
-    { kind: 'good', weight: 2, title: 'PRESIDENTIAL PARDON', desc: 'Charges vanish, and a grateful donor writes a check.', apply: () => flat(500000) },
+    { kind: 'good', weight: 2, title: 'PRESIDENTIAL PARDON', desc: 'Charges vanish, and a grateful donor writes a check.', apply: () => flat(50000000) },
     { kind: 'bad', weight: 3, title: 'ACTIVIST JUDGE', desc: 'A court rules your emoluments unconstitutional. You forfeit 40%.', apply: () => pctHit(0.4) },
-    { kind: 'bad', weight: 2, title: 'SEC INVESTIGATION', desc: 'Regulators freeze a pile of your assets.', apply: () => flat(-400000) },
+    { kind: 'bad', weight: 2, title: 'SEC INVESTIGATION', desc: 'Regulators freeze a pile of your assets.', apply: () => flat(-40000000) },
     { kind: 'bad', weight: 2, title: 'MARKET CRASH', desc: 'Bitcoin cuts in half. So does your stash.', apply: () => multBtc(0.5) },
-    { kind: 'bad', weight: 1, title: 'WHISTLEBLOWER LEAK', desc: 'An aide talks. Hush money is expensive.', apply: () => flat(-300000) },
+    { kind: 'bad', weight: 1, title: 'WHISTLEBLOWER LEAK', desc: 'An aide talks. Hush money is expensive.', apply: () => flat(-30000000) },
   ];
 
   function pickEvent() {
@@ -566,7 +566,7 @@
     g.fillStyle = '#0a1f4a';
     g.font = `700 ${Math.max(9, sc(0.24))}px Georgia, serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('THE TREASURY', plX, plY + plH / 2 + 1);
+    g.fillText('SLUSH FUND', plX, plY + plH / 2 + 1);
 
     // rococo corner flourishes
     const m = sc(0.15);
