@@ -10,6 +10,8 @@
     Every good arcade needs a rigged claw machine, and every good grifter needs a way to move other people's money into their own bin. **Emoluments Claws** is both: a tiny [Box2D](https://box2d.org/) game (via the pure-JavaScript port [planck.js](https://piqnt.com/planck.js/)) in which you have sixty seconds to grab as many stacks of hundred-dollar bills and as much bitcoin as you can and drop it all into the collection bin.
 
     Click the machine to focus it, then use the **arrow keys** to fly the claw and **hold the spacebar** to grab. Lift your loot over the divider and let go over the bin on the right. Cash stacks are worth \$10,000 apiece; a bitcoin is worth \$100,000. Collect as much as possible before the buzzer.
+
+    Watch for the **sealed documents** scattered in the pile. Drop one in the bin and it triggers a breaking-news event — an executive order or a bit of deregulation might retroactively multiply the bitcoin you've already banked, but an activist judge or an SEC investigation could claw a chunk of it right back. Bank your bitcoin *before* you cash in a document, and the multipliers pay off big.
   </script>
 
   <script id="figure-note" type="text/markdown">
@@ -36,7 +38,7 @@
   const HEAD_MIN_Y = 0.95, HEAD_MAX_Y = 6.15;
 
   const GRAB_R = 0.62;                  // capture radius at the fingertips
-  const N_CASH = 11, N_COIN = 8;
+  const N_CASH = 10, N_COIN = 8, N_DOC = 4;
 
   // finger geometry, shared between fixtures and rendering (local frame,
   // pivot at the finger's top, +y up)
@@ -60,10 +62,16 @@
     time: GAME_TIME,
     score: 0,
     best: 0,
+    btcValue: 0,             // dollars currently held as bitcoin (multipliable)
+    cashValue: 0,            // dollars currently held as cash (multipliable)
     closing: false,
     grabbed: null,
     weld: null,
+    paused: false,           // frozen while a policy event is on screen
+    pauseTimer: 0,
+    event: null,             // { title, desc, amount, note, kind }
   };
+  const PAUSE_DURATION = 2.6; // seconds of frozen "breaking news"
   const keys = new Set();
   const floaters = [];       // rising "+$X" labels
   const binPile = [];        // decorative tokens in the bin
@@ -92,17 +100,23 @@
   const sndGrab = () => beep(320, 0.05, 'square', 0.03);
   const sndDrop = () => beep(180, 0.05, 'sawtooth', 0.03);
   function sndCoin() { beep(988, 0.08, 'sine', 0.05); setTimeout(() => beep(1319, 0.12, 'sine', 0.05), 70); }
+  function sndFanfare() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'triangle', 0.06), i * 90)); }
+  function sndBuzzer() { [330, 245, 175].forEach((f, i) => setTimeout(() => beep(f, 0.2, 'sawtooth', 0.05), i * 130)); }
+  const sndAlert = () => beep(880, 0.08, 'square', 0.05);
 
   // ----------------------------------------------------------------- physics
   function makeLoot(world, x, y, kind) {
     const body = world.createBody({ type: 'dynamic', position: new Vec2(x, y), angle: (Math.random() - 0.5) * 0.6 });
     if (kind === 'cash') {
       body.createFixture({ shape: new Box(0.38, 0.15), density: 1.0, friction: 0.7, restitution: 0.02 });
-    } else {
+    } else if (kind === 'coin') {
       body.createFixture({ shape: new Circle(0.27), density: 1.3, friction: 0.55, restitution: 0.15 });
+    } else { // document
+      body.createFixture({ shape: new Box(0.30, 0.22), density: 0.55, friction: 0.8, restitution: 0.02 });
     }
     body.setUserData({ kind });
-    return { body, kind, value: kind === 'cash' ? V_CASH : V_COIN, collected: false };
+    const value = kind === 'cash' ? V_CASH : kind === 'coin' ? V_COIN : 0;
+    return { body, kind, value, collected: false };
   }
 
   function buildWorld() {
@@ -144,6 +158,10 @@
     for (let i = 0; i < N_COIN; i++) {
       const x = 1.0 + Math.random() * 5.1;
       loot.push(makeLoot(world, x, 2.5 + Math.random() * 3.2, 'coin'));
+    }
+    for (let i = 0; i < N_DOC; i++) {
+      const x = 1.0 + Math.random() * 5.1;
+      loot.push(makeLoot(world, x, 2.5 + Math.random() * 3.2, 'document'));
     }
 
     const g = {
@@ -192,12 +210,74 @@
 
   function collect(item) {
     item.collected = true;
-    state.score += item.value;
     const q = item.body.getPosition();
-    floaters.push({ x: q.x, y: q.y, kind: item.kind, value: item.value, born: performance.now() });
     binPile.push({ kind: item.kind, i: binPile.length });
     game.world.destroyBody(item.body);
+
+    if (item.kind === 'document') {
+      triggerEvent();
+      return;
+    }
+    state.score += item.value;
+    if (item.kind === 'coin') state.btcValue += item.value;
+    else state.cashValue += item.value;
+    floaters.push({ x: q.x, y: q.y, kind: item.kind, value: item.value, born: performance.now() });
     sndCoin();
+  }
+
+  // ---- policy events (fired when a document lands in the bin) --------------
+  // Each `apply` mutates the score and returns { amount, note } for display.
+  // Multipliers act retroactively on what you've already banked, so the game
+  // rewards banking bitcoin/cash *before* you cash in a document.
+  const fmt = (n) => (n < 0 ? '−$' : '+$') + Math.abs(Math.round(n)).toLocaleString('en-US');
+
+  function multBtc(m) {
+    if (state.btcValue <= 0) return { amount: 0, note: 'You are holding no bitcoin.' };
+    const delta = state.btcValue * (m - 1);
+    state.btcValue += delta; state.score += delta;
+    return { amount: delta };
+  }
+  function multCash(m) {
+    if (state.cashValue <= 0) return { amount: 0, note: 'You are holding no cash.' };
+    const delta = state.cashValue * (m - 1);
+    state.cashValue += delta; state.score += delta;
+    return { amount: delta };
+  }
+  function flat(v) { state.score = Math.max(0, state.score + v); return { amount: v }; }
+  function pctHit(f) {           // scale everything down by fraction f (0..1)
+    const delta = -state.score * f;
+    state.score += delta; state.btcValue *= (1 - f); state.cashValue *= (1 - f);
+    return { amount: delta };
+  }
+
+  const EVENTS = [
+    { kind: 'good', weight: 3, title: 'EXECUTIVE ORDER', desc: 'Bitcoin declared official legal tender. Your holdings triple.', apply: () => multBtc(3) },
+    { kind: 'good', weight: 3, title: 'CRYPTO DEREGULATION', desc: 'All oversight abolished by decree. Bitcoin holdings ×2.5.', apply: () => multBtc(2.5) },
+    { kind: 'good', weight: 1, title: 'PRESIDENTIAL MEME COIN', desc: 'The market goes parabolic. Bitcoin holdings ×4!', apply: () => multBtc(4) },
+    { kind: 'good', weight: 2, title: 'OFFSHORE TAX LOOPHOLE', desc: 'A friendly shell company doubles your cash.', apply: () => multCash(2) },
+    { kind: 'good', weight: 2, title: 'PRESIDENTIAL PARDON', desc: 'Charges vanish, and a grateful donor writes a check.', apply: () => flat(500000) },
+    { kind: 'bad', weight: 3, title: 'ACTIVIST JUDGE', desc: 'A court rules your emoluments unconstitutional. You forfeit 40%.', apply: () => pctHit(0.4) },
+    { kind: 'bad', weight: 2, title: 'SEC INVESTIGATION', desc: 'Regulators freeze a pile of your assets.', apply: () => flat(-400000) },
+    { kind: 'bad', weight: 2, title: 'MARKET CRASH', desc: 'Bitcoin cuts in half. So does your stash.', apply: () => multBtc(0.5) },
+    { kind: 'bad', weight: 1, title: 'WHISTLEBLOWER LEAK', desc: 'An aide talks. Hush money is expensive.', apply: () => flat(-300000) },
+  ];
+
+  function pickEvent() {
+    const total = EVENTS.reduce((s, e) => s + e.weight, 0);
+    let r = Math.random() * total;
+    for (const e of EVENTS) { r -= e.weight; if (r <= 0) return e; }
+    return EVENTS[0];
+  }
+
+  function triggerEvent() {
+    const ev = pickEvent();
+    const res = ev.apply();
+    state.event = { title: ev.title, desc: ev.desc, amount: res.amount, note: res.note, kind: ev.kind };
+    state.paused = true;
+    state.pauseTimer = PAUSE_DURATION;
+    keys.clear();
+    sndAlert();
+    setTimeout(() => (ev.kind === 'good' ? sndFanfare() : sndBuzzer()), 260);
   }
 
   function stepGame(dt) {
@@ -314,6 +394,36 @@
     ctx.fillText('₿', cx, cy + sc(0.01));
   }
 
+  function drawDoc(body) {
+    const a = body.getAngle(), p = body.getPosition();
+    ctx.save();
+    ctx.translate(sx(p.x), sy(p.y));
+    ctx.rotate(-a);
+    const w = sc(0.60), h = sc(0.44);
+    // paper
+    ctx.fillStyle = '#f8f9fa';
+    roundRectPath(-w / 2, -h / 2, w, h, sc(0.02));
+    ctx.fill();
+    ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = Math.max(1, sc(0.02));
+    ctx.stroke();
+    // header bar
+    ctx.fillStyle = '#c92a2a';
+    ctx.fillRect(-w / 2 + sc(0.04), -h / 2 + sc(0.05), w - sc(0.08), sc(0.05));
+    // body text lines
+    ctx.fillStyle = '#adb5bd';
+    for (let i = 0; i < 3; i++) {
+      ctx.fillRect(-w / 2 + sc(0.04), -h / 2 + sc(0.15) + i * sc(0.07), w - sc(0.20), sc(0.025));
+    }
+    // wax seal
+    ctx.fillStyle = '#e8590c';
+    ctx.beginPath(); ctx.arc(w / 2 - sc(0.11), h / 2 - sc(0.10), sc(0.075), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe8cc';
+    ctx.font = `700 ${Math.max(6, sc(0.09))}px Georgia, serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('§', w / 2 - sc(0.11), h / 2 - sc(0.09));
+    ctx.restore();
+  }
+
   function drawFinger(body) {
     ctx.fillStyle = '#ced4da';
     const bar = localToWorld(body, BAR.cx, BAR.cy);
@@ -408,6 +518,91 @@
     ctx.fillText(label, cx, cy + 1);
   }
 
+  function wrapText(text, maxWidth) {
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+      else line = test;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function drawEventCard(now) {
+    const ev = state.event;
+    const good = ev.kind === 'good';
+    const elapsed = PAUSE_DURATION - state.pauseTimer;
+    // pop in over 0.18s, fade out over the last 0.3s
+    const fadeIn = Math.min(1, elapsed / 0.18);
+    const fadeOut = Math.min(1, state.pauseTimer / 0.3);
+    const alpha = Math.min(fadeIn, fadeOut);
+    const pop = 0.82 + 0.18 * Math.min(1, elapsed / 0.28);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // dim the playfield with a faint colour wash
+    ctx.fillStyle = good ? 'rgba(8, 24, 12, 0.72)' : 'rgba(28, 8, 8, 0.72)';
+    ctx.fillRect(0, 0, VW, VH);
+
+    const cw = Math.min(VW * 0.84, 460);
+    const cx = VW / 2, cy = VH * 0.46;
+    ctx.translate(cx, cy);
+    ctx.scale(pop, pop);
+    const accent = good ? '#69db7c' : '#ff6b6b';
+
+    // measure wrapped description
+    const pad = 22;
+    ctx.font = `500 ${Math.min(16, cw * 0.038)}px system-ui, sans-serif`;
+    const descLines = wrapText(ev.desc, cw - pad * 2);
+    const lineH = Math.min(22, cw * 0.052);
+    const ch = 118 + descLines.length * lineH;
+
+    // card
+    ctx.fillStyle = '#12161f';
+    roundRectPath(-cw / 2, -ch / 2, cw, ch, 12);
+    ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = accent;
+    roundRectPath(-cw / 2, -ch / 2, cw, ch, 12);
+    ctx.stroke();
+    // accent header strip
+    ctx.fillStyle = accent;
+    roundRectPath(-cw / 2, -ch / 2, cw, 6, 3);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    let y = -ch / 2 + 30;
+    // badge
+    ctx.fillStyle = accent;
+    ctx.font = `800 ${Math.min(13, cw * 0.03)}px system-ui, sans-serif`;
+    ctx.fillText(good ? '⚡ BREAKING' : '⚠ BREAKING', 0, y);
+    y += 30;
+    // title
+    ctx.fillStyle = '#fff';
+    ctx.font = `900 ${Math.min(28, cw * 0.062)}px system-ui, sans-serif`;
+    ctx.fillText(ev.title, 0, y);
+    y += 26;
+    // description
+    ctx.fillStyle = '#ced4da';
+    ctx.font = `500 ${Math.min(16, cw * 0.038)}px system-ui, sans-serif`;
+    for (const l of descLines) { ctx.fillText(l, 0, y); y += lineH; }
+    y += 8;
+    // money delta (or wry note)
+    if (ev.amount === 0 && ev.note) {
+      ctx.fillStyle = '#868e96';
+      ctx.font = `600 ${Math.min(17, cw * 0.04)}px system-ui, sans-serif`;
+      ctx.fillText(ev.note, 0, y + 6);
+    } else {
+      ctx.fillStyle = ev.amount < 0 ? '#ff6b6b' : '#69db7c';
+      ctx.font = `900 ${Math.min(30, cw * 0.07)}px system-ui, sans-serif`;
+      ctx.fillText(fmt(ev.amount), 0, y + 8);
+    }
+    ctx.restore();
+  }
+
   function drawOverlay(now) {
     ctx.fillStyle = 'rgba(6, 12, 24, 0.82)';
     ctx.fillRect(0, 0, VW, VH);
@@ -482,11 +677,14 @@
     drawBinPile();
     for (const item of game.loot) {
       if (item.collected) continue;
-      if (item.kind === 'cash') drawCash(item.body); else drawCoin(item.body);
+      if (item.kind === 'cash') drawCash(item.body);
+      else if (item.kind === 'coin') drawCoin(item.body);
+      else drawDoc(item.body);
     }
     drawClaw();
     drawFloaters(now);
     drawHUD();
+    if (state.event) drawEventCard(now);
     if (state.phase !== 'playing') drawOverlay(now);
   }
 
@@ -497,7 +695,12 @@
     state.phase = 'playing';
     state.time = GAME_TIME;
     state.score = 0;
+    state.btcValue = 0;
+    state.cashValue = 0;
     state.closing = false;
+    state.paused = false;
+    state.pauseTimer = 0;
+    state.event = null;
     floaters.length = 0;
     binPile.length = 0;
     keys.clear();
@@ -527,6 +730,7 @@
       return;
     }
     // playing
+    if (state.paused) return;   // frozen while a policy event is on screen
     if (k === ' ' || k === 'Spacebar') {
       if (!state.closing) { state.closing = true; doGrab(); sndGrab(); }
     } else if (MOVE_KEYS.has(k)) {
@@ -564,11 +768,18 @@
     prev = now;
     if (frameDt > 0.1) frameDt = 0.1;
     if (state.phase === 'playing') {
-      state.time -= frameDt;
-      if (state.time <= 0) { state.time = 0; endGame(); }
-      acc += frameDt;
-      let n = 0;
-      while (acc >= DT && n < 6) { stepGame(DT); acc -= DT; n++; }
+      if (state.paused) {
+        // freeze physics and the clock while the "breaking news" card is up
+        state.pauseTimer -= frameDt;
+        if (state.pauseTimer <= 0) { state.paused = false; state.event = null; }
+        acc = 0;
+      } else {
+        state.time -= frameDt;
+        if (state.time <= 0) { state.time = 0; endGame(); }
+        acc += frameDt;
+        let n = 0;
+        while (acc >= DT && n < 6) { stepGame(DT); acc -= DT; n++; if (state.paused) break; }
+      }
     }
     render(now);
   });
