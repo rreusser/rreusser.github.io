@@ -41,14 +41,29 @@
   const N_CASH = 10, N_COIN = 8, N_DOC = 4;
 
   // finger geometry, shared between fixtures and rendering (local frame,
-  // pivot at the finger's top, +y up)
+  // pivot at the finger's top, +y up). Each finger is a vertical shaft with a
+  // talon at the bottom that angles 45° inward, so it reads as a claw.
   const BAR = { cx: 0, cy: -0.28, hx: 0.05, hy: 0.28 };
-  const FOOT = { cx: 0.15, cy: -0.54, hx: 0.15, hy: 0.05 };
+  const TALON = { hl: 0.16, ht: 0.05 };            // half-length, half-thickness
+  const BAR_BOTTOM = BAR.cy - BAR.hy;              // -0.56
+  const CLAW_CLOSE_A = 0.22, CLAW_OPEN_A = 0.55, CLAW_SPEED = 4.5;
+  // Talon transform for a finger on the given side (-1 left of centre,
+  // +1 right). The finger's pivot sits on the +side of the head, so the talon
+  // hooks toward centre (-side) and downward, at 45°, hinged at the shaft base.
+  function talonXform(side) {
+    const ang = -Math.PI / 2 - side * Math.PI / 4;   // -45° for left, -135° for right
+    const cx = Math.cos(ang) * TALON.hl;
+    const cy = BAR_BOTTOM + Math.sin(ang) * TALON.hl;
+    return { cx, cy, ang };
+  }
 
   // -------------------------------------------------------------------- stage
   const canvas = html`<canvas style="display:block;width:100%;height:100%;border-radius:6px;cursor:pointer;"></canvas>`;
   const container = html`<div id="claws-stage" tabindex="0" style="position:relative;width:100%;height:100%;outline:none;">${canvas}</div>`;
   const ctx = canvas.getContext('2d');
+  // static ornamentation (blue-and-gold cabinet) is baked here once per resize
+  const bgCanvas = document.createElement('canvas');
+  const bgCtx = bgCanvas.getContext('2d');
 
   // viewport / world→screen mapping, filled in by onResize
   let VW = 0, VH = 0, scale = 1, ox = 0, oy = 0, dpr = 1;
@@ -134,22 +149,25 @@
     const head = world.createBody({ type: 'kinematic', position: new Vec2(3.2, 5.4) });
     head.createFixture({ shape: new Box(0.3, 0.12), density: 1, filterGroupIndex: -1 });
 
-    const finger = (sign, lower, upper) => {
-      const px = 3.2 + sign * 0.26, py = 5.4 - 0.06;
+    // side: -1 = left finger (pivot left of centre), +1 = right finger.
+    // Closing swings each finger so its talon sweeps toward centre and down.
+    const makeFinger = (side) => {
+      const px = 3.2 + side * 0.26, py = 5.4 - 0.06;
       const b = world.createBody({ type: 'dynamic', position: new Vec2(px, py) });
+      b.setUserData({ side });
       b.createFixture({ shape: new Box(BAR.hx, BAR.hy, new Vec2(BAR.cx, BAR.cy), 0), density: 1.2, friction: 0.95, filterGroupIndex: -1 });
-      b.createFixture({ shape: new Box(FOOT.hx, FOOT.hy, new Vec2(sign * FOOT.cx, FOOT.cy), 0), density: 1.2, friction: 1.1, filterGroupIndex: -1 });
+      const t = talonXform(side);
+      b.createFixture({ shape: new Box(TALON.hl, TALON.ht, new Vec2(t.cx, t.cy), t.ang), density: 1.2, friction: 1.1, filterGroupIndex: -1 });
+      // left closes with +angle, right with −angle; open is the opposite limit
+      const lower = side > 0 ? -CLAW_CLOSE_A : -CLAW_OPEN_A;
+      const upper = side > 0 ? CLAW_OPEN_A : CLAW_CLOSE_A;
       const joint = world.createJoint(new RevoluteJoint({
         enableMotor: true, maxMotorTorque: 45, motorSpeed: 0,
         enableLimit: true, lowerAngle: lower, upperAngle: upper,
       }, head, b, new Vec2(px, py)));
-      return { body: b, joint };
+      return { body: b, joint, closeSpeed: -side * CLAW_SPEED };
     };
-    // left finger: +angle closes (foot swings toward centre); right finger mirrored.
-    // The open limit is wide so releasing over the bin actually drops the loot
-    // instead of cradling it in the hook.
-    const left = finger(1, -1.0, 0.28);
-    const right = finger(-1, -0.28, 1.0);
+    const fLeft = makeFinger(-1), fRight = makeFinger(1);
 
     // scatter the loot and let it settle
     const loot = [];
@@ -168,8 +186,8 @@
 
     const g = {
       world, head, loot, target: { x: 3.2, y: 5.4 },
-      leftFinger: left.body, rightFinger: right.body,
-      leftJoint: left.joint, rightJoint: right.joint,
+      leftFinger: fLeft.body, rightFinger: fRight.body,
+      fingers: [fLeft, fRight],
     };
     // pre-settle the pile with the fingers held open
     setFingerMotors(g, false);
@@ -178,9 +196,7 @@
   }
 
   function setFingerMotors(g, closing) {
-    // left closeSign = +1, right closeSign = -1 (motor lives on the joint)
-    g.leftJoint.setMotorSpeed(closing ? 4.5 : -4.5);
-    g.rightJoint.setMotorSpeed(closing ? -4.5 : 4.5);
+    for (const f of g.fingers) f.joint.setMotorSpeed(closing ? f.closeSpeed : -f.closeSpeed);
   }
 
   function grabPoint(g) {
@@ -333,38 +349,200 @@
     ctx.restore();
   }
 
-  function drawBackground() {
-    // cabinet interior
-    const grad = ctx.createLinearGradient(0, 0, 0, VH);
-    grad.addColorStop(0, '#12203a');
-    grad.addColorStop(1, '#0a1120');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, VW, VH);
+  // ---- ornament helpers (draw the gilded cabinet into an offscreen ctx) ----
+  const GOLD_D = '#8a6d1e', GOLD = '#c9a227', GOLD_L = '#f3d98b', GOLD_H = '#fff4cf';
 
-    // divider
-    ctx.fillStyle = '#39506f';
-    ctx.fillRect(sx(DIV_X) - sc(0.09), sy(DIV_H), sc(0.18), sc(DIV_H));
-    ctx.fillStyle = '#ffd43b';
-    ctx.fillRect(sx(DIV_X) - sc(0.09), sy(DIV_H), sc(0.18), sc(0.12));
+  function goldFillV(g, yTop, yBot) {
+    const grad = g.createLinearGradient(0, yTop, 0, yBot);
+    grad.addColorStop(0, GOLD_L); grad.addColorStop(0.5, GOLD);
+    grad.addColorStop(0.7, GOLD_H); grad.addColorStop(1, GOLD_D);
+    return grad;
+  }
+  function goldFillH(g, xL, xR) {
+    const grad = g.createLinearGradient(xL, 0, xR, 0);
+    grad.addColorStop(0, GOLD_D); grad.addColorStop(0.5, GOLD_L);
+    grad.addColorStop(1, GOLD_D);
+    return grad;
+  }
 
-    // bin
-    ctx.fillStyle = 'rgba(255, 212, 59, 0.06)';
-    ctx.fillRect(sx(DIV_X), sy(0), sc(WORLD_W - DIV_X), sc(WORLD_H));
-    ctx.strokeStyle = 'rgba(255, 212, 59, 0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(sx(DIV_X) + 1, sy(DIV_H) + 2, sc(WORLD_W - DIV_X) - 3, sy(0) - sy(DIV_H) - 3);
-    ctx.fillStyle = 'rgba(255, 212, 59, 0.75)';
-    ctx.font = `600 ${Math.max(9, sc(0.28))}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText('COLLECTION BIN', (sx(DIV_X) + sx(WORLD_W)) / 2, sy(DIV_H) - sc(0.25));
+  // a rococo C-scroll (quarter-round flourish) centred at (x,y), radius r
+  function cScroll(g, x, y, r, rot, flip) {
+    g.save();
+    g.translate(x, y); g.rotate(rot); g.scale(flip ? -1 : 1, 1);
+    g.strokeStyle = goldFillV(g, -r, r); g.lineWidth = Math.max(1.5, r * 0.16);
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(0, -r);
+    g.bezierCurveTo(r * 1.1, -r, r * 1.3, r * 0.4, r * 0.2, r * 0.7);
+    g.bezierCurveTo(-r * 0.5, r * 0.9, -r * 0.4, r * 0.1, r * 0.1, r * 0.05);
+    g.stroke();
+    g.restore();
+  }
 
-    // floor line
-    ctx.strokeStyle = '#4a5f80';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(sx(0), sy(0)); ctx.lineTo(sx(WORLD_W), sy(0));
-    ctx.stroke();
+  // fluted gold pilaster from screen yTop..yBot, centred at cx, half-width hw
+  function pilaster(g, cx, yTop, yBot, hw) {
+    // shaft
+    g.fillStyle = goldFillH(g, cx - hw, cx + hw);
+    g.fillRect(cx - hw, yTop, hw * 2, yBot - yTop);
+    // flutes
+    g.strokeStyle = 'rgba(90,70,20,0.55)'; g.lineWidth = 1;
+    const flutes = 5;
+    for (let i = 1; i < flutes; i++) {
+      const fx = cx - hw + (hw * 2) * (i / flutes);
+      g.beginPath(); g.moveTo(fx, yTop + hw); g.lineTo(fx, yBot - hw); g.stroke();
+    }
+    // capital
+    g.fillStyle = goldFillV(g, yTop - hw * 1.6, yTop);
+    g.fillRect(cx - hw * 1.5, yTop - hw * 0.6, hw * 3, hw * 0.6);
+    g.fillRect(cx - hw * 1.25, yTop - hw * 1.2, hw * 2.5, hw * 0.6);
+    cScroll(g, cx - hw * 1.1, yTop - hw * 0.9, hw * 0.7, -0.3, false);
+    cScroll(g, cx + hw * 1.1, yTop - hw * 0.9, hw * 0.7, -0.3, true);
+    // base
+    g.fillStyle = goldFillV(g, yBot, yBot + hw * 1.2);
+    g.fillRect(cx - hw * 1.4, yBot, hw * 2.8, hw * 0.9);
+    g.fillRect(cx - hw * 1.7, yBot + hw * 0.9, hw * 3.4, hw * 0.5);
+  }
+
+  // laurel wreath outline centred at (cx,cy), radius r
+  function laurel(g, cx, cy, r) {
+    g.strokeStyle = goldFillV(g, cy - r, cy + r);
+    g.lineWidth = Math.max(1, r * 0.05);
+    for (const side of [-1, 1]) {
+      g.beginPath();
+      g.arc(cx, cy, r, side > 0 ? -Math.PI * 0.42 : Math.PI * 0.42,
+        side > 0 ? Math.PI * 0.42 : -Math.PI * 0.42, side < 0);
+      g.stroke();
+      // leaves
+      for (let t = -0.4; t <= 0.4; t += 0.14) {
+        const a = t * Math.PI;
+        const lx = cx + Math.cos(a) * r * side * -1 + (side > 0 ? r : -r);
+        // approximate leaf as a short stroke off the arc
+        const bx = cx + side * Math.cos(a) * r, by = cy + Math.sin(a) * r;
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx + side * r * 0.22, by - r * 0.12);
+        g.stroke();
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx + side * r * 0.22, by + r * 0.12);
+        g.stroke();
+      }
+    }
+  }
+
+  function star(g, cx, cy, r, fill) {
+    g.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const rr = i % 2 ? r * 0.44 : r;
+      const a = -Math.PI / 2 + i * Math.PI / 5;
+      const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+      i ? g.lineTo(px, py) : g.moveTo(px, py);
+    }
+    g.closePath();
+    g.fillStyle = fill; g.fill();
+  }
+
+  // egg-and-dart style bead molding along a horizontal strip
+  function beadRow(g, xL, xR, y, h) {
+    g.fillStyle = goldFillV(g, y, y + h);
+    g.fillRect(xL, y, xR - xL, h);
+    g.fillStyle = 'rgba(90,70,20,0.5)';
+    const step = Math.max(8, h * 1.1);
+    for (let x = xL + step / 2; x < xR; x += step) {
+      g.beginPath(); g.arc(x, y + h / 2, h * 0.28, 0, Math.PI * 2); g.fill();
+    }
+  }
+
+  // Bake the whole gilded cabinet into bgCanvas.
+  function paintCabinet() {
+    const g = bgCtx;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, VW, VH);
+
+    // deep presidential-blue field with a soft central glow + vignette
+    const bg = g.createLinearGradient(0, 0, 0, VH);
+    bg.addColorStop(0, '#0c2a5e'); bg.addColorStop(0.55, '#0a1f4a'); bg.addColorStop(1, '#061634');
+    g.fillStyle = bg; g.fillRect(0, 0, VW, VH);
+    const glow = g.createRadialGradient(VW * 0.42, VH * 0.42, 10, VW * 0.42, VH * 0.42, VW * 0.6);
+    glow.addColorStop(0, 'rgba(60,110,200,0.22)'); glow.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = glow; g.fillRect(0, 0, VW, VH);
+
+    // faint great seal watermark behind the pile
+    g.save();
+    g.globalAlpha = 0.12;
+    const sealX = sx(3.4), sealY = sy(3.3), sealR = sc(2.2);
+    g.strokeStyle = GOLD_L; g.lineWidth = sc(0.05);
+    g.beginPath(); g.arc(sealX, sealY, sealR, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(sealX, sealY, sealR * 0.86, 0, Math.PI * 2); g.stroke();
+    laurel(g, sealX, sealY, sealR * 0.6);
+    star(g, sealX, sealY - sealR * 0.02, sealR * 0.34, GOLD_L);
+    g.restore();
+
+    // marble floor band + gilded baseboard
+    const floorTop = sy(0.18);
+    const marble = g.createLinearGradient(0, floorTop, 0, sy(0));
+    marble.addColorStop(0, '#dfe3ee'); marble.addColorStop(1, '#b9c0d2');
+    g.fillStyle = marble; g.fillRect(sx(0), floorTop, sc(WORLD_W), sy(0) - floorTop);
+    g.strokeStyle = 'rgba(120,130,150,0.5)'; g.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const vx = sx(0.6 + i * 2.1);
+      g.beginPath(); g.moveTo(vx, floorTop); g.lineTo(vx + sc(0.3), sy(0)); g.stroke();
+    }
+    beadRow(g, sx(0), sx(WORLD_W), floorTop - sc(0.12), sc(0.12));
+
+    // gilded top entablature / frieze
+    const friezeBot = sy(6.5);
+    g.fillStyle = goldFillV(g, 0, friezeBot);
+    g.fillRect(0, 0, VW, friezeBot);
+    g.fillStyle = 'rgba(90,70,20,0.35)';
+    g.fillRect(0, friezeBot - sc(0.06), VW, sc(0.06));
+    beadRow(g, 0, VW, friezeBot - sc(0.14), sc(0.09));
+    // central medallion
+    const medX = sx(WORLD_W / 2), medY = friezeBot * 0.5;
+    g.fillStyle = '#0a1f4a';
+    g.beginPath(); g.arc(medX, medY, friezeBot * 0.42, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = GOLD_L; g.lineWidth = 2;
+    g.beginPath(); g.arc(medX, medY, friezeBot * 0.42, 0, Math.PI * 2); g.stroke();
+    star(g, medX, medY, friezeBot * 0.26, GOLD_L);
+    cScroll(g, medX - friezeBot * 0.7, medY, friezeBot * 0.3, 0.2, false);
+    cScroll(g, medX + friezeBot * 0.7, medY, friezeBot * 0.3, 0.2, true);
+
+    // fluted pilasters flanking the playfield
+    const pilTop = friezeBot, pilBot = floorTop - sc(0.1), pilHW = sc(0.16);
+    pilaster(g, sx(0.22), pilTop + sc(0.2), pilBot, pilHW);
+    pilaster(g, sx(WORLD_W - 0.22), pilTop + sc(0.2), pilBot, pilHW);
+
+    // gilded marble divider plinth
+    const dvL = sx(DIV_X) - sc(0.12), dvW = sc(0.24), dvTop = sy(DIV_H);
+    const dm = g.createLinearGradient(dvL, 0, dvL + dvW, 0);
+    dm.addColorStop(0, '#c9cedd'); dm.addColorStop(0.5, '#eef0f6'); dm.addColorStop(1, '#aab1c4');
+    g.fillStyle = dm; g.fillRect(dvL, dvTop, dvW, sy(0) - dvTop);
+    g.fillStyle = goldFillV(g, dvTop - sc(0.16), dvTop);
+    g.fillRect(dvL - sc(0.05), dvTop - sc(0.16), dvW + sc(0.1), sc(0.16));
+    star(g, sx(DIV_X), dvTop - sc(0.08), sc(0.06), '#0a1f4a');
+
+    // treasury bin: framed panel + gold plaque
+    const binL = sx(DIV_X) + sc(0.02), binR = sx(WORLD_W - 0.05);
+    g.fillStyle = 'rgba(201,162,39,0.08)';
+    g.fillRect(binL, sy(DIV_H), binR - binL, sy(0) - sy(DIV_H));
+    g.strokeStyle = 'rgba(243,217,139,0.5)'; g.lineWidth = 2;
+    g.strokeRect(binL, sy(DIV_H) + 2, binR - binL - 2, sy(0.18) - sy(DIV_H) - 2);
+    // plaque
+    const plW = binR - binL - sc(0.2), plX = (binL + binR) / 2;
+    const plY = sy(DIV_H) - sc(0.52), plH = sc(0.42);
+    g.fillStyle = goldFillV(g, plY, plY + plH);
+    roundRect(g, plX - plW / 2, plY, plW, plH, 4); g.fill();
+    g.strokeStyle = GOLD_D; g.lineWidth = 1.5;
+    roundRect(g, plX - plW / 2, plY, plW, plH, 4); g.stroke();
+    g.fillStyle = '#0a1f4a';
+    g.font = `700 ${Math.max(9, sc(0.24))}px Georgia, serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('THE TREASURY', plX, plY + plH / 2 + 1);
+
+    // rococo corner flourishes
+    const m = sc(0.15);
+    cScroll(g, sx(0.55), friezeBot + sc(0.25), sc(0.42), 0.5, false);
+    cScroll(g, sx(WORLD_W - 0.55), friezeBot + sc(0.25), sc(0.42), 0.5, true);
   }
 
   function drawCash(body) {
@@ -436,37 +614,37 @@
   }
 
   function drawFinger(body) {
-    ctx.fillStyle = '#ced4da';
+    const a = body.getAngle();
+    ctx.fillStyle = goldFillV(ctx, sy(localToWorld(body, 0, 0).y) - sc(0.6), sy(localToWorld(body, 0, 0).y));
     const bar = localToWorld(body, BAR.cx, BAR.cy);
-    fillRotBox(bar.x, bar.y, BAR.hx, BAR.hy, body.getAngle());
-    ctx.fillStyle = '#adb5bd';
-    // foot sign encoded by which finger — recover from fixture list order is
-    // awkward, so just draw both possible feet transformed; the one matching
-    // the body's own foot fixture is correct because we mirror geometry.
-    const sign = body === game.rightFinger ? -1 : 1;
-    const foot = localToWorld(body, sign * FOOT.cx, FOOT.cy);
-    fillRotBox(foot.x, foot.y, FOOT.hx, FOOT.hy, body.getAngle());
+    fillRotBox(bar.x, bar.y, BAR.hx, BAR.hy, a);
+    // talon (45° inward), matching the physics fixture for this finger
+    const t = talonXform(body.getUserData().side);
+    const tw = localToWorld(body, t.cx, t.cy);
+    fillRotBox(tw.x, tw.y, TALON.hl, TALON.ht, a + t.ang);
   }
 
   function drawClaw() {
     const head = game.head;
     const hp = head.getPosition();
     // rail
-    ctx.strokeStyle = '#495057'; ctx.lineWidth = Math.max(3, sc(0.12));
+    ctx.strokeStyle = GOLD_D; ctx.lineWidth = Math.max(3, sc(0.12));
     ctx.beginPath(); ctx.moveTo(sx(0.4), sy(RAIL_Y)); ctx.lineTo(sx(9.6), sy(RAIL_Y)); ctx.stroke();
+    ctx.strokeStyle = GOLD_L; ctx.lineWidth = Math.max(1, sc(0.04));
+    ctx.beginPath(); ctx.moveTo(sx(0.4), sy(RAIL_Y) - sc(0.05)); ctx.lineTo(sx(9.6), sy(RAIL_Y) - sc(0.05)); ctx.stroke();
     // cable
-    ctx.strokeStyle = '#868e96'; ctx.lineWidth = Math.max(1.5, sc(0.04));
+    ctx.strokeStyle = '#b8912a'; ctx.lineWidth = Math.max(1.5, sc(0.04));
     ctx.beginPath(); ctx.moveTo(sx(hp.x), sy(RAIL_Y)); ctx.lineTo(sx(hp.x), sy(hp.y + 0.1)); ctx.stroke();
     // trolley
-    ctx.fillStyle = '#343a40';
+    ctx.fillStyle = goldFillV(ctx, sy(RAIL_Y) - sc(0.1), sy(RAIL_Y) + sc(0.1));
     ctx.fillRect(sx(hp.x) - sc(0.22), sy(RAIL_Y) - sc(0.1), sc(0.44), sc(0.2));
     // fingers (behind head)
     drawFinger(game.leftFinger);
     drawFinger(game.rightFinger);
     // head
-    ctx.fillStyle = state.closing ? '#ffd43b' : '#dee2e6';
+    ctx.fillStyle = state.closing ? GOLD_H : goldFillV(ctx, sy(hp.y) - sc(0.12), sy(hp.y) + sc(0.12));
     fillRotBox(hp.x, hp.y, 0.3, 0.12, head.getAngle());
-    ctx.fillStyle = '#868e96';
+    ctx.fillStyle = GOLD_D;
     fillRotBox(hp.x, hp.y + 0.14, 0.1, 0.05, head.getAngle());
   }
 
@@ -501,20 +679,24 @@
     }
   }
 
-  function drawHUD() {
-    // score
-    ctx.fillStyle = '#69db7c';
-    ctx.font = `800 ${Math.min(28, Math.max(16, VW * 0.04))}px system-ui, sans-serif`;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText('$' + state.score.toLocaleString('en-US'), 14, 12);
+  function hudPlate(text, side, color) {
+    const fs = Math.min(24, Math.max(15, VW * 0.036));
+    ctx.font = `700 ${fs}px Georgia, serif`;
+    const padX = 11, h = fs + 12, tw = ctx.measureText(text).width, pw = tw + padX * 2;
+    const x = side === 'left' ? 12 : VW - 12 - pw;
+    ctx.fillStyle = 'rgba(6,16,40,0.72)';
+    roundRect(ctx, x, 8, pw, h, 6); ctx.fill();
+    ctx.strokeStyle = 'rgba(201,162,39,0.65)'; ctx.lineWidth = 1.5;
+    roundRect(ctx, x, 8, pw, h, 6); ctx.stroke();
+    ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + padX, 8 + h / 2 + 1);
+  }
 
-    // timer
+  function drawHUD() {
+    hudPlate('$' + state.score.toLocaleString('en-US'), 'left', '#7be39a');
     const t = Math.max(0, state.time);
     const m = Math.floor(t / 60), s = Math.floor(t % 60);
-    ctx.fillStyle = t < 10 ? '#ff6b6b' : '#ffd43b';
-    ctx.font = `800 ${Math.min(28, Math.max(16, VW * 0.04))}px system-ui, sans-serif`;
-    ctx.textAlign = 'right';
-    ctx.fillText(`${m}:${String(s).padStart(2, '0')}`, VW - 14, 12);
+    hudPlate(`${m}:${String(s).padStart(2, '0')}`, 'right', t < 10 ? '#ff6b6b' : GOLD_L);
   }
 
   function drawKey(cx, cy, w, h, label) {
@@ -621,77 +803,93 @@
     ctx.restore();
   }
 
+  function goldFrame() {
+    const inset = Math.max(10, VW * 0.02);
+    ctx.strokeStyle = goldFillH(ctx, inset, VW - inset); ctx.lineWidth = 3;
+    roundRect(ctx, inset, inset, VW - inset * 2, VH - inset * 2, 10); ctx.stroke();
+    ctx.strokeStyle = 'rgba(243,217,139,0.5)'; ctx.lineWidth = 1;
+    roundRect(ctx, inset + 5, inset + 5, VW - inset * 2 - 10, VH - inset * 2 - 10, 8); ctx.stroke();
+  }
+  function crest(cx, cy, r) {
+    laurel(ctx, cx, cy, r);
+    star(ctx, cx, cy - r * 0.05, r * 0.5, GOLD_L);
+  }
+
   function drawOverlay(now) {
-    ctx.fillStyle = 'rgba(6, 12, 24, 0.82)';
-    ctx.fillRect(0, 0, VW, VH);
+    const wash = ctx.createLinearGradient(0, 0, 0, VH);
+    wash.addColorStop(0, 'rgba(10,30,70,0.9)'); wash.addColorStop(1, 'rgba(4,12,32,0.92)');
+    ctx.fillStyle = wash; ctx.fillRect(0, 0, VW, VH);
+    goldFrame();
     ctx.textAlign = 'center';
+    const pulse = 0.55 + 0.45 * Math.sin(now / 350);
 
     if (state.phase === 'ready') {
-      ctx.fillStyle = '#ffd43b';
-      ctx.font = `900 ${Math.min(52, VW * 0.09)}px system-ui, sans-serif`;
+      crest(VW / 2, VH * 0.17, Math.min(34, VW * 0.06));
+      ctx.fillStyle = GOLD_L;
+      ctx.font = `900 ${Math.min(48, VW * 0.083)}px Georgia, serif`;
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText('EMOLUMENTS CLAWS', VW / 2, VH * 0.34);
-      ctx.fillStyle = '#e9ecef';
-      ctx.font = `500 ${Math.min(18, VW * 0.032)}px system-ui, sans-serif`;
-      ctx.fillText('Grab all the cash and bitcoin you can in 60 seconds.', VW / 2, VH * 0.44);
+      ctx.fillText('EMOLUMENTS CLAWS', VW / 2, VH * 0.37);
+      ctx.fillStyle = '#dbe4f5';
+      ctx.font = `500 ${Math.min(17, VW * 0.03)}px Georgia, serif`;
+      ctx.fillText('Grab all the cash and bitcoin you can in 60 seconds.', VW / 2, VH * 0.46);
 
-      const ky = VH * 0.58, kh = Math.min(38, VW * 0.07), kw = kh;
+      const ky = VH * 0.59, kh = Math.min(36, VW * 0.066), kw = kh;
       const gap = kw * 1.25;
       drawKey(VW / 2 - gap, ky + kh + 4, kw, kh, '◀');
       drawKey(VW / 2, ky, kw, kh, '▲');
       drawKey(VW / 2, ky + kh + 4, kw, kh, '▼');
       drawKey(VW / 2 + gap, ky + kh + 4, kw, kh, '▶');
       drawKey(VW / 2 + gap * 3.2, ky + kh / 2 + 2, kw * 3.2, kh, 'SPACE');
-      ctx.fillStyle = '#adb5bd';
-      ctx.font = `500 ${Math.min(13, VW * 0.024)}px system-ui, sans-serif`;
+      ctx.fillStyle = '#aeb8cc';
+      ctx.font = `500 ${Math.min(13, VW * 0.024)}px Georgia, serif`;
       ctx.fillText('move', VW / 2, ky + 2 * kh + 22);
       ctx.fillText('hold to grab', VW / 2 + gap * 3.2, ky + kh + 24);
 
-      ctx.fillStyle = '#ffd43b';
-      const pulse = 0.6 + 0.4 * Math.sin(now / 350);
+      ctx.fillStyle = GOLD_L;
       ctx.globalAlpha = pulse;
-      ctx.font = `700 ${Math.min(20, VW * 0.036)}px system-ui, sans-serif`;
+      ctx.font = `700 ${Math.min(19, VW * 0.034)}px Georgia, serif`;
       ctx.fillText('Click here, then press any arrow key to start', VW / 2, VH * 0.9);
       ctx.globalAlpha = 1;
     } else if (state.phase === 'over') {
-      ctx.fillStyle = '#ff922b';
-      ctx.font = `900 ${Math.min(60, VW * 0.11)}px system-ui, sans-serif`;
+      crest(VW / 2, VH * 0.16, Math.min(32, VW * 0.055));
+      ctx.fillStyle = GOLD_L;
+      ctx.font = `900 ${Math.min(56, VW * 0.10)}px Georgia, serif`;
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText("TIME!", VW / 2, VH * 0.32);
-      ctx.fillStyle = '#e9ecef';
-      ctx.font = `500 ${Math.min(20, VW * 0.034)}px system-ui, sans-serif`;
-      ctx.fillText('You emoluated', VW / 2, VH * 0.44);
-      ctx.fillStyle = '#69db7c';
-      ctx.font = `900 ${Math.min(48, VW * 0.085)}px system-ui, sans-serif`;
-      ctx.fillText('$' + state.score.toLocaleString('en-US'), VW / 2, VH * 0.56);
-      ctx.fillStyle = '#adb5bd';
-      ctx.font = `500 ${Math.min(15, VW * 0.026)}px system-ui, sans-serif`;
-      ctx.fillText('Best this session: $' + state.best.toLocaleString('en-US'), VW / 2, VH * 0.65);
-      ctx.fillStyle = '#ffd43b';
-      const pulse = 0.6 + 0.4 * Math.sin(now / 350);
+      ctx.fillText('TIME!', VW / 2, VH * 0.34);
+      ctx.fillStyle = '#dbe4f5';
+      ctx.font = `500 ${Math.min(19, VW * 0.032)}px Georgia, serif`;
+      ctx.fillText('You emoluated', VW / 2, VH * 0.45);
+      ctx.fillStyle = '#7be39a';
+      ctx.font = `900 ${Math.min(46, VW * 0.08)}px Georgia, serif`;
+      ctx.fillText('$' + state.score.toLocaleString('en-US'), VW / 2, VH * 0.57);
+      ctx.fillStyle = '#aeb8cc';
+      ctx.font = `500 ${Math.min(15, VW * 0.026)}px Georgia, serif`;
+      ctx.fillText('Best this session: $' + state.best.toLocaleString('en-US'), VW / 2, VH * 0.66);
+      ctx.fillStyle = GOLD_L;
       ctx.globalAlpha = pulse;
-      ctx.font = `700 ${Math.min(20, VW * 0.036)}px system-ui, sans-serif`;
-      ctx.fillText('Press R (or Space) to play again', VW / 2, VH * 0.82);
+      ctx.font = `700 ${Math.min(19, VW * 0.034)}px Georgia, serif`;
+      ctx.fillText('Press R (or Space) to play again', VW / 2, VH * 0.83);
       ctx.globalAlpha = 1;
     }
   }
 
-  function roundRectPath(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
+  function roundRect(g, x, y, w, h, r) {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
   }
+  function roundRectPath(x, y, w, h, r) { roundRect(ctx, x, y, w, h, r); }
 
   function render(now) {
     if (!VW || !game) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, VW, VH);
 
-    drawBackground();
+    ctx.drawImage(bgCanvas, 0, 0, VW, VH);   // baked gilded cabinet
     drawBinPile();
     for (const item of game.loot) {
       if (item.collected) continue;
@@ -835,9 +1033,12 @@
       canvas.height = Math.round(h * dpr);
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
+      bgCanvas.width = canvas.width;
+      bgCanvas.height = canvas.height;
       scale = Math.min(VW / WORLD_W, VH / WORLD_H);
       ox = (VW - WORLD_W * scale) / 2;
       oy = (VH - WORLD_H * scale) / 2;
+      paintCabinet();               // re-bake the gilded cabinet at this size
       render(performance.now());
     },
   }));
