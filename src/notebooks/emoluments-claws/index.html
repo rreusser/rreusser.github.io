@@ -38,7 +38,7 @@
   const HEAD_MIN_Y = 0.95, HEAD_MAX_Y = 6.15;
 
   const GRAB_R = 0.62;                  // capture radius at the fingertips
-  const N_CASH = 10, N_COIN = 8, N_DOC = 4;
+  const N_CASH = 20, N_COIN = 16, N_DOC = 5;   // more than you can clear in a minute
 
   // finger geometry, shared between fixtures and rendering (local frame,
   // pivot at the finger's top, +y up). Each finger is a vertical shaft with a
@@ -145,14 +145,18 @@
     const divider = world.createBody({ type: 'static', position: new Vec2(DIV_X, DIV_H / 2) });
     divider.createFixture({ shape: new Box(0.09, DIV_H / 2), friction: 0.4 });
 
+    // Claw start (play) position, and a parking height above the spawn zone
+    // used only while the pile settles, so nothing lands on the claw.
+    const HX = 3.2, HY = 5.4, PARK_Y = 9.4;
+
     // claw head (kinematic — we drive it directly with the arrow keys)
-    const head = world.createBody({ type: 'kinematic', position: new Vec2(3.2, 5.4) });
+    const head = world.createBody({ type: 'kinematic', position: new Vec2(HX, PARK_Y) });
     head.createFixture({ shape: new Box(0.3, 0.12), density: 1, filterGroupIndex: -1 });
 
     // side: -1 = left finger (pivot left of centre), +1 = right finger.
     // Closing swings each finger so its talon sweeps toward centre and down.
     const makeFinger = (side) => {
-      const px = 3.2 + side * 0.26, py = 5.4 - 0.06;
+      const px = HX + side * 0.26, py = PARK_Y - 0.06;
       const b = world.createBody({ type: 'dynamic', position: new Vec2(px, py) });
       b.setUserData({ side });
       b.createFixture({ shape: new Box(BAR.hx, BAR.hy, new Vec2(BAR.cx, BAR.cy), 0), density: 1.2, friction: 0.95, filterGroupIndex: -1 });
@@ -169,29 +173,39 @@
     };
     const fLeft = makeFinger(-1), fRight = makeFinger(1);
 
-    // scatter the loot and let it settle
+    // scatter the loot across the pile area and drop it in from above so it
+    // settles into a deep pile. Spawn heights are staggered (and can start
+    // above the visible top) so a big batch doesn't explode from overlap.
     const loot = [];
-    for (let i = 0; i < N_CASH; i++) {
-      const x = 1.0 + Math.random() * 5.1;
-      loot.push(makeLoot(world, x, 2.5 + Math.random() * 3.2, 'cash'));
-    }
-    for (let i = 0; i < N_COIN; i++) {
-      const x = 1.0 + Math.random() * 5.1;
-      loot.push(makeLoot(world, x, 2.5 + Math.random() * 3.2, 'coin'));
-    }
-    for (let i = 0; i < N_DOC; i++) {
-      const x = 1.0 + Math.random() * 5.1;
-      loot.push(makeLoot(world, x, 2.5 + Math.random() * 3.2, 'document'));
-    }
+    const spawn = (kind) => {
+      const x = 0.9 + Math.random() * 5.3;      // 0.9 .. 6.2, left of the divider
+      const y = 2.6 + Math.random() * 6.0;      // stacked, some above the ceiling
+      loot.push(makeLoot(world, x, y, kind));
+    };
+    for (let i = 0; i < N_CASH; i++) spawn('cash');
+    for (let i = 0; i < N_COIN; i++) spawn('coin');
+    for (let i = 0; i < N_DOC; i++) spawn('document');
 
     const g = {
-      world, head, loot, target: { x: 3.2, y: 5.4 },
+      world, head, loot, target: { x: HX, y: HY },
       leftFinger: fLeft.body, rightFinger: fRight.body,
       fingers: [fLeft, fRight],
     };
-    // pre-settle the pile with the fingers held open
+    // pre-settle the pile with the claw parked high above the spawn zone
     setFingerMotors(g, false);
-    for (let i = 0; i < 200; i++) world.step(DT, 8, 3);
+    for (let i = 0; i < 360; i++) world.step(DT, 8, 3);
+
+    // lower the claw (and its fingers) into play position by the same offset,
+    // so the joint anchors stay consistent and nothing gets flung
+    const drop = PARK_Y - HY;
+    head.setTransform(new Vec2(HX, HY), 0);
+    head.setLinearVelocity(new Vec2(0, 0));
+    for (const f of g.fingers) {
+      const p = f.body.getPosition();
+      f.body.setTransform(new Vec2(p.x, p.y - drop), f.body.getAngle());
+      f.body.setLinearVelocity(new Vec2(0, 0));
+      f.body.setAngularVelocity(0);
+    }
     return g;
   }
 
