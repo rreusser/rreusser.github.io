@@ -125,15 +125,15 @@
       const b = world.createBody({ type: 'dynamic', position: new Vec2(px, py) });
       b.createFixture({ shape: new Box(BAR.hx, BAR.hy, new Vec2(BAR.cx, BAR.cy), 0), density: 1.2, friction: 0.95, filterGroupIndex: -1 });
       b.createFixture({ shape: new Box(FOOT.hx, FOOT.hy, new Vec2(sign * FOOT.cx, FOOT.cy), 0), density: 1.2, friction: 1.1, filterGroupIndex: -1 });
-      world.createJoint(new RevoluteJoint({
+      const joint = world.createJoint(new RevoluteJoint({
         enableMotor: true, maxMotorTorque: 45, motorSpeed: 0,
         enableLimit: true, lowerAngle: lower, upperAngle: upper,
       }, head, b, new Vec2(px, py)));
-      return b;
+      return { body: b, joint };
     };
     // left finger: +angle closes (foot swings toward centre); right finger mirrored
-    const leftFinger = finger(1, -0.6, 0.28);
-    const rightFinger = finger(-1, -0.28, 0.6);
+    const left = finger(1, -0.6, 0.28);
+    const right = finger(-1, -0.28, 0.6);
 
     // scatter the loot and let it settle
     const loot = [];
@@ -146,7 +146,11 @@
       loot.push(makeLoot(world, x, 2.5 + Math.random() * 3.2, 'coin'));
     }
 
-    const g = { world, head, leftFinger, rightFinger, loot, target: { x: 3.2, y: 5.4 } };
+    const g = {
+      world, head, loot, target: { x: 3.2, y: 5.4 },
+      leftFinger: left.body, rightFinger: right.body,
+      leftJoint: left.joint, rightJoint: right.joint,
+    };
     // pre-settle the pile with the fingers held open
     setFingerMotors(g, false);
     for (let i = 0; i < 200; i++) world.step(DT, 8, 3);
@@ -154,9 +158,9 @@
   }
 
   function setFingerMotors(g, closing) {
-    // left closeSign = +1, right closeSign = -1
-    g.leftFinger.setMotorSpeed(closing ? 4.5 : -4.5);
-    g.rightFinger.setMotorSpeed(closing ? -4.5 : 4.5);
+    // left closeSign = +1, right closeSign = -1 (motor lives on the joint)
+    g.leftJoint.setMotorSpeed(closing ? 4.5 : -4.5);
+    g.rightJoint.setMotorSpeed(closing ? -4.5 : 4.5);
   }
 
   function grabPoint(g) {
