@@ -1,0 +1,624 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Emoluments Claws</title>
+
+  <script id="title" type="text/markdown">
+    # Emoluments Claws
+  </script>
+
+  <script id="intro" type="text/markdown">
+    Every good arcade needs a rigged claw machine, and every good grifter needs a way to move other people's money into their own bin. **Emoluments Claws** is both: a tiny [Box2D](https://box2d.org/) game (via the pure-JavaScript port [planck.js](https://piqnt.com/planck.js/)) in which you have sixty seconds to grab as many stacks of hundred-dollar bills and as much bitcoin as you can and drop it all into the collection bin.
+
+    Click the machine to focus it, then use the **arrow keys** to fly the claw and **hold the spacebar** to grab. Lift your loot over the divider and let go over the bin on the right. Cash stacks are worth \$10,000 apiece; a bitcoin is worth \$100,000. Collect as much as possible before the buzzer.
+  </script>
+
+  <script id="figure-note" type="text/markdown">
+    <div style="font-size:0.85em;color:#868e96;margin:-0.4em 0 0.6em;">Best on a desktop with a keyboard. Click the machine to give it focus.</div>
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+    import { World, Vec2, Edge, Box, Circle, RevoluteJoint, WeldJoint } from 'npm:planck@1.5.0';
+    import { expandable } from './lib/expandable.js';
+    import { createFrameLoop } from './lib/frame-loop.js';
+  </script>
+
+  <script id="game" type="module">
+{
+  // ------------------------------------------------------------------ config
+  const WORLD_W = 10, WORLD_H = 7;      // physics world extent, in metres
+  const DT = 1 / 60;                    // fixed physics timestep
+  const GAME_TIME = 60;                 // seconds on the clock
+  const V_CASH = 10000, V_COIN = 100000;
+
+  const DIV_X = 6.9, DIV_H = 2.6;       // divider between pile and bin
+  const RAIL_Y = 6.45;                  // height of the gantry rail
+  const HEAD_MIN_X = 0.9, HEAD_MAX_X = 9.1;
+  const HEAD_MIN_Y = 0.95, HEAD_MAX_Y = 6.15;
+
+  const GRAB_R = 0.62;                  // capture radius at the fingertips
+  const N_CASH = 11, N_COIN = 8;
+
+  // finger geometry, shared between fixtures and rendering (local frame,
+  // pivot at the finger's top, +y up)
+  const BAR = { cx: 0, cy: -0.28, hx: 0.05, hy: 0.28 };
+  const FOOT = { cx: 0.15, cy: -0.54, hx: 0.15, hy: 0.05 };
+
+  // -------------------------------------------------------------------- stage
+  const canvas = html`<canvas style="display:block;width:100%;height:100%;border-radius:6px;cursor:pointer;"></canvas>`;
+  const container = html`<div id="claws-stage" tabindex="0" style="position:relative;width:100%;height:100%;outline:none;">${canvas}</div>`;
+  const ctx = canvas.getContext('2d');
+
+  // viewport / world→screen mapping, filled in by onResize
+  let VW = 0, VH = 0, scale = 1, ox = 0, oy = 0, dpr = 1;
+  const sx = (x) => ox + x * scale;
+  const sy = (y) => VH - oy - y * scale;
+  const sc = (v) => v * scale;
+
+  // ---------------------------------------------------------------- game state
+  const state = {
+    phase: 'ready',          // 'ready' | 'playing' | 'over'
+    time: GAME_TIME,
+    score: 0,
+    best: 0,
+    closing: false,
+    grabbed: null,
+    weld: null,
+  };
+  const keys = new Set();
+  const floaters = [];       // rising "+$X" labels
+  const binPile = [];        // decorative tokens in the bin
+
+  let game = null;           // { world, head, leftFinger, rightFinger, loot, target }
+
+  // ------------------------------------------------------------------- audio
+  let actx = null;
+  function audioCtx() {
+    if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; } }
+    return actx;
+  }
+  function beep(freq, dur, type = 'sine', gain = 0.05) {
+    const a = audioCtx();
+    if (!a) return;
+    try {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = type; o.frequency.value = freq;
+      o.connect(g); g.connect(a.destination);
+      const t = a.currentTime;
+      g.gain.setValueAtTime(gain, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t); o.stop(t + dur);
+    } catch (e) { /* ignore */ }
+  }
+  const sndGrab = () => beep(320, 0.05, 'square', 0.03);
+  const sndDrop = () => beep(180, 0.05, 'sawtooth', 0.03);
+  function sndCoin() { beep(988, 0.08, 'sine', 0.05); setTimeout(() => beep(1319, 0.12, 'sine', 0.05), 70); }
+
+  // ----------------------------------------------------------------- physics
+  function makeLoot(world, x, y, kind) {
+    const body = world.createBody({ type: 'dynamic', position: new Vec2(x, y), angle: (Math.random() - 0.5) * 0.6 });
+    if (kind === 'cash') {
+      body.createFixture({ shape: new Box(0.38, 0.15), density: 1.0, friction: 0.7, restitution: 0.02 });
+    } else {
+      body.createFixture({ shape: new Circle(0.27), density: 1.3, friction: 0.55, restitution: 0.15 });
+    }
+    body.setUserData({ kind });
+    return { body, kind, value: kind === 'cash' ? V_CASH : V_COIN, collected: false };
+  }
+
+  function buildWorld() {
+    const world = new World({ gravity: new Vec2(0, -10) });
+
+    // static shell: floor, side walls, and the divider
+    const ground = world.createBody();
+    ground.createFixture({ shape: new Edge(new Vec2(0, 0), new Vec2(WORLD_W, 0)), friction: 0.6 });
+    ground.createFixture({ shape: new Edge(new Vec2(0, 0), new Vec2(0, WORLD_H)), friction: 0.4 });
+    ground.createFixture({ shape: new Edge(new Vec2(WORLD_W, 0), new Vec2(WORLD_W, WORLD_H)), friction: 0.4 });
+    const divider = world.createBody({ type: 'static', position: new Vec2(DIV_X, DIV_H / 2) });
+    divider.createFixture({ shape: new Box(0.09, DIV_H / 2), friction: 0.4 });
+
+    // claw head (kinematic — we drive it directly with the arrow keys)
+    const head = world.createBody({ type: 'kinematic', position: new Vec2(3.2, 5.4) });
+    head.createFixture({ shape: new Box(0.3, 0.12), density: 1, filterGroupIndex: -1 });
+
+    const finger = (sign, lower, upper) => {
+      const px = 3.2 + sign * 0.26, py = 5.4 - 0.06;
+      const b = world.createBody({ type: 'dynamic', position: new Vec2(px, py) });
+      b.createFixture({ shape: new Box(BAR.hx, BAR.hy, new Vec2(BAR.cx, BAR.cy), 0), density: 1.2, friction: 0.95, filterGroupIndex: -1 });
+      b.createFixture({ shape: new Box(FOOT.hx, FOOT.hy, new Vec2(sign * FOOT.cx, FOOT.cy), 0), density: 1.2, friction: 1.1, filterGroupIndex: -1 });
+      world.createJoint(new RevoluteJoint({
+        enableMotor: true, maxMotorTorque: 45, motorSpeed: 0,
+        enableLimit: true, lowerAngle: lower, upperAngle: upper,
+      }, head, b, new Vec2(px, py)));
+      return b;
+    };
+    // left finger: +angle closes (foot swings toward centre); right finger mirrored
+    const leftFinger = finger(1, -0.6, 0.28);
+    const rightFinger = finger(-1, -0.28, 0.6);
+
+    // scatter the loot and let it settle
+    const loot = [];
+    for (let i = 0; i < N_CASH; i++) {
+      const x = 1.0 + Math.random() * 5.1;
+      loot.push(makeLoot(world, x, 2.5 + Math.random() * 3.2, 'cash'));
+    }
+    for (let i = 0; i < N_COIN; i++) {
+      const x = 1.0 + Math.random() * 5.1;
+      loot.push(makeLoot(world, x, 2.5 + Math.random() * 3.2, 'coin'));
+    }
+
+    const g = { world, head, leftFinger, rightFinger, loot, target: { x: 3.2, y: 5.4 } };
+    // pre-settle the pile with the fingers held open
+    setFingerMotors(g, false);
+    for (let i = 0; i < 200; i++) world.step(DT, 8, 3);
+    return g;
+  }
+
+  function setFingerMotors(g, closing) {
+    // left closeSign = +1, right closeSign = -1
+    g.leftFinger.setMotorSpeed(closing ? 4.5 : -4.5);
+    g.rightFinger.setMotorSpeed(closing ? -4.5 : 4.5);
+  }
+
+  function grabPoint(g) {
+    const p = g.head.getPosition();
+    return { x: p.x, y: p.y - 0.62 };
+  }
+
+  function doGrab() {
+    if (!game || state.grabbed) return;
+    const gp = grabPoint(game);
+    let best = null, bestd = GRAB_R;
+    for (const item of game.loot) {
+      if (item.collected) continue;
+      const q = item.body.getPosition();
+      const d = Math.hypot(q.x - gp.x, q.y - gp.y);
+      if (d < bestd) { bestd = d; best = item; }
+    }
+    if (best) {
+      state.grabbed = best;
+      state.weld = game.world.createJoint(new WeldJoint({ frequencyHz: 0 }, game.head, best.body, best.body.getPosition()));
+    }
+  }
+
+  function doRelease() {
+    if (game && state.weld) { game.world.destroyJoint(state.weld); }
+    state.weld = null;
+    state.grabbed = null;
+  }
+
+  function collect(item) {
+    item.collected = true;
+    state.score += item.value;
+    const q = item.body.getPosition();
+    floaters.push({ x: q.x, y: q.y, kind: item.kind, value: item.value, born: performance.now() });
+    binPile.push({ kind: item.kind, i: binPile.length });
+    game.world.destroyBody(item.body);
+    sndCoin();
+  }
+
+  function stepGame(dt) {
+    const g = game;
+    // drive the claw head toward a key-controlled target
+    const MOVE_X = 5.2, MOVE_Y = 4.2;
+    if (keys.has('ArrowLeft')) g.target.x -= MOVE_X * dt;
+    if (keys.has('ArrowRight')) g.target.x += MOVE_X * dt;
+    if (keys.has('ArrowUp')) g.target.y += MOVE_Y * dt;
+    if (keys.has('ArrowDown')) g.target.y -= MOVE_Y * dt;
+    g.target.x = Math.max(HEAD_MIN_X, Math.min(HEAD_MAX_X, g.target.x));
+    g.target.y = Math.max(HEAD_MIN_Y, Math.min(HEAD_MAX_Y, g.target.y));
+    const p = g.head.getPosition();
+    const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+    g.head.setLinearVelocity(new Vec2(clamp((g.target.x - p.x) * 12, 7), clamp((g.target.y - p.y) * 12, 6)));
+
+    setFingerMotors(g, state.closing);
+    g.world.step(dt, 8, 3);
+
+    // score anything that has come to rest in the bin
+    for (const item of g.loot) {
+      if (item.collected || item === state.grabbed) continue;
+      const q = item.body.getPosition();
+      if (q.x > DIV_X + 0.15 && q.x < WORLD_W - 0.1 && q.y < 1.6) collect(item);
+    }
+  }
+
+  // ------------------------------------------------------------------- render
+  function localToWorld(body, lx, ly) {
+    const a = body.getAngle(), p = body.getPosition();
+    const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x + lx * c - ly * s, y: p.y + lx * s + ly * c };
+  }
+
+  function fillRotBox(cx, cy, hx, hy, angle) {
+    ctx.save();
+    ctx.translate(sx(cx), sy(cy));
+    ctx.rotate(-angle);
+    ctx.beginPath();
+    ctx.rect(-sc(hx), -sc(hy), sc(2 * hx), sc(2 * hy));
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBackground() {
+    // cabinet interior
+    const grad = ctx.createLinearGradient(0, 0, 0, VH);
+    grad.addColorStop(0, '#12203a');
+    grad.addColorStop(1, '#0a1120');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, VW, VH);
+
+    // divider
+    ctx.fillStyle = '#39506f';
+    ctx.fillRect(sx(DIV_X) - sc(0.09), sy(DIV_H), sc(0.18), sc(DIV_H));
+    ctx.fillStyle = '#ffd43b';
+    ctx.fillRect(sx(DIV_X) - sc(0.09), sy(DIV_H), sc(0.18), sc(0.12));
+
+    // bin
+    ctx.fillStyle = 'rgba(255, 212, 59, 0.06)';
+    ctx.fillRect(sx(DIV_X), sy(0), sc(WORLD_W - DIV_X), sc(WORLD_H));
+    ctx.strokeStyle = 'rgba(255, 212, 59, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sx(DIV_X) + 1, sy(DIV_H) + 2, sc(WORLD_W - DIV_X) - 3, sy(0) - sy(DIV_H) - 3);
+    ctx.fillStyle = 'rgba(255, 212, 59, 0.75)';
+    ctx.font = `600 ${Math.max(9, sc(0.28))}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('COLLECTION BIN', (sx(DIV_X) + sx(WORLD_W)) / 2, sy(DIV_H) - sc(0.25));
+
+    // floor line
+    ctx.strokeStyle = '#4a5f80';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sx(0), sy(0)); ctx.lineTo(sx(WORLD_W), sy(0));
+    ctx.stroke();
+  }
+
+  function drawCash(body) {
+    const a = body.getAngle(), p = body.getPosition();
+    ctx.save();
+    ctx.translate(sx(p.x), sy(p.y));
+    ctx.rotate(-a);
+    const w = sc(0.76), h = sc(0.30);
+    ctx.fillStyle = '#2f9e44';
+    roundRectPath(-w / 2, -h / 2, w, h, sc(0.03));
+    ctx.fill();
+    ctx.fillStyle = '#40c057';
+    ctx.fillRect(-w / 2, -h / 2, w, sc(0.05));
+    ctx.fillStyle = '#e9f7ec';           // paper band
+    ctx.fillRect(-sc(0.09), -h / 2, sc(0.18), h);
+    ctx.fillStyle = '#b2f2bb';
+    ctx.font = `700 ${Math.max(7, sc(0.16))}px system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('$100', -w / 4, 0);
+    ctx.fillText('$100', w / 4, 0);
+    ctx.restore();
+  }
+
+  function drawCoin(body) {
+    const p = body.getPosition();
+    const cx = sx(p.x), cy = sy(p.y), r = sc(0.27);
+    const g = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.2, cx, cy, r);
+    g.addColorStop(0, '#ffe89c');
+    g.addColorStop(0.6, '#f2b90c');
+    g.addColorStop(1, '#a8730a');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#7a5207'; ctx.lineWidth = Math.max(1, sc(0.03));
+    ctx.stroke();
+    ctx.fillStyle = '#7a5207';
+    ctx.font = `700 ${Math.max(9, sc(0.34))}px Georgia, serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('₿', cx, cy + sc(0.01));
+  }
+
+  function drawFinger(body) {
+    ctx.fillStyle = '#ced4da';
+    const bar = localToWorld(body, BAR.cx, BAR.cy);
+    fillRotBox(bar.x, bar.y, BAR.hx, BAR.hy, body.getAngle());
+    ctx.fillStyle = '#adb5bd';
+    // foot sign encoded by which finger — recover from fixture list order is
+    // awkward, so just draw both possible feet transformed; the one matching
+    // the body's own foot fixture is correct because we mirror geometry.
+    const sign = body === game.rightFinger ? -1 : 1;
+    const foot = localToWorld(body, sign * FOOT.cx, FOOT.cy);
+    fillRotBox(foot.x, foot.y, FOOT.hx, FOOT.hy, body.getAngle());
+  }
+
+  function drawClaw() {
+    const head = game.head;
+    const hp = head.getPosition();
+    // rail
+    ctx.strokeStyle = '#495057'; ctx.lineWidth = Math.max(3, sc(0.12));
+    ctx.beginPath(); ctx.moveTo(sx(0.4), sy(RAIL_Y)); ctx.lineTo(sx(9.6), sy(RAIL_Y)); ctx.stroke();
+    // cable
+    ctx.strokeStyle = '#868e96'; ctx.lineWidth = Math.max(1.5, sc(0.04));
+    ctx.beginPath(); ctx.moveTo(sx(hp.x), sy(RAIL_Y)); ctx.lineTo(sx(hp.x), sy(hp.y + 0.1)); ctx.stroke();
+    // trolley
+    ctx.fillStyle = '#343a40';
+    ctx.fillRect(sx(hp.x) - sc(0.22), sy(RAIL_Y) - sc(0.1), sc(0.44), sc(0.2));
+    // fingers (behind head)
+    drawFinger(game.leftFinger);
+    drawFinger(game.rightFinger);
+    // head
+    ctx.fillStyle = state.closing ? '#ffd43b' : '#dee2e6';
+    fillRotBox(hp.x, hp.y, 0.3, 0.12, head.getAngle());
+    ctx.fillStyle = '#868e96';
+    fillRotBox(hp.x, hp.y + 0.14, 0.1, 0.05, head.getAngle());
+  }
+
+  function drawBinPile() {
+    for (const t of binPile) {
+      const col = t.i % 9, row = Math.floor(t.i / 9);
+      const wx = DIV_X + 0.35 + col * 0.31;
+      const wy = 0.16 + row * 0.26;
+      if (t.kind === 'coin') {
+        const cx = sx(wx), cy = sy(wy), r = sc(0.14);
+        ctx.fillStyle = '#f2b90c';
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillStyle = '#2f9e44';
+        ctx.fillRect(sx(wx) - sc(0.16), sy(wy) - sc(0.07), sc(0.32), sc(0.14));
+      }
+    }
+  }
+
+  function drawFloaters(now) {
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i];
+      const age = (now - f.born) / 1000;
+      if (age > 1.1) { floaters.splice(i, 1); continue; }
+      const alpha = 1 - age / 1.1;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = f.kind === 'coin' ? '#ffd43b' : '#69db7c';
+      ctx.font = `700 ${Math.max(11, sc(0.32))}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('+$' + f.value.toLocaleString('en-US'), sx(f.x), sy(f.y + age * 1.2));
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawHUD() {
+    // score
+    ctx.fillStyle = '#69db7c';
+    ctx.font = `800 ${Math.min(28, Math.max(16, VW * 0.04))}px system-ui, sans-serif`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('$' + state.score.toLocaleString('en-US'), 14, 12);
+
+    // timer
+    const t = Math.max(0, state.time);
+    const m = Math.floor(t / 60), s = Math.floor(t % 60);
+    ctx.fillStyle = t < 10 ? '#ff6b6b' : '#ffd43b';
+    ctx.font = `800 ${Math.min(28, Math.max(16, VW * 0.04))}px system-ui, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.fillText(`${m}:${String(s).padStart(2, '0')}`, VW - 14, 12);
+  }
+
+  function drawKey(cx, cy, w, h, label) {
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1.5;
+    roundRectPath(cx - w / 2, cy - h / 2, w, h, 4);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = `600 ${Math.max(10, h * 0.42)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, cx, cy + 1);
+  }
+
+  function drawOverlay(now) {
+    ctx.fillStyle = 'rgba(6, 12, 24, 0.82)';
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.textAlign = 'center';
+
+    if (state.phase === 'ready') {
+      ctx.fillStyle = '#ffd43b';
+      ctx.font = `900 ${Math.min(52, VW * 0.09)}px system-ui, sans-serif`;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText('EMOLUMENTS CLAWS', VW / 2, VH * 0.34);
+      ctx.fillStyle = '#e9ecef';
+      ctx.font = `500 ${Math.min(18, VW * 0.032)}px system-ui, sans-serif`;
+      ctx.fillText('Grab all the cash and bitcoin you can in 60 seconds.', VW / 2, VH * 0.44);
+
+      const ky = VH * 0.58, kh = Math.min(38, VW * 0.07), kw = kh;
+      const gap = kw * 1.25;
+      drawKey(VW / 2 - gap, ky + kh + 4, kw, kh, '◀');
+      drawKey(VW / 2, ky, kw, kh, '▲');
+      drawKey(VW / 2, ky + kh + 4, kw, kh, '▼');
+      drawKey(VW / 2 + gap, ky + kh + 4, kw, kh, '▶');
+      drawKey(VW / 2 + gap * 3.2, ky + kh / 2 + 2, kw * 3.2, kh, 'SPACE');
+      ctx.fillStyle = '#adb5bd';
+      ctx.font = `500 ${Math.min(13, VW * 0.024)}px system-ui, sans-serif`;
+      ctx.fillText('move', VW / 2, ky + 2 * kh + 22);
+      ctx.fillText('hold to grab', VW / 2 + gap * 3.2, ky + kh + 24);
+
+      ctx.fillStyle = '#ffd43b';
+      const pulse = 0.6 + 0.4 * Math.sin(now / 350);
+      ctx.globalAlpha = pulse;
+      ctx.font = `700 ${Math.min(20, VW * 0.036)}px system-ui, sans-serif`;
+      ctx.fillText('Click here, then press any arrow key to start', VW / 2, VH * 0.9);
+      ctx.globalAlpha = 1;
+    } else if (state.phase === 'over') {
+      ctx.fillStyle = '#ff922b';
+      ctx.font = `900 ${Math.min(60, VW * 0.11)}px system-ui, sans-serif`;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText("TIME!", VW / 2, VH * 0.32);
+      ctx.fillStyle = '#e9ecef';
+      ctx.font = `500 ${Math.min(20, VW * 0.034)}px system-ui, sans-serif`;
+      ctx.fillText('You emoluated', VW / 2, VH * 0.44);
+      ctx.fillStyle = '#69db7c';
+      ctx.font = `900 ${Math.min(48, VW * 0.085)}px system-ui, sans-serif`;
+      ctx.fillText('$' + state.score.toLocaleString('en-US'), VW / 2, VH * 0.56);
+      ctx.fillStyle = '#adb5bd';
+      ctx.font = `500 ${Math.min(15, VW * 0.026)}px system-ui, sans-serif`;
+      ctx.fillText('Best this session: $' + state.best.toLocaleString('en-US'), VW / 2, VH * 0.65);
+      ctx.fillStyle = '#ffd43b';
+      const pulse = 0.6 + 0.4 * Math.sin(now / 350);
+      ctx.globalAlpha = pulse;
+      ctx.font = `700 ${Math.min(20, VW * 0.036)}px system-ui, sans-serif`;
+      ctx.fillText('Press R (or Space) to play again', VW / 2, VH * 0.82);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function roundRectPath(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function render(now) {
+    if (!VW || !game) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, VW, VH);
+
+    drawBackground();
+    drawBinPile();
+    for (const item of game.loot) {
+      if (item.collected) continue;
+      if (item.kind === 'cash') drawCash(item.body); else drawCoin(item.body);
+    }
+    drawClaw();
+    drawFloaters(now);
+    drawHUD();
+    if (state.phase !== 'playing') drawOverlay(now);
+  }
+
+  // -------------------------------------------------------------- game flow
+  function startGame() {
+    doRelease();
+    game = buildWorld();
+    state.phase = 'playing';
+    state.time = GAME_TIME;
+    state.score = 0;
+    state.closing = false;
+    floaters.length = 0;
+    binPile.length = 0;
+    keys.clear();
+    const a = audioCtx();
+    if (a && a.state === 'suspended') a.resume();
+  }
+
+  function endGame() {
+    state.phase = 'over';
+    state.best = Math.max(state.best, state.score);
+    state.closing = false;
+    keys.clear();
+    doRelease();
+  }
+
+  // ------------------------------------------------------------------ input
+  const MOVE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+  function onKeyDown(e) {
+    const k = e.key;
+    if (MOVE_KEYS.has(k) || k === ' ' || k === 'Spacebar') e.preventDefault();
+    if (state.phase === 'ready') {
+      if (MOVE_KEYS.has(k) || k === ' ' || k === 'Enter') startGame();
+      return;
+    }
+    if (state.phase === 'over') {
+      if (k === 'r' || k === 'R' || k === ' ' || k === 'Enter') startGame();
+      return;
+    }
+    // playing
+    if (k === ' ' || k === 'Spacebar') {
+      if (!state.closing) { state.closing = true; doGrab(); sndGrab(); }
+    } else if (MOVE_KEYS.has(k)) {
+      keys.add(k);
+    }
+  }
+  function onKeyUp(e) {
+    const k = e.key;
+    if (k === ' ' || k === 'Spacebar') {
+      if (state.closing) { state.closing = false; doRelease(); sndDrop(); }
+    } else {
+      keys.delete(k);
+    }
+  }
+  function onBlur() {
+    keys.clear();
+    if (state.closing) { state.closing = false; doRelease(); }
+  }
+  function onPointerDown() {
+    container.focus();
+    if (state.phase === 'ready' || state.phase === 'over') startGame();
+  }
+
+  container.addEventListener('keydown', onKeyDown);
+  container.addEventListener('keyup', onKeyUp);
+  container.addEventListener('blur', onBlur);
+  container.addEventListener('pointerdown', onPointerDown);
+
+  // -------------------------------------------------------------- main loop
+  game = buildWorld();               // idle pile behind the start screen
+  let prev = performance.now();
+  let acc = 0;
+  const loop = createFrameLoop((now) => {
+    let frameDt = (now - prev) / 1000;
+    prev = now;
+    if (frameDt > 0.1) frameDt = 0.1;
+    if (state.phase === 'playing') {
+      state.time -= frameDt;
+      if (state.time <= 0) { state.time = 0; endGame(); }
+      acc += frameDt;
+      let n = 0;
+      while (acc >= DT && n < 6) { stepGame(DT); acc -= DT; n++; }
+    }
+    render(now);
+  });
+
+  invalidation.then(() => {
+    loop.cancel();
+    container.removeEventListener('keydown', onKeyDown);
+    container.removeEventListener('keyup', onKeyUp);
+    container.removeEventListener('blur', onBlur);
+    container.removeEventListener('pointerdown', onPointerDown);
+    if (actx) { try { actx.close(); } catch (e) { /* ignore */ } }
+  });
+
+  // ------------------------------------------------------------------- mount
+  const figure = html`<figure style="margin:0;">
+    ${container}
+    <figcaption>Arrow keys fly the claw; hold space to grab. Lift the loot over the divider and release it into the bin on the right.</figcaption>
+  </figure>`;
+
+  display(expandable(figure, {
+    width: 640,
+    height: 448,
+    id: 'emoluments-claws',
+    onResize(el, w, h) {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      VW = w; VH = h;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      scale = Math.min(VW / WORLD_W, VH / WORLD_H);
+      ox = (VW - WORLD_W * scale) / 2;
+      oy = (VH - WORLD_H * scale) / 2;
+      render(performance.now());
+    },
+  }));
+}
+  </script>
+
+  <script id="howitworks-heading" type="text/markdown">
+    ## How it works
+  </script>
+
+  <script id="howitworks" type="text/markdown">
+    The physics is [planck.js](https://piqnt.com/planck.js/), a faithful JavaScript rewrite of Erin Catto's [Box2D](https://box2d.org/). The whole machine is a single Box2D world:
+
+    - The **cabinet** is a static body made of `Edge` shapes for the floor and walls, plus a box for the divider between the pile and the bin.
+    - The **loot** are dynamic bodies — a `Box` for each banded stack of hundreds, a `Circle` for each bitcoin — dropped in and left to settle for a couple hundred simulation steps before the clock starts.
+    - The **claw head** is a *kinematic* body: gravity and collisions don't push it around, so the arrow keys can steer it precisely by setting its velocity toward a target point. Two dynamic **fingers** hang from it on `RevoluteJoint`s with motors and angle limits, so pressing space physically closes them.
+
+    Grabbing is where a real claw machine cheats, and so do we. When you press space, the game finds the nearest loot within a small radius of the fingertips and pins it to the claw with a `WeldJoint` — the same trick that makes an arcade claw feel like it *actually caught* something. Release the key and the joint is destroyed; the loot keeps the claw's momentum and tumbles into the bin, where a position check tallies its value. Cheating, but the honest kind.
+  </script>
+
+  <script id="colophon" type="text/markdown">
+    <div style="font-size:0.85em;color:#868e96;margin-top:1.5em;">Made with planck.js and a plain 2D canvas. No bills, coins, or public officials were harmed.</div>
+  </script>
+</notebook>

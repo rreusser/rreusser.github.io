@@ -1,0 +1,9 @@
+publishedAt: "August 3, 2026"
+description: "A Box2D claw-machine arcade game — grab stacks of cash and bitcoin and dump them in the bin before the clock runs out."
+maxWidth: 640px
+tags:
+  - programming
+  - games
+seeAlso:
+  - plot-with-zoom
+  - malkus-waterwheel
