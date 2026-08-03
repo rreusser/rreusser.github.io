@@ -403,29 +403,44 @@
     g.fillRect(cx - hw * 1.7, yBot + hw * 0.9, hw * 3.4, hw * 0.5);
   }
 
-  // laurel wreath outline centred at (cx,cy), radius r
+  // one almond-shaped leaf from base (x,y) along unit dir (dx,dy)
+  function leaf(g, x, y, dx, dy, len, wid) {
+    const px = -dy, py = dx;                     // perpendicular
+    const mx = x + dx * len * 0.5, my = y + dy * len * 0.5;
+    const ex = x + dx * len, ey = y + dy * len;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.quadraticCurveTo(mx + px * wid, my + py * wid, ex, ey);
+    g.quadraticCurveTo(mx - px * wid, my - py * wid, x, y);
+    g.fill();
+  }
+
+  // laurel wreath centred at (cx,cy): two symmetric branches of leaves that
+  // curve up each side, open at top and bottom. Screen y is down, so a wreath
+  // angle th (0 = right, +up) maps to (cx + m·cos th·r, cy − sin th·r).
   function laurel(g, cx, cy, r) {
-    g.strokeStyle = goldFillV(g, cy - r, cy + r);
-    g.lineWidth = Math.max(1, r * 0.05);
-    for (const side of [-1, 1]) {
+    const gold = goldFillV(g, cy - r, cy + r);
+    g.fillStyle = gold; g.strokeStyle = gold;
+    g.lineWidth = Math.max(1.2, r * 0.045); g.lineCap = 'round';
+    const A0 = -0.85, A1 = 0.95, N = 8;         // branch spans these angles
+    for (const m of [-1, 1]) {
+      // spine
       g.beginPath();
-      g.arc(cx, cy, r, side > 0 ? -Math.PI * 0.42 : Math.PI * 0.42,
-        side > 0 ? Math.PI * 0.42 : -Math.PI * 0.42, side < 0);
+      for (let i = 0; i <= 20; i++) {
+        const th = A0 + (A1 - A0) * (i / 20);
+        const x = cx + m * Math.cos(th) * r, y = cy - Math.sin(th) * r;
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
       g.stroke();
-      // leaves
-      for (let t = -0.4; t <= 0.4; t += 0.14) {
-        const a = t * Math.PI;
-        const lx = cx + Math.cos(a) * r * side * -1 + (side > 0 ? r : -r);
-        // approximate leaf as a short stroke off the arc
-        const bx = cx + side * Math.cos(a) * r, by = cy + Math.sin(a) * r;
-        g.beginPath();
-        g.moveTo(bx, by);
-        g.lineTo(bx + side * r * 0.22, by - r * 0.12);
-        g.stroke();
-        g.beginPath();
-        g.moveTo(bx, by);
-        g.lineTo(bx + side * r * 0.22, by + r * 0.12);
-        g.stroke();
+      // leaves, pointing outward and toward the top
+      for (let i = 0; i < N; i++) {
+        const th = A0 + (A1 - A0) * (i / (N - 1));
+        const bx = cx + m * Math.cos(th) * r, by = cy - Math.sin(th) * r;
+        const ox = m * Math.cos(th), oy = -Math.sin(th);    // outward radial
+        const tx = -m * Math.sin(th), ty = -Math.cos(th);   // tangent toward top
+        let dx = ox * 0.75 + tx * 0.65, dy = oy * 0.75 + ty * 0.65;
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        leaf(g, bx, by, dx, dy, r * 0.34, r * 0.11);
       }
     }
   }
