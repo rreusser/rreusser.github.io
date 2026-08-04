@@ -46,6 +46,11 @@
   const GRIP_HW = 0.42;                 // half-width of the grasp
   const GRIP_TOP = 0.15, GRIP_BOT = 0.9; // grasp depth below the head
 
+  // The claw hangs on a two-segment tether (double pendulum): the reel varies
+  // the upper segment; the lower segment is fixed. The mid joint lets the claw
+  // deflect and drape instead of ramming straight down like a rigid rod.
+  const LOWER_LEN = 1.3;
+
   // Layout is orientation-aware: a wide landscape world or a tall portrait one
   // (for phones). Everything below is derived so both orientations play alike.
   let portrait = false;
@@ -65,7 +70,8 @@
     DIV_X = WORLD_W - (isPortrait ? 2.4 : 3.1);   // bin on the right
     DIV_H = isPortrait ? 3.0 : 2.6;
     HEAD_MIN_X = 0.8; HEAD_MAX_X = WORLD_W - 0.8;
-    REEL_START = 1.1; REEL_MIN = 0.4; REEL_MAX = RAIL_Y - 1.0;
+    // reel controls the upper segment; total drop = reel + LOWER_LEN
+    REEL_START = 1.0; REEL_MIN = 0.3; REEL_MAX = RAIL_Y - LOWER_LEN - 0.9;
     SPAWN_X0 = 0.7; SPAWN_X1 = DIV_X - 0.6;
     SPAWN_Y0 = 2.3; SPAWN_Y1 = RAIL_Y - 0.6;
     PILE_HX = DIV_X * 0.5;              // claw start x, over the pile
@@ -120,8 +126,10 @@
     paused: false,           // frozen while a policy event is on screen
     pauseTimer: 0,
     event: null,             // { title, desc, amount, note, kind }
+    overAt: 0,               // performance.now() when the game ended
   };
   const PAUSE_DURATION = 5.0; // seconds of frozen "breaking news" (or dismiss early)
+  const OVER_LOCK = 1800;     // ms the game-over screen ignores input, so you can read it
   const DEPOSIT_R = 1.0;      // on release, loot this close is freed from the claw
   const BIN_FLOOR_Y = 1.0;    // loot registers once it falls this low in the bin
   const keys = new Set();
@@ -188,18 +196,26 @@
     // settles (out of the loot's spawn column, so nothing lands on the claw).
     const HX = PILE_HX, PARK_X = PARK_HX;
 
-    // Kinematic trolley on the rail; the head hangs from it on a single
-    // variable-length cable (rendered as a chain). Because the trolley has
-    // infinite mass, the cable reels any load up smoothly and never destabilises.
+    // Kinematic trolley on the rail. The claw hangs on a two-segment tether:
+    // trolley → mid (reel, variable length) → head (fixed LOWER_LEN). The mid
+    // joint lets the lower segment articulate so the claw drapes/deflects rather
+    // than driving straight down. The trolley's infinite mass keeps it stable.
     const trolley = world.createBody({ type: 'kinematic', position: new Vec2(PARK_X, RAIL_Y) });
     trolley.createFixture({ shape: new Box(0.22, 0.1), filterMaskBits: 0 });
 
-    const headY = RAIL_Y - REEL_START;
+    const midY = RAIL_Y - REEL_START;
+    const mid = world.createBody({ type: 'dynamic', position: new Vec2(PARK_X, midY), linearDamping: 0.8, angularDamping: 1.0 });
+    mid.createFixture({ shape: new Box(0.13, 0.13), density: 8, filterMaskBits: 0 });   // tether joint; collides with nothing
+    const reelJoint = world.createJoint(new DistanceJoint(
+      { frequencyHz: 0, length: REEL_START }, trolley, mid,
+      trolley.getPosition(), mid.getPosition()));
+
+    const headY = midY - LOWER_LEN;
     const head = world.createBody({ type: 'dynamic', position: new Vec2(PARK_X, headY), linearDamping: 0.5, angularDamping: 3.0 });
     head.createFixture({ shape: new Box(0.3, 0.12), density: 2.5, filterGroupIndex: -1, filterCategoryBits: CAT_CLAW });
-    const reelJoint = world.createJoint(new DistanceJoint(
-      { frequencyHz: 0, length: REEL_START }, trolley, head,
-      trolley.getPosition(), head.getPosition()));
+    world.createJoint(new DistanceJoint(
+      { frequencyHz: 0, length: LOWER_LEN }, mid, head,
+      mid.getPosition(), head.getPosition()));
 
     // side: -1 = left finger (pivot left of centre), +1 = right finger.
     // Closing swings each finger so its talon sweeps toward centre and down.
@@ -235,7 +251,7 @@
     for (let i = 0; i < N_DOC; i++) spawn('document');
 
     const g = {
-      world, head, trolley, reelJoint, loot,
+      world, head, mid, trolley, reelJoint, loot,
       trolleyX: HX, reelLen: REEL_START, reelTarget: REEL_START,
       leftFinger: fLeft.body, rightFinger: fRight.body,
       fingers: [fLeft, fRight],
@@ -254,6 +270,7 @@
       body.setAngularVelocity(0);
     };
     slide(trolley);
+    slide(mid);
     slide(head);
     for (const f of g.fingers) slide(f.body);
     return g;
@@ -765,6 +782,25 @@
     fillRotBox(tw.x, tw.y, TALON.hl, TALON.ht, a + t.ang);
   }
 
+  // Catmull-Rom spline through three points (T, M, H), returning ~n+1 samples.
+  // Duplicated endpoints give sensible tangents at the ends.
+  function splineThrough(T, M, H, n) {
+    const half = Math.max(2, Math.round(n / 2));
+    const out = [];
+    const seg = (p0, p1, p2, p3, steps, skipFirst) => {
+      for (let i = skipFirst ? 1 : 0; i <= steps; i++) {
+        const t = i / steps, t2 = t * t, t3 = t2 * t;
+        out.push({
+          x: 0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+          y: 0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+        });
+      }
+    };
+    seg(T, T, M, H, half, false);   // T → M
+    seg(T, M, H, H, half, true);    // M → H
+    return out;
+  }
+
   function drawClaw() {
     const head = game.head;
     const hp = head.getPosition();
@@ -775,15 +811,11 @@
     ctx.strokeStyle = GOLD_L; ctx.lineWidth = Math.max(1, sc(0.04));
     ctx.beginPath(); ctx.moveTo(sx(0.4), sy(RAIL_Y) - sc(0.05)); ctx.lineTo(sx(9.6), sy(RAIL_Y) - sc(0.05)); ctx.stroke();
 
-    // chain: sampled along the trolley→head cable with a gentle catenary sag,
-    // so the taut pendulum reads as a hanging, swinging chain
-    const len = Math.hypot(hp.x - tp.x, hp.y - tp.y);
-    const sag = Math.min(0.45, 0.11 * len);
-    const pts = [];
-    for (let i = 0; i <= NLINKS_DRAW; i++) {
-      const t = i / NLINKS_DRAW;
-      pts.push({ x: tp.x + (hp.x - tp.x) * t, y: tp.y + (hp.y - tp.y) * t - sag * 4 * t * (1 - t) });
-    }
+    // chain: a smooth cubic (Catmull-Rom) spline through the three tether
+    // points — trolley, mid joint, head — so the double pendulum reads as one
+    // continuous draping chain rather than two straight rods.
+    const mp = game.mid.getPosition();
+    const pts = splineThrough(tp, mp, hp, NLINKS_DRAW);
     const chainPath = () => {
       ctx.beginPath();
       ctx.moveTo(sx(pts[0].x), sy(pts[0].y));
@@ -1033,11 +1065,13 @@
       ctx.fillStyle = '#aeb8cc';
       ctx.font = `500 ${Math.min(15, VW * 0.026)}px Georgia, serif`;
       ctx.fillText('Best this session: $' + state.best.toLocaleString('en-US'), VW / 2, VH * 0.66);
-      ctx.fillStyle = GOLD_L;
-      ctx.globalAlpha = pulse;
-      ctx.font = `700 ${Math.min(19, VW * 0.034)}px Georgia, serif`;
-      ctx.fillText('Press R (or Space) to play again', VW / 2, VH * 0.83);
-      ctx.globalAlpha = 1;
+      if (!overLocked()) {   // only invite a replay once the lock has lifted
+        ctx.fillStyle = GOLD_L;
+        ctx.globalAlpha = pulse;
+        ctx.font = `700 ${Math.min(19, VW * 0.034)}px Georgia, serif`;
+        ctx.fillText(isTouch ? 'Tap to play again' : 'Press R (or Space) to play again', VW / 2, VH * 0.83);
+        ctx.globalAlpha = 1;
+      }
     }
   }
 
@@ -1099,6 +1133,7 @@
 
   function endGame() {
     state.phase = 'over';
+    state.overAt = performance.now();
     state.best = Math.max(state.best, state.score);
     state.closing = false;
     keys.clear();
@@ -1133,6 +1168,7 @@
     if (konamiBuf.length === KONAMI.length && KONAMI.every((c, i) => c === konamiBuf[i])) { konamiBuf = []; fireEasterEgg(); }
     if (MOVE_KEYS.has(k) || k === ' ' || k === 'Spacebar') e.preventDefault();
     if (state.phase === 'ready' || state.phase === 'over') {
+      if (overLocked()) return;              // let the game-over screen be read first
       if (MOVE_KEYS.has(k) || k === ' ' || k === 'Enter' || k === 'r' || k === 'R') {
         startGame();
         if (MOVE_KEYS.has(k)) keys.add(k);   // keep the starting key held so it acts immediately
@@ -1169,6 +1205,7 @@
   // ---- touch: drag one finger to fly the claw, tap a second to grab --------
   const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
   function wantPortrait() { return VH > VW * 1.02; }
+  function overLocked() { return state.phase === 'over' && performance.now() - state.overAt < OVER_LOCK; }
   let dragId = null, grabId = null;
 
   // set the claw's target from a pointer's screen position (touch drag)
@@ -1178,11 +1215,12 @@
     const px = e.clientX - r.left, py = e.clientY - r.top;
     const wx = (px - ox) / scale, wy = (VH - oy - py) / scale;
     game.trolleyX = Math.max(HEAD_MIN_X, Math.min(HEAD_MAX_X, wx));
-    game.reelTarget = Math.max(REEL_MIN, Math.min(REEL_MAX, RAIL_Y - wy));
+    game.reelTarget = Math.max(REEL_MIN, Math.min(REEL_MAX, (RAIL_Y - wy) - LOWER_LEN));
   }
 
   function onPointerDown(e) {
     container.focus();
+    if (overLocked()) return;                // let the game-over screen be read first
     if (state.phase === 'ready' || state.phase === 'over') { startGame(); return; }
     if (state.paused) { if (PAUSE_DURATION - state.pauseTimer > 0.35) dismissEvent(); return; }
     if (e.pointerType !== 'touch') return;   // desktop uses the keyboard
