@@ -430,6 +430,10 @@
     if (keys.has('ArrowRight')) g.trolleyX += MOVE_X * dt;
     if (keys.has('ArrowDown')) g.reelTarget += MOVE_Y * dt;   // lower the claw
     if (keys.has('ArrowUp')) g.reelTarget -= MOVE_Y * dt;     // reel it up
+    if (dragId !== null) {                                    // touch trackpad
+      g.trolleyX += dragVec.x * MOVE_X * dt;
+      g.reelTarget += dragVec.y * MOVE_Y * dt;
+    }
     g.trolleyX = Math.max(HEAD_MIN_X, Math.min(HEAD_MAX_X, g.trolleyX));
     g.reelTarget = Math.max(REEL_MIN, Math.min(REEL_MAX, g.reelTarget));
     const clamp = (v, m) => Math.max(-m, Math.min(m, v));
@@ -872,6 +876,24 @@
     }
   }
 
+  // virtual joystick: a ring where you touched down and a knob showing the
+  // current steering command, so the relative trackpad control is visible
+  function drawTouchStick() {
+    if (dragId === null || state.phase !== 'playing') return;
+    const range = stickRange();
+    ctx.save();
+    ctx.strokeStyle = 'rgba(243,217,139,0.35)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(dragAnchor.x, dragAnchor.y, range, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(243,217,139,0.10)';
+    ctx.beginPath(); ctx.arc(dragAnchor.x, dragAnchor.y, range, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(243,217,139,0.5)';
+    ctx.beginPath(); ctx.arc(dragAnchor.x, dragAnchor.y, 5, 0, Math.PI * 2); ctx.fill();
+    const kx = dragAnchor.x + dragVec.x * range, ky = dragAnchor.y + dragVec.y * range;
+    ctx.fillStyle = 'rgba(255,244,207,0.9)'; ctx.strokeStyle = 'rgba(138,109,30,0.85)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(kx, ky, 16, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
   function hudPlate(text, side, color) {
     const fs = Math.min(24, Math.max(15, VW * 0.036));
     ctx.font = `700 ${fs}px Georgia, serif`;
@@ -1029,7 +1051,7 @@
       if (isTouch) {
         ctx.fillStyle = '#dbe4f5';
         ctx.font = `500 ${Math.min(17, VW * 0.03)}px Georgia, serif`;
-        ctx.fillText('👆 Drag to fly the claw', VW / 2, VH * 0.6);
+        ctx.fillText('👆 Drag anywhere to steer the claw', VW / 2, VH * 0.6);
         ctx.fillText('✌️ Tap a second finger to grab', VW / 2, VH * 0.68);
       } else {
         const ky = VH * 0.59, kh = Math.min(36, VW * 0.066), kw = kh;
@@ -1101,6 +1123,7 @@
     }
     drawClaw();
     drawFloaters(now);
+    drawTouchStick();
     drawHUD();
     if (state.event) drawEventCard(now);
     if (state.phase !== 'playing') drawOverlay(now);
@@ -1207,15 +1230,25 @@
   function wantPortrait() { return VH > VW * 1.02; }
   function overLocked() { return state.phase === 'over' && performance.now() - state.overAt < OVER_LOCK; }
   let dragId = null, grabId = null;
+  // Relative "trackpad": touch anywhere, then drag a direction to steer the
+  // claw at a speed set by how far you've dragged from where you touched down
+  // (so your finger never covers the claw). dragVec is a [-1,1] per-axis command.
+  const dragAnchor = { x: 0, y: 0 };   // where the finger first landed (canvas px)
+  const dragPos = { x: 0, y: 0 };      // current finger position (canvas px)
+  const dragVec = { x: 0, y: 0 };      // steering command: x = trolley, y = reel
+  function stickRange() { return Math.max(50, Math.min(VW, VH) * 0.2); }
 
-  // set the claw's target from a pointer's screen position (touch drag)
-  function aimAt(e) {
-    if (!game || !VW) return;
+  function canvasXY(e) {
     const r = canvas.getBoundingClientRect();
-    const px = e.clientX - r.left, py = e.clientY - r.top;
-    const wx = (px - ox) / scale, wy = (VH - oy - py) / scale;
-    game.trolleyX = Math.max(HEAD_MIN_X, Math.min(HEAD_MAX_X, wx));
-    game.reelTarget = Math.max(REEL_MIN, Math.min(REEL_MAX, (RAIL_Y - wy) - LOWER_LEN));
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function updateDrag(e) {
+    const c = canvasXY(e);
+    dragPos.x = c.x; dragPos.y = c.y;
+    const range = stickRange(), dead = 7;
+    const axis = (d) => (Math.abs(d) < dead ? 0 : Math.max(-1, Math.min(1, d / range)));
+    dragVec.x = axis(c.x - dragAnchor.x);
+    dragVec.y = axis(c.y - dragAnchor.y);   // screen-down drag lowers the claw
   }
 
   function onPointerDown(e) {
@@ -1225,17 +1258,21 @@
     if (state.paused) { if (PAUSE_DURATION - state.pauseTimer > 0.35) dismissEvent(); return; }
     if (e.pointerType !== 'touch') return;   // desktop uses the keyboard
     e.preventDefault();
-    if (dragId === null) { dragId = e.pointerId; aimAt(e); }      // first finger flies the claw
-    else if (grabId === null) {                                  // second finger grabs
+    if (dragId === null) {                                       // first finger steers
+      dragId = e.pointerId;
+      const c = canvasXY(e);
+      dragAnchor.x = c.x; dragAnchor.y = c.y; dragPos.x = c.x; dragPos.y = c.y;
+      dragVec.x = 0; dragVec.y = 0;
+    } else if (grabId === null) {                                // second finger grabs
       grabId = e.pointerId;
       if (!state.closing) { state.closing = true; doGrab(); sndGrab(); }
     }
   }
   function onPointerMove(e) {
-    if (e.pointerId === dragId) { e.preventDefault(); aimAt(e); }
+    if (e.pointerId === dragId) { e.preventDefault(); updateDrag(e); }
   }
   function onPointerUp(e) {
-    if (e.pointerId === dragId) dragId = null;
+    if (e.pointerId === dragId) { dragId = null; dragVec.x = 0; dragVec.y = 0; }
     else if (e.pointerId === grabId) {
       grabId = null;
       if (state.closing) { state.closing = false; doRelease(); sndDrop(); }
@@ -1300,7 +1337,7 @@
   // ------------------------------------------------------------------- mount
   const figure = html`<figure style="margin:0;">
     ${container}
-    <figcaption>Desktop: arrow keys fly the claw, space grabs. Touch: drag to fly the claw, tap a second finger to grab. Release your loot over the slush fund on the right.</figcaption>
+    <figcaption>Desktop: arrow keys fly the claw, space grabs. Touch: drag anywhere to steer the claw (like a trackpad), tap a second finger to grab. Release your loot over the slush fund on the right.</figcaption>
   </figure>`;
 
   display(expandable(figure, {
