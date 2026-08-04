@@ -195,7 +195,7 @@
     trolley.createFixture({ shape: new Box(0.22, 0.1), filterMaskBits: 0 });
 
     const headY = RAIL_Y - REEL_START;
-    const head = world.createBody({ type: 'dynamic', position: new Vec2(PARK_X, headY), linearDamping: 0.5, angularDamping: 2.2 });
+    const head = world.createBody({ type: 'dynamic', position: new Vec2(PARK_X, headY), linearDamping: 0.5, angularDamping: 3.0 });
     head.createFixture({ shape: new Box(0.3, 0.12), density: 2.5, filterGroupIndex: -1, filterCategoryBits: CAT_CLAW });
     const reelJoint = world.createJoint(new DistanceJoint(
       { frequencyHz: 0, length: REEL_START }, trolley, head,
@@ -421,6 +421,14 @@
     g.reelJoint.setLength(g.reelLen);
     const tp = g.trolley.getPosition();
     g.trolley.setLinearVelocity(new Vec2(clamp((g.trolleyX - tp.x) * 12 * cs, 7 * cs), 0));
+
+    // The head hangs from a distance joint, which doesn't constrain its
+    // rotation — so nudge it back upright (nearest way round) and hard-cap its
+    // spin, so a knock or an off-centre grab can never leave it spinning.
+    const ang = g.head.getAngle();
+    const norm = Math.atan2(Math.sin(ang), Math.cos(ang));   // → [-π, π]
+    let av = g.head.getAngularVelocity() - norm * 7 * dt;    // spring toward upright
+    g.head.setAngularVelocity(clamp(av, 6));                 // and cap the spin
 
     setFingerMotors(g, state.closing);
     g.world.step(dt, 8, 4);
@@ -1068,6 +1076,7 @@
   function startGame() {
     applyLayout(wantPortrait());   // build the world for the current orientation
     game = buildWorld();
+    layoutView();                  // and re-fit the view/cabinet to that layout
     state.phase = 'playing';
     state.time = GAME_TIME;
     state.score = 0;
@@ -1103,12 +1112,11 @@
   function onKeyDown(e) {
     const k = e.key;
     if (MOVE_KEYS.has(k) || k === ' ' || k === 'Spacebar') e.preventDefault();
-    if (state.phase === 'ready') {
-      if (MOVE_KEYS.has(k) || k === ' ' || k === 'Enter') startGame();
-      return;
-    }
-    if (state.phase === 'over') {
-      if (k === 'r' || k === 'R' || k === ' ' || k === 'Enter') startGame();
+    if (state.phase === 'ready' || state.phase === 'over') {
+      if (MOVE_KEYS.has(k) || k === ' ' || k === 'Enter' || k === 'r' || k === 'R') {
+        startGame();
+        if (MOVE_KEYS.has(k)) keys.add(k);   // keep the starting key held so it acts immediately
+      }
       return;
     }
     // playing
@@ -1222,6 +1230,15 @@
     if (actx) { try { actx.close(); } catch (e) { /* ignore */ } }
   });
 
+  // recompute the world→screen mapping and re-bake the cabinet for the current
+  // layout. Must run after any applyLayout() so build and render stay in sync.
+  function layoutView() {
+    scale = Math.min(VW / WORLD_W, VH / WORLD_H);
+    ox = (VW - WORLD_W * scale) / 2;
+    oy = (VH - WORLD_H * scale) / 2;
+    paintCabinet();
+  }
+
   // ------------------------------------------------------------------- mount
   const figure = html`<figure style="margin:0;">
     ${container}
@@ -1241,16 +1258,14 @@
       canvas.style.height = h + 'px';
       bgCanvas.width = canvas.width;
       bgCanvas.height = canvas.height;
-      // pick orientation from the container shape; rebuild the idle world if it
-      // flipped (never mid-game — a running game keeps its layout until restart)
-      if (wantPortrait() !== portrait && state.phase !== 'playing') {
+      // While idle, rebuild the world to match the container's shape so it
+      // always fills the screen. A running game keeps its layout until restart
+      // (only the view re-fits), so resizing never scrambles a live pile.
+      if (state.phase !== 'playing') {
         applyLayout(wantPortrait());
         game = buildWorld();
       }
-      scale = Math.min(VW / WORLD_W, VH / WORLD_H);
-      ox = (VW - WORLD_W * scale) / 2;
-      oy = (VH - WORLD_H * scale) / 2;
-      paintCabinet();               // re-bake the gilded cabinet at this size
+      layoutView();
       render(performance.now());
     },
   }));
