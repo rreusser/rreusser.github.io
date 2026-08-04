@@ -15,7 +15,7 @@
   </script>
 
   <script id="figure-note" type="text/markdown">
-    <div style="font-size:0.85em;color:#868e96;margin:-0.4em 0 0.6em;">Best on a desktop with a keyboard. Click the machine to give it focus.</div>
+    <div style="font-size:0.85em;color:#868e96;margin:-0.4em 0 0.6em;">Plays with a keyboard on desktop (click to focus, then arrow keys + space) or by touch on a phone — expand it to fill the screen and drag to fly the claw.</div>
   </script>
 
   <script id="imports" type="text/x-typescript">
@@ -27,7 +27,6 @@
   <script id="game" type="module">
 {
   // ------------------------------------------------------------------ config
-  const WORLD_W = 10, WORLD_H = 7;      // physics world extent, in metres
   const DT = 1 / 60;                    // fixed physics timestep
   const SIM_SPEED = 1.7;                // run physics faster than wall-clock so
                                         // it feels arcade-snappy, not slow-mo
@@ -36,15 +35,7 @@
                                         // a faster claw, lower for finer control)
   const GAME_TIME = 60;                 // seconds on the clock (stays real-time)
   const V_CASH = 1000000, V_COIN = 10000000;   // $1M a stack, $10M a bitcoin
-
-  const DIV_X = 6.9, DIV_H = 2.6;       // divider between pile and bin
-  const RAIL_Y = 6.45;                  // height of the gantry rail
-  const HEAD_MIN_X = 0.9, HEAD_MAX_X = 9.1;   // trolley travel along the rail
-  // The claw hangs from the trolley on a variable-length cable (a distance
-  // joint to the infinite-mass trolley — retracts fully, carries any load,
-  // stays stable) and swings freely as a pendulum. Up/down reels the cable.
-  const REEL_START = 1.1, REEL_MIN = 0.4, REEL_MAX = 5.3;
-  const NLINKS_DRAW = 9;                       // chain links drawn along the cable
+  const NLINKS_DRAW = 9;                // chain links drawn along the cable
 
   // collision categories, so released loot can be made to ignore the claw
   // (but still collide with the pile) while it falls into the bin
@@ -54,7 +45,35 @@
   // the talons — rather than magnetising anything nearby.
   const GRIP_HW = 0.42;                 // half-width of the grasp
   const GRIP_TOP = 0.15, GRIP_BOT = 0.9; // grasp depth below the head
-  const N_CASH = 20, N_COIN = 16, N_DOC = 5;   // more than you can clear in a minute
+
+  // Layout is orientation-aware: a wide landscape world or a tall portrait one
+  // (for phones). Everything below is derived so both orientations play alike.
+  let portrait = false;
+  let WORLD_W, WORLD_H, RAIL_Y, DIV_X, DIV_H;
+  let HEAD_MIN_X, HEAD_MAX_X, REEL_START, REEL_MIN, REEL_MAX;
+  let SPAWN_X0, SPAWN_X1, SPAWN_Y0, SPAWN_Y1, PILE_HX, PARK_HX;
+  let N_CASH, N_COIN, N_DOC;
+  function applyLayout(isPortrait) {
+    portrait = isPortrait;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const aspect = (VW && VH) ? VW / VH : (isPortrait ? 0.56 : 1.43);
+    // Fill the container: keep the short side ~7 m and derive the long side
+    // from the aspect (clamped so the cable never gets absurd).
+    if (isPortrait) { WORLD_W = 7; WORLD_H = clamp(WORLD_W / aspect, 10, 13); }
+    else { WORLD_H = 7; WORLD_W = clamp(WORLD_H * aspect, 9, 13); }
+    RAIL_Y = WORLD_H - 0.55;
+    DIV_X = WORLD_W - (isPortrait ? 2.4 : 3.1);   // bin on the right
+    DIV_H = isPortrait ? 3.0 : 2.6;
+    HEAD_MIN_X = 0.8; HEAD_MAX_X = WORLD_W - 0.8;
+    REEL_START = 1.1; REEL_MIN = 0.4; REEL_MAX = RAIL_Y - 1.0;
+    SPAWN_X0 = 0.7; SPAWN_X1 = DIV_X - 0.6;
+    SPAWN_Y0 = 2.3; SPAWN_Y1 = RAIL_Y - 0.6;
+    PILE_HX = DIV_X * 0.5;              // claw start x, over the pile
+    PARK_HX = WORLD_W - 0.8;            // parked over the bin while pile settles
+    N_CASH = isPortrait ? 13 : 20;
+    N_COIN = isPortrait ? 11 : 16;
+    N_DOC = isPortrait ? 4 : 5;
+  }
 
   // finger geometry, shared between fixtures and rendering (local frame,
   // pivot at the finger's top, +y up). Each finger is a vertical shaft with a
@@ -75,7 +94,7 @@
 
   // -------------------------------------------------------------------- stage
   const canvas = html`<canvas style="display:block;width:100%;height:100%;border-radius:6px;cursor:pointer;"></canvas>`;
-  const container = html`<div id="claws-stage" tabindex="0" style="position:relative;width:100%;height:100%;outline:none;">${canvas}</div>`;
+  const container = html`<div id="claws-stage" tabindex="0" style="position:relative;width:100%;height:100%;outline:none;touch-action:none;user-select:none;-webkit-user-select:none;">${canvas}</div>`;
   const ctx = canvas.getContext('2d');
   // static ornamentation (blue-and-gold cabinet) is baked here once per resize
   const bgCanvas = document.createElement('canvas');
@@ -167,7 +186,7 @@
 
     // Claw start x, and a parking x over the bin used only while the pile
     // settles (out of the loot's spawn column, so nothing lands on the claw).
-    const HX = 3.2, PARK_X = 9.0;
+    const HX = PILE_HX, PARK_X = PARK_HX;
 
     // Kinematic trolley on the rail; the head hangs from it on a single
     // variable-length cable (rendered as a chain). Because the trolley has
@@ -207,8 +226,8 @@
     // above the visible top) so a big batch doesn't explode from overlap.
     const loot = [];
     const spawn = (kind) => {
-      const x = 0.9 + Math.random() * 5.3;      // 0.9 .. 6.2, left of the divider
-      const y = 2.6 + Math.random() * 6.0;      // stacked, some above the ceiling
+      const x = SPAWN_X0 + Math.random() * (SPAWN_X1 - SPAWN_X0);   // pile column
+      const y = SPAWN_Y0 + Math.random() * (SPAWN_Y1 - SPAWN_Y0);
       loot.push(makeLoot(world, x, y, kind));
     };
     for (let i = 0; i < N_CASH; i++) spawn('cash');
@@ -217,7 +236,7 @@
 
     const g = {
       world, head, trolley, reelJoint, loot,
-      trolleyX: HX, reelLen: REEL_START,
+      trolleyX: HX, reelLen: REEL_START, reelTarget: REEL_START,
       leftFinger: fLeft.body, rightFinger: fRight.body,
       fingers: [fLeft, fRight],
     };
@@ -388,15 +407,19 @@
     // and swings freely, which is the whole challenge.
     const cs = CLAW_CTRL / SIM_SPEED;
     const MOVE_X = 5.2 * cs, MOVE_Y = 3.8 * cs;
+    // keyboard nudges the targets; touch sets them absolutely (see pointer
+    // handlers). trolleyX and reelTarget are where we *want* the claw.
     if (keys.has('ArrowLeft')) g.trolleyX -= MOVE_X * dt;
     if (keys.has('ArrowRight')) g.trolleyX += MOVE_X * dt;
-    if (keys.has('ArrowDown')) g.reelLen += MOVE_Y * dt;   // lower the claw
-    if (keys.has('ArrowUp')) g.reelLen -= MOVE_Y * dt;     // reel it up
+    if (keys.has('ArrowDown')) g.reelTarget += MOVE_Y * dt;   // lower the claw
+    if (keys.has('ArrowUp')) g.reelTarget -= MOVE_Y * dt;     // reel it up
     g.trolleyX = Math.max(HEAD_MIN_X, Math.min(HEAD_MAX_X, g.trolleyX));
-    g.reelLen = Math.max(REEL_MIN, Math.min(REEL_MAX, g.reelLen));
+    g.reelTarget = Math.max(REEL_MIN, Math.min(REEL_MAX, g.reelTarget));
+    const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+    // reel the cable toward its target at a controlled rate, then apply it
+    g.reelLen += clamp(g.reelTarget - g.reelLen, MOVE_Y * dt);
     g.reelJoint.setLength(g.reelLen);
     const tp = g.trolley.getPosition();
-    const clamp = (v, m) => Math.max(-m, Math.min(m, v));
     g.trolley.setLinearVelocity(new Vec2(clamp((g.trolleyX - tp.x) * 12 * cs, 7 * cs), 0));
 
     setFingerMotors(g, state.closing);
@@ -578,7 +601,7 @@
     // faint great seal watermark behind the pile
     g.save();
     g.globalAlpha = 0.12;
-    const sealX = sx(3.4), sealY = sy(3.3), sealR = sc(2.2);
+    const sealX = sx(WORLD_W / 2), sealY = sy(RAIL_Y * 0.48), sealR = sc(Math.min(WORLD_W, RAIL_Y) * 0.32);
     g.strokeStyle = GOLD_L; g.lineWidth = sc(0.05);
     g.beginPath(); g.arc(sealX, sealY, sealR, 0, Math.PI * 2); g.stroke();
     g.beginPath(); g.arc(sealX, sealY, sealR * 0.86, 0, Math.PI * 2); g.stroke();
@@ -586,11 +609,12 @@
     star(g, sealX, sealY - sealR * 0.02, sealR * 0.34, GOLD_L);
     g.restore();
 
-    // marble floor band + gilded baseboard
+    // marble floor band + gilded baseboard (extended to the canvas bottom so
+    // any letterbox below the floor reads as a marble base, not dead space)
     const floorTop = sy(0.18);
     const marble = g.createLinearGradient(0, floorTop, 0, sy(0));
     marble.addColorStop(0, '#dfe3ee'); marble.addColorStop(1, '#b9c0d2');
-    g.fillStyle = marble; g.fillRect(sx(0), floorTop, sc(WORLD_W), sy(0) - floorTop);
+    g.fillStyle = marble; g.fillRect(0, floorTop, VW, VH - floorTop);
     g.strokeStyle = 'rgba(120,130,150,0.5)'; g.lineWidth = 1;
     for (let i = 0; i < 5; i++) {
       const vx = sx(0.6 + i * 2.1);
@@ -598,22 +622,23 @@
     }
     beadRow(g, sx(0), sx(WORLD_W), floorTop - sc(0.12), sc(0.12));
 
-    // gilded top entablature / frieze
-    const friezeBot = sy(6.5);
+    // gilded top entablature / frieze — a band at the very top, above the rail
+    const friezeBot = sy(RAIL_Y);               // screen y of the band's bottom
+    const bandH = friezeBot - sy(WORLD_H);      // its pixel height (ornament scale)
     g.fillStyle = goldFillV(g, 0, friezeBot);
     g.fillRect(0, 0, VW, friezeBot);
     g.fillStyle = 'rgba(90,70,20,0.35)';
     g.fillRect(0, friezeBot - sc(0.06), VW, sc(0.06));
     beadRow(g, 0, VW, friezeBot - sc(0.14), sc(0.09));
-    // central medallion
-    const medX = sx(WORLD_W / 2), medY = friezeBot * 0.5;
+    // central medallion (sized from the band height, not its screen position)
+    const medX = sx(WORLD_W / 2), medY = friezeBot - bandH / 2, medR = bandH * 0.42;
     g.fillStyle = '#0a1f4a';
-    g.beginPath(); g.arc(medX, medY, friezeBot * 0.42, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(medX, medY, medR, 0, Math.PI * 2); g.fill();
     g.strokeStyle = GOLD_L; g.lineWidth = 2;
-    g.beginPath(); g.arc(medX, medY, friezeBot * 0.42, 0, Math.PI * 2); g.stroke();
-    star(g, medX, medY, friezeBot * 0.26, GOLD_L);
-    cScroll(g, medX - friezeBot * 0.7, medY, friezeBot * 0.3, 0.2, false);
-    cScroll(g, medX + friezeBot * 0.7, medY, friezeBot * 0.3, 0.2, true);
+    g.beginPath(); g.arc(medX, medY, medR, 0, Math.PI * 2); g.stroke();
+    star(g, medX, medY, bandH * 0.26, GOLD_L);
+    cScroll(g, medX - bandH * 0.7, medY, bandH * 0.3, 0.2, false);
+    cScroll(g, medX + bandH * 0.7, medY, bandH * 0.3, 0.2, true);
 
     // fluted pilasters flanking the playfield
     const pilTop = friezeBot, pilBot = floorTop - sc(0.1), pilHW = sc(0.16);
@@ -961,22 +986,29 @@
       ctx.font = `500 ${Math.min(17, VW * 0.03)}px Georgia, serif`;
       ctx.fillText('Grab all the cash and bitcoin you can in 60 seconds.', VW / 2, VH * 0.46);
 
-      const ky = VH * 0.59, kh = Math.min(36, VW * 0.066), kw = kh;
-      const gap = kw * 1.25;
-      drawKey(VW / 2 - gap, ky + kh + 4, kw, kh, '◀');
-      drawKey(VW / 2, ky, kw, kh, '▲');
-      drawKey(VW / 2, ky + kh + 4, kw, kh, '▼');
-      drawKey(VW / 2 + gap, ky + kh + 4, kw, kh, '▶');
-      drawKey(VW / 2 + gap * 3.2, ky + kh / 2 + 2, kw * 3.2, kh, 'SPACE');
-      ctx.fillStyle = '#aeb8cc';
-      ctx.font = `500 ${Math.min(13, VW * 0.024)}px Georgia, serif`;
-      ctx.fillText('move', VW / 2, ky + 2 * kh + 22);
-      ctx.fillText('hold to grab', VW / 2 + gap * 3.2, ky + kh + 24);
+      if (isTouch) {
+        ctx.fillStyle = '#dbe4f5';
+        ctx.font = `500 ${Math.min(17, VW * 0.03)}px Georgia, serif`;
+        ctx.fillText('👆 Drag to fly the claw', VW / 2, VH * 0.6);
+        ctx.fillText('✌️ Tap a second finger to grab', VW / 2, VH * 0.68);
+      } else {
+        const ky = VH * 0.59, kh = Math.min(36, VW * 0.066), kw = kh;
+        const gap = kw * 1.25;
+        drawKey(VW / 2 - gap, ky + kh + 4, kw, kh, '◀');
+        drawKey(VW / 2, ky, kw, kh, '▲');
+        drawKey(VW / 2, ky + kh + 4, kw, kh, '▼');
+        drawKey(VW / 2 + gap, ky + kh + 4, kw, kh, '▶');
+        drawKey(VW / 2 + gap * 3.2, ky + kh / 2 + 2, kw * 3.2, kh, 'SPACE');
+        ctx.fillStyle = '#aeb8cc';
+        ctx.font = `500 ${Math.min(13, VW * 0.024)}px Georgia, serif`;
+        ctx.fillText('move', VW / 2, ky + 2 * kh + 22);
+        ctx.fillText('hold to grab', VW / 2 + gap * 3.2, ky + kh + 24);
+      }
 
       ctx.fillStyle = GOLD_L;
       ctx.globalAlpha = pulse;
       ctx.font = `700 ${Math.min(19, VW * 0.034)}px Georgia, serif`;
-      ctx.fillText('Click here, then press any arrow key to start', VW / 2, VH * 0.9);
+      ctx.fillText(isTouch ? 'Tap to start' : 'Click here, then press any arrow key to start', VW / 2, VH * 0.9);
       ctx.globalAlpha = 1;
     } else if (state.phase === 'over') {
       crest(VW / 2, VH * 0.16, Math.min(32, VW * 0.055));
@@ -1034,6 +1066,7 @@
 
   // -------------------------------------------------------------- game flow
   function startGame() {
+    applyLayout(wantPortrait());   // build the world for the current orientation
     game = buildWorld();
     state.phase = 'playing';
     state.time = GAME_TIME;
@@ -1104,18 +1137,55 @@
     keys.clear();
     if (state.closing) { state.closing = false; doRelease(); }
   }
-  function onPointerDown() {
+
+  // ---- touch: drag one finger to fly the claw, tap a second to grab --------
+  const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+  function wantPortrait() { return VH > VW * 1.02; }
+  let dragId = null, grabId = null;
+
+  // set the claw's target from a pointer's screen position (touch drag)
+  function aimAt(e) {
+    if (!game || !VW) return;
+    const r = canvas.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    const wx = (px - ox) / scale, wy = (VH - oy - py) / scale;
+    game.trolleyX = Math.max(HEAD_MIN_X, Math.min(HEAD_MAX_X, wx));
+    game.reelTarget = Math.max(REEL_MIN, Math.min(REEL_MAX, RAIL_Y - wy));
+  }
+
+  function onPointerDown(e) {
     container.focus();
-    if (state.phase === 'ready' || state.phase === 'over') startGame();
-    else if (state.paused && PAUSE_DURATION - state.pauseTimer > 0.35) dismissEvent();
+    if (state.phase === 'ready' || state.phase === 'over') { startGame(); return; }
+    if (state.paused) { if (PAUSE_DURATION - state.pauseTimer > 0.35) dismissEvent(); return; }
+    if (e.pointerType !== 'touch') return;   // desktop uses the keyboard
+    e.preventDefault();
+    if (dragId === null) { dragId = e.pointerId; aimAt(e); }      // first finger flies the claw
+    else if (grabId === null) {                                  // second finger grabs
+      grabId = e.pointerId;
+      if (!state.closing) { state.closing = true; doGrab(); sndGrab(); }
+    }
+  }
+  function onPointerMove(e) {
+    if (e.pointerId === dragId) { e.preventDefault(); aimAt(e); }
+  }
+  function onPointerUp(e) {
+    if (e.pointerId === dragId) dragId = null;
+    else if (e.pointerId === grabId) {
+      grabId = null;
+      if (state.closing) { state.closing = false; doRelease(); sndDrop(); }
+    }
   }
 
   container.addEventListener('keydown', onKeyDown);
   container.addEventListener('keyup', onKeyUp);
   container.addEventListener('blur', onBlur);
   container.addEventListener('pointerdown', onPointerDown);
+  container.addEventListener('pointermove', onPointerMove);
+  container.addEventListener('pointerup', onPointerUp);
+  container.addEventListener('pointercancel', onPointerUp);
 
   // -------------------------------------------------------------- main loop
+  applyLayout(false);                // default landscape until onResize decides
   game = buildWorld();               // idle pile behind the start screen
   let prev = performance.now();
   let acc = 0;
@@ -1146,13 +1216,16 @@
     container.removeEventListener('keyup', onKeyUp);
     container.removeEventListener('blur', onBlur);
     container.removeEventListener('pointerdown', onPointerDown);
+    container.removeEventListener('pointermove', onPointerMove);
+    container.removeEventListener('pointerup', onPointerUp);
+    container.removeEventListener('pointercancel', onPointerUp);
     if (actx) { try { actx.close(); } catch (e) { /* ignore */ } }
   });
 
   // ------------------------------------------------------------------- mount
   const figure = html`<figure style="margin:0;">
     ${container}
-    <figcaption>Arrow keys fly the claw; hold space to grab. Lift the loot over the divider and release it into the bin on the right.</figcaption>
+    <figcaption>Desktop: arrow keys fly the claw, space grabs. Touch: drag to fly the claw, tap a second finger to grab. Release your loot over the slush fund on the right.</figcaption>
   </figure>`;
 
   display(expandable(figure, {
@@ -1168,6 +1241,12 @@
       canvas.style.height = h + 'px';
       bgCanvas.width = canvas.width;
       bgCanvas.height = canvas.height;
+      // pick orientation from the container shape; rebuild the idle world if it
+      // flipped (never mid-game — a running game keeps its layout until restart)
+      if (wantPortrait() !== portrait && state.phase !== 'playing') {
+        applyLayout(wantPortrait());
+        game = buildWorld();
+      }
       scale = Math.min(VW / WORLD_W, VH / WORLD_H);
       ox = (VW - WORLD_W * scale) / 2;
       oy = (VH - WORLD_H * scale) / 2;
