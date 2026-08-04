@@ -1109,8 +1109,28 @@
 
   // ------------------------------------------------------------------ input
   const MOVE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+
+  // easter egg: the Konami code triggers a "Comey indictment" that backfires
+  // into a merch windfall
+  const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+  let konamiBuf = [];
+  function fireEasterEgg() {
+    if (state.phase !== 'playing') return;
+    const gain = 4500000;   // ~100,000 t-shirts at $45
+    state.score += gain;
+    eventQueue.push({
+      title: 'COMEY INDICTMENT',
+      desc: 'It backfires spectacularly — your online store drops a limited-edition tee and it sells out overnight.',
+      amount: gain, note: null, kind: 'good',
+    });
+    showNextEvent();
+  }
+
   function onKeyDown(e) {
     const k = e.key;
+    konamiBuf.push(k.length === 1 ? k.toLowerCase() : k);
+    if (konamiBuf.length > KONAMI.length) konamiBuf.shift();
+    if (konamiBuf.length === KONAMI.length && KONAMI.every((c, i) => c === konamiBuf[i])) { konamiBuf = []; fireEasterEgg(); }
     if (MOVE_KEYS.has(k) || k === ' ' || k === 'Spacebar') e.preventDefault();
     if (state.phase === 'ready' || state.phase === 'over') {
       if (MOVE_KEYS.has(k) || k === ' ' || k === 'Enter' || k === 'r' || k === 'R') {
