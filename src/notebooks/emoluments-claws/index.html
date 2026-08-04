@@ -40,11 +40,15 @@
   const DIV_X = 6.9, DIV_H = 2.6;       // divider between pile and bin
   const RAIL_Y = 6.45;                  // height of the gantry rail
   const HEAD_MIN_X = 0.9, HEAD_MAX_X = 9.1;   // trolley travel along the rail
-  // The claw hangs from the trolley on a flexible chain. Up/down reels a
-  // variable-length top segment; the chain links below droop and swing.
-  const NLINKS = 6, LINK_LEN = 0.34;
-  const CHAIN_LEN = NLINKS * LINK_LEN;        // fixed flexible span (~2.04 m)
-  const REEL_START = 0.6, REEL_MIN = 0.15, REEL_MAX = 3.0;
+  // The claw hangs from the trolley on a variable-length cable (a distance
+  // joint to the infinite-mass trolley — retracts fully, carries any load,
+  // stays stable) and swings freely as a pendulum. Up/down reels the cable.
+  const REEL_START = 1.1, REEL_MIN = 0.4, REEL_MAX = 5.3;
+  const NLINKS_DRAW = 9;                       // chain links drawn along the cable
+
+  // collision categories, so released loot can be made to ignore the claw
+  // (but still collide with the pile) while it falls into the bin
+  const CAT_CLAW = 0x0002, MASK_ALL = 0xFFFF, MASK_NO_CLAW = 0xFFFF & ~0x0002;
 
   // The claw only grabs loot actually inside its grasp — a tight box between
   // the talons — rather than magnetising anything nearby.
@@ -165,36 +169,18 @@
     // settles (out of the loot's spawn column, so nothing lands on the claw).
     const HX = 3.2, PARK_X = 9.0;
 
-    // Kinematic trolley on the rail. Chain links (which collide with nothing —
-    // maskBits 0) hang below it via revolute joints; a variable-length reel
-    // distance joint at the very top sets how far the whole chain descends.
+    // Kinematic trolley on the rail; the head hangs from it on a single
+    // variable-length cable (rendered as a chain). Because the trolley has
+    // infinite mass, the cable reels any load up smoothly and never destabilises.
     const trolley = world.createBody({ type: 'kinematic', position: new Vec2(PARK_X, RAIL_Y) });
     trolley.createFixture({ shape: new Box(0.22, 0.1), filterMaskBits: 0 });
 
-    const links = [];
-    let reelJoint = null;
-    let prev = trolley;
-    const chainTopY = RAIL_Y - REEL_START;
-    for (let i = 0; i < NLINKS; i++) {
-      const cy = chainTopY - LINK_LEN * (i + 0.5);
-      const link = world.createBody({ type: 'dynamic', position: new Vec2(PARK_X, cy), linearDamping: 0.5, angularDamping: 0.6 });
-      link.createFixture({ shape: new Box(0.045, LINK_LEN * 0.5), density: 1.0, filterMaskBits: 0 });
-      if (i === 0) {
-        reelJoint = world.createJoint(new DistanceJoint(
-          { frequencyHz: 0, length: REEL_START }, trolley, link,
-          trolley.getPosition(), new Vec2(PARK_X, cy)));
-      } else {
-        world.createJoint(new RevoluteJoint({}, prev, link, new Vec2(PARK_X, chainTopY - LINK_LEN * i)));
-      }
-      links.push(link);
-      prev = link;
-    }
-
-    // claw head at the bottom of the chain
-    const headY = chainTopY - CHAIN_LEN - 0.12;
-    const head = world.createBody({ type: 'dynamic', position: new Vec2(PARK_X, headY), linearDamping: 0.6, angularDamping: 2.0 });
-    head.createFixture({ shape: new Box(0.3, 0.12), density: 4, filterGroupIndex: -1 });
-    world.createJoint(new RevoluteJoint({}, prev, head, new Vec2(PARK_X, chainTopY - CHAIN_LEN)));
+    const headY = RAIL_Y - REEL_START;
+    const head = world.createBody({ type: 'dynamic', position: new Vec2(PARK_X, headY), linearDamping: 0.5, angularDamping: 2.2 });
+    head.createFixture({ shape: new Box(0.3, 0.12), density: 2.5, filterGroupIndex: -1, filterCategoryBits: CAT_CLAW });
+    const reelJoint = world.createJoint(new DistanceJoint(
+      { frequencyHz: 0, length: REEL_START }, trolley, head,
+      trolley.getPosition(), head.getPosition()));
 
     // side: -1 = left finger (pivot left of centre), +1 = right finger.
     // Closing swings each finger so its talon sweeps toward centre and down.
@@ -202,9 +188,9 @@
       const px = PARK_X + side * 0.26, py = headY - 0.06;
       const b = world.createBody({ type: 'dynamic', position: new Vec2(px, py) });
       b.setUserData({ side });
-      b.createFixture({ shape: new Box(BAR.hx, BAR.hy, new Vec2(BAR.cx, BAR.cy), 0), density: 1.2, friction: 0.95, filterGroupIndex: -1 });
+      b.createFixture({ shape: new Box(BAR.hx, BAR.hy, new Vec2(BAR.cx, BAR.cy), 0), density: 1.2, friction: 0.95, filterGroupIndex: -1, filterCategoryBits: CAT_CLAW });
       const t = talonXform(side);
-      b.createFixture({ shape: new Box(TALON.hl, TALON.ht, new Vec2(t.cx, t.cy), t.ang), density: 1.2, friction: 1.1, filterGroupIndex: -1 });
+      b.createFixture({ shape: new Box(TALON.hl, TALON.ht, new Vec2(t.cx, t.cy), t.ang), density: 1.2, friction: 1.1, filterGroupIndex: -1, filterCategoryBits: CAT_CLAW });
       // left closes with +angle, right with −angle; open is the opposite limit
       const lower = side > 0 ? -CLAW_CLOSE_A : -CLAW_OPEN_A;
       const upper = side > 0 ? CLAW_OPEN_A : CLAW_CLOSE_A;
@@ -230,17 +216,17 @@
     for (let i = 0; i < N_DOC; i++) spawn('document');
 
     const g = {
-      world, head, trolley, links, reelJoint, loot,
+      world, head, trolley, reelJoint, loot,
       trolleyX: HX, reelLen: REEL_START,
       leftFinger: fLeft.body, rightFinger: fRight.body,
       fingers: [fLeft, fRight],
     };
     // pre-settle the pile with the whole rig parked over the bin
     setFingerMotors(g, false);
-    for (let i = 0; i < 360; i++) world.step(DT, 10, 8);
+    for (let i = 0; i < 300; i++) world.step(DT, 8, 4);
 
-    // slide the entire rig (trolley, chain, head, fingers) to the play position
-    // by the same offset, so every joint anchor stays consistent
+    // slide the whole rig (trolley, head, fingers) to the play position by the
+    // same offset, so every joint anchor stays consistent
     const dx = HX - PARK_X;
     const slide = (body) => {
       const p = body.getPosition();
@@ -249,7 +235,6 @@
       body.setAngularVelocity(0);
     };
     slide(trolley);
-    for (const l of links) slide(l);
     slide(head);
     for (const f of g.fingers) slide(f.body);
     return g;
@@ -265,11 +250,11 @@
     return { x: p.x + 0.62 * Math.sin(a), y: p.y - 0.62 * Math.cos(a) };
   }
 
-  // toggle whether a loot body collides with the claw (group -1 = claw parts).
-  // Setting it to the claw's group lets released loot fall straight through the
-  // talons instead of snagging on the hook.
+  // toggle whether a loot body collides with the claw. Released loot masks out
+  // only the claw category so it falls cleanly through the talons — it still
+  // collides with the pile and other loot (which a group swap would have broken).
   function setClawCollision(item, on) {
-    for (let f = item.body.getFixtureList(); f; f = f.getNext()) f.setFilterGroupIndex(on ? 0 : -1);
+    for (let f = item.body.getFixtureList(); f; f = f.getNext()) f.setFilterMaskBits(on ? MASK_ALL : MASK_NO_CLAW);
   }
 
   function doGrab() {
@@ -415,7 +400,7 @@
     g.trolley.setLinearVelocity(new Vec2(clamp((g.trolleyX - tp.x) * 12 * cs, 7 * cs), 0));
 
     setFingerMotors(g, state.closing);
-    g.world.step(dt, 10, 8);
+    g.world.step(dt, 8, 4);
 
     // Re-enable claw collision once a released item has fallen clear of the
     // claw, so the pile stays pushable on later grabs.
@@ -757,19 +742,25 @@
     ctx.strokeStyle = GOLD_L; ctx.lineWidth = Math.max(1, sc(0.04));
     ctx.beginPath(); ctx.moveTo(sx(0.4), sy(RAIL_Y) - sc(0.05)); ctx.lineTo(sx(9.6), sy(RAIL_Y) - sc(0.05)); ctx.stroke();
 
-    // chain: a polyline through the trolley, every link, and the head, drawn
-    // as a dark core with a gold highlight, plus a nub at each link
-    const pts = [tp, ...game.links.map((l) => l.getPosition()), hp];
+    // chain: sampled along the trolley→head cable with a gentle catenary sag,
+    // so the taut pendulum reads as a hanging, swinging chain
+    const len = Math.hypot(hp.x - tp.x, hp.y - tp.y);
+    const sag = Math.min(0.45, 0.11 * len);
+    const pts = [];
+    for (let i = 0; i <= NLINKS_DRAW; i++) {
+      const t = i / NLINKS_DRAW;
+      pts.push({ x: tp.x + (hp.x - tp.x) * t, y: tp.y + (hp.y - tp.y) * t - sag * 4 * t * (1 - t) });
+    }
     const chainPath = () => {
       ctx.beginPath();
       ctx.moveTo(sx(pts[0].x), sy(pts[0].y));
       for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(pts[i].x), sy(pts[i].y));
     };
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.strokeStyle = GOLD_D; ctx.lineWidth = Math.max(3, sc(0.11)); chainPath(); ctx.stroke();
-    ctx.strokeStyle = GOLD_L; ctx.lineWidth = Math.max(1, sc(0.045)); chainPath(); ctx.stroke();
+    ctx.strokeStyle = GOLD_D; ctx.lineWidth = Math.max(3, sc(0.10)); chainPath(); ctx.stroke();
+    ctx.strokeStyle = GOLD_L; ctx.lineWidth = Math.max(1, sc(0.04)); chainPath(); ctx.stroke();
     ctx.fillStyle = GOLD;
-    for (const l of game.links) { const p = l.getPosition(); ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y), Math.max(1.5, sc(0.055)), 0, Math.PI * 2); ctx.fill(); }
+    for (let i = 1; i < pts.length - 1; i++) { ctx.beginPath(); ctx.arc(sx(pts[i].x), sy(pts[i].y), Math.max(1.5, sc(0.05)), 0, Math.PI * 2); ctx.fill(); }
 
     // trolley
     ctx.fillStyle = goldFillV(ctx, sy(RAIL_Y) - sc(0.1), sy(RAIL_Y) + sc(0.1));
