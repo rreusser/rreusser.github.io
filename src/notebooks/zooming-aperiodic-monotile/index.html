@@ -3204,7 +3204,7 @@
     // particular when the canvas resizes, which is when viewerState.pixelWidth
     // first becomes nonzero and the van Wijk reference width is established.
     const _origOnViewChangeForTotal = viewerState.onViewChange;
-    viewerState.onViewChange = function (this: any, ...args: any[]) {
+    viewerState.onViewChange = function (...args: any[]) {
       _origOnViewChangeForTotal?.apply(this, args);
       _refreshTotalLabel();
     };
