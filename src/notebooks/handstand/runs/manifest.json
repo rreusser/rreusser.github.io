@@ -1,17 +1,17 @@
 {
   "presets": {
     "lunge": "014-kick-rom-peak.json",
-    "pike": "001-press-statics.json"
+    "pike": "015-press-strong-flexible.json"
   },
   "catch": "catch-window.json",
   "gallery": [
     {
       "file": "001-press-statics.json",
-      "label": "Press, statics-derived path (strong shoulders, flexible hamstrings)"
+      "label": "Press, statics-derived path (shoulder 2.8 Nm/kg, hamstrings to 125 deg)"
     },
     {
       "file": "002-press-default-stall.json",
-      "label": "Press, default shoulder strength (stalls partway)"
+      "label": "Press at shoulder 2.0 Nm/kg, hamstrings to 125 deg (stalls partway)"
     },
     {
       "file": "003-kick-flail.json",
@@ -60,6 +60,22 @@
     {
       "file": "014-kick-rom-peak.json",
       "label": "Kick-up with peak violation priced too (tightest anatomy, slightly more press)"
+    },
+    {
+      "file": "015-press-strong-flexible.json",
+      "label": "Press, shoulder 2.8 Nm/kg and hamstrings to 125 deg (works, and cheaply)"
+    },
+    {
+      "file": "016-press-strong-stiff.json",
+      "label": "Press, shoulder 2.8 Nm/kg with average hamstrings (works, at 2.5x the cost)"
+    },
+    {
+      "file": "018-press-threshold-below.json",
+      "label": "Press at shoulder 2.2 Nm/kg, average hamstrings (still not enough)"
+    },
+    {
+      "file": "017-press-recreational-fails.json",
+      "label": "Press on the recreational default body (best attempt still collapses)"
     }
   ]
 }
