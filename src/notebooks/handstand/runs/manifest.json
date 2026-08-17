@@ -76,6 +76,10 @@
     {
       "file": "017-press-recreational-fails.json",
       "label": "Press on the recreational default body (best attempt still collapses)"
+    },
+    {
+      "file": "019-kick-press-capable-shoulder.json",
+      "label": "Kick-up given a press-capable shoulder (2.8 Nm/kg): drifts back out over the hands"
     }
   ]
 }

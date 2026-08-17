@@ -2851,5 +2851,148 @@ export const PRESET_GALLERY = [
    "comX": 1.41914,
    "comY": -0.422904
   }
+ },
+ {
+  "file": "019-kick-press-capable-shoulder.json",
+  "label": "Kick-up given a press-capable shoulder (2.8 Nm/kg): drifts back out over the hands",
+  "scenario": "lunge",
+  "rom": {
+   "wristDorsiMaxDeg": 88,
+   "wristDorsiMinDeg": 45,
+   "shoulderFlexMaxDeg": 180,
+   "shoulderHyperDeg": 5,
+   "shoulderCloseMaxDeg": 110,
+   "hipFlexStraightKneeMaxDeg": 85,
+   "hamstringCouplingPerDeg": 0.6,
+   "hipFlexAbsMaxDeg": 140,
+   "hipExtMaxDeg": 20,
+   "kneeFlexMaxDeg": 145,
+   "kneeHyperextDeg": 3
+  },
+  "strength": {
+   "wrist": {
+    "t0Vol": 0.85,
+    "wmax": 15,
+    "wc": 6,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   },
+   "shoulder": {
+    "t0Vol": 2.8
+   },
+   "hip": {
+    "t0Vol": 2.2,
+    "wmax": 18,
+    "wc": 7,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   },
+   "knee": {
+    "t0Vol": 2.6,
+    "wmax": 20,
+    "wc": 8,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   }
+  },
+  "config": {
+   "kp": 800,
+   "kd": 60,
+   "kCom": 2000,
+   "dCom": 1500,
+   "activationTau": 0.05,
+   "mu": 1,
+   "contactZeta": 1,
+   "integrator": "si",
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5,
+   "romStopDeg": 5,
+   "romStopZeta": 0.7
+  },
+  "weights": {
+   "pose": 1,
+   "poseAngles": 2,
+   "velocity": 0.3,
+   "fall": 1,
+   "effort": 0.08,
+   "saturation": 2,
+   "rom": 4,
+   "romPeak": 0.5,
+   "quasiStatic": 0,
+   "liftoff": 8,
+   "feet": 5,
+   "work": 1,
+   "smooth": 1,
+   "settleCalm": 1,
+   "driveRate": 0.3
+  },
+  "seed": 127,
+  "T": 1.9,
+  "knots": [
+   [
+    1.13895,
+    1.50697,
+    1.35774,
+    1.49881,
+    1.49585,
+    1.52501
+   ],
+   [
+    1.47156,
+    1.04708,
+    0.300422,
+    0.128782,
+    0.0398595,
+    0
+   ],
+   [
+    1.15645,
+    0.227021,
+    -0.181182,
+    0.283271,
+    0.054351,
+    0
+   ],
+   [
+    -0.0216664,
+    -0.926234,
+    -1.65779,
+    -2.09602,
+    -0.862272,
+    0
+   ],
+   [
+    2.05713,
+    1.78997,
+    1.68903,
+    1.44516,
+    0.541261,
+    0
+   ],
+   [
+    -0.841162,
+    -0.8195,
+    -1.34658,
+    -1.20355,
+    -0.0520316,
+    0
+   ]
+  ],
+  "recordedCost": 2.35128,
+  "verdict": {
+   "upright": true,
+   "over": true,
+   "still": true,
+   "posed": true,
+   "feetFree": true,
+   "success": true,
+   "comX": 0.0462773,
+   "comY": 1.01344
+  }
  }
 ];
