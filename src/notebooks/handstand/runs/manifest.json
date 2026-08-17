@@ -6,12 +6,8 @@
   "catch": "catch-window.json",
   "gallery": [
     {
-      "file": "003-kick-flail.json",
-      "label": "Kick-up with no smoothness cost: flails, and pays nothing for it"
-    },
-    {
       "file": "004-kick-crouch.json",
-      "label": "Kick-up with the smoothness cost alone: gives up and crouches"
+      "label": "Kick-up with the smoothness cost alone: gives up and crouches rather than commit"
     },
     {
       "file": "008-kick-quiet-servo.json",

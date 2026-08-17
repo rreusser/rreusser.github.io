@@ -14,7 +14,7 @@ import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile } from '../strength.js';
 import { ROM_DEFAULTS } from '../statics.js';
-import { runScenario } from '../rollout.js';
+import { runScenario, resolveConfig } from '../rollout.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -40,12 +40,24 @@ for (const g of manifest.gallery) {
     settleT: 2.5,
     dt: 2e-4,
     rom,
-    ...(j.config || {}),
+    // resolveConfig, not the raw config: an artifact predating a plant option
+    // must replay with that option's PRE-EXISTING behavior, not today's
+    // default. Spreading the raw config silently replayed history under the
+    // current servo, which is the exact failure this file exists to catch.
+    ...resolveConfig(j.config),
   });
   const want = !!j.verdict.success;
   const got = !!r.verdict.success;
-  gate(`replay ${g.file}: success=${want} reproduced`, got === want,
-    `recorded ${want}, replay ${got}, comY ${r.verdict.comY.toFixed(2)}`);
+  // The success flag alone is too coarse: a run recorded upright at comY 0.99
+  // and replaying as a collapse at 0.30 agrees on "not a handstand" while
+  // being a completely different result. Under its own config and timestep a
+  // replay is deterministic, so the end state should land where it landed.
+  const dx = Math.abs(r.verdict.comX - j.verdict.comX);
+  const dy = Math.abs(r.verdict.comY - j.verdict.comY);
+  const placed = dx < 0.02 && dy < 0.02;
+  gate(`replay ${g.file}`, got === want && placed,
+    `success ${want}->${got}, end CoM (${j.verdict.comX.toFixed(2)}, ${j.verdict.comY.toFixed(2)})`
+    + ` -> (${r.verdict.comX.toFixed(2)}, ${r.verdict.comY.toFixed(2)})`);
 }
 
 console.log(failures ? `\n${failures} artifact(s) FAILED to reproduce` : '\nAll artifacts reproduce their recorded verdicts');
