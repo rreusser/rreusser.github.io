@@ -274,6 +274,17 @@ export const SETTLE_DRIVE_RATE_SCALE = 4;
 // ~0.2 s) sits near 1 on this scale; flailing reversals sit far above it.
 export const SMOOTH_ACCEL_SCALE = 60;
 
+// Where "working hard" becomes "living at the cap", and how much that costs.
+// The saturation term used to hinge at 0.95 on the raw utilization, so a
+// joint pinned at its limit for an ENTIRE rollout scored (1 - 0.95)^2 =
+// 0.0025 against about 2.0 for the work term: maximal effort was, for
+// practical purposes, free. That is what let the optimizer hold a planche and
+// press out of it rather than kick up, since the planche costs nothing but
+// effort and effort was not being charged. Normalizing the hinge so that a
+// joint at its cap scores 1 per sample puts sustained maximal effort on the
+// same footing as the work it is doing, which is roughly how it feels.
+export const SATURATION_KNEE = 0.8;
+
 // Metabolic accounting for the work term (Margaria): concentric (positive)
 // mechanical work costs 1/0.25 of itself metabolically; eccentric
 // (absorbed) work is much cheaper, ~1/1.2 per Joule absorbed. The term is
@@ -398,7 +409,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
       const u = Math.abs(tauApplied) / Math.max(cap, 1e-6);
       if (u > peakUtil[j]) peakUtil[j] = u;
       sumU2 += u * u;
-      const over = Math.max(0, u - 0.95);
+      const over = Math.max(0, (u - SATURATION_KNEE) / (1 - SATURATION_KNEE));
       sumSat += over * over;
       const P = tauApplied * rec.qd[k][3 + j];
       if (P > 0) posWork += P * dts; else negWork -= P * dts;

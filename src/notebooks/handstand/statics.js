@@ -29,8 +29,12 @@ import { availableTorque } from './strength.js';
 
 const D2R = Math.PI / 180;
 
+// Elementary rather than gymnastic: wrist dorsiflexion of 88 degrees is
+// already past the normal range (70-80 is typical), and the few degrees the
+// model used to have beyond that were spent leaning further out over the
+// hands than an ordinary wrist allows.
 export const ROM_DEFAULTS = {
-  wristDorsiMaxDeg: 92,
+  wristDorsiMaxDeg: 88,
   wristDorsiMinDeg: 45,
   shoulderFlexMaxDeg: 180,   // q4 >= 180 - this
   shoulderHyperDeg: 5,       // q4 >= -this is never allowed below

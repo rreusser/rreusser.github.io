@@ -1,6 +1,6 @@
 {
   "presets": {
-    "lunge": "011-kick-rom-stops.json",
+    "lunge": "012-kick-recreational.json",
     "pike": "001-press-statics.json"
   },
   "catch": "catch-window.json",
@@ -48,6 +48,10 @@
     {
       "file": "011-kick-rom-stops.json",
       "label": "Kick-up, re-optimized with anatomical end-stops (stays inside its own range)"
+    },
+    {
+      "file": "012-kick-recreational.json",
+      "label": "Kick-up at recreational strength with a bounded entry (no planche)"
     }
   ]
 }

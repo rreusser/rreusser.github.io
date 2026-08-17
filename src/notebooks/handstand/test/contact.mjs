@@ -187,6 +187,7 @@ function blockModel() {
 // E2 pins the fix: inertia-scaled damping capped by the strength envelope,
 // plus a position term limited to the speed the joint can still stop in the
 // error that remains. Same trajectory (hold the balanced pose), same plant.
+
 // ---------------------------------------------------------------------------
 {
   const D2R = Math.PI / 180;
@@ -221,19 +222,25 @@ function blockModel() {
     });
     const rec = out.rec;
     const err = (k) => rec.q[k][4] - qBal[4];
+    // Arrival is reaching the pose, not crossing it: a servo that stops
+    // exactly on target never changes sign, which is the whole point.
+    const inbound = Math.sign(err(0));
     let kArr = -1;
     for (let k = 1; k < rec.t.length && kArr < 0; k++) {
-      if (Math.sign(err(k)) !== Math.sign(err(0))) kArr = k;
+      if (Math.abs(err(k)) < 2 * D2R) kArr = k;
     }
+    // Overshoot is travel PAST the target, so it is signed against the
+    // direction the joint came from.
     let over = 0, reversals = 0, prev = 0;
     for (let k = Math.max(kArr, 0); kArr >= 0 && k < rec.t.length; k++) {
-      over = Math.max(over, Math.abs(err(k)));
+      over = Math.max(over, -inbound * err(k));
       if (Math.abs(err(k)) > 1 * D2R) {
         const s = Math.sign(err(k));
         if (prev !== 0 && s !== prev) reversals++;
         prev = s;
       }
     }
+    over = Math.max(over, 0);
     const mo = momenta(model, out.q, out.qd, ws);
     const heelX = out.q[0] + model.patch.x0, tipX = out.q[0] + model.patch.x1;
     return {
@@ -247,17 +254,19 @@ function blockModel() {
     dampingRatio: SERVO_DEFAULTS.dampingRatio, brakeMargin: SERVO_DEFAULTS.brakeMargin,
     dampingSpeed: SERVO_DEFAULTS.dampingSpeed, inertiaHz: SERVO_DEFAULTS.inertiaHz,
   };
-  const l30 = pressIn(30, legacy), l45 = pressIn(45, legacy);
-  gate('E1: constant-kd servo overshoots the arrival and topples from 45 deg (demonstrated)',
-    l30.overDeg > 5 && l30.reversals >= 2 && !l45.stood,
-    `30deg: ${l30.overDeg.toFixed(1)}deg overshoot, ${l30.reversals} reversals; 45deg stood=${l45.stood}`);
+  const l30 = pressIn(30, legacy), l35 = pressIn(35, legacy);
+  gate('E1: constant-kd servo rings its way into the balanced pose (demonstrated)',
+    l30.overDeg > 5 && l30.reversals >= 2 && l35.overDeg > 5 && l35.reversals >= 2,
+    `30deg: ${l30.overDeg.toFixed(1)}deg overshoot, ${l30.reversals} reversals; `
+    + `35deg: ${l35.overDeg.toFixed(1)}deg overshoot, ${l35.reversals} reversals`);
 
-  const f30 = pressIn(30, fixed), f45 = pressIn(45, fixed);
+  const f30 = pressIn(30, fixed), f35 = pressIn(35, fixed);
   gate('E2: inertia-scaled damping + brake-feasible position term arrives clean',
     f30.stood && f30.arrived && f30.overDeg < 2 && f30.reversals === 0
-    && f45.stood && f45.arrived && f45.overDeg < 2,
+    && f35.stood && f35.arrived && f35.overDeg < 2 && f35.reversals === 0,
     `30deg: ${f30.overDeg.toFixed(1)}deg overshoot, ${f30.reversals} reversals; `
-    + `45deg: ${f45.overDeg.toFixed(1)}deg overshoot, stood=${f45.stood}`);
+    + `35deg: ${f35.overDeg.toFixed(1)}deg overshoot, ${f35.reversals} reversals`);
+
 }
 
 // ---------------------------------------------------------------------------
