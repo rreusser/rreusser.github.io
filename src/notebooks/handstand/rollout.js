@@ -188,7 +188,22 @@ export const JOINT_KEYS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'
 export const SERVO_DEFAULTS = {
   kp: 800, kd: 60, kCom: 2000, dCom: 1500,
   activationTau: 0.05, mu: 1.0, contactZeta: 1.0, integrator: 'si',
+  dampingRatio: 1.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
 };
+
+// Plant/controller settings as they were BEFORE a given capability existed.
+// An artifact's stored config is the whole truth about the plant it was
+// produced under, so a config that predates a key must replay with that
+// key's pre-existing behavior, not with today's default. Both of these
+// default to "off", which is exactly the old constant-kd, no-braking servo.
+export const LEGACY_SERVO_CONFIG = { dampingRatio: 0, brakeMargin: 0, dampingSpeed: 0 };
+
+// Resolve a stored artifact config into the full argument set for
+// runScenario. Anything the artifact recorded wins; anything it could not
+// have recorded falls back to the legacy behavior.
+export function resolveConfig(config) {
+  return { ...LEGACY_SERVO_CONFIG, ...(config || {}) };
+}
 
 // x = [6 joints x K knot angles (radians), duration T]. When a rom is
 // given, the knot bounds are the anatomy itself, so anatomically impossible
@@ -374,7 +389,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     const dts = k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
     let sumU2 = 0, sumSat = 0, sumDriveRate2 = 0;
     for (let j = 0; j < 6; j++) {
-      const tauApplied = rec.tau[k][j] - r.servo.kd * rec.qd[k][3 + j];
+      const tauApplied = rec.tauApplied[k][j];
       const cap = availableTorque(strengthProf[JOINT_KEYS[j]], tauApplied, rec.qd[k][3 + j]);
       const u = Math.abs(tauApplied) / Math.max(cap, 1e-6);
       if (u > peakUtil[j]) peakUtil[j] = u;
@@ -690,6 +705,10 @@ export function runScenario(model, ws, strengthProf, {
   mu = SERVO_DEFAULTS.mu,
   contactZeta = SERVO_DEFAULTS.contactZeta,
   activationTau = SERVO_DEFAULTS.activationTau,
+  dampingRatio = SERVO_DEFAULTS.dampingRatio,
+  brakeMargin = SERVO_DEFAULTS.brakeMargin,
+  inertiaHz = SERVO_DEFAULTS.inertiaHz,
+  dampingSpeed = SERVO_DEFAULTS.dampingSpeed,
   recordEvery = null,
   qdJitter = 0,
   jitterSeed = 1,
@@ -705,7 +724,9 @@ export function runScenario(model, ws, strengthProf, {
     for (let j = 3; j < model.nq; j++) qd0[j] += (2 * rand() - 1) * qdJitter;
   }
   const ref = knots || naiveReference(model, ws, scenario, 6, rom).knots;
-  const servo = createServo(model, strengthProf, { kp, kd, ws, activationTau });
+  const servo = createServo(model, strengthProf, {
+    kp, kd, ws, activationTau, dampingRatio, brakeMargin, inertiaHz, dampingSpeed,
+  });
   const contacts = createContacts(model, { mu, zeta: contactZeta });
 
   // The wrist strategy runs closed-loop during the rollout: a wrist torque
@@ -728,6 +749,7 @@ export function runScenario(model, ws, strengthProf, {
   const out = simulate(model, ws, {
     q0, qd0, T: T + settleT, dt, integrator, contacts,
     jointDamping: servo.damping,
+    appliedTorque: servo.applied,
     control: servo.makeControl(ref, T, augment),
     recordEvery,
   });

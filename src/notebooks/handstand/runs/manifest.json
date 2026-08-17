@@ -1,6 +1,6 @@
 {
   "presets": {
-    "lunge": "008-kick-quiet-servo.json",
+    "lunge": "010-kick-braked-servo.json",
     "pike": "001-press-statics.json"
   },
   "catch": "catch-window.json",
@@ -40,6 +40,10 @@
     {
       "file": "009-kick-fresh-crouch.json",
       "label": "Kick-up, fresh search on quiet servo (never finds the kick: crouch)"
+    },
+    {
+      "file": "010-kick-braked-servo.json",
+      "label": "Kick-up, inertia-scaled damping and brake-limited approach (arrives without overshoot)"
     }
   ]
 }

@@ -12,6 +12,9 @@ import { createWorkspace, momenta } from '../dynamics.js';
 import { createContacts, computeContactForces, groundReaction } from '../contact.js';
 import { simulate } from '../integrate.js';
 import { groundHand, solveWristForCom } from '../statics.js';
+import { strengthProfile } from '../strength.js';
+import { createServo } from '../control.js';
+import { balancedHandstand, HANDSTAND_TARGET_FRAC, SERVO_DEFAULTS } from '../rollout.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -162,6 +165,94 @@ function blockModel() {
   gate('D3: implicit damping + mid-patch pose stands 3 s with GRF = weight',
     !d3.fell && comDrift < 0.05 && Math.abs(d3.gr.normal - W) / W < 0.02,
     `comDrift=${(comDrift * 1e3).toFixed(1)}mm, GRF=${d3.gr.normal.toFixed(0)} vs W=${W.toFixed(0)}, comY=${d3.mo.comY.toFixed(2)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gates E1-E2: arrival into the balanced pose without overshoot.
+//
+// The failure this pins: a shoulder pressing to vertical under load spends
+// the whole press against its torque cap, and a single scalar kd is the wrong
+// damping for a joint carrying 24 kg m^2 (zeta = 0.22 at kd = 60), so the
+// body arrives at the balanced pose with several rad/s and rings. Worse, the
+// position term commands kp/kd * e = 10 rad/s at 45 degrees of error, a speed
+// the shoulder would need 535 degrees of travel to brake from: the reference
+// is asking for an arrival the muscle cannot produce.
+//
+// E1 demonstrates the failure with the legacy constant-kd, no-braking servo.
+// E2 pins the fix: inertia-scaled damping capped by the strength envelope,
+// plus a position term limited to the speed the joint can still stop in the
+// error that remains. Same trajectory (hold the balanced pose), same plant.
+// ---------------------------------------------------------------------------
+{
+  const D2R = Math.PI / 180;
+  const model = buildModel({ heightM: 1.75, massKg: 70 });
+  const ws = createWorkspace(model);
+  const prof = strengthProfile(model.massKg);
+  const qBal = balancedHandstand(model, ws);
+  const xTarget = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+  const Wbody = model.massKg * model.gravity;
+
+  // Start in a handstand whose shoulder is open by openDeg (the lean re-solved
+  // so the CoM still starts over the palm target) and hold the balanced pose:
+  // a press with no trajectory in it, so what is measured is the servo.
+  const pressIn = (openDeg, cfg) => {
+    const q0 = Float64Array.from(qBal);
+    q0[4] += openDeg * D2R;
+    q0[3] = solveWristForCom(model, q0, ws, xTarget);
+    const knots = [];
+    for (let j = 0; j < 6; j++) knots.push(Float64Array.of(qBal[3 + j], qBal[3 + j]));
+    const servo = createServo(model, prof, { kp: 800, kd: 60, ws, activationTau: 0.05, ...cfg });
+    const contacts = createContacts(model);
+    const augment = (t, q, qd, des) => {
+      const gain = Math.min(1, (contacts.ext.fy[0] + contacts.ext.fy[1]) / (0.6 * Wbody));
+      if (gain <= 0) return;
+      const mo = momenta(model, q, qd, ws);
+      des[0] += gain * (2000 * (mo.comX - (q[0] + xTarget)) + 1500 * mo.comVx);
+    };
+    const out = simulate(model, ws, {
+      q0, T: 5.0, dt: 2.5e-4, contacts,
+      jointDamping: servo.damping, appliedTorque: servo.applied,
+      control: servo.makeControl(knots, 1e-3, augment),
+    });
+    const rec = out.rec;
+    const err = (k) => rec.q[k][4] - qBal[4];
+    let kArr = -1;
+    for (let k = 1; k < rec.t.length && kArr < 0; k++) {
+      if (Math.sign(err(k)) !== Math.sign(err(0))) kArr = k;
+    }
+    let over = 0, reversals = 0, prev = 0;
+    for (let k = Math.max(kArr, 0); kArr >= 0 && k < rec.t.length; k++) {
+      over = Math.max(over, Math.abs(err(k)));
+      if (Math.abs(err(k)) > 1 * D2R) {
+        const s = Math.sign(err(k));
+        if (prev !== 0 && s !== prev) reversals++;
+        prev = s;
+      }
+    }
+    const mo = momenta(model, out.q, out.qd, ws);
+    const heelX = out.q[0] + model.patch.x0, tipX = out.q[0] + model.patch.x1;
+    return {
+      stood: mo.comY > 0.85 && !out.diverged && mo.comX > heelX && mo.comX < tipX,
+      arrived: kArr >= 0, overDeg: over / D2R, reversals,
+    };
+  };
+
+  const legacy = { dampingRatio: 0, brakeMargin: 0 };
+  const fixed = {
+    dampingRatio: SERVO_DEFAULTS.dampingRatio, brakeMargin: SERVO_DEFAULTS.brakeMargin,
+    dampingSpeed: SERVO_DEFAULTS.dampingSpeed, inertiaHz: SERVO_DEFAULTS.inertiaHz,
+  };
+  const l30 = pressIn(30, legacy), l45 = pressIn(45, legacy);
+  gate('E1: constant-kd servo overshoots the arrival and topples from 45 deg (demonstrated)',
+    l30.overDeg > 5 && l30.reversals >= 2 && !l45.stood,
+    `30deg: ${l30.overDeg.toFixed(1)}deg overshoot, ${l30.reversals} reversals; 45deg stood=${l45.stood}`);
+
+  const f30 = pressIn(30, fixed), f45 = pressIn(45, fixed);
+  gate('E2: inertia-scaled damping + brake-feasible position term arrives clean',
+    f30.stood && f30.arrived && f30.overDeg < 2 && f30.reversals === 0
+    && f45.stood && f45.arrived && f45.overDeg < 2,
+    `30deg: ${f30.overDeg.toFixed(1)}deg overshoot, ${f30.reversals} reversals; `
+    + `45deg: ${f45.overDeg.toFixed(1)}deg overshoot, stood=${f45.stood}`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll contact gates passed');

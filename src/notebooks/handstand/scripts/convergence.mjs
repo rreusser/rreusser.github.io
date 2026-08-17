@@ -28,9 +28,13 @@ const model = buildModel({});
 const ws = createWorkspace(model);
 const prof = strengthProfile(model.massKg);
 
+// dampingRatio: 0 pins the scalar kd each family was chosen for. This study
+// is about integrator families at a fixed damping (RK4 in particular needs a
+// small explicit kd to stay inside its stability region), so it must not
+// inherit the inertia-scaled servo damping.
 const FAMILIES = [
-  { name: 'si  kd=150 zeta=1.0 ', integrator: 'si', kd: 150, contactZeta: 1.0, dts: [5e-5, 1e-4, 2.5e-4, 5e-4, 1e-3] },
-  { name: 'rk4 kd=8   zeta=0.35', integrator: 'rk4', kd: 8, contactZeta: 0.35, dts: [1e-4, 2.5e-4, 5e-4, 1e-3, 2e-3] },
+  { name: 'si  kd=150 zeta=1.0 ', integrator: 'si', kd: 150, contactZeta: 1.0, dampingRatio: 0, dts: [5e-5, 1e-4, 2.5e-4, 5e-4, 1e-3] },
+  { name: 'rk4 kd=8   zeta=0.35', integrator: 'rk4', kd: 8, contactZeta: 0.35, dampingRatio: 0, dts: [1e-4, 2.5e-4, 5e-4, 1e-3, 2e-3] },
 ];
 const SCENARIOS = [
   { scenario: 'hold', T: 1.0, settleT: 1.0 },
@@ -45,6 +49,7 @@ for (const sc of SCENARIOS) {
       const t0 = Date.now();
       const r = runScenario(model, ws, prof, {
         ...sc, dt, integrator: fam.integrator, kd: fam.kd, contactZeta: fam.contactZeta,
+        dampingRatio: fam.dampingRatio,
       });
       const wall = (Date.now() - t0) / 1000 / (sc.T + sc.settleT);
       const state = [...r.q.slice(0, 9), ...r.qd.slice(0, 9)];

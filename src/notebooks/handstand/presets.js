@@ -3,8 +3,8 @@
 // plant/controller config it was produced under; replays must use it.
 export const PRESET_TRAJECTORIES = {
  "lunge": {
-  "file": "008-kick-quiet-servo.json",
-  "label": "Kick-up, quiet servo (parks without shoulder buzz)",
+  "file": "010-kick-braked-servo.json",
+  "label": "Kick-up, braked servo (arrives without overshoot)",
   "scenario": "lunge",
   "rom": {},
   "strength": {},
@@ -16,11 +16,15 @@ export const PRESET_TRAJECTORIES = {
    "activationTau": 0.05,
    "mu": 1,
    "contactZeta": 1,
-   "integrator": "si"
+   "integrator": "si",
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5
   },
   "weights": {
    "pose": 1,
-   "poseAngles": 6,
+   "poseAngles": 2,
    "velocity": 0.3,
    "fall": 1,
    "effort": 0.08,
@@ -34,59 +38,59 @@ export const PRESET_TRAJECTORIES = {
    "settleCalm": 1,
    "driveRate": 0.3
   },
-  "seed": 59,
-  "T": 1.21836,
+  "seed": 23,
+  "T": 1.08846,
   "knots": [
    [
-    1.5215,
+    1.05737,
+    0.826078,
+    1.1509,
     1.6057,
-    1.40432,
-    1.19377,
-    1.22458,
+    1.52327,
     1.52501
    ],
    [
-    1.31315,
-    1.22765,
-    0.150032,
-    0.772438,
-    0.427154,
+    1.20068,
+    0.955329,
+    0.573149,
+    0.340382,
+    0.334046,
     0
    ],
    [
-    1.50627,
-    1.30153,
-    0.0205659,
-    0.340261,
-    0.233402,
+    1.37463,
+    0.0960796,
+    0.0689024,
+    -0.294218,
+    -0.349066,
     0
    ],
    [
-    -0.165266,
-    -0.118547,
-    -0.398459,
-    -1.00997,
-    -0.614382,
+    -0.103278,
+    -0.0522194,
+    0.0522805,
+    -0.193668,
+    -0.266966,
     0
    ],
    [
-    2.06007,
-    2.10482,
-    1.98587,
-    0.405659,
-    0.607676,
+    1.95194,
+    2.36871,
+    1.08782,
+    0.791954,
+    0.568046,
     0
    ],
    [
-    -0.883411,
-    -1.09145,
-    -0.699918,
-    -0.311595,
-    -0.15004,
+    -0.848125,
+    -1.02649,
+    0.0523599,
+    -0.401665,
+    -0.383948,
     0
    ]
   ],
-  "recordedCost": 4.68182,
+  "recordedCost": 4.9001,
   "verdict": {
    "upright": true,
    "over": true,
@@ -94,8 +98,8 @@ export const PRESET_TRAJECTORIES = {
    "posed": true,
    "feetFree": true,
    "success": true,
-   "comX": 0.0438429,
-   "comY": 1.0134
+   "comX": 0.0412703,
+   "comY": 1.01346
   }
  },
  "pike": {
@@ -1041,6 +1045,106 @@ export const PRESET_GALLERY = [
    "success": false,
    "comX": -0.114061,
    "comY": 0.359003
+  }
+ },
+ {
+  "file": "010-kick-braked-servo.json",
+  "label": "Kick-up, inertia-scaled damping and brake-limited approach (arrives without overshoot)",
+  "scenario": "lunge",
+  "rom": {},
+  "strength": {},
+  "config": {
+   "kp": 800,
+   "kd": 60,
+   "kCom": 2000,
+   "dCom": 1500,
+   "activationTau": 0.05,
+   "mu": 1,
+   "contactZeta": 1,
+   "integrator": "si",
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5
+  },
+  "weights": {
+   "pose": 1,
+   "poseAngles": 2,
+   "velocity": 0.3,
+   "fall": 1,
+   "effort": 0.08,
+   "saturation": 2,
+   "rom": 4,
+   "quasiStatic": 0,
+   "liftoff": 8,
+   "feet": 5,
+   "work": 1,
+   "smooth": 1,
+   "settleCalm": 1,
+   "driveRate": 0.3
+  },
+  "seed": 23,
+  "T": 1.08846,
+  "knots": [
+   [
+    1.05737,
+    0.826078,
+    1.1509,
+    1.6057,
+    1.52327,
+    1.52501
+   ],
+   [
+    1.20068,
+    0.955329,
+    0.573149,
+    0.340382,
+    0.334046,
+    0
+   ],
+   [
+    1.37463,
+    0.0960796,
+    0.0689024,
+    -0.294218,
+    -0.349066,
+    0
+   ],
+   [
+    -0.103278,
+    -0.0522194,
+    0.0522805,
+    -0.193668,
+    -0.266966,
+    0
+   ],
+   [
+    1.95194,
+    2.36871,
+    1.08782,
+    0.791954,
+    0.568046,
+    0
+   ],
+   [
+    -0.848125,
+    -1.02649,
+    0.0523599,
+    -0.401665,
+    -0.383948,
+    0
+   ]
+  ],
+  "recordedCost": 4.9001,
+  "verdict": {
+   "upright": true,
+   "over": true,
+   "still": true,
+   "posed": true,
+   "feetFree": true,
+   "success": true,
+   "comX": 0.0412703,
+   "comY": 1.01346
   }
  }
 ];

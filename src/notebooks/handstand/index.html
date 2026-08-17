@@ -30,7 +30,7 @@
     } from './statics.js';
     import { strengthProfile, availableTorque } from './strength.js';
     import { drawScene } from './render.js';
-    import { runScenario, balancedHandstand } from './rollout.js';
+    import { runScenario, balancedHandstand, resolveConfig } from './rollout.js';
     import { PRESET_TRAJECTORIES, PRESET_CATCH_WINDOW, PRESET_SWEEPS, PRESET_GALLERY } from './presets.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
@@ -409,7 +409,11 @@
 
     Statics ends where every interesting question about handstands begins. To simulate motion, the model becomes a floating body in space: the hand is not attached to the floor, it just rests on it, pressed by two one-sided spring contacts under the heel of the palm and the finger pads (and one under each foot for entries). The center of pressure and every toppling failure emerge from those two palm contacts trading load. Joints are driven by servo torques that track a reference trajectory, and every torque respects two layers of muscle physiology. The first is the strength envelope: maximum voluntary torque as a function of joint velocity, after Yeadon, King and Wilson. Isometric strength is available in a slow press while a fast kick pays the Hill hyperbola falloff; at five radians per second a joint has roughly half its isometric torque left. The second is activation dynamics: neural drive follows a first order lag with a time constant near fifty milliseconds, so torque cannot step instantaneously and bang-bang corrections are impossible by construction, for the model as for you.
 
-    Building this surfaced two failures worth keeping. First, holding a perfectly stacked pose with perfect joint servos still topples: the stacked pose rests the pressure a few millimeters from the heel of the palm, and a body pivoting on the heel point has nothing to push against. Second, servos without anticipatory gravity compensation sag under load, the sag leans the body, the lean raises the load, and the wrist creeps up to its strength cap and over the fingertips. Both are real handstand failures, reproduced by accident.
+    A servo also has to be tuned against the thing it drives, and here that thing is not one thing. These six joints span an effective inertia of two hundred to one: a knee swings a third of a kilogram metre squared, while the wrist turns the entire body about the palm and sees eighty. One damping constant is therefore always wrong somewhere, and the constant that kept the knees civil left the wrist at a damping ratio of 0.12. So the servo reads the damping it needs off the mass matrix it is already computing, two zeta root kp M for each joint, refreshed a couple of hundred times a second: often enough to follow the body as it changes shape, seldom enough to stay off the hot loop. A nervous system does not re-identify its own limbs at five kilohertz either.
+
+    That fixes the ringing but not the reason for it. At forty five degrees of error the position term asks for ten radians per second, and a loaded shoulder needs five hundred degrees of travel to brake from ten radians per second, so the reference is quietly requesting an arrival the muscle cannot produce; the joint spends the whole movement against its cap, and the moment it finally reaches the balanced position, where the required force falls to nothing, it sails straight through. The fix is the one a proximate time-optimal servo uses: cap the commanded speed at whatever the joint can still stop in the error that remains. What makes that honest here is the acceleration it is computed from, which is not the strength cap but the reserve left after gravity has taken its share. A shoulder that has been holding the body up for a second and a half has most of its envelope already committed, and it has to plan its stop with what is left.
+
+    Building this surfaced three failures worth keeping. First, holding a perfectly stacked pose with perfect joint servos still topples: the stacked pose rests the pressure a few millimeters from the heel of the palm, and a body pivoting on the heel point has nothing to push against. Second, servos without anticipatory gravity compensation sag under load, the sag leans the body, the lean raises the load, and the wrist creeps up to its strength cap and over the fingertips. Third, and least expected: the wrist cannot be critically damped at all. Asking for it wants 505 newton metres per radian per second, a damper that would spend the joint's entire seventy newton metre envelope at 0.14 rad/s and leave the balance correction with nothing to say, whereupon the model rides its wrist cap out over the fingertips exactly as the uncompensated servo did. Damping has to be capped at what the muscle can actually produce, and the wrist is the only joint where that cap binds, which is a mechanical way of saying what every beginner discovers: relative to the load it carries, the joint is underpowered, and no choice of gain repairs it. All three are real handstand failures, reproduced by accident.
   </script>
   <script id="sim-controls-cell" type="text/x-typescript">
     const simControls = html`<div class="sim-controls"></div>`;
@@ -444,7 +448,7 @@
         T = p.T;
         if (p.strength) prof = strengthProfile(model.massKg, { overrides: p.strength });
         if (p.rom) rom = { ...ROM_DEFAULTS, ...p.rom };
-        if (p.config) config = p.config;
+        config = resolveConfig(p.config);
       };
       if (sel === 'lunge-opt') fromPreset(PRESET_TRAJECTORIES.lunge);
       else if (sel === 'pike-opt') fromPreset(PRESET_TRAJECTORIES.pike);
@@ -525,11 +529,10 @@
       // Per-joint utilization colors the segment each joint drives, against
       // the strength profile the run was simulated with.
       const keys = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
-      const servoKd = sim.servo?.kd ?? 60;
       const profNow = sim.prof || strengthProf;
       const segmentColors = [null, null, null, null, null, null, null];
       for (let j = 0; j < 6; j++) {
-        const tauApplied = rec.tau[k][j] - servoKd * rec.qd[k][3 + j];
+        const tauApplied = rec.tauApplied[k][j];
         const cap = availableTorque(profNow[keys[j]], tauApplied, rec.qd[k][3 + j]);
         segmentColors[1 + j] = utilColor(Math.abs(tauApplied) / Math.max(cap, 1e-6), isDark);
       }
@@ -594,7 +597,6 @@
     const simCharts = (() => {
       const rec = simResult.rec;
       const chartProf = simResult.prof || strengthProf;
-      const servoKd = simResult.servo?.kd ?? 60;
       const keys = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
       const labels = ['Wrist', 'Shoulder', 'Hip L', 'Knee L', 'Hip R', 'Knee R'];
       const utilRows = [], grfRows = [], comRows = [];
@@ -604,7 +606,7 @@
         const t = rec.t[k];
         const dts = k > 0 ? t - rec.t[k - 1] : 0;
         for (let j = 0; j < 6; j++) {
-          const tauApplied = rec.tau[k][j] - servoKd * rec.qd[k][3 + j];
+          const tauApplied = rec.tauApplied[k][j];
           const cap = availableTorque(chartProf[keys[j]], tauApplied, rec.qd[k][3 + j]);
           utilRows.push({ t, joint: labels[j], util: Math.abs(tauApplied) / Math.max(cap, 1e-6) });
           const P = tauApplied * rec.qd[k][3 + j];
@@ -864,6 +866,8 @@
 
     Some of the best findings were failures the simulation produced on its own, each now pinned by a test so it stays true. Holding a perfectly stacked handstand with perfect joint servos still topples, because the stacked pose rests the pressure on the heel of the palm and a heel pivot has no restoring authority: balance must be actively bought with wrist torque, and biasing the pressure toward mid palm is worth more than any amount of stiffness. Servos without anticipatory gravity compensation sag, lean, and ride the wrist up to its strength cap and over the fingertips. Opening the hips or shoulders before shifting weight onto the hands rocks the body straight back off its palms, which is the beginner's press attempt in one sentence. And with muscle activation limited to a fifty millisecond time constant, the recoverable catch window for a kick-up shrinks by half, which is why arriving slowly matters more than arriving precisely.
 
+    The most instructive of them arrived late, and it was an overshoot. A shoulder pressing to vertical under load spends the whole press against its torque cap, and when the body finally stacks and the demand falls away there is nothing left holding it back: it sails through the balanced position and rings, five reversals from thirty degrees out, an outright topple from forty five. Two things were wrong and both are worth stating plainly. A servo damped by one constant cannot serve joints whose inertia spans two hundred to one, and a position gain that commands ten radians per second at forty five degrees of error is asking for a stop the muscle has no way to make. Deceleration has to be planned from the reserve that gravity has not already spent, which is the mathematical form of a coaching instruction: do not press so hard into the finish that you cannot meet it. With the damping read off the mass matrix and the approach speed limited to what remains brakeable, the same press arrives with no measurable overshoot and no reversals at all, and forty five degrees, which used to fall, simply arrives. The kick-up, re-optimized against the corrected servo, tells the same story from the other end: it reaches the handstand three tenths of a second sooner, spends noticeably less of the entry with the shoulder flat against its cap, and then holds its last second and a half without one joint reversing direction, where the previous best reversed fourteen times and was still moving four times as fast when the clock ran out.
+
     The model is a two dimensional cartoon: merged arms, locked elbows, no lateral balance, no straddle dynamics beyond a projection, penalty friction, torque servos instead of muscles and tendons, and an optimizer that finds good technique rather than provably best technique. Its numbers should be read as mechanisms and thresholds, not prescriptions. But the mechanisms agree with what the force plates and the coaches have been saying all along, and it is rather pleasant to watch the folklore sort itself into the parts that are physics and the parts that are just repetition.
   </script>
   <script id="gallery-section" type="text/markdown">
@@ -881,7 +885,7 @@
           scenario: g.scenario,
           knots: g.knots.map((k) => Float64Array.from(k)),
           T: g.T, settleT: 2.5, dt: 2.5e-4, rom,
-          ...(g.config || {}),
+          ...resolveConfig(g.config),
         });
         const rec = r.rec;
         const strip = html`<div style="display:flex; gap:3px; flex-wrap:wrap;"></div>`;
@@ -930,7 +934,7 @@
   <script id="validation-section" type="text/markdown">
     ## Validation
 
-    The physics core is exercised by offline gates (run with `node src/notebooks/handstand/test/dynamics.mjs` and friends): the recursive Newton-Euler dynamics against finite differences of the energy function, free-fall momentum conservation, a textbook double pendulum, penalty-contact settling, the Yeadon-King torque curve landmarks, and deterministic optimization. The cell below reruns a fast subset in your browser against the current model so the page can vouch for itself.
+    The physics core is exercised by offline gates (run with `node src/notebooks/handstand/test/dynamics.mjs` and friends): the recursive Newton-Euler dynamics against finite differences of the energy function, free-fall momentum conservation, a textbook double pendulum, penalty-contact settling, the Yeadon-King torque curve landmarks, deterministic optimization, and the arrival gates: that a constant-damping servo really does ring its way into the balanced pose and topple from forty five degrees out, and that the inertia-scaled, brake-limited servo arrives from the same start with no overshoot. The cell below reruns a fast subset in your browser against the current model so the page can vouch for itself.
   </script>
   <script id="validation-checks" type="text/x-typescript">
     const validation = (() => {

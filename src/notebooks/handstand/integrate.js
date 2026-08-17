@@ -50,6 +50,12 @@ export function semiImplicitEulerStep(accel, q, qd, dt, qddScratch) {
 // free motion. Records snapshots every recordEvery steps (plus the final
 // state): time, q, qd, actuated torques, contact point forces, CoM, momenta.
 //
+// appliedTorque: a live array the control writes its PHYSICAL joint torques
+// into (servo.applied), snapshotted as rec.tauApplied. The commanded tau
+// carries the implicit-damping bookkeeping term and is not by itself the
+// torque the muscles produced; with per-joint, pose-dependent damping it can
+// no longer be unwound after the fact, so the servo reports it directly.
+//
 // integrator: 'si' (semi-implicit Euler; jointDamping treated implicitly,
 // tolerates stiff damping at small dt) or 'rk4' (classic RK4 over the step
 // with the control torque frozen, contact forces re-evaluated at each stage
@@ -62,6 +68,7 @@ export function simulate(model, ws, {
   contacts = null,
   control = null,
   jointDamping = null,
+  appliedTorque = null,
   recordEvery = null,
   divergenceLimit = 1e3,
   stopWhen = null,
@@ -75,6 +82,7 @@ export function simulate(model, ws, {
   const steps = Math.round(T / dt);
   const stride = recordEvery || Math.max(1, Math.round(1 / (240 * dt)));
   const rec = { t: [], q: [], qd: [], tau: [], forces: [], com: [], L: [], dt, stride };
+  if (appliedTorque) rec.tauApplied = [];
   let diverged = false;
 
   const snapshot = (k) => {
@@ -82,6 +90,7 @@ export function simulate(model, ws, {
     rec.q.push(q.slice());
     rec.qd.push(qd.slice());
     rec.tau.push(tau.slice(3));
+    if (appliedTorque) rec.tauApplied.push(appliedTorque.slice());
     rec.forces.push(contacts ? {
       px: Array.from(contacts.ext.px), py: Array.from(contacts.ext.py),
       fx: Array.from(contacts.ext.fx), fy: Array.from(contacts.ext.fy),
