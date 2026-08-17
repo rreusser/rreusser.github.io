@@ -3,8 +3,8 @@
 // plant/controller config it was produced under; replays must use it.
 export const PRESET_TRAJECTORIES = {
  "lunge": {
-  "file": "010-kick-braked-servo.json",
-  "label": "Kick-up, braked servo (arrives without overshoot)",
+  "file": "011-kick-rom-stops.json",
+  "label": "Kick-up, braked servo with anatomical end-stops (stays inside its own range)",
   "scenario": "lunge",
   "rom": {},
   "strength": {},
@@ -20,7 +20,9 @@ export const PRESET_TRAJECTORIES = {
    "dampingRatio": 1,
    "brakeMargin": 0.8,
    "inertiaHz": 200,
-   "dampingSpeed": 0.5
+   "dampingSpeed": 0.5,
+   "romStopDeg": 5,
+   "romStopZeta": 0.7
   },
   "weights": {
    "pose": 1,
@@ -38,59 +40,59 @@ export const PRESET_TRAJECTORIES = {
    "settleCalm": 1,
    "driveRate": 0.3
   },
-  "seed": 23,
-  "T": 1.08846,
+  "seed": 37,
+  "T": 1.27438,
   "knots": [
    [
-    1.05737,
-    0.826078,
-    1.1509,
-    1.6057,
-    1.52327,
+    0.959335,
+    1.0071,
+    1.35737,
+    1.49493,
+    1.33381,
     1.52501
    ],
    [
-    1.20068,
-    0.955329,
-    0.573149,
-    0.340382,
-    0.334046,
+    1.26666,
+    1.13963,
+    1.04283,
+    0.548169,
+    0.123671,
     0
    ],
    [
-    1.37463,
-    0.0960796,
-    0.0689024,
-    -0.294218,
-    -0.349066,
+    1.29583,
+    -0.202261,
+    -0.246686,
+    0.07058,
+    0.0042098,
     0
    ],
    [
-    -0.103278,
-    -0.0522194,
-    0.0522805,
-    -0.193668,
-    -0.266966,
+    -0.0525429,
+    -0.0772878,
+    -0.500016,
+    -0.421017,
+    -0.282492,
     0
    ],
    [
-    1.95194,
-    2.36871,
-    1.08782,
-    0.791954,
-    0.568046,
+    2.4355,
+    2.12647,
+    1.50629,
+    1.04347,
+    0.240159,
     0
    ],
    [
-    -0.848125,
-    -1.02649,
-    0.0523599,
-    -0.401665,
-    -0.383948,
+    -0.733223,
+    -0.714911,
+    -0.39193,
+    -0.562472,
+    -0.235878,
     0
    ]
   ],
-  "recordedCost": 4.9001,
+  "recordedCost": 2.40827,
   "verdict": {
    "upright": true,
    "over": true,
@@ -98,8 +100,8 @@ export const PRESET_TRAJECTORIES = {
    "posed": true,
    "feetFree": true,
    "success": true,
-   "comX": 0.0412703,
-   "comY": 1.01346
+   "comX": 0.0485854,
+   "comY": 1.01344
   }
  },
  "pike": {
@@ -1145,6 +1147,108 @@ export const PRESET_GALLERY = [
    "success": true,
    "comX": 0.0412703,
    "comY": 1.01346
+  }
+ },
+ {
+  "file": "011-kick-rom-stops.json",
+  "label": "Kick-up, re-optimized with anatomical end-stops (stays inside its own range)",
+  "scenario": "lunge",
+  "rom": {},
+  "strength": {},
+  "config": {
+   "kp": 800,
+   "kd": 60,
+   "kCom": 2000,
+   "dCom": 1500,
+   "activationTau": 0.05,
+   "mu": 1,
+   "contactZeta": 1,
+   "integrator": "si",
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5,
+   "romStopDeg": 5,
+   "romStopZeta": 0.7
+  },
+  "weights": {
+   "pose": 1,
+   "poseAngles": 2,
+   "velocity": 0.3,
+   "fall": 1,
+   "effort": 0.08,
+   "saturation": 2,
+   "rom": 4,
+   "quasiStatic": 0,
+   "liftoff": 8,
+   "feet": 5,
+   "work": 1,
+   "smooth": 1,
+   "settleCalm": 1,
+   "driveRate": 0.3
+  },
+  "seed": 37,
+  "T": 1.27438,
+  "knots": [
+   [
+    0.959335,
+    1.0071,
+    1.35737,
+    1.49493,
+    1.33381,
+    1.52501
+   ],
+   [
+    1.26666,
+    1.13963,
+    1.04283,
+    0.548169,
+    0.123671,
+    0
+   ],
+   [
+    1.29583,
+    -0.202261,
+    -0.246686,
+    0.07058,
+    0.0042098,
+    0
+   ],
+   [
+    -0.0525429,
+    -0.0772878,
+    -0.500016,
+    -0.421017,
+    -0.282492,
+    0
+   ],
+   [
+    2.4355,
+    2.12647,
+    1.50629,
+    1.04347,
+    0.240159,
+    0
+   ],
+   [
+    -0.733223,
+    -0.714911,
+    -0.39193,
+    -0.562472,
+    -0.235878,
+    0
+   ]
+  ],
+  "recordedCost": 2.40827,
+  "verdict": {
+   "upright": true,
+   "over": true,
+   "still": true,
+   "posed": true,
+   "feetFree": true,
+   "success": true,
+   "comX": 0.0485854,
+   "comY": 1.01344
   }
  }
 ];

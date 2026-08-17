@@ -9,6 +9,7 @@ import {
   groundHand, solveWristForCom, romPenalty, clampPose, hipFlexMaxDeg, ROM_DEFAULTS,
 } from './statics.js';
 import { createContacts } from './contact.js';
+import { createJointStops } from './joint-stops.js';
 import { simulate } from './integrate.js';
 import { createServo, createBalanceControl } from './control.js';
 import { availableTorque } from './strength.js';
@@ -189,6 +190,7 @@ export const SERVO_DEFAULTS = {
   kp: 800, kd: 60, kCom: 2000, dCom: 1500,
   activationTau: 0.05, mu: 1.0, contactZeta: 1.0, integrator: 'si',
   dampingRatio: 1.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
+  romStopDeg: 5, romStopZeta: 0.7,
 };
 
 // Plant/controller settings as they were BEFORE a given capability existed.
@@ -196,7 +198,9 @@ export const SERVO_DEFAULTS = {
 // produced under, so a config that predates a key must replay with that
 // key's pre-existing behavior, not with today's default. Both of these
 // default to "off", which is exactly the old constant-kd, no-braking servo.
-export const LEGACY_SERVO_CONFIG = { dampingRatio: 0, brakeMargin: 0, dampingSpeed: 0 };
+export const LEGACY_SERVO_CONFIG = {
+  dampingRatio: 0, brakeMargin: 0, dampingSpeed: 0, romStopDeg: 0,
+};
 
 // Resolve a stored artifact config into the full argument set for
 // runScenario. Anything the artifact recorded wins; anything it could not
@@ -709,6 +713,8 @@ export function runScenario(model, ws, strengthProf, {
   brakeMargin = SERVO_DEFAULTS.brakeMargin,
   inertiaHz = SERVO_DEFAULTS.inertiaHz,
   dampingSpeed = SERVO_DEFAULTS.dampingSpeed,
+  romStopDeg = SERVO_DEFAULTS.romStopDeg,
+  romStopZeta = SERVO_DEFAULTS.romStopZeta,
   recordEvery = null,
   qdJitter = 0,
   jitterSeed = 1,
@@ -728,6 +734,12 @@ export function runScenario(model, ws, strengthProf, {
     kp, kd, ws, activationTau, dampingRatio, brakeMargin, inertiaHz, dampingSpeed,
   });
   const contacts = createContacts(model, { mu, zeta: contactZeta });
+  // Anatomical end-stops are part of the body, not the controller: the
+  // reference bounds keep the optimizer from ASKING for an impossible angle,
+  // and these keep momentum from producing one anyway.
+  const stops = createJointStops(model, rom, strengthProf, ws, {
+    stopDeg: romStopDeg, zeta: romStopZeta, qNominal: q0,
+  });
 
   // The wrist strategy runs closed-loop during the rollout: a wrist torque
   // correction proportional to horizontal CoM error and velocity, scaled by
@@ -750,6 +762,7 @@ export function runScenario(model, ws, strengthProf, {
     q0, qd0, T: T + settleT, dt, integrator, contacts,
     jointDamping: servo.damping,
     appliedTorque: servo.applied,
+    jointStops: stops,
     control: servo.makeControl(ref, T, augment),
     recordEvery,
   });
@@ -767,7 +780,7 @@ export function runScenario(model, ws, strengthProf, {
   const W = mo.mass * model.gravity;
   const feetFree = (contacts.ext.fy[2] + contacts.ext.fy[3]) < 0.05 * W;
   return {
-    ...out, contacts, servo, knots: ref, T, settleT,
+    ...out, contacts, servo, stops, knots: ref, T, settleT,
     verdict: {
       upright, over, still, posed, feetFree,
       success: upright && over && still && posed && feetFree,

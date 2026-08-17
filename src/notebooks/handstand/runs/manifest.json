@@ -1,6 +1,6 @@
 {
   "presets": {
-    "lunge": "010-kick-braked-servo.json",
+    "lunge": "011-kick-rom-stops.json",
     "pike": "001-press-statics.json"
   },
   "catch": "catch-window.json",
@@ -44,6 +44,10 @@
     {
       "file": "010-kick-braked-servo.json",
       "label": "Kick-up, inertia-scaled damping and brake-limited approach (arrives without overshoot)"
+    },
+    {
+      "file": "011-kick-rom-stops.json",
+      "label": "Kick-up, re-optimized with anatomical end-stops (stays inside its own range)"
     }
   ]
 }

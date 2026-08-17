@@ -1,5 +1,8 @@
 // Verification gates for penalty ground contacts and the simulate() driver.
 //
+// Gates E and F cover the joint servo's arrival behavior and the passive
+// anatomical end-stops, both of which reach the model through simulate().
+//
 // Gate C is the promised demonstration that stiff penalty contacts constrain
 // the step size: the default dt integrates a settling drop cleanly while a
 // coarse dt visibly diverges on the same problem. Gate D is the end-to-end
@@ -11,10 +14,12 @@ import { buildModel, handstandPose } from '../anthropometry.js';
 import { createWorkspace, momenta } from '../dynamics.js';
 import { createContacts, computeContactForces, groundReaction } from '../contact.js';
 import { simulate } from '../integrate.js';
-import { groundHand, solveWristForCom } from '../statics.js';
+import { groundHand, solveWristForCom, ROM_DEFAULTS } from '../statics.js';
 import { strengthProfile } from '../strength.js';
 import { createServo } from '../control.js';
-import { balancedHandstand, HANDSTAND_TARGET_FRAC, SERVO_DEFAULTS } from '../rollout.js';
+import {
+  balancedHandstand, HANDSTAND_TARGET_FRAC, SERVO_DEFAULTS, LEGACY_SERVO_CONFIG, runScenario,
+} from '../rollout.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -253,6 +258,52 @@ function blockModel() {
     && f45.stood && f45.arrived && f45.overDeg < 2,
     `30deg: ${f30.overDeg.toFixed(1)}deg overshoot, ${f30.reversals} reversals; `
     + `45deg: ${f45.overDeg.toFixed(1)}deg overshoot, stood=${f45.stood}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gates F1-F2: anatomical end-stops.
+//
+// The failure this pins: range of motion used to be a cost term only, so a
+// joint could be driven far outside its anatomy for a few hundredths of a
+// cost unit. Bounding the reference knots does not fix it, because momentum
+// carries a swinging limb past its limit whatever the reference says, and an
+// optimizer that is only fined will happily buy a knee hyperextended forty
+// degrees. F1 commands a knee straight through its 3-degree hyperextension
+// limit and shows it goes there. F2 pins the stop: with passive end-stops in
+// the plant, maximum voluntary torque buys about the design penetration and
+// no more, because tissue is what stops a joint.
+// ---------------------------------------------------------------------------
+{
+  const D2R = Math.PI / 180;
+  const model = buildModel({ heightM: 1.75, massKg: 70 });
+  const ws = createWorkspace(model);
+  const prof = strengthProfile(model.massKg);
+  const qBal = balancedHandstand(model, ws);
+  const rom = { ...ROM_DEFAULTS };
+
+  // Hold the handstand, but command the left knee 40 degrees into
+  // hyperextension: a reference no anatomy can honour.
+  const knots = [];
+  for (let j = 0; j < 6; j++) knots.push(Float64Array.of(qBal[3 + j], qBal[3 + j]));
+  knots[3] = Float64Array.of(qBal[6], 40 * D2R);
+
+  const worstKnee = (cfg) => {
+    const r = runScenario(model, ws, prof, {
+      scenario: 'hold', knots, T: 1.0, settleT: 1.0, dt: 2.5e-4, rom, ...cfg,
+    });
+    let worst = 0;
+    for (const q of r.rec.q) worst = Math.max(worst, q[6] - rom.kneeHyperextDeg * D2R);
+    return worst / D2R;
+  };
+
+  const free = worstKnee({ ...LEGACY_SERVO_CONFIG });
+  gate('F1: without end-stops the servo drives the knee far past anatomy (demonstrated)',
+    free > 30, `knee ${free.toFixed(1)} deg beyond its hyperextension limit`);
+
+  const stopped = worstKnee({});
+  gate('F2: end-stops hold the knee within the design penetration under full torque',
+    stopped < 1.5 * SERVO_DEFAULTS.romStopDeg,
+    `knee ${stopped.toFixed(1)} deg beyond its limit (stopDeg=${SERVO_DEFAULTS.romStopDeg})`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll contact gates passed');

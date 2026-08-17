@@ -7,6 +7,7 @@
 
 import { forwardDynamics, momenta } from './dynamics.js';
 import { computeContactForces, resetContacts } from './contact.js';
+import { applyJointStops } from './joint-stops.js';
 
 export function makeIntegratorWorkspace(n2) {
   return {
@@ -69,6 +70,7 @@ export function simulate(model, ws, {
   control = null,
   jointDamping = null,
   appliedTorque = null,
+  jointStops = null,
   recordEvery = null,
   divergenceLimit = 1e3,
   stopWhen = null,
@@ -83,6 +85,7 @@ export function simulate(model, ws, {
   const stride = recordEvery || Math.max(1, Math.round(1 / (240 * dt)));
   const rec = { t: [], q: [], qd: [], tau: [], forces: [], com: [], L: [], dt, stride };
   if (appliedTorque) rec.tauApplied = [];
+  if (jointStops) rec.tauStop = [];
   let diverged = false;
 
   const snapshot = (k) => {
@@ -91,6 +94,7 @@ export function simulate(model, ws, {
     rec.qd.push(qd.slice());
     rec.tau.push(tau.slice(3));
     if (appliedTorque) rec.tauApplied.push(appliedTorque.slice());
+    if (jointStops) rec.tauStop.push(jointStops.torque.slice());
     rec.forces.push(contacts ? {
       px: Array.from(contacts.ext.px), py: Array.from(contacts.ext.py),
       fx: Array.from(contacts.ext.fx), fy: Array.from(contacts.ext.fy),
@@ -106,11 +110,21 @@ export function simulate(model, ws, {
   const iws = rk4 ? makeIntegratorWorkspace(2 * nq) : null;
   const dq = rk4 ? new Float64Array(nq) : null;
   const dqd = rk4 ? new Float64Array(nq) : null;
+  // tau stays the control's own command; the end-stop torques are plant
+  // forces and are summed into tauTot, so rec.tau keeps one meaning under
+  // both integrators and rec.tauStop carries the ligament share separately.
+  const tauTot = jointStops ? new Float64Array(nq) : null;
+  const withStops = (qq, qqd) => {
+    if (!jointStops) return tau;
+    tauTot.set(tau);
+    applyJointStops(jointStops, qq, qqd, tauTot);
+    return tauTot;
+  };
   const deriv = rk4 ? (yy, out) => {
     dq.set(yy.subarray(0, nq));
     dqd.set(yy.subarray(nq));
     const ext2 = contacts ? computeContactForces(model, ws, dq, dqd, contacts, false) : null;
-    forwardDynamics(model, dq, dqd, tau, ext2, qdd, ws, jointDamping, 0);
+    forwardDynamics(model, dq, dqd, withStops(dq, dqd), ext2, qdd, ws, jointDamping, 0);
     out.set(yy.subarray(nq), 0);
     out.set(qdd, nq);
   } : null;
@@ -119,6 +133,7 @@ export function simulate(model, ws, {
     const ext = contacts ? computeContactForces(model, ws, q, qd, contacts, true) : null;
     tau.fill(0);
     control?.(k * dt, q, qd, tau);
+    const tauUse = withStops(q, qd);
     if (k % stride === 0) {
       snapshot(k);
       if (stopWhen && stopWhen(k * dt, q, qd)) { stopped = true; break; }
@@ -129,7 +144,7 @@ export function simulate(model, ws, {
       q.set(y.subarray(0, nq));
       qd.set(y.subarray(nq));
     } else {
-      forwardDynamics(model, q, qd, tau, ext, qdd, ws, jointDamping, dt);
+      forwardDynamics(model, q, qd, tauUse, ext, qdd, ws, jointDamping, dt);
       for (let i = 0; i < nq; i++) qd[i] += dt * qdd[i];
       for (let i = 0; i < nq; i++) q[i] += dt * qd[i];
     }
@@ -141,6 +156,7 @@ export function simulate(model, ws, {
   if (!diverged && !stopped) {
     if (contacts) computeContactForces(model, ws, q, qd, contacts);
     control?.(steps * dt, q, qd, tau);
+    withStops(q, qd);
     snapshot(steps);
   }
   return { rec, q, qd, diverged, stopped };
