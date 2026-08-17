@@ -438,13 +438,21 @@
   </script>
   <script id="sim-controls-cell" type="text/x-typescript">
     const simControls = html`<div class="sim-controls"></div>`;
+    // The canonical entry for each skill is the best run of its kind, so it is
+    // named plainly and listed first. Those two also appear in the gallery, and
+    // are filtered out of the [run] list below rather than offered twice; the
+    // gallery index has to survive that filter, since it is what selects the
+    // run. The press is deliberately labelled with the shoulder it needs,
+    // because picking it quietly swaps in a stronger body than the default.
+    const canonical = new Set(
+      [PRESET_TRAJECTORIES.lunge?.file, PRESET_TRAJECTORIES.pike?.file].filter(Boolean));
     const scenarioNames = {
       hold: 'Hold a handstand',
-      pike: 'Press attempt (naive trajectory)',
-      lunge: 'Kick-up attempt (naive trajectory)',
-      ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up (optimized)' } : {}),
-      ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': PRESET_TRAJECTORIES.pike.label } : {}),
-      ...Object.fromEntries(PRESET_GALLERY.map((g, i) => [`gallery-${i}`, `[run] ${g.label}`])),
+      ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up' } : {}),
+      ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press (needs a 2.8 Nm/kg shoulder)' } : {}),
+      ...Object.fromEntries(PRESET_GALLERY
+        .map((g, i) => [`gallery-${i}`, `[run] ${g.label}`])
+        .filter((_, i) => !canonical.has(PRESET_GALLERY[i].file))),
       live: 'Latest optimizer result',
     };
     const scenarioInput = Inputs.select(Object.keys(scenarioNames), {
@@ -691,7 +699,7 @@
   <script id="optimizer-section" type="text/markdown">
     ## Finding the easiest way up
 
-    Hand-authoring trajectories is a losing game: the naive attempts above fail in exactly the ways beginners do. So instead the notebook searches. A candidate technique is a set of spline knots for each of the six joints plus a total duration, thirty seven numbers in all, and its score is a physics rollout: did it arrive at a balanced handstand, meaning the stacked configuration with the feet free of the floor and not merely a center of mass in the right place; how much of the strength envelope did it burn; how much metabolic work it spent, with concentric work charged at muscle efficiency and eccentric absorption cheap, so churning the legs reads as expensive the way it should; did it violate a flexibility limit; did the palms stay planted; did it fall and how early. A covariance matrix adaptation evolution strategy (CMA-ES) then climbs that score. Every run is deterministic under its seed, and the presets above were produced by exactly this process offline; the optimizer below runs live in a worker if you want to search under different flexibility or strength settings.
+    Hand-authoring trajectories is a losing game. Every attempt I wrote by hand failed in one of the ways beginners fail, and none of them survived into this notebook. So instead the notebook searches. A candidate technique is a set of spline knots for each of the six joints plus a total duration, thirty seven numbers in all, and its score is a physics rollout: did it arrive at a balanced handstand, meaning the stacked configuration with the feet free of the floor and not merely a center of mass in the right place; how much of the strength envelope did it burn; how much metabolic work it spent, with concentric work charged at muscle efficiency and eccentric absorption cheap, so churning the legs reads as expensive the way it should; did it violate a flexibility limit; did the palms stay planted; did it fall and how early. A covariance matrix adaptation evolution strategy (CMA-ES) then climbs that score. Every run is deterministic under its seed, and the presets above were produced by exactly this process offline; the optimizer below runs live in a worker if you want to search under different flexibility or strength settings.
   </script>
   <script id="opt-state" type="text/x-typescript">
     const optState = {
