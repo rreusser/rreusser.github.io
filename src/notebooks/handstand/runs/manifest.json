@@ -1,0 +1,45 @@
+{
+  "presets": {
+    "lunge": "008-kick-quiet-servo.json",
+    "pike": "001-press-statics.json"
+  },
+  "catch": "catch-window.json",
+  "gallery": [
+    {
+      "file": "001-press-statics.json",
+      "label": "Press, statics-derived path (strong shoulders, flexible hamstrings)"
+    },
+    {
+      "file": "002-press-default-stall.json",
+      "label": "Press, default shoulder strength (stalls partway)"
+    },
+    {
+      "file": "003-kick-flail.json",
+      "label": "Kick-up, no smoothness cost (flails)"
+    },
+    {
+      "file": "004-kick-crouch.json",
+      "label": "Kick-up, smoothness cost alone (gives up: crouch)"
+    },
+    {
+      "file": "005-kick-banana.json",
+      "label": "Kick-up, arrival-weighted (banana oscillation)"
+    },
+    {
+      "file": "006-kick-drift.json",
+      "label": "Kick-up, calm refinement (drifts toward overshoot)"
+    },
+    {
+      "file": "007-kick-parked-stiff.json",
+      "label": "Kick-up, final knot pinned (parks; buzzy stiff servo)"
+    },
+    {
+      "file": "008-kick-quiet-servo.json",
+      "label": "Kick-up, quiet servo (parks without shoulder buzz)"
+    },
+    {
+      "file": "009-kick-fresh-crouch.json",
+      "label": "Kick-up, fresh search on quiet servo (never finds the kick: crouch)"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+description: "A 2D rigid body simulation of handstand technique: statics, dynamics, and trajectory optimization of the press and kick-up"
+tags:
+  - physics
+  - simulation
