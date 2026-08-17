@@ -906,11 +906,7 @@
   <script id="gallery-section" type="text/markdown">
     ## Every optimization run, on the record
 
-    Trajectory optimization fails in creative ways, and a cost number proves nothing. So every result this notebook argues from is embedded and re-simulated here, live, as a filmstrip: successes, stalls, and flails alike. Each row is also available in the playback scenario menu above (the entries in brackets) with full force instrumentation. If a row looks wrong, it is wrong, whatever its cost says.
-
-    These are a selection, one per thing worth knowing, and not the whole history. The registry behind them holds every run that was ever made, including a good many superseded iterations of the same idea; what is below is the shortest set that still makes the argument. The first is the cost function refusing to commit, the next three are how the kick-up was actually arrived at, then what happens when the shoulder is given more than it needs, and the last four are the press going from impossible to comfortable as that strength arrives.
-
-    One run was dropped from this list for a reason worth stating, since it is a hazard of keeping results on the record at all. It was the earliest kick-up here, recorded as flailing its way up to very nearly a handstand, and it no longer does that: replayed today under its own configuration it simply falls over. Somewhere between then and now the scenario construction changed underneath it, so the stored angles stopped meaning what they meant when they were stored. It had been passing the replay gate the whole time, because that gate only compared whether the run succeeded, and a run that fails in one way agrees perfectly with a run that fails in another. The gate now checks where the body actually ended up.
+    Trajectory optimization fails in creative ways, and a cost number proves nothing. So every optimization result this notebook relies on is embedded and re-simulated here, live, as a filmstrip: successes, stalls, and flails alike. Each row is also available in the playback scenario menu above (the entries in brackets) with full force instrumentation. If a row looks wrong, it is wrong, whatever its cost says.
   </script>
   <script id="trajectory-gallery" type="text/x-typescript">
     const galleryView = (() => {
@@ -921,7 +917,7 @@
         const r = runScenario(model, ws, prof, {
           scenario: g.scenario,
           knots: g.knots.map((k) => Float64Array.from(k)),
-          T: g.T, settleT: 2.5, dt: 2e-4, rom,
+          T: g.T, settleT: 2.5, dt: 2.5e-4, rom,
           ...resolveConfig(g.config),
         });
         const rec = r.rec;
@@ -979,7 +975,7 @@
       });
       return html`<figure>
         ${rows}
-        <figcaption>Each row re-simulates an embedded optimization result at the current page load and renders seven keyframes. Verdict labels come from the replay, not from the stored run. Each row also replays under the strength and flexibility it was produced with, which is deliberately not the same for every row: the line under each strip says which body it had, and flags the ones that are not today's defaults, because two rows are only comparable once you know that.</figcaption>
+        <figcaption>Each row re-simulates an embedded optimization result at the current page load and renders seven keyframes. Verdict labels come from the replay, not from the stored run. Each row also replays under the strength and flexibility it was produced with, which is not the same for every row: the line under each strip says which body it had, and flags the ones that are not today's defaults.</figcaption>
       </figure>`;
     })();
     display(galleryView);

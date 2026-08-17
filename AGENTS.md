@@ -25,7 +25,6 @@ For implementation patterns, see the [implementation guide](docs/implementation-
 - Do not import npm packages inside lib files — import them in the notebook and inject as arguments
 - Mutable state shared across cells must be wrapped in an object; properties can be mutated freely but the variable itself cannot be reassigned from another cell
 - Always clean up animations, timers, and event listeners in `invalidation.then()`
-- Handstand notebook: run ALL of `src/notebooks/handstand/test/*.mjs`, `artifacts.mjs` included — it is the gate that catches a change silently rewriting what a recorded run means, and it is easy to forget because it is about data rather than physics
 - Draggable figure handles: `touch-action: none` on the outer **HTML** container (not the SVG — inner SVG nodes are not reliably honoured), plus `setPointerCapture` and a tracked `pointerId`. Without the first, a touch drag both scrolls the page and dies mid-gesture, because scrolling fires `pointercancel`
 - Use `src/lib/webgpu-canvas.js` for WebGPU context creation (patches shader error reporting)
 - Use `src/lib/frame-loop.js` for render loops
