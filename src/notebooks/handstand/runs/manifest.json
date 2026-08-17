@@ -1,6 +1,6 @@
 {
   "presets": {
-    "lunge": "012-kick-recreational.json",
+    "lunge": "014-kick-rom-peak.json",
     "pike": "001-press-statics.json"
   },
   "catch": "catch-window.json",
@@ -52,6 +52,14 @@
     {
       "file": "012-kick-recreational.json",
       "label": "Kick-up at recreational strength with a bounded entry (no planche)"
+    },
+    {
+      "file": "013-kick-rom-priced.json",
+      "label": "Kick-up with range of motion priced properly (hamstring stretch halved)"
+    },
+    {
+      "file": "014-kick-rom-peak.json",
+      "label": "Kick-up with peak violation priced too (tightest anatomy, slightly more press)"
     }
   ]
 }

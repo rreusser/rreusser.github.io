@@ -3,8 +3,8 @@
 // plant/controller config it was produced under; replays must use it.
 export const PRESET_TRAJECTORIES = {
  "lunge": {
-  "file": "012-kick-recreational.json",
-  "label": "Kick-up, recreational strength and a bounded entry (no planche)",
+  "file": "014-kick-rom-peak.json",
+  "label": "Kick-up that stays inside its own anatomy, peak violation priced too",
   "scenario": "lunge",
   "rom": {
    "wristDorsiMaxDeg": 88,
@@ -77,6 +77,7 @@ export const PRESET_TRAJECTORIES = {
    "effort": 0.08,
    "saturation": 2,
    "rom": 4,
+   "romPeak": 0.5,
    "quasiStatic": 0,
    "liftoff": 8,
    "feet": 5,
@@ -85,59 +86,59 @@ export const PRESET_TRAJECTORIES = {
    "settleCalm": 1,
    "driveRate": 0.3
   },
-  "seed": 53,
-  "T": 1.7,
+  "seed": 83,
+  "T": 1.89851,
   "knots": [
    [
-    0.786952,
-    1.16566,
-    1.52889,
-    1.33575,
-    1.51674,
+    1.07356,
+    1.53589,
+    1.18258,
+    1.04398,
+    1.48188,
     1.52501
    ],
    [
-    1.76924,
-    1.48382,
-    0.129179,
-    0.218432,
-    0.106396,
+    1.67869,
+    1.06915,
+    0.125932,
+    0.150632,
+    0.134928,
     0
    ],
    [
-    0.716179,
-    -0.144465,
-    -0.258517,
-    -0.276373,
-    -0.142468,
+    0.458381,
+    -0.244191,
+    -0.349066,
+    0.159658,
+    -0.0293394,
     0
    ],
    [
-    -0.0238647,
-    -1.47087,
-    -1.50877,
-    -0.909816,
-    -0.609915,
+    0.00964106,
+    -1.34341,
+    -1.80768,
+    -1.07957,
+    -1.05913,
     0
    ],
    [
-    2.25202,
-    2.17275,
-    1.68642,
-    1.37597,
-    0.595887,
+    1.98282,
+    2.14155,
+    2.00571,
+    1.83041,
+    0.581904,
     0
    ],
    [
-    -0.864601,
-    -0.592023,
-    -0.544815,
-    -1.08933,
-    -0.504453,
+    -0.892915,
+    -0.748371,
+    -1.13048,
+    -1.20103,
+    -0.153571,
     0
    ]
   ],
-  "recordedCost": 3.28161,
+  "recordedCost": 4.44629,
   "verdict": {
    "upright": true,
    "over": true,
@@ -145,7 +146,7 @@ export const PRESET_TRAJECTORIES = {
    "posed": true,
    "feetFree": true,
    "success": true,
-   "comX": 0.0455314,
+   "comX": 0.0412723,
    "comY": 1.01344
   }
  },
@@ -1956,6 +1957,301 @@ export const PRESET_GALLERY = [
    "feetFree": true,
    "success": true,
    "comX": 0.0455314,
+   "comY": 1.01344
+  }
+ },
+ {
+  "file": "013-kick-rom-priced.json",
+  "label": "Kick-up with range of motion priced properly (hamstring stretch halved)",
+  "scenario": "lunge",
+  "rom": {
+   "wristDorsiMaxDeg": 88,
+   "wristDorsiMinDeg": 45,
+   "shoulderFlexMaxDeg": 180,
+   "shoulderHyperDeg": 5,
+   "shoulderCloseMaxDeg": 110,
+   "hipFlexStraightKneeMaxDeg": 85,
+   "hamstringCouplingPerDeg": 0.6,
+   "hipFlexAbsMaxDeg": 140,
+   "hipExtMaxDeg": 20,
+   "kneeFlexMaxDeg": 145,
+   "kneeHyperextDeg": 3
+  },
+  "strength": {
+   "wrist": {
+    "t0Vol": 0.85,
+    "wmax": 15,
+    "wc": 6,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   },
+   "shoulder": {
+    "t0Vol": 1.6,
+    "wmax": 18,
+    "wc": 7,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   },
+   "hip": {
+    "t0Vol": 2.2,
+    "wmax": 18,
+    "wc": 7,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   },
+   "knee": {
+    "t0Vol": 2.6,
+    "wmax": 20,
+    "wc": 8,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   }
+  },
+  "config": {
+   "kp": 800,
+   "kd": 60,
+   "kCom": 2000,
+   "dCom": 1500,
+   "activationTau": 0.05,
+   "mu": 1,
+   "contactZeta": 1,
+   "integrator": "si",
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5,
+   "romStopDeg": 5,
+   "romStopZeta": 0.7
+  },
+  "weights": {
+   "pose": 1,
+   "poseAngles": 2,
+   "velocity": 0.3,
+   "fall": 1,
+   "effort": 0.08,
+   "saturation": 2,
+   "rom": 4,
+   "quasiStatic": 0,
+   "liftoff": 8,
+   "feet": 5,
+   "work": 1,
+   "smooth": 1,
+   "settleCalm": 1,
+   "driveRate": 0.3
+  },
+  "seed": 67,
+  "T": 1.7872,
+  "knots": [
+   [
+    1.08954,
+    1.50206,
+    1.21802,
+    1.18032,
+    1.48527,
+    1.52501
+   ],
+   [
+    1.60889,
+    1.3283,
+    0.0660769,
+    0.188585,
+    0.110006,
+    0
+   ],
+   [
+    0.413064,
+    -0.233423,
+    -0.288283,
+    -0.31591,
+    -0.128813,
+    0
+   ],
+   [
+    0.00455616,
+    -1.2954,
+    -1.57529,
+    -0.991617,
+    -0.711895,
+    0
+   ],
+   [
+    1.9891,
+    2.13405,
+    1.85629,
+    1.68652,
+    0.518668,
+    0
+   ],
+   [
+    -0.868123,
+    -0.602893,
+    -0.841032,
+    -1.40619,
+    -0.135541,
+    0
+   ]
+  ],
+  "recordedCost": 3.25129,
+  "verdict": {
+   "upright": true,
+   "over": true,
+   "still": true,
+   "posed": true,
+   "feetFree": true,
+   "success": true,
+   "comX": 0.0413883,
+   "comY": 1.01344
+  }
+ },
+ {
+  "file": "014-kick-rom-peak.json",
+  "label": "Kick-up with peak violation priced too (tightest anatomy, slightly more press)",
+  "scenario": "lunge",
+  "rom": {
+   "wristDorsiMaxDeg": 88,
+   "wristDorsiMinDeg": 45,
+   "shoulderFlexMaxDeg": 180,
+   "shoulderHyperDeg": 5,
+   "shoulderCloseMaxDeg": 110,
+   "hipFlexStraightKneeMaxDeg": 85,
+   "hamstringCouplingPerDeg": 0.6,
+   "hipFlexAbsMaxDeg": 140,
+   "hipExtMaxDeg": 20,
+   "kneeFlexMaxDeg": 145,
+   "kneeHyperextDeg": 3
+  },
+  "strength": {
+   "wrist": {
+    "t0Vol": 0.85,
+    "wmax": 15,
+    "wc": 6,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   },
+   "shoulder": {
+    "t0Vol": 1.6,
+    "wmax": 18,
+    "wc": 7,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   },
+   "hip": {
+    "t0Vol": 2.2,
+    "wmax": 18,
+    "wc": 7,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   },
+   "knee": {
+    "t0Vol": 2.6,
+    "wmax": 20,
+    "wc": 8,
+    "amin": 0.7,
+    "w1": 0,
+    "m": 0.3
+   }
+  },
+  "config": {
+   "kp": 800,
+   "kd": 60,
+   "kCom": 2000,
+   "dCom": 1500,
+   "activationTau": 0.05,
+   "mu": 1,
+   "contactZeta": 1,
+   "integrator": "si",
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5,
+   "romStopDeg": 5,
+   "romStopZeta": 0.7
+  },
+  "weights": {
+   "pose": 1,
+   "poseAngles": 2,
+   "velocity": 0.3,
+   "fall": 1,
+   "effort": 0.08,
+   "saturation": 2,
+   "rom": 4,
+   "romPeak": 0.5,
+   "quasiStatic": 0,
+   "liftoff": 8,
+   "feet": 5,
+   "work": 1,
+   "smooth": 1,
+   "settleCalm": 1,
+   "driveRate": 0.3
+  },
+  "seed": 83,
+  "T": 1.89851,
+  "knots": [
+   [
+    1.07356,
+    1.53589,
+    1.18258,
+    1.04398,
+    1.48188,
+    1.52501
+   ],
+   [
+    1.67869,
+    1.06915,
+    0.125932,
+    0.150632,
+    0.134928,
+    0
+   ],
+   [
+    0.458381,
+    -0.244191,
+    -0.349066,
+    0.159658,
+    -0.0293394,
+    0
+   ],
+   [
+    0.00964106,
+    -1.34341,
+    -1.80768,
+    -1.07957,
+    -1.05913,
+    0
+   ],
+   [
+    1.98282,
+    2.14155,
+    2.00571,
+    1.83041,
+    0.581904,
+    0
+   ],
+   [
+    -0.892915,
+    -0.748371,
+    -1.13048,
+    -1.20103,
+    -0.153571,
+    0
+   ]
+  ],
+  "recordedCost": 4.44629,
+  "verdict": {
+   "upright": true,
+   "over": true,
+   "still": true,
+   "posed": true,
+   "feetFree": true,
+   "success": true,
+   "comX": 0.0412723,
    "comY": 1.01344
   }
  }

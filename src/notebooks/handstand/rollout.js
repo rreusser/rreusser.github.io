@@ -251,7 +251,7 @@ export function encodeDecision(knots, T) {
 
 export const COST_WEIGHTS = {
   pose: 1, poseAngles: 2, velocity: 0.3, fall: 1,
-  effort: 0.08, saturation: 2, rom: 4, quasiStatic: 0,
+  effort: 0.08, saturation: 2, rom: 4, romPeak: 0.5, quasiStatic: 0,
   liftoff: 8, feet: 5, work: 1, smooth: 1,
   settleCalm: 1, driveRate: 0.3,
 };
@@ -284,6 +284,16 @@ export const SMOOTH_ACCEL_SCALE = 60;
 // joint at its cap scores 1 per sample puts sustained maximal effort on the
 // same footing as the work it is doing, which is roughly how it feels.
 export const SATURATION_KNEE = 0.8;
+
+// Scale for the range-of-motion term, and the same lesson a third time.
+// romPenalty returns squared RADIANS, so a joint held twelve degrees outside
+// its anatomy scored 0.044 before weighting: for the whole rollout that is
+// 0.18 against about 1.4 for the work term, which is to say the optimizer was
+// being fined pocket change for a hamstring stretched past its limit and duly
+// paid it. Measuring the violation against the end-stop's own design
+// penetration instead makes one stop-depth of violation cost 1 per joint per
+// sample, so the anatomy is worth about as much as the effort of reaching it.
+export const ROM_VIOLATION_SCALE = SERVO_DEFAULTS.romStopDeg * D2R;
 
 // Metabolic accounting for the work term (Margaria): concentric (positive)
 // mechanical work costs 1/0.25 of itself metabolically; eccentric
@@ -395,7 +405,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   liftoff /= rec.t.length;
   if (nAng > 0) { angErr /= nAng; feet /= nAng; }
 
-  let effort = 0, sat = 0, romP = 0, peakKE = 0;
+  let effort = 0, sat = 0, romP = 0, romPk = 0, peakKE = 0;
   let posWork = 0, negWork = 0;
   let driveRate = 0, nDrive = 0, settleCalmV = 0, nSettleCalm = 0;
   const prevU = new Float64Array(6).fill(NaN);
@@ -441,7 +451,14 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     }
     effort += sumU2;
     sat += sumSat;
-    romP += romPenalty(rec.q[k], rom);
+    const romNow = romPenalty(rec.q[k], rom) / (ROM_VIOLATION_SCALE * ROM_VIOLATION_SCALE);
+    romP += romNow;
+    // Peak as well as mean: the mean dilutes a brief excursion across the
+    // whole rollout, but a hamstring is not injured by the average of a
+    // movement, it is injured by the worst instant of it. A fast leg swing
+    // that spikes into end range for a tenth of a second is exactly the
+    // event, and averaging is what made it look cheap.
+    if (romNow > romPk) romPk = romNow;
     if (weights.quasiStatic) {
       let ke = 0;
       for (let i = 3; i < 9; i++) ke += rec.qd[k][i] * rec.qd[k][i];
@@ -491,6 +508,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     effort: weights.effort * effort,
     saturation: weights.saturation * sat,
     rom: weights.rom * romP,
+    romPeak: (weights.romPeak || 0) * romPk,
     quasiStatic: weights.quasiStatic ? weights.quasiStatic * peakKE * peakKE : 0,
     liftoff: (weights.liftoff || 0) * liftoff,
     feet: (weights.feet || 0) * feet,
