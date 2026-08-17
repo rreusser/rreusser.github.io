@@ -6,80 +6,44 @@
   "catch": "catch-window.json",
   "gallery": [
     {
-      "file": "001-press-statics.json",
-      "label": "Press, statics-derived path (shoulder 2.8 Nm/kg, hamstrings to 125 deg)"
-    },
-    {
-      "file": "002-press-default-stall.json",
-      "label": "Press at shoulder 2.0 Nm/kg, hamstrings to 125 deg (stalls partway)"
-    },
-    {
       "file": "003-kick-flail.json",
-      "label": "Kick-up, no smoothness cost (flails)"
+      "label": "Kick-up with no smoothness cost: flails, and pays nothing for it"
     },
     {
       "file": "004-kick-crouch.json",
-      "label": "Kick-up, smoothness cost alone (gives up: crouch)"
-    },
-    {
-      "file": "005-kick-banana.json",
-      "label": "Kick-up, arrival-weighted (banana oscillation)"
-    },
-    {
-      "file": "006-kick-drift.json",
-      "label": "Kick-up, calm refinement (drifts toward overshoot)"
-    },
-    {
-      "file": "007-kick-parked-stiff.json",
-      "label": "Kick-up, final knot pinned (parks; buzzy stiff servo)"
+      "label": "Kick-up with the smoothness cost alone: gives up and crouches"
     },
     {
       "file": "008-kick-quiet-servo.json",
-      "label": "Kick-up, quiet servo (parks without shoulder buzz)"
-    },
-    {
-      "file": "009-kick-fresh-crouch.json",
-      "label": "Kick-up, fresh search on quiet servo (never finds the kick: crouch)"
+      "label": "Kick-up under the old constant-damping servo: arrives, then rings for a second and a half"
     },
     {
       "file": "010-kick-braked-servo.json",
-      "label": "Kick-up, inertia-scaled damping and brake-limited approach (arrives without overshoot)"
-    },
-    {
-      "file": "011-kick-rom-stops.json",
-      "label": "Kick-up, re-optimized with anatomical end-stops (stays inside its own range)"
-    },
-    {
-      "file": "012-kick-recreational.json",
-      "label": "Kick-up at recreational strength with a bounded entry (no planche)"
-    },
-    {
-      "file": "013-kick-rom-priced.json",
-      "label": "Kick-up with range of motion priced properly (hamstring stretch halved)"
+      "label": "Kick-up with inertia-scaled damping and a braked approach: arrival is clean, but it hyperextends a knee 37 degrees, because range of motion was only a fine"
     },
     {
       "file": "014-kick-rom-peak.json",
-      "label": "Kick-up with peak violation priced too (tightest anatomy, slightly more press)"
-    },
-    {
-      "file": "015-press-strong-flexible.json",
-      "label": "Press, shoulder 2.8 Nm/kg and hamstrings to 125 deg (works, and cheaply)"
-    },
-    {
-      "file": "016-press-strong-stiff.json",
-      "label": "Press, shoulder 2.8 Nm/kg with average hamstrings (works, at 2.5x the cost)"
-    },
-    {
-      "file": "018-press-threshold-below.json",
-      "label": "Press at shoulder 2.2 Nm/kg, average hamstrings (still not enough)"
-    },
-    {
-      "file": "017-press-recreational-fails.json",
-      "label": "Press on the recreational default body (best attempt still collapses)"
+      "label": "Kick-up as it stands: recreational strength, bounded entry, anatomy priced properly"
     },
     {
       "file": "019-kick-press-capable-shoulder.json",
-      "label": "Kick-up given a press-capable shoulder (2.8 Nm/kg): drifts back out over the hands"
+      "label": "The same kick-up handed a press-capable shoulder (2.8 Nm/kg): it spends the strength leaning back out over the hands"
+    },
+    {
+      "file": "017-press-recreational-fails.json",
+      "label": "Press on the default body (shoulder 1.6 Nm/kg): the best attempt still collapses"
+    },
+    {
+      "file": "018-press-threshold-below.json",
+      "label": "Press at shoulder 2.2 Nm/kg: still not enough"
+    },
+    {
+      "file": "016-press-strong-stiff.json",
+      "label": "Press at shoulder 2.8 Nm/kg with ordinary hamstrings: works"
+    },
+    {
+      "file": "015-press-strong-flexible.json",
+      "label": "Press at shoulder 2.8 Nm/kg with hamstrings to 125 degrees: the same skill for 2.5x less"
     }
   ]
 }

@@ -906,7 +906,9 @@
   <script id="gallery-section" type="text/markdown">
     ## Every optimization run, on the record
 
-    Trajectory optimization fails in creative ways, and a cost number proves nothing. So every optimization result this notebook relies on is embedded and re-simulated here, live, as a filmstrip: successes, stalls, and flails alike. Each row is also available in the playback scenario menu above (the entries in brackets) with full force instrumentation. If a row looks wrong, it is wrong, whatever its cost says.
+    Trajectory optimization fails in creative ways, and a cost number proves nothing. So every result this notebook argues from is embedded and re-simulated here, live, as a filmstrip: successes, stalls, and flails alike. Each row is also available in the playback scenario menu above (the entries in brackets) with full force instrumentation. If a row looks wrong, it is wrong, whatever its cost says.
+
+    These ten are a selection, one per thing worth knowing, and not the whole history. The registry behind them holds every run that was ever made, including a good many superseded iterations of the same idea; what is below is the shortest set that still makes the argument. The first two show the cost function failing from opposite directions, the next three are how the kick-up was actually arrived at, and the last four are the press going from impossible to comfortable as the shoulder is given more to work with.
   </script>
   <script id="trajectory-gallery" type="text/x-typescript">
     const galleryView = (() => {
@@ -975,7 +977,7 @@
       });
       return html`<figure>
         ${rows}
-        <figcaption>Each row re-simulates an embedded optimization result at the current page load and renders seven keyframes. Verdict labels come from the replay, not from the stored run. Each row also replays under the strength and flexibility it was produced with, which is not the same for every row: the line under each strip says which body it had, and flags the ones that are not today's defaults.</figcaption>
+        <figcaption>Each row re-simulates an embedded optimization result at the current page load and renders seven keyframes. Verdict labels come from the replay, not from the stored run. Each row also replays under the strength and flexibility it was produced with, which is deliberately not the same for every row: the line under each strip says which body it had, and flags the ones that are not today's defaults, because two rows are only comparable once you know that.</figcaption>
       </figure>`;
     })();
     display(galleryView);
