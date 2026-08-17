@@ -483,7 +483,7 @@
   </script>
   <script id="playback-state" type="text/x-typescript">
     const playState = {
-      sim: null, t: 0, playing: true, speed: 0.5,
+      sim: null, t: 0, playing: true, speed: 1,
       dirty: true, theme: null, lastNow: null,
       viewW: 640, viewH: 480, ui: { expanded: false },
     };
@@ -518,6 +518,13 @@
       playState.t = +scrubInput.value * rec.t[rec.t.length - 1];
       playState.dirty = true;
     });
+
+    // The transport lives with the scenario picker rather than under the
+    // canvas, so it follows the rest of the controls into the floating panel
+    // when the figure is expanded. This cell re-runs on resize and builds a
+    // fresh row each time, so the old one has to go with the old cell.
+    simControls.appendChild(playRow);
+    invalidation.then(() => playRow.remove());
 
     const utilColor = (u, isDark) => {
       const uu = Math.min(Math.max(u, 0), 1);
@@ -590,7 +597,6 @@
 
     const playFigure = html`<figure>
       ${playStack.element}
-      ${playRow}
       <figcaption>Segments are colored by strength used at that joint, blue (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail.</figcaption>
     </figure>`;
 
