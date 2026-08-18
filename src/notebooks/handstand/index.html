@@ -51,6 +51,11 @@
     const heightM = bctrl(Inputs.range([1.4, 2.05], { label: 'Height (m)', value: 1.75, step: 0.01 }));
     const massKg = bctrl(Inputs.range([45, 115], { label: 'Mass (kg)', value: 70, step: 1 }));
     const straddleDeg = bctrl(Inputs.range([0, 120], { label: 'Straddle (deg)', value: 0, step: 5 }));
+    // Selects the de Leva segment table, so this moves mass around the body
+    // as well as redrawing it: at the same stature and weight, the female
+    // table puts 41.8 percent of body mass in the legs against 39.7, and in
+    // a handstand the legs are the far end of the lever.
+    const sex = bctrl(Inputs.select(['male', 'female'], { label: 'Segment proportions', value: 'male' }));
     // Kept as an element as well as a value: the press corridor mirrors this
     // slider next to the map, and Inputs.bind binds elements.
     const strengthInput = Inputs.range([0.4, 2], { label: 'Strength scale', value: 1, step: 0.05 });
@@ -58,7 +63,7 @@
     display(bodyControls);
   </script>
   <script id="model" type="text/x-typescript">
-    const model = buildModel({ heightM, massKg, straddleDeg });
+    const model = buildModel({ heightM, massKg, straddleDeg, sex });
     const ws = createWorkspace(model);
     const strengthProf = strengthProfile(model.massKg, { scale: strengthScale });
   </script>
@@ -948,7 +953,7 @@
           ? Array.from(encodeDecision(seedRun.knots.map((k) => Float64Array.from(k)), seedRun.T))
           : null,
         sigma0: seedRun ? 0.1 : undefined,
-        modelParams: { heightM, massKg, straddleDeg },
+        modelParams: { heightM, massKg, straddleDeg, sex },
         strengthOpts: { scale: strengthScale },
         romOverrides: poseState.rom,
       });
@@ -1104,7 +1109,7 @@
         };
         worker.postMessage({
           type: 'catchWindow',
-          modelParams: { heightM, massKg, straddleDeg },
+          modelParams: { heightM, massKg, straddleDeg, sex },
           strengthOpts: { scale: strengthScale },
           gridOpts: { nTheta: 27, nOmega: 23 },
         });

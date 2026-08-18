@@ -82,27 +82,68 @@ export function drawScene(ctx, opts) {
     ctx.setLineDash([]);
   }
 
-  // Segments. Left leg (bodies 3, 4) draws first at reduced opacity so the
-  // near (right) leg reads in front.
-  const order = [3, 4, 0, 1, 2, 5, 6];
-  for (const i of order) {
-    const alpha = (i === 3 || i === 4) ? 0.45 : 0.95;
-    const color = opts.segmentColors?.[i] || css(fg, alpha);
-    const lw = Math.max(2, (0.016 + 0.028 * Math.sqrt(model.mass[i] / mTot)) * scale);
-    const c = Math.cos(ws.th[i]), s = Math.sin(ws.th[i]);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lw;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    const poly = model.geometry[i];
+  // Segments. A body is drawn as a filled outline when the model carries one
+  // (see silhouette.js) and as the bare stick polyline otherwise, so a model
+  // built without outlines still renders.
+  //
+  // Draw order is occlusion order, and the fills are opaque so that later
+  // bodies cover earlier ones instead of stacking into dark patches. In a
+  // handstand the head hangs between the arms, so the head has to go down
+  // before the arm or the two translucent shapes cross-hatch each other. Far
+  // leg first, then head and torso, then the arm in front of the head, then
+  // the near leg in front of everything.
+  const order = [3, 4, 2, 0, 1, 5, 6];
+  const bg = theme ? theme.background : [1, 1, 1];
+  const mix = (t) => [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * t);
+  const tracePoly = (poly, c, s, px, py, keepPath = false) => {
+    if (!keepPath) ctx.beginPath();
     for (let k = 0; k < poly.length; k++) {
-      const wx = ws.px[i] + c * poly[k][0] - s * poly[k][1];
-      const wy = ws.py[i] + s * poly[k][0] + c * poly[k][1];
+      const wx = px + c * poly[k][0] - s * poly[k][1];
+      const wy = py + s * poly[k][0] + c * poly[k][1];
       if (k === 0) ctx.moveTo(toX(wx), toY(wy));
       else ctx.lineTo(toX(wx), toY(wy));
     }
-    ctx.stroke();
+  };
+  for (const i of order) {
+    const alpha = (i === 3 || i === 4) ? 0.45 : 0.95;
+    const color = opts.segmentColors?.[i] || css(fg, alpha);
+    const c = Math.cos(ws.th[i]), s = Math.sin(ws.th[i]);
+    const shape = model.outline?.[i];
+    if (shape) {
+      // All of a body's subpaths go into ONE path and are filled once, so
+      // the neck overlapping the skull and the skull overlapping the chest
+      // merge instead of stacking into a dark lens. Stroking the same path
+      // leaves those internal edges visible, which is what makes the figure
+      // read as a body rather than a blob.
+      ctx.beginPath();
+      for (const poly of shape) {
+        tracePoly(poly, c, s, ws.px[i], ws.py[i], true);
+        ctx.closePath();
+      }
+      // Base fill is opaque so the body occludes; a per-segment colour (the
+      // joint-load tint during playback) goes over it rather than replacing
+      // it, so a hard-working limb reads as coloured without going neon.
+      ctx.fillStyle = css(mix(alpha * (isDark ? 0.30 : 0.18)), 1);
+      ctx.fill();
+      if (opts.segmentColors?.[i]) {
+        ctx.save();
+        ctx.globalAlpha = 0.55 * alpha;
+        ctx.fillStyle = opts.segmentColors[i];
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.strokeStyle = opts.segmentColors?.[i] || css(fg, alpha * 0.8);
+      ctx.lineWidth = Math.max(1, 0.0035 * scale);
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, (0.016 + 0.028 * Math.sqrt(model.mass[i] / mTot)) * scale);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      tracePoly(model.geometry[i], c, s, ws.px[i], ws.py[i]);
+      ctx.stroke();
+    }
 
     // Per-segment CoM dot.
     ctx.fillStyle = css(fg, 0.5);
