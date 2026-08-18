@@ -72,14 +72,20 @@
     const poseControls = html`<div class="pose-controls"></div>`;
     const section = (label) => poseControls.appendChild(html`<div style="font-weight:600; margin:0.6em 0 0.2em;">${label}</div>`);
     const add = (input) => { poseControls.appendChild(input); return input; };
+    // Every one of the six joint angles has a drag handle on the figure, so
+    // none of them gets a slider as well. The input elements are still made,
+    // and are still where the pose lives: the drag handler writes them, the
+    // preset buttons write them, syncPose reads them and writes back whatever
+    // the flexibility clamp changed. They are simply never put in the panel.
+    const offPanel = (input) => input;
 
     section('Pose');
-    const inWrist = add(Inputs.range([40, 100], { label: 'Wrist angle (deg)', value: 90, step: 0.5 }));
-    const inShoulder = add(Inputs.range([-5, 110], { label: 'Shoulder closing (deg)', value: 0, step: 0.5 }));
-    const inHipL = add(Inputs.range([-25, 140], { label: 'Hip flexion L (deg)', value: 0, step: 0.5 }));
-    const inKneeL = add(Inputs.range([-5, 145], { label: 'Knee flexion L (deg)', value: 0, step: 0.5 }));
-    const inHipR = add(Inputs.range([-25, 140], { label: 'Hip flexion R (deg)', value: 0, step: 0.5 }));
-    const inKneeR = add(Inputs.range([-5, 145], { label: 'Knee flexion R (deg)', value: 0, step: 0.5 }));
+    const inWrist = offPanel(Inputs.range([40, 100], { label: 'Wrist angle (deg)', value: 90, step: 0.5 }));
+    const inShoulder = offPanel(Inputs.range([-5, 110], { label: 'Shoulder closing (deg)', value: 0, step: 0.5 }));
+    const inHipL = offPanel(Inputs.range([-25, 140], { label: 'Hip flexion L (deg)', value: 0, step: 0.5 }));
+    const inKneeL = offPanel(Inputs.range([-5, 145], { label: 'Knee flexion L (deg)', value: 0, step: 0.5 }));
+    const inHipR = offPanel(Inputs.range([-25, 140], { label: 'Hip flexion R (deg)', value: 0, step: 0.5 }));
+    const inKneeR = offPanel(Inputs.range([-5, 145], { label: 'Knee flexion R (deg)', value: 0, step: 0.5 }));
     const inSymmetric = add(Inputs.toggle({ label: 'Symmetric legs', value: true }));
 
     section('Flexibility limits');
@@ -305,7 +311,7 @@
 
     const poseFigure = html`<figure>
       ${poseStack.element}
-      <figcaption>Drag the faint joint handles or use the sliders. The dot and drop line mark the center of mass: green over the palm patch (blue strip), red past it. Orange rings mark joints pinned at a flexibility limit.</figcaption>
+      <figcaption>Drag the faint joint handles to pose the figure. The dot and drop line mark the center of mass: green over the palm patch (blue strip), red past it. Orange rings mark joints pinned at a flexibility limit.</figcaption>
     </figure>`;
 
     display(expandable(poseFigure, {
