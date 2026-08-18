@@ -309,8 +309,16 @@
     });
     invalidation.then(() => poseLoop.cancel());
 
+    // Height reserved inside the figure for the torque readout, which the
+    // torque-chart cell renders into torqueSlot. It belongs in this figure: it
+    // is a readout of the pose being dragged, and having to scroll down to it
+    // turned cause and effect into two separate events.
+    const TORQUE_H = 190;
+    const torqueSlot = html`<div style="margin-top:2px;"></div>`;
+
     const poseFigure = html`<figure>
       ${poseStack.element}
+      ${torqueSlot}
       <figcaption>Drag the faint joint handles to pose the figure. The dot and drop line mark the center of mass: green over the palm patch (blue strip), red past it. Orange rings mark joints pinned at a flexibility limit.</figcaption>
     </figure>`;
 
@@ -321,7 +329,7 @@
       controls: '.pose-controls',
       state: poseState.ui,
       buttons: [createSnapshotButton(poseStack.elements.body, { filename: 'handstand-pose', onSnapshot: () => { poseState.dirty = true; } })],
-      onResize(el, w, h) { sizeLayers(w, h); },
+      onResize(el, w, h) { sizeLayers(w, Math.max(200, h - TORQUE_H)); },
     }));
   </script>
   <script id="statics-section" type="text/markdown">
@@ -335,7 +343,7 @@
 
     ${tex.block`\tau_{\mathrm{wrist}} = W\,(x_{\mathrm{CoP}} - x_{\mathrm{wrist}}),`}
 
-    so the patch length times body weight is the entire balance authority available in a handstand. This is the wrist strategy that motion capture studies find gymnasts using more than three quarters of the time. Every other joint torque in a static pose is set by gravity: each joint must resist the moment of all the mass beyond it. The chart below reports those torques for the current pose, normalized by body mass, next to each joint's isometric strength.
+    so the patch length times body weight is the entire balance authority available in a handstand. This is the wrist strategy that motion capture studies find gymnasts using more than three quarters of the time. Every other joint torque in a static pose is set by gravity: each joint must resist the moment of all the mass beyond it. Those torques are the bars under the figure above, normalized by body mass and drawn against each joint's isometric strength, so posing the body and reading what the pose costs happen in the same place.
   </script>
   <script id="torque-chart" type="text/x-typescript">
     const torqueView = (() => {
@@ -349,7 +357,9 @@
         return { joint, tau, cap, over: Math.abs(tau) > cap };
       });
       const chart = Plot.plot({
-        height: 220,
+        width: Math.min(width, 640),
+        height: 150,
+        marginTop: 8,
         marginLeft: 70,
         x: { label: 'torque (Nm per kg body mass)', domain: [-3.2, 3.2], grid: true },
         y: { label: null, domain: names },
@@ -365,12 +375,12 @@
         : st.patchFrac < 0
           ? 'toppling backward off the heel of the palm'
           : 'toppling forward over the fingertips';
-      return html`<figure>
+      return html`<div>
         ${chart}
-        <figcaption>Static joint torques for the current pose (bars) against isometric strength (gray ticks): ${where}.</figcaption>
-      </figure>`;
+        <small style="opacity:.7">Static joint torque for this pose (bars) against isometric strength (gray ticks): ${where}.</small>
+      </div>`;
     })();
-    display(torqueView);
+    torqueSlot.replaceChildren(torqueView);
   </script>
   <script id="flexibility-section" type="text/markdown">
     ## What flexibility limits actually do
