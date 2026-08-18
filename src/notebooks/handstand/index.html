@@ -9,6 +9,15 @@
 
     The model is a two dimensional, side view rigid body model of a person balancing on their hands. It is deliberately simple, but it is quantitative: segment masses and lengths come from published anthropometric tables, joint strength comes from measured torque and velocity relationships, and every claim the notebook makes is something you can recompute by dragging a slider. This first part builds the model and works out the statics of holding a handstand. The dynamics of getting into one, the kick-up, the press, and the question of which limitations actually matter, build on top of it.
   </script>
+  <script id="styles" type="text/html">
+    <style>
+      /* notebook-kit's default article is 960px while every figure here is
+         capped at 640, which left the prose and the control panels running
+         much wider than the things they describe. */
+      :root { --max-width: 640px; }
+      .body-controls, .pose-controls, .sim-controls, .opt-controls { max-width: 640px; }
+    </style>
+  </script>
   <script id="model-section" type="text/markdown">
     ## A stick figure gymnast
 
@@ -754,7 +763,7 @@
       optRun.disabled = true;
       optStop.disabled = false;
       optAdopt.disabled = true;
-      const worker = new Worker(new URL('opt-worker.js', document.baseURI), { type: 'module' });
+      const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
       optState.worker = worker;
       worker.onerror = (err) => {
         console.error('optimizer worker error', err.message);
@@ -885,7 +894,7 @@
         catchState.computing = true;
         catchState.rev++;
         catchState.notify?.(catchState);
-        const worker = new Worker(new URL('opt-worker.js', document.baseURI), { type: 'module' });
+        const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
         invalidation.then(() => worker.terminate());
         worker.onmessage = ({ data }) => {
           if (data.type === 'done') {
