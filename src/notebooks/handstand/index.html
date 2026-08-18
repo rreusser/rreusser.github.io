@@ -36,7 +36,7 @@
 
     Segment masses, mass centers, and moments of inertia follow de Leva's adjustment of the Zatsiorsky segment inertia parameters, scaled by height and body mass. The hand is the interesting segment: it is not a point of support but a patch, from the heel of the palm to the finger pads. Where the pressure lands inside that patch is the entire mechanism of handstand balance, which the next section makes precise.
   </script>
-  <script id="imports" type="text/x-typescript" pinned="">
+  <script id="imports" type="text/x-typescript">
     import { expandable } from './lib/expandable.js';
     import { createElementStack } from './lib/element-stack.js';
     import { createFrameLoop } from './lib/frame-loop.js';
@@ -54,7 +54,7 @@
     import {
       runScenario, balancedHandstand, resolveConfig, HANDSTAND_TARGET_FRAC, encodeDecision,
     } from './rollout.js';
-    import { PRESET_TRAJECTORIES, PRESET_CATCH_WINDOW, PRESET_SWEEPS, PRESET_GALLERY } from './presets.js';
+    import { PRESET_TRAJECTORIES, PRESET_GALLERY } from './presets.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
     const bodyControls = html`<div class="body-controls"></div>`;
@@ -664,7 +664,7 @@
   <script id="optimizer-section" type="text/markdown">
     ## Finding the easiest way up
 
-    Hand-authoring trajectories is a losing game. Every attempt I wrote by hand failed in one of the ways beginners fail, and none of them survived into this notebook. So instead the notebook searches. A candidate technique is a set of spline knots for each of the six joints plus a total duration, thirty seven numbers in all, and its score is a physics rollout: did it arrive at a balanced handstand, meaning the stacked configuration with the feet free of the floor and not merely a center of mass in the right place; how much of the strength envelope did it burn; how much metabolic work it spent, with concentric work charged at muscle efficiency and eccentric absorption cheap, so churning the legs reads as expensive the way it should; did it violate a flexibility limit; did the palms stay planted; did it fall and how early. A covariance matrix adaptation evolution strategy (CMA-ES) then climbs that score. Every run is deterministic under its seed, and the entries in the playback menu were produced by exactly this process offline; the optimizer below runs live in a worker if you want to search under different flexibility or strength settings.
+    Hand-authoring trajectories is a losing game. Every attempt I wrote by hand failed in one of the ways beginners fail, and none of them survived into this notebook. So instead the notebook searches. A candidate technique is a set of spline knots for each of the six joints plus a total duration, thirty seven numbers in all, and its score is a physics rollout: did it arrive at a balanced handstand, meaning the stacked configuration with the feet free of the floor and not merely a center of mass in the right place; how much of the strength envelope did it burn; how much metabolic work it spent, with concentric work charged at muscle efficiency and eccentric absorption cheap, so churning the legs reads as expensive the way it should; did it violate a flexibility limit; did the palms stay planted; did it fall and how early. A covariance matrix adaptation evolution strategy (CMA-ES) then climbs that score. Every run is deterministic under its seed, and the entries in the playback menu were produced by exactly this process offline. None of them is a cached animation: each is re-simulated in the browser from its stored spline knots every time you select it, so if a run looks wrong it is wrong, whatever its cost says. The optimizer below runs live in a worker if you want to search under different flexibility or strength settings.
   </script>
   <script id="opt-state" type="text/x-typescript">
     const optState = {
@@ -805,83 +805,6 @@
     Most of the work here went into learning what an optimizer will do to a cost function. Given a shoulder rated at two newton metres per kilogram it stopped kicking up altogether and pressed out of a sixty degree planche instead, a skill several years further along, because living at maximum effort was charged three thousandths of a unit and was therefore nearly free. Given a knee injury priced at three hundredths of a unit, it bought the injury. Given a free choice of duration it stretched the kick-up out until it had quietly become a press, because both the work and smoothness terms fall as a movement slows. Each of those is a scoring bug rather than a finding, and each looked entirely plausible in replay — which is the argument for re-simulating every run on this page instead of trusting a cost number.
 
     The model is a two dimensional cartoon: merged arms, locked elbows, one rigid segment from shoulder to hip so a hollow body is assumed rather than earned, no lateral balance, no straddle dynamics beyond a projection, penalty friction, torque servos instead of muscles and tendons, and an optimizer that finds good technique rather than provably best technique. Its numbers should be read as mechanisms and thresholds, not prescriptions. But the mechanisms agree with what the force plates and the coaches have been saying all along, and it is rather pleasant to watch the folklore sort itself into the parts that are physics and the parts that are just repetition.
-  </script>
-  <script id="gallery-section" type="text/markdown">
-    ## Every optimization run, on the record
-
-    Trajectory optimization fails in creative ways, and a cost number proves nothing. So every optimization result this notebook relies on is embedded and re-simulated here, live, as a filmstrip: successes, stalls, and flails alike. Each row is also available in the playback scenario menu above, in brackets. If a row looks wrong, it is wrong, whatever its cost says.
-  </script>
-  <script id="trajectory-gallery" type="text/x-typescript">
-    const galleryView = (() => {
-      if (!PRESET_GALLERY.length) return html`<p><em>No runs embedded yet.</em></p>`;
-      const rows = PRESET_GALLERY.map((g, gi) => {
-        const prof = g.strength ? strengthProfile(model.massKg, { overrides: g.strength }) : strengthProf;
-        const rom = { ...ROM_DEFAULTS, ...(g.rom || {}) };
-        const r = runScenario(model, ws, prof, {
-          scenario: g.scenario,
-          knots: g.knots.map((k) => Float64Array.from(k)),
-          T: g.T, settleT: 2.5, dt: 2.5e-4, rom,
-          ...resolveConfig(g.config),
-        });
-        const rec = r.rec;
-        const strip = html`<div style="display:flex; gap:3px; flex-wrap:wrap;"></div>`;
-        const NK = 7;
-        for (let i = 0; i < NK; i++) {
-          const k = Math.round((i / (NK - 1)) * (rec.t.length - 1));
-          const cw = 96, chh = 140;
-          const cell = html`<div style="text-align:center;"></div>`;
-          const cv = document.createElement('canvas');
-          cv.width = Math.round(cw * devicePixelRatio);
-          cv.height = Math.round(chh * devicePixelRatio);
-          cv.style.width = `${cw}px`;
-          cv.style.height = `${chh}px`;
-          const ctx = cv.getContext('2d');
-          ctx.scale(devicePixelRatio, devicePixelRatio);
-          drawScene(ctx, {
-            model, ws, q: Float64Array.from(rec.q[k]),
-            width: cw, height: chh, theme: poseState.theme,
-            view: { cx: 0.05, yLo: -0.15, yHi: 2.15 },
-          });
-          cell.appendChild(cv);
-          cell.appendChild(html`<small style="opacity:.6">${rec.t[k].toFixed(1)}s</small>`);
-          strip.appendChild(cell);
-        }
-        // Runs span several bodies: the shoulder and wrist ratings and the
-        // hamstring limit were all tightened partway through this notebook's
-        // life, and each artifact replays under the anatomy it was made with.
-        // Comparing two rows is only meaningful once you can see which body
-        // each one had, so every row states it, and anything differing from
-        // today's defaults is called out.
-        const anat = (() => {
-          const sh = g.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol;
-          const wr = g.strength?.wrist?.t0Vol ?? STRENGTH_DEFAULTS.wrist.t0Vol;
-          const ham = rom.hipFlexStraightKneeMaxDeg;
-          const dflt = sh === STRENGTH_DEFAULTS.shoulder.t0Vol
-            && wr === STRENGTH_DEFAULTS.wrist.t0Vol
-            && ham === ROM_DEFAULTS.hipFlexStraightKneeMaxDeg;
-          return { text: `shoulder ${sh} · wrist ${wr} Nm/kg · hamstrings to ${ham}°`, dflt };
-        })();
-        const v = r.verdict;
-        const tag = v.success
-          ? { text: 'settled handstand', color: '#2e8b57' }
-          : v.upright && v.feetFree
-            ? { text: 'inverted, not settled', color: '#c98a00' }
-            : { text: 'does not reach a handstand', color: '#c0392b' };
-        return html`<div style="margin: 26px 0;">
-          ${strip}
-          <div style="margin-top:4px;"><strong>${g.label}</strong>
-            <span style="color:${tag.color}; font-weight:600;"> — ${tag.text}</span>
-            <small style="opacity:.6"> (replayed live; end CoM ${v.comX.toFixed(2)}, ${v.comY.toFixed(2)} m)</small>
-          </div>
-          <div><small style="opacity:.6">${anat.text}${anat.dflt ? '' : ' — not the current default body'}</small></div>
-        </div>`;
-      });
-      return html`<figure>
-        ${rows}
-        <figcaption>Each row re-simulates an embedded optimization result at the current page load and renders seven keyframes. Verdict labels come from the replay, not from the stored run. Each row also replays under the strength and flexibility it was produced with, which is not the same for every row: the line under each strip says which body it had, and flags the ones that are not today's defaults.</figcaption>
-      </figure>`;
-    })();
-    display(galleryView);
   </script>
   <script id="validation-section" type="text/markdown">
     ## Validation
