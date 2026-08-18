@@ -196,7 +196,11 @@
     }
     poseControls.appendChild(presetRow);
     syncPose();
-    display(poseControls);
+    // Not displayed. The pose explorer that this panel drove is gone: it was
+    // a debug view with a slider per degree of freedom and no question of
+    // its own. What survives is the state -- the ROM values the press
+    // corridor reads, and the pose the corridor's own probe solves for --
+    // and the four limits worth touching are mirrored onto that figure.
   </script>
   <script id="pose-observables" type="text/x-typescript">
     const poseInfo = Generators.observe((notify) => {
@@ -210,165 +214,6 @@
       return () => { if (poseState.notifyRom === notify) poseState.notifyRom = null; };
     });
   </script>
-  <script id="pose-figure" type="text/x-typescript">
-    const poseStack = createElementStack({
-      layers: [
-        { id: 'body', element: ({ current }) => current || document.createElement('canvas') },
-        {
-          id: 'overlay', element: ({ current }) => {
-            if (current) return current;
-            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svg.style.pointerEvents = 'none';
-            return svg;
-          },
-        },
-      ],
-    });
-
-    const svgNS = 'http://www.w3.org/2000/svg';
-    const overlay = poseStack.elements.overlay;
-    // touch-action:none on the outer HTML container, not the SVG: mobile
-    // browsers do not reliably honour it on inner SVG nodes. Without it a
-    // finger-drag scrolls the page, and the scroll gesture fires
-    // pointercancel, so the drag also dies the moment the finger travels far
-    // enough to start scrolling. Both halves of the touch bug are this line.
-    poseStack.element.style.touchAction = 'none';
-    const handleEls = new Map();
-    function updateHandles(handles) {
-      for (const h of handles) {
-        let el = handleEls.get(h.joint);
-        if (!el) {
-          el = document.createElementNS(svgNS, 'circle');
-          el.setAttribute('r', 9);
-          el.setAttribute('fill', 'rgba(120, 140, 200, 0.25)');
-          el.setAttribute('stroke', 'rgba(120, 140, 200, 0.8)');
-          el.setAttribute('stroke-width', 1.5);
-          el.style.pointerEvents = 'all';
-          el.style.cursor = 'grab';
-          el.dataset.joint = h.joint;
-          overlay.appendChild(el);
-          handleEls.set(h.joint, el);
-        }
-        el.setAttribute('cx', h.x);
-        el.setAttribute('cy', h.y);
-        el.dataset.px = h.pivotX;
-        el.dataset.py = h.pivotY;
-      }
-    }
-
-    // Dragging a handle rotates its joint about the pivot; the slider is the
-    // single source of truth, so drags write slider values and re-sync.
-    const jointSign = { 3: 1, 4: 1, 5: 1, 6: -1, 7: 1, 8: -1 };
-    // With symmetric legs on, dragging a right-leg handle drives the left
-    // slider (the right mirrors it in sync).
-    const sliderFor = (joint) => {
-      let j = joint;
-      if (poseState.symmetricInput?.value && (j === 7 || j === 8)) j -= 2;
-      return poseState.jointSliders?.[j] || null;
-    };
-    // Pointer capture is what lets the finger wander off the 9px handle (and
-    // outside the figure) without the drag stopping; the pointerId is tracked
-    // so a second finger cannot hijack a drag in progress.
-    let drag = null;
-    overlay.addEventListener('pointerdown', (e) => {
-      const t = e.target;
-      if (drag || !(t instanceof SVGCircleElement)) return;
-      const joint = +t.dataset.joint;
-      const rect = overlay.getBoundingClientRect();
-      const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-      const a0 = Math.atan2(-(sy - t.dataset.py), sx - t.dataset.px);
-      drag = { joint, a0, q0: poseState.q[joint], pointerId: e.pointerId, el: t };
-      try { t.setPointerCapture(e.pointerId); } catch (_) { /* capture is best-effort */ }
-      t.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-    overlay.addEventListener('pointermove', (e) => {
-      if (!drag || e.pointerId !== drag.pointerId) return;
-      const el = handleEls.get(drag.joint);
-      const rect = overlay.getBoundingClientRect();
-      const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-      const a = Math.atan2(-(sy - el.dataset.py), sx - el.dataset.px);
-      let da = a - drag.a0;
-      if (da > Math.PI) da -= 2 * Math.PI;
-      if (da < -Math.PI) da += 2 * Math.PI;
-      const qNew = drag.q0 + da;
-      const slider = sliderFor(drag.joint);
-      if (slider) {
-        slider.value = jointSign[drag.joint] * qNew * 180 / Math.PI;
-        poseState.sync?.();
-      }
-      e.preventDefault();
-    });
-    const endDrag = (e) => {
-      if (!drag || (e && e.pointerId !== drag.pointerId)) return;
-      try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) { /* already released */ }
-      drag.el.style.cursor = 'grab';
-      drag = null;
-    };
-    overlay.addEventListener('pointerup', endDrag);
-    overlay.addEventListener('pointercancel', endDrag);
-    // If capture is lost for any reason (the element is re-created, the OS
-    // steals the gesture), the drag must end with it or it sticks on.
-    overlay.addEventListener('lostpointercapture', endDrag);
-
-    function sizeLayers(w, h) {
-      poseStack.resize(w, h);
-      const dpr = devicePixelRatio;
-      const canvas = poseStack.elements.body;
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-      overlay.setAttribute('width', w);
-      overlay.setAttribute('height', h);
-      poseState.viewW = w;
-      poseState.viewH = h;
-      poseState.dirty = true;
-    }
-
-    const stopTheme = observeTheme((t) => { poseState.theme = t; poseState.dirty = true; });
-    invalidation.then(stopTheme);
-
-    const poseLoop = createFrameLoop(() => {
-      if (!poseState.dirty || !poseState.model) return;
-      poseState.dirty = false;
-      const canvas = poseStack.elements.body;
-      const ctx = canvas.getContext('2d');
-      ctx.save();
-      ctx.scale(devicePixelRatio, devicePixelRatio);
-      const res = drawScene(ctx, {
-        model: poseState.model, ws: poseState.ws, q: poseState.q,
-        width: poseState.viewW, height: poseState.viewH,
-        theme: poseState.theme, clamped: poseState.clamped,
-      });
-      ctx.restore();
-      updateHandles(res.handles);
-    });
-    invalidation.then(() => poseLoop.cancel());
-
-    // Height reserved inside the figure for the torque readout, which the
-    // torque-chart cell renders into torqueSlot. It belongs in this figure: it
-    // is a readout of the pose being dragged, and having to scroll down to it
-    // turned cause and effect into two separate events.
-    const TORQUE_H = 190;
-    const torqueSlot = html`<div style="margin-top:2px;"></div>`;
-
-    const poseFigure = html`<figure>
-      ${poseStack.element}
-      ${torqueSlot}
-      <figcaption>Drag the faint joint handles to pose the figure. The dot and drop line mark the center of mass: green over the palm patch (blue strip), red past it. Orange rings mark joints pinned at a flexibility limit.</figcaption>
-    </figure>`;
-
-    display(expandable(poseFigure, {
-      id: 'pose-explorer',
-      width: Math.min(width, 640),
-      height: Math.min(540, width * 0.85),
-      controls: '.pose-controls',
-      state: poseState.ui,
-      buttons: [createSnapshotButton(poseStack.elements.body, { filename: 'handstand-pose', onSnapshot: () => { poseState.dirty = true; } })],
-      onResize(el, w, h) { sizeLayers(w, Math.max(200, h - TORQUE_H)); },
-    }));
-  </script>
   <script id="statics-section" type="text/markdown">
     ## Balance is a statics problem
 
@@ -380,56 +225,19 @@
 
     ${tex.block`\tau_{\mathrm{wrist}} = W\,(x_{\mathrm{CoP}} - x_{\mathrm{wrist}}),`}
 
-    so the patch length times body weight is the entire balance authority available in a handstand. This is the wrist strategy that motion capture studies find gymnasts using more than three quarters of the time. Every other joint torque in a static pose is set by gravity: each joint must resist the moment of all the mass beyond it. Those torques are the bars under the figure above, normalized by body mass and drawn against each joint's isometric strength, so posing the body and reading what the pose costs happen in the same place.
-  </script>
-  <script id="torque-chart" type="text/x-typescript">
-    const torqueView = (() => {
-      const qNow = Float64Array.from(poseInfo.q);
-      const st = staticAnalysis(model, qNow, ws);
-      const names = ['Wrist', 'Shoulder', 'Hip L', 'Knee L', 'Hip R', 'Knee R'];
-      const keys = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
-      const data = names.map((joint, k) => {
-        const tau = st.tau[3 + k] / model.massKg;
-        const cap = availableTorque(strengthProf[keys[k]], st.tau[3 + k], 0) / model.massKg;
-        return { joint, tau, cap, over: Math.abs(tau) > cap };
-      });
-      const chart = Plot.plot({
-        width: Math.min(width, 640),
-        height: 150,
-        marginTop: 8,
-        marginLeft: 70,
-        x: { label: 'torque (Nm per kg body mass)', domain: [-3.2, 3.2], grid: true },
-        y: { label: null, domain: names },
-        marks: [
-          Plot.ruleX([0]),
-          Plot.barX(data, { y: 'joint', x: 'tau', fill: (d) => (d.over ? '#c0392b' : '#4878b8') }),
-          Plot.tickX(data, { y: 'joint', x: (d) => d.cap, stroke: '#888', strokeWidth: 1.5 }),
-          Plot.tickX(data, { y: 'joint', x: (d) => -d.cap, stroke: '#888', strokeWidth: 1.5 }),
-        ],
-      });
-      const where = st.supported
-        ? `center of pressure at ${(st.patchFrac * 100).toFixed(0)}% of the palm patch`
-        : st.patchFrac < 0
-          ? 'toppling backward off the heel of the palm'
-          : 'toppling forward over the fingertips';
-      return html`<div>
-        ${chart}
-        <small style="opacity:.7">Static joint torque for this pose (bars) against isometric strength (gray ticks): ${where}.</small>
-      </div>`;
-    })();
-    torqueSlot.replaceChildren(torqueView);
+    so the patch length times body weight is the entire balance authority available in a handstand. This is the wrist strategy that motion capture studies find gymnasts using more than three quarters of the time. Every other joint torque in a static pose is set by gravity: each joint must resist the moment of all the mass beyond it. That is what makes a pose expensive, and it is what the next figure maps.
   </script>
   <script id="flexibility-section" type="text/markdown">
     ## What flexibility limits actually do
 
-    Try lowering the shoulder flexion limit in the controls above. A shoulder that cannot open to 180 degrees tips the torso off the vertical line, and the pose has to buy that angle back somewhere: arch the back and let the legs travel past vertical, which is the banana, or lean the whole stack toward the fingertips. Lower the wrist limit and the arm itself cannot stand vertical over the palm, forcing a lean that the shoulders must then fight. Neither compensation is free, and the torque chart above prices them.
+    A shoulder that cannot open to 180 degrees tips the torso off the vertical line, and the pose has to buy that angle back somewhere: arch the back and let the legs travel past vertical, which is the banana, or lean the whole stack toward the fingertips. Lower the wrist limit and the arm itself cannot stand vertical over the palm, forcing a lean that the shoulders must then fight. Neither compensation is free, and the figure below prices them: the limits sit under the map, and moving one moves the wall it owns.
 
     The hamstrings enter differently, because they are a two joint muscle group. What they limit is not any single joint but the combination of hip flexion and knee extension. With knees straight, hip flexion caps at the toe touch limit; every degree of knee bend buys some of it back. That coupling is why a bent knee press exists, and the model expresses it directly in the hip slider clamp.
   </script>
   <script id="corridor-intro" type="text/markdown">
     ## The press corridor
 
-    A press to handstand is, in the quasi static limit, a path through pose space that keeps the center of mass over the palm the whole way: from a deep pike, through compression, to the stacked handstand. For each combination of hip and shoulder angle, the model solves for the wrist angle that balances the pose, then asks whether that pose is reachable within the flexibility limits and holdable within the strength limits. The result is a corridor: the region of pose space a press is allowed to pass through. Tighten the shoulders or hamstrings in the controls and watch the corridor narrow.
+    A press to handstand is, in the quasi static limit, a path through pose space that keeps the center of mass over the palm the whole way: from a deep pike, through compression, to the stacked handstand. For each combination of hip and shoulder angle, the model solves for the wrist angle that balances the pose, then asks whether that pose is reachable within the flexibility limits and holdable within the strength limits. The result is a corridor: the region of pose space a press is allowed to pass through. Tighten the shoulders or the hamstrings underneath it and watch the corridor narrow.
   </script>
   <script id="pose-probe" type="text/x-typescript">
     // Both the press corridor and the catch window are maps over coordinates
@@ -653,15 +461,13 @@
   <script id="dynamics-section" type="text/markdown">
     ## Making it move
 
-    Statics ends where every interesting question about handstands begins. To simulate motion, the model becomes a floating body in space: the hand is not attached to the floor, it just rests on it, pressed by two one-sided spring contacts under the heel of the palm and the finger pads (and one under each foot for entries). The center of pressure and every toppling failure emerge from those two palm contacts trading load. Joints are driven by servo torques that track a reference trajectory, and every torque respects two layers of muscle physiology. The first is the strength envelope: maximum voluntary torque as a function of joint velocity, after Yeadon, King and Wilson. Isometric strength is available in a slow press while a fast kick pays the Hill hyperbola falloff; at five radians per second a joint has roughly half its isometric torque left. The second is activation dynamics: neural drive follows a first order lag with a time constant near fifty milliseconds, so torque cannot step instantaneously and bang-bang corrections are impossible by construction, for the model as for you.
+    Statics ends where every interesting question about handstands begins. To simulate motion the model becomes a floating body in space: the hand is not attached to the floor, it just rests on it, pressed by two one-sided spring contacts under the heel of the palm and the finger pads, with one under each foot for entries. The center of pressure and every toppling failure emerge from those two palm contacts trading load. Joints are driven by servo torques tracking a reference trajectory, and every torque respects two layers of muscle physiology. The strength envelope is maximum voluntary torque as a function of joint velocity, after Yeadon, King and Wilson: a slow press gets isometric strength, a fast kick pays the Hill falloff and has roughly half its torque left at five radians per second. Activation dynamics is a first order lag near fifty milliseconds, so torque cannot step and bang-bang corrections are impossible by construction, for the model as for you.
 
-    A servo also has to be tuned against the thing it drives, and here that thing is not one thing. These six joints span an effective inertia of two hundred to one: a knee swings a third of a kilogram metre squared, while the wrist turns the entire body about the palm and sees eighty. One damping constant is therefore always wrong somewhere, and the constant that kept the knees civil left the wrist at a damping ratio of 0.12. So the servo reads the damping it needs off the mass matrix it is already computing, two zeta root kp M for each joint, refreshed a couple of hundred times a second: often enough to follow the body as it changes shape, seldom enough to stay off the hot loop. A nervous system does not re-identify its own limbs at five kilohertz either.
+    Two pieces of the body had to become mechanism rather than preference. The servo reads its damping off the mass matrix it is already computing, because these six joints span an effective inertia of two hundred to one — a knee swings a third of a kilogram metre squared, the wrist turns the entire body about the palm and sees eighty — so one damping constant is always wrong somewhere. And the commanded speed is capped at whatever the joint can still stop in the error that remains, computed not from the strength cap but from the reserve gravity has not already spent. That is the mathematical form of a coaching instruction: do not press so hard into the finish that you cannot meet it. Without it, a shoulder that has been at its cap for a second and a half sails straight through the balanced position and rings.
 
-    That fixes the ringing but not the reason for it. At forty five degrees of error the position term asks for ten radians per second, and a loaded shoulder needs five hundred degrees of travel to brake from ten radians per second, so the reference is quietly requesting an arrival the muscle cannot produce; the joint spends the whole movement against its cap, and the moment it finally reaches the balanced position, where the required force falls to nothing, it sails straight through. The fix is the one a proximate time-optimal servo uses: cap the commanded speed at whatever the joint can still stop in the error that remains. What makes that honest here is the acceleration it is computed from, which is not the strength cap but the reserve left after gravity has taken its share. A shoulder that has been holding the body up for a second and a half has most of its envelope already committed, and it has to plan its stop with what is left.
+    Range of motion became physics too. Joints have passive end-stops built like the ground contacts one dimension down: stiffness set so that a joint pushed by its own maximum voluntary torque sinks about five degrees past the limit, damping near critical, one-sided and non-adhesive, so tissue can only push back into the range. Left as a cost term instead, a knee driven forty degrees past hyperextension for a tenth of a second was worth a few hundredths of a unit, and the optimizer bought the injury.
 
-    One more piece of the body had to become physics rather than preference. Range of motion began as a cost term, and a soft one: a knee driven forty degrees past hyperextension for a tenth of a second cost the optimizer a few hundredths of a cost unit, so it bought the injury and spent the savings on a tidier finish. Bounding the reference angles is not enough either, because it is momentum, not the reference, that carries a swinging limb past its limit. Joints now have passive end-stops, built exactly like the ground contacts one dimension down: stiffness set so that a joint pushed by its own maximum voluntary torque sinks about five degrees past the limit, damping near critical for the inertia that joint drives, one-sided and non-adhesive so tissue can only push back into the range. They are elastic, because ligaments are, and a limb thrown hard enough still travels some way past its limit and is pushed back, which is the honest picture: you can see the joint being loaded rather than watching the pose silently clip. What is gone is the ability to spend a whole movement outside your own anatomy for the price of a rounding error.
-
-    Building this surfaced three failures worth keeping. First, holding a perfectly stacked pose with perfect joint servos still topples: the stacked pose rests the pressure a few millimeters from the heel of the palm, and a body pivoting on the heel point has nothing to push against. Second, servos without anticipatory gravity compensation sag under load, the sag leans the body, the lean raises the load, and the wrist creeps up to its strength cap and over the fingertips. Third, and least expected: the wrist cannot be critically damped at all. Asking for it wants 505 newton metres per radian per second, a damper that would spend the joint's entire seventy newton metre envelope at 0.14 rad/s and leave the balance correction with nothing to say, whereupon the model rides its wrist cap out over the fingertips exactly as the uncompensated servo did. Damping has to be capped at what the muscle can actually produce, and the wrist is the only joint where that cap binds, which is a mechanical way of saying what every beginner discovers: relative to the load it carries, the joint is underpowered, and no choice of gain repairs it. All three are real handstand failures, reproduced by accident.
+    Three failures the simulation produced on its own are worth keeping. Holding a perfectly stacked pose with perfect joint servos still topples, because the stacked pose rests the pressure a few millimeters from the heel of the palm and a heel pivot has no restoring authority. Servos without anticipatory gravity compensation sag, the sag leans the body, the lean raises the load, and the wrist creeps up to its cap and out over the fingertips. And the wrist cannot be critically damped at all: asking for it wants 505 newton metres per radian per second, a damper that would spend the joint's entire seventy newton metre envelope at 0.14 rad/s and leave the balance correction with nothing to say. Damping has to be capped at what the muscle can actually produce, and the wrist is the only joint where that cap binds — a mechanical way of saying what every beginner discovers about the joint they are standing on.
   </script>
   <script id="sim-controls-cell" type="text/x-typescript">
     const simControls = html`<div class="sim-controls"></div>`;
@@ -855,78 +661,10 @@
       },
     }));
   </script>
-  <script id="sim-charts" type="text/x-typescript">
-    const simCharts = (() => {
-      const rec = simResult.rec;
-      const chartProf = simResult.prof || strengthProf;
-      const keys = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
-      const labels = ['Wrist', 'Shoulder', 'Hip L', 'Knee L', 'Hip R', 'Knee R'];
-      const utilRows = [], grfRows = [], comRows = [];
-      const patchSpan = model.patch.x1 - model.patch.x0;
-      let posWork = 0, negWork = 0;
-      for (let k = 0; k < rec.t.length; k++) {
-        const t = rec.t[k];
-        const dts = k > 0 ? t - rec.t[k - 1] : 0;
-        for (let j = 0; j < 6; j++) {
-          const tauApplied = rec.tauApplied[k][j];
-          const cap = availableTorque(chartProf[keys[j]], tauApplied, rec.qd[k][3 + j]);
-          utilRows.push({ t, joint: labels[j], util: Math.abs(tauApplied) / Math.max(cap, 1e-6) });
-          const P = tauApplied * rec.qd[k][3 + j];
-          if (P > 0) posWork += P * dts; else negWork -= P * dts;
-        }
-        const f = rec.forces[k];
-        if (f) {
-          let fySum = 0, fyX = 0;
-          for (let i = 0; i < 2; i++) { fySum += f.fy[i]; fyX += f.fy[i] * f.px[i]; }
-          grfRows.push({
-            t, grf: fySum / (model.massKg * model.gravity),
-            copFrac: fySum > 1 ? (fyX / fySum - (rec.q[k][0] + model.patch.x0)) / patchSpan : NaN,
-          });
-        }
-        comRows.push({
-          t,
-          comFrac: (rec.com[k][0] - (rec.q[k][0] + model.patch.x0)) / patchSpan,
-          L: rec.L[k],
-        });
-      }
-      const utilPlot = Plot.plot({
-        height: 200, x: { label: 'time (s)' },
-        y: { label: 'strength used', domain: [0, 1.3], grid: true },
-        color: { legend: true },
-        marks: [
-          Plot.ruleY([1], { stroke: '#c0392b', strokeDasharray: '4,3' }),
-          Plot.lineY(utilRows, { x: 't', y: 'util', stroke: 'joint' }),
-        ],
-      });
-      const balancePlot = Plot.plot({
-        height: 180, x: { label: 'time (s)' },
-        y: { label: 'position along palm patch', domain: [-0.6, 1.6], grid: true },
-        marks: [
-          Plot.ruleY([0, 1], { stroke: '#888', strokeDasharray: '4,3' }),
-          Plot.lineY(grfRows.filter((d) => Number.isFinite(d.copFrac)), { x: 't', y: 'copFrac', stroke: '#4878b8' }),
-          Plot.lineY(comRows, { x: 't', y: 'comFrac', stroke: '#2e8b57' }),
-          Plot.text([{ t: rec.t[rec.t.length - 1], y: 1.45, text: simResult.verdict.success ? 'balanced' : 'fell' }],
-            { x: 't', y: 'y', text: 'text', textAnchor: 'end', fontWeight: 'bold' }),
-        ],
-      });
-      const momentumPlot = Plot.plot({
-        height: 140, x: { label: 'time (s)' },
-        y: { label: 'angular momentum (kg m²/s)', grid: true },
-        marks: [Plot.ruleY([0]), Plot.lineY(comRows, { x: 't', y: 'L', stroke: '#a06cd5' })],
-      });
-      return html`<figure>
-        ${utilPlot}
-        ${balancePlot}
-        ${momentumPlot}
-        <figcaption>Instrumentation for the run above. Top: fraction of each joint's velocity-dependent strength in use (dashed red is the cap). Middle: center of pressure (blue) and center of mass (green) along the palm patch; 0 is the heel, 1 the fingertips, outside the dashed lines means toppling. Bottom: whole-body angular momentum about the center of mass. Mechanical work: ${posWork.toFixed(0)} J concentric, ${negWork.toFixed(0)} J eccentric (raising the body from this start takes about ${Math.max(0, Math.round((model.massKg * model.gravity) * (1.0 - rec.com[0][1])))} J of potential energy).</figcaption>
-      </figure>`;
-    })();
-    display(simCharts);
-  </script>
   <script id="optimizer-section" type="text/markdown">
     ## Finding the easiest way up
 
-    Hand-authoring trajectories is a losing game. Every attempt I wrote by hand failed in one of the ways beginners fail, and none of them survived into this notebook. So instead the notebook searches. A candidate technique is a set of spline knots for each of the six joints plus a total duration, thirty seven numbers in all, and its score is a physics rollout: did it arrive at a balanced handstand, meaning the stacked configuration with the feet free of the floor and not merely a center of mass in the right place; how much of the strength envelope did it burn; how much metabolic work it spent, with concentric work charged at muscle efficiency and eccentric absorption cheap, so churning the legs reads as expensive the way it should; did it violate a flexibility limit; did the palms stay planted; did it fall and how early. A covariance matrix adaptation evolution strategy (CMA-ES) then climbs that score. Every run is deterministic under its seed, and the presets above were produced by exactly this process offline; the optimizer below runs live in a worker if you want to search under different flexibility or strength settings.
+    Hand-authoring trajectories is a losing game. Every attempt I wrote by hand failed in one of the ways beginners fail, and none of them survived into this notebook. So instead the notebook searches. A candidate technique is a set of spline knots for each of the six joints plus a total duration, thirty seven numbers in all, and its score is a physics rollout: did it arrive at a balanced handstand, meaning the stacked configuration with the feet free of the floor and not merely a center of mass in the right place; how much of the strength envelope did it burn; how much metabolic work it spent, with concentric work charged at muscle efficiency and eccentric absorption cheap, so churning the legs reads as expensive the way it should; did it violate a flexibility limit; did the palms stay planted; did it fall and how early. A covariance matrix adaptation evolution strategy (CMA-ES) then climbs that score. Every run is deterministic under its seed, and the entries in the playback menu were produced by exactly this process offline; the optimizer below runs live in a worker if you want to search under different flexibility or strength settings.
   </script>
   <script id="opt-state" type="text/x-typescript">
     const optState = {
@@ -1055,152 +793,23 @@
     })();
     display(optProgress);
   </script>
-  <script id="catch-section" type="text/markdown">
-    ## The catch window
-
-    A kick-up succeeds or fails in its last quarter second. Once the feet leave the floor the body is, to good approximation, a rigid stack pivoting about the wrists, and the only authority left is the wrist strategy: pressing the center of pressure around inside the palm patch. So ask directly: from which combinations of arrival angle and arrival angular velocity can the wrist strategy still recover to stillness? The answer is the catch window below. Arrive under it and you fall back the way you came; overshoot it and you topple over the top. The optimized kick-up threads its trajectory straight through it.
-  </script>
-  <script id="catch-state" type="text/x-typescript">
-    const catchState = { grid: PRESET_CATCH_WINDOW, computing: false, progress: 0, rev: 0, notify: null };
-  </script>
-  <script id="catch-observable" type="text/x-typescript">
-    const catchInfo = Generators.observe((notify) => {
-      catchState.notify = notify;
-      notify(catchState);
-      return () => { if (catchState.notify === notify) catchState.notify = null; };
-    });
-  </script>
-  <script id="catch-figure" type="text/x-typescript">
-    const catchView = (() => {
-      const g = catchInfo.grid;
-      if (!g) return html`<p><em>No catch window data.</em></p>`;
-      const dTh = g.thetasDeg[1] - g.thetasDeg[0], dOm = g.omegas[1] - g.omegas[0];
-      const cells = [];
-      for (let i = 0; i < g.nTheta; i++) {
-        for (let j = 0; j < g.nOmega; j++) {
-          if (!g.success[i * g.nOmega + j]) continue;
-          cells.push({
-            x1: g.thetasDeg[i] - dTh / 2, x2: g.thetasDeg[i] + dTh / 2,
-            y1: g.omegas[j] - dOm / 2, y2: g.omegas[j] + dOm / 2,
-          });
-        }
-      }
-      // Wrist-space trace of the current playback run's final approach.
-      const qBal = balancedHandstand(model, ws);
-      const rec = simResult.rec;
-      const trace = [];
-      for (let k = 0; k < rec.t.length; k++) {
-        trace.push({ th: (rec.q[k][3] - qBal[3]) * 180 / Math.PI, om: rec.qd[k][3], t: rec.t[k] });
-      }
-      const chart = Plot.plot({
-        width: 452,
-        height: 320,
-        marginLeft: 44,
-        x: { label: 'wrist angle offset from balance (deg)', domain: [g.thetasDeg[0], g.thetasDeg[g.nTheta - 1]] },
-        y: { label: 'wrist angular velocity (rad/s)', domain: [g.omegas[0], g.omegas[g.nOmega - 1]] },
-        marks: [
-          Plot.rect(cells, { x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2', fill: '#5a9e6f', fillOpacity: 0.55 }),
-          Plot.ruleX([0]), Plot.ruleY([0]),
-          Plot.lineY(trace, { x: 'th', y: 'om', stroke: '#c06030', strokeWidth: 1.5, clip: true }),
-          Plot.dot(trace.length ? [trace[trace.length - 1]] : [], { x: 'th', y: 'om', r: 4, fill: '#c06030' }),
-        ],
-      });
-      // A cell here is an arrival: the body stacked but rotated off balance by
-      // theta about the wrist, already turning at omega. The pose shows the
-      // angle, the arrow shows which way it is going, and the grid says
-      // whether the wrist can still save it.
-      const probe = makePoseProbe();
-      const nearest = (arr, v) => {
-        let bi = 0;
-        for (let i = 1; i < arr.length; i++) if (Math.abs(arr[i] - v) < Math.abs(arr[bi] - v)) bi = i;
-        return bi;
-      };
-      const showCatch = (thDeg, om) => {
-        const i = nearest(g.thetasDeg, thDeg), j = nearest(g.omegas, om);
-        const q = Float64Array.from(qBal);
-        q[3] += g.thetasDeg[i] * Math.PI / 180;
-        const caught = g.success[i * g.nOmega + j] === 1;
-        const dir = g.omegas[j] > 0.05 ? 'still falling toward the fingertips'
-          : g.omegas[j] < -0.05 ? 'still falling back toward the heel'
-          : 'arriving with no rotation';
-        probe.draw(q, `${g.thetasDeg[i] > 0 ? '+' : ''}${g.thetasDeg[i].toFixed(0)}° past balance at `
-          + `${g.omegas[j].toFixed(1)} rad/s, ${dir} — ${caught ? 'the wrist recovers it' : 'it falls'}`);
-      };
-      showCatch(0, 0);
-      const surface = plotSurface(chart, 300);
-      if (surface) {
-        surface.style.touchAction = 'none';
-        const onMove = (e) => {
-          const r = surface.getBoundingClientRect();
-          const th = chart.scale('x').invert(e.clientX - r.left);
-          const om = chart.scale('y').invert(e.clientY - r.top);
-          if (Number.isFinite(th) && Number.isFinite(om)) showCatch(th, om);
-        };
-        surface.addEventListener('pointermove', onMove);
-        surface.addEventListener('pointerdown', onMove);
-      }
-
-      const recompute = html`<button ${catchState.computing ? 'disabled' : ''}>Recompute for current body and strength</button>`;
-      recompute.addEventListener('click', () => {
-        if (catchState.computing) return;
-        catchState.computing = true;
-        catchState.rev++;
-        catchState.notify?.(catchState);
-        const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
-        invalidation.then(() => worker.terminate());
-        worker.onmessage = ({ data }) => {
-          if (data.type === 'done') {
-            catchState.grid = data;
-            catchState.computing = false;
-            worker.terminate();
-            catchState.rev++;
-            catchState.notify?.(catchState);
-          }
-        };
-        worker.postMessage({
-          type: 'catchWindow',
-          modelParams: { heightM, massKg, straddleDeg, sex },
-          strengthOpts: { scale: strengthScale },
-          gridOpts: { nTheta: 27, nOmega: 23 },
-        });
-      });
-      const status = catchState.computing ? html`<em> computing, this takes a moment...</em>` : '';
-      return html`<figure>
-        <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
-          ${chart}
-          ${probe.element}
-        </div>
-        <div>${recompute}${status}</div>
-        <figcaption>Hover the map to see the arrival each cell stands for. Green cells: arrival states (wrist angle offset, wrist rate) from which the wrist-strategy balance controller recovers to a still handstand. The orange curve is the current playback run in this plane, ending at the dot. Positive angle offsets lean toward the fingertips.</figcaption>
-      </figure>`;
-    })();
-    display(catchView);
-  </script>
   <script id="coda" type="text/markdown">
-    ## What the model taught along the way
+    ## What the model says
 
-    Some of the best findings were failures the simulation produced on its own, each now pinned by a test so it stays true. Holding a perfectly stacked handstand with perfect joint servos still topples, because the stacked pose rests the pressure on the heel of the palm and a heel pivot has no restoring authority: balance must be actively bought with wrist torque, and biasing the pressure toward mid palm is worth more than any amount of stiffness. Servos without anticipatory gravity compensation sag, lean, and ride the wrist up to its strength cap and over the fingertips. Opening the hips or shoulders before shifting weight onto the hands rocks the body straight back off its palms, which is the beginner's press attempt in one sentence. And with muscle activation limited to a fifty millisecond time constant, the recoverable catch window for a kick-up shrinks by half, which is why arriving slowly matters more than arriving precisely.
+    The question this notebook opens with — why pressing is so much harder than kicking up — has a number attached, and it is a bigger number than I expected. Re-optimizing both entries against the same body, the kick-up goes at a shoulder rated 1.6 newton metres per kilogram with average hamstrings, which is to say a recreational adult. The press on that same body does not merely stall, it collapses, and it is still collapsing at 2.2. Somewhere between 2.2 and 2.8 it starts working. The press asks for something like half again the shoulder strength of the kick-up, and that gap — not technique, not timing — is most of the answer.
 
-    The question this notebook opens with — why pressing is so much harder than kicking up — turns out to have a number attached, and it is a bigger number than I expected. Re-optimizing both entries against the same body says the kick-up goes at a shoulder rated 1.6 newton metres per kilogram with average hamstrings, which is to say a recreational adult, while the press on that same body does not merely stall, it collapses, and it is still collapsing at 2.2. Somewhere between 2.2 and 2.8 it starts working. So the press asks for something like half again the shoulder strength of the kick-up, and that gap, not technique and not timing, is most of the answer. It is tempting to split the difference and give the model one body that can do both, and that does not work: handed a shoulder rated for the press, the optimizer promptly spends it, and the kick-up drifts back out over the hands into the planche it was talked out of earlier, arriving with a fifth of the energy it needs instead of a third and riding ten degrees outside its wrist range for most of the rollout. Pricing effort properly discourages that; it does not prevent it. The strength ceiling is doing real work, so the default body here is one that can kick up and cannot press, and the press section is an account of what it would take rather than something you can watch this body do.
+    Flexibility plays a different role than the folklore gives it. Short hamstrings do not block the press: at a shoulder of 2.8 the model presses up perfectly well from an ordinary 85 degree fold. What flexibility buys is cheapness. The same press with hamstrings reaching 125 degrees scores 1.03 against 2.53 for the stiff one, about two and a half times less work, effort and shoulder time for an identical outcome. That is the honest version of the coaching advice: the flexible press is not a different skill, it is the same skill with most of the cost taken out, which over a training career is the difference between a press you can do and a press you can do twenty times.
 
-    Flexibility turns out to play a different role than the folklore gives it. Short hamstrings do not block the press: with a shoulder at 2.8 the model presses up perfectly well from an ordinary 85 degree fold. What flexibility buys is cheapness. The same press with hamstrings that reach 125 degrees scores 1.03 against 2.53 for the stiff one, so roughly two and a half times less work, effort and shoulder time for the identical outcome. That is the honest version of the coaching advice: the flexible press is not a different skill, it is the same skill with most of the cost taken out, which over a training career is the difference between a press you can do and a press you can do twenty times.
+    The two entries pull against each other, and the model hands that back as a trade rather than an answer. Pricing the hamstring stretch harder does reduce it, but it drains the entry: from twelve degrees of stretch down to seven, momentum at liftoff falls by a fifth and the time spent with the shoulder flat against its cap rises from a third of the entry to nearly half. The swing that spares your shoulders is the swing that stretches your hamstring, and no setting of the weights gets both.
 
-    The most instructive of them arrived late, and it was an overshoot. A shoulder pressing to vertical under load spends the whole press against its torque cap, and when the body finally stacks and the demand falls away there is nothing left holding it back: it sails through the balanced position and rings, five reversals from thirty degrees out, an outright topple from forty five. Two things were wrong and both are worth stating plainly. A servo damped by one constant cannot serve joints whose inertia spans two hundred to one, and a position gain that commands ten radians per second at forty five degrees of error is asking for a stop the muscle has no way to make. Deceleration has to be planned from the reserve that gravity has not already spent, which is the mathematical form of a coaching instruction: do not press so hard into the finish that you cannot meet it. With the damping read off the mass matrix and the approach speed limited to what remains brakeable, the same press arrives with no measurable overshoot and no reversals at all, and forty five degrees, which used to fall, simply arrives. The kick-up, re-optimized against the corrected servo, tells the same story from the other end: it reaches the handstand three tenths of a second sooner, spends noticeably less of the entry with the shoulder flat against its cap, and then holds its last second and a half without one joint reversing direction, where the previous best reversed fourteen times and was still moving four times as fast when the clock ran out.
+    Most of the work here went into learning what an optimizer will do to a cost function. Given a shoulder rated at two newton metres per kilogram it stopped kicking up altogether and pressed out of a sixty degree planche instead, a skill several years further along, because living at maximum effort was charged three thousandths of a unit and was therefore nearly free. Given a knee injury priced at three hundredths of a unit, it bought the injury. Given a free choice of duration it stretched the kick-up out until it had quietly become a press, because both the work and smoothness terms fall as a movement slows. Each of those is a scoring bug rather than a finding, and each looked entirely plausible in replay — which is the argument for re-simulating every run on this page instead of trusting a cost number.
 
-    That kick-up had one more thing wrong with it, and the model had no way to say so: it hyperextended a knee nearly forty degrees, drove the wrist forty five degrees beyond its range, and called the result a success, because range of motion was a fine rather than a wall. It is a good reminder of what an optimizer actually optimizes. Give it a cost function in which a career-ending knee injury is worth three hundredths of a unit and it will spend that every time, cheerfully, and the trajectory will still look plausible in the replay. Passive end-stops make the anatomy part of the mechanism instead of part of the scoring, and the technique that comes back out of the optimizer afterward is not merely legal, it is cheaper: it stops trying to buy range it does not have. The same normalization trap was hiding in the range-of-motion term itself, which measured violations in squared radians: twelve degrees outside your anatomy is 0.044 of those, so even holding it for an entire rollout scored less than a fifth of a unit against about one and a half for the work. Measuring the violation against the end-stop's own five degree design penetration, and charging for the worst instant as well as the average, brought the wrist and both knees exactly inside their limits and cut the remaining hamstring stretch roughly in half.
-
-    That last one does not go to zero, and the reason it does not is the most useful thing in this section. Pricing the hamstring harder does reduce the stretch, but it also drains the entry: from twelve degrees of stretch down to seven, the model's momentum at liftoff falls by a fifth and the time it spends with the shoulder flat against its cap rises from a third of the entry to nearly half. The swing that spares your shoulders is the same swing that stretches your hamstring, and there is no setting of the weights that gets both. A model built to be argued with will eventually hand back a trade-off instead of an answer, and this is a real one: it is the choice between kicking up and pressing up, written in joint angles.
-
-    The same trick, played once more and better disguised, was the last thing to go. Given a shoulder rated at two newton metres per kilogram of body mass, the model quietly stopped kicking up. It leaned out over its hands, held the body sixty degrees off vertical on straight arms at full effort for a second, and pressed out of that into the handstand: a planche press, a skill several years further along than the one being studied, substituted silently for the one that was asked for. Nothing objected, because the saturation term charged about three thousandths of a cost unit for a joint pinned at its limit for an entire rollout, against two for the work it was doing. Maximal effort was free, so the model bought the strongest technique available to it. Rating the shoulders and wrists for someone who can hold a handstand rather than someone who can hold a planche closes the position off — holding a straight body thirty degrees off the line costs 1.9 Nm/kg at the shoulder against a recreational 1.6 — and charging properly for living at the cap removes the incentive to go looking.
-
-    Strength alone will not do it, though, and the reason is worth stating. Cutting the shoulder far enough to make a planche outright impossible also makes every entry impossible, because a kick-up passes through those same leaned positions on its way up. What separates the two skills is not geometry but duration: a kick-up is a position you pass through and a planche is a position you sit in. There is a matching trap in the cost that took longer to see, and it points the same way. Both the work term and the smoothness term fall as a movement slows down, so given a free choice of duration the optimizer will always stretch an entry out, and a kick-up stretched to two and a half seconds has quietly become a press again. A skill defined by being fast has to be bounded to be fast, or the optimizer will define it away.
-
-    The model is a two dimensional cartoon: merged arms, locked elbows, no lateral balance, no straddle dynamics beyond a projection, penalty friction, torque servos instead of muscles and tendons, and an optimizer that finds good technique rather than provably best technique. Its numbers should be read as mechanisms and thresholds, not prescriptions. But the mechanisms agree with what the force plates and the coaches have been saying all along, and it is rather pleasant to watch the folklore sort itself into the parts that are physics and the parts that are just repetition.
+    The model is a two dimensional cartoon: merged arms, locked elbows, one rigid segment from shoulder to hip so a hollow body is assumed rather than earned, no lateral balance, no straddle dynamics beyond a projection, penalty friction, torque servos instead of muscles and tendons, and an optimizer that finds good technique rather than provably best technique. Its numbers should be read as mechanisms and thresholds, not prescriptions. But the mechanisms agree with what the force plates and the coaches have been saying all along, and it is rather pleasant to watch the folklore sort itself into the parts that are physics and the parts that are just repetition.
   </script>
   <script id="gallery-section" type="text/markdown">
     ## Every optimization run, on the record
 
-    Trajectory optimization fails in creative ways, and a cost number proves nothing. So every optimization result this notebook relies on is embedded and re-simulated here, live, as a filmstrip: successes, stalls, and flails alike. Each row is also available in the playback scenario menu above (the entries in brackets) with full force instrumentation. If a row looks wrong, it is wrong, whatever its cost says.
+    Trajectory optimization fails in creative ways, and a cost number proves nothing. So every optimization result this notebook relies on is embedded and re-simulated here, live, as a filmstrip: successes, stalls, and flails alike. Each row is also available in the playback scenario menu above, in brackets. If a row looks wrong, it is wrong, whatever its cost says.
   </script>
   <script id="trajectory-gallery" type="text/x-typescript">
     const galleryView = (() => {
