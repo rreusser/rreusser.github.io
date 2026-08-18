@@ -51,7 +51,10 @@
     const heightM = bctrl(Inputs.range([1.4, 2.05], { label: 'Height (m)', value: 1.75, step: 0.01 }));
     const massKg = bctrl(Inputs.range([45, 115], { label: 'Mass (kg)', value: 70, step: 1 }));
     const straddleDeg = bctrl(Inputs.range([0, 120], { label: 'Straddle (deg)', value: 0, step: 5 }));
-    const strengthScale = bctrl(Inputs.range([0.4, 2], { label: 'Strength scale', value: 1, step: 0.05 }));
+    // Kept as an element as well as a value: the press corridor mirrors this
+    // slider next to the map, and Inputs.bind binds elements.
+    const strengthInput = Inputs.range([0.4, 2], { label: 'Strength scale', value: 1, step: 0.05 });
+    const strengthScale = bctrl(strengthInput);
     display(bodyControls);
   </script>
   <script id="model" type="text/x-typescript">
@@ -458,6 +461,41 @@
         || svgs[svgs.length - 1] || null;
     };
   </script>
+  <script id="corridor-frame" type="text/x-typescript">
+    // The corridor is a picture of two limits, and until now the sliders that
+    // set those limits lived in the pose panel, several screens up. They are
+    // mirrored here so the wall you are looking at is the wall you move.
+    //
+    // The mirrors have to live in a cell of their own. This cell reads the
+    // input elements and never their values, so dragging one does not
+    // re-run the cell and destroy the slider under the cursor mid-drag. The
+    // map is rebuilt on every change by the press-corridor cell, which
+    // renders into corridorSlot rather than displaying anything itself.
+    const corridorSlot = html`<div></div>`;
+    const corridorLimits = (() => {
+      const box = html`<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:0 18px; margin-top:8px;"></div>`;
+      const mirror = (domain, opts, source) => {
+        const input = Inputs.range(domain, opts);
+        Inputs.bind(input, source, invalidation);
+        box.appendChild(input);
+      };
+      mirror([0.4, 2], { label: 'Strength scale', step: 0.05 }, strengthInput);
+      mirror([50, 100], { label: 'Wrist dorsiflexion max', step: 1 }, inRomWrist);
+      mirror([120, 185], { label: 'Shoulder flexion max', step: 1 }, inRomShoulder);
+      mirror([40, 130], { label: 'Hip flexion max, straight knee', step: 1 }, inRomHip);
+      return box;
+    })();
+    // The two ways out of the corridor are different failures and want naming
+    // where they are seen, not in prose underneath. Alphas match the marks so
+    // the swatches read the same against either theme.
+    const swatch = (fill, text) => html`<span style="margin-right:16px; white-space:nowrap;"><span style="display:inline-block; width:.8em; height:.8em; background:${fill}; vertical-align:-.05em; margin-right:.35em;"></span>${text}</span>`;
+    display(html`<figure style="max-width:640px;">
+      ${corridorSlot}
+      <small style="display:block; opacity:.85; margin-top:2px;">${swatch('rgba(154,160,166,0.3)', 'needs more strength')}${swatch('rgba(111,134,198,0.3)', 'needs more range of motion')}</small>
+      ${corridorLimits}
+      <figcaption>Hover the map to see the body each cell stands for. Every cell is a pose that balances over the palm, with straight, symmetric legs; the colored corridor is the part this body can hold, shaded by how much of the hardest-worked joint it takes. The limits below are the same controls as in the pose panel, mirrored: move them and the walls move.</figcaption>
+    </figure>`);
+  </script>
   <script id="press-corridor" type="text/x-typescript">
     const corridorView = (() => {
       const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, strengthScale]);
@@ -487,10 +525,6 @@
         }
       }
       const D2R = Math.PI / 180;
-      const poseDot = {
-        hip: 0.5 * (poseInfo.q[5] + poseInfo.q[7]) / D2R,
-        shoulder: poseInfo.q[4] / D2R,
-      };
       const chart = Plot.plot({
         width: 452,
         height: 340,
@@ -502,7 +536,6 @@
           Plot.rect(cells.filter((d) => !d.feasible && d.tooStrong), { x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2', fill: '#9aa0a6', fillOpacity: 0.3 }),
           Plot.rect(cells.filter((d) => !d.feasible && !d.tooStrong), { x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2', fill: '#6f86c6', fillOpacity: 0.3 }),
           Plot.rect(cells.filter((d) => d.feasible), { x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2', fill: 'util' }),
-          Plot.dot([poseDot], { x: 'hip', y: 'shoulder', r: 5, stroke: 'black', fill: 'white' }),
         ],
       });
       // A cell of this map IS a pose: fix hip and shoulder, then solve the
@@ -539,7 +572,9 @@
               : 'outside a flexibility limit';
         probe.draw(q, `hip ${g.hipDeg[i].toFixed(0)}°, shoulder ${g.shoulderDeg[j].toFixed(0)}° — ${verdict}`);
       };
-      showCorridor(poseDot.hip, poseDot.shoulder);
+      // Opens on the straight handstand, the one pose in here everybody can
+      // already picture, so the probe starts with a body rather than blank.
+      showCorridor(0, 0);
       const surface = plotSurface(chart, 300);
       if (surface) {
         surface.style.touchAction = 'none';
@@ -553,15 +588,12 @@
         surface.addEventListener('pointerdown', onMove);
       }
 
-      return html`<figure>
-        <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
-          ${chart}
-          ${probe.element}
-        </div>
-        <figcaption>Hover the map to see the body each cell stands for. Every cell is a pose that balances over the palm, with straight, symmetric legs; the question is whether this body can hold it. Colored cells can, shaded by how much of the hardest-worked joint it takes. Gray cells need more strength than it has, blue-gray cells need range of motion it does not have. The dot is the current explorer pose.</figcaption>
-      </figure>`;
+      return html`<div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+        ${chart}
+        ${probe.element}
+      </div>`;
     })();
-    display(corridorView);
+    corridorSlot.replaceChildren(corridorView);
   </script>
   <script id="dynamics-section" type="text/markdown">
     ## Making it move
