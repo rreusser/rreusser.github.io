@@ -36,10 +36,11 @@
     import { createWorkspace, massMatrix, rnea, energy } from './dynamics.js';
     import {
       ROM_DEFAULTS, clampPose, groundHand, staticAnalysis, pressCorridor, jointLimits,
+      solveWristForCom,
     } from './statics.js';
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
     import { drawScene } from './render.js';
-    import { runScenario, balancedHandstand, resolveConfig } from './rollout.js';
+    import { runScenario, balancedHandstand, resolveConfig, HANDSTAND_TARGET_FRAC } from './rollout.js';
     import { PRESET_TRAJECTORIES, PRESET_CATCH_WINDOW, PRESET_SWEEPS, PRESET_GALLERY } from './presets.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
@@ -403,6 +404,47 @@
 
     A press to handstand is, in the quasi static limit, a path through pose space that keeps the center of mass over the palm the whole way: from a deep pike, through compression, to the stacked handstand. For each combination of hip and shoulder angle, the model solves for the wrist angle that balances the pose, then asks whether that pose is reachable within the flexibility limits and holdable within the strength limits. The result is a corridor: the region of pose space a press is allowed to pass through. Tighten the shoulders or hamstrings in the controls and watch the corridor narrow.
   </script>
+  <script id="pose-probe" type="text/x-typescript">
+    // Both the press corridor and the catch window are maps over coordinates
+    // nobody can picture: "hip 80, shoulder 30" and "wrist +12 deg at 1.4
+    // rad/s" mean nothing as numbers. This is the body those numbers stand
+    // for, drawn next to the plot and driven by whatever the cursor is over.
+    const makePoseProbe = ({ w = 156, h = 220 } = {}) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * devicePixelRatio);
+      canvas.height = Math.round(h * devicePixelRatio);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const note = html`<small style="display:block; opacity:.75; min-height:3.2em; line-height:1.3;"></small>`;
+      const element = html`<div style="flex:0 0 auto; width:${w}px;">${canvas}${note}</div>`;
+      const ctx = canvas.getContext('2d');
+      return {
+        element,
+        draw(q, text = '') {
+          ctx.save();
+          ctx.scale(devicePixelRatio, devicePixelRatio);
+          ctx.clearRect(0, 0, w, h);
+          if (q) {
+            drawScene(ctx, {
+              model, ws, q, width: w, height: h, theme: poseState.theme,
+              view: { cx: 0.1, yLo: -0.15, yHi: 2.15 },
+            });
+          }
+          ctx.restore();
+          note.textContent = text;
+        },
+      };
+    };
+
+    // Plot renders a figure that may also contain a legend svg; the plot
+    // itself is the tallest one. Its scales invert in CSS pixels relative to
+    // that svg, which is what a pointer event gives us.
+    const plotSurface = (chart) => {
+      const svgs = [...chart.querySelectorAll('svg')];
+      if (!svgs.length) return chart.tagName.toLowerCase() === 'svg' ? chart : null;
+      return svgs.sort((a, b) => b.getBoundingClientRect().height - a.getBoundingClientRect().height)[0];
+    };
+  </script>
   <script id="press-corridor" type="text/x-typescript">
     const corridorView = (() => {
       const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, strengthScale]);
@@ -441,9 +483,60 @@
           Plot.dot([poseDot], { x: 'hip', y: 'shoulder', r: 5, stroke: 'black', fill: 'white' }),
         ],
       });
+      // A cell of this map IS a pose: fix hip and shoulder, then solve the
+      // whole-body lean that puts the center of mass over the palm. Hovering
+      // shows that body, which is the only way the axes mean anything.
+      const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+      const poseAt = (hipDeg, shDeg) => {
+        const q = new Float64Array(model.nq);
+        groundHand(model, q);
+        q[4] = shDeg * D2R;
+        q[5] = q[7] = hipDeg * D2R;
+        const wr = solveWristForCom(model, q, ws, targetX);
+        if (Number.isNaN(wr)) return null;
+        q[3] = wr;
+        return q;
+      };
+      const probe = makePoseProbe();
+      const nearest = (arr, v) => {
+        let bi = 0;
+        for (let i = 1; i < arr.length; i++) if (Math.abs(arr[i] - v) < Math.abs(arr[bi] - v)) bi = i;
+        return bi;
+      };
+      const showCorridor = (hipDeg, shDeg) => {
+        const i = nearest(g.hipDeg, hipDeg), j = nearest(g.shoulderDeg, shDeg);
+        const idx = i * g.nShoulder + j;
+        const q = poseAt(g.hipDeg[i], g.shoulderDeg[j]);
+        const util = g.utilization[idx];
+        const verdict = !q || Number.isNaN(util)
+          ? 'cannot be balanced over the palm at any lean'
+          : g.feasible[idx]
+            ? `holdable, using ${(util * 100).toFixed(0)}% of the hardest-worked joint`
+            : util > 1
+              ? `needs ${(util * 100).toFixed(0)}% of a joint's strength: too strong to hold`
+              : 'outside a flexibility limit';
+        probe.draw(q, `hip ${g.hipDeg[i].toFixed(0)}°, shoulder ${g.shoulderDeg[j].toFixed(0)}° — ${verdict}`);
+      };
+      showCorridor(poseDot.hip, poseDot.shoulder);
+      const surface = plotSurface(chart);
+      if (surface) {
+        surface.style.touchAction = 'none';
+        const onMove = (e) => {
+          const r = surface.getBoundingClientRect();
+          const hx = chart.scale('x').invert(e.clientX - r.left);
+          const sy = chart.scale('y').invert(e.clientY - r.top);
+          if (Number.isFinite(hx) && Number.isFinite(sy)) showCorridor(hx, sy);
+        };
+        surface.addEventListener('pointermove', onMove);
+        surface.addEventListener('pointerdown', onMove);
+      }
+
       return html`<figure>
-        ${chart}
-        <figcaption>Balanceable poses with straight, symmetric legs. Colored cells are within flexibility and strength limits; gray cells balance but violate a limit; blank cells cannot balance at any wrist angle. The dot is the current explorer pose.</figcaption>
+        <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+          ${chart}
+          ${probe.element}
+        </div>
+        <figcaption>Hover the map to see the body each cell stands for. Balanceable poses with straight, symmetric legs. Colored cells are within flexibility and strength limits; gray cells balance but violate a limit; blank cells cannot balance at any wrist angle. The dot is the current explorer pose.</figcaption>
       </figure>`;
     })();
     display(corridorView);
@@ -888,6 +981,41 @@
           Plot.dot(trace.length ? [trace[trace.length - 1]] : [], { x: 'th', y: 'om', r: 4, fill: '#c06030' }),
         ],
       });
+      // A cell here is an arrival: the body stacked but rotated off balance by
+      // theta about the wrist, already turning at omega. The pose shows the
+      // angle, the arrow shows which way it is going, and the grid says
+      // whether the wrist can still save it.
+      const probe = makePoseProbe();
+      const nearest = (arr, v) => {
+        let bi = 0;
+        for (let i = 1; i < arr.length; i++) if (Math.abs(arr[i] - v) < Math.abs(arr[bi] - v)) bi = i;
+        return bi;
+      };
+      const showCatch = (thDeg, om) => {
+        const i = nearest(g.thetasDeg, thDeg), j = nearest(g.omegas, om);
+        const q = Float64Array.from(qBal);
+        q[3] += g.thetasDeg[i] * Math.PI / 180;
+        const caught = g.success[i * g.nOmega + j] === 1;
+        const dir = g.omegas[j] > 0.05 ? 'still falling toward the fingertips'
+          : g.omegas[j] < -0.05 ? 'still falling back toward the heel'
+          : 'arriving with no rotation';
+        probe.draw(q, `${g.thetasDeg[i] > 0 ? '+' : ''}${g.thetasDeg[i].toFixed(0)}° past balance at `
+          + `${g.omegas[j].toFixed(1)} rad/s, ${dir} — ${caught ? 'the wrist recovers it' : 'it falls'}`);
+      };
+      showCatch(0, 0);
+      const surface = plotSurface(chart);
+      if (surface) {
+        surface.style.touchAction = 'none';
+        const onMove = (e) => {
+          const r = surface.getBoundingClientRect();
+          const th = chart.scale('x').invert(e.clientX - r.left);
+          const om = chart.scale('y').invert(e.clientY - r.top);
+          if (Number.isFinite(th) && Number.isFinite(om)) showCatch(th, om);
+        };
+        surface.addEventListener('pointermove', onMove);
+        surface.addEventListener('pointerdown', onMove);
+      }
+
       const recompute = html`<button ${catchState.computing ? 'disabled' : ''}>Recompute for current body and strength</button>`;
       recompute.addEventListener('click', () => {
         if (catchState.computing) return;
@@ -914,9 +1042,12 @@
       });
       const status = catchState.computing ? html`<em> computing, this takes a moment...</em>` : '';
       return html`<figure>
-        ${chart}
+        <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+          ${chart}
+          ${probe.element}
+        </div>
         <div>${recompute}${status}</div>
-        <figcaption>Green cells: arrival states (wrist angle offset, wrist rate) from which the wrist-strategy balance controller recovers to a still handstand. The orange curve is the current playback run in this plane, ending at the dot. Positive angle offsets lean toward the fingertips.</figcaption>
+        <figcaption>Hover the map to see the arrival each cell stands for. Green cells: arrival states (wrist angle offset, wrist rate) from which the wrist-strategy balance controller recovers to a still handstand. The orange curve is the current playback run in this plane, ending at the dot. Positive angle offsets lean toward the fingertips.</figcaption>
       </figure>`;
     })();
     display(catchView);
