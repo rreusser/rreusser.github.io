@@ -25,6 +25,10 @@ self.onmessage = async (e) => {
       seed: msg.seed ?? 7,
       maxGen: msg.maxGen ?? 150,
       K: msg.K ?? 6,
+      // A warm start is a refinement: sampling at the from-scratch sigma
+      // throws the first generations far away from a technique that already
+      // works, which reads as the search getting worse before it gets better.
+      ...(msg.sigma0 ? { sigma0: msg.sigma0 } : {}),
       dt: msg.dt ?? 2.5e-4,
       ...(msg.scenario === 'pike' ? { tLo: 1.5, tHi: 3.5, t0: 2.2 } : {}),
       x0: msg.x0 ? Float64Array.from(msg.x0) : null,

@@ -40,7 +40,9 @@
     } from './statics.js';
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
     import { drawScene } from './render.js';
-    import { runScenario, balancedHandstand, resolveConfig, HANDSTAND_TARGET_FRAC } from './rollout.js';
+    import {
+      runScenario, balancedHandstand, resolveConfig, HANDSTAND_TARGET_FRAC, encodeDecision,
+    } from './rollout.js';
     import { PRESET_TRAJECTORIES, PRESET_CATCH_WINDOW, PRESET_SWEEPS, PRESET_GALLERY } from './presets.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
@@ -876,11 +878,24 @@
         optState.rev++;
         optState.notify?.(optState);
       };
+      // Start from the canonical result for this skill rather than from the
+      // hand-written reference. A search from scratch does not find a kick-up
+      // on this body in any budget this button offers -- the canonical one
+      // exists because the strength and the entry duration were walked down in
+      // stages offline -- so starting cold produced a couple of hundred
+      // generations of slow improvement ending in a fall. Warm-started, the
+      // button does what it looks like it does: takes a technique that works
+      // and refines it for the body currently set in the sliders.
+      const seedRun = PRESET_TRAJECTORIES[optScenario.value];
       worker.postMessage({
         type: 'optimize',
         scenario: optScenario.value,
         seed: optSeed.value,
         maxGen: optGens.value,
+        x0: seedRun
+          ? Array.from(encodeDecision(seedRun.knots.map((k) => Float64Array.from(k)), seedRun.T))
+          : null,
+        sigma0: seedRun ? 0.1 : undefined,
         modelParams: { heightM, massKg, straddleDeg },
         strengthOpts: { scale: strengthScale },
         romOverrides: poseState.rom,
