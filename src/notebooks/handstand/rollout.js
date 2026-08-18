@@ -7,6 +7,7 @@
 import { fk, momenta } from './dynamics.js';
 import {
   groundHand, solveWristForCom, romPenalty, clampPose, hipFlexMaxDeg, ROM_DEFAULTS,
+  wristQ3LimitsDeg,
 } from './statics.js';
 import { createContacts } from './contact.js';
 import { createJointStops } from './joint-stops.js';
@@ -117,7 +118,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
       const comAt = (sh) => {
         q[4] = sh;
-        solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, rom.wristDorsiMaxDeg));
+        solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
         return momenta(model, q, zeroQd9, ws).comX - q[0];
       };
       let lo = 55 * D2R, hi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
@@ -139,7 +140,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       // (buying hip range through the hamstring coupling), stance toe on the
       // floor, swing leg extended low behind with its toe just off the
       // ground rather than floating above the hands.
-      q[3] = Math.min(65, rom.wristDorsiMaxDeg) * D2R;
+      q[3] = Math.min(65, wristQ3LimitsDeg(rom).hi) * D2R;
       q[4] = 90 * D2R;
       q[8] = -50 * D2R;                    // stance knee bent
       solveHipForToeDown(model, ws, q, 'R');
@@ -217,12 +218,12 @@ export function resolveConfig(config) {
 // the hamstring coupling with the knee remains a cost-side constraint.
 export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null } = {}) {
   const jointLo = rom
-    ? [rom.wristDorsiMinDeg * D2R, -rom.shoulderHyperDeg * D2R,
+    ? [wristQ3LimitsDeg(rom).lo * D2R, -rom.shoulderHyperDeg * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R]
     : [20 * D2R, -15 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R];
   const jointHi = rom
-    ? [rom.wristDorsiMaxDeg * D2R, rom.shoulderCloseMaxDeg * D2R,
+    ? [wristQ3LimitsDeg(rom).hi * D2R, rom.shoulderCloseMaxDeg * D2R,
       rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
       rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R]
     : [130 * D2R, 120 * D2R, 175 * D2R, 10 * D2R, 175 * D2R, 10 * D2R];

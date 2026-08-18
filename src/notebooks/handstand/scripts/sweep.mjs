@@ -29,7 +29,7 @@ const FACTORS = {
   wristRom: {
     label: 'Wrist dorsiflexion limit (deg)',
     values: [60, 70, 80, 92],
-    apply: (v) => ({ rom: { wristDorsiMaxDeg: v } }),
+    apply: (v) => ({ rom: { wristExtMaxDeg: v } }),
   },
   hamstring: {
     label: 'Hip flexion with straight knees (deg)',

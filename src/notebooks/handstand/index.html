@@ -109,7 +109,13 @@
     const inSymmetric = add(Inputs.toggle({ label: 'Symmetric legs', value: true }));
 
     section('Flexibility limits');
-    const inRomWrist = add(Inputs.range([50, 100], { label: 'Wrist dorsiflexion max', value: ROM_DEFAULTS.wristDorsiMaxDeg, step: 1 }));
+    // Wrist extension, not the joint coordinate: 90 degrees is a forearm
+    // standing vertical on a flat hand, and leaning out over the fingers
+    // asks for more. Raising this slider therefore opens up the leaned-out
+    // poses and lowering it forbids them, which is the direction a
+    // flexibility limit should run. It used to be wired to the opposite end
+    // of the range and did the reverse.
+    const inRomWrist = add(Inputs.range([80, 150], { label: 'Wrist extension max', value: ROM_DEFAULTS.wristExtMaxDeg, step: 1 }));
     const inRomShoulder = add(Inputs.range([120, 185], { label: 'Shoulder flexion max', value: ROM_DEFAULTS.shoulderFlexMaxDeg, step: 1 }));
     const inRomHip = add(Inputs.range([40, 130], { label: 'Hip flexion max, straight knee', value: ROM_DEFAULTS.hipFlexStraightKneeMaxDeg, step: 1 }));
     const inRomCoupling = add(Inputs.range([0, 1], { label: 'Hamstring coupling (deg/deg)', value: ROM_DEFAULTS.hamstringCouplingPerDeg, step: 0.05 }));
@@ -128,7 +134,7 @@
       q[8] = -inKneeR.value * D2R;
       const rom = {
         ...ROM_DEFAULTS,
-        wristDorsiMaxDeg: inRomWrist.value,
+        wristExtMaxDeg: inRomWrist.value,
         shoulderFlexMaxDeg: inRomShoulder.value,
         hipFlexStraightKneeMaxDeg: inRomHip.value,
         hamstringCouplingPerDeg: inRomCoupling.value,
@@ -485,7 +491,7 @@
         box.appendChild(input);
       };
       mirror([0.4, 2], { label: 'Strength scale', step: 0.05 }, strengthInput);
-      mirror([50, 100], { label: 'Wrist dorsiflexion max', step: 1 }, inRomWrist);
+      mirror([80, 150], { label: 'Wrist extension max', step: 1 }, inRomWrist);
       mirror([120, 185], { label: 'Shoulder flexion max', step: 1 }, inRomShoulder);
       mirror([40, 130], { label: 'Hip flexion max, straight knee', step: 1 }, inRomHip);
       return box;
