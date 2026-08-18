@@ -441,10 +441,19 @@
     // Plot renders a figure that may also contain a legend svg; the plot
     // itself is the tallest one. Its scales invert in CSS pixels relative to
     // that svg, which is what a pointer event gives us.
-    const plotSurface = (chart) => {
+    // Plot returns a <figure> when it draws a legend and a bare <svg>
+    // otherwise. The figure carries a browser default margin that opens a gap
+    // the width of the page, and it holds two svgs: the legend ramp first,
+    // then the plot. Pick by the height we asked for, NOT by measuring: this
+    // runs before the chart is in the document, so every getBoundingClientRect
+    // is 0x0, a sort by size is a no-op, and the first svg wins -- which is
+    // the legend. That is how the pointer handler ended up on the colour bar.
+    const plotSurface = (chart, minHeight) => {
+      chart.style.margin = '0';
+      if (chart.tagName.toLowerCase() === 'svg') return chart;
       const svgs = [...chart.querySelectorAll('svg')];
-      if (!svgs.length) return chart.tagName.toLowerCase() === 'svg' ? chart : null;
-      return svgs.sort((a, b) => b.getBoundingClientRect().height - a.getBoundingClientRect().height)[0];
+      return svgs.find((sv) => +sv.getAttribute('height') >= minHeight)
+        || svgs[svgs.length - 1] || null;
     };
   </script>
   <script id="press-corridor" type="text/x-typescript">
@@ -475,7 +484,9 @@
         shoulder: poseInfo.q[4] / D2R,
       };
       const chart = Plot.plot({
+        width: 452,
         height: 340,
+        marginLeft: 44,
         x: { label: 'hip flexion (deg)' },
         y: { label: 'shoulder closing (deg)' },
         color: { label: 'peak strength used', scheme: 'ylorrd', domain: [0, 1.2], legend: true },
@@ -520,7 +531,7 @@
         probe.draw(q, `hip ${g.hipDeg[i].toFixed(0)}°, shoulder ${g.shoulderDeg[j].toFixed(0)}° — ${verdict}`);
       };
       showCorridor(poseDot.hip, poseDot.shoulder);
-      const surface = plotSurface(chart);
+      const surface = plotSurface(chart, 300);
       if (surface) {
         surface.style.touchAction = 'none';
         const onMove = (e) => {
@@ -986,7 +997,9 @@
         trace.push({ th: (rec.q[k][3] - qBal[3]) * 180 / Math.PI, om: rec.qd[k][3], t: rec.t[k] });
       }
       const chart = Plot.plot({
+        width: 452,
         height: 320,
+        marginLeft: 44,
         x: { label: 'wrist angle offset from balance (deg)', domain: [g.thetasDeg[0], g.thetasDeg[g.nTheta - 1]] },
         y: { label: 'wrist angular velocity (rad/s)', domain: [g.omegas[0], g.omegas[g.nOmega - 1]] },
         marks: [
@@ -1018,7 +1031,7 @@
           + `${g.omegas[j].toFixed(1)} rad/s, ${dir} — ${caught ? 'the wrist recovers it' : 'it falls'}`);
       };
       showCatch(0, 0);
-      const surface = plotSurface(chart);
+      const surface = plotSurface(chart, 300);
       if (surface) {
         surface.style.touchAction = 'none';
         const onMove = (e) => {
