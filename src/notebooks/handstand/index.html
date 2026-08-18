@@ -411,7 +411,10 @@
     // nobody can picture: "hip 80, shoulder 30" and "wrist +12 deg at 1.4
     // rad/s" mean nothing as numbers. This is the body those numbers stand
     // for, drawn next to the plot and driven by whatever the cursor is over.
-    const makePoseProbe = ({ w = 156, h = 220 } = {}) => {
+    // The window has to be given, not defaulted: a body piked to 130 deg
+    // reaches almost 0.9 m behind the hand, and centering on the hand the way
+    // a straight handstand wants cuts the legs off the canvas.
+    const makePoseProbe = ({ w = 156, h = 220, view = { cx: 0.1, yLo: -0.15, yHi: 2.15 } } = {}) => {
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(w * devicePixelRatio);
       canvas.height = Math.round(h * devicePixelRatio);
@@ -428,8 +431,7 @@
           ctx.clearRect(0, 0, w, h);
           if (q) {
             drawScene(ctx, {
-              model, ws, q, width: w, height: h, theme: poseState.theme,
-              view: { cx: 0.1, yLo: -0.15, yHi: 2.15 },
+              model, ws, q, width: w, height: h, theme: poseState.theme, view,
             });
           }
           ctx.restore();
@@ -460,7 +462,12 @@
     const corridorView = (() => {
       const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, strengthScale]);
       if (poseState.corridorCache.key !== cacheKey) {
-        poseState.corridorCache.grid = pressCorridor(model, romInfo, strengthProf, ws, { nHip: 44, nShoulder: 40 });
+        // Sampling shoulders below zero costs a band of cells that fail for a
+        // reason that has nothing to do with pressing: the shoulder simply does
+        // not extend past overhead. It also caught the reference handstand,
+        // which snapped to shoulder -0.6 deg and read back as anatomically
+        // illegal.
+        poseState.corridorCache.grid = pressCorridor(model, romInfo, strengthProf, ws, { nHip: 44, nShoulder: 40, shoulderLoDeg: 0 });
         poseState.corridorCache.key = cacheKey;
       }
       const g = poseState.corridorCache.grid;
@@ -475,6 +482,7 @@
             y1: g.shoulderDeg[j] - dSh / 2, y2: g.shoulderDeg[j] + dSh / 2,
             util: g.utilization[idx],
             feasible: g.feasible[idx] === 1,
+            tooStrong: g.utilization[idx] > 1,
           });
         }
       }
@@ -491,7 +499,8 @@
         y: { label: 'shoulder closing (deg)' },
         color: { label: 'peak strength used', scheme: 'ylorrd', domain: [0, 1.2], legend: true },
         marks: [
-          Plot.rect(cells.filter((d) => !d.feasible), { x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2', fill: '#bbb', fillOpacity: 0.25 }),
+          Plot.rect(cells.filter((d) => !d.feasible && d.tooStrong), { x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2', fill: '#9aa0a6', fillOpacity: 0.3 }),
+          Plot.rect(cells.filter((d) => !d.feasible && !d.tooStrong), { x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2', fill: '#6f86c6', fillOpacity: 0.3 }),
           Plot.rect(cells.filter((d) => d.feasible), { x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2', fill: 'util' }),
           Plot.dot([poseDot], { x: 'hip', y: 'shoulder', r: 5, stroke: 'black', fill: 'white' }),
         ],
@@ -510,7 +519,7 @@
         q[3] = wr;
         return q;
       };
-      const probe = makePoseProbe();
+      const probe = makePoseProbe({ view: { cx: -0.15, yLo: -0.15, yHi: 2.15 } });
       const nearest = (arr, v) => {
         let bi = 0;
         for (let i = 1; i < arr.length; i++) if (Math.abs(arr[i] - v) < Math.abs(arr[bi] - v)) bi = i;
@@ -549,7 +558,7 @@
           ${chart}
           ${probe.element}
         </div>
-        <figcaption>Hover the map to see the body each cell stands for. Balanceable poses with straight, symmetric legs. Colored cells are within flexibility and strength limits; gray cells balance but violate a limit; blank cells cannot balance at any wrist angle. The dot is the current explorer pose.</figcaption>
+        <figcaption>Hover the map to see the body each cell stands for. Every cell is a pose that balances over the palm, with straight, symmetric legs; the question is whether this body can hold it. Colored cells can, shaded by how much of the hardest-worked joint it takes. Gray cells need more strength than it has, blue-gray cells need range of motion it does not have. The dot is the current explorer pose.</figcaption>
       </figure>`;
     })();
     display(corridorView);
