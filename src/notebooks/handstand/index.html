@@ -16,6 +16,17 @@
          much wider than the things they describe. */
       :root { --max-width: 640px; }
       .body-controls, .pose-controls, .sim-controls, .opt-controls { max-width: 640px; }
+      /* One figure earns more than the column: the press corridor is a map,
+         and a map wants area. Bleed it symmetrically about the column by
+         pulling the left margin back by half the overhang. The caption stays
+         at reading width inside it. */
+      .wide-figure {
+        --w: min(1100px, calc(100vw - 40px));
+        width: var(--w);
+        max-width: none;
+        margin-left: calc(50% - var(--w) / 2);
+      }
+      .wide-figure figcaption { max-width: 640px; }
     </style>
   </script>
   <script id="model-section" type="text/markdown">
@@ -500,12 +511,31 @@
     // where they are seen, not in prose underneath. Alphas match the marks so
     // the swatches read the same against either theme.
     const swatch = (fill, text) => html`<span style="margin-right:16px; white-space:nowrap;"><span style="display:inline-block; width:.8em; height:.8em; background:${fill}; vertical-align:-.05em; margin-right:.35em;"></span>${text}</span>`;
-    display(html`<figure style="max-width:640px;">
+    const corridorFigure = html`<figure class="wide-figure">
       ${corridorSlot}
       <small style="display:block; opacity:.85; margin-top:2px;">${swatch('rgba(154,160,166,0.3)', 'needs more strength')}${swatch('rgba(111,134,198,0.3)', 'needs more range of motion')}</small>
       ${corridorLimits}
       <figcaption>Hover the map to see the body each cell stands for. Every cell is a pose that balances over the palm, with straight, symmetric legs; the colored corridor is the part this body can hold, shaded by how much of the hardest-worked joint it takes. The limits below are the same controls as in the pose panel, mirrored: move them and the walls move.</figcaption>
-    </figure>`);
+    </figure>`;
+    display(corridorFigure);
+
+    // The map is redrawn at whatever width the figure ends up with. Width is
+    // quantised to 20 px and measured on the FIGURE, never on the slot the
+    // map is drawn into, so a redraw cannot change the thing being observed
+    // and start a loop. Plot has no reflow of its own; a resize means
+    // rebuilding the chart, and a chart is 1760 rects, so the quantisation is
+    // what keeps a window drag from thrashing.
+    const corridorWidth = Generators.observe((notify) => {
+      const measure = () => {
+        const w = corridorFigure.clientWidth;
+        if (w > 0) notify(Math.round(w / 20) * 20);
+      };
+      const ro = new ResizeObserver(measure);
+      ro.observe(corridorFigure);
+      measure();
+      notify(Math.round((corridorFigure.clientWidth || 640) / 20) * 20);
+      return () => ro.disconnect();
+    });
   </script>
   <script id="press-corridor" type="text/x-typescript">
     const corridorView = (() => {
@@ -536,9 +566,20 @@
         }
       }
       const D2R = Math.PI / 180;
+      // Split the figure between the map and the body it stands for. The
+      // probe grows with the figure but not without bound: past about 260 px
+      // a stick body gains nothing and the map loses area.
+      // Below about 560 px there is not enough width for both, and squeezing
+      // the map to fit the body beside it leaves neither readable. Give the
+      // map the full width and let the flex row wrap the body underneath.
+      const figW = Math.max(320, corridorWidth);
+      const stacked = figW < 560;
+      const probeW = stacked ? 156 : Math.round(Math.min(260, Math.max(180, 0.24 * figW)));
+      const chartW = stacked ? figW : figW - probeW - 16;
+      const chartH = Math.round(Math.min(460, Math.max(300, 0.62 * chartW)));
       const chart = Plot.plot({
-        width: 452,
-        height: 340,
+        width: chartW,
+        height: chartH,
         marginLeft: 44,
         x: { label: 'hip flexion (deg)' },
         y: { label: 'shoulder closing (deg)' },
@@ -563,7 +604,10 @@
         q[3] = wr;
         return q;
       };
-      const probe = makePoseProbe({ view: { cx: -0.15, yLo: -0.15, yHi: 2.15 } });
+      const probe = makePoseProbe({
+        w: probeW, h: Math.round(probeW * 1.41),
+        view: { cx: -0.15, yLo: -0.15, yHi: 2.15 },
+      });
       const nearest = (arr, v) => {
         let bi = 0;
         for (let i = 1; i < arr.length; i++) if (Math.abs(arr[i] - v) < Math.abs(arr[bi] - v)) bi = i;
@@ -586,7 +630,7 @@
       // Opens on the straight handstand, the one pose in here everybody can
       // already picture, so the probe starts with a body rather than blank.
       showCorridor(0, 0);
-      const surface = plotSurface(chart, 300);
+      const surface = plotSurface(chart, chartH);
       if (surface) {
         surface.style.touchAction = 'none';
         const onMove = (e) => {
