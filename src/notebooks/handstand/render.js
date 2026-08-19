@@ -20,7 +20,7 @@ export function viewTransform(width, height, { cx = 0.12, yLo = -0.18, yHi = 2.0
 }
 
 // Draws the scene and returns screen-space anchors for interaction handles.
-// opts: { model, ws, q, width, height, theme, clamped, segmentColors,
+// opts: { model, ws, q, width, height, theme, clamped, jointMarks, segmentColors,
 //         forces: [{x, y, fx, fy}] (world, Newtons), comTrail: [[x, y], ...],
 //         copX (world x of center of pressure, drawn on the patch) }
 export function drawScene(ctx, opts) {
@@ -215,6 +215,24 @@ export function drawScene(ctx, opts) {
       ctx.beginPath();
       ctx.arc(toX(ws.px[b]), toY(ws.py[b]), Math.max(6, 0.03 * scale), 0, TAU);
       ctx.stroke();
+    }
+  }
+
+  // Rings naming the joint that makes a pose impossible: solid for a joint
+  // asked for more torque than it has, dashed for one outside its range of
+  // motion. jointMarks maps a joint index (3..8) to 'strength' or 'rom'.
+  if (opts.jointMarks) {
+    const red = isDark ? 'rgba(255, 105, 97, 0.95)' : 'rgba(192, 57, 43, 0.95)';
+    for (const [key, kind] of Object.entries(opts.jointMarks)) {
+      const b = (+key) - 2;
+      if (!(b >= 0 && b < model.nb)) continue;
+      ctx.strokeStyle = red;
+      ctx.lineWidth = Math.max(2, 0.009 * scale);
+      ctx.setLineDash(kind === 'rom' ? [Math.max(3, 0.012 * scale), Math.max(3, 0.010 * scale)] : []);
+      ctx.beginPath();
+      ctx.arc(toX(ws.px[b]), toY(ws.py[b]), Math.max(7, 0.034 * scale), 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 

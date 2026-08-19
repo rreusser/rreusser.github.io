@@ -261,13 +261,14 @@
       const ctx = canvas.getContext('2d');
       return {
         element,
-        draw(q, text = '') {
+        draw(q, text = '', jointMarks = null) {
           ctx.save();
           ctx.scale(devicePixelRatio, devicePixelRatio);
           ctx.clearRect(0, 0, w, h);
           if (q) {
             drawScene(ctx, {
               model, ws, q, width: w, height: h, theme: poseState.theme, view,
+              jointMarks,
             });
           }
           ctx.restore();
@@ -327,7 +328,7 @@
       ${corridorSlot}
       <small style="display:block; opacity:.85; margin-top:2px;">${swatch('rgba(154,160,166,0.3)', 'needs more strength')}${swatch('rgba(111,134,198,0.3)', 'needs more range of motion')}</small>
       ${corridorLimits}
-      <figcaption>Hover the map to see the body each cell stands for. Every cell is a pose that balances over the palm, with straight, symmetric legs; the colored corridor is the part this body can hold, shaded by how much of the hardest-worked joint it takes. The controls below are mirrors of the ones at the top of the page: move them and the walls move. Straddling is the odd one out, a change of shape rather than a limit — it shortens the legs in side view, which shrinks the strength wall and exposes the flexibility wall that was hiding behind it.</figcaption>
+      <figcaption>Hover the map to see the body each cell stands for. Every cell is a pose that balances over the palm, with straight, symmetric legs; the colored corridor is the part this body can hold, shaded by how much of the hardest-worked joint it takes. The controls below are mirrors of the ones at the top of the page: move them and the walls move. Red rings name the joint that makes a pose impossible: solid where it is asked for more torque than it has, dashed where it is outside its range of motion. Straddling is the odd one out among the controls, a change of shape rather than a limit — it shortens the legs in side view, which shrinks the strength wall and exposes the flexibility wall that was hiding behind it.</figcaption>
     </figure>`;
     display(corridorFigure);
 
@@ -337,15 +338,21 @@
     // and start a loop. Plot has no reflow of its own; a resize means
     // rebuilding the chart, and a chart is 1760 rects, so the quantisation is
     // what keeps a window drag from thrashing.
+    // FLOOR, not round. Rounding to the nearest 20 overshoots the real width
+    // whenever the remainder is 10 or more, the map and the body are then
+    // sized to a row wider than the one holding them, and the flex row wraps
+    // the body underneath. Which way it rounds alternates as the window
+    // resizes, so the layout appeared to wrap and unwrap at random.
+    const quantise = (w) => Math.floor(w / 20) * 20;
     const corridorWidth = Generators.observe((notify) => {
       const measure = () => {
         const w = corridorFigure.clientWidth;
-        if (w > 0) notify(Math.round(w / 20) * 20);
+        if (w > 0) notify(quantise(w));
       };
       const ro = new ResizeObserver(measure);
       ro.observe(corridorFigure);
       measure();
-      notify(Math.round((corridorFigure.clientWidth || 640) / 20) * 20);
+      notify(quantise(corridorFigure.clientWidth || 640));
       return () => ro.disconnect();
     });
   </script>
@@ -386,8 +393,11 @@
       // map the full width and let the flex row wrap the body underneath.
       const figW = Math.max(320, corridorWidth);
       const stacked = figW < 560;
+      // GAP is the flex gap this row actually uses; the two children plus the
+      // gap have to come to no more than the row, or it wraps.
+      const GAP = 12;
       const probeW = stacked ? 156 : Math.round(Math.min(260, Math.max(180, 0.24 * figW)));
-      const chartW = stacked ? figW : figW - probeW - 16;
+      const chartW = stacked ? figW : figW - probeW - GAP;
       const chartH = Math.round(Math.min(460, Math.max(300, 0.62 * chartW)));
       const chart = Plot.plot({
         width: chartW,
@@ -425,6 +435,23 @@
         for (let i = 1; i < arr.length; i++) if (Math.abs(arr[i] - v) < Math.abs(arr[bi] - v)) bi = i;
         return bi;
       };
+      // Which joint is the problem, not merely that there is one. Recomputing
+      // the static torques for one pose is cheap, and it is the difference
+      // between "too strong to hold" and knowing it is the shoulder.
+      const JOINT_KEYS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+      const offendingJoints = (q) => {
+        if (!q) return null;
+        const marks = {};
+        const st = staticAnalysis(model, q, ws);
+        for (let k = 0; k < 6; k++) {
+          const jj = 3 + k;
+          const { lo, hi } = jointLimits(romInfo, q, jj);
+          if (q[jj] < lo - 1e-9 || q[jj] > hi + 1e-9) { marks[jj] = 'rom'; continue; }
+          const t = st.tau[jj];
+          if (Math.abs(t) > availableTorque(strengthProf[JOINT_KEYS[k]], t, 0)) marks[jj] = 'strength';
+        }
+        return Object.keys(marks).length ? marks : null;
+      };
       const showCorridor = (hipDeg, shDeg) => {
         const i = nearest(g.hipDeg, hipDeg), j = nearest(g.shoulderDeg, shDeg);
         const idx = i * g.nShoulder + j;
@@ -437,7 +464,8 @@
             : util > 1
               ? `needs ${(util * 100).toFixed(0)}% of a joint's strength: too strong to hold`
               : 'outside a flexibility limit';
-        probe.draw(q, `hip ${g.hipDeg[i].toFixed(0)}°, shoulder ${g.shoulderDeg[j].toFixed(0)}° — ${verdict}`);
+        probe.draw(q, `hip ${g.hipDeg[i].toFixed(0)}°, shoulder ${g.shoulderDeg[j].toFixed(0)}° — ${verdict}`,
+          offendingJoints(q));
       };
       // Opens on the straight handstand, the one pose in here everybody can
       // already picture, so the probe starts with a body rather than blank.
