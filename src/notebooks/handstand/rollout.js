@@ -363,6 +363,23 @@ export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null } = {}) {
   return { lo, hi };
 }
 
+// Skills whose two legs do the same thing. The decision vector carries a hip
+// and a knee per leg because the kick-up genuinely needs them -- it swings one
+// leg and pushes with the other -- but a press and a bent-leg press are
+// symmetric movements, and nothing in the score says so. Left the search free
+// to spend those parameters, the bent-leg press arrived with one leg straight
+// and the other folded ninety degrees through the whole rise: cheap, stable,
+// and nothing like the skill. Mirroring after decoding takes the option away.
+export const SYMMETRIC_SCENARIOS = new Set(['pike', 'tuck']);
+
+export function symmetrizeKnots(knots) {
+  for (let k = 0; k < knots[2].length; k++) {
+    knots[4][k] = knots[2][k];
+    knots[5][k] = knots[3][k];
+  }
+  return knots;
+}
+
 export function decodeDecision(x, K) {
   const knots = [];
   for (let j = 0; j < 6; j++) knots.push(x.slice(j * K, (j + 1) * K));
@@ -402,9 +419,16 @@ export const SETTLE_DRIVE_RATE_SCALE = 4;
 // ~0.2 s) sits near 1 on this scale; flailing reversals sit far above it.
 export const SMOOTH_ACCEL_SCALE = 60;
 
-// How long the feet must be continuously clear of the floor before putting
-// them back down counts as replanting rather than as the push-off itself.
-export const FOOT_CLEAR_S = 0.25;
+// How far a toe has to rise before it counts as having left the floor. A
+// foot that has left may not come back.
+//
+// Height, not force, and not a time window. The bent-leg press start rests
+// its toes on the floor with a share of body weight on them, so a
+// force-based test reads "already gone" in the first millisecond, and a time
+// debounce to paper over that is just a window to hide a replant in: the
+// search lifted both feet 180 mm, dropped them back at five times body
+// weight, and pushed off that, all inside a quarter of a second.
+export const TOE_CLEAR_M = 0.05;
 
 // Where "working hard" becomes "living at the cap", and how much that costs.
 // The saturation term used to hinge at 0.95 on the raw utilization, so a
@@ -452,6 +476,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   pinFinal = true,
 } = {}) {
   const { knots, T } = decodeDecision(x, K);
+  if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(knots);
   const balanced = balancedHandstand(model, ws);
   // A technique ends in the handstand by definition: the final knot is the
   // balanced pose, not a free parameter. Otherwise the settle-phase servo
@@ -535,29 +560,30 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   const W = mo.mass * model.gravity;
   let angErr = 0, nAng = 0, liftoff = 0, feet = 0;
   // Foot contact is a prefix of an entry, never something to come back to.
-  // A press unweights its feet and leaves them; a kick-up pushes off once
-  // and leaves them. Both start with the toes at floor level, so the state
-  // machine below starts ON the floor and only calls the feet gone after
-  // FOOT_CLEAR_S of continuous clearance -- a push-off inside that window
-  // is the momentum a bent-leg press is entitled to, and is not charged.
+  // A press unweights its feet and leaves them; a kick-up pushes off once and
+  // leaves them; a bent-leg press hops off both and leaves them. Each foot is
+  // tracked on its own, because a kick-up's swing leg is already in the air
+  // while its stance leg is still pushing.
   //
-  // Without this the bent-leg press had a cheaper option than pressing:
-  // hold a tucked frog stand for a second and a half, settle the feet back
-  // down onto the floor, and jump. Nothing else in the score noticed,
-  // because the feet term only ever looked at the settle tail.
-  let replant = 0, footClear = 0, feetGone = false;
+  // Without this the bent-leg press had a cheaper option than pressing: hold
+  // a tucked fold, settle the feet back down onto the floor, and jump.
+  // Nothing else in the score noticed, because the feet term only ever looked
+  // at the settle tail.
+  let replant = 0;
+  const footGone = [false, false];
   for (let k = 0; k < rec.t.length; k++) {
     const f = rec.forces[k];
     if (f) {
       const handF = f.fy[0] + f.fy[1];
       const def = Math.max(0, 0.1 * W - handF) / (0.1 * W);
       liftoff += def * def;
+      for (let s = 0; s < 2; s++) {
+        const c = 2 + s;
+        if (f.py[c] === undefined) continue;
+        if (!footGone[s] && f.py[c] > TOE_CLEAR_M) footGone[s] = true;
+        if (footGone[s]) replant += (f.fy[c] / (0.1 * W)) ** 2;
+      }
       const footF = (f.fy[2] || 0) + (f.fy[3] || 0);
-      if (feetGone) replant += (footF / (0.2 * W)) ** 2;
-      else if (footF < 0.02 * W) {
-        footClear += k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
-        if (footClear >= FOOT_CLEAR_S) feetGone = true;
-      } else footClear = 0;
       if (rec.t[k] >= settleStart) feet += (footF / (0.2 * W)) ** 2;
     }
     if (rec.t[k] >= settleStart) {
@@ -920,6 +946,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
   const decoded = decodeDecision(result.bestX, K);
+  if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
   const qBal = balancedHandstand(model, ws);
   for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
   return { ...result, K, scenario, finalCheck, decoded };

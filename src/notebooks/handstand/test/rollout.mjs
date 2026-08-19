@@ -12,7 +12,8 @@ import { cmaes } from '../cma-es.js';
 import {
   naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds,
   rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
-  scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC,
+  scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC, SYMMETRIC_SCENARIOS,
+  tuckPressReference,
 } from '../rollout.js';
 import { momenta, fk } from '../dynamics.js';
 
@@ -258,6 +259,27 @@ const rom = { ...ROM_DEFAULTS };
     loOnFeet > 0.15 && hiOnFeet < 0.6 && lowT > 0.45,
     `weight on the legs ${(loOnFeet * 100).toFixed(0)}-${(hiOnFeet * 100).toFixed(0)}%`
     + ` (asked for ${(TUCK_LOAD_FRAC * 100).toFixed(0)}%), lowest CoM ${lowT.toFixed(2)} m`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate L: the symmetric skills are scored symmetrically. The decision vector
+// carries a hip and a knee per leg for the kick-up's sake, so nothing stops a
+// press from scissoring its legs -- and the bent-leg press duly arrived with
+// one leg straight and the other folded ninety degrees. Mirroring makes an
+// asymmetric vector score exactly as its left leg alone would.
+{
+  const ref = tuckPressReference(model, ws, 6, rom);
+  const asym = encodeDecision(ref.knots.map((r) => Float64Array.from(r)), 1.8);
+  const mirrored = encodeDecision(ref.knots.map((r) => Float64Array.from(r)), 1.8);
+  // Bend the right leg away from the left in the raw vector; rows are
+  // [wrist, shoulder, hipL, kneeL, hipR, kneeR], K knots each.
+  for (let k = 0; k < 6; k++) { asym[4 * 6 + k] += 0.4; asym[5 * 6 + k] -= 0.5; }
+  const a = rolloutCost(model, ws, prof, rom, 'tuck', asym, { K: 6, dt: 5e-4 });
+  const b = rolloutCost(model, ws, prof, rom, 'tuck', mirrored, { K: 6, dt: 5e-4 });
+  gate('L: a symmetric scenario ignores the right leg\'s own parameters',
+    SYMMETRIC_SCENARIOS.has('tuck') && SYMMETRIC_SCENARIOS.has('pike')
+      && Math.abs(a.cost - b.cost) < 1e-9,
+    `scissored ${a.cost.toFixed(4)} vs mirrored ${b.cost.toFixed(4)}`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll rollout gates passed');

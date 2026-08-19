@@ -51,7 +51,7 @@
     import { drawScene, drawGhosts } from './render.js';
     import {
       runScenario, balancedHandstand, resolveConfig, resolveRom, HANDSTAND_TARGET_FRAC,
-      encodeDecision,
+      encodeDecision, SERVO_DEFAULTS,
     } from './rollout.js';
     import { PRESET_TRAJECTORIES, PRESET_GALLERY } from './presets.js';
   </script>
@@ -892,6 +892,7 @@
         label: `${r.scenario} @ ${(+sh).toFixed(2)} Nm/kg`
           + (r.stopped ? ` (gen ${r.gen})` : '') + ` \u2014 cost ${(r.fineCost ?? r.best).toFixed(2)}`,
         scenario: r.scenario, knots: r.knots, T: r.T, strength: r.strength, rom: r.rom,
+        config: r.config,
       });
       rebuildSeeds();
       optSave.disabled = true;
@@ -951,8 +952,16 @@
       // Carried onto the result so that adopting or re-seeding a run uses the
       // body it was optimised for. Without this, a press optimised at 2.8
       // Nm/kg went to playback and collapsed on a 1.6 Nm/kg body.
+      //
+      // The plant belongs here for the same reason the body does, and it was
+      // missing: playback resolves a run's config, and a result with no
+      // config recorded resolved to the LEGACY one -- no braking, no
+      // inertia-scaled damping, no end-stops, and the old start pose. A
+      // search result sent to playback was being replayed on a different
+      // machine from the one that produced it, and fell on its face.
       optState.body = {
         scenario: resolved.scenario, strength: strengthOpts.overrides, rom: romOverrides,
+        config: { ...SERVO_DEFAULTS },
       };
       worker.postMessage({
         type: 'optimize',
