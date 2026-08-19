@@ -453,7 +453,7 @@ export function encodeDecision(knots, T) {
 export const COST_WEIGHTS = {
   pose: 1, poseAngles: 2, velocity: 0.3, fall: 1,
   effort: 0.08, saturation: 2, rom: 4, romPeak: 0.5, quasiStatic: 0,
-  liftoff: 8, feet: 5, replant: 25, work: 1, smooth: 1,
+  liftoff: 8, feet: 5, replant: 25, tuckPhase: 6, work: 1, smooth: 1,
   settleCalm: 1, driveRate: 0.3,
 };
 
@@ -474,6 +474,26 @@ export const SETTLE_DRIVE_RATE_SCALE = 4;
 // against this scale (rad/s^2). A purposeful kick swing (0 to ~8 rad/s in
 // ~0.2 s) sits near 1 on this scale; flailing reversals sit far above it.
 export const SMOOTH_ACCEL_SCALE = 60;
+
+// What a bent-leg press has to pass through to be one: airborne, stacked over
+// the palm, with the knees still bent. Hips over the hands and knees at the
+// chest is a shape the shoulder holds at 23 Nm, limited by the WRIST at the
+// same utilization as a straight handstand; let the hips sit behind the hands
+// instead and the identical tuck is a planche at 132 Nm. Both are ways to be
+// upside down with bent legs and only one of them is the skill.
+//
+// Nothing in a generic score distinguishes them, and the search prefers the
+// planche, because drifting up through it is smooth and cheap in work while a
+// hop is neither. So the shape is scored directly: how close the trajectory
+// ever came, at any instant with its feet off the floor, to being stacked
+// with its knees bent. This is a definition, in the same sense that arriving
+// "posed" in the balanced configuration is a definition of having got there.
+export const TUCK_PHASE = {
+  shoulderOpenDeg: 20,   // trunk within this of the arm line
+  kneeFlexDeg: 60,       // and the knees at least this bent
+  overHandM: 0.05,       // and the centre of mass this near the palm target
+  cap: 25,               // a hopeless run is not worth more than this
+};
 
 // How far a toe has to rise before it counts as having left the floor. A
 // foot that has left may not come back.
@@ -654,6 +674,28 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   }
   liftoff /= rec.t.length;
   replant /= rec.t.length;
+
+  // The closest this trajectory ever came to a fully inverted tuck, over the
+  // frames where it was actually off its feet.
+  let tuckMiss = 0;
+  if ((weights.tuckPhase || 0) > 0 && scenario === 'tuck') {
+    const patchTarget = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+    const openScale = TUCK_PHASE.shoulderOpenDeg * D2R;
+    const bentScale = TUCK_PHASE.kneeFlexDeg * D2R;
+    let closest = Infinity;
+    for (let k = 0; k < rec.t.length; k++) {
+      const f = rec.forces[k];
+      if (f && (f.fy[2] || 0) + (f.fy[3] || 0) > 0.05 * W) continue;
+      const q = rec.q[k];
+      const open = Math.max(0, Math.abs(q[4]) - openScale) / openScale;
+      const kneeFlex = 0.5 * (-q[6] + -q[8]);
+      const bent = Math.max(0, bentScale - kneeFlex) / bentScale;
+      const over = (rec.com[k][0] - (q[0] + patchTarget)) / TUCK_PHASE.overHandM;
+      const miss = open * open + bent * bent + over * over;
+      if (miss < closest) closest = miss;
+    }
+    tuckMiss = Math.min(Number.isFinite(closest) ? closest : TUCK_PHASE.cap, TUCK_PHASE.cap);
+  }
   if (nAng > 0) { angErr /= nAng; feet /= nAng; }
 
   let effort = 0, sat = 0, romP = 0, romPk = 0, peakKE = 0;
@@ -764,6 +806,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     liftoff: (weights.liftoff || 0) * liftoff,
     feet: (weights.feet || 0) * feet,
     replant: (weights.replant || 0) * replant,
+    tuckPhase: (weights.tuckPhase || 0) * tuckMiss,
   };
   let cost = 0;
   for (const v of Object.values(terms)) cost += v;
