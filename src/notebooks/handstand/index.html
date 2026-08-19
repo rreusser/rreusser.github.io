@@ -13,7 +13,9 @@
          capped at 640, which left the prose and the control panels running
          much wider than the things they describe. */
       :root { --max-width: 640px; }
-      .body-controls, .pose-controls, .sim-controls, .opt-controls { max-width: 640px; }
+      .body-controls, .pose-controls, .sim-controls, .opt-controls,
+      .spline-controls { max-width: 640px; }
+      .spline-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
       /* One figure earns more than the column: the press corridor is a map,
          and a map wants area. Bleed it symmetrically about the column by
          pulling the left margin back by half the overhang. The caption stays
@@ -52,7 +54,9 @@
     import {
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
+      SYMMETRIC_SCENARIOS, WORK_EFFICIENCY, SATURATION_KNEE,
     } from './rollout.js';
+    import { evalReference, JOINT_ORDER } from './control.js';
     import { PRESET_TRAJECTORIES } from './presets.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
@@ -633,25 +637,51 @@
         if (optState.adopted) fromPreset(optState.adopted);
         else base = 'hold';
       }
-      if (stored) return { ...storedRun.run(stored), prof: storedRun.profile(stored) };
+      // ONE closure produces both the run on screen and every edited variant
+      // of it, so a trajectory pulled out of the spline editor is replayed
+      // exactly as the stored one is: same body, same plant, same
+      // integration. The baseline below is replay() called on the knots as
+      // they were stored, which is the only way to be sure that "the same
+      // knots" and "the same movement" mean the same thing here.
+      const replay = stored
+        ? (knots, T) => ({ ...storedRun.run({ ...stored, knots, T }), prof: storedRun.profile(stored) })
+        : (knots, T) => ({
+          ...runScenario(model, ws, strengthProf,
+            { scenario: base, knots, T, settleT: 2.5, rom: { ...ROM_DEFAULTS } }),
+          prof: strengthProf,
+        });
       return {
-        ...runScenario(model, ws, strengthProf,
-          { scenario: base, T: 1.2, settleT: 2.5, rom: { ...ROM_DEFAULTS } }),
-        prof: strengthProf,
+        ...(stored ? replay(stored.knots, stored.T) : replay(null, 1.2)),
+        replay,
+        scenarioName: stored ? stored.scenario : base,
+        // The anatomy this run was produced under, carried alongside so the
+        // spline editor can draw the wall each reference is asking the body
+        // to move against.
+        rom: stored ? resolveRom(stored.rom) : { ...ROM_DEFAULTS },
       };
     })();
   </script>
   <script id="playback-state" type="text/x-typescript">
     const playState = {
-      sim: null, t: 0, playing: true, speed: 1,
+      sim: null, baseSim: null, t: 0, playing: true, speed: 1,
       dirty: true, theme: null, lastNow: null,
       viewW: 640, viewH: 480, ui: { expanded: false },
     };
   </script>
   <script id="sim-into-state" type="text/x-typescript">
-    playState.sim = simResult;
-    playState.t = 0;
-    playState.playing = true;
+    // What plays is the edited trajectory when there is one for THIS run,
+    // and the run itself otherwise. Scrub position survives an edit -- the
+    // whole point of the editor is watching one instant change as a knot
+    // moves -- and resets only when the scenario does.
+    const shownRun = editResult?.base === simResult ? editResult.run : simResult;
+    playState.sim = shownRun;
+    if (playState.baseSim !== simResult) {
+      playState.baseSim = simResult;
+      playState.t = 0;
+      playState.playing = true;
+    } else {
+      playState.t = Math.min(playState.t, shownRun.rec.t[shownRun.rec.t.length - 1]);
+    }
     playState.lastNow = null;
     playState.dirty = true;
   </script>
@@ -685,6 +715,20 @@
     // fresh row each time, so the old one has to go with the old cell.
     simControls.appendChild(playRow);
     invalidation.then(() => playRow.remove());
+
+    // The commanded pose is drawn behind the achieved one, so the thing
+    // driving the movement is visible in the movement. Only the six joint
+    // angles come from the reference; the floating base is where the body
+    // actually is, because a spline says nothing about where the hand ended
+    // up. The two separate wherever the servo cannot deliver what was asked
+    // -- and at the wrist they separate on purpose, since the balance
+    // correction overrides that channel.
+    const refToggle = Inputs.toggle({ label: 'Show the reference pose', value: true });
+    simControls.appendChild(refToggle);
+    invalidation.then(() => refToggle.remove());
+    const refQ = new Float64Array(model.nq);
+    const refVal = new Float64Array(6), refRate = new Float64Array(6);
+    refToggle.addEventListener('input', () => { playState.dirty = true; });
 
     const utilColor = (u, isDark) => {
       const uu = Math.min(Math.max(u, 0), 1);
@@ -741,7 +785,25 @@
       const view = { cx: 0.15, yLo: -0.18, yHi: 2.3 };
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
+      // The clear happens here rather than inside drawScene, because the
+      // reference ghost goes UNDER the body and drawScene's own clear would
+      // wipe it.
+      ctx.clearRect(0, 0, playState.viewW, playState.viewH);
+      if (refToggle.value && sim.knots && sim.T) {
+        const m = sim.model || model;
+        if (refQ.length === m.nq) {
+          refQ.set(q);
+          evalReference(sim.knots, sim.T, Math.min(playState.t, sim.T), refVal, refRate);
+          for (let j = 0; j < 6; j++) refQ[3 + j] = refVal[j];
+          drawGhosts(ctx, {
+            model: m, ws: sim.ws || ws, poses: [{ q: refQ }],
+            width: playState.viewW, height: playState.viewH,
+            theme: playState.theme, view, alpha: 0.2,
+          });
+        }
+      }
       drawScene(ctx, {
+        clear: false,
         // The body the run was produced on, when it recorded one: drawing a
         // 1.9 m technique with the page's 1.75 m model would be a picture of
         // a movement nobody performed.
@@ -761,7 +823,7 @@
 
     const playFigure = html`<figure>
       ${playStack.element}
-      <figcaption>Segments are colored by strength used at that joint, blue (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail.</figcaption>
+      <figcaption>Segments are colored by strength used at that joint, blue (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail. The faint body behind is the pose the reference spline is asking for at that instant: where it separates from the solid one, the request is more than the muscle can deliver.</figcaption>
     </figure>`;
 
     display(expandable(playFigure, {
@@ -783,6 +845,546 @@
         playState.dirty = true;
       },
     }));
+  </script>
+  <script id="reference-section" type="text/markdown">
+    ## What is actually driving the pose
+
+    Thirty-seven numbers. Six joints, six knots apiece, and a duration: a uniform Catmull-Rom spline per joint over `[0, T]`, and nothing else. That spline is the entire description of a technique. Everything the body does above — the lean, the swing, the catch — is the servo of the previous section reading an angle and a rate off those curves and spending whatever the strength envelope allows on closing the gap.
+
+    Which means the reference is not the movement. It is a request. Where the body can follow it the two coincide and the request is what you see; where it cannot, the request is a cheque the muscle does not cash — and the physics is still exactly right while the handstand is expensive, ugly, or absent. A bad reference does not produce a bad simulation. It produces a good simulation of someone attempting a bad idea.
+
+    Measured, the three techniques turn out to be three different relationships between the request and the result. The straight-leg press follows its shoulder reference to within half a degree: the spline *is* the movement, which is what quasi-static means, and every knot in that panel is a pose the body genuinely passes through. The kick-up misses its shoulder reference by twenty-seven degrees rms and spends 1.3 of its 1.9 seconds with that shoulder at the torque cap. Its spline is not being followed at all — it is a direction to lean while angular momentum does the work, and moving those knots changes the throw rather than the pose. The bent-leg press misses by forty-three.
+
+    The wrist is the one channel that separates on purpose. Its spline sets the lean, and the closed-loop balance correction — proportional to horizontal center-of-mass error, clamped to the same strength envelope — is added on top of it. Balance is continuous, as it is for a human; the trajectory only ever chooses the shape.
+
+    Below, the request is the figure. Drag a knot and the body re-simulates on the same plant, the same body and the same integration as the run above.
+  </script>
+  <script id="edit-state" type="text/x-typescript">
+    // The reference trajectory as something you can take hold of. simResult
+    // owns the run; this owns the KNOTS, plus whatever run they last
+    // produced. It is a mutable object rather than a cell value on purpose:
+    // the editor rebuilds its handles when the scenario changes and never
+    // when a knot moves, because a rebuild mid-drag takes the handle out
+    // from under the finger holding it.
+    const editState = {
+      base: null,   // the simResult these knots were loaded from
+      knots: null,  // 6 x K, live and mutable
+      T: 0,
+      run: null,    // the replay of the CURRENT knots
+      edited: false,
+      notify: null,
+    };
+  </script>
+  <script id="edit-observable" type="text/x-typescript">
+    // Published to playback the way the optimizer publishes its result, and
+    // tagged with the run it derives from: picking a new scenario re-runs
+    // both this cell's producer and the consumer below, and without the tag
+    // the previous scenario's edit shows for a frame on the new one's body.
+    const editResult = Generators.observe((notify) => {
+      editState.notify = notify;
+      notify(editState.edited ? { base: editState.base, run: editState.run } : null);
+      return () => { if (editState.notify === notify) editState.notify = null; };
+    });
+  </script>
+  <script id="spline-editor" type="text/x-typescript">
+    const splineEditor = (() => {
+      const R2D = 180 / Math.PI, D2Rr = Math.PI / 180;
+      // Sign per channel so every panel reads the way the rest of the page
+      // names the angle: knee FLEXION is positive here and negative in q.
+      // mirror is the channel a symmetric scenario forces this one equal to
+      // -- the optimizer searches one leg and copies it, so the right leg is
+      // not a free variable and must not offer a handle that pretends it is.
+      const CHANNELS = [
+        { j: 0, qi: 3, label: 'Wrist angle', sign: 1, mirror: null },
+        { j: 1, qi: 4, label: 'Shoulder closing', sign: 1, mirror: null },
+        { j: 2, qi: 5, label: 'Hip flexion L', sign: 1, mirror: null },
+        { j: 3, qi: 6, label: 'Knee flexion L', sign: -1, mirror: null },
+        { j: 4, qi: 7, label: 'Hip flexion R', sign: 1, mirror: 2 },
+        { j: 5, qi: 8, label: 'Knee flexion R', sign: -1, mirror: 3 },
+      ];
+      const symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
+      const rom = simResult.rom;
+      const runModel = simResult.model || model;
+      const baseKnots = simResult.knots.map((k) => Float64Array.from(k));
+      const K = baseKnots[0].length;
+
+      // Load this run's knots. A scenario change starts pristine, so the
+      // figure is never showing one technique's knots against another
+      // technique's body; a rebuild for width alone keeps the edit, because
+      // losing a trajectory to a window drag is its own kind of wrong.
+      const sameRun = editState.base === simResult
+        && editState.knots?.[0]?.length === K;
+      editState.base = simResult;
+      if (!sameRun) {
+        editState.knots = baseKnots.map((k) => Float64Array.from(k));
+        editState.T = simResult.T;
+        editState.run = simResult;
+        editState.edited = false;
+      }
+
+      const NS = 'http://www.w3.org/2000/svg';
+      const svgEl = (name, attrs = {}) => {
+        const n = document.createElementNS(NS, name);
+        for (const k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+        return n;
+      };
+      const utilRamp = (u) => {
+        const uu = Math.min(Math.max(u, 0), 1);
+        return `hsl(${210 * (1 - uu)}, ${40 + 45 * uu}%, 50%)`;
+      };
+      const REF_COLOR = '#e8833a';
+
+      const totalW = Math.min(width, 640);
+      const cols = totalW >= 520 ? 2 : 1;
+      const gap = 8;
+      const pw = Math.floor((totalW - (cols - 1) * gap) / cols);
+      const ph = cols === 2 ? 122 : 108;
+      const mL = 40, mR = 8, mT = 14, mB = 20;
+      const iw = pw - mL - mR, ih = ph - mT - mB;
+      const rows = Math.ceil(CHANNELS.length / cols);
+      const svgW = cols * pw + (cols - 1) * gap;
+      const svgH = rows * ph + (rows - 1) * gap;
+
+      const svg = svgEl('svg', {
+        width: svgW, height: svgH, viewBox: `0 0 ${svgW} ${svgH}`,
+        style: 'font: 10px system-ui, sans-serif; display:block; max-width:100%; height:auto;',
+      });
+
+      // Fixed y domain per panel, spanning the joint's whole anatomy plus
+      // whatever this run does outside it. Fixed, because a domain that
+      // rescaled as you dragged would move the handle under the cursor, and
+      // because an axis that means the same thing for the whole session is
+      // what makes two techniques comparable by eye.
+      const domainFor = (ch) => {
+        const vals = [];
+        const push = (qv) => vals.push(qv * ch.sign * R2D);
+        // The hip limit couples to the knee, so both ends of the knee's
+        // range are probed; every other joint ignores the probe pose.
+        const probe = new Float64Array(runModel.nq);
+        const knee = ch.qi === 5 || ch.qi === 7 ? ch.qi + 1 : -1;
+        for (const kneeFlex of [0, rom.kneeFlexMaxDeg]) {
+          if (knee >= 0) probe[knee] = -kneeFlex * D2Rr;
+          const lim = jointLimits(rom, probe, ch.qi);
+          push(lim.lo); push(lim.hi);
+        }
+        for (let k = 0; k < K; k++) push(baseKnots[ch.j][k]);
+        const rec = simResult.rec;
+        for (let k = 0; k < rec.q.length; k += 4) push(rec.q[k][ch.qi]);
+        let lo = Math.min(...vals), hi = Math.max(...vals);
+        const pad = Math.max(6, 0.08 * (hi - lo));
+        return { lo: lo - pad, hi: hi + pad };
+      };
+
+      // One panel per channel. Everything that can change without a rebuild
+      // -- curves, handles, cursor -- is a node kept here and moved by
+      // setAttribute; only the two variable-length groups (saturation bars,
+      // out-of-range shading) are cleared and refilled.
+      const panels = CHANNELS.map((ch, i) => {
+        const col = i % cols, row = (i / cols) | 0;
+        const ox = col * (pw + gap), oy = row * (ph + gap);
+        const g = svgEl('g', { transform: `translate(${ox},${oy})` });
+        const dom = domainFor(ch);
+        const toY = (qv) => mT + (dom.hi - qv * ch.sign * R2D) / (dom.hi - dom.lo) * ih;
+        const clampVal = (disp) => Math.min(dom.hi, Math.max(dom.lo, disp));
+
+        g.append(svgEl('rect', {
+          x: mL, y: mT, width: iw, height: ih,
+          fill: 'currentColor', 'fill-opacity': 0.03,
+          stroke: 'currentColor', 'stroke-opacity': 0.18,
+        }));
+        const gRom = svgEl('g');            // outside-anatomy shading
+        const gSettle = svgEl('g');         // the post-T hold
+        const gSat = svgEl('g');            // time spent near the torque cap
+        const achieved = svgEl('path', {
+          fill: 'none', stroke: 'currentColor', 'stroke-opacity': 0.75, 'stroke-width': 1.6,
+        });
+        const refPath = svgEl('path', {
+          fill: 'none', stroke: REF_COLOR, 'stroke-width': 2, 'stroke-opacity': 0.95,
+        });
+        const cursor = svgEl('line', {
+          y1: mT, y2: mT + ih, stroke: 'currentColor', 'stroke-opacity': 0.45, 'stroke-width': 1,
+        });
+        const cursorDot = svgEl('circle', { r: 2.6, fill: 'currentColor', 'fill-opacity': 0.85 });
+        const gAxis = svgEl('g');
+        const label = svgEl('text', {
+          x: mL, y: 9, fill: 'currentColor', 'fill-opacity': 0.85, 'font-weight': 600,
+        });
+        label.textContent = ch.label + (symmetric && ch.mirror !== null ? ' — mirrors L' : '');
+        g.append(gRom, gSettle, gSat, gAxis, achieved, refPath, cursor, cursorDot, label);
+
+        const locked = symmetric && ch.mirror !== null;
+        const handles = [];
+        for (let k = 0; k < K; k++) {
+          const dot = svgEl('circle', {
+            r: 4, fill: locked ? 'none' : REF_COLOR, stroke: REF_COLOR, 'stroke-width': 1.5,
+            'fill-opacity': locked ? 0 : 1,
+          });
+          const hit = svgEl('circle', {
+            r: 12, fill: 'transparent',
+            style: locked ? 'cursor:not-allowed;' : 'cursor:ns-resize;',
+          });
+          g.append(dot, hit);
+          handles.push({ dot, hit, k });
+        }
+        svg.append(g);
+        return { ch, g, ox, oy, dom, toY, clampVal, gRom, gSettle, gSat, gAxis,
+          achieved, refPath, cursor, cursorDot, handles, locked };
+      });
+
+      // ---- drawing -------------------------------------------------------
+      const refV = new Float64Array(6), refR = new Float64Array(6);
+      let xEnd = 1, toX = (t) => mL;
+
+      const redraw = () => {
+        const run = editState.run;
+        const rec = run.rec;
+        const T = editState.T;
+        // The settle horizon is 2.5 s against a driven phase of one or two:
+        // drawing all of it spends more than half the panel on flat lines.
+        // One second of tail still shows an arrival that rings or drifts.
+        xEnd = Math.min(rec.t[rec.t.length - 1] || T, T + 1.0);
+        toX = (t) => mL + Math.min(Math.max(t / xEnd, 0), 1) * iw;
+        let kMax = rec.t.length - 1;
+        while (kMax > 0 && rec.t[kMax - 1] > xEnd) kMax--;
+        kMaxShown = kMax;
+        const prof = run.prof || strengthProf;
+        const stride = Math.max(1, Math.ceil(rec.q.length / 400));
+
+
+        // Reference curves are sampled from the SAME evaluator the servo
+        // reads, not re-derived here, so what is drawn cannot drift from
+        // what is commanded.
+        const NS_SAMPLES = 220;
+        const refPts = [];
+        for (let s = 0; s < NS_SAMPLES; s++) {
+          const t = (s / (NS_SAMPLES - 1)) * xEnd;
+          evalReference(editState.knots, T, Math.min(t, T), refV, refR);
+          refPts.push([t, Array.from(refV)]);
+        }
+
+        for (const p of panels) {
+          const { ch } = p;
+          p.refPath.setAttribute('d', refPts
+            .map(([t, v], s) => `${s ? 'L' : 'M'}${toX(t).toFixed(1)},${p.toY(v[ch.j]).toFixed(1)}`)
+            .join(''));
+          const aPts = [];
+          for (let k = 0; k <= kMax; k += stride) {
+            aPts.push(`${aPts.length ? 'L' : 'M'}${toX(rec.t[k]).toFixed(1)},${p.toY(rec.q[k][ch.qi]).toFixed(1)}`);
+          }
+          aPts.push(`L${toX(rec.t[kMax]).toFixed(1)},${p.toY(rec.q[kMax][ch.qi]).toFixed(1)}`);
+          p.achieved.setAttribute('d', aPts.join(''));
+
+          // Where the run is outside its own anatomy: the end-stops are real
+          // torques, so this is not decoration, it is a ligament being asked
+          // to hold the pose.
+          const bad = [];
+          let open = null;
+          for (let k = 0; k <= kMax; k++) {
+            const lim = jointLimits(rom, rec.q[k], ch.qi);
+            const v = rec.q[k][ch.qi];
+            const out = v < lim.lo - 1e-9 || v > lim.hi + 1e-9;
+            if (out && open === null) open = rec.t[k];
+            if (!out && open !== null) { bad.push([open, rec.t[k]]); open = null; }
+          }
+          if (open !== null) bad.push([open, rec.t[kMax]]);
+          p.gRom.replaceChildren(...bad.map(([a, b]) => svgEl('rect', {
+            x: toX(a), y: mT, width: Math.max(1, toX(b) - toX(a)), height: ih,
+            fill: '#6f86c6', 'fill-opacity': 0.28,
+          })));
+
+          // Time spent at the voluntary torque cap, as a bar under the panel.
+          const sat = [];
+          open = null;
+          let openU = 0;
+          for (let k = 0; k <= kMax; k++) {
+            const tau = rec.tauApplied[k][ch.j];
+            const cap = availableTorque(prof[JOINT_ORDER[ch.j]], tau, rec.qd[k][3 + ch.j]);
+            const u = Math.abs(tau) / Math.max(cap, 1e-6);
+            const hot = u > SATURATION_KNEE;
+            if (hot) { if (open === null) { open = rec.t[k]; openU = u; } else openU = Math.max(openU, u); }
+            if (!hot && open !== null) { sat.push([open, rec.t[k], openU]); open = null; }
+          }
+          if (open !== null) sat.push([open, rec.t[kMax], openU]);
+          p.gSat.replaceChildren(...sat.map(([a, b, u]) => svgEl('rect', {
+            x: toX(a), y: mT + ih - 3, width: Math.max(1, toX(b) - toX(a)), height: 3,
+            fill: utilRamp(u),
+          })));
+
+          // After T the reference holds its last knot: the settle phase, and
+          // the part of the recording no spline is steering.
+          p.gSettle.replaceChildren(svgEl('rect', {
+            x: toX(T), y: mT, width: Math.max(0, iw - (toX(T) - mL)), height: ih,
+            fill: 'currentColor', 'fill-opacity': 0.05,
+          }));
+
+          const ticks = [p.dom.lo, 0.5 * (p.dom.lo + p.dom.hi), p.dom.hi];
+          const axisNodes = ticks.map((tv) => {
+            const t = svgEl('text', {
+              x: mL - 4, y: mT + (p.dom.hi - tv) / (p.dom.hi - p.dom.lo) * ih + 3,
+              'text-anchor': 'end', fill: 'currentColor', 'fill-opacity': 0.55,
+            });
+            t.textContent = `${tv.toFixed(0)}°`;
+            return t;
+          });
+          for (const [tv, txt, anchor] of [[0, '0', 'start'], [T, `T=${T.toFixed(2)}s`, 'middle'],
+            [xEnd, `${xEnd.toFixed(1)}s`, 'end']]) {
+            const t = svgEl('text', {
+              x: toX(tv), y: ph - 6, 'text-anchor': anchor,
+              fill: 'currentColor', 'fill-opacity': 0.5, 'font-size': 9,
+            });
+            t.textContent = txt;
+            axisNodes.push(t);
+          }
+          p.gAxis.replaceChildren(...axisNodes);
+
+          for (const h of p.handles) {
+            const t = K === 1 ? 0 : (h.k / (K - 1)) * T;
+            h.dot.setAttribute('cx', toX(t));
+            h.dot.setAttribute('cy', p.toY(editState.knots[ch.j][h.k]));
+            h.hit.setAttribute('cx', toX(t));
+            h.hit.setAttribute('cy', p.toY(editState.knots[ch.j][h.k]));
+          }
+        }
+        drawCursor(playState.t);
+      };
+
+      let lastCursor = -1, kMaxShown = 0;
+      const drawCursor = (t) => {
+        const run = editState.run;
+        const rec = run.rec;
+        const k = Math.min(kMaxShown || rec.t.length - 1, Math.max(0,
+          Math.round(t / (rec.dt * rec.stride))));
+        const x = toX(rec.t[k]);
+        for (const p of panels) {
+          p.cursor.setAttribute('x1', x);
+          p.cursor.setAttribute('x2', x);
+          p.cursorDot.setAttribute('cx', x);
+          p.cursorDot.setAttribute('cy', p.toY(rec.q[k][p.ch.qi]));
+        }
+        lastCursor = t;
+      };
+
+      // ---- what the edit cost --------------------------------------------
+      // Read off the recording on screen rather than re-scored by the
+      // optimizer's cost function: the optimizer scores at its own timestep
+      // on its own plant, and a number that disagrees with the body you are
+      // watching is worse than no number.
+      const analyze = (run) => {
+        const rec = run.rec;
+        const prof = run.prof || strengthProf;
+        const m = run.model || model;
+        const peak = new Float64Array(6), satT = new Float64Array(6), err = new Float64Array(6);
+        const v = new Float64Array(6), r = new Float64Array(6);
+        let n = 0, pos = 0, neg = 0;
+        for (let k = 0; k < rec.t.length; k++) {
+          const dts = k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
+          evalReference(run.knots, run.T, Math.min(rec.t[k], run.T), v, r);
+          const driving = rec.t[k] <= run.T;
+          if (driving) n++;
+          for (let j = 0; j < 6; j++) {
+            const tau = rec.tauApplied[k][j];
+            const cap = availableTorque(prof[JOINT_ORDER[j]], tau, rec.qd[k][3 + j]);
+            const u = Math.abs(tau) / Math.max(cap, 1e-6);
+            if (u > peak[j]) peak[j] = u;
+            if (u > SATURATION_KNEE) satT[j] += dts;
+            const P = tau * rec.qd[k][3 + j];
+            if (P > 0) pos += P * dts; else neg -= P * dts;
+            if (driving) { const e = v[j] - rec.q[k][3 + j]; err[j] += e * e; }
+          }
+        }
+        return {
+          peak: Array.from(peak),
+          satT: Array.from(satT),
+          trackDeg: Array.from(err, (e) => Math.sqrt(e / Math.max(n, 1)) * R2D),
+          metab: (pos / WORK_EFFICIENCY.concentric + neg / WORK_EFFICIENCY.eccentric)
+            / (m.massKg * m.gravity * m.heightM),
+          verdict: run.verdict,
+        };
+      };
+      const baseStats = analyze(simResult);
+
+      const readout = html`<div style="font-variant-numeric:tabular-nums; font-size:12px; margin-top:6px;"></div>`;
+      const delta = (now, was, digits = 2, invert = false) => {
+        const d = now - was;
+        if (Math.abs(d) < 5 * 10 ** -(digits + 1)) return '';
+        const good = invert ? d < 0 : d > 0;
+        return `<span style="opacity:.8; color:${good ? '#2e8b57' : '#c0392b'}">`
+          + ` (${d >= 0 ? '+' : ''}${d.toFixed(digits)})</span>`;
+      };
+      const updateReadout = () => {
+        const s = analyze(editState.run);
+        const ok = s.verdict.success;
+        const rowsHtml = CHANNELS.map((ch) => {
+          const bar = Math.min(1, s.peak[ch.j]);
+          return `<tr>
+            <td style="padding-right:8px; opacity:.85;">${ch.label}</td>
+            <td style="width:70px;"><span style="display:inline-block; width:60px; height:7px;
+              background:rgba(128,128,128,0.28); position:relative; vertical-align:middle;"><span
+              style="position:absolute; left:0; top:0; height:7px; width:${(60 * bar).toFixed(0)}px;
+              background:${utilRamp(bar)};"></span></span></td>
+            <td style="padding:0 8px; text-align:right;">${(s.peak[ch.j] * 100).toFixed(0)}%</td>
+            <td style="padding-right:8px; text-align:right; opacity:.8;">${s.satT[ch.j].toFixed(2)} s</td>
+            <td style="text-align:right; opacity:.8;">${s.trackDeg[ch.j].toFixed(1)}°${
+              delta(s.trackDeg[ch.j], baseStats.trackDeg[ch.j], 1, true)}</td>
+          </tr>`;
+        }).join('');
+        readout.innerHTML = `
+          <div style="margin-bottom:4px;">
+            <strong style="color:${ok ? '#2e8b57' : '#c0392b'}">${ok ? 'Reaches a handstand' : 'Does not arrive'}</strong>
+            &nbsp;·&nbsp; metabolic work ${s.metab.toFixed(2)} body-height lifts${
+              delta(s.metab, baseStats.metab, 2, true)}
+            &nbsp;·&nbsp; duration ${editState.T.toFixed(2)} s
+          </div>
+          <table style="border-collapse:collapse; width:100%;">
+            <tr style="opacity:.6; text-align:left;">
+              <th></th><th colspan="2">peak strength used</th>
+              <th style="text-align:right;">time at cap</th>
+              <th style="text-align:right;">tracking error</th>
+            </tr>
+            ${rowsHtml}
+          </table>`;
+      };
+
+      // ---- re-simulation --------------------------------------------------
+      // Live while it is fast enough to stay live, and always on release.
+      // The threshold is measured rather than assumed, because a phone and a
+      // laptop disagree about it by more than an order of magnitude and the
+      // wrong guess either drops frames or makes the figure feel dead.
+      let liveOk = true, needsSim = false;
+      const resim = () => {
+        needsSim = false;
+        const t0 = performance.now();
+        let run;
+        try {
+          run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T);
+        } catch (err) {
+          console.warn('edited replay failed', err);
+          return;
+        }
+        liveOk = performance.now() - t0 < 140;
+        editState.run = run;
+        editState.edited = true;
+        editState.notify?.({ base: simResult, run });
+        redraw();
+        updateReadout();
+      };
+
+      // ---- dragging -------------------------------------------------------
+      let drag = null;
+      const valueAt = (p, clientY) => {
+        const r = svg.getBoundingClientRect();
+        const y = (clientY - r.top) * (svgH / (r.height || svgH)) - p.oy;
+        const disp = p.clampVal(p.dom.hi - (y - mT) / ih * (p.dom.hi - p.dom.lo));
+        return disp / (p.ch.sign * R2D);
+      };
+      const setKnot = (p, k, qv) => {
+        editState.knots[p.ch.j][k] = qv;
+        if (symmetric) {
+          for (const q of panels) {
+            if (q.ch.mirror === p.ch.j) editState.knots[q.ch.j][k] = qv;
+          }
+        }
+        for (const q of panels) {
+          const src = symmetric && q.ch.mirror !== null ? q.ch.mirror : q.ch.j;
+          if (src !== p.ch.j) continue;
+          const y = q.toY(editState.knots[q.ch.j][k]);
+          q.handles[k].dot.setAttribute('cy', y);
+          q.handles[k].hit.setAttribute('cy', y);
+        }
+        // The spline moves with the handle even when the physics cannot keep
+        // up at this frame rate, so a drag always shows what is being asked
+        // for; the body catches up on the next simulation.
+        const T = editState.T;
+        const NSP = 160;
+        const pts = [];
+        for (let s = 0; s < NSP; s++) {
+          const t = (s / (NSP - 1)) * xEnd;
+          evalReference(editState.knots, T, Math.min(t, T), refV, refR);
+          pts.push([toX(t), Array.from(refV)]);
+        }
+        for (const q of panels) {
+          q.refPath.setAttribute('d', pts
+            .map(([x, v], s) => `${s ? 'L' : 'M'}${x.toFixed(1)},${q.toY(v[q.ch.j]).toFixed(1)}`)
+            .join(''));
+        }
+      };
+      for (const p of panels) {
+        if (p.locked) continue;
+        for (const h of p.handles) {
+          h.hit.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            h.hit.setPointerCapture?.(e.pointerId);
+            drag = { pointerId: e.pointerId, p, k: h.k };
+            h.dot.setAttribute('r', 5.5);
+          });
+          h.hit.addEventListener('pointermove', (e) => {
+            if (!drag || drag.pointerId !== e.pointerId) return;
+            setKnot(drag.p, drag.k, valueAt(drag.p, e.clientY));
+            needsSim = true;
+          });
+          const release = (e) => {
+            if (!drag || drag.pointerId !== e.pointerId) return;
+            h.hit.releasePointerCapture?.(e.pointerId);
+            h.dot.setAttribute('r', 4);
+            drag = null;
+            resim();
+          };
+          h.hit.addEventListener('pointerup', release);
+          h.hit.addEventListener('pointercancel', release);
+        }
+      }
+
+      // ---- controls -------------------------------------------------------
+      const durInput = Inputs.range([0.5, 3.5], {
+        label: 'Duration T (s)', value: editState.T, step: 0.01,
+      });
+      durInput.addEventListener('input', () => {
+        editState.T = +durInput.value;
+        needsSim = true;
+      });
+      const resetBtn = html`<button>Reset to the stored trajectory</button>`;
+      resetBtn.addEventListener('click', () => {
+        editState.knots = baseKnots.map((k) => Float64Array.from(k));
+        editState.T = simResult.T;
+        durInput.value = simResult.T;
+        editState.run = simResult;
+        editState.edited = false;
+        needsSim = false;
+        editState.notify?.(null);
+        redraw();
+        updateReadout();
+      });
+
+      // One loop for both jobs: follow the transport's cursor, and pick up a
+      // pending edit at a frame boundary rather than on every pointermove.
+      const loop = createFrameLoop(() => {
+        if (needsSim && (liveOk || !drag)) resim();
+        if (playState.t !== lastCursor) drawCursor(playState.t);
+      });
+      invalidation.then(() => loop.cancel());
+
+      redraw();
+      updateReadout();
+
+      // touch-action on the HTML box, not the svg: an svg node does not
+      // reliably honour it, and without it a touch drag scrolls the page as
+      // well as moving the knot, which fires pointercancel mid-gesture.
+      const box = html`<div style="touch-action:none;">${svg}</div>`;
+      const swatch = (color, text) => html`<span style="margin-right:14px; white-space:nowrap;"><span
+        style="display:inline-block; width:.8em; height:.8em; background:${color};
+        vertical-align:-.05em; margin-right:.35em;"></span>${text}</span>`;
+      return html`<figure>
+        ${box}
+        <small style="display:block; opacity:.85; margin:4px 0 2px;">${
+          swatch(REF_COLOR, 'what the spline asks for')}${
+          swatch('currentColor', 'what the body did')}${
+          swatch('rgba(111,134,198,0.5)', 'outside its own range of motion')}</small>
+        <div class="spline-controls">${durInput}${resetBtn}</div>
+        ${readout}
+        <figcaption>Drag any filled knot. The body re-simulates on the same plant, body and integration as the run above, and the animation follows. Orange is the reference the servo is tracking; the solid line is the joint angle that resulted; the bar along the bottom of each panel marks time spent above eighty per cent of the voluntary torque cap, colored by how far above. The shaded tail is the first second of the settle phase, where the reference holds its last knot and only balance is still acting. On the press and the bent-leg press the right leg mirrors the left, because that is how the optimizer parameterizes it: one leg is searched and copied. Tracking error is the root-mean-square gap between the two curves over the driven phase — the honest measure of how much of what you asked for the body was able to do.</figcaption>
+      </figure>`;
+    })();
+    display(splineEditor);
   </script>
   <script id="optimizer-section" type="text/markdown">
     ## Finding the easiest way up
