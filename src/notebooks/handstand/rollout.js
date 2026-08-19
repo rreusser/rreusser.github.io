@@ -62,10 +62,27 @@ export function balancedHandstand(model, ws) {
 // puts a given leg's toe on the floor. Larger wrist angle rotates the body
 // CCW and lowers the folded legs, so toe height decreases monotonically.
 function solveWristForToeDown(model, ws, q, body, loDeg = 35, hiDeg = 115) {
-  let lo = loDeg * D2R, hi = hiDeg * D2R;
+  const lo0 = loDeg * D2R, hi0 = hiDeg * D2R;
   const at = (w) => { q[3] = w; return toeY(model, ws, q, body); };
-  if (at(hi) > 0) return q[3];        // even fully rotated the toe floats
-  if (at(lo) < 0) { q[3] = lo; return q[3]; }
+  if (at(lo0) < 0) { q[3] = lo0; return q[3]; }
+  // Toe height is NOT monotone in the wrist angle. Leaning back rotates the
+  // whole body about the palm, which swings the toe down and then, past the
+  // turning point, back up again -- so a bracket wide enough to reach the
+  // far side reads as "even fully rotated the toe floats" at its top end and
+  // the solve returns the fully-rotated pose. Scan for the FIRST crossing
+  // rather than trusting the endpoints. Widening the wrist's lower extension
+  // bound from 92 to 70 degrees moved hi from 88 to 110, far enough past the
+  // turning point that the pike start with flexible hamstrings stopped being
+  // a deep fold and became a seated collapse, with the centre of mass a third
+  // of a metre behind the palm.
+  const N = 64;
+  let lo = lo0, hi = NaN;
+  for (let i = 1; i <= N; i++) {
+    const w = lo0 + (hi0 - lo0) * (i / N);
+    if (at(w) <= 0) { hi = w; break; }
+    lo = w;
+  }
+  if (Number.isNaN(hi)) { q[3] = hi0; return q[3]; }   // the toe never comes down
   for (let i = 0; i < 50; i++) {
     const mid = 0.5 * (lo + hi);
     if (at(mid) > 0) lo = mid; else hi = mid;
@@ -147,6 +164,14 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       // the shins tucked back and the toes still down. Everything else is the
       // pike start: solve the shoulder lean that puts the centre of mass over
       // the palm target, with the wrist following.
+      //
+      // A body too stiff to fold this far simply starts with its weight
+      // short of the hand -- at 70 degree hamstrings the centre of mass lands
+      // just behind the heel of the palm -- and the press from there fails,
+      // which is the right answer for that body rather than something to
+      // engineer away. Tucking the knees tighter does not rescue it: the
+      // deeper fold puts the toes where the toe-down solve has to lean the
+      // whole body back to reach them, which is worse.
       q[6] = q[8] = -TUCK_KNEE_DEG * D2R;
       q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, TUCK_KNEE_DEG), 140) * D2R;
       const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
