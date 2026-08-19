@@ -12,7 +12,10 @@ import { cmaes } from '../cma-es.js';
 import {
   naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds,
   rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
+  scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC, SYMMETRIC_SCENARIOS,
+  tuckPressReference,
 } from '../rollout.js';
+import { momenta, fk } from '../dynamics.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -200,6 +203,83 @@ const rom = { ...ROM_DEFAULTS };
   gate('I: a joint parked one stop-depth outside its range costs ~the rom weight',
     c.terms.rom > 0.3 * COST_WEIGHTS.rom && c.terms.rom < 3 * COST_WEIGHTS.rom,
     `rom term=${c.terms.rom.toFixed(3)} against weight ${COST_WEIGHTS.rom}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate J: the press starts are the poses the skills actually start from, over
+// the whole range of bodies. Both solve the wrist that puts a toe on the
+// floor and then the shoulder lean that places the centre of mass, and the
+// toe solve is a root find on a quantity that is NOT monotone: leaning back
+// swings the toe down and then up again. Widening the wrist's range once
+// moved the bracket past that turning point, and the flexible pike start
+// silently became a seated collapse with the centre of mass a third of a
+// metre behind the hand -- which every press optimized from it then failed to
+// be. Nothing caught it, so this does.
+//
+// The two starts want different things, and the difference is the skill. A
+// press starts BALANCED OVER THE PALMS, with the legs carrying nothing. A
+// bent-leg press starts standing in a fold with real load still on the feet,
+// because it is entered by hopping off them; the share of body weight on the
+// legs is just how far the centre of mass sits from the hand toward the toes.
+{
+  const zero = new Float64Array(model.nq);
+  const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+  const measure = (scenario, ham) => {
+    const { q0 } = scenarioStart(model, ws, scenario, { ...rom, hipFlexStraightKneeMaxDeg: ham });
+    const mo = momenta(model, q0, zero, ws);
+    fk(model, q0, null, ws);
+    const cpt = model.contacts.find((c) => c.body === 4);
+    const th = ws.th[4];
+    const toe = ws.px[4] + Math.cos(th) * cpt.x - Math.sin(th) * cpt.y - q0[0];
+    const palmC = 0.5 * (model.patch.x0 + model.patch.x1);
+    const com = mo.comX - q0[0];
+    return { com, comY: mo.comY, onFeet: (com - palmC) / (toe - palmC) };
+  };
+  const HAMS = [70, 85, 100, 125, 140];
+  let worstBehind = -Infinity, lowest = Infinity, worstCase = '';
+  for (const ham of HAMS) {
+    const m = measure('pike', ham);
+    const behind = model.patch.x0 - m.com;
+    if (behind > worstBehind) { worstBehind = behind; worstCase = `ham ${ham}`; }
+    if (m.comY < lowest) lowest = m.comY;
+  }
+  gate('J: the press start stands balanced over the palm at every hamstring length',
+    worstBehind < 0.05 && lowest > 0.45,
+    `furthest behind the heel ${(worstBehind * 1000).toFixed(0)} mm (${worstCase}),`
+    + ` lowest CoM ${lowest.toFixed(2)} m, target ${(targetX * 1000).toFixed(0)} mm ahead of the heel`);
+
+  let loOnFeet = Infinity, hiOnFeet = -Infinity, lowT = Infinity;
+  for (const ham of HAMS) {
+    const m = measure('tuck', ham);
+    loOnFeet = Math.min(loOnFeet, m.onFeet);
+    hiOnFeet = Math.max(hiOnFeet, m.onFeet);
+    lowT = Math.min(lowT, m.comY);
+  }
+  gate('K: the bent-leg press start stands on its feet with its hands down',
+    loOnFeet > 0.15 && hiOnFeet < 0.6 && lowT > 0.45,
+    `weight on the legs ${(loOnFeet * 100).toFixed(0)}-${(hiOnFeet * 100).toFixed(0)}%`
+    + ` (asked for ${(TUCK_LOAD_FRAC * 100).toFixed(0)}%), lowest CoM ${lowT.toFixed(2)} m`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate L: the symmetric skills are scored symmetrically. The decision vector
+// carries a hip and a knee per leg for the kick-up's sake, so nothing stops a
+// press from scissoring its legs -- and the bent-leg press duly arrived with
+// one leg straight and the other folded ninety degrees. Mirroring makes an
+// asymmetric vector score exactly as its left leg alone would.
+{
+  const ref = tuckPressReference(model, ws, 6, rom);
+  const asym = encodeDecision(ref.knots.map((r) => Float64Array.from(r)), 1.8);
+  const mirrored = encodeDecision(ref.knots.map((r) => Float64Array.from(r)), 1.8);
+  // Bend the right leg away from the left in the raw vector; rows are
+  // [wrist, shoulder, hipL, kneeL, hipR, kneeR], K knots each.
+  for (let k = 0; k < 6; k++) { asym[4 * 6 + k] += 0.4; asym[5 * 6 + k] -= 0.5; }
+  const a = rolloutCost(model, ws, prof, rom, 'tuck', asym, { K: 6, dt: 5e-4 });
+  const b = rolloutCost(model, ws, prof, rom, 'tuck', mirrored, { K: 6, dt: 5e-4 });
+  gate('L: a symmetric scenario ignores the right leg\'s own parameters',
+    SYMMETRIC_SCENARIOS.has('tuck') && SYMMETRIC_SCENARIOS.has('pike')
+      && Math.abs(a.cost - b.cost) < 1e-9,
+    `scissored ${a.cost.toFixed(4)} vs mirrored ${b.cost.toFixed(4)}`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll rollout gates passed');

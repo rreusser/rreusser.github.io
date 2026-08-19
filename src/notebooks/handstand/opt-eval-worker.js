@@ -25,7 +25,7 @@ self.onmessage = ({ data }) => {
     self.postMessage({ type: 'ready' });
     return;
   }
-  const { id, xs, wantFrames, ghostFrames = 90 } = data;
+  const { id, xs, wantFrames, ghostFrames = 120 } = data;
   const costs = [], poses = [];
   for (const x of xs) {
     const c = costFn(model, ws, prof, rom, cfg.scenario, Float64Array.from(x), {

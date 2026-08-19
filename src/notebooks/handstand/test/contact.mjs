@@ -18,7 +18,7 @@ import { groundHand, solveWristForCom, ROM_DEFAULTS } from '../statics.js';
 import { strengthProfile } from '../strength.js';
 import { createServo } from '../control.js';
 import {
-  balancedHandstand, HANDSTAND_TARGET_FRAC, SERVO_DEFAULTS, LEGACY_SERVO_CONFIG, runScenario,
+  balancedHandstand, HANDSTAND_TARGET_FRAC, PLANT_DEFAULTS, LEGACY_PLANT, runScenario,
 } from '../rollout.js';
 
 let failures = 0;
@@ -251,8 +251,8 @@ function blockModel() {
 
   const legacy = { dampingRatio: 0, brakeMargin: 0 };
   const fixed = {
-    dampingRatio: SERVO_DEFAULTS.dampingRatio, brakeMargin: SERVO_DEFAULTS.brakeMargin,
-    dampingSpeed: SERVO_DEFAULTS.dampingSpeed, inertiaHz: SERVO_DEFAULTS.inertiaHz,
+    dampingRatio: PLANT_DEFAULTS.dampingRatio, brakeMargin: PLANT_DEFAULTS.brakeMargin,
+    dampingSpeed: PLANT_DEFAULTS.dampingSpeed, inertiaHz: PLANT_DEFAULTS.inertiaHz,
   };
   const l30 = pressIn(30, legacy), l35 = pressIn(35, legacy);
   gate('E1: constant-kd servo rings its way into the balanced pose (demonstrated)',
@@ -305,14 +305,14 @@ function blockModel() {
     return worst / D2R;
   };
 
-  const free = worstKnee({ ...LEGACY_SERVO_CONFIG });
+  const free = worstKnee({ ...LEGACY_PLANT });
   gate('F1: without end-stops the servo drives the knee far past anatomy (demonstrated)',
     free > 30, `knee ${free.toFixed(1)} deg beyond its hyperextension limit`);
 
   const stopped = worstKnee({});
   gate('F2: end-stops hold the knee within the design penetration under full torque',
-    stopped < 1.5 * SERVO_DEFAULTS.romStopDeg,
-    `knee ${stopped.toFixed(1)} deg beyond its limit (stopDeg=${SERVO_DEFAULTS.romStopDeg})`);
+    stopped < 1.5 * PLANT_DEFAULTS.romStopDeg,
+    `knee ${stopped.toFixed(1)} deg beyond its limit (stopDeg=${PLANT_DEFAULTS.romStopDeg})`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll contact gates passed');

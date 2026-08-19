@@ -39,7 +39,7 @@ export function gaussianSampler(rand) {
 export async function cmaes({
   x0, sigma0 = 0.3, seed = 1, maxGen = 200,
   lambda = null, bounds = null,
-  objective = null, objectiveBatch = null, onGeneration = null,
+  objective = null, objectiveBatch = null, onGeneration = null, f0 = Infinity,
 }) {
   const n = x0.length;
   const lam = lambda || (4 + Math.floor(3 * Math.log(n)));
@@ -74,7 +74,12 @@ export async function cmaes({
   const pop = Array.from({ length: lam }, () => ({
     x: new Float64Array(n), z: new Float64Array(n), y: new Float64Array(n), f: Infinity,
   }));
-  let best = Infinity;
+  // The incumbent starts AT the start point, not above it. Given f0, no
+  // generation can hand back something worse than what the search began
+  // with -- which matters when a search is stopped early and its incumbent
+  // is kept, because x0 is never itself sampled and would otherwise be
+  // beaten by the first candidate scored, however bad.
+  let best = f0;
   let bestX = Float64Array.from(x0);
   let gen = 0;
   let evals = 0;

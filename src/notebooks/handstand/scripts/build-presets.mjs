@@ -27,6 +27,8 @@ function entry(file, label) {
     rom: j.rom || null,
     strength: normStrength(j.strength) || null,
     config: j.config || null,
+    numerics: j.numerics || null,
+    body: j.body || null,
     weights: j.weights || null,
     seed: j.seed ?? null,
     T: j.T,

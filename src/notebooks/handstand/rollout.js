@@ -26,6 +26,14 @@ function toeY(model, ws, q, body) {
   return ws.py[body] + s * cpt.x + c * cpt.y;
 }
 
+// Toe position along the floor, measured from the hand the way comX is.
+function toeXLocal(model, ws, q, body) {
+  fk(model, q, null, ws);
+  const cpt = model.contacts.find((c) => c.body === body);
+  const c = Math.cos(ws.th[body]), s = Math.sin(ws.th[body]);
+  return ws.px[body] + c * cpt.x - s * cpt.y - q[0];
+}
+
 // Bisect one hip angle so that leg's toe lands on the floor. Hip flexion
 // rotates the leg toward the belly side and downward from the inverted
 // stack, so toe height decreases monotonically with hip flexion here.
@@ -62,10 +70,27 @@ export function balancedHandstand(model, ws) {
 // puts a given leg's toe on the floor. Larger wrist angle rotates the body
 // CCW and lowers the folded legs, so toe height decreases monotonically.
 function solveWristForToeDown(model, ws, q, body, loDeg = 35, hiDeg = 115) {
-  let lo = loDeg * D2R, hi = hiDeg * D2R;
+  const lo0 = loDeg * D2R, hi0 = hiDeg * D2R;
   const at = (w) => { q[3] = w; return toeY(model, ws, q, body); };
-  if (at(hi) > 0) return q[3];        // even fully rotated the toe floats
-  if (at(lo) < 0) { q[3] = lo; return q[3]; }
+  if (at(lo0) < 0) { q[3] = lo0; return q[3]; }
+  // Toe height is NOT monotone in the wrist angle. Leaning back rotates the
+  // whole body about the palm, which swings the toe down and then, past the
+  // turning point, back up again -- so a bracket wide enough to reach the
+  // far side reads as "even fully rotated the toe floats" at its top end and
+  // the solve returns the fully-rotated pose. Scan for the FIRST crossing
+  // rather than trusting the endpoints. Widening the wrist's lower extension
+  // bound from 92 to 70 degrees moved hi from 88 to 110, far enough past the
+  // turning point that the pike start with flexible hamstrings stopped being
+  // a deep fold and became a seated collapse, with the centre of mass a third
+  // of a metre behind the palm.
+  const N = 64;
+  let lo = lo0, hi = NaN;
+  for (let i = 1; i <= N; i++) {
+    const w = lo0 + (hi0 - lo0) * (i / N);
+    if (at(w) <= 0) { hi = w; break; }
+    lo = w;
+  }
+  if (Number.isNaN(hi)) { q[3] = hi0; return q[3]; }   // the toe never comes down
   for (let i = 0; i < 50; i++) {
     const mid = 0.5 * (lo + hi);
     if (at(mid) > 0) lo = mid; else hi = mid;
@@ -99,12 +124,29 @@ function clearFeet(model, ws, q, minY = 5e-4) {
 // toes actually reach the floor. A stiffer person therefore starts with
 // feet further from the hands and less weight over the palms, which is
 // exactly how limited flexibility taxes an entry in reality.
-// Knee bend that defines the bent-leg press. Deep enough that the hamstring
-// coupling opens a real amount of extra hip fold, shallow enough to still be
-// a press rather than a tuck-up.
+// Knee bend the bent-leg press starts from. Deep, because the start has to be
+// COMPACT: the hop has to carry the centre of mass forward onto the hands and
+// up into the inverted tuck, and how far it has to travel is set by where the
+// feet are. At 40 degrees of knee the legs are long and the feet stand 0.75 m
+// behind the hands with the centre of mass 0.24 m behind them; at 90 the same
+// body is folded into a squat with the feet 0.46 m back and the centre of
+// mass 0.13 m back. The first is a downward dog and the hop cannot reach the
+// stack from it -- every search from that start leaned out over the
+// fingertips into a tucked planche instead, which is the expensive shape.
 export const TUCK_KNEE_DEG = 90;
 
-export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
+// Where the centre of mass sits at the start, as a fraction of the way from
+// the palm to the toes -- which is the same thing as the share of body weight
+// standing on the legs. A bent-leg press is entered by hopping off both feet,
+// so the feet have to be carrying something to push with.
+export const TUCK_LOAD_FRAC = 0.35;
+
+export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
+  // Where the bent-leg press stands, as recorded plant rather than as a
+  // constant: the shape of a start pose decides what technique is reachable
+  // from it, so an artifact has to replay against the start it was made on.
+  const tuckLoadFrac = opts.tuckLoadFrac ?? PLANT_DEFAULTS.tuckLoadFrac;
+  const tuckKneeDeg = opts.tuckKneeDeg ?? PLANT_DEFAULTS.tuckKneeDeg;
   const q = new Float64Array(model.nq);
   groundHand(model, q);
   switch (name) {
@@ -141,29 +183,60 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       return { q0: q, qd0: null };
     }
     case 'tuck': {
-      // Bent-leg press start. Bending the knees buys hip flexion through the
-      // hamstring coupling -- 90 degrees of knee bend takes the straight-knee
-      // 85 degree fold to 139 -- so the body starts folded much deeper, with
-      // the shins tucked back and the toes still down. Everything else is the
-      // pike start: solve the shoulder lean that puts the centre of mass over
-      // the palm target, with the wrist following.
-      q[6] = q[8] = -TUCK_KNEE_DEG * D2R;
-      q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, TUCK_KNEE_DEG), 140) * D2R;
-      const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
-      const comAt = (sh) => {
+      // Bent-leg press start: a deep squat-fold, hands flat on the floor,
+      // knees slightly bent, and the WEIGHT STILL ON THE FEET.
+      //
+      // That last part is the whole difference from the pike start, and it is
+      // what makes this a different skill rather than the same one with bent
+      // knees. A press starts balanced over the palms, so the legs have
+      // nothing to push against and the shoulders lift the whole body from a
+      // dead stop. A bent-leg press is entered by hopping off both slightly
+      // bent legs into the inverted shape and then extending the legs
+      // overhead together -- which requires load under the feet at t = 0.
+      // Started over the palms instead, the search has no legs to use and
+      // finds the only other way to get some: fold, settle back down onto the
+      // floor, and jump off it.
+      //
+      // So the shoulder lean is solved to put the centre of mass
+      // TUCK_LOAD_FRAC of the way from the palm to the toes, with the wrist
+      // following to keep the toes down: about half the body weight standing
+      // on the legs, which is what a person in this position feels.
+      q[6] = q[8] = -tuckKneeDeg * D2R;
+      q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, tuckKneeDeg), 140) * D2R;
+      // Measured from the palm target, the point the balanced handstand puts
+      // its centre of mass over, so a load fraction of zero is exactly the
+      // old start: balanced over the palm with nothing on the legs.
+      const palmT = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+      const errAt = (sh) => {
         q[4] = sh;
         solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
-        return momenta(model, q, zeroQd9, ws).comX - q[0];
+        const toe = toeXLocal(model, ws, q, 4);
+        const com = momenta(model, q, zeroQd9, ws).comX - q[0];
+        return com - (palmT + tuckLoadFrac * (toe - palmT));
       };
-      let lo = 55 * D2R, hi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
-      if (comAt(lo) > targetX) comAt(lo);
-      else if (comAt(hi) < targetX) comAt(hi);
-      else {
+      // Scan for the first sign change rather than trusting the endpoints:
+      // both the centre of mass AND the target move with the lean, so the
+      // error is not monotone across the whole shoulder range.
+      const shLo = 55 * D2R, shHi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
+      const N = 48;
+      let best = shLo, bestAbs = Infinity, prev = null, bracket = null;
+      for (let i = 0; i <= N; i++) {
+        const sh = shLo + (shHi - shLo) * (i / N);
+        const e = errAt(sh);
+        if (Math.abs(e) < bestAbs) { bestAbs = Math.abs(e); best = sh; }
+        if (prev && prev.e * e <= 0) { bracket = [prev.sh, sh]; break; }
+        prev = { sh, e };
+      }
+      if (bracket) {
+        let [a, b] = bracket;
+        const ea = errAt(a);
         for (let i = 0; i < 40; i++) {
-          const mid = 0.5 * (lo + hi);
-          if (comAt(mid) < targetX) lo = mid; else hi = mid;
+          const mid = 0.5 * (a + b);
+          if (errAt(mid) * ea > 0) a = mid; else b = mid;
         }
-        comAt(0.5 * (lo + hi));
+        errAt(0.5 * (a + b));
+      } else {
+        errAt(best);
       }
       clampPose(q, rom);
       clearFeet(model, ws, q);
@@ -218,12 +291,21 @@ export function naiveReference(model, ws, name, K = 6, rom = ROM_DEFAULTS) {
 
 export const JOINT_KEYS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
 
-// The controller/plant configuration is part of every result. A trajectory
-// is only meaningful together with the servo it was optimized for; replays
-// must use the recorded config, never the current defaults.
-export const SERVO_DEFAULTS = {
+// Everything about the machine a trajectory was produced on: the servo, the
+// contact model, and the geometry of the pose each scenario starts from. A
+// trajectory is only meaningful together with its plant, so every producer
+// records the plant its run actually used and every replay uses the recorded
+// one, never the current defaults.
+//
+// There is one definition, here. runScenario reports back the plant it ran
+// with rather than leaving each producer to assemble a snapshot of these
+// defaults by hand -- which is exactly how the in-page optimizer came to send
+// results to playback with no plant recorded at all, and playback duly
+// replayed them on the legacy machine.
+export const PLANT_DEFAULTS = {
   kp: 800, kd: 60, kCom: 2000, dCom: 1500,
   activationTau: 0.05, mu: 1.0, contactZeta: 1.0, integrator: 'si',
+  tuckLoadFrac: TUCK_LOAD_FRAC, tuckKneeDeg: TUCK_KNEE_DEG,
   dampingRatio: 1.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
   romStopDeg: 5, romStopZeta: 0.7,
 };
@@ -233,15 +315,78 @@ export const SERVO_DEFAULTS = {
 // produced under, so a config that predates a key must replay with that
 // key's pre-existing behavior, not with today's default. Both of these
 // default to "off", which is exactly the old constant-kd, no-braking servo.
-export const LEGACY_SERVO_CONFIG = {
+export const LEGACY_PLANT = {
   dampingRatio: 0, brakeMargin: 0, dampingSpeed: 0, romStopDeg: 0,
+  // Inert under the three zeros above, and recorded so the accounting is
+  // complete rather than merely harmless: inertia-scaled damping is off when
+  // dampingRatio is 0, so its refresh rate does not matter, and end-stops are
+  // off entirely when romStopDeg is 0, so their damping ratio does not either.
+  inertiaHz: 200, romStopZeta: 0.7,
+  // The bent-leg press used to start balanced over the palm with 90 degrees
+  // of knee bend and nothing on the legs, which is why the only momentum the
+  // search could find was to settle back down onto the floor and jump.
+  tuckLoadFrac: 0, tuckKneeDeg: 90,
 };
 
-// Resolve a stored artifact config into the full argument set for
-// runScenario. Anything the artifact recorded wins; anything it could not
-// have recorded falls back to the legacy behavior.
-export function resolveConfig(config) {
-  return { ...LEGACY_SERVO_CONFIG, ...(config || {}) };
+// Resolve a stored artifact's plant into the argument set for runScenario.
+// Anything the artifact recorded wins; anything it could not have recorded
+// falls back to the behavior in force before that knob existed. Adding a knob
+// to PLANT_DEFAULTS therefore means deciding what runs made before it did,
+// which the artifact suite checks rather than trusts.
+export function resolvePlant(config) {
+  return { ...LEGACY_PLANT, ...(config || {}) };
+}
+
+// Kept as the old name so recorded artifacts and their readers keep working.
+export const resolveConfig = resolvePlant;
+
+// The rest of the machine: the integration a replay uses, and the body it is
+// run on. Neither is a plant setting, which is exactly why recording the
+// plant did not make a run reproducible -- a technique could succeed in the
+// search, appear to fall as a saved starting point, and succeed again in
+// playback, because two replay paths had chosen different timesteps.
+//
+// dt and settleT are the REPLAY numerics, not the search's: a search
+// deliberately integrates coarsely and a replay does not.
+export const NUMERICS_DEFAULTS = { dt: 2e-4, settleT: 2.5 };
+
+export function resolveNumerics(numerics) {
+  return { ...NUMERICS_DEFAULTS, ...(numerics || {}) };
+}
+
+// The body a run was produced on, read off the model rather than assembled,
+// and resolved on replay the way the plant is. Artifacts predating this field
+// were all made on the default body, which is what buildModel({}) gives.
+export function resolveBody(body) {
+  return { ...(body || {}) };
+}
+
+// The plant a rollout will run on given these options, without running one.
+// The single place PLANT_DEFAULTS is merged with overrides: runScenario uses
+// it to build the plant it reports, and anything that has to name a plant
+// before a rollout exists (a search reporting progress, say) asks here rather
+// than assembling its own copy of the defaults.
+export function plantFor(opts = {}) {
+  const plant = {};
+  for (const k of Object.keys(PLANT_DEFAULTS)) plant[k] = opts[k] ?? PLANT_DEFAULTS[k];
+  return plant;
+}
+
+// Range of motion as it was BEFORE a given limit was corrected, in the same
+// spirit as LEGACY_PLANT. Anatomy is part of the plant: the pike and
+// tuck starts solve the wrist inside its range, so widening a limit moves
+// the pose a recorded trajectory begins from, and the trajectory no longer
+// fits. The wrist's lower extension bound was 92 degrees -- two degrees past
+// vertical, a wall rather than an anatomical limit -- until it was widened.
+export const LEGACY_ROM = { wristExtMinDeg: 92 };
+
+// Resolve a stored artifact's rom the way resolveConfig resolves its
+// controller: what the artifact recorded wins, what it could not have
+// recorded falls back to the anatomy in force when it was made. Runs
+// recorded from now on store the whole resolved range, so this fallback only
+// ever reaches the ones that predate a field.
+export function resolveRom(rom) {
+  return { ...ROM_DEFAULTS, ...LEGACY_ROM, ...(rom || {}) };
 }
 
 // x = [6 joints x K knot angles (radians), duration T]. When a rom is
@@ -274,6 +419,23 @@ export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null } = {}) {
   return { lo, hi };
 }
 
+// Skills whose two legs do the same thing. The decision vector carries a hip
+// and a knee per leg because the kick-up genuinely needs them -- it swings one
+// leg and pushes with the other -- but a press and a bent-leg press are
+// symmetric movements, and nothing in the score says so. Left the search free
+// to spend those parameters, the bent-leg press arrived with one leg straight
+// and the other folded ninety degrees through the whole rise: cheap, stable,
+// and nothing like the skill. Mirroring after decoding takes the option away.
+export const SYMMETRIC_SCENARIOS = new Set(['pike', 'tuck']);
+
+export function symmetrizeKnots(knots) {
+  for (let k = 0; k < knots[2].length; k++) {
+    knots[4][k] = knots[2][k];
+    knots[5][k] = knots[3][k];
+  }
+  return knots;
+}
+
 export function decodeDecision(x, K) {
   const knots = [];
   for (let j = 0; j < 6; j++) knots.push(x.slice(j * K, (j + 1) * K));
@@ -291,7 +453,7 @@ export function encodeDecision(knots, T) {
 export const COST_WEIGHTS = {
   pose: 1, poseAngles: 2, velocity: 0.3, fall: 1,
   effort: 0.08, saturation: 2, rom: 4, romPeak: 0.5, quasiStatic: 0,
-  liftoff: 8, feet: 5, replant: 25, work: 1, smooth: 1,
+  liftoff: 8, feet: 5, replant: 25, tuckPhase: 6, arrival: 8, work: 1, smooth: 1,
   settleCalm: 1, driveRate: 0.3,
 };
 
@@ -313,9 +475,49 @@ export const SETTLE_DRIVE_RATE_SCALE = 4;
 // ~0.2 s) sits near 1 on this scale; flailing reversals sit far above it.
 export const SMOOTH_ACCEL_SCALE = 60;
 
-// How long the feet must be continuously clear of the floor before putting
-// them back down counts as replanting rather than as the push-off itself.
-export const FOOT_CLEAR_S = 0.25;
+// What a bent-leg press has to pass through to be one: airborne, stacked over
+// the palm, with the knees still bent. Hips over the hands and knees at the
+// chest is a shape the shoulder holds at 23 Nm, limited by the WRIST at the
+// same utilization as a straight handstand; let the hips sit behind the hands
+// instead and the identical tuck is a planche at 132 Nm. Both are ways to be
+// upside down with bent legs and only one of them is the skill.
+//
+// Nothing in a generic score distinguishes them, and the search prefers the
+// planche, because drifting up through it is smooth and cheap in work while a
+// hop is neither. So the shape is scored directly: how close the trajectory
+// ever came, at any instant with its feet off the floor, to being stacked
+// with its knees bent. This is a definition, in the same sense that arriving
+// "posed" in the balanced configuration is a definition of having got there.
+export const TUCK_PHASE = {
+  shoulderOpenDeg: 20,   // trunk within this of the arm line
+  kneeFlexDeg: 60,       // and the knees at least this bent
+  overHandM: 0.05,       // and the centre of mass this near the palm target
+  cap: 25,               // a hopeless run is not worth more than this
+};
+
+// A handstand is arrived at, not thrown into. Peak foot speed over the last
+// quarter of an entry, hinged at a speed both the kick-up and the press come
+// in under (1.78 and 1.74 m/s), so this charges nothing until a technique
+// slings its legs up harder than either of them does.
+//
+// It has to be charged explicitly because the slingshot is CHEAP: throwing
+// the legs at the vertical carries the body there on their angular momentum
+// and spares the shoulder, and given a free choice of duration the search
+// kept an entry at 1.68 s and brought the feet in at 3.3 m/s even when
+// allowed 3.2 s to spread it over.
+export const ARRIVAL_FOOT_SPEED = 2.0;
+export const ARRIVAL_WINDOW_FRAC = 0.25;
+
+// How far a toe has to rise before it counts as having left the floor. A
+// foot that has left may not come back.
+//
+// Height, not force, and not a time window. The bent-leg press start rests
+// its toes on the floor with a share of body weight on them, so a
+// force-based test reads "already gone" in the first millisecond, and a time
+// debounce to paper over that is just a window to hide a replant in: the
+// search lifted both feet 180 mm, dropped them back at five times body
+// weight, and pushed off that, all inside a quarter of a second.
+export const TOE_CLEAR_M = 0.05;
 
 // Where "working hard" becomes "living at the cap", and how much that costs.
 // The saturation term used to hinge at 0.95 on the raw utilization, so a
@@ -336,7 +538,7 @@ export const SATURATION_KNEE = 0.8;
 // paid it. Measuring the violation against the end-stop's own design
 // penetration instead makes one stop-depth of violation cost 1 per joint per
 // sample, so the anatomy is worth about as much as the effort of reaching it.
-export const ROM_VIOLATION_SCALE = SERVO_DEFAULTS.romStopDeg * D2R;
+export const ROM_VIOLATION_SCALE = PLANT_DEFAULTS.romStopDeg * D2R;
 
 // Metabolic accounting for the work term (Margaria): concentric (positive)
 // mechanical work costs 1/0.25 of itself metabolically; eccentric
@@ -359,10 +561,11 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   qdJitter = 0, jitterSeed = 1, integrator = 'si',
   // Plant knobs a robustness variant may perturb. They default to the
   // current plant, so scoring a candidate without variants is unchanged.
-  contactZeta = SERVO_DEFAULTS.contactZeta, mu = SERVO_DEFAULTS.mu,
+  contactZeta = PLANT_DEFAULTS.contactZeta, mu = PLANT_DEFAULTS.mu,
   pinFinal = true,
 } = {}) {
   const { knots, T } = decodeDecision(x, K);
+  if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(knots);
   const balanced = balancedHandstand(model, ws);
   // A technique ends in the handstand by definition: the final knot is the
   // balanced pose, not a free parameter. Otherwise the settle-phase servo
@@ -446,29 +649,30 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   const W = mo.mass * model.gravity;
   let angErr = 0, nAng = 0, liftoff = 0, feet = 0;
   // Foot contact is a prefix of an entry, never something to come back to.
-  // A press unweights its feet and leaves them; a kick-up pushes off once
-  // and leaves them. Both start with the toes at floor level, so the state
-  // machine below starts ON the floor and only calls the feet gone after
-  // FOOT_CLEAR_S of continuous clearance -- a push-off inside that window
-  // is the momentum a bent-leg press is entitled to, and is not charged.
+  // A press unweights its feet and leaves them; a kick-up pushes off once and
+  // leaves them; a bent-leg press hops off both and leaves them. Each foot is
+  // tracked on its own, because a kick-up's swing leg is already in the air
+  // while its stance leg is still pushing.
   //
-  // Without this the bent-leg press had a cheaper option than pressing:
-  // hold a tucked frog stand for a second and a half, settle the feet back
-  // down onto the floor, and jump. Nothing else in the score noticed,
-  // because the feet term only ever looked at the settle tail.
-  let replant = 0, footClear = 0, feetGone = false;
+  // Without this the bent-leg press had a cheaper option than pressing: hold
+  // a tucked fold, settle the feet back down onto the floor, and jump.
+  // Nothing else in the score noticed, because the feet term only ever looked
+  // at the settle tail.
+  let replant = 0;
+  const footGone = [false, false];
   for (let k = 0; k < rec.t.length; k++) {
     const f = rec.forces[k];
     if (f) {
       const handF = f.fy[0] + f.fy[1];
       const def = Math.max(0, 0.1 * W - handF) / (0.1 * W);
       liftoff += def * def;
+      for (let s = 0; s < 2; s++) {
+        const c = 2 + s;
+        if (f.py[c] === undefined) continue;
+        if (!footGone[s] && f.py[c] > TOE_CLEAR_M) footGone[s] = true;
+        if (footGone[s]) replant += (f.fy[c] / (0.1 * W)) ** 2;
+      }
       const footF = (f.fy[2] || 0) + (f.fy[3] || 0);
-      if (feetGone) replant += (footF / (0.2 * W)) ** 2;
-      else if (footF < 0.02 * W) {
-        footClear += k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
-        if (footClear >= FOOT_CLEAR_S) feetGone = true;
-      } else footClear = 0;
       if (rec.t[k] >= settleStart) feet += (footF / (0.2 * W)) ** 2;
     }
     if (rec.t[k] >= settleStart) {
@@ -483,6 +687,54 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   }
   liftoff /= rec.t.length;
   replant /= rec.t.length;
+
+  // Peak foot speed over the closing quarter of the entry, computed from the
+  // state rather than by differencing recorded positions. Differencing reads
+  // whatever the recording stride smoothed it down to -- it saw 3.1 m/s where
+  // the body was doing 3.9 -- and the answer would then depend on the
+  // timestep, which is not something a cost term is allowed to do.
+  let arrival = 0;
+  {
+    const from = T * (1 - ARRIVAL_WINDOW_FRAC);
+    let peak = 0;
+    for (let k = 0; k < rec.t.length; k++) {
+      if (rec.t[k] < from || rec.t[k] > T) continue;
+      fk(model, rec.q[k], rec.qd[k], ws);
+      for (const c of [2, 3]) {
+        const cpt = model.contacts[c];
+        if (!cpt) continue;
+        const b = cpt.body;
+        const cth = Math.cos(ws.th[b]), sth = Math.sin(ws.th[b]);
+        const rx = cth * cpt.x - sth * cpt.y, ry = sth * cpt.x + cth * cpt.y;
+        const v = Math.hypot(ws.vx[b] - ws.om[b] * ry, ws.vy[b] + ws.om[b] * rx);
+        if (v > peak) peak = v;
+      }
+    }
+    const over = Math.max(0, peak - ARRIVAL_FOOT_SPEED) / ARRIVAL_FOOT_SPEED;
+    arrival = over * over;
+  }
+
+  // The closest this trajectory ever came to a fully inverted tuck, over the
+  // frames where it was actually off its feet.
+  let tuckMiss = 0;
+  if ((weights.tuckPhase || 0) > 0 && scenario === 'tuck') {
+    const patchTarget = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+    const openScale = TUCK_PHASE.shoulderOpenDeg * D2R;
+    const bentScale = TUCK_PHASE.kneeFlexDeg * D2R;
+    let closest = Infinity;
+    for (let k = 0; k < rec.t.length; k++) {
+      const f = rec.forces[k];
+      if (f && (f.fy[2] || 0) + (f.fy[3] || 0) > 0.05 * W) continue;
+      const q = rec.q[k];
+      const open = Math.max(0, Math.abs(q[4]) - openScale) / openScale;
+      const kneeFlex = 0.5 * (-q[6] + -q[8]);
+      const bent = Math.max(0, bentScale - kneeFlex) / bentScale;
+      const over = (rec.com[k][0] - (q[0] + patchTarget)) / TUCK_PHASE.overHandM;
+      const miss = open * open + bent * bent + over * over;
+      if (miss < closest) closest = miss;
+    }
+    tuckMiss = Math.min(Number.isFinite(closest) ? closest : TUCK_PHASE.cap, TUCK_PHASE.cap);
+  }
   if (nAng > 0) { angErr /= nAng; feet /= nAng; }
 
   let effort = 0, sat = 0, romP = 0, romPk = 0, peakKE = 0;
@@ -593,11 +845,14 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     liftoff: (weights.liftoff || 0) * liftoff,
     feet: (weights.feet || 0) * feet,
     replant: (weights.replant || 0) * replant,
+    tuckPhase: (weights.tuckPhase || 0) * tuckMiss,
+    arrival: (weights.arrival || 0) * arrival,
   };
   let cost = 0;
   for (const v of Object.values(terms)) cost += v;
   return {
-    cost, terms, verdict: r.verdict, T, tFall,
+    cost, terms, verdict: r.verdict, T, tFall, plant: r.plant,
+    numerics: r.numerics, body: r.body,
     peakUtil: Array.from(peakUtil),
     workJ: { positive: posWork, negative: negWork, metabNormalized: metabWork },
     // The recording this scoring pass already made. Kept on the result so a
@@ -681,19 +936,49 @@ export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
   const rows = Array.from({ length: 6 }, () => new Float64Array(K));
   const scratch = new Float64Array(model.nq);
+  // The phases of a bent-leg press, in absolute joint angles: sink onto the
+  // legs, extend them to hop, arrive in a FULLY INVERTED TUCK, then extend
+  // the legs overhead together.
+  //
+  // The middle phase is the whole skill and it is the one a search does not
+  // find on its own. Statics says why. With the hips stacked over the hands
+  // and the knees at the chest, the shoulder holds 23 Nm and the binding
+  // joint is the WRIST, at exactly the utilization of a straight handstand:
+  // an inverted tuck is free at any shoulder worth modelling. Let the hips
+  // sit behind the hands instead and the same tuck becomes a tucked planche
+  // at 132 Nm, which saturates a 1.8 Nm/kg shoulder. Drifting up through the
+  // intermediate shapes -- which is what a long, monotone unfold does -- is
+  // therefore an expensive way to do a cheap movement, and the search will
+  // happily spend a whole ladder discovering that it cannot afford it.
+  const SHOULDER_TUCK = 12 * D2R;
+  const hipTuck = Math.min(hipFlexMaxDeg(rom, 125), 140) * D2R;
+  const PHASES = [
+    // u,   shoulder,          hip,          knee (rad; negative is flexed)
+    [0.00, q0[4], q0[5], q0[6]],
+    [0.16, q0[4], q0[5], -70 * D2R],
+    [0.32, q0[4] * 0.72, q0[5] * 1.05, -12 * D2R],
+    [0.52, SHOULDER_TUCK, hipTuck, -125 * D2R],
+    [0.78, SHOULDER_TUCK * 0.5, hipTuck * 0.55, -70 * D2R],
+    [1.00, target[4], target[5], target[6]],
+  ];
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const sample = (u) => {
+    let i = 0;
+    while (i < PHASES.length - 2 && u > PHASES[i + 1][0]) i++;
+    const [ua, sa, ha, ka] = PHASES[i];
+    const [ub, sb, hb, kb] = PHASES[i + 1];
+    const t = ub > ua ? (u - ua) / (ub - ua) : 0;
+    return { sh: lerp(sa, sb, t), hip: lerp(ha, hb, t), knee: lerp(ka, kb, t) };
+  };
   let lastWrist = q0[3];
-  const openFrac = (u) => (u <= 0.28 ? 0 : (u - 0.28) / 0.72);
-  // Knees stay bent through the weight shift and the first of the lift, then
-  // extend: straightening early throws the leg mass away from the hands
-  // exactly when the hips are least able to hold it.
-  const kneeFrac = (u) => (u <= 0.45 ? 0 : (u - 0.45) / 0.55);
   for (let k = 0; k < K; k++) {
     const u = k / (K - 1);
-    const hip = q0[5] * (1 - openFrac(u));
-    const sh = q0[4] * (1 - openFrac(u));
-    const knee = q0[6] * (1 - kneeFrac(u));
+    const { hip, sh, knee } = sample(u);
     let wrist;
-    if (k === 0) {
+    if (u < 0.35) {
+      // Through the hop the body is still standing on its feet, so the wrist
+      // holds its start lean rather than the lean that would balance the
+      // shape over the palm: there is nothing to balance yet.
       wrist = q0[3];
     } else {
       scratch.fill(0);
@@ -793,27 +1078,30 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
       return c;
     }
     : (x) => costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
+  // Scored before the search rather than after it, so the incumbent is never
+  // worse than the technique the search was handed -- including when the
+  // search is stopped part way and its incumbent is what gets kept.
+  const startCost = costFn(model, ws, strengthProf, rom, scenario, start, costOpts).cost;
   const result = await cmaes({
-    x0: start, sigma0, seed, maxGen, lambda, bounds,
+    x0: start, sigma0, seed, maxGen, lambda, bounds, f0: startCost,
     objective: objectiveBatch ? null : (x) => scored(x).cost,
     objectiveBatch,
     onGeneration,
   });
-  // The start is itself a candidate; CMA-ES samples around it but never
-  // evaluates it, so on a hard landscape a small budget can end worse than
-  // where it began. Never return worse than the start.
-  const startCost = costFn(model, ws, strengthProf, rom, scenario, start, costOpts).cost;
-  if (startCost < result.best) {
-    result.best = startCost;
-    result.bestX = start;
-  }
   const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX, { K, dt: 2e-4, weights });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
   const decoded = decodeDecision(result.bestX, K);
+  if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
   const qBal = balancedHandstand(model, ws);
   for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
-  return { ...result, K, scenario, finalCheck, decoded };
+  return {
+    ...result, K, scenario, finalCheck, decoded,
+    // From the finalCheck, which is the fine-timestep nominal evaluation --
+    // the same rollout a replay performs, so recording these makes a replay
+    // reproduce it exactly.
+    plant: finalCheck.plant, numerics: finalCheck.numerics, body: finalCheck.body,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -860,37 +1148,36 @@ export function catchWindow(model, ws, strengthProf, {
 
 // Run a scenario under the capped PD servo. Returns the recording plus a
 // settle verdict measured over the final settleT seconds.
-export function runScenario(model, ws, strengthProf, {
-  scenario = 'hold',
-  knots = null,
-  T = 1.2,
-  settleT = 1.0,
-  dt = 2e-4,
+export function runScenario(model, ws, strengthProf, opts = {}) {
+  // The plant this rollout runs on, merged once and handed back with the
+  // result. Producers record THIS, never a copy of the defaults, so a run
+  // cannot be written down with a plant it was not produced under.
+  //
   // Servo impedance is deliberately LOW by default: gravity feedforward
   // carries the static load, so stiffness is not needed for holding, and a
-  // stiff servo reacting to wrist balance corrections through the
-  // activation lag rings in a small persistent limit cycle (buzzing
-  // shoulders near equilibrium). Every recorded run carries its own config;
-  // pass it here on replay.
-  integrator = SERVO_DEFAULTS.integrator,
-  kp = SERVO_DEFAULTS.kp, kd = SERVO_DEFAULTS.kd,
-  mu = SERVO_DEFAULTS.mu,
-  contactZeta = SERVO_DEFAULTS.contactZeta,
-  activationTau = SERVO_DEFAULTS.activationTau,
-  dampingRatio = SERVO_DEFAULTS.dampingRatio,
-  brakeMargin = SERVO_DEFAULTS.brakeMargin,
-  inertiaHz = SERVO_DEFAULTS.inertiaHz,
-  dampingSpeed = SERVO_DEFAULTS.dampingSpeed,
-  romStopDeg = SERVO_DEFAULTS.romStopDeg,
-  romStopZeta = SERVO_DEFAULTS.romStopZeta,
-  recordEvery = null,
-  qdJitter = 0,
-  jitterSeed = 1,
-  balance = true,
-  kCom = SERVO_DEFAULTS.kCom, dCom = SERVO_DEFAULTS.dCom,
-  rom = ROM_DEFAULTS,
-} = {}) {
-  const { q0, qd0: qd0Start } = scenarioStart(model, ws, scenario, rom);
+  // stiff servo reacting to wrist balance corrections through the activation
+  // lag rings in a small persistent limit cycle (buzzing shoulders near
+  // equilibrium). Every recorded run carries its own plant; pass it here on
+  // replay.
+  const plant = plantFor(opts);
+  const {
+    integrator, kp, kd, mu, contactZeta, activationTau, dampingRatio, brakeMargin,
+    inertiaHz, dampingSpeed, romStopDeg, romStopZeta, kCom, dCom,
+    tuckLoadFrac, tuckKneeDeg,
+  } = plant;
+  const {
+    scenario = 'hold',
+    knots = null,
+    T = 1.2,
+    settleT = 1.0,
+    dt = 2e-4,
+    recordEvery = null,
+    qdJitter = 0,
+    jitterSeed = 1,
+    balance = true,
+    rom = ROM_DEFAULTS,
+  } = opts;
+  const { q0, qd0: qd0Start } = scenarioStart(model, ws, scenario, rom, { tuckLoadFrac, tuckKneeDeg });
   let qd0 = qd0Start;
   if (qdJitter > 0) {
     const rand = mulberry32(jitterSeed);
@@ -948,7 +1235,14 @@ export function runScenario(model, ws, strengthProf, {
   const W = mo.mass * model.gravity;
   const feetFree = (contacts.ext.fy[2] + contacts.ext.fy[3]) < 0.05 * W;
   return {
-    ...out, contacts, servo, stops, knots: ref, T, settleT,
+    ...out, contacts, servo, stops, knots: ref, T, settleT, plant,
+    // Reported, not assembled: the integration this rollout used and the body
+    // it ran on, so a producer records what actually happened.
+    numerics: { dt, settleT },
+    body: {
+      heightM: model.heightM, massKg: model.massKg,
+      straddleDeg: model.straddleDeg, sex: model.sex,
+    },
     verdict: {
       upright, over, still, posed, feetFree,
       success: upright && over && still && posed && feetFree,
