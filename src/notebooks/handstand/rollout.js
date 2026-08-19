@@ -99,6 +99,11 @@ function clearFeet(model, ws, q, minY = 5e-4) {
 // toes actually reach the floor. A stiffer person therefore starts with
 // feet further from the hands and less weight over the palms, which is
 // exactly how limited flexibility taxes an entry in reality.
+// Knee bend that defines the bent-leg press. Deep enough that the hamstring
+// coupling opens a real amount of extra hip fold, shallow enough to still be
+// a press rather than a tuck-up.
+export const TUCK_KNEE_DEG = 90;
+
 export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
   const q = new Float64Array(model.nq);
   groundHand(model, q);
@@ -115,6 +120,35 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       // used, which is the honest starting handicap of a stiff body.
       q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, 0), 130) * D2R;
       q[6] = q[8] = 0;
+      const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+      const comAt = (sh) => {
+        q[4] = sh;
+        solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+        return momenta(model, q, zeroQd9, ws).comX - q[0];
+      };
+      let lo = 55 * D2R, hi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
+      if (comAt(lo) > targetX) comAt(lo);
+      else if (comAt(hi) < targetX) comAt(hi);
+      else {
+        for (let i = 0; i < 40; i++) {
+          const mid = 0.5 * (lo + hi);
+          if (comAt(mid) < targetX) lo = mid; else hi = mid;
+        }
+        comAt(0.5 * (lo + hi));
+      }
+      clampPose(q, rom);
+      clearFeet(model, ws, q);
+      return { q0: q, qd0: null };
+    }
+    case 'tuck': {
+      // Bent-leg press start. Bending the knees buys hip flexion through the
+      // hamstring coupling -- 90 degrees of knee bend takes the straight-knee
+      // 85 degree fold to 139 -- so the body starts folded much deeper, with
+      // the shins tucked back and the toes still down. Everything else is the
+      // pike start: solve the shoulder lean that puts the centre of mass over
+      // the palm target, with the wrist following.
+      q[6] = q[8] = -TUCK_KNEE_DEG * D2R;
+      q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, TUCK_KNEE_DEG), 140) * D2R;
       const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
       const comAt = (sh) => {
         q[4] = sh;
@@ -589,6 +623,47 @@ export function pressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   return { knots: rows, q0, target };
 }
 
+// Bent-leg press initial guess: the press reference with the knees carried
+// bent and straightened over the second half, so the legs arrive extended.
+export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
+  const { q0 } = scenarioStart(model, ws, 'tuck', rom);
+  const target = balancedHandstand(model, ws);
+  const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+  const rows = Array.from({ length: 6 }, () => new Float64Array(K));
+  const scratch = new Float64Array(model.nq);
+  let lastWrist = q0[3];
+  const openFrac = (u) => (u <= 0.28 ? 0 : (u - 0.28) / 0.72);
+  // Knees stay bent through the weight shift and the first of the lift, then
+  // extend: straightening early throws the leg mass away from the hands
+  // exactly when the hips are least able to hold it.
+  const kneeFrac = (u) => (u <= 0.45 ? 0 : (u - 0.45) / 0.55);
+  for (let k = 0; k < K; k++) {
+    const u = k / (K - 1);
+    const hip = q0[5] * (1 - openFrac(u));
+    const sh = q0[4] * (1 - openFrac(u));
+    const knee = q0[6] * (1 - kneeFrac(u));
+    let wrist;
+    if (k === 0) {
+      wrist = q0[3];
+    } else {
+      scratch.fill(0);
+      groundHand(model, scratch);
+      scratch[4] = sh;
+      scratch[5] = scratch[7] = hip;
+      scratch[6] = scratch[8] = knee;
+      const w = solveWristForCom(model, scratch, ws, targetX);
+      wrist = Number.isNaN(w) ? lastWrist : w;
+    }
+    lastWrist = wrist;
+    rows[0][k] = wrist;
+    rows[1][k] = sh;
+    rows[2][k] = hip; rows[4][k] = hip;
+    rows[3][k] = knee; rows[5][k] = knee;
+  }
+  rows[0][K - 1] = target[3];
+  return { knots: rows, q0, target };
+}
+
 // Kick-up initial guess with the real phase structure: lean onto the hands
 // while the swing leg sweeps hard overhead, extend the stance leg to push
 // off, join the legs above, and hand the catch to the balance servo. The
@@ -633,9 +708,11 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   const start = x0 || (() => {
     const ref = scenario === 'pike'
       ? pressReference(model, ws, K, rom)
-      : scenario === 'lunge'
-        ? kickReference(model, ws, K, rom)
-        : naiveReference(model, ws, scenario, K, rom);
+      : scenario === 'tuck'
+        ? tuckPressReference(model, ws, K, rom)
+        : scenario === 'lunge'
+          ? kickReference(model, ws, K, rom)
+          : naiveReference(model, ws, scenario, K, rom);
     return encodeDecision(ref.knots, Math.min(Math.max(t0, tLo), tHi));
   })();
   const bounds = decisionBounds(K, { tLo, tHi, rom });
