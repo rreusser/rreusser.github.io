@@ -70,16 +70,15 @@ const result = await optimizeScenario(model, ws, prof, rom, {
 });
 pool?.destroy();
 
-const { SERVO_DEFAULTS } = await import('../rollout.js');
 const out = {
   scenario, seed, maxGen,
   // The whole resolved range, not just the overrides: anatomy is part of
   // the plant, and a replay that has to guess at a limit is a replay of a
   // different body.
   rom, strength: strengthOpts, weights,
-  // The plant/controller configuration this trajectory was optimized for.
-  // Replays MUST use it; a trajectory without its controller is not a result.
-  config: { ...SERVO_DEFAULTS },
+  // The plant this trajectory was optimized on, as the rollout reports it.
+  // Replays MUST use it; a trajectory without its plant is not a result.
+  config: result.plant,
   best: result.best,
   fineCost: result.finalCheck.cost,
   verdict: result.finalCheck.verdict,

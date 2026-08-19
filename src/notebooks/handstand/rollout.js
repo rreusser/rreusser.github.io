@@ -139,8 +139,8 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
   // Where the bent-leg press stands, as recorded plant rather than as a
   // constant: the shape of a start pose decides what technique is reachable
   // from it, so an artifact has to replay against the start it was made on.
-  const tuckLoadFrac = opts.tuckLoadFrac ?? SERVO_DEFAULTS.tuckLoadFrac;
-  const tuckKneeDeg = opts.tuckKneeDeg ?? SERVO_DEFAULTS.tuckKneeDeg;
+  const tuckLoadFrac = opts.tuckLoadFrac ?? PLANT_DEFAULTS.tuckLoadFrac;
+  const tuckKneeDeg = opts.tuckKneeDeg ?? PLANT_DEFAULTS.tuckKneeDeg;
   const q = new Float64Array(model.nq);
   groundHand(model, q);
   switch (name) {
@@ -285,10 +285,18 @@ export function naiveReference(model, ws, name, K = 6, rom = ROM_DEFAULTS) {
 
 export const JOINT_KEYS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
 
-// The controller/plant configuration is part of every result. A trajectory
-// is only meaningful together with the servo it was optimized for; replays
-// must use the recorded config, never the current defaults.
-export const SERVO_DEFAULTS = {
+// Everything about the machine a trajectory was produced on: the servo, the
+// contact model, and the geometry of the pose each scenario starts from. A
+// trajectory is only meaningful together with its plant, so every producer
+// records the plant its run actually used and every replay uses the recorded
+// one, never the current defaults.
+//
+// There is one definition, here. runScenario reports back the plant it ran
+// with rather than leaving each producer to assemble a snapshot of these
+// defaults by hand -- which is exactly how the in-page optimizer came to send
+// results to playback with no plant recorded at all, and playback duly
+// replayed them on the legacy machine.
+export const PLANT_DEFAULTS = {
   kp: 800, kd: 60, kCom: 2000, dCom: 1500,
   activationTau: 0.05, mu: 1.0, contactZeta: 1.0, integrator: 'si',
   tuckLoadFrac: TUCK_LOAD_FRAC, tuckKneeDeg: TUCK_KNEE_DEG,
@@ -301,23 +309,33 @@ export const SERVO_DEFAULTS = {
 // produced under, so a config that predates a key must replay with that
 // key's pre-existing behavior, not with today's default. Both of these
 // default to "off", which is exactly the old constant-kd, no-braking servo.
-export const LEGACY_SERVO_CONFIG = {
+export const LEGACY_PLANT = {
   dampingRatio: 0, brakeMargin: 0, dampingSpeed: 0, romStopDeg: 0,
+  // Inert under the three zeros above, and recorded so the accounting is
+  // complete rather than merely harmless: inertia-scaled damping is off when
+  // dampingRatio is 0, so its refresh rate does not matter, and end-stops are
+  // off entirely when romStopDeg is 0, so their damping ratio does not either.
+  inertiaHz: 200, romStopZeta: 0.7,
   // The bent-leg press used to start balanced over the palm with 90 degrees
   // of knee bend and nothing on the legs, which is why the only momentum the
   // search could find was to settle back down onto the floor and jump.
   tuckLoadFrac: 0, tuckKneeDeg: 90,
 };
 
-// Resolve a stored artifact config into the full argument set for
-// runScenario. Anything the artifact recorded wins; anything it could not
-// have recorded falls back to the legacy behavior.
-export function resolveConfig(config) {
-  return { ...LEGACY_SERVO_CONFIG, ...(config || {}) };
+// Resolve a stored artifact's plant into the argument set for runScenario.
+// Anything the artifact recorded wins; anything it could not have recorded
+// falls back to the behavior in force before that knob existed. Adding a knob
+// to PLANT_DEFAULTS therefore means deciding what runs made before it did,
+// which the artifact suite checks rather than trusts.
+export function resolvePlant(config) {
+  return { ...LEGACY_PLANT, ...(config || {}) };
 }
 
+// Kept as the old name so recorded artifacts and their readers keep working.
+export const resolveConfig = resolvePlant;
+
 // Range of motion as it was BEFORE a given limit was corrected, in the same
-// spirit as LEGACY_SERVO_CONFIG. Anatomy is part of the plant: the pike and
+// spirit as LEGACY_PLANT. Anatomy is part of the plant: the pike and
 // tuck starts solve the wrist inside its range, so widening a limit moves
 // the pose a recorded trajectory begins from, and the trajectory no longer
 // fits. The wrist's lower extension bound was 92 degrees -- two degrees past
@@ -449,7 +467,7 @@ export const SATURATION_KNEE = 0.8;
 // paid it. Measuring the violation against the end-stop's own design
 // penetration instead makes one stop-depth of violation cost 1 per joint per
 // sample, so the anatomy is worth about as much as the effort of reaching it.
-export const ROM_VIOLATION_SCALE = SERVO_DEFAULTS.romStopDeg * D2R;
+export const ROM_VIOLATION_SCALE = PLANT_DEFAULTS.romStopDeg * D2R;
 
 // Metabolic accounting for the work term (Margaria): concentric (positive)
 // mechanical work costs 1/0.25 of itself metabolically; eccentric
@@ -472,7 +490,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   qdJitter = 0, jitterSeed = 1, integrator = 'si',
   // Plant knobs a robustness variant may perturb. They default to the
   // current plant, so scoring a candidate without variants is unchanged.
-  contactZeta = SERVO_DEFAULTS.contactZeta, mu = SERVO_DEFAULTS.mu,
+  contactZeta = PLANT_DEFAULTS.contactZeta, mu = PLANT_DEFAULTS.mu,
   pinFinal = true,
 } = {}) {
   const { knots, T } = decodeDecision(x, K);
@@ -712,7 +730,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   let cost = 0;
   for (const v of Object.values(terms)) cost += v;
   return {
-    cost, terms, verdict: r.verdict, T, tFall,
+    cost, terms, verdict: r.verdict, T, tFall, plant: r.plant,
     peakUtil: Array.from(peakUtil),
     workJ: { positive: posWork, negative: negWork, metabNormalized: metabWork },
     // The recording this scoring pass already made. Kept on the result so a
@@ -949,7 +967,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
   const qBal = balancedHandstand(model, ws);
   for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
-  return { ...result, K, scenario, finalCheck, decoded };
+  return { ...result, K, scenario, finalCheck, decoded, plant: finalCheck.plant };
 }
 
 // ---------------------------------------------------------------------------
@@ -1008,26 +1026,35 @@ export function runScenario(model, ws, strengthProf, {
   // activation lag rings in a small persistent limit cycle (buzzing
   // shoulders near equilibrium). Every recorded run carries its own config;
   // pass it here on replay.
-  integrator = SERVO_DEFAULTS.integrator,
-  kp = SERVO_DEFAULTS.kp, kd = SERVO_DEFAULTS.kd,
-  mu = SERVO_DEFAULTS.mu,
-  contactZeta = SERVO_DEFAULTS.contactZeta,
-  activationTau = SERVO_DEFAULTS.activationTau,
-  dampingRatio = SERVO_DEFAULTS.dampingRatio,
-  brakeMargin = SERVO_DEFAULTS.brakeMargin,
-  inertiaHz = SERVO_DEFAULTS.inertiaHz,
-  dampingSpeed = SERVO_DEFAULTS.dampingSpeed,
-  romStopDeg = SERVO_DEFAULTS.romStopDeg,
-  romStopZeta = SERVO_DEFAULTS.romStopZeta,
+  integrator = PLANT_DEFAULTS.integrator,
+  kp = PLANT_DEFAULTS.kp, kd = PLANT_DEFAULTS.kd,
+  mu = PLANT_DEFAULTS.mu,
+  contactZeta = PLANT_DEFAULTS.contactZeta,
+  activationTau = PLANT_DEFAULTS.activationTau,
+  dampingRatio = PLANT_DEFAULTS.dampingRatio,
+  brakeMargin = PLANT_DEFAULTS.brakeMargin,
+  inertiaHz = PLANT_DEFAULTS.inertiaHz,
+  dampingSpeed = PLANT_DEFAULTS.dampingSpeed,
+  romStopDeg = PLANT_DEFAULTS.romStopDeg,
+  romStopZeta = PLANT_DEFAULTS.romStopZeta,
   recordEvery = null,
   qdJitter = 0,
   jitterSeed = 1,
   balance = true,
-  kCom = SERVO_DEFAULTS.kCom, dCom = SERVO_DEFAULTS.dCom,
-  tuckLoadFrac = SERVO_DEFAULTS.tuckLoadFrac,
-  tuckKneeDeg = SERVO_DEFAULTS.tuckKneeDeg,
+  kCom = PLANT_DEFAULTS.kCom, dCom = PLANT_DEFAULTS.dCom,
+  tuckLoadFrac = PLANT_DEFAULTS.tuckLoadFrac,
+  tuckKneeDeg = PLANT_DEFAULTS.tuckKneeDeg,
   rom = ROM_DEFAULTS,
 } = {}) {
+  // The plant this rollout actually ran on, assembled once from the resolved
+  // arguments and handed back with the result. Producers record THIS rather
+  // than a copy of the defaults, so a run cannot be written down with a plant
+  // it was not produced under.
+  const plant = {
+    kp, kd, kCom, dCom, activationTau, mu, contactZeta, integrator,
+    dampingRatio, brakeMargin, inertiaHz, dampingSpeed, romStopDeg, romStopZeta,
+    tuckLoadFrac, tuckKneeDeg,
+  };
   const { q0, qd0: qd0Start } = scenarioStart(model, ws, scenario, rom, { tuckLoadFrac, tuckKneeDeg });
   let qd0 = qd0Start;
   if (qdJitter > 0) {
@@ -1086,7 +1113,7 @@ export function runScenario(model, ws, strengthProf, {
   const W = mo.mass * model.gravity;
   const feetFree = (contacts.ext.fy[2] + contacts.ext.fy[3]) < 0.05 * W;
   return {
-    ...out, contacts, servo, stops, knots: ref, T, settleT,
+    ...out, contacts, servo, stops, knots: ref, T, settleT, plant,
     verdict: {
       upright, over, still, posed, feetFree,
       success: upright && over && still && posed && feetFree,

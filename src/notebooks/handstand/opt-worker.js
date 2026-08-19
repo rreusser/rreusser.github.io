@@ -138,6 +138,9 @@ self.onmessage = async (e) => {
       knots: result.decoded.knots.map((k) => Array.from(k)),
       verdict: result.finalCheck.verdict, terms: result.finalCheck.terms,
       fineCost: result.finalCheck.cost,
+      // The plant the search ran on, so a result adopted into playback is
+      // replayed on the machine that produced it.
+      plant: result.plant,
     });
     pool?.destroy();
   } else if (msg.type === 'catchWindow') {

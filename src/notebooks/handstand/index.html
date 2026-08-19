@@ -51,7 +51,7 @@
     import { drawScene, drawGhosts } from './render.js';
     import {
       runScenario, balancedHandstand, resolveConfig, resolveRom, HANDSTAND_TARGET_FRAC,
-      encodeDecision, SERVO_DEFAULTS,
+      encodeDecision,
     } from './rollout.js';
     import { PRESET_TRAJECTORIES, PRESET_GALLERY } from './presets.js';
   </script>
@@ -935,7 +935,12 @@
             optState.ghostRev++;
           }
         } else if (data.type === 'done') {
-          optState.result = { ...data, ...optState.body };
+          // The worker reports the plant its rollouts ran on; keeping it is
+          // what lets playback replay a result on the machine that produced
+          // it. Without it, playback resolved an unrecorded plant to the
+          // LEGACY one -- no braking, no inertia-scaled damping, no
+          // end-stops, the old start pose -- and the run fell on its face.
+          optState.result = { ...data, ...optState.body, config: data.plant };
           optCleanup();
           optAdopt.disabled = false;
           optSave.disabled = false;
@@ -953,15 +958,8 @@
       // body it was optimised for. Without this, a press optimised at 2.8
       // Nm/kg went to playback and collapsed on a 1.6 Nm/kg body.
       //
-      // The plant belongs here for the same reason the body does, and it was
-      // missing: playback resolves a run's config, and a result with no
-      // config recorded resolved to the LEGACY one -- no braking, no
-      // inertia-scaled damping, no end-stops, and the old start pose. A
-      // search result sent to playback was being replayed on a different
-      // machine from the one that produced it, and fell on its face.
       optState.body = {
         scenario: resolved.scenario, strength: strengthOpts.overrides, rom: romOverrides,
-        config: { ...SERVO_DEFAULTS },
       };
       worker.postMessage({
         type: 'optimize',
