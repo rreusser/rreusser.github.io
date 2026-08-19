@@ -191,3 +191,43 @@ display(expandable(figure, {
 ```
 
 The figure will break out of the article's text column using negative margins, expand to `maxWidth`, and maintain the given `aspectRatio`. It will still support the expand-to-fullscreen toggle.
+
+## Rebuilding a figure on resize
+
+A figure whose contents have to be rebuilt at a new width (Observable Plot has
+no reflow — a resize means a new chart) usually reads its width through a
+generator:
+
+```javascript
+const figWidth = Generators.observe((notify) => {
+  // Quantise, and notify ONLY on a change. A generator yield re-runs its
+  // dependents whether or not the value differs, and ResizeObserver fires on
+  // height as well as width.
+  let last = null;
+  const measure = () => {
+    const w = Math.floor(fig.clientWidth / 20) * 20;
+    if (w > 0 && w !== last) { last = w; notify(w); }
+  };
+  const ro = new ResizeObserver(measure);
+  ro.observe(fig);
+  measure();
+  return () => ro.disconnect();
+});
+```
+
+Both guards matter, and the second one is not an optimization:
+
+- **Quantise the width** (floor, never round — rounding overshoots the real
+  width whenever the remainder is half the step, the contents are sized to a
+  row wider than the one holding them, and the flex row wraps. Which way it
+  rounds alternates as the window resizes, so the layout appears to wrap and
+  unwrap at random.)
+- **Only notify on a change.** Without this, anything that alters the
+  figure's *height* rebuilds it. A caption that grows a line when the
+  pointer moves is enough — and a rebuild mid-gesture detaches the element
+  that holds the pointer capture, so the drag dies on the first move and
+  never recovers. It presents as "the figure ignores my finger", which is a
+  long way from "my caption wrapped".
+
+Measure the **figure**, never the slot the contents are drawn into, or a
+redraw changes the thing being observed and the loop never settles.

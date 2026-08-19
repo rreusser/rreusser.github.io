@@ -359,14 +359,22 @@
     // resizes, so the layout appeared to wrap and unwrap at random.
     const quantise = (w) => Math.floor(w / 20) * 20;
     const corridorWidth = Generators.observe((notify) => {
+      // Notify ONLY when the quantised width actually changes. A generator
+      // yield re-runs its dependents whether or not the value differs, and a
+      // ResizeObserver fires on height as well as width -- so probing the map
+      // moved the caption text, the caption's line count changed the figure's
+      // height, the observer fired, and the map was rebuilt underneath the
+      // finger that was drawing it. The captured pointer went with the old
+      // svg, so the first touch on a cell whose verdict wrapped differently
+      // was also the last: no pointermove ever arrived again.
+      let last = null;
       const measure = () => {
-        const w = corridorFigure.clientWidth;
-        if (w > 0) notify(quantise(w));
+        const w = quantise(corridorFigure.clientWidth || 640);
+        if (w > 0 && w !== last) { last = w; notify(w); }
       };
       const ro = new ResizeObserver(measure);
       ro.observe(corridorFigure);
       measure();
-      notify(quantise(corridorFigure.clientWidth || 640));
       return () => ro.disconnect();
     });
   </script>
