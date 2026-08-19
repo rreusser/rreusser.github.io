@@ -53,7 +53,7 @@
       runScenario, balancedHandstand, resolveConfig, resolveRom, HANDSTAND_TARGET_FRAC,
       encodeDecision,
     } from './rollout.js';
-    import { PRESET_TRAJECTORIES, PRESET_GALLERY } from './presets.js';
+    import { PRESET_TRAJECTORIES } from './presets.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
     const bodyControls = html`<div class="body-controls"></div>`;
@@ -543,23 +543,17 @@
   </script>
   <script id="sim-controls-cell" type="text/x-typescript">
     const simControls = html`<div class="sim-controls"></div>`;
-    // The canonical entry for each skill is the best run of its kind, so it is
-    // named plainly and listed first. Those two also appear in the gallery, and
-    // are filtered out of the [run] list below rather than offered twice; the
-    // gallery index has to survive that filter, since it is what selects the
-    // run. The press is deliberately labelled with the shoulder it needs,
-    // because picking it quietly swaps in a stronger body than the default.
-    const canonical = new Set(
-      [PRESET_TRAJECTORIES.lunge?.file, PRESET_TRAJECTORIES.tuck?.file, PRESET_TRAJECTORIES.pike?.file]
-        .filter(Boolean));
+    // One entry per skill, named plainly, plus whatever the optimizer last
+    // produced. The rest of the registry in runs/ is not a menu: it is the
+    // regression net the artifact suite replays, and offering every superseded
+    // attempt as something to watch was a filmstrip of near-identical falls.
+    // The press is deliberately labelled with the shoulder it needs, because
+    // picking it quietly swaps in a stronger body than the default.
     const scenarioNames = {
       hold: 'Hold a handstand',
       ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up' } : {}),
       ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (2.2 Nm/kg shoulder)' } : {}),
       ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press, straight legs (needs 2.8 Nm/kg)' } : {}),
-      ...Object.fromEntries(PRESET_GALLERY
-        .map((g, i) => [`gallery-${i}`, `[run] ${g.label}`])
-        .filter((_, i) => !canonical.has(PRESET_GALLERY[i].file))),
       live: 'Latest optimizer result',
     };
     const scenarioKeys = Object.keys(scenarioNames);
@@ -594,7 +588,6 @@
       if (sel === 'lunge-opt') fromPreset(PRESET_TRAJECTORIES.lunge);
       else if (sel === 'tuck-opt') fromPreset(PRESET_TRAJECTORIES.tuck);
       else if (sel === 'pike-opt') fromPreset(PRESET_TRAJECTORIES.pike);
-      else if (sel.startsWith('gallery-')) fromPreset(PRESET_GALLERY[+sel.slice(8)]);
       else if (sel === 'live') {
         if (optState.adopted) fromPreset(optState.adopted);
         else base = 'hold';
@@ -823,18 +816,63 @@
         f.input.dispatchEvent(new Event('input', { bubbles: true }));
       }
       describeBody();
+      showSeedGhost();
     };
-    const rebuildSeeds = () => {
+    // select: which option to leave chosen. Given one, the body inputs are
+    // filled in from it as though it had been picked by hand, which is what
+    // makes saving a run and continuing from it one step instead of three.
+    // Selecting a starting point draws it, in the same place a generation of
+    // candidates appears: the seed is the technique the next search
+    // continues from, so it belongs on screen while you decide how far to
+    // move the body away from it. One rollout on the seed's own plant and
+    // body, thinned to a loop's worth of frames.
+    const GHOST_FRAMES = 48;
+    const showSeedGhost = () => {
+      if (optState.running) return;
+      const c = currentSeed();
+      const run = c?.run;
+      if (!run?.knots) return;
+      try {
+        const r = runScenario(model, ws,
+          strengthProfile(model.massKg, { overrides: run.strength || {} }), {
+            scenario: c.scenario,
+            knots: run.knots.map((k) => Float64Array.from(k)),
+            T: run.T,
+            settleT: 1.2,
+            dt: 5e-4,
+            rom: resolveRom(run.rom),
+            ...resolveConfig(run.config),
+          });
+        const n = r.rec.q.length;
+        optState.ghosts = {
+          seed: c.label,
+          poses: [{
+            frames: Array.from({ length: GHOST_FRAMES },
+              (_, i) => r.rec.q[Math.round(i * (n - 1) / (GHOST_FRAMES - 1))]),
+            success: r.verdict.success,
+            cost: run.recordedCost ?? null,
+          }],
+        };
+        optState.ghostRev++;
+        optState.rev++;
+        optState.notify?.(optState);
+      } catch (err) {
+        console.warn('seed preview failed', err);
+      }
+    };
+
+    const rebuildSeeds = (select = null) => {
       seedOptions = [
         ...Object.keys(optScenarioNames).map((k) => ({ kind: 'preset', key: k, label: `stored ${optScenarioNames[k]}` })),
         ...savedCases.map((c, i) => ({ kind: 'saved', index: i, label: `saved: ${c.label}` })),
       ];
-      const keep = seedInput ? Math.min(+seedInput.value, seedOptions.length - 1) : 0;
+      const keep = select ?? (seedInput ? Math.min(+seedInput.value, seedOptions.length - 1) : 0);
       seedInput = Inputs.select(seedOptions.map((_, i) => i), {
         label: 'Start from', value: keep, format: (i) => seedOptions[i].label,
       });
       seedInput.addEventListener('input', applySeedBody);
       seedSlot.replaceChildren(seedInput);
+      if (select !== null) applySeedBody();
     };
 
     const resolveBody = () => {
@@ -894,7 +932,10 @@
         scenario: r.scenario, knots: r.knots, T: r.T, strength: r.strength, rom: r.rom,
         config: r.config,
       });
-      rebuildSeeds();
+      // Saving selects what was saved: the next run continues from here, on
+      // the body this run was scored against, and the only thing left to do
+      // is move a slider a little and press Run.
+      rebuildSeeds(seedOptions.length);
       optSave.disabled = true;
     });
     optControls.appendChild(optRow);
@@ -1045,12 +1086,15 @@
       const loop = createFrameLoop((now) => {
         if (t0 === null) t0 = now;
         let u = ((now - t0) / 1000) / LOOP_S;
-        if (u >= 1) {
-          t0 = now; u = 0;
-          if (optState.ghostRev !== shownRev) { shown = optState.ghosts; shownRev = optState.ghostRev; }
-        }
-        if (!shown && optState.ghostRev !== shownRev) {
+        // A generation is swapped in at a loop boundary, so what is on screen
+        // is always a single generation and always one that finished. A seed
+        // preview is the answer to a click and swaps in at once.
+        const pending = optState.ghostRev !== shownRev;
+        if (pending && (u >= 1 || !shown || optState.ghosts?.seed)) {
           shown = optState.ghosts; shownRev = optState.ghostRev;
+          t0 = now; u = 0;
+        } else if (u >= 1) {
+          t0 = now; u = 0;
         }
         ctx.save();
         ctx.scale(devicePixelRatio, devicePixelRatio);
@@ -1069,16 +1113,26 @@
           drawGhosts(ctx, {
             model, ws, width: W, height: H, theme,
             view: VIEW,
-            alpha: 0.16,
+            // One figure wants to be solid; thirty overlaid want to be faint.
+            alpha: shown.seed ? 0.34 : 0.16,
+            // Filtered, because this is a frame loop reading state another
+            // cell owns: a pose list caught half-built must skip a frame, not
+            // kill the loop and take the figure with it.
             poses: poses.map((p, i) => ({
-              q: p.frames[Math.min(p.frames.length - 1, Math.round(u * (p.frames.length - 1)))],
+              q: p.frames?.[Math.min(p.frames.length - 1, Math.round(u * (p.frames.length - 1)))],
               weight: i === 0 ? 2.6 : 1,
-            })),
+            })).filter((p) => p.q),
           });
-          const failed = poses.filter((p) => !p.success).length;
-          note.textContent = `Generation ${shown.gen}: ${poses.length} candidates, `
-            + `${poses.length - failed} reaching a handstand, ${failed} falling. `
-            + `Best cost ${poses[0].cost.toFixed(2)}. The dark figure is the best of them.`;
+          if (shown.seed) {
+            note.textContent = `Starting point: ${shown.seed}`
+              + (poses[0].cost != null ? ` \u2014 cost ${poses[0].cost.toFixed(2)}` : '')
+              + `. Run the optimizer to replace this with the generation it is working on.`;
+          } else {
+            const failed = poses.filter((p) => !p.success).length;
+            note.textContent = `Generation ${shown.gen}: ${poses.length} candidates, `
+              + `${poses.length - failed} reaching a handstand, ${failed} falling. `
+              + `Best cost ${poses[0].cost.toFixed(2)}. The dark figure is the best of them.`;
+          }
         } else {
           note.textContent = optState.running
             ? 'Waiting for the first generation to finish.'
