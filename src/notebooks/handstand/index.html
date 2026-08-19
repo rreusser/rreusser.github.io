@@ -612,12 +612,6 @@
     const stopPlayTheme = observeTheme((t) => { playState.theme = t; playState.dirty = true; });
     invalidation.then(stopPlayTheme);
 
-    // The optimizer's most recent finished generation, adopted only when the
-    // animation wraps. Swapping mid-swing would make the field jump; waiting
-    // for the wrap means each pass of the loop shows one whole generation,
-    // and the generation shown is always one that finished.
-    let shownGhosts = null, shownGhostRev = -1;
-
     const playLoop = createFrameLoop((now) => {
       const sim = playState.sim;
       if (!sim) return;
@@ -626,20 +620,10 @@
       if (playState.playing) {
         if (playState.lastNow !== null) {
           playState.t += ((now - playState.lastNow) / 1000) * playState.speed;
-          if (playState.t > Tend) {
-            playState.t = 0;
-            if (optState.ghostRev !== shownGhostRev) {
-              shownGhosts = optState.ghosts;
-              shownGhostRev = optState.ghostRev;
-            }
-          }
+          if (playState.t > Tend) playState.t = 0;
         }
         playState.lastNow = now;
         playState.dirty = true;
-      }
-      if (shownGhosts && optState.ghostRev !== shownGhostRev && !playState.playing) {
-        shownGhosts = optState.ghosts;
-        shownGhostRev = optState.ghostRev;
       }
       if (!playState.dirty) return;
       playState.dirty = false;
@@ -675,23 +659,6 @@
       const view = { cx: 0.15, yLo: -0.18, yHi: 2.3 };
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
-      // Ghosts go down first and drawScene draws over them without clearing.
-      // Each candidate is sampled by the same fraction of its own duration,
-      // so the field moves together even though the techniques differ in
-      // length; the leader is drawn darker than the rest.
-      const ghostPoses = shownGhosts?.poses;
-      if (ghostPoses?.length) {
-        ctx.clearRect(0, 0, playState.viewW, playState.viewH);
-        const u = Tend > 0 ? Math.min(1, playState.t / Tend) : 0;
-        drawGhosts(ctx, {
-          model, ws, width: playState.viewW, height: playState.viewH,
-          theme: playState.theme, view,
-          poses: ghostPoses.map((p, i) => ({
-            q: p.frames[Math.min(p.frames.length - 1, Math.round(u * (p.frames.length - 1)))],
-            weight: i === 0 ? 2.2 : 1,
-          })),
-        });
-      }
       drawScene(ctx, {
         model, ws, q: Float64Array.from(q),
         width: playState.viewW, height: playState.viewH,
@@ -699,7 +666,6 @@
         segmentColors, forces, copX,
         comTrail: rec.com.slice(0, k + 1),
         view,
-        clear: !ghostPoses?.length,
       });
       ctx.restore();
 
@@ -849,6 +815,82 @@
       notify(optState);
       return () => { if (optState.notify === notify) optState.notify = null; };
     });
+  </script>
+  <script id="opt-preview" type="text/x-typescript">
+    // The generation the optimizer just finished, drawn where the optimizer
+    // is. Every one of these bodies is a candidate that was simulated and
+    // scored to produce the number on the chart below; none of them is a
+    // fresh rollout, and none is a projection of what the search might do.
+    // The cheapest member of the generation is the dark one.
+    const optPreview = (() => {
+      const W = Math.min(width, 640), H = 330;
+      // Room below the floor line: the model has contacts only under the palms
+      // and toes, so a candidate that topples has nothing to land on and
+      // keeps going. Showing that honestly beats cropping it out of frame.
+      const VIEW = { cx: 0.15, yLo: -0.55, yHi: 2.25 };
+      const canvas = html`<canvas style="width:${W}px; height:${H}px;"></canvas>`;
+      canvas.width = Math.round(W * devicePixelRatio);
+      canvas.height = Math.round(H * devicePixelRatio);
+      const note = html`<figcaption></figcaption>`;
+      const ctx = canvas.getContext('2d');
+
+      let theme = null;
+      const stopTheme = observeTheme((t) => { theme = t; });
+      invalidation.then(stopTheme);
+
+      // One pass of the loop is one generation. A newer generation is picked
+      // up when the pass ends, so what is on screen is always a single
+      // generation and always one that finished.
+      const LOOP_S = 3.2;
+      let shown = null, shownRev = -1, t0 = null;
+      const loop = createFrameLoop((now) => {
+        if (t0 === null) t0 = now;
+        let u = ((now - t0) / 1000) / LOOP_S;
+        if (u >= 1) {
+          t0 = now; u = 0;
+          if (optState.ghostRev !== shownRev) { shown = optState.ghosts; shownRev = optState.ghostRev; }
+        }
+        if (!shown && optState.ghostRev !== shownRev) {
+          shown = optState.ghosts; shownRev = optState.ghostRev;
+        }
+        ctx.save();
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+        ctx.clearRect(0, 0, W, H);
+        // Floor, so the fallen candidates read as fallen.
+        const floorY = H - (0 - VIEW.yLo) * (H / (VIEW.yHi - VIEW.yLo));
+        const fg = theme?.foreground || [0.11, 0.12, 0.14];
+        const rgb = fg.map((v) => Math.round(v * 255)).join(',');
+        ctx.fillStyle = `rgba(${rgb},0.05)`;
+        ctx.fillRect(0, floorY, W, H - floorY);
+        ctx.strokeStyle = `rgba(${rgb},0.45)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(W, floorY); ctx.stroke();
+        const poses = shown?.poses;
+        if (poses?.length) {
+          drawGhosts(ctx, {
+            model, ws, width: W, height: H, theme,
+            view: VIEW,
+            alpha: 0.16,
+            poses: poses.map((p, i) => ({
+              q: p.frames[Math.min(p.frames.length - 1, Math.round(u * (p.frames.length - 1)))],
+              weight: i === 0 ? 2.6 : 1,
+            })),
+          });
+          const failed = poses.filter((p) => !p.success).length;
+          note.textContent = `Generation ${shown.gen}: ${poses.length} candidates, `
+            + `${poses.length - failed} reaching a handstand, ${failed} falling. `
+            + `Best cost ${poses[0].cost.toFixed(2)}. The dark figure is the best of them.`;
+        } else {
+          note.textContent = optState.running
+            ? 'Waiting for the first generation to finish.'
+            : 'Run the optimizer to watch a generation of candidates at once.';
+        }
+        ctx.restore();
+      });
+      invalidation.then(() => loop.cancel());
+      return html`<figure>${canvas}${note}</figure>`;
+    })();
+    display(optPreview);
   </script>
   <script id="opt-progress" type="text/x-typescript">
     const optProgress = (() => {
