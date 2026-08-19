@@ -727,57 +727,107 @@
   <script id="opt-controls-cell" type="text/x-typescript">
     const optControls = html`<div class="opt-controls"></div>`;
     const optScenarioNames = { lunge: 'Kick-up (from lunge)', pike: 'Press (from pike)' };
-    const optScenario = Inputs.select(Object.keys(optScenarioNames), { label: 'Optimize', format: (v) => optScenarioNames[v] });
     const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
     const optSeed = Inputs.range([1, 99], { label: 'Seed', value: 7, step: 1 });
-    // Which body the search scores against. This used to be silently "the
-    // sliders", while the warm start was a technique built for a DIFFERENT
-    // body -- the press seed needs a 2.8 Nm/kg shoulder and hamstrings to 125
-    // degrees, and it was being handed to a 1.6 shoulder with an 85 degree
-    // fold. Generation zero was already a faceplant and the search never
-    // recovered, which looked like the optimizer being bad at its job.
-    const optBodyNames = {
-      seed: 'the body this technique was built for',
-      current: 'the body in the sliders above',
-    };
-    const optBody = Inputs.select(Object.keys(optBodyNames), {
-      label: 'Score against', value: 'seed', format: (v) => optBodyNames[v],
-    });
+    // The body the search scores against, set here rather than inherited
+    // from sliders in another section. Choosing a seed FILLS THESE IN with
+    // the body that seed was built for; editing them afterwards is the whole
+    // point, because a technique only survives being walked onto a weaker
+    // body in small steps. One jump lands in a basin where every candidate
+    // falls; a sequence of small ones lets the technique adapt, which is how
+    // it starts paying for a weaker shoulder with more momentum off the floor.
+    const optShoulder = Inputs.range([0.8, 3.2], { label: 'Shoulder (Nm/kg)', value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05 });
+    const optHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', value: ROM_DEFAULTS.hipFlexStraightKneeMaxDeg, step: 1 });
+    const optTHi = Inputs.range([1.0, 3.5], { label: 'Max entry duration (s)', value: 3.0, step: 0.1 });
     const optBodyNote = html`<small style="display:block; opacity:.8; margin:2px 0 0;"></small>`;
-    optControls.append(optScenario, optGens, optSeed, optBody, optBodyNote);
 
-    // Strength and range of motion the run will actually be scored with,
-    // resolved from the seed or the page, and said out loud either way.
+    // Seeds are the stored techniques plus anything saved from a run in this
+    // session. A saved case carries its own body and its own knots, so
+    // continuing from it resumes exactly where the last search stopped.
+    const savedCases = [];
+    const seedSlot = html`<div></div>`;
+    let seedOptions = [], seedInput = null;
+
+    const currentSeed = () => {
+      const o = seedOptions[seedInput ? +seedInput.value : 0];
+      if (!o) return null;
+      return o.kind === 'preset'
+        ? { scenario: o.key, run: PRESET_TRAJECTORIES[o.key], label: o.label }
+        : { scenario: savedCases[o.index].scenario, run: savedCases[o.index], label: o.label };
+    };
+    const applySeedBody = () => {
+      const c = currentSeed();
+      const sh = c?.run?.strength?.shoulder?.t0Vol;
+      const ham = c?.run?.rom?.hipFlexStraightKneeMaxDeg;
+      if (sh !== undefined) { optShoulder.value = sh; optShoulder.dispatchEvent(new Event('input', { bubbles: true })); }
+      if (ham !== undefined) { optHam.value = ham; optHam.dispatchEvent(new Event('input', { bubbles: true })); }
+      describeBody();
+    };
+    const rebuildSeeds = () => {
+      seedOptions = [
+        ...Object.keys(optScenarioNames).map((k) => ({ kind: 'preset', key: k, label: `stored ${optScenarioNames[k]}` })),
+        ...savedCases.map((c, i) => ({ kind: 'saved', index: i, label: `saved: ${c.label}` })),
+      ];
+      const keep = seedInput ? Math.min(+seedInput.value, seedOptions.length - 1) : 0;
+      seedInput = Inputs.select(seedOptions.map((_, i) => i), {
+        label: 'Start from', value: keep, format: (i) => seedOptions[i].label,
+      });
+      seedInput.addEventListener('input', applySeedBody);
+      seedSlot.replaceChildren(seedInput);
+    };
+
     const resolveBody = () => {
-      const seedRun = PRESET_TRAJECTORIES[optScenario.value];
-      const useSeed = optBody.value === 'seed' && seedRun;
-      const strengthOpts = useSeed && seedRun.strength
-        ? { overrides: seedRun.strength }
-        : { overrides: { shoulder: { t0Vol: shoulderNmPerKg } } };
-      const romOverrides = useSeed && seedRun.rom ? seedRun.rom : poseState.rom;
-      return { seedRun, strengthOpts, romOverrides };
+      const c = currentSeed();
+      return {
+        scenario: c?.scenario ?? 'lunge',
+        seedRun: c?.run ?? null,
+        strengthOpts: { overrides: { shoulder: { t0Vol: +optShoulder.value }, wrist: { t0Vol: 0.85 } } },
+        romOverrides: { ...poseState.rom, hipFlexStraightKneeMaxDeg: +optHam.value },
+        tHi: +optTHi.value,
+      };
     };
     const describeBody = () => {
-      const { seedRun, strengthOpts, romOverrides } = resolveBody();
-      if (!seedRun) { optBodyNote.textContent = 'No stored technique for this entry; the search starts cold.'; return; }
-      const sh = strengthOpts.overrides?.shoulder?.t0Vol ?? shoulderNmPerKg;
-      const ham = romOverrides.hipFlexStraightKneeMaxDeg;
-      const seedSh = seedRun.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol;
-      const seedHam = seedRun.rom?.hipFlexStraightKneeMaxDeg ?? ROM_DEFAULTS.hipFlexStraightKneeMaxDeg;
-      const mismatch = Math.abs(sh - seedSh) > 1e-6 || Math.abs(ham - seedHam) > 1e-6;
-      optBodyNote.textContent = `Scoring against shoulder ${sh.toFixed(2)} Nm/kg, `
-        + `hamstrings to ${ham.toFixed(0)}°. The stored technique was built for `
-        + `${seedSh.toFixed(2)} Nm/kg and ${seedHam.toFixed(0)}°.`
-        + (mismatch ? ' It will not stand up on this body, so the search starts from a fall.' : '');
+      const c = currentSeed();
+      const seedSh = c?.run?.strength?.shoulder?.t0Vol;
+      const seedHam = c?.run?.rom?.hipFlexStraightKneeMaxDeg;
+      const dSh = seedSh === undefined ? 0 : +optShoulder.value - seedSh;
+      const dHam = seedHam === undefined ? 0 : +optHam.value - seedHam;
+      optBodyNote.textContent = (Math.abs(dSh) > 1e-6 || Math.abs(dHam) > 1e-6)
+        ? `Continuing onto a different body: shoulder ${dSh >= 0 ? '+' : ''}${dSh.toFixed(2)} Nm/kg, `
+          + `hamstrings ${dHam >= 0 ? '+' : ''}${dHam.toFixed(0)}° from what this technique was built for. `
+          + `Small steps adapt; large ones start from a fall.`
+        : `Scoring against the body this technique was built for.`;
     };
-    optScenario.addEventListener('input', describeBody);
-    optBody.addEventListener('input', describeBody);
-    describeBody();
+
+    optControls.append(seedSlot, optShoulder, optHam, optTHi, optGens, optSeed, optBodyNote);
+    optShoulder.addEventListener('input', describeBody);
+    optHam.addEventListener('input', describeBody);
+    optTHi.addEventListener('input', describeBody);
+    rebuildSeeds();
+    applySeedBody();
+
     const optRow = html`<div style="display:flex; gap:6px; align-items:center; margin-top:6px;"></div>`;
     const optRun = html`<button>Run optimization</button>`;
     const optStop = html`<button disabled>Stop</button>`;
     const optAdopt = html`<button disabled>Send result to playback</button>`;
-    optRow.append(optRun, optStop, optAdopt);
+    const optSave = html`<button disabled>Save as a starting point</button>`;
+    optRow.append(optRun, optStop, optAdopt, optSave);
+    // Saving a result puts it in the seed list with the body it was scored
+    // against, so a technique can be walked down in steps: save at 1.6, seed
+    // from it, drop the shoulder to 1.55, run, save again. Each step is a
+    // small one, which is the only way the technique survives.
+    optSave.addEventListener('click', () => {
+      const r = optState.result;
+      if (!r) return;
+      const sh = r.strength?.shoulder?.t0Vol ?? optShoulder.value;
+      savedCases.push({
+        label: `${r.scenario} @ ${(+sh).toFixed(2)} Nm/kg`
+          + (r.stopped ? ` (gen ${r.gen})` : '') + ` \u2014 cost ${(r.fineCost ?? r.best).toFixed(2)}`,
+        scenario: r.scenario, knots: r.knots, T: r.T, strength: r.strength, rom: r.rom,
+      });
+      rebuildSeeds();
+      optSave.disabled = true;
+    });
     optControls.appendChild(optRow);
 
     function optCleanup() {
@@ -796,6 +846,7 @@
       optRun.disabled = true;
       optStop.disabled = false;
       optAdopt.disabled = true;
+      optSave.disabled = true;
       const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
       optState.worker = worker;
       worker.onerror = (err) => {
@@ -815,29 +866,29 @@
             optState.ghostRev++;
           }
         } else if (data.type === 'done') {
-          optState.result = { ...data, scenario: optScenario.value, ...optState.body };
+          optState.result = { ...data, ...optState.body };
           optCleanup();
           optAdopt.disabled = false;
+          optSave.disabled = false;
         }
         optState.rev++;
         optState.notify?.(optState);
       };
-      // Start from the canonical result for this skill rather than from the
-      // hand-written reference. A search from scratch does not find a kick-up
-      // in any budget this button offers -- the canonical one exists because
-      // strength and entry duration were walked down in stages offline -- so
-      // starting cold produced a couple of hundred generations of slow
-      // improvement ending in a fall. A warm start is only warm if it is
-      // scored against the body it was built for, which is what the Score
-      // against control decides.
-      const { seedRun, strengthOpts, romOverrides } = resolveBody();
-      // Carried onto the result so that adopting a run plays it back on the
+      // A search from scratch does not find an entry in any budget this
+      // button offers, so every run continues an existing technique. What
+      // makes it a continuation rather than a doomed transplant is that the
+      // body is set here and starts equal to the seed's own.
+      const resolved = resolveBody();
+      const { seedRun, strengthOpts, romOverrides } = resolved;
+      // Carried onto the result so that adopting or re-seeding a run uses the
       // body it was optimised for. Without this, a press optimised at 2.8
       // Nm/kg went to playback and collapsed on a 1.6 Nm/kg body.
-      optState.body = { strength: strengthOpts.overrides, rom: romOverrides };
+      optState.body = {
+        scenario: resolved.scenario, strength: strengthOpts.overrides, rom: romOverrides,
+      };
       worker.postMessage({
         type: 'optimize',
-        scenario: optScenario.value,
+        scenario: resolved.scenario,
         seed: optSeed.value,
         maxGen: optGens.value,
         x0: seedRun
@@ -850,6 +901,7 @@
         // wiped out the entire population and the search spent the rest of its
         // budget choosing between falls.
         sigma0: seedRun ? 0.02 : undefined,
+        tHi: resolved.tHi,
         modelParams: { heightM, massKg, straddleDeg, sex },
         strengthOpts,
         romOverrides,
@@ -864,9 +916,10 @@
       // been re-scored at the fine timestep the way a completed run is.
       if (optState.latest) {
         optState.result = {
-          ...optState.latest, scenario: optScenario.value, ...optState.body, stopped: true,
+          ...optState.latest, ...optState.body, stopped: true,
         };
         optAdopt.disabled = false;
+        optSave.disabled = false;
       }
       optCleanup();
       optState.rev++; optState.notify?.(optState);

@@ -107,6 +107,11 @@ self.onmessage = async (e) => {
       ...(msg.sigma0 ? { sigma0: msg.sigma0 } : {}),
       dt: msg.dt ?? 2.5e-4,
       ...(msg.scenario === 'pike' ? { tLo: 1.5, tHi: 3.5, t0: 2.2 } : {}),
+      // Duration ceiling from the page. Work and smoothness both fall as a
+      // movement slows, so with a high ceiling the search always chooses the
+      // slowest version available -- which is also the one where the shoulder
+      // has to supply everything and nothing is carried by momentum.
+      ...(msg.tHi ? { tHi: msg.tHi, t0: Math.min(msg.tHi * 0.9, 2.2) } : {}),
       x0: msg.x0 ? Float64Array.from(msg.x0) : null,
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
