@@ -518,11 +518,13 @@
     // run. The press is deliberately labelled with the shoulder it needs,
     // because picking it quietly swaps in a stronger body than the default.
     const canonical = new Set(
-      [PRESET_TRAJECTORIES.lunge?.file, PRESET_TRAJECTORIES.pike?.file].filter(Boolean));
+      [PRESET_TRAJECTORIES.lunge?.file, PRESET_TRAJECTORIES.tuck?.file, PRESET_TRAJECTORIES.pike?.file]
+        .filter(Boolean));
     const scenarioNames = {
       hold: 'Hold a handstand',
       ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up' } : {}),
-      ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press (needs a 2.8 Nm/kg shoulder)' } : {}),
+      ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (1.7 Nm/kg shoulder)' } : {}),
+      ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press, straight legs (needs 2.8 Nm/kg)' } : {}),
       ...Object.fromEntries(PRESET_GALLERY
         .map((g, i) => [`gallery-${i}`, `[run] ${g.label}`])
         .filter((_, i) => !canonical.has(PRESET_GALLERY[i].file))),
@@ -558,6 +560,7 @@
         config = resolveConfig(p.config);
       };
       if (sel === 'lunge-opt') fromPreset(PRESET_TRAJECTORIES.lunge);
+      else if (sel === 'tuck-opt') fromPreset(PRESET_TRAJECTORIES.tuck);
       else if (sel === 'pike-opt') fromPreset(PRESET_TRAJECTORIES.pike);
       else if (sel.startsWith('gallery-')) fromPreset(PRESET_GALLERY[+sel.slice(8)]);
       else if (sel === 'live') {
@@ -726,7 +729,11 @@
   </script>
   <script id="opt-controls-cell" type="text/x-typescript">
     const optControls = html`<div class="opt-controls"></div>`;
-    const optScenarioNames = { lunge: 'Kick-up (from lunge)', pike: 'Press (from pike)' };
+    const optScenarioNames = {
+      lunge: 'Kick-up (from lunge)',
+      tuck: 'Bent-leg press (from a tucked fold)',
+      pike: 'Press (from pike)',
+    };
     const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
     const optSeed = Inputs.range([1, 99], { label: 'Seed', value: 7, step: 1 });
     // The body the search scores against, set here rather than inherited
@@ -738,8 +745,26 @@
     // it starts paying for a weaker shoulder with more momentum off the floor.
     const optShoulder = Inputs.range([0.8, 3.2], { label: 'Shoulder (Nm/kg)', value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05 });
     const optHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', value: ROM_DEFAULTS.hipFlexStraightKneeMaxDeg, step: 1 });
+    // The two mobility limits an entry actually spends: how far the shoulder
+    // opens overhead, and how far the wrist extends before the body is out
+    // over its fingertips. Both bound the reference knots directly, so
+    // lowering one takes technique away from the search rather than merely
+    // charging it a penalty afterwards.
+    const optRomShoulder = Inputs.range([120, 185], { label: 'Shoulder flexion max (deg)', value: ROM_DEFAULTS.shoulderFlexMaxDeg, step: 1 });
+    const optRomWrist = Inputs.range([80, 150], { label: 'Wrist extension max (deg)', value: ROM_DEFAULTS.wristExtMaxDeg, step: 1 });
     const optTHi = Inputs.range([1.0, 3.5], { label: 'Max entry duration (s)', value: 3.0, step: 0.1 });
     const optBodyNote = html`<small style="display:block; opacity:.8; margin:2px 0 0;"></small>`;
+
+    // Every dimension of the body the search scores against, paired with the
+    // field it reads out of a seed's recorded body. One table drives both
+    // filling the inputs in from a seed and reporting how far they have since
+    // been moved away from it.
+    const BODY_FIELDS = [
+      { input: optShoulder, read: (r) => r.strength?.shoulder?.t0Vol, name: 'shoulder', unit: ' Nm/kg', digits: 2 },
+      { input: optHam, read: (r) => r.rom?.hipFlexStraightKneeMaxDeg, name: 'hamstrings', unit: '°', digits: 0 },
+      { input: optRomShoulder, read: (r) => r.rom?.shoulderFlexMaxDeg, name: 'shoulder flexion', unit: '°', digits: 0 },
+      { input: optRomWrist, read: (r) => r.rom?.wristExtMaxDeg, name: 'wrist extension', unit: '°', digits: 0 },
+    ];
 
     // Seeds are the stored techniques plus anything saved from a run in this
     // session. A saved case carries its own body and its own knots, so
@@ -756,11 +781,13 @@
         : { scenario: savedCases[o.index].scenario, run: savedCases[o.index], label: o.label };
     };
     const applySeedBody = () => {
-      const c = currentSeed();
-      const sh = c?.run?.strength?.shoulder?.t0Vol;
-      const ham = c?.run?.rom?.hipFlexStraightKneeMaxDeg;
-      if (sh !== undefined) { optShoulder.value = sh; optShoulder.dispatchEvent(new Event('input', { bubbles: true })); }
-      if (ham !== undefined) { optHam.value = ham; optHam.dispatchEvent(new Event('input', { bubbles: true })); }
+      const run = currentSeed()?.run;
+      for (const f of (run ? BODY_FIELDS : [])) {
+        const v = f.read(run);
+        if (v === undefined) continue;
+        f.input.value = v;
+        f.input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
       describeBody();
     };
     const rebuildSeeds = () => {
@@ -782,26 +809,33 @@
         scenario: c?.scenario ?? 'lunge',
         seedRun: c?.run ?? null,
         strengthOpts: { overrides: { shoulder: { t0Vol: +optShoulder.value }, wrist: { t0Vol: 0.85 } } },
-        romOverrides: { ...poseState.rom, hipFlexStraightKneeMaxDeg: +optHam.value },
+        romOverrides: {
+          ...poseState.rom,
+          hipFlexStraightKneeMaxDeg: +optHam.value,
+          shoulderFlexMaxDeg: +optRomShoulder.value,
+          wristExtMaxDeg: +optRomWrist.value,
+        },
         tHi: +optTHi.value,
       };
     };
     const describeBody = () => {
-      const c = currentSeed();
-      const seedSh = c?.run?.strength?.shoulder?.t0Vol;
-      const seedHam = c?.run?.rom?.hipFlexStraightKneeMaxDeg;
-      const dSh = seedSh === undefined ? 0 : +optShoulder.value - seedSh;
-      const dHam = seedHam === undefined ? 0 : +optHam.value - seedHam;
-      optBodyNote.textContent = (Math.abs(dSh) > 1e-6 || Math.abs(dHam) > 1e-6)
-        ? `Continuing onto a different body: shoulder ${dSh >= 0 ? '+' : ''}${dSh.toFixed(2)} Nm/kg, `
-          + `hamstrings ${dHam >= 0 ? '+' : ''}${dHam.toFixed(0)}° from what this technique was built for. `
-          + `Small steps adapt; large ones start from a fall.`
+      const run = currentSeed()?.run;
+      const moved = [];
+      for (const f of (run ? BODY_FIELDS : [])) {
+        const seedV = f.read(run);
+        if (seedV === undefined) continue;
+        const d = +f.input.value - seedV;
+        if (Math.abs(d) > 1e-6) moved.push(`${f.name} ${d >= 0 ? '+' : ''}${d.toFixed(f.digits)}${f.unit}`);
+      }
+      optBodyNote.textContent = moved.length
+        ? `Continuing onto a different body: ${moved.join(', ')} from what this technique was built `
+          + `for. Small steps adapt; large ones start from a fall.`
         : `Scoring against the body this technique was built for.`;
     };
 
-    optControls.append(seedSlot, optShoulder, optHam, optTHi, optGens, optSeed, optBodyNote);
-    optShoulder.addEventListener('input', describeBody);
-    optHam.addEventListener('input', describeBody);
+    optControls.append(seedSlot, optShoulder, optHam, optRomShoulder, optRomWrist,
+      optTHi, optGens, optSeed, optBodyNote);
+    for (const f of BODY_FIELDS) f.input.addEventListener('input', describeBody);
     optTHi.addEventListener('input', describeBody);
     rebuildSeeds();
     applySeedBody();

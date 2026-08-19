@@ -292,6 +292,116 @@ export const PRESET_TRAJECTORIES = {
    "comX": 0.0423599,
    "comY": 1.01344
   }
+ },
+ "tuck": {
+  "file": "020-tuck-press-momentum.json",
+  "label": "Bent-leg press at 1.7 Nm/kg: knees tucked through the weight shift, a push off the toes, and half the rise carried on momentum",
+  "scenario": "tuck",
+  "rom": {},
+  "strength": {
+   "shoulder": {
+    "t0Vol": 1.7
+   },
+   "wrist": {
+    "t0Vol": 0.85
+   }
+  },
+  "config": {
+   "kp": 800,
+   "kd": 60,
+   "kCom": 2000,
+   "dCom": 1500,
+   "activationTau": 0.05,
+   "mu": 1,
+   "contactZeta": 1,
+   "integrator": "si",
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5,
+   "romStopDeg": 5,
+   "romStopZeta": 0.7
+  },
+  "weights": {
+   "pose": 1,
+   "poseAngles": 2,
+   "velocity": 0.3,
+   "fall": 1,
+   "effort": 0.08,
+   "saturation": 2,
+   "rom": 4,
+   "romPeak": 0.5,
+   "quasiStatic": 0,
+   "liftoff": 8,
+   "feet": 5,
+   "work": 1,
+   "smooth": 1,
+   "settleCalm": 1,
+   "driveRate": 0.3
+  },
+  "seed": 41,
+  "T": 2.2508,
+  "knots": [
+   [
+    1.03205,
+    1.1738,
+    1.06716,
+    1.50838,
+    1.1908,
+    1.52501
+   ],
+   [
+    1.1019,
+    1.23393,
+    1.63521,
+    1.87087,
+    0.862516,
+    0
+   ],
+   [
+    2.41178,
+    0.939045,
+    0.823437,
+    1.68156,
+    -0.340101,
+    0
+   ],
+   [
+    -1.57178,
+    -1.82525,
+    -1.93559,
+    -1.35707,
+    -1.13856,
+    0
+   ],
+   [
+    2.41246,
+    1.71082,
+    1.50382,
+    1.64627,
+    1.71914,
+    0
+   ],
+   [
+    -1.56635,
+    -2.05767,
+    -0.794057,
+    -1.28574,
+    -0.452557,
+    0
+   ]
+  ],
+  "recordedCost": 6.63068,
+  "verdict": {
+   "upright": true,
+   "over": true,
+   "still": true,
+   "posed": true,
+   "feetFree": true,
+   "success": true,
+   "comX": 0.042808,
+   "comY": 1.01342
+  }
  }
 };
 
@@ -1591,6 +1701,116 @@ export const PRESET_GALLERY = [
    "success": true,
    "comX": 0.0423599,
    "comY": 1.01344
+  }
+ },
+ {
+  "file": "020-tuck-press-momentum.json",
+  "label": "Bent-leg press at 1.7 Nm/kg: knees tucked through the weight shift and a push off the toes, but the push only works for one contact-damping value",
+  "scenario": "tuck",
+  "rom": {},
+  "strength": {
+   "shoulder": {
+    "t0Vol": 1.7
+   },
+   "wrist": {
+    "t0Vol": 0.85
+   }
+  },
+  "config": {
+   "kp": 800,
+   "kd": 60,
+   "kCom": 2000,
+   "dCom": 1500,
+   "activationTau": 0.05,
+   "mu": 1,
+   "contactZeta": 1,
+   "integrator": "si",
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5,
+   "romStopDeg": 5,
+   "romStopZeta": 0.7
+  },
+  "weights": {
+   "pose": 1,
+   "poseAngles": 2,
+   "velocity": 0.3,
+   "fall": 1,
+   "effort": 0.08,
+   "saturation": 2,
+   "rom": 4,
+   "romPeak": 0.5,
+   "quasiStatic": 0,
+   "liftoff": 8,
+   "feet": 5,
+   "work": 1,
+   "smooth": 1,
+   "settleCalm": 1,
+   "driveRate": 0.3
+  },
+  "seed": 41,
+  "T": 2.2508,
+  "knots": [
+   [
+    1.03205,
+    1.1738,
+    1.06716,
+    1.50838,
+    1.1908,
+    1.52501
+   ],
+   [
+    1.1019,
+    1.23393,
+    1.63521,
+    1.87087,
+    0.862516,
+    0
+   ],
+   [
+    2.41178,
+    0.939045,
+    0.823437,
+    1.68156,
+    -0.340101,
+    0
+   ],
+   [
+    -1.57178,
+    -1.82525,
+    -1.93559,
+    -1.35707,
+    -1.13856,
+    0
+   ],
+   [
+    2.41246,
+    1.71082,
+    1.50382,
+    1.64627,
+    1.71914,
+    0
+   ],
+   [
+    -1.56635,
+    -2.05767,
+    -0.794057,
+    -1.28574,
+    -0.452557,
+    0
+   ]
+  ],
+  "recordedCost": 6.63068,
+  "verdict": {
+   "upright": true,
+   "over": true,
+   "still": true,
+   "posed": true,
+   "feetFree": true,
+   "success": true,
+   "comX": 0.042808,
+   "comY": 1.01342
   }
  }
 ];

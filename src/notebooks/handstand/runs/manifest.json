@@ -1,7 +1,8 @@
 {
   "presets": {
     "lunge": "014-kick-rom-peak.json",
-    "pike": "015-press-strong-flexible.json"
+    "pike": "015-press-strong-flexible.json",
+    "tuck": "020-tuck-press-momentum.json"
   },
   "catch": "catch-window.json",
   "gallery": [
@@ -40,6 +41,10 @@
     {
       "file": "015-press-strong-flexible.json",
       "label": "Press at shoulder 2.8 Nm/kg with hamstrings to 125 degrees: the same skill for 2.5x less"
+    },
+    {
+      "file": "020-tuck-press-momentum.json",
+      "label": "Bent-leg press at 1.7 Nm/kg: knees tucked through the weight shift and a push off the toes, but the push only works for one contact-damping value"
     }
   ]
 }

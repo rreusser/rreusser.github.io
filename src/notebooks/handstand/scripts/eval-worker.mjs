@@ -19,6 +19,7 @@ parentPort.on('message', ({ id, xs }) => {
   const costs = xs.map((x) =>
     costFn(model, ws, prof, rom, cfg.scenario, Float64Array.from(x), {
       K: cfg.K || 6, dt: cfg.dt || 2.5e-4, weights,
+      ...(cfg.variants ? { variants: cfg.variants } : {}),
     }).cost);
   parentPort.postMessage({ id, costs });
 });

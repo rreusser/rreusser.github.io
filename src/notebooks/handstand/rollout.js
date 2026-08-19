@@ -349,6 +349,9 @@ export const WORK_EFFICIENCY = { concentric: 0.25, eccentric: 1.2 };
 export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   K = 6, dt = 5e-4, settleT = 2.5, weights = COST_WEIGHTS,
   qdJitter = 0, jitterSeed = 1, integrator = 'si',
+  // Plant knobs a robustness variant may perturb. They default to the
+  // current plant, so scoring a candidate without variants is unchanged.
+  contactZeta = SERVO_DEFAULTS.contactZeta, mu = SERVO_DEFAULTS.mu,
   pinFinal = true,
 } = {}) {
   const { knots, T } = decodeDecision(x, K);
@@ -362,6 +365,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   }
   const r = runScenario(model, ws, strengthProf, {
     scenario, knots, T, settleT, dt, integrator, qdJitter, jitterSeed, rom,
+    contactZeta, mu,
     recordEvery: Math.max(1, Math.round(1 / (120 * dt))),
   });
   const rec = r.rec;
@@ -717,12 +721,12 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
 
 // Optimize a scenario's knots with CMA-ES. Deterministic under seed. With
 // robust (the default) each candidate is scored as the worst case over
-// ROBUST_VARIANTS; the reported finalCheck is an independent fine-timestep
-// nominal evaluation.
+// ROBUST_VARIANTS, or over an explicit variants list; the reported
+// finalCheck is an independent fine-timestep nominal evaluation.
 export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
   dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null,
-  tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true,
+  tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
   trustRadius = 0,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
 } = {}) {
@@ -756,13 +760,14 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
+  const costOpts = { K, dt, weights, ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
-      const c = costFn(model, ws, strengthProf, rom, scenario, x, { K, dt, weights });
+      const c = costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
       onCandidate(x, c);
       return c;
     }
-    : (x) => costFn(model, ws, strengthProf, rom, scenario, x, { K, dt, weights });
+    : (x) => costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
   const result = await cmaes({
     x0: start, sigma0, seed, maxGen, lambda, bounds,
     objective: objectiveBatch ? null : (x) => scored(x).cost,
@@ -772,7 +777,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // The start is itself a candidate; CMA-ES samples around it but never
   // evaluates it, so on a hard landscape a small budget can end worse than
   // where it began. Never return worse than the start.
-  const startCost = costFn(model, ws, strengthProf, rom, scenario, start, { K, dt, weights }).cost;
+  const startCost = costFn(model, ws, strengthProf, rom, scenario, start, costOpts).cost;
   if (startCost < result.best) {
     result.best = startCost;
     result.bestX = start;

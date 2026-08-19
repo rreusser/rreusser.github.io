@@ -40,7 +40,7 @@ if (+(process.env.PARALLEL ?? '0') !== 1) {
   const { createEvalPool } = await import('./pool.mjs');
   pool = createEvalPool({
     scenario, K: optOpts.K || 6, dt: optOpts.dt || 2.5e-4,
-    weights, romOverrides, strengthOpts, robust: optOpts.robust,
+    weights, romOverrides, strengthOpts, robust: optOpts.robust, variants: optOpts.variants,
   }, process.env.PARALLEL ? +process.env.PARALLEL : undefined);
   // Round the population up to a whole number of worker-rounds. A generation
   // costs ceil(lambda / size) evaluations of wall time whatever lambda is, so
