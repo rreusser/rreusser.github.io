@@ -488,9 +488,14 @@
         .filter((_, i) => !canonical.has(PRESET_GALLERY[i].file))),
       live: 'Latest optimizer result',
     };
-    const scenarioInput = Inputs.select(Object.keys(scenarioNames), {
+    const scenarioKeys = Object.keys(scenarioNames);
+    const scenarioInput = Inputs.select(scenarioKeys, {
       label: 'Scenario',
       format: (v) => scenarioNames[v],
+      // Opens on the kick-up. Holding a handstand is the one scenario where
+      // essentially nothing moves, so it made a poor first thing to watch;
+      // it stays in the menu as the baseline it is.
+      value: scenarioKeys.includes('lunge-opt') ? 'lunge-opt' : scenarioKeys[0],
     });
     simControls.appendChild(scenarioInput);
     const scenario = Generators.input(scenarioInput);
