@@ -20,7 +20,20 @@ self.onmessage = async (e) => {
   const msg = e.data;
   if (msg.type === 'optimize') {
     const { model, ws, prof, rom } = setup(msg);
+    // Candidates of the generation being evaluated right now. Each entry is
+    // the recording that scoring already made, thinned to something a canvas
+    // can animate: a whole generation is about a hundred KB at this rate.
+    const GHOST_FRAMES = 90;
+    let genPoses = [];
     const result = await optimizeScenario(model, ws, prof, rom, {
+      onCandidate: (x, c) => {
+        const rec = c.rec;
+        if (!rec?.q?.length) return;
+        const stride = Math.max(1, Math.round(rec.q.length / GHOST_FRAMES));
+        const frames = [];
+        for (let k = 0; k < rec.q.length; k += stride) frames.push(Array.from(rec.q[k]));
+        genPoses.push({ frames, cost: c.cost, success: !!c.verdict?.success });
+      },
       scenario: msg.scenario,
       seed: msg.seed ?? 7,
       maxGen: msg.maxGen ?? 150,
@@ -36,12 +49,19 @@ self.onmessage = async (e) => {
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === (msg.maxGen ?? 150) - 1) {
           const dec = decodeDecision(g.bestX, msg.K ?? 6);
+          // Cheapest candidate first, so the viewer can draw the leader
+          // differently from the rest of the field.
+          const poses = genPoses.slice().sort((a, b) => a.cost - b.cost);
           self.postMessage({
             type: 'progress', gen: g.gen, maxGen: msg.maxGen ?? 150,
             best: g.best, sigma: g.sigma,
             T: dec.T, knots: dec.knots.map((k) => Array.from(k)),
+            generation: poses,
           });
         }
+        // Cleared every generation, not only the ones that get posted, or
+        // a throttled post would show two generations superimposed.
+        genPoses = [];
       },
     });
     self.postMessage({

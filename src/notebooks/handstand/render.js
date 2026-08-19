@@ -19,12 +19,48 @@ export function viewTransform(width, height, { cx = 0.12, yLo = -0.18, yHi = 2.0
   return { toX, toY, scale };
 }
 
+// Draw a set of bodies as flat translucent silhouettes: the population of an
+// optimizer generation, all at the same moment of their own trajectories.
+// These are candidates that were simulated and scored, not fresh rollouts.
+//
+// Uses the caller's workspace, which it leaves holding the last ghost's
+// kinematics -- drawScene runs its own fk before it draws anything, so
+// calling this first and drawScene second is safe and is the intended order.
+export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, alpha = 0.14 }) {
+  if (!poses?.length) return;
+  const fg = theme ? theme.foreground : [0.11, 0.12, 0.14];
+  const { toX, toY } = viewTransform(width, height, view);
+  ctx.save();
+  for (const pose of poses) {
+    const q = pose.q instanceof Float64Array ? pose.q : Float64Array.from(pose.q);
+    fk(model, q, null, ws);
+    ctx.fillStyle = css(fg, alpha * (pose.weight ?? 1));
+    for (let i = 0; i < model.nb; i++) {
+      const c = Math.cos(ws.th[i]), sn = Math.sin(ws.th[i]);
+      const shape = model.outline?.[i];
+      if (!shape) continue;
+      ctx.beginPath();
+      for (const poly of shape) {
+        for (let k = 0; k < poly.length; k++) {
+          const wx = ws.px[i] + c * poly[k][0] - sn * poly[k][1];
+          const wy = ws.py[i] + sn * poly[k][0] + c * poly[k][1];
+          if (k === 0) ctx.moveTo(toX(wx), toY(wy));
+          else ctx.lineTo(toX(wx), toY(wy));
+        }
+        ctx.closePath();
+      }
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 // Draws the scene and returns screen-space anchors for interaction handles.
 // opts: { model, ws, q, width, height, theme, clamped, jointMarks, segmentColors,
 //         forces: [{x, y, fx, fy}] (world, Newtons), comTrail: [[x, y], ...],
 //         copX (world x of center of pressure, drawn on the patch) }
 export function drawScene(ctx, opts) {
-  const { model, ws, q, width, height, theme, clamped = 0 } = opts;
+  const { model, ws, q, width, height, theme, clamped = 0, clear = true } = opts;
   const fg = theme ? theme.foreground : [0.11, 0.12, 0.14];
   const isDark = theme ? theme.isDark : false;
 
@@ -46,7 +82,7 @@ export function drawScene(ctx, opts) {
   const tipX = ws.px[0] + c0 * model.patch.x1 + s0 * hw;
   const supported = comX >= Math.min(heelX, tipX) && comX <= Math.max(heelX, tipX);
 
-  ctx.clearRect(0, 0, width, height);
+  if (clear) ctx.clearRect(0, 0, width, height);
 
   // Floor.
   ctx.fillStyle = css(fg, isDark ? 0.1 : 0.06);

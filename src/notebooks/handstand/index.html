@@ -50,7 +50,7 @@
       solveWristForCom,
     } from './statics.js';
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
-    import { drawScene } from './render.js';
+    import { drawScene, drawGhosts } from './render.js';
     import {
       runScenario, balancedHandstand, resolveConfig, HANDSTAND_TARGET_FRAC, encodeDecision,
     } from './rollout.js';
@@ -612,6 +612,12 @@
     const stopPlayTheme = observeTheme((t) => { playState.theme = t; playState.dirty = true; });
     invalidation.then(stopPlayTheme);
 
+    // The optimizer's most recent finished generation, adopted only when the
+    // animation wraps. Swapping mid-swing would make the field jump; waiting
+    // for the wrap means each pass of the loop shows one whole generation,
+    // and the generation shown is always one that finished.
+    let shownGhosts = null, shownGhostRev = -1;
+
     const playLoop = createFrameLoop((now) => {
       const sim = playState.sim;
       if (!sim) return;
@@ -620,10 +626,20 @@
       if (playState.playing) {
         if (playState.lastNow !== null) {
           playState.t += ((now - playState.lastNow) / 1000) * playState.speed;
-          if (playState.t > Tend) playState.t = 0;
+          if (playState.t > Tend) {
+            playState.t = 0;
+            if (optState.ghostRev !== shownGhostRev) {
+              shownGhosts = optState.ghosts;
+              shownGhostRev = optState.ghostRev;
+            }
+          }
         }
         playState.lastNow = now;
         playState.dirty = true;
+      }
+      if (shownGhosts && optState.ghostRev !== shownGhostRev && !playState.playing) {
+        shownGhosts = optState.ghosts;
+        shownGhostRev = optState.ghostRev;
       }
       if (!playState.dirty) return;
       playState.dirty = false;
@@ -656,15 +672,34 @@
 
       const canvas = playStack.elements.sim;
       const ctx = canvas.getContext('2d');
+      const view = { cx: 0.15, yLo: -0.18, yHi: 2.3 };
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
+      // Ghosts go down first and drawScene draws over them without clearing.
+      // Each candidate is sampled by the same fraction of its own duration,
+      // so the field moves together even though the techniques differ in
+      // length; the leader is drawn darker than the rest.
+      const ghostPoses = shownGhosts?.poses;
+      if (ghostPoses?.length) {
+        ctx.clearRect(0, 0, playState.viewW, playState.viewH);
+        const u = Tend > 0 ? Math.min(1, playState.t / Tend) : 0;
+        drawGhosts(ctx, {
+          model, ws, width: playState.viewW, height: playState.viewH,
+          theme: playState.theme, view,
+          poses: ghostPoses.map((p, i) => ({
+            q: p.frames[Math.min(p.frames.length - 1, Math.round(u * (p.frames.length - 1)))],
+            weight: i === 0 ? 2.2 : 1,
+          })),
+        });
+      }
       drawScene(ctx, {
         model, ws, q: Float64Array.from(q),
         width: playState.viewW, height: playState.viewH,
         theme: playState.theme,
         segmentColors, forces, copX,
         comTrail: rec.com.slice(0, k + 1),
-        view: { cx: 0.15, yLo: -0.18, yHi: 2.3 },
+        view,
+        clear: !ghostPoses?.length,
       });
       ctx.restore();
 
@@ -707,6 +742,11 @@
     const optState = {
       worker: null, running: false, history: [],
       latest: null, result: null, adopted: null,
+      // The most recently finished generation, as candidate trajectories the
+      // optimizer already simulated. ghostRev only ever increments, and the
+      // playback loop compares it against what it is currently showing, so a
+      // new generation is picked up at a loop boundary rather than mid-swing.
+      ghosts: null, ghostRev: 0,
       rev: 0, notify: null,
     };
   </script>
@@ -752,6 +792,10 @@
         if (data.type === 'progress') {
           optState.history.push({ gen: data.gen, best: data.best });
           optState.latest = data;
+          if (data.generation?.length) {
+            optState.ghosts = { gen: data.gen, poses: data.generation };
+            optState.ghostRev++;
+          }
         } else if (data.type === 'done') {
           optState.result = { ...data, scenario: optScenario.value };
           optCleanup();
@@ -785,7 +829,11 @@
       optState.rev++;
       optState.notify?.(optState);
     });
-    optStop.addEventListener('click', () => { optCleanup(); optState.rev++; optState.notify?.(optState); });
+    optStop.addEventListener('click', () => {
+      optCleanup();
+      optState.ghosts = null; optState.ghostRev++;
+      optState.rev++; optState.notify?.(optState);
+    });
     optAdopt.addEventListener('click', () => {
       if (!optState.result) return;
       optState.adopted = optState.result;
