@@ -334,6 +334,17 @@ export function resolvePlant(config) {
 // Kept as the old name so recorded artifacts and their readers keep working.
 export const resolveConfig = resolvePlant;
 
+// The plant a rollout will run on given these options, without running one.
+// The single place PLANT_DEFAULTS is merged with overrides: runScenario uses
+// it to build the plant it reports, and anything that has to name a plant
+// before a rollout exists (a search reporting progress, say) asks here rather
+// than assembling its own copy of the defaults.
+export function plantFor(opts = {}) {
+  const plant = {};
+  for (const k of Object.keys(PLANT_DEFAULTS)) plant[k] = opts[k] ?? PLANT_DEFAULTS[k];
+  return plant;
+}
+
 // Range of motion as it was BEFORE a given limit was corrected, in the same
 // spirit as LEGACY_PLANT. Anatomy is part of the plant: the pike and
 // tuck starts solve the wrist inside its range, so widening a limit moves
@@ -1024,47 +1035,35 @@ export function catchWindow(model, ws, strengthProf, {
 
 // Run a scenario under the capped PD servo. Returns the recording plus a
 // settle verdict measured over the final settleT seconds.
-export function runScenario(model, ws, strengthProf, {
-  scenario = 'hold',
-  knots = null,
-  T = 1.2,
-  settleT = 1.0,
-  dt = 2e-4,
+export function runScenario(model, ws, strengthProf, opts = {}) {
+  // The plant this rollout runs on, merged once and handed back with the
+  // result. Producers record THIS, never a copy of the defaults, so a run
+  // cannot be written down with a plant it was not produced under.
+  //
   // Servo impedance is deliberately LOW by default: gravity feedforward
   // carries the static load, so stiffness is not needed for holding, and a
-  // stiff servo reacting to wrist balance corrections through the
-  // activation lag rings in a small persistent limit cycle (buzzing
-  // shoulders near equilibrium). Every recorded run carries its own config;
-  // pass it here on replay.
-  integrator = PLANT_DEFAULTS.integrator,
-  kp = PLANT_DEFAULTS.kp, kd = PLANT_DEFAULTS.kd,
-  mu = PLANT_DEFAULTS.mu,
-  contactZeta = PLANT_DEFAULTS.contactZeta,
-  activationTau = PLANT_DEFAULTS.activationTau,
-  dampingRatio = PLANT_DEFAULTS.dampingRatio,
-  brakeMargin = PLANT_DEFAULTS.brakeMargin,
-  inertiaHz = PLANT_DEFAULTS.inertiaHz,
-  dampingSpeed = PLANT_DEFAULTS.dampingSpeed,
-  romStopDeg = PLANT_DEFAULTS.romStopDeg,
-  romStopZeta = PLANT_DEFAULTS.romStopZeta,
-  recordEvery = null,
-  qdJitter = 0,
-  jitterSeed = 1,
-  balance = true,
-  kCom = PLANT_DEFAULTS.kCom, dCom = PLANT_DEFAULTS.dCom,
-  tuckLoadFrac = PLANT_DEFAULTS.tuckLoadFrac,
-  tuckKneeDeg = PLANT_DEFAULTS.tuckKneeDeg,
-  rom = ROM_DEFAULTS,
-} = {}) {
-  // The plant this rollout actually ran on, assembled once from the resolved
-  // arguments and handed back with the result. Producers record THIS rather
-  // than a copy of the defaults, so a run cannot be written down with a plant
-  // it was not produced under.
-  const plant = {
-    kp, kd, kCom, dCom, activationTau, mu, contactZeta, integrator,
-    dampingRatio, brakeMargin, inertiaHz, dampingSpeed, romStopDeg, romStopZeta,
+  // stiff servo reacting to wrist balance corrections through the activation
+  // lag rings in a small persistent limit cycle (buzzing shoulders near
+  // equilibrium). Every recorded run carries its own plant; pass it here on
+  // replay.
+  const plant = plantFor(opts);
+  const {
+    integrator, kp, kd, mu, contactZeta, activationTau, dampingRatio, brakeMargin,
+    inertiaHz, dampingSpeed, romStopDeg, romStopZeta, kCom, dCom,
     tuckLoadFrac, tuckKneeDeg,
-  };
+  } = plant;
+  const {
+    scenario = 'hold',
+    knots = null,
+    T = 1.2,
+    settleT = 1.0,
+    dt = 2e-4,
+    recordEvery = null,
+    qdJitter = 0,
+    jitterSeed = 1,
+    balance = true,
+    rom = ROM_DEFAULTS,
+  } = opts;
   const { q0, qd0: qd0Start } = scenarioStart(model, ws, scenario, rom, { tuckLoadFrac, tuckKneeDeg });
   let qd0 = qd0Start;
   if (qdJitter > 0) {

@@ -826,7 +826,9 @@
     // continues from, so it belongs on screen while you decide how far to
     // move the body away from it. One rollout on the seed's own plant and
     // body, thinned to a loop's worth of frames.
-    const GHOST_FRAMES = 48;
+    // Frames per loop pass, and the loop is 3.2 s: 48 of them played as 15
+    // frames a second, which reads as a flipbook rather than a movement.
+    const GHOST_FRAMES = 120;
     const showSeedGhost = () => {
       if (optState.running) return;
       const c = currentSeed();
@@ -1032,7 +1034,7 @@
       // been re-scored at the fine timestep the way a completed run is.
       if (optState.latest) {
         optState.result = {
-          ...optState.latest, ...optState.body, stopped: true,
+          ...optState.latest, ...optState.body, config: optState.latest.plant, stopped: true,
         };
         optAdopt.disabled = false;
         optSave.disabled = false;

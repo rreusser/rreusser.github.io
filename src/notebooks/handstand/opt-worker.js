@@ -6,7 +6,10 @@ import { buildModel } from './anthropometry.js';
 import { createWorkspace } from './dynamics.js';
 import { strengthProfile } from './strength.js';
 import { ROM_DEFAULTS } from './statics.js';
-import { optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision } from './rollout.js';
+import {
+  optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision, plantFor,
+  balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS,
+} from './rollout.js';
 
 // A pool of nested evaluation workers, so a generation is spread across
 // cores. The page previously ran the whole search in this one worker, which
@@ -78,7 +81,7 @@ self.onmessage = async (e) => {
     // recordings scoring already made, thinned to something a canvas can
     // animate. They arrive from the pool when there is one and from the
     // onCandidate hook when there is not.
-    const GHOST_FRAMES = 90;
+    const GHOST_FRAMES = 120;
     let genPoses = [];
     const cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 4;
     const pool = await createPool({
@@ -116,7 +119,15 @@ self.onmessage = async (e) => {
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === (msg.maxGen ?? 150) - 1) {
+          // The incumbent has to be finished the same way a completed run's
+          // knots are, or stopping the search hands back something the search
+          // was never scoring: an unpinned final knot the settle phase then
+          // has to fight, and, for a symmetric skill, whatever the untouched
+          // right-leg parameters happen to say. Stop, save, and it fell over.
           const dec = decodeDecision(g.bestX, msg.K ?? 6);
+          if (SYMMETRIC_SCENARIOS.has(msg.scenario)) symmetrizeKnots(dec.knots);
+          const qBal = balancedHandstand(model, ws);
+          for (let j = 0; j < 6; j++) dec.knots[j][dec.knots[j].length - 1] = qBal[3 + j];
           // Cheapest candidate first, so the viewer can draw the leader
           // differently from the rest of the field.
           const poses = (pool ? pool.lastPoses : genPoses).slice().sort((a, b) => a.cost - b.cost);
@@ -124,6 +135,10 @@ self.onmessage = async (e) => {
             type: 'progress', gen: g.gen, maxGen: msg.maxGen ?? 150,
             best: g.best, sigma: g.sigma,
             T: dec.T, knots: dec.knots.map((k) => Array.from(k)),
+            // The plant the search is running on, so a run that is stopped
+            // rather than finished is still replayable on the machine that
+            // produced it.
+            plant: plantFor({}),
             generation: poses,
           });
         }
