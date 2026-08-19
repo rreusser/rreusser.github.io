@@ -722,7 +722,49 @@
     const optScenario = Inputs.select(Object.keys(optScenarioNames), { label: 'Optimize', format: (v) => optScenarioNames[v] });
     const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
     const optSeed = Inputs.range([1, 99], { label: 'Seed', value: 7, step: 1 });
-    optControls.append(optScenario, optGens, optSeed);
+    // Which body the search scores against. This used to be silently "the
+    // sliders", while the warm start was a technique built for a DIFFERENT
+    // body -- the press seed needs a 2.8 Nm/kg shoulder and hamstrings to 125
+    // degrees, and it was being handed to a 1.6 shoulder with an 85 degree
+    // fold. Generation zero was already a faceplant and the search never
+    // recovered, which looked like the optimizer being bad at its job.
+    const optBodyNames = {
+      seed: 'the body this technique was built for',
+      current: 'the body in the sliders above',
+    };
+    const optBody = Inputs.select(Object.keys(optBodyNames), {
+      label: 'Score against', value: 'seed', format: (v) => optBodyNames[v],
+    });
+    const optBodyNote = html`<small style="display:block; opacity:.8; margin:2px 0 0;"></small>`;
+    optControls.append(optScenario, optGens, optSeed, optBody, optBodyNote);
+
+    // Strength and range of motion the run will actually be scored with,
+    // resolved from the seed or the page, and said out loud either way.
+    const resolveBody = () => {
+      const seedRun = PRESET_TRAJECTORIES[optScenario.value];
+      const useSeed = optBody.value === 'seed' && seedRun;
+      const strengthOpts = useSeed && seedRun.strength
+        ? { scale: strengthScale, overrides: seedRun.strength }
+        : { scale: strengthScale };
+      const romOverrides = useSeed && seedRun.rom ? seedRun.rom : poseState.rom;
+      return { seedRun, strengthOpts, romOverrides };
+    };
+    const describeBody = () => {
+      const { seedRun, strengthOpts, romOverrides } = resolveBody();
+      if (!seedRun) { optBodyNote.textContent = 'No stored technique for this entry; the search starts cold.'; return; }
+      const sh = strengthOpts.overrides?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol;
+      const ham = romOverrides.hipFlexStraightKneeMaxDeg;
+      const seedSh = seedRun.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol;
+      const seedHam = seedRun.rom?.hipFlexStraightKneeMaxDeg ?? ROM_DEFAULTS.hipFlexStraightKneeMaxDeg;
+      const mismatch = Math.abs(sh - seedSh) > 1e-6 || Math.abs(ham - seedHam) > 1e-6;
+      optBodyNote.textContent = `Scoring against shoulder ${(sh * strengthOpts.scale).toFixed(2)} Nm/kg, `
+        + `hamstrings to ${ham.toFixed(0)}°. The stored technique was built for `
+        + `${seedSh.toFixed(2)} Nm/kg and ${seedHam.toFixed(0)}°.`
+        + (mismatch ? ' It will not stand up on this body, so the search starts from a fall.' : '');
+    };
+    optScenario.addEventListener('input', describeBody);
+    optBody.addEventListener('input', describeBody);
+    describeBody();
     const optRow = html`<div style="display:flex; gap:6px; align-items:center; margin-top:6px;"></div>`;
     const optRun = html`<button>Run optimization</button>`;
     const optStop = html`<button disabled>Stop</button>`;
@@ -772,13 +814,13 @@
       };
       // Start from the canonical result for this skill rather than from the
       // hand-written reference. A search from scratch does not find a kick-up
-      // on this body in any budget this button offers -- the canonical one
-      // exists because the strength and the entry duration were walked down in
-      // stages offline -- so starting cold produced a couple of hundred
-      // generations of slow improvement ending in a fall. Warm-started, the
-      // button does what it looks like it does: takes a technique that works
-      // and refines it for the body currently set in the sliders.
-      const seedRun = PRESET_TRAJECTORIES[optScenario.value];
+      // in any budget this button offers -- the canonical one exists because
+      // strength and entry duration were walked down in stages offline -- so
+      // starting cold produced a couple of hundred generations of slow
+      // improvement ending in a fall. A warm start is only warm if it is
+      // scored against the body it was built for, which is what the Score
+      // against control decides.
+      const { seedRun, strengthOpts, romOverrides } = resolveBody();
       worker.postMessage({
         type: 'optimize',
         scenario: optScenario.value,
@@ -789,8 +831,8 @@
           : null,
         sigma0: seedRun ? 0.1 : undefined,
         modelParams: { heightM, massKg, straddleDeg, sex },
-        strengthOpts: { scale: strengthScale },
-        romOverrides: poseState.rom,
+        strengthOpts,
+        romOverrides,
       });
       optState.rev++;
       optState.notify?.(optState);
