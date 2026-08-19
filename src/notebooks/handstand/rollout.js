@@ -554,6 +554,10 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     cost, terms, verdict: r.verdict, T, tFall,
     peakUtil: Array.from(peakUtil),
     workJ: { positive: posWork, negative: negWork, metabNormalized: metabWork },
+    // The recording this scoring pass already made. Kept on the result so a
+    // live view can draw the candidate that was actually evaluated rather
+    // than re-simulating it; scoring never reads it back.
+    rec,
   };
 }
 
@@ -703,7 +707,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true,
   trustRadius = 0,
-  onGeneration = null, objectiveBatch = null,
+  onGeneration = null, onCandidate = null, objectiveBatch = null,
 } = {}) {
   const start = x0 || (() => {
     const ref = scenario === 'pike'
@@ -731,10 +735,20 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     bounds.hi[start.length - 1] = Math.min(bounds.hi[start.length - 1], start[start.length - 1] + 0.25);
   }
   const costFn = robust ? robustRolloutCost : rolloutCost;
+  // Every candidate is simulated to be scored, and rolloutCost already
+  // records the trajectory. onCandidate hands that recording to the caller
+  // instead of dropping it, which is what lets a live view draw a whole
+  // generation without simulating anything twice.
+  const scored = onCandidate
+    ? (x) => {
+      const c = costFn(model, ws, strengthProf, rom, scenario, x, { K, dt, weights });
+      onCandidate(x, c);
+      return c;
+    }
+    : (x) => costFn(model, ws, strengthProf, rom, scenario, x, { K, dt, weights });
   const result = await cmaes({
     x0: start, sigma0, seed, maxGen, lambda, bounds,
-    objective: objectiveBatch ? null
-      : (x) => costFn(model, ws, strengthProf, rom, scenario, x, { K, dt, weights }).cost,
+    objective: objectiveBatch ? null : (x) => scored(x).cost,
     objectiveBatch,
     onGeneration,
   });
