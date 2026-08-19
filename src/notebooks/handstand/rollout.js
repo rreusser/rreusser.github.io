@@ -814,39 +814,49 @@ export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
   const rows = Array.from({ length: 6 }, () => new Float64Array(K));
   const scratch = new Float64Array(model.nq);
-  // Phase shape of a bent-leg press, as fractions of the start pose: sink a
-  // little onto the legs, extend them to hop, tuck the knees while the hips
-  // close to the inverted shape, then extend the legs overhead together. The
-  // numbers are only a starting shape for the optimizer, which moves all of
-  // them; what matters is that the phases exist at all, because a search
-  // started from a monotone unfold never discovers the hop.
+  // The phases of a bent-leg press, in absolute joint angles: sink onto the
+  // legs, extend them to hop, arrive in a FULLY INVERTED TUCK, then extend
+  // the legs overhead together.
+  //
+  // The middle phase is the whole skill and it is the one a search does not
+  // find on its own. Statics says why. With the hips stacked over the hands
+  // and the knees at the chest, the shoulder holds 23 Nm and the binding
+  // joint is the WRIST, at exactly the utilization of a straight handstand:
+  // an inverted tuck is free at any shoulder worth modelling. Let the hips
+  // sit behind the hands instead and the same tuck becomes a tucked planche
+  // at 132 Nm, which saturates a 1.8 Nm/kg shoulder. Drifting up through the
+  // intermediate shapes -- which is what a long, monotone unfold does -- is
+  // therefore an expensive way to do a cheap movement, and the search will
+  // happily spend a whole ladder discovering that it cannot afford it.
+  const SHOULDER_TUCK = 12 * D2R;
+  const hipTuck = Math.min(hipFlexMaxDeg(rom, 125), 140) * D2R;
   const PHASES = [
-    // u,    hip fraction, shoulder fraction, knee (deg, negative = flexed)
-    [0.00, 1.00, 1.00, -TUCK_KNEE_DEG],
-    [0.18, 1.00, 0.98, -TUCK_KNEE_DEG * 1.6],
-    [0.36, 0.88, 0.82, -4],
-    [0.60, 0.55, 0.45, -85],
-    [0.82, 0.20, 0.16, -30],
-    [1.00, 0.00, 0.00, 0],
+    // u,   shoulder,          hip,          knee (rad; negative is flexed)
+    [0.00, q0[4], q0[5], q0[6]],
+    [0.16, q0[4], q0[5], -70 * D2R],
+    [0.32, q0[4] * 0.72, q0[5] * 1.05, -12 * D2R],
+    [0.52, SHOULDER_TUCK, hipTuck, -125 * D2R],
+    [0.78, SHOULDER_TUCK * 0.5, hipTuck * 0.55, -70 * D2R],
+    [1.00, target[4], target[5], target[6]],
   ];
   const lerp = (a, b, t) => a + (b - a) * t;
   const sample = (u) => {
     let i = 0;
     while (i < PHASES.length - 2 && u > PHASES[i + 1][0]) i++;
-    const [ua, ha, sa, ka] = PHASES[i];
-    const [ub, hb, sb, kb] = PHASES[i + 1];
+    const [ua, sa, ha, ka] = PHASES[i];
+    const [ub, sb, hb, kb] = PHASES[i + 1];
     const t = ub > ua ? (u - ua) / (ub - ua) : 0;
-    return { hip: q0[5] * lerp(ha, hb, t), sh: q0[4] * lerp(sa, sb, t), knee: lerp(ka, kb, t) * D2R };
+    return { sh: lerp(sa, sb, t), hip: lerp(ha, hb, t), knee: lerp(ka, kb, t) };
   };
   let lastWrist = q0[3];
   for (let k = 0; k < K; k++) {
     const u = k / (K - 1);
     const { hip, sh, knee } = sample(u);
     let wrist;
-    if (u < 0.4) {
+    if (u < 0.35) {
       // Through the hop the body is still standing on its feet, so the wrist
       // holds its start lean rather than the lean that would balance the
-      // shape over the palm -- there is nothing to balance yet.
+      // shape over the palm: there is nothing to balance yet.
       wrist = q0[3];
     } else {
       scratch.fill(0);
