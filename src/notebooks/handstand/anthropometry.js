@@ -1,3 +1,5 @@
+import { buildSilhouette } from './silhouette.js';
+
 // Planar (sagittal) anthropometric model of a handstand: seven rigid bodies
 // rooted at the hand, with both arms merged into one segment and both hands
 // merged into one, by left-right symmetry. Legs remain independent so the
@@ -42,6 +44,28 @@ export const DE_LEVA = {
   foot:     { len: 0.152, m: 0.0137, com: 0.4415, k: 0.257 },
 };
 
+// de Leva (1996) female table. Mass fractions, CoM positions and radii of
+// gyration are the published female values; the LENGTH fractions are
+// deliberately left at the male/Winter numbers so that switching sex changes
+// how the mass is distributed rather than how tall the segments are. Two
+// bodies of the same stature are then directly comparable, which is the
+// comparison worth making here: relative to men, women carry more of their
+// mass in the thighs and shanks (14.78 + 4.81 percent versus 14.16 + 4.33)
+// and less in the trunk, and in a handstand the legs are the far end of the
+// lever.
+export const DE_LEVA_FEMALE = {
+  headNeck: { len: DE_LEVA.headNeck.len, m: 0.0668, com: 0.4841, k: 0.271 },
+  trunk:    { len: DE_LEVA.trunk.len,    m: 0.4257, com: 0.4151, k: 0.357 },
+  upperArm: { len: DE_LEVA.upperArm.len, m: 0.0255, com: 0.5754, k: 0.278 },
+  forearm:  { len: DE_LEVA.forearm.len,  m: 0.0138, com: 0.4559, k: 0.261 },
+  hand:     { len: DE_LEVA.hand.len,     m: 0.0056, com: 0.7474, k: 0.30  },
+  thigh:    { len: DE_LEVA.thigh.len,    m: 0.1478, com: 0.3612, k: 0.369 },
+  shank:    { len: DE_LEVA.shank.len,    m: 0.0481, com: 0.4416, k: 0.271 },
+  foot:     { len: DE_LEVA.foot.len,     m: 0.0129, com: 0.4014, k: 0.299 },
+};
+
+export const SEGMENT_TABLES = { male: DE_LEVA, female: DE_LEVA_FEMALE };
+
 // Combine sub-segments given in a common frame into one rigid body.
 // pieces: { m, cx, cy, I } with I about the piece's own CoM.
 function compose(pieces) {
@@ -61,9 +85,9 @@ function rodPiece(m, x0, x1, comFrac, kFrac) {
   return { m, cx: x0 + comFrac * L, cy: 0, I: m * (kFrac * L) ** 2 };
 }
 
-export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0 } = {}) {
+export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex = 'male' } = {}) {
   const H = heightM, M = massKg;
-  const d = DE_LEVA;
+  const d = SEGMENT_TABLES[sex] || DE_LEVA;
   // Sagittal projection of a straddle: legs abducted by straddleDeg/2 each
   // shorten in side view. Mass is unchanged; gyration radius scales with the
   // projected length (a documented approximation).
@@ -145,7 +169,7 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0 } = {}
   }
 
   return {
-    heightM, massKg, straddleDeg, gravity: 9.81,
+    heightM, massKg, straddleDeg, sex, gravity: 9.81,
     nb, nj: nb - 1, nq: nb - 1 + 3, fixedBase: false,
     parent, mass, comX, comY, inertia, anchorX, anchorY,
     names: ['hand', 'arm', 'torso', 'thighL', 'shankL', 'thighR', 'shankR'],
@@ -167,6 +191,10 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0 } = {}
       { body: 4, x: toeX, y: 0, name: 'toeL' },
       { body: 6, x: toeX, y: 0, name: 'toeR' },
     ],
+    // Closed body outlines for rendering only; see silhouette.js.
+    outline: buildSilhouette({
+      H, sex, Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lth, Lsh, toeX,
+    }),
     patch: { x0: patchHeelX, x1: patchTipX },
     wristHeight: hw,
     segLen: [Lh, Larm, Ltr + Lhn, Lth, toeX, Lth, toeX],

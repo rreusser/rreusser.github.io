@@ -66,12 +66,30 @@ export function voluntaryToTetanic(voluntaryIso, params) {
 // hips and knees are single-leg). Values are rough literature-informed
 // defaults meant to be scaled by user strength sliders: wrist from the
 // Kerwin & Trewartha (2001) balance-moment range with headroom, shoulder and
-// lower-limb values from typical trained-male dynamometry, velocity and
-// activation parameters from the Yeadon-King-Wilson knee-extensor fits
-// (wmax 13.4-26.8 rad/s, wc ~0.3-4x wmax, amin 0.66-0.72, w1 ~ 0, m ~ 0.3).
+// lower-limb values from typical adult dynamometry, velocity and activation
+// parameters from the Yeadon-King-Wilson knee-extensor fits (wmax 13.4-26.8
+// rad/s, wc ~0.3-4x wmax, amin 0.66-0.72, w1 ~ 0, m ~ 0.3).
+//
+// The upper-body numbers describe someone who can hold a handstand, not a
+// gymnast, and this matters more than it sounds. Holding a straight body out
+// at a lean off the handstand line costs roughly 1.2 Nm/kg at the shoulder by
+// 20 degrees and 1.9 by 30, so a shoulder rated 2.0 can support itself a long
+// way toward horizontal, and the optimizer duly stopped kicking up and began
+// pressing out of a planche instead: a far harder skill than the one being
+// studied. 1.6 Nm/kg merged (about 56 Nm per arm) is a recreational shoulder
+// that can still enter a handstand but cannot hang around out there.
+//
+// Strength alone does not settle it, and it is worth being clear about why.
+// Cutting the shoulder far enough to make a planche outright impossible (1.3
+// was tried) also makes every handstand entry impossible, because a kick-up
+// passes through those same leaned positions on its way up; the difference
+// between the two skills is duration, not geometry. What separates them is
+// the saturation term in the cost, which used to charge almost nothing for
+// living at the cap (see rollout.js). The balanced handstand itself needs
+// only 0.19 Nm/kg at the shoulder, so holding one is never at risk here.
 export const STRENGTH_DEFAULTS = {
-  wrist:    { t0Vol: 1.0, wmax: 15, wc: 6, amin: 0.7, w1: 0, m: 0.3 },
-  shoulder: { t0Vol: 2.0, wmax: 18, wc: 7, amin: 0.7, w1: 0, m: 0.3 },
+  wrist:    { t0Vol: 0.85, wmax: 15, wc: 6, amin: 0.7, w1: 0, m: 0.3 },
+  shoulder: { t0Vol: 1.6, wmax: 18, wc: 7, amin: 0.7, w1: 0, m: 0.3 },
   hip:      { t0Vol: 2.2, wmax: 18, wc: 7, amin: 0.7, w1: 0, m: 0.3 },
   knee:     { t0Vol: 2.6, wmax: 20, wc: 8, amin: 0.7, w1: 0, m: 0.3 },
 };

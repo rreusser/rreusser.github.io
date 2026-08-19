@@ -7,8 +7,10 @@
 import { fk, momenta } from './dynamics.js';
 import {
   groundHand, solveWristForCom, romPenalty, clampPose, hipFlexMaxDeg, ROM_DEFAULTS,
+  wristQ3LimitsDeg,
 } from './statics.js';
 import { createContacts } from './contact.js';
+import { createJointStops } from './joint-stops.js';
 import { simulate } from './integrate.js';
 import { createServo, createBalanceControl } from './control.js';
 import { availableTorque } from './strength.js';
@@ -116,7 +118,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
       const comAt = (sh) => {
         q[4] = sh;
-        solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, rom.wristDorsiMaxDeg));
+        solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
         return momenta(model, q, zeroQd9, ws).comX - q[0];
       };
       let lo = 55 * D2R, hi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
@@ -138,7 +140,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       // (buying hip range through the hamstring coupling), stance toe on the
       // floor, swing leg extended low behind with its toe just off the
       // ground rather than floating above the hands.
-      q[3] = Math.min(65, rom.wristDorsiMaxDeg) * D2R;
+      q[3] = Math.min(65, wristQ3LimitsDeg(rom).hi) * D2R;
       q[4] = 90 * D2R;
       q[8] = -50 * D2R;                    // stance knee bent
       solveHipForToeDown(model, ws, q, 'R');
@@ -188,7 +190,25 @@ export const JOINT_KEYS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'
 export const SERVO_DEFAULTS = {
   kp: 800, kd: 60, kCom: 2000, dCom: 1500,
   activationTau: 0.05, mu: 1.0, contactZeta: 1.0, integrator: 'si',
+  dampingRatio: 1.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
+  romStopDeg: 5, romStopZeta: 0.7,
 };
+
+// Plant/controller settings as they were BEFORE a given capability existed.
+// An artifact's stored config is the whole truth about the plant it was
+// produced under, so a config that predates a key must replay with that
+// key's pre-existing behavior, not with today's default. Both of these
+// default to "off", which is exactly the old constant-kd, no-braking servo.
+export const LEGACY_SERVO_CONFIG = {
+  dampingRatio: 0, brakeMargin: 0, dampingSpeed: 0, romStopDeg: 0,
+};
+
+// Resolve a stored artifact config into the full argument set for
+// runScenario. Anything the artifact recorded wins; anything it could not
+// have recorded falls back to the legacy behavior.
+export function resolveConfig(config) {
+  return { ...LEGACY_SERVO_CONFIG, ...(config || {}) };
+}
 
 // x = [6 joints x K knot angles (radians), duration T]. When a rom is
 // given, the knot bounds are the anatomy itself, so anatomically impossible
@@ -198,12 +218,12 @@ export const SERVO_DEFAULTS = {
 // the hamstring coupling with the knee remains a cost-side constraint.
 export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null } = {}) {
   const jointLo = rom
-    ? [rom.wristDorsiMinDeg * D2R, -rom.shoulderHyperDeg * D2R,
+    ? [wristQ3LimitsDeg(rom).lo * D2R, -rom.shoulderHyperDeg * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R]
     : [20 * D2R, -15 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R];
   const jointHi = rom
-    ? [rom.wristDorsiMaxDeg * D2R, rom.shoulderCloseMaxDeg * D2R,
+    ? [wristQ3LimitsDeg(rom).hi * D2R, rom.shoulderCloseMaxDeg * D2R,
       rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
       rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R]
     : [130 * D2R, 120 * D2R, 175 * D2R, 10 * D2R, 175 * D2R, 10 * D2R];
@@ -232,7 +252,7 @@ export function encodeDecision(knots, T) {
 
 export const COST_WEIGHTS = {
   pose: 1, poseAngles: 2, velocity: 0.3, fall: 1,
-  effort: 0.08, saturation: 2, rom: 4, quasiStatic: 0,
+  effort: 0.08, saturation: 2, rom: 4, romPeak: 0.5, quasiStatic: 0,
   liftoff: 8, feet: 5, work: 1, smooth: 1,
   settleCalm: 1, driveRate: 0.3,
 };
@@ -254,6 +274,27 @@ export const SETTLE_DRIVE_RATE_SCALE = 4;
 // against this scale (rad/s^2). A purposeful kick swing (0 to ~8 rad/s in
 // ~0.2 s) sits near 1 on this scale; flailing reversals sit far above it.
 export const SMOOTH_ACCEL_SCALE = 60;
+
+// Where "working hard" becomes "living at the cap", and how much that costs.
+// The saturation term used to hinge at 0.95 on the raw utilization, so a
+// joint pinned at its limit for an ENTIRE rollout scored (1 - 0.95)^2 =
+// 0.0025 against about 2.0 for the work term: maximal effort was, for
+// practical purposes, free. That is what let the optimizer hold a planche and
+// press out of it rather than kick up, since the planche costs nothing but
+// effort and effort was not being charged. Normalizing the hinge so that a
+// joint at its cap scores 1 per sample puts sustained maximal effort on the
+// same footing as the work it is doing, which is roughly how it feels.
+export const SATURATION_KNEE = 0.8;
+
+// Scale for the range-of-motion term, and the same lesson a third time.
+// romPenalty returns squared RADIANS, so a joint held twelve degrees outside
+// its anatomy scored 0.044 before weighting: for the whole rollout that is
+// 0.18 against about 1.4 for the work term, which is to say the optimizer was
+// being fined pocket change for a hamstring stretched past its limit and duly
+// paid it. Measuring the violation against the end-stop's own design
+// penetration instead makes one stop-depth of violation cost 1 per joint per
+// sample, so the anatomy is worth about as much as the effort of reaching it.
+export const ROM_VIOLATION_SCALE = SERVO_DEFAULTS.romStopDeg * D2R;
 
 // Metabolic accounting for the work term (Margaria): concentric (positive)
 // mechanical work costs 1/0.25 of itself metabolically; eccentric
@@ -365,7 +406,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   liftoff /= rec.t.length;
   if (nAng > 0) { angErr /= nAng; feet /= nAng; }
 
-  let effort = 0, sat = 0, romP = 0, peakKE = 0;
+  let effort = 0, sat = 0, romP = 0, romPk = 0, peakKE = 0;
   let posWork = 0, negWork = 0;
   let driveRate = 0, nDrive = 0, settleCalmV = 0, nSettleCalm = 0;
   const prevU = new Float64Array(6).fill(NaN);
@@ -374,12 +415,12 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     const dts = k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
     let sumU2 = 0, sumSat = 0, sumDriveRate2 = 0;
     for (let j = 0; j < 6; j++) {
-      const tauApplied = rec.tau[k][j] - r.servo.kd * rec.qd[k][3 + j];
+      const tauApplied = rec.tauApplied[k][j];
       const cap = availableTorque(strengthProf[JOINT_KEYS[j]], tauApplied, rec.qd[k][3 + j]);
       const u = Math.abs(tauApplied) / Math.max(cap, 1e-6);
       if (u > peakUtil[j]) peakUtil[j] = u;
       sumU2 += u * u;
-      const over = Math.max(0, u - 0.95);
+      const over = Math.max(0, (u - SATURATION_KNEE) / (1 - SATURATION_KNEE));
       sumSat += over * over;
       const P = tauApplied * rec.qd[k][3 + j];
       if (P > 0) posWork += P * dts; else negWork -= P * dts;
@@ -411,7 +452,14 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     }
     effort += sumU2;
     sat += sumSat;
-    romP += romPenalty(rec.q[k], rom);
+    const romNow = romPenalty(rec.q[k], rom) / (ROM_VIOLATION_SCALE * ROM_VIOLATION_SCALE);
+    romP += romNow;
+    // Peak as well as mean: the mean dilutes a brief excursion across the
+    // whole rollout, but a hamstring is not injured by the average of a
+    // movement, it is injured by the worst instant of it. A fast leg swing
+    // that spikes into end range for a tenth of a second is exactly the
+    // event, and averaging is what made it look cheap.
+    if (romNow > romPk) romPk = romNow;
     if (weights.quasiStatic) {
       let ke = 0;
       for (let i = 3; i < 9; i++) ke += rec.qd[k][i] * rec.qd[k][i];
@@ -461,6 +509,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     effort: weights.effort * effort,
     saturation: weights.saturation * sat,
     rom: weights.rom * romP,
+    romPeak: (weights.romPeak || 0) * romPk,
     quasiStatic: weights.quasiStatic ? weights.quasiStatic * peakKE * peakKE : 0,
     liftoff: (weights.liftoff || 0) * liftoff,
     feet: (weights.feet || 0) * feet,
@@ -690,6 +739,12 @@ export function runScenario(model, ws, strengthProf, {
   mu = SERVO_DEFAULTS.mu,
   contactZeta = SERVO_DEFAULTS.contactZeta,
   activationTau = SERVO_DEFAULTS.activationTau,
+  dampingRatio = SERVO_DEFAULTS.dampingRatio,
+  brakeMargin = SERVO_DEFAULTS.brakeMargin,
+  inertiaHz = SERVO_DEFAULTS.inertiaHz,
+  dampingSpeed = SERVO_DEFAULTS.dampingSpeed,
+  romStopDeg = SERVO_DEFAULTS.romStopDeg,
+  romStopZeta = SERVO_DEFAULTS.romStopZeta,
   recordEvery = null,
   qdJitter = 0,
   jitterSeed = 1,
@@ -705,8 +760,16 @@ export function runScenario(model, ws, strengthProf, {
     for (let j = 3; j < model.nq; j++) qd0[j] += (2 * rand() - 1) * qdJitter;
   }
   const ref = knots || naiveReference(model, ws, scenario, 6, rom).knots;
-  const servo = createServo(model, strengthProf, { kp, kd, ws, activationTau });
+  const servo = createServo(model, strengthProf, {
+    kp, kd, ws, activationTau, dampingRatio, brakeMargin, inertiaHz, dampingSpeed,
+  });
   const contacts = createContacts(model, { mu, zeta: contactZeta });
+  // Anatomical end-stops are part of the body, not the controller: the
+  // reference bounds keep the optimizer from ASKING for an impossible angle,
+  // and these keep momentum from producing one anyway.
+  const stops = createJointStops(model, rom, strengthProf, ws, {
+    stopDeg: romStopDeg, zeta: romStopZeta, qNominal: q0,
+  });
 
   // The wrist strategy runs closed-loop during the rollout: a wrist torque
   // correction proportional to horizontal CoM error and velocity, scaled by
@@ -728,6 +791,8 @@ export function runScenario(model, ws, strengthProf, {
   const out = simulate(model, ws, {
     q0, qd0, T: T + settleT, dt, integrator, contacts,
     jointDamping: servo.damping,
+    appliedTorque: servo.applied,
+    jointStops: stops,
     control: servo.makeControl(ref, T, augment),
     recordEvery,
   });
@@ -745,7 +810,7 @@ export function runScenario(model, ws, strengthProf, {
   const W = mo.mass * model.gravity;
   const feetFree = (contacts.ext.fy[2] + contacts.ext.fy[3]) < 0.05 * W;
   return {
-    ...out, contacts, servo, knots: ref, T, settleT,
+    ...out, contacts, servo, stops, knots: ref, T, settleT,
     verdict: {
       upright, over, still, posed, feetFree,
       success: upright && over && still && posed && feetFree,

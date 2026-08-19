@@ -2,10 +2,10 @@
 //
 // Run: node src/notebooks/handstand/test/statics.mjs
 import { buildModel, handstandPose } from '../anthropometry.js';
-import { createWorkspace, fk, momenta } from '../dynamics.js';
+import { createWorkspace, fk, momenta, rnea } from '../dynamics.js';
 import {
   ROM_DEFAULTS, hipFlexMaxDeg, jointLimits, clampPose, romPenalty,
-  groundHand, staticAnalysis, solveWristForCom, pressCorridor,
+  groundHand, staticAnalysis, solveWristForCom, pressCorridor, wristQ3LimitsDeg,
 } from '../statics.js';
 import { strengthProfile } from '../strength.js';
 
@@ -97,9 +97,9 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7ffffff
   groundHand(model, q);
   q[3] = 80 * D2R; clampPose(q, rom);
   const inside = romPenalty(q, rom);
-  q[3] = (rom.wristDorsiMaxDeg + 10) * D2R;
+  q[3] = (wristQ3LimitsDeg(rom).hi + 10) * D2R;
   const out10 = romPenalty(q, rom);
-  q[3] = (rom.wristDorsiMaxDeg + 20) * D2R;
+  q[3] = (wristQ3LimitsDeg(rom).hi + 20) * D2R;
   const out20 = romPenalty(q, rom);
   gate('D: ROM penalty zero inside, quadratic outside',
     inside === 0 && out10 > 0 && Math.abs(out20 / out10 - 4) < 1e-6,
@@ -154,6 +154,69 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7ffffff
   gate('F: corridor shrinks (never grows) under a 150deg shoulder limit',
     nFlex > 20 && nTight < nFlex && created === 0 && removedOpen > 0,
     `feasible ${nFlex} -> ${nTight}, open-shoulder cells removed=${removedOpen}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate G: the planche is out of reach, the handstand is not.
+//
+// This is an anatomy gate, and it exists because the optimizer found the gap.
+// Holding a straight body leaned off the handstand line is the planche
+// continuum, and its cost climbs steeply: about 1.2 Nm/kg at the shoulder by
+// 20 degrees of lean and 1.9 by 30, against 0.19 to hold the handstand
+// itself. While the default shoulder was rated 2.0 Nm/kg the model could
+// support itself most of the way toward horizontal, so the cheapest way into
+// a handstand stopped being a kick-up and became a planche press: a far
+// harder skill, silently substituted. A recreational shoulder cannot hold
+// that position, which is what keeps the entry honest.
+// ---------------------------------------------------------------------------
+{
+  const model = buildModel({ heightM: 1.75, massKg: 70 });
+  const ws = createWorkspace(model);
+  const prof = strengthProfile(model.massKg);
+  const q = handstandPose(model);
+  groundHand(model, q);
+  const zero = new Float64Array(model.nq), tau = new Float64Array(model.nq);
+  // Shoulder torque to hold the straight body at a given lean off the line.
+  const leanCost = (deg) => {
+    const qq = Float64Array.from(q);
+    qq[4] += deg * Math.PI / 180;
+    rnea(model, qq, zero, zero, tau, null, { ws });
+    return Math.abs(tau[4]);
+  };
+  const cap = prof.shoulder.voluntaryIso;
+  const hold = leanCost(0), lean10 = leanCost(10), lean30 = leanCost(30);
+  gate('G: handstand comfortable, 30 deg of planche lean beyond the shoulder',
+    hold < 0.3 * cap && lean10 < cap && lean30 > cap,
+    `cap ${cap.toFixed(0)} Nm; hold ${hold.toFixed(0)}, 10deg ${lean10.toFixed(0)}, 30deg ${lean30.toFixed(0)} Nm`);
+}
+
+// H: the wrist limit has to run the right way round. Wrist extension is
+// 180 - q3, so tightening the extension cap must forbid the LEANED-OUT
+// poses, the ones whose centre of mass sits toward the fingertips. This
+// gate exists because the limits were previously stored as bounds on q3
+// under names that said dorsiflexion, so the slider called "max" was
+// capping how far the body could lean back onto the heel of the palm, and
+// raising it only ever admitted poses stretched further over the fingers.
+{
+  const rom = { ...ROM_DEFAULTS };
+  const tight = { ...ROM_DEFAULTS, wristExtMaxDeg: ROM_DEFAULTS.wristExtMaxDeg - 20 };
+  const wide = wristQ3LimitsDeg(rom), narrow = wristQ3LimitsDeg(tight);
+  // Tightening lifts the FLOOR on q3 (less lean over the fingers) and
+  // leaves the ceiling (lean back onto the heel) alone.
+  const floorRose = narrow.lo > wide.lo;
+  const ceilingHeld = narrow.hi === wide.hi;
+  // And the pose it forbids must be the one further over the fingertips.
+  const comAtQ3 = (deg) => {
+    const q = new Float64Array(model.nq);
+    groundHand(model, q);
+    q[3] = deg * Math.PI / 180;
+    return staticAnalysis(model, q, ws, {}).patchFrac;
+  };
+  const forbidden = comAtQ3(wide.lo), stillAllowed = comAtQ3(narrow.lo);
+  gate('H: tightening the wrist extension cap forbids the leaned-out poses',
+    floorRose && ceilingHeld && forbidden > stillAllowed,
+    `q3 floor ${wide.lo.toFixed(0)} -> ${narrow.lo.toFixed(0)}, ceiling ${wide.hi.toFixed(0)} -> ${narrow.hi.toFixed(0)}; `
+    + `patchFrac at floor ${forbidden.toFixed(2)} -> ${stillAllowed.toFixed(2)}`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll statics gates passed');

@@ -9,7 +9,7 @@ This repository publishes Observable notebooks as a static website using Observa
 For implementation patterns, see the [implementation guide](docs/implementation-guide/README.md):
 
 - [Notebook anatomy](docs/implementation-guide/01-notebook-anatomy.md) — cell types, reactive model, `display`/`view`, imports, debugging
-- [Figures and layout](docs/implementation-guide/02-figures-and-layout.md) — `expandable()`, element stack, controls panel
+- [Figures and layout](docs/implementation-guide/02-figures-and-layout.md) — `expandable()`, element stack, draggable handles and touch, controls panel
 - [Controls and inputs](docs/implementation-guide/03-controls-and-inputs.md) — `Inputs`, controls container, dirty-flag pattern
 - [2D plots](docs/implementation-guide/04-2d-plots.md) — regl + Observable Plot + SVG overlay, zoomable axes
 - [3D cameras](docs/implementation-guide/05-3d-cameras.md) — `createUnifiedCamera`, camera buttons, frame loop
@@ -25,6 +25,7 @@ For implementation patterns, see the [implementation guide](docs/implementation-
 - Do not import npm packages inside lib files — import them in the notebook and inject as arguments
 - Mutable state shared across cells must be wrapped in an object; properties can be mutated freely but the variable itself cannot be reassigned from another cell
 - Always clean up animations, timers, and event listeners in `invalidation.then()`
+- Draggable figure handles: `touch-action: none` on the outer **HTML** container (not the SVG — inner SVG nodes are not reliably honoured), plus `setPointerCapture` and a tracked `pointerId`. Without the first, a touch drag both scrolls the page and dies mid-gesture, because scrolling fires `pointercancel`
 - Use `src/lib/webgpu-canvas.js` for WebGPU context creation (patches shader error reporting)
 - Use `src/lib/frame-loop.js` for render loops
 - Reference notebooks: `src/notebooks/plot-with-zoom/index.html` (2D), `src/notebooks/boys-surface/index.html` (3D/WebGPU)

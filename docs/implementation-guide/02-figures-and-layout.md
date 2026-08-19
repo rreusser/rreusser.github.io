@@ -135,6 +135,48 @@ The stack is persistent: when a layer factory receives `current`, it means an el
 
 Use `stack.element` as the content passed to `expandable()`, and call `stack.resize(w, h)` from `onResize`.
 
+## Draggable handles (and touch)
+
+Figures with draggable handles — a control point on an SVG overlay, a sun position, a slider knob — need three things that are easy to get wrong, and all three only misbehave on touch, where they are least likely to be noticed during development.
+
+**Set `touch-action: none` on the outer HTML container, not the SVG.** Mobile browsers do not reliably honour `touch-action` on inner SVG nodes, so setting it on the `<g>` or `<circle>` you are dragging does nothing. Set it on the stack container (`stack.element`) or whatever HTML element wraps the figure.
+
+This single property fixes two symptoms that look unrelated. Without it the page scrolls under the finger, and — less obviously — the drag *stops*, because once the browser claims the gesture for scrolling it fires `pointercancel` and the drag ends. If a drag dies the moment the finger travels far enough, suspect `touch-action` before suspecting the capture logic.
+
+**Capture the pointer, and release it.** `setPointerCapture` is what lets the finger wander off a 9px handle, or outside the figure entirely, without losing the drag. Wrap it in `try`/`catch` (it throws if the pointer is already gone) and release on the way out. Also listen for `lostpointercapture`: if the captured element is re-created by a re-render, or the OS steals the gesture, the drag has to end with it or it sticks on.
+
+**Track the `pointerId`.** Without it a second finger touching the figure mid-drag hijacks the gesture and the handle jumps.
+
+```javascript
+container.style.touchAction = 'none';   // the HTML container, not the SVG
+
+let drag = null;
+svg.addEventListener('pointerdown', (e) => {
+  const t = e.target;
+  if (drag || !(t instanceof SVGCircleElement)) return;
+  drag = { pointerId: e.pointerId, el: t, /* ...grab state... */ };
+  try { t.setPointerCapture(e.pointerId); } catch (_) {}
+  e.preventDefault();
+});
+svg.addEventListener('pointermove', (e) => {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  // ...update from e.clientX / e.clientY...
+  e.preventDefault();
+});
+const endDrag = (e) => {
+  if (!drag || (e && e.pointerId !== drag.pointerId)) return;
+  try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) {}
+  drag = null;
+};
+svg.addEventListener('pointerup', endDrag);
+svg.addEventListener('pointercancel', endDrag);
+svg.addEventListener('lostpointercapture', endDrag);
+```
+
+Use pointer events throughout rather than separate mouse and touch handlers; they cover mouse, touch and stylus in one path. A handle sized for a mouse is also small for a finger, so give it a hit area larger than its visible radius (a transparent circle with `pointer-events: all` behind the visible one) when the figure is meant to be used on a phone.
+
+Worked examples: `src/notebooks/handstand/index.html` (delegated handles on an element-stack overlay), `src/notebooks/line-sweep-terrain-lighting/sun-handle.js`, and `src/lib/color-legend.js` (one-finger pan and two-finger pinch).
+
 ## Wide layout
 
 For figures that benefit from being wider than the article column but don't need full-page expand:

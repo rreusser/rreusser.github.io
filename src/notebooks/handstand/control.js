@@ -9,11 +9,11 @@
 // torque (kp e + kd de, clamped to the strength envelope) has +kd*qd added
 // back, which pairs with the integrator's implicit -kd*qd_new term to leave
 // a small artificial inertia dt*kd instead of an explicitly integrated
-// damping force. The physically applied torque is the clamped command to
-// within O(dt): reconstruct it from a recording as tau_rec - kd * qd_rec.
+// damping force. The physically applied torque before that bookkeeping is
+// published in servo.applied and recorded by simulate() as rec.tauApplied.
 
 import { clampTorque, availableTorque } from './strength.js';
-import { rnea, momenta } from './dynamics.js';
+import { rnea, momenta, crbaMassMatrix } from './dynamics.js';
 
 export const JOINT_ORDER = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
 
@@ -65,28 +65,102 @@ export function evalReference(knotMatrix, T, t, qRef, qdRef) {
 // current velocity. Without the lag the optimizer discovers bang-bang
 // torque profiles that flip between opposing caps in milliseconds; with it,
 // they are impossible by construction.
+//
+// Inertia-scaled damping (dampingRatio > 0) and brake-feasible velocity
+// (brakeMargin > 0): the two fixes for arrival overshoot. A single scalar kd
+// cannot serve this body. The joints it drives span an effective inertia
+// from 0.36 kg m^2 (a knee) to 80 kg m^2 (the wrist, which turns the whole
+// body about the palm), so kd = 60 leaves the knees overdamped at zeta = 1.8
+// and the wrist at zeta = 0.12: a shoulder pressing to vertical arrives with
+// several rad/s that nothing is left to absorb, and rings. With
+// dampingRatio, kd_j = 2 zeta sqrt(kp M_jj) is refreshed from the mass
+// matrix diagonal at inertiaHz, so every joint holds the same damping ratio
+// as the configuration (and hence its inertia) changes.
+//
+// Damping alone is not enough, because the position term is what commands
+// the approach: kp/kd * e is 10 rad/s at 45 degrees of error, and the
+// shoulder needs 535 degrees of travel to brake from that. So the position
+// term is capped at the velocity the joint can still stop in the error that
+// remains, sqrt(2 alpha a_brake |e|) -- a proximate time-optimal servo
+// (Workman 1987), which reduces to the plain PD law inside the region where
+// braking is not binding. The braking authority is the RESERVE, not the cap:
+// gravity is already spending part of the envelope holding the body up, so
+// a_brake = (cap -/+ tau_gravity) / M_jj. That is what the "strong force for
+// a long time, then suddenly nothing to push against" arrival actually needs
+// to know.
+//
+// One limit is not negotiable: a damper the muscle cannot produce is not a
+// damper, it is a joint pinned at its cap. Critical damping wants kd = 505
+// at the wrist, which spends the whole 70 N m envelope at 0.14 rad/s and
+// leaves the balance correction nothing to say; the body then rides the cap
+// out over the fingertips exactly as an unassisted servo does. So kd is
+// additionally capped at cap_j / dampingSpeed, the damping whose torque at
+// dampingSpeed rad/s is the entire voluntary envelope. The wrist is the
+// joint this binds hardest, which is the mechanical statement of why
+// balancing on hands is harder than balancing on feet: relative to the load
+// it carries, the joint is underpowered, and no choice of gain fixes that.
 export function createServo(model, strengthProf, {
   kp = 3000, kd = 150, gravityComp = true, ws = null, activationTau = 0.05,
+  dampingRatio = 0, brakeMargin = 0, inertiaHz = 200, dampingSpeed = 1.0,
 } = {}) {
-  const damping = new Float64Array(model.nq);
+  const nq = model.nq;
+  const damping = new Float64Array(nq);
   for (let j = 3; j < 9; j++) damping[j] = kd;
   const qRef = new Float64Array(6), qdRef = new Float64Array(6);
-  const tauG = new Float64Array(model.nq);
-  const zero = new Float64Array(model.nq);
+  const tauG = new Float64Array(nq);
+  const zero = new Float64Array(nq);
+  // Physically applied torque for the six actuated joints, before the
+  // implicit-damping bookkeeping term is added to the command.
+  const applied = new Float64Array(6);
+  const adaptive = dampingRatio > 0 || brakeMargin > 0;
+  const Mbuf = adaptive ? new Float64Array(nq * nq) : null;
+  const inertia = new Float64Array(6).fill(1);
   return {
-    damping, kp, kd, qRef, qdRef, activationTau,
+    damping, kp, kd, qRef, qdRef, activationTau, applied,
+    dampingRatio, brakeMargin, inertia,
     makeControl(knotMatrix, T, augment = null) {
       const des = new Float64Array(6);
       const u = new Float64Array(6);
-      let lastT = null;
+      let lastT = null, lastInertiaT = null;
       return (t, q, qd, tau) => {
         evalReference(knotMatrix, T, Math.min(t, T), qRef, qdRef);
         if (t >= T) qdRef.fill(0);
         if (gravityComp && ws) rnea(model, q, zero, zero, tauG, null, { ws });
+        // The inertia the servo is tuned against changes with the pose, but
+        // on the timescale of the body, not the timestep; refreshing it at
+        // inertiaHz keeps the extra mass-matrix factorization off the hot
+        // path. (A nervous system does not re-identify its limbs at 5 kHz
+        // either.)
+        if (adaptive && (lastInertiaT === null || t - lastInertiaT >= 1 / inertiaHz)) {
+          crbaMassMatrix(model, q, Mbuf, ws);
+          for (let j = 0; j < 6; j++) {
+            const jq = 3 + j;
+            inertia[j] = Math.max(Mbuf[jq * nq + jq], 1e-4);
+            if (dampingRatio > 0) {
+              const kdWant = 2 * dampingRatio * Math.sqrt(kp * inertia[j]);
+              const kdMax = dampingSpeed > 0
+                ? availableTorque(strengthProf[JOINT_ORDER[j]], 0, 0) / dampingSpeed
+                : Infinity;
+              damping[jq] = Math.min(kdWant, kdMax);
+            }
+          }
+          lastInertiaT = t;
+        }
         for (let j = 0; j < 6; j++) {
           const jq = 3 + j;
-          des[j] = (gravityComp && ws ? tauG[jq] : 0)
-            + kp * (qRef[j] - q[jq]) + kd * (qdRef[j] - qd[jq]);
+          const kdj = damping[jq];
+          const gff = gravityComp && ws ? tauG[jq] : 0;
+          const e = qRef[j] - q[jq];
+          let corr = (kp / kdj) * e;
+          if (brakeMargin > 0 && corr !== 0) {
+            const sBrake = e >= 0 ? -1 : 1;
+            const jp = strengthProf[JOINT_ORDER[j]];
+            const capBrake = availableTorque(jp, sBrake, qd[jq]);
+            const aBrake = Math.max(capBrake - sBrake * gff, 0.05 * capBrake) / inertia[j];
+            const vMax = Math.sqrt(2 * brakeMargin * aBrake * Math.abs(e));
+            if (Math.abs(corr) > vMax) corr = Math.sign(corr) * vMax;
+          }
+          des[j] = gff + kdj * (qdRef[j] + corr - qd[jq]);
         }
         augment?.(t, q, qd, des);
         const alpha = (lastT === null || activationTau <= 0)
@@ -100,17 +174,21 @@ export function createServo(model, strengthProf, {
           const uDes = Math.min(1, Math.max(-1, des[j] / Math.max(cap, 1e-9)));
           u[j] += alpha * (uDes - u[j]);
           const capNow = availableTorque(jp, u[j], qd[jq]);
-          tau[jq] = u[j] * capNow + kd * qd[jq];
+          applied[j] = u[j] * capNow;
+          tau[jq] = applied[j] + damping[jq] * qd[jq];
         }
       };
     },
   };
 }
 
-// Physically applied joint torques from a recording made with this servo.
-export function appliedTorques(rec, kd) {
+// Physically applied joint torques from a recording. Runs made after the
+// servo published rec.tauApplied carry it exactly; the fallback reconstructs
+// it from a constant-kd recording to within O(dt).
+export function appliedTorques(rec, kd = 0) {
+  if (rec.tauApplied) return rec.tauApplied.map((row) => Array.from(row));
   return rec.tau.map((tauRow, i) =>
-    tauRow.map((t, j) => t - kd * rec.qd[i][3 + j]));
+    Array.from(tauRow, (t, j) => t - kd * rec.qd[i][3 + j]));
 }
 
 // Balance-augmented hold: joint servos hold qHold while the wrist channel
@@ -121,9 +199,12 @@ export function appliedTorques(rec, kd) {
 // all still clamped to the strength envelope.
 export function createBalanceControl(model, ws, strengthProf, qHold, {
   kp = 800, kd = 60, kCom = 2000, dCom = 1500, targetFrac = 0.35,
-  activationTau = 0.05,
+  activationTau = 0.05, dampingRatio = 0, brakeMargin = 0, inertiaHz = 200,
+  dampingSpeed = 1.0,
 } = {}) {
-  const servo = createServo(model, strengthProf, { kp, kd, ws, activationTau });
+  const servo = createServo(model, strengthProf, {
+    kp, kd, ws, activationTau, dampingRatio, brakeMargin, inertiaHz, dampingSpeed,
+  });
   const knots = [];
   for (let j = 0; j < 6; j++) knots.push(Float64Array.of(qHold[3 + j], qHold[3 + j]));
   const xTargetLocal = model.patch.x0 + targetFrac * (model.patch.x1 - model.patch.x0);
@@ -133,7 +214,7 @@ export function createBalanceControl(model, ws, strengthProf, qHold, {
   };
   return {
     damping: servo.damping,
-    kd,
+    kd, servo,
     control: servo.makeControl(knots, 1, augment),
   };
 }

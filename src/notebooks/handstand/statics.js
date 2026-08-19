@@ -29,9 +29,22 @@ import { availableTorque } from './strength.js';
 
 const D2R = Math.PI / 180;
 
+// Elementary rather than gymnastic: wrist dorsiflexion of 88 degrees is
+// already past the normal range (70-80 is typical), and the few degrees the
+// model used to have beyond that were spent leaning further out over the
+// hands than an ordinary wrist allows.
 export const ROM_DEFAULTS = {
-  wristDorsiMaxDeg: 92,
-  wristDorsiMinDeg: 45,
+  // Wrist extension, the anatomical quantity: the angle opened at the back
+  // of the wrist, 90 degrees when the forearm stands vertical over a flat
+  // hand. The joint coordinate q3 runs the other way -- it is measured from
+  // the fingertip direction round to the arm -- so extension is 180 - q3,
+  // and leaning out over the fingers RAISES extension while lowering q3.
+  // These two were previously stored as bounds on q3 under names that said
+  // dorsiflexion, which made the limits read backwards: the field called
+  // "max" was capping how far the body could lean back toward the heel of
+  // the palm. Same numbers, correct end.
+  wristExtMaxDeg: 135,   // q3 >= 180 - this
+  wristExtMinDeg: 92,    // q3 <= 180 - this
   shoulderFlexMaxDeg: 180,   // q4 >= 180 - this
   shoulderHyperDeg: 5,       // q4 >= -this is never allowed below
   shoulderCloseMaxDeg: 110,  // q4 <= this
@@ -42,6 +55,20 @@ export const ROM_DEFAULTS = {
   kneeFlexMaxDeg: 145,
   kneeHyperextDeg: 3,
 };
+
+// Wrist limits as bounds on the joint coordinate q3, in degrees. Accepts
+// either the extension fields or the legacy pair that stored q3 bounds
+// directly, so every recorded artifact and preset keeps the range it was
+// produced under.
+export function wristQ3LimitsDeg(rom) {
+  if (rom.wristExtMaxDeg !== undefined || rom.wristExtMinDeg !== undefined) {
+    return {
+      lo: 180 - (rom.wristExtMaxDeg ?? 135),
+      hi: 180 - (rom.wristExtMinDeg ?? 92),
+    };
+  }
+  return { lo: rom.wristDorsiMinDeg ?? 45, hi: rom.wristDorsiMaxDeg ?? 88 };
+}
 
 // Maximum hip flexion (degrees) available at a given anatomical knee flexion.
 export function hipFlexMaxDeg(rom, kneeFlexDeg) {
@@ -54,7 +81,7 @@ export function hipFlexMaxDeg(rom, kneeFlexDeg) {
 // limits depend on the same leg's knee). Returns {lo, hi} in radians.
 export function jointLimits(rom, q, jointIndex) {
   switch (jointIndex) {
-    case 3: return { lo: rom.wristDorsiMinDeg * D2R, hi: rom.wristDorsiMaxDeg * D2R };
+    case 3: { const w = wristQ3LimitsDeg(rom); return { lo: w.lo * D2R, hi: w.hi * D2R }; }
     case 4: return {
       lo: Math.max((180 - rom.shoulderFlexMaxDeg), -rom.shoulderHyperDeg) * D2R,
       hi: rom.shoulderCloseMaxDeg * D2R,

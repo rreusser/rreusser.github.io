@@ -11,7 +11,7 @@ import { splineEval } from '../control.js';
 import { cmaes } from '../cma-es.js';
 import {
   naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds,
-  rolloutCost, optimizeScenario, catchWindow, balancedHandstand,
+  rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
 } from '../rollout.js';
 
 let failures = 0;
@@ -174,6 +174,32 @@ const rom = { ...ROM_DEFAULTS };
   gate('H2: pumping the legs multiplies the smoothness (acceleration) term',
     cPump.terms.smooth > 10 * Math.max(cHold.terms.smooth, 0.01),
     `hold smooth=${cHold.terms.smooth.toFixed(3)}, pump smooth=${cPump.terms.smooth.toFixed(3)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate I: the range-of-motion term is normalized, not nominal.
+//
+// romPenalty returns squared RADIANS, and for a long time the cost used it
+// raw. Twelve degrees outside your anatomy is 0.044 rad^2, so holding it for
+// an entire rollout scored 0.18 against about 1.4 for the work term, and the
+// optimizer cheerfully paid that to hyperextend a knee. The term is now
+// measured against the end-stop's own design penetration, so parking a joint
+// one stop-depth outside its range costs about the rom weight itself. This
+// gate fails if the normalization is ever dropped: the same violation would
+// come back a few hundred times cheaper.
+// ---------------------------------------------------------------------------
+{
+  const qBal = balancedHandstand(model, ws);
+  const knots = [];
+  for (let j = 0; j < 6; j++) knots.push(new Float64Array(6).fill(qBal[3 + j]));
+  // Command the left knee far into hyperextension; the end-stops hold it about
+  // one design penetration (5 deg) outside its 3 deg limit for the rollout.
+  knots[3] = new Float64Array(6).fill(40 * Math.PI / 180);
+  const c = rolloutCost(model, ws, prof, rom, 'hold', encodeDecision(knots, 1.0),
+    { settleT: 1.0, pinFinal: false });
+  gate('I: a joint parked one stop-depth outside its range costs ~the rom weight',
+    c.terms.rom > 0.3 * COST_WEIGHTS.rom && c.terms.rom < 3 * COST_WEIGHTS.rom,
+    `rom term=${c.terms.rom.toFixed(3)} against weight ${COST_WEIGHTS.rom}`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll rollout gates passed');

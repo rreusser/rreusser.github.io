@@ -14,7 +14,7 @@ import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile } from '../strength.js';
 import { ROM_DEFAULTS } from '../statics.js';
-import { runScenario } from '../rollout.js';
+import { runScenario, resolveConfig } from '../rollout.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -40,7 +40,11 @@ for (const g of manifest.gallery) {
     settleT: 2.5,
     dt: 2e-4,
     rom,
-    ...(j.config || {}),
+    // resolveConfig, not the raw config: an artifact predating a plant option
+    // must replay with that option's PRE-EXISTING behavior, not today's
+    // default. Spreading the raw config silently replayed history under the
+    // current servo, which is the exact failure this file exists to catch.
+    ...resolveConfig(j.config),
   });
   const want = !!j.verdict.success;
   const got = !!r.verdict.success;

@@ -2,3 +2,5 @@ description: "A 2D rigid body simulation of handstand technique: statics, dynami
 tags:
   - physics
   - simulation
+hideFromIndex: true
+hideFromSearch: true
