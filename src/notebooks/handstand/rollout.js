@@ -453,7 +453,7 @@ export function encodeDecision(knots, T) {
 export const COST_WEIGHTS = {
   pose: 1, poseAngles: 2, velocity: 0.3, fall: 1,
   effort: 0.08, saturation: 2, rom: 4, romPeak: 0.5, quasiStatic: 0,
-  liftoff: 8, feet: 5, replant: 25, tuckPhase: 6, work: 1, smooth: 1,
+  liftoff: 8, feet: 5, replant: 25, tuckPhase: 6, arrival: 8, work: 1, smooth: 1,
   settleCalm: 1, driveRate: 0.3,
 };
 
@@ -494,6 +494,19 @@ export const TUCK_PHASE = {
   overHandM: 0.05,       // and the centre of mass this near the palm target
   cap: 25,               // a hopeless run is not worth more than this
 };
+
+// A handstand is arrived at, not thrown into. Peak foot speed over the last
+// quarter of an entry, hinged at a speed both the kick-up and the press come
+// in under (1.78 and 1.74 m/s), so this charges nothing until a technique
+// slings its legs up harder than either of them does.
+//
+// It has to be charged explicitly because the slingshot is CHEAP: throwing
+// the legs at the vertical carries the body there on their angular momentum
+// and spares the shoulder, and given a free choice of duration the search
+// kept an entry at 1.68 s and brought the feet in at 3.3 m/s even when
+// allowed 3.2 s to spread it over.
+export const ARRIVAL_FOOT_SPEED = 2.0;
+export const ARRIVAL_WINDOW_FRAC = 0.25;
 
 // How far a toe has to rise before it counts as having left the floor. A
 // foot that has left may not come back.
@@ -675,6 +688,32 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   liftoff /= rec.t.length;
   replant /= rec.t.length;
 
+  // Peak foot speed over the closing quarter of the entry, computed from the
+  // state rather than by differencing recorded positions. Differencing reads
+  // whatever the recording stride smoothed it down to -- it saw 3.1 m/s where
+  // the body was doing 3.9 -- and the answer would then depend on the
+  // timestep, which is not something a cost term is allowed to do.
+  let arrival = 0;
+  {
+    const from = T * (1 - ARRIVAL_WINDOW_FRAC);
+    let peak = 0;
+    for (let k = 0; k < rec.t.length; k++) {
+      if (rec.t[k] < from || rec.t[k] > T) continue;
+      fk(model, rec.q[k], rec.qd[k], ws);
+      for (const c of [2, 3]) {
+        const cpt = model.contacts[c];
+        if (!cpt) continue;
+        const b = cpt.body;
+        const cth = Math.cos(ws.th[b]), sth = Math.sin(ws.th[b]);
+        const rx = cth * cpt.x - sth * cpt.y, ry = sth * cpt.x + cth * cpt.y;
+        const v = Math.hypot(ws.vx[b] - ws.om[b] * ry, ws.vy[b] + ws.om[b] * rx);
+        if (v > peak) peak = v;
+      }
+    }
+    const over = Math.max(0, peak - ARRIVAL_FOOT_SPEED) / ARRIVAL_FOOT_SPEED;
+    arrival = over * over;
+  }
+
   // The closest this trajectory ever came to a fully inverted tuck, over the
   // frames where it was actually off its feet.
   let tuckMiss = 0;
@@ -807,6 +846,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     feet: (weights.feet || 0) * feet,
     replant: (weights.replant || 0) * replant,
     tuckPhase: (weights.tuckPhase || 0) * tuckMiss,
+    arrival: (weights.arrival || 0) * arrival,
   };
   let cost = 0;
   for (const v of Object.values(terms)) cost += v;
