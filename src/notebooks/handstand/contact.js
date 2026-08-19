@@ -66,7 +66,10 @@ export function computeContactForces(model, ws, q, qd, contacts, commit = true) 
     const vy = ws.vy[b] + ws.om[b] * rx;
     ext.px[k] = px; ext.py[k] = py;
 
-    const d = -py;
+    // Contact points may carry a radius: a limb resting on the floor is a
+    // capsule touching it, not an axis lying in it. Points without one
+    // (the palm and toes, which are the support) behave exactly as before.
+    const d = (cpt.r || 0) - py;
     if (d <= 0) {
       ext.fx[k] = 0; ext.fy[k] = 0;
       if (commit) contacts.active[k] = 0;

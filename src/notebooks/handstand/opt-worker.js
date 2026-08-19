@@ -3,7 +3,7 @@
 // with new Worker(new URL('./opt-worker.js', import.meta.url), {type:'module'}).
 
 import { buildModel } from './anthropometry.js';
-import { createWorkspace, fk } from './dynamics.js';
+import { createWorkspace } from './dynamics.js';
 import { strengthProfile } from './strength.js';
 import { ROM_DEFAULTS } from './statics.js';
 import { optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision } from './rollout.js';
@@ -31,32 +31,8 @@ self.onmessage = async (e) => {
         if (!rec?.q?.length) return;
         const stride = Math.max(1, Math.round(rec.q.length / GHOST_FRAMES));
         const frames = [];
-        // Also the frame where the body first reaches the floor. The model
-        // has contacts under the palms and toes only, so a toppled body has
-        // nothing to land on and keeps going down; a viewer that plays past
-        // this point shows a person hanging through the ground. Freeze there
-        // instead -- it is the moment the attempt ended anyway.
-        let landed = -1;
-        const scratch = new Float64Array(model.nq);
-        for (let k = 0; k < rec.q.length; k += stride) {
-          const row = rec.q[k];
-          frames.push(Array.from(row));
-          if (landed >= 0) continue;
-          for (let i = 0; i < model.nq; i++) scratch[i] = row[i];
-          fk(model, scratch, null, ws);
-          let minY = Infinity;
-          for (let b = 0; b < model.nb; b++) {
-            const cth = Math.cos(ws.th[b]), sth = Math.sin(ws.th[b]);
-            for (const poly of model.outline[b]) {
-              for (const g of poly) {
-                const y = ws.py[b] + sth * g[0] + cth * g[1];
-                if (y < minY) minY = y;
-              }
-            }
-          }
-          if (minY < -0.02) landed = frames.length - 1;
-        }
-        genPoses.push({ frames, landed, cost: c.cost, success: !!c.verdict?.success });
+        for (let k = 0; k < rec.q.length; k += stride) frames.push(Array.from(rec.q[k]));
+        genPoses.push({ frames, cost: c.cost, success: !!c.verdict?.success });
       },
       scenario: msg.scenario,
       seed: msg.seed ?? 7,

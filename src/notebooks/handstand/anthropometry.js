@@ -184,12 +184,33 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
       [[0, 0], [Lth, 0]],
       [[0, 0], [toeX, 0]],
     ],
-    // Unilateral ground-contact points in body frames.
+    // Unilateral ground-contact points in body frames. The first four are
+    // the support -- palm heel, finger pads, both toes -- and carry no
+    // radius, because the model balances on them and a radius would lift the
+    // whole body off the floor.
+    //
+    // The rest are the body colliding with the ground. Without them a
+    // toppled figure has nothing to land on and sinks straight through the
+    // floor, which reads as a rendering fault rather than a fall. Each
+    // carries the radius of the limb around it, so a fallen body comes to
+    // rest ON the floor at its own thickness. They only ever engage after a
+    // fall, so they change no verdict; they change what a fall looks like.
     contacts: [
       { body: 0, x: patchHeelX, y: -hw, name: 'palmHeel' },
       { body: 0, x: patchTipX, y: -hw, name: 'fingertips' },
       { body: 4, x: toeX, y: 0, name: 'toeL' },
       { body: 6, x: toeX, y: 0, name: 'toeR' },
+      { body: 1, x: Lfa, y: 0, r: 0.030 * H, name: 'elbow' },
+      { body: 2, x: -Lhn * 0.72, y: 0, r: 0.055 * H, name: 'head' },
+      { body: 2, x: 0, y: 0, r: 0.070 * H, name: 'shoulder' },
+      { body: 2, x: 0.5 * Ltr, y: 0, r: 0.050 * H, name: 'midTrunk' },
+      { body: 2, x: Ltr, y: 0, r: 0.060 * H, name: 'hip' },
+      { body: 3, x: 0.5 * Lth, y: 0, r: 0.048 * H, name: 'thighL' },
+      { body: 5, x: 0.5 * Lth, y: 0, r: 0.048 * H, name: 'thighR' },
+      { body: 3, x: Lth, y: 0, r: 0.032 * H, name: 'kneeL' },
+      { body: 5, x: Lth, y: 0, r: 0.032 * H, name: 'kneeR' },
+      { body: 4, x: 0.45 * Lsh, y: 0, r: 0.032 * H, name: 'shankL' },
+      { body: 6, x: 0.45 * Lsh, y: 0, r: 0.032 * H, name: 'shankR' },
     ],
     // Closed body outlines for rendering only; see silhouette.js.
     outline: buildSilhouette({
