@@ -222,15 +222,25 @@ export function drawScene(ctx, opts) {
   // asked for more torque than it has, dashed for one outside its range of
   // motion. jointMarks maps a joint index (3..8) to 'strength' or 'rom'.
   if (opts.jointMarks) {
-    const red = isDark ? 'rgba(255, 105, 97, 0.95)' : 'rgba(192, 57, 43, 0.95)';
+    const red = isDark ? 'rgba(255, 96, 88, 1)' : 'rgba(198, 40, 30, 1)';
+    const halo = isDark ? 'rgba(255, 96, 88, 0.26)' : 'rgba(198, 40, 30, 0.20)';
     for (const [key, kind] of Object.entries(opts.jointMarks)) {
       const b = (+key) - 2;
       if (!(b >= 0 && b < model.nb)) continue;
-      ctx.strokeStyle = red;
-      ctx.lineWidth = Math.max(2, 0.009 * scale);
-      ctx.setLineDash(kind === 'rom' ? [Math.max(3, 0.012 * scale), Math.max(3, 0.010 * scale)] : []);
+      const cx = toX(ws.px[b]), cy = toY(ws.py[b]);
+      const r = Math.max(11, 0.055 * scale);
+      // Filled halo under the ring: at this size a stroke alone disappears
+      // against a body that is itself outlined.
+      ctx.fillStyle = halo;
       ctx.beginPath();
-      ctx.arc(toX(ws.px[b]), toY(ws.py[b]), Math.max(7, 0.034 * scale), 0, TAU);
+      ctx.arc(cx, cy, r, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = red;
+      ctx.lineWidth = Math.max(3, 0.017 * scale);
+      ctx.setLineDash(kind === 'rom' ? [Math.max(5, 0.028 * scale), Math.max(4, 0.020 * scale)] : []);
+      ctx.lineCap = 'butt';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, TAU);
       ctx.stroke();
       ctx.setLineDash([]);
     }
