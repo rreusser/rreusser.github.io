@@ -382,8 +382,25 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // optimizer to jump instead.
   let tFall = NaN, peakComY = -Infinity;
   const Tend = rec.t[rec.t.length - 1];
+  // Anything but the hands and the feet touching the ground has ended the
+  // attempt, and this test has to come first. The centre-of-mass test alone
+  // asks the body to have sunk 0.3 H below its own peak: true when a toppled
+  // body fell through the floor, false once the body has contacts to land
+  // on, because resting on your head holds the centre of mass around 0.55 m
+  // and never trips it. The optimizer found that immediately -- a whole
+  // generation face-planting onto the head and scoring as though it had not
+  // fallen at all.
+  const bodyContact0 = model.contacts.findIndex((c) => c.r > 0);
   for (let k = 0; k < rec.t.length; k++) {
     peakComY = Math.max(peakComY, rec.com[k][1]);
+    const f = rec.forces[k];
+    if (bodyContact0 >= 0 && f) {
+      let down = false;
+      for (let i = bodyContact0; i < f.fy.length; i++) {
+        if (f.fy[i] > 20) { down = true; break; }
+      }
+      if (down) { tFall = rec.t[k]; break; }
+    }
     if (rec.com[k][1] < peakComY - 0.3 * H && rec.com[k][1] < 0.75 * comYbal) {
       tFall = rec.t[k];
       break;

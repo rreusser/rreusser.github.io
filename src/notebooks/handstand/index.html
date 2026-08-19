@@ -70,16 +70,24 @@
     // table puts 41.8 percent of body mass in the legs against 39.7, and in
     // a handstand the legs are the far end of the lever.
     const sex = bctrl(Inputs.select(['male', 'female'], { label: 'Segment proportions', value: 'male' }));
-    // Kept as an element as well as a value: the press corridor mirrors this
-    // slider next to the map, and Inputs.bind binds elements.
-    const strengthInput = Inputs.range([0.4, 2], { label: 'Strength scale', value: 1, step: 0.05 });
-    const strengthScale = bctrl(strengthInput);
+    // Shoulder strength in the units the rest of the notebook argues in:
+    // maximum voluntary isometric torque per kilogram of body mass. It was a
+    // unitless "strength scale" multiplying the whole profile, which put an
+    // arbitrary factor in front of numbers that are already dimensional and
+    // made the thresholds -- 1.6 for a kick-up, 2.2 and 2.8 for a press --
+    // unreadable off the control. Kept as an element as well as a value
+    // because the press corridor mirrors it and Inputs.bind binds elements.
+    const strengthInput = Inputs.range([0.8, 3.2], {
+      label: 'Shoulder strength (Nm/kg)',
+      value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05,
+    });
+    const shoulderNmPerKg = bctrl(strengthInput);
     display(bodyControls);
   </script>
   <script id="model" type="text/x-typescript">
     const model = buildModel({ heightM, massKg, straddleDeg, sex });
     const ws = createWorkspace(model);
-    const strengthProf = strengthProfile(model.massKg, { scale: strengthScale });
+    const strengthProf = strengthProfile(model.massKg, { overrides: { shoulder: { t0Vol: shoulderNmPerKg } } });
   </script>
   <script id="pose-state" type="text/x-typescript">
     // Stable mutable state shared by the controls, the render loop, and the
@@ -314,7 +322,7 @@
         box.appendChild(input);
       };
       mirror([0, 120], { label: 'Straddle (deg)', step: 5 }, straddleInput);
-      mirror([0.4, 2], { label: 'Strength scale', step: 0.05 }, strengthInput);
+      mirror([0.8, 3.2], { label: 'Shoulder strength (Nm/kg)', step: 0.05 }, strengthInput);
       mirror([80, 150], { label: 'Wrist extension max', step: 1 }, inRomWrist);
       mirror([120, 185], { label: 'Shoulder flexion max', step: 1 }, inRomShoulder);
       mirror([40, 130], { label: 'Hip flexion max, straight knee', step: 1 }, inRomHip);
@@ -358,7 +366,7 @@
   </script>
   <script id="press-corridor" type="text/x-typescript">
     const corridorView = (() => {
-      const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, strengthScale]);
+      const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, shoulderNmPerKg]);
       if (poseState.corridorCache.key !== cacheKey) {
         // Sampling shoulders below zero costs a band of cells that fail for a
         // reason that has nothing to do with pressing: the shoulder simply does
@@ -707,7 +715,7 @@
   <script id="opt-state" type="text/x-typescript">
     const optState = {
       worker: null, running: false, history: [],
-      latest: null, result: null, adopted: null,
+      latest: null, result: null, adopted: null, body: null,
       // The most recently finished generation, as candidate trajectories the
       // optimizer already simulated. ghostRev only ever increments, and the
       // playback loop compares it against what it is currently showing, so a
@@ -744,20 +752,20 @@
       const seedRun = PRESET_TRAJECTORIES[optScenario.value];
       const useSeed = optBody.value === 'seed' && seedRun;
       const strengthOpts = useSeed && seedRun.strength
-        ? { scale: strengthScale, overrides: seedRun.strength }
-        : { scale: strengthScale };
+        ? { overrides: seedRun.strength }
+        : { overrides: { shoulder: { t0Vol: shoulderNmPerKg } } };
       const romOverrides = useSeed && seedRun.rom ? seedRun.rom : poseState.rom;
       return { seedRun, strengthOpts, romOverrides };
     };
     const describeBody = () => {
       const { seedRun, strengthOpts, romOverrides } = resolveBody();
       if (!seedRun) { optBodyNote.textContent = 'No stored technique for this entry; the search starts cold.'; return; }
-      const sh = strengthOpts.overrides?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol;
+      const sh = strengthOpts.overrides?.shoulder?.t0Vol ?? shoulderNmPerKg;
       const ham = romOverrides.hipFlexStraightKneeMaxDeg;
       const seedSh = seedRun.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol;
       const seedHam = seedRun.rom?.hipFlexStraightKneeMaxDeg ?? ROM_DEFAULTS.hipFlexStraightKneeMaxDeg;
       const mismatch = Math.abs(sh - seedSh) > 1e-6 || Math.abs(ham - seedHam) > 1e-6;
-      optBodyNote.textContent = `Scoring against shoulder ${(sh * strengthOpts.scale).toFixed(2)} Nm/kg, `
+      optBodyNote.textContent = `Scoring against shoulder ${sh.toFixed(2)} Nm/kg, `
         + `hamstrings to ${ham.toFixed(0)}°. The stored technique was built for `
         + `${seedSh.toFixed(2)} Nm/kg and ${seedHam.toFixed(0)}°.`
         + (mismatch ? ' It will not stand up on this body, so the search starts from a fall.' : '');
@@ -805,7 +813,7 @@
             optState.ghostRev++;
           }
         } else if (data.type === 'done') {
-          optState.result = { ...data, scenario: optScenario.value };
+          optState.result = { ...data, scenario: optScenario.value, ...optState.body };
           optCleanup();
           optAdopt.disabled = false;
         }
@@ -821,6 +829,10 @@
       // scored against the body it was built for, which is what the Score
       // against control decides.
       const { seedRun, strengthOpts, romOverrides } = resolveBody();
+      // Carried onto the result so that adopting a run plays it back on the
+      // body it was optimised for. Without this, a press optimised at 2.8
+      // Nm/kg went to playback and collapsed on a 1.6 Nm/kg body.
+      optState.body = { strength: strengthOpts.overrides, rom: romOverrides };
       worker.postMessage({
         type: 'optimize',
         scenario: optScenario.value,
@@ -829,7 +841,13 @@
         x0: seedRun
           ? Array.from(encodeDecision(seedRun.knots.map((k) => Float64Array.from(k)), seedRun.T))
           : null,
-        sigma0: seedRun ? 0.1 : undefined,
+        // Measured, not guessed: perturbing a warm start by sigma in radians
+        // on every knot of every joint at once, the fraction of a 14-candidate
+        // generation that still reaches a handstand runs 0/14 at 0.10, 4/14 at
+        // 0.05, 12/14 at 0.02 and 14/14 at 0.01. At 0.10 the first generation
+        // wiped out the entire population and the search spent the rest of its
+        // budget choosing between falls.
+        sigma0: seedRun ? 0.02 : undefined,
         modelParams: { heightM, massKg, straddleDeg, sex },
         strengthOpts,
         romOverrides,
@@ -838,8 +856,17 @@
       optState.notify?.(optState);
     });
     optStop.addEventListener('click', () => {
+      // Stopping keeps the best technique found so far rather than throwing
+      // the search away. The progress message carries the incumbent's knots
+      // and duration, so there is always something to keep; it just has not
+      // been re-scored at the fine timestep the way a completed run is.
+      if (optState.latest) {
+        optState.result = {
+          ...optState.latest, scenario: optScenario.value, ...optState.body, stopped: true,
+        };
+        optAdopt.disabled = false;
+      }
       optCleanup();
-      optState.ghosts = null; optState.ghostRev++;
       optState.rev++; optState.notify?.(optState);
     });
     optAdopt.addEventListener('click', () => {
@@ -949,6 +976,10 @@
       if (optInfo.running) {
         const last = optInfo.history[optInfo.history.length - 1];
         statusText = `running: generation ${last.gen}, best cost ${last.best.toFixed(2)}`;
+      } else if (optInfo.result?.stopped) {
+        statusText = `stopped at generation ${optInfo.result.gen}, keeping the best so far `
+          + `(cost ${optInfo.result.best.toFixed(2)}, not re-scored at the fine timestep). `
+          + `Send it to playback to watch it.`;
       } else if (optInfo.result) {
         const v = optInfo.result.verdict;
         statusText = `done: cost ${optInfo.result.fineCost.toFixed(2)} at fine timestep, `
