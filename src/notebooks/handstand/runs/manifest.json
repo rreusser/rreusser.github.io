@@ -2,7 +2,7 @@
   "presets": {
     "lunge": "014-kick-rom-peak.json",
     "pike": "015-press-strong-flexible.json",
-    "tuck": "022-bent-leg-press-tuck.json"
+    "tuck": "023-bent-leg-press-eased.json"
   },
   "catch": "catch-window.json",
   "gallery": [
@@ -52,7 +52,11 @@
     },
     {
       "file": "022-bent-leg-press-tuck.json",
-      "label": "Bent-leg press at 2.0 Nm/kg: a hop off both feet into a fully inverted tuck, then the legs extend overhead together"
+      "label": "The same bent-leg press on a 2.0 Nm/kg shoulder: it reaches the tuck, but has no shoulder left to hold the rise while the legs come out, so it stays tucked to the vertical and throws them \u2014 3.1 m/s at the foot against 1.8 for the kick-up"
+    },
+    {
+      "file": "023-bent-leg-press-eased.json",
+      "label": "Bent-leg press at 2.8 Nm/kg: a hop off both feet into a fully inverted tuck, then the legs extend overhead under control"
     }
   ]
 }

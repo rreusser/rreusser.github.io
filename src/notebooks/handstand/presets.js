@@ -298,8 +298,8 @@ export const PRESET_TRAJECTORIES = {
   }
  },
  "tuck": {
-  "file": "022-bent-leg-press-tuck.json",
-  "label": "Bent-leg press at 2.0 Nm/kg: a hop off both feet into a fully inverted tuck, then the legs extend overhead together",
+  "file": "023-bent-leg-press-eased.json",
+  "label": "Bent-leg press at 2.8 Nm/kg: a hop off both feet into a fully inverted tuck, then the legs extend overhead under control",
   "scenario": "tuck",
   "rom": {
    "wristExtMaxDeg": 135,
@@ -316,7 +316,7 @@ export const PRESET_TRAJECTORIES = {
   },
   "strength": {
    "shoulder": {
-    "t0Vol": 2
+    "t0Vol": 2.8
    },
    "wrist": {
     "t0Vol": 0.85
@@ -364,64 +364,65 @@ export const PRESET_TRAJECTORIES = {
    "feet": 5,
    "replant": 25,
    "tuckPhase": 6,
+   "arrival": 8,
    "work": 1,
    "smooth": 1,
    "settleCalm": 1,
    "driveRate": 0.3
   },
   "seed": 7,
-  "T": 1.70231,
+  "T": 2.53327,
   "knots": [
    [
-    0.924935,
-    1.77643,
-    1.11694,
-    1.78547,
-    1.76445,
+    1.62512,
+    1.77673,
+    1.16228,
+    1.21597,
+    1.38955,
     1.52501
    ],
    [
-    0.660356,
-    0.114335,
-    0.112044,
-    0.59675,
-    0.179882,
+    0.247943,
+    0.137345,
+    0.613981,
+    0.417952,
+    0.271648,
     0
    ],
    [
-    2.09189,
-    1.87611,
-    2.07393,
-    2.12449,
-    2.36749,
+    2.28674,
+    1.2791,
+    2.05614,
+    2.27618,
+    1.79708,
     0
    ],
    [
-    -1.7297,
-    -0.543719,
-    -0.86853,
-    -2.27489,
-    -1.59513,
+    -1.64623,
+    -0.386025,
+    -1.11217,
+    -2.27529,
+    -1.98906,
     0
    ],
    [
-    2.09189,
-    1.87611,
-    2.07393,
-    2.12449,
-    2.36749,
+    2.28674,
+    1.2791,
+    2.05614,
+    2.27618,
+    1.79708,
     0
    ],
    [
-    -1.7297,
-    -0.543719,
-    -0.86853,
-    -2.27489,
-    -1.59513,
+    -1.64623,
+    -0.386025,
+    -1.11217,
+    -2.27529,
+    -1.98906,
     0
    ]
   ],
-  "recordedCost": 7.91364,
+  "recordedCost": 3.74079,
   "verdict": {
    "upright": true,
    "over": true,
@@ -429,8 +430,8 @@ export const PRESET_TRAJECTORIES = {
    "posed": true,
    "feetFree": true,
    "success": true,
-   "comX": 0.0621615,
-   "comY": 1.01345
+   "comX": 0.0800797,
+   "comY": 1.01344
   }
  }
 };
@@ -1992,7 +1993,7 @@ export const PRESET_GALLERY = [
  },
  {
   "file": "022-bent-leg-press-tuck.json",
-  "label": "Bent-leg press at 2.0 Nm/kg: a hop off both feet into a fully inverted tuck, then the legs extend overhead together",
+  "label": "The same bent-leg press on a 2.0 Nm/kg shoulder: it reaches the tuck, but has no shoulder left to hold the rise while the legs come out, so it stays tucked to the vertical and throws them — 3.1 m/s at the foot against 1.8 for the kick-up",
   "scenario": "tuck",
   "rom": {
    "wristExtMaxDeg": 135,
@@ -2124,6 +2125,143 @@ export const PRESET_GALLERY = [
    "success": true,
    "comX": 0.0621615,
    "comY": 1.01345
+  }
+ },
+ {
+  "file": "023-bent-leg-press-eased.json",
+  "label": "Bent-leg press at 2.8 Nm/kg: a hop off both feet into a fully inverted tuck, then the legs extend overhead under control",
+  "scenario": "tuck",
+  "rom": {
+   "wristExtMaxDeg": 135,
+   "wristExtMinDeg": 70,
+   "shoulderFlexMaxDeg": 180,
+   "shoulderHyperDeg": 5,
+   "shoulderCloseMaxDeg": 110,
+   "hipFlexStraightKneeMaxDeg": 85,
+   "hamstringCouplingPerDeg": 0.6,
+   "hipFlexAbsMaxDeg": 140,
+   "hipExtMaxDeg": 20,
+   "kneeFlexMaxDeg": 145,
+   "kneeHyperextDeg": 3
+  },
+  "strength": {
+   "shoulder": {
+    "t0Vol": 2.8
+   },
+   "wrist": {
+    "t0Vol": 0.85
+   }
+  },
+  "config": {
+   "kp": 800,
+   "kd": 60,
+   "kCom": 2000,
+   "dCom": 1500,
+   "activationTau": 0.05,
+   "mu": 1,
+   "contactZeta": 1,
+   "integrator": "si",
+   "tuckLoadFrac": 0.35,
+   "tuckKneeDeg": 90,
+   "dampingRatio": 1,
+   "brakeMargin": 0.8,
+   "inertiaHz": 200,
+   "dampingSpeed": 0.5,
+   "romStopDeg": 5,
+   "romStopZeta": 0.7
+  },
+  "numerics": {
+   "dt": 0.0002,
+   "settleT": 2.5
+  },
+  "body": {
+   "heightM": 1.75,
+   "massKg": 70,
+   "straddleDeg": 0,
+   "sex": "male"
+  },
+  "weights": {
+   "pose": 1,
+   "poseAngles": 2,
+   "velocity": 0.3,
+   "fall": 1,
+   "effort": 0.08,
+   "saturation": 2,
+   "rom": 4,
+   "romPeak": 0.5,
+   "quasiStatic": 0,
+   "liftoff": 8,
+   "feet": 5,
+   "replant": 25,
+   "tuckPhase": 6,
+   "arrival": 8,
+   "work": 1,
+   "smooth": 1,
+   "settleCalm": 1,
+   "driveRate": 0.3
+  },
+  "seed": 7,
+  "T": 2.53327,
+  "knots": [
+   [
+    1.62512,
+    1.77673,
+    1.16228,
+    1.21597,
+    1.38955,
+    1.52501
+   ],
+   [
+    0.247943,
+    0.137345,
+    0.613981,
+    0.417952,
+    0.271648,
+    0
+   ],
+   [
+    2.28674,
+    1.2791,
+    2.05614,
+    2.27618,
+    1.79708,
+    0
+   ],
+   [
+    -1.64623,
+    -0.386025,
+    -1.11217,
+    -2.27529,
+    -1.98906,
+    0
+   ],
+   [
+    2.28674,
+    1.2791,
+    2.05614,
+    2.27618,
+    1.79708,
+    0
+   ],
+   [
+    -1.64623,
+    -0.386025,
+    -1.11217,
+    -2.27529,
+    -1.98906,
+    0
+   ]
+  ],
+  "recordedCost": 3.74079,
+  "verdict": {
+   "upright": true,
+   "over": true,
+   "still": true,
+   "posed": true,
+   "feetFree": true,
+   "success": true,
+   "comX": 0.0800797,
+   "comY": 1.01344
   }
  }
 ];
