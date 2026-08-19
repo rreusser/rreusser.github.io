@@ -599,7 +599,7 @@
     const scenarioNames = {
       hold: 'Hold a handstand',
       ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up' } : {}),
-      ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (2.2 Nm/kg shoulder)' } : {}),
+      ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (2.0 Nm/kg shoulder)' } : {}),
       ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press, straight legs (needs 2.8 Nm/kg)' } : {}),
       live: 'Latest optimizer result',
     };
@@ -1232,7 +1232,7 @@
 
     - The kick-up goes at a shoulder rated 1.6 Nm/kg with average hamstrings. The straight-leg press on that same body collapses, and still collapses at 2.2; at 2.8 it works.
     - Hamstring flexibility does not decide whether the press happens, only what it costs. At 2.8 Nm/kg, hamstrings reaching 125 degrees score 1.03 against 2.53 for an ordinary 85 degree fold: the same skill for two and a half times less.
-    - Bending the legs and hopping off them is worth about 0.6 Nm/kg: the bent-leg press goes at 2.2 where the straight-leg press needs 2.8. The search keeps finding entries down to 1.8, but below 2.2 they stop holding their verdict across the timestep range.
+    - Hopping off both legs into a fully inverted tuck is worth about 0.8 Nm/kg: the bent-leg press goes at 2.0 where the straight-leg press needs 2.8. The tuck itself is nearly free — hips over the hands with the knees at the chest holds at 23 Nm and is limited by the wrist, like a straight handstand. What costs is any version that rises through a tucked planche instead, at 132 Nm.
 
     The model is a two dimensional cartoon: merged arms, locked elbows, one rigid segment from shoulder to hip, no lateral balance, penalty friction, torque servos rather than muscles and tendons, and a search that finds good technique rather than best technique. Read the numbers as mechanisms and thresholds, not prescriptions.
   </script>

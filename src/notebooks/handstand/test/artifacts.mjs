@@ -112,7 +112,7 @@ for (const g of manifest.gallery) {
 // inverted between dt = 5e-4 and 1e-3. Hunt-Crossley damping fixed it; this
 // stops it coming back.
 const CANONICAL = ['014-kick-rom-peak.json', '015-press-strong-flexible.json',
-  '016-press-strong-stiff.json', '021-bent-leg-press-hop.json'];
+  '016-press-strong-stiff.json', '022-bent-leg-press-tuck.json'];
 for (const file of CANONICAL) {
   const j = JSON.parse(readFileSync(join(runsDir, file), 'utf8'));
   const prof = strengthProfile(model.massKg, j.strength ? { overrides: j.strength.overrides || j.strength } : {});

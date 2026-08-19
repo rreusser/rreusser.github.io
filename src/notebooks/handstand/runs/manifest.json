@@ -2,7 +2,7 @@
   "presets": {
     "lunge": "014-kick-rom-peak.json",
     "pike": "015-press-strong-flexible.json",
-    "tuck": "021-bent-leg-press-hop.json"
+    "tuck": "022-bent-leg-press-tuck.json"
   },
   "catch": "catch-window.json",
   "gallery": [
@@ -48,7 +48,11 @@
     },
     {
       "file": "021-bent-leg-press-hop.json",
-      "label": "Bent-leg press at 2.2 Nm/kg: a hop off both bent legs into the inverted shape, then the legs extend overhead together"
+      "label": "Bent-leg press before the shape was scored: it hops, but rises through a tucked planche with one leg straight and the other folded, which is cheap and is not the skill"
+    },
+    {
+      "file": "022-bent-leg-press-tuck.json",
+      "label": "Bent-leg press at 2.0 Nm/kg: a hop off both feet into a fully inverted tuck, then the legs extend overhead together"
     }
   ]
 }
