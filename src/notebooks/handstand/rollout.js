@@ -252,7 +252,11 @@ export function resolveConfig(config) {
 // the hamstring coupling with the knee remains a cost-side constraint.
 export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null } = {}) {
   const jointLo = rom
-    ? [wristQ3LimitsDeg(rom).lo * D2R, -rom.shoulderHyperDeg * D2R,
+    ? [wristQ3LimitsDeg(rom).lo * D2R,
+      // The same bound the passive end-stop enforces: a shoulder that only
+      // opens to 150 degrees must not have knots asking for 180, or the
+      // mobility setting is a fine rather than a limit.
+      Math.max(180 - rom.shoulderFlexMaxDeg, -rom.shoulderHyperDeg) * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R]
     : [20 * D2R, -15 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R];
@@ -287,7 +291,7 @@ export function encodeDecision(knots, T) {
 export const COST_WEIGHTS = {
   pose: 1, poseAngles: 2, velocity: 0.3, fall: 1,
   effort: 0.08, saturation: 2, rom: 4, romPeak: 0.5, quasiStatic: 0,
-  liftoff: 8, feet: 5, work: 1, smooth: 1,
+  liftoff: 8, feet: 5, replant: 25, work: 1, smooth: 1,
   settleCalm: 1, driveRate: 0.3,
 };
 
@@ -308,6 +312,10 @@ export const SETTLE_DRIVE_RATE_SCALE = 4;
 // against this scale (rad/s^2). A purposeful kick swing (0 to ~8 rad/s in
 // ~0.2 s) sits near 1 on this scale; flailing reversals sit far above it.
 export const SMOOTH_ACCEL_SCALE = 60;
+
+// How long the feet must be continuously clear of the floor before putting
+// them back down counts as replanting rather than as the push-off itself.
+export const FOOT_CLEAR_S = 0.25;
 
 // Where "working hard" becomes "living at the cap", and how much that costs.
 // The saturation term used to hinge at 0.95 on the raw utilization, so a
@@ -437,16 +445,31 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   const settleStart = Tend - Math.min(0.5, 0.5 * settleT);
   const W = mo.mass * model.gravity;
   let angErr = 0, nAng = 0, liftoff = 0, feet = 0;
+  // Foot contact is a prefix of an entry, never something to come back to.
+  // A press unweights its feet and leaves them; a kick-up pushes off once
+  // and leaves them. Both start with the toes at floor level, so the state
+  // machine below starts ON the floor and only calls the feet gone after
+  // FOOT_CLEAR_S of continuous clearance -- a push-off inside that window
+  // is the momentum a bent-leg press is entitled to, and is not charged.
+  //
+  // Without this the bent-leg press had a cheaper option than pressing:
+  // hold a tucked frog stand for a second and a half, settle the feet back
+  // down onto the floor, and jump. Nothing else in the score noticed,
+  // because the feet term only ever looked at the settle tail.
+  let replant = 0, footClear = 0, feetGone = false;
   for (let k = 0; k < rec.t.length; k++) {
     const f = rec.forces[k];
     if (f) {
       const handF = f.fy[0] + f.fy[1];
       const def = Math.max(0, 0.1 * W - handF) / (0.1 * W);
       liftoff += def * def;
-      if (rec.t[k] >= settleStart) {
-        const footF = (f.fy[2] || 0) + (f.fy[3] || 0);
-        feet += (footF / (0.2 * W)) ** 2;
-      }
+      const footF = (f.fy[2] || 0) + (f.fy[3] || 0);
+      if (feetGone) replant += (footF / (0.2 * W)) ** 2;
+      else if (footF < 0.02 * W) {
+        footClear += k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
+        if (footClear >= FOOT_CLEAR_S) feetGone = true;
+      } else footClear = 0;
+      if (rec.t[k] >= settleStart) feet += (footF / (0.2 * W)) ** 2;
     }
     if (rec.t[k] >= settleStart) {
       let s = 0;
@@ -459,6 +482,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     }
   }
   liftoff /= rec.t.length;
+  replant /= rec.t.length;
   if (nAng > 0) { angErr /= nAng; feet /= nAng; }
 
   let effort = 0, sat = 0, romP = 0, romPk = 0, peakKE = 0;
@@ -568,6 +592,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     quasiStatic: weights.quasiStatic ? weights.quasiStatic * peakKE * peakKE : 0,
     liftoff: (weights.liftoff || 0) * liftoff,
     feet: (weights.feet || 0) * feet,
+    replant: (weights.replant || 0) * replant,
   };
   let cost = 0;
   for (const v of Object.values(terms)) cost += v;
