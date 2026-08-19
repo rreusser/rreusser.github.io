@@ -26,8 +26,12 @@ export function createContacts(model, {
   const kT = kN * kTangentialFrac;
   const bT = 2 * zeta * Math.sqrt(kT * mEff);
   const n = model.contacts.length;
+  // Penetration-proportional damping coefficient, matched to bN at the
+  // design penetration: kN * d * hcLambda * (-vy) equals bN * (-vy) when
+  // d = penetrationTarget.
+  const hcLambda = bN / (kN * penetrationTarget);
   return {
-    mu, kN, bN, kT, bT, n,
+    mu, kN, bN, hcLambda, kT, bT, n,
     anchor: new Float64Array(n),
     active: new Uint8Array(n),
     ext: {
@@ -54,7 +58,7 @@ export function resetContacts(contacts) {
 // friction anchors and activation flags advance exactly once per step.
 export function computeContactForces(model, ws, q, qd, contacts, commit = true) {
   fk(model, q, qd, ws);
-  const { mu, kN, bN, kT, bT, ext } = contacts;
+  const { mu, kN, kT, bT, ext, hcLambda } = contacts;
   for (let k = 0; k < contacts.n; k++) {
     const cpt = model.contacts[k];
     const b = cpt.body;
@@ -66,13 +70,28 @@ export function computeContactForces(model, ws, q, qd, contacts, commit = true) 
     const vy = ws.vy[b] + ws.om[b] * rx;
     ext.px[k] = px; ext.py[k] = py;
 
-    const d = -py;
+    // Contact points may carry a radius: a limb resting on the floor is a
+    // capsule touching it, not an axis lying in it. Points without one
+    // (the palm and toes, which are the support) behave exactly as before.
+    const d = (cpt.r || 0) - py;
     if (d <= 0) {
       ext.fx[k] = 0; ext.fy[k] = 0;
       if (commit) contacts.active[k] = 0;
       continue;
     }
-    let Fn = kN * d - bN * vy;
+    // Hunt-Crossley: the damping is proportional to penetration rather than
+    // constant, so it vanishes at touchdown instead of arriving as an
+    // impulse. lambda is set so the force matches the old constant-bN law at
+    // the design penetration, which leaves the loaded behaviour alone.
+    //
+    // The constant law was the reason results moved with the timestep. bN is
+    // sized for an effective mass of a quarter of the body, but it acts on
+    // the hand segment, which weighs 0.85 kg -- and explicit damping on 0.85
+    // kg is only stable below 2m/b = 0.49 ms. At dt = 1e-3 the palm contact
+    // went unstable in the first tenth of a second of a kick-up and threw the
+    // whole entry; at 5e-4 and below it was fine, which is why the published
+    // runs were right but only by a factor of two.
+    let Fn = kN * d * (1 + hcLambda * Math.max(-vy, -1 / Math.max(hcLambda, 1e-9)));
     if (Fn < 0) Fn = 0;
     let anchor = contacts.active[k] ? contacts.anchor[k] : px;
     if (commit && !contacts.active[k]) {

@@ -50,7 +50,7 @@
       solveWristForCom,
     } from './statics.js';
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
-    import { drawScene } from './render.js';
+    import { drawScene, drawGhosts } from './render.js';
     import {
       runScenario, balancedHandstand, resolveConfig, HANDSTAND_TARGET_FRAC, encodeDecision,
     } from './rollout.js';
@@ -70,16 +70,24 @@
     // table puts 41.8 percent of body mass in the legs against 39.7, and in
     // a handstand the legs are the far end of the lever.
     const sex = bctrl(Inputs.select(['male', 'female'], { label: 'Segment proportions', value: 'male' }));
-    // Kept as an element as well as a value: the press corridor mirrors this
-    // slider next to the map, and Inputs.bind binds elements.
-    const strengthInput = Inputs.range([0.4, 2], { label: 'Strength scale', value: 1, step: 0.05 });
-    const strengthScale = bctrl(strengthInput);
+    // Shoulder strength in the units the rest of the notebook argues in:
+    // maximum voluntary isometric torque per kilogram of body mass. It was a
+    // unitless "strength scale" multiplying the whole profile, which put an
+    // arbitrary factor in front of numbers that are already dimensional and
+    // made the thresholds -- 1.6 for a kick-up, 2.2 and 2.8 for a press --
+    // unreadable off the control. Kept as an element as well as a value
+    // because the press corridor mirrors it and Inputs.bind binds elements.
+    const strengthInput = Inputs.range([0.8, 3.2], {
+      label: 'Shoulder strength (Nm/kg)',
+      value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05,
+    });
+    const shoulderNmPerKg = bctrl(strengthInput);
     display(bodyControls);
   </script>
   <script id="model" type="text/x-typescript">
     const model = buildModel({ heightM, massKg, straddleDeg, sex });
     const ws = createWorkspace(model);
-    const strengthProf = strengthProfile(model.massKg, { scale: strengthScale });
+    const strengthProf = strengthProfile(model.massKg, { overrides: { shoulder: { t0Vol: shoulderNmPerKg } } });
   </script>
   <script id="pose-state" type="text/x-typescript">
     // Stable mutable state shared by the controls, the render loop, and the
@@ -314,7 +322,7 @@
         box.appendChild(input);
       };
       mirror([0, 120], { label: 'Straddle (deg)', step: 5 }, straddleInput);
-      mirror([0.4, 2], { label: 'Strength scale', step: 0.05 }, strengthInput);
+      mirror([0.8, 3.2], { label: 'Shoulder strength (Nm/kg)', step: 0.05 }, strengthInput);
       mirror([80, 150], { label: 'Wrist extension max', step: 1 }, inRomWrist);
       mirror([120, 185], { label: 'Shoulder flexion max', step: 1 }, inRomShoulder);
       mirror([40, 130], { label: 'Hip flexion max, straight knee', step: 1 }, inRomHip);
@@ -358,7 +366,7 @@
   </script>
   <script id="press-corridor" type="text/x-typescript">
     const corridorView = (() => {
-      const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, strengthScale]);
+      const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, shoulderNmPerKg]);
       if (poseState.corridorCache.key !== cacheKey) {
         // Sampling shoulders below zero costs a band of cells that fail for a
         // reason that has nothing to do with pressing: the shoulder simply does
@@ -510,11 +518,13 @@
     // run. The press is deliberately labelled with the shoulder it needs,
     // because picking it quietly swaps in a stronger body than the default.
     const canonical = new Set(
-      [PRESET_TRAJECTORIES.lunge?.file, PRESET_TRAJECTORIES.pike?.file].filter(Boolean));
+      [PRESET_TRAJECTORIES.lunge?.file, PRESET_TRAJECTORIES.tuck?.file, PRESET_TRAJECTORIES.pike?.file]
+        .filter(Boolean));
     const scenarioNames = {
       hold: 'Hold a handstand',
       ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up' } : {}),
-      ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press (needs a 2.8 Nm/kg shoulder)' } : {}),
+      ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (1.7 Nm/kg shoulder)' } : {}),
+      ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press, straight legs (needs 2.8 Nm/kg)' } : {}),
       ...Object.fromEntries(PRESET_GALLERY
         .map((g, i) => [`gallery-${i}`, `[run] ${g.label}`])
         .filter((_, i) => !canonical.has(PRESET_GALLERY[i].file))),
@@ -550,6 +560,7 @@
         config = resolveConfig(p.config);
       };
       if (sel === 'lunge-opt') fromPreset(PRESET_TRAJECTORIES.lunge);
+      else if (sel === 'tuck-opt') fromPreset(PRESET_TRAJECTORIES.tuck);
       else if (sel === 'pike-opt') fromPreset(PRESET_TRAJECTORIES.pike);
       else if (sel.startsWith('gallery-')) fromPreset(PRESET_GALLERY[+sel.slice(8)]);
       else if (sel === 'live') {
@@ -656,6 +667,7 @@
 
       const canvas = playStack.elements.sim;
       const ctx = canvas.getContext('2d');
+      const view = { cx: 0.15, yLo: -0.18, yHi: 2.3 };
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
       drawScene(ctx, {
@@ -664,7 +676,7 @@
         theme: playState.theme,
         segmentColors, forces, copX,
         comTrail: rec.com.slice(0, k + 1),
-        view: { cx: 0.15, yLo: -0.18, yHi: 2.3 },
+        view,
       });
       ctx.restore();
 
@@ -706,22 +718,150 @@
   <script id="opt-state" type="text/x-typescript">
     const optState = {
       worker: null, running: false, history: [],
-      latest: null, result: null, adopted: null,
+      latest: null, result: null, adopted: null, body: null, poolSize: null,
+      // The most recently finished generation, as candidate trajectories the
+      // optimizer already simulated. ghostRev only ever increments, and the
+      // playback loop compares it against what it is currently showing, so a
+      // new generation is picked up at a loop boundary rather than mid-swing.
+      ghosts: null, ghostRev: 0,
       rev: 0, notify: null,
     };
   </script>
   <script id="opt-controls-cell" type="text/x-typescript">
     const optControls = html`<div class="opt-controls"></div>`;
-    const optScenarioNames = { lunge: 'Kick-up (from lunge)', pike: 'Press (from pike)' };
-    const optScenario = Inputs.select(Object.keys(optScenarioNames), { label: 'Optimize', format: (v) => optScenarioNames[v] });
+    const optScenarioNames = {
+      lunge: 'Kick-up (from lunge)',
+      tuck: 'Bent-leg press (from a tucked fold)',
+      pike: 'Press (from pike)',
+    };
     const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
     const optSeed = Inputs.range([1, 99], { label: 'Seed', value: 7, step: 1 });
-    optControls.append(optScenario, optGens, optSeed);
+    // The body the search scores against, set here rather than inherited
+    // from sliders in another section. Choosing a seed FILLS THESE IN with
+    // the body that seed was built for; editing them afterwards is the whole
+    // point, because a technique only survives being walked onto a weaker
+    // body in small steps. One jump lands in a basin where every candidate
+    // falls; a sequence of small ones lets the technique adapt, which is how
+    // it starts paying for a weaker shoulder with more momentum off the floor.
+    const optShoulder = Inputs.range([0.8, 3.2], { label: 'Shoulder (Nm/kg)', value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05 });
+    const optHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', value: ROM_DEFAULTS.hipFlexStraightKneeMaxDeg, step: 1 });
+    // The two mobility limits an entry actually spends: how far the shoulder
+    // opens overhead, and how far the wrist extends before the body is out
+    // over its fingertips. Both bound the reference knots directly, so
+    // lowering one takes technique away from the search rather than merely
+    // charging it a penalty afterwards.
+    const optRomShoulder = Inputs.range([120, 185], { label: 'Shoulder flexion max (deg)', value: ROM_DEFAULTS.shoulderFlexMaxDeg, step: 1 });
+    const optRomWrist = Inputs.range([80, 150], { label: 'Wrist extension max (deg)', value: ROM_DEFAULTS.wristExtMaxDeg, step: 1 });
+    const optTHi = Inputs.range([1.0, 3.5], { label: 'Max entry duration (s)', value: 3.0, step: 0.1 });
+    const optBodyNote = html`<small style="display:block; opacity:.8; margin:2px 0 0;"></small>`;
+
+    // Every dimension of the body the search scores against, paired with the
+    // field it reads out of a seed's recorded body. One table drives both
+    // filling the inputs in from a seed and reporting how far they have since
+    // been moved away from it.
+    const BODY_FIELDS = [
+      { input: optShoulder, read: (r) => r.strength?.shoulder?.t0Vol, name: 'shoulder', unit: ' Nm/kg', digits: 2 },
+      { input: optHam, read: (r) => r.rom?.hipFlexStraightKneeMaxDeg, name: 'hamstrings', unit: '°', digits: 0 },
+      { input: optRomShoulder, read: (r) => r.rom?.shoulderFlexMaxDeg, name: 'shoulder flexion', unit: '°', digits: 0 },
+      { input: optRomWrist, read: (r) => r.rom?.wristExtMaxDeg, name: 'wrist extension', unit: '°', digits: 0 },
+    ];
+
+    // Seeds are the stored techniques plus anything saved from a run in this
+    // session. A saved case carries its own body and its own knots, so
+    // continuing from it resumes exactly where the last search stopped.
+    const savedCases = [];
+    const seedSlot = html`<div></div>`;
+    let seedOptions = [], seedInput = null;
+
+    const currentSeed = () => {
+      const o = seedOptions[seedInput ? +seedInput.value : 0];
+      if (!o) return null;
+      return o.kind === 'preset'
+        ? { scenario: o.key, run: PRESET_TRAJECTORIES[o.key], label: o.label }
+        : { scenario: savedCases[o.index].scenario, run: savedCases[o.index], label: o.label };
+    };
+    const applySeedBody = () => {
+      const run = currentSeed()?.run;
+      for (const f of (run ? BODY_FIELDS : [])) {
+        const v = f.read(run);
+        if (v === undefined) continue;
+        f.input.value = v;
+        f.input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      describeBody();
+    };
+    const rebuildSeeds = () => {
+      seedOptions = [
+        ...Object.keys(optScenarioNames).map((k) => ({ kind: 'preset', key: k, label: `stored ${optScenarioNames[k]}` })),
+        ...savedCases.map((c, i) => ({ kind: 'saved', index: i, label: `saved: ${c.label}` })),
+      ];
+      const keep = seedInput ? Math.min(+seedInput.value, seedOptions.length - 1) : 0;
+      seedInput = Inputs.select(seedOptions.map((_, i) => i), {
+        label: 'Start from', value: keep, format: (i) => seedOptions[i].label,
+      });
+      seedInput.addEventListener('input', applySeedBody);
+      seedSlot.replaceChildren(seedInput);
+    };
+
+    const resolveBody = () => {
+      const c = currentSeed();
+      return {
+        scenario: c?.scenario ?? 'lunge',
+        seedRun: c?.run ?? null,
+        strengthOpts: { overrides: { shoulder: { t0Vol: +optShoulder.value }, wrist: { t0Vol: 0.85 } } },
+        romOverrides: {
+          ...poseState.rom,
+          hipFlexStraightKneeMaxDeg: +optHam.value,
+          shoulderFlexMaxDeg: +optRomShoulder.value,
+          wristExtMaxDeg: +optRomWrist.value,
+        },
+        tHi: +optTHi.value,
+      };
+    };
+    const describeBody = () => {
+      const run = currentSeed()?.run;
+      const moved = [];
+      for (const f of (run ? BODY_FIELDS : [])) {
+        const seedV = f.read(run);
+        if (seedV === undefined) continue;
+        const d = +f.input.value - seedV;
+        if (Math.abs(d) > 1e-6) moved.push(`${f.name} ${d >= 0 ? '+' : ''}${d.toFixed(f.digits)}${f.unit}`);
+      }
+      optBodyNote.textContent = moved.length
+        ? `Continuing onto a different body: ${moved.join(', ')} from what this technique was built `
+          + `for. Small steps adapt; large ones start from a fall.`
+        : `Scoring against the body this technique was built for.`;
+    };
+
+    optControls.append(seedSlot, optShoulder, optHam, optRomShoulder, optRomWrist,
+      optTHi, optGens, optSeed, optBodyNote);
+    for (const f of BODY_FIELDS) f.input.addEventListener('input', describeBody);
+    optTHi.addEventListener('input', describeBody);
+    rebuildSeeds();
+    applySeedBody();
+
     const optRow = html`<div style="display:flex; gap:6px; align-items:center; margin-top:6px;"></div>`;
     const optRun = html`<button>Run optimization</button>`;
     const optStop = html`<button disabled>Stop</button>`;
     const optAdopt = html`<button disabled>Send result to playback</button>`;
-    optRow.append(optRun, optStop, optAdopt);
+    const optSave = html`<button disabled>Save as a starting point</button>`;
+    optRow.append(optRun, optStop, optAdopt, optSave);
+    // Saving a result puts it in the seed list with the body it was scored
+    // against, so a technique can be walked down in steps: save at 1.6, seed
+    // from it, drop the shoulder to 1.55, run, save again. Each step is a
+    // small one, which is the only way the technique survives.
+    optSave.addEventListener('click', () => {
+      const r = optState.result;
+      if (!r) return;
+      const sh = r.strength?.shoulder?.t0Vol ?? optShoulder.value;
+      savedCases.push({
+        label: `${r.scenario} @ ${(+sh).toFixed(2)} Nm/kg`
+          + (r.stopped ? ` (gen ${r.gen})` : '') + ` \u2014 cost ${(r.fineCost ?? r.best).toFixed(2)}`,
+        scenario: r.scenario, knots: r.knots, T: r.T, strength: r.strength, rom: r.rom,
+      });
+      rebuildSeeds();
+      optSave.disabled = true;
+    });
     optControls.appendChild(optRow);
 
     function optCleanup() {
@@ -740,6 +880,7 @@
       optRun.disabled = true;
       optStop.disabled = false;
       optAdopt.disabled = true;
+      optSave.disabled = true;
       const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
       optState.worker = worker;
       worker.onerror = (err) => {
@@ -749,43 +890,74 @@
         optState.notify?.(optState);
       };
       worker.onmessage = ({ data }) => {
-        if (data.type === 'progress') {
+        if (data.type === 'pool') {
+          optState.poolSize = data.size;
+        } else if (data.type === 'progress') {
           optState.history.push({ gen: data.gen, best: data.best });
           optState.latest = data;
+          if (data.generation?.length) {
+            optState.ghosts = { gen: data.gen, poses: data.generation };
+            optState.ghostRev++;
+          }
         } else if (data.type === 'done') {
-          optState.result = { ...data, scenario: optScenario.value };
+          optState.result = { ...data, ...optState.body };
           optCleanup();
           optAdopt.disabled = false;
+          optSave.disabled = false;
         }
         optState.rev++;
         optState.notify?.(optState);
       };
-      // Start from the canonical result for this skill rather than from the
-      // hand-written reference. A search from scratch does not find a kick-up
-      // on this body in any budget this button offers -- the canonical one
-      // exists because the strength and the entry duration were walked down in
-      // stages offline -- so starting cold produced a couple of hundred
-      // generations of slow improvement ending in a fall. Warm-started, the
-      // button does what it looks like it does: takes a technique that works
-      // and refines it for the body currently set in the sliders.
-      const seedRun = PRESET_TRAJECTORIES[optScenario.value];
+      // A search from scratch does not find an entry in any budget this
+      // button offers, so every run continues an existing technique. What
+      // makes it a continuation rather than a doomed transplant is that the
+      // body is set here and starts equal to the seed's own.
+      const resolved = resolveBody();
+      const { seedRun, strengthOpts, romOverrides } = resolved;
+      // Carried onto the result so that adopting or re-seeding a run uses the
+      // body it was optimised for. Without this, a press optimised at 2.8
+      // Nm/kg went to playback and collapsed on a 1.6 Nm/kg body.
+      optState.body = {
+        scenario: resolved.scenario, strength: strengthOpts.overrides, rom: romOverrides,
+      };
       worker.postMessage({
         type: 'optimize',
-        scenario: optScenario.value,
+        scenario: resolved.scenario,
         seed: optSeed.value,
         maxGen: optGens.value,
         x0: seedRun
           ? Array.from(encodeDecision(seedRun.knots.map((k) => Float64Array.from(k)), seedRun.T))
           : null,
-        sigma0: seedRun ? 0.1 : undefined,
+        // Measured, not guessed: perturbing a warm start by sigma in radians
+        // on every knot of every joint at once, the fraction of a 14-candidate
+        // generation that still reaches a handstand runs 0/14 at 0.10, 4/14 at
+        // 0.05, 12/14 at 0.02 and 14/14 at 0.01. At 0.10 the first generation
+        // wiped out the entire population and the search spent the rest of its
+        // budget choosing between falls.
+        sigma0: seedRun ? 0.02 : undefined,
+        tHi: resolved.tHi,
         modelParams: { heightM, massKg, straddleDeg, sex },
-        strengthOpts: { scale: strengthScale },
-        romOverrides: poseState.rom,
+        strengthOpts,
+        romOverrides,
       });
       optState.rev++;
       optState.notify?.(optState);
     });
-    optStop.addEventListener('click', () => { optCleanup(); optState.rev++; optState.notify?.(optState); });
+    optStop.addEventListener('click', () => {
+      // Stopping keeps the best technique found so far rather than throwing
+      // the search away. The progress message carries the incumbent's knots
+      // and duration, so there is always something to keep; it just has not
+      // been re-scored at the fine timestep the way a completed run is.
+      if (optState.latest) {
+        optState.result = {
+          ...optState.latest, ...optState.body, stopped: true,
+        };
+        optAdopt.disabled = false;
+        optSave.disabled = false;
+      }
+      optCleanup();
+      optState.rev++; optState.notify?.(optState);
+    });
     optAdopt.addEventListener('click', () => {
       if (!optState.result) return;
       optState.adopted = optState.result;
@@ -802,6 +974,82 @@
       return () => { if (optState.notify === notify) optState.notify = null; };
     });
   </script>
+  <script id="opt-preview" type="text/x-typescript">
+    // The generation the optimizer just finished, drawn where the optimizer
+    // is. Every one of these bodies is a candidate that was simulated and
+    // scored to produce the number on the chart below; none of them is a
+    // fresh rollout, and none is a projection of what the search might do.
+    // The cheapest member of the generation is the dark one.
+    const optPreview = (() => {
+      const W = Math.min(width, 640), H = 330;
+      // Room below the floor line: the model has contacts only under the palms
+      // and toes, so a candidate that topples has nothing to land on and
+      // keeps going. Showing that honestly beats cropping it out of frame.
+      const VIEW = { cx: 0.15, yLo: -0.55, yHi: 2.25 };
+      const canvas = html`<canvas style="width:${W}px; height:${H}px;"></canvas>`;
+      canvas.width = Math.round(W * devicePixelRatio);
+      canvas.height = Math.round(H * devicePixelRatio);
+      const note = html`<figcaption></figcaption>`;
+      const ctx = canvas.getContext('2d');
+
+      let theme = null;
+      const stopTheme = observeTheme((t) => { theme = t; });
+      invalidation.then(stopTheme);
+
+      // One pass of the loop is one generation. A newer generation is picked
+      // up when the pass ends, so what is on screen is always a single
+      // generation and always one that finished.
+      const LOOP_S = 3.2;
+      let shown = null, shownRev = -1, t0 = null;
+      const loop = createFrameLoop((now) => {
+        if (t0 === null) t0 = now;
+        let u = ((now - t0) / 1000) / LOOP_S;
+        if (u >= 1) {
+          t0 = now; u = 0;
+          if (optState.ghostRev !== shownRev) { shown = optState.ghosts; shownRev = optState.ghostRev; }
+        }
+        if (!shown && optState.ghostRev !== shownRev) {
+          shown = optState.ghosts; shownRev = optState.ghostRev;
+        }
+        ctx.save();
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+        ctx.clearRect(0, 0, W, H);
+        // Floor, so the fallen candidates read as fallen.
+        const floorY = H - (0 - VIEW.yLo) * (H / (VIEW.yHi - VIEW.yLo));
+        const fg = theme?.foreground || [0.11, 0.12, 0.14];
+        const rgb = fg.map((v) => Math.round(v * 255)).join(',');
+        ctx.fillStyle = `rgba(${rgb},0.05)`;
+        ctx.fillRect(0, floorY, W, H - floorY);
+        ctx.strokeStyle = `rgba(${rgb},0.45)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(W, floorY); ctx.stroke();
+        const poses = shown?.poses;
+        if (poses?.length) {
+          drawGhosts(ctx, {
+            model, ws, width: W, height: H, theme,
+            view: VIEW,
+            alpha: 0.16,
+            poses: poses.map((p, i) => ({
+              q: p.frames[Math.min(p.frames.length - 1, Math.round(u * (p.frames.length - 1)))],
+              weight: i === 0 ? 2.6 : 1,
+            })),
+          });
+          const failed = poses.filter((p) => !p.success).length;
+          note.textContent = `Generation ${shown.gen}: ${poses.length} candidates, `
+            + `${poses.length - failed} reaching a handstand, ${failed} falling. `
+            + `Best cost ${poses[0].cost.toFixed(2)}. The dark figure is the best of them.`;
+        } else {
+          note.textContent = optState.running
+            ? 'Waiting for the first generation to finish.'
+            : 'Run the optimizer to watch a generation of candidates at once.';
+        }
+        ctx.restore();
+      });
+      invalidation.then(() => loop.cancel());
+      return html`<figure>${canvas}${note}</figure>`;
+    })();
+    display(optPreview);
+  </script>
   <script id="opt-progress" type="text/x-typescript">
     const optProgress = (() => {
       if (!optInfo.history.length) {
@@ -816,7 +1064,12 @@
       let statusText;
       if (optInfo.running) {
         const last = optInfo.history[optInfo.history.length - 1];
-        statusText = `running: generation ${last.gen}, best cost ${last.best.toFixed(2)}`;
+        statusText = `running: generation ${last.gen}, best cost ${last.best.toFixed(2)}`
+          + (optInfo.poolSize ? `, evaluating on ${optInfo.poolSize} worker${optInfo.poolSize > 1 ? 's' : ''}` : '');
+      } else if (optInfo.result?.stopped) {
+        statusText = `stopped at generation ${optInfo.result.gen}, keeping the best so far `
+          + `(cost ${optInfo.result.best.toFixed(2)}, not re-scored at the fine timestep). `
+          + `Send it to playback to watch it.`;
       } else if (optInfo.result) {
         const v = optInfo.result.verdict;
         statusText = `done: cost ${optInfo.result.fineCost.toFixed(2)} at fine timestep, `

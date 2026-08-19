@@ -40,9 +40,21 @@ if (+(process.env.PARALLEL ?? '0') !== 1) {
   const { createEvalPool } = await import('./pool.mjs');
   pool = createEvalPool({
     scenario, K: optOpts.K || 6, dt: optOpts.dt || 2.5e-4,
-    weights, romOverrides, strengthOpts, robust: optOpts.robust,
+    weights, romOverrides, strengthOpts, robust: optOpts.robust, variants: optOpts.variants,
   }, process.env.PARALLEL ? +process.env.PARALLEL : undefined);
-  console.log(`evaluating on ${pool.size} worker threads`);
+  // Round the population up to a whole number of worker-rounds. A generation
+  // costs ceil(lambda / size) evaluations of wall time whatever lambda is, so
+  // the candidates that fill the last partial round are free: with 8 workers,
+  // lambda 14 and lambda 16 both take two rounds, and the extra two samples
+  // are two more chances to find the basin. Explicit LAMBDA wins.
+  const lamDefault = 4 + Math.floor(3 * Math.log(6 * (optOpts.K || 6) + 1));
+  if (!optOpts.lambda) {
+    optOpts.lambda = process.env.LAMBDA
+      ? +process.env.LAMBDA
+      : pool.size * Math.ceil(lamDefault / pool.size);
+  }
+  console.log(`evaluating on ${pool.size} worker threads, lambda ${optOpts.lambda}`
+    + ` (${Math.ceil(optOpts.lambda / pool.size)} rounds/generation)`);
 }
 
 let lastPrint = 0;

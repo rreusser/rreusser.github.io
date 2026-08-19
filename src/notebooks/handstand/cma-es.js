@@ -163,7 +163,12 @@ export async function cmaes({
     if (!Number.isFinite(sigma) || sigma > 1e6) sigma = sigma0;
 
     if (onGeneration) {
-      const go = onGeneration({ gen, best, bestX, sigma, meanF: pop[Math.floor(mu / 2)].f, evals });
+      // pop is sorted best-first here, so a caller that wants to draw the
+      // whole generation gets it ranked without re-sorting.
+      const go = onGeneration({
+        gen, best, bestX, sigma, meanF: pop[Math.floor(mu / 2)].f, evals,
+        population: pop.map((p) => ({ x: p.x, f: p.f })),
+      });
       if (go === false) break;
     }
   }

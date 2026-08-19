@@ -6,7 +6,11 @@ import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function createEvalPool(cfg, size = Math.max(1, Math.min(10, cpus().length - 2))) {
+// Default pool size. The useful ceiling is the CMA-ES population, not the
+// core count: with lambda evaluations per generation and round-robin
+// chunking, 7 workers and 12 workers finish a 14-candidate generation in
+// exactly the same two rounds. Leave one core for the main thread.
+export function createEvalPool(cfg, size = Math.max(1, Math.min(16, cpus().length - 1))) {
   const script = join(dirname(fileURLToPath(import.meta.url)), 'eval-worker.mjs');
   const workers = Array.from({ length: size }, () => new Worker(script, { workerData: cfg }));
   let nextId = 0;

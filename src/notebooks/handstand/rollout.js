@@ -99,6 +99,11 @@ function clearFeet(model, ws, q, minY = 5e-4) {
 // toes actually reach the floor. A stiffer person therefore starts with
 // feet further from the hands and less weight over the palms, which is
 // exactly how limited flexibility taxes an entry in reality.
+// Knee bend that defines the bent-leg press. Deep enough that the hamstring
+// coupling opens a real amount of extra hip fold, shallow enough to still be
+// a press rather than a tuck-up.
+export const TUCK_KNEE_DEG = 90;
+
 export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
   const q = new Float64Array(model.nq);
   groundHand(model, q);
@@ -115,6 +120,35 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       // used, which is the honest starting handicap of a stiff body.
       q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, 0), 130) * D2R;
       q[6] = q[8] = 0;
+      const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+      const comAt = (sh) => {
+        q[4] = sh;
+        solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+        return momenta(model, q, zeroQd9, ws).comX - q[0];
+      };
+      let lo = 55 * D2R, hi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
+      if (comAt(lo) > targetX) comAt(lo);
+      else if (comAt(hi) < targetX) comAt(hi);
+      else {
+        for (let i = 0; i < 40; i++) {
+          const mid = 0.5 * (lo + hi);
+          if (comAt(mid) < targetX) lo = mid; else hi = mid;
+        }
+        comAt(0.5 * (lo + hi));
+      }
+      clampPose(q, rom);
+      clearFeet(model, ws, q);
+      return { q0: q, qd0: null };
+    }
+    case 'tuck': {
+      // Bent-leg press start. Bending the knees buys hip flexion through the
+      // hamstring coupling -- 90 degrees of knee bend takes the straight-knee
+      // 85 degree fold to 139 -- so the body starts folded much deeper, with
+      // the shins tucked back and the toes still down. Everything else is the
+      // pike start: solve the shoulder lean that puts the centre of mass over
+      // the palm target, with the wrist following.
+      q[6] = q[8] = -TUCK_KNEE_DEG * D2R;
+      q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, TUCK_KNEE_DEG), 140) * D2R;
       const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
       const comAt = (sh) => {
         q[4] = sh;
@@ -218,7 +252,11 @@ export function resolveConfig(config) {
 // the hamstring coupling with the knee remains a cost-side constraint.
 export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null } = {}) {
   const jointLo = rom
-    ? [wristQ3LimitsDeg(rom).lo * D2R, -rom.shoulderHyperDeg * D2R,
+    ? [wristQ3LimitsDeg(rom).lo * D2R,
+      // The same bound the passive end-stop enforces: a shoulder that only
+      // opens to 150 degrees must not have knots asking for 180, or the
+      // mobility setting is a fine rather than a limit.
+      Math.max(180 - rom.shoulderFlexMaxDeg, -rom.shoulderHyperDeg) * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R]
     : [20 * D2R, -15 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R];
@@ -253,7 +291,7 @@ export function encodeDecision(knots, T) {
 export const COST_WEIGHTS = {
   pose: 1, poseAngles: 2, velocity: 0.3, fall: 1,
   effort: 0.08, saturation: 2, rom: 4, romPeak: 0.5, quasiStatic: 0,
-  liftoff: 8, feet: 5, work: 1, smooth: 1,
+  liftoff: 8, feet: 5, replant: 25, work: 1, smooth: 1,
   settleCalm: 1, driveRate: 0.3,
 };
 
@@ -274,6 +312,10 @@ export const SETTLE_DRIVE_RATE_SCALE = 4;
 // against this scale (rad/s^2). A purposeful kick swing (0 to ~8 rad/s in
 // ~0.2 s) sits near 1 on this scale; flailing reversals sit far above it.
 export const SMOOTH_ACCEL_SCALE = 60;
+
+// How long the feet must be continuously clear of the floor before putting
+// them back down counts as replanting rather than as the push-off itself.
+export const FOOT_CLEAR_S = 0.25;
 
 // Where "working hard" becomes "living at the cap", and how much that costs.
 // The saturation term used to hinge at 0.95 on the raw utilization, so a
@@ -315,6 +357,9 @@ export const WORK_EFFICIENCY = { concentric: 0.25, eccentric: 1.2 };
 export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   K = 6, dt = 5e-4, settleT = 2.5, weights = COST_WEIGHTS,
   qdJitter = 0, jitterSeed = 1, integrator = 'si',
+  // Plant knobs a robustness variant may perturb. They default to the
+  // current plant, so scoring a candidate without variants is unchanged.
+  contactZeta = SERVO_DEFAULTS.contactZeta, mu = SERVO_DEFAULTS.mu,
   pinFinal = true,
 } = {}) {
   const { knots, T } = decodeDecision(x, K);
@@ -328,6 +373,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   }
   const r = runScenario(model, ws, strengthProf, {
     scenario, knots, T, settleT, dt, integrator, qdJitter, jitterSeed, rom,
+    contactZeta, mu,
     recordEvery: Math.max(1, Math.round(1 / (120 * dt))),
   });
   const rec = r.rec;
@@ -348,8 +394,25 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // optimizer to jump instead.
   let tFall = NaN, peakComY = -Infinity;
   const Tend = rec.t[rec.t.length - 1];
+  // Anything but the hands and the feet touching the ground has ended the
+  // attempt, and this test has to come first. The centre-of-mass test alone
+  // asks the body to have sunk 0.3 H below its own peak: true when a toppled
+  // body fell through the floor, false once the body has contacts to land
+  // on, because resting on your head holds the centre of mass around 0.55 m
+  // and never trips it. The optimizer found that immediately -- a whole
+  // generation face-planting onto the head and scoring as though it had not
+  // fallen at all.
+  const bodyContact0 = model.contacts.findIndex((c) => c.r > 0);
   for (let k = 0; k < rec.t.length; k++) {
     peakComY = Math.max(peakComY, rec.com[k][1]);
+    const f = rec.forces[k];
+    if (bodyContact0 >= 0 && f) {
+      let down = false;
+      for (let i = bodyContact0; i < f.fy.length; i++) {
+        if (f.fy[i] > 20) { down = true; break; }
+      }
+      if (down) { tFall = rec.t[k]; break; }
+    }
     if (rec.com[k][1] < peakComY - 0.3 * H && rec.com[k][1] < 0.75 * comYbal) {
       tFall = rec.t[k];
       break;
@@ -382,16 +445,31 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   const settleStart = Tend - Math.min(0.5, 0.5 * settleT);
   const W = mo.mass * model.gravity;
   let angErr = 0, nAng = 0, liftoff = 0, feet = 0;
+  // Foot contact is a prefix of an entry, never something to come back to.
+  // A press unweights its feet and leaves them; a kick-up pushes off once
+  // and leaves them. Both start with the toes at floor level, so the state
+  // machine below starts ON the floor and only calls the feet gone after
+  // FOOT_CLEAR_S of continuous clearance -- a push-off inside that window
+  // is the momentum a bent-leg press is entitled to, and is not charged.
+  //
+  // Without this the bent-leg press had a cheaper option than pressing:
+  // hold a tucked frog stand for a second and a half, settle the feet back
+  // down onto the floor, and jump. Nothing else in the score noticed,
+  // because the feet term only ever looked at the settle tail.
+  let replant = 0, footClear = 0, feetGone = false;
   for (let k = 0; k < rec.t.length; k++) {
     const f = rec.forces[k];
     if (f) {
       const handF = f.fy[0] + f.fy[1];
       const def = Math.max(0, 0.1 * W - handF) / (0.1 * W);
       liftoff += def * def;
-      if (rec.t[k] >= settleStart) {
-        const footF = (f.fy[2] || 0) + (f.fy[3] || 0);
-        feet += (footF / (0.2 * W)) ** 2;
-      }
+      const footF = (f.fy[2] || 0) + (f.fy[3] || 0);
+      if (feetGone) replant += (footF / (0.2 * W)) ** 2;
+      else if (footF < 0.02 * W) {
+        footClear += k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
+        if (footClear >= FOOT_CLEAR_S) feetGone = true;
+      } else footClear = 0;
+      if (rec.t[k] >= settleStart) feet += (footF / (0.2 * W)) ** 2;
     }
     if (rec.t[k] >= settleStart) {
       let s = 0;
@@ -404,6 +482,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     }
   }
   liftoff /= rec.t.length;
+  replant /= rec.t.length;
   if (nAng > 0) { angErr /= nAng; feet /= nAng; }
 
   let effort = 0, sat = 0, romP = 0, romPk = 0, peakKE = 0;
@@ -513,6 +592,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     quasiStatic: weights.quasiStatic ? weights.quasiStatic * peakKE * peakKE : 0,
     liftoff: (weights.liftoff || 0) * liftoff,
     feet: (weights.feet || 0) * feet,
+    replant: (weights.replant || 0) * replant,
   };
   let cost = 0;
   for (const v of Object.values(terms)) cost += v;
@@ -520,6 +600,10 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     cost, terms, verdict: r.verdict, T, tFall,
     peakUtil: Array.from(peakUtil),
     workJ: { positive: posWork, negative: negWork, metabNormalized: metabWork },
+    // The recording this scoring pass already made. Kept on the result so a
+    // live view can draw the candidate that was actually evaluated rather
+    // than re-simulating it; scoring never reads it back.
+    rec,
   };
 }
 
@@ -589,6 +673,47 @@ export function pressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   return { knots: rows, q0, target };
 }
 
+// Bent-leg press initial guess: the press reference with the knees carried
+// bent and straightened over the second half, so the legs arrive extended.
+export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
+  const { q0 } = scenarioStart(model, ws, 'tuck', rom);
+  const target = balancedHandstand(model, ws);
+  const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+  const rows = Array.from({ length: 6 }, () => new Float64Array(K));
+  const scratch = new Float64Array(model.nq);
+  let lastWrist = q0[3];
+  const openFrac = (u) => (u <= 0.28 ? 0 : (u - 0.28) / 0.72);
+  // Knees stay bent through the weight shift and the first of the lift, then
+  // extend: straightening early throws the leg mass away from the hands
+  // exactly when the hips are least able to hold it.
+  const kneeFrac = (u) => (u <= 0.45 ? 0 : (u - 0.45) / 0.55);
+  for (let k = 0; k < K; k++) {
+    const u = k / (K - 1);
+    const hip = q0[5] * (1 - openFrac(u));
+    const sh = q0[4] * (1 - openFrac(u));
+    const knee = q0[6] * (1 - kneeFrac(u));
+    let wrist;
+    if (k === 0) {
+      wrist = q0[3];
+    } else {
+      scratch.fill(0);
+      groundHand(model, scratch);
+      scratch[4] = sh;
+      scratch[5] = scratch[7] = hip;
+      scratch[6] = scratch[8] = knee;
+      const w = solveWristForCom(model, scratch, ws, targetX);
+      wrist = Number.isNaN(w) ? lastWrist : w;
+    }
+    lastWrist = wrist;
+    rows[0][k] = wrist;
+    rows[1][k] = sh;
+    rows[2][k] = hip; rows[4][k] = hip;
+    rows[3][k] = knee; rows[5][k] = knee;
+  }
+  rows[0][K - 1] = target[3];
+  return { knots: rows, q0, target };
+}
+
 // Kick-up initial guess with the real phase structure: lean onto the hands
 // while the swing leg sweeps hard overhead, extend the stance leg to push
 // off, join the legs above, and hand the catch to the balance servo. The
@@ -621,21 +746,23 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
 
 // Optimize a scenario's knots with CMA-ES. Deterministic under seed. With
 // robust (the default) each candidate is scored as the worst case over
-// ROBUST_VARIANTS; the reported finalCheck is an independent fine-timestep
-// nominal evaluation.
+// ROBUST_VARIANTS, or over an explicit variants list; the reported
+// finalCheck is an independent fine-timestep nominal evaluation.
 export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
   dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null,
-  tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true,
+  tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
   trustRadius = 0,
-  onGeneration = null, objectiveBatch = null,
+  onGeneration = null, onCandidate = null, objectiveBatch = null,
 } = {}) {
   const start = x0 || (() => {
     const ref = scenario === 'pike'
       ? pressReference(model, ws, K, rom)
-      : scenario === 'lunge'
-        ? kickReference(model, ws, K, rom)
-        : naiveReference(model, ws, scenario, K, rom);
+      : scenario === 'tuck'
+        ? tuckPressReference(model, ws, K, rom)
+        : scenario === 'lunge'
+          ? kickReference(model, ws, K, rom)
+          : naiveReference(model, ws, scenario, K, rom);
     return encodeDecision(ref.knots, Math.min(Math.max(t0, tLo), tHi));
   })();
   const bounds = decisionBounds(K, { tLo, tHi, rom });
@@ -654,17 +781,28 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     bounds.hi[start.length - 1] = Math.min(bounds.hi[start.length - 1], start[start.length - 1] + 0.25);
   }
   const costFn = robust ? robustRolloutCost : rolloutCost;
+  // Every candidate is simulated to be scored, and rolloutCost already
+  // records the trajectory. onCandidate hands that recording to the caller
+  // instead of dropping it, which is what lets a live view draw a whole
+  // generation without simulating anything twice.
+  const costOpts = { K, dt, weights, ...(variants ? { variants } : {}) };
+  const scored = onCandidate
+    ? (x) => {
+      const c = costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
+      onCandidate(x, c);
+      return c;
+    }
+    : (x) => costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
   const result = await cmaes({
     x0: start, sigma0, seed, maxGen, lambda, bounds,
-    objective: objectiveBatch ? null
-      : (x) => costFn(model, ws, strengthProf, rom, scenario, x, { K, dt, weights }).cost,
+    objective: objectiveBatch ? null : (x) => scored(x).cost,
     objectiveBatch,
     onGeneration,
   });
   // The start is itself a candidate; CMA-ES samples around it but never
   // evaluates it, so on a hard landscape a small budget can end worse than
   // where it began. Never return worse than the start.
-  const startCost = costFn(model, ws, strengthProf, rom, scenario, start, { K, dt, weights }).cost;
+  const startCost = costFn(model, ws, strengthProf, rom, scenario, start, costOpts).cost;
   if (startCost < result.best) {
     result.best = startCost;
     result.bestX = start;
