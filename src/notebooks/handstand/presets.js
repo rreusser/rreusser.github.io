@@ -69,6 +69,8 @@ export const PRESET_TRAJECTORIES = {
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -212,6 +214,8 @@ export const PRESET_TRAJECTORIES = {
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -336,6 +340,8 @@ export const PRESET_TRAJECTORIES = {
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -486,6 +492,8 @@ export const PRESET_GALLERY = [
    "contactZeta": 1,
    "integrator": "si"
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -625,6 +633,8 @@ export const PRESET_GALLERY = [
    "contactZeta": 1,
    "integrator": "si"
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 6,
@@ -770,6 +780,8 @@ export const PRESET_GALLERY = [
    "inertiaHz": 200,
    "dampingSpeed": 0.5
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -917,6 +929,8 @@ export const PRESET_GALLERY = [
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -1060,6 +1074,8 @@ export const PRESET_GALLERY = [
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -1208,6 +1224,8 @@ export const PRESET_GALLERY = [
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -1351,6 +1369,8 @@ export const PRESET_GALLERY = [
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -1494,6 +1514,8 @@ export const PRESET_GALLERY = [
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -1637,6 +1659,8 @@ export const PRESET_GALLERY = [
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -1747,6 +1771,8 @@ export const PRESET_GALLERY = [
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,
@@ -1871,6 +1897,8 @@ export const PRESET_GALLERY = [
    "romStopDeg": 5,
    "romStopZeta": 0.7
   },
+  "numerics": null,
+  "body": null,
   "weights": {
    "pose": 1,
    "poseAngles": 2,

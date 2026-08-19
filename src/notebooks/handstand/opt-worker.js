@@ -8,7 +8,7 @@ import { strengthProfile } from './strength.js';
 import { ROM_DEFAULTS } from './statics.js';
 import {
   optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision, plantFor,
-  balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS,
+  balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS, NUMERICS_DEFAULTS,
 } from './rollout.js';
 
 // A pool of nested evaluation workers, so a generation is spread across
@@ -22,16 +22,24 @@ async function createPool(cfg, size) {
     for (let i = 0; i < size; i++) {
       workers.push(new Worker(new URL('./opt-eval-worker.js', import.meta.url), { type: 'module' }));
     }
+    // The setup handshake has to be inside the fallback too, not only the
+    // construction. A nested worker that constructs and then fails to start
+    // rejected out of an async message handler, which surfaces on the page as
+    // an error event with no message at all and no search running -- the
+    // worst of both, an unreadable failure AND a fatal one.
+    await Promise.all(workers.map((w) => new Promise((resolve, reject) => {
+      const onMsg = (e) => { if (e.data?.type === 'ready') { w.removeEventListener('message', onMsg); resolve(); } };
+      w.addEventListener('message', onMsg);
+      w.addEventListener('error', (ev) => reject(new Error(
+        `nested eval worker failed: ${ev.message || 'no message'} (${ev.filename || '?'}:${ev.lineno ?? '?'})`)),
+      { once: true });
+      w.postMessage({ type: 'setup', cfg });
+    })));
   } catch (err) {
     for (const w of workers) w.terminate();
+    self.postMessage({ type: 'pool-failed', message: String(err?.message || err) });
     return null;
   }
-  await Promise.all(workers.map((w) => new Promise((resolve, reject) => {
-    const onMsg = (e) => { if (e.data?.type === 'ready') { w.removeEventListener('message', onMsg); resolve(); } };
-    w.addEventListener('message', onMsg);
-    w.addEventListener('error', reject, { once: true });
-    w.postMessage({ type: 'setup', cfg });
-  })));
   let nextId = 0;
   const send = (w, xs, wantFrames) => new Promise((resolve, reject) => {
     const id = nextId++;
@@ -73,8 +81,27 @@ function setup(msg) {
   return { model, ws, prof, rom };
 }
 
+// Everything below runs inside an async message handler, so a throw becomes
+// an unhandled rejection rather than an exception -- which reaches the page
+// as an error event whose message is undefined. Report failures as data
+// instead, with the stack, so the page can say what went wrong.
+self.addEventListener('unhandledrejection', (ev) => {
+  self.postMessage({
+    type: 'failed',
+    message: String(ev.reason?.message || ev.reason || 'unhandled rejection'),
+    stack: String(ev.reason?.stack || ''),
+  });
+});
+
 self.onmessage = async (e) => {
-  const msg = e.data;
+  try {
+    await handle(e.data);
+  } catch (err) {
+    self.postMessage({ type: 'failed', message: String(err?.message || err), stack: String(err?.stack || '') });
+  }
+};
+
+async function handle(msg) {
   if (msg.type === 'optimize') {
     const { model, ws, prof, rom } = setup(msg);
     // Candidates of the generation being evaluated right now, as the
@@ -135,10 +162,15 @@ self.onmessage = async (e) => {
             type: 'progress', gen: g.gen, maxGen: msg.maxGen ?? 150,
             best: g.best, sigma: g.sigma,
             T: dec.T, knots: dec.knots.map((k) => Array.from(k)),
-            // The plant the search is running on, so a run that is stopped
-            // rather than finished is still replayable on the machine that
+            // The machine the search is running on, so a run that is stopped
+            // rather than finished is still replayable on the one that
             // produced it.
             plant: plantFor({}),
+            numerics: { ...NUMERICS_DEFAULTS },
+            body: {
+              heightM: model.heightM, massKg: model.massKg,
+              straddleDeg: model.straddleDeg, sex: model.sex,
+            },
             generation: poses,
           });
         }
@@ -153,9 +185,11 @@ self.onmessage = async (e) => {
       knots: result.decoded.knots.map((k) => Array.from(k)),
       verdict: result.finalCheck.verdict, terms: result.finalCheck.terms,
       fineCost: result.finalCheck.cost,
-      // The plant the search ran on, so a result adopted into playback is
-      // replayed on the machine that produced it.
+      // The machine the search ran on, so a result adopted into playback or
+      // saved as a starting point is replayed on the one that produced it.
       plant: result.plant,
+      numerics: result.numerics,
+      body: result.body,
     });
     pool?.destroy();
   } else if (msg.type === 'catchWindow') {
@@ -170,4 +204,4 @@ self.onmessage = async (e) => {
       success: Array.from(grid.success), nTheta: grid.nTheta, nOmega: grid.nOmega,
     });
   }
-};
+}

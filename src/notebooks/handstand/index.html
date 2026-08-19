@@ -50,8 +50,8 @@
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
     import { drawScene, drawGhosts } from './render.js';
     import {
-      runScenario, balancedHandstand, resolveConfig, resolveRom, HANDSTAND_TARGET_FRAC,
-      encodeDecision,
+      runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
+      resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
     } from './rollout.js';
     import { PRESET_TRAJECTORIES } from './presets.js';
   </script>
@@ -541,6 +541,53 @@
 
     Joints are driven by servo torques tracking a reference trajectory, capped by a Yeadon-King torque-velocity envelope and a fifty millisecond activation lag, so torque cannot step. Range of motion is enforced by passive end-stops built like the ground contacts one dimension down, and the servo reads its damping off the mass matrix, because these six joints span an effective inertia of two hundred to one.
   </script>
+  <script id="replay-stored" type="text/x-typescript">
+    // The ONE way to replay a stored run, whether it is a registered
+    // artifact, a case saved this session, or the result the optimizer just
+    // produced. Everything about the machine comes from the run itself --
+    // strength, anatomy, plant -- and the integration is left at its default,
+    // which is what makes two replays of the same run the same run.
+    //
+    // There used to be two of these. Playback replayed at the default
+    // timestep over a 2.5 s settle; the optimizer's seed preview replayed the
+    // same knots at 5e-4 over 1.2 s to save a few milliseconds. So a
+    // technique could succeed in the search, appear to fall as a saved
+    // starting point, and succeed again in playback -- three answers for one
+    // trajectory, none of them wrong on its own.
+    // A run also records the BODY it was produced on and the integration a
+    // replay should use. Neither is a plant setting, so recording the plant
+    // alone did not make a run reproducible -- and the body matters most of
+    // all: a technique optimized for a 1.9 m frame replayed against whatever
+    // the sliders happened to say.
+    const replayModels = new Map();
+    const modelFor = (body) => {
+      if (!body || !Object.keys(body).length) return { model, ws };
+      const key = JSON.stringify(body);
+      if (!replayModels.has(key)) {
+        const m = buildModel(body);
+        replayModels.set(key, { model: m, ws: createWorkspace(m) });
+      }
+      return replayModels.get(key);
+    };
+    const storedRun = {
+      machine: (p) => modelFor(resolveRunBody(p.body)),
+      profile: (p) => (p.strength
+        ? strengthProfile(storedRun.machine(p).model.massKg, { overrides: p.strength })
+        : strengthProf),
+      args: (p) => ({
+        scenario: p.scenario,
+        knots: p.knots.map((k) => Float64Array.from(k)),
+        T: p.T,
+        rom: resolveRom(p.rom),
+        ...resolvePlant(p.config),
+        ...resolveNumerics(p.numerics),
+      }),
+      run: (p) => {
+        const m = storedRun.machine(p);
+        return { ...runScenario(m.model, m.ws, storedRun.profile(p), storedRun.args(p)), ...m };
+      },
+    };
+  </script>
   <script id="sim-controls-cell" type="text/x-typescript">
     const simControls = html`<div class="sim-controls"></div>`;
     // One entry per skill, named plainly, plus whatever the optimizer last
@@ -572,18 +619,12 @@
   <script id="sim-run" type="text/x-typescript">
     const simResult = (() => {
       const sel = scenario || 'hold';
-      let base = sel, knots = null, T = 1.2;
-      let prof = strengthProf, rom = { ...ROM_DEFAULTS }, config = {};
+      let base = sel, stored = null;
       // Artifacts replay under EXACTLY what they were made with: their
       // recorded strength, flexibility, and plant/controller config, never
       // the current sliders or defaults. History does not get rewritten.
       const fromPreset = (p) => {
-        base = p.scenario;
-        knots = p.knots.map((k) => Float64Array.from(k));
-        T = p.T;
-        if (p.strength) prof = strengthProfile(model.massKg, { overrides: p.strength });
-        rom = resolveRom(p.rom);
-        config = resolveConfig(p.config);
+        stored = p;
       };
       if (sel === 'lunge-opt') fromPreset(PRESET_TRAJECTORIES.lunge);
       else if (sel === 'tuck-opt') fromPreset(PRESET_TRAJECTORIES.tuck);
@@ -592,7 +633,12 @@
         if (optState.adopted) fromPreset(optState.adopted);
         else base = 'hold';
       }
-      return { ...runScenario(model, ws, prof, { scenario: base, knots, T, settleT: 2.5, rom, ...config }), prof };
+      if (stored) return { ...storedRun.run(stored), prof: storedRun.profile(stored) };
+      return {
+        ...runScenario(model, ws, strengthProf,
+          { scenario: base, T: 1.2, settleT: 2.5, rom: { ...ROM_DEFAULTS } }),
+        prof: strengthProf,
+      };
     })();
   </script>
   <script id="playback-state" type="text/x-typescript">
@@ -696,7 +742,10 @@
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
       drawScene(ctx, {
-        model, ws, q: Float64Array.from(q),
+        // The body the run was produced on, when it recorded one: drawing a
+        // 1.9 m technique with the page's 1.75 m model would be a picture of
+        // a movement nobody performed.
+        model: sim.model || model, ws: sim.ws || ws, q: Float64Array.from(q),
         width: playState.viewW, height: playState.viewH,
         theme: playState.theme,
         segmentColors, forces, copX,
@@ -835,19 +884,11 @@
       const run = c?.run;
       if (!run?.knots) return;
       try {
-        const r = runScenario(model, ws,
-          strengthProfile(model.massKg, { overrides: run.strength || {} }), {
-            scenario: c.scenario,
-            knots: run.knots.map((k) => Float64Array.from(k)),
-            T: run.T,
-            settleT: 1.2,
-            dt: 5e-4,
-            rom: resolveRom(run.rom),
-            ...resolveConfig(run.config),
-          });
+        const r = storedRun.run({ ...run, scenario: c.scenario });
         const n = r.rec.q.length;
         optState.ghosts = {
           seed: c.label,
+          model: r.model, ws: r.ws,
           poses: [{
             frames: Array.from({ length: GHOST_FRAMES },
               (_, i) => r.rec.q[Math.round(i * (n - 1) / (GHOST_FRAMES - 1))]),
@@ -932,7 +973,7 @@
         label: `${r.scenario} @ ${(+sh).toFixed(2)} Nm/kg`
           + (r.stopped ? ` (gen ${r.gen})` : '') + ` \u2014 cost ${(r.fineCost ?? r.best).toFixed(2)}`,
         scenario: r.scenario, knots: r.knots, T: r.T, strength: r.strength, rom: r.rom,
-        config: r.config,
+        config: r.config, numerics: r.numerics, body: r.body,
       });
       // Saving selects what was saved: the next run continues from here, on
       // the body this run was scored against, and the only thing left to do
@@ -961,8 +1002,9 @@
       optSave.disabled = true;
       const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
       optState.worker = worker;
-      worker.onerror = (err) => {
-        console.error('optimizer worker error', err.message);
+      const optFail = (what) => {
+        optState.error = what;
+        console.error('optimizer:', what);
         optCleanup();
         optState.rev++;
         optState.notify?.(optState);
@@ -983,7 +1025,10 @@
           // it. Without it, playback resolved an unrecorded plant to the
           // LEGACY one -- no braking, no inertia-scaled damping, no
           // end-stops, the old start pose -- and the run fell on its face.
-          optState.result = { ...data, ...optState.body, config: data.plant };
+          optState.result = {
+            ...data, ...optState.body,
+            config: data.plant, numerics: data.numerics, body: data.body,
+          };
           optCleanup();
           optAdopt.disabled = false;
           optSave.disabled = false;
@@ -1004,6 +1049,7 @@
       optState.body = {
         scenario: resolved.scenario, strength: strengthOpts.overrides, rom: romOverrides,
       };
+      optState.error = null;
       worker.postMessage({
         type: 'optimize',
         scenario: resolved.scenario,
@@ -1034,7 +1080,8 @@
       // been re-scored at the fine timestep the way a completed run is.
       if (optState.latest) {
         optState.result = {
-          ...optState.latest, ...optState.body, config: optState.latest.plant, stopped: true,
+          ...optState.latest, ...optState.body, config: optState.latest.plant,
+          numerics: optState.latest.numerics, body: optState.latest.body, stopped: true,
         };
         optAdopt.disabled = false;
         optSave.disabled = false;
@@ -1113,7 +1160,7 @@
         const poses = shown?.poses;
         if (poses?.length) {
           drawGhosts(ctx, {
-            model, ws, width: W, height: H, theme,
+            model: shown.model || model, ws: shown.ws || ws, width: W, height: H, theme,
             view: VIEW,
             // One figure wants to be solid; thirty overlaid want to be faint.
             alpha: shown.seed ? 0.34 : 0.16,

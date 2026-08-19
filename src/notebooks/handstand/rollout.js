@@ -340,6 +340,27 @@ export function resolvePlant(config) {
 // Kept as the old name so recorded artifacts and their readers keep working.
 export const resolveConfig = resolvePlant;
 
+// The rest of the machine: the integration a replay uses, and the body it is
+// run on. Neither is a plant setting, which is exactly why recording the
+// plant did not make a run reproducible -- a technique could succeed in the
+// search, appear to fall as a saved starting point, and succeed again in
+// playback, because two replay paths had chosen different timesteps.
+//
+// dt and settleT are the REPLAY numerics, not the search's: a search
+// deliberately integrates coarsely and a replay does not.
+export const NUMERICS_DEFAULTS = { dt: 2e-4, settleT: 2.5 };
+
+export function resolveNumerics(numerics) {
+  return { ...NUMERICS_DEFAULTS, ...(numerics || {}) };
+}
+
+// The body a run was produced on, read off the model rather than assembled,
+// and resolved on replay the way the plant is. Artifacts predating this field
+// were all made on the default body, which is what buildModel({}) gives.
+export function resolveBody(body) {
+  return { ...(body || {}) };
+}
+
 // The plant a rollout will run on given these options, without running one.
 // The single place PLANT_DEFAULTS is merged with overrides: runScenario uses
 // it to build the plant it reports, and anything that has to name a plant
@@ -748,6 +769,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   for (const v of Object.values(terms)) cost += v;
   return {
     cost, terms, verdict: r.verdict, T, tFall, plant: r.plant,
+    numerics: r.numerics, body: r.body,
     peakUtil: Array.from(peakUtil),
     workJ: { positive: posWork, negative: negWork, metabNormalized: metabWork },
     // The recording this scoring pass already made. Kept on the result so a
@@ -990,7 +1012,13 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
   const qBal = balancedHandstand(model, ws);
   for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
-  return { ...result, K, scenario, finalCheck, decoded, plant: finalCheck.plant };
+  return {
+    ...result, K, scenario, finalCheck, decoded,
+    // From the finalCheck, which is the fine-timestep nominal evaluation --
+    // the same rollout a replay performs, so recording these makes a replay
+    // reproduce it exactly.
+    plant: finalCheck.plant, numerics: finalCheck.numerics, body: finalCheck.body,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1125,6 +1153,13 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   const feetFree = (contacts.ext.fy[2] + contacts.ext.fy[3]) < 0.05 * W;
   return {
     ...out, contacts, servo, stops, knots: ref, T, settleT, plant,
+    // Reported, not assembled: the integration this rollout used and the body
+    // it ran on, so a producer records what actually happened.
+    numerics: { dt, settleT },
+    body: {
+      heightM: model.heightM, massKg: model.massKg,
+      straddleDeg: model.straddleDeg, sex: model.sex,
+    },
     verdict: {
       upright, over, still, posed, feetFree,
       success: upright && over && still && posed && feetFree,

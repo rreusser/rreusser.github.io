@@ -76,9 +76,12 @@ const out = {
   // the plant, and a replay that has to guess at a limit is a replay of a
   // different body.
   rom, strength: strengthOpts, weights,
-  // The plant this trajectory was optimized on, as the rollout reports it.
-  // Replays MUST use it; a trajectory without its plant is not a result.
+  // The whole machine, as the rollout reports it: plant, the integration a
+  // replay should use, and the body it ran on. Replays MUST use all three; a
+  // trajectory without them is not a result.
   config: result.plant,
+  numerics: result.numerics,
+  body: result.body,
   best: result.best,
   fineCost: result.finalCheck.cost,
   verdict: result.finalCheck.verdict,

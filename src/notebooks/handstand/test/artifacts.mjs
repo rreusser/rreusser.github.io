@@ -13,7 +13,10 @@ import { fileURLToPath } from 'node:url';
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile } from '../strength.js';
-import { runScenario, resolvePlant, resolveRom, PLANT_DEFAULTS, LEGACY_PLANT } from '../rollout.js';
+import {
+  runScenario, resolvePlant, resolveRom, resolveNumerics, PLANT_DEFAULTS, LEGACY_PLANT,
+  NUMERICS_DEFAULTS,
+} from '../rollout.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -37,7 +40,7 @@ for (const g of manifest.gallery) {
     knots: j.knots.map((k) => Float64Array.from(k)),
     T: j.T,
     settleT: 2.5,
-    dt: 2e-4,
+    ...resolveNumerics(j.numerics),
     rom,
     // resolveConfig, not the raw config: an artifact predating a plant option
     // must replay with that option's PRE-EXISTING behavior, not today's
@@ -68,6 +71,20 @@ for (const g of manifest.gallery) {
   }
   gate('every artifact accounts for every plant setting', missing.length === 0,
     missing.length ? missing.slice(0, 6).join(', ') : `${keys.length} settings x ${manifest.gallery.length} artifacts`);
+}
+
+// Everything a replay needs, not only the plant. The integration and the body
+// are not plant settings, which is exactly why recording the plant alone left
+// a run irreproducible: two replay paths chose different timesteps and one
+// technique had two answers. Artifacts predating these fields were all made
+// at the replay defaults on the default body, which is what the resolvers
+// fall back to.
+{
+  const r = runScenario(model, ws, strengthProfile(model.massKg), { scenario: 'hold', T: 0.05, settleT: 0, dt: 1e-3 });
+  const numOk = Object.keys(NUMERICS_DEFAULTS).every((k) => k in r.numerics);
+  const bodyOk = ['heightM', 'massKg', 'straddleDeg', 'sex'].every((k) => k in r.body);
+  gate('a rollout reports the integration it used and the body it ran on', numOk && bodyOk,
+    `numerics ${JSON.stringify(r.numerics)}, body ${JSON.stringify(r.body)}`);
 }
 
 // The plant a rollout reports is the whole plant. runScenario assembles what
