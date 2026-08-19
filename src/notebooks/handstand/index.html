@@ -715,7 +715,7 @@
   <script id="opt-state" type="text/x-typescript">
     const optState = {
       worker: null, running: false, history: [],
-      latest: null, result: null, adopted: null, body: null,
+      latest: null, result: null, adopted: null, body: null, poolSize: null,
       // The most recently finished generation, as candidate trajectories the
       // optimizer already simulated. ghostRev only ever increments, and the
       // playback loop compares it against what it is currently showing, so a
@@ -805,7 +805,9 @@
         optState.notify?.(optState);
       };
       worker.onmessage = ({ data }) => {
-        if (data.type === 'progress') {
+        if (data.type === 'pool') {
+          optState.poolSize = data.size;
+        } else if (data.type === 'progress') {
           optState.history.push({ gen: data.gen, best: data.best });
           optState.latest = data;
           if (data.generation?.length) {
@@ -975,7 +977,8 @@
       let statusText;
       if (optInfo.running) {
         const last = optInfo.history[optInfo.history.length - 1];
-        statusText = `running: generation ${last.gen}, best cost ${last.best.toFixed(2)}`;
+        statusText = `running: generation ${last.gen}, best cost ${last.best.toFixed(2)}`
+          + (optInfo.poolSize ? `, evaluating on ${optInfo.poolSize} worker${optInfo.poolSize > 1 ? 's' : ''}` : '');
       } else if (optInfo.result?.stopped) {
         statusText = `stopped at generation ${optInfo.result.gen}, keeping the best so far `
           + `(cost ${optInfo.result.best.toFixed(2)}, not re-scored at the fine timestep). `
