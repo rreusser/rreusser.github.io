@@ -2,7 +2,7 @@
   "presets": {
     "lunge": "014-kick-rom-peak.json",
     "pike": "015-press-strong-flexible.json",
-    "tuck": "020-tuck-press-momentum.json"
+    "tuck": "021-bent-leg-press-hop.json"
   },
   "catch": "catch-window.json",
   "gallery": [
@@ -44,7 +44,11 @@
     },
     {
       "file": "020-tuck-press-momentum.json",
-      "label": "Bent-leg press at 1.7 Nm/kg: knees tucked through the weight shift and a push off the toes, but the push only works for one contact-damping value"
+      "label": "Bent-leg press attempt from the old start, balanced over the palms with nothing on the legs: with nothing to push off, the search holds a tucked fold for a second and a half, sets both feet back down on the floor, and jumps"
+    },
+    {
+      "file": "021-bent-leg-press-hop.json",
+      "label": "Bent-leg press at 2.2 Nm/kg: a hop off both bent legs into the inverted shape, then the legs extend overhead together"
     }
   ]
 }

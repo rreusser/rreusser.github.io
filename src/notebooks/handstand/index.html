@@ -5,9 +5,7 @@
     # The Mechanics of a Handstand
   </script>
   <script id="intro" type="text/markdown">
-    Why is pressing up to a handstand so much harder than kicking up to one? Ask around and you will collect a pile of explanations: not enough shoulder strength, tight shoulders, stiff wrists, short hamstrings, bad timing. Some of these are real constraints. Some, I suspect, are folklore. This notebook builds a small physics model of a handstand and uses it to find out which is which.
-
-    The model is a two dimensional, side view rigid body model of a person balancing on their hands. It is deliberately simple, but it is quantitative: segment masses and lengths come from published anthropometric tables, joint strength comes from measured torque and velocity relationships, and every claim the notebook makes is something you can recompute by dragging a slider. This first part builds the model and works out the statics of holding a handstand. The dynamics of getting into one, the kick-up, the press, and the question of which limitations actually matter, build on top of it.
+    Why is pressing up to a handstand so much harder than kicking up to one? Strength, shoulders, wrists, hamstrings, timing — some of those are real constraints and some are folklore. This is a two dimensional rigid body model of a person balancing on their hands, built to tell them apart. Segment masses and lengths come from published anthropometric tables and joint strength from measured torque-velocity relationships, so every number here can be recomputed by moving a slider.
   </script>
   <script id="styles" type="text/html">
     <style>
@@ -32,9 +30,9 @@
   <script id="model-section" type="text/markdown">
     ## A stick figure gymnast
 
-    The body is seven rigid segments in the sagittal plane, viewed from the side. Both arms act together in a handstand, so by symmetry they merge into a single arm segment, and likewise the two hands merge into one. The legs stay independent so that later on the model can lunge and kick. That leaves a hand resting flat on the floor, one straight arm from wrist to shoulder, a torso with the head attached, and a thigh and shank per leg, connected by six joints: wrist, shoulder, two hips, and two knees.
+    Seven rigid segments in the sagittal plane: one hand, one arm (both arms merge by symmetry), a torso with the head, and a thigh and shank per leg, joined at the wrist, shoulder, two hips and two knees. Masses, mass centers and inertias follow de Leva's adjustment of the Zatsiorsky parameters, scaled by height and body mass.
 
-    Segment masses, mass centers, and moments of inertia follow de Leva's adjustment of the Zatsiorsky segment inertia parameters, scaled by height and body mass. The hand is the interesting segment: it is not a point of support but a patch, from the heel of the palm to the finger pads. Where the pressure lands inside that patch is the entire mechanism of handstand balance, which the next section makes precise.
+    The hand is the segment that matters. It is not a point of support but a patch, from the heel of the palm to the finger pads.
   </script>
   <script id="imports" type="text/x-typescript">
     import { expandable } from './lib/expandable.js';
@@ -234,27 +232,27 @@
   <script id="statics-section" type="text/markdown">
     ## Balance is a statics problem
 
-    A pose at rest balances when the center of mass sits directly above the center of pressure, and the center of pressure has nowhere to live except the palm patch:
+    A pose at rest balances when the center of mass sits over the center of pressure, and the center of pressure has nowhere to live except the palm patch:
 
     ${tex.block`x_{\mathrm{CoM}} = x_{\mathrm{CoP}}, \qquad x_{\mathrm{heel}} \;\le\; x_{\mathrm{CoP}} \;\le\; x_{\mathrm{fingertips}}.`}
 
-    The wrist is what moves the center of pressure. Pressing down through the fingertips shifts it forward; rocking onto the heel of the palm shifts it back. For body weight ${tex`W`} the wrist torque required to hold the pressure at a given spot is
+    The wrist is what moves it: press through the fingertips to shift it forward, rock onto the heel of the palm to shift it back. For body weight ${tex`W`},
 
     ${tex.block`\tau_{\mathrm{wrist}} = W\,(x_{\mathrm{CoP}} - x_{\mathrm{wrist}}),`}
 
-    so the patch length times body weight is the entire balance authority available in a handstand. This is the wrist strategy that motion capture studies find gymnasts using more than three quarters of the time. Every other joint torque in a static pose is set by gravity: each joint must resist the moment of all the mass beyond it. That is what makes a pose expensive, and it is what the next figure maps.
+    so the patch length times body weight is the whole balance authority in a handstand. Every other joint torque in a static pose is set by gravity.
   </script>
   <script id="flexibility-section" type="text/markdown">
     ## What flexibility limits actually do
 
-    A shoulder that cannot open to 180 degrees tips the torso off the vertical line, and the pose has to buy that angle back somewhere: arch the back and let the legs travel past vertical, which is the banana, or lean the whole stack toward the fingertips. Lower the wrist limit and the arm itself cannot stand vertical over the palm, forcing a lean that the shoulders must then fight. Neither compensation is free, and the figure below prices them: the limits sit under the map, and moving one moves the wall it owns.
+    A shoulder that cannot open to 180 degrees tips the torso off vertical, and the pose has to buy that angle back: arch the back, or lean the whole stack toward the fingertips. A wrist limit forces the same lean from below.
 
-    The hamstrings enter differently, because they are a two joint muscle group. What they limit is not any single joint but the combination of hip flexion and knee extension. With knees straight, hip flexion caps at the toe touch limit; every degree of knee bend buys some of it back. That coupling is why a bent knee press exists, and the model expresses it directly in the hip slider clamp.
+    The hamstrings are a two joint group, so what they limit is hip flexion combined with knee extension — every degree of knee bend buys some hip fold back. That coupling is why a bent-leg press exists.
   </script>
   <script id="corridor-intro" type="text/markdown">
     ## The press corridor
 
-    A press to handstand is, in the quasi static limit, a path through pose space that keeps the center of mass over the palm the whole way: from a deep pike, through compression, to the stacked handstand. For each combination of hip and shoulder angle, the model solves for the wrist angle that balances the pose, then asks whether that pose is reachable within the flexibility limits and holdable within the strength limits. The result is a corridor: the region of pose space a press is allowed to pass through. Tighten the shoulders or the hamstrings underneath it and watch the corridor narrow.
+    A press is, quasi-statically, a path through pose space that keeps the center of mass over the palm the whole way, from the deep pike to the stacked handstand. For each hip and shoulder angle the model solves the wrist angle that balances the pose, then asks whether that pose is inside the flexibility limits and inside the strength limits.
   </script>
   <script id="pose-probe" type="text/x-typescript">
     // Both the press corridor and the catch window are maps over coordinates
@@ -342,7 +340,7 @@
       ${corridorSlot}
       <small style="display:block; opacity:.85; margin-top:2px;">${swatch('rgba(154,160,166,0.3)', 'needs more strength')}${swatch('rgba(111,134,198,0.3)', 'needs more range of motion')}</small>
       ${corridorLimits}
-      <figcaption>Hover the map to see the body each cell stands for. Every cell is a pose that balances over the palm, with straight, symmetric legs; the colored corridor is the part this body can hold, shaded by how much of the hardest-worked joint it takes. The controls below are mirrors of the ones at the top of the page: move them and the walls move. Red rings name the joint that makes a pose impossible: solid where it is asked for more torque than it has, dashed where it is outside its range of motion. Straddling is the odd one out among the controls, a change of shape rather than a limit — it shortens the legs in side view, which shrinks the strength wall and exposes the flexibility wall that was hiding behind it.</figcaption>
+      <figcaption>Hover the map to see the body each cell stands for. Every cell is a pose that balances over the palm with straight, symmetric legs; the colored corridor is the part this body can hold, shaded by how much of the hardest-worked joint it takes. Red rings name the joint that makes a pose impossible: solid for torque, dashed for range of motion. The controls are mirrors of the ones at the top of the page.</figcaption>
     </figure>`;
     display(corridorFigure);
 
@@ -539,13 +537,9 @@
   <script id="dynamics-section" type="text/markdown">
     ## Making it move
 
-    Statics ends where every interesting question about handstands begins. To simulate motion the model becomes a floating body in space: the hand is not attached to the floor, it just rests on it, pressed by two one-sided spring contacts under the heel of the palm and the finger pads, with one under each foot for entries. The center of pressure and every toppling failure emerge from those two palm contacts trading load. Joints are driven by servo torques tracking a reference trajectory, and every torque respects two layers of muscle physiology. The strength envelope is maximum voluntary torque as a function of joint velocity, after Yeadon, King and Wilson: a slow press gets isometric strength, a fast kick pays the Hill falloff and has roughly half its torque left at five radians per second. Activation dynamics is a first order lag near fifty milliseconds, so torque cannot step and bang-bang corrections are impossible by construction, for the model as for you.
+    To move, the model becomes a floating body: the hand is not attached to the floor, it rests on it, on one-sided spring contacts under the heel of the palm and the finger pads, with one under each foot. The center of pressure and every toppling failure emerge from those two palm contacts trading load.
 
-    Two pieces of the body had to become mechanism rather than preference. The servo reads its damping off the mass matrix it is already computing, because these six joints span an effective inertia of two hundred to one — a knee swings a third of a kilogram metre squared, the wrist turns the entire body about the palm and sees eighty — so one damping constant is always wrong somewhere. And the commanded speed is capped at whatever the joint can still stop in the error that remains, computed not from the strength cap but from the reserve gravity has not already spent. That is the mathematical form of a coaching instruction: do not press so hard into the finish that you cannot meet it. Without it, a shoulder that has been at its cap for a second and a half sails straight through the balanced position and rings.
-
-    Range of motion became physics too. Joints have passive end-stops built like the ground contacts one dimension down: stiffness set so that a joint pushed by its own maximum voluntary torque sinks about five degrees past the limit, damping near critical, one-sided and non-adhesive, so tissue can only push back into the range. Left as a cost term instead, a knee driven forty degrees past hyperextension for a tenth of a second was worth a few hundredths of a unit, and the optimizer bought the injury.
-
-    Three failures the simulation produced on its own are worth keeping. Holding a perfectly stacked pose with perfect joint servos still topples, because the stacked pose rests the pressure a few millimeters from the heel of the palm and a heel pivot has no restoring authority. Servos without anticipatory gravity compensation sag, the sag leans the body, the lean raises the load, and the wrist creeps up to its cap and out over the fingertips. And the wrist cannot be critically damped at all: asking for it wants 505 newton metres per radian per second, a damper that would spend the joint's entire seventy newton metre envelope at 0.14 rad/s and leave the balance correction with nothing to say. Damping has to be capped at what the muscle can actually produce, and the wrist is the only joint where that cap binds — a mechanical way of saying what every beginner discovers about the joint they are standing on.
+    Joints are driven by servo torques tracking a reference trajectory, capped by a Yeadon-King torque-velocity envelope and a fifty millisecond activation lag, so torque cannot step. Range of motion is enforced by passive end-stops built like the ground contacts one dimension down, and the servo reads its damping off the mass matrix, because these six joints span an effective inertia of two hundred to one.
   </script>
   <script id="sim-controls-cell" type="text/x-typescript">
     const simControls = html`<div class="sim-controls"></div>`;
@@ -561,7 +555,7 @@
     const scenarioNames = {
       hold: 'Hold a handstand',
       ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up' } : {}),
-      ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (1.7 Nm/kg shoulder)' } : {}),
+      ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (2.2 Nm/kg shoulder)' } : {}),
       ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press, straight legs (needs 2.8 Nm/kg)' } : {}),
       ...Object.fromEntries(PRESET_GALLERY
         .map((g, i) => [`gallery-${i}`, `[run] ${g.label}`])
@@ -751,7 +745,9 @@
   <script id="optimizer-section" type="text/markdown">
     ## Finding the easiest way up
 
-    Hand-authoring trajectories is a losing game. Every attempt I wrote by hand failed in one of the ways beginners fail, and none of them survived into this notebook. So instead the notebook searches. A candidate technique is a set of spline knots for each of the six joints plus a total duration, thirty seven numbers in all, and its score is a physics rollout: did it arrive at a balanced handstand, meaning the stacked configuration with the feet free of the floor and not merely a center of mass in the right place; how much of the strength envelope did it burn; how much metabolic work it spent, with concentric work charged at muscle efficiency and eccentric absorption cheap, so churning the legs reads as expensive the way it should; did it violate a flexibility limit; did the palms stay planted; did it fall and how early. A covariance matrix adaptation evolution strategy (CMA-ES) then climbs that score. Every run is deterministic under its seed, and the entries in the playback menu were produced by exactly this process offline. None of them is a cached animation: each is re-simulated in the browser from its stored spline knots every time you select it, so if a run looks wrong it is wrong, whatever its cost says. The optimizer below runs live in a worker if you want to search under different flexibility or strength settings.
+    A candidate technique is spline knots for each of the six joints plus a duration — thirty seven numbers — scored by a physics rollout: did it arrive at a balanced handstand, how much of the strength envelope did it burn, how much metabolic work did it spend, did it break a flexibility limit, did it fall. CMA-ES climbs that score.
+
+    Every run in the menu is re-simulated in the browser from its stored knots rather than replayed as an animation, so if a run looks wrong it is wrong, whatever its cost says.
   </script>
   <script id="opt-state" type="text/x-typescript">
     const optState = {
@@ -1124,20 +1120,16 @@
   <script id="coda" type="text/markdown">
     ## What the model says
 
-    The question this notebook opens with — why pressing is so much harder than kicking up — has a number attached, and it is a bigger number than I expected. Re-optimizing both entries against the same body, the kick-up goes at a shoulder rated 1.6 newton metres per kilogram with average hamstrings, which is to say a recreational adult. The press on that same body does not merely stall, it collapses, and it is still collapsing at 2.2. Somewhere between 2.2 and 2.8 it starts working. The press asks for something like half again the shoulder strength of the kick-up, and that gap — not technique, not timing — is most of the answer.
+    - The kick-up goes at a shoulder rated 1.6 Nm/kg with average hamstrings. The straight-leg press on that same body collapses, and still collapses at 2.2; at 2.8 it works.
+    - Hamstring flexibility does not decide whether the press happens, only what it costs. At 2.8 Nm/kg, hamstrings reaching 125 degrees score 1.03 against 2.53 for an ordinary 85 degree fold: the same skill for two and a half times less.
+    - Bending the legs and hopping off them is worth about 0.6 Nm/kg: the bent-leg press goes at 2.2 where the straight-leg press needs 2.8. The search keeps finding entries down to 1.8, but below 2.2 they stop holding their verdict across the timestep range.
 
-    Flexibility plays a different role than the folklore gives it. Short hamstrings do not block the press: at a shoulder of 2.8 the model presses up perfectly well from an ordinary 85 degree fold. What flexibility buys is cheapness. The same press with hamstrings reaching 125 degrees scores 1.03 against 2.53 for the stiff one, about two and a half times less work, effort and shoulder time for an identical outcome. That is the honest version of the coaching advice: the flexible press is not a different skill, it is the same skill with most of the cost taken out, which over a training career is the difference between a press you can do and a press you can do twenty times.
-
-    The two entries pull against each other, and the model hands that back as a trade rather than an answer. Pricing the hamstring stretch harder does reduce it, but it drains the entry: from twelve degrees of stretch down to seven, momentum at liftoff falls by a fifth and the time spent with the shoulder flat against its cap rises from a third of the entry to nearly half. The swing that spares your shoulders is the swing that stretches your hamstring, and no setting of the weights gets both.
-
-    Most of the work here went into learning what an optimizer will do to a cost function. Given a shoulder rated at two newton metres per kilogram it stopped kicking up altogether and pressed out of a sixty degree planche instead, a skill several years further along, because living at maximum effort was charged three thousandths of a unit and was therefore nearly free. Given a knee injury priced at three hundredths of a unit, it bought the injury. Given a free choice of duration it stretched the kick-up out until it had quietly become a press, because both the work and smoothness terms fall as a movement slows. Each of those is a scoring bug rather than a finding, and each looked entirely plausible in replay — which is the argument for re-simulating every run on this page instead of trusting a cost number.
-
-    The model is a two dimensional cartoon: merged arms, locked elbows, one rigid segment from shoulder to hip so a hollow body is assumed rather than earned, no lateral balance, no straddle dynamics beyond a projection, penalty friction, torque servos instead of muscles and tendons, and an optimizer that finds good technique rather than provably best technique. Its numbers should be read as mechanisms and thresholds, not prescriptions. But the mechanisms agree with what the force plates and the coaches have been saying all along, and it is rather pleasant to watch the folklore sort itself into the parts that are physics and the parts that are just repetition.
+    The model is a two dimensional cartoon: merged arms, locked elbows, one rigid segment from shoulder to hip, no lateral balance, penalty friction, torque servos rather than muscles and tendons, and a search that finds good technique rather than best technique. Read the numbers as mechanisms and thresholds, not prescriptions.
   </script>
   <script id="validation-section" type="text/markdown">
     ## Validation
 
-    The physics core is exercised by offline gates (run with `node src/notebooks/handstand/test/dynamics.mjs` and friends): the recursive Newton-Euler dynamics against finite differences of the energy function, free-fall momentum conservation, a textbook double pendulum, penalty-contact settling, the Yeadon-King torque curve landmarks, deterministic optimization, and the arrival gates: that a constant-damping servo really does ring its way into the balanced pose and topple from forty five degrees out, and that the inertia-scaled, brake-limited servo arrives from the same start with no overshoot. The cell below reruns a fast subset in your browser against the current model so the page can vouch for itself.
+    The physics core is covered by offline gates (`node src/notebooks/handstand/test/dynamics.mjs` and friends): the dynamics against finite differences of the energy, momentum conservation in free fall, a textbook double pendulum, contact settling, the torque-curve landmarks, and the servo's arrival behavior. The cell below reruns a fast subset in your browser against the current model.
   </script>
   <script id="validation-checks" type="text/x-typescript">
     const validation = (() => {

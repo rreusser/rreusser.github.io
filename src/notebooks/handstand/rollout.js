@@ -26,6 +26,14 @@ function toeY(model, ws, q, body) {
   return ws.py[body] + s * cpt.x + c * cpt.y;
 }
 
+// Toe position along the floor, measured from the hand the way comX is.
+function toeXLocal(model, ws, q, body) {
+  fk(model, q, null, ws);
+  const cpt = model.contacts.find((c) => c.body === body);
+  const c = Math.cos(ws.th[body]), s = Math.sin(ws.th[body]);
+  return ws.px[body] + c * cpt.x - s * cpt.y - q[0];
+}
+
 // Bisect one hip angle so that leg's toe lands on the floor. Hip flexion
 // rotates the leg toward the belly side and downward from the inverted
 // stack, so toe height decreases monotonically with hip flexion here.
@@ -116,12 +124,23 @@ function clearFeet(model, ws, q, minY = 5e-4) {
 // toes actually reach the floor. A stiffer person therefore starts with
 // feet further from the hands and less weight over the palms, which is
 // exactly how limited flexibility taxes an entry in reality.
-// Knee bend that defines the bent-leg press. Deep enough that the hamstring
-// coupling opens a real amount of extra hip fold, shallow enough to still be
-// a press rather than a tuck-up.
-export const TUCK_KNEE_DEG = 90;
+// Knee bend that defines the bent-leg press: slightly bent, which is what
+// you hop off, and enough that the hamstring coupling opens a real amount of
+// extra hip fold so the hands reach the floor.
+export const TUCK_KNEE_DEG = 40;
 
-export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
+// Where the centre of mass sits at the start, as a fraction of the way from
+// the palm to the toes -- which is the same thing as the share of body weight
+// standing on the legs. A bent-leg press is entered by hopping off both feet,
+// so the feet have to be carrying something to push with.
+export const TUCK_LOAD_FRAC = 0.35;
+
+export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
+  // Where the bent-leg press stands, as recorded plant rather than as a
+  // constant: the shape of a start pose decides what technique is reachable
+  // from it, so an artifact has to replay against the start it was made on.
+  const tuckLoadFrac = opts.tuckLoadFrac ?? SERVO_DEFAULTS.tuckLoadFrac;
+  const tuckKneeDeg = opts.tuckKneeDeg ?? SERVO_DEFAULTS.tuckKneeDeg;
   const q = new Float64Array(model.nq);
   groundHand(model, q);
   switch (name) {
@@ -158,37 +177,60 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS) {
       return { q0: q, qd0: null };
     }
     case 'tuck': {
-      // Bent-leg press start. Bending the knees buys hip flexion through the
-      // hamstring coupling -- 90 degrees of knee bend takes the straight-knee
-      // 85 degree fold to 139 -- so the body starts folded much deeper, with
-      // the shins tucked back and the toes still down. Everything else is the
-      // pike start: solve the shoulder lean that puts the centre of mass over
-      // the palm target, with the wrist following.
+      // Bent-leg press start: a deep squat-fold, hands flat on the floor,
+      // knees slightly bent, and the WEIGHT STILL ON THE FEET.
       //
-      // A body too stiff to fold this far simply starts with its weight
-      // short of the hand -- at 70 degree hamstrings the centre of mass lands
-      // just behind the heel of the palm -- and the press from there fails,
-      // which is the right answer for that body rather than something to
-      // engineer away. Tucking the knees tighter does not rescue it: the
-      // deeper fold puts the toes where the toe-down solve has to lean the
-      // whole body back to reach them, which is worse.
-      q[6] = q[8] = -TUCK_KNEE_DEG * D2R;
-      q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, TUCK_KNEE_DEG), 140) * D2R;
-      const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
-      const comAt = (sh) => {
+      // That last part is the whole difference from the pike start, and it is
+      // what makes this a different skill rather than the same one with bent
+      // knees. A press starts balanced over the palms, so the legs have
+      // nothing to push against and the shoulders lift the whole body from a
+      // dead stop. A bent-leg press is entered by hopping off both slightly
+      // bent legs into the inverted shape and then extending the legs
+      // overhead together -- which requires load under the feet at t = 0.
+      // Started over the palms instead, the search has no legs to use and
+      // finds the only other way to get some: fold, settle back down onto the
+      // floor, and jump off it.
+      //
+      // So the shoulder lean is solved to put the centre of mass
+      // TUCK_LOAD_FRAC of the way from the palm to the toes, with the wrist
+      // following to keep the toes down: about half the body weight standing
+      // on the legs, which is what a person in this position feels.
+      q[6] = q[8] = -tuckKneeDeg * D2R;
+      q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, tuckKneeDeg), 140) * D2R;
+      // Measured from the palm target, the point the balanced handstand puts
+      // its centre of mass over, so a load fraction of zero is exactly the
+      // old start: balanced over the palm with nothing on the legs.
+      const palmT = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+      const errAt = (sh) => {
         q[4] = sh;
         solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
-        return momenta(model, q, zeroQd9, ws).comX - q[0];
+        const toe = toeXLocal(model, ws, q, 4);
+        const com = momenta(model, q, zeroQd9, ws).comX - q[0];
+        return com - (palmT + tuckLoadFrac * (toe - palmT));
       };
-      let lo = 55 * D2R, hi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
-      if (comAt(lo) > targetX) comAt(lo);
-      else if (comAt(hi) < targetX) comAt(hi);
-      else {
+      // Scan for the first sign change rather than trusting the endpoints:
+      // both the centre of mass AND the target move with the lean, so the
+      // error is not monotone across the whole shoulder range.
+      const shLo = 55 * D2R, shHi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
+      const N = 48;
+      let best = shLo, bestAbs = Infinity, prev = null, bracket = null;
+      for (let i = 0; i <= N; i++) {
+        const sh = shLo + (shHi - shLo) * (i / N);
+        const e = errAt(sh);
+        if (Math.abs(e) < bestAbs) { bestAbs = Math.abs(e); best = sh; }
+        if (prev && prev.e * e <= 0) { bracket = [prev.sh, sh]; break; }
+        prev = { sh, e };
+      }
+      if (bracket) {
+        let [a, b] = bracket;
+        const ea = errAt(a);
         for (let i = 0; i < 40; i++) {
-          const mid = 0.5 * (lo + hi);
-          if (comAt(mid) < targetX) lo = mid; else hi = mid;
+          const mid = 0.5 * (a + b);
+          if (errAt(mid) * ea > 0) a = mid; else b = mid;
         }
-        comAt(0.5 * (lo + hi));
+        errAt(0.5 * (a + b));
+      } else {
+        errAt(best);
       }
       clampPose(q, rom);
       clearFeet(model, ws, q);
@@ -249,6 +291,7 @@ export const JOINT_KEYS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'
 export const SERVO_DEFAULTS = {
   kp: 800, kd: 60, kCom: 2000, dCom: 1500,
   activationTau: 0.05, mu: 1.0, contactZeta: 1.0, integrator: 'si',
+  tuckLoadFrac: TUCK_LOAD_FRAC, tuckKneeDeg: TUCK_KNEE_DEG,
   dampingRatio: 1.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
   romStopDeg: 5, romStopZeta: 0.7,
 };
@@ -260,6 +303,10 @@ export const SERVO_DEFAULTS = {
 // default to "off", which is exactly the old constant-kd, no-braking servo.
 export const LEGACY_SERVO_CONFIG = {
   dampingRatio: 0, brakeMargin: 0, dampingSpeed: 0, romStopDeg: 0,
+  // The bent-leg press used to start balanced over the palm with 90 degrees
+  // of knee bend and nothing on the legs, which is why the only momentum the
+  // search could find was to settle back down onto the floor and jump.
+  tuckLoadFrac: 0, tuckKneeDeg: 90,
 };
 
 // Resolve a stored artifact config into the full argument set for
@@ -723,19 +770,39 @@ export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
   const rows = Array.from({ length: 6 }, () => new Float64Array(K));
   const scratch = new Float64Array(model.nq);
+  // Phase shape of a bent-leg press, as fractions of the start pose: sink a
+  // little onto the legs, extend them to hop, tuck the knees while the hips
+  // close to the inverted shape, then extend the legs overhead together. The
+  // numbers are only a starting shape for the optimizer, which moves all of
+  // them; what matters is that the phases exist at all, because a search
+  // started from a monotone unfold never discovers the hop.
+  const PHASES = [
+    // u,    hip fraction, shoulder fraction, knee (deg, negative = flexed)
+    [0.00, 1.00, 1.00, -TUCK_KNEE_DEG],
+    [0.18, 1.00, 0.98, -TUCK_KNEE_DEG * 1.6],
+    [0.36, 0.88, 0.82, -4],
+    [0.60, 0.55, 0.45, -85],
+    [0.82, 0.20, 0.16, -30],
+    [1.00, 0.00, 0.00, 0],
+  ];
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const sample = (u) => {
+    let i = 0;
+    while (i < PHASES.length - 2 && u > PHASES[i + 1][0]) i++;
+    const [ua, ha, sa, ka] = PHASES[i];
+    const [ub, hb, sb, kb] = PHASES[i + 1];
+    const t = ub > ua ? (u - ua) / (ub - ua) : 0;
+    return { hip: q0[5] * lerp(ha, hb, t), sh: q0[4] * lerp(sa, sb, t), knee: lerp(ka, kb, t) * D2R };
+  };
   let lastWrist = q0[3];
-  const openFrac = (u) => (u <= 0.28 ? 0 : (u - 0.28) / 0.72);
-  // Knees stay bent through the weight shift and the first of the lift, then
-  // extend: straightening early throws the leg mass away from the hands
-  // exactly when the hips are least able to hold it.
-  const kneeFrac = (u) => (u <= 0.45 ? 0 : (u - 0.45) / 0.55);
   for (let k = 0; k < K; k++) {
     const u = k / (K - 1);
-    const hip = q0[5] * (1 - openFrac(u));
-    const sh = q0[4] * (1 - openFrac(u));
-    const knee = q0[6] * (1 - kneeFrac(u));
+    const { hip, sh, knee } = sample(u);
     let wrist;
-    if (k === 0) {
+    if (u < 0.4) {
+      // Through the hop the body is still standing on its feet, so the wrist
+      // holds its start lean rather than the lean that would balance the
+      // shape over the palm -- there is nothing to balance yet.
       wrist = q0[3];
     } else {
       scratch.fill(0);
@@ -930,9 +997,11 @@ export function runScenario(model, ws, strengthProf, {
   jitterSeed = 1,
   balance = true,
   kCom = SERVO_DEFAULTS.kCom, dCom = SERVO_DEFAULTS.dCom,
+  tuckLoadFrac = SERVO_DEFAULTS.tuckLoadFrac,
+  tuckKneeDeg = SERVO_DEFAULTS.tuckKneeDeg,
   rom = ROM_DEFAULTS,
 } = {}) {
-  const { q0, qd0: qd0Start } = scenarioStart(model, ws, scenario, rom);
+  const { q0, qd0: qd0Start } = scenarioStart(model, ws, scenario, rom, { tuckLoadFrac, tuckKneeDeg });
   let qd0 = qd0Start;
   if (qdJitter > 0) {
     const rand = mulberry32(jitterSeed);

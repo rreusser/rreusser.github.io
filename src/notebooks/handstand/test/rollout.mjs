@@ -12,9 +12,9 @@ import { cmaes } from '../cma-es.js';
 import {
   naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds,
   rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
-  scenarioStart, HANDSTAND_TARGET_FRAC,
+  scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC,
 } from '../rollout.js';
-import { momenta } from '../dynamics.js';
+import { momenta, fk } from '../dynamics.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -205,39 +205,59 @@ const rom = { ...ROM_DEFAULTS };
 }
 
 // ---------------------------------------------------------------------------
-// Gate J: the press starts are press starts, over the whole range of bodies.
-// Both solve the wrist that puts a toe on the floor and then the shoulder
-// lean that puts the centre of mass over the palm, and the toe solve is a
-// root find on a quantity that is NOT monotone: leaning back swings the toe
-// down and then up again. Widening the wrist's range once moved the bracket
-// past that turning point, and the flexible pike start silently became a
-// seated collapse with the centre of mass a third of a metre behind the hand
-// -- which every press optimized from it then failed to be. Nothing caught
-// it, so this does: over hamstrings from stiff to very flexible, both starts
-// must stand over the palm and stand up.
+// Gate J: the press starts are the poses the skills actually start from, over
+// the whole range of bodies. Both solve the wrist that puts a toe on the
+// floor and then the shoulder lean that places the centre of mass, and the
+// toe solve is a root find on a quantity that is NOT monotone: leaning back
+// swings the toe down and then up again. Widening the wrist's range once
+// moved the bracket past that turning point, and the flexible pike start
+// silently became a seated collapse with the centre of mass a third of a
+// metre behind the hand -- which every press optimized from it then failed to
+// be. Nothing caught it, so this does.
+//
+// The two starts want different things, and the difference is the skill. A
+// press starts BALANCED OVER THE PALMS, with the legs carrying nothing. A
+// bent-leg press starts standing in a fold with real load still on the feet,
+// because it is entered by hopping off them; the share of body weight on the
+// legs is just how far the centre of mass sits from the hand toward the toes.
 {
   const zero = new Float64Array(model.nq);
   const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
-  // The invariant is not that every body reaches the target -- a stiff one
-  // honestly cannot, and starts a little short of its hands -- but that the
-  // start is a fold standing over the palm rather than a body sitting down
-  // behind it. The collapse was 289 mm behind the heel with the centre of
-  // mass at 0.38 m; the stiffest honest start is 19 mm behind it at 0.47 m.
+  const measure = (scenario, ham) => {
+    const { q0 } = scenarioStart(model, ws, scenario, { ...rom, hipFlexStraightKneeMaxDeg: ham });
+    const mo = momenta(model, q0, zero, ws);
+    fk(model, q0, null, ws);
+    const cpt = model.contacts.find((c) => c.body === 4);
+    const th = ws.th[4];
+    const toe = ws.px[4] + Math.cos(th) * cpt.x - Math.sin(th) * cpt.y - q0[0];
+    const palmC = 0.5 * (model.patch.x0 + model.patch.x1);
+    const com = mo.comX - q0[0];
+    return { com, comY: mo.comY, onFeet: (com - palmC) / (toe - palmC) };
+  };
+  const HAMS = [70, 85, 100, 125, 140];
   let worstBehind = -Infinity, lowest = Infinity, worstCase = '';
-  for (const scenario of ['pike', 'tuck']) {
-    for (const ham of [70, 85, 100, 125, 140]) {
-      const r = { ...rom, hipFlexStraightKneeMaxDeg: ham };
-      const { q0 } = scenarioStart(model, ws, scenario, r);
-      const mo = momenta(model, q0, zero, ws);
-      const behind = model.patch.x0 - (mo.comX - q0[0]);
-      if (behind > worstBehind) { worstBehind = behind; worstCase = `${scenario} ham ${ham}`; }
-      if (mo.comY < lowest) lowest = mo.comY;
-    }
+  for (const ham of HAMS) {
+    const m = measure('pike', ham);
+    const behind = model.patch.x0 - m.com;
+    if (behind > worstBehind) { worstBehind = behind; worstCase = `ham ${ham}`; }
+    if (m.comY < lowest) lowest = m.comY;
   }
-  gate('J: press starts stand over the palm, at every hamstring length',
+  gate('J: the press start stands balanced over the palm at every hamstring length',
     worstBehind < 0.05 && lowest > 0.45,
     `furthest behind the heel ${(worstBehind * 1000).toFixed(0)} mm (${worstCase}),`
     + ` lowest CoM ${lowest.toFixed(2)} m, target ${(targetX * 1000).toFixed(0)} mm ahead of the heel`);
+
+  let loOnFeet = Infinity, hiOnFeet = -Infinity, lowT = Infinity;
+  for (const ham of HAMS) {
+    const m = measure('tuck', ham);
+    loOnFeet = Math.min(loOnFeet, m.onFeet);
+    hiOnFeet = Math.max(hiOnFeet, m.onFeet);
+    lowT = Math.min(lowT, m.comY);
+  }
+  gate('K: the bent-leg press start stands on its feet with its hands down',
+    loOnFeet > 0.15 && hiOnFeet < 0.6 && lowT > 0.45,
+    `weight on the legs ${(loOnFeet * 100).toFixed(0)}-${(hiOnFeet * 100).toFixed(0)}%`
+    + ` (asked for ${(TUCK_LOAD_FRAC * 100).toFixed(0)}%), lowest CoM ${lowT.toFixed(2)} m`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll rollout gates passed');
