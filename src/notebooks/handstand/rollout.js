@@ -124,10 +124,16 @@ function clearFeet(model, ws, q, minY = 5e-4) {
 // toes actually reach the floor. A stiffer person therefore starts with
 // feet further from the hands and less weight over the palms, which is
 // exactly how limited flexibility taxes an entry in reality.
-// Knee bend that defines the bent-leg press: slightly bent, which is what
-// you hop off, and enough that the hamstring coupling opens a real amount of
-// extra hip fold so the hands reach the floor.
-export const TUCK_KNEE_DEG = 40;
+// Knee bend the bent-leg press starts from. Deep, because the start has to be
+// COMPACT: the hop has to carry the centre of mass forward onto the hands and
+// up into the inverted tuck, and how far it has to travel is set by where the
+// feet are. At 40 degrees of knee the legs are long and the feet stand 0.75 m
+// behind the hands with the centre of mass 0.24 m behind them; at 90 the same
+// body is folded into a squat with the feet 0.46 m back and the centre of
+// mass 0.13 m back. The first is a downward dog and the hop cannot reach the
+// stack from it -- every search from that start leaned out over the
+// fingertips into a tucked planche instead, which is the expensive shape.
+export const TUCK_KNEE_DEG = 90;
 
 // Where the centre of mass sits at the start, as a fraction of the way from
 // the palm to the toes -- which is the same thing as the share of body weight
