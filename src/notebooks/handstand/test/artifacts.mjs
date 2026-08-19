@@ -13,8 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile } from '../strength.js';
-import { ROM_DEFAULTS } from '../statics.js';
-import { runScenario, resolveConfig } from '../rollout.js';
+import { runScenario, resolveConfig, resolveRom } from '../rollout.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -32,7 +31,7 @@ for (const g of manifest.gallery) {
   const j = JSON.parse(readFileSync(join(runsDir, g.file), 'utf8'));
   const strengthOpts = j.strength ? { overrides: j.strength.overrides || j.strength } : {};
   const prof = strengthProfile(model.massKg, strengthOpts);
-  const rom = { ...ROM_DEFAULTS, ...(j.rom || {}) };
+  const rom = resolveRom(j.rom);
   const r = runScenario(model, ws, prof, {
     scenario: j.scenario,
     knots: j.knots.map((k) => Float64Array.from(k)),
@@ -66,7 +65,7 @@ const CANONICAL = ['014-kick-rom-peak.json', '015-press-strong-flexible.json', '
 for (const file of CANONICAL) {
   const j = JSON.parse(readFileSync(join(runsDir, file), 'utf8'));
   const prof = strengthProfile(model.massKg, j.strength ? { overrides: j.strength.overrides || j.strength } : {});
-  const rom = { ...ROM_DEFAULTS, ...(j.rom || {}) };
+  const rom = resolveRom(j.rom);
   const want = !!j.verdict.success;
   const got = [];
   for (const dt of [1e-4, 2.5e-4, 5e-4, 1e-3]) {

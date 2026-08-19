@@ -52,7 +52,8 @@
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
     import { drawScene, drawGhosts } from './render.js';
     import {
-      runScenario, balancedHandstand, resolveConfig, HANDSTAND_TARGET_FRAC, encodeDecision,
+      runScenario, balancedHandstand, resolveConfig, resolveRom, HANDSTAND_TARGET_FRAC,
+      encodeDecision,
     } from './rollout.js';
     import { PRESET_TRAJECTORIES, PRESET_GALLERY } from './presets.js';
   </script>
@@ -102,6 +103,11 @@
       viewW: 640, viewH: 520, theme: null,
       ui: { expanded: false },
       corridorCache: { key: null, grid: null },
+      // Which cell of the corridor the probe is showing. Kept out here
+      // because the map is rebuilt whenever the figure changes width, and a
+      // rebuild that forgets throws the reader back to the straight
+      // handstand mid-gesture.
+      corridorHover: { hipDeg: 0, shoulderDeg: 0 },
     };
   </script>
   <script id="model-into-state" type="text/x-typescript">
@@ -472,27 +478,51 @@
             : util > 1
               ? `needs ${(util * 100).toFixed(0)}% of a joint's strength: too strong to hold`
               : 'outside a flexibility limit';
+        poseState.corridorHover = { hipDeg: g.hipDeg[i], shoulderDeg: g.shoulderDeg[j] };
         probe.draw(q, `hip ${g.hipDeg[i].toFixed(0)}°, shoulder ${g.shoulderDeg[j].toFixed(0)}° — ${verdict}`,
           offendingJoints(q));
       };
       // Opens on the straight handstand, the one pose in here everybody can
-      // already picture, so the probe starts with a body rather than blank.
-      showCorridor(0, 0);
+      // already picture, so the probe starts with a body rather than blank --
+      // or on whatever the reader was last looking at, since a width change
+      // rebuilds this whole cell.
+      showCorridor(poseState.corridorHover.hipDeg, poseState.corridorHover.shoulderDeg);
+      // touch-action goes on the HTML box around the chart, not on the svg:
+      // an svg node does not reliably honour it, and without it a touch drag
+      // scrolls the page as well as probing, which fires pointercancel and
+      // kills the gesture halfway. Scrolling also resizes the figure on a
+      // phone, which rebuilds this cell -- the reason the probe used to snap
+      // back to the straight handstand the moment you touched the map.
+      const chartBox = html`<div style="touch-action:none;">${chart}</div>`;
       const surface = plotSurface(chart, chartH);
       if (surface) {
-        surface.style.touchAction = 'none';
-        const onMove = (e) => {
+        let tracking = null;
+        const probeAt = (e) => {
           const r = surface.getBoundingClientRect();
           const hx = chart.scale('x').invert(e.clientX - r.left);
           const sy = chart.scale('y').invert(e.clientY - r.top);
           if (Number.isFinite(hx) && Number.isFinite(sy)) showCorridor(hx, sy);
         };
-        surface.addEventListener('pointermove', onMove);
-        surface.addEventListener('pointerdown', onMove);
+        surface.addEventListener('pointerdown', (e) => {
+          tracking = e.pointerId;
+          surface.setPointerCapture?.(e.pointerId);
+          probeAt(e);
+        });
+        surface.addEventListener('pointermove', (e) => {
+          // A mouse probes on hover; a finger only while it is down.
+          if (e.pointerType === 'mouse' || tracking === e.pointerId) probeAt(e);
+        });
+        const release = (e) => {
+          if (tracking !== e.pointerId) return;
+          surface.releasePointerCapture?.(e.pointerId);
+          tracking = null;
+        };
+        surface.addEventListener('pointerup', release);
+        surface.addEventListener('pointercancel', release);
       }
 
       return html`<div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
-        ${chart}
+        ${chartBox}
         ${probe.element}
       </div>`;
     })();
@@ -556,7 +586,7 @@
         knots = p.knots.map((k) => Float64Array.from(k));
         T = p.T;
         if (p.strength) prof = strengthProfile(model.massKg, { overrides: p.strength });
-        if (p.rom) rom = { ...ROM_DEFAULTS, ...p.rom };
+        rom = resolveRom(p.rom);
         config = resolveConfig(p.config);
       };
       if (sel === 'lunge-opt') fromPreset(PRESET_TRAJECTORIES.lunge);

@@ -244,6 +244,23 @@ export function resolveConfig(config) {
   return { ...LEGACY_SERVO_CONFIG, ...(config || {}) };
 }
 
+// Range of motion as it was BEFORE a given limit was corrected, in the same
+// spirit as LEGACY_SERVO_CONFIG. Anatomy is part of the plant: the pike and
+// tuck starts solve the wrist inside its range, so widening a limit moves
+// the pose a recorded trajectory begins from, and the trajectory no longer
+// fits. The wrist's lower extension bound was 92 degrees -- two degrees past
+// vertical, a wall rather than an anatomical limit -- until it was widened.
+export const LEGACY_ROM = { wristExtMinDeg: 92 };
+
+// Resolve a stored artifact's rom the way resolveConfig resolves its
+// controller: what the artifact recorded wins, what it could not have
+// recorded falls back to the anatomy in force when it was made. Runs
+// recorded from now on store the whole resolved range, so this fallback only
+// ever reaches the ones that predate a field.
+export function resolveRom(rom) {
+  return { ...ROM_DEFAULTS, ...LEGACY_ROM, ...(rom || {}) };
+}
+
 // x = [6 joints x K knot angles (radians), duration T]. When a rom is
 // given, the knot bounds are the anatomy itself, so anatomically impossible
 // reference angles are unrepresentable (the earlier soft-penalty-only

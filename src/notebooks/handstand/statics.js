@@ -44,7 +44,17 @@ export const ROM_DEFAULTS = {
   // "max" was capping how far the body could lean back toward the heel of
   // the palm. Same numbers, correct end.
   wristExtMaxDeg: 135,   // q3 >= 180 - this
-  wristExtMinDeg: 92,    // q3 <= 180 - this
+  // The low end of wrist extension is NOT what stops you leaning back: with
+  // the hand flat, less than 90 degrees of extension just tips the forearm
+  // back past vertical toward the heel of the palm, and what ends that is
+  // the centre of pressure running off the hand, which the balance solve
+  // already models. Carried over from the old q3 pair, this sat at 92 -- two
+  // degrees PAST vertical -- and so drew a flexibility wall through the
+  // straight-handstand corner of the press corridor, where a slightly arched
+  // hip needs 88.7 degrees and the wall stood at 88. It is kept only so
+  // every joint has two-sided limits, and set far outside anything a
+  // handstand reaches.
+  wristExtMinDeg: 70,    // q3 <= 180 - this
   shoulderFlexMaxDeg: 180,   // q4 >= 180 - this
   shoulderHyperDeg: 5,       // q4 >= -this is never allowed below
   shoulderCloseMaxDeg: 110,  // q4 <= this
