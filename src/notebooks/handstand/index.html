@@ -871,14 +871,25 @@
             model, ws, width: W, height: H, theme,
             view: VIEW,
             alpha: 0.16,
-            poses: poses.map((p, i) => ({
-              q: p.frames[Math.min(p.frames.length - 1, Math.round(u * (p.frames.length - 1)))],
-              weight: i === 0 ? 2.6 : 1,
-            })),
+            // A candidate that has hit the floor freezes there and dims,
+            // rather than continuing down through it: the model has no torso
+            // contact, so past that frame the trajectory is only bookkeeping.
+            poses: poses.map((p, i) => {
+              const last = p.frames.length - 1;
+              const want = Math.min(last, Math.round(u * last));
+              const stop = p.landed >= 0 ? Math.min(want, p.landed) : want;
+              const down = p.landed >= 0 && want > p.landed;
+              return {
+                q: p.frames[stop],
+                weight: (i === 0 ? 2.6 : 1) * (down ? 0.45 : 1),
+              };
+            }),
           });
           const failed = poses.filter((p) => !p.success).length;
+          const downNow = poses.filter((p) => p.landed >= 0 && Math.round(u * (p.frames.length - 1)) > p.landed).length;
           note.textContent = `Generation ${shown.gen}: ${poses.length} candidates, `
-            + `${poses.length - failed} reaching a handstand, ${failed} falling. `
+            + `${poses.length - failed} reaching a handstand, ${failed} falling`
+            + (downNow ? ` (${downNow} already down)` : '') + `. `
             + `Best cost ${poses[0].cost.toFixed(2)}. The dark figure is the best of them.`;
         } else {
           note.textContent = optState.running
