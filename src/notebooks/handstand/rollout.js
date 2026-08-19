@@ -967,20 +967,16 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
       return c;
     }
     : (x) => costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
+  // Scored before the search rather than after it, so the incumbent is never
+  // worse than the technique the search was handed -- including when the
+  // search is stopped part way and its incumbent is what gets kept.
+  const startCost = costFn(model, ws, strengthProf, rom, scenario, start, costOpts).cost;
   const result = await cmaes({
-    x0: start, sigma0, seed, maxGen, lambda, bounds,
+    x0: start, sigma0, seed, maxGen, lambda, bounds, f0: startCost,
     objective: objectiveBatch ? null : (x) => scored(x).cost,
     objectiveBatch,
     onGeneration,
   });
-  // The start is itself a candidate; CMA-ES samples around it but never
-  // evaluates it, so on a hard landscape a small budget can end worse than
-  // where it began. Never return worse than the start.
-  const startCost = costFn(model, ws, strengthProf, rom, scenario, start, costOpts).cost;
-  if (startCost < result.best) {
-    result.best = startCost;
-    result.bestX = start;
-  }
   const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX, { K, dt: 2e-4, weights });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
