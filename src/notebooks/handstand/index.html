@@ -56,7 +56,6 @@
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
       SYMMETRIC_SCENARIOS,
     } from './rollout.js';
-    import { evalReference } from './control.js';
     import * as FIG from './figure-kit.js';
     import { PRESET_TRAJECTORIES } from './presets.js';
   </script>
@@ -722,20 +721,6 @@
     simControls.appendChild(playRow);
     invalidation.then(() => playRow.remove());
 
-    // The commanded pose is drawn behind the achieved one, so the thing
-    // driving the movement is visible in the movement. Only the six joint
-    // angles come from the reference; the floating base is where the body
-    // actually is, because a spline says nothing about where the hand ended
-    // up. The two separate wherever the servo cannot deliver what was asked
-    // -- and at the wrist they separate on purpose, since the balance
-    // correction overrides that channel.
-    const refToggle = Inputs.toggle({ label: 'Show what the spline is asking for', value: true });
-    simControls.appendChild(refToggle);
-    invalidation.then(() => refToggle.remove());
-    const refQ = new Float64Array(model.nq);
-    const refVal = new Float64Array(6), refRate = new Float64Array(6);
-    refToggle.addEventListener('input', () => { playState.dirty = true; });
-
 
     const stopPlayTheme = observeTheme((t) => { playState.theme = t; playState.dirty = true; });
     invalidation.then(stopPlayTheme);
@@ -780,25 +765,11 @@
       const view = { cx: 0.15, yLo: -0.18, yHi: 2.3 };
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
-      // The clear happens here rather than inside drawScene, because the
-      // reference ghost goes UNDER the body and drawScene's own clear would
-      // wipe it.
-      ctx.clearRect(0, 0, playState.viewW, playState.viewH);
-      if (refToggle.value && sim.knots && sim.T) {
-        const m = sim.model || model;
-        if (refQ.length === m.nq) {
-          refQ.set(q);
-          evalReference(sim.knots, sim.T, Math.min(playState.t, sim.T), refVal, refRate);
-          for (let j = 0; j < 6; j++) refQ[3 + j] = refVal[j];
-          drawScene(ctx, {
-            clear: false, model: m, ws: sim.ws || ws, q: refQ,
-            width: playState.viewW, height: playState.viewH,
-            theme: playState.theme, view, segmentColors: FIG.requestTint(),
-          });
-        }
-      }
+      // One body here. What the spline ASKED for is a separate idea with its
+      // own labelled panel further down; overlaying it on this figure put a
+      // second, unlabelled body in a picture that is about contacts, ground
+      // reaction and balance, and it read as a mystery rather than a mark.
       drawScene(ctx, {
-        clear: false,
         // The body the run was produced on, when it recorded one: drawing a
         // 1.9 m technique with the page's 1.75 m model would be a picture of
         // a movement nobody performed.
@@ -818,7 +789,7 @@
 
     const playFigure = html`<figure>
       ${playStack.element}
-      <figcaption>Segments are colored by strength used at that joint, blue (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail. The orange body is the pose the reference spline is asking for at that instant; where it separates from the coloured one, the request is more than the muscle can deliver.</figcaption>
+      <figcaption>Segments are colored by strength used at that joint, blue (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail.</figcaption>
     </figure>`;
 
     display(expandable(playFigure, {
