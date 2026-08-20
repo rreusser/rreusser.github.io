@@ -979,8 +979,8 @@
         const a = askPanel.ctx;
         a.setTransform(dpr, 0, 0, dpr, 0, 0);
         a.clearRect(0, 0, panelW, panelH);
-        FIG.requestPose(rec, editState.knots, editState.T, t, askQ);
-        if (sel >= 0) for (let j = 0; j < 6; j++) askQ[3 + j] = editState.knots[j][sel];
+        if (sel >= 0) FIG.knotPose(m, editState.knots, sel, askQ);
+        else FIG.requestPose(m, editState.knots, editState.T, t, askQ);
         const askDrawn = drawScene(a, { ...common, q: askQ, segmentColors: FIG.requestTint() });
         syncHandles(sel >= 0 ? askDrawn.handles.filter((h) => !lockedJoint(h.joint)) : []);
         // How far this pose is from the one the body reaches at the same
@@ -1081,14 +1081,14 @@
       overlay.addEventListener('pointercancel', endDrag);
       overlay.addEventListener('lostpointercapture', endDrag);
 
-      // The only rule a knot obeys, and the only one there is: a joint angle
-      // stays a joint angle. Nothing is clamped to a plot's axis any more, so a
-      // handle never stops for a reason the figure has not drawn -- if the pose
-      // goes outside the body's range of motion, the strip says so in blue.
+      // A knot goes exactly where it is put. Nothing is clamped: a handle that
+      // stops for a reason the figure has not drawn is a handle that lies, and
+      // the pointer's own angle already bounds a gesture to half a turn from
+      // where it started. If the pose ends up outside the body's range of
+      // motion, the strip says so in blue rather than the drag refusing it.
       const writeKnot = (ch, k, q) => {
-        const v = Math.min(Math.PI, Math.max(-Math.PI, q));
-        editState.knots[ch][k] = v;
-        if (symmetric && (ch === 2 || ch === 3)) editState.knots[ch + 2][k] = v;
+        editState.knots[ch][k] = q;
+        if (symmetric && (ch === 2 || ch === 3)) editState.knots[ch + 2][k] = q;
       };
 
       // ---- the technique, as its poses ---------------------------------------
@@ -1169,7 +1169,7 @@
           chromeDirty = false;
           const run = editState.run;
           story.draw({
-            model: run.model || model, ws: run.ws || ws, rec: run.rec,
+            model: run.model || model, ws: run.ws || ws,
             knots: editState.knots, T: editState.T, sel, theme,
           });
         }
@@ -1706,7 +1706,7 @@
       verdictLine.innerHTML = FIG.verdictHTML(stats);
       const paint = () => {
         story.draw({
-          model: run.model || model, ws: run.ws || ws, rec: run.rec,
+          model: run.model || model, ws: run.ws || ws,
           knots: run.knots, T: run.T, sel: -1, theme,
         });
         strip.layout({

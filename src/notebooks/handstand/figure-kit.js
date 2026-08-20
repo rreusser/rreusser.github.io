@@ -18,7 +18,7 @@
 
 import { drawScene } from './render.js';
 import { availableTorque } from './strength.js';
-import { jointLimits } from './statics.js';
+import { jointLimits, groundHand } from './statics.js';
 import { evalReference, JOINT_ORDER } from './control.js';
 import { WORK_EFFICIENCY } from './rollout.js';
 
@@ -79,15 +79,32 @@ export function frameAt(rec, t) {
   return Math.min(rec.t.length - 1, Math.max(0, Math.round(t / (rec.dt * rec.stride))));
 }
 
-// The pose a set of knots asks for at time t, standing where the body it was
-// simulated on actually stood: a spline says nothing about where the hand
-// ended up, so the floating base always comes from the recording.
+// The pose a set of knots asks for at time t, ALWAYS on a hand planted flat at
+// the origin.
+//
+// A reference pose is six joint angles and nothing else -- it has no position,
+// because a spline says nothing about where the hand ends up. This used to
+// borrow the floating base from the recording, which is wrong in a way that
+// only shows once you edit: changing an early pose changes the simulation,
+// which moves the hand at every LATER instant, so every later pose was redrawn
+// on a frame that had slid, tilted, or (if the edit made the body fall) rotated
+// flat onto the floor. Poses nobody touched appeared to fly around, and a pose
+// just set snapped somewhere else the moment the drag was released. Planting
+// the hand makes a pose depend on exactly the numbers that define it.
 const refVal = new Float64Array(6), refRate = new Float64Array(6);
-export function requestPose(rec, knots, T, t, out) {
-  const k = frameAt(rec, t);
-  out.set(rec.q[k]);
+export function requestPose(model, knots, T, t, out) {
+  out.fill(0);
+  groundHand(model, out);
   evalReference(knots, T, Math.min(t, T), refVal, refRate);
   for (let j = 0; j < 6; j++) out[3 + j] = refVal[j];
+  return out;
+}
+
+// The same, for a knot taken directly rather than sampled off the spline.
+export function knotPose(model, knots, k, out) {
+  out.fill(0);
+  groundHand(model, out);
+  for (let j = 0; j < 6; j++) out[3 + j] = knots[j][k];
   return out;
 }
 
@@ -358,7 +375,7 @@ export function createStoryboard({ K, cols, thumbW, thumbH, view, dpr = 1, onSel
 
   // Every thumbnail is a REQUEST, so every thumbnail is orange, and nothing
   // else is drawn on it.
-  const draw = ({ model, ws, rec, knots, T, sel = -1, theme }) => {
+  const draw = ({ model, ws, knots, T, sel = -1, theme }) => {
     const q = new Float64Array(model.nq);
     const tint = requestTint();
     for (let k = 0; k < K; k++) {
@@ -367,8 +384,7 @@ export function createStoryboard({ K, cols, thumbW, thumbH, view, dpr = 1, onSel
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, thumbW, thumbH);
       const common = { clear: false, model, ws, width: thumbW, height: thumbH, theme, view };
-      q.set(rec.q[frameAt(rec, t)]);
-      for (let j = 0; j < 6; j++) q[3 + j] = knots[j][k];
+      knotPose(model, knots, k, q);
       drawScene(ctx, { ...common, q, segmentColors: tint });
       cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
       cells[k].cap.textContent = `${k + 1} · ${t.toFixed(2)}s`;
