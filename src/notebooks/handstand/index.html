@@ -982,9 +982,16 @@
             })).filter((c) => c.q),
           });
         }
-        drawScene(g, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
-        gotPanel.sub.textContent = `${t.toFixed(2)}s`
-          + (field?.length ? ` · ${field.length} candidates behind` : '');
+        // No effort tint while the search runs. There, the picture is a field
+        // of candidates and the one being kept, and a blue-to-red body among
+        // flat grey ones reads as a different KIND of object rather than the
+        // best of them. The tint comes back when the figure is about a single
+        // technique again.
+        drawScene(g, { ...common, q: rec.q[k],
+          segmentColors: field?.length ? null : FIG.effortTint(run, k, prof, isDark) });
+        gotPanel.sub.textContent = field?.length
+          ? `${t.toFixed(2)}s · best of ${field.length} this generation`
+          : `${t.toFixed(2)}s`;
       };
 
       // ---- joint handles ----------------------------------------------------
@@ -1069,6 +1076,14 @@
         width: totalW, dpr,
         onSeek: (x) => { t = x; sel = -1; playing = false; playBtn.textContent = 'Play'; dirty = true; },
       });
+      // Mirrored from the picker above rather than duplicated: one technique,
+      // one selection, two places you can reach it. The section that is ABOUT
+      // a technique should not be the one section with no way to choose one.
+      const pick = Inputs.select(scenarioKeys, {
+        label: 'Technique', format: (v) => scenarioNames[v],
+      });
+      Inputs.bind(pick, scenarioInput, invalidation);
+
       const playBtn = html`<button style="min-width:58px;">Play</button>`;
       playBtn.addEventListener('click', () => {
         playing = !playing;
@@ -1169,10 +1184,21 @@
         });
         c.stroke();
       };
+      // The incumbent, and the generation it came out of, applied together.
+      let pending = null;
+      const adopt = (data) => {
+        if (data.generation?.length) optState.ghosts = data.generation;
+        if (!data.knots) return;
+        editState.knots = data.knots.map((k) => Float64Array.from(k));
+        editState.T = data.T;
+        durInput.value = data.T;
+        resim();
+      };
       const stopSearch = () => {
         optState.worker?.terminate();
         optState.worker = null;
         optState.ghosts = null;
+        pending = null;
         searching = false;
         optRun.disabled = false;
         optStop.disabled = true;
@@ -1181,40 +1207,43 @@
       optStop.addEventListener('click', () => {
         stopSearch();
         status = status.replace(/^searching/, 'stopped');
-        dirty = chromeDirty = true;
+        selectKnot(0);
       });
       optRun.addEventListener('click', () => {
         stopSearch();
         optState.history = [];
         searching = true;
+        // Both panels run the loop while the search does: the target it is
+        // asking for, the body chasing it, and the rest of the generation
+        // behind. Holding one pose still while the other animates made the
+        // two halves of the figure disagree about what time it was.
+        sel = -1;
+        lastNow = null;
         optRun.disabled = true;
         optStop.disabled = false;
         status = 'starting';
         const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
         optState.worker = worker;
         const over = bodyOver();
-        // The incumbent is adopted as it arrives, so the figure always shows
-        // the best technique the search has found rather than a preview of one.
-        const adopt = (data) => {
-          if (!data.knots) return;
-          editState.knots = data.knots.map((k) => Float64Array.from(k));
-          editState.T = data.T;
-          durInput.value = data.T;
-          resim();
-        };
         worker.onmessage = ({ data }) => {
           if (data.type === 'pool') { poolSize = data.size; return; }
           if (data.type === 'progress') {
             optState.history.push({ gen: data.gen, best: data.best });
-            optState.ghosts = data.generation?.length ? data.generation : optState.ghosts;
             status = `searching · generation ${data.gen} · best cost ${data.best.toFixed(2)}`
               + (poolSize ? ` · ${poolSize} worker${poolSize > 1 ? 's' : ''}` : '');
-            adopt(data);
+            // Held, not applied. A generation is swapped in at the end of a
+            // loop pass and never during one, so what is on screen is always a
+            // single generation and always one that finished -- and the
+            // incumbent it belongs to arrives with it, rather than the poses
+            // jumping at one moment and the field behind them at another.
+            pending = data;
           } else if (data.type === 'done') {
             optState.history.push({ gen: optState.history.length, best: data.fineCost });
             status = `done · cost ${data.fineCost.toFixed(2)} at the fine timestep`;
+            pending = null;
             adopt(data);
             stopSearch();
+            selectKnot(0);
           }
           dirty = chromeDirty = true;
         };
@@ -1265,12 +1294,17 @@
       }
 
       const loop = createFrameLoop((now) => {
-        if (playing) {
-          if (lastNow !== null) { t += (now - lastNow) / 1000; if (t > xEnd) t = 0; }
+        if (playing || searching) {
+          if (lastNow !== null) {
+            t += (now - lastNow) / 1000;
+            if (t > xEnd) {
+              t = 0;
+              if (pending) { adopt(pending); pending = null; }
+            }
+          }
           lastNow = now;
           dirty = true;
         } else { lastNow = null; }
-        if (searching) dirty = true;
         if (!dirty) return;
         dirty = false;
         drawPanels();
@@ -1308,11 +1342,14 @@
         stroke-width="1"/></svg>`;
 
       return html`<figure>
+        <div class="spline-controls" style="margin-bottom:8px;">${pick}</div>
         <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
           ${askPanel.box}${gotPanel.box}
         </div>
-        <div style="margin:8px 0 0;">${playBtn}</div>
-        ${head(`the technique — ${K} poses and a duration`)}
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0 0;">
+          ${playBtn}${optRun}${optStop}${spark}${statusEl}
+        </div>
+        ${head('poses')}
         ${story.element}
         <div style="margin-top:10px;">${strip.element}</div>
         <small style="display:block; opacity:.85; margin:2px 0 0;">${
@@ -1320,12 +1357,9 @@
           key(hill, 'how far behind its target')}${
           key(dot(FIG.ROM_COLOR), 'outside its range of motion')}</small>
         ${verdict}
-        ${head('change them by hand')}
         <div class="spline-controls">${durInput}${resetBtn}</div>
-        ${head('or let the search change them')}
-        <div class="spline-controls">${optRun}${optStop}${spark}${statusEl}</div>
         <div class="spline-controls">${optGens}${optSeed}</div>
-        ${head('the body it is run and scored on')}
+        ${head('body')}
         <div class="spline-controls">${inShoulder}${inHam}</div>
         <div class="spline-controls">${inShFlex}${inWrExt}</div>
         <figcaption><b style="color:${FIG.REQUEST_COLOR}">Orange is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>blue-to-red body is what happened</b>, coloured by the strength each joint spent. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers.</figcaption>
