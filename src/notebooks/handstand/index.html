@@ -983,9 +983,22 @@
         if (sel >= 0) for (let j = 0; j < 6; j++) askQ[3 + j] = editState.knots[j][sel];
         const askDrawn = drawScene(a, { ...common, q: askQ, segmentColors: FIG.requestTint() });
         syncHandles(sel >= 0 ? askDrawn.handles.filter((h) => !lockedJoint(h.joint)) : []);
+        // How far this pose is from the one the body reaches at the same
+        // instant, on the joint where it is worst. The press stays inside a
+        // degree or two; the throws run fifty apart, because torque follows
+        // error and a joint at its cap has to be chasing something it cannot
+        // catch.
+        let worst = 0, worstJ = 0;
+        for (let j = 0; j < 6; j++) {
+          const gap = (askQ[3 + j] - rec.q[k][3 + j]) * 180 / Math.PI;
+          if (Math.abs(gap) > Math.abs(worst)) { worst = gap; worstJ = j; }
+        }
+        const d = Math.abs(worst).toFixed(0);
         askPanel.sub.textContent = sel >= 0
-          ? `pose ${sel + 1} of ${K}, at ${knotTime(sel).toFixed(2)}s — drag a joint`
-          : `${t.toFixed(2)}s, between poses — pick one below to edit`;
+          ? `pose ${sel + 1} of ${K} · drag a joint · ` + (Math.abs(worst) < 6
+            ? `within ${d}° of the body`
+            : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`)
+          : `${t.toFixed(2)}s · pick a pose below to edit`;
 
         // RIGHT: what happened, tinted by the strength each joint spent.
         const g = gotPanel.ctx;
@@ -994,31 +1007,6 @@
         drawScene(g, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
         gotPanel.sub.textContent = `${t.toFixed(2)}s`;
 
-        // Why the two bodies differ, said here rather than in a caption, with
-        // the joint and the number that are actually on screen.
-        //
-        // This is the question the figure exists to answer. A reference pose
-        // that asks the trunk twenty degrees PAST the handstand, while the
-        // body is still thirty short of it, looks like a mistake until you
-        // know that torque is proportional to error: a joint only makes its
-        // maximum while it is far from its target, so any technique that needs
-        // full effort has to keep asking for a pose the body has not reached.
-        // The press does not need full effort, and its reference sits on top
-        // of its result -- which is the contrast this line draws by saying the
-        // same thing about both.
-        let worst = 0, worstJ = 0;
-        for (let j = 0; j < 6; j++) {
-          const d = (askQ[3 + j] - rec.q[k][3 + j]) * 180 / Math.PI;
-          if (Math.abs(d) > Math.abs(worst)) { worst = d; worstJ = j; }
-        }
-        const d = Math.abs(worst).toFixed(0);
-        gapLine.innerHTML = Math.abs(worst) < 6
-          ? `<b>The body is within ${d}° of this pose at every joint.</b> This technique asks for `
-            + `poses it actually passes through: it is never demanding more than the joints deliver.`
-          : `<b>${d}° apart at the ${FIG.JOINTS[worstJ].label}.</b> The reference leads the body on `
-            + `purpose. A joint makes its maximum torque only while it is far from its target, so a `
-            + `technique that needs full effort has to keep asking for a pose the body has not `
-            + `reached — even one past the handstand.`;
       };
 
       // ---- joint handles ------------------------------------------------------
@@ -1138,8 +1126,6 @@
         relayout();
       });
 
-      const gapLine = html`<div style="font-size:12px; line-height:1.45; opacity:.9;
-        border-left:3px solid ${FIG.REQUEST_COLOR}; padding:2px 0 2px 8px; margin:8px 0 0;"></div>`;
       const verdict = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
       const baseStats = FIG.analyzeRun(simResult, simResult.prof || strengthProf, model);
 
@@ -1214,11 +1200,7 @@
         <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
           ${askPanel.box}${gotPanel.box}
         </div>
-        ${gapLine}
-        <div style="display:flex; gap:8px; align-items:center; margin:8px 0 10px;">
-          ${playBtn}<span style="font-size:12px; opacity:.7;">watch the two bodies run, or
-          scrub the strip below</span>
-        </div>
+        <div style="margin:8px 0 10px;">${playBtn}</div>
         <div style="font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;
           opacity:.75; margin-bottom:3px;">the technique — ${K} poses, click one to edit it</div>
         ${story.element}
@@ -1229,7 +1211,7 @@
           key(dot(FIG.ROM_COLOR), 'outside its range of motion')}</small>
         ${verdict}
         <div class="spline-controls">${durInput}${resetBtn}</div>
-        <figcaption>Two marks, and they mean the same thing in every figure on this page. <b style="color:${FIG.REQUEST_COLOR}">Orange is what the technique asks for</b>: a target the servo chases, not a pose the body holds. The <b>blue-to-red body is what happened</b>, coloured by how much of each joint's strength it took. The strip is those same six joints over time — colour is strength used, the pale hill is how far behind its target the joint is running, and a blue edge means it is outside its own range of motion. A red row under a tall hill is a joint at full effort and still not keeping up, which is what a thrown entry looks like and what a pressed one does not. Click a pose to edit it, drag its joints, and the body re-simulates when you let go.</figcaption>
+        <figcaption><b style="color:${FIG.REQUEST_COLOR}">Orange is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>blue-to-red body is what happened</b>, coloured by the strength each joint spent.</figcaption>
       </figure>`;
     })();
     display(splineEditor);
