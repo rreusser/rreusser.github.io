@@ -847,7 +847,9 @@
 
     The wrist is the one channel that separates on purpose. Its spline sets the lean, and the closed-loop balance correction — proportional to horizontal center-of-mass error, clamped to the same strength envelope — is added on top of it. Balance is continuous, as it is for a human; the trajectory only ever chooses the shape.
 
-    And the first knot is not the starting pose. Only the *last* knot is pinned, to the balanced handstand, because a technique ends in the handstand by definition; every other knot including the first is a free number the search may put anywhere. It uses that. The kick-up's first hip knot asks for 26 degrees while the lunge it starts from is folded to 83, and the bent-leg press asks its shoulder for 12 degrees against a start of 98 — a step of fifty to eighty-five degrees demanded in the first millisecond, which is a command to produce maximum torque, not a pose to pass through. That is why the ghost of the reference is nowhere near the body at the beginning of either entry, and it is the clearest statement the model makes of the difference between a technique you *hold* and a technique you *throw*: the press's first knot is three degrees from its own start pose.
+    So the reference poses are not, in general, poses. A servo's torque is proportional to how far the joint is from its target, clipped at what the muscle can produce, which means the only way to hold a joint at its maximum is to keep the target far ahead of the body. The optimizer discovered that and used it. Two thirds of the way through the kick-up the reference is asking the trunk to stand at 75 degrees — thirteen degrees *past* the handstand — while the body is still at 123, and the shoulder is at a hundred per cent of its cap the whole time. It is a carrot on a stick. The same is true at the start: only the *last* knot is pinned, so the first is free, and the kick-up's opens asking the hip for 26 degrees while the lunge it starts from is folded to 83.
+
+    The straight-leg press does none of this. Its reference sits within four degrees of the body at every knot, because a press never needs full effort from any joint and so never needs to lie to one. That is the difference between a technique you *hold* and a technique you *throw*, and it is visible in the figure below the moment you step through the poses of each.
 
     Below, the request is the figure, in the two forms it has. Drag a joint and the body re-simulates on the same plant, the same body and the same integration as the run above.
   </script>
@@ -920,6 +922,7 @@
       // callback immediately, and a repaint that runs before the strip and the
       // storyboard exist reaches them in their temporal dead zone.
       let theme = null;
+      let paintRamp = null;
 
       // ---- one time variable ------------------------------------------------
       // t is where everything is looking. sel is which knot t is sitting on, or
@@ -960,7 +963,6 @@
       askPanel.stage.appendChild(overlay);
 
       const askQ = new Float64Array(runModel.nq);
-      const wasQ = new Float64Array(runModel.nq);
 
       // ---- the two bodies ----------------------------------------------------
       const drawPanels = () => {
@@ -977,10 +979,6 @@
         const a = askPanel.ctx;
         a.setTransform(dpr, 0, 0, dpr, 0, 0);
         a.clearRect(0, 0, panelW, panelH);
-        if (editState.edited) {
-          FIG.requestPose(rec, baseKnots, simResult.T, t, wasQ);
-          drawGhosts(a, { ...common, poses: [{ q: wasQ }], alpha: 0.2 });
-        }
         FIG.requestPose(rec, editState.knots, editState.T, t, askQ);
         if (sel >= 0) for (let j = 0; j < 6; j++) askQ[3 + j] = editState.knots[j][sel];
         const askDrawn = drawScene(a, { ...common, q: askQ, segmentColors: FIG.requestTint() });
@@ -993,13 +991,34 @@
         const g = gotPanel.ctx;
         g.setTransform(dpr, 0, 0, dpr, 0, 0);
         g.clearRect(0, 0, panelW, panelH);
-        if (editState.edited) {
-          const bk = FIG.frameAt(simResult.rec, t);
-          drawGhosts(g, { ...common, model: simResult.model || model, ws: simResult.ws || ws,
-            poses: [{ q: simResult.rec.q[bk] }], alpha: 0.2 });
-        }
         drawScene(g, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
         gotPanel.sub.textContent = `${t.toFixed(2)}s`;
+
+        // Why the two bodies differ, said here rather than in a caption, with
+        // the joint and the number that are actually on screen.
+        //
+        // This is the question the figure exists to answer. A reference pose
+        // that asks the trunk twenty degrees PAST the handstand, while the
+        // body is still thirty short of it, looks like a mistake until you
+        // know that torque is proportional to error: a joint only makes its
+        // maximum while it is far from its target, so any technique that needs
+        // full effort has to keep asking for a pose the body has not reached.
+        // The press does not need full effort, and its reference sits on top
+        // of its result -- which is the contrast this line draws by saying the
+        // same thing about both.
+        let worst = 0, worstJ = 0;
+        for (let j = 0; j < 6; j++) {
+          const d = (askQ[3 + j] - rec.q[k][3 + j]) * 180 / Math.PI;
+          if (Math.abs(d) > Math.abs(worst)) { worst = d; worstJ = j; }
+        }
+        const d = Math.abs(worst).toFixed(0);
+        gapLine.innerHTML = Math.abs(worst) < 6
+          ? `<b>The body is within ${d}° of this pose at every joint.</b> This technique asks for `
+            + `poses it actually passes through: it is never demanding more than the joints deliver.`
+          : `<b>${d}° apart at the ${FIG.JOINTS[worstJ].label}.</b> The reference leads the body on `
+            + `purpose. A joint makes its maximum torque only while it is far from its target, so a `
+            + `technique that needs full effort has to keep asking for a pose the body has not `
+            + `reached — even one past the handstand.`;
       };
 
       // ---- joint handles ------------------------------------------------------
@@ -1119,6 +1138,8 @@
         relayout();
       });
 
+      const gapLine = html`<div style="font-size:12px; line-height:1.45; opacity:.9;
+        border-left:3px solid ${FIG.REQUEST_COLOR}; padding:2px 0 2px 8px; margin:8px 0 0;"></div>`;
       const verdict = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
       const baseStats = FIG.analyzeRun(simResult, simResult.prof || strengthProf, model);
 
@@ -1163,8 +1184,7 @@
           const run = editState.run;
           story.draw({
             model: run.model || model, ws: run.ws || ws, rec: run.rec,
-            knots: editState.knots, T: editState.T,
-            baseKnots: editState.edited ? baseKnots : null, sel, theme,
+            knots: editState.knots, T: editState.T, sel, theme,
           });
         }
       });
@@ -1177,8 +1197,13 @@
       const dot = (fill) => html`<span style="display:inline-block; width:.75em; height:.75em;
         background:${fill}; vertical-align:-.05em; margin-right:.3em; border-radius:2px;"></span>`;
       const ramp = html`<span style="display:inline-block; width:3em; height:.75em; vertical-align:-.05em;
-        margin-right:.3em; border-radius:2px; background:linear-gradient(to right,
-        ${FIG.effortColor(0)}, ${FIG.effortColor(0.5)}, ${FIG.effortColor(1)});"></span>`;
+        margin-right:.3em; border-radius:2px;"></span>`;
+      paintRamp = () => {
+        const d = theme?.isDark ?? false;
+        ramp.style.background = `linear-gradient(to right, ${FIG.effortColor(0, d)},`
+          + ` ${FIG.effortColor(0.5, d)}, ${FIG.effortColor(1, d)})`;
+      };
+      paintRamp();
       // The tracking mark is a shape, not a colour, so its key is that shape.
       const hill = html`<svg width="26" height="11" viewBox="0 0 26 11" style="vertical-align:-.15em;
         margin-right:.3em;"><path d="M0,11 L4,10 L8,3 L13,1 L18,6 L22,10 L26,11 Z"
@@ -1189,7 +1214,8 @@
         <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
           ${askPanel.box}${gotPanel.box}
         </div>
-        <div style="display:flex; gap:8px; align-items:center; margin:6px 0 10px;">
+        ${gapLine}
+        <div style="display:flex; gap:8px; align-items:center; margin:8px 0 10px;">
           ${playBtn}<span style="font-size:12px; opacity:.7;">watch the two bodies run, or
           scrub the strip below</span>
         </div>
@@ -1203,7 +1229,7 @@
           key(dot(FIG.ROM_COLOR), 'outside its range of motion')}</small>
         ${verdict}
         <div class="spline-controls">${durInput}${resetBtn}</div>
-        <figcaption>Three marks, and they mean the same thing in every figure on this page. <b style="color:${FIG.REQUEST_COLOR}">Orange is what is being asked for</b> — a reference pose, never a pose the body necessarily reaches. A body <b>tinted blue to red is what happened</b>, coloured by how much of each joint's strength it took. A <b>flat grey body is a different technique</b>: here, the one you started from; in the optimizer below, a candidate the search is trying. The strip is those six joints over time: row colour is strength used, the dark hill is how far behind the body is running, and a blue edge means the joint is outside its own range of motion. A red row under a tall hill is a joint trying its hardest and still not keeping up, which is what a thrown entry looks like and what a pressed one does not.</figcaption>
+        <figcaption>Two marks, and they mean the same thing in every figure on this page. <b style="color:${FIG.REQUEST_COLOR}">Orange is what the technique asks for</b>: a target the servo chases, not a pose the body holds. The <b>blue-to-red body is what happened</b>, coloured by how much of each joint's strength it took. The strip is those same six joints over time — colour is strength used, the pale hill is how far behind its target the joint is running, and a blue edge means it is outside its own range of motion. A red row under a tall hill is a joint at full effort and still not keeping up, which is what a thrown entry looks like and what a pressed one does not. Click a pose to edit it, drag its joints, and the body re-simulates when you let go.</figcaption>
       </figure>`;
     })();
     display(splineEditor);
@@ -1682,9 +1708,6 @@
       }
       const run = optState.readout;
       const K = run.knots[0].length;
-      const seed = r.seedKnots?.length === 6 && r.seedKnots[0].length === K
-        ? r.seedKnots.map((k) => Float64Array.from(k)) : null;
-
       const dpr = devicePixelRatio;
       const totalW = Math.min(width, 640);
       const cols = Math.min(K, totalW >= 560 ? 6 : 3);
@@ -1702,7 +1725,7 @@
       const paint = () => {
         story.draw({
           model: run.model || model, ws: run.ws || ws, rec: run.rec,
-          knots: run.knots, T: run.T, baseKnots: seed, sel: -1, theme,
+          knots: run.knots, T: run.T, sel: -1, theme,
         });
         strip.layout({
           run, prof: run.prof || strengthProf, rom: resolveRom(r.rom),
@@ -1718,9 +1741,9 @@
         ${story.element}
         <div style="margin-top:10px;">${strip.element}</div>
         ${verdictLine}
-        <figcaption>The technique the search settled on, in the planner's terms: orange is what it
-        asks for${seed ? ', grey behind is the technique it started from' : ''}, and the strip is
-        what those poses cost the body over time. ${seed ? 'The difference between the two bodies in each thumbnail is, exactly, what the search bought.' : ''}</figcaption>
+        <figcaption>The technique the search settled on, in the same two marks as the planner
+        above: orange is the ${K} poses it asks for, and the strip is what those poses cost the body
+        over time.</figcaption>
       </figure>`;
     })();
     display(optResultView);

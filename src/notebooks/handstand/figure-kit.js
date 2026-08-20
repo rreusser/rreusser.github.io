@@ -8,13 +8,15 @@
 //
 //   ORANGE body/curve   what is being ASKED FOR (a reference pose, a knot)
 //   BLUE-to-RED body    what HAPPENED, tinted by how much strength it took
-//   FLAT GREY body      ANOTHER technique -- an optimizer candidate, or the
-//                       stored trajectory you are editing away from
 //
-// Nothing else is a body. A reader who learns those three in the playback
-// figure can read the editor and the optimizer without learning them again.
+// Two marks, and nothing else is a body. There was a third -- a flat grey one
+// meaning "some other technique: the one you started from, or a candidate the
+// search is trying" -- and it was cut. A mark whose definition needs the word
+// "or" is not a mark, it is two marks sharing a colour, and a reader given
+// three overlapping figures in a 100 px thumbnail cannot tell which one the
+// panel is about. Comparison against a previous version is not worth a body.
 
-import { drawScene, drawGhosts } from './render.js';
+import { drawScene } from './render.js';
 import { availableTorque } from './strength.js';
 import { jointLimits } from './statics.js';
 import { evalReference, JOINT_ORDER } from './control.js';
@@ -354,10 +356,9 @@ export function createStoryboard({ K, cols, thumbW, thumbH, view, dpr = 1, onSel
     cells.push({ canvas, cap, host });
   }
 
-  // Every thumbnail is a REQUEST, so every thumbnail is orange. Behind it, in
-  // grey, the same knot of the technique this one came from -- the same mark
-  // the optimizer uses for a candidate, meaning "a different technique".
-  const draw = ({ model, ws, rec, knots, T, baseKnots = null, sel = -1, theme }) => {
+  // Every thumbnail is a REQUEST, so every thumbnail is orange, and nothing
+  // else is drawn on it.
+  const draw = ({ model, ws, rec, knots, T, sel = -1, theme }) => {
     const q = new Float64Array(model.nq);
     const tint = requestTint();
     for (let k = 0; k < K; k++) {
@@ -367,10 +368,6 @@ export function createStoryboard({ K, cols, thumbW, thumbH, view, dpr = 1, onSel
       ctx.clearRect(0, 0, thumbW, thumbH);
       const common = { clear: false, model, ws, width: thumbW, height: thumbH, theme, view };
       q.set(rec.q[frameAt(rec, t)]);
-      if (baseKnots) {
-        for (let j = 0; j < 6; j++) q[3 + j] = baseKnots[j][k];
-        drawGhosts(ctx, { ...common, poses: [{ q }], alpha: 0.22 });
-      }
       for (let j = 0; j < 6; j++) q[3 + j] = knots[j][k];
       drawScene(ctx, { ...common, q, segmentColors: tint });
       cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
