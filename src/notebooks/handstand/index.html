@@ -595,8 +595,10 @@
   </script>
   <script id="sim-controls-cell" type="text/x-typescript">
     const simControls = html`<div class="sim-controls"></div>`;
-    // One entry per skill, named plainly, plus whatever the optimizer last
-    // produced. The rest of the registry in runs/ is not a menu: it is the
+    // One entry per skill, named plainly. There is no "latest optimizer
+    // result" entry any more: the search edits the technique in place, in the
+    // figure below, so its result IS the technique this picker is showing.
+    // The rest of the registry in runs/ is not a menu: it is the
     // regression net the artifact suite replays, and offering every superseded
     // attempt as something to watch was a filmstrip of near-identical falls.
     // The press is deliberately labelled with the shoulder it needs, because
@@ -606,7 +608,6 @@
       ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up' } : {}),
       ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (2.8 Nm/kg shoulder)' } : {}),
       ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press, straight legs (needs 2.8 Nm/kg)' } : {}),
-      live: 'Latest optimizer result',
     };
     const scenarioKeys = Object.keys(scenarioNames);
     const scenarioInput = Inputs.select(scenarioKeys, {
@@ -634,31 +635,35 @@
       if (sel === 'lunge-opt') fromPreset(PRESET_TRAJECTORIES.lunge);
       else if (sel === 'tuck-opt') fromPreset(PRESET_TRAJECTORIES.tuck);
       else if (sel === 'pike-opt') fromPreset(PRESET_TRAJECTORIES.pike);
-      else if (sel === 'live') {
-        if (optState.adopted) fromPreset(optState.adopted);
-        else base = 'hold';
-      }
-      // ONE closure produces both the run on screen and every edited variant
-      // of it, so a trajectory pulled out of the spline editor is replayed
-      // exactly as the stored one is: same body, same plant, same
-      // integration. The baseline below is replay() called on the knots as
-      // they were stored, which is the only way to be sure that "the same
-      // knots" and "the same movement" mean the same thing here.
+      // ONE closure produces the run on screen and every variant of it, so an
+      // edited or optimised trajectory is replayed exactly as the stored one
+      // is: same plant, same integration. It takes the BODY too, because a
+      // technique is only good or bad relative to what it is asked of, and the
+      // use of the search is walking one onto a body that cannot afford it
+      // yet. Passing no override replays the technique on the body it was
+      // built for, which is what the baseline below does.
       const replay = stored
-        ? (knots, T) => ({ ...storedRun.run({ ...stored, knots, T }), prof: storedRun.profile(stored) })
-        : (knots, T) => ({
-          ...runScenario(model, ws, strengthProf,
-            { scenario: base, knots, T, settleT: 2.5, rom: { ...ROM_DEFAULTS } }),
-          prof: strengthProf,
-        });
+        ? (knots, T, over = null) => {
+          const p = over ? { ...stored, knots, T, strength: over.strength, rom: over.rom }
+            : { ...stored, knots, T };
+          return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
+        }
+        : (knots, T, over = null) => {
+          const rom = resolveRom(over?.rom);
+          const prof = over?.strength
+            ? strengthProfile(model.massKg, { overrides: over.strength }) : strengthProf;
+          return {
+            ...runScenario(model, ws, prof, { scenario: base, knots, T, settleT: 2.5, rom }),
+            prof, rom,
+          };
+        };
       return {
         ...(stored ? replay(stored.knots, stored.T) : replay(null, 1.2)),
-        replay,
+        replay, stored,
         scenarioName: stored ? stored.scenario : base,
-        // The anatomy this run was produced under, carried alongside so the
-        // spline editor can draw the wall each reference is asking the body
-        // to move against.
-        rom: stored ? resolveRom(stored.rom) : { ...ROM_DEFAULTS },
+        // The anatomy this technique was BUILT for: where the body sliders
+        // start, and what "reset" means.
+        baseRom: stored ? resolveRom(stored.rom) : { ...ROM_DEFAULTS },
       };
     })();
   </script>
@@ -841,17 +846,13 @@
 
     Thirty-seven numbers. Six joints, six knots apiece, and a duration: a uniform Catmull-Rom spline per joint over `[0, T]`, and nothing else. That spline is the entire description of a technique. Everything the body does above — the lean, the swing, the catch — is the servo of the previous section reading an angle and a rate off those curves and spending whatever the strength envelope allows on closing the gap.
 
-    Which means the reference is not the movement. It is a request. Where the body can follow it the two coincide and the request is what you see; where it cannot, the request is a cheque the muscle does not cash — and the physics is still exactly right while the handstand is expensive, ugly, or absent. A bad reference does not produce a bad simulation. It produces a good simulation of someone attempting a bad idea.
+    Which means the reference is not the movement. It is a request. Where the body can follow it the two coincide; where it cannot, the request is a cheque the muscle does not cash, and the physics is still exactly right while the handstand is expensive, ugly, or absent. A bad reference does not produce a bad simulation. It produces a good simulation of someone attempting a bad idea.
 
-    Measured, the three techniques turn out to be three different relationships between the request and the result. The straight-leg press follows its shoulder reference to within half a degree: the spline *is* the movement, which is what quasi-static means, and every knot in that panel is a pose the body genuinely passes through. The kick-up misses its shoulder reference by twenty-seven degrees rms and spends 1.3 of its 1.9 seconds with that shoulder at the torque cap. Its spline is not being followed at all — it is a direction to lean while angular momentum does the work, and moving those knots changes the throw rather than the pose. The bent-leg press misses by forty-three.
+    So the reference poses are not, in general, poses. A servo's torque is proportional to how far the joint is from its target, clipped at what the muscle can produce, which means the only way to hold a joint at its maximum is to keep the target far ahead of the body. The optimizer discovered that and used it. Two thirds of the way through the kick-up the reference is asking the trunk to stand at 75 degrees — thirteen degrees *past* the handstand — while the body is still at 123, and the shoulder is at a hundred per cent of its cap the whole time. It is a carrot on a stick. The same is true at the start: only the *last* knot is pinned, so the first is free, and the kick-up opens asking the hip for 26 degrees while the lunge it starts from is folded to 83.
 
-    The wrist is the one channel that separates on purpose. Its spline sets the lean, and the closed-loop balance correction — proportional to horizontal center-of-mass error, clamped to the same strength envelope — is added on top of it. Balance is continuous, as it is for a human; the trajectory only ever chooses the shape.
+    The straight-leg press does none of this. Its reference sits within a few degrees of the body at every knot, because a press never needs full effort from any joint and so never needs to lie to one. That is the difference between a technique you *hold* and a technique you *throw*.
 
-    So the reference poses are not, in general, poses. A servo's torque is proportional to how far the joint is from its target, clipped at what the muscle can produce, which means the only way to hold a joint at its maximum is to keep the target far ahead of the body. The optimizer discovered that and used it. Two thirds of the way through the kick-up the reference is asking the trunk to stand at 75 degrees — thirteen degrees *past* the handstand — while the body is still at 123, and the shoulder is at a hundred per cent of its cap the whole time. It is a carrot on a stick. The same is true at the start: only the *last* knot is pinned, so the first is free, and the kick-up's opens asking the hip for 26 degrees while the lunge it starts from is folded to 83.
-
-    The straight-leg press does none of this. Its reference sits within four degrees of the body at every knot, because a press never needs full effort from any joint and so never needs to lie to one. That is the difference between a technique you *hold* and a technique you *throw*, and it is visible in the figure below the moment you step through the poses of each.
-
-    Below, the request is the figure, in the two forms it has. Drag a joint and the body re-simulates on the same plant, the same body and the same integration as the run above.
+    Below is that technique, and the three things that can change it: your hands, a search, and the body you make it do the work on. They all move the same thirty-seven numbers.
   </script>
   <script id="edit-state" type="text/x-typescript">
     // The reference trajectory as something you can take hold of. simResult
@@ -880,15 +881,19 @@
       return () => { if (editState.notify === notify) editState.notify = null; };
     });
   </script>
-  <script id="spline-editor" type="text/x-typescript">
-    const splineEditor = (() => {
+  <script id="technique-figure" type="text/x-typescript">
+    // ONE figure for the whole subject, because there is only one subject: a
+    // technique, meaning K reference poses and a duration, run on a body.
+    //
+    // It used to be three figures and three control panels -- a planner, a
+    // population preview, a cost curve, a result readout -- each showing the
+    // same thirty-seven numbers in its own words, and a reader had to work out
+    // that they were the same numbers. They are not three things. There is one
+    // thing and three ways to act on it: your hands, the search, and the body
+    // you make it do the work on.
+    const techniqueFigure = (() => {
       const symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
-      // A symmetric technique searches ONE leg and copies it, so the right leg
-      // is not a free variable. It gets no handle at all rather than a dead
-      // one: a handle that refuses to move is worse than no handle, and on
-      // these scenarios the right leg's sits exactly on top of the left's.
       const lockedJoint = (joint) => symmetric && (joint === 7 || joint === 8);
-      const rom = simResult.rom;
       const runModel = simResult.model || model;
       const baseKnots = simResult.knots.map((k) => Float64Array.from(k));
       const K = baseKnots[0].length;
@@ -904,11 +909,9 @@
 
       const dpr = devicePixelRatio;
       // Every reference pose has to fit, and a reference pose is not a pose the
-      // body ever holds: the kick-up's first knot reaches 1.18 m from the hand.
-      // Measured over every knot of every stored technique, the widest is 1.18
-      // and the tallest 2.07, so the frame is 2.65 m by 2.35 m and never
-      // changes -- a view fitted per pose would make six poses look like six
-      // different bodies.
+      // body ever holds: measured over every knot of every stored technique the
+      // widest reaches 1.18 m from the hand and the tallest 2.07 m. Fixed, so
+      // six poses look like six poses of one body rather than six bodies.
       const VIEW = { cx: 0.15, yLo: -0.2, yHi: 2.15 };
       const totalW = Math.min(width, 640);
       const wide = totalW >= 560;
@@ -918,23 +921,26 @@
       const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
       const thumbH = Math.round(thumbW / 1.13);
 
-      // Subscribed at the BOTTOM of this cell, not here: observeTheme fires its
-      // callback immediately, and a repaint that runs before the strip and the
-      // storyboard exist reaches them in their temporal dead zone.
       let theme = null;
       let paintRamp = null;
 
-      // ---- one time variable ------------------------------------------------
-      // t is where everything is looking. sel is which knot t is sitting on, or
-      // -1 when it is between them. There is no second mode and no hidden
-      // state: the handles exist exactly when sel >= 0, and the heading says so.
+      // ---- one time variable, one selected pose ----------------------------
       let t = 0, sel = 0, playing = false, lastNow = null;
       let dirty = true, chromeDirty = true, xEnd = 1;
+      let searching = false, poolSize = null, status = '';
       const knotTime = (k) => (K === 1 ? 0 : (k / (K - 1)) * editState.T);
+      const selectKnot = (k) => {
+        sel = Math.min(K - 1, Math.max(0, k));
+        playing = false;
+        playBtn.textContent = 'Play';
+        dirty = chromeDirty = true;
+      };
 
+      const head = (text) => html`<div style="font-size:11px; font-weight:600; letter-spacing:.04em;
+        text-transform:uppercase; opacity:.75; margin:14px 0 4px;">${text}</div>`;
       const panel = (title) => {
         const box = html`<div style="flex:0 0 auto; width:${panelW}px;"></div>`;
-        const head = html`<div style="font-size:11px; font-weight:600; letter-spacing:.04em;
+        const h = html`<div style="font-size:11px; font-weight:600; letter-spacing:.04em;
           text-transform:uppercase; opacity:.75; margin-bottom:2px;">${title}</div>`;
         const sub = html`<div style="font-size:11px; opacity:.6; margin-bottom:3px;
           font-variant-numeric:tabular-nums; height:1.2em;"></div>`;
@@ -946,14 +952,10 @@
         canvas.width = Math.round(panelW * dpr);
         canvas.height = Math.round(panelH * dpr);
         stage.appendChild(canvas);
-        box.append(head, sub, stage);
+        box.append(h, sub, stage);
         return { box, sub, stage, canvas, ctx: canvas.getContext('2d') };
       };
-      // Two panels, two meanings, and the meanings never swap. The left one is
-      // always the request and the right one is always what came of it; the
-      // previous version handed the solid body to whichever was "active", so a
-      // reader could not learn which was which.
-      const askPanel = panel('what you are asking for');
+      const askPanel = panel('what it asks for');
       const gotPanel = panel('what happens');
 
       const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -961,10 +963,8 @@
       overlay.setAttribute('height', panelH);
       overlay.style.cssText = 'position:absolute; left:0; top:0;';
       askPanel.stage.appendChild(overlay);
-
       const askQ = new Float64Array(runModel.nq);
 
-      // ---- the two bodies ----------------------------------------------------
       const drawPanels = () => {
         const run = editState.run, rec = run.rec;
         const m = run.model || model, wsr = run.ws || ws;
@@ -973,43 +973,50 @@
         const k = FIG.frameAt(rec, t);
         const common = { clear: false, model: m, ws: wsr, width: panelW, height: panelH, theme, view: VIEW };
 
-        // LEFT: the request, in orange. Behind it, grey, the technique it was
-        // before you touched it -- the same grey the optimizer uses for a
-        // candidate, and meaning the same thing: a different technique.
         const a = askPanel.ctx;
         a.setTransform(dpr, 0, 0, dpr, 0, 0);
         a.clearRect(0, 0, panelW, panelH);
         if (sel >= 0) FIG.knotPose(m, editState.knots, sel, askQ);
         else FIG.requestPose(m, editState.knots, editState.T, t, askQ);
-        const askDrawn = drawScene(a, { ...common, q: askQ, segmentColors: FIG.requestTint() });
-        syncHandles(sel >= 0 ? askDrawn.handles.filter((h) => !lockedJoint(h.joint)) : []);
-        // How far this pose is from the one the body reaches at the same
-        // instant, on the joint where it is worst. The press stays inside a
-        // degree or two; the throws run fifty apart, because torque follows
-        // error and a joint at its cap has to be chasing something it cannot
-        // catch.
+        const drawn = drawScene(a, { ...common, q: askQ, segmentColors: FIG.requestTint() });
+        // No handles while the search owns the knots: a drag would be
+        // overwritten by the next generation, which is a control that lies.
+        syncHandles(sel >= 0 && !searching ? drawn.handles.filter((h) => !lockedJoint(h.joint)) : []);
+
         let worst = 0, worstJ = 0;
         for (let j = 0; j < 6; j++) {
           const gap = (askQ[3 + j] - rec.q[k][3 + j]) * 180 / Math.PI;
           if (Math.abs(gap) > Math.abs(worst)) { worst = gap; worstJ = j; }
         }
         const d = Math.abs(worst).toFixed(0);
-        askPanel.sub.textContent = sel >= 0
-          ? `pose ${sel + 1} of ${K} · drag a joint · ` + (Math.abs(worst) < 6
-            ? `within ${d}° of the body`
-            : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`)
-          : `${t.toFixed(2)}s · pick a pose below to edit`;
+        askPanel.sub.textContent = sel < 0
+          ? `${t.toFixed(2)}s · pick a pose below`
+          : `pose ${sel + 1} of ${K}` + (searching ? '' : ' · drag a joint') + ' · '
+            + (Math.abs(worst) < 6 ? `within ${d}° of the body`
+              : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`);
 
-        // RIGHT: what happened, tinted by the strength each joint spent.
         const g = gotPanel.ctx;
         g.setTransform(dpr, 0, 0, dpr, 0, 0);
         g.clearRect(0, 0, panelW, panelH);
+        // While the search runs, the rest of the generation stands behind the
+        // one being kept. Same grey the reader has already met as a population,
+        // and it is the whole of what a generation is: candidates, simulated.
+        const field = searching ? optState.ghosts : null;
+        if (field?.length) {
+          const u = Math.min(Math.max(t / xEnd, 0), 1);
+          drawGhosts(g, {
+            ...common, alpha: 0.12,
+            poses: field.map((c) => ({
+              q: c.frames?.[Math.min(c.frames.length - 1, Math.round(u * (c.frames.length - 1)))],
+            })).filter((c) => c.q),
+          });
+        }
         drawScene(g, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
-        gotPanel.sub.textContent = `${t.toFixed(2)}s`;
-
+        gotPanel.sub.textContent = `${t.toFixed(2)}s`
+          + (field?.length ? ` · ${field.length} candidates behind` : '');
       };
 
-      // ---- joint handles ------------------------------------------------------
+      // ---- joint handles ----------------------------------------------------
       const handleEls = new Map();
       const syncHandles = (handles) => {
         const want = new Set(handles.map((h) => h.joint));
@@ -1035,17 +1042,13 @@
         }
       };
 
-      // A drag rotates the joint about its own pivot and NOTHING re-simulates
-      // until it is let go. The previous version re-ran the physics on every
-      // pointermove, which replaced the recording, which moved the body's hand
-      // -- so the pivot the angle was being measured from slid out from under
-      // the cursor and the joint stopped tracking the pointer. Freezing the
-      // simulation for the length of the gesture is what makes the pose follow
-      // the hand exactly.
+      // A drag rotates the joint about its own pivot, and nothing re-simulates
+      // until it is let go: re-running the physics mid-gesture replaces the
+      // recording, and the pose then jumps out from under the pointer.
       let drag = null;
       overlay.addEventListener('pointerdown', (e) => {
         const el = e.target;
-        if (drag || !(el instanceof SVGCircleElement) || sel < 0) return;
+        if (drag || !(el instanceof SVGCircleElement) || sel < 0 || searching) return;
         const r = overlay.getBoundingClientRect();
         const px = +el.dataset.px, py = +el.dataset.py;
         drag = {
@@ -1071,7 +1074,7 @@
       });
       const endDrag = (e) => {
         if (!drag || (e && e.pointerId !== drag.pointerId)) return;
-        try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) { /* already gone */ }
+        try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) { /* gone */ }
         drag.el.style.cursor = 'grab';
         const moved = drag.moved;
         drag = null;
@@ -1082,30 +1085,20 @@
       overlay.addEventListener('lostpointercapture', endDrag);
 
       // A knot goes exactly where it is put. Nothing is clamped: a handle that
-      // stops for a reason the figure has not drawn is a handle that lies, and
-      // the pointer's own angle already bounds a gesture to half a turn from
-      // where it started. If the pose ends up outside the body's range of
-      // motion, the strip says so in blue rather than the drag refusing it.
+      // stops for a reason the figure has not drawn is a handle that lies.
       const writeKnot = (ch, k, q) => {
         editState.knots[ch][k] = q;
         if (symmetric && (ch === 2 || ch === 3)) editState.knots[ch + 2][k] = q;
       };
 
-      // ---- the technique, as its poses ---------------------------------------
       const story = FIG.createStoryboard({
-        K, cols: thumbCols, thumbW, thumbH, view: VIEW, dpr,
-        onSelect: (k) => { sel = k; t = knotTime(k); stopPlay(); dirty = chromeDirty = true; },
+        K, cols: thumbCols, thumbW, thumbH, view: VIEW, dpr, onSelect: selectKnot,
       });
-
-      // ---- the effort strip ---------------------------------------------------
       const strip = FIG.createStrip({
         width: totalW, dpr,
-        onSeek: (x) => { t = x; sel = -1; stopPlay(); dirty = true; },
+        onSeek: (x) => { t = x; sel = -1; playing = false; playBtn.textContent = 'Play'; dirty = true; },
       });
-
-      // ---- transport -----------------------------------------------------------
       const playBtn = html`<button style="min-width:58px;">Play</button>`;
-      const stopPlay = () => { playing = false; playBtn.textContent = 'Play'; lastNow = null; };
       playBtn.addEventListener('click', () => {
         playing = !playing;
         playBtn.textContent = playing ? 'Pause' : 'Play';
@@ -1113,45 +1106,190 @@
         lastNow = null;
         dirty = chromeDirty = true;
       });
+
+      // ---- the body this technique is run and scored on ----------------------
+      // Not a separate concern from the technique: a technique is only good or
+      // bad relative to what it is asked of, and the whole use of the search is
+      // walking one onto a body that cannot afford it yet.
+      const st0 = simResult.stored?.strength || null;
+      const rom0 = simResult.baseRom;
+      const inShoulder = Inputs.range([0.8, 3.2], { label: 'Shoulder (Nm/kg)', step: 0.05,
+        value: st0?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol });
+      const inHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', step: 1,
+        value: rom0.hipFlexStraightKneeMaxDeg });
+      const inShFlex = Inputs.range([120, 185], { label: 'Shoulder flexion max (deg)', step: 1,
+        value: rom0.shoulderFlexMaxDeg });
+      const inWrExt = Inputs.range([80, 150], { label: 'Wrist extension max (deg)', step: 1,
+        value: rom0.wristExtMaxDeg ?? 135 });
+      const bodyInputs = [inShoulder, inHam, inShFlex, inWrExt];
+      const bodyDefaults = bodyInputs.map((i) => +i.value);
+      const bodyMoved = () => bodyInputs.some((i, n) => +i.value !== bodyDefaults[n]);
+      const bodyOver = () => ({
+        strength: { ...(st0 || {}),
+          shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: +inShoulder.value } },
+        rom: { ...(simResult.stored?.rom || {}),
+          hipFlexStraightKneeMaxDeg: +inHam.value,
+          shoulderFlexMaxDeg: +inShFlex.value,
+          wristExtMaxDeg: +inWrExt.value },
+      });
+      for (const i of bodyInputs) i.addEventListener('input', () => resim());
+
       const durInput = Inputs.range([0.5, 3.5], { label: 'Duration T (s)', value: editState.T, step: 0.01 });
       durInput.addEventListener('input', () => { editState.T = +durInput.value; resim(); });
       const resetBtn = html`<button>Reset</button>`;
       resetBtn.addEventListener('click', () => {
+        stopSearch();
         editState.knots = baseKnots.map((k) => Float64Array.from(k));
         editState.T = simResult.T;
         durInput.value = simResult.T;
+        bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
         editState.run = simResult;
         editState.edited = false;
         editState.notify?.(null);
+        optState.history = [];
+        status = '';
         relayout();
       });
 
       const verdict = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
       const baseStats = FIG.analyzeRun(simResult, simResult.prof || strengthProf, model);
 
-      // ---- re-simulation --------------------------------------------------------
       const resim = () => {
         let run;
         try {
-          run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T);
-        } catch (err) { console.warn('edited replay failed', err); return; }
+          run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T,
+            bodyMoved() ? bodyOver() : null);
+        } catch (err) { console.warn('replay failed', err); return; }
         editState.run = run;
         editState.edited = true;
         editState.notify?.({ base: simResult, run });
         relayout();
       };
 
+      // ---- the search --------------------------------------------------------
+      // It changes the same numbers your hands do. That is the whole reason it
+      // lives here: you watch the six poses above move, and the duration slider
+      // move, because those ARE what CMA-ES is searching over.
+      const optRun = html`<button>Optimize these poses</button>`;
+      const optStop = html`<button disabled>Stop</button>`;
+      const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
+      const optSeed = Inputs.range([1, 99], { label: 'Search seed', value: 7, step: 1 });
+      const statusEl = html`<span style="font-size:12px; opacity:.8;
+        font-variant-numeric:tabular-nums;"></span>`;
+      const spark = html`<canvas style="width:150px; height:26px; vertical-align:middle;"></canvas>`;
+      spark.width = Math.round(150 * dpr); spark.height = Math.round(26 * dpr);
+      const drawSpark = () => {
+        const h = optState.history;
+        const c = spark.getContext('2d');
+        c.setTransform(dpr, 0, 0, dpr, 0, 0);
+        c.clearRect(0, 0, 150, 26);
+        if (h.length < 2) return;
+        const fg = theme?.foreground || [0.11, 0.12, 0.14];
+        const rgb = fg.map((v) => Math.round(v * 255)).join(',');
+        const ys = h.map((p) => Math.log(Math.max(p.best, 1e-6)));
+        const lo = Math.min(...ys), hi = Math.max(...ys), span = hi - lo || 1;
+        c.strokeStyle = `rgba(${rgb},0.75)`;
+        c.lineWidth = 1.5;
+        c.beginPath();
+        h.forEach((p, i) => {
+          const x = 1 + (i / (h.length - 1)) * 148;
+          const y = 24 - ((ys[i] - lo) / span) * 22;
+          if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+        });
+        c.stroke();
+      };
+      const stopSearch = () => {
+        optState.worker?.terminate();
+        optState.worker = null;
+        optState.ghosts = null;
+        searching = false;
+        optRun.disabled = false;
+        optStop.disabled = true;
+      };
+      invalidation.then(stopSearch);
+      optStop.addEventListener('click', () => {
+        stopSearch();
+        status = status.replace(/^searching/, 'stopped');
+        dirty = chromeDirty = true;
+      });
+      optRun.addEventListener('click', () => {
+        stopSearch();
+        optState.history = [];
+        searching = true;
+        optRun.disabled = true;
+        optStop.disabled = false;
+        status = 'starting';
+        const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
+        optState.worker = worker;
+        const over = bodyOver();
+        // The incumbent is adopted as it arrives, so the figure always shows
+        // the best technique the search has found rather than a preview of one.
+        const adopt = (data) => {
+          if (!data.knots) return;
+          editState.knots = data.knots.map((k) => Float64Array.from(k));
+          editState.T = data.T;
+          durInput.value = data.T;
+          resim();
+        };
+        worker.onmessage = ({ data }) => {
+          if (data.type === 'pool') { poolSize = data.size; return; }
+          if (data.type === 'progress') {
+            optState.history.push({ gen: data.gen, best: data.best });
+            optState.ghosts = data.generation?.length ? data.generation : optState.ghosts;
+            status = `searching · generation ${data.gen} · best cost ${data.best.toFixed(2)}`
+              + (poolSize ? ` · ${poolSize} worker${poolSize > 1 ? 's' : ''}` : '');
+            adopt(data);
+          } else if (data.type === 'done') {
+            optState.history.push({ gen: optState.history.length, best: data.fineCost });
+            status = `done · cost ${data.fineCost.toFixed(2)} at the fine timestep`;
+            adopt(data);
+            stopSearch();
+          }
+          dirty = chromeDirty = true;
+        };
+        worker.onerror = (e) => {
+          console.error('optimizer worker', e);
+          status = 'the search failed to start';
+          stopSearch();
+          dirty = chromeDirty = true;
+        };
+        worker.postMessage({
+          type: 'optimize',
+          scenario: simResult.scenarioName,
+          seed: +optSeed.value,
+          maxGen: +optGens.value,
+          K,
+          // Continue from what is on screen. There is no separate "start from"
+          // menu any more, because the thing you would pick in it is the thing
+          // the figure is already showing.
+          x0: Array.from(encodeDecision(editState.knots.map((k) => Float64Array.from(k)), editState.T)),
+          // Measured: perturbing a warm start by sigma radians on every knot at
+          // once, the share of a 14-candidate generation still reaching a
+          // handstand runs 0/14 at 0.10 and 14/14 at 0.01.
+          sigma0: 0.02,
+          tHi: 3.5,
+          modelParams: {
+            heightM: runModel.heightM, massKg: runModel.massKg,
+            straddleDeg: runModel.straddleDeg, sex: runModel.sex,
+          },
+          strengthOpts: { overrides: over.strength },
+          romOverrides: resolveRom(over.rom),
+        });
+        dirty = chromeDirty = true;
+      });
+
       function relayout() {
         const run = editState.run, rec = run.rec;
         xEnd = Math.min(rec.t[rec.t.length - 1] || editState.T, editState.T + 1.0);
         if (t > xEnd) t = xEnd;
         strip.layout({
-          run, prof: run.prof || strengthProf, rom, T: editState.T, xEnd, theme,
+          run, prof: run.prof || strengthProf, rom: run.rom || simResult.baseRom,
+          T: editState.T, xEnd, theme,
         });
         const stats = FIG.analyzeRun(run, run.prof || strengthProf, model);
-      const verdictLine = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
-      verdictLine.innerHTML = FIG.verdictHTML(stats);
-        verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null);
+        verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null)
+          + (bodyMoved() ? ` &nbsp;·&nbsp; <span style="opacity:.75">on a body you changed</span>` : '');
+        paintRamp?.();
         dirty = chromeDirty = true;
       }
 
@@ -1160,7 +1298,8 @@
           if (lastNow !== null) { t += (now - lastNow) / 1000; if (t > xEnd) t = 0; }
           lastNow = now;
           dirty = true;
-        }
+        } else { lastNow = null; }
+        if (searching) dirty = true;
         if (!dirty) return;
         dirty = false;
         drawPanels();
@@ -1172,6 +1311,8 @@
             model: run.model || model, ws: run.ws || ws,
             knots: editState.knots, T: editState.T, sel, theme,
           });
+          statusEl.textContent = status;
+          drawSpark();
         }
       });
       invalidation.then(() => loop.cancel());
@@ -1190,7 +1331,6 @@
           + ` ${FIG.effortColor(0.5, d)}, ${FIG.effortColor(1, d)})`;
       };
       paintRamp();
-      // The tracking mark is a shape, not a colour, so its key is that shape.
       const hill = html`<svg width="26" height="11" viewBox="0 0 26 11" style="vertical-align:-.15em;
         margin-right:.3em;"><path d="M0,11 L4,10 L8,3 L13,1 L18,6 L22,10 L26,11 Z"
         fill="currentColor" fill-opacity="0.28" stroke="currentColor" stroke-opacity="0.72"
@@ -1200,535 +1340,46 @@
         <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
           ${askPanel.box}${gotPanel.box}
         </div>
-        <div style="margin:8px 0 10px;">${playBtn}</div>
-        <div style="font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;
-          opacity:.75; margin-bottom:3px;">the technique — ${K} poses, click one to edit it</div>
+        <div style="margin:8px 0 0;">${playBtn}</div>
+        ${head(`the technique — ${K} poses and a duration`)}
         ${story.element}
         <div style="margin-top:10px;">${strip.element}</div>
         <small style="display:block; opacity:.85; margin:2px 0 0;">${
           key(ramp, 'strength used')}${
-          key(hill, 'how far behind the body is running')}${
+          key(hill, 'how far behind its target')}${
           key(dot(FIG.ROM_COLOR), 'outside its range of motion')}</small>
         ${verdict}
+        ${head('change them by hand')}
         <div class="spline-controls">${durInput}${resetBtn}</div>
-        <figcaption><b style="color:${FIG.REQUEST_COLOR}">Orange is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>blue-to-red body is what happened</b>, coloured by the strength each joint spent.</figcaption>
+        ${head('or let the search change them')}
+        <div class="spline-controls">${optRun}${optStop}${spark}${statusEl}</div>
+        <div class="spline-controls">${optGens}${optSeed}</div>
+        ${head('the body it is run and scored on')}
+        <div class="spline-controls">${inShoulder}${inHam}</div>
+        <div class="spline-controls">${inShFlex}${inWrExt}</div>
+        <figcaption><b style="color:${FIG.REQUEST_COLOR}">Orange is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>blue-to-red body is what happened</b>, coloured by the strength each joint spent. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers.</figcaption>
       </figure>`;
     })();
-    display(splineEditor);
+    display(techniqueFigure);
   </script>
   <script id="optimizer-section" type="text/markdown">
-    ## Finding the easiest way up
+    ## What the search is actually doing
 
-    A candidate technique is spline knots for each of the six joints plus a duration — thirty seven numbers — scored by a physics rollout: did it arrive at a balanced handstand, how much of the strength envelope did it burn, how much metabolic work did it spend, did it break a flexibility limit, did it fall. CMA-ES climbs that score.
+    CMA-ES climbs a score computed by simulating the candidate. The score is a weighted sum: did it arrive in the balanced pose and stop there; what it cost in metabolic work and in time spent near the torque cap; whether it went outside its own range of motion; whether it is still the skill it claims to be — feet leaving the floor once and not replanting, a bent-leg press actually passing through an inverted tuck, the legs not slung in at more than two metres a second; and whether it looks like a person, through terms on joint acceleration and on how fast the muscle drive is allowed to slew. Each candidate is scored as the *worst case* of two evaluations — the nominal one, and one at a different timestep with a small velocity jitter — so a knife-edge catch tuned to one timestep's contact artifacts pays full price for it.
 
-    Every run in the menu is re-simulated in the browser from its stored knots rather than replayed as an animation, so if a run looks wrong it is wrong, whatever its cost says.
+    What it cannot do is as informative as what it can. The poses are spaced evenly across `T`, so the search can stretch or compress the whole movement but cannot ask for one pose to come earlier and the next later: there is no way to say *linger in the fold, then snap through the middle*. Every knot is boxed by the body's own range of motion, so lowering a flexibility limit takes technique away from the search rather than fining it afterwards. And every run above is re-simulated in your browser from its knots rather than replayed as an animation, so if a technique looks wrong it is wrong, whatever its cost says.
   </script>
   <script id="opt-state" type="text/x-typescript">
+    // What the search owns while it is running, and nothing else. There used
+    // to be an adopted result, a list of saved starting points and a rev
+    // counter here, all of which existed to carry a technique from one figure
+    // to another. There is one figure now, so a result has nowhere to go: it
+    // is already the technique on screen.
     const optState = {
-      worker: null, running: false, history: [],
-      latest: null, result: null, adopted: null, body: null, poolSize: null,
-      // The most recently finished generation, as candidate trajectories the
-      // optimizer already simulated. ghostRev only ever increments, and the
-      // playback loop compares it against what it is currently showing, so a
-      // new generation is picked up at a loop boundary rather than mid-swing.
-      ghosts: null, ghostRev: 0,
-      rev: 0, notify: null,
+      worker: null,
+      history: [],   // best cost per generation, for the sparkline
+      ghosts: null,  // the generation being evaluated, as candidate poses
     };
-  </script>
-  <script id="opt-controls-cell" type="text/x-typescript">
-    const optControls = html`<div class="opt-controls"></div>`;
-    const optScenarioNames = {
-      lunge: 'Kick-up (from lunge)',
-      tuck: 'Bent-leg press (from a tucked fold)',
-      pike: 'Press (from pike)',
-    };
-    const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
-    const optSeed = Inputs.range([1, 99], { label: 'Seed', value: 7, step: 1 });
-    // The body the search scores against, set here rather than inherited
-    // from sliders in another section. Choosing a seed FILLS THESE IN with
-    // the body that seed was built for; editing them afterwards is the whole
-    // point, because a technique only survives being walked onto a weaker
-    // body in small steps. One jump lands in a basin where every candidate
-    // falls; a sequence of small ones lets the technique adapt, which is how
-    // it starts paying for a weaker shoulder with more momentum off the floor.
-    const optShoulder = Inputs.range([0.8, 3.2], { label: 'Shoulder (Nm/kg)', value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05 });
-    const optHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', value: ROM_DEFAULTS.hipFlexStraightKneeMaxDeg, step: 1 });
-    // The two mobility limits an entry actually spends: how far the shoulder
-    // opens overhead, and how far the wrist extends before the body is out
-    // over its fingertips. Both bound the reference knots directly, so
-    // lowering one takes technique away from the search rather than merely
-    // charging it a penalty afterwards.
-    const optRomShoulder = Inputs.range([120, 185], { label: 'Shoulder flexion max (deg)', value: ROM_DEFAULTS.shoulderFlexMaxDeg, step: 1 });
-    const optRomWrist = Inputs.range([80, 150], { label: 'Wrist extension max (deg)', value: ROM_DEFAULTS.wristExtMaxDeg, step: 1 });
-    const optTHi = Inputs.range([1.0, 3.5], { label: 'Max entry duration (s)', value: 3.0, step: 0.1 });
-    const optBodyNote = html`<small style="display:block; opacity:.8; margin:2px 0 0;"></small>`;
-
-    // Every dimension of the body the search scores against, paired with the
-    // field it reads out of a seed's recorded body. One table drives both
-    // filling the inputs in from a seed and reporting how far they have since
-    // been moved away from it.
-    const BODY_FIELDS = [
-      { input: optShoulder, read: (r) => r.strength?.shoulder?.t0Vol, name: 'shoulder', unit: ' Nm/kg', digits: 2 },
-      { input: optHam, read: (r) => r.rom?.hipFlexStraightKneeMaxDeg, name: 'hamstrings', unit: '°', digits: 0 },
-      { input: optRomShoulder, read: (r) => r.rom?.shoulderFlexMaxDeg, name: 'shoulder flexion', unit: '°', digits: 0 },
-      { input: optRomWrist, read: (r) => r.rom?.wristExtMaxDeg, name: 'wrist extension', unit: '°', digits: 0 },
-    ];
-
-    // Seeds are the stored techniques plus anything saved from a run in this
-    // session. A saved case carries its own body and its own knots, so
-    // continuing from it resumes exactly where the last search stopped.
-    const savedCases = [];
-    const seedSlot = html`<div></div>`;
-    let seedOptions = [], seedInput = null;
-
-    const currentSeed = () => {
-      const o = seedOptions[seedInput ? +seedInput.value : 0];
-      if (!o) return null;
-      return o.kind === 'preset'
-        ? { scenario: o.key, run: PRESET_TRAJECTORIES[o.key], label: o.label }
-        : { scenario: savedCases[o.index].scenario, run: savedCases[o.index], label: o.label };
-    };
-    const applySeedBody = () => {
-      const run = currentSeed()?.run;
-      for (const f of (run ? BODY_FIELDS : [])) {
-        const v = f.read(run);
-        if (v === undefined) continue;
-        f.input.value = v;
-        f.input.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      describeBody();
-      showSeedGhost();
-    };
-    // select: which option to leave chosen. Given one, the body inputs are
-    // filled in from it as though it had been picked by hand, which is what
-    // makes saving a run and continuing from it one step instead of three.
-    // Selecting a starting point draws it, in the same place a generation of
-    // candidates appears: the seed is the technique the next search
-    // continues from, so it belongs on screen while you decide how far to
-    // move the body away from it. One rollout on the seed's own plant and
-    // body, thinned to a loop's worth of frames.
-    // Frames per loop pass, and the loop is 3.2 s: 48 of them played as 15
-    // frames a second, which reads as a flipbook rather than a movement.
-    const GHOST_FRAMES = 120;
-    const showSeedGhost = () => {
-      if (optState.running) return;
-      const c = currentSeed();
-      const run = c?.run;
-      if (!run?.knots) return;
-      try {
-        const r = storedRun.run({ ...run, scenario: c.scenario });
-        const n = r.rec.q.length;
-        optState.ghosts = {
-          seed: c.label,
-          model: r.model, ws: r.ws,
-          poses: [{
-            frames: Array.from({ length: GHOST_FRAMES },
-              (_, i) => r.rec.q[Math.round(i * (n - 1) / (GHOST_FRAMES - 1))]),
-            success: r.verdict.success,
-            cost: run.recordedCost ?? null,
-          }],
-        };
-        optState.ghostRev++;
-        optState.rev++;
-        optState.notify?.(optState);
-      } catch (err) {
-        console.warn('seed preview failed', err);
-      }
-    };
-
-    const rebuildSeeds = (select = null) => {
-      seedOptions = [
-        ...Object.keys(optScenarioNames).map((k) => ({ kind: 'preset', key: k, label: `stored ${optScenarioNames[k]}` })),
-        ...savedCases.map((c, i) => ({ kind: 'saved', index: i, label: `saved: ${c.label}` })),
-      ];
-      const keep = select ?? (seedInput ? Math.min(+seedInput.value, seedOptions.length - 1) : 0);
-      seedInput = Inputs.select(seedOptions.map((_, i) => i), {
-        label: 'Start from', value: keep, format: (i) => seedOptions[i].label,
-      });
-      seedInput.addEventListener('input', applySeedBody);
-      seedSlot.replaceChildren(seedInput);
-      if (select !== null) applySeedBody();
-    };
-
-    const resolveBody = () => {
-      const c = currentSeed();
-      return {
-        scenario: c?.scenario ?? 'lunge',
-        seedRun: c?.run ?? null,
-        strengthOpts: { overrides: { shoulder: { t0Vol: +optShoulder.value }, wrist: { t0Vol: 0.85 } } },
-        romOverrides: {
-          ...poseState.rom,
-          hipFlexStraightKneeMaxDeg: +optHam.value,
-          shoulderFlexMaxDeg: +optRomShoulder.value,
-          wristExtMaxDeg: +optRomWrist.value,
-        },
-        tHi: +optTHi.value,
-      };
-    };
-    const describeBody = () => {
-      const run = currentSeed()?.run;
-      const moved = [];
-      for (const f of (run ? BODY_FIELDS : [])) {
-        const seedV = f.read(run);
-        if (seedV === undefined) continue;
-        const d = +f.input.value - seedV;
-        if (Math.abs(d) > 1e-6) moved.push(`${f.name} ${d >= 0 ? '+' : ''}${d.toFixed(f.digits)}${f.unit}`);
-      }
-      optBodyNote.textContent = moved.length
-        ? `Continuing onto a different body: ${moved.join(', ')} from what this technique was built `
-          + `for. Small steps adapt; large ones start from a fall.`
-        : `Scoring against the body this technique was built for.`;
-    };
-
-    optControls.append(seedSlot, optShoulder, optHam, optRomShoulder, optRomWrist,
-      optTHi, optGens, optSeed, optBodyNote);
-    for (const f of BODY_FIELDS) f.input.addEventListener('input', describeBody);
-    optTHi.addEventListener('input', describeBody);
-    rebuildSeeds();
-    applySeedBody();
-
-    const optRow = html`<div style="display:flex; gap:6px; align-items:center; margin-top:6px;"></div>`;
-    const optRun = html`<button>Run optimization</button>`;
-    const optStop = html`<button disabled>Stop</button>`;
-    const optAdopt = html`<button disabled>Send result to playback</button>`;
-    const optSave = html`<button disabled>Save as a starting point</button>`;
-    optRow.append(optRun, optStop, optAdopt, optSave);
-    // Saving a result puts it in the seed list with the body it was scored
-    // against, so a technique can be walked down in steps: save at 1.6, seed
-    // from it, drop the shoulder to 1.55, run, save again. Each step is a
-    // small one, which is the only way the technique survives.
-    optSave.addEventListener('click', () => {
-      const r = optState.result;
-      if (!r) return;
-      const sh = r.strength?.shoulder?.t0Vol ?? optShoulder.value;
-      savedCases.push({
-        label: `${r.scenario} @ ${(+sh).toFixed(2)} Nm/kg`
-          + (r.stopped ? ` (gen ${r.gen})` : '') + ` \u2014 cost ${(r.fineCost ?? r.best).toFixed(2)}`,
-        scenario: r.scenario, knots: r.knots, T: r.T, strength: r.strength, rom: r.rom,
-        config: r.config, numerics: r.numerics, body: r.body,
-      });
-      // Saving selects what was saved: the next run continues from here, on
-      // the body this run was scored against, and the only thing left to do
-      // is move a slider a little and press Run.
-      rebuildSeeds(seedOptions.length);
-      optSave.disabled = true;
-    });
-    optControls.appendChild(optRow);
-
-    function optCleanup() {
-      optState.worker?.terminate();
-      optState.worker = null;
-      optState.running = false;
-      optRun.disabled = false;
-      optStop.disabled = true;
-    }
-    optRun.addEventListener('click', () => {
-      optCleanup();
-      optState.history = [];
-      optState.result = null;
-      optState.latest = null;
-      optState.running = true;
-      optRun.disabled = true;
-      optStop.disabled = false;
-      optAdopt.disabled = true;
-      optSave.disabled = true;
-      const worker = new Worker(new URL('./opt-worker.js', import.meta.url), { type: 'module' });
-      optState.worker = worker;
-      const optFail = (what) => {
-        optState.error = what;
-        console.error('optimizer:', what);
-        optCleanup();
-        optState.rev++;
-        optState.notify?.(optState);
-      };
-      worker.onmessage = ({ data }) => {
-        if (data.type === 'pool') {
-          optState.poolSize = data.size;
-        } else if (data.type === 'progress') {
-          optState.history.push({ gen: data.gen, best: data.best });
-          optState.latest = data;
-          if (data.generation?.length) {
-            optState.ghosts = { gen: data.gen, poses: data.generation };
-            optState.ghostRev++;
-          }
-        } else if (data.type === 'done') {
-          // The worker reports the plant its rollouts ran on; keeping it is
-          // what lets playback replay a result on the machine that produced
-          // it. Without it, playback resolved an unrecorded plant to the
-          // LEGACY one -- no braking, no inertia-scaled damping, no
-          // end-stops, the old start pose -- and the run fell on its face.
-          optState.result = {
-            ...data, ...optState.body,
-            config: data.plant, numerics: data.numerics, body: data.body,
-          };
-          optCleanup();
-          optAdopt.disabled = false;
-          optSave.disabled = false;
-        }
-        optState.rev++;
-        optState.notify?.(optState);
-      };
-      // A search from scratch does not find an entry in any budget this
-      // button offers, so every run continues an existing technique. What
-      // makes it a continuation rather than a doomed transplant is that the
-      // body is set here and starts equal to the seed's own.
-      const resolved = resolveBody();
-      const { seedRun, strengthOpts, romOverrides } = resolved;
-      // Carried onto the result so that adopting or re-seeding a run uses the
-      // body it was optimised for. Without this, a press optimised at 2.8
-      // Nm/kg went to playback and collapsed on a 1.6 Nm/kg body.
-      //
-      optState.body = {
-        scenario: resolved.scenario, strength: strengthOpts.overrides, rom: romOverrides,
-        // Kept so the result can be drawn as what the search CHANGED about the
-        // poses, in the same grey-behind-orange the planner uses.
-        seedKnots: seedRun?.knots ? seedRun.knots.map((k) => Array.from(k)) : null,
-      };
-      optState.error = null;
-      worker.postMessage({
-        type: 'optimize',
-        scenario: resolved.scenario,
-        seed: optSeed.value,
-        maxGen: optGens.value,
-        x0: seedRun
-          ? Array.from(encodeDecision(seedRun.knots.map((k) => Float64Array.from(k)), seedRun.T))
-          : null,
-        // Measured, not guessed: perturbing a warm start by sigma in radians
-        // on every knot of every joint at once, the fraction of a 14-candidate
-        // generation that still reaches a handstand runs 0/14 at 0.10, 4/14 at
-        // 0.05, 12/14 at 0.02 and 14/14 at 0.01. At 0.10 the first generation
-        // wiped out the entire population and the search spent the rest of its
-        // budget choosing between falls.
-        sigma0: seedRun ? 0.02 : undefined,
-        tHi: resolved.tHi,
-        modelParams: { heightM, massKg, straddleDeg, sex },
-        strengthOpts,
-        romOverrides,
-      });
-      optState.rev++;
-      optState.notify?.(optState);
-    });
-    optStop.addEventListener('click', () => {
-      // Stopping keeps the best technique found so far rather than throwing
-      // the search away. The progress message carries the incumbent's knots
-      // and duration, so there is always something to keep; it just has not
-      // been re-scored at the fine timestep the way a completed run is.
-      if (optState.latest) {
-        optState.result = {
-          ...optState.latest, ...optState.body, config: optState.latest.plant,
-          numerics: optState.latest.numerics, body: optState.latest.body, stopped: true,
-        };
-        optAdopt.disabled = false;
-        optSave.disabled = false;
-      }
-      optCleanup();
-      optState.rev++; optState.notify?.(optState);
-    });
-    optAdopt.addEventListener('click', () => {
-      if (!optState.result) return;
-      optState.adopted = optState.result;
-      scenarioInput.value = 'live';
-      scenarioInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    invalidation.then(optCleanup);
-    display(optControls);
-  </script>
-  <script id="opt-observable" type="text/x-typescript">
-    const optInfo = Generators.observe((notify) => {
-      optState.notify = notify;
-      notify(optState);
-      return () => { if (optState.notify === notify) optState.notify = null; };
-    });
-  </script>
-  <script id="opt-preview" type="text/x-typescript">
-    // The generation the optimizer just finished, drawn where the optimizer
-    // is. Every one of these bodies is a candidate that was simulated and
-    // scored to produce the number on the chart below; none of them is a
-    // fresh rollout, and none is a projection of what the search might do.
-    // The cheapest member of the generation is the dark one.
-    const optPreview = (() => {
-      const W = Math.min(width, 640), H = 330;
-      // Room below the floor line: the model has contacts only under the palms
-      // and toes, so a candidate that topples has nothing to land on and
-      // keeps going. Showing that honestly beats cropping it out of frame.
-      const VIEW = { cx: 0.15, yLo: -0.55, yHi: 2.25 };
-      const canvas = html`<canvas style="width:${W}px; height:${H}px;"></canvas>`;
-      canvas.width = Math.round(W * devicePixelRatio);
-      canvas.height = Math.round(H * devicePixelRatio);
-      const note = html`<figcaption></figcaption>`;
-      const ctx = canvas.getContext('2d');
-
-      let theme = null;
-      const stopTheme = observeTheme((t) => { theme = t; });
-      invalidation.then(stopTheme);
-
-      // One pass of the loop is one generation. A newer generation is picked
-      // up when the pass ends, so what is on screen is always a single
-      // generation and always one that finished.
-      const LOOP_S = 3.2;
-      let shown = null, shownRev = -1, t0 = null;
-      const loop = createFrameLoop((now) => {
-        if (t0 === null) t0 = now;
-        let u = ((now - t0) / 1000) / LOOP_S;
-        // A generation is swapped in at a loop boundary, so what is on screen
-        // is always a single generation and always one that finished. A seed
-        // preview is the answer to a click and swaps in at once.
-        const pending = optState.ghostRev !== shownRev;
-        if (pending && (u >= 1 || !shown || optState.ghosts?.seed)) {
-          shown = optState.ghosts; shownRev = optState.ghostRev;
-          t0 = now; u = 0;
-        } else if (u >= 1) {
-          t0 = now; u = 0;
-        }
-        ctx.save();
-        ctx.scale(devicePixelRatio, devicePixelRatio);
-        ctx.clearRect(0, 0, W, H);
-        // Floor, so the fallen candidates read as fallen.
-        const floorY = H - (0 - VIEW.yLo) * (H / (VIEW.yHi - VIEW.yLo));
-        const fg = theme?.foreground || [0.11, 0.12, 0.14];
-        const rgb = fg.map((v) => Math.round(v * 255)).join(',');
-        ctx.fillStyle = `rgba(${rgb},0.05)`;
-        ctx.fillRect(0, floorY, W, H - floorY);
-        ctx.strokeStyle = `rgba(${rgb},0.45)`;
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(W, floorY); ctx.stroke();
-        const poses = shown?.poses;
-        if (poses?.length) {
-          drawGhosts(ctx, {
-            model: shown.model || model, ws: shown.ws || ws, width: W, height: H, theme,
-            view: VIEW,
-            // One figure wants to be solid; thirty overlaid want to be faint.
-            alpha: shown.seed ? 0.34 : 0.16,
-            // Filtered, because this is a frame loop reading state another
-            // cell owns: a pose list caught half-built must skip a frame, not
-            // kill the loop and take the figure with it.
-            poses: poses.map((p, i) => ({
-              q: p.frames?.[Math.min(p.frames.length - 1, Math.round(u * (p.frames.length - 1)))],
-              weight: i === 0 ? 2.6 : 1,
-            })).filter((p) => p.q),
-          });
-          if (shown.seed) {
-            note.textContent = `Starting point: ${shown.seed}`
-              + (poses[0].cost != null ? ` \u2014 cost ${poses[0].cost.toFixed(2)}` : '')
-              + `. Run the optimizer to replace this with the generation it is working on.`;
-          } else {
-            const failed = poses.filter((p) => !p.success).length;
-            note.textContent = `Generation ${shown.gen}: ${poses.length} candidate techniques, `
-              + `${poses.length - failed} reaching a handstand, ${failed} falling. `
-              + `Best cost ${poses[0].cost.toFixed(2)}. Each grey body is one technique — the same `
-              + `mark the planner above uses for a trajectory other than the one in hand — and the `
-              + `darkest is the cheapest of them.`;
-          }
-        } else {
-          note.textContent = optState.running
-            ? 'Waiting for the first generation to finish.'
-            : 'Run the optimizer to watch a generation of candidates at once.';
-        }
-        ctx.restore();
-      });
-      invalidation.then(() => loop.cancel());
-      return html`<figure>${canvas}${note}</figure>`;
-    })();
-    display(optPreview);
-  </script>
-  <script id="opt-progress" type="text/x-typescript">
-    const optProgress = (() => {
-      if (!optInfo.history.length) {
-        return html`<p><em>No optimization run yet. The playback presets above were computed with this exact machinery offline.</em></p>`;
-      }
-      const chart = Plot.plot({
-        height: 180,
-        x: { label: 'generation' },
-        y: { label: 'best cost', type: 'log', grid: true },
-        marks: [Plot.lineY(optInfo.history, { x: 'gen', y: 'best', stroke: '#4878b8' })],
-      });
-      let statusText;
-      if (optInfo.running) {
-        const last = optInfo.history[optInfo.history.length - 1];
-        statusText = `running: generation ${last.gen}, best cost ${last.best.toFixed(2)}`
-          + (optInfo.poolSize ? `, evaluating on ${optInfo.poolSize} worker${optInfo.poolSize > 1 ? 's' : ''}` : '');
-      } else if (optInfo.result?.stopped) {
-        statusText = `stopped at generation ${optInfo.result.gen}, keeping the best so far `
-          + `(cost ${optInfo.result.best.toFixed(2)}, not re-scored at the fine timestep). `
-          + `Send it to playback to watch it.`;
-      } else if (optInfo.result) {
-        const v = optInfo.result.verdict;
-        statusText = `done: cost ${optInfo.result.fineCost.toFixed(2)} at fine timestep, `
-          + (v.success ? 'reaches a settled handstand'
-            : v.upright && v.over ? 'reaches the handstand with residual sway'
-              : 'does not reach a stable handstand');
-      } else {
-        statusText = 'stopped';
-      }
-      return html`<figure>${chart}<figcaption>${statusText}</figcaption></figure>`;
-    })();
-    display(optProgress);
-  </script>
-  <script id="opt-result-readout" type="text/x-typescript">
-    // What the search landed on, said the way the planner says it: the poses
-    // it asks for, the strength and tracking those poses cost over time, and
-    // one verdict line in the one format. Nothing here is new vocabulary --
-    // that is the point. A reader who worked the planner can read a search
-    // result without being taught a second language for the same object.
-    const optResultView = (() => {
-      const r = optInfo.result;
-      if (!r?.knots) {
-        return html`<p><em>Run the optimizer and its answer appears here as a technique:
-          the poses it asks for, and what they cost.</em></p>`;
-      }
-      // Replayed through the one replay path, on the body and plant it was
-      // scored against, so this readout and the playback figure cannot
-      // disagree about what the search found.
-      if (optState.readoutFor !== r) {
-        try {
-          optState.readout = { ...storedRun.run(r), prof: storedRun.profile(r) };
-          optState.readoutFor = r;
-        } catch (err) {
-          console.warn('result readout failed', err);
-          return html`<p><em>This result could not be replayed.</em></p>`;
-        }
-      }
-      const run = optState.readout;
-      const K = run.knots[0].length;
-      const dpr = devicePixelRatio;
-      const totalW = Math.min(width, 640);
-      const cols = Math.min(K, totalW >= 560 ? 6 : 3);
-      const thumbW = Math.floor((totalW - (cols - 1) * 4) / cols) - 4;
-      const VIEW = { cx: 0.15, yLo: -0.2, yHi: 2.15 };
-
-      let theme = null;
-      const story = FIG.createStoryboard({
-        K, cols, thumbW, thumbH: Math.round(thumbW / 1.13), view: VIEW, dpr,
-      });
-      const strip = FIG.createStrip({ width: totalW, dpr });
-      const stats = FIG.analyzeRun(run, run.prof || strengthProf, model);
-      const verdictLine = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
-      verdictLine.innerHTML = FIG.verdictHTML(stats);
-      const paint = () => {
-        story.draw({
-          model: run.model || model, ws: run.ws || ws,
-          knots: run.knots, T: run.T, sel: -1, theme,
-        });
-        strip.layout({
-          run, prof: run.prof || strengthProf, rom: resolveRom(r.rom),
-          T: run.T, xEnd: Math.min(run.rec.t[run.rec.t.length - 1], run.T + 1.0), theme,
-        });
-        strip.draw(null, theme);
-      };
-      const stopTheme = observeTheme((t) => { theme = t; paint(); });
-      invalidation.then(stopTheme);
-      paint();
-
-      return html`<figure>
-        ${story.element}
-        <div style="margin-top:10px;">${strip.element}</div>
-        ${verdictLine}
-        <figcaption>The technique the search settled on, in the same two marks as the planner
-        above: orange is the ${K} poses it asks for, and the strip is what those poses cost the body
-        over time.</figcaption>
-      </figure>`;
-    })();
-    display(optResultView);
   </script>
   <script id="coda" type="text/markdown">
     ## What the model says
