@@ -857,7 +857,9 @@
 
     The wrist is the one channel that separates on purpose. Its spline sets the lean, and the closed-loop balance correction — proportional to horizontal center-of-mass error, clamped to the same strength envelope — is added on top of it. Balance is continuous, as it is for a human; the trajectory only ever chooses the shape.
 
-    Below, the request is the figure. Drag a knot and the body re-simulates on the same plant, the same body and the same integration as the run above.
+    And the first knot is not the starting pose. Only the *last* knot is pinned, to the balanced handstand, because a technique ends in the handstand by definition; every other knot including the first is a free number the search may put anywhere. It uses that. The kick-up's first hip knot asks for 26 degrees while the lunge it starts from is folded to 83, and the bent-leg press asks its shoulder for 12 degrees against a start of 98 — a step of fifty to eighty-five degrees demanded in the first millisecond, which is a command to produce maximum torque, not a pose to pass through. That is why the ghost of the reference is nowhere near the body at the beginning of either entry, and it is the clearest statement the model makes of the difference between a technique you *hold* and a technique you *throw*: the press's first knot is three degrees from its own start pose.
+
+    Below, the request is the figure, in the two forms it has. Drag a joint and the body re-simulates on the same plant, the same body and the same integration as the run above.
   </script>
   <script id="edit-state" type="text/x-typescript">
     // The reference trajectory as something you can take hold of. simResult
@@ -903,6 +905,7 @@
         { j: 5, qi: 8, label: 'Knee flexion R', sign: -1, mirror: 3 },
       ];
       const symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
+      const lockedJoint = (joint) => symmetric && (joint === 7 || joint === 8);
       const rom = simResult.rom;
       const runModel = simResult.model || model;
       const baseKnots = simResult.knots.map((k) => Float64Array.from(k));
@@ -933,18 +936,244 @@
         return `hsl(${210 * (1 - uu)}, ${40 + 45 * uu}%, 50%)`;
       };
       const REF_COLOR = '#e8833a';
+      const dpr = devicePixelRatio;
 
+      // ---- what is on screen ---------------------------------------------
+      // Two modes, because a pose can only be edited when it is holding
+      // still. 'knot' shows one of the K poses the technique asks for, with
+      // a handle on every joint; 'time' shows an instant of the resulting
+      // movement, and has none. Grabbing a handle or picking a knot returns
+      // to 'knot'; playing or scrubbing leaves it.
+      let mode = 'knot';
+      let sel = 0;
+      let tCursor = 0;
+      // dirty repaints the body and the cursor; chromeDirty additionally
+      // repaints the storyboard and the reference curves. Playback sets only
+      // the first, because a knot pose does not change while you watch the
+      // movement and redrawing seven canvases a frame for nothing is how a
+      // figure like this starts dropping frames on a phone.
+      let dirty = true, chromeDirty = true, needsSim = false, liveOk = true;
+      const knotTime = (k) => (K === 1 ? 0 : (k / (K - 1)) * editState.T);
+      // The one way into 'knot' mode, so the transport label can never claim
+      // to be playing something the figure has stopped showing.
+      const selectKnot = (k) => {
+        sel = Math.min(K - 1, Math.max(0, k));
+        mode = 'knot';
+        playBtn.textContent = 'Play';
+        dirty = chromeDirty = true;
+      };
+      const showTime = () => (mode === 'knot' ? knotTime(sel) : tCursor);
+      const frameAt = (t) => {
+        const rec = editState.run.rec;
+        return Math.min(rec.t.length - 1, Math.max(0, Math.round(t / (rec.dt * rec.stride))));
+      };
+      // The horizon both the transport and the charts use. Set by paintChart
+      // from the run and the duration; the settle tail past a second of it is
+      // flat in every channel, and showing it only moved the cursor off the
+      // end of every panel.
+      let xEnd = 1, kMaxShown = 0;
+
+      let theme = null;
+      const stopTheme = observeTheme((t) => { theme = t; dirty = chromeDirty = true; });
+      invalidation.then(stopTheme);
+
+      // ---- geometry -------------------------------------------------------
       const totalW = Math.min(width, 640);
-      const cols = totalW >= 520 ? 2 : 1;
+      const wide = totalW >= 560;
+      // The body gets the full column. A reference pose is not a pose the
+      // body ever holds -- the kick-up's first knot is a horizontal sprawl
+      // reaching well past where any real configuration goes -- so a narrow
+      // panel beside the storyboard clipped the very thing worth seeing.
+      const bodyW = totalW;
+      const bodyH = wide ? 280 : 240;
+      // One view for every knot, never fitted to the pose on screen: a frame
+      // that rescaled per pose would make six poses look like six bodies.
+      // Its top is set by the tallest thing it has to hold, an inverted body
+      // with the legs stacked, so a folded pose sits low in it -- which is
+      // what a folded pose does.
+      const BODY_VIEW = { cx: 0.15, yLo: -0.15, yHi: 2.15 };
+      const THUMB_VIEW = { cx: 0.2, yLo: -0.3, yHi: 3.2 };
+      const thumbCols = Math.min(K, wide ? 6 : 3);
+      const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
+      const thumbH = wide ? 132 : 118;
+
+      // ---- the pose you edit ----------------------------------------------
+      // Direct manipulation, on the body itself: every joint of the reference
+      // pose carries the same rotate-about-the-pivot handle the pose explorer
+      // used, and dragging one writes the selected knot. Editing a technique
+      // by dragging points on six charts is editing a spreadsheet; this is
+      // editing a pose.
+      const bodyBox = html`<div style="position:relative; width:${bodyW}px; height:${bodyH}px;
+        touch-action:none; flex:0 0 auto; border:1px solid currentColor;
+        border-color:color-mix(in srgb, currentColor 18%, transparent);
+        border-radius:3px; box-sizing:border-box;"></div>`;
+      const bodyCanvas = html`<canvas style="position:absolute; left:0; top:0;
+        width:${bodyW}px; height:${bodyH}px;"></canvas>`;
+      bodyCanvas.width = Math.round(bodyW * dpr);
+      bodyCanvas.height = Math.round(bodyH * dpr);
+      const overlay = svgEl('svg', {
+        width: bodyW, height: bodyH,
+        style: 'position:absolute; left:0; top:0;',
+      });
+      bodyBox.append(bodyCanvas, overlay);
+
+      const refQ = new Float64Array(runModel.nq);
+      const thumbQ = new Float64Array(runModel.nq);
+      const refV = new Float64Array(6), refR = new Float64Array(6);
+      // In 'knot' mode the pose IS the knot, taken from the knot rather than
+      // resampled off the spline: at t = k T/(K-1) a Catmull-Rom passes
+      // exactly through its control point, and reading it back through
+      // floating-point arithmetic to prove that would only invite a drag that
+      // does not land where it was let go.
+      const fillRef = (t, out) => {
+        if (mode === 'knot') { for (let j = 0; j < 6; j++) out[j] = editState.knots[j][sel]; }
+        else evalReference(editState.knots, editState.T, Math.min(t, editState.T), out, refR);
+      };
+
+      const handleEls = new Map();
+      const syncHandles = (handles) => {
+        const want = new Set(handles.map((h) => h.joint));
+        for (const [j, el] of [...handleEls]) {
+          if (!want.has(j)) { el.remove(); handleEls.delete(j); }
+        }
+        for (const h of handles) {
+          let el = handleEls.get(h.joint);
+          if (!el) {
+            el = svgEl('circle', { r: 10, 'stroke-width': 1.6, stroke: REF_COLOR });
+            el.style.pointerEvents = 'all';
+            el.dataset.joint = h.joint;
+            overlay.append(el);
+            handleEls.set(h.joint, el);
+          }
+          el.setAttribute('cx', h.x);
+          el.setAttribute('cy', h.y);
+          el.dataset.px = h.pivotX;
+          el.dataset.py = h.pivotY;
+          el.setAttribute('fill', 'rgba(232,131,58,0.22)');
+          el.style.cursor = 'grab';
+        }
+      };
+
+      const drawBody = () => {
+        const run = editState.run, rec = run.rec;
+        const m = run.model || model, wsr = run.ws || ws;
+        const t = showTime();
+        const k = frameAt(t);
+        const ctx = bodyCanvas.getContext('2d');
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, bodyW, bodyH);
+        const common = { clear: false, model: m, ws: wsr, width: bodyW, height: bodyH, theme, view: BODY_VIEW };
+        refQ.set(rec.q[k]);
+        fillRef(t, refV);
+        for (let j = 0; j < 6; j++) refQ[3 + j] = refV[j];
+        if (mode === 'knot') {
+          // Editing: the request is solid because it is the thing being set,
+          // and what the body made of it is the ghost. The playback figure
+          // has it the other way round, because there you are watching a
+          // result rather than authoring one.
+          drawGhosts(ctx, { ...common, poses: [{ q: rec.q[k] }], alpha: 0.22 });
+          // A mirrored leg gets no handle at all rather than a dead one. On a
+          // symmetric scenario the right leg sits EXACTLY on top of the left,
+          // is appended after it, and therefore swallowed every pointerdown
+          // meant for the joint that can actually be moved.
+          syncHandles(drawScene(ctx, { ...common, q: refQ }).handles
+            .filter((h) => !lockedJoint(h.joint)));
+        } else {
+          drawGhosts(ctx, { ...common, poses: [{ q: refQ }], alpha: 0.18 });
+          const prof = run.prof || strengthProf;
+          const segmentColors = [null, null, null, null, null, null, null];
+          for (let j = 0; j < 6; j++) {
+            const tau = rec.tauApplied[k][j];
+            const cap = availableTorque(prof[JOINT_ORDER[j]], tau, rec.qd[k][3 + j]);
+            segmentColors[1 + j] = utilRamp(Math.abs(tau) / Math.max(cap, 1e-6));
+          }
+          drawScene(ctx, { ...common, q: rec.q[k], segmentColors });
+          syncHandles([]);
+        }
+        ctx.restore();
+      };
+
+      // ---- the technique as a storyboard ----------------------------------
+      // The K poses in order, which is what the decision vector literally is.
+      // Clicking one is how you choose what the big body is showing.
+      const thumbs = [];
+      const strip = html`<div style="display:grid; gap:4px; max-width:640px;
+        grid-template-columns:repeat(${thumbCols}, 1fr); align-content:start;"></div>`;
+      for (let k = 0; k < K; k++) {
+        const c = html`<canvas style="width:${thumbW}px; height:${thumbH}px; display:block;"></canvas>`;
+        c.width = Math.round(thumbW * dpr);
+        c.height = Math.round(thumbH * dpr);
+        const cap = html`<div style="font-size:10px; text-align:center; opacity:.7;
+          font-variant-numeric:tabular-nums;"></div>`;
+        const btn = html`<button type="button" style="padding:1px; background:none; cursor:pointer;
+          border:1.5px solid transparent; border-radius:4px;">${c}${cap}</button>`;
+        btn.addEventListener('click', () => selectKnot(k));
+        strip.appendChild(btn);
+        thumbs.push({ canvas: c, btn, cap });
+      }
+      const drawThumbs = () => {
+        const run = editState.run, rec = run.rec;
+        const m = run.model || model, wsr = run.ws || ws;
+        for (let k = 0; k < K; k++) {
+          const t = knotTime(k);
+          thumbQ.set(rec.q[frameAt(t)]);
+          for (let j = 0; j < 6; j++) thumbQ[3 + j] = editState.knots[j][k];
+          const ctx = thumbs[k].canvas.getContext('2d');
+          ctx.save();
+          ctx.scale(dpr, dpr);
+          ctx.clearRect(0, 0, thumbW, thumbH);
+          drawScene(ctx, {
+            clear: false, model: m, ws: wsr, q: thumbQ,
+            width: thumbW, height: thumbH, theme, view: THUMB_VIEW,
+          });
+          ctx.restore();
+          const on = mode === 'knot' && k === sel;
+          thumbs[k].btn.style.borderColor = on ? REF_COLOR : 'transparent';
+          thumbs[k].cap.textContent = `${k + 1} · ${t.toFixed(2)}s`;
+        }
+      };
+
+      // ---- transport -------------------------------------------------------
+      // Declared after selectKnot, which closes over it; selectKnot only ever
+      // runs from an event handler, long after this line.
+      const playBtn = html`<button style="min-width:58px;">Play</button>`;
+      const scrub = html`<input type="range" min="0" max="1" step="0.001" value="0" style="flex:1;">`;
+      const stateLabel = html`<span style="font-variant-numeric:tabular-nums; font-size:12px;
+        opacity:.8; min-width:13em; text-align:right;"></span>`;
+      const transport = html`<div style="display:flex; gap:8px; align-items:center; margin:6px 0;
+        max-width:640px;">${playBtn}${scrub}${stateLabel}</div>`;
+      let lastNow = null;
+      playBtn.addEventListener('click', () => {
+        if (mode === 'time' && playBtn.textContent === 'Pause') {
+          playBtn.textContent = 'Play';
+        } else {
+          if (mode === 'knot') tCursor = knotTime(sel);
+          mode = 'time';
+          playBtn.textContent = 'Pause';
+        }
+        lastNow = null;
+        dirty = true;
+        chromeDirty = true;
+      });
+      scrub.addEventListener('input', () => {
+        mode = 'time';
+        playBtn.textContent = 'Play';
+        tCursor = +scrub.value * xEnd;
+        dirty = chromeDirty = true;
+      });
+      const playing = () => mode === 'time' && playBtn.textContent === 'Pause';
+
+      // ---- the same technique as curves -----------------------------------
       const gap = 8;
+      const cols = wide ? 2 : 1;
       const pw = Math.floor((totalW - (cols - 1) * gap) / cols);
-      const ph = cols === 2 ? 122 : 108;
+      const ph = wide ? 96 : 92;
       const mL = 40, mR = 8, mT = 14, mB = 20;
       const iw = pw - mL - mR, ih = ph - mT - mB;
       const rows = Math.ceil(CHANNELS.length / cols);
       const svgW = cols * pw + (cols - 1) * gap;
       const svgH = rows * ph + (rows - 1) * gap;
-
       const svg = svgEl('svg', {
         width: svgW, height: svgH, viewBox: `0 0 ${svgW} ${svgH}`,
         style: 'font: 10px system-ui, sans-serif; display:block; max-width:100%; height:auto;',
@@ -970,15 +1199,15 @@
         for (let k = 0; k < K; k++) push(baseKnots[ch.j][k]);
         const rec = simResult.rec;
         for (let k = 0; k < rec.q.length; k += 4) push(rec.q[k][ch.qi]);
-        let lo = Math.min(...vals), hi = Math.max(...vals);
+        const lo = Math.min(...vals), hi = Math.max(...vals);
         const pad = Math.max(6, 0.08 * (hi - lo));
         return { lo: lo - pad, hi: hi + pad };
       };
 
-      // One panel per channel. Everything that can change without a rebuild
-      // -- curves, handles, cursor -- is a node kept here and moved by
-      // setAttribute; only the two variable-length groups (saturation bars,
-      // out-of-range shading) are cleared and refilled.
+      // Everything that can change without a rebuild -- curves, handles,
+      // cursor -- is a node kept here and moved by setAttribute; only the two
+      // variable-length groups (saturation bars, out-of-range shading) are
+      // cleared and refilled.
       const panels = CHANNELS.map((ch, i) => {
         const col = i % cols, row = (i / cols) | 0;
         const ox = col * (pw + gap), oy = row * (ph + gap);
@@ -986,15 +1215,12 @@
         const dom = domainFor(ch);
         const toY = (qv) => mT + (dom.hi - qv * ch.sign * R2D) / (dom.hi - dom.lo) * ih;
         const clampVal = (disp) => Math.min(dom.hi, Math.max(dom.lo, disp));
-
         g.append(svgEl('rect', {
           x: mL, y: mT, width: iw, height: ih,
           fill: 'currentColor', 'fill-opacity': 0.03,
           stroke: 'currentColor', 'stroke-opacity': 0.18,
         }));
-        const gRom = svgEl('g');            // outside-anatomy shading
-        const gSettle = svgEl('g');         // the post-T hold
-        const gSat = svgEl('g');            // time spent near the torque cap
+        const gRom = svgEl('g'), gSettle = svgEl('g'), gSat = svgEl('g'), gAxis = svgEl('g');
         const achieved = svgEl('path', {
           fill: 'none', stroke: 'currentColor', 'stroke-opacity': 0.75, 'stroke-width': 1.6,
         });
@@ -1004,69 +1230,82 @@
         const cursor = svgEl('line', {
           y1: mT, y2: mT + ih, stroke: 'currentColor', 'stroke-opacity': 0.45, 'stroke-width': 1,
         });
-        const cursorDot = svgEl('circle', { r: 2.6, fill: 'currentColor', 'fill-opacity': 0.85 });
-        const gAxis = svgEl('g');
         const label = svgEl('text', {
           x: mL, y: 9, fill: 'currentColor', 'fill-opacity': 0.85, 'font-weight': 600,
         });
         label.textContent = ch.label + (symmetric && ch.mirror !== null ? ' — mirrors L' : '');
-        g.append(gRom, gSettle, gSat, gAxis, achieved, refPath, cursor, cursorDot, label);
-
+        g.append(gRom, gSettle, gSat, gAxis, achieved, refPath, cursor, label);
         const locked = symmetric && ch.mirror !== null;
         const handles = [];
         for (let k = 0; k < K; k++) {
           const dot = svgEl('circle', {
-            r: 4, fill: locked ? 'none' : REF_COLOR, stroke: REF_COLOR, 'stroke-width': 1.5,
-            'fill-opacity': locked ? 0 : 1,
+            r: 3.5, fill: locked ? 'none' : REF_COLOR, stroke: REF_COLOR, 'stroke-width': 1.4,
           });
           const hit = svgEl('circle', {
-            r: 12, fill: 'transparent',
+            r: 11, fill: 'transparent',
             style: locked ? 'cursor:not-allowed;' : 'cursor:ns-resize;',
           });
           g.append(dot, hit);
           handles.push({ dot, hit, k });
         }
         svg.append(g);
-        return { ch, g, ox, oy, dom, toY, clampVal, gRom, gSettle, gSat, gAxis,
-          achieved, refPath, cursor, cursorDot, handles, locked };
+        return { ch, dom, toY, clampVal, gRom, gSettle, gSat, gAxis,
+          achieved, refPath, cursor, handles, locked };
       });
 
-      // ---- drawing -------------------------------------------------------
-      const refV = new Float64Array(6), refR = new Float64Array(6);
-      let xEnd = 1, toX = (t) => mL;
+      // Writing a knot goes through here from BOTH surfaces -- the body's
+      // joint handles and the chart's -- so the mirror rule and the clamp
+      // cannot disagree between them.
+      const writeKnot = (chIdx, k, qv) => {
+        const ch = CHANNELS[chIdx];
+        const disp = panels[chIdx].clampVal(qv * ch.sign * R2D);
+        const q = disp / (ch.sign * R2D);
+        editState.knots[chIdx][k] = q;
+        if (symmetric) {
+          for (const c of CHANNELS) if (c.mirror === chIdx) editState.knots[c.j][k] = q;
+        }
+      };
 
-      const redraw = () => {
-        const run = editState.run;
-        const rec = run.rec;
+      const toX = (t) => mL + Math.min(Math.max(t / xEnd, 0), 1) * iw;
+
+      const paintRef = () => {
         const T = editState.T;
+        const NSP = 180;
+        const pts = [];
+        for (let s = 0; s < NSP; s++) {
+          const t = (s / (NSP - 1)) * xEnd;
+          evalReference(editState.knots, T, Math.min(t, T), refV, refR);
+          pts.push([toX(t), Array.from(refV)]);
+        }
+        for (const p of panels) {
+          p.refPath.setAttribute('d', pts
+            .map(([x, v], s) => `${s ? 'L' : 'M'}${x.toFixed(1)},${p.toY(v[p.ch.j]).toFixed(1)}`)
+            .join(''));
+          for (const h of p.handles) {
+            const x = toX(K === 1 ? 0 : (h.k / (K - 1)) * T);
+            const y = p.toY(editState.knots[p.ch.j][h.k]);
+            h.dot.setAttribute('cx', x); h.dot.setAttribute('cy', y);
+            h.hit.setAttribute('cx', x); h.hit.setAttribute('cy', y);
+            const on = mode === 'knot' && h.k === sel;
+            h.dot.setAttribute('r', on ? 5.5 : 3.5);
+          }
+        }
+      };
+
+      const paintChart = () => {
+        const run = editState.run, rec = run.rec, T = editState.T;
         // The settle horizon is 2.5 s against a driven phase of one or two:
         // drawing all of it spends more than half the panel on flat lines.
         // One second of tail still shows an arrival that rings or drifts.
         xEnd = Math.min(rec.t[rec.t.length - 1] || T, T + 1.0);
-        toX = (t) => mL + Math.min(Math.max(t / xEnd, 0), 1) * iw;
         let kMax = rec.t.length - 1;
         while (kMax > 0 && rec.t[kMax - 1] > xEnd) kMax--;
         kMaxShown = kMax;
         const prof = run.prof || strengthProf;
         const stride = Math.max(1, Math.ceil(rec.q.length / 400));
 
-
-        // Reference curves are sampled from the SAME evaluator the servo
-        // reads, not re-derived here, so what is drawn cannot drift from
-        // what is commanded.
-        const NS_SAMPLES = 220;
-        const refPts = [];
-        for (let s = 0; s < NS_SAMPLES; s++) {
-          const t = (s / (NS_SAMPLES - 1)) * xEnd;
-          evalReference(editState.knots, T, Math.min(t, T), refV, refR);
-          refPts.push([t, Array.from(refV)]);
-        }
-
         for (const p of panels) {
           const { ch } = p;
-          p.refPath.setAttribute('d', refPts
-            .map(([t, v], s) => `${s ? 'L' : 'M'}${toX(t).toFixed(1)},${p.toY(v[ch.j]).toFixed(1)}`)
-            .join(''));
           const aPts = [];
           for (let k = 0; k <= kMax; k += stride) {
             aPts.push(`${aPts.length ? 'L' : 'M'}${toX(rec.t[k]).toFixed(1)},${p.toY(rec.q[k][ch.qi]).toFixed(1)}`);
@@ -1117,8 +1356,7 @@
             fill: 'currentColor', 'fill-opacity': 0.05,
           }));
 
-          const ticks = [p.dom.lo, 0.5 * (p.dom.lo + p.dom.hi), p.dom.hi];
-          const axisNodes = ticks.map((tv) => {
+          const axisNodes = [p.dom.lo, 0.5 * (p.dom.lo + p.dom.hi), p.dom.hi].map((tv) => {
             const t = svgEl('text', {
               x: mL - 4, y: mT + (p.dom.hi - tv) / (p.dom.hi - p.dom.lo) * ih + 3,
               'text-anchor': 'end', fill: 'currentColor', 'fill-opacity': 0.55,
@@ -1136,35 +1374,24 @@
             axisNodes.push(t);
           }
           p.gAxis.replaceChildren(...axisNodes);
-
-          for (const h of p.handles) {
-            const t = K === 1 ? 0 : (h.k / (K - 1)) * T;
-            h.dot.setAttribute('cx', toX(t));
-            h.dot.setAttribute('cy', p.toY(editState.knots[ch.j][h.k]));
-            h.hit.setAttribute('cx', toX(t));
-            h.hit.setAttribute('cy', p.toY(editState.knots[ch.j][h.k]));
-          }
         }
-        drawCursor(playState.t);
+        paintRef();
       };
 
-      let lastCursor = -1, kMaxShown = 0;
-      const drawCursor = (t) => {
-        const run = editState.run;
-        const rec = run.rec;
-        const k = Math.min(kMaxShown || rec.t.length - 1, Math.max(0,
-          Math.round(t / (rec.dt * rec.stride))));
-        const x = toX(rec.t[k]);
+      const paintCursor = () => {
+        const x = toX(showTime());
         for (const p of panels) {
           p.cursor.setAttribute('x1', x);
           p.cursor.setAttribute('x2', x);
-          p.cursorDot.setAttribute('cx', x);
-          p.cursorDot.setAttribute('cy', p.toY(rec.q[k][p.ch.qi]));
         }
-        lastCursor = t;
+        const t = showTime();
+        stateLabel.textContent = mode === 'knot'
+          ? `knot ${sel + 1} of ${K} · ${t.toFixed(2)}s · drag a joint`
+          : `${t.toFixed(2)}s of ${xEnd.toFixed(2)}s`;
+        scrub.value = t / (xEnd || 1);
       };
 
-      // ---- what the edit cost --------------------------------------------
+      // ---- what the edit cost ----------------------------------------------
       // Read off the recording on screen rather than re-scored by the
       // optimizer's cost function: the optimizer scores at its own timestep
       // on its own plant, and a number that disagrees with the body you are
@@ -1245,12 +1472,11 @@
           </table>`;
       };
 
-      // ---- re-simulation --------------------------------------------------
-      // Live while it is fast enough to stay live, and always on release.
-      // The threshold is measured rather than assumed, because a phone and a
+      // ---- re-simulation ---------------------------------------------------
+      // Live while it is fast enough to stay live, and always on release. The
+      // threshold is measured rather than assumed, because a phone and a
       // laptop disagree about it by more than an order of magnitude and the
       // wrong guess either drops frames or makes the figure feel dead.
-      let liveOk = true, needsSim = false;
       const resim = () => {
         needsSim = false;
         const t0 = performance.now();
@@ -1265,82 +1491,110 @@
         editState.run = run;
         editState.edited = true;
         editState.notify?.({ base: simResult, run });
-        redraw();
+        paintChart();
         updateReadout();
+        dirty = chromeDirty = true;
       };
 
-      // ---- dragging -------------------------------------------------------
-      let drag = null;
-      const valueAt = (p, clientY) => {
-        const r = svg.getBoundingClientRect();
-        const y = (clientY - r.top) * (svgH / (r.height || svgH)) - p.oy;
-        const disp = p.clampVal(p.dom.hi - (y - mT) / ih * (p.dom.hi - p.dom.lo));
-        return disp / (p.ch.sign * R2D);
+      // ---- dragging: the body ---------------------------------------------
+      // Pointer capture is what lets the finger wander off the handle without
+      // the drag stopping; the pointerId is tracked so a second finger cannot
+      // hijack a drag in progress. The pivot is read off the last draw and is
+      // stable through the gesture, because rotating a joint does not move
+      // its own parent.
+      let bodyDrag = null;
+      overlay.addEventListener('pointerdown', (e) => {
+        const el = e.target;
+        if (bodyDrag || !(el instanceof SVGCircleElement)) return;
+        const joint = +el.dataset.joint;
+        if (lockedJoint(joint)) return;
+        const px = +el.dataset.px, py = +el.dataset.py;
+        bodyDrag = {
+          joint, ch: joint - 3, pointerId: e.pointerId, el, px, py,
+          a0: Math.atan2(-(e.clientY - overlay.getBoundingClientRect().top - py),
+            e.clientX - overlay.getBoundingClientRect().left - px),
+          q0: editState.knots[joint - 3][sel], moved: false,
+        };
+        try { el.setPointerCapture(e.pointerId); } catch (_) { /* capture is best-effort */ }
+        el.style.cursor = 'grabbing';
+        e.preventDefault();
+      });
+      overlay.addEventListener('pointermove', (e) => {
+        if (!bodyDrag || e.pointerId !== bodyDrag.pointerId) return;
+        const r = overlay.getBoundingClientRect();
+        const a = Math.atan2(-(e.clientY - r.top - bodyDrag.py), e.clientX - r.left - bodyDrag.px);
+        let da = a - bodyDrag.a0;
+        if (da > Math.PI) da -= 2 * Math.PI;
+        if (da < -Math.PI) da += 2 * Math.PI;
+        writeKnot(bodyDrag.ch, sel, bodyDrag.q0 + da);
+        bodyDrag.moved = true;
+        needsSim = true;
+        dirty = chromeDirty = true;
+        e.preventDefault();
+      });
+      const endBodyDrag = (e) => {
+        if (!bodyDrag || (e && e.pointerId !== bodyDrag.pointerId)) return;
+        try { bodyDrag.el.releasePointerCapture(bodyDrag.pointerId); } catch (_) { /* already gone */ }
+        bodyDrag.el.style.cursor = 'grab';
+        const moved = bodyDrag.moved;
+        bodyDrag = null;
+        if (moved) resim();
       };
-      const setKnot = (p, k, qv) => {
-        editState.knots[p.ch.j][k] = qv;
-        if (symmetric) {
-          for (const q of panels) {
-            if (q.ch.mirror === p.ch.j) editState.knots[q.ch.j][k] = qv;
-          }
-        }
-        for (const q of panels) {
-          const src = symmetric && q.ch.mirror !== null ? q.ch.mirror : q.ch.j;
-          if (src !== p.ch.j) continue;
-          const y = q.toY(editState.knots[q.ch.j][k]);
-          q.handles[k].dot.setAttribute('cy', y);
-          q.handles[k].hit.setAttribute('cy', y);
-        }
-        // The spline moves with the handle even when the physics cannot keep
-        // up at this frame rate, so a drag always shows what is being asked
-        // for; the body catches up on the next simulation.
-        const T = editState.T;
-        const NSP = 160;
-        const pts = [];
-        for (let s = 0; s < NSP; s++) {
-          const t = (s / (NSP - 1)) * xEnd;
-          evalReference(editState.knots, T, Math.min(t, T), refV, refR);
-          pts.push([toX(t), Array.from(refV)]);
-        }
-        for (const q of panels) {
-          q.refPath.setAttribute('d', pts
-            .map(([x, v], s) => `${s ? 'L' : 'M'}${x.toFixed(1)},${q.toY(v[q.ch.j]).toFixed(1)}`)
-            .join(''));
-        }
+      overlay.addEventListener('pointerup', endBodyDrag);
+      overlay.addEventListener('pointercancel', endBodyDrag);
+      // If capture is lost for any reason the drag must end with it, or it
+      // sticks on and the next pointer move keeps rotating the joint.
+      overlay.addEventListener('lostpointercapture', endBodyDrag);
+
+      // ---- dragging: the chart ---------------------------------------------
+      // Kept, because timing is a thing you read off a curve and not off a
+      // pose: this is where you see the knot you are holding arrive too early.
+      let chartDrag = null;
+      const chartValueAt = (p, clientY) => {
+        const r = svg.getBoundingClientRect();
+        const panelTop = ((panels.indexOf(p) / cols) | 0) * (ph + gap);
+        const y = (clientY - r.top) * (svgH / (r.height || svgH)) - panelTop;
+        return (p.dom.hi - (y - mT) / ih * (p.dom.hi - p.dom.lo)) / (p.ch.sign * R2D);
       };
       for (const p of panels) {
         if (p.locked) continue;
+        const chIdx = CHANNELS.indexOf(p.ch);
         for (const h of p.handles) {
           h.hit.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             h.hit.setPointerCapture?.(e.pointerId);
-            drag = { pointerId: e.pointerId, p, k: h.k };
-            h.dot.setAttribute('r', 5.5);
+            chartDrag = { pointerId: e.pointerId, p, k: h.k, chIdx, moved: false };
+            // Grabbing a knot here selects it there: one selection, two
+            // surfaces, so the body always shows the pose being edited.
+            selectKnot(h.k);
           });
           h.hit.addEventListener('pointermove', (e) => {
-            if (!drag || drag.pointerId !== e.pointerId) return;
-            setKnot(drag.p, drag.k, valueAt(drag.p, e.clientY));
+            if (!chartDrag || chartDrag.pointerId !== e.pointerId) return;
+            writeKnot(chartDrag.chIdx, chartDrag.k, chartValueAt(chartDrag.p, e.clientY));
+            chartDrag.moved = true;
             needsSim = true;
+            dirty = chromeDirty = true;
           });
           const release = (e) => {
-            if (!drag || drag.pointerId !== e.pointerId) return;
+            if (!chartDrag || chartDrag.pointerId !== e.pointerId) return;
             h.hit.releasePointerCapture?.(e.pointerId);
-            h.dot.setAttribute('r', 4);
-            drag = null;
-            resim();
+            const moved = chartDrag.moved;
+            chartDrag = null;
+            if (moved) resim();
           };
           h.hit.addEventListener('pointerup', release);
           h.hit.addEventListener('pointercancel', release);
         }
       }
 
-      // ---- controls -------------------------------------------------------
+      // ---- controls ---------------------------------------------------------
       const durInput = Inputs.range([0.5, 3.5], {
         label: 'Duration T (s)', value: editState.T, step: 0.01,
       });
       durInput.addEventListener('input', () => {
         editState.T = +durInput.value;
         needsSim = true;
+        dirty = chromeDirty = true;
       });
       const resetBtn = html`<button>Reset to the stored trajectory</button>`;
       resetBtn.addEventListener('click', () => {
@@ -1351,37 +1605,60 @@
         editState.edited = false;
         needsSim = false;
         editState.notify?.(null);
-        redraw();
+        paintChart();
         updateReadout();
+        dirty = chromeDirty = true;
       });
 
-      // One loop for both jobs: follow the transport's cursor, and pick up a
-      // pending edit at a frame boundary rather than on every pointermove.
-      const loop = createFrameLoop(() => {
-        if (needsSim && (liveOk || !drag)) resim();
-        if (playState.t !== lastCursor) drawCursor(playState.t);
+      // One loop for all of it: advance the transport, pick up a pending edit
+      // at a frame boundary rather than on every pointermove, and repaint
+      // only what changed.
+      const loop = createFrameLoop((now) => {
+        if (playing()) {
+          if (lastNow !== null) {
+            tCursor += (now - lastNow) / 1000;
+            if (tCursor > xEnd) tCursor = 0;
+          }
+          lastNow = now;
+          dirty = true;
+        } else {
+          lastNow = null;
+        }
+        if (needsSim && (liveOk || !(bodyDrag || chartDrag))) resim();
+        if (!dirty) return;
+        dirty = false;
+        drawBody();
+        paintCursor();
+        if (chromeDirty) {
+          chromeDirty = false;
+          drawThumbs();
+          paintRef();
+        }
       });
       invalidation.then(() => loop.cancel());
 
-      redraw();
+      paintChart();
       updateReadout();
 
       // touch-action on the HTML box, not the svg: an svg node does not
       // reliably honour it, and without it a touch drag scrolls the page as
       // well as moving the knot, which fires pointercancel mid-gesture.
-      const box = html`<div style="touch-action:none;">${svg}</div>`;
+      const chartBox = html`<div style="touch-action:none;">${svg}</div>`;
       const swatch = (color, text) => html`<span style="margin-right:14px; white-space:nowrap;"><span
         style="display:inline-block; width:.8em; height:.8em; background:${color};
         vertical-align:-.05em; margin-right:.35em;"></span>${text}</span>`;
       return html`<figure>
-        ${box}
+        ${strip}
+        ${bodyBox}
+        ${transport}
+        ${chartBox}
         <small style="display:block; opacity:.85; margin:4px 0 2px;">${
           swatch(REF_COLOR, 'what the spline asks for')}${
           swatch('currentColor', 'what the body did')}${
           swatch('rgba(111,134,198,0.5)', 'outside its own range of motion')}</small>
         <div class="spline-controls">${durInput}${resetBtn}</div>
         ${readout}
-        <figcaption>Drag any filled knot. The body re-simulates on the same plant, body and integration as the run above, and the animation follows. Orange is the reference the servo is tracking; the solid line is the joint angle that resulted; the bar along the bottom of each panel marks time spent above eighty per cent of the voluntary torque cap, colored by how far above. The shaded tail is the first second of the settle phase, where the reference holds its last knot and only balance is still acting. On the press and the bent-leg press the right leg mirrors the left, because that is how the optimizer parameterizes it: one leg is searched and copied. Tracking error is the root-mean-square gap between the two curves over the driven phase — the honest measure of how much of what you asked for the body was able to do.</figcaption>
+        <figcaption>The thumbnails are the technique: the ${K} poses it asks for, in order — the decision vector, drawn. Pick one and drag its joints on the body to change it; the faint body behind is what the simulation actually reached at that instant, so the gap between them is the part of the request the muscle could not pay for. Press play to watch the result, where the two bodies swap roles and the segments color by the strength used. The curves are the same six numbers against time, knots draggable there too, because timing is easier to read off a curve than off a pose; the bar along each panel's bottom is time spent above eighty per cent of the voluntary torque cap, and the shaded tail is the settle phase, where the reference holds its last knot and only balance is still acting. On the press and the bent-leg press the right leg mirrors the left, which is how the optimizer parameterizes it: one leg searched and copied.</figcaption>
       </figure>`;
     })();
     display(splineEditor);
