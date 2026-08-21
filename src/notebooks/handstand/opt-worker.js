@@ -119,6 +119,7 @@ async function handle(msg) {
       // the page will replay.
       q0: msg.q0 || null, target: msg.target || null, plant: msg.plant || null,
       knotFracs: msg.knotFracs || null, locks: msg.locks || null,
+      numerics: msg.numerics || null,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
     const result = await optimizeScenario(model, ws, prof, rom, {
@@ -141,10 +142,18 @@ async function handle(msg) {
       ...(msg.sigma0 ? { sigma0: msg.sigma0 } : {}),
       dt: msg.dt ?? 2.5e-4,
       ...(msg.scenario === 'pike' ? { tLo: 1.5, tHi: 3.5, t0: 2.2 } : {}),
-      // Duration ceiling from the page. Work and smoothness both fall as a
-      // movement slows, so with a high ceiling the search always chooses the
-      // slowest version available -- which is also the one where the shoulder
-      // has to supply everything and nothing is carried by momentum.
+      // Duration range from the page -- both ends. It is the range of the
+      // duration slider, so anything the reader can ask for is something the
+      // search can hold onto. With only a ceiling, the floor stayed at the
+      // search's own idea of a sensible duration and a technique set below it
+      // was stretched before the first generation: a press asked to run in a
+      // second was searched at one and a half, and the answer came back
+      // describing a movement the page was never showing. The ceiling still
+      // matters for its own reason: work and smoothness both fall as a
+      // movement slows, so with a high one the search always picks the slowest
+      // version available, which is also the one where the shoulder supplies
+      // everything and nothing is carried by momentum.
+      ...(msg.tLo ? { tLo: msg.tLo } : {}),
       ...(msg.tHi ? { tHi: msg.tHi, t0: Math.min(msg.tHi * 0.9, 2.2) } : {}),
       x0: msg.x0 ? Float64Array.from(msg.x0) : null,
       q0: msg.q0 || null,
@@ -157,6 +166,7 @@ async function handle(msg) {
       // phrasing it was given; a held pose it simply may not move.
       knotFracs: msg.knotFracs || null,
       locks: msg.locks || null,
+      numerics: msg.numerics || null,
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === (msg.maxGen ?? 150) - 1) {
@@ -181,7 +191,7 @@ async function handle(msg) {
             // rather than finished is still replayable on the one that
             // produced it.
             plant: plantFor(msg.plant || {}),
-            numerics: { ...NUMERICS_DEFAULTS },
+            numerics: { ...NUMERICS_DEFAULTS, ...(msg.numerics || {}) },
             body: {
               heightM: model.heightM, massKg: model.massKg,
               straddleDeg: model.straddleDeg, sex: model.sex,

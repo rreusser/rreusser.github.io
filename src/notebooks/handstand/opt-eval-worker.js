@@ -34,6 +34,7 @@ self.onmessage = ({ data }) => {
       plant: cfg.plant || null,
       // The phrasing and the held poses, for the same reason.
       knotFracs: cfg.knotFracs || null, locks: cfg.locks || null,
+      numerics: cfg.numerics || null,
     });
     costs.push(c.cost);
     if (wantFrames && c.rec?.q?.length) {

@@ -63,7 +63,7 @@
     import {
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
-      SYMMETRIC_SCENARIOS, symmetrizeKnots,
+      SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom,
     } from './rollout.js';
     import * as FIG from './figure-kit.js';
     import { PRESET_TRAJECTORIES } from './presets.js';
@@ -876,6 +876,9 @@
       // things to hold.
       fracs: null,  // K fractions, 0 and 1 at the ends
       held: null,   // K booleans; the last is always true -- it is the ending
+      // The four body sliders, by value. Here rather than read off the inputs
+      // because the inputs are rebuilt whenever the pose count changes.
+      body: null,
       run: null,    // the replay of the CURRENT knots
       edited: false,
       notify: null,
@@ -934,11 +937,52 @@
       // played, those were two techniques seventeen degrees apart. The
       // handles already keep an edited pose symmetric (the right leg gets
       // none); this is the same rule applied on the way in.
+      // ---- the body this technique is run and scored on ----------------------
+      // Its VALUES live here, above everything that needs them, and in
+      // editState rather than in the sliders. The sliders are rebuilt whenever
+      // this cell re-runs, which it does whenever the pose count changes -- so
+      // reading the body off them meant asking for five poses quietly handed
+      // the technique back its stored shoulder and threw away the one you had
+      // set. The duration never had that problem because it was already read
+      // from editState; now the body is too.
+      const st0 = simResult.stored?.strength || null;
+      const rom0 = simResult.baseRom;
+      const bodyDefaults = [
+        st0?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
+        rom0.hipFlexStraightKneeMaxDeg,
+        rom0.shoulderFlexMaxDeg,
+        rom0.wristExtMaxDeg ?? 135,
+      ];
+      const sameRun = editState.base === simResult && editState.knots;
+      editState.base = simResult;
+      if (!sameRun || editState.body?.length !== bodyDefaults.length) {
+        editState.body = bodyDefaults.slice();
+      }
+      const bodyOver = () => ({
+        strength: { ...(st0 || {}),
+          shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: editState.body[0] } },
+        rom: { ...(simResult.stored?.rom || {}),
+          hipFlexStraightKneeMaxDeg: editState.body[1],
+          shoulderFlexMaxDeg: editState.body[2],
+          wristExtMaxDeg: editState.body[3] },
+      });
+      const bodyMoved = () => editState.body.some((v, n) => v !== bodyDefaults[n]);
+      // The anatomy a rollout of this technique will actually run under, which
+      // is the box a generated knot has to stay inside.
+      const romNow = () => resolveRom(bodyOver().rom);
+
       const sym = (kn) => (symmetric ? symmetrizeKnots(kn) : kn);
+      // A refit is a machine placing knots, and a least-squares fit knows
+      // nothing about anatomy: refitting the kick-up to six poses put the
+      // shoulder a degree outside its own range, which the page replayed and
+      // the search silently pulled back in before scoring. Knots a HAND places
+      // are still left exactly where they are put -- the timeline paints the
+      // excursion orange and says so.
+      const fit = (kn) => sym(clampKnotsToRom(kn, romNow()));
       const sameCount = simResult.knots[0].length === K;
-      const baseKnots = sym(sameCount
-        ? simResult.knots.map((k) => Float64Array.from(k))
-        : FIG.resampleKnots(simResult.knots, simResult.T, K, simResult.knotFracs));
+      const baseKnots = sameCount
+        ? sym(simResult.knots.map((k) => Float64Array.from(k)))
+        : fit(FIG.resampleKnots(simResult.knots, simResult.T, K, simResult.knotFracs));
       // Even spacing, and only the ending held. This is what a technique
       // starts as and what Reset returns it to; a stored one may carry its own
       // phrasing, and does when it was authored with any.
@@ -956,8 +1000,6 @@
       const differs = (a, b) => a[0].length !== b[0].length
         || a.some((row, j) => row.some((v, k) => v !== b[j][k]));
 
-      const sameRun = editState.base === simResult && editState.knots;
-      editState.base = simResult;
       if (!sameRun) {
         editState.knots = baseKnots.map((k) => Float64Array.from(k));
         editState.T = simResult.T;
@@ -976,7 +1018,7 @@
         // Its phrasing does not: a different number of poses is a different
         // set of instants, so timing placed by hand cannot be carried over
         // without putting poses where nobody put them.
-        editState.knots = sym(FIG.resampleKnots(editState.knots, editState.T, K, editState.fracs));
+        editState.knots = fit(FIG.resampleKnots(editState.knots, editState.T, K, editState.fracs));
         editState.fracs = evenFracs();
         editState.held = freshHeld();
         stale = true;
@@ -1334,34 +1376,29 @@
         dirty = chromeDirty = true;
       });
 
-      // ---- the body this technique is run and scored on ----------------------
-      // Not a separate concern from the technique: a technique is only good or
-      // bad relative to what it is asked of, and the whole use of the search is
-      // walking one onto a body that cannot afford it yet.
-      const st0 = simResult.stored?.strength || null;
-      const rom0 = simResult.baseRom;
+      // The sliders themselves: views onto editState.body, which is where the
+      // numbers live (see above).
       const inShoulder = Inputs.range([0.8, 3.2], { label: 'Shoulder (Nm/kg)', step: 0.05,
-        value: st0?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol });
+        value: editState.body[0] });
       const inHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', step: 1,
-        value: rom0.hipFlexStraightKneeMaxDeg });
+        value: editState.body[1] });
       const inShFlex = Inputs.range([120, 185], { label: 'Shoulder flexion max (deg)', step: 1,
-        value: rom0.shoulderFlexMaxDeg });
+        value: editState.body[2] });
       const inWrExt = Inputs.range([80, 150], { label: 'Wrist extension max (deg)', step: 1,
-        value: rom0.wristExtMaxDeg ?? 135 });
+        value: editState.body[3] });
       const bodyInputs = [inShoulder, inHam, inShFlex, inWrExt];
-      const bodyDefaults = bodyInputs.map((i) => +i.value);
-      const bodyMoved = () => bodyInputs.some((i, n) => +i.value !== bodyDefaults[n]);
-      const bodyOver = () => ({
-        strength: { ...(st0 || {}),
-          shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: +inShoulder.value } },
-        rom: { ...(simResult.stored?.rom || {}),
-          hipFlexStraightKneeMaxDeg: +inHam.value,
-          shoulderFlexMaxDeg: +inShFlex.value,
-          wristExtMaxDeg: +inWrExt.value },
-      });
-      for (const i of bodyInputs) i.addEventListener('input', () => resim());
+      bodyInputs.forEach((inp, n) => inp.addEventListener('input', () => {
+        editState.body[n] = +inp.value;
+        resim();
+      }));
 
-      const durInput = Inputs.range([0.5, 3.5], { label: 'Duration T (s)', value: editState.T, step: 0.01 });
+      // One definition of the duration range, because the search is told it too
+      // and an Inputs.range is a wrapper around the input rather than the input
+      // itself -- reading .min off it gives undefined, which travels as null
+      // and lands as "no range given", quietly putting the search back on its
+      // own default ceiling.
+      const T_RANGE = [0.5, 3.5];
+      const durInput = Inputs.range(T_RANGE, { label: 'Duration T (s)', value: editState.T, step: 0.01 });
       durInput.addEventListener('input', () => { editState.T = +durInput.value; resim(); });
       // "Reset" said nothing about what it resets, sitting in a row with the
       // pose count and the duration as if it reset those. It reverts the
@@ -1380,6 +1417,7 @@
         editState.held = freshHeld();
         editState.q0 = null;
         durInput.value = simResult.T;
+        editState.body = bodyDefaults.slice();
         bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
         editState.run = simResult;
         editState.edited = false;
@@ -1595,7 +1633,6 @@
           // once, the share of a 14-candidate generation still reaching a
           // handstand runs 0/14 at 0.10 and 14/14 at 0.01.
           sigma0: 0.02,
-          tHi: 3.5,
           modelParams: {
             heightM: runModel.heightM, massKg: runModel.massKg,
             straddleDeg: runModel.straddleDeg, sex: runModel.sex,
@@ -1618,6 +1655,13 @@
           // score against, plus the angles it may not touch.
           knotFracs: Array.from(editState.fracs),
           locks: lockValues(),
+          // The duration range is the slider's, both ends. Without a floor the
+          // search kept its own, and a press set to a second was searched at
+          // one and a half.
+          tLo: T_RANGE[0], tHi: T_RANGE[1],
+          // And the integration a replay uses, so the settle horizon scored is
+          // the one the page watches.
+          numerics: resolveNumerics(simResult.stored?.numerics),
         });
         dirty = chromeDirty = true;
       });

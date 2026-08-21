@@ -395,6 +395,43 @@ export function resolveRom(rom) {
 // treatment let the optimizer buy 30 degrees of impossible wrist flexion
 // for about one cost unit). Hip bounds use the absolute (bent-knee) cap;
 // the hamstring coupling with the knee remains a cost-side constraint.
+// The per-joint bounds on a reference angle, which are the anatomy itself.
+// Split out of decisionBounds because they are not only the search's business:
+// anything that GENERATES knots rather than receiving them from a hand has to
+// stay inside the same box, or it hands the search a technique the search will
+// quietly straighten before scoring.
+export function knotBounds(rom = null) {
+  const lo = rom
+    ? [wristQ3LimitsDeg(rom).lo * D2R,
+      // The same bound the passive end-stop enforces: a shoulder that only
+      // opens to 150 degrees must not have knots asking for 180, or the
+      // mobility setting is a fine rather than a limit.
+      Math.max(180 - rom.shoulderFlexMaxDeg, -rom.shoulderHyperDeg) * D2R,
+      -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
+      -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R]
+    : [20 * D2R, -15 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R];
+  const hi = rom
+    ? [wristQ3LimitsDeg(rom).hi * D2R, rom.shoulderCloseMaxDeg * D2R,
+      rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
+      rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R]
+    : [130 * D2R, 120 * D2R, 175 * D2R, 10 * D2R, 175 * D2R, 10 * D2R];
+  return { lo, hi };
+}
+
+// Hold a knot matrix inside the anatomy. For knots a machine produced -- a
+// refit at a new pose count, say. A knot a HAND placed is deliberately not
+// clamped: a handle that stops for a reason the figure has not drawn is a
+// handle that lies, and the timeline already paints the excursion orange.
+export function clampKnotsToRom(knots, rom) {
+  const { lo, hi } = knotBounds(rom);
+  for (let j = 0; j < 6; j++) {
+    for (let k = 0; k < knots[j].length; k++) {
+      knots[j][k] = Math.min(Math.max(knots[j][k], lo[j]), hi[j]);
+    }
+  }
+  return knots;
+}
+
 export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null, locks = null } = {}) {
   const jointLo = rom
     ? [wristQ3LimitsDeg(rom).lo * D2R,
@@ -589,7 +626,13 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // page owns the plant, so it hands it in; leaving this null keeps the old
   // behaviour of scoring on the defaults.
   plant = null,
-  K = 6, dt = 5e-4, settleT = 2.5, weights = COST_WEIGHTS,
+  // The integration a replay of this technique will use. The search still
+  // chooses its own dt -- it deliberately integrates coarsely and a replay does
+  // not -- but the settle horizon is not a search setting: it is how long the
+  // page watches after the movement ends, and scoring over a different one is
+  // scoring a different question.
+  numerics = null,
+  K = 6, dt = 5e-4, settleT = numerics?.settleT ?? 2.5, weights = COST_WEIGHTS,
   qdJitter = 0, jitterSeed = 1, integrator = plant?.integrator ?? 'si',
   // Plant knobs a robustness variant may perturb. They default to the plant
   // being scored on, so a variant that names one still wins and one that does
@@ -1096,7 +1139,7 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
 export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
   dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
-  knotFracs = null, locks = null,
+  knotFracs = null, locks = null, numerics = null,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
   trustRadius = 0, q0 = null, target = null,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
@@ -1131,7 +1174,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
-  const costOpts = { K, dt, weights, q0, target, plant, knotFracs, locks, ...(variants ? { variants } : {}) };
+  const costOpts = { K, dt, weights, q0, target, plant, knotFracs, locks, numerics, ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
       const c = costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
@@ -1149,8 +1192,11 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     objectiveBatch,
     onGeneration,
   });
+  // At the timestep a replay uses, not a hardcoded one: the whole point of the
+  // final check is that the number reported at the end is the number the page
+  // reproduces when it plays the answer back.
   const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX,
-    { K, dt: 2e-4, weights, q0, target, plant, knotFracs, locks });
+    { K, dt: numerics?.dt ?? 2e-4, weights, q0, target, plant, knotFracs, locks, numerics });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
   const decoded = decodeDecision(result.bestX, K);
