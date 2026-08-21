@@ -1056,7 +1056,10 @@
       const STAGE_H = panelH;
       // K + 1 cells: the pose the body STARTS in, then the K it asks for.
       let nCells = K + 1;
-      const colsFor = (w) => Math.min(nCells, w >= 560 ? 7 : 4);
+      // As many columns as fit at a legible frame width, capped at the number of
+      // cells. A fixed seven wrapped at eight poses even in a figure with room
+      // for thirteen.
+      const colsFor = (w) => Math.min(nCells, Math.max(2, Math.floor((w + 4) / 78)));
       let thumbCols = colsFor(totalW);
       const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
       const thumbH = Math.round(thumbW / 1.13);
@@ -1385,6 +1388,13 @@
       // Three ways in, one place they land. Nothing here re-runs the cell: the
       // storyboard is told its new cell count and everything else already
       // reads K live.
+      // Set by the expandable() wrapper below, which owns the box this figure
+      // is drawn in. A change of pose count can add a whole row of thumbnails,
+      // and nothing outside can see that: collapsed, the container's height was
+      // measured once from the content and stops matching it; expanded, the
+      // stage was given the height left over from a chrome that has since got
+      // taller. Either way the timeline ends up past the bottom edge.
+      const layout = { refresh: null };
       const setCount = (next) => {
         K = next;
         nCells = K + 1;
@@ -1395,6 +1405,7 @@
         poses.value = K;
         sel = Math.min(sel, nCells - 1);
         resim();
+        layout.refresh?.();
       };
 
       // Drop a pose. The others keep their angles AND their instants exactly:
@@ -1973,13 +1984,13 @@
       </figure>`;
 
       const redraw = () => { dirty = chromeDirty = true; };
-      return { figure, controlsBox, chromeEl, sizeStage, story, strip, colsFor, redraw, stageH: STAGE_H };
+      return { figure, controlsBox, chromeEl, sizeStage, story, strip, colsFor, redraw, layout, stageH: STAGE_H };
     })();
     // The figure first. Eight sliders ahead of it is a wall the reader has to
     // climb before reaching the thing the sliders act on; expandable() resolves
     // the controls selector when it expands, not when it is built, so the box
     // is free to sit below.
-    display(expandable(techniqueFigure.figure, {
+    const techniqueBox = expandable(techniqueFigure.figure, {
       id: 'technique-editor',
       width: Math.min(width, 640),
       // Collapsed, the stage keeps the height it always had and the figure is
@@ -2004,7 +2015,11 @@
         techniqueFigure.sizeStage(w, stageH);
         techniqueFigure.redraw();
       },
-    }));
+    });
+    // Adding or dropping a pose changes how tall the figure's own contents are,
+    // which only the figure knows and only the wrapper can act on.
+    techniqueFigure.layout.refresh = () => techniqueBox.refreshLayout?.();
+    display(techniqueBox);
     display(techniqueFigure.controlsBox);
   </script>
   <script id="optimizer-section" type="text/markdown">

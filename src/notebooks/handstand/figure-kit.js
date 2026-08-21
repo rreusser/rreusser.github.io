@@ -682,26 +682,32 @@ export function createStoryboard({
       host.appendChild(delBtn);
     }
 
-    // The gap before this cell, as somewhere to click. It straddles the
-    // boundary rather than sitting inside the cell, so it reads as "between
-    // these two" rather than "belonging to this one".
-    let insBtn = null;
+    // The boundary before this cell: a faint rule that is always there, and a
+    // plus on it that appears when you reach for it. The rule is what makes the
+    // gap a place rather than a space -- without it the plus arrives from
+    // nowhere and belongs to neither neighbour.
+    let insBtn = null, insLine = null, insIcon = null;
     if (onInsert && (canInsertBefore ? canInsertBefore(k) : false)) {
+      insLine = document.createElement('div');
+      insLine.style.cssText = 'position:absolute; top:0; width:1px; background:currentColor;'
+        + 'opacity:.13; pointer-events:none;';
+      host.appendChild(insLine);
+
       insBtn = document.createElement('button');
       insBtn.type = 'button';
-      // Below the corner buttons, not through them. Full height, it sat on top
-      // of this cell's delete and under the previous cell's lock, and three
-      // controls fighting for one corner is three controls nobody can hit.
-      insBtn.style.cssText = 'position:absolute; left:-9px; top:22px; width:18px; height:'
-        + Math.max(10, thumbH - 22) + 'px; padding:0; border:none; background:none;'
-        + 'cursor:copy; display:grid; place-items:center; opacity:0; z-index:2;'
-        + 'color:currentColor;';
-      insBtn.appendChild(svgIcon(['M6.5 2v9', 'M2 6.5h9'], '0 0 13 13', 11, 11));
+      // The hit area sits below the corner buttons rather than through them.
+      // Full height, it lay on top of this cell's delete and under the previous
+      // cell's lock, and three controls in one corner is three nobody can hit.
+      insBtn.style.cssText = 'position:absolute; padding:0; border:none; background:none;'
+        + 'cursor:copy; display:grid; place-items:center; z-index:2; color:currentColor;';
+      insIcon = svgIcon(['M6.5 2v9', 'M2 6.5h9'], '0 0 13 13', 11, 11);
+      insIcon.style.opacity = '0';
+      insBtn.appendChild(insIcon);
       insBtn.title = 'add a pose here. Its angles are read off the curve you '
         + 'already have, so the movement does not change -- you just gain a handle on it.';
       insBtn.setAttribute('aria-label', 'add a pose here');
-      const show = () => { insBtn.style.opacity = '1'; };
-      const hide = () => { insBtn.style.opacity = '0'; };
+      const show = () => { insIcon.style.opacity = '1'; insLine.style.opacity = '.4'; };
+      const hide = () => { insIcon.style.opacity = '0'; insLine.style.opacity = '.13'; };
       insBtn.addEventListener('mouseenter', show);
       insBtn.addEventListener('mouseleave', hide);
       insBtn.addEventListener('focus', show);
@@ -711,7 +717,7 @@ export function createStoryboard({
     }
 
     element.appendChild(host);
-    cells.push({ canvas, cap, host, lockBtn, delBtn, insBtn });
+    cells.push({ canvas, cap, host, lockBtn, delBtn, insBtn, insLine, insIcon });
     cellLocks.push(shackle);
   }
 
@@ -757,13 +763,47 @@ export function createStoryboard({
     element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     element.style.justifyItems = 'center';
     element.style.maxWidth = `${Math.round(w)}px`;
+    const hostW = thumbW + CHROME;
     for (const c of cells) {
-      c.host.style.width = `${thumbW + CHROME}px`;
+      c.host.style.width = `${hostW}px`;
       c.canvas.style.width = `${thumbW}px`;
       c.canvas.style.height = `${thumbH}px`;
       c.canvas.width = Math.round(thumbW * dpr);
       c.canvas.height = Math.round(thumbH * dpr);
-      if (c.insBtn) c.insBtn.style.height = `${Math.max(10, thumbH - 22)}px`;
+    }
+
+    // Where the boundary actually falls, MEASURED. The host is narrower than
+    // its grid column once the frames stop growing and is centred in it, so the
+    // gap between two frames is the leftover on both sides plus the grid gap --
+    // not the 4px the gap property names, and not quite what arithmetic on a
+    // floored column width says either. Anchoring to the host's own edge put
+    // the plus hard against the right-hand frame; computing the gutter put it
+    // a pixel and a half off centre. Reading it back is exact.
+    const fallback = Math.max(GAP, cellW - hostW + GAP);
+    const rect = cells.map((c) => c.host.getBoundingClientRect());
+    for (let k = 0; k < cells.length; k++) {
+      const c = cells[k];
+      if (!c.insLine && !c.insBtn) continue;
+      // This gap, not the average of them: 1fr columns round to sub-pixels
+      // independently, so the gutters differ by up to a pixel across the row.
+      let gutter = fallback;
+      if (k > 0 && rect[k].left > rect[k - 1].right && Math.abs(rect[k].top - rect[k - 1].top) < 1) {
+        gutter = rect[k].left - rect[k - 1].right;
+      }
+      const mid = -gutter / 2;
+      const hitW = Math.max(14, Math.min(22, gutter + 8));
+      if (c.insLine) {
+        // Its own width taken off, so the LINE is centred rather than its left
+        // edge sitting on the middle.
+        c.insLine.style.left = `${mid - 0.5}px`;
+        c.insLine.style.height = `${thumbH}px`;
+      }
+      if (c.insBtn) {
+        c.insBtn.style.left = `${mid - hitW / 2}px`;
+        c.insBtn.style.width = `${hitW}px`;
+        c.insBtn.style.top = '22px';
+        c.insBtn.style.height = `${Math.max(10, thumbH - 22)}px`;
+      }
     }
   }
 
