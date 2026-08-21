@@ -966,7 +966,6 @@
           shoulderFlexMaxDeg: editState.body[2],
           wristExtMaxDeg: editState.body[3] },
       });
-      const bodyMoved = () => editState.body.some((v, n) => v !== bodyDefaults[n]);
       // The anatomy a rollout of this technique will actually run under, which
       // is the box a generated knot has to stay inside.
       const romNow = () => resolveRom(bodyOver().rom);
@@ -1677,8 +1676,7 @@
           locks: editState.held,
         });
         const stats = FIG.analyzeRun(run, run.prof || strengthProf, model);
-        verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null,
-          bodyMoved() ? 'on a body you changed' : '');
+        verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null);
         paintRamp?.();
         dirty = chromeDirty = true;
       }

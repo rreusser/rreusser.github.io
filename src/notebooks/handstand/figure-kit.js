@@ -272,7 +272,7 @@ export function analyzeRun(run, prof, model) {
 // which is half the width of the column, it did that constantly. Splitting the
 // verdict from the number gives the block a height that does not depend on
 // what it says, and tabular figures stop the number itself twitching.
-export function verdictHTML(stats, baseline = null, note = '') {
+export function verdictHTML(stats, baseline = null) {
   const ok = stats.verdict.success;
   const delta = (now, was, digits) => {
     if (was == null) return '';
@@ -283,10 +283,19 @@ export function verdictHTML(stats, baseline = null, note = '') {
   };
   const line = 'display:block; white-space:nowrap; overflow:hidden;'
     + ' text-overflow:ellipsis; font-variant-numeric:tabular-nums;';
+  // "body-height lifts" was the unit talking to itself. The number is
+  // metabolic energy over m g h -- what the movement costs, in multiples of
+  // the cost of raising your own body its own height -- so it says that, in a
+  // currency a reader already owns: climbing.
+  const why = 'the energy the muscles spend, counted as a multiple of what it '
+    + 'takes to raise your own body its own height. Positive work is charged at '
+    + 'a quarter efficiency and negative work credited at 1.2, as muscle is. '
+    + 'The bracketed number compares with this technique as stored: '
+    + 'negative is cheaper.';
   return `<span style="${line}"><strong style="color:${ok ? '#2e8b57' : '#c0392b'}">`
-    + `${ok ? '✓ reaches a handstand' : '✗ does not arrive'}</strong>`
-    + (note ? ` &nbsp;·&nbsp; <span style="opacity:.75">${note}</span>` : '')
-    + `</span><span style="${line}">work ${stats.metab.toFixed(2)} body-height lifts`
+    + `${ok ? '✓ reaches a handstand' : '✗ does not arrive'}</strong></span>`
+    + `<span style="${line}" title="${why}">as much energy as climbing `
+    + `${stats.metab.toFixed(2)} × your height`
     + delta(stats.metab, baseline?.metab, 2) + '</span>';
 }
 
