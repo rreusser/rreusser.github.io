@@ -328,10 +328,13 @@ export function createStrip({ width, rowH = 18, gutter = 58, dpr = 1, onSeek = n
 }
 
 // ---------------------------------------------------------------------------
-// The storyboard: a technique drawn as what it is, the K poses it asks for, in
-// order. The optimizer searches over exactly these, so the same component
-// shows an edited technique and a found one.
-export function createStoryboard({ K, cols, thumbW, thumbH, view, dpr = 1, onSelect = null }) {
+// The storyboard: a technique drawn as what it is, in order -- the pose the
+// body starts in, then the K poses it asks for. It takes a list of cells
+// rather than a knot matrix, because the first of them is not a knot: it is
+// where the body BEGINS, which is a different kind of thing and is drawn as
+// one (solid, because at t = 0 the body is actually there).
+export function createStoryboard({ n, cols, thumbW, thumbH, view, dpr = 1, onSelect = null }) {
+  const K = n;
   const element = document.createElement('div');
   element.style.display = 'grid';
   element.style.gap = '4px';
@@ -367,21 +370,20 @@ export function createStoryboard({ K, cols, thumbW, thumbH, view, dpr = 1, onSel
     cells.push({ canvas, cap, host });
   }
 
-  // Every thumbnail is a REQUEST, so every thumbnail is orange, and nothing
-  // else is drawn on it.
-  const draw = ({ model, ws, knots, T, sel = -1, theme }) => {
-    const q = new Float64Array(model.nq);
-    const tint = requestTint();
-    for (let k = 0; k < K; k++) {
-      const t = K === 1 ? 0 : (k / (K - 1)) * T;
+  // A request is drawn in the request grey; a body is drawn as a body.
+  const tint = requestTint();
+  const draw = ({ model, ws, items, sel = -1, theme }) => {
+    for (let k = 0; k < K && k < items.length; k++) {
+      const it = items[k];
       const ctx = cells[k].canvas.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, thumbW, thumbH);
-      const common = { clear: false, model, ws, width: thumbW, height: thumbH, theme, view };
-      knotPose(model, knots, k, q);
-      drawScene(ctx, { ...common, q, segmentColors: tint });
+      drawScene(ctx, {
+        clear: false, model, ws, width: thumbW, height: thumbH, theme, view,
+        q: it.q, segmentColors: it.solid ? null : tint,
+      });
       cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
-      cells[k].cap.textContent = `${k + 1} · ${t.toFixed(2)}s`;
+      cells[k].cap.textContent = it.label;
     }
   };
   return { element, draw, cells };

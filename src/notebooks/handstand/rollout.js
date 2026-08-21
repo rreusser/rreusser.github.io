@@ -1168,6 +1168,12 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   const {
     scenario = 'hold',
     knots = null,
+    // A start pose handed in overrides the one the scenario solves for. The
+    // shape of a start decides what technique is reachable from it -- a
+    // bent-leg press is a different skill from a press because it begins with
+    // weight on the feet -- so it is a thing to be able to CONSTRUCT, not an
+    // internal detail of a switch statement.
+    q0: q0Given = null,
     T = 1.2,
     settleT = 1.0,
     dt = 2e-4,
@@ -1177,8 +1183,15 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     balance = true,
     rom = ROM_DEFAULTS,
   } = opts;
-  const { q0, qd0: qd0Start } = scenarioStart(model, ws, scenario, rom, { tuckLoadFrac, tuckKneeDeg });
-  let qd0 = qd0Start;
+  const solvedStart = scenarioStart(model, ws, scenario, rom, { tuckLoadFrac, tuckKneeDeg });
+  // A body that begins with a toe through the floor is a contact explosion, so
+  // a handed-in start is still lifted clear of the ground. That is the one
+  // thing done to it, and it is why a start pose can be dragged anywhere
+  // without the integrator paying for it.
+  const q0 = q0Given
+    ? clearFeet(model, ws, Float64Array.from(q0Given))
+    : solvedStart.q0;
+  let qd0 = q0Given ? null : solvedStart.qd0;
   if (qdJitter > 0) {
     const rand = mulberry32(jitterSeed);
     qd0 = qd0 ? Float64Array.from(qd0) : new Float64Array(model.nq);

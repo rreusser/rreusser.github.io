@@ -583,6 +583,9 @@
         knots: p.knots.map((k) => Float64Array.from(k)),
         T: p.T,
         rom: resolveRom(p.rom),
+        // A start pose, when one is being constructed rather than solved.
+        // Stored artifacts never carry one, so they replay exactly as before.
+        q0: p.q0 || null,
         ...resolvePlant(p.config),
         ...resolveNumerics(p.numerics),
       }),
@@ -643,7 +646,9 @@
       // built for, which is what the baseline below does.
       const replay = stored
         ? (knots, T, over = null) => {
-          const p = over ? { ...stored, knots, T, strength: over.strength, rom: over.rom }
+          const p = over
+            ? { ...stored, knots, T, q0: over.q0 || null,
+              strength: over.strength || stored.strength, rom: over.rom || stored.rom }
             : { ...stored, knots, T };
           return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
         }
@@ -652,7 +657,8 @@
           const prof = over?.strength
             ? strengthProfile(model.massKg, { overrides: over.strength }) : strengthProf;
           return {
-            ...runScenario(model, ws, prof, { scenario: base, knots, T, settleT: 2.5, rom }),
+            ...runScenario(model, ws, prof,
+              { scenario: base, knots, T, settleT: 2.5, rom, q0: over?.q0 || null }),
             prof, rom,
           };
         };
@@ -837,6 +843,7 @@
     const editState = {
       base: null,   // the simResult these knots were loaded from
       knots: null,  // 6 x K, live and mutable
+      q0: null,     // an edited start pose, or null for the one the scenario solves
       T: 0,
       run: null,    // the replay of the CURRENT knots
       edited: false,
@@ -878,6 +885,7 @@
         editState.T = simResult.T;
         editState.run = simResult;
         editState.edited = false;
+        editState.q0 = null;
       }
 
       const dpr = devicePixelRatio;
@@ -890,7 +898,9 @@
       const wide = totalW >= 560;
       const panelW = totalW;
       const panelH = wide ? 340 : 260;
-      const thumbCols = Math.min(K, wide ? 6 : 3);
+      // K + 1 cells: the pose the body STARTS in, then the K it asks for.
+      const nCells = K + 1;
+      const thumbCols = Math.min(nCells, wide ? 7 : 4);
       const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
       const thumbH = Math.round(thumbW / 1.13);
 
@@ -902,8 +912,15 @@
       let dirty = true, chromeDirty = true, xEnd = 1;
       let searching = false, poolSize = null, status = '';
       const knotTime = (k) => (K === 1 ? 0 : (k / (K - 1)) * editState.T);
-      const selectKnot = (k) => {
-        sel = Math.min(K - 1, Math.max(0, k));
+      // sel is a STORYBOARD CELL: 0 is the start, 1..K are the knots, -1 is
+      // "none, the movement is running". Selecting one also moves the clock to
+      // it -- it used to leave the clock where it was, so the pose being
+      // edited and the instant everything else reported disagreed, and the
+      // body behind it sat unchanging at some other moment entirely.
+      const startQ = () => editState.q0 || editState.run.rec.q[0];
+      const selectCell = (i) => {
+        sel = Math.min(nCells - 1, Math.max(0, i));
+        t = sel === 0 ? 0 : knotTime(sel - 1);
         playing = false;
         playBtn.textContent = 'Play';
         dirty = chromeDirty = true;
@@ -933,6 +950,7 @@
       overlay.style.cssText = 'position:absolute; left:0; top:0;';
       stage.appendChild(overlay);
       const askQ = new Float64Array(runModel.nq);
+      const cmpQ = new Float64Array(runModel.nq);
 
       const drawStage = () => {
         const run = editState.run, rec = run.rec;
@@ -973,16 +991,19 @@
           return;
         }
 
-        if (editing) FIG.knotPose(m, editState.knots, sel, askQ);
-        else FIG.requestPose(m, editState.knots, editState.T, t, askQ);
-
         if (editing) {
-          // Editing: the pose you are setting is solid and on top; what the
-          // body made of it is the flat underlay.
-          drawGhosts(stageCtx, { ...common, poses: [{ q: rec.q[k] }], alpha: 0.26 });
-          syncHandles(drawScene(stageCtx, { ...common, q: askQ, segmentColors: FIG.requestTint() })
-            .handles.filter((h) => !lockedJoint(h.joint)));
+          // Editing: the pose you are setting, alone. Nothing is drawn behind
+          // it. There used to be the body's own pose at that instant back
+          // there, and it was two grey bodies in the same picture again --
+          // and worse, it did not move while you dragged, because the physics
+          // has not re-run yet, so it read as broken rather than as context.
+          const q = sel === 0 ? startQ() : FIG.knotPose(m, editState.knots, sel - 1, askQ);
+          if (sel === 0) askQ.set(q);
+          syncHandles(drawScene(stageCtx, {
+            ...common, q, segmentColors: sel === 0 ? null : FIG.requestTint(),
+          }).handles.filter((h) => !lockedJoint(h.joint)));
         } else {
+          FIG.requestPose(m, editState.knots, editState.T, t, askQ);
           // Watching: what happened is solid, in its strength colours, over
           // the target it was chasing.
           // A third of the opacity it has while you are editing it: when the
@@ -992,16 +1013,28 @@
           syncHandles([]);
         }
 
+        // The gap, measured against whatever the selected thing is chasing or
+        // being chased by: a knot against the body at that instant, the start
+        // against the first pose the technique asks for.
+        const against = sel === 0 ? FIG.knotPose(m, editState.knots, 0, cmpQ) : rec.q[k];
         let worst = 0, worstJ = 0;
         for (let j = 0; j < 6; j++) {
-          const gap = (askQ[3 + j] - rec.q[k][3 + j]) * 180 / Math.PI;
+          const gap = (askQ[3 + j] - against[3 + j]) * 180 / Math.PI;
           if (Math.abs(gap) > Math.abs(worst)) { worst = gap; worstJ = j; }
         }
         const d = Math.abs(worst).toFixed(0);
-        subLabel.textContent = editing
-          ? `pose ${sel + 1} of ${K} · drag a joint · ` + (Math.abs(worst) < 6
-            ? `within ${d}° of the body` : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`)
-          : `${t.toFixed(2)}s · pick a pose below to edit it`;
+        const near = Math.abs(worst) < 6;
+        if (sel === 0) {
+          subLabel.textContent = 'where the body starts · drag a joint · '
+            + (near ? `within ${d}° of the first pose it asks for`
+              : `${d}° from the first pose it asks for, at the ${FIG.JOINTS[worstJ].label}`);
+        } else if (editing) {
+          subLabel.textContent = `pose ${sel} of ${K} · drag a joint · `
+            + (near ? `within ${d}° of the body`
+              : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`);
+        } else {
+          subLabel.textContent = `${t.toFixed(2)}s · pick a pose below to edit it`;
+        }
       };
 
       // ---- joint handles ----------------------------------------------------
@@ -1056,7 +1089,8 @@
         drag = {
           el, pointerId: e.pointerId, px, py, ch: +el.dataset.joint - 3, moved: false,
           a0: Math.atan2(-(e.clientY - r.top - py), e.clientX - r.left - px),
-          q0: editState.knots[+el.dataset.joint - 3][sel],
+          q0: sel === 0 ? startQ()[+el.dataset.joint]
+            : editState.knots[+el.dataset.joint - 3][sel - 1],
         };
         try { el.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
         el.style.cursor = 'grabbing';
@@ -1071,7 +1105,8 @@
         let da = a - drag.a0;
         if (da > Math.PI) da -= 2 * Math.PI;
         if (da < -Math.PI) da += 2 * Math.PI;
-        writeKnot(drag.ch, sel, drag.q0 + da);
+        if (sel === 0) writeStart(drag.ch, drag.q0 + da);
+        else writeKnot(drag.ch, sel - 1, drag.q0 + da);
         drag.moved = true;
         dirty = chromeDirty = true;
         e.preventDefault();
@@ -1096,13 +1131,26 @@
         editState.knots[ch][k] = q;
         if (symmetric && (ch === 2 || ch === 3)) editState.knots[ch + 2][k] = q;
       };
+      // The start is not a knot -- it is the body's own configuration at t = 0
+      // -- so it is written into its own vector, and the first edit forks it
+      // off the one the scenario solved.
+      const writeStart = (ch, q) => {
+        if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+        editState.q0[3 + ch] = q;
+        if (symmetric && (ch === 2 || ch === 3)) editState.q0[3 + ch + 2] = q;
+      };
 
       const story = FIG.createStoryboard({
-        K, cols: thumbCols, thumbW, thumbH, view: VIEW, dpr, onSelect: selectKnot,
+        n: nCells, cols: thumbCols, thumbW, thumbH, view: VIEW, dpr, onSelect: selectCell,
       });
       const strip = FIG.createStrip({
         width: totalW, dpr,
-        onSeek: (x) => { t = x; sel = -1; playing = false; playBtn.textContent = 'Play'; dirty = true; },
+        onSeek: (x) => {
+          t = x; sel = -1; playing = false; playBtn.textContent = 'Play';
+          // chromeDirty too: without it the storyboard is never repainted and
+          // the pose you last picked stays ringed while you scrub past it.
+          dirty = chromeDirty = true;
+        },
       });
       // Mirrored from the picker above rather than duplicated: one technique,
       // one selection, two places you can reach it. The section that is ABOUT
@@ -1155,6 +1203,7 @@
         stopSearch();
         editState.knots = baseKnots.map((k) => Float64Array.from(k));
         editState.T = simResult.T;
+        editState.q0 = null;
         durInput.value = simResult.T;
         bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
         editState.run = simResult;
@@ -1171,9 +1220,13 @@
       const resim = () => {
         let run;
         try {
-          run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T,
-            bodyMoved() ? bodyOver() : null);
+          const over = bodyMoved() || editState.q0 ? { ...bodyOver(), q0: editState.q0 } : null;
+          run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T, over);
         } catch (err) { console.warn('replay failed', err); return; }
+        // Read the start back out of the run. A start with a toe through the
+        // floor is lifted clear before it is integrated, so this is what makes
+        // the pose on screen the pose that was actually simulated.
+        if (editState.q0) editState.q0 = Float64Array.from(run.rec.q[0]);
         editState.run = run;
         editState.edited = true;
         editState.notify?.({ base: simResult, run });
@@ -1342,9 +1395,18 @@
         if (chromeDirty) {
           chromeDirty = false;
           const run = editState.run;
+          const m = run.model || model;
+          const cell = new Float64Array(m.nq);
           story.draw({
-            model: run.model || model, ws: run.ws || ws,
-            knots: editState.knots, T: editState.T, sel, theme,
+            model: m, ws: run.ws || ws, sel, theme,
+            items: [
+              { q: Float64Array.from(startQ()), label: 'start', solid: true },
+              ...Array.from({ length: K }, (_, kk) => ({
+                q: Float64Array.from(FIG.knotPose(m, editState.knots, kk, cell)),
+                label: `${kk + 1} · ${knotTime(kk).toFixed(2)}s`,
+                solid: false,
+              })),
+            ],
           });
           statusEl.textContent = status;
           drawSpark();
@@ -1385,7 +1447,7 @@
         ${head('body')}
         <div class="spline-controls">${inShoulder}${inHam}</div>
         <div class="spline-controls">${inShFlex}${inWrExt}</div>
-        <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers.</figcaption>
+        <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers. The first cell is not one of them: it is where the body <em>starts</em>, which each scenario solves from the body rather than searching for. Drag it and the technique keeps its poses while the ground shifts under them.</figcaption>
       </figure>`;
     })();
     display(techniqueFigure);
