@@ -1036,9 +1036,21 @@
       // pose -- keep this shape, keep this moment -- and they are worth
       // asking separately: the shape of the pose you pass through and the
       // moment you pass through it are what a coach corrects one at a time.
-      // The ends are structural rather than held: the first pose is what t = 0
-      // means and the last is what T means, so neither is ever a decision.
-      const freshTimeHeld = () => Array.from({ length: K }, (_, k) => k === 0 || k === K - 1);
+      //
+      // Everything starts pinned, so phrasing is something you ask for a pose
+      // at a time. Free by default cost more than it bought: the instants are
+      // four more dimensions, and CMA-ES's population grows as 4 + 3 ln n, so
+      // 37 -> 41 dimensions buys exactly one more sample per generation.
+      // Measured over two techniques and three seeds at 40 generations, free
+      // won once, tied three times, and twice found NOTHING where pinned
+      // improved -- both times on the press, which is a symmetric skill, so
+      // mirroring halves the angle parameters that matter while the phrasing
+      // dimensions arrive at full count.
+      //
+      // The ends are structural rather than pinned: the first pose is what
+      // t = 0 means and the last is what T means, so neither is ever a
+      // decision whatever you click.
+      const freshTimeHeld = () => Array.from({ length: K }, () => true);
       const baseFracs = () => (sameCount() && simResult.knotFracs?.length === K
         ? Float64Array.from(simResult.knotFracs) : evenFracs());
 
@@ -1394,13 +1406,13 @@
         onKnotPick: (k) => { selectCell(k + 1); },
         onKnotDrag: (k, frac, settled) => {
           editState.fracs[k] = frac;
-          // Putting a pose at an instant BY HAND pins it there. The search may
-          // now slide the poses along the clock, and a drag the search then
-          // undoes is a control that does not control anything -- you would
-          // set a snap, optimize, and watch it even itself back out. Nothing
-          // about it is hidden: the caption under the frame goes solid and the
-          // upright thickens the moment you let go, and clicking the caption
-          // releases it again.
+          // Putting a pose at an instant BY HAND pins it there. It is already
+          // pinned unless you released it, so this only bites on a pose you
+          // had handed to the search -- and there a drag the search then
+          // undoes is a control that does not control anything: you would set
+          // a snap, optimize, and watch it even itself back out. Nothing about
+          // it is hidden, the caption and the upright both change as you let
+          // go, and clicking the caption releases it again.
           if (settled) editState.timeHeld[k] = true;
           t = knotTime(k);
           dirty = chromeDirty = true;
@@ -1460,7 +1472,7 @@
           Float64Array.from([...row.slice(0, k), insQ[3 + j], ...row.slice(k)]));
         editState.fracs = Float64Array.from([...editState.fracs.slice(0, k), frac, ...editState.fracs.slice(k)]);
         editState.held = [...editState.held.slice(0, k), false, ...editState.held.slice(k)];
-        editState.timeHeld = [...editState.timeHeld.slice(0, k), false, ...editState.timeHeld.slice(k)];
+        editState.timeHeld = [...editState.timeHeld.slice(0, k), true, ...editState.timeHeld.slice(k)];
         editState.edited = true;
         setCount(K + 1);
       };
@@ -1499,7 +1511,7 @@
         editState.knots = fit(FIG.resampleKnots(editState.knots, editState.T, next, editState.fracs));
         editState.fracs = Float64Array.from({ length: next }, (_, i) => i / (next - 1));
         editState.held = Array.from({ length: next }, (_, i) => i === next - 1);
-        editState.timeHeld = Array.from({ length: next }, (_, i) => i === 0 || i === next - 1);
+        editState.timeHeld = Array.from({ length: next }, () => true);
         editState.edited = true;
         setCount(next);
       });

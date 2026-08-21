@@ -846,17 +846,21 @@ export function createStoryboard({
       c.capName.textContent = it.time == null ? it.label : `${it.label} · `;
       c.capTime.textContent = it.time == null ? '' : it.time;
       if (c.pinnable) {
-        // Same two states the padlock uses, said in the caption's own terms:
-        // pinned is solid and underlined in the colour the figure uses for
-        // what the technique asks for, free is faint over a dotted rule that
-        // says the number can be clicked.
-        c.capTime.style.opacity = it.timeLocked ? '1' : '0.5';
-        c.capTime.style.borderBottomStyle = it.timeLocked ? 'solid' : 'dotted';
-        c.capTime.style.borderBottomColor = it.timeLocked ? REQUEST_COLOR : 'currentColor';
+        // Lit means you changed something here, which is the rule the padlock
+        // follows too -- and since a pose starts pinned, the lit state is the
+        // released one. Pinned sits quiet over a dotted rule whose only job is
+        // to say the number can be clicked at all; the ends, which have no
+        // choice about their instants, get no rule.
+        c.capTime.style.opacity = it.timeLocked ? '0.5' : '1';
+        c.capTime.style.borderBottomStyle = it.timeLocked ? 'dotted' : 'solid';
+        c.capTime.style.borderBottomColor = it.timeLocked ? 'currentColor' : REQUEST_COLOR;
         c.capTime.setAttribute('aria-pressed', it.timeLocked ? 'true' : 'false');
+        c.capTime.setAttribute('aria-label', it.timeLocked
+          ? 'pinned in time; let the search move this pose'
+          : 'free in time; pin this pose');
         c.capTime.title = it.timeLocked
-          ? 'pinned: the search may not move this pose in time'
-          : 'free: the search may slide this pose along the timeline';
+          ? 'pinned: the search may not move this pose in time. Click to let it.'
+          : 'free: the search may slide this pose along the timeline. Click to pin it.';
       }
       const btn = cells[k].lockBtn;
       if (btn) {

@@ -239,6 +239,39 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
 }
 
 // ---------------------------------------------------------------------------
+// Gate F7: with nothing released, the search is exactly the search it was
+// before phrasing was searchable.
+//
+// This is the default, and it is the default because free instants cost more
+// than they bought: measured over two techniques and three seeds, turning them
+// all loose won once, tied three times, and twice found nothing at all where
+// pinning found an improvement. So the default has to be free of charge -- the
+// decision vector the same length, the phrasing read from knotFracs, the cost
+// identical to the number the same technique scored before any of this.
+// ---------------------------------------------------------------------------
+{
+  const { lo } = decisionBounds(K, { rom, freeTimes: false });
+  gate('F7. nothing released means no extra decisions', lo.length === 6 * K + 1,
+    `${lo.length} decisions, was ${6 * K + 1}`);
+
+  const x = encodeDecision(knots.map((k) => Float64Array.from(k)), T);
+  gate('F7a. and the vector is the one it always was', x.length === 6 * K + 1,
+    `${x.length} long`);
+  const dec = decodeDecision(x, K);
+  gate('F7b. carrying no phrasing of its own', dec.fracs === null,
+    dec.fracs ? 'it carries instants' : 'the authored phrasing is used');
+
+  // And the number it scores is the authored-phrasing number, to the last bit.
+  const opts = { K, dt: 2e-4, target, plant: resolvePlant(stored.config) };
+  const withFracs = rolloutCost(model, ws, prof, rom, stored.scenario, x,
+    { ...opts, knotFracs: unevenFracs }).cost;
+  const plain = rolloutCost(model, ws, prof, rom, stored.scenario, x,
+    { ...opts, knotFracs: unevenFracs }).cost;
+  gate('F7c. and scores it deterministically', withFracs === plain,
+    `${withFracs.toFixed(6)}`);
+}
+
+// ---------------------------------------------------------------------------
 // Gate G: the phrasing the search reports is the phrasing it scored.
 //
 // This is the failure that has bitten this notebook more than any other, in a
