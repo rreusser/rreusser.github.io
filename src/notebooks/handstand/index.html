@@ -24,6 +24,14 @@
       .expandable-controls-panel .technique-controls {
         border: none; padding: 0; margin-top: 0; max-width: none;
       }
+      /* The site gives an open details a 3px rule down its left and an indent
+         to match, which is right for a disclosure in the prose and wrong for a
+         group of controls inside a panel that is already a box. */
+      .technique-controls details[open],
+      .technique-controls details[open] > summary {
+        border-left: none; padding-left: 0; margin-left: 0;
+      }
+      .technique-controls details { margin: 0; }
       .spline-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
       /* One figure earns more than the column: the press corridor is a map,
          and a map wants area. Bleed it symmetrically about the column by
@@ -1231,8 +1239,10 @@
           const gap = (askQ[3 + j] - against[3 + j]) * 180 / Math.PI;
           if (Math.abs(gap) > Math.abs(worst)) { worst = gap; worstJ = j; }
         }
-        const d = Math.abs(worst).toFixed(0);
+        // A decimal once it is close. Rounded to whole degrees, "within 0°"
+        // claimed an exact match the body had not made.
         const near = Math.abs(worst) < 6;
+        const d = Math.abs(worst).toFixed(near ? 1 : 0);
         if (sel === 0) {
           subLabel.textContent = 'where the body starts · drag a joint · '
             + (near ? `within ${d}° of the first pose it asks for`
@@ -1242,7 +1252,19 @@
             + (near ? `within ${d}° of the body`
               : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`);
         } else {
-          subLabel.textContent = `${t.toFixed(2)}s · pick a pose below to edit it`;
+          // The one state that was spending its line on an instruction, in the
+          // only state where something is actually happening to report. And the
+          // instruction had gone stale twice over: this line lives in the
+          // controls panel now, so there is nothing "below" it, and the clock
+          // reading alone said nothing -- 2.89s is only meaningful against the
+          // duration it is 2.89 seconds of. So: where you are, and the same
+          // measurement the other three states report.
+          const after = t - editState.T;
+          subLabel.textContent = (after > 5e-3
+            ? `${after.toFixed(2)}s after it ends · `
+            : `${t.toFixed(2)}s of ${editState.T.toFixed(2)}s · `)
+            + (near ? `within ${d}° of the pose it asks for`
+              : `${d}° from the pose it asks for, at the ${FIG.JOINTS[worstJ].label}`);
         }
       };
 
