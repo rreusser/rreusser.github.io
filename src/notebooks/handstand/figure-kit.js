@@ -23,10 +23,13 @@ import { JOINT_ORDER } from './control.js';
 import { evalReference } from './control.js';
 import { WORK_EFFICIENCY } from './rollout.js';
 
-// What the technique asks for. Blue, and the same blue wherever a request
-// appears: the pose body, the storyboard, the joint handles.
-export const REQUEST_COLOR = '#4a9fe0';
-export const REQUEST_FILL = 'rgba(74,159,224,0.22)';
+// What the technique asks for: a neutral grey, everywhere a request appears.
+// Grey because a request is not a measurement -- it carries no quantity, so it
+// should carry no hue, and leaving it colourless frees the whole blue-to-red
+// range to mean one thing.
+export const REQUEST_COLOR = '#8b9198';
+export const REQUEST_FILL = 'rgba(139,145,152,0.20)';
+export const REQUEST_FILL_HOVER = 'rgba(139,145,152,0.55)';
 // A joint outside its own anatomy. Orange because it is the one mark on the
 // strip that is not a measurement but a warning, and it should read as one.
 export const ROM_COLOR = '#e8833a';
@@ -43,25 +46,24 @@ export const JOINTS = [
   { j: 5, qi: 8, label: 'knee R' },
 ];
 
-// Strength used: neutral (idle) to red (at the voluntary torque cap). One
-// ramp, spent the same way by the segments of a moving body, the rows of the
-// effort strip, and any bar that reports the same quantity, so "red" means the
-// same thing wherever it turns up.
+// Strength used: blue (idle) to red (at the voluntary torque cap). One ramp,
+// spent the same way by the segments of a moving body, the rows of the effort
+// strip, and any bar reporting the same quantity, so "red" means the same
+// thing wherever it turns up. It is the only hue in the figure, which is what
+// makes it readable: nothing else competes for it.
 //
-// It has no blue end, and that is deliberate twice over. Blue is what the
-// technique ASKS for, and an idle joint drawn in the same blue as its own
-// target is unreadable the moment the two are overlaid. And rotating hue from
-// blue to red would sweep through green, which puts the most eye-catching band
-// in the ramp at exactly the effort that is neither idle nor maximal -- a
-// joint at half its cap is not "fine" and is not alarming, and should look
-// like neither. A single-ended intensity says only what it means: more red,
-// more of the envelope spent.
-const HOT = [178, 24, 43];
-const IDLE_LIGHT = [214, 214, 214], IDLE_DARK = [104, 104, 112];
+// It crosses a NEUTRAL midpoint rather than sweeping through green. Rotating
+// hue from 210 to 0 is a rainbow, and a rainbow puts its most eye-catching
+// band -- green, which every reader takes for "fine" -- at exactly the effort
+// that is neither idle nor maximal. A joint at half its cap is not fine and is
+// not alarming; it should look like neither.
+const COOL = [59, 110, 176], HOT = [178, 24, 43];
+const MID_LIGHT = [206, 206, 206], MID_DARK = [112, 112, 120];
 export function effortColor(u, isDark = false, alpha = 1) {
   const uu = Math.min(Math.max(u, 0), 1);
-  const a = isDark ? IDLE_DARK : IDLE_LIGHT;
-  const c = a.map((v, i) => Math.round(v + (HOT[i] - v) * uu));
+  const mid = isDark ? MID_DARK : MID_LIGHT;
+  const [a, b, f] = uu <= 0.5 ? [COOL, mid, uu * 2] : [mid, HOT, (uu - 0.5) * 2];
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * f));
   return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
 }
 
@@ -273,9 +275,9 @@ export function createStrip({ width, rowH = 18, gutter = 58, dpr = 1, onSeek = n
       ctx.fillText(J.label, gutter - 6, y0 + h / 2 + 3.5);
     });
 
-    // Where the K poses fall. Faint, behind everything, and in the colour a
-    // request is drawn in, so the storyboard and the timeline are one picture.
-    ctx.strokeStyle = 'rgba(74,159,224,0.45)';
+    // Where the K poses fall. Faint, and neutral like the poses themselves, so
+    // the storyboard and the timeline are one picture.
+    ctx.strokeStyle = fgc(0.4);
     ctx.lineWidth = 1;
     for (const kt of knotTimes) {
       const x = Math.round(toX(kt, xEnd)) + 0.5;

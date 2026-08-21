@@ -789,7 +789,7 @@
 
     const playFigure = html`<figure>
       ${playStack.element}
-      <figcaption>Segments are colored by strength used at that joint, neutral (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail.</figcaption>
+      <figcaption>Segments are colored by strength used at that joint, blue (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail.</figcaption>
     </figure>`;
 
     display(expandable(playFigure, {
@@ -985,7 +985,9 @@
         } else {
           // Watching: what happened is solid, in its strength colours, over
           // the target it was chasing.
-          drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.3, color: FIG.REQUEST_COLOR });
+          // A third of the opacity it has while you are editing it: when the
+          // movement is playing the target is context, not the subject.
+          drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.1, color: FIG.REQUEST_COLOR });
           drawScene(stageCtx, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
           syncHandles([]);
         }
@@ -1017,7 +1019,21 @@
             el.setAttribute('fill', FIG.REQUEST_FILL);
             el.style.pointerEvents = 'all';
             el.style.cursor = 'grab';
+            el.style.transition = 'fill 90ms linear';
             el.dataset.joint = h.joint;
+            // A handle that does not answer the pointer looks like decoration.
+            // It stays lit while it is HELD as well as while it is hovered,
+            // because a finger that has wandered off a 10 px circle is still
+            // dragging it.
+            el.addEventListener('pointerenter', () => {
+              el.setAttribute('fill', FIG.REQUEST_FILL_HOVER);
+              el.setAttribute('stroke-width', 2.2);
+            });
+            el.addEventListener('pointerleave', () => {
+              if (drag?.el === el) return;
+              el.setAttribute('fill', FIG.REQUEST_FILL);
+              el.setAttribute('stroke-width', 1.6);
+            });
             overlay.append(el);
             handleEls.set(h.joint, el);
           }
@@ -1044,6 +1060,8 @@
         };
         try { el.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
         el.style.cursor = 'grabbing';
+        el.setAttribute('fill', FIG.REQUEST_FILL_HOVER);
+        el.setAttribute('stroke-width', 2.2);
         e.preventDefault();
       });
       overlay.addEventListener('pointermove', (e) => {
@@ -1062,6 +1080,8 @@
         if (!drag || (e && e.pointerId !== drag.pointerId)) return;
         try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) { /* gone */ }
         drag.el.style.cursor = 'grab';
+        drag.el.setAttribute('fill', FIG.REQUEST_FILL);
+        drag.el.setAttribute('stroke-width', 1.6);
         const moved = drag.moved;
         drag = null;
         if (moved) resim();
@@ -1365,7 +1385,7 @@
         ${head('body')}
         <div class="spline-controls">${inShoulder}${inHam}</div>
         <div class="spline-controls">${inShFlex}${inWrExt}</div>
-        <figcaption><b style="color:${FIG.REQUEST_COLOR}">Blue is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>solid body is what happened</b>, reddening with the strength each joint spent. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers.</figcaption>
+        <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers.</figcaption>
       </figure>`;
     })();
     display(techniqueFigure);
