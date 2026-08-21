@@ -38,6 +38,7 @@ function stateFor(name) {
     knots, T: stored.T,
     knotFracs: null,
     held: Array.from({ length: K }, (_, k) => k === K - 1),
+    timeHeld: Array.from({ length: K }, () => true),
     symmetric: SYMMETRIC_SCENARIOS.has(stored.scenario),
     q0: null, target,
     rom: resolveRom({ ...(stored.rom || {}) }),
@@ -104,6 +105,8 @@ const EDITS = {
   'a finer timestep': (t) => ({ ...t, numerics: { ...t.numerics, dt: 1e-4 } }),
   'a different search seed': (t) => ({ ...t, search: { seed: 42, maxGen: 260 } }),
   'the legs un-mirrored': (t) => ({ ...t, symmetric: !t.symmetric }),
+  'a pose let loose in time': (t) => ({ ...t,
+    timeHeld: t.timeHeld.map((v, k) => (k === 1 ? false : v)) }),
 };
 
 // ---------------------------------------------------------------------------

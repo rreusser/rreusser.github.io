@@ -432,7 +432,36 @@ export function clampKnotsToRom(knots, rom) {
   return knots;
 }
 
-export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null, locks = null } = {}) {
+// How close two poses may sit, as a fraction of the duration. The drag on the
+// timeline and the search's own decode enforce the same one: two knots at the
+// same instant are a spline segment of zero width, and the Hermite tangent
+// across it divides by that width.
+export const MIN_KNOT_GAP = 0.02;
+
+// One step of the search along a knot's instant, relative to one step along a
+// joint angle. A quarter of a radian is an ordinary change of pose; a quarter
+// of the whole movement is not a change of phrasing, it is a different
+// movement. Measured against a technique that already works, a generation
+// made entirely of those produces no winner at all -- and because a CMA-ES
+// candidate is kept or discarded whole, that stalls the ANGLES too.
+//
+// The kick-up, 30 generations, one pose pinned, everything else identical:
+// at 1.0 the search moved the poses 0 ms and the angles 0.00 deg and never
+// beat its own starting cost; at 0.15, 24 ms and 5.87 deg. Not a swept
+// optimum -- a value small enough that the first generations phrase the
+// movement instead of replacing it, after which covariance adaptation has
+// its own opinion.
+export const TIME_STEP_SCALE = 0.15;
+
+export function decisionBounds(K, {
+  tLo = 0.6, tHi = 3.0, rom = null, locks = null,
+  // Whether the interior poses' instants are the search's to choose, and
+  // which of them the reader has pinned. Phrasing is most of what makes a
+  // movement -- two poses a tenth of a second apart is a snap, the same two a
+  // second apart is a stretch -- so with the duration held fixed this is the
+  // only way the search can find a rhythm rather than just a shape.
+  freeTimes = false, timeLocks = null,
+} = {}) {
   const jointLo = rom
     ? [wristQ3LimitsDeg(rom).lo * D2R,
       // The same bound the passive end-stop enforces: a shoulder that only
@@ -447,12 +476,25 @@ export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null, locks = nu
       rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
       rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R]
     : [130 * D2R, 120 * D2R, 175 * D2R, 10 * D2R, 175 * D2R, 10 * D2R];
-  const n = 6 * K + 1;
+  const nTimes = freeTimes ? Math.max(0, K - 2) : 0;
+  const n = 6 * K + 1 + nTimes;
   const lo = new Float64Array(n), hi = new Float64Array(n);
   for (let j = 0; j < 6; j++) {
     for (let k = 0; k < K; k++) { lo[j * K + k] = jointLo[j]; hi[j * K + k] = jointHi[j]; }
   }
-  lo[n - 1] = tLo; hi[n - 1] = tHi;
+  lo[6 * K] = tLo; hi[6 * K] = tHi;
+  // Pose k needs k gaps behind it and K-1-k ahead, so its box is what is left
+  // over once its neighbours have room. Held to a point when it is pinned, for
+  // the same reason a held pose is.
+  for (let k = 1; k <= nTimes; k++) {
+    const i = 6 * K + k;
+    lo[i] = k * MIN_KNOT_GAP;
+    hi[i] = 1 - (K - 1 - k) * MIN_KNOT_GAP;
+    if (timeLocks?.[k] != null) {
+      const v = Math.min(Math.max(timeLocks[k], lo[i]), hi[i]);
+      lo[i] = v; hi[i] = v;
+    }
+  }
   // A locked pose is not a decision. Collapsing its bounds onto the value it
   // is held at is not the thing that KEEPS it there -- rolloutCost writes it
   // back after decoding, the way it already does for the ending pose -- but
@@ -468,6 +510,36 @@ export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null, locks = nu
     }
   }
   return { lo, hi };
+}
+
+
+// Where the poses fall, made into a movement: increasing, with room between,
+// and pinned where the reader pinned it.
+//
+// CMA-ES samples a box, and "increasing" is not a box, so the decode projects
+// onto it -- push right, then push left -- the same way decisionBounds
+// projects a knot onto the anatomy. Both passes step over a pinned pose, so a
+// pin survives its neighbours being pushed off it.
+//
+// A pin can still be impossible to honour: two of them a hair apart with a
+// free pose between leaves nowhere to put it. The last pass then keeps the
+// times non-decreasing at the cost of the pin, because a pose that happens
+// before the one before it is not a movement at all, while a pin missed by a
+// hundredth of a duration is a pin missed by a hundredth.
+export function applyTimeLocks(fracs, timeLocks = null) {
+  if (!fracs) return fracs;
+  const K = fracs.length;
+  const g = MIN_KNOT_GAP;
+  const held = (k) => timeLocks?.[k] != null;
+  // The ends are not decisions: the first pose is what t = 0 means and the
+  // last is what T means.
+  fracs[0] = 0;
+  fracs[K - 1] = 1;
+  for (let k = 1; k < K - 1; k++) if (held(k)) fracs[k] = timeLocks[k];
+  for (let k = 1; k < K - 1; k++) if (!held(k)) fracs[k] = Math.max(fracs[k], fracs[k - 1] + g);
+  for (let k = K - 2; k >= 1; k--) if (!held(k)) fracs[k] = Math.min(fracs[k], fracs[k + 1] - g);
+  for (let k = 1; k < K - 1; k++) fracs[k] = Math.min(Math.max(fracs[k], fracs[k - 1]), 1);
+  return fracs;
 }
 
 // Hold every locked pose at the angles it is locked to. Applied after the
@@ -499,17 +571,30 @@ export function symmetrizeKnots(knots) {
   return knots;
 }
 
+// The duration sits at a fixed index rather than at the end of the vector,
+// because the K-2 interior knot times may follow it. A vector without them --
+// every one written before phrasing was searchable, including the stored
+// artifacts -- decodes exactly as it did, with fracs null.
 export function decodeDecision(x, K) {
   const knots = [];
   for (let j = 0; j < 6; j++) knots.push(x.slice(j * K, (j + 1) * K));
-  return { knots, T: x[x.length - 1] };
+  const nTimes = Math.max(0, K - 2);
+  let fracs = null;
+  if (nTimes > 0 && x.length >= 6 * K + 1 + nTimes) {
+    fracs = new Float64Array(K);
+    fracs[K - 1] = 1;
+    for (let k = 1; k < K - 1; k++) fracs[k] = x[6 * K + k];
+  }
+  return { knots, T: x[6 * K], fracs };
 }
 
-export function encodeDecision(knots, T) {
+export function encodeDecision(knots, T, fracs = null) {
   const K = knots[0].length;
-  const x = new Float64Array(6 * K + 1);
+  const nTimes = fracs ? Math.max(0, K - 2) : 0;
+  const x = new Float64Array(6 * K + 1 + nTimes);
   for (let j = 0; j < 6; j++) x.set(knots[j], j * K);
-  x[x.length - 1] = T;
+  x[6 * K] = T;
+  for (let k = 1; k <= nTimes; k++) x[6 * K + k] = fracs[k];
   return x;
 }
 
@@ -650,6 +735,10 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // falsy entry for one the search may move. This is the same mechanism as
   // pinFinal, which is simply the ending pose being permanently locked.
   locks = null,
+  // Which poses are pinned to the instant they sit at. Same shape as locks:
+  // an entry is the fraction of the duration it is held at, or null for a
+  // pose whose instant the search may choose.
+  timeLocks = null,
   // Whether the two legs do the same thing. It defaults to the scenario's own
   // answer, which is what it was before it could be asked -- but it was only
   // ever readable HERE, inside the scorer, so a page that wanted to say
@@ -667,9 +756,13 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // exactly as it keeps the search off a handstand.
   target = null,
 } = {}) {
-  const { knots, T } = decodeDecision(x, K);
+  const { knots, T, fracs } = decodeDecision(x, K);
   if (symmetric ?? SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(knots);
   applyLocks(knots, locks);
+  // Where the poses fall. When the search is phrasing as well as posing the
+  // decision vector carries the interior instants and they win; otherwise the
+  // phrasing is whatever was authored, and knotFracs is it.
+  const fracsUsed = fracs ? applyTimeLocks(fracs, timeLocks) : knotFracs;
   const balanced = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   // A technique ends in the pose it is aimed at, by definition: the final knot
   // is that pose, not a free parameter. Otherwise the settle-phase servo holds
@@ -684,7 +777,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     // property of this rollout rather than of the machine.
     ...(plant || {}),
     scenario, knots, T, settleT, dt, integrator, qdJitter, jitterSeed, rom,
-    contactZeta, mu, q0, target: balanced, knotFracs,
+    contactZeta, mu, q0, target: balanced, knotFracs: fracsUsed,
     recordEvery: Math.max(1, Math.round(1 / (120 * dt))),
   });
   const rec = r.rec;
@@ -1145,11 +1238,12 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
   dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
   knotFracs = null, locks = null, numerics = null, symmetric = null,
+  freeTimes = false, timeLocks = null, timeStepScale = TIME_STEP_SCALE,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
   trustRadius = 0, q0 = null, target = null,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
 } = {}) {
-  const start = x0 || (() => {
+  let start = x0 || (() => {
     const ref = scenario === 'pike'
       ? pressReference(model, ws, K, rom)
       : scenario === 'tuck'
@@ -1159,7 +1253,30 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
           : naiveReference(model, ws, scenario, K, rom);
     return encodeDecision(ref.knots, Math.min(Math.max(t0, tLo), tHi));
   })();
-  const bounds = decisionBounds(K, { tLo, tHi, rom, locks });
+  const nTimes = freeTimes ? Math.max(0, K - 2) : 0;
+  const bounds = decisionBounds(K, { tLo, tHi, rom, locks, freeTimes, timeLocks });
+  // A vector handed in from before phrasing was searchable -- a stored
+  // technique, a warm start from an earlier run -- is short by the interior
+  // instants. It gets them from the phrasing it was going to be scored under,
+  // so turning the times loose starts the search exactly where it would have
+  // started without them rather than jumping to even spacing first.
+  const n = 6 * K + 1 + nTimes;
+  if (start.length !== n) {
+    const fitted = new Float64Array(n);
+    for (let i = 0; i < 6 * K + 1; i++) fitted[i] = start[i];
+    for (let k = 1; k <= nTimes; k++) {
+      // From the phrasing this would have been scored under if it were not
+      // being searched, so turning the instants loose starts where the search
+      // would have started rather than jumping to even spacing first. A vector
+      // that already carries them keeps its own.
+      fitted[6 * K + k] = start.length > 6 * K + k ? start[6 * K + k]
+        : (knotFracs ? knotFracs[k] : k / (K - 1));
+    }
+    // Longer than the bounds is the dangerous direction: cmaes sizes itself
+    // from x0 and would read past bounds.lo/hi into undefined, which clamps
+    // to NaN and poisons the run without ever throwing.
+    start = fitted;
+  }
   // The start pose may sit exactly on (or, via clamping order, a hair past)
   // a ROM bound; give the start itself room.
   for (let i = 0; i < start.length; i++) {
@@ -1167,19 +1284,24 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   }
   // Trust region: refine around x0 without wandering into another basin.
   if (trustRadius > 0) {
-    for (let i = 0; i < start.length - 1; i++) {
+    // Every entry but the duration, which is a time in seconds rather than an
+    // angle in radians and gets its own radius. It is at 6K now, not at the
+    // end -- the interior instants are the entries past it, and those are
+    // fractions, so the angle radius is the right size for them.
+    for (let i = 0; i < start.length; i++) {
+      if (i === 6 * K) continue;
       bounds.lo[i] = Math.max(bounds.lo[i], start[i] - trustRadius);
       bounds.hi[i] = Math.min(bounds.hi[i], start[i] + trustRadius);
     }
-    bounds.lo[start.length - 1] = Math.max(bounds.lo[start.length - 1], start[start.length - 1] - 0.25);
-    bounds.hi[start.length - 1] = Math.min(bounds.hi[start.length - 1], start[start.length - 1] + 0.25);
+    bounds.lo[6 * K] = Math.max(bounds.lo[6 * K], start[6 * K] - 0.25);
+    bounds.hi[6 * K] = Math.min(bounds.hi[6 * K], start[6 * K] + 0.25);
   }
   const costFn = robust ? robustRolloutCost : rolloutCost;
   // Every candidate is simulated to be scored, and rolloutCost already
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
-  const costOpts = { K, dt, weights, q0, target, plant, knotFracs, locks, numerics, symmetric,
+  const costOpts = { K, dt, weights, q0, target, plant, knotFracs, locks, timeLocks, numerics, symmetric,
     ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
@@ -1192,8 +1314,14 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // worse than the technique the search was handed -- including when the
   // search is stopped part way and its incumbent is what gets kept.
   const startCost = costFn(model, ws, strengthProf, rom, scenario, start, costOpts).cost;
+  // Angles in radians take the sigma they always did; the instants take a
+  // fraction of it, being fractions of a duration. The duration itself is
+  // deliberately left at 1: it is pinned at both ends by every caller that
+  // matters, and rescaling it would move every stored artifact's search.
+  const scales = new Float64Array(start.length).fill(1);
+  for (let k = 1; k <= nTimes; k++) scales[6 * K + k] = timeStepScale;
   const result = await cmaes({
-    x0: start, sigma0, seed, maxGen, lambda, bounds, f0: startCost,
+    x0: start, sigma0, seed, maxGen, lambda, bounds, f0: startCost, scales,
     objective: objectiveBatch ? null : (x) => scored(x).cost,
     objectiveBatch,
     onGeneration,
@@ -1202,12 +1330,15 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // final check is that the number reported at the end is the number the page
   // reproduces when it plays the answer back.
   const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX,
-    { K, dt: numerics?.dt ?? 2e-4, weights, q0, target, plant, knotFracs, locks, numerics, symmetric });
+    { K, dt: numerics?.dt ?? 2e-4, weights, q0, target, plant, knotFracs, locks, timeLocks, numerics, symmetric });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
   const decoded = decodeDecision(result.bestX, K);
   if (symmetric ?? SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
   applyLocks(decoded.knots, locks);
+  // Finished the same way the scorer finished it, or the phrasing handed back
+  // is the raw box sample rather than the movement that was actually scored.
+  if (decoded.fracs) applyTimeLocks(decoded.fracs, timeLocks);
   const qBal = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
   return {

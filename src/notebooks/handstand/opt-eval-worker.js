@@ -34,6 +34,10 @@ self.onmessage = ({ data }) => {
       plant: cfg.plant || null,
       // The phrasing and the held poses, for the same reason.
       knotFracs: cfg.knotFracs || null, locks: cfg.locks || null,
+      // The pinned instants. The FREE ones need no forwarding: they ride in
+      // the decision vector itself, so a longer x is all this worker needs to
+      // know that phrasing is being searched.
+      timeLocks: cfg.timeLocks || null,
       numerics: cfg.numerics || null, symmetric: cfg.symmetric ?? null,
     });
     costs.push(c.cost);

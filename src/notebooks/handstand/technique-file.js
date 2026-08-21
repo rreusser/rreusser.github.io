@@ -10,6 +10,7 @@
 //   knots, T     the technique itself
 //   knotFracs    where the poses fall inside T, when it was phrased by hand
 //   held         which poses the search may not move
+//   timeHeld     which poses the search may not move in time
 //   symmetric    whether the two legs do the same thing
 //   q0           the start pose, when one was constructed rather than solved
 //   target       the ending pose (derived from the last knot, stored to check)
@@ -48,6 +49,7 @@ export function techniqueToJSON(t) {
     T: +t.T,
     knotFracs: arr(t.knotFracs),
     held: t.held ? Array.from(t.held, (v) => !!v) : null,
+    timeHeld: t.timeHeld ? Array.from(t.timeHeld, (v) => !!v) : null,
     symmetric: !!t.symmetric,
     q0: arr(t.q0),
     target: arr(t.target),
@@ -97,6 +99,12 @@ export function techniqueFromJSON(json) {
     // what every technique did then.
     held: Array.isArray(j.held) && j.held.length === K
       ? j.held.map(Boolean) : Array.from({ length: K }, (_, k) => k === K - 1),
+    // A file saved before the search could phrase pinned every instant, which
+    // is what "the phrasing is authored" meant then. Reading it as all-free
+    // would hand a stored technique's rhythm to the search the moment it was
+    // opened.
+    timeHeld: Array.isArray(j.timeHeld) && j.timeHeld.length === K
+      ? j.timeHeld.map(Boolean) : Array.from({ length: K }, () => true),
     // A file saved before the legs could be un-mirrored means whatever its
     // scenario meant then.
     symmetric: typeof j.symmetric === 'boolean'

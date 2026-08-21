@@ -9,6 +9,7 @@ import { ROM_DEFAULTS } from './statics.js';
 import {
   optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision, plantFor,
   balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS, NUMERICS_DEFAULTS, applyLocks,
+  applyTimeLocks,
 } from './rollout.js';
 
 // A pool of nested evaluation workers, so a generation is spread across
@@ -119,6 +120,7 @@ async function handle(msg) {
       // the page will replay.
       q0: msg.q0 || null, target: msg.target || null, plant: msg.plant || null,
       knotFracs: msg.knotFracs || null, locks: msg.locks || null,
+      timeLocks: msg.timeLocks || null,
       numerics: msg.numerics || null, symmetric: msg.symmetric ?? null,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
@@ -166,6 +168,12 @@ async function handle(msg) {
       // phrasing it was given; a held pose it simply may not move.
       knotFracs: msg.knotFracs || null,
       locks: msg.locks || null,
+      // Whether the poses may slide along the clock, and which of them may
+      // not. The duration stays where the page put it either way -- tLo and
+      // tHi arrive equal -- so this is the search finding a rhythm inside a
+      // fixed tempo rather than buying an easier score by slowing down.
+      freeTimes: !!msg.freeTimes,
+      timeLocks: msg.timeLocks || null,
       numerics: msg.numerics || null,
       // Whether the legs mirror. The page decides now; without this the search
       // would go on reading it off the scenario and quietly straighten a
@@ -182,6 +190,7 @@ async function handle(msg) {
           const dec = decodeDecision(g.bestX, msg.K ?? 6);
           if (msg.symmetric ?? SYMMETRIC_SCENARIOS.has(msg.scenario)) symmetrizeKnots(dec.knots);
           applyLocks(dec.knots, msg.locks || null);
+          if (dec.fracs) applyTimeLocks(dec.fracs, msg.timeLocks || null);
           const qBal = msg.target ? Float64Array.from(msg.target) : balancedHandstand(model, ws);
           for (let j = 0; j < 6; j++) dec.knots[j][dec.knots[j].length - 1] = qBal[3 + j];
           // Cheapest candidate first, so the viewer can draw the leader
@@ -191,6 +200,7 @@ async function handle(msg) {
             type: 'progress', gen: g.gen, maxGen: msg.maxGen ?? 150,
             best: g.best, sigma: g.sigma,
             T: dec.T, knots: dec.knots.map((k) => Array.from(k)),
+            knotFracs: dec.fracs ? Array.from(dec.fracs) : null,
             // The machine the search is running on, so a run that is stopped
             // rather than finished is still replayable on the one that
             // produced it.
@@ -212,6 +222,7 @@ async function handle(msg) {
       type: 'done', task: 'optimize',
       best: result.best, T: result.decoded.T,
       knots: result.decoded.knots.map((k) => Array.from(k)),
+      knotFracs: result.decoded.fracs ? Array.from(result.decoded.fracs) : null,
       verdict: result.finalCheck.verdict, terms: result.finalCheck.terms,
       fineCost: result.finalCheck.cost,
       // The machine the search ran on, so a result adopted into playback or

@@ -1032,6 +1032,13 @@
       // phrasing, and does when it was authored with any.
       const evenFracs = () => Float64Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
       const freshHeld = () => Array.from({ length: K }, (_, k) => k === K - 1);
+      // The instants, held or free. Two different questions get asked of a
+      // pose -- keep this shape, keep this moment -- and they are worth
+      // asking separately: the shape of the pose you pass through and the
+      // moment you pass through it are what a coach corrects one at a time.
+      // The ends are structural rather than held: the first pose is what t = 0
+      // means and the last is what T means, so neither is ever a decision.
+      const freshTimeHeld = () => Array.from({ length: K }, (_, k) => k === 0 || k === K - 1);
       const baseFracs = () => (sameCount() && simResult.knotFracs?.length === K
         ? Float64Array.from(simResult.knotFracs) : evenFracs());
 
@@ -1050,6 +1057,7 @@
         editState.T = simResult.T;
         editState.fracs = baseFracs();
         editState.held = freshHeld();
+        editState.timeHeld = freshTimeHeld();
         editState.run = simResult;
         editState.edited = false;
         editState.q0 = null;
@@ -1061,6 +1069,8 @@
       if (editState.fracs?.length !== K) editState.fracs = evenFracs();
       if (editState.held?.length !== K) editState.held = freshHeld();
       editState.held[K - 1] = true;
+      if (editState.timeHeld?.length !== K) editState.timeHeld = freshTimeHeld();
+      editState.timeHeld[0] = editState.timeHeld[K - 1] = true;
 
       const dpr = devicePixelRatio;
       // Every reference pose has to fit, and a reference pose is not a pose the
@@ -1098,6 +1108,12 @@
       // pose you drag and then hold is held where you left it.
       const lockValues = () => editState.held.map((on, k) => (on
         ? Array.from({ length: 6 }, (_, j) => editState.knots[j][k]) : null));
+      // And the pinned instants, the same way: the fraction each pinned pose
+      // sits at, or null where the search may slide it.
+      const timeLockValues = () => editState.timeHeld.map((on, k) => (on ? editState.fracs[k] : null));
+      // Is there anything for the search to phrase? With every interior pose
+      // pinned there is not, and the decision vector stays the length it was.
+      const timesAreFree = () => editState.timeHeld.some((on, k) => !on && k > 0 && k < K - 1);
       // sel is a STORYBOARD CELL: 0 is the start, 1..K are the knots, -1 is
       // "none, the movement is running". Selecting one also moves the clock to
       // it -- it used to leave the clock where it was, so the pose being
@@ -1342,6 +1358,16 @@
         canInsertBefore: (i) => i >= 2,
         onDelete: (i) => dropPose(i - 1),
         onInsert: (i) => addPoseBefore(i - 1),
+        // The instants of the interior poses -- the ends are 0 and T by
+        // definition, and the start cell is not a knot at all.
+        canTimeLock: (i) => i >= 2 && i <= nCells - 2,
+        onTimeLock: (i) => {
+          const k = i - 1;
+          editState.timeHeld[k] = !editState.timeHeld[k];
+          // Same as holding a pose: it changes what the search may do, not
+          // what the body does, so nothing is re-simulated.
+          chromeDirty = dirty = true;
+        },
         onLock: (i) => {
           const k = i - 1;
           editState.held[k] = !editState.held[k];
@@ -1368,6 +1394,14 @@
         onKnotPick: (k) => { selectCell(k + 1); },
         onKnotDrag: (k, frac, settled) => {
           editState.fracs[k] = frac;
+          // Putting a pose at an instant BY HAND pins it there. The search may
+          // now slide the poses along the clock, and a drag the search then
+          // undoes is a control that does not control anything -- you would
+          // set a snap, optimize, and watch it even itself back out. Nothing
+          // about it is hidden: the caption under the frame goes solid and the
+          // upright thickens the moment you let go, and clicking the caption
+          // releases it again.
+          if (settled) editState.timeHeld[k] = true;
           t = knotTime(k);
           dirty = chromeDirty = true;
           if (settled) resim(); else relayout();
@@ -1388,6 +1422,7 @@
         K = next;
         nCells = K + 1;
         editState.held[K - 1] = true;
+        editState.timeHeld[0] = editState.timeHeld[K - 1] = true;
         // The storyboard re-lays itself at whatever width it is currently at,
         // which is not totalW while the figure is expanded.
         story.setCount(nCells);
@@ -1406,6 +1441,7 @@
           Float64Array.from([...row.slice(0, k), ...row.slice(k + 1)]));
         editState.fracs = Float64Array.from([...editState.fracs.slice(0, k), ...editState.fracs.slice(k + 1)]);
         editState.held = [...editState.held.slice(0, k), ...editState.held.slice(k + 1)];
+        editState.timeHeld = [...editState.timeHeld.slice(0, k), ...editState.timeHeld.slice(k + 1)];
         editState.edited = true;
         setCount(K - 1);
       };
@@ -1424,6 +1460,7 @@
           Float64Array.from([...row.slice(0, k), insQ[3 + j], ...row.slice(k)]));
         editState.fracs = Float64Array.from([...editState.fracs.slice(0, k), frac, ...editState.fracs.slice(k)]);
         editState.held = [...editState.held.slice(0, k), false, ...editState.held.slice(k)];
+        editState.timeHeld = [...editState.timeHeld.slice(0, k), false, ...editState.timeHeld.slice(k)];
         editState.edited = true;
         setCount(K + 1);
       };
@@ -1462,6 +1499,7 @@
         editState.knots = fit(FIG.resampleKnots(editState.knots, editState.T, next, editState.fracs));
         editState.fracs = Float64Array.from({ length: next }, (_, i) => i / (next - 1));
         editState.held = Array.from({ length: next }, (_, i) => i === next - 1);
+        editState.timeHeld = Array.from({ length: next }, (_, i) => i === 0 || i === next - 1);
         editState.edited = true;
         setCount(next);
       });
@@ -1518,6 +1556,7 @@
         editState.T = simResult.T;
         editState.fracs = baseFracs();
         editState.held = freshHeld();
+        editState.timeHeld = freshTimeHeld();
         editState.q0 = null;
         durInput.value = simResult.T;
         editState.body = bodyDefaults.slice();
@@ -1545,6 +1584,7 @@
         T: editState.T,
         knotFracs: editState.fracs,
         held: editState.held,
+        timeHeld: editState.timeHeld,
         q0: editState.q0,
         target: targetQ(),
         rom: resolveRom(bodyOver().rom),
@@ -1703,6 +1743,8 @@
           : Float64Array.from({ length: loadedK }, (_, k) => (loadedK === 1 ? 0 : k / (loadedK - 1)));
         editState.held = rec.held.slice();
         editState.held[loadedK - 1] = true;
+        editState.timeHeld = rec.timeHeld.slice();
+        editState.timeHeld[0] = editState.timeHeld[loadedK - 1] = true;
         editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
         editState.machine = { config: rec.config, numerics: rec.numerics, body: rec.body };
         editState.symmetric = rec.symmetric;
@@ -1793,6 +1835,13 @@
         if (!data.knots) return;
         editState.knots = data.knots.map((k) => Float64Array.from(k));
         editState.T = data.T;
+        // The phrasing the search settled on, when it was searching phrasing.
+        // Without this the answer is drawn against the rhythm it started from
+        // and every pose sits at the wrong instant -- the same class of bug as
+        // replaying on a body the search never used, and just as quiet.
+        if (data.knotFracs?.length === editState.knots[0].length) {
+          editState.fracs = Float64Array.from(data.knotFracs);
+        }
         durInput.value = data.T;
         resim();
       };
@@ -1947,12 +1996,14 @@
           // the body, the strength, the anatomy, the start, the ending -- and
           // the plant was the one thing the search still supplied itself.
           plant: editState.machine.config,
-          // The phrasing, and the poses being held by hand. Timing is authored
-          // rather than searched -- the search still cannot move a pose
-          // earlier or later, you can -- so what travels is the phrasing to
-          // score against, plus the angles it may not touch.
+          // The phrasing, the poses held by hand, and which instants are
+          // pinned. The phrasing travels either way: as the thing to score
+          // against when every instant is pinned, and as the place to start
+          // from when they are not.
           knotFracs: Array.from(editState.fracs),
           locks: lockValues(),
+          freeTimes: timesAreFree(),
+          timeLocks: timeLockValues(),
           // The duration is NOT searched: both ends of its range are the value
           // on screen, so the search is pinned to the tempo you set.
           //
@@ -1966,8 +2017,10 @@
           // the one where the shoulder supplies everything and nothing is
           // carried by momentum, which is the opposite of technique.
           //
-          // So tempo joins the pose count, the phrasing and the held poses:
-          // things a reader sets, leaving the search the shape.
+          // So tempo joins the pose count and the held poses: things a reader
+          // sets. Phrasing WITHIN that tempo is the search's, unless you pin
+          // it -- moving a pose earlier while another moves later cannot buy a
+          // cheaper score by taking longer, because there is no longer to take.
           tLo: editState.T, tHi: editState.T,
           // And the integration a replay uses, so the settle horizon scored is
           // the one the page watches.
@@ -1985,7 +2038,7 @@
           run, prof: run.prof || strengthProf, rom: run.rom || simResult.baseRom,
           T: editState.T, xEnd, theme,
           knotTimes: Array.from({ length: K }, (_, k) => knotTime(k)),
-          locks: editState.held,
+          locks: editState.timeHeld,
         });
         const stats = FIG.analyzeRun(run, run.prof || strengthProf, model);
         verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null);
@@ -2017,11 +2070,11 @@
           story.draw({
             model: m, ws: run.ws || ws, sel, theme,
             items: [
-              { q: Float64Array.from(startQ()), label: 'start', solid: true },
+              { q: Float64Array.from(startQ()), label: 'start', time: null, solid: true },
               ...Array.from({ length: K }, (_, kk) => ({
                 q: Float64Array.from(FIG.knotPose(m, editState.knots, kk, cell)),
-                label: `${kk + 1} · ${knotTime(kk).toFixed(2)}s`,
-                solid: false, locked: editState.held[kk],
+                label: `${kk + 1}`, time: `${knotTime(kk).toFixed(2)}s`,
+                solid: false, locked: editState.held[kk], timeLocked: editState.timeHeld[kk],
               })),
             ],
           });
@@ -2082,13 +2135,13 @@
           ${playBtn}${optRun}${optStop}${spark}${statusEl}
         </div>
         ${verdict}
-        ${group('the technique', true,
+        ${group('technique', true,
           html`<div class="spline-controls">${poses}${durInput}</div>`,
           html`<div class="spline-controls">${symToggle}</div>`)}
-        ${group('the body', false,
+        ${group('body', false,
           html`<div class="spline-controls">${inShoulder}${inHam}</div>`,
           html`<div class="spline-controls">${inShFlex}${inWrExt}</div>`)}
-        ${group('the search', false,
+        ${group('search', false,
           html`<div class="spline-controls">${optGens}${optSeed}</div>`)}
         ${group('saved cases', false,
           html`<div class="spline-controls">${caseList}${caseName}</div>`,

@@ -473,6 +473,9 @@ export function createStrip({
     // the storyboard and the timeline are one picture. The ones you can slide
     // carry a grip at the foot of the line; the two ends of the movement do
     // not, because they are the ends.
+    // A bold upright is a PINNED INSTANT, not a held pose: this line is a time,
+    // and since the search can now slide the others along it, which of them
+    // will not move is the thing worth drawing here.
     const rows = JOINTS.length * rowH - 2;
     knotTimes.forEach((kt, k) => {
       const held = locks?.[k];
@@ -570,6 +573,11 @@ export function createStoryboard({
   n, cols: cols0, thumbW: thumbW0, thumbH: thumbH0, view, dpr = 1, onSelect = null,
   onLock = null, canLock = null, onDelete = null, canDelete = null,
   onInsert = null, canInsertBefore = null,
+  // Pinning a pose to its instant. It hangs off the time already printed
+  // under the frame rather than arriving as a second padlock in the corner:
+  // the thing being pinned is the number you can see, and a frame 70 pixels
+  // wide has no room for another button anyway.
+  onTimeLock = null, canTimeLock = null,
   // A ceiling on how tall a frame gets. Without one the row grows with the
   // figure: expanded, seven thumbnails across 1400px are 170px tall, and a
   // storyboard taking more vertical room than the movement it summarizes is
@@ -620,6 +628,20 @@ export function createStoryboard({
     canvas.height = Math.round(thumbH * dpr);
     const cap = document.createElement('div');
     cap.style.cssText = 'font-size:10px; text-align:center; opacity:.7; font-variant-numeric:tabular-nums;';
+    const capName = document.createElement('span');
+    const pinnable = onTimeLock && (canTimeLock ? canTimeLock(k) : false);
+    // A button only where it does something. The ends of the movement have
+    // instants by definition -- 0 and T -- so theirs is a reading, not a
+    // control, and it stays plain text.
+    const capTime = document.createElement(pinnable ? 'button' : 'span');
+    if (pinnable) {
+      capTime.type = 'button';
+      capTime.style.cssText = 'font: inherit; font-variant-numeric:tabular-nums; color:inherit;'
+        + 'background:none; border:none; border-bottom:1.5px solid transparent; padding:0 1px;'
+        + 'margin:0; cursor:pointer; line-height:1;';
+      capTime.addEventListener('click', (e) => { e.stopPropagation(); onTimeLock(k); });
+    }
+    cap.append(capName, capTime);
     // A div rather than a button, because the controls on it are buttons and a
     // button inside a button is not a thing. It still behaves like one:
     // pointer, keyboard, and a name for a screen reader.
@@ -717,7 +739,7 @@ export function createStoryboard({
     }
 
     element.appendChild(host);
-    cells.push({ canvas, cap, host, lockBtn, delBtn, insBtn, insLine, insIcon });
+    cells.push({ canvas, cap, capName, capTime, pinnable, host, lockBtn, delBtn, insBtn, insLine, insIcon });
     cellLocks.push(shackle);
   }
 
@@ -820,7 +842,22 @@ export function createStoryboard({
         q: it.q, segmentColors: it.solid ? null : tint,
       });
       cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
-      cells[k].cap.textContent = it.label;
+      const c = cells[k];
+      c.capName.textContent = it.time == null ? it.label : `${it.label} · `;
+      c.capTime.textContent = it.time == null ? '' : it.time;
+      if (c.pinnable) {
+        // Same two states the padlock uses, said in the caption's own terms:
+        // pinned is solid and underlined in the colour the figure uses for
+        // what the technique asks for, free is faint over a dotted rule that
+        // says the number can be clicked.
+        c.capTime.style.opacity = it.timeLocked ? '1' : '0.5';
+        c.capTime.style.borderBottomStyle = it.timeLocked ? 'solid' : 'dotted';
+        c.capTime.style.borderBottomColor = it.timeLocked ? REQUEST_COLOR : 'currentColor';
+        c.capTime.setAttribute('aria-pressed', it.timeLocked ? 'true' : 'false');
+        c.capTime.title = it.timeLocked
+          ? 'pinned: the search may not move this pose in time'
+          : 'free: the search may slide this pose along the timeline';
+      }
       const btn = cells[k].lockBtn;
       if (btn) {
         cellLocks[k]?.setAttribute('d', it.locked ? SHUT : OPEN);
