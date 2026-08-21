@@ -1431,6 +1431,18 @@
       // taller. Either way the timeline ends up past the bottom edge.
       const layout = { refresh: null };
       const setCount = (next) => {
+        // A search in flight is a search for a DIFFERENT technique the moment
+        // the pose count changes: it is still scoring K poses and will hand
+        // back K of them, onto a page whose knots, phrasing and holds are all
+        // K-1 long now. Nothing downstream checks, so the mismatch travels --
+        // the replay reads a knot column that is not there, or phrases six
+        // poses by five instants, and the figure fills with NaN. Revert and
+        // Load already stop the search for exactly this reason; dropping and
+        // adding a pose are the same kind of edit and were not.
+        if (searching) {
+          stopSearch();
+          status = 'stopped · the number of poses changed';
+        }
         K = next;
         nCells = K + 1;
         editState.held[K - 1] = true;
@@ -1845,6 +1857,17 @@
       const adopt = (data) => {
         if (data.generation?.length) optState.ghosts = data.generation;
         if (!data.knots) return;
+        // Belt to setCount's braces. A result is for the technique that was
+        // searched, and if that is not the technique on screen any more there
+        // is nothing sensible to do with it: adopting six poses' worth of
+        // knots into a five-pose page leaves every array a different length
+        // from every other, and the first thing to read one of them off the
+        // end gets NaN.
+        if (data.knots.length !== 6 || data.knots[0].length !== K) {
+          status = `ignored a result for ${data.knots[0]?.length ?? '?'} poses`;
+          dirty = chromeDirty = true;
+          return;
+        }
         editState.knots = data.knots.map((k) => Float64Array.from(k));
         editState.T = data.T;
         // The phrasing the search settled on, when it was searching phrasing.
