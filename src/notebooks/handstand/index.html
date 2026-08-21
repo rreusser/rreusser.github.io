@@ -1117,11 +1117,6 @@
       // matters -- the gap between them. Overlaid, the gap IS the picture, and
       // opacity says which of the two you are acting on: the subject is solid
       // and on top, the other is a flat underlay in its own colour.
-      // min-height, not height: the line reserves a row so the figure does not
-      // jump as it changes, but in the narrow floating panel it wraps to two,
-      // and a fixed height there laid it straight over the verdict beneath.
-      const subLabel = html`<div style="font-size:11px; opacity:.6; margin-bottom:3px;
-        font-variant-numeric:tabular-nums; min-height:1.2em;"></div>`;
       const stage = html`<div style="position:relative; width:${panelW}px; height:${panelH}px;
         touch-action:none; border:1px solid currentColor; border-radius:3px; box-sizing:border-box;
         border-color:color-mix(in srgb, currentColor 18%, transparent);"></div>`;
@@ -1152,7 +1147,6 @@
         overlay.setAttribute('height', panelH);
       };
       const askQ = new Float64Array(runModel.nq);
-      const cmpQ = new Float64Array(runModel.nq);
       // The pose the technique is aiming at IS its last knot. Drag that cell
       // and you have asked for a different ending -- a pike, a planche -- and
       // the search is told about it rather than snapping it back to a
@@ -1204,7 +1198,6 @@
             }).filter((c) => c.q),
           });
           syncHandles([]);
-          subLabel.textContent = `${t.toFixed(2)}s · ${field.length} candidates this generation`;
           return;
         }
 
@@ -1228,43 +1221,6 @@
           drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.1, color: FIG.REQUEST_COLOR });
           drawScene(stageCtx, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
           syncHandles([]);
-        }
-
-        // The gap, measured against whatever the selected thing is chasing or
-        // being chased by: a knot against the body at that instant, the start
-        // against the first pose the technique asks for.
-        const against = sel === 0 ? FIG.knotPose(m, editState.knots, 0, cmpQ) : rec.q[k];
-        let worst = 0, worstJ = 0;
-        for (let j = 0; j < 6; j++) {
-          const gap = (askQ[3 + j] - against[3 + j]) * 180 / Math.PI;
-          if (Math.abs(gap) > Math.abs(worst)) { worst = gap; worstJ = j; }
-        }
-        // A decimal once it is close. Rounded to whole degrees, "within 0°"
-        // claimed an exact match the body had not made.
-        const near = Math.abs(worst) < 6;
-        const d = Math.abs(worst).toFixed(near ? 1 : 0);
-        if (sel === 0) {
-          subLabel.textContent = 'where the body starts · drag a joint · '
-            + (near ? `within ${d}° of the first pose it asks for`
-              : `${d}° from the first pose it asks for, at the ${FIG.JOINTS[worstJ].label}`);
-        } else if (editing) {
-          subLabel.textContent = `pose ${sel} of ${K} · drag a joint · `
-            + (near ? `within ${d}° of the body`
-              : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`);
-        } else {
-          // The one state that was spending its line on an instruction, in the
-          // only state where something is actually happening to report. And the
-          // instruction had gone stale twice over: this line lives in the
-          // controls panel now, so there is nothing "below" it, and the clock
-          // reading alone said nothing -- 2.89s is only meaningful against the
-          // duration it is 2.89 seconds of. So: where you are, and the same
-          // measurement the other three states report.
-          const after = t - editState.T;
-          subLabel.textContent = (after > 5e-3
-            ? `${after.toFixed(2)}s after it ends · `
-            : `${t.toFixed(2)}s of ${editState.T.toFixed(2)}s · `)
-            + (near ? `within ${d}° of the pose it asks for`
-              : `${d}° from the pose it asks for, at the ${FIG.JOINTS[worstJ].label}`);
         }
       };
 
@@ -2125,7 +2081,6 @@
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           ${playBtn}${optRun}${optStop}${spark}${statusEl}
         </div>
-        ${subLabel}
         ${verdict}
         ${group('the technique', true,
           html`<div class="spline-controls">${poses}${durInput}</div>`,
