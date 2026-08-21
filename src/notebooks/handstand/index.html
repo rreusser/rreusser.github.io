@@ -65,6 +65,7 @@
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
       SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom,
     } from './rollout.js';
+    import { techniqueToJSON, techniqueFromJSON } from './technique-file.js';
     import * as FIG from './figure-kit.js';
     import { PRESET_TRAJECTORIES } from './presets.js';
   </script>
@@ -670,7 +671,10 @@
           const p = over
             ? { ...stored, knots, T, q0: over.q0 || null, target: over.target || null,
               knotFracs: over.knotFracs || null,
-              strength: over.strength || stored.strength, rom: over.rom || stored.rom }
+              strength: over.strength || stored.strength, rom: over.rom || stored.rom,
+              config: over.config || stored.config,
+              numerics: over.numerics || stored.numerics,
+              body: over.body || stored.body }
             : { ...stored, knots, T };
           return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
         }
@@ -682,7 +686,9 @@
             ...runScenario(model, ws, prof,
               { scenario: base, knots, T, settleT: 2.5, rom,
                 q0: over?.q0 || null, target: over?.target || null,
-                knotFracs: over?.knotFracs || null }),
+                knotFracs: over?.knotFracs || null,
+                ...(over?.config ? resolvePlant(over.config) : {}),
+                ...(over?.numerics ? resolveNumerics(over.numerics) : {}) }),
             prof, rom,
           };
         };
@@ -879,6 +885,11 @@
       // The four body sliders, by value. Here rather than read off the inputs
       // because the inputs are rebuilt whenever the pose count changes.
       body: null,
+      // The machine: plant, integration, frame. Not editable in the figure, so
+      // ordinarily just the stored technique's -- but a file loaded from disk
+      // carries its own, and ignoring it would make "load" a different
+      // movement wearing the same knots.
+      machine: null,
       run: null,    // the replay of the CURRENT knots
       edited: false,
       notify: null,
@@ -887,6 +898,13 @@
       // every time you moved a control inside it.
       ui: { expanded: false },
     };
+  </script>
+  <script id="pending-load-cell" type="text/x-typescript">
+    // A technique read off disk, parked between the moment it is read and the
+    // moment the figure can take it. Loading may change the scenario or the
+    // pose count, and either re-runs the figure cell -- so the closure that
+    // read the file is not the one that applies it.
+    const pendingLoad = { rec: null };
   </script>
   <script id="pose-count-cell" type="text/x-typescript">
     // How many poses a technique is allowed. Its own cell, because the figure
@@ -953,11 +971,17 @@
         rom0.shoulderFlexMaxDeg,
         rom0.wristExtMaxDeg ?? 135,
       ];
+      const machineDefaults = () => ({
+        config: resolvePlant(simResult.stored?.config),
+        numerics: resolveNumerics(simResult.stored?.numerics),
+        body: resolveRunBody(simResult.stored?.body),
+      });
       const sameRun = editState.base === simResult && editState.knots;
       editState.base = simResult;
       if (!sameRun || editState.body?.length !== bodyDefaults.length) {
         editState.body = bodyDefaults.slice();
       }
+      if (!sameRun || !editState.machine) editState.machine = machineDefaults();
       const bodyOver = () => ({
         strength: { ...(st0 || {}),
           shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: editState.body[0] } },
@@ -1122,7 +1146,8 @@
       // the search is told about it rather than snapping it back to a
       // handstand behind your back.
       const tgtQ = new Float64Array(runModel.nq);
-      const targetQ = () => FIG.knotPose(simResult.model || model, editState.knots, K - 1, tgtQ);
+      const targetQ = () => FIG.knotPose(
+        editState.run?.model || simResult.model || model, editState.knots, K - 1, tgtQ);
 
       const drawStage = () => {
         const run = editState.run, rec = run.rec;
@@ -1421,6 +1446,7 @@
         editState.q0 = null;
         durInput.value = simResult.T;
         editState.body = bodyDefaults.slice();
+        editState.machine = machineDefaults();
         bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
         editState.run = simResult;
         editState.edited = false;
@@ -1429,6 +1455,111 @@
         status = '';
         relayout();
       });
+
+      // ---- save and load ------------------------------------------------------
+      // Everything needed to reproduce the case, which is not a judgement call:
+      // technique-file.js writes the list the plumbing gates enumerate, and
+      // test/technique-file.mjs perturbs each field in turn to prove none of
+      // them is quietly missing. The shape is a stored artifact's, so a file
+      // saved here can be dropped straight into runs/.
+      const asTechnique = () => ({
+        label: `${scenarioNames[scenario] || simResult.scenarioName} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+        saved: new Date().toISOString(),
+        scenario: simResult.scenarioName,
+        knots: editState.knots,
+        T: editState.T,
+        knotFracs: editState.fracs,
+        held: editState.held,
+        q0: editState.q0,
+        target: targetQ(),
+        rom: resolveRom(bodyOver().rom),
+        strength: bodyOver().strength,
+        body: editState.machine.body,
+        config: editState.machine.config,
+        numerics: editState.machine.numerics,
+        search: { seed: +optSeed.value, maxGen: +optGens.value },
+        verdict: editState.run?.verdict || null,
+        cost: null,
+      });
+      const saveBtn = html`<button title="write this case to a JSON file: the technique, the tempo, the phrasing, the held poses, the start and ending poses, the anatomy, the strength, the frame, the plant and the integration. Everything a replay needs.">Save</button>`;
+      saveBtn.addEventListener('click', () => {
+        const text = JSON.stringify(techniqueToJSON(asTechnique()), null, 1);
+        const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+        const a = html`<a download="${simResult.scenarioName}-technique.json" href="${url}"></a>`;
+        a.click();
+        // Revoked on the next turn of the loop rather than immediately: some
+        // browsers have not started reading the blob when click() returns.
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      });
+
+      const loadInput = html`<input type="file" accept="application/json,.json" style="display:none;">`;
+      const loadBtn = html`<button title="read a case back from a JSON file, exactly as it was saved">Load</button>`;
+      loadBtn.addEventListener('click', () => loadInput.click());
+      loadInput.addEventListener('change', async () => {
+        const file = loadInput.files?.[0];
+        loadInput.value = '';
+        if (!file) return;
+        let rec;
+        try {
+          rec = techniqueFromJSON(await file.text());
+        } catch (err) {
+          status = `could not load: ${err.message}`;
+          dirty = chromeDirty = true;
+          console.error('loading a technique:', err);
+          return;
+        }
+        stopSearch();
+        // The scenario decides which start the solver builds when the file
+        // carries none, so it has to be switched before anything else --
+        // which re-runs this cell. The technique is parked for the new run to
+        // pick up, because this closure is about to stop existing.
+        pendingLoad.rec = rec;
+        if (rec.scenario !== simResult.scenarioName) {
+          const key = Object.keys(scenarioNames).find((k) => k.replace(/-opt$/, '') === rec.scenario);
+          if (key) { scenarioInput.value = key; scenarioInput.dispatchEvent(new Event('input', { bubbles: true })); return; }
+        }
+        applyLoaded();
+      });
+
+      // Applying a loaded file, from whichever run of this cell ends up holding
+      // it. Everything the file carries goes in; nothing is left at a default
+      // that the file happened to agree with.
+      function applyLoaded() {
+        const rec = pendingLoad.rec;
+        if (!rec) return;
+        pendingLoad.rec = null;
+        if (rec.knots[0].length !== K) {
+          // The pose count is a setting of the figure, and the file is a
+          // technique with a definite number of poses. The file wins, and the
+          // setting follows it.
+          poseCountInput.value = rec.knots[0].length;
+          poseCountInput.dispatchEvent(new Event('input', { bubbles: true }));
+          pendingLoad.rec = rec;
+          return;
+        }
+        editState.knots = rec.knots.map((k) => Float64Array.from(k));
+        editState.T = rec.T;
+        editState.fracs = rec.knotFracs
+          ? Float64Array.from(rec.knotFracs)
+          : Float64Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
+        editState.held = rec.held.slice();
+        editState.held[K - 1] = true;
+        editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
+        editState.machine = { config: rec.config, numerics: rec.numerics, body: rec.body };
+        editState.body = [
+          rec.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
+          rec.rom.hipFlexStraightKneeMaxDeg, rec.rom.shoulderFlexMaxDeg, rec.rom.wristExtMaxDeg,
+        ];
+        bodyInputs.forEach((i, n) => { i.value = editState.body[n]; });
+        durInput.value = rec.T;
+        optSeed.value = rec.search.seed;
+        optGens.value = rec.search.maxGen;
+        editState.edited = true;
+        optState.history = [];
+        status = rec.label ? `loaded ${rec.label}` : 'loaded';
+        sel = -1;
+        resim();
+      }
 
       const verdict = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
       const baseStats = FIG.analyzeRun(simResult, simResult.prof || strengthProf, model);
@@ -1441,7 +1572,7 @@
           // the sliders at their defaults it reproduces the stored body
           // exactly, which the artifact gates check.
           run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T,
-            { ...bodyOver(), q0: editState.q0, target: targetQ(),
+            { ...bodyOver(), ...editState.machine, q0: editState.q0, target: targetQ(),
               knotFracs: Float64Array.from(editState.fracs) });
         } catch (err) { console.warn('replay failed', err); return; }
         // Read the start back out of the run. A start with a toe through the
@@ -1636,10 +1767,11 @@
           // once, the share of a 14-candidate generation still reaching a
           // handstand runs 0/14 at 0.10 and 14/14 at 0.01.
           sigma0: 0.02,
-          modelParams: {
-            heightM: runModel.heightM, massKg: runModel.massKg,
-            straddleDeg: runModel.straddleDeg, sex: runModel.sex,
-          },
+          modelParams: { ...(editState.run?.model
+            ? { heightM: editState.run.model.heightM, massKg: editState.run.model.massKg,
+              straddleDeg: editState.run.model.straddleDeg, sex: editState.run.model.sex }
+            : { heightM: runModel.heightM, massKg: runModel.massKg,
+              straddleDeg: runModel.straddleDeg, sex: runModel.sex }) },
           strengthOpts: { overrides: over.strength },
           romOverrides: resolveRom(over.rom),
           // The start too. Without it the search solved its own start while
@@ -1651,7 +1783,7 @@
           // And the machine. Everything else the page owns already travels --
           // the body, the strength, the anatomy, the start, the ending -- and
           // the plant was the one thing the search still supplied itself.
-          plant: resolvePlant(simResult.stored?.config),
+          plant: editState.machine.config,
           // The phrasing, and the poses being held by hand. Timing is authored
           // rather than searched -- the search still cannot move a pose
           // earlier or later, you can -- so what travels is the phrasing to
@@ -1676,7 +1808,7 @@
           tLo: editState.T, tHi: editState.T,
           // And the integration a replay uses, so the settle horizon scored is
           // the one the page watches.
-          numerics: resolveNumerics(simResult.stored?.numerics),
+          numerics: editState.machine.numerics,
         });
         dirty = chromeDirty = true;
       });
@@ -1734,7 +1866,8 @@
         }
       });
       invalidation.then(() => loop.cancel());
-      if (stale) resim(); else relayout();
+      if (pendingLoad.rec) applyLoaded();
+      else if (stale) resim(); else relayout();
       const stopTheme = observeTheme((th) => { theme = th; relayout(); });
       invalidation.then(stopTheme);
 
@@ -1770,7 +1903,7 @@
       </div>`;
 
       const controlsBox = html`<div class="technique-controls">
-        <div class="spline-controls" style="margin-bottom:8px;">${pick}${resetBtn}</div>
+        <div class="spline-controls" style="margin-bottom:8px;">${pick}${resetBtn}${saveBtn}${loadBtn}${loadInput}</div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           ${playBtn}${optRun}${optStop}${spark}${statusEl}
         </div>
