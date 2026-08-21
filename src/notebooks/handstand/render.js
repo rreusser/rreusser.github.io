@@ -184,12 +184,6 @@ export function drawScene(ctx, opts) {
       tracePoly(model.geometry[i], c, s, ws.px[i], ws.py[i]);
       ctx.stroke();
     }
-
-    // Per-segment CoM dot.
-    ctx.fillStyle = css(fg, 0.5);
-    ctx.beginPath();
-    ctx.arc(toX(ws.px[i] + ws.rcx[i]), toY(ws.py[i] + ws.rcy[i]), Math.max(2, 0.008 * scale), 0, TAU);
-    ctx.fill();
   }
 
   // Ground reaction force arrows (playback).
