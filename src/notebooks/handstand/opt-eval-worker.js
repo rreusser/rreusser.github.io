@@ -29,7 +29,7 @@ self.onmessage = ({ data }) => {
   const costs = [], poses = [];
   for (const x of xs) {
     const c = costFn(model, ws, prof, rom, cfg.scenario, Float64Array.from(x), {
-      K: cfg.K || 6, dt: cfg.dt || 2.5e-4, weights,
+      K: cfg.K || 6, dt: cfg.dt || 2.5e-4, weights, q0: cfg.q0 || null, target: cfg.target || null,
     });
     costs.push(c.cost);
     if (wantFrames && c.rec?.q?.length) {

@@ -563,20 +563,31 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // current plant, so scoring a candidate without variants is unchanged.
   contactZeta = PLANT_DEFAULTS.contactZeta, mu = PLANT_DEFAULTS.mu,
   pinFinal = true,
+  // The pose the body starts in, when it is being constructed rather than
+  // solved. It has to reach the SCORING rollout, not only a replay: a search
+  // that scores from one start while the page replays from another is two
+  // different problems wearing the same knots, and its answer nose-dives the
+  // moment it is played back.
+  q0 = null,
+  // The pose it is trying to end in. The last knot IS this pose -- which is
+  // why the search does not move it -- so handing in a target is how you ask
+  // for a different ending, and the pin below then keeps the search off it
+  // exactly as it keeps the search off a handstand.
+  target = null,
 } = {}) {
   const { knots, T } = decodeDecision(x, K);
   if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(knots);
-  const balanced = balancedHandstand(model, ws);
-  // A technique ends in the handstand by definition: the final knot is the
-  // balanced pose, not a free parameter. Otherwise the settle-phase servo
-  // holds a slightly-off shape that the wrist balance correction must fight
-  // forever, and every "arrival" leaks into a slow drift and overshoot.
+  const balanced = target ? Float64Array.from(target) : balancedHandstand(model, ws);
+  // A technique ends in the pose it is aimed at, by definition: the final knot
+  // is that pose, not a free parameter. Otherwise the settle-phase servo holds
+  // a slightly-off shape that the wrist balance correction must fight forever,
+  // and every "arrival" leaks into a slow drift and overshoot.
   if (pinFinal) {
     for (let j = 0; j < 6; j++) knots[j][knots[j].length - 1] = balanced[3 + j];
   }
   const r = runScenario(model, ws, strengthProf, {
     scenario, knots, T, settleT, dt, integrator, qdJitter, jitterSeed, rom,
-    contactZeta, mu,
+    contactZeta, mu, q0, target: balanced,
     recordEvery: Math.max(1, Math.round(1 / (120 * dt))),
   });
   const rec = r.rec;
@@ -1037,7 +1048,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
   dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
-  trustRadius = 0,
+  trustRadius = 0, q0 = null, target = null,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
 } = {}) {
   const start = x0 || (() => {
@@ -1070,7 +1081,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
-  const costOpts = { K, dt, weights, ...(variants ? { variants } : {}) };
+  const costOpts = { K, dt, weights, q0, target, ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
       const c = costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
@@ -1088,12 +1099,12 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     objectiveBatch,
     onGeneration,
   });
-  const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX, { K, dt: 2e-4, weights });
+  const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX, { K, dt: 2e-4, weights, q0, target });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
   const decoded = decodeDecision(result.bestX, K);
   if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
-  const qBal = balancedHandstand(model, ws);
+  const qBal = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
   return {
     ...result, K, scenario, finalCheck, decoded,
@@ -1168,6 +1179,12 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   const {
     scenario = 'hold',
     knots = null,
+    // The pose the technique is trying to end in. Defaults to the balanced
+    // handstand -- which is what every stored technique aims at -- but there
+    // is no reason the model should only be able to answer the question for
+    // one ending. A press to a pike, or a rise to a planche, is the same
+    // question asked of a different final shape.
+    target = null,
     // A start pose handed in overrides the one the scenario solves for. The
     // shape of a start decides what technique is reachable from it -- a
     // bent-leg press is a different skill from a press because it begins with
@@ -1235,13 +1252,32 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     recordEvery,
   });
   const mo = momenta(model, out.q, out.qd, ws);
+  const qBal = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   const heelX = out.q[0] + model.patch.x0, tipX = out.q[0] + model.patch.x1;
-  const upright = mo.comY > 0.85 && !out.diverged;
+  // "Not collapsed" has to be measured against the pose being aimed at. The
+  // threshold is the same 0.85 m for a handstand and scales with how low the
+  // target's own centre of mass sits, so a press to a pike or a rise to a
+  // planche is not reported as a fall for the crime of ending lower down.
+  let comYtarget = 0, mTarget = 0;
+  fk(model, qBal, null, ws);
+  for (let i = 0; i < model.nb; i++) {
+    mTarget += model.mass[i];
+    comYtarget += model.mass[i] * (ws.py[i] + ws.rcy[i]);
+  }
+  comYtarget /= mTarget;
+  let comYhand = comYtarget;
+  if (target) {
+    const qh = balancedHandstand(model, ws);
+    fk(model, qh, null, ws);
+    let c = 0;
+    for (let i = 0; i < model.nb; i++) c += model.mass[i] * (ws.py[i] + ws.rcy[i]);
+    comYhand = c / mTarget;
+  }
+  const upright = mo.comY > 0.85 * (comYtarget / (comYhand || 1)) && !out.diverged;
   const over = mo.comX > heelX && mo.comX < tipX;
   const still = Math.hypot(mo.comVx, mo.comVy) < 0.05;
   // "Arrived" means the handstand configuration: joints near the balanced
   // pose (12 deg rms) and no residual foot contact, not merely CoM position.
-  const qBal = balancedHandstand(model, ws);
   let angSum = 0;
   for (let j = 3; j < 9; j++) { const d = out.q[j] - qBal[j]; angSum += d * d; }
   const posed = Math.sqrt(angSum / 6) < 12 * D2R;

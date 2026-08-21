@@ -62,12 +62,18 @@
   <script id="body-controls-cell" type="text/x-typescript">
     const bodyControls = html`<div class="body-controls"></div>`;
     const bctrl = (input) => { bodyControls.appendChild(input); return Generators.input(input); };
+    // Declared, observed, and NOT put in this panel. Straddle is a shape a
+    // gymnast chooses, not a proportion of their body, and shoulder strength
+    // is physiology rather than anatomy; both are already mirrored onto the
+    // press corridor, which is the figure that spends them. The panel here
+    // keeps only what actually sets the segment table.
+    const offPanel = (input) => Generators.input(input);
     const heightM = bctrl(Inputs.range([1.4, 2.05], { label: 'Height (m)', value: 1.75, step: 0.01 }));
     const massKg = bctrl(Inputs.range([45, 115], { label: 'Mass (kg)', value: 70, step: 1 }));
     // Element as well as value, like the strength scale: the corridor mirrors
     // this one too, because straddling is a shape change that moves a wall.
     const straddleInput = Inputs.range([0, 120], { label: 'Straddle (deg)', value: 0, step: 5 });
-    const straddleDeg = bctrl(straddleInput);
+    const straddleDeg = offPanel(straddleInput);
     // Selects the de Leva segment table, so this moves mass around the body
     // as well as redrawing it: at the same stature and weight, the female
     // table puts 41.8 percent of body mass in the legs against 39.7, and in
@@ -84,7 +90,7 @@
       label: 'Shoulder strength (Nm/kg)',
       value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05,
     });
-    const shoulderNmPerKg = bctrl(strengthInput);
+    const shoulderNmPerKg = offPanel(strengthInput);
     display(bodyControls);
   </script>
   <script id="model" type="text/x-typescript">
@@ -586,6 +592,9 @@
         // A start pose, when one is being constructed rather than solved.
         // Stored artifacts never carry one, so they replay exactly as before.
         q0: p.q0 || null,
+        // The pose it is aiming at: the last knot, which is why the search
+        // does not move it and you can.
+        target: p.target || null,
         ...resolvePlant(p.config),
         ...resolveNumerics(p.numerics),
       }),
@@ -647,7 +656,7 @@
       const replay = stored
         ? (knots, T, over = null) => {
           const p = over
-            ? { ...stored, knots, T, q0: over.q0 || null,
+            ? { ...stored, knots, T, q0: over.q0 || null, target: over.target || null,
               strength: over.strength || stored.strength, rom: over.rom || stored.rom }
             : { ...stored, knots, T };
           return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
@@ -658,7 +667,8 @@
             ? strengthProfile(model.massKg, { overrides: over.strength }) : strengthProf;
           return {
             ...runScenario(model, ws, prof,
-              { scenario: base, knots, T, settleT: 2.5, rom, q0: over?.q0 || null }),
+              { scenario: base, knots, T, settleT: 2.5, rom,
+                q0: over?.q0 || null, target: over?.target || null }),
             prof, rom,
           };
         };
@@ -951,6 +961,12 @@
       stage.appendChild(overlay);
       const askQ = new Float64Array(runModel.nq);
       const cmpQ = new Float64Array(runModel.nq);
+      // The pose the technique is aiming at IS its last knot. Drag that cell
+      // and you have asked for a different ending -- a pike, a planche -- and
+      // the search is told about it rather than snapping it back to a
+      // handstand behind your back.
+      const tgtQ = new Float64Array(runModel.nq);
+      const targetQ = () => FIG.knotPose(simResult.model || model, editState.knots, K - 1, tgtQ);
 
       const drawStage = () => {
         const run = editState.run, rec = run.rec;
@@ -1220,8 +1236,12 @@
       const resim = () => {
         let run;
         try {
-          const over = bodyMoved() || editState.q0 ? { ...bodyOver(), q0: editState.q0 } : null;
-          run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T, over);
+          // Always bodyOver(), never "the stored body when no slider moved":
+          // two expressions for the same body is how they drift apart. With
+          // the sliders at their defaults it reproduces the stored body
+          // exactly, which the artifact gates check.
+          run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T,
+            { ...bodyOver(), q0: editState.q0, target: targetQ() });
         } catch (err) { console.warn('replay failed', err); return; }
         // Read the start back out of the run. A start with a toe through the
         // floor is lifted clear before it is integrated, so this is what makes
@@ -1310,6 +1330,24 @@
         const over = bodyOver();
         worker.onmessage = ({ data }) => {
           if (data.type === 'pool') { poolSize = data.size; return; }
+          // The worker reports its own failures rather than throwing them at
+          // an error event, and these were being dropped on the floor: a
+          // search that died inside the worker simply stopped, with the status
+          // line still saying "searching" forever.
+          if (data.type === 'failed') {
+            console.error('optimizer worker failed:', data.message, '\n', data.stack);
+            status = `the search failed — ${data.message}`;
+            stopSearch();
+            dirty = chromeDirty = true;
+            return;
+          }
+          // Not fatal: the nested evaluation workers could not be started, so
+          // the search runs on one core instead of several.
+          if (data.type === 'pool-failed') {
+            console.warn('optimizer: evaluating on one core —', data.message);
+            poolSize = 1;
+            return;
+          }
           if (data.type === 'progress') {
             optState.history.push({ gen: data.gen, best: data.best });
             status = `searching · generation ${data.gen} · best cost ${data.best.toFixed(2)}`
@@ -1329,12 +1367,30 @@
           }
           dirty = chromeDirty = true;
         };
-        worker.onerror = (e) => {
-          console.error('optimizer worker', e);
-          status = 'the search failed to start';
+        // An ErrorEvent carries a message, a filename and a line. A BARE Event
+        // carries none of those, and means something different: the worker
+        // script could not be loaded or parsed at all. Logging the event
+        // object for either was useless -- a browser prints a bare Event as
+        // "Event" and nothing else -- so both are named here, with the script
+        // that failed, because a search that will not start is otherwise an
+        // unreadable dead end.
+        const workerUrl = new URL('./opt-worker.js', import.meta.url).href;
+        const fail = (what) => {
+          console.error('optimizer worker:', what, '\n  script:', workerUrl);
+          status = `the search failed — ${what}`;
           stopSearch();
           dirty = chromeDirty = true;
         };
+        worker.onerror = (e) => {
+          fail(e?.message
+            ? `${e.message} (${(e.filename || '').split('/').pop() || '?'}:${e.lineno ?? '?'})`
+            : 'the worker script could not be loaded — check the browser network tab for '
+              + workerUrl.split('/').pop());
+          e?.preventDefault?.();
+        };
+        // A message that cannot be deserialized: rarer, and completely silent
+        // without this.
+        worker.onmessageerror = () => fail('a message from the worker could not be read');
         worker.postMessage({
           type: 'optimize',
           scenario: simResult.scenarioName,
@@ -1356,6 +1412,12 @@
           },
           strengthOpts: { overrides: over.strength },
           romOverrides: resolveRom(over.rom),
+          // The start too. Without it the search solved its own start while
+          // the page replayed the one on screen, so a technique that worked
+          // here was scored somewhere else and its answer fell over on the
+          // way back.
+          q0: editState.q0 ? Array.from(editState.q0) : null,
+          target: Array.from(targetQ()),
         });
         dirty = chromeDirty = true;
       });

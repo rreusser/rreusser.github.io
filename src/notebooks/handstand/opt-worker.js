@@ -115,6 +115,9 @@ async function handle(msg) {
       scenario: msg.scenario, K: msg.K ?? 6, dt: msg.dt ?? 2.5e-4,
       weights: msg.weights, modelParams: msg.modelParams,
       strengthOpts: msg.strengthOpts, romOverrides: msg.romOverrides,
+      // The start the page is showing, so every core scores the same problem
+      // the page will replay.
+      q0: msg.q0 || null, target: msg.target || null,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
     const result = await optimizeScenario(model, ws, prof, rom, {
@@ -143,6 +146,8 @@ async function handle(msg) {
       // has to supply everything and nothing is carried by momentum.
       ...(msg.tHi ? { tHi: msg.tHi, t0: Math.min(msg.tHi * 0.9, 2.2) } : {}),
       x0: msg.x0 ? Float64Array.from(msg.x0) : null,
+      q0: msg.q0 || null,
+      target: msg.target || null,
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === (msg.maxGen ?? 150) - 1) {
@@ -153,7 +158,7 @@ async function handle(msg) {
           // right-leg parameters happen to say. Stop, save, and it fell over.
           const dec = decodeDecision(g.bestX, msg.K ?? 6);
           if (SYMMETRIC_SCENARIOS.has(msg.scenario)) symmetrizeKnots(dec.knots);
-          const qBal = balancedHandstand(model, ws);
+          const qBal = msg.target ? Float64Array.from(msg.target) : balancedHandstand(model, ws);
           for (let j = 0; j < 6; j++) dec.knots[j][dec.knots[j].length - 1] = qBal[3 + j];
           // Cheapest candidate first, so the viewer can draw the leader
           // differently from the rest of the field.
