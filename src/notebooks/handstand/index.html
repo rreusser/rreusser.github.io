@@ -885,6 +885,8 @@
       // The four body sliders, by value. Here rather than read off the inputs
       // because the inputs are rebuilt whenever the pose count changes.
       body: null,
+      // Whether the legs mirror. Part of the technique, not of the scenario.
+      symmetric: null,
       // The machine: plant, integration, frame. Not editable in the figure, so
       // ordinarily just the stored technique's -- but a file loaded from disk
       // carries its own, and ignoring it would make "load" a different
@@ -928,8 +930,16 @@
     // thing and three ways to act on it: your hands, the search, and the body
     // you make it do the work on.
     const techniqueFigure = (() => {
-      const symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
-      const lockedJoint = (joint) => symmetric && (joint === 7 || joint === 8);
+      // Whether the two legs do the same thing. It was a hardcoded set read
+      // inside the scorer -- a press and a bent-leg press mirrored, a kick-up
+      // did not -- which meant the right leg's handles vanished and half the
+      // free parameters disappeared for reasons the figure never gave. It is a
+      // property of the technique, so it is a control, and it travels: the
+      // search used to read the same set for itself, and a control that did
+      // not reach it would have straightened a technique deliberately made
+      // asymmetric.
+      const symmetric = () => editState.symmetric;
+      const lockedJoint = (joint) => symmetric() && (joint === 7 || joint === 8);
       const runModel = simResult.model || model;
       // Mutable, and NOT a cell dependency. It used to live in its own cell, so
       // every change of it re-ran this one and rebuilt every control in the
@@ -980,6 +990,9 @@
         editState.body = bodyDefaults.slice();
       }
       if (!sameRun || !editState.machine) editState.machine = machineDefaults();
+      if (!sameRun || editState.symmetric == null) {
+        editState.symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
+      }
       const bodyOver = () => ({
         strength: { ...(st0 || {}),
           shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: editState.body[0] } },
@@ -992,7 +1005,7 @@
       // is the box a generated knot has to stay inside.
       const romNow = () => resolveRom(bodyOver().rom);
 
-      const sym = (kn) => (symmetric ? symmetrizeKnots(kn) : kn);
+      const sym = (kn) => (symmetric() ? symmetrizeKnots(kn) : kn);
       // A refit is a machine placing knots, and a least-squares fit knows
       // nothing about anatomy: refitting the kick-up to six poses put the
       // shoulder a degree outside its own range, which the page replayed and
@@ -1091,8 +1104,6 @@
         dirty = chromeDirty = true;
       };
 
-      const head = (text) => html`<div style="font-size:11px; font-weight:600; letter-spacing:.04em;
-        text-transform:uppercase; opacity:.75; margin:14px 0 4px;">${text}</div>`;
       // ONE stage. The two panels were the same instant drawn twice, and the
       // reader had to hold them side by side to see the only thing that
       // matters -- the gap between them. Overlaid, the gap IS the picture, and
@@ -1327,7 +1338,7 @@
       // stops for a reason the figure has not drawn is a handle that lies.
       const writeKnot = (ch, k, q) => {
         editState.knots[ch][k] = q;
-        if (symmetric && (ch === 2 || ch === 3)) editState.knots[ch + 2][k] = q;
+        if (symmetric() && (ch === 2 || ch === 3)) editState.knots[ch + 2][k] = q;
       };
       // The start is not a knot -- it is the body's own configuration at t = 0
       // -- so it is written into its own vector, and the first edit forks it
@@ -1335,7 +1346,7 @@
       const writeStart = (ch, q) => {
         if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
         editState.q0[3 + ch] = q;
-        if (symmetric && (ch === 2 || ch === 3)) editState.q0[3 + ch + 2] = q;
+        if (symmetric() && (ch === 2 || ch === 3)) editState.q0[3 + ch + 2] = q;
       };
 
       const story = FIG.createStoryboard({
@@ -1450,6 +1461,22 @@
       // for a count says nothing about WHICH poses, so the curve is re-fitted
       // with that many and the phrasing goes back to even. The x and + on the
       // storyboard say which, and neither refits anything.
+      const symToggle = Inputs.toggle({ label: 'Legs mirror', value: editState.symmetric });
+      symToggle.title = 'the two legs do the same thing. On, the right leg follows the '
+        + 'left -- it gets no handles of its own and the search cannot move it '
+        + 'independently, which is what stops a press arriving with one leg straight '
+        + 'and the other folded. Off, all six joints are yours and the search\u2019s.';
+      symToggle.addEventListener('input', () => {
+        editState.symmetric = !!symToggle.value;
+        if (editState.symmetric) {
+          symmetrizeKnots(editState.knots);
+          if (editState.q0) { editState.q0[7] = editState.q0[5]; editState.q0[8] = editState.q0[6]; }
+        }
+        editState.edited = true;
+        chromeDirty = dirty = true;
+        resim();
+      });
+
       const poses = Inputs.range([2, 12], { label: 'Poses', step: 1, value: K });
       poses.addEventListener('input', () => {
         const next = Math.max(2, Math.round(+poses.value));
@@ -1547,6 +1574,7 @@
         body: editState.machine.body,
         config: editState.machine.config,
         numerics: editState.machine.numerics,
+        symmetric: editState.symmetric,
         search: { seed: +optSeed.value, maxGen: +optGens.value },
         verdict: editState.run?.verdict || null,
         cost: null,
@@ -1561,6 +1589,97 @@
         // browsers have not started reading the blob when click() returns.
         setTimeout(() => URL.revokeObjectURL(url), 10000);
       });
+
+      // ---- cases kept in this browser ----------------------------------------
+      // The same object the file format carries, in localStorage instead of on
+      // disk: exploring produces a dozen near-misses worth coming back to, and
+      // a download each is not that. Everything goes through technique-file.js,
+      // so a stored case and a saved file are the same thing and the gates that
+      // prove the file complete prove these complete too.
+      const STORE_KEY = 'handstand.cases.v1';
+      const readCases = () => {
+        try {
+          const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
+          return Array.isArray(raw) ? raw : [];
+        } catch (err) { console.warn('saved cases unreadable:', err); return []; }
+      };
+      const writeCases = (list) => {
+        try {
+          localStorage.setItem(STORE_KEY, JSON.stringify(list));
+          return null;
+        } catch (err) {
+          // Quota, or a browser with storage switched off. Say which rather
+          // than dropping the case silently.
+          return err?.name === 'QuotaExceededError'
+            ? 'no room left in this browser for another case' : String(err?.message || err);
+        }
+      };
+      const caseList = html`<select style="min-width:11em; max-width:16em;"></select>`;
+      const caseName = html`<input type="text" placeholder="name this case"
+        style="width:11em; font: inherit; font-size:13px; padding:2px 4px;">`;
+      const keepBtn = html`<button title="keep this case in this browser under the name beside it. Same contents as Save writes to a file — nothing is left out.">Keep</button>`;
+      const openBtn = html`<button title="load the selected case">Open</button>`;
+      const renameBtn = html`<button title="rename the selected case to the name beside it">Rename</button>`;
+      const dropBtn = html`<button title="forget the selected case">Forget</button>`;
+      const refreshCases = (selectId = null) => {
+        const list = readCases();
+        caseList.replaceChildren(...(list.length
+          ? list.map((c) => html`<option value="${c.id}">${c.label || '(unnamed)'}</option>`)
+          : [html`<option value="">— nothing kept yet —</option>`]));
+        if (selectId) caseList.value = selectId;
+        const none = list.length === 0;
+        openBtn.disabled = renameBtn.disabled = dropBtn.disabled = none;
+        return list;
+      };
+      const selectedCase = () => readCases().find((c) => c.id === caseList.value) || null;
+      keepBtn.addEventListener('click', () => {
+        const list = readCases();
+        const rec = techniqueToJSON(asTechnique());
+        rec.label = caseName.value.trim() || rec.label;
+        rec.id = `c${list.length ? Math.max(...list.map((c) => +String(c.id).slice(1) || 0)) + 1 : 1}`;
+        list.push(rec);
+        const err = writeCases(list);
+        status = err ? `could not keep: ${err}` : `kept "${rec.label}"`;
+        if (!err) refreshCases(rec.id);
+        dirty = chromeDirty = true;
+      });
+      openBtn.addEventListener('click', () => {
+        const c = selectedCase();
+        if (!c) return;
+        try {
+          pendingLoad.rec = techniqueFromJSON(c);
+        } catch (err) {
+          status = `could not open: ${err.message}`;
+          dirty = chromeDirty = true;
+          return;
+        }
+        caseName.value = c.label || '';
+        applyLoaded();
+      });
+      renameBtn.addEventListener('click', () => {
+        const name = caseName.value.trim();
+        if (!name) { status = 'type a name first'; dirty = chromeDirty = true; return; }
+        const list = readCases();
+        const c = list.find((x) => x.id === caseList.value);
+        if (!c) return;
+        c.label = name;
+        const err = writeCases(list);
+        status = err ? `could not rename: ${err}` : `renamed to "${name}"`;
+        if (!err) refreshCases(c.id);
+        dirty = chromeDirty = true;
+      });
+      dropBtn.addEventListener('click', () => {
+        const list = readCases().filter((c) => c.id !== caseList.value);
+        const err = writeCases(list);
+        status = err ? `could not forget: ${err}` : 'forgotten';
+        if (!err) refreshCases();
+        dirty = chromeDirty = true;
+      });
+      caseList.addEventListener('input', () => {
+        const c = selectedCase();
+        if (c) caseName.value = c.label || '';
+      });
+      refreshCases();
 
       const loadInput = html`<input type="file" accept="application/json,.json" style="display:none;">`;
       const loadBtn = html`<button title="read a case back from a JSON file, exactly as it was saved">Load</button>`;
@@ -1608,6 +1727,8 @@
         editState.held[loadedK - 1] = true;
         editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
         editState.machine = { config: rec.config, numerics: rec.numerics, body: rec.body };
+        editState.symmetric = rec.symmetric;
+        symToggle.value = rec.symmetric;
         editState.body = [
           rec.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
           rec.rom.hipFlexStraightKneeMaxDeg, rec.rom.shoulderFlexMaxDeg, rec.rom.wristExtMaxDeg,
@@ -1873,6 +1994,7 @@
           // And the integration a replay uses, so the settle horizon scored is
           // the one the page watches.
           numerics: editState.machine.numerics,
+          symmetric: editState.symmetric,
         });
         dirty = chromeDirty = true;
       });
@@ -1965,18 +2087,36 @@
           key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
       </div>`;
 
+      // Grouped, and every group collapsible. Eleven controls in one column is a
+      // list to read rather than a panel to use; folded, what is open says what
+      // you are currently working on. The transport and the two status lines
+      // stay outside any group -- they are what you are always looking at.
+      const group = (title, open, ...rows) => html`<details ${open ? 'open' : ''}
+        style="margin-top:8px; border-top:1px solid color-mix(in srgb, currentColor 12%, transparent);">
+        <summary style="cursor:pointer; font-size:11px; font-weight:600; letter-spacing:.04em;
+          text-transform:uppercase; opacity:.75; padding:6px 0 2px;">${title}</summary>
+        ${rows}
+      </details>`;
+
       const controlsBox = html`<div class="technique-controls">
-        <div class="spline-controls" style="margin-bottom:8px;">${pick}${resetBtn}${saveBtn}${loadBtn}${loadInput}</div>
+        <div class="spline-controls" style="margin-bottom:8px;">${pick}${resetBtn}</div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           ${playBtn}${optRun}${optStop}${spark}${statusEl}
         </div>
         ${subLabel}
         ${verdict}
-        <div class="spline-controls">${poses}${durInput}</div>
-        <div class="spline-controls">${optGens}${optSeed}</div>
-        ${head('body')}
-        <div class="spline-controls">${inShoulder}${inHam}</div>
-        <div class="spline-controls">${inShFlex}${inWrExt}</div>
+        ${group('the technique', true,
+          html`<div class="spline-controls">${poses}${durInput}</div>`,
+          html`<div class="spline-controls">${symToggle}</div>`)}
+        ${group('the body', false,
+          html`<div class="spline-controls">${inShoulder}${inHam}</div>`,
+          html`<div class="spline-controls">${inShFlex}${inWrExt}</div>`)}
+        ${group('the search', false,
+          html`<div class="spline-controls">${optGens}${optSeed}</div>`)}
+        ${group('saved cases', false,
+          html`<div class="spline-controls">${caseList}${caseName}</div>`,
+          html`<div class="spline-controls">${keepBtn}${openBtn}${renameBtn}${dropBtn}</div>`,
+          html`<div class="spline-controls" style="margin-top:6px;">${saveBtn}${loadBtn}${loadInput}</div>`)}
       </div>`;
 
       const figure = html`<figure>

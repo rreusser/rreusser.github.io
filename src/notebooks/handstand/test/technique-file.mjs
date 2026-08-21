@@ -13,7 +13,7 @@
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
-import { runScenario, resolveRom, resolveBody, resolvePlant, resolveNumerics } from '../rollout.js';
+import { runScenario, resolveRom, resolveBody, resolvePlant, resolveNumerics, SYMMETRIC_SCENARIOS } from '../rollout.js';
 import { techniqueToJSON, techniqueFromJSON, techniqueRunArgs, TECHNIQUE_FORMAT } from '../technique-file.js';
 import { PRESET_TRAJECTORIES } from '../presets.js';
 
@@ -38,6 +38,7 @@ function stateFor(name) {
     knots, T: stored.T,
     knotFracs: null,
     held: Array.from({ length: K }, (_, k) => k === K - 1),
+    symmetric: SYMMETRIC_SCENARIOS.has(stored.scenario),
     q0: null, target,
     rom: resolveRom({ ...(stored.rom || {}) }),
     strength: stored.strength || null,
@@ -102,6 +103,7 @@ const EDITS = {
   'a shorter settle': (t) => ({ ...t, numerics: { ...t.numerics, settleT: 1.4 } }),
   'a finer timestep': (t) => ({ ...t, numerics: { ...t.numerics, dt: 1e-4 } }),
   'a different search seed': (t) => ({ ...t, search: { seed: 42, maxGen: 260 } }),
+  'the legs un-mirrored': (t) => ({ ...t, symmetric: !t.symmetric }),
 };
 
 // ---------------------------------------------------------------------------

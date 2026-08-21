@@ -650,6 +650,11 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // falsy entry for one the search may move. This is the same mechanism as
   // pinFinal, which is simply the ending pose being permanently locked.
   locks = null,
+  // Whether the two legs do the same thing. It defaults to the scenario's own
+  // answer, which is what it was before it could be asked -- but it was only
+  // ever readable HERE, inside the scorer, so a page that wanted to say
+  // otherwise had no way to and a page that did not know had no way to tell.
+  symmetric = null,
   // The pose the body starts in, when it is being constructed rather than
   // solved. It has to reach the SCORING rollout, not only a replay: a search
   // that scores from one start while the page replays from another is two
@@ -663,7 +668,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   target = null,
 } = {}) {
   const { knots, T } = decodeDecision(x, K);
-  if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(knots);
+  if (symmetric ?? SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(knots);
   applyLocks(knots, locks);
   const balanced = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   // A technique ends in the pose it is aimed at, by definition: the final knot
@@ -1139,7 +1144,7 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
 export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
   dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
-  knotFracs = null, locks = null, numerics = null,
+  knotFracs = null, locks = null, numerics = null, symmetric = null,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
   trustRadius = 0, q0 = null, target = null,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
@@ -1174,7 +1179,8 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
-  const costOpts = { K, dt, weights, q0, target, plant, knotFracs, locks, numerics, ...(variants ? { variants } : {}) };
+  const costOpts = { K, dt, weights, q0, target, plant, knotFracs, locks, numerics, symmetric,
+    ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
       const c = costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
@@ -1196,11 +1202,11 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // final check is that the number reported at the end is the number the page
   // reproduces when it plays the answer back.
   const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX,
-    { K, dt: numerics?.dt ?? 2e-4, weights, q0, target, plant, knotFracs, locks, numerics });
+    { K, dt: numerics?.dt ?? 2e-4, weights, q0, target, plant, knotFracs, locks, numerics, symmetric });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
   const decoded = decodeDecision(result.bestX, K);
-  if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
+  if (symmetric ?? SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
   applyLocks(decoded.knots, locks);
   const qBal = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];

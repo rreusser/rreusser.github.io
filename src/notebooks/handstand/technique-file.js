@@ -10,6 +10,7 @@
 //   knots, T     the technique itself
 //   knotFracs    where the poses fall inside T, when it was phrased by hand
 //   held         which poses the search may not move
+//   symmetric    whether the two legs do the same thing
 //   q0           the start pose, when one was constructed rather than solved
 //   target       the ending pose (derived from the last knot, stored to check)
 //   rom          the anatomy, fully resolved
@@ -24,6 +25,7 @@
 // saved here can be dropped into the registry the regression suite replays.
 import {
   resolvePlant, resolveRom, resolveNumerics, resolveBody, balancedHandstand,
+  SYMMETRIC_SCENARIOS,
 } from './rollout.js';
 
 export const TECHNIQUE_FORMAT = 'handstand-technique';
@@ -46,6 +48,7 @@ export function techniqueToJSON(t) {
     T: +t.T,
     knotFracs: arr(t.knotFracs),
     held: t.held ? Array.from(t.held, (v) => !!v) : null,
+    symmetric: !!t.symmetric,
     q0: arr(t.q0),
     target: arr(t.target),
     rom: { ...resolveRom(t.rom) },
@@ -94,6 +97,10 @@ export function techniqueFromJSON(json) {
     // what every technique did then.
     held: Array.isArray(j.held) && j.held.length === K
       ? j.held.map(Boolean) : Array.from({ length: K }, (_, k) => k === K - 1),
+    // A file saved before the legs could be un-mirrored means whatever its
+    // scenario meant then.
+    symmetric: typeof j.symmetric === 'boolean'
+      ? j.symmetric : SYMMETRIC_SCENARIOS.has(j.scenario || 'hold'),
     q0: j.q0 ? Float64Array.from(j.q0) : null,
     target: j.target ? Float64Array.from(j.target) : null,
     rom: resolveRom(j.rom),

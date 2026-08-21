@@ -119,7 +119,7 @@ async function handle(msg) {
       // the page will replay.
       q0: msg.q0 || null, target: msg.target || null, plant: msg.plant || null,
       knotFracs: msg.knotFracs || null, locks: msg.locks || null,
-      numerics: msg.numerics || null,
+      numerics: msg.numerics || null, symmetric: msg.symmetric ?? null,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
     const result = await optimizeScenario(model, ws, prof, rom, {
@@ -167,6 +167,10 @@ async function handle(msg) {
       knotFracs: msg.knotFracs || null,
       locks: msg.locks || null,
       numerics: msg.numerics || null,
+      // Whether the legs mirror. The page decides now; without this the search
+      // would go on reading it off the scenario and quietly straighten a
+      // technique the reader had deliberately made asymmetric.
+      symmetric: msg.symmetric ?? null,
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === (msg.maxGen ?? 150) - 1) {
@@ -176,7 +180,7 @@ async function handle(msg) {
           // has to fight, and, for a symmetric skill, whatever the untouched
           // right-leg parameters happen to say. Stop, save, and it fell over.
           const dec = decodeDecision(g.bestX, msg.K ?? 6);
-          if (SYMMETRIC_SCENARIOS.has(msg.scenario)) symmetrizeKnots(dec.knots);
+          if (msg.symmetric ?? SYMMETRIC_SCENARIOS.has(msg.scenario)) symmetrizeKnots(dec.knots);
           applyLocks(dec.knots, msg.locks || null);
           const qBal = msg.target ? Float64Array.from(msg.target) : balancedHandstand(model, ws);
           for (let j = 0; j < 6; j++) dec.knots[j][dec.knots[j].length - 1] = qBal[3 + j];
