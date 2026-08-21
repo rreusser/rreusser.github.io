@@ -357,14 +357,18 @@ export function createStrip({
   // ramp and one orange.
   const ICON_PLAY = 'M4.6 3.1 L11.4 7 L4.6 10.9 Z';
   const ICON_PAUSE = 'M4.4 3.1 h2.1 v7.8 h-2.1 Z M8.5 3.1 h2.1 v7.8 h-2.1 Z';
-  let playBtn = null, playPath = null, timeEl = null, playing = false;
+  let playBtn = null, playPath = null, timeEl = null, playing = false, transport = null;
   if (onPlay) {
     const bar = document.createElement('div');
-    bar.style.cssText = 'display:flex; align-items:center; gap:8px; height:22px; margin-bottom:5px;';
+    bar.style.cssText = 'display:flex; align-items:center; gap:8px; min-height:26px;'
+      + 'margin:0 0 7px; flex-wrap:wrap; row-gap:6px;';
     playBtn = document.createElement('button');
     playBtn.type = 'button';
     playBtn.className = 'hs-btn hs-btn--icon';
-    playBtn.style.cssText = 'width:26px; height:22px; display:grid; place-items:center; padding:0;';
+    // Sized to whatever else lands on this bar, so the transport and the
+    // search buttons sit on one baseline instead of one being a control and
+    // the other a smaller thing next to it.
+    playBtn.style.cssText = 'width:30px; height:26px; display:grid; place-items:center; padding:0;';
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 15 14');
     svg.setAttribute('width', '13'); svg.setAttribute('height', '12');
@@ -382,6 +386,7 @@ export function createStrip({
       + 'min-width:4.2em;';
     bar.append(playBtn, timeEl);
     box.appendChild(bar);
+    transport = bar;
   }
   const setPlaying = (next) => {
     playing = !!next;
@@ -609,7 +614,10 @@ export function createStrip({
   };
   resize(width0);
 
-  return { element: box, layout, draw, resize, setPlaying, height };
+  // transport is the bar the play button sits on, handed back so a caller can
+  // put the rest of the actions on the same line rather than in a panel
+  // somewhere else -- which is the whole point of the button being here.
+  return { element: box, layout, draw, resize, setPlaying, transport, height };
 }
 
 // ---------------------------------------------------------------------------
@@ -649,7 +657,10 @@ export function createStoryboard({
   let cols = cols0, thumbW = thumbW0, thumbH = thumbH0;
   const element = document.createElement('div');
   element.style.display = 'grid';
-  element.style.gap = `${4}px`;
+  // Column gap stays tight -- the insert affordance is measured from it -- but
+  // a row that wraps needs to read as a new row rather than a crease.
+  element.style.columnGap = '4px';
+  element.style.rowGap = '10px';
   element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   element.style.maxWidth = '640px';
   const cells = [];

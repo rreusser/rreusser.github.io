@@ -997,6 +997,17 @@
     // that they were the same numbers. They are not three things. There is one
     // thing and three ways to act on it: your hands, the search, and the body
     // you make it do the work on.
+      // The column's width, MEASURED, rather than Notebook Kit's reactive
+    // `width`. Referencing that name makes this whole cell a function of the
+    // window size: every resize event tore the editor down and built a new
+    // one -- new canvases, a new controls box, a fresh simulation -- and on a
+    // live dev server that fires many times through a single drag, faster
+    // than expandable can re-adopt the controls it had moved into its
+    // body-level floating panel, so the panel fills with orphans. Nothing
+    // here needs it: expandable watches its own container and calls onResize,
+    // which re-lays these parts out without rebuilding any of them.
+    const pageW = Math.min(document.querySelector('main')?.clientWidth
+      || document.documentElement.clientWidth || 640, 640);
     const techniqueFigure = (() => {
       // Whether the two legs do the same thing. It was a hardcoded set read
       // inside the scorer -- a press and a bent-leg press mirrored, a kick-up
@@ -1152,7 +1163,7 @@
       const VIEW = { cx: 0.15, yLo: -0.2, yHi: 2.15 };
       // Mutable, because the figure expands. Every one of these is re-derived
       // in onResize below, and the values here are only the collapsed start.
-      let totalW = Math.min(width, 640);
+      let totalW = pageW;
       let wide = totalW >= 560;
       let panelW = totalW;
       let panelH = wide ? 340 : 260;
@@ -2208,13 +2219,25 @@
       // sentence sitting between two pictures is read as a caption for one of
       // them. In the box they read as the panel telling you what it is
       // pointing at.
+      // Everything you DO to the movement lives on one line, on the timeline
+      // it acts on: play it, and search for a better one. Opening the panel is
+      // for changing a parameter, not for running the thing.
+      const rule = () => html`<span style="width:1px; height:16px; margin:0 2px;
+        background:color-mix(in srgb, currentColor 20%, transparent);"></span>`;
+      strip.transport?.append(rule(), optRun, optStop,
+        html`<span style="flex:1 1 12px;"></span>`, spark, statusEl);
+
       const chromeEl = html`<div>
-        ${story.element}
-        <div style="margin-top:10px;">${strip.element}</div>
-        <small style="display:block; opacity:.85; margin:4px 0 0;
-          font: 11px system-ui, -apple-system, sans-serif;">${
-          key(ramp, 'strength used')}${
-          key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
+        <div style="margin-top:12px;">${story.element}</div>
+        <div style="margin-top:14px;">${strip.element}</div>
+        <div style="display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+          margin-top:9px;">
+          <small style="opacity:.85; font: 11px system-ui, -apple-system, sans-serif;">${
+            key(ramp, 'strength used')}${
+            key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
+        </div>
+        <div style="margin-top:8px; font: 12.5px/1.45 system-ui, -apple-system,
+          'Segoe UI', sans-serif;">${verdict}</div>
       </div>`;
 
       // Grouped, and every group collapsible. Eleven controls in one column is a
@@ -2229,14 +2252,7 @@
       </details>`;
 
       const controlsBox = html`<div class="technique-controls">
-        <div class="spline-controls" style="margin-bottom:10px;">${pick}${resetBtn}</div>
-        <div class="hs-search">
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            ${optRun}${optStop}<span style="flex:1 1 auto;"></span>${spark}
-          </div>
-          <div style="display:flex; align-items:baseline; gap:8px; margin-top:6px;">${statusEl}</div>
-          ${verdict}
-        </div>
+        <div class="spline-controls" style="margin-bottom:4px;">${pick}${resetBtn}</div>
         ${group('technique', true,
           html`<div class="spline-controls">${poses}${durInput}</div>`,
           html`<div class="spline-controls">${symToggle}</div>`)}
@@ -2264,7 +2280,7 @@
     // is free to sit below.
     const techniqueBox = expandable(techniqueFigure.figure, {
       id: 'technique-editor',
-      width: Math.min(width, 640),
+      width: pageW,
       // Collapsed, the stage keeps the height it always had and the figure is
       // as tall as its contents; expandable measures that itself. This number
       // only matters expanded, where onResize divides it up.
