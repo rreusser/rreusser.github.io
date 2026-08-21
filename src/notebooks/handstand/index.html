@@ -860,6 +860,14 @@
       notify: null,
     };
   </script>
+  <script id="pose-count-cell" type="text/x-typescript">
+    // How many poses a technique is allowed. Its own cell, because the figure
+    // is BUILT around this number -- a storyboard of K + 1 cells, a decision
+    // vector of 6K + 1 -- so changing it has to rebuild the figure rather than
+    // be handled inside it. Not displayed here; the figure mirrors it.
+    const poseCountInput = Inputs.range([2, 8], { label: 'Poses', value: 6, step: 1 });
+    const poseCount = Generators.input(poseCountInput);
+  </script>
   <script id="edit-observable" type="text/x-typescript">
     // Published to playback the way the optimizer publishes its result, and
     // tagged with the run it derives from: picking a new scenario re-runs
@@ -885,10 +893,17 @@
       const symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
       const lockedJoint = (joint) => symmetric && (joint === 7 || joint === 8);
       const runModel = simResult.model || model;
-      const baseKnots = simResult.knots.map((k) => Float64Array.from(k));
-      const K = baseKnots[0].length;
+      const K = Math.max(2, Math.round(poseCount));
+      // The stored technique, said with however many poses are asked for.
+      // Reset restores THIS, not the stored count: at four poses a six-pose
+      // technique cannot be represented exactly, and pretending otherwise
+      // would mean Reset silently changed a setting.
+      const baseKnots = simResult.knots[0].length === K
+        ? simResult.knots.map((k) => Float64Array.from(k))
+        : FIG.resampleKnots(simResult.knots, simResult.T, K);
 
-      const sameRun = editState.base === simResult && editState.knots?.[0]?.length === K;
+      let refitted = false;
+      const sameRun = editState.base === simResult && editState.knots;
       editState.base = simResult;
       if (!sameRun) {
         editState.knots = baseKnots.map((k) => Float64Array.from(k));
@@ -896,6 +911,11 @@
         editState.run = simResult;
         editState.edited = false;
         editState.q0 = null;
+      } else if (editState.knots[0].length !== K) {
+        // An edit in progress survives a change of count: the curve is
+        // refitted with the new number of knots rather than thrown away.
+        editState.knots = FIG.resampleKnots(editState.knots, editState.T, K);
+        refitted = true;
       }
 
       const dpr = devicePixelRatio;
@@ -1175,6 +1195,8 @@
         label: 'Technique', format: (v) => scenarioNames[v],
       });
       Inputs.bind(pick, scenarioInput, invalidation);
+      const poses = Inputs.range([2, 8], { label: 'Poses', step: 1 });
+      Inputs.bind(poses, poseCountInput, invalidation);
 
       const playBtn = html`<button style="min-width:58px;">Play</button>`;
       playBtn.addEventListener('click', () => {
@@ -1261,8 +1283,14 @@
       const optStop = html`<button disabled>Stop</button>`;
       const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
       const optSeed = Inputs.range([1, 99], { label: 'Search seed', value: 7, step: 1 });
+      // Short. It sits in a wrapping row next to three buttons and a
+      // sparkline, and "searching · generation 12 · best cost 5.55 · 12
+      // workers" was long enough to push itself onto a line of its own at some
+      // widths and not at others. The generation and the cost are the two
+      // things that change; the sparkline beside it already says the cost is a
+      // cost, and how many cores are busy is not something anyone acts on.
       const statusEl = html`<span style="font-size:12px; opacity:.8;
-        font-variant-numeric:tabular-nums;"></span>`;
+        font-variant-numeric:tabular-nums; white-space:nowrap;"></span>`;
       const spark = html`<canvas style="width:150px; height:26px; vertical-align:middle;"></canvas>`;
       spark.width = Math.round(150 * dpr); spark.height = Math.round(26 * dpr);
       const drawSpark = () => {
@@ -1307,7 +1335,7 @@
       invalidation.then(stopSearch);
       optStop.addEventListener('click', () => {
         stopSearch();
-        status = status.replace(/^searching/, 'stopped');
+        status = status.replace(/^gen \d+/, 'stopped');
         dirty = chromeDirty = true;
       });
       optRun.addEventListener('click', () => {
@@ -1329,7 +1357,13 @@
         optState.worker = worker;
         const over = bodyOver();
         worker.onmessage = ({ data }) => {
-          if (data.type === 'pool') { poolSize = data.size; return; }
+          // Logged, not shown: how many cores are busy is a performance
+          // detail, and the status line has four words of room.
+          if (data.type === 'pool') {
+            poolSize = data.size;
+            console.info(`optimizer: evaluating on ${data.size} worker${data.size > 1 ? 's' : ''}`);
+            return;
+          }
           // The worker reports its own failures rather than throwing them at
           // an error event, and these were being dropped on the floor: a
           // search that died inside the worker simply stopped, with the status
@@ -1350,8 +1384,7 @@
           }
           if (data.type === 'progress') {
             optState.history.push({ gen: data.gen, best: data.best });
-            status = `searching · generation ${data.gen} · best cost ${data.best.toFixed(2)}`
-              + (poolSize ? ` · ${poolSize} worker${poolSize > 1 ? 's' : ''}` : '');
+            status = `gen ${data.gen} · cost ${data.best.toFixed(2)}`;
             // Held, not applied. A generation is swapped in at the end of a
             // loop pass and never during one, so what is on screen is always a
             // single generation and always one that finished -- and the
@@ -1360,7 +1393,7 @@
             pending = data;
           } else if (data.type === 'done') {
             optState.history.push({ gen: optState.history.length, best: data.fineCost });
-            status = `done · cost ${data.fineCost.toFixed(2)} at the fine timestep`;
+            status = `done · cost ${data.fineCost.toFixed(2)}`;
             pending = null;
             adopt(data);
             stopSearch();
@@ -1475,7 +1508,7 @@
         }
       });
       invalidation.then(() => loop.cancel());
-      relayout();
+      if (refitted) resim(); else relayout();
       const stopTheme = observeTheme((th) => { theme = th; relayout(); });
       invalidation.then(stopTheme);
 
@@ -1504,12 +1537,12 @@
           key(ramp, 'strength used')}${
           key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
         ${verdict}
-        <div class="spline-controls">${durInput}${resetBtn}</div>
+        <div class="spline-controls">${poses}${durInput}${resetBtn}</div>
         <div class="spline-controls">${optGens}${optSeed}</div>
         ${head('body')}
         <div class="spline-controls">${inShoulder}${inHam}</div>
         <div class="spline-controls">${inShFlex}${inWrExt}</div>
-        <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers. The first cell is not one of them: it is where the body <em>starts</em>, which each scenario solves from the body rather than searching for. Drag it and the technique keeps its poses while the ground shifts under them.</figcaption>
+        <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the ending pose, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers. The first cell is not one of them: it is where the body <em>starts</em>, which each scenario solves from the body rather than searching for; the last is where it is trying to end, so drag that one and you have asked for a pike or a planche instead. Changing the number of poses refits the technique rather than resetting it — the closest curve the new count can draw, not the old one read at the new knot times. A thrown entry rarely survives being re-said with fewer and wants re-optimizing; a press does.</figcaption>
       </figure>`;
     })();
     display(techniqueFigure);

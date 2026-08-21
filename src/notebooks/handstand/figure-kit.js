@@ -20,7 +20,7 @@ import { drawScene } from './render.js';
 import { availableTorque } from './strength.js';
 import { jointLimits, groundHand } from './statics.js';
 import { JOINT_ORDER } from './control.js';
-import { evalReference } from './control.js';
+import { evalReference, splineEval } from './control.js';
 import { WORK_EFFICIENCY } from './rollout.js';
 
 // What the technique asks for: a neutral grey, everywhere a request appears.
@@ -103,6 +103,108 @@ export function requestPose(model, knots, T, t, out) {
   evalReference(knots, T, Math.min(t, T), refVal, refRate);
   for (let j = 0; j < 6; j++) out[3 + j] = refVal[j];
   return out;
+}
+
+// The same technique, said with a different number of poses.
+//
+// Six poses is a lot of freedom for a movement that lasts two seconds, and
+// freedom is not the same as control: every knot is another place the curve
+// can kink, and a technique with more knots than the movement has phases is
+// harder to smooth by hand than one with fewer. So the count is a setting --
+// and changing it REFITS rather than resets. The shape survives; only the
+// number of handles on it changes.
+//
+// The refit is a least-squares projection, not a resampling. Reading the old
+// curve at the new knot times and calling those the new knots would be the
+// obvious thing, and it is wrong: a Catmull-Rom knot is a point ON the curve,
+// so that construction agrees with the original exactly at the new knot times
+// and then does whatever the tangent rule says in between -- pinching the
+// curve through a handful of samples rather than following it. The result is
+// smoothed in a way nobody asked for, and it is not the closest curve the
+// coarser spline can draw.
+//
+// So fit instead. splineEval is linear in its knots, so the curve a knot
+// vector c draws at a dense set of times is A c, where column k of A is the
+// curve drawn by the unit knot vector e_k. Take the old curve's dense samples
+// y and solve min ||A c - y||^2 by normal equations -- A is tall and thin
+// (hundreds of rows, at most eight columns), so this is a tiny solve.
+//
+// The last knot is held fixed rather than fitted: it is the ending pose, the
+// one thing in the technique the user set on purpose, and a fit is free to
+// move it by a degree to buy accuracy elsewhere. Everything else, including
+// the first knot, is free.
+//
+// Refitting to the same count is the identity to roundoff: the old knots
+// already drive the residual to zero, and the normal equations are
+// nonsingular, so they are the unique minimizer.
+export function resampleKnots(knots, T, newK) {
+  const K = Math.max(1, Math.round(newK));
+  const M = 24 * K + 256;                     // dense enough that the fit is the curve's, not the sampling's
+  const basis = [];                           // basis[k][m] = value at t_m of the curve for knots e_k
+  const unit = new Float64Array(K);
+  for (let k = 0; k < K; k++) {
+    const col = new Float64Array(M);
+    unit.fill(0); unit[k] = 1;
+    for (let m = 0; m < M; m++) col[m] = splineEval(unit, T, (m / (M - 1)) * T).value;
+    basis.push(col);
+  }
+  const n = K - 1;                            // free knots: all but the pinned last one
+  if (n <= 0) return knots.map((row) => Float64Array.from([row[row.length - 1]]));
+
+  // The normal matrix depends only on the basis, so it is the same for all six
+  // joints; only the right-hand side changes. A whisper of ridge keeps a
+  // degenerate basis from exploding instead of leaning on the old knots.
+  const normal = [];
+  for (let p = 0; p < n; p++) {
+    const rowP = new Float64Array(n);
+    for (let q = 0; q < n; q++) {
+      let s = 0;
+      for (let m = 0; m < M; m++) s += basis[p][m] * basis[q][m];
+      rowP[q] = s + (p === q ? 1e-9 * M : 0);
+    }
+    normal.push(rowP);
+  }
+
+  const out = [], y = new Float64Array(M), b = new Float64Array(n);
+  for (let j = 0; j < 6; j++) {
+    const row = new Float64Array(K);
+    const last = knots[j][knots[j].length - 1];
+    row[K - 1] = last;
+    for (let m = 0; m < M; m++) {
+      y[m] = splineEval(knots[j], T, (m / (M - 1)) * T).value - last * basis[K - 1][m];
+    }
+    for (let p = 0; p < n; p++) {
+      let s = 0;
+      for (let m = 0; m < M; m++) s += basis[p][m] * y[m];
+      b[p] = s;
+    }
+    solveInPlace(normal.map((r) => Float64Array.from(r)), b, n);
+    for (let p = 0; p < n; p++) row[p] = b[p];
+    out.push(row);
+  }
+  return out;
+}
+
+// Gaussian elimination with partial pivoting; n is at most seven here.
+function solveInPlace(A, b, n) {
+  for (let c = 0; c < n; c++) {
+    let piv = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    if (piv !== c) { const t = A[piv]; A[piv] = A[c]; A[c] = t; const u = b[piv]; b[piv] = b[c]; b[c] = u; }
+    const d = A[c][c];
+    if (Math.abs(d) < 1e-300) continue;
+    for (let r = c + 1; r < n; r++) {
+      const f = A[r][c] / d;
+      if (!f) continue;
+      for (let k = c; k < n; k++) A[r][k] -= f * A[c][k];
+      b[r] -= f * b[c];
+    }
+  }
+  for (let r = n - 1; r >= 0; r--) {
+    let s = b[r];
+    for (let k = r + 1; k < n; k++) s -= A[r][k] * b[k];
+    b[r] = Math.abs(A[r][r]) < 1e-300 ? 0 : s / A[r][r];
+  }
 }
 
 // The same, for a knot taken directly rather than sampled off the spline.
