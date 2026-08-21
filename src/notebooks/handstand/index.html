@@ -19,7 +19,27 @@
         border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
         border-radius: 6px; padding: 10px 12px 12px; margin-top: 10px;
         box-sizing: border-box;
+        /* The page is set in a serif at reading size, which is right for the
+           prose and wrong for a control panel: at 17px the word "Poses" was
+           three times the weight of the slider it names, and the panel read as
+           a page of headings with widgets between them. The figure's own
+           chrome -- the joint labels, the time axis -- is already small
+           system sans, so the panel matches the picture it drives rather than
+           the article around it. */
+        font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
       }
+      .technique-controls label {
+        font-size: 11px; opacity: .85; font-weight: 500;
+      }
+      .technique-controls input[type=number],
+      .technique-controls input[type=text],
+      .technique-controls select { font: inherit; }
+      .technique-controls form { font-size: 12px; }
+      /* Observable's range input gives the number box half the row. It holds
+         at most five characters, and the slider is the control you actually
+         work, so the space goes to the slider. */
+      .technique-controls form input[type=number] { width: 4.4em; flex: 0 0 auto; }
+      .technique-controls form input[type=range] { flex: 1 1 auto; min-width: 90px; }
       /* Floated out, the panel is already a box. */
       .expandable-controls-panel .technique-controls {
         border: none; padding: 0; margin-top: 0; max-width: none;
@@ -33,6 +53,46 @@
       }
       .technique-controls details { margin: 0; }
       .spline-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+      /* One button, everywhere. The panel had grown a dozen of them in the
+         browser's default chrome, which is a different shape and weight on
+         every platform and reads as a form rather than an instrument. */
+      .hs-btn {
+        font: inherit; font-size: 12px; line-height: 1;
+        padding: 5px 10px; border-radius: 5px; cursor: pointer;
+        color: inherit; background: color-mix(in srgb, currentColor 5%, transparent);
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        transition: background 90ms linear, border-color 90ms linear;
+      }
+      .hs-btn:hover:not(:disabled) {
+        background: color-mix(in srgb, currentColor 12%, transparent);
+        border-color: color-mix(in srgb, currentColor 38%, transparent);
+      }
+      .hs-btn:disabled { opacity: .38; cursor: default; }
+      /* The one thing this panel is for: heavier than its neighbours, in the
+         same ink. Not a filled button in a colour of its own -- the figure's
+         palette is one grey, one blue-to-red ramp and one orange, and a fourth
+         colour would claim to mean something. (Filling it with currentColor
+         and setting the text to the page background does not work either: the
+         background resolves against the element's OWN colour, which that rule
+         has just made the page background, so the button paints white on
+         white and the label vanishes.) */
+      .hs-btn--primary {
+        background: color-mix(in srgb, currentColor 15%, transparent);
+        border-color: color-mix(in srgb, currentColor 55%, transparent);
+        font-weight: 600; padding: 6px 14px;
+      }
+      .hs-btn--primary:hover:not(:disabled) {
+        background: color-mix(in srgb, currentColor 24%, transparent);
+        border-color: color-mix(in srgb, currentColor 75%, transparent);
+      }
+      .hs-btn--icon { padding: 0; }
+      /* The action and what came of it, boxed together: press this, read that. */
+      .hs-search {
+        border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+        border-radius: 6px; padding: 9px 10px 8px;
+        background: color-mix(in srgb, currentColor 3%, transparent);
+      }
       /* One figure earns more than the column: the press corridor is a map,
          and a map wants area. Bleed it symmetrically about the column by
          pulling the left margin back by half the overhang. The caption stays
@@ -1135,8 +1195,7 @@
       const selectCell = (i) => {
         sel = Math.min(nCells - 1, Math.max(0, i));
         t = sel === 0 ? 0 : knotTime(sel - 1);
-        playing = false;
-        playBtn.textContent = 'Play';
+        setPlaying(false);
         dirty = chromeDirty = true;
       };
 
@@ -1392,7 +1451,7 @@
       const strip = FIG.createStrip({
         width: totalW, dpr,
         onSeek: (x) => {
-          t = x; sel = -1; playing = false; playBtn.textContent = 'Play';
+          t = x; sel = -1; setPlaying(false);
           // chromeDirty too: without it the storyboard is never repainted and
           // the pose you last picked stays ringed while you scrub past it.
           dirty = chromeDirty = true;
@@ -1403,6 +1462,7 @@
         // re-simulates on the drop rather than during the drag, for the same
         // reason dragging a limb does -- re-running the physics mid-gesture
         // moves the floating base, and with it the thing under the finger.
+        onPlay: (next) => togglePlay(next),
         onKnotPick: (k) => { selectCell(k + 1); },
         onKnotDrag: (k, frac, settled) => {
           editState.fracs[k] = frac;
@@ -1528,14 +1588,18 @@
         setCount(next);
       });
 
-      const playBtn = html`<button style="min-width:58px;">Play</button>`;
-      playBtn.addEventListener('click', () => {
-        playing = !playing;
-        playBtn.textContent = playing ? 'Pause' : 'Play';
+      // The clock's owner. The button that works it lives on the timeline now,
+      // so every place that stops playback goes through here and the icon can
+      // never disagree with what the body is doing.
+      const setPlaying = (next) => { playing = !!next; strip.setPlaying(playing); };
+      // Starting playback deselects: a pose you are editing is a moment you
+      // are stopped at, and the two states cannot both be true.
+      const togglePlay = (next) => {
+        setPlaying(next ?? !playing);
         if (playing) sel = -1;
         lastNow = null;
         dirty = chromeDirty = true;
-      });
+      };
 
       // The sliders themselves: views onto editState.body, which is where the
       // numbers live (see above).
@@ -1573,7 +1637,7 @@
       // thing it leaves alone: that is a setting, not part of the technique,
       // and a four-pose refit of a six-pose technique cannot be undone by
       // restoring six numbers.
-      const resetBtn = html`<button title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it.">Revert to stored</button>`;
+      const resetBtn = html`<button class="hs-btn" title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it.">Revert to stored</button>`;
       resetBtn.addEventListener('click', () => {
         stopSearch();
         editState.knots = baseKnots.map((k) => Float64Array.from(k));
@@ -1621,7 +1685,7 @@
         verdict: editState.run?.verdict || null,
         cost: null,
       });
-      const saveBtn = html`<button title="write this case to a JSON file: the technique, the tempo, the phrasing, the held poses, the start and ending poses, the anatomy, the strength, the frame, the plant and the integration. Everything a replay needs.">Save</button>`;
+      const saveBtn = html`<button class="hs-btn" title="write this case to a JSON file: the technique, the tempo, the phrasing, the held poses, the start and ending poses, the anatomy, the strength, the frame, the plant and the integration. Everything a replay needs.">Save</button>`;
       saveBtn.addEventListener('click', () => {
         const text = JSON.stringify(techniqueToJSON(asTechnique()), null, 1);
         const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -1659,10 +1723,10 @@
       const caseList = html`<select style="min-width:11em; max-width:16em;"></select>`;
       const caseName = html`<input type="text" placeholder="name this case"
         style="width:11em; font: inherit; font-size:13px; padding:2px 4px;">`;
-      const keepBtn = html`<button title="keep this case in this browser under the name beside it. Same contents as Save writes to a file — nothing is left out.">Keep</button>`;
-      const openBtn = html`<button title="load the selected case">Open</button>`;
-      const renameBtn = html`<button title="rename the selected case to the name beside it">Rename</button>`;
-      const dropBtn = html`<button title="forget the selected case">Forget</button>`;
+      const keepBtn = html`<button class="hs-btn" title="keep this case in this browser under the name beside it. Same contents as Save writes to a file — nothing is left out.">Keep</button>`;
+      const openBtn = html`<button class="hs-btn" title="load the selected case">Open</button>`;
+      const renameBtn = html`<button class="hs-btn" title="rename the selected case to the name beside it">Rename</button>`;
+      const dropBtn = html`<button class="hs-btn" title="forget the selected case">Forget</button>`;
       const refreshCases = (selectId = null) => {
         const list = readCases();
         caseList.replaceChildren(...(list.length
@@ -1724,7 +1788,7 @@
       refreshCases();
 
       const loadInput = html`<input type="file" accept="application/json,.json" style="display:none;">`;
-      const loadBtn = html`<button title="read a case back from a JSON file, exactly as it was saved">Load</button>`;
+      const loadBtn = html`<button class="hs-btn" title="read a case back from a JSON file, exactly as it was saved">Load</button>`;
       loadBtn.addEventListener('click', () => loadInput.click());
       loadInput.addEventListener('change', async () => {
         const file = loadInput.files?.[0];
@@ -1818,8 +1882,8 @@
       // It changes the same numbers your hands do. That is the whole reason it
       // lives here: you watch the six poses above move, and the duration slider
       // move, because those ARE what CMA-ES is searching over.
-      const optRun = html`<button>Optimize</button>`;
-      const optStop = html`<button disabled>Stop</button>`;
+      const optRun = html`<button class="hs-btn hs-btn--primary">Optimize</button>`;
+      const optStop = html`<button class="hs-btn" disabled>Stop</button>`;
       const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
       const optSeed = Inputs.range([1, 99], { label: 'Search seed', value: 7, step: 1 });
       // Short. It sits in a wrapping row next to three buttons and a
@@ -1904,8 +1968,7 @@
         // the search hands its answer back. Holding one panel still while the
         // other animated made the two halves disagree about what time it was.
         sel = -1;
-        playing = true;
-        playBtn.textContent = 'Pause';
+        setPlaying(true);
         lastNow = null;
         optRun.disabled = true;
         optStop.disabled = false;
@@ -2148,7 +2211,8 @@
       const chromeEl = html`<div>
         ${story.element}
         <div style="margin-top:10px;">${strip.element}</div>
-        <small style="display:block; opacity:.85; margin:2px 0 0;">${
+        <small style="display:block; opacity:.85; margin:4px 0 0;
+          font: 11px system-ui, -apple-system, sans-serif;">${
           key(ramp, 'strength used')}${
           key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
       </div>`;
@@ -2165,11 +2229,14 @@
       </details>`;
 
       const controlsBox = html`<div class="technique-controls">
-        <div class="spline-controls" style="margin-bottom:8px;">${pick}${resetBtn}</div>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          ${playBtn}${optRun}${optStop}${spark}${statusEl}
+        <div class="spline-controls" style="margin-bottom:10px;">${pick}${resetBtn}</div>
+        <div class="hs-search">
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            ${optRun}${optStop}<span style="flex:1 1 auto;"></span>${spark}
+          </div>
+          <div style="display:flex; align-items:baseline; gap:8px; margin-top:6px;">${statusEl}</div>
+          ${verdict}
         </div>
-        ${verdict}
         ${group('technique', true,
           html`<div class="spline-controls">${poses}${durInput}</div>`,
           html`<div class="spline-controls">${symToggle}</div>`)}

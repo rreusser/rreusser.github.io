@@ -321,6 +321,12 @@ export function createStrip({
   // poses are the two ends of the movement and do not move; everything
   // between them does.
   onKnotDrag = null, onKnotPick = null,
+  // The transport. A timeline that can be scrubbed but not played, next to a
+  // Play button living in a panel somewhere else, is two halves of one control
+  // -- so the button belongs here, on the thing it moves. onPlay(next) is
+  // called with the state being asked for; the caller owns the clock and calls
+  // back through setPlaying, so the button never disagrees with the animation.
+  onPlay = null,
 }) {
   const height = JOINTS.length * rowH + 20;
   let width = width0;
@@ -344,6 +350,49 @@ export function createStrip({
   // scrolls the page and dies mid-gesture, because scrolling fires
   // pointercancel.
   box.style.touchAction = 'none';
+
+  // ---- transport ----------------------------------------------------------
+  // Drawn rather than typed, for the reason the padlock is: an emoji is a
+  // full-colour picture in a figure whose palette is one grey, one blue-to-red
+  // ramp and one orange.
+  const ICON_PLAY = 'M4.6 3.1 L11.4 7 L4.6 10.9 Z';
+  const ICON_PAUSE = 'M4.4 3.1 h2.1 v7.8 h-2.1 Z M8.5 3.1 h2.1 v7.8 h-2.1 Z';
+  let playBtn = null, playPath = null, timeEl = null, playing = false;
+  if (onPlay) {
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex; align-items:center; gap:8px; height:22px; margin-bottom:5px;';
+    playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'hs-btn hs-btn--icon';
+    playBtn.style.cssText = 'width:26px; height:22px; display:grid; place-items:center; padding:0;';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 15 14');
+    svg.setAttribute('width', '13'); svg.setAttribute('height', '12');
+    playPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    playPath.setAttribute('fill', 'currentColor');
+    playPath.setAttribute('d', ICON_PLAY);
+    svg.appendChild(playPath);
+    playBtn.appendChild(svg);
+    playBtn.addEventListener('click', () => onPlay(!playing));
+    // The playhead's own reading, beside the control that moves it. Tabular,
+    // because a number that changes width as it counts is a number that
+    // twitches.
+    timeEl = document.createElement('span');
+    timeEl.style.cssText = 'font-size:11px; opacity:.7; font-variant-numeric:tabular-nums;'
+      + 'min-width:4.2em;';
+    bar.append(playBtn, timeEl);
+    box.appendChild(bar);
+  }
+  const setPlaying = (next) => {
+    playing = !!next;
+    if (!playBtn) return;
+    playPath.setAttribute('d', playing ? ICON_PAUSE : ICON_PLAY);
+    playBtn.setAttribute('aria-pressed', playing ? 'true' : 'false');
+    playBtn.setAttribute('aria-label', playing ? 'pause' : 'play');
+    playBtn.title = playing ? 'pause' : 'play the movement';
+  };
+  setPlaying(false);
+
   box.appendChild(canvas);
   // How close to a pose's line counts as grabbing it rather than scrubbing.
   const GRAB_PX = 6;
@@ -473,21 +522,24 @@ export function createStrip({
     // the storyboard and the timeline are one picture. The ones you can slide
     // carry a grip at the foot of the line; the two ends of the movement do
     // not, because they are the ends.
-    // A bold upright is a PINNED INSTANT, not a held pose: this line is a time,
-    // and since the search can now slide the others along it, which of them
-    // will not move is the thing worth drawing here.
+    // A bold upright is a RELEASED instant. The line is a time, so what it
+    // should report is the time question -- and since a pose is pinned unless
+    // you say otherwise, drawing the pinned ones boldly would put a heavy mark
+    // on every upright and distinguish nothing. Marked means you handed this
+    // one to the search, which is the same rule the caption under the frame
+    // follows.
     const rows = JOINTS.length * rowH - 2;
     knotTimes.forEach((kt, k) => {
-      const held = locks?.[k];
+      const freed = locks ? !locks[k] : false;
       const x = Math.round(toX(kt, xEnd)) + 0.5;
-      ctx.strokeStyle = held ? fgc(0.75) : fgc(0.4);
-      ctx.lineWidth = held ? 1.5 : 1;
+      ctx.strokeStyle = freed ? fgc(0.75) : fgc(0.32);
+      ctx.lineWidth = freed ? 1.5 : 1;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, rows);
       ctx.stroke();
       if (onKnotDrag && k > 0 && k < knotTimes.length - 1) {
-        ctx.fillStyle = fgc(held ? 0.75 : 0.4);
+        ctx.fillStyle = fgc(freed ? 0.75 : 0.4);
         ctx.beginPath();
         ctx.moveTo(x - 3.5, rows);
         ctx.lineTo(x + 3.5, rows);
@@ -532,6 +584,18 @@ export function createStrip({
     ctx.moveTo(x, 0);
     ctx.lineTo(x, JOINTS.length * rowH - 2);
     ctx.stroke();
+    // A head on the playhead. The poses carry grips at the FOOT of their
+    // uprights, so putting this at the top keeps the two kinds of handle from
+    // reading as each other -- and a bare line does not say it can be dragged,
+    // which this one has always been able to be.
+    ctx.fillStyle = `rgba(${rgb},0.85)`;
+    ctx.beginPath();
+    ctx.moveTo(x - 4, 0);
+    ctx.lineTo(x + 4, 0);
+    ctx.lineTo(x, 5.5);
+    ctx.closePath();
+    ctx.fill();
+    if (timeEl) timeEl.textContent = `${t.toFixed(2)}s`;
   };
 
   // Give the strip a new width and redraw what it was last showing.
@@ -545,7 +609,7 @@ export function createStrip({
   };
   resize(width0);
 
-  return { element: box, layout, draw, resize, height };
+  return { element: box, layout, draw, resize, setPlaying, height };
 }
 
 // ---------------------------------------------------------------------------
@@ -554,11 +618,6 @@ export function createStrip({
 // rather than a knot matrix, because the first of them is not a knot: it is
 // where the body BEGINS, which is a different kind of thing and is drawn as
 // one (solid, because at t = 0 the body is actually there).
-// canLock(k) says whether cell k has a lock at all and, if it does, whether
-// the reader may work it. The start pose has none -- it is where the body
-// begins, not something the search was ever free to move -- and the ending
-// pose is permanently locked, because being the pose the technique aims at is
-// what "ending pose" means.
 // canLock(k) says whether cell k has a lock at all and, if it does, whether
 // the reader may work it. The start pose has none -- it is where the body
 // begins, not something the search was ever free to move -- and the ending
