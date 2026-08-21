@@ -292,7 +292,7 @@ export function verdictHTML(stats, baseline = null) {
 //   pale uprights  where the K poses fall, so the storyboard above and the
 //                  timeline below are one picture rather than two
 export function createStrip({
-  width, rowH = 18, gutter = 58, dpr = 1, onSeek = null,
+  width: width0, rowH = 18, gutter = 58, dpr = 1, onSeek = null,
   // Dragging a pose along the timeline. onKnotDrag(k, frac, settled) is called
   // with the pose's index, where it now sits as a fraction of the duration,
   // and whether the finger has come off -- so a caller can redraw during the
@@ -303,19 +303,21 @@ export function createStrip({
   onKnotDrag = null, onKnotPick = null,
 }) {
   const height = JOINTS.length * rowH + 20;
+  let width = width0;
+  let plotW = width - gutter - 6;
   const canvas = document.createElement('canvas');
-  canvas.style.width = `${width}px`;
   canvas.style.height = `${height}px`;
   canvas.style.display = 'block';
-  canvas.width = Math.round(width * dpr);
   canvas.height = Math.round(height * dpr);
   const base = document.createElement('canvas');
-  base.width = canvas.width;
   base.height = canvas.height;
 
-  const plotW = width - gutter - 6;
   const toX = (t, xEnd) => gutter + Math.min(Math.max(t / xEnd, 0), 1) * plotW;
   let state = null;
+  // The last thing drawn, kept so a resize can redraw it. The raster behind
+  // this strip is computed per simulation, not per frame, so a width change
+  // has to re-run that rather than stretch what is already there.
+  let lastLayout = null;
 
   const box = document.createElement('div');
   // On the outer HTML container, not the canvas: without it a touch drag both
@@ -391,7 +393,9 @@ export function createStrip({
 
   // Everything that does not move goes into an offscreen canvas once per
   // simulation; the cursor is the only thing redrawn per frame.
-  const layout = ({ run, prof, rom, T, xEnd, theme, knotTimes = [], locks = null }) => {
+  const layout = (args) => {
+    lastLayout = args;
+    const { run, prof, rom, T, xEnd, theme, knotTimes = [], locks = null } = args;
     state = { xEnd, T, knotTimes };
     const rec = run.rec;
     const isDark = theme?.isDark ?? false;
@@ -507,7 +511,18 @@ export function createStrip({
     ctx.stroke();
   };
 
-  return { element: box, layout, draw, height };
+  // Give the strip a new width and redraw what it was last showing.
+  const resize = (w) => {
+    width = Math.max(gutter + 40, Math.round(w));
+    plotW = width - gutter - 6;
+    canvas.style.width = `${width}px`;
+    canvas.width = Math.round(width * dpr);
+    base.width = canvas.width;
+    if (lastLayout) layout(lastLayout);
+  };
+  resize(width0);
+
+  return { element: box, layout, draw, resize, height };
 }
 
 // ---------------------------------------------------------------------------
@@ -522,10 +537,11 @@ export function createStrip({
 // pose is permanently locked, because being the pose the technique aims at is
 // what "ending pose" means.
 export function createStoryboard({
-  n, cols, thumbW, thumbH, view, dpr = 1, onSelect = null,
+  n, cols: cols0, thumbW: thumbW0, thumbH: thumbH0, view, dpr = 1, onSelect = null,
   onLock = null, canLock = null,
 }) {
   const K = n;
+  let cols = cols0, thumbW = thumbW0, thumbH = thumbH0;
   const element = document.createElement('div');
   element.style.display = 'grid';
   element.style.gap = '4px';
@@ -601,6 +617,23 @@ export function createStoryboard({
   }
 
   // A request is drawn in the request grey; a body is drawn as a body.
+  // Lay the storyboard out at a new width. Expanded, the figure is several
+  // times wider than the column, and a row of thumbnails that stayed
+  // column-sized would leave the space it was given empty.
+  const resize = (w, colCount = cols) => {
+    cols = Math.max(1, colCount);
+    thumbW = Math.max(40, Math.floor((w - (cols - 1) * 4) / cols) - 4);
+    thumbH = Math.round(thumbW / (thumbW0 / thumbH0));
+    element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    element.style.maxWidth = `${Math.round(w)}px`;
+    for (const c of cells) {
+      c.canvas.style.width = `${thumbW}px`;
+      c.canvas.style.height = `${thumbH}px`;
+      c.canvas.width = Math.round(thumbW * dpr);
+      c.canvas.height = Math.round(thumbH * dpr);
+    }
+  };
+
   const tint = requestTint();
   const draw = ({ model, ws, items, sel = -1, theme }) => {
     for (let k = 0; k < K && k < items.length; k++) {
@@ -627,5 +660,5 @@ export function createStoryboard({
       }
     }
   };
-  return { element, draw, cells };
+  return { element, draw, resize, cells };
 }

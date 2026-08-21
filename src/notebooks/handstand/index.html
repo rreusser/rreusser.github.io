@@ -14,7 +14,16 @@
          much wider than the things they describe. */
       :root { --max-width: 640px; }
       .body-controls, .pose-controls, .sim-controls, .opt-controls,
-      .spline-controls { max-width: 640px; }
+      .technique-controls, .spline-controls { max-width: 640px; }
+      .technique-controls {
+        border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+        border-radius: 6px; padding: 10px 12px 12px; margin-top: 10px;
+        box-sizing: border-box;
+      }
+      /* Floated out, the panel is already a box. */
+      .expandable-controls-panel .technique-controls {
+        border: none; padding: 0; margin-top: 0; max-width: none;
+      }
       .spline-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
       /* One figure earns more than the column: the press corridor is a map,
          and a map wants area. Bleed it symmetrically about the column by
@@ -870,6 +879,10 @@
       run: null,    // the replay of the CURRENT knots
       edited: false,
       notify: null,
+      // Survives the cell re-running, which it does whenever the technique or
+      // the pose count changes -- without this the figure would snap shut
+      // every time you moved a control inside it.
+      ui: { expanded: false },
     };
   </script>
   <script id="pose-count-cell" type="text/x-typescript">
@@ -979,13 +992,17 @@
       // widest reaches 1.18 m from the hand and the tallest 2.07 m. Fixed, so
       // six poses look like six poses of one body rather than six bodies.
       const VIEW = { cx: 0.15, yLo: -0.2, yHi: 2.15 };
-      const totalW = Math.min(width, 640);
-      const wide = totalW >= 560;
-      const panelW = totalW;
-      const panelH = wide ? 340 : 260;
+      // Mutable, because the figure expands. Every one of these is re-derived
+      // in onResize below, and the values here are only the collapsed start.
+      let totalW = Math.min(width, 640);
+      let wide = totalW >= 560;
+      let panelW = totalW;
+      let panelH = wide ? 340 : 260;
+      const STAGE_H = panelH;
       // K + 1 cells: the pose the body STARTS in, then the K it asks for.
       const nCells = K + 1;
-      const thumbCols = Math.min(nCells, wide ? 7 : 4);
+      const colsFor = (w) => Math.min(nCells, w >= 560 ? 7 : 4);
+      let thumbCols = colsFor(totalW);
       const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
       const thumbH = Math.round(thumbW / 1.13);
 
@@ -1039,6 +1056,21 @@
       overlay.setAttribute('height', panelH);
       overlay.style.cssText = 'position:absolute; left:0; top:0;';
       stage.appendChild(overlay);
+      // Everything that draws itself at a fixed size, told the new one. The
+      // canvas is the only thing here with a backing store, so it is the only
+      // thing that has to be re-created rather than restyled.
+      const sizeStage = (w, h) => {
+        panelW = Math.max(200, Math.round(w));
+        panelH = Math.max(160, Math.round(h));
+        stage.style.width = `${panelW}px`;
+        stage.style.height = `${panelH}px`;
+        canvas.style.width = `${panelW}px`;
+        canvas.style.height = `${panelH}px`;
+        canvas.width = Math.round(panelW * dpr);
+        canvas.height = Math.round(panelH * dpr);
+        overlay.setAttribute('width', panelW);
+        overlay.setAttribute('height', panelH);
+      };
       const askQ = new Float64Array(runModel.nq);
       const cmpQ = new Float64Array(runModel.nq);
       // The pose the technique is aiming at IS its last knot. Drag that cell
@@ -1656,9 +1688,15 @@
       };
       paintRamp();
 
-      return html`<figure>
-        <div class="spline-controls" style="margin-bottom:8px;">${pick}</div>
-        ${subLabel}${stage}
+      // What you WATCH, and what you SET. The figure holds the movement, the
+      // poses and the timeline; every knob lives in a box beside it, which is
+      // also what expandable() floats into a panel when the figure is opened
+      // out. The transport stays with the figure because it drives the thing
+      // being watched, and the verdict and legend stay because they are
+      // readouts of it, not settings. So does the technique picker: it names
+      // what you are looking at, and a figure that cannot say which technique
+      // it is showing has lost something a settings box does not give back.
+      const chromeEl = html`<div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0 0;">
           ${playBtn}${optRun}${optStop}${spark}${statusEl}
         </div>
@@ -1669,15 +1707,62 @@
           key(ramp, 'strength used')}${
           key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
         ${verdict}
+      </div>`;
+
+      const controlsBox = html`<div class="technique-controls">
         <div class="spline-controls">${poses}${durInput}${resetBtn}</div>
         <div class="spline-controls">${optGens}${optSeed}</div>
         ${head('body')}
         <div class="spline-controls">${inShoulder}${inHam}</div>
         <div class="spline-controls">${inShFlex}${inWrExt}</div>
+      </div>`;
+
+      // Everything above the stage, in one element, for the same reason
+      // everything below it is in one: the stage is given whatever height is
+      // left over, and a leftover is only as honest as the measurement it is
+      // subtracted from. A magic number here clipped the verdict off the
+      // bottom the moment the picker moved back into the figure.
+      const headEl = html`<div>
+        <div class="spline-controls" style="margin-bottom:8px;">${pick}</div>
+        ${subLabel}
+      </div>`;
+      const figure = html`<figure>
+        ${headEl}${stage}${chromeEl}
         <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration — ${freeEl} of them, once the poses you are holding are set aside. <b>Lock a pose</b> and the search leaves it exactly where you put it. <b>Drag one along the timeline</b> and you have changed the phrasing: two key poses a tenth of a second apart is a snap, and evenly spaced poses cannot say one. The search scores the phrasing but never chooses it — it still cannot move a pose <em>earlier or later</em>, you can. The first cell is where the body <em>starts</em>, which each scenario solves from the body rather than searching for; the last is where it is trying to end, so drag that one and you have asked for a pike or a planche instead, and it is held for the same reason. Changing the number of poses refits the technique — the closest curve the new count can draw — and returns the phrasing to even.</figcaption>
       </figure>`;
+
+      const redraw = () => { dirty = chromeDirty = true; };
+      return { figure, controlsBox, headEl, chromeEl, sizeStage, story, strip, colsFor, redraw, stageH: STAGE_H };
     })();
-    display(techniqueFigure);
+    // The figure first. Eight sliders ahead of it is a wall the reader has to
+    // climb before reaching the thing the sliders act on; expandable() resolves
+    // the controls selector when it expands, not when it is built, so the box
+    // is free to sit below.
+    display(expandable(techniqueFigure.figure, {
+      id: 'technique-editor',
+      width: Math.min(width, 640),
+      // Collapsed, the stage keeps the height it always had and the figure is
+      // as tall as its contents; expandable measures that itself. This number
+      // only matters expanded, where onResize divides it up.
+      height: techniqueFigure.stageH,
+      controls: '.technique-controls',
+      state: editState.ui,
+      onResize(el, w, h, expanded) {
+        // Width first: the storyboard's thumbnails and the timeline both get
+        // taller or shorter as they get wider, and the stage is given whatever
+        // vertical room is left over -- so their heights have to be settled
+        // before there is a leftover to measure.
+        techniqueFigure.story.resize(w, techniqueFigure.colsFor(w));
+        techniqueFigure.strip.resize(w);
+        const stageH = expanded
+          ? Math.max(220, h - techniqueFigure.headEl.offsetHeight
+            - techniqueFigure.chromeEl.offsetHeight - 8)
+          : techniqueFigure.stageH;
+        techniqueFigure.sizeStage(w, stageH);
+        techniqueFigure.redraw();
+      },
+    }));
+    display(techniqueFigure.controlsBox);
   </script>
   <script id="optimizer-section" type="text/markdown">
     ## What the search is actually doing
