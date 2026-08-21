@@ -54,7 +54,7 @@
     import {
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
-      SYMMETRIC_SCENARIOS,
+      SYMMETRIC_SCENARIOS, symmetrizeKnots,
     } from './rollout.js';
     import * as FIG from './figure-kit.js';
     import { PRESET_TRAJECTORIES } from './presets.js';
@@ -898,11 +898,31 @@
       // Reset restores THIS, not the stored count: at four poses a six-pose
       // technique cannot be represented exactly, and pretending otherwise
       // would mean Reset silently changed a setting.
-      const baseKnots = simResult.knots[0].length === K
+      // Mirrored for a symmetric skill, because the search cannot represent
+      // anything else. Mirroring left onto right is how the optimizer stops a
+      // press arriving with one leg straight and the other folded, and it
+      // happens AFTER the decision vector is decoded -- so a technique that
+      // reaches the search lopsided is silently straightened before it is
+      // scored, and the search's answer describes a movement the page was
+      // never showing. The stored pike carries eight degrees of hip and
+      // sixteen of knee asymmetry from before that rule existed; scored and
+      // played, those were two techniques seventeen degrees apart. The
+      // handles already keep an edited pose symmetric (the right leg gets
+      // none); this is the same rule applied on the way in.
+      const sym = (kn) => (symmetric ? symmetrizeKnots(kn) : kn);
+      const baseKnots = sym(simResult.knots[0].length === K
         ? simResult.knots.map((k) => Float64Array.from(k))
-        : FIG.resampleKnots(simResult.knots, simResult.T, K);
+        : FIG.resampleKnots(simResult.knots, simResult.T, K));
 
-      let refitted = false;
+      // Whether the technique on screen is still the one the run beside it was
+      // produced from. Both a refit and a mirroring change the knots without
+      // touching the recording, and a figure whose grey poses have moved while
+      // its coloured body has not is the exact confusion this figure was built
+      // to remove -- so either one means re-simulate rather than re-lay-out.
+      let stale = false;
+      const differs = (a, b) => a[0].length !== b[0].length
+        || a.some((row, j) => row.some((v, k) => v !== b[j][k]));
+
       const sameRun = editState.base === simResult && editState.knots;
       editState.base = simResult;
       if (!sameRun) {
@@ -911,11 +931,15 @@
         editState.run = simResult;
         editState.edited = false;
         editState.q0 = null;
+        // The stored run was made from the stored knots. If asking for a
+        // different number of poses, or mirroring a symmetric skill, moved
+        // them, that run is no longer this technique.
+        stale = differs(baseKnots, simResult.knots);
       } else if (editState.knots[0].length !== K) {
         // An edit in progress survives a change of count: the curve is
         // refitted with the new number of knots rather than thrown away.
-        editState.knots = FIG.resampleKnots(editState.knots, editState.T, K);
-        refitted = true;
+        editState.knots = sym(FIG.resampleKnots(editState.knots, editState.T, K));
+        stale = true;
       }
 
       const dpr = devicePixelRatio;
@@ -1015,12 +1039,20 @@
           stageCtx.moveTo(0, floorY);
           stageCtx.lineTo(panelW, floorY);
           stageCtx.stroke();
-          const u = Math.min(Math.max(t / xEnd, 0), 1);
+          // Indexed by the clock, not by fraction-of-window. A candidate's
+          // frames span the whole rollout it was SCORED over -- through the
+          // settle tail -- while the window this figure plays stops a second
+          // after the movement ends, so dividing by xEnd ran the field half
+          // again too fast and left it parked in a settle the body beside it
+          // had not reached. Both are now the same second of the same clock.
           drawGhosts(stageCtx, {
             ...common, alpha: 0.2,
-            poses: field.map((c) => ({
-              q: c.frames?.[Math.min(c.frames.length - 1, Math.round(u * (c.frames.length - 1)))],
-            })).filter((c) => c.q),
+            poses: field.map((c) => {
+              const n = c.frames?.length || 0;
+              if (!n) return {};
+              const u = Math.min(Math.max(t / (c.dur || xEnd), 0), 1);
+              return { q: c.frames[Math.min(n - 1, Math.round(u * (n - 1)))] };
+            }).filter((c) => c.q),
           });
           syncHandles([]);
           subLabel.textContent = `${t.toFixed(2)}s · ${field.length} candidates this generation`;
@@ -1396,6 +1428,25 @@
             status = `done · cost ${data.fineCost.toFixed(2)}`;
             pending = null;
             adopt(data);
+            // The search reports what it scored; the figure has just
+            // replayed the same technique. Those are two call sites for one
+            // rollout, and every time they have drifted apart -- a start the
+            // search solved for itself, an ending it pinned to a handstand, a
+            // symmetric skill it straightened -- it read on screen as a
+            // search that succeeded and a body that fell, with no number
+            // saying so. They agree to the last bit when nothing is wrong, so
+            // any disagreement at all is worth a line in the console.
+            try {
+              const got = editState.run?.verdict;
+              if (got && !!got.success !== !!data.verdict?.success) {
+                console.warn('the search and the replay disagree about this technique:',
+                  `search ${data.verdict?.success ? 'arrives' : 'falls'} at cost ${data.fineCost?.toFixed(3)},`,
+                  `replay ${got.success ? 'arrives' : 'falls'} with the centre of mass at ${got.comY?.toFixed(3)} m.`,
+                  '\n  search plant:', data.plant, '\n  replay plant:', editState.run?.plant,
+                  '\n  search body:', data.body, '\n  replay body:', editState.run?.body,
+                  '\n  numerics:', data.numerics, editState.run?.numerics);
+              }
+            } catch (e) { console.warn('could not compare the search with the replay', e); }
             stopSearch();
           }
           dirty = chromeDirty = true;
@@ -1451,6 +1502,10 @@
           // way back.
           q0: editState.q0 ? Array.from(editState.q0) : null,
           target: Array.from(targetQ()),
+          // And the machine. Everything else the page owns already travels --
+          // the body, the strength, the anatomy, the start, the ending -- and
+          // the plant was the one thing the search still supplied itself.
+          plant: resolvePlant(simResult.stored?.config),
         });
         dirty = chromeDirty = true;
       });
@@ -1508,7 +1563,7 @@
         }
       });
       invalidation.then(() => loop.cancel());
-      if (refitted) resim(); else relayout();
+      if (stale) resim(); else relayout();
       const stopTheme = observeTheme((th) => { theme = th; relayout(); });
       invalidation.then(stopTheme);
 

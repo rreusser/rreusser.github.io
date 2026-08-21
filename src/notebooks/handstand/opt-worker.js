@@ -117,7 +117,7 @@ async function handle(msg) {
       strengthOpts: msg.strengthOpts, romOverrides: msg.romOverrides,
       // The start the page is showing, so every core scores the same problem
       // the page will replay.
-      q0: msg.q0 || null, target: msg.target || null,
+      q0: msg.q0 || null, target: msg.target || null, plant: msg.plant || null,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
     const result = await optimizeScenario(model, ws, prof, rom, {
@@ -128,7 +128,7 @@ async function handle(msg) {
         const stride = Math.max(1, Math.round(rec.q.length / GHOST_FRAMES));
         const frames = [];
         for (let k = 0; k < rec.q.length; k += stride) frames.push(Array.from(rec.q[k]));
-        genPoses.push({ frames, cost: c.cost, success: !!c.verdict?.success });
+        genPoses.push({ frames, cost: c.cost, success: !!c.verdict?.success, dur: rec.t[rec.t.length - 1] });
       },
       scenario: msg.scenario,
       seed: msg.seed ?? 7,
@@ -148,6 +148,9 @@ async function handle(msg) {
       x0: msg.x0 ? Float64Array.from(msg.x0) : null,
       q0: msg.q0 || null,
       target: msg.target || null,
+      // And the plant, for the same reason as the start and the ending: the
+      // page owns the machine, the search must not substitute its own.
+      plant: msg.plant || null,
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === (msg.maxGen ?? 150) - 1) {
@@ -170,7 +173,7 @@ async function handle(msg) {
             // The machine the search is running on, so a run that is stopped
             // rather than finished is still replayable on the one that
             // produced it.
-            plant: plantFor({}),
+            plant: plantFor(msg.plant || {}),
             numerics: { ...NUMERICS_DEFAULTS },
             body: {
               heightM: model.heightM, massKg: model.massKg,

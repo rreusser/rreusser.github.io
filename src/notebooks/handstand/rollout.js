@@ -557,11 +557,19 @@ export const WORK_EFFICIENCY = { concentric: 0.25, eccentric: 1.2 };
 // a final-instant velocity check sees a momentarily slow body that is
 // visibly about to topple.
 export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
+  // The machine to score on. A search that scores on today's defaults while
+  // the page replays on the plant its artifact recorded is the same failure as
+  // scoring from a different start: two problems wearing one set of knots. The
+  // page owns the plant, so it hands it in; leaving this null keeps the old
+  // behaviour of scoring on the defaults.
+  plant = null,
   K = 6, dt = 5e-4, settleT = 2.5, weights = COST_WEIGHTS,
-  qdJitter = 0, jitterSeed = 1, integrator = 'si',
-  // Plant knobs a robustness variant may perturb. They default to the
-  // current plant, so scoring a candidate without variants is unchanged.
-  contactZeta = PLANT_DEFAULTS.contactZeta, mu = PLANT_DEFAULTS.mu,
+  qdJitter = 0, jitterSeed = 1, integrator = plant?.integrator ?? 'si',
+  // Plant knobs a robustness variant may perturb. They default to the plant
+  // being scored on, so a variant that names one still wins and one that does
+  // not leaves it alone.
+  contactZeta = plant?.contactZeta ?? PLANT_DEFAULTS.contactZeta,
+  mu = plant?.mu ?? PLANT_DEFAULTS.mu,
   pinFinal = true,
   // The pose the body starts in, when it is being constructed rather than
   // solved. It has to reach the SCORING rollout, not only a replay: a search
@@ -586,6 +594,10 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     for (let j = 0; j < 6; j++) knots[j][knots[j].length - 1] = balanced[3 + j];
   }
   const r = runScenario(model, ws, strengthProf, {
+    // Plant first: everything named after it is either a knob a variant may
+    // perturb (and those already default to the plant's own value) or a
+    // property of this rollout rather than of the machine.
+    ...(plant || {}),
     scenario, knots, T, settleT, dt, integrator, qdJitter, jitterSeed, rom,
     contactZeta, mu, q0, target: balanced,
     recordEvery: Math.max(1, Math.round(1 / (120 * dt))),
@@ -1046,7 +1058,7 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
 // finalCheck is an independent fine-timestep nominal evaluation.
 export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
-  dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null,
+  dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
   trustRadius = 0, q0 = null, target = null,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
@@ -1081,7 +1093,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
-  const costOpts = { K, dt, weights, q0, target, ...(variants ? { variants } : {}) };
+  const costOpts = { K, dt, weights, q0, target, plant, ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
       const c = costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
@@ -1099,7 +1111,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     objectiveBatch,
     onGeneration,
   });
-  const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX, { K, dt: 2e-4, weights, q0, target });
+  const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX, { K, dt: 2e-4, weights, q0, target, plant });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
   const decoded = decodeDecision(result.bestX, K);
