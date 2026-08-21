@@ -20,7 +20,7 @@ import { drawScene } from './render.js';
 import { availableTorque } from './strength.js';
 import { jointLimits, groundHand } from './statics.js';
 import { JOINT_ORDER } from './control.js';
-import { evalReference, splineEval } from './control.js';
+import { evalReference, splineEval, knotTimes } from './control.js';
 import { WORK_EFFICIENCY } from './rollout.js';
 
 // What the technique asks for: a neutral grey, everywhere a request appears.
@@ -97,10 +97,11 @@ export function frameAt(rec, t) {
 // just set snapped somewhere else the moment the drag was released. Planting
 // the hand makes a pose depend on exactly the numbers that define it.
 const refVal = new Float64Array(6), refRate = new Float64Array(6);
-export function requestPose(model, knots, T, t, out) {
+export function requestPose(model, knots, T, t, out, fracs = null) {
   out.fill(0);
   groundHand(model, out);
-  evalReference(knots, T, Math.min(t, T), refVal, refRate);
+  evalReference(knots, T, Math.min(t, T), refVal, refRate,
+    fracs ? knotTimes(T, knots[0].length, fracs) : null);
   for (let j = 0; j < 6; j++) out[3 + j] = refVal[j];
   return out;
 }
@@ -137,8 +138,14 @@ export function requestPose(model, knots, T, t, out) {
 // Refitting to the same count is the identity to roundoff: the old knots
 // already drive the residual to zero, and the normal equations are
 // nonsingular, so they are the unique minimizer.
-export function resampleKnots(knots, T, newK) {
+export function resampleKnots(knots, T, newK, fracs = null) {
   const K = Math.max(1, Math.round(newK));
+  // The OLD curve is read with the phrasing it was authored in; the new one
+  // is fitted evenly spaced. A different number of poses is a different set
+  // of instants, so timing you placed by hand cannot survive the change and
+  // pretending otherwise would put poses where you did not put them.
+  const oldTimes = fracs && fracs.length === knots[0].length
+    ? knotTimes(T, knots[0].length, fracs) : null;
   const M = 24 * K + 256;                     // dense enough that the fit is the curve's, not the sampling's
   const basis = [];                           // basis[k][m] = value at t_m of the curve for knots e_k
   const unit = new Float64Array(K);
@@ -171,7 +178,7 @@ export function resampleKnots(knots, T, newK) {
     const last = knots[j][knots[j].length - 1];
     row[K - 1] = last;
     for (let m = 0; m < M; m++) {
-      y[m] = splineEval(knots[j], T, (m / (M - 1)) * T).value - last * basis[K - 1][m];
+      y[m] = splineEval(knots[j], T, (m / (M - 1)) * T, oldTimes).value - last * basis[K - 1][m];
     }
     for (let p = 0; p < n; p++) {
       let s = 0;
@@ -223,10 +230,16 @@ export function analyzeRun(run, prof, model) {
   const m = run.model || model;
   const peak = new Float64Array(6), satT = new Float64Array(6), err = new Float64Array(6);
   const v = new Float64Array(6), r = new Float64Array(6);
+  // The phrasing the run was produced with, read off the run rather than
+  // assumed even: a technique whose poses are unevenly spaced tracks a
+  // different reference, and scoring it against an even one would report a
+  // tracking error the servo was never asked for.
+  const refTimes = run.knotFracs && run.knotFracs.length === run.knots[0].length
+    ? knotTimes(run.T, run.knots[0].length, run.knotFracs) : null;
   let n = 0, pos = 0, neg = 0;
   for (let k = 0; k < rec.t.length; k++) {
     const dts = k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
-    evalReference(run.knots, run.T, Math.min(rec.t[k], run.T), v, r);
+    evalReference(run.knots, run.T, Math.min(rec.t[k], run.T), v, r, refTimes);
     const driving = rec.t[k] <= run.T;
     if (driving) n++;
     for (let j = 0; j < 6; j++) {
@@ -278,7 +291,17 @@ export function verdictHTML(stats, baseline = null) {
 //   orange band    the joint is outside its own range of motion
 //   pale uprights  where the K poses fall, so the storyboard above and the
 //                  timeline below are one picture rather than two
-export function createStrip({ width, rowH = 18, gutter = 58, dpr = 1, onSeek = null }) {
+export function createStrip({
+  width, rowH = 18, gutter = 58, dpr = 1, onSeek = null,
+  // Dragging a pose along the timeline. onKnotDrag(k, frac, settled) is called
+  // with the pose's index, where it now sits as a fraction of the duration,
+  // and whether the finger has come off -- so a caller can redraw during the
+  // gesture and re-simulate only once, at the end. onKnotPick(k) fires on grab
+  // so the figure can select the pose you took hold of. The first and last
+  // poses are the two ends of the movement and do not move; everything
+  // between them does.
+  onKnotDrag = null, onKnotPick = null,
+}) {
   const height = JOINTS.length * rowH + 20;
   const canvas = document.createElement('canvas');
   canvas.style.width = `${width}px`;
@@ -295,27 +318,72 @@ export function createStrip({ width, rowH = 18, gutter = 58, dpr = 1, onSeek = n
   let state = null;
 
   const box = document.createElement('div');
+  // On the outer HTML container, not the canvas: without it a touch drag both
+  // scrolls the page and dies mid-gesture, because scrolling fires
+  // pointercancel.
   box.style.touchAction = 'none';
   box.appendChild(canvas);
-  if (onSeek) {
+  // How close to a pose's line counts as grabbing it rather than scrubbing.
+  const GRAB_PX = 6;
+  // How close two poses may sit. The reference rate between them goes as one
+  // over the gap, so zero would be a step the servo is asked to track in no
+  // time at all; two per cent of the duration is a snap and still a number.
+  const MIN_GAP = 0.02;
+  if (onSeek || onKnotDrag) {
     canvas.style.cursor = 'col-resize';
-    let seeking = null;
-    const seek = (e) => {
+    let seeking = null, dragging = -1, lastFrac = 0;
+    const atX = (e) => {
       const r = canvas.getBoundingClientRect();
       const x = (e.clientX - r.left) * (width / (r.width || width));
-      if (state) onSeek(Math.min(Math.max((x - gutter) / plotW, 0), 1) * state.xEnd);
+      return Math.min(Math.max((x - gutter) / plotW, 0), 1);
+    };
+    // Which movable pose, if any, is under the pointer.
+    const grab = (e) => {
+      if (!onKnotDrag || !state?.knotTimes?.length) return -1;
+      const r = canvas.getBoundingClientRect();
+      const x = (e.clientX - r.left) * (width / (r.width || width));
+      let best = -1, bestD = GRAB_PX;
+      for (let k = 1; k < state.knotTimes.length - 1; k++) {
+        const d = Math.abs(toX(state.knotTimes[k], state.xEnd) - x);
+        if (d <= bestD) { bestD = d; best = k; }
+      }
+      return best;
+    };
+    const dragTo = (e) => {
+      const K = state.knotTimes.length;
+      const lo = (state.knotTimes[dragging - 1] / state.T) + MIN_GAP;
+      const hi = (dragging + 1 < K ? state.knotTimes[dragging + 1] / state.T : 1) - MIN_GAP;
+      const frac = (atX(e) * state.xEnd) / state.T;
+      lastFrac = Math.min(Math.max(frac, lo), Math.min(hi, 1 - MIN_GAP));
+      onKnotDrag(dragging, lastFrac, false);
     };
     canvas.addEventListener('pointerdown', (e) => {
       seeking = e.pointerId;
       canvas.setPointerCapture?.(e.pointerId);
-      seek(e);
+      dragging = grab(e);
+      if (dragging > 0) {
+        lastFrac = state.knotTimes[dragging] / state.T;
+        onKnotPick?.(dragging);
+      } else onSeek?.(atX(e) * state.xEnd);
       e.preventDefault();
     });
-    canvas.addEventListener('pointermove', (e) => { if (seeking === e.pointerId) seek(e); });
+    canvas.addEventListener('pointermove', (e) => {
+      if (seeking !== e.pointerId) {
+        // Not dragging: say whether a grab is available here.
+        canvas.style.cursor = grab(e) > 0 ? 'ew-resize' : 'col-resize';
+        return;
+      }
+      if (dragging > 0) dragTo(e); else onSeek?.(atX(e) * state.xEnd);
+    });
     const stop = (e) => {
       if (seeking !== e.pointerId) return;
       canvas.releasePointerCapture?.(e.pointerId);
       seeking = null;
+      // The physics re-runs here and not before. Re-simulating mid-gesture
+      // moves the body under the finger, which is the same reason dragging a
+      // limb waits for the release.
+      if (dragging > 0) onKnotDrag(dragging, lastFrac, true);
+      dragging = -1;
     };
     canvas.addEventListener('pointerup', stop);
     canvas.addEventListener('pointercancel', stop);
@@ -323,8 +391,8 @@ export function createStrip({ width, rowH = 18, gutter = 58, dpr = 1, onSeek = n
 
   // Everything that does not move goes into an offscreen canvas once per
   // simulation; the cursor is the only thing redrawn per frame.
-  const layout = ({ run, prof, rom, T, xEnd, theme, knotTimes = [] }) => {
-    state = { xEnd, T };
+  const layout = ({ run, prof, rom, T, xEnd, theme, knotTimes = [], locks = null }) => {
+    state = { xEnd, T, knotTimes };
     const rec = run.rec;
     const isDark = theme?.isDark ?? false;
     const fg = theme?.foreground || [0.11, 0.12, 0.14];
@@ -378,16 +446,29 @@ export function createStrip({ width, rowH = 18, gutter = 58, dpr = 1, onSeek = n
     });
 
     // Where the K poses fall. Faint, and neutral like the poses themselves, so
-    // the storyboard and the timeline are one picture.
-    ctx.strokeStyle = fgc(0.4);
-    ctx.lineWidth = 1;
-    for (const kt of knotTimes) {
+    // the storyboard and the timeline are one picture. The ones you can slide
+    // carry a grip at the foot of the line; the two ends of the movement do
+    // not, because they are the ends.
+    const rows = JOINTS.length * rowH - 2;
+    knotTimes.forEach((kt, k) => {
+      const held = locks?.[k];
       const x = Math.round(toX(kt, xEnd)) + 0.5;
+      ctx.strokeStyle = held ? fgc(0.75) : fgc(0.4);
+      ctx.lineWidth = held ? 1.5 : 1;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, JOINTS.length * rowH - 2);
+      ctx.lineTo(x, rows);
       ctx.stroke();
-    }
+      if (onKnotDrag && k > 0 && k < knotTimes.length - 1) {
+        ctx.fillStyle = fgc(held ? 0.75 : 0.4);
+        ctx.beginPath();
+        ctx.moveTo(x - 3.5, rows);
+        ctx.lineTo(x + 3.5, rows);
+        ctx.lineTo(x, rows - 5);
+        ctx.closePath();
+        ctx.fill();
+      }
+    });
 
     // Time axis: nothing but the two facts a reader needs, where the driven
     // phase ends and where the picture does.
@@ -435,7 +516,15 @@ export function createStrip({ width, rowH = 18, gutter = 58, dpr = 1, onSeek = n
 // rather than a knot matrix, because the first of them is not a knot: it is
 // where the body BEGINS, which is a different kind of thing and is drawn as
 // one (solid, because at t = 0 the body is actually there).
-export function createStoryboard({ n, cols, thumbW, thumbH, view, dpr = 1, onSelect = null }) {
+// canLock(k) says whether cell k has a lock at all and, if it does, whether
+// the reader may work it. The start pose has none -- it is where the body
+// begins, not something the search was ever free to move -- and the ending
+// pose is permanently locked, because being the pose the technique aims at is
+// what "ending pose" means.
+export function createStoryboard({
+  n, cols, thumbW, thumbH, view, dpr = 1, onSelect = null,
+  onLock = null, canLock = null,
+}) {
   const K = n;
   const element = document.createElement('div');
   element.style.display = 'grid';
@@ -443,6 +532,11 @@ export function createStoryboard({ n, cols, thumbW, thumbH, view, dpr = 1, onSel
   element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   element.style.maxWidth = '640px';
   const cells = [];
+  const cellLocks = [];
+  // Closed, and open: the shackle's right leg leaves the body rather than the
+  // whole glyph changing, so the two states are one object in two positions.
+  const SHUT = 'M3.4 6.4V4.3a2.6 2.6 0 0 1 5.2 0v2.1';
+  const OPEN = 'M3.4 6.4V4.3a2.6 2.6 0 0 1 5.2 0';
   for (let k = 0; k < K; k++) {
     const canvas = document.createElement('canvas');
     canvas.style.width = `${thumbW}px`;
@@ -452,24 +546,58 @@ export function createStoryboard({ n, cols, thumbW, thumbH, view, dpr = 1, onSel
     canvas.height = Math.round(thumbH * dpr);
     const cap = document.createElement('div');
     cap.style.cssText = 'font-size:10px; text-align:center; opacity:.7; font-variant-numeric:tabular-nums;';
-    let host = canvas.parentElement;
+    // A div rather than a button, because the lock is a button and a button
+    // inside a button is not a thing. It still behaves like one: pointer,
+    // keyboard, and a name for a screen reader.
+    const host = document.createElement('div');
+    host.style.cssText = 'position:relative; padding:1px; border:1.5px solid transparent;'
+      + 'border-radius:4px;' + (onSelect ? ' cursor:pointer;' : '');
+    host.append(canvas, cap);
     if (onSelect) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.style.cssText = 'padding:1px; background:none; cursor:pointer;'
-        + 'border:1.5px solid transparent; border-radius:4px;';
-      btn.append(canvas, cap);
-      btn.addEventListener('click', () => onSelect(k));
-      element.appendChild(btn);
-      host = btn;
-    } else {
-      const div = document.createElement('div');
-      div.style.cssText = 'padding:1px; border:1.5px solid transparent;';
-      div.append(canvas, cap);
-      element.appendChild(div);
-      host = div;
+      host.tabIndex = 0;
+      host.setAttribute('role', 'button');
+      host.addEventListener('click', () => onSelect(k));
+      host.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(k); }
+      });
     }
-    cells.push({ canvas, cap, host });
+    let lockBtn = null, shackle = null;
+    const lockable = canLock ? canLock(k) : null;
+    if (onLock && lockable) {
+      lockBtn = document.createElement('button');
+      lockBtn.type = 'button';
+      lockBtn.style.cssText = 'position:absolute; top:2px; right:2px; width:18px; height:18px;'
+        + 'padding:0; display:grid; place-items:center; border-radius:4px; background:none;'
+        + 'border:1px solid transparent; color:currentColor;'
+        + (lockable === 'fixed' ? ' cursor:default;' : ' cursor:pointer;');
+      // Drawn rather than typed. The obvious padlock is an emoji, and an emoji
+      // is a full-colour picture in a figure whose whole palette is one grey,
+      // one blue-to-red ramp and one orange -- it reads as a sticker stuck on
+      // the storyboard rather than a control belonging to it.
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 12 14');
+      svg.setAttribute('width', '11');
+      svg.setAttribute('height', '13');
+      shackle = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      shackle.setAttribute('fill', 'none');
+      shackle.setAttribute('stroke', 'currentColor');
+      shackle.setAttribute('stroke-width', '1.5');
+      const body = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      body.setAttribute('x', '1.4'); body.setAttribute('y', '6.4');
+      body.setAttribute('width', '9.2'); body.setAttribute('height', '6.6');
+      body.setAttribute('rx', '1.5'); body.setAttribute('fill', 'currentColor');
+      svg.append(shackle, body);
+      lockBtn.appendChild(svg);
+      if (lockable !== 'fixed') {
+        lockBtn.addEventListener('click', (e) => { e.stopPropagation(); onLock(k); });
+      } else {
+        lockBtn.disabled = true;
+      }
+      host.appendChild(lockBtn);
+    }
+    cellLocks.push(shackle);
+    element.appendChild(host);
+    cells.push({ canvas, cap, host, lockBtn });
   }
 
   // A request is drawn in the request grey; a body is drawn as a body.
@@ -486,6 +614,17 @@ export function createStoryboard({ n, cols, thumbW, thumbH, view, dpr = 1, onSel
       });
       cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
       cells[k].cap.textContent = it.label;
+      const btn = cells[k].lockBtn;
+      if (btn) {
+        cellLocks[k]?.setAttribute('d', it.locked ? SHUT : OPEN);
+        btn.style.opacity = it.locked ? '0.9' : '0.3';
+        btn.style.borderColor = it.locked ? REQUEST_COLOR : 'transparent';
+        btn.setAttribute('aria-pressed', it.locked ? 'true' : 'false');
+        btn.setAttribute('aria-label', it.locked ? 'held; release this pose' : 'free; hold this pose');
+        btn.title = btn.disabled
+          ? 'the pose the technique ends in — always held'
+          : it.locked ? 'held: the search may not move this pose' : 'free: the search may move this pose';
+      }
     }
   };
   return { element, draw, cells };

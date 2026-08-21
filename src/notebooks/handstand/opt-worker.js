@@ -8,7 +8,7 @@ import { strengthProfile } from './strength.js';
 import { ROM_DEFAULTS } from './statics.js';
 import {
   optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision, plantFor,
-  balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS, NUMERICS_DEFAULTS,
+  balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS, NUMERICS_DEFAULTS, applyLocks,
 } from './rollout.js';
 
 // A pool of nested evaluation workers, so a generation is spread across
@@ -118,6 +118,7 @@ async function handle(msg) {
       // The start the page is showing, so every core scores the same problem
       // the page will replay.
       q0: msg.q0 || null, target: msg.target || null, plant: msg.plant || null,
+      knotFracs: msg.knotFracs || null, locks: msg.locks || null,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
     const result = await optimizeScenario(model, ws, prof, rom, {
@@ -151,6 +152,11 @@ async function handle(msg) {
       // And the plant, for the same reason as the start and the ending: the
       // page owns the machine, the search must not substitute its own.
       plant: msg.plant || null,
+      // Where the poses fall, and which of them are held by hand. Phrasing is
+      // authored rather than searched, so the search's job is to score the
+      // phrasing it was given; a held pose it simply may not move.
+      knotFracs: msg.knotFracs || null,
+      locks: msg.locks || null,
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === (msg.maxGen ?? 150) - 1) {
@@ -161,6 +167,7 @@ async function handle(msg) {
           // right-leg parameters happen to say. Stop, save, and it fell over.
           const dec = decodeDecision(g.bestX, msg.K ?? 6);
           if (SYMMETRIC_SCENARIOS.has(msg.scenario)) symmetrizeKnots(dec.knots);
+          applyLocks(dec.knots, msg.locks || null);
           const qBal = msg.target ? Float64Array.from(msg.target) : balancedHandstand(model, ws);
           for (let j = 0; j < 6; j++) dec.knots[j][dec.knots[j].length - 1] = qBal[3 + j];
           // Cheapest candidate first, so the viewer can draw the leader

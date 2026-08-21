@@ -12,7 +12,7 @@ import {
 import { createContacts } from './contact.js';
 import { createJointStops } from './joint-stops.js';
 import { simulate } from './integrate.js';
-import { createServo, createBalanceControl } from './control.js';
+import { createServo, createBalanceControl, knotTimes, evenlySpaced } from './control.js';
 import { availableTorque } from './strength.js';
 import { cmaes, mulberry32 } from './cma-es.js';
 
@@ -395,7 +395,7 @@ export function resolveRom(rom) {
 // treatment let the optimizer buy 30 degrees of impossible wrist flexion
 // for about one cost unit). Hip bounds use the absolute (bent-knee) cap;
 // the hamstring coupling with the knee remains a cost-side constraint.
-export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null } = {}) {
+export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null, locks = null } = {}) {
   const jointLo = rom
     ? [wristQ3LimitsDeg(rom).lo * D2R,
       // The same bound the passive end-stop enforces: a shoulder that only
@@ -416,7 +416,33 @@ export function decisionBounds(K, { tLo = 0.6, tHi = 3.0, rom = null } = {}) {
     for (let k = 0; k < K; k++) { lo[j * K + k] = jointLo[j]; hi[j * K + k] = jointHi[j]; }
   }
   lo[n - 1] = tLo; hi[n - 1] = tHi;
+  // A locked pose is not a decision. Collapsing its bounds onto the value it
+  // is held at is not the thing that KEEPS it there -- rolloutCost writes it
+  // back after decoding, the way it already does for the ending pose -- but
+  // it stops the search spending step-size adaptation on dimensions that
+  // cannot change the cost.
+  if (locks) {
+    for (let k = 0; k < K; k++) {
+      if (!locks[k]) continue;
+      for (let j = 0; j < 6; j++) {
+        const v = Math.min(Math.max(locks[k][j], lo[j * K + k]), hi[j * K + k]);
+        lo[j * K + k] = v; hi[j * K + k] = v;
+      }
+    }
+  }
   return { lo, hi };
+}
+
+// Hold every locked pose at the angles it is locked to. Applied after the
+// symmetry mirror, so a lock means the pose you can see rather than the pose
+// it would have been straightened into.
+export function applyLocks(knots, locks) {
+  if (!locks) return knots;
+  for (let k = 0; k < knots[0].length; k++) {
+    if (!locks[k]) continue;
+    for (let j = 0; j < 6; j++) knots[j][k] = locks[k][j];
+  }
+  return knots;
 }
 
 // Skills whose two legs do the same thing. The decision vector carries a hip
@@ -571,6 +597,16 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   contactZeta = plant?.contactZeta ?? PLANT_DEFAULTS.contactZeta,
   mu = plant?.mu ?? PLANT_DEFAULTS.mu,
   pinFinal = true,
+  // Where the poses fall in time, as fractions of the duration. The search
+  // does not move them -- they are phrasing, and phrasing is authored -- but
+  // it has to SCORE the phrasing the page is showing, or a technique whose
+  // two key poses sit a tenth of a second apart is scored as one that spaces
+  // them evenly. Null is the even spacing.
+  knotFracs = null,
+  // Poses held by hand: locks[k] is the six angles pose k is pinned to, or a
+  // falsy entry for one the search may move. This is the same mechanism as
+  // pinFinal, which is simply the ending pose being permanently locked.
+  locks = null,
   // The pose the body starts in, when it is being constructed rather than
   // solved. It has to reach the SCORING rollout, not only a replay: a search
   // that scores from one start while the page replays from another is two
@@ -585,6 +621,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
 } = {}) {
   const { knots, T } = decodeDecision(x, K);
   if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(knots);
+  applyLocks(knots, locks);
   const balanced = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   // A technique ends in the pose it is aimed at, by definition: the final knot
   // is that pose, not a free parameter. Otherwise the settle-phase servo holds
@@ -599,7 +636,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     // property of this rollout rather than of the machine.
     ...(plant || {}),
     scenario, knots, T, settleT, dt, integrator, qdJitter, jitterSeed, rom,
-    contactZeta, mu, q0, target: balanced,
+    contactZeta, mu, q0, target: balanced, knotFracs,
     recordEvery: Math.max(1, Math.round(1 / (120 * dt))),
   });
   const rec = r.rec;
@@ -1059,6 +1096,7 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
 export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
   dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
+  knotFracs = null, locks = null,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
   trustRadius = 0, q0 = null, target = null,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
@@ -1073,7 +1111,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
           : naiveReference(model, ws, scenario, K, rom);
     return encodeDecision(ref.knots, Math.min(Math.max(t0, tLo), tHi));
   })();
-  const bounds = decisionBounds(K, { tLo, tHi, rom });
+  const bounds = decisionBounds(K, { tLo, tHi, rom, locks });
   // The start pose may sit exactly on (or, via clamping order, a hair past)
   // a ROM bound; give the start itself room.
   for (let i = 0; i < start.length; i++) {
@@ -1093,7 +1131,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
-  const costOpts = { K, dt, weights, q0, target, plant, ...(variants ? { variants } : {}) };
+  const costOpts = { K, dt, weights, q0, target, plant, knotFracs, locks, ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
       const c = costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
@@ -1111,11 +1149,13 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     objectiveBatch,
     onGeneration,
   });
-  const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX, { K, dt: 2e-4, weights, q0, target, plant });
+  const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX,
+    { K, dt: 2e-4, weights, q0, target, plant, knotFracs, locks });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
   const decoded = decodeDecision(result.bestX, K);
   if (SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
+  applyLocks(decoded.knots, locks);
   const qBal = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
   return {
@@ -1204,6 +1244,10 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     // internal detail of a switch statement.
     q0: q0Given = null,
     T = 1.2,
+    // Where the poses fall inside [0, T], as fractions. Even spacing when
+    // absent, which is every technique recorded before phrasing could be
+    // authored -- so a stored artifact replays as the thing it was.
+    knotFracs = null,
     settleT = 1.0,
     dt = 2e-4,
     recordEvery = null,
@@ -1227,6 +1271,14 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     for (let j = 3; j < model.nq; j++) qd0[j] += (2 * rand() - 1) * qdJitter;
   }
   const ref = knots || naiveReference(model, ws, scenario, 6, rom).knots;
+  // Ignored rather than trusted if it does not describe THESE knots: a stale
+  // set of fractions is a silently different technique, and the fallback --
+  // even spacing -- is the only other thing it could honestly mean. Phrasing
+  // that IS even is dropped here rather than carried, so a caller that always
+  // passes fractions and one that passes none run the same arithmetic.
+  const fracs = knotFracs && knotFracs.length === ref[0].length && !evenlySpaced(knotFracs)
+    ? Float64Array.from(knotFracs) : null;
+  const times = fracs ? knotTimes(T, ref[0].length, fracs) : null;
   const servo = createServo(model, strengthProf, {
     kp, kd, ws, activationTau, dampingRatio, brakeMargin, inertiaHz, dampingSpeed,
   });
@@ -1260,7 +1312,7 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     jointDamping: servo.damping,
     appliedTorque: servo.applied,
     jointStops: stops,
-    control: servo.makeControl(ref, T, augment),
+    control: servo.makeControl(ref, T, augment, times),
     recordEvery,
   });
   const mo = momenta(model, out.q, out.qd, ws);
@@ -1297,6 +1349,9 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   const feetFree = (contacts.ext.fy[2] + contacts.ext.fy[3]) < 0.05 * W;
   return {
     ...out, contacts, servo, stops, knots: ref, T, settleT, plant,
+    // Reported like the plant and the body: what this rollout actually
+    // phrased, so a replay of it reproduces the phrasing too.
+    knotFracs: fracs,
     // Reported, not assembled: the integration this rollout used and the body
     // it ran on, so a producer records what actually happened.
     numerics: { dt, settleT },

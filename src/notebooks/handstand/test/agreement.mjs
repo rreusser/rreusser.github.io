@@ -49,19 +49,19 @@ function pageBody(stored) {
 }
 
 // The two call sites, given identical inputs.
-const scored = (m, stored, knots, T, q0, target) =>
+const scored = (m, stored, knots, T, q0, target, fracs = null) =>
   rolloutCost(m.model, m.ws, m.prof, m.rom, stored.scenario,
     encodeDecision(knots.map((k) => Float64Array.from(k)), T), {
       K: knots[0].length, dt: DT, q0, target,
       // The page hands the search the machine it replays on, exactly as it
-      // hands it the body, the anatomy, the start and the ending.
-      plant: resolvePlant(stored.config),
+      // hands it the body, the anatomy, the start, the ending and the phrasing.
+      plant: resolvePlant(stored.config), knotFracs: fracs,
     });
 
-const played = (m, stored, knots, T, q0, target) =>
+const played = (m, stored, knots, T, q0, target, fracs = null) =>
   runScenario(m.model, m.ws, m.prof, {
     scenario: stored.scenario, knots: knots.map((k) => Float64Array.from(k)), T,
-    rom: m.rom, q0, target,
+    rom: m.rom, q0, target, knotFracs: fracs,
     ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
   });
 
@@ -92,7 +92,7 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   CASES.push({ label: `${name} as shipped`, m, stored, knots: base, T: stored.T, q0: null });
 
   // A dragged start: the page reads it back out of the run it just made.
-  const seed = played(m, stored, base, stored.T, null, targetOf(m, base));
+  const seed = played(m, stored, base, stored.T, null, targetOf(m, base), null);
   const q0 = Float64Array.from(seed.rec.q[0]);
   const q0Moved = Float64Array.from(q0);
   q0Moved[5] += 12 / D; q0Moved[6] -= 8 / D;                  // hip and knee, by hand
@@ -104,6 +104,12 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   const piked = base.map((k) => Float64Array.from(k));
   piked[2][K0 - 1] += 35 / D; piked[4][K0 - 1] += 35 / D;      // fold at the hips
   CASES.push({ label: `${name} pike ending`, m, stored, knots: asEdited(stored, piked), T: stored.T, q0: null });
+
+  // Phrasing placed by hand, with two poses close together -- the thing the
+  // timeline drag exists for.
+  CASES.push({ label: `${name} phrased by hand`, m, stored, knots: base, T: stored.T, q0: null,
+    fracs: Float64Array.from(Array.from({ length: K0 }, (_, k) => (k === 0 ? 0 : k === K0 - 1 ? 1
+      : [0.1, 0.18, 0.5, 0.72][(k - 1) % 4]))) });
 
   // A plant that is NOT today's defaults. Until the page began handing its
   // plant to the search, this was the last thing the search still supplied
@@ -122,8 +128,8 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
 let worstQ = 0, worstQd = 0, verdictSplits = 0, splitDetail = '';
 for (const c of CASES) {
   const target = targetOf(c.m, c.knots);
-  const a = scored(c.m, c.stored, c.knots, c.T, c.q0, target);
-  const b = played(c.m, c.stored, c.knots, c.T, c.q0, target);
+  const a = scored(c.m, c.stored, c.knots, c.T, c.q0, target, c.fracs || null);
+  const b = played(c.m, c.stored, c.knots, c.T, c.q0, target, c.fracs || null);
   // Matched by CLOCK, not by frame index. Scoring thins its recording to
   // about 120 Hz and a replay keeps more, so the two recordings sit on
   // different strides of the same integration -- comparing frame k to frame k

@@ -595,6 +595,9 @@
         // The pose it is aiming at: the last knot, which is why the search
         // does not move it and you can.
         target: p.target || null,
+        // Where the poses fall. Stored artifacts carry none and replay evenly
+        // spaced, exactly as they always did.
+        knotFracs: p.knotFracs || null,
         ...resolvePlant(p.config),
         ...resolveNumerics(p.numerics),
       }),
@@ -657,6 +660,7 @@
         ? (knots, T, over = null) => {
           const p = over
             ? { ...stored, knots, T, q0: over.q0 || null, target: over.target || null,
+              knotFracs: over.knotFracs || null,
               strength: over.strength || stored.strength, rom: over.rom || stored.rom }
             : { ...stored, knots, T };
           return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
@@ -668,7 +672,8 @@
           return {
             ...runScenario(model, ws, prof,
               { scenario: base, knots, T, settleT: 2.5, rom,
-                q0: over?.q0 || null, target: over?.target || null }),
+                q0: over?.q0 || null, target: over?.target || null,
+                knotFracs: over?.knotFracs || null }),
             prof, rom,
           };
         };
@@ -855,6 +860,13 @@
       knots: null,  // 6 x K, live and mutable
       q0: null,     // an edited start pose, or null for the one the scenario solves
       T: 0,
+      // Where the poses fall inside [0, T], as fractions, and which of them
+      // are held by hand. Both are per-technique and both survive an edit;
+      // both reset when the number of poses changes, because a different
+      // number of poses is a different set of instants and a different set of
+      // things to hold.
+      fracs: null,  // K fractions, 0 and 1 at the ends
+      held: null,   // K booleans; the last is always true -- it is the ending
       run: null,    // the replay of the CURRENT knots
       edited: false,
       notify: null,
@@ -910,9 +922,17 @@
       // handles already keep an edited pose symmetric (the right leg gets
       // none); this is the same rule applied on the way in.
       const sym = (kn) => (symmetric ? symmetrizeKnots(kn) : kn);
-      const baseKnots = sym(simResult.knots[0].length === K
+      const sameCount = simResult.knots[0].length === K;
+      const baseKnots = sym(sameCount
         ? simResult.knots.map((k) => Float64Array.from(k))
-        : FIG.resampleKnots(simResult.knots, simResult.T, K));
+        : FIG.resampleKnots(simResult.knots, simResult.T, K, simResult.knotFracs));
+      // Even spacing, and only the ending held. This is what a technique
+      // starts as and what Reset returns it to; a stored one may carry its own
+      // phrasing, and does when it was authored with any.
+      const evenFracs = () => Float64Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
+      const freshHeld = () => Array.from({ length: K }, (_, k) => k === K - 1);
+      const baseFracs = () => (sameCount && simResult.knotFracs?.length === K
+        ? Float64Array.from(simResult.knotFracs) : evenFracs());
 
       // Whether the technique on screen is still the one the run beside it was
       // produced from. Both a refit and a mirroring change the knots without
@@ -928,6 +948,8 @@
       if (!sameRun) {
         editState.knots = baseKnots.map((k) => Float64Array.from(k));
         editState.T = simResult.T;
+        editState.fracs = baseFracs();
+        editState.held = freshHeld();
         editState.run = simResult;
         editState.edited = false;
         editState.q0 = null;
@@ -938,9 +960,18 @@
       } else if (editState.knots[0].length !== K) {
         // An edit in progress survives a change of count: the curve is
         // refitted with the new number of knots rather than thrown away.
-        editState.knots = sym(FIG.resampleKnots(editState.knots, editState.T, K));
+        // Its phrasing does not: a different number of poses is a different
+        // set of instants, so timing placed by hand cannot be carried over
+        // without putting poses where nobody put them.
+        editState.knots = sym(FIG.resampleKnots(editState.knots, editState.T, K, editState.fracs));
+        editState.fracs = evenFracs();
+        editState.held = freshHeld();
         stale = true;
       }
+      // Belt and braces for a technique loaded before either existed.
+      if (editState.fracs?.length !== K) editState.fracs = evenFracs();
+      if (editState.held?.length !== K) editState.held = freshHeld();
+      editState.held[K - 1] = true;
 
       const dpr = devicePixelRatio;
       // Every reference pose has to fit, and a reference pose is not a pose the
@@ -965,7 +996,12 @@
       let t = 0, sel = 0, playing = false, lastNow = null;
       let dirty = true, chromeDirty = true, xEnd = 1;
       let searching = false, poolSize = null, status = '';
-      const knotTime = (k) => (K === 1 ? 0 : (k / (K - 1)) * editState.T);
+      const knotTime = (k) => editState.fracs[k] * editState.T;
+      // The held poses as the search wants them: the six angles each one is
+      // pinned to, or null where it is free to move. Read off the knots, so a
+      // pose you drag and then hold is held where you left it.
+      const lockValues = () => editState.held.map((on, k) => (on
+        ? Array.from({ length: 6 }, (_, j) => editState.knots[j][k]) : null));
       // sel is a STORYBOARD CELL: 0 is the start, 1..K are the knots, -1 is
       // "none, the movement is running". Selecting one also moves the clock to
       // it -- it used to leave the clock where it was, so the pose being
@@ -1071,7 +1107,7 @@
             ...common, q, segmentColors: sel === 0 ? null : FIG.requestTint(),
           }).handles.filter((h) => !lockedJoint(h.joint)));
         } else {
-          FIG.requestPose(m, editState.knots, editState.T, t, askQ);
+          FIG.requestPose(m, editState.knots, editState.T, t, askQ, editState.fracs);
           // Watching: what happened is solid, in its strength colours, over
           // the target it was chasing.
           // A third of the opacity it has while you are editing it: when the
@@ -1210,6 +1246,17 @@
 
       const story = FIG.createStoryboard({
         n: nCells, cols: thumbCols, thumbW, thumbH, view: VIEW, dpr, onSelect: selectCell,
+        // Cell 0 is the start, which the search never moved in the first
+        // place; the last cell is the ending pose, which it may never move.
+        // Everything between is yours to hold or release.
+        canLock: (i) => (i === 0 ? null : i === nCells - 1 ? 'fixed' : 'toggle'),
+        onLock: (i) => {
+          const k = i - 1;
+          editState.held[k] = !editState.held[k];
+          // Holding a pose does not change the movement -- it changes what the
+          // search is allowed to do with it -- so nothing is re-simulated.
+          chromeDirty = dirty = true;
+        },
       });
       const strip = FIG.createStrip({
         width: totalW, dpr,
@@ -1218,6 +1265,19 @@
           // chromeDirty too: without it the storyboard is never repainted and
           // the pose you last picked stays ringed while you scrub past it.
           dirty = chromeDirty = true;
+        },
+        // Sliding a pose along the timeline. Where the poses fall is phrasing,
+        // and a movement is mostly phrasing: two key poses a tenth of a second
+        // apart is a snap, and evenly spaced knots cannot say one at all. It
+        // re-simulates on the drop rather than during the drag, for the same
+        // reason dragging a limb does -- re-running the physics mid-gesture
+        // moves the floating base, and with it the thing under the finger.
+        onKnotPick: (k) => { selectCell(k + 1); },
+        onKnotDrag: (k, frac, settled) => {
+          editState.fracs[k] = frac;
+          t = knotTime(k);
+          dirty = chromeDirty = true;
+          if (settled) resim(); else relayout();
         },
       });
       // Mirrored from the picker above rather than duplicated: one technique,
@@ -1273,6 +1333,8 @@
         stopSearch();
         editState.knots = baseKnots.map((k) => Float64Array.from(k));
         editState.T = simResult.T;
+        editState.fracs = baseFracs();
+        editState.held = freshHeld();
         editState.q0 = null;
         durInput.value = simResult.T;
         bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
@@ -1295,7 +1357,8 @@
           // the sliders at their defaults it reproduces the stored body
           // exactly, which the artifact gates check.
           run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T,
-            { ...bodyOver(), q0: editState.q0, target: targetQ() });
+            { ...bodyOver(), q0: editState.q0, target: targetQ(),
+              knotFracs: Float64Array.from(editState.fracs) });
         } catch (err) { console.warn('replay failed', err); return; }
         // Read the start back out of the run. A start with a toe through the
         // floor is lifted clear before it is integrated, so this is what makes
@@ -1321,6 +1384,12 @@
       // widths and not at others. The generation and the cost are the two
       // things that change; the sparkline beside it already says the cost is a
       // cost, and how many cores are busy is not something anyone acts on.
+      // How many numbers the search is actually free to move, live: holding a
+      // pose is the reader taking some of them away, and a caption that kept
+      // saying the old number would be describing a different search.
+      const freeEl = html`<span></span>`;
+      const freeCount = () => (symmetric ? 4 : 6)
+        * (K - editState.held.filter(Boolean).length) + 1;
       const statusEl = html`<span style="font-size:12px; opacity:.8;
         font-variant-numeric:tabular-nums; white-space:nowrap;"></span>`;
       const spark = html`<canvas style="width:150px; height:26px; vertical-align:middle;"></canvas>`;
@@ -1506,6 +1575,12 @@
           // the body, the strength, the anatomy, the start, the ending -- and
           // the plant was the one thing the search still supplied itself.
           plant: resolvePlant(simResult.stored?.config),
+          // The phrasing, and the poses being held by hand. Timing is authored
+          // rather than searched -- the search still cannot move a pose
+          // earlier or later, you can -- so what travels is the phrasing to
+          // score against, plus the angles it may not touch.
+          knotFracs: Array.from(editState.fracs),
+          locks: lockValues(),
         });
         dirty = chromeDirty = true;
       });
@@ -1518,6 +1593,7 @@
           run, prof: run.prof || strengthProf, rom: run.rom || simResult.baseRom,
           T: editState.T, xEnd, theme,
           knotTimes: Array.from({ length: K }, (_, k) => knotTime(k)),
+          locks: editState.held,
         });
         const stats = FIG.analyzeRun(run, run.prof || strengthProf, model);
         verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null)
@@ -1554,11 +1630,12 @@
               ...Array.from({ length: K }, (_, kk) => ({
                 q: Float64Array.from(FIG.knotPose(m, editState.knots, kk, cell)),
                 label: `${kk + 1} · ${knotTime(kk).toFixed(2)}s`,
-                solid: false,
+                solid: false, locked: editState.held[kk],
               })),
             ],
           });
           statusEl.textContent = status;
+          freeEl.textContent = freeCount();
           drawSpark();
         }
       });
@@ -1597,7 +1674,7 @@
         ${head('body')}
         <div class="spline-controls">${inShoulder}${inHam}</div>
         <div class="spline-controls">${inShFlex}${inWrExt}</div>
-        <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the ending pose, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers. The first cell is not one of them: it is where the body <em>starts</em>, which each scenario solves from the body rather than searching for; the last is where it is trying to end, so drag that one and you have asked for a pike or a planche instead. Changing the number of poses refits the technique rather than resetting it — the closest curve the new count can draw, not the old one read at the new knot times. A thrown entry rarely survives being re-said with fewer and wants re-optimizing; a press does.</figcaption>
+        <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration — ${freeEl} of them, once the poses you are holding are set aside. <b>Lock a pose</b> and the search leaves it exactly where you put it. <b>Drag one along the timeline</b> and you have changed the phrasing: two key poses a tenth of a second apart is a snap, and evenly spaced poses cannot say one. The search scores the phrasing but never chooses it — it still cannot move a pose <em>earlier or later</em>, you can. The first cell is where the body <em>starts</em>, which each scenario solves from the body rather than searching for; the last is where it is trying to end, so drag that one and you have asked for a pike or a planche instead, and it is held for the same reason. Changing the number of poses refits the technique — the closest curve the new count can draw — and returns the phrasing to even.</figcaption>
       </figure>`;
     })();
     display(techniqueFigure);

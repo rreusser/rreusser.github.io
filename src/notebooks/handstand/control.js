@@ -17,31 +17,84 @@ import { rnea, momenta, crbaMassMatrix } from './dynamics.js';
 
 export const JOINT_ORDER = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
 
-// Value and rate of a clamped uniform Catmull-Rom spline at time t in [0, T].
-export function splineEval(knots, T, t) {
+// Value and rate of a clamped Catmull-Rom spline at time t in [0, T].
+//
+// times, when given, are the K instants the knots fall on, in seconds, and
+// they need not be evenly spaced: two key poses a tenth of a second apart is
+// a snap, and a spline that can only phrase evenly cannot say one. Omitting
+// them is the even spacing, on the fast path, which is what every rollout
+// took before timing was something you could author.
+//
+// The uneven case is the standard non-uniform generalization: tangents are
+// the two-sided difference over the two-sided time span rather than over two
+// even steps. Where the ends run out of neighbours the spacing is mirrored
+// rather than the time clamped -- clamping would halve the end tangents and
+// make an evenly spaced non-uniform call disagree with the uniform one,
+// which is exactly the kind of quiet fork this notebook has paid for before.
+export function splineEval(knots, T, t, times = null) {
   const K = knots.length;
   if (K === 1) return { value: knots[0], rate: 0 };
-  const s = Math.min(Math.max(t / T, 0), 1) * (K - 1);
-  const i = Math.min(Math.floor(s), K - 2);
-  const u = s - i;
-  const p1 = knots[i], p2 = knots[i + 1];
-  const p0 = knots[Math.max(0, i - 1)], p3 = knots[Math.min(K - 1, i + 2)];
-  const m1 = (p2 - p0) / 2, m2 = (p3 - p1) / 2;
+  let i, u, h, m1, m2;
+  const p = (n) => knots[Math.min(K - 1, Math.max(0, n))];
+  if (!times) {
+    const s = Math.min(Math.max(t / T, 0), 1) * (K - 1);
+    i = Math.min(Math.floor(s), K - 2);
+    u = s - i;
+    h = T / (K - 1);
+    m1 = (p(i + 1) - p(i - 1)) / 2;
+    m2 = (p(i + 2) - p(i)) / 2;
+  } else {
+    const tc = Math.min(Math.max(t, times[0]), times[K - 1]);
+    i = K - 2;
+    for (let n = 0; n < K - 1; n++) if (tc < times[n + 1]) { i = n; break; }
+    h = times[i + 1] - times[i];
+    u = h > 0 ? (tc - times[i]) / h : 0;
+    // Mirrored spacing off the ends, so an even set of times reproduces the
+    // uniform branch exactly rather than approximately.
+    const ts = (n) => (n < 0 ? 2 * times[0] - times[1]
+      : n > K - 1 ? 2 * times[K - 1] - times[K - 2] : times[n]);
+    // Tangents per unit time, then scaled into the segment's own parameter.
+    m1 = h * (p(i + 1) - p(i - 1)) / (ts(i + 1) - ts(i - 1));
+    m2 = h * (p(i + 2) - p(i)) / (ts(i + 2) - ts(i));
+  }
+  const p1 = p(i), p2 = p(i + 1);
   const u2 = u * u, u3 = u2 * u;
   const value = (2 * u3 - 3 * u2 + 1) * p1 + (u3 - 2 * u2 + u) * m1
     + (-2 * u3 + 3 * u2) * p2 + (u3 - u2) * m2;
   const dv = (6 * u2 - 6 * u) * p1 + (3 * u2 - 4 * u + 1) * m1
     + (-6 * u2 + 6 * u) * p2 + (3 * u2 - 2 * u) * m2;
-  return { value, rate: dv * (K - 1) / T };
+  return { value, rate: h > 0 ? dv / h : 0 };
 }
 
 // Fill the six actuated reference angles/rates from knotMatrix[6][K].
-export function evalReference(knotMatrix, T, t, qRef, qdRef) {
+export function evalReference(knotMatrix, T, t, qRef, qdRef, times = null) {
   for (let j = 0; j < 6; j++) {
-    const r = splineEval(knotMatrix[j], T, t);
+    const r = splineEval(knotMatrix[j], T, t, times);
     qRef[j] = r.value;
     qdRef[j] = r.rate;
   }
+}
+
+// Whether a set of fractions says anything the even spacing does not. Even
+// phrasing has to be NO phrasing, not merely phrasing that happens to be
+// even: the two branches above are the same curve but not the same arithmetic,
+// and over twenty thousand integration steps that is a technique differing
+// from itself in the last few digits. One rule, applied where the rollout
+// starts, so no caller can fork by passing what it means two ways.
+export function evenlySpaced(fracs, tol = 1e-12) {
+  const K = fracs.length;
+  if (K < 2) return true;
+  for (let k = 0; k < K; k++) if (Math.abs(fracs[k] - k / (K - 1)) > tol) return false;
+  return true;
+}
+
+// The K instants the knots fall on, in seconds, from the fractions of the
+// duration the technique carries. Absent fractions are the even spacing, so
+// everything recorded before timing was authorable reads as what it was.
+export function knotTimes(T, K, fracs = null) {
+  const out = new Float64Array(K);
+  for (let k = 0; k < K; k++) out[k] = (fracs ? fracs[k] : (K === 1 ? 0 : k / (K - 1))) * T;
+  return out;
 }
 
 // Servo factory. makeControl(knotMatrix, T, augment) returns a
@@ -118,12 +171,12 @@ export function createServo(model, strengthProf, {
   return {
     damping, kp, kd, qRef, qdRef, activationTau, applied,
     dampingRatio, brakeMargin, inertia,
-    makeControl(knotMatrix, T, augment = null) {
+    makeControl(knotMatrix, T, augment = null, times = null) {
       const des = new Float64Array(6);
       const u = new Float64Array(6);
       let lastT = null, lastInertiaT = null;
       return (t, q, qd, tau) => {
-        evalReference(knotMatrix, T, Math.min(t, T), qRef, qdRef);
+        evalReference(knotMatrix, T, Math.min(t, T), qRef, qdRef, times);
         if (t >= T) qdRef.fill(0);
         if (gravityComp && ws) rnea(model, q, zero, zero, tauG, null, { ws });
         // The inertia the servo is tuned against changes with the pose, but

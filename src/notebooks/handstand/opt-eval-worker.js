@@ -32,6 +32,8 @@ self.onmessage = ({ data }) => {
       K: cfg.K || 6, dt: cfg.dt || 2.5e-4, weights, q0: cfg.q0 || null, target: cfg.target || null,
       // The machine the page is showing, not this worker's idea of a default.
       plant: cfg.plant || null,
+      // The phrasing and the held poses, for the same reason.
+      knotFracs: cfg.knotFracs || null, locks: cfg.locks || null,
     });
     costs.push(c.cost);
     if (wantFrames && c.rec?.q?.length) {
