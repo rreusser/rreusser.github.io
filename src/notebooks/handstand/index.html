@@ -1398,6 +1398,10 @@
       // own default ceiling.
       const T_RANGE = [0.5, 3.5];
       const durInput = Inputs.range(T_RANGE, { label: 'Duration T (s)', value: editState.T, step: 0.01 });
+      durInput.title = 'how long the movement takes. Yours to set: the search is '
+        + 'pinned to it and will not change it. A movement that arrives only gets '
+        + 'cheaper as it slows, so left free the search spends its budget running '
+        + 'out of slider rather than finding a technique.';
       durInput.addEventListener('input', () => { editState.T = +durInput.value; resim(); });
       // "Reset" said nothing about what it resets, sitting in a row with the
       // pose count and the duration as if it reset those. It reverts the
@@ -1654,10 +1658,22 @@
           // score against, plus the angles it may not touch.
           knotFracs: Array.from(editState.fracs),
           locks: lockValues(),
-          // The duration range is the slider's, both ends. Without a floor the
-          // search kept its own, and a press set to a second was searched at
-          // one and a half.
-          tLo: T_RANGE[0], tHi: T_RANGE[1],
+          // The duration is NOT searched: both ends of its range are the value
+          // on screen, so the search is pinned to the tempo you set.
+          //
+          // It used to be the 37th decision variable, and it was a bad one. A
+          // movement that arrives gets cheaper the slower it goes -- work and
+          // smoothness both fall -- so for anything with room to spare the
+          // gradient points at the ceiling and stays there: the press arrives
+          // at every duration from 1.6s up, and costs 4.59, 1.48, 1.15, 1.08,
+          // 1.05, 1.03 as it slows to 3.5s. The search was not finding a
+          // tempo, it was running out of slider. And the slowest version is
+          // the one where the shoulder supplies everything and nothing is
+          // carried by momentum, which is the opposite of technique.
+          //
+          // So tempo joins the pose count, the phrasing and the held poses:
+          // things a reader sets, leaving the search the shape.
+          tLo: editState.T, tHi: editState.T,
           // And the integration a replay uses, so the settle horizon scored is
           // the one the page watches.
           numerics: resolveNumerics(simResult.stored?.numerics),
@@ -1811,7 +1827,9 @@
 
     CMA-ES climbs a score computed by simulating the candidate. The score is a weighted sum: did it arrive in the balanced pose and stop there; what it cost in metabolic work and in time spent near the torque cap; whether it went outside its own range of motion; whether it is still the skill it claims to be — feet leaving the floor once and not replanting, a bent-leg press actually passing through an inverted tuck, the legs not slung in at more than two metres a second; and whether it looks like a person, through terms on joint acceleration and on how fast the muscle drive is allowed to slew. Each candidate is scored as the *worst case* of two evaluations — the nominal one, and one at a different timestep with a small velocity jitter — so a knife-edge catch tuned to one timestep's contact artifacts pays full price for it.
 
-    What it cannot do is as informative as what it can. The poses are spaced evenly across `T`, so the search can stretch or compress the whole movement but cannot ask for one pose to come earlier and the next later: there is no way to say *linger in the fold, then snap through the middle*. Every knot is boxed by the body's own range of motion, so lowering a flexibility limit takes technique away from the search rather than fining it afterwards. And every run above is re-simulated in your browser from its knots rather than replayed as an animation, so if a technique looks wrong it is wrong, whatever its cost says.
+    What it cannot do is as informative as what it can. It searches angles, and nothing else: the tempo, where the poses fall within it, how many there are, and which of them are held are all yours. Tempo is the interesting one, because it used to be the search's and it should not have been. A movement that arrives at all gets cheaper the slower it runs — work and smoothness both fall — so wherever there was room to spare the gradient pointed at the longest duration on offer and stayed there. The straight-leg press arrives at every duration from 1.6 seconds up, and costs 4.59, 1.48, 1.15, 1.08, 1.05 and 1.03 as it slows to three and a half. That is not a search finding a tempo, it is a search running out of slider — and the slowest version is precisely the one where the shoulder supplies everything and nothing is carried by momentum, which is the opposite of technique. Set the tempo yourself and the search has to find a shape that works at it.
+
+    Every knot is boxed by the body's own range of motion, so lowering a flexibility limit takes technique away from the search rather than fining it afterwards. And every run above is re-simulated in your browser from its knots rather than replayed as an animation, so if a technique looks wrong it is wrong, whatever its cost says.
   </script>
   <script id="opt-state" type="text/x-typescript">
     // What the search owns while it is running, and nothing else. There used

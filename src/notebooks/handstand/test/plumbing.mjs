@@ -16,7 +16,7 @@ import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
 import {
-  decisionBounds, clampKnotsToRom, encodeDecision, rolloutCost, runScenario,
+  decisionBounds, clampKnotsToRom, encodeDecision, rolloutCost, runScenario, optimizeScenario,
   resolveRom, resolveBody, resolvePlant, resolveNumerics, symmetrizeKnots,
   SYMMETRIC_SCENARIOS,
 } from '../rollout.js';
@@ -88,20 +88,24 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Gate B: every duration the slider can express survives the search's bounds.
-// The floor used to be the search's own -- 0.6, and 1.5 for the pike -- so a
-// press set to a second was searched at one and a half.
+// Gate B: the duration is not a decision variable. It is pinned to the tempo
+// on screen, both ends of its bound being that value -- because a movement
+// that arrives only gets cheaper as it slows, so left free the search walks it
+// to whatever ceiling it is given and calls that an answer.
 // ---------------------------------------------------------------------------
 {
   let worst = 0, where = '';
   for (const c of cases) {
     for (const T of [T_RANGE[0], 0.7, 1.0, 1.9, 2.6, T_RANGE[1]]) {
-      const d = driftUnderBounds(c.stored.knots.map((k) => Float64Array.from(k)), T, c.rom, c.stored.scenario);
-      if (d.dur > worst) { worst = d.dur; where = `${c.name} at T=${T}`; }
+      const K = c.stored.knots[0].length;
+      const { lo, hi } = decisionBounds(K, { tLo: T, tHi: T, rom: c.rom });
+      const span = hi[6 * K] - lo[6 * K];
+      const drift = Math.abs(Math.min(Math.max(T, lo[6 * K]), hi[6 * K]) - T);
+      if (span + drift > worst) { worst = span + drift; where = `${c.name} at T=${T}`; }
     }
   }
-  gate('B. every duration the slider offers is searchable', worst < 1e-12,
-    worst ? `${worst.toFixed(3)}s of stretch in ${where}` : 'nothing moves');
+  gate('B. the duration is pinned to the tempo on screen', worst < 1e-12,
+    worst ? `${worst.toFixed(3)}s of room left in ${where}` : 'no room to move');
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +145,44 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
   gate('C2. and scoring and replaying over it agree',
     Math.abs(scored.verdict.comY - played.verdict.comY) === 0,
     `comY ${scored.verdict.comY.toFixed(6)} vs ${played.verdict.comY.toFixed(6)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate D: and a real search gives the tempo back unchanged. Bounds are the
+// mechanism, but the property that matters is the one a reader sees: press
+// Optimize and the duration slider does not move.
+//
+// The technique used is the one that showed the pathology -- the press arrives
+// at every duration from 1.6s up and gets monotonically cheaper as it slows,
+// so if anything is going to run for the ceiling it is this.
+// ---------------------------------------------------------------------------
+{
+  const c = cases.find((x) => x.name === 'pike');
+  const model = buildModel(resolveBody(c.stored.body)), ws = createWorkspace(model);
+  const st0 = c.stored.strength || null;
+  const prof = strengthProfile(model.massKg, { overrides: { ...(st0 || {}),
+    shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder),
+      t0Vol: st0?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol } } });
+  const K = c.stored.knots[0].length;
+  const T = 2.2;                      // well inside the range, with room to slow down
+  const target = new Float64Array(model.nq);
+  for (let j = 0; j < 6; j++) target[3 + j] = c.stored.knots[j][K - 1];
+  const res = await optimizeScenario(model, ws, prof, c.rom, {
+    scenario: c.stored.scenario, seed: 3, maxGen: 20, K, sigma0: 0.05,
+    x0: encodeDecision(c.stored.knots.map((k) => Float64Array.from(k)), T),
+    target, plant: resolvePlant(c.stored.config), numerics: resolveNumerics(c.stored.numerics),
+    tLo: T, tHi: T,
+  });
+  const moved = Math.abs(res.decoded.T - T);
+  gate('D. a real search hands the tempo back unchanged', moved < 1e-9,
+    `asked for ${T.toFixed(2)}s, got ${res.decoded.T.toFixed(4)}s`);
+  // ...and it did do something with the angles, so the gate is not passing
+  // because the search sat still.
+  let angle = 0;
+  for (let j = 0; j < 6; j++) for (let k = 0; k < K; k++) {
+    angle = Math.max(angle, Math.abs(res.decoded.knots[j][k] - c.stored.knots[j][k]));
+  }
+  gate('D2. (and it did move the angles)', angle * D > 0.1, `${(angle * D).toFixed(2)} deg`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL GATES PASS' : `${failures} GATE(S) FAILED`}`);
