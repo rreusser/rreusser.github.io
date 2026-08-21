@@ -1040,8 +1040,11 @@
       // matters -- the gap between them. Overlaid, the gap IS the picture, and
       // opacity says which of the two you are acting on: the subject is solid
       // and on top, the other is a flat underlay in its own colour.
+      // min-height, not height: the line reserves a row so the figure does not
+      // jump as it changes, but in the narrow floating panel it wraps to two,
+      // and a fixed height there laid it straight over the verdict beneath.
       const subLabel = html`<div style="font-size:11px; opacity:.6; margin-bottom:3px;
-        font-variant-numeric:tabular-nums; height:1.2em;"></div>`;
+        font-variant-numeric:tabular-nums; min-height:1.2em;"></div>`;
       const stage = html`<div style="position:relative; width:${panelW}px; height:${panelH}px;
         touch-action:none; border:1px solid currentColor; border-radius:3px; box-sizing:border-box;
         border-color:color-mix(in srgb, currentColor 18%, transparent);"></div>`;
@@ -1416,12 +1419,6 @@
       // widths and not at others. The generation and the cost are the two
       // things that change; the sparkline beside it already says the cost is a
       // cost, and how many cores are busy is not something anyone acts on.
-      // How many numbers the search is actually free to move, live: holding a
-      // pose is the reader taking some of them away, and a caption that kept
-      // saying the old number would be describing a different search.
-      const freeEl = html`<span></span>`;
-      const freeCount = () => (symmetric ? 4 : 6)
-        * (K - editState.held.filter(Boolean).length) + 1;
       const statusEl = html`<span style="font-size:12px; opacity:.8;
         font-variant-numeric:tabular-nums; white-space:nowrap;"></span>`;
       const spark = html`<canvas style="width:150px; height:26px; vertical-align:middle;"></canvas>`;
@@ -1667,7 +1664,6 @@
             ],
           });
           statusEl.textContent = status;
-          freeEl.textContent = freeCount();
           drawSpark();
         }
       });
@@ -1688,28 +1684,32 @@
       };
       paintRamp();
 
-      // What you WATCH, and what you SET. The figure holds the movement, the
-      // poses and the timeline; every knob lives in a box beside it, which is
-      // also what expandable() floats into a panel when the figure is opened
-      // out. The transport stays with the figure because it drives the thing
-      // being watched, and the verdict and legend stay because they are
-      // readouts of it, not settings. So does the technique picker: it names
-      // what you are looking at, and a figure that cannot say which technique
-      // it is showing has lost something a settings box does not give back.
+      // What you WATCH, and everything else. The figure is the movement, the
+      // poses and the timeline, plus the one thing that cannot be read without
+      // them -- the legend that says what the colours on the strip mean.
+      //
+      // Everything else is the box: what technique to show, what to do with
+      // it, what it did. The two status lines go there too even though they
+      // are readouts rather than settings, because they are sentences, and a
+      // sentence sitting between two pictures is read as a caption for one of
+      // them. In the box they read as the panel telling you what it is
+      // pointing at.
       const chromeEl = html`<div>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0 0;">
-          ${playBtn}${optRun}${optStop}${spark}${statusEl}
-        </div>
         ${story.element}
         <div style="margin-top:10px;">${strip.element}</div>
         <small style="display:block; opacity:.85; margin:2px 0 0;">${
           key(dot(FIG.REQUEST_COLOR), 'asked for')}${
           key(ramp, 'strength used')}${
           key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
-        ${verdict}
       </div>`;
 
       const controlsBox = html`<div class="technique-controls">
+        <div class="spline-controls" style="margin-bottom:8px;">${pick}</div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          ${playBtn}${optRun}${optStop}${spark}${statusEl}
+        </div>
+        ${subLabel}
+        ${verdict}
         <div class="spline-controls">${poses}${durInput}${resetBtn}</div>
         <div class="spline-controls">${optGens}${optSeed}</div>
         ${head('body')}
@@ -1717,22 +1717,12 @@
         <div class="spline-controls">${inShFlex}${inWrExt}</div>
       </div>`;
 
-      // Everything above the stage, in one element, for the same reason
-      // everything below it is in one: the stage is given whatever height is
-      // left over, and a leftover is only as honest as the measurement it is
-      // subtracted from. A magic number here clipped the verdict off the
-      // bottom the moment the picker moved back into the figure.
-      const headEl = html`<div>
-        <div class="spline-controls" style="margin-bottom:8px;">${pick}</div>
-        ${subLabel}
-      </div>`;
       const figure = html`<figure>
-        ${headEl}${stage}${chromeEl}
-        <figcaption><b>The grey body is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>coloured body is what happened</b>, blue where a joint is idle and red where it is at its cap. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration — ${freeEl} of them, once the poses you are holding are set aside. <b>Lock a pose</b> and the search leaves it exactly where you put it. <b>Drag one along the timeline</b> and you have changed the phrasing: two key poses a tenth of a second apart is a snap, and evenly spaced poses cannot say one. The search scores the phrasing but never chooses it — it still cannot move a pose <em>earlier or later</em>, you can. The first cell is where the body <em>starts</em>, which each scenario solves from the body rather than searching for; the last is where it is trying to end, so drag that one and you have asked for a pike or a planche instead, and it is held for the same reason. Changing the number of poses refits the technique — the closest curve the new count can draw — and returns the phrasing to even.</figcaption>
+        ${stage}${chromeEl}
       </figure>`;
 
       const redraw = () => { dirty = chromeDirty = true; };
-      return { figure, controlsBox, headEl, chromeEl, sizeStage, story, strip, colsFor, redraw, stageH: STAGE_H };
+      return { figure, controlsBox, chromeEl, sizeStage, story, strip, colsFor, redraw, stageH: STAGE_H };
     })();
     // The figure first. Eight sliders ahead of it is a wall the reader has to
     // climb before reaching the thing the sliders act on; expandable() resolves
@@ -1754,9 +1744,11 @@
         // before there is a leftover to measure.
         techniqueFigure.story.resize(w, techniqueFigure.colsFor(w));
         techniqueFigure.strip.resize(w);
+        // Measured, not guessed: the storyboard and the timeline both get
+        // taller as they get wider, so the leftover is only honest after they
+        // have been resized.
         const stageH = expanded
-          ? Math.max(220, h - techniqueFigure.headEl.offsetHeight
-            - techniqueFigure.chromeEl.offsetHeight - 8)
+          ? Math.max(220, h - techniqueFigure.chromeEl.offsetHeight - 8)
           : techniqueFigure.stageH;
         techniqueFigure.sizeStage(w, stageH);
         techniqueFigure.redraw();

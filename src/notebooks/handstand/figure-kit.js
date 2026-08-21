@@ -539,12 +539,19 @@ export function createStrip({
 export function createStoryboard({
   n, cols: cols0, thumbW: thumbW0, thumbH: thumbH0, view, dpr = 1, onSelect = null,
   onLock = null, canLock = null,
+  // A ceiling on how tall a frame gets. Without one the row grows with the
+  // figure: expanded, seven thumbnails across 1400px are 170px tall, and a
+  // storyboard taking more vertical room than the movement it summarizes is
+  // the wrong way round. Past this the frames stop growing and the row stays
+  // about as deep as the timeline under it.
+  maxThumbH = 110,
 }) {
   const K = n;
+  const ASPECT = thumbW0 / thumbH0;
   let cols = cols0, thumbW = thumbW0, thumbH = thumbH0;
   const element = document.createElement('div');
   element.style.display = 'grid';
-  element.style.gap = '4px';
+  element.style.gap = `${4}px`;
   element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   element.style.maxWidth = '640px';
   const cells = [];
@@ -566,8 +573,12 @@ export function createStoryboard({
     // inside a button is not a thing. It still behaves like one: pointer,
     // keyboard, and a name for a screen reader.
     const host = document.createElement('div');
+    // border-box, because resize() gives this an explicit width: the ring that
+    // marks the selected cell is 1.5px of border over 1px of padding, and five
+    // pixels a column of unaccounted chrome walked the last frame off the
+    // right-hand edge of the figure.
     host.style.cssText = 'position:relative; padding:1px; border:1.5px solid transparent;'
-      + 'border-radius:4px;' + (onSelect ? ' cursor:pointer;' : '');
+      + 'border-radius:4px; box-sizing:border-box;' + (onSelect ? ' cursor:pointer;' : '');
     host.append(canvas, cap);
     if (onSelect) {
       host.tabIndex = 0;
@@ -620,13 +631,23 @@ export function createStoryboard({
   // Lay the storyboard out at a new width. Expanded, the figure is several
   // times wider than the column, and a row of thumbnails that stayed
   // column-sized would leave the space it was given empty.
+  const GAP = 4;
+  const CHROME = 5;                           // the host's own border + padding
   const resize = (w, colCount = cols) => {
     cols = Math.max(1, colCount);
-    thumbW = Math.max(40, Math.floor((w - (cols - 1) * 4) / cols) - 4);
-    thumbH = Math.round(thumbW / (thumbW0 / thumbH0));
+    const cellW = Math.max(40, Math.floor((w - (cols - 1) * GAP) / cols));
+    const room = Math.max(24, cellW - CHROME);
+    // Fill the column until the frame hits its ceiling, then hold that size and
+    // let the grid space them out instead. The cell is narrowed to the frame
+    // rather than the frame centred in the cell, so the lock stays on the
+    // frame's own corner instead of drifting off to the column's edge.
+    thumbH = Math.min(maxThumbH, Math.round(room / ASPECT));
+    thumbW = Math.min(room, Math.round(thumbH * ASPECT));
     element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    element.style.justifyItems = 'center';
     element.style.maxWidth = `${Math.round(w)}px`;
     for (const c of cells) {
+      c.host.style.width = `${thumbW + CHROME}px`;
       c.canvas.style.width = `${thumbW}px`;
       c.canvas.style.height = `${thumbH}px`;
       c.canvas.width = Math.round(thumbW * dpr);
