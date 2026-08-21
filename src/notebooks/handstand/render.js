@@ -26,7 +26,10 @@ export function viewTransform(width, height, { cx = 0.12, yLo = -0.18, yHi = 2.0
 // Uses the caller's workspace, which it leaves holding the last ghost's
 // kinematics -- drawScene runs its own fk before it draws anything, so
 // calling this first and drawScene second is safe and is the intended order.
-export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, alpha = 0.14 }) {
+// color overrides the foreground silhouette: a flat body in the colour of
+// whatever it stands for, so an underlay can say WHICH of two things it is
+// without carrying any detail of its own.
+export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, alpha = 0.14, color = null }) {
   if (!poses?.length) return;
   const fg = theme ? theme.foreground : [0.11, 0.12, 0.14];
   const { toX, toY } = viewTransform(width, height, view);
@@ -34,7 +37,8 @@ export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, 
   for (const pose of poses) {
     const q = pose.q instanceof Float64Array ? pose.q : Float64Array.from(pose.q);
     fk(model, q, null, ws);
-    ctx.fillStyle = css(fg, alpha * (pose.weight ?? 1));
+    if (color) { ctx.globalAlpha = alpha * (pose.weight ?? 1); ctx.fillStyle = color; }
+    else ctx.fillStyle = css(fg, alpha * (pose.weight ?? 1));
     for (let i = 0; i < model.nb; i++) {
       const c = Math.cos(ws.th[i]), sn = Math.sin(ws.th[i]);
       const shape = model.outline?.[i];

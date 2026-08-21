@@ -789,7 +789,7 @@
 
     const playFigure = html`<figure>
       ${playStack.element}
-      <figcaption>Segments are colored by strength used at that joint, blue (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail.</figcaption>
+      <figcaption>Segments are colored by strength used at that joint, neutral (idle) to red (at the voluntary torque cap). Orange arrows are ground reaction forces; the blue dot on the floor is the center of pressure; the dashed curve is the center of mass trail.</figcaption>
     </figure>`;
 
     display(expandable(playFigure, {
@@ -886,8 +886,8 @@
       const VIEW = { cx: 0.15, yLo: -0.2, yHi: 2.15 };
       const totalW = Math.min(width, 640);
       const wide = totalW >= 560;
-      const panelW = wide ? Math.floor((totalW - 8) / 2) : totalW;
-      const panelH = wide ? 250 : 220;
+      const panelW = totalW;
+      const panelH = wide ? 340 : 260;
       const thumbCols = Math.min(K, wide ? 6 : 3);
       const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
       const thumbH = Math.round(thumbW / 1.13);
@@ -909,50 +909,84 @@
 
       const head = (text) => html`<div style="font-size:11px; font-weight:600; letter-spacing:.04em;
         text-transform:uppercase; opacity:.75; margin:14px 0 4px;">${text}</div>`;
-      const panel = (title) => {
-        const box = html`<div style="flex:0 0 auto; width:${panelW}px;"></div>`;
-        const h = html`<div style="font-size:11px; font-weight:600; letter-spacing:.04em;
-          text-transform:uppercase; opacity:.75; margin-bottom:2px;">${title}</div>`;
-        const sub = html`<div style="font-size:11px; opacity:.6; margin-bottom:3px;
-          font-variant-numeric:tabular-nums; height:1.2em;"></div>`;
-        const stage = html`<div style="position:relative; width:${panelW}px; height:${panelH}px;
-          touch-action:none; border:1px solid currentColor; border-radius:3px; box-sizing:border-box;
-          border-color:color-mix(in srgb, currentColor 18%, transparent);"></div>`;
-        const canvas = html`<canvas style="position:absolute; left:0; top:0;
-          width:${panelW}px; height:${panelH}px;"></canvas>`;
-        canvas.width = Math.round(panelW * dpr);
-        canvas.height = Math.round(panelH * dpr);
-        stage.appendChild(canvas);
-        box.append(h, sub, stage);
-        return { box, sub, stage, canvas, ctx: canvas.getContext('2d') };
-      };
-      const askPanel = panel('what it asks for');
-      const gotPanel = panel('what happens');
-
+      // ONE stage. The two panels were the same instant drawn twice, and the
+      // reader had to hold them side by side to see the only thing that
+      // matters -- the gap between them. Overlaid, the gap IS the picture, and
+      // opacity says which of the two you are acting on: the subject is solid
+      // and on top, the other is a flat underlay in its own colour.
+      const subLabel = html`<div style="font-size:11px; opacity:.6; margin-bottom:3px;
+        font-variant-numeric:tabular-nums; height:1.2em;"></div>`;
+      const stage = html`<div style="position:relative; width:${panelW}px; height:${panelH}px;
+        touch-action:none; border:1px solid currentColor; border-radius:3px; box-sizing:border-box;
+        border-color:color-mix(in srgb, currentColor 18%, transparent);"></div>`;
+      const canvas = html`<canvas style="position:absolute; left:0; top:0;
+        width:${panelW}px; height:${panelH}px;"></canvas>`;
+      canvas.width = Math.round(panelW * dpr);
+      canvas.height = Math.round(panelH * dpr);
+      const stageCtx = canvas.getContext('2d');
+      stage.appendChild(canvas);
       const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       overlay.setAttribute('width', panelW);
       overlay.setAttribute('height', panelH);
       overlay.style.cssText = 'position:absolute; left:0; top:0;';
-      askPanel.stage.appendChild(overlay);
+      stage.appendChild(overlay);
       const askQ = new Float64Array(runModel.nq);
 
-      const drawPanels = () => {
+      const drawStage = () => {
         const run = editState.run, rec = run.rec;
         const m = run.model || model, wsr = run.ws || ws;
         const prof = run.prof || strengthProf;
         const isDark = theme?.isDark ?? false;
         const k = FIG.frameAt(rec, t);
         const common = { clear: false, model: m, ws: wsr, width: panelW, height: panelH, theme, view: VIEW };
+        const field = searching ? optState.ghosts : null;
+        const editing = sel >= 0 && !searching;
 
-        const a = askPanel.ctx;
-        a.setTransform(dpr, 0, 0, dpr, 0, 0);
-        a.clearRect(0, 0, panelW, panelH);
-        if (sel >= 0) FIG.knotPose(m, editState.knots, sel, askQ);
+        stageCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        stageCtx.clearRect(0, 0, panelW, panelH);
+
+        if (field?.length) {
+          // Searching: the generation, and nothing else. No incumbent on top,
+          // because the question at that moment is what the whole field does.
+          const floorY = panelH - (0 - VIEW.yLo) * (panelH / (VIEW.yHi - VIEW.yLo));
+          const fg = theme?.foreground || [0.11, 0.12, 0.14];
+          const rgb = fg.map((v) => Math.round(v * 255)).join(',');
+          stageCtx.fillStyle = `rgba(${rgb},0.05)`;
+          stageCtx.fillRect(0, floorY, panelW, panelH - floorY);
+          stageCtx.strokeStyle = `rgba(${rgb},0.45)`;
+          stageCtx.lineWidth = 1;
+          stageCtx.beginPath();
+          stageCtx.moveTo(0, floorY);
+          stageCtx.lineTo(panelW, floorY);
+          stageCtx.stroke();
+          const u = Math.min(Math.max(t / xEnd, 0), 1);
+          drawGhosts(stageCtx, {
+            ...common, alpha: 0.2,
+            poses: field.map((c) => ({
+              q: c.frames?.[Math.min(c.frames.length - 1, Math.round(u * (c.frames.length - 1)))],
+            })).filter((c) => c.q),
+          });
+          syncHandles([]);
+          subLabel.textContent = `${t.toFixed(2)}s · ${field.length} candidates this generation`;
+          return;
+        }
+
+        if (editing) FIG.knotPose(m, editState.knots, sel, askQ);
         else FIG.requestPose(m, editState.knots, editState.T, t, askQ);
-        const drawn = drawScene(a, { ...common, q: askQ, segmentColors: FIG.requestTint() });
-        // No handles while the search owns the knots: a drag would be
-        // overwritten by the next generation, which is a control that lies.
-        syncHandles(sel >= 0 && !searching ? drawn.handles.filter((h) => !lockedJoint(h.joint)) : []);
+
+        if (editing) {
+          // Editing: the pose you are setting is solid and on top; what the
+          // body made of it is the flat underlay.
+          drawGhosts(stageCtx, { ...common, poses: [{ q: rec.q[k] }], alpha: 0.26 });
+          syncHandles(drawScene(stageCtx, { ...common, q: askQ, segmentColors: FIG.requestTint() })
+            .handles.filter((h) => !lockedJoint(h.joint)));
+        } else {
+          // Watching: what happened is solid, in its strength colours, over
+          // the target it was chasing.
+          drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.3, color: FIG.REQUEST_COLOR });
+          drawScene(stageCtx, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
+          syncHandles([]);
+        }
 
         let worst = 0, worstJ = 0;
         for (let j = 0; j < 6; j++) {
@@ -960,38 +994,10 @@
           if (Math.abs(gap) > Math.abs(worst)) { worst = gap; worstJ = j; }
         }
         const d = Math.abs(worst).toFixed(0);
-        askPanel.sub.textContent = sel < 0
-          ? `${t.toFixed(2)}s · pick a pose below`
-          : `pose ${sel + 1} of ${K}` + (searching ? '' : ' · drag a joint') + ' · '
-            + (Math.abs(worst) < 6 ? `within ${d}° of the body`
-              : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`);
-
-        const g = gotPanel.ctx;
-        g.setTransform(dpr, 0, 0, dpr, 0, 0);
-        g.clearRect(0, 0, panelW, panelH);
-        // While the search runs, the rest of the generation stands behind the
-        // one being kept. Same grey the reader has already met as a population,
-        // and it is the whole of what a generation is: candidates, simulated.
-        const field = searching ? optState.ghosts : null;
-        if (field?.length) {
-          const u = Math.min(Math.max(t / xEnd, 0), 1);
-          drawGhosts(g, {
-            ...common, alpha: 0.12,
-            poses: field.map((c) => ({
-              q: c.frames?.[Math.min(c.frames.length - 1, Math.round(u * (c.frames.length - 1)))],
-            })).filter((c) => c.q),
-          });
-        }
-        // No effort tint while the search runs. There, the picture is a field
-        // of candidates and the one being kept, and a blue-to-red body among
-        // flat grey ones reads as a different KIND of object rather than the
-        // best of them. The tint comes back when the figure is about a single
-        // technique again.
-        drawScene(g, { ...common, q: rec.q[k],
-          segmentColors: field?.length ? null : FIG.effortTint(run, k, prof, isDark) });
-        gotPanel.sub.textContent = field?.length
-          ? `${t.toFixed(2)}s · best of ${field.length} this generation`
-          : `${t.toFixed(2)}s`;
+        subLabel.textContent = editing
+          ? `pose ${sel + 1} of ${K} · drag a joint · ` + (Math.abs(worst) < 6
+            ? `within ${d}° of the body` : `${d}° from the body at the ${FIG.JOINTS[worstJ].label}`)
+          : `${t.toFixed(2)}s · pick a pose below to edit it`;
       };
 
       // ---- joint handles ----------------------------------------------------
@@ -1006,7 +1012,7 @@
             el.setAttribute('r', 10);
             el.setAttribute('stroke-width', 1.6);
             el.setAttribute('stroke', FIG.REQUEST_COLOR);
-            el.setAttribute('fill', 'rgba(232,131,58,0.22)');
+            el.setAttribute('fill', FIG.REQUEST_FILL);
             el.style.pointerEvents = 'all';
             el.style.cursor = 'grab';
             el.dataset.joint = h.joint;
@@ -1156,7 +1162,7 @@
       // It changes the same numbers your hands do. That is the whole reason it
       // lives here: you watch the six poses above move, and the duration slider
       // move, because those ARE what CMA-ES is searching over.
-      const optRun = html`<button>Optimize these poses</button>`;
+      const optRun = html`<button>Optimize</button>`;
       const optStop = html`<button disabled>Stop</button>`;
       const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
       const optSeed = Inputs.range([1, 99], { label: 'Search seed', value: 7, step: 1 });
@@ -1207,17 +1213,19 @@
       optStop.addEventListener('click', () => {
         stopSearch();
         status = status.replace(/^searching/, 'stopped');
-        selectKnot(0);
+        dirty = chromeDirty = true;
       });
       optRun.addEventListener('click', () => {
         stopSearch();
         optState.history = [];
         searching = true;
-        // Both panels run the loop while the search does: the target it is
-        // asking for, the body chasing it, and the rest of the generation
-        // behind. Holding one pose still while the other animates made the
-        // two halves of the figure disagree about what time it was.
+        // Optimizing starts playback and leaves it running, so the figure is
+        // moving from the moment the button is pressed and keeps moving when
+        // the search hands its answer back. Holding one panel still while the
+        // other animated made the two halves disagree about what time it was.
         sel = -1;
+        playing = true;
+        playBtn.textContent = 'Pause';
         lastNow = null;
         optRun.disabled = true;
         optStop.disabled = false;
@@ -1243,7 +1251,6 @@
             pending = null;
             adopt(data);
             stopSearch();
-            selectKnot(0);
           }
           dirty = chromeDirty = true;
         };
@@ -1285,6 +1292,7 @@
         strip.layout({
           run, prof: run.prof || strengthProf, rom: run.rom || simResult.baseRom,
           T: editState.T, xEnd, theme,
+          knotTimes: Array.from({ length: K }, (_, k) => knotTime(k)),
         });
         const stats = FIG.analyzeRun(run, run.prof || strengthProf, model);
         verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null)
@@ -1307,7 +1315,7 @@
         } else { lastNow = null; }
         if (!dirty) return;
         dirty = false;
-        drawPanels();
+        drawStage();
         strip.draw(t, theme);
         if (chromeDirty) {
           chromeDirty = false;
@@ -1336,33 +1344,26 @@
           + ` ${FIG.effortColor(0.5, d)}, ${FIG.effortColor(1, d)})`;
       };
       paintRamp();
-      const hill = html`<svg width="26" height="11" viewBox="0 0 26 11" style="vertical-align:-.15em;
-        margin-right:.3em;"><path d="M0,11 L4,10 L8,3 L13,1 L18,6 L22,10 L26,11 Z"
-        fill="currentColor" fill-opacity="0.28" stroke="currentColor" stroke-opacity="0.72"
-        stroke-width="1"/></svg>`;
 
       return html`<figure>
         <div class="spline-controls" style="margin-bottom:8px;">${pick}</div>
-        <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
-          ${askPanel.box}${gotPanel.box}
-        </div>
+        ${subLabel}${stage}
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0 0;">
           ${playBtn}${optRun}${optStop}${spark}${statusEl}
         </div>
-        ${head('poses')}
         ${story.element}
         <div style="margin-top:10px;">${strip.element}</div>
         <small style="display:block; opacity:.85; margin:2px 0 0;">${
+          key(dot(FIG.REQUEST_COLOR), 'asked for')}${
           key(ramp, 'strength used')}${
-          key(hill, 'how far behind its target')}${
-          key(dot(FIG.ROM_COLOR), 'outside its range of motion')}</small>
+          key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
         ${verdict}
         <div class="spline-controls">${durInput}${resetBtn}</div>
         <div class="spline-controls">${optGens}${optSeed}</div>
         ${head('body')}
         <div class="spline-controls">${inShoulder}${inHam}</div>
         <div class="spline-controls">${inShFlex}${inWrExt}</div>
-        <figcaption><b style="color:${FIG.REQUEST_COLOR}">Orange is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>blue-to-red body is what happened</b>, coloured by the strength each joint spent. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers.</figcaption>
+        <figcaption><b style="color:${FIG.REQUEST_COLOR}">Blue is what the technique asks for</b> — a target the servo chases, not a pose the body holds. The <b>solid body is what happened</b>, reddening with the strength each joint spent. The search moves the same ${6 * K + 1} numbers your hands do: ${K} poses × six joints, plus the duration. It cannot move a pose <em>earlier or later</em> — they are spaced evenly across T — and the last is pinned to the handstand, so what it is really free to choose is ${symmetric ? (4 * (K - 1) + 1) : (6 * (K - 1) + 1)} numbers.</figcaption>
       </figure>`;
     })();
     display(techniqueFigure);

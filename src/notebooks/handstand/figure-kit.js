@@ -19,11 +19,17 @@
 import { drawScene } from './render.js';
 import { availableTorque } from './strength.js';
 import { jointLimits, groundHand } from './statics.js';
-import { evalReference, JOINT_ORDER } from './control.js';
+import { JOINT_ORDER } from './control.js';
+import { evalReference } from './control.js';
 import { WORK_EFFICIENCY } from './rollout.js';
 
-export const REQUEST_COLOR = '#e8833a';
-export const ROM_COLOR = '#6f86c6';
+// What the technique asks for. Blue, and the same blue wherever a request
+// appears: the pose body, the storyboard, the joint handles.
+export const REQUEST_COLOR = '#4a9fe0';
+export const REQUEST_FILL = 'rgba(74,159,224,0.22)';
+// A joint outside its own anatomy. Orange because it is the one mark on the
+// strip that is not a measurement but a warning, and it should read as one.
+export const ROM_COLOR = '#e8833a';
 const R2D = 180 / Math.PI;
 
 // The six actuated joints, named the way a person names them rather than the
@@ -37,28 +43,25 @@ export const JOINTS = [
   { j: 5, qi: 8, label: 'knee R' },
 ];
 
-// Full scale for the "how far behind is the body" mark. Forty-five degrees,
-// because the press tracks inside one degree and the two ballistic entries run
-// twenty-seven and forty-three behind: a scale that puts the press on the
-// floor and the throws near the top is the one that separates them.
-export const ERR_FULL_DEG = 45;
-
-// Strength used, cool (idle) through neutral to red (at the voluntary torque
-// cap). The one ramp: segments of a moving body, rows of the effort strip, and
-// the bars of any readout, so "red" means the same thing wherever it appears.
+// Strength used: neutral (idle) to red (at the voluntary torque cap). One
+// ramp, spent the same way by the segments of a moving body, the rows of the
+// effort strip, and any bar that reports the same quantity, so "red" means the
+// same thing wherever it turns up.
 //
-// It sweeps through a NEUTRAL midpoint, not through green. Rotating hue from
-// 210 to 0 is a rainbow, and a rainbow puts its most eye-catching band --
-// green, which every reader takes for "fine" -- at exactly the effort level
-// that is neither idle nor maximal. A joint at 50% of its cap is not fine and
-// is not alarming; it should look like neither.
-const COOL = [59, 110, 176], HOT = [178, 24, 43];
-const MID_LIGHT = [206, 206, 206], MID_DARK = [112, 112, 120];
+// It has no blue end, and that is deliberate twice over. Blue is what the
+// technique ASKS for, and an idle joint drawn in the same blue as its own
+// target is unreadable the moment the two are overlaid. And rotating hue from
+// blue to red would sweep through green, which puts the most eye-catching band
+// in the ramp at exactly the effort that is neither idle nor maximal -- a
+// joint at half its cap is not "fine" and is not alarming, and should look
+// like neither. A single-ended intensity says only what it means: more red,
+// more of the envelope spent.
+const HOT = [178, 24, 43];
+const IDLE_LIGHT = [214, 214, 214], IDLE_DARK = [104, 104, 112];
 export function effortColor(u, isDark = false, alpha = 1) {
   const uu = Math.min(Math.max(u, 0), 1);
-  const mid = isDark ? MID_DARK : MID_LIGHT;
-  const [a, b, f] = uu <= 0.5 ? [COOL, mid, uu * 2] : [mid, HOT, (uu - 0.5) * 2];
-  const c = a.map((v, i) => Math.round(v + (b[i] - v) * f));
+  const a = isDark ? IDLE_DARK : IDLE_LIGHT;
+  const c = a.map((v, i) => Math.round(v + (HOT[i] - v) * uu));
   return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
 }
 
@@ -167,15 +170,11 @@ export function verdictHTML(stats, baseline = null) {
 // could see anything. Nobody reads a pose off an angle plot. What they want to
 // know is what the six charts only implied:
 //
-//   row colour   how much of that joint's strength the movement is spending
-//   dark hill    how far behind the body is running -- the gap between the
-//                pose asked for and the pose reached
-//   blue edge    the joint is outside its own range of motion
-//
-// A row that is red with a tall hill on it is a joint trying its hardest and
-// still not keeping up, which is the whole story of a ballistic entry in one
-// mark.
-export function createStrip({ width, rowH = 22, gutter = 58, dpr = 1, onSeek = null }) {
+//   row colour     how much of that joint's strength the movement is spending
+//   orange band    the joint is outside its own range of motion
+//   pale uprights  where the K poses fall, so the storyboard above and the
+//                  timeline below are one picture rather than two
+export function createStrip({ width, rowH = 18, gutter = 58, dpr = 1, onSeek = null }) {
   const height = JOINTS.length * rowH + 20;
   const canvas = document.createElement('canvas');
   canvas.style.width = `${width}px`;
@@ -220,7 +219,7 @@ export function createStrip({ width, rowH = 22, gutter = 58, dpr = 1, onSeek = n
 
   // Everything that does not move goes into an offscreen canvas once per
   // simulation; the cursor is the only thing redrawn per frame.
-  const layout = ({ run, prof, rom, T, xEnd, theme }) => {
+  const layout = ({ run, prof, rom, T, xEnd, theme, knotTimes = [] }) => {
     state = { xEnd, T };
     const rec = run.rec;
     const isDark = theme?.isDark ?? false;
@@ -233,22 +232,16 @@ export function createStrip({ width, rowH = 22, gutter = 58, dpr = 1, onSeek = n
     ctx.font = '10px system-ui, sans-serif';
 
     const cols = Math.max(2, Math.round(plotW));
-    const idx = new Int32Array(cols);
-    const errDeg = new Float64Array(cols * 6);
     const effort = new Float64Array(cols * 6);
     const outRom = new Uint8Array(cols * 6);
-    const v = new Float64Array(6), r = new Float64Array(6);
     for (let c = 0; c < cols; c++) {
       const t = (c / (cols - 1)) * xEnd;
       const k = frameAt(rec, t);
-      idx[c] = k;
-      evalReference(run.knots, T, Math.min(t, T), v, r);
       for (let n = 0; n < 6; n++) {
         const J = JOINTS[n];
         const tau = rec.tauApplied[k][J.j];
         const cap = availableTorque(prof[JOINT_ORDER[J.j]], tau, rec.qd[k][3 + J.j]);
         effort[c * 6 + n] = Math.abs(tau) / Math.max(cap, 1e-6);
-        errDeg[c * 6 + n] = Math.abs(v[J.j] - rec.q[k][J.qi]) * R2D;
         const lim = jointLimits(rom, rec.q[k], J.qi);
         const q = rec.q[k][J.qi];
         outRom[c * 6 + n] = (q < lim.lo - 1e-9 || q > lim.hi + 1e-9) ? 1 : 0;
@@ -262,36 +255,35 @@ export function createStrip({ width, rowH = 22, gutter = 58, dpr = 1, onSeek = n
         ctx.fillStyle = effortColor(u, isDark, 0.16 + 0.72 * Math.min(u, 1));
         ctx.fillRect(gutter + c, y0, 1.25, h);
       }
-      // How far behind the body is running, as a hill standing on the row.
-      ctx.beginPath();
-      ctx.moveTo(gutter, y0 + h);
-      for (let c = 0; c < cols; c++) {
-        const e = Math.min(errDeg[c * 6 + n] / ERR_FULL_DEG, 1);
-        ctx.lineTo(gutter + c, y0 + h - e * h);
-      }
-      ctx.lineTo(gutter + cols - 1, y0 + h);
-      ctx.closePath();
-      ctx.fillStyle = fgc(isDark ? 0.34 : 0.28);
-      ctx.fill();
-      ctx.strokeStyle = fgc(0.72);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let c = 0; c < cols; c++) {
-        const e = Math.min(errDeg[c * 6 + n] / ERR_FULL_DEG, 1);
-        const y = y0 + h - e * h;
-        if (c === 0) ctx.moveTo(gutter + c, y); else ctx.lineTo(gutter + c, y);
-      }
-      ctx.stroke();
       // Outside its own anatomy: the end-stops are real torques, so this is a
-      // ligament being asked to hold the pose, not decoration.
-      ctx.fillStyle = ROM_COLOR;
-      for (let c = 0; c < cols; c++) if (outRom[c * 6 + n]) ctx.fillRect(gutter + c, y0, 1.25, 3);
+      // ligament being asked to hold the pose, not decoration. A wash over the
+      // whole row so it is visible at a glance, and a solid edge so a brief
+      // excursion is not lost in it.
+      for (let c = 0; c < cols; c++) {
+        if (!outRom[c * 6 + n]) continue;
+        ctx.fillStyle = 'rgba(232,131,58,0.20)';
+        ctx.fillRect(gutter + c, y0, 1.25, h);
+        ctx.fillStyle = ROM_COLOR;
+        ctx.fillRect(gutter + c, y0, 1.25, 2.5);
+      }
       ctx.strokeStyle = fgc(0.16);
       ctx.strokeRect(gutter + 0.5, y0 + 0.5, plotW, h - 1);
       ctx.fillStyle = fgc(0.8);
       ctx.textAlign = 'right';
       ctx.fillText(J.label, gutter - 6, y0 + h / 2 + 3.5);
     });
+
+    // Where the K poses fall. Faint, behind everything, and in the colour a
+    // request is drawn in, so the storyboard and the timeline are one picture.
+    ctx.strokeStyle = 'rgba(74,159,224,0.45)';
+    ctx.lineWidth = 1;
+    for (const kt of knotTimes) {
+      const x = Math.round(toX(kt, xEnd)) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, JOINTS.length * rowH - 2);
+      ctx.stroke();
+    }
 
     // Time axis: nothing but the two facts a reader needs, where the driven
     // phase ends and where the picture does.
