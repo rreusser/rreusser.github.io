@@ -264,7 +264,15 @@ export function analyzeRun(run, prof, model) {
 }
 
 // One sentence, one format, every figure: did it arrive, and what did it cost.
-export function verdictHTML(stats, baseline = null) {
+// Two lines, each of which refuses to wrap.
+//
+// As one line it was a sentence whose width changed with its own numbers: a
+// digit more of work, or a difference appearing against the baseline, and it
+// wrapped or unwrapped and everything under it jumped. In the floating panel,
+// which is half the width of the column, it did that constantly. Splitting the
+// verdict from the number gives the block a height that does not depend on
+// what it says, and tabular figures stop the number itself twitching.
+export function verdictHTML(stats, baseline = null, note = '') {
   const ok = stats.verdict.success;
   const delta = (now, was, digits) => {
     if (was == null) return '';
@@ -273,10 +281,13 @@ export function verdictHTML(stats, baseline = null) {
     return `<span style="opacity:.85; color:${d < 0 ? '#2e8b57' : '#c0392b'}">`
       + ` (${d >= 0 ? '+' : ''}${d.toFixed(digits)})</span>`;
   };
-  return `<strong style="color:${ok ? '#2e8b57' : '#c0392b'}">`
+  const line = 'display:block; white-space:nowrap; overflow:hidden;'
+    + ' text-overflow:ellipsis; font-variant-numeric:tabular-nums;';
+  return `<span style="${line}"><strong style="color:${ok ? '#2e8b57' : '#c0392b'}">`
     + `${ok ? '✓ reaches a handstand' : '✗ does not arrive'}</strong>`
-    + ` &nbsp;·&nbsp; work ${stats.metab.toFixed(2)} body-height lifts`
-    + delta(stats.metab, baseline?.metab, 2);
+    + (note ? ` &nbsp;·&nbsp; <span style="opacity:.75">${note}</span>` : '')
+    + `</span><span style="${line}">work ${stats.metab.toFixed(2)} body-height lifts`
+    + delta(stats.metab, baseline?.metab, 2) + '</span>';
 }
 
 // ---------------------------------------------------------------------------

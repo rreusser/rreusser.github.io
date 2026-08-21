@@ -1363,7 +1363,15 @@
 
       const durInput = Inputs.range([0.5, 3.5], { label: 'Duration T (s)', value: editState.T, step: 0.01 });
       durInput.addEventListener('input', () => { editState.T = +durInput.value; resim(); });
-      const resetBtn = html`<button>Reset</button>`;
+      // "Reset" said nothing about what it resets, sitting in a row with the
+      // pose count and the duration as if it reset those. It reverts the
+      // technique -- every angle, the timing, the holds, the duration, the
+      // start pose and the body sliders -- so it says so, and it sits with the
+      // picker that names the thing it reverts to. The pose count is the one
+      // thing it leaves alone: that is a setting, not part of the technique,
+      // and a four-pose refit of a six-pose technique cannot be undone by
+      // restoring six numbers.
+      const resetBtn = html`<button title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it.">Revert to stored</button>`;
       resetBtn.addEventListener('click', () => {
         stopSearch();
         editState.knots = baseKnots.map((k) => Float64Array.from(k));
@@ -1625,8 +1633,8 @@
           locks: editState.held,
         });
         const stats = FIG.analyzeRun(run, run.prof || strengthProf, model);
-        verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null)
-          + (bodyMoved() ? ` &nbsp;·&nbsp; <span style="opacity:.75">on a body you changed</span>` : '');
+        verdict.innerHTML = FIG.verdictHTML(stats, editState.edited ? baseStats : null,
+          bodyMoved() ? 'on a body you changed' : '');
         paintRamp?.();
         dirty = chromeDirty = true;
       }
@@ -1704,13 +1712,13 @@
       </div>`;
 
       const controlsBox = html`<div class="technique-controls">
-        <div class="spline-controls" style="margin-bottom:8px;">${pick}</div>
+        <div class="spline-controls" style="margin-bottom:8px;">${pick}${resetBtn}</div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           ${playBtn}${optRun}${optStop}${spark}${statusEl}
         </div>
         ${subLabel}
         ${verdict}
-        <div class="spline-controls">${poses}${durInput}${resetBtn}</div>
+        <div class="spline-controls">${poses}${durInput}</div>
         <div class="spline-controls">${optGens}${optSeed}</div>
         ${head('body')}
         <div class="spline-controls">${inShoulder}${inHam}</div>
