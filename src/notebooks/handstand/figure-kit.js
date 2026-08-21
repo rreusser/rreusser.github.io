@@ -556,9 +556,20 @@ export function createStrip({
 // begins, not something the search was ever free to move -- and the ending
 // pose is permanently locked, because being the pose the technique aims at is
 // what "ending pose" means.
+// canLock(k) says whether cell k has a lock at all and, if it does, whether
+// the reader may work it. The start pose has none -- it is where the body
+// begins, not something the search was ever free to move -- and the ending
+// pose is permanently locked, because being the pose the technique aims at is
+// what "ending pose" means.
+//
+// canDelete(k) and canInsertBefore(k) do the same for the other two edits. A
+// pose count is a thing you arrive at rather than dial: dropping the one pose
+// that is not earning its place, or adding one where the curve needs a handle,
+// says what you mean in a way that "6" does not.
 export function createStoryboard({
   n, cols: cols0, thumbW: thumbW0, thumbH: thumbH0, view, dpr = 1, onSelect = null,
-  onLock = null, canLock = null,
+  onLock = null, canLock = null, onDelete = null, canDelete = null,
+  onInsert = null, canInsertBefore = null,
   // A ceiling on how tall a frame gets. Without one the row grows with the
   // figure: expanded, seven thumbnails across 1400px are 170px tall, and a
   // storyboard taking more vertical room than the movement it summarizes is
@@ -566,7 +577,7 @@ export function createStoryboard({
   // about as deep as the timeline under it.
   maxThumbH = 110,
 }) {
-  const K = n;
+  let K = n;
   const ASPECT = thumbW0 / thumbH0;
   let cols = cols0, thumbW = thumbW0, thumbH = thumbH0;
   const element = document.createElement('div');
@@ -580,7 +591,27 @@ export function createStoryboard({
   // whole glyph changing, so the two states are one object in two positions.
   const SHUT = 'M3.4 6.4V4.3a2.6 2.6 0 0 1 5.2 0v2.1';
   const OPEN = 'M3.4 6.4V4.3a2.6 2.6 0 0 1 5.2 0';
-  for (let k = 0; k < K; k++) {
+
+  const svgIcon = (paths, box = '0 0 12 14', w = 11, h = 13) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', box);
+    svg.setAttribute('width', w); svg.setAttribute('height', h);
+    for (const d of paths) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      el.setAttribute('d', d);
+      el.setAttribute('fill', 'none');
+      el.setAttribute('stroke', 'currentColor');
+      el.setAttribute('stroke-width', '1.6');
+      el.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(el);
+    }
+    return svg;
+  };
+  const corner = (side) => 'position:absolute; top:2px; ' + side + ':2px; width:18px; height:18px;'
+    + 'padding:0; display:grid; place-items:center; border-radius:4px; background:none;'
+    + 'border:1px solid transparent; color:currentColor;';
+
+  function buildCell(k) {
     const canvas = document.createElement('canvas');
     canvas.style.width = `${thumbW}px`;
     canvas.style.height = `${thumbH}px`;
@@ -589,16 +620,17 @@ export function createStoryboard({
     canvas.height = Math.round(thumbH * dpr);
     const cap = document.createElement('div');
     cap.style.cssText = 'font-size:10px; text-align:center; opacity:.7; font-variant-numeric:tabular-nums;';
-    // A div rather than a button, because the lock is a button and a button
-    // inside a button is not a thing. It still behaves like one: pointer,
-    // keyboard, and a name for a screen reader.
+    // A div rather than a button, because the controls on it are buttons and a
+    // button inside a button is not a thing. It still behaves like one:
+    // pointer, keyboard, and a name for a screen reader.
     const host = document.createElement('div');
     // border-box, because resize() gives this an explicit width: the ring that
     // marks the selected cell is 1.5px of border over 1px of padding, and five
     // pixels a column of unaccounted chrome walked the last frame off the
     // right-hand edge of the figure.
     host.style.cssText = 'position:relative; padding:1px; border:1.5px solid transparent;'
-      + 'border-radius:4px; box-sizing:border-box;' + (onSelect ? ' cursor:pointer;' : '');
+      + 'border-radius:4px; box-sizing:border-box; width:' + (thumbW + 5) + 'px;'
+      + (onSelect ? ' cursor:pointer;' : '');
     host.append(canvas, cap);
     if (onSelect) {
       host.tabIndex = 0;
@@ -608,32 +640,24 @@ export function createStoryboard({
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(k); }
       });
     }
+
     let lockBtn = null, shackle = null;
     const lockable = canLock ? canLock(k) : null;
     if (onLock && lockable) {
       lockBtn = document.createElement('button');
       lockBtn.type = 'button';
-      lockBtn.style.cssText = 'position:absolute; top:2px; right:2px; width:18px; height:18px;'
-        + 'padding:0; display:grid; place-items:center; border-radius:4px; background:none;'
-        + 'border:1px solid transparent; color:currentColor;'
-        + (lockable === 'fixed' ? ' cursor:default;' : ' cursor:pointer;');
+      lockBtn.style.cssText = corner('right') + (lockable === 'fixed' ? ' cursor:default;' : ' cursor:pointer;');
       // Drawn rather than typed. The obvious padlock is an emoji, and an emoji
       // is a full-colour picture in a figure whose whole palette is one grey,
       // one blue-to-red ramp and one orange -- it reads as a sticker stuck on
       // the storyboard rather than a control belonging to it.
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 12 14');
-      svg.setAttribute('width', '11');
-      svg.setAttribute('height', '13');
-      shackle = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      shackle.setAttribute('fill', 'none');
-      shackle.setAttribute('stroke', 'currentColor');
-      shackle.setAttribute('stroke-width', '1.5');
+      const svg = svgIcon([SHUT]);
+      shackle = svg.querySelector('path');
       const body = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       body.setAttribute('x', '1.4'); body.setAttribute('y', '6.4');
       body.setAttribute('width', '9.2'); body.setAttribute('height', '6.6');
       body.setAttribute('rx', '1.5'); body.setAttribute('fill', 'currentColor');
-      svg.append(shackle, body);
+      svg.appendChild(body);
       lockBtn.appendChild(svg);
       if (lockable !== 'fixed') {
         lockBtn.addEventListener('click', (e) => { e.stopPropagation(); onLock(k); });
@@ -642,18 +666,85 @@ export function createStoryboard({
       }
       host.appendChild(lockBtn);
     }
-    cellLocks.push(shackle);
+
+    let delBtn = null;
+    if (onDelete && (canDelete ? canDelete(k) : false)) {
+      delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.style.cssText = corner('left') + ' cursor:pointer; opacity:.3;';
+      delBtn.appendChild(svgIcon(['M3 3l7 7', 'M10 3l-7 7'], '0 0 13 13', 10, 10));
+      delBtn.title = 'drop this pose. The others keep their shapes and their '
+        + 'timing exactly -- nothing is refitted.';
+      delBtn.setAttribute('aria-label', 'delete this pose');
+      delBtn.addEventListener('mouseenter', () => { delBtn.style.opacity = '0.95'; });
+      delBtn.addEventListener('mouseleave', () => { delBtn.style.opacity = '0.3'; });
+      delBtn.addEventListener('click', (e) => { e.stopPropagation(); onDelete(k); });
+      host.appendChild(delBtn);
+    }
+
+    // The gap before this cell, as somewhere to click. It straddles the
+    // boundary rather than sitting inside the cell, so it reads as "between
+    // these two" rather than "belonging to this one".
+    let insBtn = null;
+    if (onInsert && (canInsertBefore ? canInsertBefore(k) : false)) {
+      insBtn = document.createElement('button');
+      insBtn.type = 'button';
+      // Below the corner buttons, not through them. Full height, it sat on top
+      // of this cell's delete and under the previous cell's lock, and three
+      // controls fighting for one corner is three controls nobody can hit.
+      insBtn.style.cssText = 'position:absolute; left:-9px; top:22px; width:18px; height:'
+        + Math.max(10, thumbH - 22) + 'px; padding:0; border:none; background:none;'
+        + 'cursor:copy; display:grid; place-items:center; opacity:0; z-index:2;'
+        + 'color:currentColor;';
+      insBtn.appendChild(svgIcon(['M6.5 2v9', 'M2 6.5h9'], '0 0 13 13', 11, 11));
+      insBtn.title = 'add a pose here. Its angles are read off the curve you '
+        + 'already have, so the movement does not change -- you just gain a handle on it.';
+      insBtn.setAttribute('aria-label', 'add a pose here');
+      const show = () => { insBtn.style.opacity = '1'; };
+      const hide = () => { insBtn.style.opacity = '0'; };
+      insBtn.addEventListener('mouseenter', show);
+      insBtn.addEventListener('mouseleave', hide);
+      insBtn.addEventListener('focus', show);
+      insBtn.addEventListener('blur', hide);
+      insBtn.addEventListener('click', (e) => { e.stopPropagation(); onInsert(k); });
+      host.appendChild(insBtn);
+    }
+
     element.appendChild(host);
-    cells.push({ canvas, cap, host, lockBtn });
+    cells.push({ canvas, cap, host, lockBtn, delBtn, insBtn });
+    cellLocks.push(shackle);
   }
 
-  // A request is drawn in the request grey; a body is drawn as a body.
+  function buildAll() {
+    element.replaceChildren();
+    cells.length = 0;
+    cellLocks.length = 0;
+    for (let k = 0; k < K; k++) buildCell(k);
+  }
+  buildAll();
+
+  // A different number of cells, in the same element. Rebuilding the whole
+  // figure to change the pose count meant every control was recreated and the
+  // reader's place in it lost; only the storyboard actually depends on the
+  // count.
+  const setCount = (nextN) => {
+    if (nextN === K) return;
+    K = nextN;
+    buildAll();
+    resize(lastWidth, colsFor ? colsFor(lastWidth) : cols);
+  };
+
+  let lastWidth = 640;
+  let colsFor = null;
+  const setColsFor = (fn) => { colsFor = fn; };
+
+  const GAP = 4;
+  const CHROME = 5;                           // the host's own border + padding
   // Lay the storyboard out at a new width. Expanded, the figure is several
   // times wider than the column, and a row of thumbnails that stayed
   // column-sized would leave the space it was given empty.
-  const GAP = 4;
-  const CHROME = 5;                           // the host's own border + padding
-  const resize = (w, colCount = cols) => {
+  function resize(w, colCount = cols) {
+    lastWidth = w;
     cols = Math.max(1, colCount);
     const cellW = Math.max(40, Math.floor((w - (cols - 1) * GAP) / cols));
     const room = Math.max(24, cellW - CHROME);
@@ -672,9 +763,11 @@ export function createStoryboard({
       c.canvas.style.height = `${thumbH}px`;
       c.canvas.width = Math.round(thumbW * dpr);
       c.canvas.height = Math.round(thumbH * dpr);
+      if (c.insBtn) c.insBtn.style.height = `${Math.max(10, thumbH - 22)}px`;
     }
-  };
+  }
 
+  // A request is drawn in the request grey; a body is drawn as a body.
   const tint = requestTint();
   const draw = ({ model, ws, items, sel = -1, theme }) => {
     for (let k = 0; k < K && k < items.length; k++) {
@@ -701,5 +794,5 @@ export function createStoryboard({
       }
     }
   };
-  return { element, draw, resize, cells };
+  return { element, draw, resize, setCount, setColsFor, cells, get count() { return K; } };
 }

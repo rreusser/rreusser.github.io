@@ -906,14 +906,6 @@
     // read the file is not the one that applies it.
     const pendingLoad = { rec: null };
   </script>
-  <script id="pose-count-cell" type="text/x-typescript">
-    // How many poses a technique is allowed. Its own cell, because the figure
-    // is BUILT around this number -- a storyboard of K + 1 cells, a decision
-    // vector of 6K + 1 -- so changing it has to rebuild the figure rather than
-    // be handled inside it. Not displayed here; the figure mirrors it.
-    const poseCountInput = Inputs.range([2, 8], { label: 'Poses', value: 6, step: 1 });
-    const poseCount = Generators.input(poseCountInput);
-  </script>
   <script id="edit-observable" type="text/x-typescript">
     // Published to playback the way the optimizer publishes its result, and
     // tagged with the run it derives from: picking a new scenario re-runs
@@ -939,7 +931,13 @@
       const symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
       const lockedJoint = (joint) => symmetric && (joint === 7 || joint === 8);
       const runModel = simResult.model || model;
-      const K = Math.max(2, Math.round(poseCount));
+      // Mutable, and NOT a cell dependency. It used to live in its own cell, so
+      // every change of it re-ran this one and rebuilt every control in the
+      // figure -- picker, sliders, buttons, all of it -- to change the number
+      // of thumbnails in one row. Only the storyboard depends on the count, so
+      // only the storyboard is rebuilt.
+      let K = Math.max(2, editState.knots?.[0]?.length
+        || (editState.base === simResult ? 0 : 0) || simResult.knots[0].length);
       // The stored technique, said with however many poses are asked for.
       // Reset restores THIS, not the stored count: at four poses a six-pose
       // technique cannot be represented exactly, and pretending otherwise
@@ -1002,16 +1000,18 @@
       // are still left exactly where they are put -- the timeline paints the
       // excursion orange and says so.
       const fit = (kn) => sym(clampKnotsToRom(kn, romNow()));
-      const sameCount = simResult.knots[0].length === K;
-      const baseKnots = sameCount
+      // Functions rather than values, because K moves now: Revert at four
+      // poses has to give back the stored technique said with four.
+      const sameCount = () => simResult.knots[0].length === K;
+      const baseKnots = () => (sameCount()
         ? sym(simResult.knots.map((k) => Float64Array.from(k)))
-        : fit(FIG.resampleKnots(simResult.knots, simResult.T, K, simResult.knotFracs));
+        : fit(FIG.resampleKnots(simResult.knots, simResult.T, K, simResult.knotFracs)));
       // Even spacing, and only the ending held. This is what a technique
-      // starts as and what Reset returns it to; a stored one may carry its own
+      // starts as and what Revert returns it to; a stored one may carry its own
       // phrasing, and does when it was authored with any.
       const evenFracs = () => Float64Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
       const freshHeld = () => Array.from({ length: K }, (_, k) => k === K - 1);
-      const baseFracs = () => (sameCount && simResult.knotFracs?.length === K
+      const baseFracs = () => (sameCount() && simResult.knotFracs?.length === K
         ? Float64Array.from(simResult.knotFracs) : evenFracs());
 
       // Whether the technique on screen is still the one the run beside it was
@@ -1024,27 +1024,17 @@
         || a.some((row, j) => row.some((v, k) => v !== b[j][k]));
 
       if (!sameRun) {
-        editState.knots = baseKnots.map((k) => Float64Array.from(k));
+        const base = baseKnots();
+        editState.knots = base.map((k) => Float64Array.from(k));
         editState.T = simResult.T;
         editState.fracs = baseFracs();
         editState.held = freshHeld();
         editState.run = simResult;
         editState.edited = false;
         editState.q0 = null;
-        // The stored run was made from the stored knots. If asking for a
-        // different number of poses, or mirroring a symmetric skill, moved
-        // them, that run is no longer this technique.
-        stale = differs(baseKnots, simResult.knots);
-      } else if (editState.knots[0].length !== K) {
-        // An edit in progress survives a change of count: the curve is
-        // refitted with the new number of knots rather than thrown away.
-        // Its phrasing does not: a different number of poses is a different
-        // set of instants, so timing placed by hand cannot be carried over
-        // without putting poses where nobody put them.
-        editState.knots = fit(FIG.resampleKnots(editState.knots, editState.T, K, editState.fracs));
-        editState.fracs = evenFracs();
-        editState.held = freshHeld();
-        stale = true;
+        // The stored run was made from the stored knots. If mirroring a
+        // symmetric skill moved them, that run is no longer this technique.
+        stale = differs(base, simResult.knots);
       }
       // Belt and braces for a technique loaded before either existed.
       if (editState.fracs?.length !== K) editState.fracs = evenFracs();
@@ -1065,7 +1055,7 @@
       let panelH = wide ? 340 : 260;
       const STAGE_H = panelH;
       // K + 1 cells: the pose the body STARTS in, then the K it asks for.
-      const nCells = K + 1;
+      let nCells = K + 1;
       const colsFor = (w) => Math.min(nCells, w >= 560 ? 7 : 4);
       let thumbCols = colsFor(totalW);
       const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
@@ -1351,6 +1341,15 @@
         // place; the last cell is the ending pose, which it may never move.
         // Everything between is yours to hold or release.
         canLock: (i) => (i === 0 ? null : i === nCells - 1 ? 'fixed' : 'toggle'),
+        // The first reference pose anchors t = 0 and the last IS the ending, so
+        // neither goes; everything between is yours to drop. Same rule as the
+        // timeline drag, for the same reason.
+        canDelete: (i) => i >= 2 && i <= nCells - 2,
+        // And a gap to add one in: before every knot after the first, which is
+        // every boundary between two poses.
+        canInsertBefore: (i) => i >= 2,
+        onDelete: (i) => dropPose(i - 1),
+        onInsert: (i) => addPoseBefore(i - 1),
         onLock: (i) => {
           const k = i - 1;
           editState.held[k] = !editState.held[k];
@@ -1359,6 +1358,7 @@
           chromeDirty = dirty = true;
         },
       });
+      story.setColsFor(colsFor);
       const strip = FIG.createStrip({
         width: totalW, dpr,
         onSeek: (x) => {
@@ -1381,6 +1381,53 @@
           if (settled) resim(); else relayout();
         },
       });
+      // ---- changing how many poses there are ---------------------------------
+      // Three ways in, one place they land. Nothing here re-runs the cell: the
+      // storyboard is told its new cell count and everything else already
+      // reads K live.
+      const setCount = (next) => {
+        K = next;
+        nCells = K + 1;
+        editState.held[K - 1] = true;
+        // The storyboard re-lays itself at whatever width it is currently at,
+        // which is not totalW while the figure is expanded.
+        story.setCount(nCells);
+        poses.value = K;
+        sel = Math.min(sel, nCells - 1);
+        resim();
+      };
+
+      // Drop a pose. The others keep their angles AND their instants exactly:
+      // this is the edit for a pose that is not earning its place, and refitting
+      // the rest around its absence would be a different technique.
+      const dropPose = (k) => {
+        if (K <= 2 || k <= 0 || k >= K - 1) return;
+        editState.knots = editState.knots.map((row) =>
+          Float64Array.from([...row.slice(0, k), ...row.slice(k + 1)]));
+        editState.fracs = Float64Array.from([...editState.fracs.slice(0, k), ...editState.fracs.slice(k + 1)]);
+        editState.held = [...editState.held.slice(0, k), ...editState.held.slice(k + 1)];
+        editState.edited = true;
+        setCount(K - 1);
+      };
+
+      // Add one between knot k-1 and knot k, halfway between them in time, with
+      // its angles read off the curve that is already there. The movement does
+      // not change; you gain a handle on it. That IS the resampling -- of one
+      // point, at one instant, rather than a least-squares refit of everything.
+      const insQ = new Float64Array(runModel.nq);
+      const addPoseBefore = (k) => {
+        if (K >= 12 || k <= 0 || k > K - 1) return;
+        const frac = 0.5 * (editState.fracs[k - 1] + editState.fracs[k]);
+        FIG.requestPose(editState.run?.model || runModel, editState.knots, editState.T,
+          frac * editState.T, insQ, editState.fracs);
+        editState.knots = editState.knots.map((row, j) =>
+          Float64Array.from([...row.slice(0, k), insQ[3 + j], ...row.slice(k)]));
+        editState.fracs = Float64Array.from([...editState.fracs.slice(0, k), frac, ...editState.fracs.slice(k)]);
+        editState.held = [...editState.held.slice(0, k), false, ...editState.held.slice(k)];
+        editState.edited = true;
+        setCount(K + 1);
+      };
+
       // Mirrored from the picker above rather than duplicated: one technique,
       // one selection, two places you can reach it. The section that is ABOUT
       // a technique should not be the one section with no way to choose one.
@@ -1388,8 +1435,20 @@
         label: 'Technique', format: (v) => scenarioNames[v],
       });
       Inputs.bind(pick, scenarioInput, invalidation);
-      const poses = Inputs.range([2, 8], { label: 'Poses', step: 1 });
-      Inputs.bind(poses, poseCountInput, invalidation);
+      // The blunt way to the same setting, and the only one that refits: asking
+      // for a count says nothing about WHICH poses, so the curve is re-fitted
+      // with that many and the phrasing goes back to even. The x and + on the
+      // storyboard say which, and neither refits anything.
+      const poses = Inputs.range([2, 12], { label: 'Poses', step: 1, value: K });
+      poses.addEventListener('input', () => {
+        const next = Math.max(2, Math.round(+poses.value));
+        if (next === K) return;
+        editState.knots = fit(FIG.resampleKnots(editState.knots, editState.T, next, editState.fracs));
+        editState.fracs = Float64Array.from({ length: next }, (_, i) => i / (next - 1));
+        editState.held = Array.from({ length: next }, (_, i) => i === next - 1);
+        editState.edited = true;
+        setCount(next);
+      });
 
       const playBtn = html`<button style="min-width:58px;">Play</button>`;
       playBtn.addEventListener('click', () => {
@@ -1528,22 +1587,14 @@
         const rec = pendingLoad.rec;
         if (!rec) return;
         pendingLoad.rec = null;
-        if (rec.knots[0].length !== K) {
-          // The pose count is a setting of the figure, and the file is a
-          // technique with a definite number of poses. The file wins, and the
-          // setting follows it.
-          poseCountInput.value = rec.knots[0].length;
-          poseCountInput.dispatchEvent(new Event('input', { bubbles: true }));
-          pendingLoad.rec = rec;
-          return;
-        }
+        const loadedK = rec.knots[0].length;
         editState.knots = rec.knots.map((k) => Float64Array.from(k));
         editState.T = rec.T;
         editState.fracs = rec.knotFracs
           ? Float64Array.from(rec.knotFracs)
-          : Float64Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
+          : Float64Array.from({ length: loadedK }, (_, k) => (loadedK === 1 ? 0 : k / (loadedK - 1)));
         editState.held = rec.held.slice();
-        editState.held[K - 1] = true;
+        editState.held[loadedK - 1] = true;
         editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
         editState.machine = { config: rec.config, numerics: rec.numerics, body: rec.body };
         editState.body = [
@@ -1558,7 +1609,9 @@
         optState.history = [];
         status = rec.label ? `loaded ${rec.label}` : 'loaded';
         sel = -1;
-        resim();
+        // The pose count is a setting of the figure; the file is a technique
+        // with a definite number of poses. The file wins.
+        if (loadedK !== K) setCount(loadedK); else resim();
       }
 
       const verdict = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
@@ -1897,7 +1950,6 @@
         ${story.element}
         <div style="margin-top:10px;">${strip.element}</div>
         <small style="display:block; opacity:.85; margin:2px 0 0;">${
-          key(dot(FIG.REQUEST_COLOR), 'asked for')}${
           key(ramp, 'strength used')}${
           key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
       </div>`;
