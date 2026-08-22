@@ -164,7 +164,11 @@
     // made the thresholds -- 1.6 for a kick-up, 2.2 and 2.8 for a press --
     // unreadable off the control. Kept as an element as well as a value
     // because the press corridor mirrors it and Inputs.bind binds elements.
-    const strengthInput = Inputs.range([0.8, 3.2], {
+    // Down to 0.5 Nm/kg. A handstand needs somewhere around 1 to hold and
+    // more to press, so the bottom of this range is the interesting part: it
+    // is where the technique has to stop asking the shoulder for what it does
+    // not have. The floor was 0.8, which cut that off.
+    const strengthInput = Inputs.range([0.5, 3.2], {
       label: 'Shoulder strength (Nm/kg)',
       value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05,
     });
@@ -414,7 +418,7 @@
         box.appendChild(input);
       };
       mirror([0, 120], { label: 'Straddle (deg)', step: 5 }, straddleInput);
-      mirror([0.8, 3.2], { label: 'Shoulder strength (Nm/kg)', step: 0.05 }, strengthInput);
+      mirror([0.5, 3.2], { label: 'Shoulder strength (Nm/kg)', step: 0.05 }, strengthInput);
       mirror([80, 150], { label: 'Wrist extension max', step: 1 }, inRomWrist);
       mirror([120, 185], { label: 'Shoulder flexion max', step: 1 }, inRomShoulder);
       mirror([40, 130], { label: 'Hip flexion max, straight knee', step: 1 }, inRomHip);
@@ -1614,7 +1618,7 @@
 
       // The sliders themselves: views onto editState.body, which is where the
       // numbers live (see above).
-      const inShoulder = Inputs.range([0.8, 3.2], { label: 'Shoulder (Nm/kg)', step: 0.05,
+      const inShoulder = Inputs.range([0.5, 3.2], { label: 'Shoulder (Nm/kg)', step: 0.05,
         value: editState.body[0] });
       const inHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', step: 1,
         value: editState.body[1] });
