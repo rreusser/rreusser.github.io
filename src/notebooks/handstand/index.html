@@ -1651,11 +1651,20 @@
       const resetBtn = html`<button class="hs-btn" title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it.">Revert to stored</button>`;
       resetBtn.addEventListener('click', () => {
         stopSearch();
-        editState.knots = baseKnots.map((k) => Float64Array.from(k));
+        // baseKnots is a FUNCTION -- it has to be, because the pose count can
+        // move and reverting at four poses has to give back the stored
+        // technique said with four. Calling .map on the function itself threw
+        // on the first line, so Revert had been doing nothing at all except
+        // stopping the search: every button press was a silent no-op.
+        editState.knots = baseKnots().map((k) => Float64Array.from(k));
         editState.T = simResult.T;
         editState.fracs = baseFracs();
         editState.held = freshHeld();
         editState.timeHeld = freshTimeHeld();
+        // The mirror is part of the technique, so reverting the technique
+        // reverts it too -- it was left wherever it had been set.
+        editState.symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
+        symToggle.value = editState.symmetric;
         editState.q0 = null;
         durInput.value = simResult.T;
         editState.body = bodyDefaults.slice();
@@ -1666,7 +1675,9 @@
         editState.notify?.(null);
         optState.history = [];
         status = '';
-        relayout();
+        // A revert changes the knots, so the body on screen is no longer the
+        // one beside them: re-simulate rather than merely re-draw.
+        resim();
       });
 
       // ---- save and load ------------------------------------------------------
@@ -1763,15 +1774,16 @@
       openBtn.addEventListener('click', () => {
         const c = selectedCase();
         if (!c) return;
+        let rec;
         try {
-          pendingLoad.rec = techniqueFromJSON(c);
+          rec = techniqueFromJSON(c);
         } catch (err) {
           status = `could not open: ${err.message}`;
           dirty = chromeDirty = true;
           return;
         }
         caseName.value = c.label || '';
-        applyLoaded();
+        beginLoad(rec);
       });
       renameBtn.addEventListener('click', () => {
         const name = caseName.value.trim();
@@ -1814,22 +1826,38 @@
           console.error('loading a technique:', err);
           return;
         }
-        stopSearch();
-        // The scenario decides which start the solver builds when the file
-        // carries none, so it has to be switched before anything else --
-        // which re-runs this cell. The technique is parked for the new run to
-        // pick up, because this closure is about to stop existing.
-        pendingLoad.rec = rec;
-        if (rec.scenario !== simResult.scenarioName) {
-          const key = Object.keys(scenarioNames).find((k) => k.replace(/-opt$/, '') === rec.scenario);
-          if (key) { scenarioInput.value = key; scenarioInput.dispatchEvent(new Event('input', { bubbles: true })); return; }
-        }
-        applyLoaded();
+        beginLoad(rec);
       });
 
       // Applying a loaded file, from whichever run of this cell ends up holding
       // it. Everything the file carries goes in; nothing is left at a default
       // that the file happened to agree with.
+      // Starting a load, from a file or from a kept case. A case carries the
+      // scenario it was made under, and the scenario is not decoration: it
+      // decides how the start pose is solved, which contacts exist, and which
+      // phase terms the score applies. So it has to be switched FIRST -- which
+      // re-runs this cell, and this closure with it, so the technique is parked
+      // in pendingLoad for the next run to pick up.
+      //
+      // Opening a kept case skipped all of that and applied the technique on
+      // top of whatever scenario happened to be showing. A press opened while
+      // the kick-up was up loaded the press's knots, tempo and body, said
+      // "Kick-up" in the picker, and ran the whole thing through the kick-up's
+      // start solver -- which is a different movement, and it fell.
+      function beginLoad(rec) {
+        stopSearch();
+        pendingLoad.rec = rec;
+        if (rec.scenario !== simResult.scenarioName) {
+          const key = Object.keys(scenarioNames).find((k) => k.replace(/-opt$/, '') === rec.scenario);
+          if (key) {
+            scenarioInput.value = key;
+            scenarioInput.dispatchEvent(new Event('input', { bubbles: true }));
+            return;
+          }
+        }
+        applyLoaded();
+      }
+
       function applyLoaded() {
         const rec = pendingLoad.rec;
         if (!rec) return;
