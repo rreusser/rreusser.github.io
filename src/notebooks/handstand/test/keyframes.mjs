@@ -187,19 +187,24 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
 // the poses. A pinned instant comes back exactly where it was put.
 // ---------------------------------------------------------------------------
 {
-  const fracs0 = knotTimes(1, K);           // even, as fractions of the duration
+  // Every pose crammed into the first third, which is a real phrasing fault:
+  // the movement is asked for in a rush and then nothing happens for a second
+  // and a half, and it does not arrive. Starting from a technique that already
+  // WORKS was the mistake in the first version of this gate -- there is almost
+  // nothing left to find, so whether a given seed finds it is luck, and the
+  // gate was really asserting a die roll. (Seeds 3 and 11 find nothing here in
+  // sixty generations; seed 5 finds nothing in thirty and 50 ms in sixty.)
+  // From a fault, the search has an obvious repair and reliably makes it:
+  // 416 -> 242 at both thirty and fifty generations.
+  const startFracs = Float64Array.from({ length: K }, (_, k) =>
+    (k === 0 ? 0 : k === K - 1 ? 1 : (k * 0.3) / (K - 1)));
   const PIN = 2;
-  const timeLocks = Array.from({ length: K }, (_, k) => (k === PIN ? fracs0[k] : null));
+  const timeLocks = Array.from({ length: K }, (_, k) => (k === PIN ? startFracs[k] : null));
   const res = await optimizeScenario(model, ws, prof, rom, {
-    // More generations than gate D needs, because gate D leaves the duration
-    // free and can buy an improvement by slowing down within a few of them.
-    // With the tempo pinned there is no such shortcut, and a dozen
-    // generations against a technique that already works produce no winner at
-    // all -- not in the instants and not in the angles either.
     scenario: stored.scenario, seed: 5, maxGen: 30, K, sigma0: 0.05,
-    x0: encodeDecision(knots.map((k) => Float64Array.from(k)), T),
+    x0: encodeDecision(knots.map((k) => Float64Array.from(k)), T, startFracs),
     target, plant: resolvePlant(stored.config),
-    knotFracs: fracs0, freeTimes: true, timeLocks,
+    knotFracs: startFracs, freeTimes: true, timeLocks,
     // Both ends of the duration are the tempo on screen, exactly as the page
     // sends it: this gate is about phrasing WITHIN a fixed tempo.
     tLo: T, tHi: T, t0: T,
@@ -218,12 +223,15 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   gate('F2. with the room between poses the decode promises', tightest >= MIN_KNOT_GAP - 1e-12,
     `${tightest.toFixed(4)} against a floor of ${MIN_KNOT_GAP}`);
 
-  const pinned = Math.abs(got[PIN] - fracs0[PIN]);
+  const pinned = Math.abs(got[PIN] - startFracs[PIN]);
   let slid = 0;
-  for (let k = 1; k < K - 1; k++) if (k !== PIN) slid = Math.max(slid, Math.abs(got[k] - fracs0[k]));
+  for (let k = 1; k < K - 1; k++) if (k !== PIN) slid = Math.max(slid, Math.abs(got[k] - startFracs[k]));
   gate('F3. a pinned pose stays on its instant', pinned === 0,
     `${(pinned * T * 1000).toFixed(1)} ms`);
-  gate('F4. while the free ones slide', slid > 1e-4, `${(slid * T * 1000).toFixed(0)} ms`);
+  gate('F3a. while the free ones are re-phrased', slid > 1e-3,
+    `${(slid * T * 1000).toFixed(0)} ms`);
+  gate('F3b. and the fault is actually repaired', res.best < 400,
+    `cost ${res.best.toFixed(0)} from a start of about 416`);
 
   // And the tempo itself did not move, which is the whole premise: phrasing
   // must not be a back door to the slower-is-cheaper gradient that got the
@@ -236,6 +244,41 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   gate('F6. and a pinned instant is a point, not a range',
     hi[6 * K + PIN] - lo[6 * K + PIN] === 0,
     `width ${(hi[6 * K + PIN] - lo[6 * K + PIN]).toExponential(1)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate F4: a free instant is a decision, a pinned one is not.
+//
+// Straight at the mechanism: move an entry in the decision vector by hand and
+// see whether the movement changes. No optimizer, so no luck involved -- which
+// is what the old version of this gate had accidentally been measuring.
+// ---------------------------------------------------------------------------
+{
+  const PIN = 2, FREE = 1;
+  const fracs0 = knotTimes(1, K);
+  const timeLocks = Array.from({ length: K }, (_, k) => (k === PIN ? fracs0[k] : null));
+  const opts = { K, dt: 5e-4, target, plant: resolvePlant(stored.config), timeLocks };
+  const base = encodeDecision(knots.map((k) => Float64Array.from(k)), T, fracs0);
+  const nudged = (i) => {
+    const x = Float64Array.from(base);
+    x[6 * K + i] += 0.15;
+    return rolloutCost(model, ws, prof, rom, stored.scenario, x, opts);
+  };
+  const ref = rolloutCost(model, ws, prof, rom, stored.scenario, base, opts);
+  const spread = (a, b) => {
+    let d = 0;
+    for (let k = 0; k < Math.min(a.rec.t.length, b.rec.t.length); k++) {
+      for (let i = 0; i < a.rec.q[k].length; i++) d = Math.max(d, Math.abs(a.rec.q[k][i] - b.rec.q[k][i]));
+    }
+    return d;
+  };
+  const dFree = spread(ref, nudged(FREE));
+  const dPinned = spread(ref, nudged(PIN));
+  gate('F4. moving a free instant moves the movement', dFree > 1e-3,
+    `${(dFree * D).toFixed(1)} deg apart`);
+  gate('F4a. and moving a pinned one does nothing at all', dPinned === 0,
+    `${(dPinned * D).toExponential(1)} deg`);
+
 }
 
 // ---------------------------------------------------------------------------
