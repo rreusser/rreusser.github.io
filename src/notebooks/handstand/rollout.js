@@ -602,6 +602,10 @@ export const COST_WEIGHTS = {
   pose: 1, poseAngles: 2, velocity: 0.3, fall: 1,
   effort: 0.08, saturation: 2, rom: 4, romPeak: 0.5, quasiStatic: 0,
   liftoff: 8, feet: 5, replant: 25, tuckPhase: 6, arrival: 8, work: 1, smooth: 1,
+  // Reaching handstand height at all. Zero for anything that gets there, so it
+  // changes no technique that already works -- it only gives the ones that do
+  // not a direction to move in.
+  reach: 30,
   settleCalm: 1, driveRate: 0.3,
 };
 
@@ -823,14 +827,31 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     }
   }
 
+  // A fall ends the attempt, so the score stops there. Everything after it is
+  // the aftermath of a crash -- the feet coming back down, the flail, the heap
+  // the body finishes in -- and scoring that measures HOW IT FELL rather than
+  // how close it came. It was not a small effect: sweeping a kick-up from too
+  // weak a throw to too hard a one, the replant term (feet touching down after
+  // liftoff, which after a fall is not a replant but a landing) ran 663, 0,
+  // 275, 0, 151, 64 across the sweep and set the ranking outright, so a
+  // technique 6% short of arriving scored twice as badly as one 20% short. The
+  // search was being told, precisely, nothing.
+  const kEnd = (() => {
+    if (Number.isNaN(tFall)) return rec.t.length;
+    let k = 0;
+    while (k < rec.t.length && rec.t[k] < tFall) k++;
+    return Math.max(2, Math.min(rec.t.length, k + 1));
+  })();
+  const scoredEnd = rec.t[kEnd - 1];
+
   const mo = momenta(model, r.q, r.qd, ws);
   const xTargetEnd = r.q[0] + model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
   const poseTerm = ((mo.comX - xTargetEnd) / 0.1) ** 2 + ((mo.comY - comYbal) / (0.2 * H)) ** 2;
   // Peak CoM speed over the final 0.4 s, not the final instant: a body
   // drifting into overshoot can be momentarily slow exactly at cutoff.
   let peakEndSpeed = Math.hypot(mo.comVx, mo.comVy);
-  for (let k = 1; k < rec.t.length; k++) {
-    if (rec.t[k] < Tend - 0.4) continue;
+  for (let k = 1; k < kEnd; k++) {
+    if (rec.t[k] < scoredEnd - 0.4) continue;
     const dts = rec.t[k] - rec.t[k - 1];
     if (dts <= 0) continue;
     const v = Math.hypot(rec.com[k][0] - rec.com[k - 1][0], rec.com[k][1] - rec.com[k - 1][1]) / dts;
@@ -838,6 +859,20 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   }
   const velTerm = (peakEndSpeed / 0.25) ** 2;
   const fallTerm = Number.isNaN(tFall) ? 0 : 60 + 240 * (Tend - tFall) / Tend;
+
+  // How close the body ever came to standing on its hands, whatever happened
+  // afterwards. Falling is one number, so the whole family of techniques that
+  // never get up scores the same and the search has no way to learn that it
+  // should throw harder -- which is the failure this term exists to fix.
+  // Across a kick-up swept from too weak to too hard it reads 0.271, 0.270,
+  // 0.234, 0.166, 0.000: a gradient where the total cost had none.
+  //
+  // Clamped at zero rather than rewarding height, so there is nothing to buy
+  // by jumping: getting the centre of mass to where a handstand puts it is
+  // worth everything, and getting it higher is worth nothing at all.
+  let peakReach = -Infinity;
+  for (let k = 0; k < kEnd; k++) peakReach = Math.max(peakReach, rec.com[k][1]);
+  const shortTerm = (Math.max(0, comYbal - peakReach) / (0.2 * H)) ** 2;
 
   // Joint-space terminal error over the settle tail: "arrived" means the
   // stacked handstand configuration, not merely a CoM in the right place.
@@ -861,7 +896,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // at the settle tail.
   let replant = 0;
   const footGone = [false, false];
-  for (let k = 0; k < rec.t.length; k++) {
+  for (let k = 0; k < kEnd; k++) {
     const f = rec.forces[k];
     if (f) {
       const handF = f.fy[0] + f.fy[1];
@@ -871,7 +906,13 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
         const c = 2 + s;
         if (f.py[c] === undefined) continue;
         if (!footGone[s] && f.py[c] > TOE_CLEAR_M) footGone[s] = true;
-        if (footGone[s]) replant += (f.fy[c] / (0.1 * W)) ** 2;
+        // Capped: a foot is either back on the floor or it is not, and how
+        // HARD it lands is not the question. Uncapped, this squared force
+        // ratio ran to ten times every other term put together on a kick-up
+        // that toppled over the front, and it ran the wrong way -- the harder
+        // the technique overthrew, the softer the landing and the cheaper the
+        // score, so the search read "throw harder" all the way out.
+        if (footGone[s]) replant += Math.min(1, (f.fy[c] / (0.1 * W)) ** 2);
       }
       const footF = (f.fy[2] || 0) + (f.fy[3] || 0);
       if (rec.t[k] >= settleStart) feet += (footF / (0.2 * W)) ** 2;
@@ -886,8 +927,8 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
       nAng++;
     }
   }
-  liftoff /= rec.t.length;
-  replant /= rec.t.length;
+  liftoff /= kEnd;
+  replant /= kEnd;
 
   // Peak foot speed over the closing quarter of the entry, computed from the
   // state rather than by differencing recorded positions. Differencing reads
@@ -1002,7 +1043,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
       peakKE = Math.max(peakKE, vc);
     }
   }
-  const N = rec.t.length;
+  const N = kEnd;
   effort /= N; sat /= N; romP /= N;
   if (nDrive > 0) driveRate /= nDrive;
   if (nSettleCalm > 0) settleCalmV /= nSettleCalm;
@@ -1015,8 +1056,8 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // movement look human. Purposeful accelerations cost ~1 per joint on the
   // SMOOTH_ACCEL_SCALE; rapid reversals (flailing) dominate everything.
   let smoothAcc = 0;
-  if (rec.t.length > 2) {
-    for (let k = 1; k < rec.t.length - 1; k++) {
+  if (kEnd > 2) {
+    for (let k = 1; k < kEnd - 1; k++) {
       const dtc = rec.t[k + 1] - rec.t[k - 1];
       if (dtc <= 0) continue;
       let s = 0;
@@ -1026,7 +1067,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
       }
       smoothAcc += s;
     }
-    smoothAcc /= rec.t.length - 2;
+    smoothAcc /= kEnd - 2;
   }
 
   const terms = {
@@ -1038,6 +1079,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     driveRate: (weights.driveRate || 0) * driveRate,
     velocity: weights.velocity * velTerm,
     fall: weights.fall * fallTerm,
+    reach: (weights.reach || 0) * shortTerm,
     effort: weights.effort * effort,
     saturation: weights.saturation * sat,
     rom: weights.rom * romP,
