@@ -58,3 +58,48 @@ export function nextId(list) {
   const n = list.reduce((m, c) => Math.max(m, +String(c.id ?? '').replace(/^p?c?/, '') || 0), 0);
   return `p${n + 1}`;
 }
+
+// ---------------------------------------------------------------------------
+// Drafts: a technique you have edited but not kept.
+//
+// A built-in is DERIVED rather than remembered, which is the right rule for
+// where a technique comes from and a disastrous one for what happens to your
+// work. Open the kick-up, hold a pose, unpin an instant, drag a knot, switch
+// to the press to compare, switch back -- and every one of those edits was
+// gone, because the built-in was rebuilt from its reference and the editor had
+// nowhere to have put them. Nothing warned, and nothing said it had happened.
+//
+// So an edited technique is a document with unsaved changes, and switching
+// away from one parks it here under the id of the preset it was opened from.
+// Coming back to that preset reads the draft instead of re-deriving. Keep is
+// still what makes a technique durable and nameable; this is only what stops
+// the editor throwing away things you can see on the screen.
+//
+// Same storage, same failure rules as the list above: a browser with storage
+// off costs you the drafts, not the notebook.
+export const DRAFT_KEY = 'handstand.drafts.v1';
+
+export function readDrafts() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    const obj = JSON.parse(raw || '{}');
+    return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+  } catch (err) {
+    console.warn('drafts unreadable:', err);
+    return {};
+  }
+}
+
+// Null on success, a sentence on failure -- and unlike the preset list, a
+// draft that will not fit is not worth telling anyone about in the moment it
+// happens, because nobody asked for it to be written. The caller logs it.
+export function writeDrafts(drafts) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
+    return null;
+  } catch (err) {
+    return err?.name === 'QuotaExceededError'
+      ? 'no room left in this browser for a draft'
+      : String(err?.message || err);
+  }
+}

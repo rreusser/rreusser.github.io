@@ -281,7 +281,7 @@
     } from './technique-file.js';
     import * as FIG from './figure-kit.js';
     import { builtinPresets, BUILTIN_SCENARIOS } from './presets.js';
-    import { readPresets, writePresets, nextId } from './preset-store.js';
+    import { readPresets, writePresets, nextId, readDrafts, writeDrafts } from './preset-store.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
     const bodyControls = html`<div class="body-controls"></div>`;
@@ -1234,6 +1234,55 @@
         body: resolveRunBody(simResult.stored?.body),
       });
       const sameRun = editState.base === simResult && editState.knots;
+
+      // Park what is being left, BEFORE anything below reassigns editState.
+      // The body, the machine and the mirror are all rewritten a few lines
+      // down with the INCOMING technique's defaults, and editState.base is
+      // about to become the incoming run -- so a snapshot taken any later is a
+      // snapshot of the wrong technique filed under the wrong id.
+      //
+      // Switching techniques used to destroy every edit made to the outgoing
+      // one. For a built-in there was nowhere else for them to live, because a
+      // built-in is derived rather than remembered: hold a pose, unpin an
+      // instant, drag a knot, look at another technique to compare, come back,
+      // and all of it was gone without a word. A document with unsaved changes
+      // is a draft, so that is what it becomes.
+      const leaving = editState.base;
+      if (!sameRun && leaving?.presetId && editState.edited && editState.knots) {
+        try {
+          const drafts = readDrafts();
+          drafts[leaving.presetId] = techniqueToJSON({
+            label: leaving.stored?.label || leaving.scenarioName,
+            saved: new Date().toISOString(),
+            scenario: leaving.scenarioName,
+            knots: editState.knots,
+            T: editState.T,
+            knotFracs: editState.fracs,
+            held: editState.held,
+            timeHeld: editState.timeHeld,
+            q0: editState.q0,
+            target: leaving.stored?.target || null,
+            rom: { ...(leaving.stored?.rom || {}),
+              hipFlexStraightKneeMaxDeg: editState.body?.[1],
+              shoulderFlexMaxDeg: editState.body?.[2],
+              wristExtMaxDeg: editState.body?.[3],
+              spineFlexMaxDeg: editState.body?.[4] },
+            strength: { ...(leaving.stored?.strength || {}),
+              shoulder: { ...(leaving.stored?.strength?.shoulder || STRENGTH_DEFAULTS.shoulder),
+                t0Vol: editState.body?.[0] } },
+            body: editState.machine?.body || null,
+            config: editState.machine?.config || null,
+            numerics: editState.machine?.numerics || null,
+            symmetric: editState.symmetric,
+            search: editState.search,
+            verdict: null, cost: null,
+          });
+          // Logged rather than shown: nobody asked for this write, and the
+          // status line is about to be about the technique being opened.
+          const err = writeDrafts(drafts);
+          if (err) console.warn('could not park a draft:', err);
+        } catch (err) { console.warn('could not park a draft:', err); }
+      }
       editState.base = simResult;
       if (!sameRun || editState.body?.length !== bodyDefaults.length) {
         editState.body = bodyDefaults.slice();
@@ -1370,10 +1419,20 @@
       };
 
       if (!sameRun) {
-        readTechnique(openedTechnique || {
+        // The draft for the technique being opened, if there is one, is what
+        // the reader is handed -- otherwise the technique itself.
+        const draft = simResult.presetId ? readDrafts()[simResult.presetId] : null;
+        let opened = null;
+        if (draft) {
+          try { opened = techniqueFromJSON(draft); } catch (err) {
+            console.warn('a parked draft would not read back, using the technique:', err);
+          }
+        }
+        readTechnique(opened || openedTechnique || {
           knots: simResult.knots, T: simResult.T, knotFracs: simResult.knotFracs,
           rom: simResult.baseRom, scenario: simResult.scenarioName,
         });
+        editState.hasDraft = !!opened;
         // Mirroring a symmetric skill moves the knots without touching the
         // recording beside them, and a figure whose grey poses have moved
         // while its coloured body has not is the confusion this figure exists
@@ -1382,7 +1441,9 @@
         sym(editState.knots);
         stale = differs(editState.knots, raw);
         editState.run = simResult;
-        editState.edited = false;
+        // A restored draft IS an edit -- it is the work you had done -- so the
+        // badge and the verdict's baseline comparison both stay on.
+        editState.edited = !!editState.hasDraft;
       }
       // Belt and braces for a technique stored before any of these existed.
       if (editState.fracs?.length !== K) editState.fracs = evenFracs();
@@ -1718,14 +1779,21 @@
           const k = i - 1;
           editState.timeHeld[k] = !editState.timeHeld[k];
           // Same as holding a pose: it changes what the search may do, not
-          // what the body does, so nothing is re-simulated.
+          // what the body does, so nothing is re-simulated. It IS an edit
+          // though -- which instants are pinned is a field of the technique,
+          // written to every file -- and saying otherwise meant the editor
+          // thought nothing had changed and threw the pins away on the next
+          // technique switch.
+          editState.edited = true;
           chromeDirty = dirty = true;
         },
         onLock: (i) => {
           const k = i - 1;
           editState.held[k] = !editState.held[k];
           // Holding a pose does not change the movement -- it changes what the
-          // search is allowed to do with it -- so nothing is re-simulated.
+          // search is allowed to do with it -- so nothing is re-simulated. It
+          // is still an edit: which poses are held is part of the technique.
+          editState.edited = true;
           chromeDirty = dirty = true;
         },
       });
@@ -2008,9 +2076,27 @@
       // it leaves alone: that is a setting, not part of the technique, and a
       // four-pose refit of a six-pose technique cannot be undone by restoring
       // six numbers.
+      // A draft is what an unsaved edit IS, so the two things that mean "I do
+      // not want that edit any more" have to say so: Revert, which asks for
+      // the stored technique back, and Forget, which throws the preset away.
+      // Without this, Revert cleaned the editor and the parked draft came
+      // straight back the next time the technique was opened.
+      const clearDraft = (id) => {
+        if (!id) return;
+        try {
+          const drafts = readDrafts();
+          if (drafts[id] === undefined) return;
+          delete drafts[id];
+          const err = writeDrafts(drafts);
+          if (err) console.warn('could not clear a draft:', err);
+        } catch (err) { console.warn('could not clear a draft:', err); }
+      };
+
       const resetBtn = html`<button class="hs-btn" title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it.">Revert</button>`;
       resetBtn.addEventListener('click', () => {
         stopSearch();
+        clearDraft(simResult.presetId);
+        editState.hasDraft = false;
         // baseKnots is a FUNCTION -- it has to be, because the pose count can
         // move and reverting at four poses has to give back the stored
         // technique said with four. Calling .map on the function itself threw
@@ -2145,7 +2231,14 @@
         const err = writePresets(list);
         status = err ? `could not keep: ${err}`
           : (over ? `updated "${rec.label}"` : `kept "${rec.label}"`);
-        if (!err) { refreshPresets(rec.id); syncPresetButtons(); }
+        if (!err) {
+          // The edit is a preset now, so the draft parked under whatever this
+          // was opened from has nothing left to say.
+          clearDraft(simResult.presetId);
+          editState.hasDraft = false;
+          refreshPresets(rec.id);
+          syncPresetButtons();
+        }
         dirty = chromeDirty = true;
       });
       // The name box decides between Update and Keep, so the button has to
@@ -2168,6 +2261,7 @@
       });
       dropBtn.addEventListener('click', () => {
         const gone = readPresets().find((c) => c.id === pick.value);
+        clearDraft(pick.value);
         const list = readPresets().filter((c) => c.id !== pick.value);
         const err = writePresets(list);
         status = err ? `could not forget: ${err}` : `forgot "${gone?.label || 'preset'}"`;
