@@ -1497,14 +1497,13 @@
         onKnotPick: (k) => { selectCell(k + 1); },
         onKnotDrag: (k, frac, settled) => {
           editState.fracs[k] = frac;
-          // Putting a pose at an instant BY HAND pins it there. It is already
-          // pinned unless you released it, so this only bites on a pose you
-          // had handed to the search -- and there a drag the search then
-          // undoes is a control that does not control anything: you would set
-          // a snap, optimize, and watch it even itself back out. Nothing about
-          // it is hidden, the caption and the upright both change as you let
-          // go, and clicking the caption releases it again.
-          if (settled) editState.timeHeld[k] = true;
+          // Moving a pose in time does NOT pin it. Setting a value and
+          // deciding who owns it are two different things, and doing them with
+          // one gesture means you cannot do the first without the second --
+          // there was no way to nudge the starting point of a pose you had
+          // deliberately handed to the search without taking it back. The
+          // padlock beside the number is how you say that, and it is left
+          // exactly as you set it.
           t = knotTime(k);
           dirty = chromeDirty = true;
           if (settled) resim(); else relayout();

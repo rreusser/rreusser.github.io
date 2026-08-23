@@ -545,17 +545,23 @@ export function createStrip({
     // one to the search, which is the same rule the caption under the frame
     // follows.
     const rows = JOINTS.length * rowH - 2;
+    // Uniform, deliberately. These used to be drawn brighter for a pose whose
+    // instant the search may move, which was a third encoding of lock state --
+    // and the opposite polarity to the padlock, where the strong state is the
+    // LOCKED one. It was also telling you the wrong thing about the handle:
+    // dragging a pose no longer pins it, so every interior pose is draggable
+    // whatever its padlock says, and emphasising some of them read as "only
+    // these move". Lock state is the padlock's job, in one place, once.
     knotTimes.forEach((kt, k) => {
-      const freed = locks ? !locks[k] : false;
       const x = Math.round(toX(kt, xEnd)) + 0.5;
-      ctx.strokeStyle = freed ? fgc(0.75) : fgc(0.32);
-      ctx.lineWidth = freed ? 1.5 : 1;
+      ctx.strokeStyle = fgc(0.32);
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, rows);
       ctx.stroke();
       if (onKnotDrag && k > 0 && k < knotTimes.length - 1) {
-        ctx.fillStyle = fgc(freed ? 0.75 : 0.4);
+        ctx.fillStyle = fgc(0.55);
         ctx.beginPath();
         ctx.moveTo(x - 3.5, rows);
         ctx.lineTo(x + 3.5, rows);
@@ -715,12 +721,33 @@ export function createStoryboard({
     // instants by definition -- 0 and T -- so theirs is a reading, not a
     // control, and it stays plain text.
     const capTime = document.createElement(pinnable ? 'button' : 'span');
+    // The number, and beside it the same padlock the pose has.
+    //
+    // This used to be said with an underline and an opacity: pinned was faded
+    // under a dotted rule, free was full strength under a coloured one. Two
+    // problems with that. It is not a padlock, so nothing connects it to the
+    // control directly above it that means the same thing; and the brightness
+    // was carrying "you changed this" rather than "this is locked", which for
+    // the time -- pinned by default -- is the OPPOSITE polarity to the pose,
+    // unheld by default. Same picture, opposite meaning, one cell apart.
+    const capTimeText = document.createElement('span');
+    let timeShackle = null;
     if (pinnable) {
       capTime.type = 'button';
       capTime.style.cssText = 'font: inherit; font-variant-numeric:tabular-nums; color:inherit;'
-        + 'background:none; border:none; border-bottom:1.5px solid transparent; padding:0 1px;'
-        + 'margin:0; cursor:pointer; line-height:1;';
+        + 'background:none; border:none; padding:0 1px; margin:0; cursor:pointer;'
+        + 'line-height:1; display:inline-flex; align-items:center; gap:2px;';
+      const tsvg = svgIcon([SHUT], '0 0 12 14', 8, 9);
+      timeShackle = tsvg.querySelector('path');
+      const tbody = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      tbody.setAttribute('x', '1.4'); tbody.setAttribute('y', '6.4');
+      tbody.setAttribute('width', '9.2'); tbody.setAttribute('height', '6.6');
+      tbody.setAttribute('rx', '1.5'); tbody.setAttribute('fill', 'currentColor');
+      tsvg.appendChild(tbody);
+      capTime.append(capTimeText, tsvg);
       capTime.addEventListener('click', (e) => { e.stopPropagation(); onTimeLock(k); });
+    } else {
+      capTime.append(capTimeText);
     }
     cap.append(capName, capTime);
     // A div rather than a button, because the controls on it are buttons and a
@@ -820,7 +847,7 @@ export function createStoryboard({
     }
 
     element.appendChild(host);
-    cells.push({ canvas, cap, capName, capTime, pinnable, host, lockBtn, delBtn, insBtn, insLine, insIcon });
+    cells.push({ canvas, cap, capName, capTime, capTimeText, timeShackle, pinnable, host, lockBtn, delBtn, insBtn, insIcon, insLine });
     cellLocks.push(shackle);
   }
 
@@ -925,16 +952,15 @@ export function createStoryboard({
       cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
       const c = cells[k];
       c.capName.textContent = it.time == null ? it.label : `${it.label} · `;
-      c.capTime.textContent = it.time == null ? '' : it.time;
+      c.capTimeText.textContent = it.time == null ? '' : it.time;
       if (c.pinnable) {
-        // Lit means you changed something here, which is the rule the padlock
-        // follows too -- and since a pose starts pinned, the lit state is the
-        // released one. Pinned sits quiet over a dotted rule whose only job is
-        // to say the number can be clicked at all; the ends, which have no
-        // choice about their instants, get no rule.
-        c.capTime.style.opacity = it.timeLocked ? '0.5' : '1';
-        c.capTime.style.borderBottomStyle = it.timeLocked ? 'dotted' : 'solid';
-        c.capTime.style.borderBottomColor = it.timeLocked ? 'currentColor' : REQUEST_COLOR;
+        // Shut means pinned, open means free -- the same glyph and the same
+        // polarity as the pose lock above it, so one picture means one thing
+        // everywhere on the cell. The number itself stays at full strength: it
+        // is a reading, not a state, and fading it said "inactive" about the
+        // default.
+        c.timeShackle?.setAttribute('d', it.timeLocked ? SHUT : OPEN);
+        c.capTime.style.opacity = it.timeLocked ? '0.9' : '0.35';
         c.capTime.setAttribute('aria-pressed', it.timeLocked ? 'true' : 'false');
         c.capTime.setAttribute('aria-label', it.timeLocked
           ? 'pinned in time; let the search move this pose'
