@@ -5,7 +5,7 @@
 // that has quietly stopped being symmetric.
 //
 // Usage:
-//   node scripts/filmstrip.mjs runs/021-bent-leg-press-hop.json [out.svg]
+//   node scripts/filmstrip.mjs my-preset.json [out.svg]
 //     --frames N     poses to draw (default 12)
 //     --through T    seconds to cover (default the entry duration T)
 //     --rows N       wrap into N rows (default 1)

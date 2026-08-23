@@ -16,7 +16,7 @@ import { splineEval, knotTimes } from '../control.js';
 import {
   optimizeScenario, runScenario, rolloutCost, encodeDecision, decodeDecision, decisionBounds,
   resolvePlant, resolveNumerics, resolveRom, resolveBody, applyLocks, applyTimeLocks,
-  symmetrizeKnots, SYMMETRIC_SCENARIOS, MIN_KNOT_GAP,
+  symmetrizeKnots, SYMMETRIC_SCENARIOS, MIN_KNOT_GAP, NJ, JOINT_KEYS,
 } from '../rollout.js';
 import { PRESET_TRAJECTORIES } from '../presets.js';
 
@@ -37,7 +37,7 @@ const rom = resolveRom({ ...(stored.rom || {}) });
 const knots = stored.knots.map((k) => Float64Array.from(k));
 const K = knots[0].length, T = stored.T;
 const target = new Float64Array(model.nq);
-for (let j = 0; j < 6; j++) target[3 + j] = knots[j][K - 1];
+for (let j = 0; j < NJ; j++) target[3 + j] = knots[j][K - 1];
 
 // ---------------------------------------------------------------------------
 // Gate A: uneven phrasing is a real generalization -- it reduces exactly to
@@ -134,7 +134,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
 // ---------------------------------------------------------------------------
 {
   const locks = Array.from({ length: K }, (_, k) => (k === 0 || k === 2 || k === K - 1
-    ? Array.from({ length: 6 }, (_, j) => knots[j][k]) : null));
+    ? Array.from({ length: NJ }, (_, j) => knots[j][k]) : null));
   const res = await optimizeScenario(model, ws, prof, rom, {
     scenario: stored.scenario, seed: 5, maxGen: 12, K, sigma0: 0.05,
     x0: encodeDecision(knots.map((k) => Float64Array.from(k)), T),
@@ -142,7 +142,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   });
   let held = 0, moved = 0;
   for (let k = 0; k < K; k++) {
-    for (let j = 0; j < 6; j++) {
+    for (let j = 0; j < NJ; j++) {
       const d = Math.abs(res.decoded.knots[j][k] - knots[j][k]);
       if (locks[k]) held = Math.max(held, d); else moved = Math.max(moved, d);
     }
@@ -156,7 +156,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   let open = 0;
   for (let k = 0; k < K; k++) {
     if (!locks[k]) continue;
-    for (let j = 0; j < 6; j++) open = Math.max(open, hi[j * K + k] - lo[j * K + k]);
+    for (let j = 0; j < NJ; j++) open = Math.max(open, hi[j * K + k] - lo[j * K + k]);
   }
   gate('D3. and its bounds are a point, not a range', open === 0, `widest held bound ${open.toExponential(1)} rad`);
 }
@@ -167,12 +167,18 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
 // been straightened into.
 // ---------------------------------------------------------------------------
 {
-  const kn = [[0], [0], [0.3], [-0.2], [0.9], [-0.7]].map((r) => Float64Array.from(r));
-  const want = [0.11, 0.22, 0.33, 0.44, 0.55, 0.66];
+  // One row per joint the body has, and the legs deliberately scissored so
+  // the mirror has something to do. Written as six rows by hand this threw
+  // the moment the trunk gained a hinge, because applyLocks walks the joint
+  // list and the seventh row was not there.
+  const hipL = JOINT_KEYS.indexOf('hipL'), hipR = JOINT_KEYS.indexOf('hipR');
+  const kn = Array.from({ length: NJ }, () => Float64Array.from([0]));
+  kn[hipL][0] = 0.3; kn[hipR][0] = 0.9;
+  const want = Array.from({ length: NJ }, (_, j) => 0.11 * (j + 1));
   symmetrizeKnots(kn);
   applyLocks(kn, [want]);
   let d = 0;
-  for (let j = 0; j < 6; j++) d = Math.max(d, Math.abs(kn[j][0] - want[j]));
+  for (let j = 0; j < NJ; j++) d = Math.max(d, Math.abs(kn[j][0] - want[j]));
   gate('E. a lock survives the symmetry mirror', d === 0, `${d.toExponential(1)} rad`);
   gate('E2. (and the mirror really would have moved it)',
     SYMMETRIC_SCENARIOS.has('tuck') && Math.abs(0.9 - 0.3) > 0.1, 'hip R was 0.60 rad off hip L');
@@ -242,8 +248,8 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   // The bounds say it too.
   const { lo, hi } = decisionBounds(K, { rom, freeTimes: true, timeLocks });
   gate('F6. and a pinned instant is a point, not a range',
-    hi[6 * K + PIN] - lo[6 * K + PIN] === 0,
-    `width ${(hi[6 * K + PIN] - lo[6 * K + PIN]).toExponential(1)}`);
+    hi[NJ * K + PIN] - lo[NJ * K + PIN] === 0,
+    `width ${(hi[NJ * K + PIN] - lo[NJ * K + PIN]).toExponential(1)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +267,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   const base = encodeDecision(knots.map((k) => Float64Array.from(k)), T, fracs0);
   const nudged = (i) => {
     const x = Float64Array.from(base);
-    x[6 * K + i] += 0.15;
+    x[NJ * K + i] += 0.15;
     return rolloutCost(model, ws, prof, rom, stored.scenario, x, opts);
   };
   const ref = rolloutCost(model, ws, prof, rom, stored.scenario, base, opts);
@@ -294,11 +300,11 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
 // ---------------------------------------------------------------------------
 {
   const { lo } = decisionBounds(K, { rom, freeTimes: false });
-  gate('F7. nothing released means no extra decisions', lo.length === 6 * K + 1,
-    `${lo.length} decisions, was ${6 * K + 1}`);
+  gate('F7. nothing released means no extra decisions', lo.length === NJ * K + 1,
+    `${lo.length} decisions, was ${NJ * K + 1}`);
 
   const x = encodeDecision(knots.map((k) => Float64Array.from(k)), T);
-  gate('F7a. and the vector is the one it always was', x.length === 6 * K + 1,
+  gate('F7a. and the vector is the one it always was', x.length === NJ * K + 1,
     `${x.length} long`);
   const dec = decodeDecision(x, K);
   gate('F7b. carrying no phrasing of its own', dec.fracs === null,
@@ -328,8 +334,8 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   const fracs0 = knotTimes(1, K);
   const x = encodeDecision(knots.map((k) => Float64Array.from(k)), T, fracs0);
   // Move two poses inside the vector, the way a generation would.
-  x[6 * K + 1] = 0.12;
-  x[6 * K + 2] = 0.55;
+  x[NJ * K + 1] = 0.12;
+  x[NJ * K + 2] = 0.55;
   const scored = rolloutCost(model, ws, prof, rom, stored.scenario, x,
     { K, dt: 2e-4, target, plant: resolvePlant(stored.config), knotFracs: fracs0 });
   // What the page would do with the answer: read the phrasing off the decode

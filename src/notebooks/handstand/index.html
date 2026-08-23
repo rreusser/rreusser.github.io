@@ -124,7 +124,7 @@
     import { createWorkspace, massMatrix, rnea, energy } from './dynamics.js';
     import {
       ROM_DEFAULTS, clampPose, groundHand, staticAnalysis, pressCorridor, jointLimits,
-      solveWristForCom,
+      solveWristForCom, QI,
     } from './statics.js';
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
     import { drawScene, drawGhosts } from './render.js';
@@ -136,7 +136,8 @@
     } from './rollout.js';
     import { techniqueToJSON, techniqueFromJSON } from './technique-file.js';
     import * as FIG from './figure-kit.js';
-    import { PRESET_TRAJECTORIES } from './presets.js';
+    import { builtinPresets, BUILTIN_SCENARIOS } from './presets.js';
+    import { readPresets, writePresets, nextId } from './preset-store.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
     const bodyControls = html`<div class="body-controls"></div>`;
@@ -691,86 +692,90 @@
   </script>
   <script id="sim-controls-cell" type="text/x-typescript">
     const simControls = html`<div class="sim-controls"></div>`;
-    // One entry per skill, named plainly. There is no "latest optimizer
-    // result" entry any more: the search edits the technique in place, in the
-    // figure below, so its result IS the technique this picker is showing.
-    // The rest of the registry in runs/ is not a menu: it is the
-    // regression net the artifact suite replays, and offering every superseded
-    // attempt as something to watch was a filmstrip of near-identical falls.
-    // The press is deliberately labelled with the shoulder it needs, because
-    // picking it quietly swaps in a stronger body than the default.
-    const scenarioNames = {
-      hold: 'Hold a handstand',
-      ...(PRESET_TRAJECTORIES.lunge ? { 'lunge-opt': 'Kick-up' } : {}),
-      ...(PRESET_TRAJECTORIES.tuck ? { 'tuck-opt': 'Bent-leg press (2.8 Nm/kg shoulder)' } : {}),
-      ...(PRESET_TRAJECTORIES.pike ? { 'pike-opt': 'Press, straight legs (needs 2.8 Nm/kg)' } : {}),
+    // ONE list. A built-in preset, something kept in this browser and a file
+    // on disk are the same object -- what technique-file.js reads -- so
+    // offering them through three separate controls was three ways to reach
+    // one idea, and the one you happened to use decided whether the scenario
+    // came with it. The built-ins are derived from the current model rather
+    // than recorded (see presets.js), so this list can never offer a
+    // technique for a body the notebook no longer has.
+    const presetList = () => {
+      const kept = readPresets();
+      return [
+        ...BUILTIN_SCENARIOS.map((s) => ({ id: `builtin:${s.key}`, label: s.label, builtin: true })),
+        ...kept.map((c) => ({ id: c.id, label: c.label || '(unnamed)', builtin: false })),
+      ];
     };
-    const scenarioKeys = Object.keys(scenarioNames);
-    const scenarioInput = Inputs.select(scenarioKeys, {
-      label: 'Scenario',
-      format: (v) => scenarioNames[v],
-      // Opens on the kick-up. Holding a handstand is the one scenario where
-      // essentially nothing moves, so it made a poor first thing to watch;
-      // it stays in the menu as the baseline it is.
-      value: scenarioKeys.includes('lunge-opt') ? 'lunge-opt' : scenarioKeys[0],
-    });
-    simControls.appendChild(scenarioInput);
-    const scenario = Generators.input(scenarioInput);
+    // A plain select rather than Inputs.select, because the options change as
+    // you keep and forget presets and this has to be rebuilt in place without
+    // re-running the cell -- re-running it would rebuild the whole simulation
+    // underneath the panel that asked for the change.
+    const presetInput = html`<select style="min-width:13em; max-width:20em;"></select>`;
+    presetInput.refresh = (selectId = null) => {
+      const want = selectId ?? presetInput.value;
+      const items = presetList();
+      presetInput.replaceChildren(...items.map((it) =>
+        html`<option value="${it.id}">${it.builtin ? it.label : `\u00b7 ${it.label}`}</option>`));
+      presetInput.value = items.some((it) => it.id === want) ? want : items[0].id;
+      return items;
+    };
+    presetInput.refresh('builtin:lunge');
+    const presetPicker = html`<label style="display:inline-flex; gap:6px; align-items:center;
+      font: 13px system-ui, -apple-system, sans-serif;">Preset ${presetInput}</label>`;
+    simControls.appendChild(presetPicker);
+    const preset = Generators.input(presetInput);
     display(simControls);
   </script>
   <script id="sim-run" type="text/x-typescript">
     const simResult = (() => {
-      const sel = scenario || 'hold';
-      let base = sel, stored = null;
-      // Artifacts replay under EXACTLY what they were made with: their
-      // recorded strength, flexibility, and plant/controller config, never
-      // the current sliders or defaults. History does not get rewritten.
-      const fromPreset = (p) => {
-        stored = p;
-      };
-      if (sel === 'lunge-opt') fromPreset(PRESET_TRAJECTORIES.lunge);
-      else if (sel === 'tuck-opt') fromPreset(PRESET_TRAJECTORIES.tuck);
-      else if (sel === 'pike-opt') fromPreset(PRESET_TRAJECTORIES.pike);
-      // ONE closure produces the run on screen and every variant of it, so an
-      // edited or optimised trajectory is replayed exactly as the stored one
-      // is: same plant, same integration. It takes the BODY too, because a
-      // technique is only good or bad relative to what it is asked of, and the
-      // use of the search is walking one onto a body that cannot afford it
-      // yet. Passing no override replays the technique on the body it was
-      // built for, which is what the baseline below does.
-      const replay = stored
-        ? (knots, T, over = null) => {
-          const p = over
-            ? { ...stored, knots, T, q0: over.q0 || null, target: over.target || null,
-              knotFracs: over.knotFracs || null,
-              strength: over.strength || stored.strength, rom: over.rom || stored.rom,
-              config: over.config || stored.config,
-              numerics: over.numerics || stored.numerics,
-              body: over.body || stored.body }
-            : { ...stored, knots, T };
-          return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
+      // Whatever the picker names, resolved to ONE technique-shaped object.
+      // A built-in is derived here, on THIS body -- not on the default one --
+      // so changing height or mass in the body controls gives a starting
+      // technique for the body you are actually asking about.
+      const builtins = builtinPresets(model, ws, ROM_DEFAULTS);
+      const sel = preset || 'builtin:lunge';
+      let stored = null;
+      if (sel.startsWith('builtin:')) {
+        stored = builtins[sel.slice(8)] || builtins.lunge;
+      } else {
+        const kept = readPresets().find((c) => c.id === sel);
+        // A kept preset that will not parse is not a reason to blank the
+        // notebook: say so and fall back to the built-in it was made from,
+        // or the kick-up.
+        if (kept) {
+          try { stored = { ...techniqueFromJSON(kept), id: kept.id, label: kept.label }; }
+          catch (err) { console.warn('kept preset unreadable, falling back:', err); }
         }
-        : (knots, T, over = null) => {
-          const rom = resolveRom(over?.rom);
-          const prof = over?.strength
-            ? strengthProfile(model.massKg, { overrides: over.strength }) : strengthProf;
-          return {
-            ...runScenario(model, ws, prof,
-              { scenario: base, knots, T, settleT: 2.5, rom,
-                q0: over?.q0 || null, target: over?.target || null,
-                knotFracs: over?.knotFracs || null,
-                ...(over?.config ? resolvePlant(over.config) : {}),
-                ...(over?.numerics ? resolveNumerics(over.numerics) : {}) }),
-            prof, rom,
-          };
-        };
+        if (!stored) stored = builtins.lunge;
+      }
+      // ONE closure produces the run on screen and every variant of it, so an
+      // edited or optimised trajectory is replayed exactly as the base one is:
+      // same plant, same integration. It takes the BODY too, because a
+      // technique is only good or bad relative to what it is asked of.
+      //
+      // A preset naming no plant runs on the CURRENT one, which is the whole
+      // point of deriving them: `...resolvePlant(p.config)` with config null
+      // resolves to today's defaults, so a servo fix shows up in the editor
+      // the moment it lands instead of waiting to be re-recorded.
+      const replay = (knots, T, over = null) => {
+        const p = over
+          ? { ...stored, knots, T, q0: over.q0 ?? null, target: over.target ?? null,
+            knotFracs: over.knotFracs || null,
+            strength: over.strength || stored.strength, rom: over.rom || stored.rom,
+            config: over.config || stored.config,
+            numerics: over.numerics || stored.numerics,
+            body: over.body || stored.body }
+          : { ...stored, knots, T };
+        return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
+      };
       return {
-        ...(stored ? replay(stored.knots, stored.T) : replay(null, 1.2)),
+        ...replay(stored.knots, stored.T),
         replay, stored,
-        scenarioName: stored ? stored.scenario : base,
+        presetId: sel,
+        scenarioName: stored.scenario,
         // The anatomy this technique was BUILT for: where the body sliders
-        // start, and what "reset" means.
-        baseRom: stored ? resolveRom(stored.rom) : { ...ROM_DEFAULTS },
+        // start, and what "revert" means.
+        baseRom: resolveRom(stored.rom),
       };
     })();
   </script>
@@ -1580,10 +1585,26 @@
       // Mirrored from the picker above rather than duplicated: one technique,
       // one selection, two places you can reach it. The section that is ABOUT
       // a technique should not be the one section with no way to choose one.
-      const pick = Inputs.select(scenarioKeys, {
-        label: 'Technique', format: (v) => scenarioNames[v],
+      // Mirrored from the picker above rather than duplicated: one list, one
+      // selection, two places you can reach it. Inputs.bind cannot do this any
+      // more because both are plain selects whose options change as presets
+      // are kept and forgotten, so the mirroring is explicit -- and it copies
+      // the OPTIONS as well as the value, or the panel offers a stale list.
+      const pick = html`<select style="min-width:11em; max-width:16em;"></select>`;
+      const syncPick = () => {
+        pick.replaceChildren(...Array.from(presetInput.options,
+          (o) => html`<option value="${o.value}">${o.textContent}</option>`));
+        pick.value = presetInput.value;
+      };
+      syncPick();
+      pick.addEventListener('input', () => {
+        presetInput.value = pick.value;
+        presetInput.dispatchEvent(new Event('input', { bubbles: true }));
       });
-      Inputs.bind(pick, scenarioInput, invalidation);
+      presetInput.addEventListener('input', syncPick);
+      // Rebuild both lists and select `id`. Everything that adds or removes a
+      // preset goes through here, so the two selects cannot drift.
+      const refreshPresets = (id = null) => { presetInput.refresh(id); syncPick(); };
       // The blunt way to the same setting, and the only one that refits: asking
       // for a count says nothing about WHICH poses, so the curve is re-fitted
       // with that many and the phrasing goes back to even. The x and + on the
@@ -1597,7 +1618,12 @@
         editState.symmetric = !!symToggle.value;
         if (editState.symmetric) {
           symmetrizeKnots(editState.knots);
-          if (editState.q0) { editState.q0[7] = editState.q0[5]; editState.q0[8] = editState.q0[6]; }
+          // By name. Written as 5/6/7/8 these were the six-joint body's leg
+          // coordinates; on the articulated body 5 is the spine.
+          if (editState.q0) {
+            editState.q0[QI.hipR] = editState.q0[QI.hipL];
+            editState.q0[QI.kneeR] = editState.q0[QI.kneeL];
+          }
         }
         editState.edited = true;
         chromeDirty = dirty = true;
@@ -1686,6 +1712,7 @@
         durInput.value = simResult.T;
         editState.body = bodyDefaults.slice();
         editState.machine = machineDefaults();
+        syncServo();
         bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
         editState.run = simResult;
         editState.edited = false;
@@ -1702,9 +1729,9 @@
       // technique-file.js writes the list the plumbing gates enumerate, and
       // test/technique-file.mjs perturbs each field in turn to prove none of
       // them is quietly missing. The shape is a stored artifact's, so a file
-      // saved here can be dropped straight into runs/.
+      // saved here is the same object a built-in preset is derived as.
       const asTechnique = () => ({
-        label: `${scenarioNames[scenario] || simResult.scenarioName} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+        label: `${simResult.stored?.label || simResult.scenarioName} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
         saved: new Date().toISOString(),
         scenario: simResult.scenarioName,
         knots: editState.knots,
@@ -1724,111 +1751,78 @@
         verdict: editState.run?.verdict || null,
         cost: null,
       });
-      const saveBtn = html`<button class="hs-btn" title="write this case to a JSON file: the technique, the tempo, the phrasing, the held poses, the start and ending poses, the anatomy, the strength, the frame, the plant and the integration. Everything a replay needs.">Save</button>`;
+      const saveBtn = html`<button class="hs-btn" title="write this preset to a JSON file: the technique, the tempo, the phrasing, the held poses, the start and ending poses, the anatomy, the strength, the frame, the plant and the integration. Everything a replay needs.">Save</button>`;
       saveBtn.addEventListener('click', () => {
         const text = JSON.stringify(techniqueToJSON(asTechnique()), null, 1);
         const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-        const a = html`<a download="${simResult.scenarioName}-technique.json" href="${url}"></a>`;
+        const a = html`<a download="${simResult.scenarioName}-preset.json" href="${url}"></a>`;
         a.click();
         // Revoked on the next turn of the loop rather than immediately: some
         // browsers have not started reading the blob when click() returns.
         setTimeout(() => URL.revokeObjectURL(url), 10000);
       });
 
-      // ---- cases kept in this browser ----------------------------------------
-      // The same object the file format carries, in localStorage instead of on
-      // disk: exploring produces a dozen near-misses worth coming back to, and
-      // a download each is not that. Everything goes through technique-file.js,
-      // so a stored case and a saved file are the same thing and the gates that
-      // prove the file complete prove these complete too.
-      const STORE_KEY = 'handstand.cases.v1';
-      const readCases = () => {
-        try {
-          const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
-          return Array.isArray(raw) ? raw : [];
-        } catch (err) { console.warn('saved cases unreadable:', err); return []; }
-      };
-      const writeCases = (list) => {
-        try {
-          localStorage.setItem(STORE_KEY, JSON.stringify(list));
-          return null;
-        } catch (err) {
-          // Quota, or a browser with storage switched off. Say which rather
-          // than dropping the case silently.
-          return err?.name === 'QuotaExceededError'
-            ? 'no room left in this browser for another case' : String(err?.message || err);
-        }
-      };
-      const caseList = html`<select style="min-width:11em; max-width:16em;"></select>`;
-      const caseName = html`<input type="text" placeholder="name this case"
+      // ---- presets kept in this browser --------------------------------------
+      // No list of its own. These act on the SELECTION in the picker above,
+      // which already holds the built-ins and everything kept, so there is one
+      // place a preset is chosen and these are the verbs that apply to it.
+      // Previously the panel carried a second select, and opening from it
+      // applied a technique on top of whatever scenario the first one happened
+      // to be showing.
+      const presetName = html`<input type="text" placeholder="name this preset"
         style="width:11em; font: inherit; font-size:13px; padding:2px 4px;">`;
-      const keepBtn = html`<button class="hs-btn" title="keep this case in this browser under the name beside it. Same contents as Save writes to a file — nothing is left out.">Keep</button>`;
-      const openBtn = html`<button class="hs-btn" title="load the selected case">Open</button>`;
-      const renameBtn = html`<button class="hs-btn" title="rename the selected case to the name beside it">Rename</button>`;
-      const dropBtn = html`<button class="hs-btn" title="forget the selected case">Forget</button>`;
-      const refreshCases = (selectId = null) => {
-        const list = readCases();
-        caseList.replaceChildren(...(list.length
-          ? list.map((c) => html`<option value="${c.id}">${c.label || '(unnamed)'}</option>`)
-          : [html`<option value="">— nothing kept yet —</option>`]));
-        if (selectId) caseList.value = selectId;
-        const none = list.length === 0;
-        openBtn.disabled = renameBtn.disabled = dropBtn.disabled = none;
-        return list;
+      const keepBtn = html`<button class="hs-btn" title="keep the technique on screen in this browser, under the name beside it. Exactly what Save writes to a file — the technique, the body, the anatomy, the servo and the integration.">Keep</button>`;
+      const renameBtn = html`<button class="hs-btn" title="rename the selected preset to the name beside it">Rename</button>`;
+      const dropBtn = html`<button class="hs-btn" title="forget the selected preset">Forget</button>`;
+      const isBuiltin = () => String(pick.value).startsWith('builtin:');
+      // A built-in is derived, not remembered, so there is nothing to rename
+      // or forget -- Keep is how you make one of your own from it.
+      const syncPresetButtons = () => {
+        renameBtn.disabled = dropBtn.disabled = isBuiltin();
+        const cur = readPresets().find((c) => c.id === pick.value);
+        presetName.value = cur?.label || '';
       };
-      const selectedCase = () => readCases().find((c) => c.id === caseList.value) || null;
       keepBtn.addEventListener('click', () => {
-        const list = readCases();
+        const list = readPresets();
         const rec = techniqueToJSON(asTechnique());
-        rec.label = caseName.value.trim() || rec.label;
-        rec.id = `c${list.length ? Math.max(...list.map((c) => +String(c.id).slice(1) || 0)) + 1 : 1}`;
+        rec.label = presetName.value.trim() || rec.label;
+        rec.id = nextId(list);
         list.push(rec);
-        const err = writeCases(list);
+        const err = writePresets(list);
         status = err ? `could not keep: ${err}` : `kept "${rec.label}"`;
-        if (!err) refreshCases(rec.id);
+        if (!err) { refreshPresets(rec.id); syncPresetButtons(); }
         dirty = chromeDirty = true;
       });
-      openBtn.addEventListener('click', () => {
-        const c = selectedCase();
-        if (!c) return;
-        let rec;
-        try {
-          rec = techniqueFromJSON(c);
-        } catch (err) {
-          status = `could not open: ${err.message}`;
-          dirty = chromeDirty = true;
-          return;
-        }
-        caseName.value = c.label || '';
-        beginLoad(rec);
-      });
       renameBtn.addEventListener('click', () => {
-        const name = caseName.value.trim();
+        const name = presetName.value.trim();
         if (!name) { status = 'type a name first'; dirty = chromeDirty = true; return; }
-        const list = readCases();
-        const c = list.find((x) => x.id === caseList.value);
+        const list = readPresets();
+        const c = list.find((x) => x.id === pick.value);
         if (!c) return;
         c.label = name;
-        const err = writeCases(list);
+        const err = writePresets(list);
         status = err ? `could not rename: ${err}` : `renamed to "${name}"`;
-        if (!err) refreshCases(c.id);
+        if (!err) refreshPresets(c.id);
         dirty = chromeDirty = true;
       });
       dropBtn.addEventListener('click', () => {
-        const list = readCases().filter((c) => c.id !== caseList.value);
-        const err = writeCases(list);
-        status = err ? `could not forget: ${err}` : 'forgotten';
-        if (!err) refreshCases();
+        const gone = readPresets().find((c) => c.id === pick.value);
+        const list = readPresets().filter((c) => c.id !== pick.value);
+        const err = writePresets(list);
+        status = err ? `could not forget: ${err}` : `forgot "${gone?.label || 'preset'}"`;
+        // Falls back to the first built-in, which re-runs the simulation --
+        // the preset that was showing no longer exists.
+        if (!err) {
+          refreshPresets(`builtin:${simResult.scenarioName}`);
+          presetInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
         dirty = chromeDirty = true;
       });
-      caseList.addEventListener('input', () => {
-        const c = selectedCase();
-        if (c) caseName.value = c.label || '';
-      });
-      refreshCases();
+      pick.addEventListener('input', syncPresetButtons);
+      syncPresetButtons();
 
       const loadInput = html`<input type="file" accept="application/json,.json" style="display:none;">`;
-      const loadBtn = html`<button class="hs-btn" title="read a case back from a JSON file, exactly as it was saved">Load</button>`;
+      const loadBtn = html`<button class="hs-btn" title="read a preset back from a JSON file, exactly as it was saved">Load</button>`;
       loadBtn.addEventListener('click', () => loadInput.click());
       loadInput.addEventListener('change', async () => {
         const file = loadInput.files?.[0];
@@ -1865,10 +1859,10 @@
         stopSearch();
         pendingLoad.rec = rec;
         if (rec.scenario !== simResult.scenarioName) {
-          const key = Object.keys(scenarioNames).find((k) => k.replace(/-opt$/, '') === rec.scenario);
-          if (key) {
-            scenarioInput.value = key;
-            scenarioInput.dispatchEvent(new Event('input', { bubbles: true }));
+          const key = `builtin:${rec.scenario}`;
+          if (Array.from(presetInput.options).some((o) => o.value === key)) {
+            presetInput.value = key;
+            presetInput.dispatchEvent(new Event('input', { bubbles: true }));
             return;
           }
         }
@@ -1891,6 +1885,7 @@
         editState.timeHeld[0] = editState.timeHeld[loadedK - 1] = true;
         editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
         editState.machine = { config: rec.config, numerics: rec.numerics, body: rec.body };
+        syncServo();
         editState.symmetric = rec.symmetric;
         symToggle.value = rec.symmetric;
         editState.body = [
@@ -1933,6 +1928,52 @@
         editState.notify?.({ base: simResult, run });
         relayout();
       };
+
+      // ---- the servo ---------------------------------------------------------
+      // The machine the technique runs on, and now yours to set. It was fixed
+      // in the source and RECORDED into every artifact, which is the pairing
+      // that made it invisible: you could not change it, and the presets
+      // insisted on the values they were born with, so a controller fix could
+      // not be seen without re-recording the thing you wanted to see it on.
+      //
+      // These four are the ones that decide whether the body behaves. Torque
+      // is commanded through a first-order activation lag, and a servo faster
+      // than its own actuator rings no matter how stiff or soft it is -- which
+      // is what a bobbling head and springy knees were -- so the two that
+      // govern that sit next to each other here.
+      const SERVO = [
+        { key: 'kp', label: 'Stiffness kp', range: [100, 4000], step: 50,
+          title: 'how hard the servo corrects an angle error. Scaled per joint by the '
+            + 'inertia that joint drives, so this is the whole body\u2019s setting, not one joint\u2019s.' },
+        { key: 'dampingRatio', label: 'Damping \u03b6', range: [0.2, 4], step: 0.05,
+          title: 'damping as a fraction of critical for the inertia each joint actually drives. '
+            + 'One is critical ON PAPER; the activation lag below means it still rings, which is '
+            + 'why the default is above one.' },
+        { key: 'loopOmegaTau', label: 'Bandwidth \u03c9\u03c4', range: [0, 4], step: 0.05,
+          title: 'the fastest loop a joint may run, as a multiple of its own actuation lag. '
+            + 'Zero is uncapped, which lets the light joints \u2014 the neck above all \u2014 run far '
+            + 'faster than the muscle can answer, and they buzz.' },
+        { key: 'activationTau', label: 'Activation lag (s)', range: [0.01, 0.15], step: 0.005,
+          title: 'how long a muscle takes to change its force. Torque cannot step; this is why.' },
+      ];
+      const servoInputs = SERVO.map((d) => {
+        const inp = Inputs.range(d.range, { label: d.label, step: d.step,
+          value: editState.machine.config[d.key] });
+        inp.title = d.title;
+        inp.addEventListener('input', () => {
+          // A new object rather than a mutated one: editState.machine.config
+          // is handed to the worker and written into saved files, and sharing
+          // one object between the page and a message that was already posted
+          // is how a search ends up scoring a plant nobody chose.
+          editState.machine = { ...editState.machine,
+            config: { ...editState.machine.config, [d.key]: +inp.value } };
+          resim();
+        });
+        return inp;
+      });
+      const syncServo = () => servoInputs.forEach((inp, n) => {
+        inp.value = editState.machine.config[SERVO[n].key];
+      });
 
       // ---- the search --------------------------------------------------------
       // It changes the same numbers your hands do. That is the whole reason it
@@ -2317,9 +2358,11 @@
           html`<div class="spline-controls">${inShFlex}${inWrExt}</div>`)}
         ${group('search', false,
           html`<div class="spline-controls">${optGens}${optSeed}</div>`)}
-        ${group('saved cases', false,
-          html`<div class="spline-controls">${caseList}${caseName}</div>`,
-          html`<div class="spline-controls">${keepBtn}${openBtn}${renameBtn}${dropBtn}</div>`,
+        ${group('servo', false,
+          html`<div class="spline-controls">${servoInputs[0]}${servoInputs[1]}</div>`,
+          html`<div class="spline-controls">${servoInputs[2]}${servoInputs[3]}</div>`)}
+        ${group('presets', false,
+          html`<div class="spline-controls">${presetName}${keepBtn}${renameBtn}${dropBtn}</div>`,
           html`<div class="spline-controls" style="margin-top:6px;">${saveBtn}${loadBtn}${loadInput}</div>`)}
       </div>`;
 

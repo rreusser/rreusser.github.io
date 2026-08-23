@@ -22,7 +22,7 @@
 //   search       seed and generation count -- not part of the movement, but
 //                part of reproducing how it was found
 //
-// The shape is deliberately the shape of a stored artifact in runs/, so a file
+// The shape is deliberately the shape a built-in preset is derived in, so a file
 // saved here can be dropped into the registry the regression suite replays.
 import {
   resolvePlant, resolveRom, resolveNumerics, resolveBody, balancedHandstand,
