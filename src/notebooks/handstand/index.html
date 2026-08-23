@@ -133,7 +133,13 @@
          opening a file, and it belongs where a file is named. */
       .hs-editor__bar {
         display: flex; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 6px;
-        padding: 6px 8px;
+        /* Room on the right for expandable's own button, which floats over the
+           top-right corner of whatever it wraps -- so on this figure it lands
+           IN the title bar. That is the right place for it (it is a window
+           control, and this is the window's title bar) but it is positioned
+           rather than laid out, so the bar has to leave it a gap or the menu
+           button ends up underneath it. 28 px of button and 8 px of clearance. */
+        padding: 6px 36px 6px 8px;
         border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
         background: color-mix(in srgb, currentColor 6%, transparent);
         border-radius: 7px 7px 0 0;
@@ -213,7 +219,11 @@
       }
       @media (max-width: 520px) {
         .hs-editor__pane { padding: 6px; }
-        .hs-editor__bar { padding: 5px 6px; }
+        .hs-editor__bar { padding: 5px 36px 5px 6px; }
+        /* Narrow enough and the transport wraps, which is exactly where a
+           divider stops dividing: it lands at the head of the second line with
+           nothing on its left. */
+        .hs-rule { display: none; }
       }
     </style>
   </script>
@@ -1310,6 +1320,14 @@
 
       let theme = null;
       let paintRamp = null;
+      // Assigned once the document bar below exists, and called through the
+      // optional chain the way paintRamp is. It cannot be a direct reference:
+      // createFrameLoop runs its callback ONCE, SYNCHRONOUSLY, at the moment
+      // the loop is created -- which is above the bar -- so naming the badge
+      // there put a const in its temporal dead zone, the first tick threw, and
+      // a frame loop that throws cancels itself. The whole figure went dark and
+      // stayed dark.
+      let syncDoc = null;
 
       // ---- one time variable, one selected pose ----------------------------
       let t = 0, sel = 0, playing = false, lastNow = null;
@@ -2417,7 +2435,7 @@
           // Says the technique on screen is no longer the one the picker
           // names. Read off the same flag the verdict uses to decide whether
           // to report a delta, so the badge and the numbers cannot disagree.
-          editedTag.hidden = !editState.edited;
+          syncDoc?.();
           drawSpark();
         }
       });
@@ -2446,7 +2464,7 @@
       // it moves: play it, choose whether the request is drawn behind it, and
       // search for a better one. Opening the parameter panel is for changing a
       // number, not for running the thing.
-      const rule = () => html`<span style="width:1px; height:16px; margin:0 2px;
+      const rule = () => html`<span class="hs-rule" style="width:1px; height:16px; margin:0 2px;
         background:color-mix(in srgb, currentColor 20%, transparent);"></span>`;
       const refBtn = html`<button class="hs-btn" aria-pressed="false"
         title="draw the reference the servo is chasing behind the body while the movement plays. Off by default: in playback it is a second, grey, slightly out-of-step body in the same picture, which reads as a smear on the animation rather than as the thing driving it. Editing a pose always shows it — there it is the subject.">Reference</button>`;
@@ -2515,6 +2533,8 @@
         ${pick}${editedTag}
         <span class="hs-editor__actions">${resetBtn}${keepBtn}${docMenu}</span>
       </div>`;
+      syncDoc = () => { editedTag.hidden = !editState.edited; };
+      syncDoc();
 
       // ---- the panes ----------------------------------------------------------
       // What you WATCH, what you PRESS, which poses there are, and when. Four
