@@ -589,8 +589,12 @@ export function applyLocks(knots, locks) {
 export const SYMMETRIC_SCENARIOS = new Set(['pike', 'tuck']);
 
 export function symmetrizeKnots(knots) {
-  const hipL = JOINT_KEYS.indexOf('hipL'), kneeL = JOINT_KEYS.indexOf('kneeL');
-  const hipR = JOINT_KEYS.indexOf('hipR'), kneeR = JOINT_KEYS.indexOf('kneeR');
+  // Works on either width: a six-channel technique is still in the old order,
+  // where the legs sit two rows earlier. Mirroring MUTATES in place, so this
+  // cannot just widen and hand back a copy.
+  const names = knots.length === NJ ? JOINT_KEYS : LEGACY_JOINT_ORDER;
+  const hipL = names.indexOf('hipL'), kneeL = names.indexOf('kneeL');
+  const hipR = names.indexOf('hipR'), kneeR = names.indexOf('kneeR');
   for (let k = 0; k < knots[hipL].length; k++) {
     knots[hipR][k] = knots[hipL][k];
     knots[kneeR][k] = knots[kneeL][k];

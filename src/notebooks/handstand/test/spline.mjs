@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { splineEval } from '../control.js';
 import { resampleKnots } from '../figure-kit.js';
+import { widenKnots } from '../control.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -25,7 +26,11 @@ const runsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'r
 const cases = fs.readdirSync(runsDir).filter((f) => f.endsWith('.json'))
   .map((f) => ({ f, d: JSON.parse(fs.readFileSync(path.join(runsDir, f), 'utf8')) }))
   .filter(({ d }) => Array.isArray(d.knots) && d.knots.length === 6 && d.T > 0)
-  .map(({ f, d }) => ({ name: f, knots: d.knots.map((r) => Float64Array.from(r)), T: d.T }));
+  // Widened once, here, so every comparison below is eight channels against
+  // eight. Compared un-widened, row 2 of a refit is the spine and row 2 of
+  // the stored technique is a hip, and the gate reports 263 degrees of
+  // "error" that is really just two different joints.
+  .map(({ f, d }) => ({ name: f, knots: widenKnots(d.knots.map((r) => Float64Array.from(r))), T: d.T }));
 
 // The construction the refit replaces, kept here as the thing to beat.
 const sampled = (knots, T, K) => knots.map((row) => {
@@ -38,7 +43,7 @@ const sampled = (knots, T, K) => knots.map((row) => {
 const rms = (a, b, T) => {
   const M = 2001;
   let s = 0, n = 0;
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < a.length; j++) {
     for (let m = 0; m < M; m++) {
       const t = (m / (M - 1)) * T;
       const d = splineEval(a[j], T, t).value - splineEval(b[j], T, t).value;
@@ -60,7 +65,7 @@ const COUNTS = [2, 3, 4, 5, 7, 8, 10];
   let worst = 0, where = '';
   for (const c of cases) {
     const back = resampleKnots(c.knots, c.T, c.knots[0].length);
-    for (let j = 0; j < 6; j++) {
+    for (let j = 0; j < c.knots.length; j++) {
       for (let k = 0; k < c.knots[0].length; k++) {
         const e = Math.abs(back[j][k] - c.knots[j][k]) * D;
         if (e > worst) { worst = e; where = c.name; }
@@ -83,7 +88,7 @@ const COUNTS = [2, 3, 4, 5, 7, 8, 10];
     const K0 = c.knots[0].length;
     for (const K of COUNTS) {
       const r = resampleKnots(c.knots, c.T, K);
-      for (let j = 0; j < 6; j++) worst = Math.max(worst, Math.abs(r[j][K - 1] - c.knots[j][K0 - 1]));
+      for (let j = 0; j < c.knots.length; j++) worst = Math.max(worst, Math.abs(r[j][K - 1] - c.knots[j][K0 - 1]));
     }
   }
   gate('B. the ending pose is preserved exactly', worst === 0, `drift ${(worst * D).toExponential(2)} deg`);

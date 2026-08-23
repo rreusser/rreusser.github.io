@@ -19,7 +19,7 @@
 import { drawScene } from './render.js';
 import { availableTorque } from './strength.js';
 import { jointLimits, groundHand } from './statics.js';
-import { JOINT_ORDER } from './control.js';
+import { JOINT_ORDER, widenKnots } from './control.js';
 import { evalReference, splineEval, knotTimes } from './control.js';
 import { WORK_EFFICIENCY } from './rollout.js';
 
@@ -139,7 +139,10 @@ export function requestPose(model, knots, T, t, out, fracs = null) {
 // Refitting to the same count is the identity to roundoff: the old knots
 // already drive the residual to zero, and the normal equations are
 // nonsingular, so they are the unique minimizer.
-export function resampleKnots(knots, T, newK, fracs = null) {
+export function resampleKnots(knots0, T, newK, fracs = null) {
+  // Widened here too: a refit is asked for on whatever the page is holding,
+  // and a stored technique arrives with six channels.
+  const knots = widenKnots(knots0);
   const K = Math.max(1, Math.round(newK));
   // The OLD curve is read with the phrasing it was authored in; the new one
   // is fitted evenly spaced. A different number of poses is a different set
