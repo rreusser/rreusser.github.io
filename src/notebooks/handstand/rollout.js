@@ -1044,7 +1044,15 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   {
     const from = T * (1 - ARRIVAL_WINDOW_FRAC);
     let peak = 0;
-    for (let k = 0; k < rec.t.length; k++) {
+    // To kEnd, like everything else. This asks how fast the feet are flying as
+    // the movement closes -- a soft arrival plants them, a wild one whips them
+    // in -- and run past the fall it asks instead how fast they were flying
+    // during the CRASH, which is the fourth thing in this file to have made
+    // that mistake. It read 108 on a throw that toppled at t = 1.09 of a
+    // 1.47 s movement, purely because the window it averages over lay entirely
+    // in the wreckage, and that one number put a violent overshoot above a
+    // worse one in the ranking.
+    for (let k = 0; k < kEnd; k++) {
       if (rec.t[k] < from || rec.t[k] > T) continue;
       fk(model, rec.q[k], rec.qd[k], ws);
       for (const c of [2, 3]) {
@@ -1089,7 +1097,26 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   let driveRate = 0, nDrive = 0, settleCalmV = 0, nSettleCalm = 0;
   const prevU = new Float64Array(NJ).fill(NaN);
   const peakUtil = new Float64Array(NJ);
-  for (let k = 0; k < rec.t.length; k++) {
+  // The ATTEMPT, not the aftermath. This loop used to run to the end of the
+  // recording while everything it feeds was divided by kEnd, and that made it
+  // the third place in this file to score the crash instead of the try -- the
+  // other two were the replant term and the terminal pose.
+  //
+  // settleCalm was the expensive one. It measures joint motion in the final
+  // second, which for a technique that arrives is the handstand holding still
+  // and for one that topples on the way is the body hitting the floor. Priced
+  // against a kick-up that reaches 0.88 m and falls at t = 3.26, it read 136
+  // -- while DOING NOTHING AT ALL, standing in the lunge and never leaving it,
+  // read 0.1, because a body that does not move has nothing to be uncalm
+  // about. Everything else in the score preferred the attempt (fall by 46,
+  // reach by 47, velocity by 11) and this one term overturned all of it: not
+  // trying cost 242 and nearly succeeding cost 275. The search was being paid
+  // to give up, which is exactly what it did.
+  //
+  // effort, saturation and rom had a quieter version of the same bug: summed
+  // over the whole recording and divided by kEnd, so an attempt that failed
+  // early was charged the settle tail's effort at up to twice its true rate.
+  for (let k = 0; k < kEnd; k++) {
     const dts = k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
     let sumU2 = 0, sumSat = 0, sumDriveRate2 = 0;
     for (let j = 0; j < NJ; j++) {
@@ -1119,7 +1146,14 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     // invisible to the cap-normalized global driveRate term, but a parked
     // handstand's muscles change their drive slowly, and buzzing near
     // equilibrium is what would feel terrible in the shoulders).
-    if (rec.t[k] >= Tend - Math.min(1.0, settleT)) {
+    // ...and only for an attempt that GOT there. This is an arrival-quality
+    // term -- how still the handstand is once it is reached -- and a technique
+    // that fell has no settle to be calm in. Bounding the loop at the fall is
+    // not enough on its own: a late topple leaves a handful of the window's
+    // most violent samples with a much smaller denominator to divide by, so
+    // the mean goes UP the closer the attempt came to working. The failure is
+    // already priced, twice, by fall and by reach.
+    if (Number.isNaN(tFall) && rec.t[k] >= Tend - Math.min(1.0, settleT)) {
       let sq = sumDriveRate2;
       for (let j = 3; j < 3 + NJ; j++) {
         const v = rec.qd[k][j] / SETTLE_QD_SCALE;

@@ -14,6 +14,7 @@ import {
   rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
   scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC, SYMMETRIC_SCENARIOS,
   tuckPressReference, runScenario, resolveRom, ROM_VIOLATION_SCALE, KICK_T,
+  NUMERICS_DEFAULTS,
 } from '../rollout.js';
 import { momenta, fk } from '../dynamics.js';
 
@@ -136,7 +137,12 @@ const rom = { ...ROM_DEFAULTS };
   // default of its own, and comparing a search that began at one tempo against
   // a start priced at another is not a comparison.
   const startX = encodeDecision(kickReference(model, ws, 6, rom).knots, KICK_T);
-  const startCost = rolloutCost(model, ws, prof, rom, 'lunge', startX, { dt: 2.5e-4 }).cost;
+  // The same timestep the search runs at, which is now the one a replay uses.
+  // Hardcoded here at 2.5e-4 it priced the start on a different problem from
+  // the one being optimised, and the gate read a regression that was only a
+  // change of units.
+  const startCost = rolloutCost(model, ws, prof, rom, 'lunge', startX,
+    { dt: NUMERICS_DEFAULTS.dt }).cost;
   const opts = { scenario: 'lunge', maxGen: 15, seed: 11, robust: false, t0: KICK_T };
   const o1 = await optimizeScenario(model, ws, prof, rom, opts);
   const o2 = await optimizeScenario(model, ws, prof, rom, opts);
