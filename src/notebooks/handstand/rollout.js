@@ -358,7 +358,7 @@ export const PLANT_DEFAULTS = {
   // (1.39 deg rms against 2.41), because damping the resonance costs nothing
   // on the command path while slowing the loop costs everything.
   dampingRatio: 2.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
-  romStopDeg: 5, romStopZeta: 0.7, loopOmegaTau: 1.0,
+  romStopDeg: 5, romStopZeta: 0.7, loopOmegaTau: 2.0,
 };
 
 // Plant/controller settings as they were BEFORE a given capability existed.

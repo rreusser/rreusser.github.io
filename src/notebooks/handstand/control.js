@@ -198,7 +198,16 @@ export function createServo(model, strengthProf, {
   //
   // Zero means uncapped, which is what every technique recorded before this
   // existed was produced on.
-  loopOmegaTau = 1.0,
+  //
+  // The cap is on kp, so it is also a cap on AUTHORITY, and the two have to be
+  // weighed together. It binds only where a joint is light relative to the
+  // stiffness asked of it, which on this body is the knees and the neck and
+  // nothing else -- the hips, shoulder, spine and wrist have inertia enough
+  // that sqrt(kp/I) is slow anyway. Set too tight it does not merely quiet the
+  // neck, it makes the legs soft: at 1.0 the knees kept 18 per cent of the
+  // stiffness asked for and tracked a kick-up five times worse, which reads
+  // exactly like weak legs, because it is.
+  loopOmegaTau = 2.0,
 } = {}) {
   const nq = model.nq;
   const damping = new Float64Array(nq);
