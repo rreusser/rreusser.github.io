@@ -132,6 +132,7 @@
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
       SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom, widenKnots,
+      JOINT_KEYS as JOINT_ORDER, NJ as NJOINTS,
     } from './rollout.js';
     import { techniqueToJSON, techniqueFromJSON } from './technique-file.js';
     import * as FIG from './figure-kit.js';
@@ -550,17 +551,16 @@
       // Which joint is the problem, not merely that there is one. Recomputing
       // the static torques for one pose is cheap, and it is the difference
       // between "too strong to hold" and knowing it is the shoulder.
-      const JOINT_KEYS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
       const offendingJoints = (q) => {
         if (!q) return null;
         const marks = {};
         const st = staticAnalysis(model, q, ws);
-        for (let k = 0; k < 6; k++) {
+        for (let k = 0; k < NJOINTS; k++) {
           const jj = 3 + k;
           const { lo, hi } = jointLimits(romInfo, q, jj);
           if (q[jj] < lo - 1e-9 || q[jj] > hi + 1e-9) { marks[jj] = 'rom'; continue; }
           const t = st.tau[jj];
-          if (Math.abs(t) > availableTorque(strengthProf[JOINT_KEYS[k]], t, 0)) marks[jj] = 'strength';
+          if (Math.abs(t) > availableTorque(strengthProf[JOINT_ORDER[k]], t, 0)) marks[jj] = 'strength';
         }
         return Object.keys(marks).length ? marks : null;
       };
@@ -1983,9 +1983,20 @@
         // knots into a five-pose page leaves every array a different length
         // from every other, and the first thing to read one of them off the
         // end gets NaN.
-        if (data.knots.length !== 6 || data.knots[0].length !== K) {
-          status = `ignored a result for ${data.knots[0]?.length ?? '?'} poses`;
-          dirty = chromeDirty = true;
+        //
+        // Counted against the joint list rather than a written-down six. As a
+        // literal this was the loudest bug on the page: the worker answers in
+        // as many channels as the body has, so once the trunk gained a hinge
+        // EVERY result was refused. The search would find a handstand, the
+        // page would drop it on the floor, keep the knots it already had, and
+        // report that the replay does not arrive -- with a status line
+        // blaming the pose count, which was never the problem.
+        if (data.knots.length !== NJOINTS || data.knots[0].length !== K) {
+          // Console, not the status line. This is a race between a result and
+          // an edit, it resolves itself on the next search, and there is
+          // nothing for the reader to do about it.
+          console.warn('ignored a search result for a technique that is no longer on screen',
+            `(${data.knots.length} joints x ${data.knots[0]?.length} poses, page has ${NJOINTS} x ${K})`);
           return;
         }
         editState.knots = data.knots.map((k) => Float64Array.from(k));

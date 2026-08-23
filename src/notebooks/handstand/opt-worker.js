@@ -192,7 +192,7 @@ async function handle(msg) {
           applyLocks(dec.knots, msg.locks || null);
           if (dec.fracs) applyTimeLocks(dec.fracs, msg.timeLocks || null);
           const qBal = msg.target ? Float64Array.from(msg.target) : balancedHandstand(model, ws);
-          for (let j = 0; j < 6; j++) dec.knots[j][dec.knots[j].length - 1] = qBal[3 + j];
+          for (let j = 0; j < dec.knots.length; j++) dec.knots[j][dec.knots[j].length - 1] = qBal[3 + j];
           // Cheapest candidate first, so the viewer can draw the leader
           // differently from the rest of the field.
           const poses = (pool ? pool.lastPoses : genPoses).slice().sort((a, b) => a.cost - b.cost);

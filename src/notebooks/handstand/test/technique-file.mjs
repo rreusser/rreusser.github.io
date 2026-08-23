@@ -13,7 +13,8 @@
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
-import { runScenario, resolveRom, resolveBody, resolvePlant, resolveNumerics, SYMMETRIC_SCENARIOS } from '../rollout.js';
+import { runScenario, resolveRom, resolveBody, resolvePlant, resolveNumerics, SYMMETRIC_SCENARIOS,
+  NJ, widenKnots } from '../rollout.js';
 import { techniqueToJSON, techniqueFromJSON, techniqueRunArgs, TECHNIQUE_FORMAT } from '../technique-file.js';
 import { PRESET_TRAJECTORIES } from '../presets.js';
 
@@ -28,10 +29,13 @@ const D = 180 / Math.PI;
 // kind of edit the figure can make.
 function stateFor(name) {
   const stored = PRESET_TRAJECTORIES[name];
-  const knots = stored.knots.map((k) => Float64Array.from(k));
+  const knots = widenKnots(stored.knots.map((k) => Float64Array.from(k)));
   const K = knots[0].length;
-  const target = new Float64Array(9);
-  for (let j = 0; j < 6; j++) target[3 + j] = knots[j][K - 1];
+  // Sized and filled from the body, not from two written-down numbers. A
+  // nine-long target on an eleven-coordinate body leaves the last two joints
+  // undefined, and every comparison against them reads NaN.
+  const target = new Float64Array(3 + NJ);
+  for (let j = 0; j < NJ; j++) target[3 + j] = knots[j][K - 1];
   return {
     label: `${name} under test`,
     scenario: stored.scenario,

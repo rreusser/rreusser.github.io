@@ -184,6 +184,21 @@ export function knotTimes(T, K, fracs = null) {
 export function createServo(model, strengthProf, {
   kp = 3000, kd = 150, gravityComp = true, ws = null, activationTau = 0.05,
   dampingRatio = 0, brakeMargin = 0, inertiaHz = 200, dampingSpeed = 1.0,
+  // The fastest closed loop a joint is allowed to run, as a multiple of its
+  // own actuator lag: omega_n * activationTau.
+  //
+  // kd is scaled by the inertia a joint actually drives; kp was not, so the
+  // loop bandwidth sqrt(kp / I) ran away as the joint got lighter -- 3 rad/s
+  // at the wrist and 69 at the neck, which is 3.4 lags per oscillation. A
+  // servo commanding torque through a 50 ms first-order lag cannot be that
+  // fast and stay still: the head buzzed +-6 degrees in a MOTIONLESS
+  // handstand while every other joint held inside a third of one. Capping
+  // the bandwidth (not the stiffness) is what makes the neck a neck rather
+  // than the lightest joint on a body tuned for the heaviest.
+  //
+  // Zero means uncapped, which is what every technique recorded before this
+  // existed was produced on.
+  loopOmegaTau = 1.0,
 } = {}) {
   const nq = model.nq;
   const damping = new Float64Array(nq);
@@ -197,9 +212,14 @@ export function createServo(model, strengthProf, {
   const adaptive = dampingRatio > 0 || brakeMargin > 0;
   const Mbuf = adaptive ? new Float64Array(nq * nq) : null;
   const inertia = new Float64Array(NJOINTS).fill(1);
+  // Per-joint stiffness, refreshed beside the damping it is paired with.
+  // Equal to kp until the bandwidth cap bites, which it does only on the
+  // light joints at the end of the chain.
+  const kpEff = new Float64Array(NJOINTS).fill(kp);
+  const wMax = (activationTau > 0 && loopOmegaTau > 0) ? loopOmegaTau / activationTau : Infinity;
   return {
     damping, kp, kd, qRef, qdRef, activationTau, applied,
-    dampingRatio, brakeMargin, inertia,
+    dampingRatio, brakeMargin, inertia, kpEff, loopOmegaTau,
     makeControl(knotMatrix, T, augment = null, times = null) {
       const des = new Float64Array(NJOINTS);
       const u = new Float64Array(NJOINTS);
@@ -218,8 +238,9 @@ export function createServo(model, strengthProf, {
           for (let j = 0; j < NJOINTS; j++) {
             const jq = 3 + j;
             inertia[j] = Math.max(Mbuf[jq * nq + jq], 1e-4);
+            kpEff[j] = Number.isFinite(wMax) ? Math.min(kp, inertia[j] * wMax * wMax) : kp;
             if (dampingRatio > 0) {
-              const kdWant = 2 * dampingRatio * Math.sqrt(kp * inertia[j]);
+              const kdWant = 2 * dampingRatio * Math.sqrt(kpEff[j] * inertia[j]);
               const kdMax = dampingSpeed > 0
                 ? availableTorque(strengthProf[JOINT_ORDER[j]], 0, 0) / dampingSpeed
                 : Infinity;
@@ -233,7 +254,7 @@ export function createServo(model, strengthProf, {
           const kdj = damping[jq];
           const gff = gravityComp && ws ? tauG[jq] : 0;
           const e = qRef[j] - q[jq];
-          let corr = (kp / kdj) * e;
+          let corr = (kpEff[j] / kdj) * e;
           if (brakeMargin > 0 && corr !== 0) {
             const sBrake = e >= 0 ? -1 : 1;
             const jp = strengthProf[JOINT_ORDER[j]];

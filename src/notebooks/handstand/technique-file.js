@@ -26,8 +26,9 @@
 // saved here can be dropped into the registry the regression suite replays.
 import {
   resolvePlant, resolveRom, resolveNumerics, resolveBody, balancedHandstand,
-  SYMMETRIC_SCENARIOS,
+  SYMMETRIC_SCENARIOS, widenKnots,
 } from './rollout.js';
+import { JOINT_ORDER, LEGACY_JOINT_ORDER } from './control.js';
 
 export const TECHNIQUE_FORMAT = 'handstand-technique';
 export const TECHNIQUE_VERSION = 1;
@@ -76,8 +77,15 @@ export function techniqueFromJSON(json) {
   if (!(j.version <= TECHNIQUE_VERSION)) {
     throw new Error(`saved by a newer version of this notebook (version ${j.version})`);
   }
-  if (!Array.isArray(j.knots) || j.knots.length !== 6 || !j.knots.every(Array.isArray)) {
-    throw new Error('knots must be six arrays, one per joint');
+  // Both widths are a technique: LEGACY_JOINT_ORDER is what every file
+  // written before the trunk gained a hinge says, and widenKnots turns it
+  // into today's body with a straight spine and a level head -- which is
+  // exactly what those files meant. Refusing them would have made every
+  // saved technique unopenable, which is what a written-down six did.
+  const NJ = JOINT_ORDER.length, NJ0 = LEGACY_JOINT_ORDER.length;
+  if (!Array.isArray(j.knots) || !j.knots.every(Array.isArray)
+    || (j.knots.length !== NJ && j.knots.length !== NJ0)) {
+    throw new Error(`knots must be ${NJ0} or ${NJ} arrays, one per joint`);
   }
   const K = j.knots[0].length;
   if (K < 1 || !j.knots.every((r) => r.length === K)) {
@@ -92,7 +100,7 @@ export function techniqueFromJSON(json) {
     label: j.label || '',
     saved: j.saved || null,
     scenario: j.scenario || 'hold',
-    knots: j.knots.map((r) => Float64Array.from(r)),
+    knots: widenKnots(j.knots.map((r) => Float64Array.from(r))),
     T: +j.T,
     knotFracs: fracs,
     // A technique saved before holds existed holds only its ending, which is

@@ -97,7 +97,7 @@ export function frameAt(rec, t) {
 // flat onto the floor. Poses nobody touched appeared to fly around, and a pose
 // just set snapped somewhere else the moment the drag was released. Planting
 // the hand makes a pose depend on exactly the numbers that define it.
-const refVal = new Float64Array(6), refRate = new Float64Array(6);
+const refVal = new Float64Array(JOINTS.length), refRate = new Float64Array(JOINTS.length);
 export function requestPose(model, knots, T, t, out, fracs = null) {
   out.fill(0);
   groundHand(model, out);
@@ -232,8 +232,9 @@ export function knotPose(model, knots, k, out) {
 export function analyzeRun(run, prof, model) {
   const rec = run.rec;
   const m = run.model || model;
-  const peak = new Float64Array(6), satT = new Float64Array(6), err = new Float64Array(6);
-  const v = new Float64Array(6), r = new Float64Array(6);
+  const NJ = JOINTS.length;
+  const peak = new Float64Array(NJ), satT = new Float64Array(NJ), err = new Float64Array(NJ);
+  const v = new Float64Array(NJ), r = new Float64Array(NJ);
   // The phrasing the run was produced with, read off the run rather than
   // assumed even: a technique whose poses are unevenly spaced tracks a
   // different reference, and scoring it against an even one would report a
@@ -486,26 +487,32 @@ export function createStrip({
     ctx.font = '10px system-ui, sans-serif';
 
     const cols = Math.max(2, Math.round(plotW));
-    const effort = new Float64Array(cols * 6);
-    const outRom = new Uint8Array(cols * 6);
+    // Strided by the number of rows there ARE. Striding by a written-down six
+    // while drawing eight rows does not merely drop the last two: row n reads
+    // cell (c + 1, n - 6), so the neck row displayed the WRIST's effort a
+    // column later and sat saturated red through a movement in which the neck
+    // barely moved.
+    const nRows = JOINTS.length;
+    const effort = new Float64Array(cols * nRows);
+    const outRom = new Uint8Array(cols * nRows);
     for (let c = 0; c < cols; c++) {
       const t = (c / (cols - 1)) * xEnd;
       const k = frameAt(rec, t);
-      for (let n = 0; n < 6; n++) {
+      for (let n = 0; n < nRows; n++) {
         const J = JOINTS[n];
         const tau = rec.tauApplied[k][J.j];
         const cap = availableTorque(prof[JOINT_ORDER[J.j]], tau, rec.qd[k][3 + J.j]);
-        effort[c * 6 + n] = Math.abs(tau) / Math.max(cap, 1e-6);
+        effort[c * nRows + n] = Math.abs(tau) / Math.max(cap, 1e-6);
         const lim = jointLimits(rom, rec.q[k], J.qi);
         const q = rec.q[k][J.qi];
-        outRom[c * 6 + n] = (q < lim.lo - 1e-9 || q > lim.hi + 1e-9) ? 1 : 0;
+        outRom[c * nRows + n] = (q < lim.lo - 1e-9 || q > lim.hi + 1e-9) ? 1 : 0;
       }
     }
 
     JOINTS.forEach((J, n) => {
       const y0 = n * rowH + 1, h = rowH - 3;
       for (let c = 0; c < cols; c++) {
-        const u = effort[c * 6 + n];
+        const u = effort[c * nRows + n];
         ctx.fillStyle = effortColor(u, isDark, 0.16 + 0.72 * Math.min(u, 1));
         ctx.fillRect(gutter + c, y0, 1.25, h);
       }
@@ -514,7 +521,7 @@ export function createStrip({
       // whole row so it is visible at a glance, and a solid edge so a brief
       // excursion is not lost in it.
       for (let c = 0; c < cols; c++) {
-        if (!outRom[c * 6 + n]) continue;
+        if (!outRom[c * nRows + n]) continue;
         ctx.fillStyle = 'rgba(232,131,58,0.20)';
         ctx.fillRect(gutter + c, y0, 1.25, h);
         ctx.fillStyle = ROM_COLOR;

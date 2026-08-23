@@ -250,7 +250,7 @@ export function drawScene(ctx, opts) {
   if (clamped) {
     ctx.strokeStyle = isDark ? 'rgba(255, 180, 40, 0.95)' : 'rgba(205, 130, 0, 0.95)';
     ctx.lineWidth = 2.5;
-    for (let j = 3; j <= 8; j++) {
+    for (let j = 3; j < model.nq; j++) {
       if (!(clamped & (1 << j))) continue;
       const b = j - 2;
       ctx.beginPath();

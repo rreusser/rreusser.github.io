@@ -25,9 +25,15 @@
 import { crbaMassMatrix } from './dynamics.js';
 import { jointLimits } from './statics.js';
 import { availableTorque } from './strength.js';
+import { JOINT_ORDER } from './control.js';
 
 const D2R = Math.PI / 180;
-const JOINT_KINDS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+// Derived from the joint list rather than written down beside it. Written
+// down, this was a list of six in the OLD order, so when the trunk gained a
+// hinge every stop from the spine outward was sized by the wrong joint's
+// strength -- and the last two joints on the body, the right knee and the
+// neck, got no end-stop at all. A neck with no stop is a head on a string.
+const NJ = JOINT_ORDER.length;
 
 // stopDeg: penetration at full voluntary torque (0 disables stops entirely).
 // zeta: damping ratio of the stop against the joint's nominal inertia.
@@ -41,21 +47,21 @@ export function createJointStops(model, rom, strengthProf, ws, {
   const nq = model.nq;
   const M = new Float64Array(nq * nq);
   crbaMassMatrix(model, qNominal || new Float64Array(nq), M, ws);
-  const k = new Float64Array(6), b = new Float64Array(6);
-  for (let j = 0; j < 6; j++) {
+  const k = new Float64Array(NJ), b = new Float64Array(NJ);
+  for (let j = 0; j < NJ; j++) {
     const jq = 3 + j;
-    const cap = availableTorque(strengthProf[JOINT_KINDS[j]], 0, 0);
+    const cap = availableTorque(strengthProf[JOINT_ORDER[j]], 0, 0);
     k[j] = cap / (stopDeg * D2R);
     b[j] = 2 * zeta * Math.sqrt(k[j] * Math.max(M[jq * nq + jq], 1e-4));
   }
-  return { rom, k, b, stopDeg, zeta, torque: new Float64Array(6) };
+  return { rom, k, b, stopDeg, zeta, torque: new Float64Array(NJ) };
 }
 
 // Adds end-stop torques to the actuated rows of tau. Returns the stop torques
 // for instrumentation (nonzero only where the joint is outside its range).
 export function applyJointStops(stops, q, qd, tau) {
   const { rom, k, b, torque } = stops;
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < NJ; j++) {
     const jq = 3 + j;
     const { lo, hi } = jointLimits(rom, q, jq);
     let t = 0;

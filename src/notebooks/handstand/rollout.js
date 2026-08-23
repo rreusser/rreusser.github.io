@@ -38,8 +38,14 @@ function toeXLocal(model, ws, q, body) {
 // rotates the leg toward the belly side and downward from the inverted
 // stack, so toe height decreases monotonically with hip flexion here.
 function solveHipForToeDown(model, ws, q, side) {
-  const hip = side === 'L' ? 5 : 7;
-  const body = side === 'L' ? 4 : 6;
+  // By name, like clearFeet beside it. Written as raw indices these were the
+  // SIX-joint body's numbering, so once the trunk gained a hinge the 'R'
+  // solve wrote the stance hip angle into the left KNEE (old 7 = hipR, new
+  // 7 = kneeL) and left the stance hip at zero. The lunge start then began
+  // with a knee folded 175 degrees the wrong way, and the servo unwinding it
+  // launched the body off the floor.
+  const hip = side === 'L' ? QI.hipL : QI.hipR;
+  const body = side === 'L' ? BODY.shankL : BODY.shankR;
   let lo = 0 * D2R, hi = 175 * D2R;
   if (toeY(model, ws, withQ(q, hip, hi), body) > 0) return NaN;
   for (let i = 0; i < 60; i++) {
@@ -102,6 +108,8 @@ function solveWristForToeDown(model, ws, q, body, loDeg = 35, hiDeg = 115) {
 // Final safety pass on a start pose: no foot contact point may start below
 // the floor (penalty springs would fire a large spurious impulse at t = 0).
 // A toe below minY is lifted by reducing that leg's hip flexion.
+function clampToRom(q, rom) { clampPose(q, rom); return q; }
+
 function clearFeet(model, ws, q, minY = 5e-4) {
   for (const side of ['L', 'R']) {
     const hip = side === 'L' ? QI.hipL : QI.hipR;
@@ -210,7 +218,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       const errAt = (sh) => {
         q[4] = sh;
         solveWristForToeDown(model, ws, q, BODY.shankL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
-        const toe = toeXLocal(model, ws, q, 4);
+        const toe = toeXLocal(model, ws, q, BODY.shankL);
         const com = momenta(model, q, zeroQd9, ws).comX - q[0];
         return com - (palmT + tuckLoadFrac * (toe - palmT));
       };
@@ -336,7 +344,7 @@ export const PLANT_DEFAULTS = {
   activationTau: 0.05, mu: 1.0, contactZeta: 1.0, integrator: 'si',
   tuckLoadFrac: TUCK_LOAD_FRAC, tuckKneeDeg: TUCK_KNEE_DEG,
   dampingRatio: 1.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
-  romStopDeg: 5, romStopZeta: 0.7,
+  romStopDeg: 5, romStopZeta: 0.7, loopOmegaTau: 1.0,
 };
 
 // Plant/controller settings as they were BEFORE a given capability existed.
@@ -351,6 +359,12 @@ export const LEGACY_PLANT = {
   // dampingRatio is 0, so its refresh rate does not matter, and end-stops are
   // off entirely when romStopDeg is 0, so their damping ratio does not either.
   inertiaHz: 200, romStopZeta: 0.7,
+  // Uncapped: every joint ran at sqrt(kp / I), which is what let the neck
+  // buzz. Zero rather than Infinity, matching the three zeros above -- this
+  // file is JSON, and JSON has no Infinity: it serializes as null, which
+  // resolves straight back to today's default, so a legacy technique would
+  // have round-tripped onto the capped servo it was not produced on.
+  loopOmegaTau: 0,
   // The bent-leg press used to start balanced over the palm with 90 degrees
   // of knee bend and nothing on the legs, which is why the only momentum the
   // search could find was to settle back down onto the floor and jump.
@@ -1017,8 +1031,8 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   let effort = 0, sat = 0, romP = 0, romPk = 0, peakKE = 0;
   let posWork = 0, negWork = 0;
   let driveRate = 0, nDrive = 0, settleCalmV = 0, nSettleCalm = 0;
-  const prevU = new Float64Array(6).fill(NaN);
-  const peakUtil = new Float64Array(6);
+  const prevU = new Float64Array(NJ).fill(NaN);
+  const peakUtil = new Float64Array(NJ);
   for (let k = 0; k < rec.t.length; k++) {
     const dts = k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
     let sumU2 = 0, sumSat = 0, sumDriveRate2 = 0;
@@ -1051,7 +1065,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     // equilibrium is what would feel terrible in the shoulders).
     if (rec.t[k] >= Tend - Math.min(1.0, settleT)) {
       let sq = sumDriveRate2;
-      for (let j = 3; j < 9; j++) {
+      for (let j = 3; j < 3 + NJ; j++) {
         const v = rec.qd[k][j] / SETTLE_QD_SCALE;
         sq += v * v;
       }
@@ -1096,7 +1110,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
       const dtc = rec.t[k + 1] - rec.t[k - 1];
       if (dtc <= 0) continue;
       let s = 0;
-      for (let j = 3; j < 9; j++) {
+      for (let j = 3; j < 3 + NJ; j++) {
         const a = (rec.qd[k + 1][j] - rec.qd[k - 1][j]) / dtc / SMOOTH_ACCEL_SCALE;
         s += a * a;
       }
@@ -1487,7 +1501,7 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   const plant = plantFor(opts);
   const {
     integrator, kp, kd, mu, contactZeta, activationTau, dampingRatio, brakeMargin,
-    inertiaHz, dampingSpeed, romStopDeg, romStopZeta, kCom, dCom,
+    inertiaHz, dampingSpeed, romStopDeg, romStopZeta, kCom, dCom, loopOmegaTau,
     tuckLoadFrac, tuckKneeDeg,
   } = plant;
   const {
@@ -1523,9 +1537,15 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   // a handed-in start is still lifted clear of the ground. That is the one
   // thing done to it, and it is why a start pose can be dragged anywhere
   // without the integrator paying for it.
-  const q0 = q0Given
-    ? clearFeet(model, ws, Float64Array.from(q0Given))
-    : solvedStart.q0;
+  // A handed-in start is repaired the same way it is lifted clear of the
+  // floor, and for the same reason: it has to be a pose this body can
+  // actually hold. Clamping it to the range of motion is not a courtesy --
+  // techniques recorded before the trunk gained a hinge carry a start solved
+  // by a routine that wrote the stance hip into the left knee, so their q0
+  // names a knee folded most of a turn the wrong way. Replayed literally,
+  // the servo unwinds it and throws the body off the floor; clamped, the
+  // pose is the one that was meant.
+  const q0 = q0Given ? clearFeet(model, ws, clampToRom(Float64Array.from(q0Given), rom)) : solvedStart.q0;
   let qd0 = q0Given ? null : solvedStart.qd0;
   if (qdJitter > 0) {
     const rand = mulberry32(jitterSeed);
@@ -1547,6 +1567,7 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   const times = fracs ? knotTimes(T, ref[0].length, fracs) : null;
   const servo = createServo(model, strengthProf, {
     kp, kd, ws, activationTau, dampingRatio, brakeMargin, inertiaHz, dampingSpeed,
+    loopOmegaTau,
   });
   const contacts = createContacts(model, { mu, zeta: contactZeta });
   // Anatomical end-stops are part of the body, not the controller: the
@@ -1609,8 +1630,8 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   // "Arrived" means the handstand configuration: joints near the balanced
   // pose (12 deg rms) and no residual foot contact, not merely CoM position.
   let angSum = 0;
-  for (let j = 3; j < 9; j++) { const d = out.q[j] - qBal[j]; angSum += d * d; }
-  const posed = Math.sqrt(angSum / 6) < 12 * D2R;
+  for (let j = 3; j < 3 + NJ; j++) { const d = out.q[j] - qBal[j]; angSum += d * d; }
+  const posed = Math.sqrt(angSum / NJ) < 12 * D2R;
   const W = mo.mass * model.gravity;
   const feetFree = (contacts.ext.fy[2] + contacts.ext.fy[3]) < 0.05 * W;
   return {
