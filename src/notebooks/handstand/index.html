@@ -1070,6 +1070,7 @@
         rom0.hipFlexStraightKneeMaxDeg,
         rom0.shoulderFlexMaxDeg,
         rom0.wristExtMaxDeg ?? 135,
+        rom0.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
       ];
       const machineDefaults = () => ({
         config: resolvePlant(simResult.stored?.config),
@@ -1091,7 +1092,8 @@
         rom: { ...(simResult.stored?.rom || {}),
           hipFlexStraightKneeMaxDeg: editState.body[1],
           shoulderFlexMaxDeg: editState.body[2],
-          wristExtMaxDeg: editState.body[3] },
+          wristExtMaxDeg: editState.body[3],
+          spineFlexMaxDeg: editState.body[4] },
       });
       // The anatomy a rollout of this technique will actually run under, which
       // is the box a generated knot has to stay inside.
@@ -1662,7 +1664,16 @@
         value: editState.body[2] });
       const inWrExt = Inputs.range([80, 150], { label: 'Wrist extension max (deg)', step: 1,
         value: editState.body[3] });
-      const bodyInputs = [inShoulder, inHam, inShFlex, inWrExt];
+      // How far the trunk can round. The hollow body is the shape this whole
+      // notebook is about and until the trunk had a hinge there was nothing to
+      // set; now there is, and how much of it a person HAS is the difference
+      // between a stacked line and a banana, so it belongs beside the
+      // hamstrings rather than buried in the anatomy defaults.
+      const inSpine = Inputs.range([5, 80], { label: 'Back flexion max (deg)', step: 1,
+        value: editState.body[4] });
+      inSpine.title = 'how far the single trunk hinge may round forward. The arching '
+        + 'direction is bounded separately and is not on this slider.';
+      const bodyInputs = [inShoulder, inHam, inShFlex, inWrExt, inSpine];
       bodyInputs.forEach((inp, n) => inp.addEventListener('input', () => {
         editState.body[n] = +inp.value;
         resim();
@@ -1772,23 +1783,59 @@
       const renameBtn = html`<button class="hs-btn" title="rename the selected preset to the name beside it">Rename</button>`;
       const dropBtn = html`<button class="hs-btn" title="forget the selected preset">Forget</button>`;
       const isBuiltin = () => String(pick.value).startsWith('builtin:');
+      // Which preset Keep would write over, or null for "make a new one".
+      //
+      // Opening one of your own, editing it and keeping it is a SAVE, not a
+      // second preset of the same name -- that is the whole shape of the work:
+      // load, change, keep, repeat. It used to append every time, so a few
+      // rounds left a list of identical names and no way to tell which was
+      // current. Typing a different name is how you ask for a copy, and a
+      // built-in is never overwritten because it is derived rather than
+      // remembered: there is nothing there to write to.
+      const keepTarget = () => {
+        if (isBuiltin()) return null;
+        const cur = readPresets().find((c) => c.id === pick.value);
+        if (!cur) return null;
+        const typed = presetName.value.trim();
+        return (!typed || typed === (cur.label || '')) ? cur : null;
+      };
       // A built-in is derived, not remembered, so there is nothing to rename
       // or forget -- Keep is how you make one of your own from it.
       const syncPresetButtons = () => {
         renameBtn.disabled = dropBtn.disabled = isBuiltin();
         const cur = readPresets().find((c) => c.id === pick.value);
         presetName.value = cur?.label || '';
+        // The button says which of the two it will do, because the difference
+        // matters and the only thing that decides it is the name box.
+        const over = keepTarget();
+        keepBtn.textContent = over ? 'Update' : 'Keep';
+        keepBtn.title = over
+          ? `overwrite "${over.label}" with the technique on screen. Type a different name to keep a copy instead.`
+          : 'keep the technique on screen in this browser, under the name beside it. '
+            + 'Exactly what Save writes to a file \u2014 the technique, the body, the anatomy, '
+            + 'the servo and the integration.';
       };
       keepBtn.addEventListener('click', () => {
         const list = readPresets();
         const rec = techniqueToJSON(asTechnique());
-        rec.label = presetName.value.trim() || rec.label;
-        rec.id = nextId(list);
-        list.push(rec);
+        const over = keepTarget();
+        // Its own id and its own name: overwriting must not renumber the
+        // preset or the picker's selection lands somewhere else.
+        rec.id = over ? over.id : nextId(list);
+        rec.label = presetName.value.trim() || over?.label || rec.label;
+        const at = over ? list.findIndex((c) => c.id === over.id) : -1;
+        if (at >= 0) list[at] = rec; else list.push(rec);
         const err = writePresets(list);
-        status = err ? `could not keep: ${err}` : `kept "${rec.label}"`;
+        status = err ? `could not keep: ${err}`
+          : (over ? `updated "${rec.label}"` : `kept "${rec.label}"`);
         if (!err) { refreshPresets(rec.id); syncPresetButtons(); }
         dirty = chromeDirty = true;
+      });
+      // The name box decides between Update and Keep, so the button has to
+      // re-read it as you type rather than only when the selection changes.
+      presetName.addEventListener('input', () => {
+        const over = keepTarget();
+        keepBtn.textContent = over ? 'Update' : 'Keep';
       });
       renameBtn.addEventListener('click', () => {
         const name = presetName.value.trim();
@@ -1888,6 +1935,7 @@
         editState.body = [
           rec.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
           rec.rom.hipFlexStraightKneeMaxDeg, rec.rom.shoulderFlexMaxDeg, rec.rom.wristExtMaxDeg,
+          rec.rom.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
         ];
         bodyInputs.forEach((i, n) => { i.value = editState.body[n]; });
         durInput.value = rec.T;
@@ -2306,7 +2354,8 @@
           html`<div class="spline-controls">${symToggle}</div>`)}
         ${group('body', false,
           html`<div class="spline-controls">${inShoulder}${inHam}</div>`,
-          html`<div class="spline-controls">${inShFlex}${inWrExt}</div>`)}
+          html`<div class="spline-controls">${inShFlex}${inWrExt}</div>`,
+          html`<div class="spline-controls">${inSpine}</div>`)}
         ${group('search', false,
           html`<div class="spline-controls">${optGens}${optSeed}</div>`)}
         ${group('servo', false,
