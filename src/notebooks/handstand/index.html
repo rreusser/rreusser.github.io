@@ -44,6 +44,9 @@
       .expandable-controls-panel .technique-controls {
         border: none; padding: 0; margin-top: 0; max-width: none;
       }
+      /* Floated out, the panel has a header of its own; two in a row is one
+         too many. */
+      .expandable-controls-panel .technique-controls > .hs-pane__head { display: none; }
       /* The site gives an open details a 3px rule down its left and an indent
          to match, which is right for a disclosure in the prose and wrong for a
          group of controls inside a panel that is already a box. */
@@ -104,6 +107,114 @@
         margin-left: calc(50% - var(--w) / 2);
       }
       .wide-figure figcaption { max-width: 640px; }
+
+      /* ---- the technique editor -----------------------------------------
+         One instrument rather than five loose pictures stacked in a column.
+         The viewer, the transport, the filmstrip and the timeline are panes
+         inside one bordered shell with one padding: that is what stops the
+         frames sitting hard against the edge of a phone, and what makes the
+         whole thing read as a tool instead of a page. Everything is drawn in
+         currentColor at low alpha, so it is one instrument in either theme
+         and it never introduces a colour that would claim to mean something.
+      */
+      .hs-editor {
+        /* No margin of its own: `main figure` gives every figure on the page
+           the same air, and the editor is a figure like any other. */
+        box-sizing: border-box; max-width: 100%;
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, currentColor 2.5%, transparent);
+        font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      /* The document bar: which technique this is, and what may be done to it
+         AS a document. Presets used to live at the bottom of the parameter
+         panel, filed with the servo gains -- which said that opening one was
+         the same kind of act as changing a damping ratio. It is not: it is
+         opening a file, and it belongs where a file is named. */
+      .hs-editor__bar {
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 6px;
+        padding: 6px 8px;
+        border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+        background: color-mix(in srgb, currentColor 6%, transparent);
+        border-radius: 7px 7px 0 0;
+        position: relative; z-index: 3;
+      }
+      .hs-editor__bar select { font: inherit; max-width: 15em; }
+      .hs-editor__actions { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+      .hs-editor__pane {
+        padding: 8px;
+        border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+      }
+      .hs-editor__pane--first { border-top: none; }
+      .hs-editor__transport { background: color-mix(in srgb, currentColor 4%, transparent); }
+      /* A pane header, in the small caps every editor labels its panes with.
+         The legend rides on the timeline's, which is the pane whose colours it
+         explains -- a legend floating between two pictures is read as a
+         caption for one of them. */
+      .hs-pane__head {
+        display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+        margin: 0 0 6px; row-gap: 2px;
+      }
+      .hs-pane__title {
+        font-size: 10px; font-weight: 600; letter-spacing: .08em;
+        text-transform: uppercase; opacity: .5;
+      }
+      .hs-legend { font-size: 11px; opacity: .85; }
+      .hs-legend > span { display: inline-flex; align-items: center; margin-right: 12px; }
+      /* Says the technique on screen is no longer the one the picker names. */
+      .hs-tag {
+        font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+        padding: 2px 5px; border-radius: 4px; opacity: .8;
+        border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+        background: color-mix(in srgb, currentColor 8%, transparent);
+      }
+      .hs-tag[hidden] { display: none; }
+      /* Everything a preset can have done to it that is not "open" or "keep",
+         behind one control, because a bar with eight buttons on it is a bar
+         nobody reads. */
+      /* Scoped under .hs-editor, and it has to be: the site gives an open
+         details a 3px rule down its left and an indent to match, at a
+         specificity a bare class cannot reach. That is right for a disclosure
+         in the prose and absurd on a menu button. */
+      .hs-editor .hs-menu,
+      .hs-editor .hs-menu[open] {
+        position: relative; margin: 0; border-left: none; padding-left: 0;
+      }
+      .hs-editor .hs-menu > summary,
+      .hs-editor .hs-menu[open] > summary {
+        list-style: none; display: grid; place-items: center;
+        width: 28px; height: 26px; padding: 0; margin: 0;
+        border-left: none; line-height: 1;
+      }
+      .hs-menu > summary::-webkit-details-marker,
+      .hs-menu > summary::marker { display: none; content: ''; }
+      .hs-menu__panel {
+        position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
+        /* Opens leftward from a control on the right-hand edge, so the only
+           way off the screen is being wider than the page. */
+        min-width: 14em; max-width: min(20em, calc(100vw - 32px)); padding: 8px;
+        display: flex; flex-direction: column; gap: 6px;
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 6px;
+        background: var(--theme-background, #fff);
+        box-shadow: 0 6px 22px rgba(0, 0, 0, .18);
+      }
+      .hs-menu__row { display: flex; gap: 6px; align-items: center; }
+      .hs-menu__row input[type=text] { flex: 1 1 auto; min-width: 0; width: 100%; }
+      .hs-menu__row .hs-btn { flex: 0 1 auto; }
+      .hs-menu__sep {
+        height: 1px; margin: 2px 0;
+        background: color-mix(in srgb, currentColor 14%, transparent);
+      }
+      /* A pressed toggle, in the same ink as everything else. */
+      .hs-btn--on {
+        background: color-mix(in srgb, currentColor 20%, transparent);
+        border-color: color-mix(in srgb, currentColor 50%, transparent);
+      }
+      @media (max-width: 520px) {
+        .hs-editor__pane { padding: 6px; }
+        .hs-editor__bar { padding: 5px 6px; }
+      }
     </style>
   </script>
   <script id="model-section" type="text/markdown">
@@ -1190,13 +1301,12 @@
       const STAGE_H = panelH;
       // K + 1 cells: the pose the body STARTS in, then the K it asks for.
       let nCells = K + 1;
-      // As many columns as fit at a legible frame width, capped at the number of
-      // cells. A fixed seven wrapped at eight poses even in a figure with room
-      // for thirteen.
-      const colsFor = (w) => Math.min(nCells, Math.max(2, Math.floor((w + 4) / 78)));
-      let thumbCols = colsFor(totalW);
-      const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
-      const thumbH = Math.round(thumbW / 1.13);
+      // Only an aspect ratio, in effect. The storyboard is ONE row and sizes
+      // its own frames to whatever width it is handed -- it used to be a grid
+      // that wrapped, and a wrapped storyboard stops being a time axis: the
+      // ninth pose of a movement sat underneath the first, and the eye had to
+      // jump back to the left margin in the middle of the phrase.
+      const thumbW = 88, thumbH = Math.round(88 / 1.13);
 
       let theme = null;
       let paintRamp = null;
@@ -1204,6 +1314,13 @@
       // ---- one time variable, one selected pose ----------------------------
       let t = 0, sel = 0, playing = false, lastNow = null;
       let dirty = true, chromeDirty = true, xEnd = 1;
+      // Whether the reference is drawn behind the body while the movement
+      // plays. Off, because in playback it is not the subject: a second, grey,
+      // slightly-out-of-step body in the same picture reads as a smear on the
+      // animation rather than as the thing driving it. It is still there for
+      // the asking -- and while you are EDITING a pose the reference IS the
+      // subject, drawn alone, whatever this says.
+      let showRef = false;
       let searching = false, poolSize = null, status = '';
       const knotTime = (k) => editState.fracs[k] * editState.T;
       // The held poses as the search wants them: the six angles each one is
@@ -1236,7 +1353,7 @@
       // opacity says which of the two you are acting on: the subject is solid
       // and on top, the other is a flat underlay in its own colour.
       const stage = html`<div style="position:relative; width:${panelW}px; height:${panelH}px;
-        touch-action:none; border:1px solid currentColor; border-radius:3px; box-sizing:border-box;
+        touch-action:none; border:1px solid currentColor; border-radius:4px; box-sizing:border-box;
         border-color:color-mix(in srgb, currentColor 18%, transparent);"></div>`;
       const canvas = html`<canvas style="position:absolute; left:0; top:0;
         width:${panelW}px; height:${panelH}px;"></canvas>`;
@@ -1331,12 +1448,14 @@
             ...common, q, segmentColors: sel === 0 ? null : FIG.requestTint(),
           }).handles.filter((h) => !lockedJoint(h.joint)));
         } else {
-          FIG.requestPose(m, editState.knots, editState.T, t, askQ, editState.fracs);
-          // Watching: what happened is solid, in its strength colours, over
-          // the target it was chasing.
-          // A third of the opacity it has while you are editing it: when the
-          // movement is playing the target is context, not the subject.
-          drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.1, color: FIG.REQUEST_COLOR });
+          // Watching: what happened is solid, in its strength colours. The
+          // reference it was chasing goes behind it only if you asked for it
+          // -- see showRef. When it is drawn it is drawn faint, because at
+          // this moment the target is context and not the subject.
+          if (showRef) {
+            FIG.requestPose(m, editState.knots, editState.T, t, askQ, editState.fracs);
+            drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.12, color: FIG.REQUEST_COLOR });
+          }
           drawScene(stageCtx, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
           syncHandles([]);
         }
@@ -1448,7 +1567,7 @@
       };
 
       const story = FIG.createStoryboard({
-        n: nCells, cols: thumbCols, thumbW, thumbH, view: VIEW, dpr, onSelect: selectCell,
+        n: nCells, thumbW, thumbH, view: VIEW, dpr, onSelect: selectCell,
         // Cell 0 is the start, which the search never moved in the first
         // place; the last cell is the ending pose, which it may never move.
         // Everything between is yours to hold or release.
@@ -1480,7 +1599,6 @@
           chromeDirty = dirty = true;
         },
       });
-      story.setColsFor(colsFor);
       const strip = FIG.createStrip({
         width: totalW, dpr,
         onSeek: (x) => {
@@ -1694,12 +1812,13 @@
       // "Reset" said nothing about what it resets, sitting in a row with the
       // pose count and the duration as if it reset those. It reverts the
       // technique -- every angle, the timing, the holds, the duration, the
-      // start pose and the body sliders -- so it says so, and it sits with the
-      // picker that names the thing it reverts to. The pose count is the one
-      // thing it leaves alone: that is a setting, not part of the technique,
-      // and a four-pose refit of a six-pose technique cannot be undone by
-      // restoring six numbers.
-      const resetBtn = html`<button class="hs-btn" title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it.">Revert to stored</button>`;
+      // start pose and the body sliders -- so it lives on the document bar
+      // beside the picker that names the thing it reverts TO, which is the
+      // only place the word needs no object. The pose count is the one thing
+      // it leaves alone: that is a setting, not part of the technique, and a
+      // four-pose refit of a six-pose technique cannot be undone by restoring
+      // six numbers.
+      const resetBtn = html`<button class="hs-btn" title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it.">Revert</button>`;
       resetBtn.addEventListener('click', () => {
         stopSearch();
         // baseKnots is a FUNCTION -- it has to be, because the pose count can
@@ -1723,13 +1842,12 @@
         syncServo();
         bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
         editState.run = simResult;
-        editState.edited = false;
-        editState.notify?.(null);
         optState.history = [];
         status = '';
         // A revert changes the knots, so the body on screen is no longer the
-        // one beside them: re-simulate rather than merely re-draw.
-        resim();
+        // one beside them: re-simulate rather than merely re-draw. The flag is
+        // what makes it a revert rather than one more edit -- see resim.
+        resim({ revert: true });
       });
 
       // ---- save and load ------------------------------------------------------
@@ -1778,7 +1896,7 @@
       // applied a technique on top of whatever scenario the first one happened
       // to be showing.
       const presetName = html`<input type="text" placeholder="name this preset"
-        style="width:11em; font: inherit; font-size:13px; padding:2px 4px;">`;
+        style="font: inherit; font-size:13px; padding:2px 4px; min-width:0;">`;
       const keepBtn = html`<button class="hs-btn" title="keep the technique on screen in this browser, under the name beside it. Exactly what Save writes to a file — the technique, the body, the anatomy, the servo and the integration.">Keep</button>`;
       const renameBtn = html`<button class="hs-btn" title="rename the selected preset to the name beside it">Rename</button>`;
       const dropBtn = html`<button class="hs-btn" title="forget the selected preset">Forget</button>`;
@@ -1810,7 +1928,7 @@
         const over = keepTarget();
         keepBtn.textContent = over ? 'Update' : 'Keep';
         keepBtn.title = over
-          ? `overwrite "${over.label}" with the technique on screen. Type a different name to keep a copy instead.`
+          ? `overwrite "${over.label}" with the technique on screen. Type a different name under \u22ef to keep a copy instead.`
           : 'keep the technique on screen in this browser, under the name beside it. '
             + 'Exactly what Save writes to a file \u2014 the technique, the body, the anatomy, '
             + 'the servo and the integration.';
@@ -1953,7 +2071,13 @@
       const verdict = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
       const baseStats = FIG.analyzeRun(simResult, simResult.prof || strengthProf, model);
 
-      const resim = () => {
+      // `revert` says the replay about to happen restores the technique the
+      // picker names rather than changing it. Without it Revert left the page
+      // marked as edited: the handler set the flag to false and then called
+      // this, which set it straight back to true -- so the verdict kept
+      // reporting a delta against a baseline it now equalled, and there was no
+      // honest way to badge the document.
+      const resim = ({ revert = false } = {}) => {
         let run;
         try {
           // Always bodyOver(), never "the stored body when no slider moved":
@@ -1971,8 +2095,8 @@
         // the pose on screen the pose that was actually simulated.
         if (editState.q0) editState.q0 = Float64Array.from(run.rec.q[0]);
         editState.run = run;
-        editState.edited = true;
-        editState.notify?.({ base: simResult, run });
+        editState.edited = !revert;
+        editState.notify?.(revert ? null : { base: simResult, run });
         relayout();
       };
 
@@ -2038,13 +2162,19 @@
       // cost, and how many cores are busy is not something anyone acts on.
       const statusEl = html`<span style="font-size:12px; opacity:.8;
         font-variant-numeric:tabular-nums; white-space:nowrap;"></span>`;
-      const spark = html`<canvas style="width:150px; height:26px; vertical-align:middle;"></canvas>`;
-      spark.width = Math.round(150 * dpr); spark.height = Math.round(26 * dpr);
+      // 110 rather than 150. The transport carries the play button, the clock,
+      // the reference toggle, two search buttons, this and the status line, and
+      // at 150 the sum was forty pixels wider than the column -- so the status
+      // line spent every search on a second row. The curve is a shape, not a
+      // reading; it loses nothing at this width.
+      const SPARK_W = 110;
+      const spark = html`<canvas style="width:${SPARK_W}px; height:26px; vertical-align:middle;"></canvas>`;
+      spark.width = Math.round(SPARK_W * dpr); spark.height = Math.round(26 * dpr);
       const drawSpark = () => {
         const h = optState.history;
         const c = spark.getContext('2d');
         c.setTransform(dpr, 0, 0, dpr, 0, 0);
-        c.clearRect(0, 0, 150, 26);
+        c.clearRect(0, 0, SPARK_W, 26);
         if (h.length < 2) return;
         const fg = theme?.foreground || [0.11, 0.12, 0.14];
         const rgb = fg.map((v) => Math.round(v * 255)).join(',');
@@ -2054,7 +2184,7 @@
         c.lineWidth = 1.5;
         c.beginPath();
         h.forEach((p, i) => {
-          const x = 1 + (i / (h.length - 1)) * 148;
+          const x = 1 + (i / (h.length - 1)) * (SPARK_W - 2);
           const y = 24 - ((ys[i] - lo) / span) * 22;
           if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
         });
@@ -2284,6 +2414,10 @@
             ],
           });
           statusEl.textContent = status;
+          // Says the technique on screen is no longer the one the picker
+          // names. Read off the same flag the verdict uses to decide whether
+          // to report a delta, so the badge and the numbers cannot disagree.
+          editedTag.hidden = !editState.edited;
           drawSpark();
         }
       });
@@ -2293,7 +2427,7 @@
       const stopTheme = observeTheme((th) => { theme = th; relayout(); });
       invalidation.then(stopTheme);
 
-      const key = (mark, text) => html`<span style="margin-right:14px; white-space:nowrap;">${mark}${text}</span>`;
+      const key = (mark, text) => html`<span>${mark}${text}</span>`;
       const dot = (fill) => html`<span style="display:inline-block; width:.75em; height:.75em;
         background:${fill}; vertical-align:-.05em; margin-right:.3em; border-radius:2px;"></span>`;
       const ramp = html`<span style="display:inline-block; width:3em; height:.75em; vertical-align:-.05em;
@@ -2304,42 +2438,120 @@
           + ` ${FIG.effortColor(0.5, d)}, ${FIG.effortColor(1, d)})`;
       };
       paintRamp();
+      const legend = html`<span class="hs-legend">${
+        key(ramp, 'strength used')}${key(dot(FIG.ROM_COLOR), 'outside range of motion')}</span>`;
 
-      // What you WATCH, and everything else. The figure is the movement, the
-      // poses and the timeline, plus the one thing that cannot be read without
-      // them -- the legend that says what the colours on the strip mean.
-      //
-      // Everything else is the box: what technique to show, what to do with
-      // it, what it did. The two status lines go there too even though they
-      // are readouts rather than settings, because they are sentences, and a
-      // sentence sitting between two pictures is read as a caption for one of
-      // them. In the box they read as the panel telling you what it is
-      // pointing at.
-      // Everything you DO to the movement lives on one line, on the timeline
-      // it acts on: play it, and search for a better one. Opening the panel is
-      // for changing a parameter, not for running the thing.
+      // ---- the transport ------------------------------------------------------
+      // Everything you DO to the movement, on one bar, directly under the thing
+      // it moves: play it, choose whether the request is drawn behind it, and
+      // search for a better one. Opening the parameter panel is for changing a
+      // number, not for running the thing.
       const rule = () => html`<span style="width:1px; height:16px; margin:0 2px;
         background:color-mix(in srgb, currentColor 20%, transparent);"></span>`;
-      strip.transport?.append(rule(), optRun, optStop,
+      const refBtn = html`<button class="hs-btn" aria-pressed="false"
+        title="draw the reference the servo is chasing behind the body while the movement plays. Off by default: in playback it is a second, grey, slightly out-of-step body in the same picture, which reads as a smear on the animation rather than as the thing driving it. Editing a pose always shows it — there it is the subject.">Reference</button>`;
+      const syncRef = () => {
+        refBtn.classList.toggle('hs-btn--on', showRef);
+        refBtn.setAttribute('aria-pressed', showRef ? 'true' : 'false');
+      };
+      refBtn.addEventListener('click', () => { showRef = !showRef; syncRef(); dirty = true; });
+      syncRef();
+      strip.transport?.append(refBtn,
+        // The search's two buttons and the rule that separates them from the
+        // transport, wrapping as ONE thing. Narrow enough and this bar wraps;
+        // loose, it wrapped between them, so a phone got "Stop" alone on a
+        // line reading as a third control and a divider dangling off the end
+        // of the line above.
+        html`<span style="display:inline-flex; gap:6px; align-items:center;">${
+          rule()}${optRun}${optStop}</span>`,
         html`<span style="flex:1 1 12px;"></span>`, spark, statusEl);
 
-      const chromeEl = html`<div>
-        <div style="margin-top:12px;">${story.element}</div>
-        <div style="margin-top:14px;">${strip.element}</div>
-        <div style="display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
-          margin-top:9px;">
-          <small style="opacity:.85; font: 11px system-ui, -apple-system, sans-serif;">${
-            key(ramp, 'strength used')}${
-            key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
+      // ---- the document bar ---------------------------------------------------
+      // Which technique this is, and what may be done to it AS a document.
+      // Presets used to sit at the bottom of the parameter panel, filed
+      // between the search seed and the servo gains, which said that opening
+      // one was the same kind of act as changing a damping ratio. It is not.
+      // Opening, reverting, keeping and saving are what you do to a file, and
+      // they belong at the top of the thing the file IS -- so the picker that
+      // was two controls in two places (one above the figure, one buried in
+      // the panel) is now the editor's own title bar.
+      const editedTag = html`<span class="hs-tag" hidden
+        title="the technique on screen is no longer the one the picker names. Revert puts it back; Keep makes it a preset of its own.">edited</span>`;
+      // The rest of the verbs, behind one control: a bar with eight buttons on
+      // it is a bar nobody reads.
+      const docMenu = html`<details class="hs-menu">
+        <summary class="hs-btn" aria-label="name, rename, forget, and files"
+          title="name, rename, forget, and files">⋯</summary>
+        <div class="hs-menu__panel">
+          <div class="hs-menu__row">${presetName}</div>
+          <div class="hs-menu__row">${renameBtn}${dropBtn}</div>
+          <div class="hs-menu__sep"></div>
+          <div class="hs-menu__row">${saveBtn}${loadBtn}${loadInput}</div>
         </div>
-        <div style="margin-top:8px; font: 12.5px/1.45 system-ui, -apple-system,
-          'Segoe UI', sans-serif;">${verdict}</div>
+      </details>`;
+      // A details stays open until its own summary is clicked again, which for
+      // a menu means it stays open behind whatever you do next.
+      const closeMenu = (e) => { if (!docMenu.contains(e.target)) docMenu.open = false; };
+      const escMenu = (e) => { if (e.key === 'Escape') docMenu.open = false; };
+      document.addEventListener('pointerdown', closeMenu);
+      document.addEventListener('keydown', escMenu);
+      invalidation.then(() => {
+        document.removeEventListener('pointerdown', closeMenu);
+        document.removeEventListener('keydown', escMenu);
+      });
+      // Pressing one of the verbs inside says what it did on the status line,
+      // which is on the transport bar and not in the menu -- so the menu shuts
+      // itself and gets out of the way.
+      for (const b of [renameBtn, dropBtn, saveBtn, loadBtn]) {
+        b.addEventListener('click', () => { docMenu.open = false; });
+      }
+      // The verbs in one group with `margin-left:auto` rather than each of them
+      // after a flexible spacer. A spacer only pushes what is on ITS line, so
+      // on a phone -- where the bar wraps -- the buttons dropped to a second
+      // row hard against the left margin, and the menu opening off the right
+      // of a control sitting at x = 0 hung its panel off the screen.
+      const docBar = html`<div class="hs-editor__bar">
+        <span class="hs-pane__title">Technique</span>
+        ${pick}${editedTag}
+        <span class="hs-editor__actions">${resetBtn}${keepBtn}${docMenu}</span>
       </div>`;
 
+      // ---- the panes ----------------------------------------------------------
+      // What you WATCH, what you PRESS, which poses there are, and when. Four
+      // panes of one instrument, in the order you work them, each with the same
+      // padding -- which is the whole reason the frames no longer sit hard
+      // against the edge of a phone.
+      const stagePane = html`<div class="hs-editor__pane hs-editor__pane--first">${stage}</div>`;
+      const transportPane = html`<div class="hs-editor__pane hs-editor__transport">${strip.transport}</div>`;
+      const posesPane = html`<div class="hs-editor__pane">
+        <div class="hs-pane__head"><span class="hs-pane__title">Poses</span></div>
+        ${story.element}
+      </div>`;
+      const timelinePane = html`<div class="hs-editor__pane">
+        <div class="hs-pane__head"><span class="hs-pane__title">Timeline</span>${legend}</div>
+        ${strip.element}
+      </div>`;
+      const verdictPane = html`<div class="hs-editor__pane"
+        style="font: 12.5px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;">${verdict}</div>`;
+      // Everything below the stage, in one element, because the stage is given
+      // whatever vertical room the rest of it leaves and that is a number only
+      // a measurement can give.
+      const chromeEl = html`<div>${transportPane}${posesPane}${timelinePane}${verdictPane}</div>`;
+
+      const figure = html`<figure class="hs-editor">${docBar}${stagePane}${chromeEl}</figure>`;
+
+      // ---- the parameters -----------------------------------------------------
       // Grouped, and every group collapsible. Eleven controls in one column is a
       // list to read rather than a panel to use; folded, what is open says what
-      // you are currently working on. The transport and the two status lines
-      // stay outside any group -- they are what you are always looking at.
+      // you are currently working on.
+      //
+      // What is NOT here any more is the presets. They were a group at the
+      // bottom of this list, filed between the search seed and the servo
+      // gains, which said that opening a technique was the same kind of act as
+      // changing a damping ratio -- and put the picker in two places, so the
+      // one you happened to reach decided whether the scenario came with it.
+      // Opening, reverting, keeping and saving are what you do to a document,
+      // and they are on the editor's own title bar now.
       const group = (title, open, ...rows) => html`<details ${open ? 'open' : ''}
         style="margin-top:8px; border-top:1px solid color-mix(in srgb, currentColor 12%, transparent);">
         <summary style="cursor:pointer; font-size:11px; font-weight:600; letter-spacing:.04em;
@@ -2348,7 +2560,9 @@
       </details>`;
 
       const controlsBox = html`<div class="technique-controls">
-        <div class="spline-controls" style="margin-bottom:4px;">${pick}${resetBtn}</div>
+        <div class="hs-pane__head" style="margin-bottom:0;">
+          <span class="hs-pane__title">Parameters</span>
+        </div>
         ${group('technique', true,
           html`<div class="spline-controls">${poses}${durInput}</div>`,
           html`<div class="spline-controls">${symToggle}</div>`)}
@@ -2361,17 +2575,11 @@
         ${group('servo', false,
           html`<div class="spline-controls">${servoInputs[0]}${servoInputs[1]}</div>`,
           html`<div class="spline-controls">${servoInputs[2]}${servoInputs[3]}</div>`)}
-        ${group('presets', false,
-          html`<div class="spline-controls">${presetName}${keepBtn}${renameBtn}${dropBtn}</div>`,
-          html`<div class="spline-controls" style="margin-top:6px;">${saveBtn}${loadBtn}${loadInput}</div>`)}
       </div>`;
 
-      const figure = html`<figure>
-        ${stage}${chromeEl}
-      </figure>`;
-
       const redraw = () => { dirty = chromeDirty = true; };
-      return { figure, controlsBox, chromeEl, sizeStage, story, strip, colsFor, redraw, layout, stageH: STAGE_H };
+      return { figure, controlsBox, chromeEl, docBar, sizeStage, story, strip, redraw,
+        layout, stageH: STAGE_H };
     })();
     // The figure first. Eight sliders ahead of it is a wall the reader has to
     // climb before reaching the thing the sliders act on; expandable() resolves
@@ -2387,19 +2595,34 @@
       controls: '.technique-controls',
       state: editState.ui,
       onResize(el, w, h, expanded) {
-        // Width first: the storyboard's thumbnails and the timeline both get
-        // taller or shorter as they get wider, and the stage is given whatever
+        // The shell is a box with a border and a padding, so the room its
+        // panes actually have is neither w nor h. The padding is READ OFF a
+        // pane rather than written down again here: it is set in the
+        // stylesheet, and it changes there on a narrow screen -- arithmetic
+        // that did not know about that media query would walk the timeline off
+        // the edge of the box by exactly the difference.
+        const BORDER = 1;
+        const pane = getComputedStyle(techniqueFigure.chromeEl.firstElementChild);
+        const PANE = (parseFloat(pane.paddingLeft) || 8) + (parseFloat(pane.paddingRight) || 8);
+        techniqueFigure.figure.style.width = `${Math.round(w)}px`;
+        const innerW = Math.max(200, Math.round(w) - 2 * BORDER - PANE);
+        // Width first: the storyboard's frames and the timeline both get taller
+        // or shorter as they get wider, and the stage is given whatever
         // vertical room is left over -- so their heights have to be settled
         // before there is a leftover to measure.
-        techniqueFigure.story.resize(w, techniqueFigure.colsFor(w));
-        techniqueFigure.strip.resize(w);
+        techniqueFigure.story.resize(innerW);
+        techniqueFigure.strip.resize(innerW);
         // Measured, not guessed: the storyboard and the timeline both get
         // taller as they get wider, so the leftover is only honest after they
-        // have been resized.
+        // have been resized. The bar and the stage pane's own padding come off
+        // it too, or the timeline hangs out of the bottom of the box by
+        // exactly their height.
+        const spent = techniqueFigure.chromeEl.offsetHeight
+          + techniqueFigure.docBar.offsetHeight + PANE + 2 * BORDER;
         const stageH = expanded
-          ? Math.max(220, h - techniqueFigure.chromeEl.offsetHeight - 8)
+          ? Math.max(200, h - spent - 4)
           : techniqueFigure.stageH;
-        techniqueFigure.sizeStage(w, stageH);
+        techniqueFigure.sizeStage(innerW, stageH);
         techniqueFigure.redraw();
       },
     });

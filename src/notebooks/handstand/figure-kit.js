@@ -365,8 +365,12 @@ export function createStrip({
   let playBtn = null, playPath = null, timeEl = null, playing = false, transport = null;
   if (onPlay) {
     const bar = document.createElement('div');
+    // No margin of its own. It is handed back so the caller can dock the
+    // transport wherever it belongs -- directly under the viewer, in this
+    // figure's case -- and spacing chosen for one position is wrong in every
+    // other; the pane it lands in owns that.
     bar.style.cssText = 'display:flex; align-items:center; gap:8px; min-height:26px;'
-      + 'margin:0 0 7px; flex-wrap:wrap; row-gap:6px;';
+      + 'margin:0; flex-wrap:wrap; row-gap:6px;';
     playBtn = document.createElement('button');
     playBtn.type = 'button';
     playBtn.className = 'hs-btn hs-btn--icon';
@@ -654,7 +658,7 @@ export function createStrip({
 // that is not earning its place, or adding one where the curve needs a handle,
 // says what you mean in a way that "6" does not.
 export function createStoryboard({
-  n, cols: cols0, thumbW: thumbW0, thumbH: thumbH0, view, dpr = 1, onSelect = null,
+  n, thumbW: thumbW0, thumbH: thumbH0, view, dpr = 1, onSelect = null,
   onLock = null, canLock = null, onDelete = null, canDelete = null,
   onInsert = null, canInsertBefore = null,
   // Pinning a pose to its instant. It hangs off the time already printed
@@ -671,17 +675,25 @@ export function createStoryboard({
 }) {
   let K = n;
   const ASPECT = thumbW0 / thumbH0;
-  let cols = cols0, thumbW = thumbW0, thumbH = thumbH0;
+  let thumbW = thumbW0, thumbH = thumbH0;
+  // A filmstrip is one row. It used to be a grid that wrapped, and a wrapped
+  // storyboard is a worse picture than a small one: the eye reads left to
+  // right and then has to jump back, so the ninth pose of a movement sat
+  // underneath the first and the strip stopped being a time axis. So the
+  // frames shrink to fit, down to a floor, and past that the row scrolls --
+  // which is what every editor that has ever shown a sequence of frames does.
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex; gap:4px; width:max-content; margin:0 auto;';
   const element = document.createElement('div');
-  element.style.display = 'grid';
-  // Column gap stays tight -- the insert affordance is measured from it -- but
-  // a row that wraps needs to read as a new row rather than a crease.
-  element.style.columnGap = '4px';
-  element.style.rowGap = '10px';
-  element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  element.style.maxWidth = '640px';
+  element.style.cssText = 'overflow-x:auto; overflow-y:hidden; max-width:100%;'
+    + 'scrollbar-width:thin; overscroll-behavior-x:contain;';
+  element.appendChild(row);
   const cells = [];
   const cellLocks = [];
+  // Below this the caption cannot hold "3 · 0.42s" and the number it drops is
+  // the time: which pose this is stays legible at any size, and the instant is
+  // printed on the timeline directly beneath it anyway.
+  let compact = false;
   // Closed, and open: the shackle's right leg leaves the body rather than the
   // whole glyph changing, so the two states are one object in two positions.
   const SHUT = 'M3.4 6.4V4.3a2.6 2.6 0 0 1 5.2 0v2.1';
@@ -846,13 +858,13 @@ export function createStoryboard({
       host.appendChild(insBtn);
     }
 
-    element.appendChild(host);
+    row.appendChild(host);
     cells.push({ canvas, cap, capName, capTime, capTimeText, timeShackle, pinnable, host, lockBtn, delBtn, insBtn, insIcon, insLine });
     cellLocks.push(shackle);
   }
 
   function buildAll() {
-    element.replaceChildren();
+    row.replaceChildren();
     cells.length = 0;
     cellLocks.length = 0;
     for (let k = 0; k < K; k++) buildCell(k);
@@ -867,33 +879,42 @@ export function createStoryboard({
     if (nextN === K) return;
     K = nextN;
     buildAll();
-    resize(lastWidth, colsFor ? colsFor(lastWidth) : cols);
+    resize(lastWidth);
   };
 
   let lastWidth = 640;
-  let colsFor = null;
-  const setColsFor = (fn) => { colsFor = fn; };
 
   const GAP = 4;
   const CHROME = 5;                           // the host's own border + padding
-  // Lay the storyboard out at a new width. Expanded, the figure is several
-  // times wider than the column, and a row of thumbnails that stayed
-  // column-sized would leave the space it was given empty.
-  function resize(w, colCount = cols) {
+  // The smallest frame still worth looking at, and the number is set by the two
+  // cases that have to stay on one row: the longest technique in the column
+  // (twelve poses plus the start is thirteen cells across 622 px, so 39 each)
+  // and an ordinary one on a phone (seven cells across 336, so 39 again). A
+  // floor above 39 would force one of those to scroll for no reason. Below it
+  // the frames stop shrinking and the row scrolls, which is the honest answer
+  // for twelve poses on a phone.
+  const MIN_FRAME = 36;
+  // Lay the storyboard out at a new width: one row, frames sized to fill it.
+  // Expanded, the figure is several times wider than the column, and a row of
+  // thumbnails that stayed column-sized would leave the space it was given
+  // empty; collapsed on a phone the same arithmetic runs the other way.
+  function resize(w) {
     lastWidth = w;
-    cols = Math.max(1, colCount);
-    const cellW = Math.max(40, Math.floor((w - (cols - 1) * GAP) / cols));
-    const room = Math.max(24, cellW - CHROME);
-    // Fill the column until the frame hits its ceiling, then hold that size and
-    // let the grid space them out instead. The cell is narrowed to the frame
-    // rather than the frame centred in the cell, so the lock stays on the
-    // frame's own corner instead of drifting off to the column's edge.
+    const per = (w - (K - 1) * GAP) / K;
+    const room = Math.max(MIN_FRAME, Math.floor(per) - CHROME);
+    // Fill the row until the frame hits its ceiling, then hold that size: a
+    // three-pose technique should not be three enormous portraits.
     thumbH = Math.min(maxThumbH, Math.round(room / ASPECT));
     thumbW = Math.min(room, Math.round(thumbH * ASPECT));
-    element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    element.style.justifyItems = 'center';
-    element.style.maxWidth = `${Math.round(w)}px`;
+    compact = thumbW < 58;
     const hostW = thumbW + CHROME;
+    // Centred while the row fits, hard left once it does not. `margin: auto`
+    // on an overflowing flex child puts the start of the row on the wrong side
+    // of the scroll origin in several browsers -- the first frame becomes
+    // unreachable -- so which of the two it is has to be decided here, where
+    // the total width is known, rather than left to the box model.
+    const total = K * hostW + Math.max(0, K - 1) * GAP;
+    row.style.margin = total <= w ? '0 auto' : '0';
     for (const c of cells) {
       c.host.style.width = `${hostW}px`;
       c.canvas.style.width = `${thumbW}px`;
@@ -902,26 +923,13 @@ export function createStoryboard({
       c.canvas.height = Math.round(thumbH * dpr);
     }
 
-    // Where the boundary actually falls, MEASURED. The host is narrower than
-    // its grid column once the frames stop growing and is centred in it, so the
-    // gap between two frames is the leftover on both sides plus the grid gap --
-    // not the 4px the gap property names, and not quite what arithmetic on a
-    // floored column width says either. Anchoring to the host's own edge put
-    // the plus hard against the right-hand frame; computing the gutter put it
-    // a pixel and a half off centre. Reading it back is exact.
-    const fallback = Math.max(GAP, cellW - hostW + GAP);
-    const rect = cells.map((c) => c.host.getBoundingClientRect());
-    for (let k = 0; k < cells.length; k++) {
-      const c = cells[k];
+    // The boundary before each cell. With a flex row at a fixed gap the gutter
+    // IS the gap -- no 1fr sub-pixel rounding to read back -- so the plus goes
+    // on the middle of it and the hit area straddles both neighbours.
+    const hitW = 14;
+    for (const c of cells) {
       if (!c.insLine && !c.insBtn) continue;
-      // This gap, not the average of them: 1fr columns round to sub-pixels
-      // independently, so the gutters differ by up to a pixel across the row.
-      let gutter = fallback;
-      if (k > 0 && rect[k].left > rect[k - 1].right && Math.abs(rect[k].top - rect[k - 1].top) < 1) {
-        gutter = rect[k].left - rect[k - 1].right;
-      }
-      const mid = -gutter / 2;
-      const hitW = Math.max(14, Math.min(22, gutter + 8));
+      const mid = -GAP / 2;
       if (c.insLine) {
         // Its own width taken off, so the LINE is centred rather than its left
         // edge sitting on the middle.
@@ -929,10 +937,14 @@ export function createStoryboard({
         c.insLine.style.height = `${thumbH}px`;
       }
       if (c.insBtn) {
+        // Below the corner buttons rather than through them: full height it
+        // lay under the previous cell's lock, and three controls in one corner
+        // is three nobody can hit.
+        const top = Math.min(22, Math.round(thumbH * 0.3));
         c.insBtn.style.left = `${mid - hitW / 2}px`;
         c.insBtn.style.width = `${hitW}px`;
-        c.insBtn.style.top = '22px';
-        c.insBtn.style.height = `${Math.max(10, thumbH - 22)}px`;
+        c.insBtn.style.top = `${top}px`;
+        c.insBtn.style.height = `${Math.max(10, thumbH - top)}px`;
       }
     }
   }
@@ -951,8 +963,13 @@ export function createStoryboard({
       });
       cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
       const c = cells[k];
-      c.capName.textContent = it.time == null ? it.label : `${it.label} · `;
-      c.capTimeText.textContent = it.time == null ? '' : it.time;
+      // Compact: the frame is too narrow to hold both, so the caption keeps
+      // which pose this is and drops the instant. The padlock stays -- it is
+      // the only place the pin lives -- and the timeline underneath is still
+      // printing the time.
+      const showTime = it.time != null && !compact;
+      c.capName.textContent = showTime ? `${it.label} · ` : it.label;
+      c.capTimeText.textContent = showTime ? it.time : '';
       if (c.pinnable) {
         // Shut means pinned, open means free -- the same glyph and the same
         // polarity as the pose lock above it, so one picture means one thing
@@ -982,5 +999,5 @@ export function createStoryboard({
       }
     }
   };
-  return { element, draw, resize, setCount, setColsFor, cells, get count() { return K; } };
+  return { element, draw, resize, setCount, cells, get count() { return K; } };
 }
