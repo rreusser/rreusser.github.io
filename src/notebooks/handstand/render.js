@@ -290,24 +290,43 @@ export function drawScene(ctx, opts) {
   // Screen anchors for drag handles: each handle rotates `joint` about the
   // pivot (the joint's world position); the grab point is the distal
   // reference that the pointer naturally follows.
-  const toe = (b) => {
+  // The far end of a body, in world coordinates: the geometry point furthest
+  // from its own origin. Not the LAST point -- the head's polyline runs from
+  // the crown back to the neck, so its last point is the pivot itself and the
+  // handle would have had nothing to grab.
+  const tip = (b) => {
+    const g = model.geometry[b];
+    let best = g[0], bd = -1;
+    for (const p of g) {
+      const d = p[0] * p[0] + p[1] * p[1];
+      if (d > bd) { bd = d; best = p; }
+    }
     const c = Math.cos(ws.th[b]), s = Math.sin(ws.th[b]);
-    const p = model.geometry[b][model.geometry[b].length - 1];
-    return [ws.px[b] + c * p[0] - s * p[1], ws.py[b] + s * p[0] + c * p[1]];
+    return [ws.px[b] + c * best[0] - s * best[1], ws.py[b] + s * best[0] + c * best[1]];
   };
   const H = (joint, grabW, pivotB) => ({
     joint,
     x: toX(grabW[0]), y: toY(grabW[1]),
     pivotX: toX(ws.px[pivotB]), pivotY: toY(ws.py[pivotB]),
   });
-  const handles = [
-    H(3, [ws.px[2], ws.py[2]], 1),   // shoulder point rotates the arm (wrist)
-    H(4, [ws.px[3], ws.py[3]], 2),   // hip point rotates the torso (shoulder)
-    H(5, [ws.px[4], ws.py[4]], 3),   // left knee point rotates the left hip
-    H(6, toe(4), 4),                 // left toe rotates the left knee
-    H(7, [ws.px[6], ws.py[6]], 5),
-    H(8, toe(6), 6),
-  ];
+  // One handle per driven body, WALKED from the tree. This was a hand-written
+  // table of six entries in the old body numbering: once the trunk gained a
+  // hinge it grabbed the wrong joints -- the handle on the torso turned out to
+  // drive a hip -- and it stopped two bodies short, so the feet and the head
+  // had no handle at all.
+  //
+  // Each body is turned about its own origin, and the natural thing to take
+  // hold of is its far end: the origin of its first child where it has one,
+  // and its own tip where it does not.
+  const firstChild = (b) => {
+    for (let i = 1; i < model.nb; i++) if (model.parent[i] === b) return i;
+    return -1;
+  };
+  const handles = [];
+  for (let b = 1; b < model.nb; b++) {
+    const ch = firstChild(b);
+    handles.push(H(2 + b, ch >= 0 ? [ws.px[ch], ws.py[ch]] : tip(b), b));
+  }
 
   return { comX, comY, supported, handles, heelX, tipX };
 }
