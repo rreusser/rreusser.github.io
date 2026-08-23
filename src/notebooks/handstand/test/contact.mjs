@@ -1,3 +1,4 @@
+import { JOINT_ORDER } from '../control.js';
 // Verification gates for penalty ground contacts and the simulate() driver.
 //
 // Gates E and F cover the joint servo's arrival behavior and the passive
@@ -132,7 +133,7 @@ function blockModel() {
   const W = model.massKg * model.gravity;
   const kp = 3000, kd = 150;
   const damping = new Float64Array(model.nq);
-  for (let j = 3; j < 9; j++) damping[j] = kd;
+  for (let j = 3; j < 3 + model.nj; j++) damping[j] = kd;
 
   const holdRun = (qRef, { implicit }) => {
     const contacts = createContacts(model);
@@ -140,7 +141,7 @@ function blockModel() {
       q0: qRef, T: 3.0, dt: 2e-4, contacts,
       jointDamping: implicit ? damping : null,
       control: (t, qq, qqd, tau) => {
-        for (let j = 3; j < 9; j++) {
+        for (let j = 3; j < 3 + model.nj; j++) {
           tau[j] = kp * (qRef[j] - qq[j]) - (implicit ? 0 : kd * qqd[j]);
         }
       },
@@ -292,16 +293,18 @@ function blockModel() {
 
   // Hold the handstand, but command the left knee 40 degrees into
   // hyperextension: a reference no anatomy can honour.
-  const knots = [];
-  for (let j = 0; j < 6; j++) knots.push(Float64Array.of(qBal[3 + j], qBal[3 + j]));
-  knots[3] = Float64Array.of(qBal[6], 40 * D2R);
+  // Built in the full channel order, and read back by name: the knee is not
+  // the channel it used to be now that the trunk has a hinge in it.
+  const QJ = Object.fromEntries(JOINT_ORDER.map((n, j) => [n, 3 + j]));
+  const knots = JOINT_ORDER.map((n) => Float64Array.of(qBal[QJ[n]], qBal[QJ[n]]));
+  knots[JOINT_ORDER.indexOf('kneeL')] = Float64Array.of(qBal[QJ.kneeL], 40 * D2R);
 
   const worstKnee = (cfg) => {
     const r = runScenario(model, ws, prof, {
       scenario: 'hold', knots, T: 1.0, settleT: 1.0, dt: 2.5e-4, rom, ...cfg,
     });
     let worst = 0;
-    for (const q of r.rec.q) worst = Math.max(worst, q[6] - rom.kneeHyperextDeg * D2R);
+    for (const q of r.rec.q) worst = Math.max(worst, q[QJ.kneeL] - rom.kneeHyperextDeg * D2R);
     return worst / D2R;
   };
 

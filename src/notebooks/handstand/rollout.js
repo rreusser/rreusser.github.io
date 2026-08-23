@@ -12,7 +12,7 @@ import {
 import { createContacts } from './contact.js';
 import { createJointStops } from './joint-stops.js';
 import { simulate } from './integrate.js';
-import { createServo, createBalanceControl, knotTimes, evenlySpaced } from './control.js';
+import { createServo, createBalanceControl, knotTimes, evenlySpaced, JOINT_ORDER, LEGACY_JOINT_ORDER, widenKnots } from './control.js';
 import { availableTorque } from './strength.js';
 import { cmaes, mulberry32 } from './cma-es.js';
 
@@ -104,8 +104,8 @@ function solveWristForToeDown(model, ws, q, body, loDeg = 35, hiDeg = 115) {
 // A toe below minY is lifted by reducing that leg's hip flexion.
 function clearFeet(model, ws, q, minY = 5e-4) {
   for (const side of ['L', 'R']) {
-    const hip = side === 'L' ? 5 : 7;
-    const body = side === 'L' ? 4 : 6;
+    const hip = side === 'L' ? QI.hipL : QI.hipR;
+    const body = side === 'L' ? BODY.shankL : BODY.shankR;
     if (toeY(model, ws, q, body) >= minY) continue;
     let hi = q[hip], lo = q[hip] - 40 * D2R;
     if (toeY(model, ws, withQ(q, hip, lo), body) < minY) { q[hip] = lo; continue; }
@@ -160,12 +160,12 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       // actually begins; getting here is a weight shift, not a press. If
       // the ROM cannot reach the target, the closest achievable lean is
       // used, which is the honest starting handicap of a stiff body.
-      q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, 0), 130) * D2R;
-      q[6] = q[8] = 0;
+      q[QI.hipL] = q[QI.hipR] = Math.min(hipFlexMaxDeg(rom, 0), 130) * D2R;
+      q[QI.kneeL] = q[QI.kneeR] = 0;
       const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
       const comAt = (sh) => {
         q[4] = sh;
-        solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+        solveWristForToeDown(model, ws, q, BODY.shankL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
         return momenta(model, q, zeroQd9, ws).comX - q[0];
       };
       let lo = 55 * D2R, hi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
@@ -201,15 +201,15 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       // TUCK_LOAD_FRAC of the way from the palm to the toes, with the wrist
       // following to keep the toes down: about half the body weight standing
       // on the legs, which is what a person in this position feels.
-      q[6] = q[8] = -tuckKneeDeg * D2R;
-      q[5] = q[7] = Math.min(hipFlexMaxDeg(rom, tuckKneeDeg), 140) * D2R;
+      q[QI.kneeL] = q[QI.kneeR] = -tuckKneeDeg * D2R;
+      q[QI.hipL] = q[QI.hipR] = Math.min(hipFlexMaxDeg(rom, tuckKneeDeg), 140) * D2R;
       // Measured from the palm target, the point the balanced handstand puts
       // its centre of mass over, so a load fraction of zero is exactly the
       // old start: balanced over the palm with nothing on the legs.
       const palmT = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
       const errAt = (sh) => {
         q[4] = sh;
-        solveWristForToeDown(model, ws, q, 4, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+        solveWristForToeDown(model, ws, q, BODY.shankL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
         const toe = toeXLocal(model, ws, q, 4);
         const com = momenta(model, q, zeroQd9, ws).comX - q[0];
         return com - (palmT + tuckLoadFrac * (toe - palmT));
@@ -249,17 +249,17 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       // ground rather than floating above the hands.
       q[3] = Math.min(65, wristQ3LimitsDeg(rom).hi) * D2R;
       q[4] = 90 * D2R;
-      q[8] = -50 * D2R;                    // stance knee bent
+      q[QI.kneeR] = -50 * D2R;             // stance knee bent
       solveHipForToeDown(model, ws, q, 'R');
-      q[6] = 0;                            // swing leg straight
-      q[5] = Math.min(q[7] / D2R - 18, hipFlexMaxDeg(rom, 0)) * D2R;
+      q[QI.kneeL] = 0;                     // swing leg straight
+      q[QI.hipL] = Math.min(q[QI.hipR] / D2R - 18, hipFlexMaxDeg(rom, 0)) * D2R;
       clampPose(q, rom);
       // Re-plant the stance toe after any clamping shifted it, capped by the
       // bent-knee hamstring allowance, then guarantee neither toe starts
       // below the floor.
       solveHipForToeDown(model, ws, q, 'R');
       const hipCapBent = hipFlexMaxDeg(rom, 50) * D2R;
-      if (q[7] > hipCapBent) q[7] = hipCapBent;
+      if (q[QI.hipR] > hipCapBent) q[QI.hipR] = hipCapBent;
       clearFeet(model, ws, q);
       return { q0: q, qd0: null };
     }
@@ -274,7 +274,7 @@ export function naiveReference(model, ws, name, K = 6, rom = ROM_DEFAULTS) {
   const { q0 } = scenarioStart(model, ws, name, rom);
   const target = balancedHandstand(model, ws);
   const knots = [];
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < NJ; j++) {
     const row = new Float64Array(K);
     for (let k = 0; k < K; k++) {
       const u = k / (K - 1);
@@ -289,7 +289,36 @@ export function naiveReference(model, ws, name, K = 6, rom = ROM_DEFAULTS) {
 // Trajectory optimization: decision vector encoding, cost, and driver.
 // ---------------------------------------------------------------------------
 
-export const JOINT_KEYS = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+// One list, shared with the controller, so the two can never disagree about
+// which channel is which joint.
+export const JOINT_KEYS = JOINT_ORDER;
+// How many joints a technique drives. It was the literal 6 in about thirty
+// places; the trunk and the head made it 8, and a literal that has to change
+// in thirty places is a literal that will one day change in twenty-nine.
+export const NJ = JOINT_KEYS.length;
+
+// Where each joint sits in q. Written out by name because the numbers moved
+// when the trunk gained a hinge -- hipL went from q[5] to q[6] -- and a file
+// full of bare indices is a file that renumbers wrongly exactly once.
+export const QI = Object.fromEntries(JOINT_KEYS.map((n, j) => [n, 3 + j]));
+
+// And the BODY indices, for the same reason: shankL was body 4 and is body 5
+// now that the trunk is two segments and the head is its own.
+export const BODY = { shankL: 5, shankR: 7, chest: 2, pelvis: 3, headNeck: 8 };
+
+// A waypoint written in the old six-channel order, widened. The reference
+// shapes below are hand-authored poses for the optimizer to start from, and
+// they were written when a technique had six channels; the spine and the neck
+// stay neutral in them, which is the rigid body they were drawn on.
+function fromLegacy(v) {
+  const out = new Float64Array(NJ);
+  LEGACY_JOINT_ORDER.forEach((name, j) => { out[JOINT_KEYS.indexOf(name)] = v[j]; });
+  return out;
+}
+
+// widenKnots lives in control.js, beside the joint lists it maps between.
+export { widenKnots } from './control.js';
+
 
 // Everything about the machine a trajectory was produced on: the servo, the
 // contact model, and the geometry of the pose each scenario starts from. A
@@ -401,20 +430,28 @@ export function resolveRom(rom) {
 // stay inside the same box, or it hands the search a technique the search will
 // quietly straighten before scoring.
 export function knotBounds(rom = null) {
+  // In JOINT_KEYS order: wrist, shoulder, spine, hipL, kneeL, hipR, kneeR,
+  // neck. Positive spine is flexion -- ribs toward hips, the hollow -- and
+  // positive neck is the chin toward the chest, so a handstand looking at its
+  // hands sits at a negative neck angle.
   const lo = rom
     ? [wristQ3LimitsDeg(rom).lo * D2R,
       // The same bound the passive end-stop enforces: a shoulder that only
       // opens to 150 degrees must not have knots asking for 180, or the
       // mobility setting is a fine rather than a limit.
       Math.max(180 - rom.shoulderFlexMaxDeg, -rom.shoulderHyperDeg) * D2R,
+      -(rom.spineExtMaxDeg ?? ROM_DEFAULTS.spineExtMaxDeg) * D2R,
       -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
-      -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R]
-    : [20 * D2R, -15 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R];
+      -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
+      -(rom.neckExtMaxDeg ?? ROM_DEFAULTS.neckExtMaxDeg) * D2R]
+    : [20 * D2R, -15 * D2R, -20 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R, -45 * D2R];
   const hi = rom
     ? [wristQ3LimitsDeg(rom).hi * D2R, rom.shoulderCloseMaxDeg * D2R,
+      (rom.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg) * D2R,
       rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
-      rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R]
-    : [130 * D2R, 120 * D2R, 175 * D2R, 10 * D2R, 175 * D2R, 10 * D2R];
+      rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
+      (rom.neckFlexMaxDeg ?? ROM_DEFAULTS.neckFlexMaxDeg) * D2R]
+    : [130 * D2R, 120 * D2R, 45 * D2R, 175 * D2R, 10 * D2R, 175 * D2R, 10 * D2R, 30 * D2R];
   return { lo, hi };
 }
 
@@ -424,7 +461,7 @@ export function knotBounds(rom = null) {
 // handle that lies, and the timeline already paints the excursion orange.
 export function clampKnotsToRom(knots, rom) {
   const { lo, hi } = knotBounds(rom);
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < NJ; j++) {
     for (let k = 0; k < knots[j].length; k++) {
       knots[j][k] = Math.min(Math.max(knots[j][k], lo[j]), hi[j]);
     }
@@ -462,32 +499,20 @@ export function decisionBounds(K, {
   // only way the search can find a rhythm rather than just a shape.
   freeTimes = false, timeLocks = null,
 } = {}) {
-  const jointLo = rom
-    ? [wristQ3LimitsDeg(rom).lo * D2R,
-      // The same bound the passive end-stop enforces: a shoulder that only
-      // opens to 150 degrees must not have knots asking for 180, or the
-      // mobility setting is a fine rather than a limit.
-      Math.max(180 - rom.shoulderFlexMaxDeg, -rom.shoulderHyperDeg) * D2R,
-      -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
-      -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R]
-    : [20 * D2R, -15 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R];
-  const jointHi = rom
-    ? [wristQ3LimitsDeg(rom).hi * D2R, rom.shoulderCloseMaxDeg * D2R,
-      rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
-      rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R]
-    : [130 * D2R, 120 * D2R, 175 * D2R, 10 * D2R, 175 * D2R, 10 * D2R];
+  // The same table knotBounds builds, which is where it now comes from.
+  const { lo: jointLo, hi: jointHi } = knotBounds(rom);
   const nTimes = freeTimes ? Math.max(0, K - 2) : 0;
-  const n = 6 * K + 1 + nTimes;
+  const n = NJ * K + 1 + nTimes;
   const lo = new Float64Array(n), hi = new Float64Array(n);
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < NJ; j++) {
     for (let k = 0; k < K; k++) { lo[j * K + k] = jointLo[j]; hi[j * K + k] = jointHi[j]; }
   }
-  lo[6 * K] = tLo; hi[6 * K] = tHi;
+  lo[NJ * K] = tLo; hi[NJ * K] = tHi;
   // Pose k needs k gaps behind it and K-1-k ahead, so its box is what is left
   // over once its neighbours have room. Held to a point when it is pinned, for
   // the same reason a held pose is.
   for (let k = 1; k <= nTimes; k++) {
-    const i = 6 * K + k;
+    const i = NJ * K + k;
     lo[i] = k * MIN_KNOT_GAP;
     hi[i] = 1 - (K - 1 - k) * MIN_KNOT_GAP;
     if (timeLocks?.[k] != null) {
@@ -503,7 +528,7 @@ export function decisionBounds(K, {
   if (locks) {
     for (let k = 0; k < K; k++) {
       if (!locks[k]) continue;
-      for (let j = 0; j < 6; j++) {
+      for (let j = 0; j < NJ; j++) {
         const v = Math.min(Math.max(locks[k][j], lo[j * K + k]), hi[j * K + k]);
         lo[j * K + k] = v; hi[j * K + k] = v;
       }
@@ -549,7 +574,7 @@ export function applyLocks(knots, locks) {
   if (!locks) return knots;
   for (let k = 0; k < knots[0].length; k++) {
     if (!locks[k]) continue;
-    for (let j = 0; j < 6; j++) knots[j][k] = locks[k][j];
+    for (let j = 0; j < NJ; j++) knots[j][k] = locks[k][j];
   }
   return knots;
 }
@@ -564,9 +589,11 @@ export function applyLocks(knots, locks) {
 export const SYMMETRIC_SCENARIOS = new Set(['pike', 'tuck']);
 
 export function symmetrizeKnots(knots) {
-  for (let k = 0; k < knots[2].length; k++) {
-    knots[4][k] = knots[2][k];
-    knots[5][k] = knots[3][k];
+  const hipL = JOINT_KEYS.indexOf('hipL'), kneeL = JOINT_KEYS.indexOf('kneeL');
+  const hipR = JOINT_KEYS.indexOf('hipR'), kneeR = JOINT_KEYS.indexOf('kneeR');
+  for (let k = 0; k < knots[hipL].length; k++) {
+    knots[hipR][k] = knots[hipL][k];
+    knots[kneeR][k] = knots[kneeL][k];
   }
   return knots;
 }
@@ -577,24 +604,28 @@ export function symmetrizeKnots(knots) {
 // artifacts -- decodes exactly as it did, with fracs null.
 export function decodeDecision(x, K) {
   const knots = [];
-  for (let j = 0; j < 6; j++) knots.push(x.slice(j * K, (j + 1) * K));
+  for (let j = 0; j < NJ; j++) knots.push(x.slice(j * K, (j + 1) * K));
   const nTimes = Math.max(0, K - 2);
   let fracs = null;
-  if (nTimes > 0 && x.length >= 6 * K + 1 + nTimes) {
+  if (nTimes > 0 && x.length >= NJ * K + 1 + nTimes) {
     fracs = new Float64Array(K);
     fracs[K - 1] = 1;
-    for (let k = 1; k < K - 1; k++) fracs[k] = x[6 * K + k];
+    for (let k = 1; k < K - 1; k++) fracs[k] = x[NJ * K + k];
   }
-  return { knots, T: x[6 * K], fracs };
+  return { knots, T: x[NJ * K], fracs };
 }
 
-export function encodeDecision(knots, T, fracs = null) {
+export function encodeDecision(knots0, T, fracs = null) {
+  // Widen here, at the boundary, so every caller that still speaks in six
+  // joints -- the stored presets, the recorded artifacts, a saved file, the
+  // gates -- keeps working and gets a neutral spine and neck.
+  const knots = widenKnots(knots0);
   const K = knots[0].length;
   const nTimes = fracs ? Math.max(0, K - 2) : 0;
-  const x = new Float64Array(6 * K + 1 + nTimes);
-  for (let j = 0; j < 6; j++) x.set(knots[j], j * K);
-  x[6 * K] = T;
-  for (let k = 1; k <= nTimes; k++) x[6 * K + k] = fracs[k];
+  const x = new Float64Array(NJ * K + 1 + nTimes);
+  for (let j = 0; j < NJ; j++) x.set(knots[j], j * K);
+  x[NJ * K] = T;
+  for (let k = 1; k <= nTimes; k++) x[NJ * K + k] = fracs[k];
   return x;
 }
 
@@ -773,7 +804,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // a slightly-off shape that the wrist balance correction must fight forever,
   // and every "arrival" leaks into a slow drift and overshoot.
   if (pinFinal) {
-    for (let j = 0; j < 6; j++) knots[j][knots[j].length - 1] = balanced[3 + j];
+    for (let j = 0; j < NJ; j++) knots[j][knots[j].length - 1] = balanced[3 + j];
   }
   const r = runScenario(model, ws, strengthProf, {
     // Plant first: everything named after it is either a knob a variant may
@@ -919,7 +950,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     }
     if (rec.t[k] >= settleStart) {
       let s = 0;
-      for (let j = 0; j < 6; j++) {
+      for (let j = 0; j < NJ; j++) {
         const d = rec.q[k][3 + j] - balancedQ[3 + j];
         s += d * d;
       }
@@ -969,7 +1000,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
       if (f && (f.fy[2] || 0) + (f.fy[3] || 0) > 0.05 * W) continue;
       const q = rec.q[k];
       const open = Math.max(0, Math.abs(q[4]) - openScale) / openScale;
-      const kneeFlex = 0.5 * (-q[6] + -q[8]);
+      const kneeFlex = 0.5 * (-q[QI.kneeL] + -q[QI.kneeR]);
       const bent = Math.max(0, bentScale - kneeFlex) / bentScale;
       const over = (rec.com[k][0] - (q[0] + patchTarget)) / TUCK_PHASE.overHandM;
       const miss = open * open + bent * bent + over * over;
@@ -987,7 +1018,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   for (let k = 0; k < rec.t.length; k++) {
     const dts = k > 0 ? rec.t[k] - rec.t[k - 1] : 0;
     let sumU2 = 0, sumSat = 0, sumDriveRate2 = 0;
-    for (let j = 0; j < 6; j++) {
+    for (let j = 0; j < NJ; j++) {
       const tauApplied = rec.tauApplied[k][j];
       const cap = availableTorque(strengthProf[JOINT_KEYS[j]], tauApplied, rec.qd[k][3 + j]);
       const u = Math.abs(tauApplied) / Math.max(cap, 1e-6);
@@ -1138,7 +1169,7 @@ export function pressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   const { q0 } = scenarioStart(model, ws, 'pike', rom);
   const target = balancedHandstand(model, ws);
   const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
-  const rows = Array.from({ length: 6 }, () => new Float64Array(K));
+  const rows = Array.from({ length: NJ }, () => new Float64Array(K));
   const scratch = new Float64Array(model.nq);
   let lastWrist = q0[3];
   // Weight shift comes FIRST: hold the fold while the lean deepens and the
@@ -1177,7 +1208,7 @@ export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   const { q0 } = scenarioStart(model, ws, 'tuck', rom);
   const target = balancedHandstand(model, ws);
   const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
-  const rows = Array.from({ length: 6 }, () => new Float64Array(K));
+  const rows = Array.from({ length: NJ }, () => new Float64Array(K));
   const scratch = new Float64Array(model.nq);
   // The phases of a bent-leg press, in absolute joint angles: sink onto the
   // legs, extend them to hop, arrive in a FULLY INVERTED TUCK, then extend
@@ -1233,12 +1264,12 @@ export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
       wrist = Number.isNaN(w) ? lastWrist : w;
     }
     lastWrist = wrist;
-    rows[0][k] = wrist;
-    rows[1][k] = sh;
-    rows[2][k] = hip; rows[4][k] = hip;
-    rows[3][k] = knee; rows[5][k] = knee;
+    rows[JOINT_KEYS.indexOf('wrist')][k] = wrist;
+    rows[JOINT_KEYS.indexOf('shoulder')][k] = sh;
+    rows[JOINT_KEYS.indexOf('hipL')][k] = hip; rows[JOINT_KEYS.indexOf('hipR')][k] = hip;
+    rows[JOINT_KEYS.indexOf('kneeL')][k] = knee; rows[JOINT_KEYS.indexOf('kneeR')][k] = knee;
   }
-  rows[0][K - 1] = target[3];
+  rows[JOINT_KEYS.indexOf('wrist')][K - 1] = target[QI.wrist];
   return { knots: rows, q0, target };
 }
 
@@ -1252,16 +1283,18 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
   const wB = target[3];
   const s = Array.from(q0.slice(3));
   // waypoints [wrist, shoulder, hipSwing(L), kneeL, hipStance(R), kneeR]
+  // s is the start pose in FULL channel order, so read it by name.
+  const L = LEGACY_JOINT_ORDER.map((n) => s[JOINT_KEYS.indexOf(n)]);
   const stages = [
-    [s[0], s[1], s[2], s[3], s[4], s[5]],
-    [s[0] - 8 * D2R, s[1] - 15 * D2R, s[2] - 45 * D2R, s[3], s[4], s[5]],
-    [s[0], s[1] - 50 * D2R, -8 * D2R, 0, s[4] - 40 * D2R, -10 * D2R],
-    [wB - 4 * D2R, 18 * D2R, 4 * D2R, 0, 30 * D2R, 0],
-    [wB, 6 * D2R, target[5] + 4 * D2R, 0, 12 * D2R, 0],
+    fromLegacy([L[0], L[1], L[2], L[3], L[4], L[5]]),
+    fromLegacy([L[0] - 8 * D2R, L[1] - 15 * D2R, L[2] - 45 * D2R, L[3], L[4], L[5]]),
+    fromLegacy([L[0], L[1] - 50 * D2R, -8 * D2R, 0, L[4] - 40 * D2R, -10 * D2R]),
+    fromLegacy([wB - 4 * D2R, 18 * D2R, 4 * D2R, 0, 30 * D2R, 0]),
+    fromLegacy([wB, 6 * D2R, target[QI.hipL] + 4 * D2R, 0, 12 * D2R, 0]),
     Array.from(target.slice(3)),
   ];
-  const rows = Array.from({ length: 6 }, () => new Float64Array(K));
-  for (let j = 0; j < 6; j++) {
+  const rows = Array.from({ length: NJ }, () => new Float64Array(K));
+  for (let j = 0; j < NJ; j++) {
     for (let k = 0; k < K; k++) {
       const u = (k / (K - 1)) * (stages.length - 1);
       const i = Math.min(Math.floor(u), stages.length - 2);
@@ -1302,16 +1335,16 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // instants. It gets them from the phrasing it was going to be scored under,
   // so turning the times loose starts the search exactly where it would have
   // started without them rather than jumping to even spacing first.
-  const n = 6 * K + 1 + nTimes;
+  const n = NJ * K + 1 + nTimes;
   if (start.length !== n) {
     const fitted = new Float64Array(n);
-    for (let i = 0; i < 6 * K + 1; i++) fitted[i] = start[i];
+    for (let i = 0; i < NJ * K + 1; i++) fitted[i] = start[i];
     for (let k = 1; k <= nTimes; k++) {
       // From the phrasing this would have been scored under if it were not
       // being searched, so turning the instants loose starts where the search
       // would have started rather than jumping to even spacing first. A vector
       // that already carries them keeps its own.
-      fitted[6 * K + k] = start.length > 6 * K + k ? start[6 * K + k]
+      fitted[NJ * K + k] = start.length > NJ * K + k ? start[NJ * K + k]
         : (knotFracs ? knotFracs[k] : k / (K - 1));
     }
     // Longer than the bounds is the dangerous direction: cmaes sizes itself
@@ -1331,12 +1364,12 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     // end -- the interior instants are the entries past it, and those are
     // fractions, so the angle radius is the right size for them.
     for (let i = 0; i < start.length; i++) {
-      if (i === 6 * K) continue;
+      if (i === NJ * K) continue;
       bounds.lo[i] = Math.max(bounds.lo[i], start[i] - trustRadius);
       bounds.hi[i] = Math.min(bounds.hi[i], start[i] + trustRadius);
     }
-    bounds.lo[6 * K] = Math.max(bounds.lo[6 * K], start[6 * K] - 0.25);
-    bounds.hi[6 * K] = Math.min(bounds.hi[6 * K], start[6 * K] + 0.25);
+    bounds.lo[NJ * K] = Math.max(bounds.lo[NJ * K], start[NJ * K] - 0.25);
+    bounds.hi[NJ * K] = Math.min(bounds.hi[NJ * K], start[NJ * K] + 0.25);
   }
   const costFn = robust ? robustRolloutCost : rolloutCost;
   // Every candidate is simulated to be scored, and rolloutCost already
@@ -1361,7 +1394,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // deliberately left at 1: it is pinned at both ends by every caller that
   // matters, and rescaling it would move every stored artifact's search.
   const scales = new Float64Array(start.length).fill(1);
-  for (let k = 1; k <= nTimes; k++) scales[6 * K + k] = timeStepScale;
+  for (let k = 1; k <= nTimes; k++) scales[NJ * K + k] = timeStepScale;
   const result = await cmaes({
     x0: start, sigma0, seed, maxGen, lambda, bounds, f0: startCost, scales,
     objective: objectiveBatch ? null : (x) => scored(x).cost,
@@ -1382,7 +1415,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // is the raw box sample rather than the movement that was actually scored.
   if (decoded.fracs) applyTimeLocks(decoded.fracs, timeLocks);
   const qBal = target ? Float64Array.from(target) : balancedHandstand(model, ws);
-  for (let j = 0; j < 6; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
+  for (let j = 0; j < NJ; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
   return {
     ...result, K, scenario, finalCheck, decoded,
     // From the finalCheck, which is the fine-timestep nominal evaluation --
@@ -1495,7 +1528,11 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     qd0 = qd0 ? Float64Array.from(qd0) : new Float64Array(model.nq);
     for (let j = 3; j < model.nq; j++) qd0[j] += (2 * rand() - 1) * qdJitter;
   }
-  const ref = knots || naiveReference(model, ws, scenario, 6, rom).knots;
+  // Widened here for the same reason encodeDecision widens: a replay is handed
+  // knots by presets, artifacts, saved files and the page, and the ones
+  // written before the trunk could bend describe a body whose spine and neck
+  // are straight, which is exactly what a neutral channel says.
+  const ref = widenKnots(knots || naiveReference(model, ws, scenario, 6, rom).knots);
   // Ignored rather than trusted if it does not describe THESE knots: a stale
   // set of fractions is a silently different technique, and the fallback --
   // even spacing -- is the only other thing it could honestly mean. Phrasing

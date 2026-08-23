@@ -10,7 +10,7 @@ import { ROM_DEFAULTS } from '../statics.js';
 import { splineEval } from '../control.js';
 import { cmaes } from '../cma-es.js';
 import {
-  naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds,
+  naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds, NJ, JOINT_KEYS,
   rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
   scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC, SYMMETRIC_SCENARIOS,
   tuckPressReference,
@@ -61,12 +61,13 @@ const rom = { ...ROM_DEFAULTS };
   const x = encodeDecision(naive.knots, 1.4);
   const dec = decodeDecision(x, 6);
   let worst = 0;
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < NJ; j++) {
     for (let k = 0; k < 6; k++) worst = Math.max(worst, Math.abs(dec.knots[j][k] - naive.knots[j][k]));
   }
   const b = decisionBounds(6);
-  gate('B: encode/decode round trip, bounds sized 6K+1',
-    worst === 0 && dec.T === 1.4 && b.lo.length === 37 && b.hi.length === 37,
+  const want = NJ * 6 + 1;
+  gate(`B: encode/decode round trip, bounds sized ${NJ}K+1`,
+    worst === 0 && dec.T === 1.4 && b.lo.length === want && b.hi.length === want,
     `n=${b.lo.length}`);
 }
 
@@ -271,9 +272,11 @@ const rom = { ...ROM_DEFAULTS };
   const ref = tuckPressReference(model, ws, 6, rom);
   const asym = encodeDecision(ref.knots.map((r) => Float64Array.from(r)), 1.8);
   const mirrored = encodeDecision(ref.knots.map((r) => Float64Array.from(r)), 1.8);
-  // Bend the right leg away from the left in the raw vector; rows are
-  // [wrist, shoulder, hipL, kneeL, hipR, kneeR], K knots each.
-  for (let k = 0; k < 6; k++) { asym[4 * 6 + k] += 0.4; asym[5 * 6 + k] -= 0.5; }
+  // Bend the right leg away from the left in the raw vector. By name: the
+  // channel order gained a spine and a neck, so the row a number lands in is
+  // not the row it used to be.
+  const hipR = JOINT_KEYS.indexOf('hipR'), kneeR = JOINT_KEYS.indexOf('kneeR');
+  for (let k = 0; k < 6; k++) { asym[hipR * 6 + k] += 0.4; asym[kneeR * 6 + k] -= 0.5; }
   const a = rolloutCost(model, ws, prof, rom, 'tuck', asym, { K: 6, dt: 5e-4 });
   const b = rolloutCost(model, ws, prof, rom, 'tuck', mirrored, { K: 6, dt: 5e-4 });
   gate('L: a symmetric scenario ignores the right leg\'s own parameters',

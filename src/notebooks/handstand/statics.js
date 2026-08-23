@@ -1,3 +1,4 @@
+import { JOINT_ORDER } from './control.js';
 // Static analysis and range-of-motion model for the handstand chain.
 //
 // Orientation conventions (derived once, used everywhere): world +x points
@@ -64,6 +65,17 @@ export const ROM_DEFAULTS = {
   hipExtMaxDeg: 20,
   kneeFlexMaxDeg: 145,
   kneeHyperextDeg: 3,
+  // The trunk, positive being flexion -- ribs toward hips, the hollow shape a
+  // handstand is made of. Deliberately tighter than anatomy: a lumbar spine
+  // flexes about 60 degrees and extends about 25, but a handstand never
+  // spends that, and a box bigger than the movement only gives the search
+  // room to find shapes that are not handstands.
+  spineFlexMaxDeg: 45,
+  spineExtMaxDeg: 20,
+  // The head. Extension is looking toward the hands, which is what a
+  // handstand actually does; flexion is chin to chest.
+  neckFlexMaxDeg: 30,
+  neckExtMaxDeg: 45,
 };
 
 // Wrist limits as bounds on the joint coordinate q3, in degrees. Accepts
@@ -89,19 +101,34 @@ export function hipFlexMaxDeg(rom, kneeFlexDeg) {
 
 // Signed limits for each actuated joint given the current pose (the hip
 // limits depend on the same leg's knee). Returns {lo, hi} in radians.
+// By NAME, not by index: the indices moved when the trunk gained a hinge, and
+// a switch on bare numbers is the kind of thing that renumbers wrongly once
+// and then stays wrong quietly.
+export const QI = Object.fromEntries(JOINT_ORDER.map((n, j) => [n, 3 + j]));
+
 export function jointLimits(rom, q, jointIndex) {
-  switch (jointIndex) {
-    case 3: { const w = wristQ3LimitsDeg(rom); return { lo: w.lo * D2R, hi: w.hi * D2R }; }
-    case 4: return {
+  switch (JOINT_ORDER[jointIndex - 3]) {
+    case 'wrist': { const w = wristQ3LimitsDeg(rom); return { lo: w.lo * D2R, hi: w.hi * D2R }; }
+    case 'shoulder': return {
       lo: Math.max((180 - rom.shoulderFlexMaxDeg), -rom.shoulderHyperDeg) * D2R,
       hi: rom.shoulderCloseMaxDeg * D2R,
     };
-    case 5: case 7: {
-      const knee = jointIndex + 1;
+    case 'spine': return {
+      lo: -(rom.spineExtMaxDeg ?? ROM_DEFAULTS.spineExtMaxDeg) * D2R,
+      hi: (rom.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg) * D2R,
+    };
+    case 'neck': return {
+      lo: -(rom.neckExtMaxDeg ?? ROM_DEFAULTS.neckExtMaxDeg) * D2R,
+      hi: (rom.neckFlexMaxDeg ?? ROM_DEFAULTS.neckFlexMaxDeg) * D2R,
+    };
+    case 'hipL': case 'hipR': {
+      // The hamstring coupling reads THIS leg's knee.
+      const knee = jointIndex === QI.hipL ? QI.kneeL : QI.kneeR;
       const kneeFlexDeg = Math.max(0, -q[knee] / D2R);
       return { lo: -rom.hipExtMaxDeg * D2R, hi: hipFlexMaxDeg(rom, kneeFlexDeg) * D2R };
     }
-    case 6: case 8: return { lo: -rom.kneeFlexMaxDeg * D2R, hi: rom.kneeHyperextDeg * D2R };
+    case 'kneeL': case 'kneeR':
+      return { lo: -rom.kneeFlexMaxDeg * D2R, hi: rom.kneeHyperextDeg * D2R };
     default: return { lo: -Infinity, hi: Infinity };
   }
 }
@@ -110,7 +137,7 @@ export function jointLimits(rom, q, jointIndex) {
 // Knees clamp before hips so the hamstring coupling sees final knee angles.
 export function clampPose(q, rom) {
   let clamped = 0;
-  for (const j of [6, 8, 3, 4, 5, 7]) {
+  for (const j of [QI.kneeL, QI.kneeR, QI.wrist, QI.shoulder, QI.spine, QI.neck, QI.hipL, QI.hipR]) {
     const { lo, hi } = jointLimits(rom, q, j);
     if (q[j] < lo) { q[j] = lo; clamped |= 1 << j; }
     else if (q[j] > hi) { q[j] = hi; clamped |= 1 << j; }
@@ -122,7 +149,7 @@ export function clampPose(q, rom) {
 // violations in radians, with the hamstring coupling included.
 export function romPenalty(q, rom) {
   let p = 0;
-  for (const j of [3, 4, 5, 6, 7, 8]) {
+  for (let j = 3; j < 3 + JOINT_ORDER.length; j++) {
     const { lo, hi } = jointLimits(rom, q, j);
     if (q[j] < lo) p += (lo - q[j]) ** 2;
     else if (q[j] > hi) p += (q[j] - hi) ** 2;
@@ -199,13 +226,13 @@ export function pressCorridor(model, rom, strengthProf, ws, {
   const q = new Float64Array(model.nq);
   const targetX = model.patch.x0 + targetFrac * (model.patch.x1 - model.patch.x0);
   const st = {};
-  const jointNames = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+  const jointNames = JOINT_ORDER;
   for (let i = 0; i < nHip; i++) {
     for (let j = 0; j < nShoulder; j++) {
       q.fill(0);
       groundHand(model, q);
-      q[4] = shoulder[j] * D2R;
-      q[5] = q[7] = hip[i] * D2R;
+      q[3 + JOINT_ORDER.indexOf('shoulder')] = shoulder[j] * D2R;
+      q[3 + JOINT_ORDER.indexOf('hipL')] = q[3 + JOINT_ORDER.indexOf('hipR')] = hip[i] * D2R;
       const w = solveWristForCom(model, q, ws, targetX);
       if (Number.isNaN(w)) continue;
       q[3] = w;
@@ -213,7 +240,7 @@ export function pressCorridor(model, rom, strengthProf, ws, {
       wristNeededDeg[idx] = w / D2R;
       staticAnalysis(model, q, ws, st);
       let util = 0;
-      for (let k = 0; k < 6; k++) {
+      for (let k = 0; k < jointNames.length; k++) {
         const jp = strengthProf[jointNames[k]];
         const t = st.tau[3 + k];
         util = Math.max(util, Math.abs(t) / availableTorque(jp, t, 0));

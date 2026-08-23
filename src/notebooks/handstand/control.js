@@ -15,7 +15,31 @@
 import { clampTorque, availableTorque } from './strength.js';
 import { rnea, momenta, crbaMassMatrix } from './dynamics.js';
 
-export const JOINT_ORDER = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+// The driven joints, in the order the state vector holds them (q[3..10]).
+// The order is not a choice: the dynamics reads joint i off body i, and the
+// tree requires a parent before its children, so the spine lands between the
+// shoulder and the hips and the head goes last.
+export const JOINT_ORDER = ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'];
+// Where the six joints of a technique written before the trunk could bend sit
+// in that order. Everything that reads a stored technique goes through this.
+export const LEGACY_JOINT_ORDER = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+const NJOINTS = JOINT_ORDER.length;
+
+// A technique written before the trunk could bend has six channels. Widen it
+// to eight, with the spine and the neck at neutral -- which is exactly the
+// rigid body those techniques were authored on, so the movement they describe
+// is unchanged by the widening itself.
+export function widenKnots(rows) {
+  if (rows.length === NJOINTS) return rows;
+  if (rows.length !== LEGACY_JOINT_ORDER.length) {
+    throw new Error(`a technique with ${rows.length} joints is neither ${LEGACY_JOINT_ORDER.length} nor ${NJOINTS}`);
+  }
+  const K = rows[0].length;
+  const out = JOINT_ORDER.map(() => new Float64Array(K));
+  LEGACY_JOINT_ORDER.forEach((name, j) => { out[JOINT_ORDER.indexOf(name)].set(rows[j]); });
+  return out;
+}
+
 
 // Value and rate of a clamped Catmull-Rom spline at time t in [0, T].
 //
@@ -67,8 +91,13 @@ export function splineEval(knots, T, t, times = null) {
 }
 
 // Fill the six actuated reference angles/rates from knotMatrix[6][K].
-export function evalReference(knotMatrix, T, t, qRef, qdRef, times = null) {
-  for (let j = 0; j < 6; j++) {
+export function evalReference(knotMatrix0, T, t, qRef, qdRef, times = null) {
+  // The last boundary. Everything that drives the body comes through here, so
+  // a six-channel technique -- a preset, a recorded artifact, a saved file, a
+  // hand-built matrix in a gate -- is widened once, here, rather than at every
+  // call site that might have one.
+  const knotMatrix = widenKnots(knotMatrix0);
+  for (let j = 0; j < NJOINTS; j++) {
     const r = splineEval(knotMatrix[j], T, t, times);
     qRef[j] = r.value;
     qdRef[j] = r.rate;
@@ -158,22 +187,22 @@ export function createServo(model, strengthProf, {
 } = {}) {
   const nq = model.nq;
   const damping = new Float64Array(nq);
-  for (let j = 3; j < 9; j++) damping[j] = kd;
-  const qRef = new Float64Array(6), qdRef = new Float64Array(6);
+  for (let j = 3; j < 3 + NJOINTS; j++) damping[j] = kd;
+  const qRef = new Float64Array(NJOINTS), qdRef = new Float64Array(NJOINTS);
   const tauG = new Float64Array(nq);
   const zero = new Float64Array(nq);
   // Physically applied torque for the six actuated joints, before the
   // implicit-damping bookkeeping term is added to the command.
-  const applied = new Float64Array(6);
+  const applied = new Float64Array(NJOINTS);
   const adaptive = dampingRatio > 0 || brakeMargin > 0;
   const Mbuf = adaptive ? new Float64Array(nq * nq) : null;
-  const inertia = new Float64Array(6).fill(1);
+  const inertia = new Float64Array(NJOINTS).fill(1);
   return {
     damping, kp, kd, qRef, qdRef, activationTau, applied,
     dampingRatio, brakeMargin, inertia,
     makeControl(knotMatrix, T, augment = null, times = null) {
-      const des = new Float64Array(6);
-      const u = new Float64Array(6);
+      const des = new Float64Array(NJOINTS);
+      const u = new Float64Array(NJOINTS);
       let lastT = null, lastInertiaT = null;
       return (t, q, qd, tau) => {
         evalReference(knotMatrix, T, Math.min(t, T), qRef, qdRef, times);
@@ -186,7 +215,7 @@ export function createServo(model, strengthProf, {
         // either.)
         if (adaptive && (lastInertiaT === null || t - lastInertiaT >= 1 / inertiaHz)) {
           crbaMassMatrix(model, q, Mbuf, ws);
-          for (let j = 0; j < 6; j++) {
+          for (let j = 0; j < NJOINTS; j++) {
             const jq = 3 + j;
             inertia[j] = Math.max(Mbuf[jq * nq + jq], 1e-4);
             if (dampingRatio > 0) {
@@ -199,7 +228,7 @@ export function createServo(model, strengthProf, {
           }
           lastInertiaT = t;
         }
-        for (let j = 0; j < 6; j++) {
+        for (let j = 0; j < NJOINTS; j++) {
           const jq = 3 + j;
           const kdj = damping[jq];
           const gff = gravityComp && ws ? tauG[jq] : 0;
@@ -220,7 +249,7 @@ export function createServo(model, strengthProf, {
           ? 1
           : 1 - Math.exp(-Math.max(0, t - lastT) / activationTau);
         lastT = t;
-        for (let j = 0; j < 6; j++) {
+        for (let j = 0; j < NJOINTS; j++) {
           const jq = 3 + j;
           const jp = strengthProf[JOINT_ORDER[j]];
           const cap = availableTorque(jp, des[j], qd[jq]);
@@ -259,7 +288,7 @@ export function createBalanceControl(model, ws, strengthProf, qHold, {
     kp, kd, ws, activationTau, dampingRatio, brakeMargin, inertiaHz, dampingSpeed,
   });
   const knots = [];
-  for (let j = 0; j < 6; j++) knots.push(Float64Array.of(qHold[3 + j], qHold[3 + j]));
+  for (let j = 0; j < NJOINTS; j++) knots.push(Float64Array.of(qHold[3 + j], qHold[3 + j]));
   const xTargetLocal = model.patch.x0 + targetFrac * (model.patch.x1 - model.patch.x0);
   const augment = (t, q, qd, des) => {
     const mo = momenta(model, q, qd, ws);

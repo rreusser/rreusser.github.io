@@ -92,9 +92,24 @@ export const STRENGTH_DEFAULTS = {
   shoulder: { t0Vol: 1.6, wmax: 18, wc: 7, amin: 0.7, w1: 0, m: 0.3 },
   hip:      { t0Vol: 2.2, wmax: 18, wc: 7, amin: 0.7, w1: 0, m: 0.3 },
   knee:     { t0Vol: 2.6, wmax: 20, wc: 8, amin: 0.7, w1: 0, m: 0.3 },
+  // The trunk. Erector spinae and the abdominal wall are strong -- this sits
+  // just below the hip, which is the right neighbourhood for a single hinge
+  // standing in for the whole lumbar column -- and slow, because a spine does
+  // not snap: wmax below the hip's is what stops the search using the trunk
+  // as a whip.
+  spine:    { t0Vol: 2.0, wmax: 12, wc: 5, amin: 0.7, w1: 0, m: 0.3 },
+  // And the neck, which is the weakest joint on the body by a wide margin.
+  // This number is doing real work: the head is eight per cent of body mass
+  // on a long lever and almost no rotational inertia, so without a small cap
+  // here the search would discover it can steer a handstand by flinging its
+  // head, which is both wrong and what a beginner does.
+  neck:     { t0Vol: 0.35, wmax: 10, wc: 4, amin: 0.7, w1: 0, m: 0.3 },
 };
 
-const JOINT_KIND = { wrist: 'wrist', shoulder: 'shoulder', hipL: 'hip', hipR: 'hip', kneeL: 'knee', kneeR: 'knee' };
+const JOINT_KIND = {
+  wrist: 'wrist', shoulder: 'shoulder', spine: 'spine', neck: 'neck',
+  hipL: 'hip', hipR: 'hip', kneeL: 'knee', kneeR: 'knee',
+};
 
 // Build resolved per-joint parameter objects for a model.
 // overrides: { [kind]: { t0Vol?, wmax?, ... } }, scale: global strength
