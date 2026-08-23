@@ -2455,7 +2455,8 @@
       // things that change; the sparkline beside it already says the cost is a
       // cost, and how many cores are busy is not something anyone acts on.
       const statusEl = html`<span style="font-size:12px; opacity:.8;
-        font-variant-numeric:tabular-nums; white-space:nowrap;"></span>`;
+        font-variant-numeric:tabular-nums; white-space:nowrap;"
+        title="what the search is minimising, which is the worst this technique scores across the robustness variants — the same rollout at a second timestep with a jittered start. Worst-case rather than nominal so the answer cannot be a knife edge tuned to one timestep's contact artifacts, and it only ever falls, because it is the best found so far."></span>`;
       // 110 rather than 150. The transport carries the play button, the clock,
       // the reference toggle, two search buttons, this and the status line, and
       // at 150 the sum was forty pixels wider than the column -- so the status
@@ -2582,12 +2583,11 @@
             return;
           }
           if (data.type === 'progress') {
-            // data.best is the incumbent scored the way the FIGURE scores it:
-            // one nominal rollout, at the timestep playback uses. It is not
-            // the search's own objective (that is the worst case over the
-            // robustness variants, which ranks candidates well and reproduces
-            // nowhere), and the worker sends the two separately for exactly
-            // that reason.
+            // The objective, which is what a progress reading has to be: the
+            // search only ever lowers it, so the curve falls or holds. It is
+            // the worst case over the robustness variants rather than a single
+            // rollout -- see statusEl's title, and the worker's comment on why
+            // reporting a nominal replay here made progress look like noise.
             optState.history.push({ gen: data.gen, best: data.best });
             status = `gen ${data.gen} · cost ${data.best.toFixed(2)}`;
             // Held, not applied. A generation is swapped in at the end of a
@@ -2597,15 +2597,20 @@
             // jumping at one moment and the field behind them at another.
             pending = data;
           } else if (data.type === 'done') {
-            // The same measurement the generations reported, so the last point
-            // belongs on the same curve. It used to be a different one -- the
-            // generations showed the search's robust worst case at one
-            // timestep and the finish showed a nominal replay at another -- and
-            // the two were labelled "cost" alike, so the number fell for forty
-            // generations and then jumped at the end. Nothing had gone wrong
-            // with the search; the label had changed under it.
-            optState.history.push({ gen: optState.history.length, best: data.fineCost });
-            status = `done · cost ${data.fineCost.toFixed(2)}`;
+            // The same quantity the generations reported, so the last point
+            // belongs on the same curve and the closing number is where the
+            // curve actually ended. These were two different measurements once
+            // -- the generations showed the objective and the finish showed an
+            // independent nominal replay, both labelled "cost" -- so the number
+            // fell for forty generations and jumped at the end. Nothing had
+            // gone wrong with the search; the label had changed under it.
+            //
+            // fineCost is still sent, and still worth having: it is the
+            // technique replayed the way the figure replays it, and the two
+            // disagreeing about whether it ARRIVES is the console warning
+            // below.
+            optState.history.push({ gen: optState.history.length, best: data.best });
+            status = `done · cost ${data.best.toFixed(2)}`;
             pending = null;
             adopt(data);
             // The search reports what it scored; the figure has just

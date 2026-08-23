@@ -12,7 +12,7 @@ import {
 import {
   optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision, plantFor,
   balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS, NUMERICS_DEFAULTS, applyLocks,
-  applyTimeLocks, rolloutCost, encodeDecision,
+  applyTimeLocks,
 } from './rollout.js';
 
 // A pool of nested evaluation workers, so a generation is spread across
@@ -146,16 +146,6 @@ async function handle(msg) {
       numerics: sa.numerics, symmetric: sa.symmetric,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
-    // Exactly the arguments optimizeScenario scores a candidate with, so the
-    // per-generation reading below is the same measurement as the final check
-    // rather than a second opinion.
-    const nominalArgs = {
-      K: sa.K, dt: msg.dt ?? NUMERICS_DEFAULTS.dt,
-      weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
-      q0: sa.q0, target: sa.target, plant: sa.plant,
-      knotFracs: sa.knotFracs, locks: sa.locks, timeLocks: sa.timeLocks,
-      numerics: sa.numerics, symmetric: sa.symmetric,
-    };
     const result = await optimizeScenario(model, ws, prof, rom, {
       ...sa,
       objectiveBatch: pool ? (xs) => pool.objectiveBatch(xs) : null,
@@ -189,28 +179,27 @@ async function handle(msg) {
           // Cheapest candidate first, so the viewer can draw the leader
           // differently from the rest of the field.
           const poses = (pool ? pool.lastPoses : genPoses).slice().sort((a2, b2) => a2.cost - b2.cost);
-          // The number the page shows, and it is NOT g.best.
+          // g.best, which is the OBJECTIVE -- the worst case over the
+          // robustness variants -- and which cmaes only ever lowers
+          // (`if (p.f < best)`), so the number the page prints falls or holds
+          // and never wanders.
           //
-          // g.best is the search's own objective: the worst case over the
-          // robustness variants, which is the right thing to RANK candidates
-          // by and the wrong thing to report, because it is not a number
-          // anyone can reproduce. What the page reports at the end is a
-          // nominal replay -- the technique run once, at the timestep the
-          // figure plays back at -- so that is what it reports here too. Same
-          // measurement every generation and at the end, so a falling curve
-          // that ends higher than its last point means the search genuinely
-          // went backwards, rather than meaning the label changed.
+          // It briefly reported a nominal replay of the incumbent instead, on
+          // the theory that the closing number should be one you can reproduce
+          // by pressing play. That is true and it is the wrong number to
+          // report per generation, because the incumbent is CHOSEN by the
+          // robust objective: a candidate that wins on the worst case can be
+          // slightly worse on the nominal one, so the curve went up a little
+          // whenever the search made real progress. Reporting a quantity the
+          // search is not minimising makes progress look like noise.
           //
-          // One extra rollout per GENERATION, against lambda per generation
-          // for the search itself: a few per cent, for a status line that is
-          // not lying.
-          const nominal = rolloutCost(model, ws, prof, rom, sa.scenario,
-            encodeDecision(dec.knots, dec.T), {
-              ...nominalArgs, knotFracs: dec.fracs || nominalArgs.knotFracs,
-            }).cost;
+          // So the status line is the objective, start to finish -- see the
+          // done message, which reports the same thing -- and how the answer
+          // actually replays is the figure's job, which re-simulates it and
+          // says whether it arrives.
           self.postMessage({
             type: 'progress', gen: g.gen, maxGen: sa.maxGen,
-            best: nominal, searchBest: g.best, sigma: g.sigma,
+            best: g.best, sigma: g.sigma,
             T: dec.T, knots: dec.knots.map((k) => Array.from(k)),
             knotFracs: dec.fracs ? Array.from(dec.fracs) : null,
             // The machine the search is running on, so a run that is stopped
