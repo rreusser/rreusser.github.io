@@ -266,7 +266,7 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
     ],
     // Closed body outlines for rendering only; see silhouette.js.
     outline: buildSilhouette({
-      H, sex, Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lth, Lsh, toeX,
+      H, sex, Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lch, Lpv, Lth, Lsh, toeX,
     }),
     patch: { x0: patchHeelX, x1: patchTipX },
     wristHeight: hw,

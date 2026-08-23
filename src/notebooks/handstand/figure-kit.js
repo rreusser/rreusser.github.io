@@ -37,14 +37,15 @@ const R2D = 180 / Math.PI;
 
 // The six actuated joints, named the way a person names them rather than the
 // way q indexes them. Every figure lists them in this order.
-export const JOINTS = [
-  { j: 0, qi: 3, label: 'wrist' },
-  { j: 1, qi: 4, label: 'shoulder' },
-  { j: 2, qi: 5, label: 'hip L' },
-  { j: 3, qi: 6, label: 'knee L' },
-  { j: 4, qi: 7, label: 'hip R' },
-  { j: 5, qi: 8, label: 'knee R' },
-];
+// Derived from the joint list rather than written out, so the figure cannot
+// disagree with the model about which channel is which -- which is exactly
+// what a hand-written table does the first time a joint is inserted in the
+// middle of the order.
+const JOINT_LABELS = {
+  wrist: 'wrist', shoulder: 'shoulder', spine: 'spine', neck: 'neck',
+  hipL: 'hip L', kneeL: 'knee L', hipR: 'hip R', kneeR: 'knee R',
+};
+export const JOINTS = JOINT_ORDER.map((name, j) => ({ j, qi: 3 + j, label: JOINT_LABELS[name] || name }));
 
 // Strength used: blue (idle) to red (at the voluntary torque cap). One ramp,
 // spent the same way by the segments of a moving body, the rows of the effort
@@ -72,7 +73,7 @@ export function effortColor(u, isDark = false, alpha = 1) {
 export const requestTint = () => new Array(7).fill(REQUEST_COLOR);
 export function effortTint(run, k, prof, isDark) {
   const out = new Array(7).fill(null);
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < JOINTS.length; j++) {
     const tau = run.rec.tauApplied[k][j];
     const cap = availableTorque(prof[JOINT_ORDER[j]], tau, run.rec.qd[k][3 + j]);
     out[1 + j] = effortColor(Math.abs(tau) / Math.max(cap, 1e-6), isDark);
@@ -102,7 +103,7 @@ export function requestPose(model, knots, T, t, out, fracs = null) {
   groundHand(model, out);
   evalReference(knots, T, Math.min(t, T), refVal, refRate,
     fracs ? knotTimes(T, knots[0].length, fracs) : null);
-  for (let j = 0; j < 6; j++) out[3 + j] = refVal[j];
+  for (let j = 0; j < JOINTS.length; j++) out[3 + j] = refVal[j];
   return out;
 }
 
@@ -173,7 +174,7 @@ export function resampleKnots(knots, T, newK, fracs = null) {
   }
 
   const out = [], y = new Float64Array(M), b = new Float64Array(n);
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < JOINTS.length; j++) {
     const row = new Float64Array(K);
     const last = knots[j][knots[j].length - 1];
     row[K - 1] = last;
@@ -218,7 +219,7 @@ function solveInPlace(A, b, n) {
 export function knotPose(model, knots, k, out) {
   out.fill(0);
   groundHand(model, out);
-  for (let j = 0; j < 6; j++) out[3 + j] = knots[j][k];
+  for (let j = 0; j < JOINTS.length; j++) out[3 + j] = knots[j][k];
   return out;
 }
 
@@ -242,7 +243,7 @@ export function analyzeRun(run, prof, model) {
     evalReference(run.knots, run.T, Math.min(rec.t[k], run.T), v, r, refTimes);
     const driving = rec.t[k] <= run.T;
     if (driving) n++;
-    for (let j = 0; j < 6; j++) {
+    for (let j = 0; j < JOINTS.length; j++) {
       const tau = rec.tauApplied[k][j];
       const cap = availableTorque(prof[JOINT_ORDER[j]], tau, rec.qd[k][3 + j]);
       const u = Math.abs(tau) / Math.max(cap, 1e-6);

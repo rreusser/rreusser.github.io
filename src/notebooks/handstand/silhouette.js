@@ -70,7 +70,8 @@ function tube(stations) {
   return pts;
 }
 
-export function buildSilhouette({ H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lth, Lsh, toeX }) {
+export function buildSilhouette({
+  Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lth, Lsh, toeX }) {
   const s = SHAPE[sex] || SHAPE.male;
   const f = (v) => v * H;
 
@@ -95,14 +96,26 @@ export function buildSilhouette({ H, sex = 'male', Lh, hw, patchHeelX, patchTipX
     [Larm, f(s.shoulder), f(s.shoulder)],
   ]))];
 
-  // Torso from the shoulder to the hip, and the head as its own subpath.
-  // Both belong to the same rigid body: the model has no neck joint.
-  const torso = smoothClosed(tube([
+  // The torso is TWO bodies now, hinged at the spine, so it is drawn as two
+  // tubes cut at that hinge. The stations are the same ones the single tube
+  // had; the cut station's radii are interpolated between the waist and the
+  // hip so the two halves meet at the same width and the seam does not show
+  // when the spine is straight.
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const tCut = (Lch / Ltr - 0.45) / (0.80 - 0.45);
+  const cutA = lerp(f(s.waistA), f(s.hipA), tCut);
+  const cutP = lerp(f(s.waistP), f(s.hipP), tCut);
+  const chest = smoothClosed(tube([
     [-f(0.010), f(s.chestA) * 0.80, f(s.chestP) * 0.82],
     [0.10 * Ltr, f(s.chestA), f(s.chestP)],
     [0.45 * Ltr, f(s.waistA), f(s.waistP)],
-    [0.80 * Ltr, f(s.hipA), f(s.hipP)],
-    [Ltr, f(s.hipA) * 0.80, f(s.hipP) * 0.70],
+    [Lch, cutA, cutP],
+  ]));
+  // In the pelvis's own frame, which starts at the hinge.
+  const pelvis = smoothClosed(tube([
+    [0, cutA, cutP],
+    [0.80 * Ltr - Lch, f(s.hipA), f(s.hipP)],
+    [Lpv, f(s.hipA) * 0.80, f(s.hipP) * 0.70],
   ]));
 
   // Head. Drawn as a profile rather than a ball, because a ball next to an
@@ -146,14 +159,20 @@ export function buildSilhouette({ H, sex = 'male', Lh, hw, patchHeelX, patchTipX
     [toeX, f(0.009), f(0.009)],
   ]))];
 
+  // Body order, which is the model's: hand, arm, chest, pelvis, both legs,
+  // then the head hanging off the chest. The neck and skull are already
+  // written relative to the shoulder, which is exactly the head body's own
+  // origin, so they move across unchanged.
   return [
     hand,
     arm,
-    [torso, neck, skull],
+    [chest],
+    [pelvis],
     thigh,
     shank,
     thigh,
     shank,
+    [neck, skull],
   ];
 }
 

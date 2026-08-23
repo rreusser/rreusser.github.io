@@ -131,7 +131,7 @@
     import {
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
-      SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom,
+      SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom, widenKnots,
     } from './rollout.js';
     import { techniqueToJSON, techniqueFromJSON } from './technique-file.js';
     import * as FIG from './figure-kit.js';
@@ -1022,7 +1022,13 @@
       // not reach it would have straightened a technique deliberately made
       // asymmetric.
       const symmetric = () => editState.symmetric;
-      const lockedJoint = (joint) => symmetric() && (joint === 7 || joint === 8);
+      // Which q indices the mirror takes away from you: the right leg follows
+      // the left, so its two joints get no handles. By name -- the numbers
+      // moved when the trunk gained a hinge.
+      const CH = Object.fromEntries(FIG.JOINTS.map((J, j) => [
+        ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'][j], j]));
+      const lockedJoint = (joint) => symmetric()
+        && (joint === 3 + CH.hipR || joint === 3 + CH.kneeR);
       const runModel = simResult.model || model;
       // Mutable, and NOT a cell dependency. It used to live in its own cell, so
       // every change of it re-ran this one and rebuilt every control in the
@@ -1099,9 +1105,14 @@
       // Functions rather than values, because K moves now: Revert at four
       // poses has to give back the stored technique said with four.
       const sameCount = () => simResult.knots[0].length === K;
+      // Widened where the page adopts a stored technique. Everything above
+      // this line speaks in eight channels; the presets and the recorded runs
+      // still speak in six, and a six-channel technique IS an eight-channel
+      // one with the spine and the neck straight.
+      const stored8 = () => widenKnots(simResult.knots.map((k) => Float64Array.from(k)));
       const baseKnots = () => (sameCount()
-        ? sym(simResult.knots.map((k) => Float64Array.from(k)))
-        : fit(FIG.resampleKnots(simResult.knots, simResult.T, K, simResult.knotFracs)));
+        ? sym(stored8())
+        : fit(FIG.resampleKnots(stored8(), simResult.T, K, simResult.knotFracs)));
       // Even spacing, and only the ending held. This is what a technique
       // starts as and what Revert returns it to; a stored one may carry its own
       // phrasing, and does when it was authored with any.
@@ -1194,7 +1205,7 @@
       // pinned to, or null where it is free to move. Read off the knots, so a
       // pose you drag and then hold is held where you left it.
       const lockValues = () => editState.held.map((on, k) => (on
-        ? Array.from({ length: 6 }, (_, j) => editState.knots[j][k]) : null));
+        ? Array.from({ length: FIG.JOINTS.length }, (_, j) => editState.knots[j][k]) : null));
       // And the pinned instants, the same way: the fraction each pinned pose
       // sits at, or null where the search may slide it.
       const timeLockValues = () => editState.timeHeld.map((on, k) => (on ? editState.fracs[k] : null));
@@ -1418,7 +1429,8 @@
       // stops for a reason the figure has not drawn is a handle that lies.
       const writeKnot = (ch, k, q) => {
         editState.knots[ch][k] = q;
-        if (symmetric() && (ch === 2 || ch === 3)) editState.knots[ch + 2][k] = q;
+        if (symmetric() && ch === CH.hipL) editState.knots[CH.hipR][k] = q;
+        if (symmetric() && ch === CH.kneeL) editState.knots[CH.kneeR][k] = q;
       };
       // The start is not a knot -- it is the body's own configuration at t = 0
       // -- so it is written into its own vector, and the first edit forks it
@@ -1426,7 +1438,8 @@
       const writeStart = (ch, q) => {
         if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
         editState.q0[3 + ch] = q;
-        if (symmetric() && (ch === 2 || ch === 3)) editState.q0[3 + ch + 2] = q;
+        if (symmetric() && ch === CH.hipL) editState.q0[3 + CH.hipR] = q;
+        if (symmetric() && ch === CH.kneeL) editState.q0[3 + CH.kneeR] = q;
       };
 
       const story = FIG.createStoryboard({

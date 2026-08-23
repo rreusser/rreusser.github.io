@@ -132,7 +132,14 @@ export function drawScene(ctx, opts) {
   // before the arm or the two translucent shapes cross-hatch each other. Far
   // leg first, then head and torso, then the arm in front of the head, then
   // the near leg in front of everything.
-  const order = [3, 4, 2, 0, 1, 5, 6];
+  // By NAME, because the body indices moved when the trunk gained a hinge and
+  // the head became its own segment -- and a hardcoded list silently stops
+  // drawing whatever fell off the end of it, which is exactly what happened
+  // to the head.
+  const ORDER_NAMES = ['thighL', 'shankL', 'headNeck', 'chest', 'pelvis',
+    'hand', 'arm', 'thighR', 'shankR'];
+  const order = ORDER_NAMES.map((n) => model.names.indexOf(n)).filter((i) => i >= 0);
+  const farLeg = new Set([model.names.indexOf('thighL'), model.names.indexOf('shankL')]);
   const bg = theme ? theme.background : [1, 1, 1];
   const mix = (t) => [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * t);
   const tracePoly = (poly, c, s, px, py, keepPath = false) => {
@@ -145,7 +152,7 @@ export function drawScene(ctx, opts) {
     }
   };
   for (const i of order) {
-    const alpha = (i === 3 || i === 4) ? 0.45 : 0.95;
+    const alpha = farLeg.has(i) ? 0.45 : 0.95;
     const color = opts.segmentColors?.[i] || css(fg, alpha);
     const c = Math.cos(ws.th[i]), s = Math.sin(ws.th[i]);
     const shape = model.outline?.[i];
