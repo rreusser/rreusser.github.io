@@ -39,6 +39,13 @@ export function gaussianSampler(rand) {
 export async function cmaes({
   x0, sigma0 = 0.3, seed = 1, maxGen = 200,
   lambda = null, bounds = null,
+  // One step, per dimension, in that dimension's own units. sigma is a single
+  // scalar over an identity covariance, so without this every dimension gets
+  // the same first step -- which is only sensible while they all measure the
+  // same thing. Mix radians with fractions of a duration and the fractions get
+  // explored at a scale where every candidate is a different movement, so none
+  // of them ever wins and that part of the vector never moves at all.
+  scales = null,
   objective = null, objectiveBatch = null, onGeneration = null, f0 = Infinity,
 }) {
   const n = x0.length;
@@ -64,8 +71,10 @@ export async function cmaes({
   let sigma = sigma0;
   const mean = Float64Array.from(x0);
   const pc = new Float64Array(n), ps = new Float64Array(n);
+  // Diagonal, not the identity: the scale enters as the initial covariance, so
+  // adaptation carries on from it normally rather than fighting it.
   let C = Array.from({ length: n }, (_, i) =>
-    Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+    Array.from({ length: n }, (_, j) => (i === j ? (scales ? scales[i] * scales[i] : 1) : 0)));
   let B = C.map((row) => row.slice());
   let D = new Float64Array(n).fill(1);
   let eigenAge = 0;

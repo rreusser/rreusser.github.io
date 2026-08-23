@@ -15,33 +15,115 @@
 import { clampTorque, availableTorque } from './strength.js';
 import { rnea, momenta, crbaMassMatrix } from './dynamics.js';
 
-export const JOINT_ORDER = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+// The driven joints, in the order the state vector holds them (q[3..10]).
+// The order is not a choice: the dynamics reads joint i off body i, and the
+// tree requires a parent before its children, so the spine lands between the
+// shoulder and the hips and the head goes last.
+export const JOINT_ORDER = ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'];
+// Where the six joints of a technique written before the trunk could bend sit
+// in that order. Everything that reads a stored technique goes through this.
+export const LEGACY_JOINT_ORDER = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+const NJOINTS = JOINT_ORDER.length;
 
-// Value and rate of a clamped uniform Catmull-Rom spline at time t in [0, T].
-export function splineEval(knots, T, t) {
+// A technique written before the trunk could bend has six channels. Widen it
+// to eight, with the spine and the neck at neutral -- which is exactly the
+// rigid body those techniques were authored on, so the movement they describe
+// is unchanged by the widening itself.
+export function widenKnots(rows) {
+  if (rows.length === NJOINTS) return rows;
+  if (rows.length !== LEGACY_JOINT_ORDER.length) {
+    throw new Error(`a technique with ${rows.length} joints is neither ${LEGACY_JOINT_ORDER.length} nor ${NJOINTS}`);
+  }
+  const K = rows[0].length;
+  const out = JOINT_ORDER.map(() => new Float64Array(K));
+  LEGACY_JOINT_ORDER.forEach((name, j) => { out[JOINT_ORDER.indexOf(name)].set(rows[j]); });
+  return out;
+}
+
+
+// Value and rate of a clamped Catmull-Rom spline at time t in [0, T].
+//
+// times, when given, are the K instants the knots fall on, in seconds, and
+// they need not be evenly spaced: two key poses a tenth of a second apart is
+// a snap, and a spline that can only phrase evenly cannot say one. Omitting
+// them is the even spacing, on the fast path, which is what every rollout
+// took before timing was something you could author.
+//
+// The uneven case is the standard non-uniform generalization: tangents are
+// the two-sided difference over the two-sided time span rather than over two
+// even steps. Where the ends run out of neighbours the spacing is mirrored
+// rather than the time clamped -- clamping would halve the end tangents and
+// make an evenly spaced non-uniform call disagree with the uniform one,
+// which is exactly the kind of quiet fork this notebook has paid for before.
+export function splineEval(knots, T, t, times = null) {
   const K = knots.length;
   if (K === 1) return { value: knots[0], rate: 0 };
-  const s = Math.min(Math.max(t / T, 0), 1) * (K - 1);
-  const i = Math.min(Math.floor(s), K - 2);
-  const u = s - i;
-  const p1 = knots[i], p2 = knots[i + 1];
-  const p0 = knots[Math.max(0, i - 1)], p3 = knots[Math.min(K - 1, i + 2)];
-  const m1 = (p2 - p0) / 2, m2 = (p3 - p1) / 2;
+  let i, u, h, m1, m2;
+  const p = (n) => knots[Math.min(K - 1, Math.max(0, n))];
+  if (!times) {
+    const s = Math.min(Math.max(t / T, 0), 1) * (K - 1);
+    i = Math.min(Math.floor(s), K - 2);
+    u = s - i;
+    h = T / (K - 1);
+    m1 = (p(i + 1) - p(i - 1)) / 2;
+    m2 = (p(i + 2) - p(i)) / 2;
+  } else {
+    const tc = Math.min(Math.max(t, times[0]), times[K - 1]);
+    i = K - 2;
+    for (let n = 0; n < K - 1; n++) if (tc < times[n + 1]) { i = n; break; }
+    h = times[i + 1] - times[i];
+    u = h > 0 ? (tc - times[i]) / h : 0;
+    // Mirrored spacing off the ends, so an even set of times reproduces the
+    // uniform branch exactly rather than approximately.
+    const ts = (n) => (n < 0 ? 2 * times[0] - times[1]
+      : n > K - 1 ? 2 * times[K - 1] - times[K - 2] : times[n]);
+    // Tangents per unit time, then scaled into the segment's own parameter.
+    m1 = h * (p(i + 1) - p(i - 1)) / (ts(i + 1) - ts(i - 1));
+    m2 = h * (p(i + 2) - p(i)) / (ts(i + 2) - ts(i));
+  }
+  const p1 = p(i), p2 = p(i + 1);
   const u2 = u * u, u3 = u2 * u;
   const value = (2 * u3 - 3 * u2 + 1) * p1 + (u3 - 2 * u2 + u) * m1
     + (-2 * u3 + 3 * u2) * p2 + (u3 - u2) * m2;
   const dv = (6 * u2 - 6 * u) * p1 + (3 * u2 - 4 * u + 1) * m1
     + (-6 * u2 + 6 * u) * p2 + (3 * u2 - 2 * u) * m2;
-  return { value, rate: dv * (K - 1) / T };
+  return { value, rate: h > 0 ? dv / h : 0 };
 }
 
 // Fill the six actuated reference angles/rates from knotMatrix[6][K].
-export function evalReference(knotMatrix, T, t, qRef, qdRef) {
-  for (let j = 0; j < 6; j++) {
-    const r = splineEval(knotMatrix[j], T, t);
+export function evalReference(knotMatrix0, T, t, qRef, qdRef, times = null) {
+  // The last boundary. Everything that drives the body comes through here, so
+  // a six-channel technique -- a preset, a recorded artifact, a saved file, a
+  // hand-built matrix in a gate -- is widened once, here, rather than at every
+  // call site that might have one.
+  const knotMatrix = widenKnots(knotMatrix0);
+  for (let j = 0; j < NJOINTS; j++) {
+    const r = splineEval(knotMatrix[j], T, t, times);
     qRef[j] = r.value;
     qdRef[j] = r.rate;
   }
+}
+
+// Whether a set of fractions says anything the even spacing does not. Even
+// phrasing has to be NO phrasing, not merely phrasing that happens to be
+// even: the two branches above are the same curve but not the same arithmetic,
+// and over twenty thousand integration steps that is a technique differing
+// from itself in the last few digits. One rule, applied where the rollout
+// starts, so no caller can fork by passing what it means two ways.
+export function evenlySpaced(fracs, tol = 1e-12) {
+  const K = fracs.length;
+  if (K < 2) return true;
+  for (let k = 0; k < K; k++) if (Math.abs(fracs[k] - k / (K - 1)) > tol) return false;
+  return true;
+}
+
+// The K instants the knots fall on, in seconds, from the fractions of the
+// duration the technique carries. Absent fractions are the even spacing, so
+// everything recorded before timing was authorable reads as what it was.
+export function knotTimes(T, K, fracs = null) {
+  const out = new Float64Array(K);
+  for (let k = 0; k < K; k++) out[k] = (fracs ? fracs[k] : (K === 1 ? 0 : k / (K - 1))) * T;
+  return out;
 }
 
 // Servo factory. makeControl(knotMatrix, T, augment) returns a
@@ -102,28 +184,57 @@ export function evalReference(knotMatrix, T, t, qRef, qdRef) {
 export function createServo(model, strengthProf, {
   kp = 3000, kd = 150, gravityComp = true, ws = null, activationTau = 0.05,
   dampingRatio = 0, brakeMargin = 0, inertiaHz = 200, dampingSpeed = 1.0,
+  // The fastest closed loop a joint is allowed to run, as a multiple of its
+  // own actuator lag: omega_n * activationTau.
+  //
+  // kd is scaled by the inertia a joint actually drives; kp was not, so the
+  // loop bandwidth sqrt(kp / I) ran away as the joint got lighter -- 3 rad/s
+  // at the wrist and 69 at the neck, which is 3.4 lags per oscillation. A
+  // servo commanding torque through a 50 ms first-order lag cannot be that
+  // fast and stay still: the head buzzed +-6 degrees in a MOTIONLESS
+  // handstand while every other joint held inside a third of one. Capping
+  // the bandwidth (not the stiffness) is what makes the neck a neck rather
+  // than the lightest joint on a body tuned for the heaviest.
+  //
+  // Zero means uncapped, which is what every technique recorded before this
+  // existed was produced on.
+  //
+  // The cap is on kp, so it is also a cap on AUTHORITY, and the two have to be
+  // weighed together. It binds only where a joint is light relative to the
+  // stiffness asked of it, which on this body is the knees and the neck and
+  // nothing else -- the hips, shoulder, spine and wrist have inertia enough
+  // that sqrt(kp/I) is slow anyway. Set too tight it does not merely quiet the
+  // neck, it makes the legs soft: at 1.0 the knees kept 18 per cent of the
+  // stiffness asked for and tracked a kick-up five times worse, which reads
+  // exactly like weak legs, because it is.
+  loopOmegaTau = 2.0,
 } = {}) {
   const nq = model.nq;
   const damping = new Float64Array(nq);
-  for (let j = 3; j < 9; j++) damping[j] = kd;
-  const qRef = new Float64Array(6), qdRef = new Float64Array(6);
+  for (let j = 3; j < 3 + NJOINTS; j++) damping[j] = kd;
+  const qRef = new Float64Array(NJOINTS), qdRef = new Float64Array(NJOINTS);
   const tauG = new Float64Array(nq);
   const zero = new Float64Array(nq);
   // Physically applied torque for the six actuated joints, before the
   // implicit-damping bookkeeping term is added to the command.
-  const applied = new Float64Array(6);
+  const applied = new Float64Array(NJOINTS);
   const adaptive = dampingRatio > 0 || brakeMargin > 0;
   const Mbuf = adaptive ? new Float64Array(nq * nq) : null;
-  const inertia = new Float64Array(6).fill(1);
+  const inertia = new Float64Array(NJOINTS).fill(1);
+  // Per-joint stiffness, refreshed beside the damping it is paired with.
+  // Equal to kp until the bandwidth cap bites, which it does only on the
+  // light joints at the end of the chain.
+  const kpEff = new Float64Array(NJOINTS).fill(kp);
+  const wMax = (activationTau > 0 && loopOmegaTau > 0) ? loopOmegaTau / activationTau : Infinity;
   return {
     damping, kp, kd, qRef, qdRef, activationTau, applied,
-    dampingRatio, brakeMargin, inertia,
-    makeControl(knotMatrix, T, augment = null) {
-      const des = new Float64Array(6);
-      const u = new Float64Array(6);
+    dampingRatio, brakeMargin, inertia, kpEff, loopOmegaTau,
+    makeControl(knotMatrix, T, augment = null, times = null) {
+      const des = new Float64Array(NJOINTS);
+      const u = new Float64Array(NJOINTS);
       let lastT = null, lastInertiaT = null;
       return (t, q, qd, tau) => {
-        evalReference(knotMatrix, T, Math.min(t, T), qRef, qdRef);
+        evalReference(knotMatrix, T, Math.min(t, T), qRef, qdRef, times);
         if (t >= T) qdRef.fill(0);
         if (gravityComp && ws) rnea(model, q, zero, zero, tauG, null, { ws });
         // The inertia the servo is tuned against changes with the pose, but
@@ -133,11 +244,12 @@ export function createServo(model, strengthProf, {
         // either.)
         if (adaptive && (lastInertiaT === null || t - lastInertiaT >= 1 / inertiaHz)) {
           crbaMassMatrix(model, q, Mbuf, ws);
-          for (let j = 0; j < 6; j++) {
+          for (let j = 0; j < NJOINTS; j++) {
             const jq = 3 + j;
             inertia[j] = Math.max(Mbuf[jq * nq + jq], 1e-4);
+            kpEff[j] = Number.isFinite(wMax) ? Math.min(kp, inertia[j] * wMax * wMax) : kp;
             if (dampingRatio > 0) {
-              const kdWant = 2 * dampingRatio * Math.sqrt(kp * inertia[j]);
+              const kdWant = 2 * dampingRatio * Math.sqrt(kpEff[j] * inertia[j]);
               const kdMax = dampingSpeed > 0
                 ? availableTorque(strengthProf[JOINT_ORDER[j]], 0, 0) / dampingSpeed
                 : Infinity;
@@ -146,12 +258,12 @@ export function createServo(model, strengthProf, {
           }
           lastInertiaT = t;
         }
-        for (let j = 0; j < 6; j++) {
+        for (let j = 0; j < NJOINTS; j++) {
           const jq = 3 + j;
           const kdj = damping[jq];
           const gff = gravityComp && ws ? tauG[jq] : 0;
           const e = qRef[j] - q[jq];
-          let corr = (kp / kdj) * e;
+          let corr = (kpEff[j] / kdj) * e;
           if (brakeMargin > 0 && corr !== 0) {
             const sBrake = e >= 0 ? -1 : 1;
             const jp = strengthProf[JOINT_ORDER[j]];
@@ -167,7 +279,7 @@ export function createServo(model, strengthProf, {
           ? 1
           : 1 - Math.exp(-Math.max(0, t - lastT) / activationTau);
         lastT = t;
-        for (let j = 0; j < 6; j++) {
+        for (let j = 0; j < NJOINTS; j++) {
           const jq = 3 + j;
           const jp = strengthProf[JOINT_ORDER[j]];
           const cap = availableTorque(jp, des[j], qd[jq]);
@@ -206,7 +318,7 @@ export function createBalanceControl(model, ws, strengthProf, qHold, {
     kp, kd, ws, activationTau, dampingRatio, brakeMargin, inertiaHz, dampingSpeed,
   });
   const knots = [];
-  for (let j = 0; j < 6; j++) knots.push(Float64Array.of(qHold[3 + j], qHold[3 + j]));
+  for (let j = 0; j < NJOINTS; j++) knots.push(Float64Array.of(qHold[3 + j], qHold[3 + j]));
   const xTargetLocal = model.patch.x0 + targetFrac * (model.patch.x1 - model.patch.x0);
   const augment = (t, q, qd, des) => {
     const mo = momenta(model, q, qd, ws);

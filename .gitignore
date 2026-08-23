@@ -15,3 +15,7 @@ src/notebooks/time-until-totality/compute/eclipse-query.geojson
 .janus
 www
 opencode.json
+
+# vite build run from inside a notebook directory writes here instead of www/,
+# and the next root build then treats it as another notebook and fails.
+src/notebooks/*/dist/

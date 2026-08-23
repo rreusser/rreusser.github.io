@@ -214,6 +214,9 @@ export function expandable(content, {
   let currentWidth = 0;
   let currentHeight = 0;
   let controlsPanelExpanded = false;
+  // The last size handed to onResize, so a caller can ask for the same
+  // measurement again after its own content changes shape.
+  let lastResize = null;
   let controlsPanelPosition = { x: 16, y: 16 };
   let floatingPanel = null;
   let isDragging = false;
@@ -284,6 +287,7 @@ export function expandable(content, {
     if (w !== currentWidth || h !== currentHeight) {
       currentWidth = w;
       currentHeight = h;
+      lastResize = { w, h, expanded: false };
       if (onResize) onResize(content, w, h, false);
     }
 
@@ -640,6 +644,7 @@ export function expandable(content, {
     if (expandedWidth !== currentWidth || expandedHeight !== currentHeight) {
       currentWidth = expandedWidth;
       currentHeight = expandedHeight;
+      lastResize = { w: expandedWidth, h: expandedHeight, expanded: true };
       if (onResize) onResize(content, expandedWidth, expandedHeight, true);
     }
   }
@@ -773,6 +778,23 @@ export function expandable(content, {
   });
 
   if (expanded) requestAnimationFrame(() => expand());
+
+  // Re-measure after the CONTENT changes size on its own -- a figure that grows
+  // a row of thumbnails, say. Nothing else notices: the container's height is
+  // written from here, so the ResizeObserver watching it never fires for a
+  // change that came from inside. Collapsed, this re-runs the collapsed sizing
+  // (which re-reads scrollHeight, so the container stops clipping); expanded,
+  // it hands onResize the same viewport box again so the figure can re-divide
+  // it.
+  container.refreshLayout = () => {
+    if (expanded) {
+      if (onResize && lastResize) onResize(content, lastResize.w, lastResize.h, true);
+    } else {
+      currentWidth = -1;
+      currentHeight = -1;
+      applyCollapsedSize();
+    }
+  };
 
   return container;
 }

@@ -26,7 +26,10 @@ export function viewTransform(width, height, { cx = 0.12, yLo = -0.18, yHi = 2.0
 // Uses the caller's workspace, which it leaves holding the last ghost's
 // kinematics -- drawScene runs its own fk before it draws anything, so
 // calling this first and drawScene second is safe and is the intended order.
-export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, alpha = 0.14 }) {
+// color overrides the foreground silhouette: a flat body in the colour of
+// whatever it stands for, so an underlay can say WHICH of two things it is
+// without carrying any detail of its own.
+export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, alpha = 0.14, color = null }) {
   if (!poses?.length) return;
   const fg = theme ? theme.foreground : [0.11, 0.12, 0.14];
   const { toX, toY } = viewTransform(width, height, view);
@@ -34,7 +37,8 @@ export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, 
   for (const pose of poses) {
     const q = pose.q instanceof Float64Array ? pose.q : Float64Array.from(pose.q);
     fk(model, q, null, ws);
-    ctx.fillStyle = css(fg, alpha * (pose.weight ?? 1));
+    if (color) { ctx.globalAlpha = alpha * (pose.weight ?? 1); ctx.fillStyle = color; }
+    else ctx.fillStyle = css(fg, alpha * (pose.weight ?? 1));
     for (let i = 0; i < model.nb; i++) {
       const c = Math.cos(ws.th[i]), sn = Math.sin(ws.th[i]);
       const shape = model.outline?.[i];
@@ -128,7 +132,14 @@ export function drawScene(ctx, opts) {
   // before the arm or the two translucent shapes cross-hatch each other. Far
   // leg first, then head and torso, then the arm in front of the head, then
   // the near leg in front of everything.
-  const order = [3, 4, 2, 0, 1, 5, 6];
+  // By NAME, because the body indices moved when the trunk gained a hinge and
+  // the head became its own segment -- and a hardcoded list silently stops
+  // drawing whatever fell off the end of it, which is exactly what happened
+  // to the head.
+  const ORDER_NAMES = ['thighL', 'shankL', 'headNeck', 'chest', 'pelvis',
+    'hand', 'arm', 'thighR', 'shankR'];
+  const order = ORDER_NAMES.map((n) => model.names.indexOf(n)).filter((i) => i >= 0);
+  const farLeg = new Set([model.names.indexOf('thighL'), model.names.indexOf('shankL')]);
   const bg = theme ? theme.background : [1, 1, 1];
   const mix = (t) => [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * t);
   const tracePoly = (poly, c, s, px, py, keepPath = false) => {
@@ -141,7 +152,7 @@ export function drawScene(ctx, opts) {
     }
   };
   for (const i of order) {
-    const alpha = (i === 3 || i === 4) ? 0.45 : 0.95;
+    const alpha = farLeg.has(i) ? 0.45 : 0.95;
     const color = opts.segmentColors?.[i] || css(fg, alpha);
     const c = Math.cos(ws.th[i]), s = Math.sin(ws.th[i]);
     const shape = model.outline?.[i];
@@ -180,12 +191,6 @@ export function drawScene(ctx, opts) {
       tracePoly(model.geometry[i], c, s, ws.px[i], ws.py[i]);
       ctx.stroke();
     }
-
-    // Per-segment CoM dot.
-    ctx.fillStyle = css(fg, 0.5);
-    ctx.beginPath();
-    ctx.arc(toX(ws.px[i] + ws.rcx[i]), toY(ws.py[i] + ws.rcy[i]), Math.max(2, 0.008 * scale), 0, TAU);
-    ctx.fill();
   }
 
   // Ground reaction force arrows (playback).
@@ -245,7 +250,7 @@ export function drawScene(ctx, opts) {
   if (clamped) {
     ctx.strokeStyle = isDark ? 'rgba(255, 180, 40, 0.95)' : 'rgba(205, 130, 0, 0.95)';
     ctx.lineWidth = 2.5;
-    for (let j = 3; j <= 8; j++) {
+    for (let j = 3; j < model.nq; j++) {
       if (!(clamped & (1 << j))) continue;
       const b = j - 2;
       ctx.beginPath();
@@ -285,24 +290,43 @@ export function drawScene(ctx, opts) {
   // Screen anchors for drag handles: each handle rotates `joint` about the
   // pivot (the joint's world position); the grab point is the distal
   // reference that the pointer naturally follows.
-  const toe = (b) => {
+  // The far end of a body, in world coordinates: the geometry point furthest
+  // from its own origin. Not the LAST point -- the head's polyline runs from
+  // the crown back to the neck, so its last point is the pivot itself and the
+  // handle would have had nothing to grab.
+  const tip = (b) => {
+    const g = model.geometry[b];
+    let best = g[0], bd = -1;
+    for (const p of g) {
+      const d = p[0] * p[0] + p[1] * p[1];
+      if (d > bd) { bd = d; best = p; }
+    }
     const c = Math.cos(ws.th[b]), s = Math.sin(ws.th[b]);
-    const p = model.geometry[b][model.geometry[b].length - 1];
-    return [ws.px[b] + c * p[0] - s * p[1], ws.py[b] + s * p[0] + c * p[1]];
+    return [ws.px[b] + c * best[0] - s * best[1], ws.py[b] + s * best[0] + c * best[1]];
   };
   const H = (joint, grabW, pivotB) => ({
     joint,
     x: toX(grabW[0]), y: toY(grabW[1]),
     pivotX: toX(ws.px[pivotB]), pivotY: toY(ws.py[pivotB]),
   });
-  const handles = [
-    H(3, [ws.px[2], ws.py[2]], 1),   // shoulder point rotates the arm (wrist)
-    H(4, [ws.px[3], ws.py[3]], 2),   // hip point rotates the torso (shoulder)
-    H(5, [ws.px[4], ws.py[4]], 3),   // left knee point rotates the left hip
-    H(6, toe(4), 4),                 // left toe rotates the left knee
-    H(7, [ws.px[6], ws.py[6]], 5),
-    H(8, toe(6), 6),
-  ];
+  // One handle per driven body, WALKED from the tree. This was a hand-written
+  // table of six entries in the old body numbering: once the trunk gained a
+  // hinge it grabbed the wrong joints -- the handle on the torso turned out to
+  // drive a hip -- and it stopped two bodies short, so the feet and the head
+  // had no handle at all.
+  //
+  // Each body is turned about its own origin, and the natural thing to take
+  // hold of is its far end: the origin of its first child where it has one,
+  // and its own tip where it does not.
+  const firstChild = (b) => {
+    for (let i = 1; i < model.nb; i++) if (model.parent[i] === b) return i;
+    return -1;
+  };
+  const handles = [];
+  for (let b = 1; b < model.nb; b++) {
+    const ch = firstChild(b);
+    handles.push(H(2 + b, ch >= 0 ? [ws.px[ch], ws.py[ch]] : tip(b), b));
+  }
 
   return { comX, comY, supported, handles, heelX, tipX };
 }

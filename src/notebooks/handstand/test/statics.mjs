@@ -1,3 +1,4 @@
+import { JOINT_ORDER } from '../control.js';
 // Verification gates for the static analysis and ROM model.
 //
 // Run: node src/notebooks/handstand/test/statics.mjs
@@ -30,18 +31,31 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7ffffff
 {
   const q = new Float64Array(nq);
   groundHand(model, q);
-  q[3] = 80 * D2R; q[4] = 25 * D2R; q[5] = 50 * D2R; q[6] = -30 * D2R;
-  q[7] = -10 * D2R; q[8] = -5 * D2R;
+  // Something bent at every joint, by name, so this stays a test of the
+  // physics rather than of an index.
+  const bend = { wrist: 80, shoulder: 25, spine: 15, hipL: 50, kneeL: -30,
+    hipR: -10, kneeR: -5, neck: -20 };
+  for (const [name, deg] of Object.entries(bend)) {
+    const j = 3 + JOINT_ORDER.indexOf(name);
+    if (j >= 3) q[j] = deg * D2R;
+  }
   const st = staticAnalysis(model, q, ws);
   fk(model, q, null, ws);
-  // subtree bodies for each actuated joint (joint i connects body i to parent)
-  const subtrees = { 3: [1, 2, 3, 4, 5, 6], 4: [2, 3, 4, 5, 6], 5: [3, 4], 6: [4], 7: [5, 6], 8: [6] };
+  // The bodies distal to each joint, WALKED from parent[] rather than written
+  // down. The hardcoded map here was a map of the seven-body tree, and it
+  // silently stopped describing the body the day the trunk gained a hinge.
+  const distal = (root) => {
+    const out = [];
+    for (let b = 1; b < model.nb; b++) {
+      for (let a = b; a >= 0; a = model.parent[a]) if (a === root) { out.push(b); break; }
+    }
+    return out;
+  };
   let worst = 0;
-  for (const [jStr, bodies] of Object.entries(subtrees)) {
-    const j = +jStr;
+  for (let j = 3; j < 3 + model.nj; j++) {
     const jointBody = j - 2;   // body whose origin is this joint
     let m = 0;
-    for (const b of bodies) m += model.mass[b] * (ws.px[b] + ws.rcx[b] - ws.px[jointBody]);
+    for (const b of distal(jointBody)) m += model.mass[b] * (ws.px[b] + ws.rcx[b] - ws.px[jointBody]);
     const tauHand = model.gravity * m;
     worst = Math.max(worst, Math.abs(tauHand - st.tau[j]));
   }
@@ -59,7 +73,7 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7ffffff
   groundHand(model, q);
   const st = staticAnalysis(model, q, ws);
   let maxNmPerKg = 0;
-  for (let j = 3; j < 9; j++) maxNmPerKg = Math.max(maxNmPerKg, Math.abs(st.tau[j]) / model.massKg);
+  for (let j = 3; j < 3 + model.nj; j++) maxNmPerKg = Math.max(maxNmPerKg, Math.abs(st.tau[j]) / model.massKg);
   gate('B: stacked pose supported with balance-band torques',
     st.supported && maxNmPerKg < 1.0 && Math.abs(st.weight - 70 * model.gravity) < 1e-9,
     `patchFrac=${st.patchFrac.toFixed(3)}, max |tau|=${maxNmPerKg.toFixed(3)} Nm/kg`);
@@ -78,14 +92,15 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7ffffff
     rom.hipFlexStraightKneeMaxDeg + 0.6 * 60);
   const q = new Float64Array(nq);
   groundHand(model, q);
-  q[5] = 130 * D2R; q[6] = 0;          // deep pike, straight knee: must clamp
-  q[7] = 130 * D2R; q[8] = -60 * D2R;  // same pike, bent knee: clamps higher
+  const QJ = Object.fromEntries(JOINT_ORDER.map((n, j) => [n, 3 + j]));
+  q[QJ.hipL] = 130 * D2R; q[QJ.kneeL] = 0;          // deep pike, straight knee: must clamp
+  q[QJ.hipR] = 130 * D2R; q[QJ.kneeR] = -60 * D2R;  // same pike, bent knee: clamps higher
   const mask = clampPose(q, rom);
-  const okL = Math.abs(q[5] / D2R - straight) < 1e-9 && (mask & (1 << 5));
-  const okR = Math.abs(q[7] / D2R - expectBent) < 1e-9;
+  const okL = Math.abs(q[QJ.hipL] / D2R - straight) < 1e-9 && (mask & (1 << QJ.hipL));
+  const okR = Math.abs(q[QJ.hipR] / D2R - expectBent) < 1e-9;
   gate('C: hamstring coupling caps hip flexion by knee angle',
     straight === rom.hipFlexStraightKneeMaxDeg && bent === expectBent && okL && okR,
-    `straight=${straight}deg, knee60=${bent}deg, clampedL=${(q[5] / D2R).toFixed(1)}, clampedR=${(q[7] / D2R).toFixed(1)}`);
+    `straight=${straight}deg, knee60=${bent}deg, clampedL=${(q[QJ.hipL] / D2R).toFixed(1)}, clampedR=${(q[QJ.hipR] / D2R).toFixed(1)}`);
 }
 
 // ---------------------------------------------------------------------------

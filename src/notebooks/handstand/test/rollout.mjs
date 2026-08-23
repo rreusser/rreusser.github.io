@@ -6,14 +6,14 @@
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile } from '../strength.js';
-import { ROM_DEFAULTS } from '../statics.js';
+import { ROM_DEFAULTS, jointLimits } from '../statics.js';
 import { splineEval } from '../control.js';
 import { cmaes } from '../cma-es.js';
 import {
-  naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds,
+  naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds, NJ, JOINT_KEYS,
   rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
   scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC, SYMMETRIC_SCENARIOS,
-  tuckPressReference,
+  tuckPressReference, runScenario, resolveRom, ROM_VIOLATION_SCALE,
 } from '../rollout.js';
 import { momenta, fk } from '../dynamics.js';
 
@@ -61,12 +61,13 @@ const rom = { ...ROM_DEFAULTS };
   const x = encodeDecision(naive.knots, 1.4);
   const dec = decodeDecision(x, 6);
   let worst = 0;
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < NJ; j++) {
     for (let k = 0; k < 6; k++) worst = Math.max(worst, Math.abs(dec.knots[j][k] - naive.knots[j][k]));
   }
   const b = decisionBounds(6);
-  gate('B: encode/decode round trip, bounds sized 6K+1',
-    worst === 0 && dec.T === 1.4 && b.lo.length === 37 && b.hi.length === 37,
+  const want = NJ * 6 + 1;
+  gate(`B: encode/decode round trip, bounds sized ${NJ}K+1`,
+    worst === 0 && dec.T === 1.4 && b.lo.length === want && b.hi.length === want,
     `n=${b.lo.length}`);
 }
 
@@ -194,15 +195,43 @@ const rom = { ...ROM_DEFAULTS };
 {
   const qBal = balancedHandstand(model, ws);
   const knots = [];
-  for (let j = 0; j < 6; j++) knots.push(new Float64Array(6).fill(qBal[3 + j]));
+  for (let j = 0; j < NJ; j++) knots.push(new Float64Array(6).fill(qBal[3 + j]));
   // Command the left knee far into hyperextension; the end-stops hold it about
   // one design penetration (5 deg) outside its 3 deg limit for the rollout.
-  knots[3] = new Float64Array(6).fill(40 * Math.PI / 180);
+  // By name: written as knots[3] this bent whatever joint happened to sit
+  // third, which after the trunk gained a hinge was a HIP, and 40 degrees of
+  // hip flexion is a perfectly legal pose. The gate went on measuring the rom
+  // term of a body doing nothing wrong.
+  knots[JOINT_KEYS.indexOf('kneeL')] = new Float64Array(6).fill(40 * Math.PI / 180);
   const c = rolloutCost(model, ws, prof, rom, 'hold', encodeDecision(knots, 1.0),
     { settleT: 1.0, pinFinal: false });
-  gate('I: a joint parked one stop-depth outside its range costs ~the rom weight',
-    c.terms.rom > 0.3 * COST_WEIGHTS.rom && c.terms.rom < 3 * COST_WEIGHTS.rom,
-    `rom term=${c.terms.rom.toFixed(3)} against weight ${COST_WEIGHTS.rom}`);
+  // How far outside the knee actually sits, measured rather than assumed. The
+  // gate used to assert the penetration was one full design depth; it is not,
+  // and cannot be, because stopDeg is defined at FULL voluntary torque and a
+  // servo holding a pose against gravity does not deliver that. Asserting the
+  // depth tested the servo's authority, not the normalization this gate is
+  // for -- and it passed for a year on a knots array so short that the joint
+  // it bent was a hip.
+  const run = runScenario(model, ws, prof, { scenario: 'hold', knots, T: 1.0, rom,
+    dt: 2e-4, settleT: 1.0, recordEvery: 25 });
+  const jq = 3 + JOINT_KEYS.indexOf('kneeL');
+  let pen = 0;
+  for (let k = 0; k < run.rec.t.length; k++) {
+    const { lo, hi } = jointLimits(rom, run.rec.q[k], jq);
+    const q = run.rec.q[k][jq];
+    pen = Math.max(pen, q > hi ? q - hi : (q < lo ? lo - q : 0));
+  }
+  const stopRad = ROM_VIOLATION_SCALE;
+  // What the term WOULD be if the violation were charged in raw radians, the
+  // way it was before normalization existed. That is the regression this gate
+  // guards, so it is the thing to compare against.
+  const raw = COST_WEIGHTS.rom * pen * pen;
+  const normCeiling = COST_WEIGHTS.rom * (pen / stopRad) ** 2;
+  gate('I: the range-of-motion term is normalized to the stop depth, not raw radians',
+    c.terms.rom > 20 * raw && c.terms.rom <= 1.2 * normCeiling && c.terms.rom > 0.1 * COST_WEIGHTS.rom,
+    `knee held ${(pen * 180 / Math.PI).toFixed(2)} deg outside (stop depth ${(stopRad * 180 / Math.PI).toFixed(0)});`
+    + ` rom term ${c.terms.rom.toFixed(3)}, raw-radian equivalent ${raw.toFixed(4)}`
+    + ` (${(c.terms.rom / raw).toFixed(0)}x), ceiling at peak ${normCeiling.toFixed(3)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -228,9 +257,13 @@ const rom = { ...ROM_DEFAULTS };
     const { q0 } = scenarioStart(model, ws, scenario, { ...rom, hipFlexStraightKneeMaxDeg: ham });
     const mo = momenta(model, q0, zero, ws);
     fk(model, q0, null, ws);
-    const cpt = model.contacts.find((c) => c.body === 4);
-    const th = ws.th[4];
-    const toe = ws.px[4] + Math.cos(th) * cpt.x - Math.sin(th) * cpt.y - q0[0];
+    // The toe by NAME. Found by body index this picked up whichever body was
+    // fourth -- the left shank when the gate was written, the left thigh
+    // afterwards -- and the "toe" it measured the load fraction against was a
+    // mid-thigh bumper.
+    const cpt = model.contacts.find((c) => c.name === 'toeL');
+    const th = ws.th[cpt.body];
+    const toe = ws.px[cpt.body] + Math.cos(th) * cpt.x - Math.sin(th) * cpt.y - q0[0];
     const palmC = 0.5 * (model.patch.x0 + model.patch.x1);
     const com = mo.comX - q0[0];
     return { com, comY: mo.comY, onFeet: (com - palmC) / (toe - palmC) };
@@ -271,9 +304,11 @@ const rom = { ...ROM_DEFAULTS };
   const ref = tuckPressReference(model, ws, 6, rom);
   const asym = encodeDecision(ref.knots.map((r) => Float64Array.from(r)), 1.8);
   const mirrored = encodeDecision(ref.knots.map((r) => Float64Array.from(r)), 1.8);
-  // Bend the right leg away from the left in the raw vector; rows are
-  // [wrist, shoulder, hipL, kneeL, hipR, kneeR], K knots each.
-  for (let k = 0; k < 6; k++) { asym[4 * 6 + k] += 0.4; asym[5 * 6 + k] -= 0.5; }
+  // Bend the right leg away from the left in the raw vector. By name: the
+  // channel order gained a spine and a neck, so the row a number lands in is
+  // not the row it used to be.
+  const hipR = JOINT_KEYS.indexOf('hipR'), kneeR = JOINT_KEYS.indexOf('kneeR');
+  for (let k = 0; k < 6; k++) { asym[hipR * 6 + k] += 0.4; asym[kneeR * 6 + k] -= 0.5; }
   const a = rolloutCost(model, ws, prof, rom, 'tuck', asym, { K: 6, dt: 5e-4 });
   const b = rolloutCost(model, ws, prof, rom, 'tuck', mirrored, { K: 6, dt: 5e-4 });
   gate('L: a symmetric scenario ignores the right leg\'s own parameters',

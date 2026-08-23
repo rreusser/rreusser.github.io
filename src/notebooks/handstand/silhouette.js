@@ -61,16 +61,49 @@ function smoothClosed(pts, per = 6) {
   return out;
 }
 
+// A rounded end for a tube, as a half-ellipse from the anterior corner round
+// to the posterior one.
+//
+// Two segments that meet at a joint are two separate closed outlines, and a
+// flat end on each is only continuous while the joint is straight. Bend it and
+// the two flat ends scissor apart: a wedge of background opens on the OUTSIDE
+// of the bend and a hard corner juts on the inside. That is the notch at the
+// waist and the crease at the hips. Round both ends and the pair overlaps into
+// one continuous shape at any angle, the way two capsules do -- the joint
+// stops being a seam and becomes what it is, a place where the body is round.
+//
+// bulge is how far the cap reaches past the joint, as a fraction of the end's
+// own half-height. A full hemisphere (1) lengthens the segment visibly; these
+// are all well under that, because the cap only has to cover the wedge.
+function capArc(x, a, p, dir, bulge, n = 8) {
+  const yc = 0.5 * (a - p), rc = 0.5 * (a + p);
+  const out = [];
+  for (let i = 1; i < n; i++) {
+    const th = (i / n) * Math.PI;
+    out.push([x + dir * bulge * rc * Math.sin(th), yc + rc * Math.cos(th)]);
+  }
+  return out;
+}
+
 // stations: [x, anteriorHalfDepth, posteriorHalfDepth]. Walks the anterior
 // edge distally, then the posterior edge back, so the result closes.
-function tube(stations) {
+// capProx/capDist round the proximal and distal ends; 0 leaves them flat,
+// which is right for an end that is not a joint (the fingertips, a toe).
+function tube(stations, capProx = 0, capDist = 0) {
+  const first = stations[0], last = stations[stations.length - 1];
   const pts = [];
   for (const st of stations) pts.push([st[0], st[1]]);
+  if (capDist > 0) pts.push(...capArc(last[0], last[1], last[2], 1, capDist));
   for (let i = stations.length - 1; i >= 0; i--) pts.push([stations[i][0], -stations[i][2]]);
+  if (capProx > 0) {
+    const arc = capArc(first[0], first[1], first[2], -1, capProx);
+    for (let i = arc.length - 1; i >= 0; i--) pts.push(arc[i]);
+  }
   return pts;
 }
 
-export function buildSilhouette({ H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lth, Lsh, toeX }) {
+export function buildSilhouette({
+  Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lth, Lsh, toeX }) {
   const s = SHAPE[sex] || SHAPE.male;
   const f = (v) => v * H;
 
@@ -93,17 +126,29 @@ export function buildSilhouette({ H, sex = 'male', Lh, hw, patchHeelX, patchTipX
     [Lfa, f(s.elbow) * 0.92, f(s.elbow) * 0.92],
     [Lfa + 0.42 * (Larm - Lfa), f(s.bicep), f(s.bicep) * 0.92],
     [Larm, f(s.shoulder), f(s.shoulder)],
-  ]))];
+  ], 0, 0.55))];
 
-  // Torso from the shoulder to the hip, and the head as its own subpath.
-  // Both belong to the same rigid body: the model has no neck joint.
-  const torso = smoothClosed(tube([
+  // The torso is TWO bodies now, hinged at the spine, so it is drawn as two
+  // tubes cut at that hinge. The stations are the same ones the single tube
+  // had; the cut station's radii are interpolated between the waist and the
+  // hip so the two halves meet at the same width and the seam does not show
+  // when the spine is straight.
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const tCut = (Lch / Ltr - 0.45) / (0.80 - 0.45);
+  const cutA = lerp(f(s.waistA), f(s.hipA), tCut);
+  const cutP = lerp(f(s.waistP), f(s.hipP), tCut);
+  const chest = smoothClosed(tube([
     [-f(0.010), f(s.chestA) * 0.80, f(s.chestP) * 0.82],
     [0.10 * Ltr, f(s.chestA), f(s.chestP)],
     [0.45 * Ltr, f(s.waistA), f(s.waistP)],
-    [0.80 * Ltr, f(s.hipA), f(s.hipP)],
-    [Ltr, f(s.hipA) * 0.80, f(s.hipP) * 0.70],
-  ]));
+    [Lch, cutA, cutP],
+  ], 0.30, 0.42));
+  // In the pelvis's own frame, which starts at the hinge.
+  const pelvis = smoothClosed(tube([
+    [0, cutA, cutP],
+    [0.80 * Ltr - Lch, f(s.hipA), f(s.hipP)],
+    [Lpv, f(s.hipA) * 0.80, f(s.hipP) * 0.70],
+  ], 0.42, 0.50));
 
   // Head. Drawn as a profile rather than a ball, because a ball next to an
   // arm reads as a joint. t runs 0 at the crown to 1 at the base of the
@@ -127,13 +172,13 @@ export function buildSilhouette({ H, sex = 'male', Lh, hw, patchHeelX, patchTipX
     [hx(0.94), f(s.neck) * 0.85, f(s.neck) * 1.05],
     [-f(0.035), f(s.neck) * 0.95, f(s.neck) * 1.25],
     [f(0.005), f(s.chestA) * 0.72, f(s.chestP) * 0.72],
-  ]), 4);
+  ], 0, 0.30), 4);
 
   const thigh = [smoothClosed(tube([
     [0, f(s.thighA), f(s.thighP)],
     [0.40 * Lth, f(s.thighA) * 0.80, f(s.thighP) * 0.74],
     [Lth, f(s.knee), f(s.knee) * 0.94],
-  ]))];
+  ], 0.55, 0.60))];
 
   // Shank with the foot folded in, matching the way the model itself lumps
   // them: calf on the posterior side, then a pointed foot along +x.
@@ -144,16 +189,22 @@ export function buildSilhouette({ H, sex = 'male', Lh, hw, patchHeelX, patchTipX
     [Lsh, f(s.ankle), f(s.ankle) * 1.25],
     [Lsh + 0.45 * (toeX - Lsh), f(s.footTop) * 0.75, f(s.footSole) * 0.85],
     [toeX, f(0.009), f(0.009)],
-  ]))];
+  ], 0.60, 0))];
 
+  // Body order, which is the model's: hand, arm, chest, pelvis, both legs,
+  // then the head hanging off the chest. The neck and skull are already
+  // written relative to the shoulder, which is exactly the head body's own
+  // origin, so they move across unchanged.
   return [
     hand,
     arm,
-    [torso, neck, skull],
+    [chest],
+    [pelvis],
     thigh,
     shank,
     thigh,
     shank,
+    [neck, skull],
   ];
 }
 
