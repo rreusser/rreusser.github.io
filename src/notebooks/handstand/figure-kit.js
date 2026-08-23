@@ -694,6 +694,62 @@ export function createStoryboard({
   // the time: which pose this is stays legible at any size, and the instant is
   // printed on the timeline directly beneath it anyway.
   let compact = false;
+  // Hover is a mouse idea. `mouseenter` never fires on a touch screen, so a
+  // control that only appears on hover is a control that is INVISIBLE AND LIVE
+  // at the same time -- and an 18px delete button you cannot see, sitting in
+  // the corner of the 40px target that selects the pose, is one you hit by
+  // accident. Repeatedly. Where there is no hover, a cell's own controls
+  // belong to the SELECTED cell and nothing else: until you have deliberately
+  // picked a frame the strip is frames, with nothing on them to hit.
+  //
+  // Hidden means gone, not transparent: opacity 0 still takes the tap.
+  const HOVER = typeof matchMedia === 'function' ? matchMedia('(hover: hover)').matches : true;
+  let selected = -1;
+  // The cell whose deletion is being confirmed somewhere else. Drawn under a
+  // solid border with its neighbours dimmed, so the question being asked has a
+  // subject you can see: the strip says "pose 3" and this is which one that is.
+  let pending = -1;
+  const paintCell = (k) => {
+    const c = cells[k];
+    if (!c) return;
+    // Whether this cell's own controls answer a finger. With a pointer, always
+    // -- they are small but you can see exactly where it is. Without one, only
+    // once the cell is selected: a frame is 44 px wide and its two corner
+    // buttons are 18 px square, so a seventh of it is controls, and every one
+    // of them stops the click from reaching the frame. Tapping a pose to LOOK
+    // at it landed on a padlock or a delete as often as not.
+    const armed = HOVER || selected === k || pending === k;
+    c.host.style.borderColor = pending === k ? 'currentColor'
+      : k === selected ? REQUEST_COLOR : 'transparent';
+    c.canvas.style.opacity = pending >= 0 && pending !== k ? '0.45' : '1';
+    // The two padlocks stay VISIBLE either way -- held-or-free and pinned-or-
+    // free are things the storyboard is telling you, and a strip that hid them
+    // until you tapped would be a strip that stopped saying what the search is
+    // allowed to do. They just stop taking the tap, so the first one selects
+    // the frame and the second works the lock.
+    if (c.lockBtn) c.lockBtn.style.pointerEvents = armed ? 'auto' : 'none';
+    if (c.pinnable) c.capTime.style.pointerEvents = armed ? 'auto' : 'none';
+    // The two actions are hidden outright when they are not reachable, because
+    // they are verbs rather than readings and there is nothing to say about a
+    // pose you have not picked. Hidden means GONE, not transparent: opacity 0
+    // still takes the tap, which is exactly how the delete kept being hit.
+    if (c.delBtn) {
+      const lit = c.delHot || pending === k;
+      c.delBtn.style.opacity = !armed ? '0' : lit ? '0.95' : '0.3';
+      c.delBtn.style.pointerEvents = armed ? 'auto' : 'none';
+    }
+    if (c.insBtn) {
+      // Without hover there is nothing to reach WITH, so a reachable cell
+      // shows its plus outright rather than waiting for a pointer that is
+      // never coming.
+      const reachable = HOVER || selected === k;
+      const lit = reachable && (c.insHot || !HOVER);
+      c.insIcon.style.opacity = lit ? '1' : '0';
+      c.insLine.style.opacity = lit ? '.4' : '.13';
+      c.insBtn.style.pointerEvents = reachable ? 'auto' : 'none';
+    }
+  };
+  const paintAll = () => { for (let k = 0; k < cells.length; k++) paintCell(k); };
   // Closed, and open: the shackle's right leg leaves the body rather than the
   // whole glyph changing, so the two states are one object in two positions.
   const SHUT = 'M3.4 6.4V4.3a2.6 2.6 0 0 1 5.2 0v2.1';
@@ -818,8 +874,15 @@ export function createStoryboard({
       delBtn.title = 'drop this pose. The others keep their shapes and their '
         + 'timing exactly -- nothing is refitted.';
       delBtn.setAttribute('aria-label', 'delete this pose');
-      delBtn.addEventListener('mouseenter', () => { delBtn.style.opacity = '0.95'; });
-      delBtn.addEventListener('mouseleave', () => { delBtn.style.opacity = '0.3'; });
+      // A flag rather than a direct opacity write: whether this button shows
+      // is now a question of hover AND selection AND whether it is the one
+      // being confirmed, and three handlers each writing the answer they
+      // happen to know about is how they come to disagree.
+      const hot = (on) => { if (cells[k]) cells[k].delHot = on; paintCell(k); };
+      delBtn.addEventListener('mouseenter', () => hot(true));
+      delBtn.addEventListener('mouseleave', () => hot(false));
+      delBtn.addEventListener('focus', () => hot(true));
+      delBtn.addEventListener('blur', () => hot(false));
       delBtn.addEventListener('click', (e) => { e.stopPropagation(); onDelete(k); });
       host.appendChild(delBtn);
     }
@@ -848,18 +911,18 @@ export function createStoryboard({
       insBtn.title = 'add a pose here. Its angles are read off the curve you '
         + 'already have, so the movement does not change -- you just gain a handle on it.';
       insBtn.setAttribute('aria-label', 'add a pose here');
-      const show = () => { insIcon.style.opacity = '1'; insLine.style.opacity = '.4'; };
-      const hide = () => { insIcon.style.opacity = '0'; insLine.style.opacity = '.13'; };
-      insBtn.addEventListener('mouseenter', show);
-      insBtn.addEventListener('mouseleave', hide);
-      insBtn.addEventListener('focus', show);
-      insBtn.addEventListener('blur', hide);
+      const hot = (on) => { if (cells[k]) cells[k].insHot = on; paintCell(k); };
+      insBtn.addEventListener('mouseenter', () => hot(true));
+      insBtn.addEventListener('mouseleave', () => hot(false));
+      insBtn.addEventListener('focus', () => hot(true));
+      insBtn.addEventListener('blur', () => hot(false));
       insBtn.addEventListener('click', (e) => { e.stopPropagation(); onInsert(k); });
       host.appendChild(insBtn);
     }
 
     row.appendChild(host);
-    cells.push({ canvas, cap, capName, capTime, capTimeText, timeShackle, pinnable, host, lockBtn, delBtn, insBtn, insIcon, insLine });
+    cells.push({ canvas, cap, capName, capTime, capTimeText, timeShackle, pinnable, host,
+      lockBtn, delBtn, insBtn, insIcon, insLine, delHot: false, insHot: false });
     cellLocks.push(shackle);
   }
 
@@ -878,6 +941,9 @@ export function createStoryboard({
   const setCount = (nextN) => {
     if (nextN === K) return;
     K = nextN;
+    // Whatever was being confirmed went with the cells that were rebuilt, and
+    // an index into the old row names a cell nobody meant.
+    pending = -1;
     buildAll();
     resize(lastWidth);
   };
@@ -952,6 +1018,7 @@ export function createStoryboard({
   // A request is drawn in the request grey; a body is drawn as a body.
   const tint = requestTint();
   const draw = ({ model, ws, items, sel = -1, theme }) => {
+    selected = sel;
     for (let k = 0; k < K && k < items.length; k++) {
       const it = items[k];
       const ctx = cells[k].canvas.getContext('2d');
@@ -961,7 +1028,6 @@ export function createStoryboard({
         clear: false, model, ws, width: thumbW, height: thumbH, theme, view,
         q: it.q, segmentColors: it.solid ? null : tint,
       });
-      cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
       const c = cells[k];
       // Compact: the frame is too narrow to hold both, so the caption keeps
       // which pose this is and drops the instant. The padlock stays -- it is
@@ -997,7 +1063,18 @@ export function createStoryboard({
           ? 'the pose the technique ends in — always held'
           : it.locked ? 'held: the search may not move this pose' : 'free: the search may move this pose';
       }
+      paintCell(k);
     }
   };
-  return { element, draw, resize, setCount, cells, get count() { return K; } };
+
+  // Which cell, if any, is being confirmed for deletion -- -1 for none. The
+  // question itself is asked elsewhere, because there is no room for two
+  // finger-sized answers on a 40px frame; this is only how the frame says that
+  // it is the one the question is about.
+  const setPending = (k) => {
+    pending = k == null ? -1 : k;
+    paintAll();
+  };
+  return { element, draw, resize, setCount, setPending, cells,
+    get hoverable() { return HOVER; }, get count() { return K; } };
 }
