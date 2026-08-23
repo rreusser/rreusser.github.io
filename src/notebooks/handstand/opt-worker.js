@@ -12,7 +12,7 @@ import {
 import {
   optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision, plantFor,
   balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS, NUMERICS_DEFAULTS, applyLocks,
-  applyTimeLocks,
+  applyTimeLocks, rolloutCost, encodeDecision,
 } from './rollout.js';
 
 // A pool of nested evaluation workers, so a generation is spread across
@@ -135,7 +135,7 @@ async function handle(msg) {
     // The pool scores candidates for THIS technique, so it is configured from
     // the same derivation rather than from a parallel set of message fields.
     const pool = await createPool({
-      scenario: sa.scenario, K: sa.K, dt: msg.dt ?? 2.5e-4,
+      scenario: sa.scenario, K: sa.K, dt: msg.dt ?? NUMERICS_DEFAULTS.dt,
       weights: msg.weights,
       modelParams: techniqueModelParams(rec),
       strengthOpts: techniqueStrengthOpts(rec),
@@ -146,6 +146,16 @@ async function handle(msg) {
       numerics: sa.numerics, symmetric: sa.symmetric,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
+    // Exactly the arguments optimizeScenario scores a candidate with, so the
+    // per-generation reading below is the same measurement as the final check
+    // rather than a second opinion.
+    const nominalArgs = {
+      K: sa.K, dt: msg.dt ?? NUMERICS_DEFAULTS.dt,
+      weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
+      q0: sa.q0, target: sa.target, plant: sa.plant,
+      knotFracs: sa.knotFracs, locks: sa.locks, timeLocks: sa.timeLocks,
+      numerics: sa.numerics, symmetric: sa.symmetric,
+    };
     const result = await optimizeScenario(model, ws, prof, rom, {
       ...sa,
       objectiveBatch: pool ? (xs) => pool.objectiveBatch(xs) : null,
@@ -161,7 +171,7 @@ async function handle(msg) {
       // throws the first generations far away from a technique that already
       // works, which reads as the search getting worse before it gets better.
       ...(msg.sigma0 ? { sigma0: msg.sigma0 } : {}),
-      dt: msg.dt ?? 2.5e-4,
+      dt: msg.dt ?? NUMERICS_DEFAULTS.dt,
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === sa.maxGen - 1) {
@@ -179,9 +189,28 @@ async function handle(msg) {
           // Cheapest candidate first, so the viewer can draw the leader
           // differently from the rest of the field.
           const poses = (pool ? pool.lastPoses : genPoses).slice().sort((a2, b2) => a2.cost - b2.cost);
+          // The number the page shows, and it is NOT g.best.
+          //
+          // g.best is the search's own objective: the worst case over the
+          // robustness variants, which is the right thing to RANK candidates
+          // by and the wrong thing to report, because it is not a number
+          // anyone can reproduce. What the page reports at the end is a
+          // nominal replay -- the technique run once, at the timestep the
+          // figure plays back at -- so that is what it reports here too. Same
+          // measurement every generation and at the end, so a falling curve
+          // that ends higher than its last point means the search genuinely
+          // went backwards, rather than meaning the label changed.
+          //
+          // One extra rollout per GENERATION, against lambda per generation
+          // for the search itself: a few per cent, for a status line that is
+          // not lying.
+          const nominal = rolloutCost(model, ws, prof, rom, sa.scenario,
+            encodeDecision(dec.knots, dec.T), {
+              ...nominalArgs, knotFracs: dec.fracs || nominalArgs.knotFracs,
+            }).cost;
           self.postMessage({
             type: 'progress', gen: g.gen, maxGen: sa.maxGen,
-            best: g.best, sigma: g.sigma,
+            best: nominal, searchBest: g.best, sigma: g.sigma,
             T: dec.T, knots: dec.knots.map((k) => Array.from(k)),
             knotFracs: dec.fracs ? Array.from(dec.fracs) : null,
             // The machine the search is running on, so a run that is stopped

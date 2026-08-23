@@ -1179,8 +1179,23 @@
       // figure -- picker, sliders, buttons, all of it -- to change the number
       // of thumbnails in one row. Only the storyboard depends on the count, so
       // only the storyboard is rebuilt.
-      let K = Math.max(2, editState.knots?.[0]?.length
-        || (editState.base === simResult ? 0 : 0) || simResult.knots[0].length);
+      // The technique this run IS -- the single object technique-file.js reads
+      // and writes. simResult carries the recording; this is the thing that was
+      // saved, and it is what opening one has to give back.
+      const openedTechnique = simResult.stored || null;
+      // Whether the picker is naming a technique the editor is not already
+      // holding. simResult changes identity whenever a different one is chosen.
+      const openedAnother = editState.base !== simResult || !editState.knots;
+      // The pose count comes from the TECHNIQUE. It used to be read off
+      // editState first and fall through to the technique only when the editor
+      // was empty -- so opening a six-pose technique while a seven-pose one was
+      // on screen kept the seven and quietly RESAMPLED the six onto it. You
+      // saved six and got back seven. The count is a setting of the figure only
+      // while you stay on one technique; the moment you open another, the
+      // technique wins, exactly as loading a file already did.
+      let K = Math.max(2, openedAnother
+        ? (openedTechnique?.knots?.[0]?.length ?? simResult.knots[0].length)
+        : editState.knots[0].length);
       // The stored technique, said with however many poses are asked for.
       // Reset restores THIS, not the stored count: at four poses a six-pose
       // technique cannot be represented exactly, and pretending otherwise
@@ -1295,26 +1310,87 @@
       const differs = (a, b) => a[0].length !== b[0].length
         || a.some((row, j) => row.some((v, k) => v !== b[j][k]));
 
+      // ---- reading a technique, whole ---------------------------------------
+      // ONE reader. A technique is a single object -- the one technique-file.js
+      // writes -- and opening one has to give back every field of it: the
+      // knots, the tempo, the phrasing, which poses are held, which instants
+      // are pinned, the start pose, the mirror, the machine, the body, and the
+      // search settings.
+      //
+      // There used to be two readers and they disagreed. Loading a FILE
+      // restored all of it. Picking the same technique out of the list beside
+      // it restored the knots and the tempo and dropped the rest on the floor:
+      // the holds went back to "only the ending", every instant went back to
+      // pinned, an edited start pose was discarded, the mirror was re-derived
+      // from the scenario name, the search seed and generation count were left
+      // at whatever was on screen -- and the pose count was taken from the
+      // editor rather than the technique, so the knots themselves came back
+      // resampled. Keep wrote one thing and the picker read another, which
+      // means it was not a save/load at all.
+      //
+      // Returns the technique's own pose count, because the caller has to
+      // reconcile the figure with it.
+      const readTechnique = (rec) => {
+        const nk = rec.knots[0].length;
+        const rr = resolveRom(rec.rom);
+        editState.knots = widenKnots(rec.knots.map((k) => Float64Array.from(k)));
+        editState.T = +rec.T;
+        editState.fracs = rec.knotFracs?.length === nk
+          ? Float64Array.from(rec.knotFracs)
+          : Float64Array.from({ length: nk }, (_, k) => (nk === 1 ? 0 : k / (nk - 1)));
+        editState.held = rec.held?.length === nk
+          ? Array.from(rec.held, Boolean)
+          : Array.from({ length: nk }, (_, k) => k === nk - 1);
+        editState.timeHeld = rec.timeHeld?.length === nk
+          ? Array.from(rec.timeHeld, Boolean)
+          : Array.from({ length: nk }, () => true);
+        // Structural rather than stored: the ending pose is what the technique
+        // aims at and the two ends of the movement are 0 and T by definition,
+        // whatever a file happens to say about them.
+        editState.held[nk - 1] = true;
+        editState.timeHeld[0] = editState.timeHeld[nk - 1] = true;
+        editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
+        editState.symmetric = typeof rec.symmetric === 'boolean'
+          ? rec.symmetric
+          : SYMMETRIC_SCENARIOS.has(rec.scenario || simResult.scenarioName);
+        editState.machine = {
+          config: resolvePlant(rec.config),
+          numerics: resolveNumerics(rec.numerics),
+          body: resolveRunBody(rec.body),
+        };
+        editState.body = [
+          rec.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
+          rr.hipFlexStraightKneeMaxDeg,
+          rr.shoulderFlexMaxDeg,
+          rr.wristExtMaxDeg ?? 135,
+          rr.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
+        ];
+        editState.search = { seed: rec.search?.seed ?? 7, maxGen: rec.search?.maxGen ?? 120 };
+        return nk;
+      };
+
       if (!sameRun) {
-        const base = baseKnots();
-        editState.knots = base.map((k) => Float64Array.from(k));
-        editState.T = simResult.T;
-        editState.fracs = baseFracs();
-        editState.held = freshHeld();
-        editState.timeHeld = freshTimeHeld();
+        readTechnique(openedTechnique || {
+          knots: simResult.knots, T: simResult.T, knotFracs: simResult.knotFracs,
+          rom: simResult.baseRom, scenario: simResult.scenarioName,
+        });
+        // Mirroring a symmetric skill moves the knots without touching the
+        // recording beside them, and a figure whose grey poses have moved
+        // while its coloured body has not is the confusion this figure exists
+        // to remove -- so that means re-simulate rather than re-lay-out.
+        const raw = editState.knots.map((k) => Float64Array.from(k));
+        sym(editState.knots);
+        stale = differs(editState.knots, raw);
         editState.run = simResult;
         editState.edited = false;
-        editState.q0 = null;
-        // The stored run was made from the stored knots. If mirroring a
-        // symmetric skill moved them, that run is no longer this technique.
-        stale = differs(base, simResult.knots);
       }
-      // Belt and braces for a technique loaded before either existed.
+      // Belt and braces for a technique stored before any of these existed.
       if (editState.fracs?.length !== K) editState.fracs = evenFracs();
       if (editState.held?.length !== K) editState.held = freshHeld();
       editState.held[K - 1] = true;
       if (editState.timeHeld?.length !== K) editState.timeHeld = freshTimeHeld();
       editState.timeHeld[0] = editState.timeHeld[K - 1] = true;
+      if (!editState.search) editState.search = { seed: 7, maxGen: 120 };
 
       const dpr = devicePixelRatio;
       // Every reference pose has to fit, and a reference pose is not a pose the
@@ -1940,21 +2016,30 @@
         // technique said with four. Calling .map on the function itself threw
         // on the first line, so Revert had been doing nothing at all except
         // stopping the search: every button press was a silent no-op.
-        editState.knots = baseKnots().map((k) => Float64Array.from(k));
-        editState.T = simResult.T;
-        editState.fracs = baseFracs();
-        editState.held = freshHeld();
-        editState.timeHeld = freshTimeHeld();
-        // The mirror is part of the technique, so reverting the technique
-        // reverts it too -- it was left wherever it had been set.
-        editState.symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
-        symToggle.value = editState.symmetric;
-        editState.q0 = null;
-        durInput.value = simResult.T;
-        editState.body = bodyDefaults.slice();
-        editState.machine = machineDefaults();
-        syncServo();
-        bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
+        // The same reader again, when the technique can be said exactly. Revert
+        // means "give me the stored technique", and that is one object: the
+        // holds, the pins, the start pose, the mirror and the search settings
+        // came back re-derived rather than restored, which made Revert a
+        // different act from opening the very same technique.
+        if (sameCount() && openedTechnique) {
+          readTechnique(openedTechnique);
+          sym(editState.knots);
+        } else {
+          // A different pose count is the one thing Revert leaves alone -- that
+          // is a setting of the figure, and a four-pose refit of a six-pose
+          // technique cannot be undone by restoring six numbers -- so here the
+          // technique has to be resampled onto the count on screen.
+          editState.knots = baseKnots().map((k) => Float64Array.from(k));
+          editState.T = simResult.T;
+          editState.fracs = baseFracs();
+          editState.held = freshHeld();
+          editState.timeHeld = freshTimeHeld();
+          editState.symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
+          editState.q0 = null;
+          editState.body = bodyDefaults.slice();
+          editState.machine = machineDefaults();
+        }
+        syncTechniqueInputs();
         editState.run = simResult;
         optState.history = [];
         status = '';
@@ -2149,36 +2234,18 @@
         const rec = pendingLoad.rec;
         if (!rec) return;
         pendingLoad.rec = null;
-        const loadedK = rec.knots[0].length;
-        editState.knots = rec.knots.map((k) => Float64Array.from(k));
-        editState.T = rec.T;
-        editState.fracs = rec.knotFracs
-          ? Float64Array.from(rec.knotFracs)
-          : Float64Array.from({ length: loadedK }, (_, k) => (loadedK === 1 ? 0 : k / (loadedK - 1)));
-        editState.held = rec.held.slice();
-        editState.held[loadedK - 1] = true;
-        editState.timeHeld = rec.timeHeld.slice();
-        editState.timeHeld[0] = editState.timeHeld[loadedK - 1] = true;
-        editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
-        editState.machine = { config: rec.config, numerics: rec.numerics, body: rec.body };
-        syncServo();
-        editState.symmetric = rec.symmetric;
-        symToggle.value = rec.symmetric;
-        editState.body = [
-          rec.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
-          rec.rom.hipFlexStraightKneeMaxDeg, rec.rom.shoulderFlexMaxDeg, rec.rom.wristExtMaxDeg,
-          rec.rom.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
-        ];
-        bodyInputs.forEach((i, n) => { i.value = editState.body[n]; });
-        durInput.value = rec.T;
-        optSeed.value = rec.search.seed;
-        optGens.value = rec.search.maxGen;
+        // The same reader the picker uses. This used to be a second,
+        // hand-kept copy of it, and the two drifted -- which is how opening a
+        // technique from the list stopped being the same act as opening the
+        // file it was saved to.
+        const loadedK = readTechnique(rec);
+        syncTechniqueInputs();
         editState.edited = true;
         optState.history = [];
         status = rec.label ? `loaded ${rec.label}` : 'loaded';
         sel = -1;
-        // The pose count is a setting of the figure; the file is a technique
-        // with a definite number of poses. The file wins.
+        // The pose count is a setting of the figure; a technique has a definite
+        // number of poses. The technique wins.
         if (loadedK !== K) setCount(loadedK); else resim();
       }
 
@@ -2259,6 +2326,17 @@
       const syncServo = () => servoInputs.forEach((inp, n) => {
         inp.value = editState.machine.config[SERVO[n].key];
       });
+      // Every control that shows a field of the technique, pushed back from
+      // editState in one place. readTechnique writes the state; this makes the
+      // panel agree with it, and the two are always called together.
+      function syncTechniqueInputs() {
+        symToggle.value = editState.symmetric;
+        bodyInputs.forEach((i, n) => { i.value = editState.body[n]; });
+        durInput.value = editState.T;
+        optSeed.value = editState.search.seed;
+        optGens.value = editState.search.maxGen;
+        syncServo();
+      }
 
       // ---- the search --------------------------------------------------------
       // It changes the same numbers your hands do. That is the whole reason it
@@ -2266,8 +2344,16 @@
       // move, because those ARE what CMA-ES is searching over.
       const optRun = html`<button class="hs-btn hs-btn--primary">Optimize</button>`;
       const optStop = html`<button class="hs-btn" disabled>Stop</button>`;
-      const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
-      const optSeed = Inputs.range([1, 99], { label: 'Search seed', value: 7, step: 1 });
+      // Read off the technique rather than hardcoded, because the seed and the
+      // generation count are fields of it: Save writes them and Load restored
+      // them, while opening the same technique from the picker left whatever
+      // was on screen. Same object, same fields, both ways in.
+      const optGens = Inputs.range([20, 400], { label: 'Generations',
+        value: editState.search.maxGen, step: 10 });
+      const optSeed = Inputs.range([1, 99], { label: 'Search seed',
+        value: editState.search.seed, step: 1 });
+      optGens.addEventListener('input', () => { editState.search.maxGen = +optGens.value; });
+      optSeed.addEventListener('input', () => { editState.search.seed = +optSeed.value; });
       // Short. It sits in a wrapping row next to three buttons and a
       // sparkline, and "searching · generation 12 · best cost 5.55 · 12
       // workers" was long enough to push itself onto a line of its own at some
@@ -2402,6 +2488,12 @@
             return;
           }
           if (data.type === 'progress') {
+            // data.best is the incumbent scored the way the FIGURE scores it:
+            // one nominal rollout, at the timestep playback uses. It is not
+            // the search's own objective (that is the worst case over the
+            // robustness variants, which ranks candidates well and reproduces
+            // nowhere), and the worker sends the two separately for exactly
+            // that reason.
             optState.history.push({ gen: data.gen, best: data.best });
             status = `gen ${data.gen} · cost ${data.best.toFixed(2)}`;
             // Held, not applied. A generation is swapped in at the end of a
@@ -2411,6 +2503,13 @@
             // jumping at one moment and the field behind them at another.
             pending = data;
           } else if (data.type === 'done') {
+            // The same measurement the generations reported, so the last point
+            // belongs on the same curve. It used to be a different one -- the
+            // generations showed the search's robust worst case at one
+            // timestep and the finish showed a nominal replay at another -- and
+            // the two were labelled "cost" alike, so the number fell for forty
+            // generations and then jumped at the end. Nothing had gone wrong
+            // with the search; the label had changed under it.
             optState.history.push({ gen: optState.history.length, best: data.fineCost });
             status = `done · cost ${data.fineCost.toFixed(2)}`;
             pending = null;

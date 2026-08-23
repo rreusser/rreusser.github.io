@@ -907,8 +907,50 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   })();
   const scoredEnd = rec.t[kEnd - 1];
 
-  const mo = momenta(model, r.q, r.qd, ws);
-  const xTargetEnd = r.q[0] + model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+  // Where the body finished THE ATTEMPT, not where the crash left it.
+  //
+  // This used to read the final integrator state -- the end of the whole
+  // rollout, settle tail and all -- while every other term had already been
+  // cut off at kEnd, the instant of the fall. So a technique that got further
+  // was charged for the heap it eventually came to rest in, and the charge was
+  // enormous: swept from too weak a throw to the answer, `fall` fell
+  // correctly (226 -> 117 -> 103) and `reach` fell correctly (23.6 -> 8.2 ->
+  // 1.6) while `pose` jumped from 6.9 to 105.8 and reversed the ranking. The
+  // search read that as "getting closer is worse". It is the same bug the
+  // replant term had, in the same place, and it is the reason a face plant
+  // could score better than a near miss: the score was measuring HOW IT FELL.
+  //
+  // And for an attempt that FELL, even the end of the scored window is the
+  // wrong instant. A slow topple is detected late, by which time the body has
+  // had a second to drift; a fast one is caught early, near where it started.
+  // So the same reversal survived cutting the window: at alpha 0.88 the body
+  // reached 0.78 m and toppled at t = 3.03 with pose 81, while at 0.78 it
+  // reached only 0.65 and fell at t = 1.22 with pose 6. Getting further still
+  // read as worse.
+  //
+  // What a failed attempt is worth is how close it ever CAME, so that is what
+  // is measured: the instant inside the scored window at which the body was
+  // nearest the handstand. For a technique that arrives nothing changes -- the
+  // window ends parked in the handstand and the nearest instant is the end of
+  // it -- and whether it is parked WELL is what poseAngles, velocity, feet and
+  // settleCalm are for, over the settle tail, unchanged.
+  const kScored = (() => {
+    const last = Math.max(0, Math.min(rec.q.length - 1, kEnd - 1));
+    if (Number.isNaN(tFall)) return last;
+    let best = last, bestD = Infinity;
+    for (let k = 0; k <= last; k++) {
+      const xT = rec.q[k][0] + model.patch.x0
+        + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+      const dx = (rec.com[k][0] - xT) / 0.1;
+      const dy = (rec.com[k][1] - comYbal) / (0.2 * H);
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    return best;
+  })();
+  const mo = momenta(model, rec.q[kScored], rec.qd[kScored], ws);
+  const xTargetEnd = rec.q[kScored][0] + model.patch.x0
+    + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
   const poseTerm = ((mo.comX - xTargetEnd) / 0.1) ** 2 + ((mo.comY - comYbal) / (0.2 * H)) ** 2;
   // Peak CoM speed over the final 0.4 s, not the final instant: a body
   // drifting into overshoot can be momentarily slow exactly at cutoff.
@@ -1175,9 +1217,23 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
 // catch tuned to one timestep's contact artifacts falls in the other
 // variant and pays full price. (Robustness via worst-case over
 // perturbations, in the spirit of robust character-control optimization.)
+// The FIRST variant is the nominal one, and its timestep is the replay's --
+// NUMERICS_DEFAULTS.dt, the step the page integrates at when it plays an
+// answer back. It used to be 2.5e-4 against a replay at 2e-4, for no reason
+// anyone wrote down beyond the coarser step being quicker, and that made the
+// search and the figure two different problems: the number the search
+// converged to was not a number you could reproduce by pressing play, and the
+// final check existed to paper over the gap by re-scoring the winner somewhere
+// else. One problem statement, one timestep.
+//
+// The SECOND variant differs on purpose, and this is the one place in the
+// notebook where two timesteps are correct: a candidate has to survive being
+// integrated differently, or it is a knife-edge tuned to one step's contact
+// artifacts rather than a technique. It is deliberately NOT the replay's step,
+// because a variant that agreed with the nominal one would test nothing.
 export const ROBUST_VARIANTS = [
-  { dt: 2.5e-4 },
-  { dt: 2e-4, qdJitter: 0.05, jitterSeed: 9182 },
+  { dt: NUMERICS_DEFAULTS.dt },
+  { dt: 3e-4, qdJitter: 0.05, jitterSeed: 9182 },
 ];
 
 export function robustRolloutCost(model, ws, strengthProf, rom, scenario, x, opts = {}) {
@@ -1313,27 +1369,86 @@ export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
 // while the swing leg sweeps hard overhead, extend the stance leg to push
 // off, join the legs above, and hand the catch to the balance servo. The
 // magic numbers are only a starting shape for the optimizer.
+// The kick-up reference.
+//
+// Unlike the press, this one cannot be derived from statics: a kick-up is a
+// THROW, and there is no path of balanced poses through it -- the body is
+// airborne over its hands with its centre of mass outside the palm for most of
+// the movement, and whether it arrives depends on how much angular momentum
+// the swing leg carries and when the shoulder brakes it. The old waypoints
+// here were hand-authored on the six-joint body, and on the articulated one
+// they threw the body clean past its fingers at t = 1.0 every time: measured
+// over some two dozen variations of the wind-up, the tempo and the stance
+// drive, not one arrived and none lifted the centre of mass above 0.73 m
+// against a handstand's 1.02.
+//
+// So the SHAPE of the throw is taken from a search -- CMA-ES on this same
+// scorer, on the default body, at the default strength -- and written down
+// here as what it is: a measurement. What is NOT written down is the pose it
+// starts in or the pose it ends at. Each stage is
+//
+//     start * (1 - a) + target * a + delta
+//
+// where the start is solved per body by scenarioStart and the target is the
+// balanced handstand for that body, so a taller or weaker frame moves both
+// ends and the throw's shape travels between them. `a` is how far along that
+// straight line the stage sits (negative at the wind-up, which is the body
+// moving AWAY from the handstand to load the swing); `delta` is everything the
+// straight line cannot say, and it is where the movement actually lives: the
+// trunk rounding 31 and 39 degrees through the middle, the swing knee folding
+// to 82, the stance leg driving late. A reference with the spine and the knees
+// pinned at zero -- which is what a six-joint author had no choice but to
+// write -- cannot express any of that.
+//
+// This is a starting point, not a result. It is re-scored on today's plant
+// every time the editor opens it, and if a controller fix makes it better or
+// worse the figure says so.
+const KICK_STAGE_A = [-0.143, 0.226, 0.530, 0.648, 0.816, 1.000];
+const KICK_STAGE_DELTA_DEG = {
+  wrist: [8.4, 11.4, 19.7, 21.2, -31.2, 0],
+  shoulder: [-5.1, 31.5, 4.0, -8.8, 12.2, 0],
+  spine: [-1.2, 31.0, 38.7, -7.0, 9.4, 0],
+  hipL: [0.1, -52.6, -57.9, -12.8, -21.5, 0],
+  kneeL: [-41.3, -0.6, -69.7, -81.6, -30.7, 0],
+  hipR: [-5.5, 26.8, 45.3, 13.7, -20.9, 0],
+  kneeR: [-25.3, 25.6, 6.1, -15.1, -47.9, 0],
+  neck: [14.0, -10.8, -8.9, -13.9, 14.4, 0],
+};
+// The tempo, and it is not simply the one the search settled on. Swept in
+// hundredths, this throw arrives over a clean band from 1.38 to 1.56 s and
+// then goes ragged -- 1.58 lands seven centimetres short, 1.60 reaches the
+// height but will not settle, and past 1.66 it topples in the tail. The search
+// stopped at 1.5813, which is a hole in that band: right on the answer and
+// wrong the moment anything else moves. A starting point wants MARGIN rather
+// than optimality, so this is the middle of the band.
+export const KICK_T = 1.47;
+
 export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
   const { q0 } = scenarioStart(model, ws, 'lunge', rom);
   const target = balancedHandstand(model, ws);
-  const wB = target[3];
-  const s = Array.from(q0.slice(3));
-  // waypoints [wrist, shoulder, hipSwing(L), kneeL, hipStance(R), kneeR]
-  // s is the start pose in FULL channel order, so read it by name.
-  const L = LEGACY_JOINT_ORDER.map((n) => s[JOINT_KEYS.indexOf(n)]);
-  const stages = [
-    fromLegacy([L[0], L[1], L[2], L[3], L[4], L[5]]),
-    fromLegacy([L[0] - 8 * D2R, L[1] - 15 * D2R, L[2] - 45 * D2R, L[3], L[4], L[5]]),
-    fromLegacy([L[0], L[1] - 50 * D2R, -8 * D2R, 0, L[4] - 40 * D2R, -10 * D2R]),
-    fromLegacy([wB - 4 * D2R, 18 * D2R, 4 * D2R, 0, 30 * D2R, 0]),
-    fromLegacy([wB, 6 * D2R, target[QI.hipL] + 4 * D2R, 0, 12 * D2R, 0]),
-    Array.from(target.slice(3)),
-  ];
+  const nStage = KICK_STAGE_A.length;
+  // Every stage, said in full channels: the straight line from this body's
+  // start to this body's handstand, plus the measured deviation from it.
+  const stages = Array.from({ length: nStage }, (_, i) => {
+    const a = KICK_STAGE_A[i];
+    const out = new Float64Array(NJ);
+    for (let j = 0; j < NJ; j++) {
+      const name = JOINT_KEYS[j];
+      const s = q0[3 + j], t = target[3 + j];
+      const d = (KICK_STAGE_DELTA_DEG[name]?.[i] ?? 0) * D2R;
+      out[j] = s * (1 - a) + t * a + d;
+    }
+    return out;
+  });
+  // The last stage IS the handstand: the search pins it there and so does the
+  // editor, so it is written exactly rather than reconstructed from a delta of
+  // zero on a rounded `a`.
+  stages[nStage - 1] = Float64Array.from(target.slice(3));
   const rows = Array.from({ length: NJ }, () => new Float64Array(K));
   for (let j = 0; j < NJ; j++) {
     for (let k = 0; k < K; k++) {
-      const u = (k / (K - 1)) * (stages.length - 1);
-      const i = Math.min(Math.floor(u), stages.length - 2);
+      const u = (k / (K - 1)) * (nStage - 1);
+      const i = Math.min(Math.floor(u), nStage - 2);
       const f = u - i;
       rows[j][k] = stages[i][j] * (1 - f) + stages[i + 1][j] * f;
     }
@@ -1347,7 +1462,7 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
 // finalCheck is an independent fine-timestep nominal evaluation.
 export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
-  dt = 2.5e-4, weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
+  dt = NUMERICS_DEFAULTS.dt, weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
   knotFracs = null, locks = null, numerics = null, symmetric = null,
   freeTimes = false, timeLocks = null, timeStepScale = TIME_STEP_SCALE,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,

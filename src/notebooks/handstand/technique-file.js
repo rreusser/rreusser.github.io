@@ -31,7 +31,21 @@ import {
 import { JOINT_ORDER, LEGACY_JOINT_ORDER } from './control.js';
 
 export const TECHNIQUE_FORMAT = 'handstand-technique';
-export const TECHNIQUE_VERSION = 1;
+// 2, because everything written as 1 is suspect. Until this version the
+// editor had two readers for one format: loading a FILE restored the whole
+// technique, while picking the same technique out of the list beside it
+// restored the knots and the tempo, re-derived the holds, the pins, the start
+// pose and the mirror, and -- worst -- took the POSE COUNT from whatever was
+// already on screen, resampling the knots onto it. So a technique kept after
+// opening another one was written down with a shape its author never chose,
+// and the file is a faithful record of the wrong thing.
+//
+// There is no migration, because there is nothing to migrate to: the
+// information about what was intended was destroyed before the file was
+// written. A version 1 file is refused, by name, rather than opened into
+// something that looks right.
+export const TECHNIQUE_VERSION = 2;
+export const TECHNIQUE_MIN_VERSION = 2;
 
 const arr = (a) => (a == null ? null : Array.from(a, (v) => +v));
 const mat = (m) => (m == null ? null : m.map((row) => Array.from(row, (v) => +v)));
@@ -76,6 +90,11 @@ export function techniqueFromJSON(json) {
   }
   if (!(j.version <= TECHNIQUE_VERSION)) {
     throw new Error(`saved by a newer version of this notebook (version ${j.version})`);
+  }
+  if (!(j.version >= TECHNIQUE_MIN_VERSION)) {
+    throw new Error(`saved by a version of this notebook whose editor could change a `
+      + `technique's pose count while opening it, so what is in this file is not `
+      + `necessarily what was authored (version ${j.version}). Rebuild it and keep it again.`);
   }
   // Both widths are a technique: LEGACY_JOINT_ORDER is what every file
   // written before the trunk gained a hinge says, and widenKnots turns it

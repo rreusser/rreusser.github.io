@@ -30,16 +30,23 @@ import { createWorkspace } from './dynamics.js';
 import { ROM_DEFAULTS } from './statics.js';
 import {
   kickReference, pressReference, tuckPressReference, naiveReference,
-  balancedHandstand, SYMMETRIC_SCENARIOS, PLANT_DEFAULTS, NUMERICS_DEFAULTS,
+  balancedHandstand, SYMMETRIC_SCENARIOS, PLANT_DEFAULTS, NUMERICS_DEFAULTS, KICK_T,
 } from './rollout.js';
 
 // Scenario -> how the editor should open it. The duration is the one number
 // here that is a judgement rather than a derivation: it is the tempo the
 // movement is authored at, and the search is pinned to it.
 export const BUILTIN_SCENARIOS = [
-  { key: 'lunge', label: 'Kick-up', T: 1.9, K: 6 },
+  // The kick-up's tempo is not a free judgement the way the presses' are: the
+  // throw only arrives in a narrow band, so it comes from the same measurement
+  // the reference's shape does.
+  { key: 'lunge', label: 'Kick-up', T: KICK_T, K: 6 },
   { key: 'pike', label: 'Press, straight legs', T: 2.2, K: 6 },
-  { key: 'tuck', label: 'Bent-leg press', T: 1.8, K: 6 },
+  // 1.8 s was too fast for the shape to be held through: given the shoulder a
+  // bent-leg press actually needs (2.8 Nm/kg -- see test/presets-arrive.mjs)
+  // this arrives at 2.5 and falls at 1.8, and a starting point should be the
+  // tempo the movement works at rather than the one it was first written at.
+  { key: 'tuck', label: 'Bent-leg press', T: 2.5, K: 6 },
   { key: 'hold', label: 'Hold a handstand', T: 1.2, K: 3 },
 ];
 

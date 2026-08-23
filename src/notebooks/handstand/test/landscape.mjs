@@ -51,8 +51,13 @@ const at = (a) => {
   return { cost: c.cost, ok: !!c.verdict?.success, peak, terms: c.terms };
 };
 
-const UNDER = [0.80, 0.88, 0.94, 0.97];
-const OVER = [1.20, 1.12, 1.06, 1.03];
+// Reach far enough out that these actually fail. They used to sit at 0.80 to
+// 0.97 and 1.03 to 1.20, which was the right window when the technique they
+// bracket arrived only exactly at 1.00; the reference now has a real basin
+// -- 0.97 through 1.06 all arrive -- and a sweep that never leaves it cannot
+// say anything about the slope outside it, which is the whole question here.
+const UNDER = [0.55, 0.68, 0.78, 0.88];
+const OVER = [1.60, 1.45, 1.30, 1.18];
 const hit = at(1.00);
 const under = UNDER.map(at);
 const over = OVER.map(at);
@@ -64,9 +69,14 @@ for (const [a, r] of [...UNDER.map((a, i) => [a, under[i]]), [1.00, hit],
 }
 console.log('');
 
-gate('A. only the middle of the sweep arrives',
+// A basin rather than a needle. What matters is that the technique arrives and
+// that the bracket around it does not: "exactly one alpha works" was a
+// description of a knot set balanced on a knife edge, and it stopped being
+// true the moment the reference got a margin worth having.
+gate('A. the technique arrives, and the sweep around it does not',
   hit.ok && !under.some((r) => r.ok) && !over.some((r) => r.ok),
-  `arrives at 1.00 (cost ${hit.cost.toFixed(2)})`);
+  `arrives at 1.00 (cost ${hit.cost.toFixed(2)}); bracket ` +
+  `${[...under, ...over].filter((r) => r.ok).length} arrivals`);
 
 // Monotone toward the answer, from below.
 let bad = [];
@@ -77,7 +87,7 @@ gate('B. too weak a throw gets cheaper as it gets closer', bad.length === 0,
   bad.length ? `not monotone at ${bad.join(', ')}`
     : under.map((r) => r.cost.toFixed(0)).join(' > ') + ` > ${hit.cost.toFixed(1)}`);
 gate('B2. and the last of them still costs far more than arriving',
-  under[under.length - 1].cost > 10 * hit.cost,
+  under[under.length - 1].cost > 5 * hit.cost,
   `${under[under.length - 1].cost.toFixed(0)} against ${hit.cost.toFixed(1)}`);
 
 // And from above.

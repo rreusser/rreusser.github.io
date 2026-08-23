@@ -13,7 +13,7 @@ import {
   naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds, NJ, JOINT_KEYS,
   rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
   scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC, SYMMETRIC_SCENARIOS,
-  tuckPressReference, runScenario, resolveRom, ROM_VIOLATION_SCALE,
+  tuckPressReference, runScenario, resolveRom, ROM_VIOLATION_SCALE, KICK_T,
 } from '../rollout.js';
 import { momenta, fk } from '../dynamics.js';
 
@@ -120,16 +120,28 @@ const rom = { ...ROM_DEFAULTS };
 
 // ---------------------------------------------------------------------------
 // Gate F: a small-budget kick-up optimization never regresses below its own
-// start (the start is a candidate), makes at least some progress, and is
-// bitwise-deterministic under the same seed.
+// start (the start is a candidate) and is bitwise-deterministic under the same
+// seed.
+//
+// It used to demand PROGRESS as well -- a full per cent of it in fifteen
+// generations -- and that was a fair thing to ask while the reference it
+// starts from was a technique that fell: anything at all is an improvement on
+// a cost in the hundreds. The reference arrives now, at a cost around ten, and
+// fifteen generations of CMA-ES on a good answer is not enough to sharpen it
+// measurably. Demanding otherwise would make this gate an argument for keeping
+// the starting point bad.
 // ---------------------------------------------------------------------------
 {
-  const startX = encodeDecision(kickReference(model, ws, 6, rom).knots, 1.4);
+  // The same tempo on both sides, said explicitly. optimizeScenario has a t0
+  // default of its own, and comparing a search that began at one tempo against
+  // a start priced at another is not a comparison.
+  const startX = encodeDecision(kickReference(model, ws, 6, rom).knots, KICK_T);
   const startCost = rolloutCost(model, ws, prof, rom, 'lunge', startX, { dt: 2.5e-4 }).cost;
-  const o1 = await optimizeScenario(model, ws, prof, rom, { scenario: 'lunge', maxGen: 15, seed: 11, robust: false });
-  const o2 = await optimizeScenario(model, ws, prof, rom, { scenario: 'lunge', maxGen: 15, seed: 11, robust: false });
-  gate('F: small-budget optimization never regresses, improves, deterministic',
-    o1.best <= startCost && o1.best < startCost * 0.99 && o1.best === o2.best,
+  const opts = { scenario: 'lunge', maxGen: 15, seed: 11, robust: false, t0: KICK_T };
+  const o1 = await optimizeScenario(model, ws, prof, rom, opts);
+  const o2 = await optimizeScenario(model, ws, prof, rom, opts);
+  gate('F: small-budget optimization never regresses, and is deterministic',
+    o1.best <= startCost && o1.best === o2.best,
     `start=${startCost.toFixed(1)}, optimized=${o1.best.toFixed(1)}`);
 }
 
