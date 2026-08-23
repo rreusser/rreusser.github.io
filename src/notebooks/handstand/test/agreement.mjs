@@ -19,7 +19,7 @@ import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
 import { ROM_DEFAULTS } from '../statics.js';
 import {
   rolloutCost, runScenario, encodeDecision, resolvePlant, resolveNumerics,
-  resolveRom, resolveBody, symmetrizeKnots, SYMMETRIC_SCENARIOS,
+  resolveRom, resolveBody, symmetrizeKnots, SYMMETRIC_SCENARIOS, NJ, JOINT_KEYS, widenKnots,
 } from '../rollout.js';
 import { resampleKnots } from '../figure-kit.js';
 import { PRESET_TRAJECTORIES } from '../presets.js';
@@ -68,7 +68,7 @@ const played = (m, stored, knots, T, q0, target, fracs = null) =>
 // The page's own notion of the ending: the last knot, as a pose.
 const targetOf = (m, knots) => {
   const q = new Float64Array(m.model.nq);
-  for (let j = 0; j < 6; j++) q[3 + j] = knots[j][knots[j].length - 1];
+  for (let j = 0; j < NJ; j++) q[3 + j] = knots[j][knots[j].length - 1];
   return q;
 };
 
@@ -85,7 +85,11 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   const stored = PRESET_TRAJECTORIES[name];
   if (!stored?.knots) continue;
   const m = pageBody(stored);
-  const base = asEdited(stored, stored.knots.map((k) => Float64Array.from(k)));
+  // Widened before anything indexes it. Un-widened, the "fold at the hips"
+  // edit below lands on a spine and a knee, and the dragged-start edit moves
+  // whatever coordinates 5 and 6 happen to be -- which after the trunk gained
+  // a hinge is a spine and a hip, not a hip and a knee.
+  const base = asEdited(stored, widenKnots(stored.knots.map((k) => Float64Array.from(k))));
   const K0 = base[0].length;
 
   // As shipped: no dragged start, ending is the stored one.
@@ -95,14 +99,18 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   const seed = played(m, stored, base, stored.T, null, targetOf(m, base), null);
   const q0 = Float64Array.from(seed.rec.q[0]);
   const q0Moved = Float64Array.from(q0);
-  q0Moved[5] += 12 / D; q0Moved[6] -= 8 / D;                  // hip and knee, by hand
-  if (SYMMETRIC_SCENARIOS.has(stored.scenario)) { q0Moved[7] = q0Moved[5]; q0Moved[8] = q0Moved[6]; }
+  const QJ = Object.fromEntries(JOINT_KEYS.map((n, j) => [n, 3 + j]));
+  q0Moved[QJ.hipL] += 12 / D; q0Moved[QJ.kneeL] -= 8 / D;     // hip and knee, by hand
+  if (SYMMETRIC_SCENARIOS.has(stored.scenario)) {
+    q0Moved[QJ.hipR] = q0Moved[QJ.hipL]; q0Moved[QJ.kneeR] = q0Moved[QJ.kneeL];
+  }
   CASES.push({ label: `${name} dragged start`, m, stored, knots: base, T: stored.T, q0: q0Moved });
 
   // An ending that is not a handstand: the last knot moved, as dragging the
   // last cell of the storyboard does.
   const piked = base.map((k) => Float64Array.from(k));
-  piked[2][K0 - 1] += 35 / D; piked[4][K0 - 1] += 35 / D;      // fold at the hips
+  piked[JOINT_KEYS.indexOf('hipL')][K0 - 1] += 35 / D;         // fold at the hips
+  piked[JOINT_KEYS.indexOf('hipR')][K0 - 1] += 35 / D;
   CASES.push({ label: `${name} pike ending`, m, stored, knots: asEdited(stored, piked), T: stored.T, q0: null });
 
   // Phrasing placed by hand, with two poses close together -- the thing the
@@ -189,8 +197,12 @@ gate('B. and never disagree about arrival', verdictSplits === 0,
   let worst = 0, where = '';
   for (const c of CASES) {
     if (!SYMMETRIC_SCENARIOS.has(c.stored.scenario)) continue;
-    for (let k = 0; k < c.knots[2].length; k++) {
-      for (const [l, r] of [[2, 4], [3, 5]]) {
+    // Paired by name. Written as [[2,4],[3,5]] these were the six-joint
+    // body's hip and knee rows; on the articulated body row 2 is the spine.
+    const PAIRS = [['hipL', 'hipR'], ['kneeL', 'kneeR']]
+      .map(([a2, b2]) => [JOINT_KEYS.indexOf(a2), JOINT_KEYS.indexOf(b2)]);
+    for (let k = 0; k < c.knots[0].length; k++) {
+      for (const [l, r] of PAIRS) {
         const e = Math.abs(c.knots[l][k] - c.knots[r][k]);
         if (e > worst) { worst = e; where = c.label; }
       }

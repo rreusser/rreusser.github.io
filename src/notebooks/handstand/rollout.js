@@ -343,7 +343,21 @@ export const PLANT_DEFAULTS = {
   kp: 800, kd: 60, kCom: 2000, dCom: 1500,
   activationTau: 0.05, mu: 1.0, contactZeta: 1.0, integrator: 'si',
   tuckLoadFrac: TUCK_LOAD_FRAC, tuckKneeDeg: TUCK_KNEE_DEG,
-  dampingRatio: 1.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
+  // Overdamped, deliberately. A servo commanding torque through a 50 ms
+  // activation lag is not the second-order system its damping ratio is
+  // computed for: the lag adds phase the ratio does not know about, so
+  // "critically damped" on paper rings in practice. It showed as a head that
+  // bobbled and knees that sprang -- a 20 degree neck step overshot 2.8
+  // degrees and a 40 degree knee step rang once, at a nominal zeta of 1.
+  //
+  // This and loopOmegaTau are two halves of one fix and neither is
+  // sufficient. Capping bandwidth alone leaves the neck overshooting 2.8
+  // degrees; damping alone, uncapped, leaves it overshooting 3.5 with three
+  // crossings. Together every joint is at zero overshoot and zero crossings
+  // -- and the pair tracks a fast kick-up BETTER than the ringing tuning did
+  // (1.39 deg rms against 2.41), because damping the resonance costs nothing
+  // on the command path while slowing the loop costs everything.
+  dampingRatio: 2.0, brakeMargin: 0.8, inertiaHz: 200, dampingSpeed: 0.5,
   romStopDeg: 5, romStopZeta: 0.7, loopOmegaTau: 1.0,
 };
 

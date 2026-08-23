@@ -18,7 +18,7 @@ import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
 import {
   decisionBounds, clampKnotsToRom, encodeDecision, rolloutCost, runScenario, optimizeScenario,
   resolveRom, resolveBody, resolvePlant, resolveNumerics, symmetrizeKnots,
-  SYMMETRIC_SCENARIOS,
+  SYMMETRIC_SCENARIOS, NJ, widenKnots,
 } from '../rollout.js';
 import { resampleKnots } from '../figure-kit.js';
 import { PRESET_TRAJECTORIES } from '../presets.js';
@@ -35,7 +35,12 @@ const T_RANGE = [0.5, 3.5];
 
 const cases = Object.entries(PRESET_TRAJECTORIES)
   .filter(([, v]) => v?.knots)
-  .map(([name, stored]) => ({ name, stored, rom: resolveRom({ ...(stored.rom || {}) }) }));
+  // Widened here, once. Compared un-widened, row 2 of a decoded result is the
+  // spine and row 2 of a stored technique is a hip, and every gate below
+  // reports the difference between two different joints as drift.
+  .map(([name, stored]) => ({ name,
+    stored: { ...stored, knots: widenKnots(stored.knots.map((k) => Float64Array.from(k))) },
+    rom: resolveRom({ ...(stored.rom || {}) }) }));
 
 // How far decisionBounds would move a decision vector -- i.e. how far the
 // search moves the technique before it starts.
@@ -99,8 +104,8 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
     for (const T of [T_RANGE[0], 0.7, 1.0, 1.9, 2.6, T_RANGE[1]]) {
       const K = c.stored.knots[0].length;
       const { lo, hi } = decisionBounds(K, { tLo: T, tHi: T, rom: c.rom });
-      const span = hi[6 * K] - lo[6 * K];
-      const drift = Math.abs(Math.min(Math.max(T, lo[6 * K]), hi[6 * K]) - T);
+      const span = hi[NJ * K] - lo[NJ * K];
+      const drift = Math.abs(Math.min(Math.max(T, lo[NJ * K]), hi[NJ * K]) - T);
       if (span + drift > worst) { worst = span + drift; where = `${c.name} at T=${T}`; }
     }
   }
@@ -133,7 +138,7 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
 
   // ...and the replay run under the same numerics agrees with it.
   const target = new Float64Array(model.nq);
-  for (let j = 0; j < 6; j++) target[3 + j] = c.stored.knots[j][c.stored.knots[j].length - 1];
+  for (let j = 0; j < NJ; j++) target[3 + j] = c.stored.knots[j][c.stored.knots[j].length - 1];
   const played = runScenario(model, ws, prof, {
     scenario: c.stored.scenario, knots: c.stored.knots.map((k) => Float64Array.from(k)),
     T: c.stored.T, rom: c.rom, target,
@@ -166,7 +171,7 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
   const K = c.stored.knots[0].length;
   const T = 2.2;                      // well inside the range, with room to slow down
   const target = new Float64Array(model.nq);
-  for (let j = 0; j < 6; j++) target[3 + j] = c.stored.knots[j][K - 1];
+  for (let j = 0; j < NJ; j++) target[3 + j] = c.stored.knots[j][K - 1];
   const res = await optimizeScenario(model, ws, prof, c.rom, {
     scenario: c.stored.scenario, seed: 3, maxGen: 20, K, sigma0: 0.05,
     x0: encodeDecision(c.stored.knots.map((k) => Float64Array.from(k)), T),
@@ -179,7 +184,7 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
   // ...and it did do something with the angles, so the gate is not passing
   // because the search sat still.
   let angle = 0;
-  for (let j = 0; j < 6; j++) for (let k = 0; k < K; k++) {
+  for (let j = 0; j < NJ; j++) for (let k = 0; k < K; k++) {
     angle = Math.max(angle, Math.abs(res.decoded.knots[j][k] - c.stored.knots[j][k]));
   }
   gate('D2. (and it did move the angles)', angle * D > 0.1, `${(angle * D).toFixed(2)} deg`);
