@@ -1211,26 +1211,30 @@ export function pressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   const openFrac = (u) => (u <= 0.28 ? 0 : (u - 0.28) / 0.72);
   for (let k = 0; k < K; k++) {
     const u = k / (K - 1);
-    const hip = q0[5] * (1 - openFrac(u));
-    const sh = q0[4] * (1 - openFrac(u));
+    const hip = q0[QI.hipL] * (1 - openFrac(u));
+    const sh = q0[QI.shoulder] * (1 - openFrac(u));
     let wrist;
     if (k === 0) {
       wrist = q0[3];
     } else {
       scratch.fill(0);
       groundHand(model, scratch);
-      scratch[4] = sh;
-      scratch[5] = scratch[7] = hip;
+      scratch[QI.shoulder] = sh;
+      scratch[QI.hipL] = scratch[QI.hipR] = hip;
       const w = solveWristForCom(model, scratch, ws, targetX);
       wrist = Number.isNaN(w) ? lastWrist : w;
     }
     lastWrist = wrist;
-    rows[0][k] = wrist;
-    rows[1][k] = sh;
-    rows[2][k] = hip; rows[4][k] = hip;
-    rows[3][k] = 0; rows[5][k] = 0;
+    // By name. Rows 0..5 were the six-joint body's channels, so on the
+    // articulated one this wrote the hip angle into the SPINE and the left
+    // KNEE and left both hips at zero -- a press that folded at the waist and
+    // one knee instead of at the hips.
+    rows[QI.wrist - 3][k] = wrist;
+    rows[QI.shoulder - 3][k] = sh;
+    rows[QI.hipL - 3][k] = hip; rows[QI.hipR - 3][k] = hip;
+    rows[QI.kneeL - 3][k] = 0; rows[QI.kneeR - 3][k] = 0;
   }
-  rows[0][K - 1] = target[3];
+  rows[QI.wrist - 3][K - 1] = target[QI.wrist];
   return { knots: rows, q0, target };
 }
 
@@ -1260,12 +1264,12 @@ export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
   const hipTuck = Math.min(hipFlexMaxDeg(rom, 125), 140) * D2R;
   const PHASES = [
     // u,   shoulder,          hip,          knee (rad; negative is flexed)
-    [0.00, q0[4], q0[5], q0[6]],
-    [0.16, q0[4], q0[5], -70 * D2R],
-    [0.32, q0[4] * 0.72, q0[5] * 1.05, -12 * D2R],
+    [0.00, q0[QI.shoulder], q0[QI.hipL], q0[QI.kneeL]],
+    [0.16, q0[QI.shoulder], q0[QI.hipL], -70 * D2R],
+    [0.32, q0[QI.shoulder] * 0.72, q0[QI.hipL] * 1.05, -12 * D2R],
     [0.52, SHOULDER_TUCK, hipTuck, -125 * D2R],
     [0.78, SHOULDER_TUCK * 0.5, hipTuck * 0.55, -70 * D2R],
-    [1.00, target[4], target[5], target[6]],
+    [1.00, target[QI.shoulder], target[QI.hipL], target[QI.kneeL]],
   ];
   const lerp = (a, b, t) => a + (b - a) * t;
   const sample = (u) => {
@@ -1289,9 +1293,9 @@ export function tuckPressReference(model, ws, K = 6, rom = ROM_DEFAULTS) {
     } else {
       scratch.fill(0);
       groundHand(model, scratch);
-      scratch[4] = sh;
-      scratch[5] = scratch[7] = hip;
-      scratch[6] = scratch[8] = knee;
+      scratch[QI.shoulder] = sh;
+      scratch[QI.hipL] = scratch[QI.hipR] = hip;
+      scratch[QI.kneeL] = scratch[QI.kneeR] = knee;
       const w = solveWristForCom(model, scratch, ws, targetX);
       wrist = Number.isNaN(w) ? lastWrist : w;
     }

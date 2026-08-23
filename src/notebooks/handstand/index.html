@@ -246,12 +246,15 @@
       if (inSymmetric.value) { inHipR.value = inHipL.value; inKneeR.value = inKneeL.value; }
       const q = poseState.q;
       groundHand(poseState.model, q);
-      q[3] = inWrist.value * D2R;
-      q[4] = inShoulder.value * D2R;
-      q[5] = inHipL.value * D2R;
-      q[6] = -inKneeL.value * D2R;
-      q[7] = inHipR.value * D2R;
-      q[8] = -inKneeR.value * D2R;
+      // By name. Written as 3..8 these were the six-joint body's coordinates,
+      // so once the trunk gained a hinge the hip sliders drove the SPINE and
+      // the knee sliders drove the hips.
+      q[QI.wrist] = inWrist.value * D2R;
+      q[QI.shoulder] = inShoulder.value * D2R;
+      q[QI.hipL] = inHipL.value * D2R;
+      q[QI.kneeL] = -inKneeL.value * D2R;
+      q[QI.hipR] = inHipR.value * D2R;
+      q[QI.kneeR] = -inKneeR.value * D2R;
       const rom = {
         ...ROM_DEFAULTS,
         wristExtMaxDeg: inRomWrist.value,
@@ -261,12 +264,12 @@
       };
       const clamped = clampPose(q, rom);
       if (clamped) {
-        inWrist.value = q[3] / D2R;
-        inShoulder.value = q[4] / D2R;
-        inHipL.value = q[5] / D2R;
-        inKneeL.value = -q[6] / D2R;
-        inHipR.value = q[7] / D2R;
-        inKneeR.value = -q[8] / D2R;
+        inWrist.value = q[QI.wrist] / D2R;
+        inShoulder.value = q[QI.shoulder] / D2R;
+        inHipL.value = q[QI.hipL] / D2R;
+        inKneeL.value = -q[QI.kneeL] / D2R;
+        inHipR.value = q[QI.hipR] / D2R;
+        inKneeR.value = -q[QI.kneeR] / D2R;
       }
       poseState.rom = rom;
       poseState.clamped = clamped;
@@ -533,8 +536,12 @@
       const poseAt = (hipDeg, shDeg) => {
         const q = new Float64Array(model.nq);
         groundHand(model, q);
-        q[4] = shDeg * D2R;
-        q[5] = q[7] = hipDeg * D2R;
+        // The corridor's two axes are the SHOULDER and the HIPS. Written as
+        // q[4] and q[5]/q[7] that was true of the six-joint body; on the
+        // articulated one it bent the spine and the left knee instead, and
+        // the probe drew a body folded in places a press does not fold.
+        q[QI.shoulder] = shDeg * D2R;
+        q[QI.hipL] = q[QI.hipR] = hipDeg * D2R;
         const wr = solveWristForCom(model, q, ws, targetX);
         if (Number.isNaN(wr)) return null;
         q[3] = wr;

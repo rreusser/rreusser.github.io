@@ -247,7 +247,10 @@ export function pressCorridor(model, rom, strengthProf, ws, {
       }
       utilization[idx] = util;
       let romOk = true;
-      for (const jj of [3, 4, 5, 6, 7, 8]) {
+      // Every joint the body has. Written as [3..8] this stopped checking two
+      // joints the moment the trunk gained a hinge, so a pose could be
+      // reported feasible with its neck or right knee outside its anatomy.
+      for (let jj = 3; jj < model.nq; jj++) {
         const { lo, hi } = jointLimits(rom, q, jj);
         if (q[jj] < lo - 1e-9 || q[jj] > hi + 1e-9) { romOk = false; break; }
       }
