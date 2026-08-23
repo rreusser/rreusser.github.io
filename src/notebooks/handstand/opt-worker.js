@@ -7,6 +7,9 @@ import { createWorkspace } from './dynamics.js';
 import { strengthProfile } from './strength.js';
 import { ROM_DEFAULTS } from './statics.js';
 import {
+  techniqueFromJSON, techniqueSearchArgs, techniqueModelParams, techniqueStrengthOpts,
+} from './technique-file.js';
+import {
   optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision, plantFor,
   balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS, NUMERICS_DEFAULTS, applyLocks,
   applyTimeLocks,
@@ -82,6 +85,15 @@ function setup(msg) {
   return { model, ws, prof, rom };
 }
 
+// The same, from a technique. The optimize path uses this; catchWindow still
+// takes loose parameters because it is not searching a technique at all.
+function setupFor(rec) {
+  const model = buildModel(techniqueModelParams(rec));
+  const ws = createWorkspace(model);
+  const prof = strengthProfile(model.massKg, techniqueStrengthOpts(rec));
+  return { model, ws, prof };
+}
+
 // Everything below runs inside an async message handler, so a throw becomes
 // an unhandled rejection rather than an exception -- which reaches the page
 // as an error event whose message is undefined. Report failures as data
@@ -104,7 +116,15 @@ self.onmessage = async (e) => {
 
 async function handle(msg) {
   if (msg.type === 'optimize') {
-    const { model, ws, prof, rom } = setup(msg);
+    // The technique IS the problem statement. Everything below is derived
+    // from it by technique-file.js -- the same derivations the page uses to
+    // replay it -- so the search and the playback cannot be handed different
+    // problems. Unpacking a hand-written field list here was the third copy
+    // of that list, and the copies drifted.
+    const rec = techniqueFromJSON(msg.technique);
+    const sa = techniqueSearchArgs(rec);
+    const { model, ws, prof } = setupFor(rec);
+    const rom = sa.rom;
     // Candidates of the generation being evaluated right now, as the
     // recordings scoring already made, thinned to something a canvas can
     // animate. They arrive from the pool when there is one and from the
@@ -112,100 +132,63 @@ async function handle(msg) {
     const GHOST_FRAMES = 120;
     let genPoses = [];
     const cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 4;
+    // The pool scores candidates for THIS technique, so it is configured from
+    // the same derivation rather than from a parallel set of message fields.
     const pool = await createPool({
-      scenario: msg.scenario, K: msg.K ?? 6, dt: msg.dt ?? 2.5e-4,
-      weights: msg.weights, modelParams: msg.modelParams,
-      strengthOpts: msg.strengthOpts, romOverrides: msg.romOverrides,
-      // The start the page is showing, so every core scores the same problem
-      // the page will replay.
-      q0: msg.q0 || null, target: msg.target || null, plant: msg.plant || null,
-      knotFracs: msg.knotFracs || null, locks: msg.locks || null,
-      timeLocks: msg.timeLocks || null,
-      numerics: msg.numerics || null, symmetric: msg.symmetric ?? null,
+      scenario: sa.scenario, K: sa.K, dt: msg.dt ?? 2.5e-4,
+      weights: msg.weights,
+      modelParams: techniqueModelParams(rec),
+      strengthOpts: techniqueStrengthOpts(rec),
+      romOverrides: rom,
+      q0: sa.q0, target: sa.target, plant: sa.plant,
+      knotFracs: sa.knotFracs, locks: sa.locks,
+      timeLocks: sa.timeLocks,
+      numerics: sa.numerics, symmetric: sa.symmetric,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
     const result = await optimizeScenario(model, ws, prof, rom, {
+      ...sa,
       objectiveBatch: pool ? (xs) => pool.objectiveBatch(xs) : null,
       onCandidate: pool ? null : (x, c) => {
-        const rec = c.rec;
-        if (!rec?.q?.length) return;
-        const stride = Math.max(1, Math.round(rec.q.length / GHOST_FRAMES));
+        const r = c.rec;
+        if (!r?.q?.length) return;
+        const stride = Math.max(1, Math.round(r.q.length / GHOST_FRAMES));
         const frames = [];
-        for (let k = 0; k < rec.q.length; k += stride) frames.push(Array.from(rec.q[k]));
-        genPoses.push({ frames, cost: c.cost, success: !!c.verdict?.success, dur: rec.t[rec.t.length - 1] });
+        for (let k = 0; k < r.q.length; k += stride) frames.push(Array.from(r.q[k]));
+        genPoses.push({ frames, cost: c.cost, success: !!c.verdict?.success, dur: r.t[r.t.length - 1] });
       },
-      scenario: msg.scenario,
-      seed: msg.seed ?? 7,
-      maxGen: msg.maxGen ?? 150,
-      K: msg.K ?? 6,
       // A warm start is a refinement: sampling at the from-scratch sigma
       // throws the first generations far away from a technique that already
       // works, which reads as the search getting worse before it gets better.
       ...(msg.sigma0 ? { sigma0: msg.sigma0 } : {}),
       dt: msg.dt ?? 2.5e-4,
-      ...(msg.scenario === 'pike' ? { tLo: 1.5, tHi: 3.5, t0: 2.2 } : {}),
-      // Duration range from the page -- both ends. It is the range of the
-      // duration slider, so anything the reader can ask for is something the
-      // search can hold onto. With only a ceiling, the floor stayed at the
-      // search's own idea of a sensible duration and a technique set below it
-      // was stretched before the first generation: a press asked to run in a
-      // second was searched at one and a half, and the answer came back
-      // describing a movement the page was never showing. The ceiling still
-      // matters for its own reason: work and smoothness both fall as a
-      // movement slows, so with a high one the search always picks the slowest
-      // version available, which is also the one where the shoulder supplies
-      // everything and nothing is carried by momentum.
-      ...(msg.tLo ? { tLo: msg.tLo } : {}),
-      ...(msg.tHi ? { tHi: msg.tHi, t0: Math.min(msg.tHi * 0.9, 2.2) } : {}),
-      x0: msg.x0 ? Float64Array.from(msg.x0) : null,
-      q0: msg.q0 || null,
-      target: msg.target || null,
-      // And the plant, for the same reason as the start and the ending: the
-      // page owns the machine, the search must not substitute its own.
-      plant: msg.plant || null,
-      // Where the poses fall, and which of them are held by hand. Phrasing is
-      // authored rather than searched, so the search's job is to score the
-      // phrasing it was given; a held pose it simply may not move.
-      knotFracs: msg.knotFracs || null,
-      locks: msg.locks || null,
-      // Whether the poses may slide along the clock, and which of them may
-      // not. The duration stays where the page put it either way -- tLo and
-      // tHi arrive equal -- so this is the search finding a rhythm inside a
-      // fixed tempo rather than buying an easier score by slowing down.
-      freeTimes: !!msg.freeTimes,
-      timeLocks: msg.timeLocks || null,
-      numerics: msg.numerics || null,
-      // Whether the legs mirror. The page decides now; without this the search
-      // would go on reading it off the scenario and quietly straighten a
-      // technique the reader had deliberately made asymmetric.
-      symmetric: msg.symmetric ?? null,
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
-        if (g.gen % 2 === 0 || g.gen === (msg.maxGen ?? 150) - 1) {
+        if (g.gen % 2 === 0 || g.gen === sa.maxGen - 1) {
           // The incumbent has to be finished the same way a completed run's
           // knots are, or stopping the search hands back something the search
           // was never scoring: an unpinned final knot the settle phase then
           // has to fight, and, for a symmetric skill, whatever the untouched
           // right-leg parameters happen to say. Stop, save, and it fell over.
-          const dec = decodeDecision(g.bestX, msg.K ?? 6);
-          if (msg.symmetric ?? SYMMETRIC_SCENARIOS.has(msg.scenario)) symmetrizeKnots(dec.knots);
-          applyLocks(dec.knots, msg.locks || null);
-          if (dec.fracs) applyTimeLocks(dec.fracs, msg.timeLocks || null);
-          const qBal = msg.target ? Float64Array.from(msg.target) : balancedHandstand(model, ws);
+          const dec = decodeDecision(g.bestX, sa.K);
+          if (sa.symmetric ?? SYMMETRIC_SCENARIOS.has(sa.scenario)) symmetrizeKnots(dec.knots);
+          applyLocks(dec.knots, sa.locks);
+          if (dec.fracs) applyTimeLocks(dec.fracs, sa.timeLocks);
+          const qBal = sa.target ? Float64Array.from(sa.target) : balancedHandstand(model, ws);
           for (let j = 0; j < dec.knots.length; j++) dec.knots[j][dec.knots[j].length - 1] = qBal[3 + j];
           // Cheapest candidate first, so the viewer can draw the leader
           // differently from the rest of the field.
-          const poses = (pool ? pool.lastPoses : genPoses).slice().sort((a, b) => a.cost - b.cost);
+          const poses = (pool ? pool.lastPoses : genPoses).slice().sort((a2, b2) => a2.cost - b2.cost);
           self.postMessage({
-            type: 'progress', gen: g.gen, maxGen: msg.maxGen ?? 150,
+            type: 'progress', gen: g.gen, maxGen: sa.maxGen,
             best: g.best, sigma: g.sigma,
             T: dec.T, knots: dec.knots.map((k) => Array.from(k)),
             knotFracs: dec.fracs ? Array.from(dec.fracs) : null,
             // The machine the search is running on, so a run that is stopped
             // rather than finished is still replayable on the one that
             // produced it.
-            plant: plantFor(msg.plant || {}),
-            numerics: { ...NUMERICS_DEFAULTS, ...(msg.numerics || {}) },
+            plant: plantFor(sa.plant),
+            numerics: { ...NUMERICS_DEFAULTS, ...sa.numerics },
             body: {
               heightM: model.heightM, massKg: model.massKg,
               straddleDeg: model.straddleDeg, sex: model.sex,

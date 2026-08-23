@@ -26,7 +26,7 @@
 // saved here can be dropped into the registry the regression suite replays.
 import {
   resolvePlant, resolveRom, resolveNumerics, resolveBody, balancedHandstand,
-  SYMMETRIC_SCENARIOS, widenKnots,
+  SYMMETRIC_SCENARIOS, widenKnots, encodeDecision,
 } from './rollout.js';
 import { JOINT_ORDER, LEGACY_JOINT_ORDER } from './control.js';
 
@@ -130,18 +130,105 @@ export function techniqueFromJSON(json) {
   };
 }
 
-// The exact option object runScenario needs to reproduce the file. One place,
-// so the page and the tests cannot drift about what "reproduce" means.
+// ---------------------------------------------------------------------------
+// One description of the problem, and everything that runs it derived from
+// there.
+//
+// Playing a technique back and searching for a better one are the same
+// problem posed twice, and until now each side assembled its own argument
+// list by hand -- the page had one for replay, another written into a
+// postMessage, and the worker unpacked that into a third. Three hand-kept
+// lists of the same fields can only agree by coincidence, and they did not:
+// the drift was patched a field at a time (a start the search solved for
+// itself, an ending it pinned, a plant it substituted, a phrasing it ignored)
+// and a console warning was added to catch the next one. That warning is an
+// admission that the shapes can disagree. They should not be able to.
+//
+// So: a technique is the input, these derive everything, and there is no
+// second list to keep in step. If playback is right and the search is wrong,
+// it can no longer be because they were handed different problems.
+// ---------------------------------------------------------------------------
+
+// The body a technique is performed by.
+export function techniqueModelParams(rec) {
+  const b = resolveBody(rec.body);
+  return { heightM: b.heightM, massKg: b.massKg, straddleDeg: b.straddleDeg, sex: b.sex };
+}
+
+// The strength profile options for that body.
+export function techniqueStrengthOpts(rec) {
+  return { overrides: rec.strength || {} };
+}
+
+// The exact option object runScenario needs to reproduce the technique. Every
+// field is resolved here rather than assumed resolved, so this is safe on a
+// technique straight off disk and on one the page has just edited.
 export function techniqueRunArgs(rec, model, ws) {
   return {
     scenario: rec.scenario,
     knots: rec.knots.map((k) => Float64Array.from(k)),
     T: rec.T,
-    knotFracs: rec.knotFracs,
-    q0: rec.q0,
+    knotFracs: rec.knotFracs || null,
+    q0: rec.q0 || null,
     target: rec.target || (model && ws ? balancedHandstand(model, ws) : null),
-    rom: rec.rom,
-    ...rec.config,
-    ...rec.numerics,
+    rom: resolveRom(rec.rom),
+    ...resolvePlant(rec.config),
+    ...resolveNumerics(rec.numerics),
+  };
+}
+
+// Which poses are pinned, and to what. Derived from the technique's own held
+// flags and its own knots, so a lock can never name an angle the technique
+// does not have.
+export function techniqueLocks(rec) {
+  const K = rec.knots[0].length;
+  const held = rec.held || [];
+  return Array.from({ length: K }, (_, k) => (held[k]
+    ? rec.knots.map((row) => row[k]) : null));
+}
+
+// Which instants are pinned, and whether anything is left for the search to
+// phrase. An interior pose whose instant is free is the only thing that
+// lengthens the decision vector, so these two must be read off the same flags.
+export function techniqueTimeLocks(rec) {
+  const K = rec.knots[0].length;
+  const timeHeld = rec.timeHeld || [];
+  const fracs = rec.knotFracs
+    || Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
+  return Array.from({ length: K }, (_, k) => (timeHeld[k] ? fracs[k] : null));
+}
+
+export function techniqueFreeTimes(rec) {
+  const K = rec.knots[0].length;
+  const timeHeld = rec.timeHeld || [];
+  for (let k = 1; k < K - 1; k++) if (!timeHeld[k]) return true;
+  return false;
+}
+
+// The exact option object optimizeScenario needs to search THIS technique.
+// The same fields runArgs supplies, said the way the search takes them, plus
+// the pins -- and nothing invented: the tempo is the technique's own at both
+// ends, so the search cannot buy a cheaper score by slowing down.
+export function techniqueSearchArgs(rec) {
+  return {
+    scenario: rec.scenario,
+    K: rec.knots[0].length,
+    q0: rec.q0 || null,
+    target: rec.target || null,
+    rom: resolveRom(rec.rom),
+    plant: resolvePlant(rec.config),
+    numerics: resolveNumerics(rec.numerics),
+    knotFracs: rec.knotFracs ? Array.from(rec.knotFracs) : null,
+    locks: techniqueLocks(rec),
+    timeLocks: techniqueTimeLocks(rec),
+    freeTimes: techniqueFreeTimes(rec),
+    symmetric: !!rec.symmetric,
+    tLo: rec.T, tHi: rec.T,
+    seed: rec.search?.seed ?? 7,
+    maxGen: rec.search?.maxGen ?? 120,
+    // Where the search starts: this technique. Derived here rather than
+    // encoded by the caller, because an x0 that does not describe the
+    // technique beside it is the exact failure this file exists to prevent.
+    x0: encodeDecision(rec.knots, rec.T),
   };
 }

@@ -22,7 +22,10 @@ import {
   resolveRom, resolveBody, symmetrizeKnots, SYMMETRIC_SCENARIOS, NJ, JOINT_KEYS, widenKnots,
 } from '../rollout.js';
 import { resampleKnots } from '../figure-kit.js';
-import { PRESET_TRAJECTORIES } from '../presets.js';
+import { PRESET_TRAJECTORIES, builtinPreset } from '../presets.js';
+import {
+  techniqueToJSON, techniqueFromJSON, techniqueRunArgs, techniqueSearchArgs, techniqueFreeTimes,
+} from '../technique-file.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -210,6 +213,74 @@ gate('B. and never disagree about arrival', verdictSplits === 0,
   }
   gate('C. a symmetric skill is edited symmetrically', worst === 0,
     worst ? `${(worst * D).toFixed(2)} deg of left/right split in ${where}` : 'left and right match exactly');
+}
+
+// ---------------------------------------------------------------------------
+// Gate D: playing a technique back and searching it are ONE problem.
+//
+// Gates A-C compare two evaluations. This one is upstream of evaluating
+// anything: it checks that the two call sites are handed the same problem in
+// the first place. They used to be assembled by hand in three places -- the
+// page's replay, the postMessage it wrote, and the worker's unpacking of it --
+// and the only thing keeping them in step was that somebody kept noticing.
+// Every field is derived from the technique now, and this is that claim as a
+// test: move every field off its default, push it through the file, and the
+// replay's arguments and the search's must still describe the same run.
+// ---------------------------------------------------------------------------
+{
+  const m0 = buildModel({});
+  const ws0 = createWorkspace(m0);
+  const base = builtinPreset(m0, ws0, 'lunge', { rom: ROM_DEFAULTS });
+  const edited = { ...base,
+    T: 1.42,
+    symmetric: true,
+    held: [true, false, false, true, false, true],
+    timeHeld: [true, false, true, false, true, true],
+    knotFracs: [0, 0.13, 0.31, 0.52, 0.77, 1],
+    q0: Array.from({ length: m0.nq }, (_, i) => i * 0.01),
+    strength: { shoulder: { t0Vol: 2.1, wmax: 18, wc: 7, amin: 0.7, w1: 0, m: 0.3 } },
+    rom: { ...ROM_DEFAULTS, hipFlexStraightKneeMaxDeg: 97, shoulderFlexMaxDeg: 171, wristExtMaxDeg: 128 },
+    body: { heightM: 1.63, massKg: 57, straddleDeg: 4, sex: 'female' },
+    config: { ...base.config, kp: 1350, dampingRatio: 1.4, loopOmegaTau: 1.7, activationTau: 0.061 },
+    numerics: { dt: 1.5e-4, settleT: 1.9 },
+    search: { seed: 23, maxGen: 77 },
+  };
+  const rec = techniqueFromJSON(techniqueToJSON(edited));
+  const ra = techniqueRunArgs(rec, m0, ws0);
+  const sa = techniqueSearchArgs(rec);
+  const j = (v) => JSON.stringify(v && v.length !== undefined && typeof v !== 'string' ? Array.from(v) : v);
+  const bad = [];
+  const eq = (name, x, y) => { if (j(x) !== j(y)) bad.push(name); };
+  eq('scenario', ra.scenario, sa.scenario);
+  eq('rom', ra.rom, sa.rom);
+  eq('q0', ra.q0, sa.q0);
+  eq('target', ra.target, sa.target);
+  eq('knotFracs', ra.knotFracs, sa.knotFracs);
+  eq('tempo', [ra.T, ra.T], [sa.tLo, sa.tHi]);
+  eq('settle', ra.settleT, sa.numerics.settleT);
+  for (const k of Object.keys(sa.plant)) eq(`plant.${k}`, ra[k], sa.plant[k]);
+  gate('D. the replay and the search are handed the same problem', bad.length === 0,
+    bad.length ? `differ: ${bad.join(', ')}` : `${Object.keys(sa.plant).length + 7} fields, all identical`);
+
+  // And the pins the search is given describe THIS technique's own knots --
+  // a lock naming an angle the technique does not have is how a search ends
+  // up refining something the page is not showing.
+  const K = rec.knots[0].length;
+  let lockBad = 0;
+  for (let k = 0; k < K; k++) {
+    if (!sa.locks[k]) { if (rec.held[k]) lockBad++; continue; }
+    if (!rec.held[k]) { lockBad++; continue; }
+    for (let jj = 0; jj < rec.knots.length; jj++) {
+      if (sa.locks[k][jj] !== rec.knots[jj][k]) lockBad++;
+    }
+  }
+  gate('D2. and every pin names the technique\'s own angles', lockBad === 0,
+    `${rec.held.filter(Boolean).length} held pose(s), ${lockBad} mismatch(es)`);
+  // The one thing that changes the SHAPE of the decision vector has to come
+  // from the same flags the pins do.
+  gate('D3. and a freed instant is read off the technique that carries it',
+    techniqueFreeTimes(rec) === true && techniqueFreeTimes({ ...rec, timeHeld: rec.timeHeld.map(() => true) }) === false,
+    'a free interior instant lengthens the vector, all-pinned does not');
 }
 
 console.log(`\n${failures === 0 ? 'ALL GATES PASS' : `${failures} GATE(S) FAILED`}`);

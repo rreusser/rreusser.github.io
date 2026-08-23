@@ -134,7 +134,10 @@
       SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom, widenKnots,
       JOINT_KEYS as JOINT_ORDER, NJ as NJOINTS,
     } from './rollout.js';
-    import { techniqueToJSON, techniqueFromJSON } from './technique-file.js';
+    import {
+      techniqueToJSON, techniqueFromJSON, techniqueRunArgs, techniqueSearchArgs,
+      techniqueModelParams, techniqueStrengthOpts,
+    } from './technique-file.js';
     import * as FIG from './figure-kit.js';
     import { builtinPresets, BUILTIN_SCENARIOS } from './presets.js';
     import { readPresets, writePresets, nextId } from './preset-store.js';
@@ -669,31 +672,19 @@
       }
       return replayModels.get(key);
     };
+    // Everything here is derived from the technique by technique-file.js.
+    // This used to be a second, hand-kept copy of the argument list the search
+    // also kept its own copy of; they drifted, repeatedly, and the page grew a
+    // console warning to notice when they had. There is one list now.
     const storedRun = {
-      machine: (p) => modelFor(resolveRunBody(p.body)),
+      machine: (p) => modelFor(techniqueModelParams(p)),
       profile: (p) => (p.strength
-        ? strengthProfile(storedRun.machine(p).model.massKg, { overrides: p.strength })
+        ? strengthProfile(storedRun.machine(p).model.massKg, techniqueStrengthOpts(p))
         : strengthProf),
-      args: (p) => ({
-        scenario: p.scenario,
-        knots: p.knots.map((k) => Float64Array.from(k)),
-        T: p.T,
-        rom: resolveRom(p.rom),
-        // A start pose, when one is being constructed rather than solved.
-        // Stored artifacts never carry one, so they replay exactly as before.
-        q0: p.q0 || null,
-        // The pose it is aiming at: the last knot, which is why the search
-        // does not move it and you can.
-        target: p.target || null,
-        // Where the poses fall. Stored artifacts carry none and replay evenly
-        // spaced, exactly as they always did.
-        knotFracs: p.knotFracs || null,
-        ...resolvePlant(p.config),
-        ...resolveNumerics(p.numerics),
-      }),
+      args: (p) => techniqueRunArgs(p),
       run: (p) => {
         const m = storedRun.machine(p);
-        return { ...runScenario(m.model, m.ws, storedRun.profile(p), storedRun.args(p)), ...m };
+        return { ...runScenario(m.model, m.ws, storedRun.profile(p), techniqueRunArgs(p, m.model, m.ws)), ...m };
       },
     };
   </script>
@@ -1922,9 +1913,11 @@
           // two expressions for the same body is how they drift apart. With
           // the sliders at their defaults it reproduces the stored body
           // exactly, which the artifact gates check.
-          run = simResult.replay(editState.knots.map((k) => Float64Array.from(k)), editState.T,
-            { ...bodyOver(), ...editState.machine, q0: editState.q0, target: targetQ(),
-              knotFracs: Float64Array.from(editState.fracs) });
+          // The technique itself, not a bag of overrides assembled here. This
+          // is the SAME object the search is handed and the same one Save
+          // writes, so "what is playing" and "what is being searched" cannot
+          // be different problems.
+          run = storedRun.run(asTechnique());
         } catch (err) { console.warn('replay failed', err); return; }
         // Read the start back out of the run. A start with a toe through the
         // floor is lifted clear before it is integrated, so this is what makes
@@ -2178,67 +2171,19 @@
         // A message that cannot be deserialized: rarer, and completely silent
         // without this.
         worker.onmessageerror = () => fail('a message from the worker could not be read');
+        // ONE object. Everything the search needs -- the body, the strength,
+        // the anatomy, the start, the ending, the plant, the integration, the
+        // phrasing, the pins, the tempo, the seed -- is IN the technique, and
+        // technique-file.js derives the search's arguments from it exactly as
+        // it derives the replay's. There is no second list here to fall out of
+        // step with the first, which is what a hand-written postMessage was.
         worker.postMessage({
           type: 'optimize',
-          scenario: simResult.scenarioName,
-          seed: +optSeed.value,
-          maxGen: +optGens.value,
-          K,
-          // Continue from what is on screen. There is no separate "start from"
-          // menu any more, because the thing you would pick in it is the thing
-          // the figure is already showing.
-          x0: Array.from(encodeDecision(editState.knots.map((k) => Float64Array.from(k)), editState.T)),
+          technique: techniqueToJSON(asTechnique()),
           // Measured: perturbing a warm start by sigma radians on every knot at
           // once, the share of a 14-candidate generation still reaching a
           // handstand runs 0/14 at 0.10 and 14/14 at 0.01.
           sigma0: 0.02,
-          modelParams: { ...(editState.run?.model
-            ? { heightM: editState.run.model.heightM, massKg: editState.run.model.massKg,
-              straddleDeg: editState.run.model.straddleDeg, sex: editState.run.model.sex }
-            : { heightM: runModel.heightM, massKg: runModel.massKg,
-              straddleDeg: runModel.straddleDeg, sex: runModel.sex }) },
-          strengthOpts: { overrides: over.strength },
-          romOverrides: resolveRom(over.rom),
-          // The start too. Without it the search solved its own start while
-          // the page replayed the one on screen, so a technique that worked
-          // here was scored somewhere else and its answer fell over on the
-          // way back.
-          q0: editState.q0 ? Array.from(editState.q0) : null,
-          target: Array.from(targetQ()),
-          // And the machine. Everything else the page owns already travels --
-          // the body, the strength, the anatomy, the start, the ending -- and
-          // the plant was the one thing the search still supplied itself.
-          plant: editState.machine.config,
-          // The phrasing, the poses held by hand, and which instants are
-          // pinned. The phrasing travels either way: as the thing to score
-          // against when every instant is pinned, and as the place to start
-          // from when they are not.
-          knotFracs: Array.from(editState.fracs),
-          locks: lockValues(),
-          freeTimes: timesAreFree(),
-          timeLocks: timeLockValues(),
-          // The duration is NOT searched: both ends of its range are the value
-          // on screen, so the search is pinned to the tempo you set.
-          //
-          // It used to be the 37th decision variable, and it was a bad one. A
-          // movement that arrives gets cheaper the slower it goes -- work and
-          // smoothness both fall -- so for anything with room to spare the
-          // gradient points at the ceiling and stays there: the press arrives
-          // at every duration from 1.6s up, and costs 4.59, 1.48, 1.15, 1.08,
-          // 1.05, 1.03 as it slows to 3.5s. The search was not finding a
-          // tempo, it was running out of slider. And the slowest version is
-          // the one where the shoulder supplies everything and nothing is
-          // carried by momentum, which is the opposite of technique.
-          //
-          // So tempo joins the pose count and the held poses: things a reader
-          // sets. Phrasing WITHIN that tempo is the search's, unless you pin
-          // it -- moving a pose earlier while another moves later cannot buy a
-          // cheaper score by taking longer, because there is no longer to take.
-          tLo: editState.T, tHi: editState.T,
-          // And the integration a replay uses, so the settle horizon scored is
-          // the one the page watches.
-          numerics: editState.machine.numerics,
-          symmetric: editState.symmetric,
         });
         dirty = chromeDirty = true;
       });
