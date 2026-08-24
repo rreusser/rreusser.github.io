@@ -74,8 +74,26 @@ export const ROM_DEFAULTS = {
   spineExtMaxDeg: 20,
   // The head. Extension is looking toward the hands, which is what a
   // handstand actually does; flexion is chin to chest.
-  neckFlexMaxDeg: 30,
-  neckExtMaxDeg: 45,
+  //
+  // Same rule as the trunk above, and for the same reason: a neck flexes
+  // about 45 degrees and extends about 60, and a handstand spends almost
+  // none of it. Every start pose in this notebook has the head in line with
+  // the trunk and so does the balanced handstand, so the whole travel the
+  // skill asks for is a look toward the floor and back.
+  //
+  // Leaving the box that big was not free, though, because the head is a mass
+  // on a lever like anything else: snapping it back and forth is a real
+  // momentum kick, and it is the CHEAPEST one on the body. The smoothness term
+  // charges the swing of a limb and the flick of a head by the same rule,
+  // while the head weighs almost nothing -- so a wag was momentum at a
+  // discount. The search found that. The recorded kick-up reference wags the
+  // neck +14, -11, -9, -14, +14 degrees on its way up, which is 60 degrees of
+  // back-and-forth to travel 14; replayed with that flattened to zero it
+  // reaches the same height to the millimetre, holds its whole tempo band and
+  // scores 9.22 against 9.46. It bought nothing. It was there because there
+  // was room for it, and this is that room.
+  neckFlexMaxDeg: 12,
+  neckExtMaxDeg: 15,
 };
 
 // Wrist limits as bounds on the joint coordinate q3, in degrees. Accepts

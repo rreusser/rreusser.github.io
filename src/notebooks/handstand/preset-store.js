@@ -18,10 +18,33 @@ export const STORE_KEY = 'handstand.presets.v1';
 // after this shipped, so nothing anyone kept is lost to a rename.
 const LEGACY_KEY = 'handstand.cases.v1';
 
+// Two entries under one id is a list that cannot be addressed: `find` returns
+// the first, `findIndex` writes the first, and the second is reachable by
+// neither. A list already in that state -- written before nextId checked --
+// is repaired on the way in rather than left to misbehave, and repaired by
+// RENUMBERING rather than by dropping: the duplicate is somebody's preset.
+const dedupe = (list) => {
+  // Every id in the list, up front: a replacement has to avoid the ones still
+  // to come as well as the ones already passed, or repairing a duplicate just
+  // moves the collision further down.
+  const taken = new Set(list.map((c) => String(c.id ?? '')).filter(Boolean));
+  const seen = new Set();
+  let n = 0;
+  for (const c of list) {
+    const id = String(c.id ?? '');
+    if (id && !seen.has(id)) { seen.add(id); continue; }
+    do { n++; } while (taken.has(`p${n}`));
+    c.id = `p${n}`;
+    taken.add(c.id);
+    seen.add(c.id);
+  }
+  return list;
+};
+
 const parse = (raw) => {
   try {
     const list = JSON.parse(raw || '[]');
-    return Array.isArray(list) ? list : [];
+    return Array.isArray(list) ? dedupe(list) : [];
   } catch { return []; }
 };
 
@@ -54,9 +77,22 @@ export function writePresets(list) {
   }
 }
 
+// An id nothing in the list is already using.
+//
+// The counter alone was not enough. It reads the number off the end of each
+// id, and anything it cannot read a number out of counts as zero -- so a list
+// whose ids do not match the pattern it expects (a legacy entry, something
+// hand-edited in storage, anything a future format writes) hands back `p1`
+// while a `p1` is sitting right there. Two entries with one id is the worst
+// shape this list can be in: `find` returns the first, `findIndex` writes the
+// first, and the second is reachable by neither -- so keeping a preset would
+// appear to add one AND overwrite another. The check costs nothing.
 export function nextId(list) {
+  const used = new Set(list.map((c) => String(c.id ?? '')));
   const n = list.reduce((m, c) => Math.max(m, +String(c.id ?? '').replace(/^p?c?/, '') || 0), 0);
-  return `p${n + 1}`;
+  let i = n + 1;
+  while (used.has(`p${i}`)) i++;
+  return `p${i}`;
 }
 
 // ---------------------------------------------------------------------------

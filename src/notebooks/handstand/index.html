@@ -2436,7 +2436,16 @@
       // to be showing.
       const presetName = html`<input type="text" placeholder="name this preset"
         style="font: inherit; font-size:13px; padding:2px 4px; min-width:0;">`;
-      const keepBtn = html`<button class="hs-btn" title="keep the technique on screen in this browser, under the name beside it. Exactly what Save writes to a file — the technique, the body, the anatomy, the servo and the integration.">Keep</button>`;
+      // Keep MAKES one. Update OVERWRITES one. They were a single button that
+      // decided which it was by whether the name you had typed happened to
+      // match the name of the preset selected -- so the same click, in the
+      // same place, either kept a copy or destroyed the original, and which of
+      // the two you got depended on a comparison you were not making. Renaming
+      // a preset and pressing it was enough to lose the preset. An action that
+      // cannot be undone does not get to be inferred, so it has its own
+      // button, which says what it will overwrite.
+      const keepBtn = html`<button class="hs-btn" title="keep the technique on screen as a NEW preset in this browser, under the name beside it. Exactly what Save writes to a file — the technique, the body, the anatomy, the servo and the integration.">Keep as new</button>`;
+      const updateBtn = html`<button class="hs-btn">Update</button>`;
       const renameBtn = html`<button class="hs-btn" title="rename the selected preset to the name beside it">Rename</button>`;
       const dropBtn = html`<button class="hs-btn" title="forget the selected preset">Forget</button>`;
       const isBuiltin = () => String(pick.value).startsWith('builtin:');
@@ -2449,42 +2458,41 @@
       // current. Typing a different name is how you ask for a copy, and a
       // built-in is never overwritten because it is derived rather than
       // remembered: there is nothing there to write to.
-      const keepTarget = () => {
-        if (isBuiltin()) return null;
-        const cur = readPresets().find((c) => c.id === pick.value);
-        if (!cur) return null;
-        const typed = presetName.value.trim();
-        return (!typed || typed === (cur.label || '')) ? cur : null;
-      };
+      // What Update would overwrite: the kept preset the picker is naming, or
+      // nothing when it names a built-in. It is no longer a question about the
+      // name box -- the name box says what a NEW preset would be called, and
+      // that is all it says.
+      const keepTarget = () => (isBuiltin()
+        ? null : readPresets().find((c) => c.id === pick.value) || null);
       // A built-in is derived, not remembered, so there is nothing to rename
       // or forget -- Keep is how you make one of your own from it.
       const syncPresetButtons = () => {
         renameBtn.disabled = dropBtn.disabled = isBuiltin();
         const cur = readPresets().find((c) => c.id === pick.value);
         presetName.value = cur?.label || '';
-        // The button says which of the two it will do, because the difference
-        // matters and the only thing that decides it is the name box.
+        // Update names its victim, in the button and in the tooltip, because
+        // the whole point of it being a separate button is that you can see
+        // what it is about to do before you do it.
         const over = keepTarget();
-        keepBtn.textContent = over ? 'Update' : 'Keep';
-        keepBtn.title = over
-          ? `overwrite "${over.label}" with the technique on screen. Type a different name under \u22ef to keep a copy instead.`
-          : 'keep the technique on screen in this browser, under the name beside it. '
-            + 'Exactly what Save writes to a file \u2014 the technique, the body, the anatomy, '
-            + 'the servo and the integration.';
+        updateBtn.disabled = !over;
+        updateBtn.textContent = over ? `Update \u201c${over.label}\u201d` : 'Update';
+        updateBtn.title = over
+          ? `overwrite "${over.label}" with the technique on screen. This cannot be undone.`
+          : 'nothing to update: a built-in is derived rather than remembered. '
+            + 'Keep as new makes one of your own from it.';
       };
-      keepBtn.addEventListener('click', () => {
+      // Writing the technique on screen into the list under `id`, replacing
+      // whatever is there. Both buttons land here; they differ only in which
+      // id they hand it and what they call it.
+      const writePreset = (id, label, [doing, done]) => {
         const list = readPresets();
         const rec = techniqueToJSON(asTechnique());
-        const over = keepTarget();
-        // Its own id and its own name: overwriting must not renumber the
-        // preset or the picker's selection lands somewhere else.
-        rec.id = over ? over.id : nextId(list);
-        rec.label = presetName.value.trim() || over?.label || rec.label;
-        const at = over ? list.findIndex((c) => c.id === over.id) : -1;
+        rec.id = id;
+        rec.label = label;
+        const at = list.findIndex((c) => c.id === id);
         if (at >= 0) list[at] = rec; else list.push(rec);
         const err = writePresets(list);
-        status = err ? `could not keep: ${err}`
-          : (over ? `updated "${rec.label}"` : `kept "${rec.label}"`);
+        status = err ? `could not ${doing}: ${err}` : `${done} "${rec.label}"`;
         if (!err) {
           // The edit is a preset now, so the draft parked under whatever this
           // was opened from has nothing left to say.
@@ -2494,12 +2502,22 @@
           syncPresetButtons();
         }
         dirty = chromeDirty = true;
+      };
+      keepBtn.addEventListener('click', () => {
+        const list = readPresets();
+        // A new id every time, so this can only ever ADD. Its own name too:
+        // the box if you typed one, and the auto-generated "<technique> ·
+        // <when>" if you did not, which is at least unique.
+        writePreset(nextId(list), presetName.value.trim()
+          || techniqueToJSON(asTechnique()).label, ['keep', 'kept']);
       });
-      // The name box decides between Update and Keep, so the button has to
-      // re-read it as you type rather than only when the selection changes.
-      presetName.addEventListener('input', () => {
+      updateBtn.addEventListener('click', () => {
         const over = keepTarget();
-        keepBtn.textContent = over ? 'Update' : 'Keep';
+        if (!over) return;
+        // Its own id and its own name: overwriting must not renumber the
+        // preset or the picker's selection lands somewhere else, and must not
+        // rename it either -- renaming is what Rename is for.
+        writePreset(over.id, over.label, ['update', 'updated']);
       });
       renameBtn.addEventListener('click', () => {
         const name = presetName.value.trim();
@@ -3126,9 +3144,10 @@
       // menu is for, and there is only one of those to find.
       const docMenu = html`<details class="hs-menu">
         <summary class="hs-btn" aria-label="what can be done with this technique"
-          title="keep, revert, rename, forget, and files">⋯</summary>
+          title="keep, update, revert, rename, forget, and files">⋯</summary>
         <div class="hs-menu__panel">
           <div class="hs-menu__row hs-menu__row--wide">${keepBtn}</div>
+          <div class="hs-menu__row hs-menu__row--wide">${updateBtn}</div>
           <div class="hs-menu__row hs-menu__row--wide">${resetBtn}</div>
           <div class="hs-menu__sep"></div>
           <div class="hs-menu__row">${presetName}</div>
@@ -3154,7 +3173,7 @@
       // Pressing one of the verbs inside says what it did on the status line,
       // which is on the transport bar and not in the menu -- so the menu shuts
       // itself and gets out of the way.
-      for (const b of [keepBtn, resetBtn, renameBtn, dropBtn, saveBtn, loadBtn]) {
+      for (const b of [keepBtn, updateBtn, resetBtn, renameBtn, dropBtn, saveBtn, loadBtn]) {
         b.addEventListener('click', () => { docMenu.open = false; });
       }
       // The verbs in one group with `margin-left:auto` rather than each of them

@@ -1494,7 +1494,11 @@ const KICK_STAGE_DELTA_DEG = {
   kneeL: [-41.3, -0.6, -69.7, -81.6, -30.7, 0],
   hipR: [-5.5, 26.8, 45.3, 13.7, -20.9, 0],
   kneeR: [-25.3, 25.6, 6.1, -15.1, -47.9, 0],
-  neck: [14.0, -10.8, -8.9, -13.9, 14.4, 0],
+  // Zero, deliberately. The search that produced these stages was paid
+  // nothing to keep the head still and left a 60-degree back-and-forth in
+  // it; replayed flat the throw reaches 1.014 m either way, holds its whole
+  // tempo band, and costs 9.22 against 9.46. See ROM_DEFAULTS.neckFlexMaxDeg.
+  neck: [0, 0, 0, 0, 0, 0],
 };
 // The tempo, and it is not simply the one the search settled on. Swept in
 // hundredths, this throw arrives over a clean band from 1.38 to 1.56 s and
