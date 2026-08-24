@@ -1574,19 +1574,44 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // so turning the times loose starts the search exactly where it would have
   // started without them rather than jumping to even spacing first.
   const n = NJ * K + 1 + nTimes + nStart;
+  // What the incoming vector actually carries.
+  //
+  // A decision vector has two optional tails -- the interior instants, then
+  // the start pose -- and until the start pose existed, "short" could only
+  // mean "no instants", so the refit below asked whether entry NJ*K+k was
+  // PRESENT. With a start tail it always is, and what it held was the start
+  // pose's joint angles. Turning the instants loose on a technique whose start
+  // was ALSO loose therefore phrased the movement in radians: every pose
+  // landed near the end of the duration and the technique died on the first
+  // generation. Asking a per-entry question about a vector that can be short
+  // in the MIDDLE is the mistake; the tail is identified as a whole.
+  //
+  // One ambiguity: at K - 2 === NJ (ten poses on this body) a vector carrying
+  // only instants is exactly as long as one carrying only a start. There the
+  // layout being ASKED for decides, which is right for the case that matters
+  // -- a warm start from the same problem -- and is the only case in which
+  // either reading is defensible.
+  const nTail = Math.max(0, start.length - (NJ * K + 1));
+  const nT = Math.max(0, K - 2);
+  const hadTimes = nT > 0 && (nTail === nT + NJ || (nTail === nT && (nT !== NJ || freeTimes)));
+  const hadStart = nTail === nT + NJ ? nT > 0
+    : nTail === NJ && (nT !== NJ || !freeTimes);
   if (start.length !== n) {
     const fitted = new Float64Array(n);
     for (let i = 0; i < NJ * K + 1; i++) fitted[i] = start[i];
-    // The start pose, when it is being searched: from the vector if it already
-    // carried one, otherwise from the technique's own start.
-    for (let j = 0; j < nStart; j++) fitted[NJ * K + 1 + nTimes + j] = start0[j];
     for (let k = 1; k <= nTimes; k++) {
       // From the phrasing this would have been scored under if it were not
       // being searched, so turning the instants loose starts where the search
       // would have started rather than jumping to even spacing first. A vector
       // that already carries them keeps its own.
-      fitted[NJ * K + k] = start.length > NJ * K + k ? start[NJ * K + k]
+      fitted[NJ * K + k] = hadTimes ? start[NJ * K + k]
         : (knotFracs ? knotFracs[k] : k / (K - 1));
+    }
+    // The start pose, when it is being searched: from the vector if it already
+    // carried one -- from the END of it, which is where a start tail lives --
+    // otherwise from the technique's own start.
+    for (let j = 0; j < nStart; j++) {
+      fitted[NJ * K + 1 + nTimes + j] = hadStart ? start[start.length - NJ + j] : start0[j];
     }
     // Longer than the bounds is the dangerous direction: cmaes sizes itself
     // from x0 and would read past bounds.lo/hi into undefined, which clamps

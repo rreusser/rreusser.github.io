@@ -201,6 +201,13 @@
         min-height: 0; overflow-y: auto; overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
       }
+      /* The tab bar's own underline is the line under the tab bar. A pane that
+         draws its own on top of it makes two, a few pixels apart, which reads
+         as a rule with nothing between it and the rule above. */
+      .hs-editor__deck > [role=tabpanel],
+      .hs-editor__deck > [role=tabpanel] > .hs-editor__pane:first-child {
+        border-top: none;
+      }
       /* Wide, the parameters are not a column. Eleven controls stacked two to
          a row wasted two thirds of a desktop window and made the panel taller
          than the picture it drives; each row is now one wrapping flex line, so
@@ -208,11 +215,30 @@
          lines deep as that allows. The sliders share the surplus and stop
          growing at a width past which a slider is just longer, not better. */
       .hs-editor__deck .spline-controls {
-        max-width: none; gap: 6px 18px; align-items: center;
+        max-width: none; gap: 4px 18px; align-items: end;
       }
       .hs-editor__deck .spline-controls > form {
-        flex: 1 1 250px; max-width: 420px; min-width: 0;
+        flex: 1 1 210px; max-width: 420px; min-width: 0; width: auto;
       }
+      /* Observable lays a slider out as label-beside-input past a 480px
+         VIEWPORT -- and a viewport is not the box the slider is in. Two of
+         these to a line makes each box 250px while the rule keeps reserving
+         120 of them for the label and refuses to shrink it (flex-shrink: 0),
+         so the track ran out through the right-hand edge of its own column and,
+         in the last column, off the panel. Its own NARROW layout is the one
+         that fits: the label takes the line above, which is also where a label
+         belongs when the thing it names is a foot wide. */
+      .hs-editor__deck .spline-controls > form:has(input[type=range]) {
+        flex-wrap: wrap;
+      }
+      .hs-editor__deck .spline-controls > form:has(input[type=range]) > label {
+        flex: 0 0 100%; width: 100%; margin-right: 0; padding: 0 0 2px;
+      }
+      /* And the floor comes down with it. 90px was a sensible smallest track
+         when a row held two controls in 640px; it is part of what a form
+         cannot shrink below, so on a narrow panel it was pushing the overflow
+         rather than preventing it. */
+      .hs-editor__deck .technique-controls form input[type=range] { min-width: 60px; }
       /* The exceptions: a sentence you might quote, and anything you type in. */
       .hs-editor__verdict, .hs-editor input, .hs-editor select {
         -webkit-user-select: text; user-select: text;

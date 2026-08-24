@@ -33,6 +33,7 @@ import {
   encodeDecision, decodeDecision, rolloutCost, optimizeScenario, runScenario,
   kickReference, KICK_T, startPoseJoints, startPoseFrom, decisionBounds, NJ,
 } from '../rollout.js';
+import { techniqueSearchArgs } from '../technique-file.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -119,6 +120,73 @@ const { knots, target } = kickReference(model, ws, K, rom);
   gate('which are two different scores, so the dimensions are earning their place',
     Math.abs(c.cost - cLocked.cost) > 1e-6,
     `free ${c.cost.toFixed(3)} vs held ${cLocked.cost.toFixed(3)}`);
+}
+
+// ---- 2b. two loose tails at once -------------------------------------------
+// The bug this gate exists for. A decision vector has two optional tails --
+// the interior instants, then the start pose -- and optimizeScenario used to
+// refit a short one by asking, per entry, "is x[NJ*K + k] present?". That is
+// the right question only for a vector that can be short at the END. With a
+// start tail every one of those entries IS present, and what they hold is the
+// start pose's joint angles -- so a technique with a free instant AND a free
+// start was phrased in RADIANS. On the kick-up the poses jumped from 0.29,
+// 0.59, 0.88, 1.18 to a cluster near 1.2 s and the technique died on the
+// first generation.
+{
+  const solved = startPoseJoints(model, ws, 'lunge', rom, null);
+  // The phrasing the technique is actually carrying: deliberately uneven, so
+  // "the instants survived" cannot be true by falling back to even spacing.
+  const fracs = [0, 0.17, 0.41, 0.63, 0.86, 1];
+  // The vector as techniqueSearchArgs used to write it: a start tail and no
+  // instants, handed to a search that is about to add instants. This is the
+  // shape that has to be refitted, and the refit is where it went wrong.
+  const x0 = encodeDecision(knots, KICK_T, null, solved);
+  const r = await optimizeScenario(model, ws, prof, rom, {
+    scenario: 'lunge', K, seed: 5, maxGen: 1, sigma0: 0.001, robust: false,
+    tLo: KICK_T, tHi: KICK_T, target, freeStart: true, freeTimes: true,
+    knotFracs: fracs, timeLocks: [0, null, null, null, null, 1], x0,
+  });
+  const got = Array.from(r.decoded.fracs || []);
+  const near = got.length === K && got.every((v, k) => Math.abs(v - fracs[k]) < 0.05);
+  gate('a free start does not phrase the movement in radians',
+    near, `wrote [${fracs.join(', ')}], searched from [${got.map((v) => v.toFixed(3)).join(', ')}]`);
+  // And the same technique with its instants pinned is untouched by the tail
+  // sitting behind them.
+  const r2 = await optimizeScenario(model, ws, prof, rom, {
+    scenario: 'lunge', K, seed: 5, maxGen: 1, sigma0: 0.001, robust: false,
+    tLo: KICK_T, tHi: KICK_T, target, freeStart: true, knotFracs: fracs,
+    x0: encodeDecision(knots, KICK_T, null, solved),
+  });
+  gate('and with the instants pinned the vector carries none',
+    r2.decoded.fracs === null && r2.decoded.start !== null,
+    `fracs ${r2.decoded.fracs ? 'present' : 'null'}, start ${r2.decoded.start ? 'present' : 'null'}`);
+  // The start still has to arrive where it was written, not be re-solved.
+  const d = Math.max(...Array.from({ length: NJ },
+    (_, j) => Math.abs(r.decoded.start[j] - solved[j])));
+  gate('and the start it began from is the one that was handed in',
+    d < 0.35, `${(d / D2R).toFixed(1)} deg of drift in one generation`);
+}
+
+// The writer's side of the same contract: what techniqueSearchArgs hands in is
+// the layout the search is about to use, so the refit above is for older
+// callers rather than for the notebook's own path.
+{
+  const t = {
+    knots, T: KICK_T, scenario: 'lunge', knotFracs: [0, 0.17, 0.41, 0.63, 0.86, 1],
+    timeHeld: [true, false, false, false, false, true], held: [false, false, false, false, false, true],
+    startHeld: false, q0: startPoseFrom(model, ws, 'lunge', rom, null, null, false),
+    rom, symmetric: false,
+  };
+  const sa = techniqueSearchArgs(t);
+  gate('what the notebook hands the search is already the right length',
+    sa.x0.length === NJ * K + 1 + (K - 2) + NJ,
+    `${sa.x0.length} entries, wanted ${NJ * K + 1 + (K - 2) + NJ}`);
+  const d = decodeDecision(sa.x0, K, NJ);
+  gate('with the phrasing in the phrasing slots',
+    Array.from(d.fracs).every((v, k) => Math.abs(v - t.knotFracs[k]) < 1e-12),
+    `[${Array.from(d.fracs).map((v) => v.toFixed(3)).join(', ')}]`);
+  gate('and the start pose in the start slots',
+    Array.from(d.start).every((v, j) => Math.abs(v - t.q0[3 + j]) < 1e-12));
 }
 
 // ---- 3. what comes back is what was scored ---------------------------------

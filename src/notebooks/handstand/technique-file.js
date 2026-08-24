@@ -217,11 +217,19 @@ export function techniqueLocks(rec) {
 // Which instants are pinned, and whether anything is left for the search to
 // phrase. An interior pose whose instant is free is the only thing that
 // lengthens the decision vector, so these two must be read off the same flags.
+// Where the poses fall, always as K numbers: the technique's own phrasing, or
+// the even spacing that is what "no phrasing" means.
+export function techniqueFracs(rec) {
+  const K = rec.knots[0].length;
+  return rec.knotFracs
+    ? Array.from(rec.knotFracs, Number)
+    : Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
+}
+
 export function techniqueTimeLocks(rec) {
   const K = rec.knots[0].length;
   const timeHeld = rec.timeHeld || [];
-  const fracs = rec.knotFracs
-    || Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
+  const fracs = techniqueFracs(rec);
   return Array.from({ length: K }, (_, k) => (timeHeld[k] ? fracs[k] : null));
 }
 
@@ -260,10 +268,14 @@ export function techniqueSearchArgs(rec) {
     // Where the search starts: this technique. Derived here rather than
     // encoded by the caller, because an x0 that does not describe the
     // technique beside it is the exact failure this file exists to prevent.
-    // ...including the start pose, when it is being searched: an x0 that is
-    // short by a tail the search is about to add would start the pose at the
-    // scenario's solve rather than where the technique actually begins.
-    x0: encodeDecision(rec.knots, rec.T, null,
+    // ...in the layout the search is about to use, tails and all. A short x0
+    // is refitted at the far end, and a refit is a second opinion about what a
+    // technique says: it fills the instants from the phrasing and the start
+    // from the scenario's solve, which is only the same answer by agreement.
+    // Written out here it is the technique itself, exactly, and the refit is
+    // left for the callers that genuinely hand in an older vector.
+    x0: encodeDecision(rec.knots, rec.T,
+      techniqueFreeTimes(rec) ? techniqueFracs(rec) : null,
       rec.startHeld === false && rec.q0 ? Array.from(rec.q0).slice(3, 3 + rec.knots.length) : null),
   };
 }
