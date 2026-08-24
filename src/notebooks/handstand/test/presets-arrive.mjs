@@ -102,8 +102,16 @@ for (const row of rows) {
 {
   const p = presets.lunge;
   const prof = profAt(NEEDS.lunge);
+  // At a CONVERGED step, deliberately. This gate is about the technique, not
+  // about the integrator: a kick-up on 1.6 Nm/kg of shoulder is marginal by
+  // construction -- that is the notebook's claim about the skill -- and a
+  // marginal trajectory scatters when it is sampled at a finite step. Swept
+  // in hundredths at dt = 5e-5 it arrives cleanly from 1.34 s to 1.60 s; at
+  // any given working step a tempo or two inside that band lands on the wrong
+  // side, and WHICH ones moves with the step size. Asking the question at the
+  // default step measured the scatter and called it the band.
   const at = (T) => {
-    const r = runScenario(model, ws, prof, { ...techniqueRunArgs(p, model, ws), T });
+    const r = runScenario(model, ws, prof, { ...techniqueRunArgs(p, model, ws), T, dt: 1e-4 });
     return !!r.verdict?.success;
   };
   const margin = [-0.06, -0.03, 0, 0.03, 0.06].map((d) => at(KICK_T + d));

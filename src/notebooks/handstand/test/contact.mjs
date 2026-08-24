@@ -4,20 +4,26 @@ import { JOINT_ORDER } from '../control.js';
 // Gates E and F cover the joint servo's arrival behavior and the passive
 // anatomical end-stops, both of which reach the model through simulate().
 //
-// Gate C is the promised demonstration that stiff penalty contacts constrain
-// the step size: the default dt integrates a settling drop cleanly while a
-// coarse dt visibly diverges on the same problem. Gate D is the end-to-end
+// Gate C used to be the demonstration that stiff penalty contacts constrain
+// the step size. They no longer do -- the contact damper is folded into the
+// mass matrix rather than integrated explicitly -- so it now gates what
+// replaced that: a hundred-fold step stays stable and rests in the same
+// place. Gate G checks the matrix that makes it work. Gate D is the end-to-end
 // smoke test: the full model holds a handstand for three seconds under plain
 // joint-space PD servos, with ground reaction equal to body weight.
 //
 // Run: node src/notebooks/handstand/test/contact.mjs
 import { buildModel, handstandPose } from '../anthropometry.js';
-import { createWorkspace, momenta } from '../dynamics.js';
-import { createContacts, computeContactForces, groundReaction } from '../contact.js';
+import { createWorkspace, momenta, fk, rnea } from '../dynamics.js';
+import {
+  createContacts, computeContactForces, groundReaction, contactDamping,
+} from '../contact.js';
 import { simulate } from '../integrate.js';
 import { groundHand, solveWristForCom, ROM_DEFAULTS } from '../statics.js';
 import { strengthProfile } from '../strength.js';
 import { createServo } from '../control.js';
+import { builtinPresets } from '../presets.js';
+import { techniqueRunArgs } from '../technique-file.js';
 import {
   balancedHandstand, HANDSTAND_TARGET_FRAC, PLANT_DEFAULTS, LEGACY_PLANT, runScenario,
 } from '../rollout.js';
@@ -87,8 +93,24 @@ function blockModel() {
 }
 
 // ---------------------------------------------------------------------------
-// Gate C: the demonstrated failure. The same drop diverges (or fails to
-// settle) at a coarse step, while the default dt handles it.
+// Gate C: a coarse step no longer breaks the contact, and lands in the same
+// place.
+//
+// This gate used to assert the opposite -- that a hundred-fold step diverged
+// -- and it was right to, because the contact damper was integrated
+// explicitly. It is sized against an effective mass of a quarter of the body
+// and acts on a hand weighing under a kilogram, which explicitly is stable
+// only below about half a millisecond, and that one term set the step size for
+// the entire simulation. It is DAMPING, though, and damping is the easy thing
+// to be implicit about: the step folds dt * (contact damping) into the mass
+// matrix now (see contactDamping), so what used to be a stability limit costs
+// nothing.
+//
+// So the gate says what should be true instead. A hundred-fold step is still
+// too coarse to be accurate -- it is a hundred-fold step -- but it must not
+// blow up, and it must settle on the same resting penetration, because the
+// place a block comes to rest is set by the spring and gravity and no
+// integrator gets a vote.
 // ---------------------------------------------------------------------------
 {
   const m = blockModel();
@@ -97,13 +119,14 @@ function blockModel() {
     const contacts = createContacts(m);
     const r = simulate(m, ws, { q0: [0, 0.058, 0], T: 1.0, dt, contacts });
     const vmax = Math.max(Math.abs(r.qd[0]), Math.abs(r.qd[1]), Math.abs(r.qd[2]));
-    return { diverged: r.diverged || !Number.isFinite(vmax) || vmax > 1, vmax };
+    return { diverged: r.diverged || !Number.isFinite(vmax) || vmax > 1, vmax, y: r.q[1] };
   };
   const fine = tryDt(2e-4);
   const coarse = tryDt(2e-2);
-  gate('C: coarse dt fails on stiff contact, default dt succeeds',
-    !fine.diverged && coarse.diverged,
-    `dt=2e-4 vmax=${fine.vmax.toExponential(1)}; dt=2e-2 ${coarse.diverged ? 'diverges' : `vmax=${coarse.vmax.toExponential(1)}`}`);
+  gate('C: a 100x step is stable on stiff contact and rests in the same place',
+    !fine.diverged && !coarse.diverged && Math.abs(coarse.y - fine.y) < 1e-4,
+    `dt=2e-4 rests at ${(fine.y * 1e3).toFixed(3)}mm; dt=2e-2 `
+    + `${coarse.diverged ? 'diverges' : `rests at ${(coarse.y * 1e3).toFixed(3)}mm`}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +339,61 @@ function blockModel() {
   gate('F2: end-stops hold the knee within the design penetration under full torque',
     stopped < 1.5 * PLANT_DEFAULTS.romStopDeg,
     `knee ${stopped.toFixed(1)} deg beyond its limit (stopDeg=${PLANT_DEFAULTS.romStopDeg})`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate G: the contact damping matrix is the derivative it claims to be.
+//
+// D is what lets the step be implicit about contact damping, and it is folded
+// straight into the mass matrix -- so if it is not really
+// -d(generalized contact force)/d(qd), the simulation is quietly integrating
+// something that is not this model. Nothing else would catch that: a wrong D
+// changes the transient, not the equilibrium, so the block still comes to rest
+// in the right place and the handstand still stands up.
+//
+// Checked against finite differences at five instants of a kick-up, which is
+// the case that loads the palms, slides, and lifts off.
+// ---------------------------------------------------------------------------
+{
+  const model = buildModel({});
+  const ws = createWorkspace(model);
+  const nq = model.nq;
+  const prof = strengthProfile(model.massKg, {});
+  const P = builtinPresets(model, ws, ROM_DEFAULTS);
+  const run = runScenario(model, ws, prof, techniqueRunArgs(P.lunge, model, ws));
+  const contacts = createContacts(model, {});
+  const zero = new Float64Array(nq);
+  // rnea with no motion and no gravity is exactly the joint-space image of
+  // the external forces, which is the thing D is the derivative of.
+  const gen = (q, qd, out) => {
+    computeContactForces(model, ws, q, qd, contacts, false);
+    rnea(model, q, zero, zero, out, contacts.ext, { ws, gravity: false });
+  };
+  const D = new Float64Array(nq * nq);
+  const f0 = new Float64Array(nq), f1 = new Float64Array(nq);
+  const h = 1e-6;
+  let worst = 0, scale = 0, where = '';
+  for (const frac of [0.02, 0.15, 0.3, 0.5, 0.8]) {
+    const k = Math.round(frac * (run.rec.q.length - 1));
+    const q = Float64Array.from(run.rec.q[k]), qd = Float64Array.from(run.rec.qd[k]);
+    gen(q, qd, f0);
+    fk(model, q, qd, ws);
+    computeContactForces(model, ws, q, qd, contacts, false, true);
+    contactDamping(model, ws, contacts, D);
+    for (let j = 0; j < nq; j++) {
+      const save = qd[j]; qd[j] += h; gen(q, qd, f1); qd[j] = save;
+      for (let i = 0; i < nq; i++) {
+        const fd = (f1[i] - f0[i]) / h;
+        scale = Math.max(scale, Math.abs(fd));
+        const e = Math.abs(fd - D[i * nq + j]);
+        if (e > worst) { worst = e; where = `t=${run.rec.t[k].toFixed(2)}s, entry (${i},${j})`; }
+      }
+    }
+  }
+  gate('G: the contact damping matrix matches finite differences',
+    worst / Math.max(scale, 1e-9) < 1e-4,
+    `worst |analytic - fd| = ${worst.toExponential(2)} against a largest entry of `
+    + `${scale.toFixed(0)}${worst > 0 ? ` (${where})` : ''}`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll contact gates passed');

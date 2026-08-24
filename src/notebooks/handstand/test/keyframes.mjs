@@ -17,6 +17,7 @@ import {
   optimizeScenario, runScenario, rolloutCost, encodeDecision, decodeDecision, decisionBounds,
   resolvePlant, resolveNumerics, resolveRom, resolveBody, applyLocks, applyTimeLocks,
   symmetrizeKnots, SYMMETRIC_SCENARIOS, MIN_KNOT_GAP, NJ, JOINT_KEYS,
+  NUMERICS_DEFAULTS,
 } from '../rollout.js';
 import { PRESET_TRAJECTORIES } from '../presets.js';
 
@@ -108,7 +109,10 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
 {
   const a = rolloutCost(model, ws, prof, rom, stored.scenario,
     encodeDecision(knots.map((k) => Float64Array.from(k)), T),
-    { K, dt: 2e-4, target, plant: resolvePlant(stored.config), knotFracs: unevenFracs });
+    // The default, read off NUMERICS_DEFAULTS: the replay below resolves it
+    // from there, and a number typed here would be a second opinion about the
+    // one thing this gate checks they agree on.
+    { K, dt: NUMERICS_DEFAULTS.dt, target, plant: resolvePlant(stored.config), knotFracs: unevenFracs });
   const b = runScenario(model, ws, prof, {
     scenario: stored.scenario, knots: knots.map((k) => Float64Array.from(k)), T, rom, target,
     knotFracs: unevenFracs, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
@@ -311,7 +315,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
     dec.fracs ? 'it carries instants' : 'the authored phrasing is used');
 
   // And the number it scores is the authored-phrasing number, to the last bit.
-  const opts = { K, dt: 2e-4, target, plant: resolvePlant(stored.config) };
+  const opts = { K, dt: NUMERICS_DEFAULTS.dt, target, plant: resolvePlant(stored.config) };
   const withFracs = rolloutCost(model, ws, prof, rom, stored.scenario, x,
     { ...opts, knotFracs: unevenFracs }).cost;
   const plain = rolloutCost(model, ws, prof, rom, stored.scenario, x,
@@ -337,7 +341,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   x[NJ * K + 1] = 0.12;
   x[NJ * K + 2] = 0.55;
   const scored = rolloutCost(model, ws, prof, rom, stored.scenario, x,
-    { K, dt: 2e-4, target, plant: resolvePlant(stored.config), knotFracs: fracs0 });
+    { K, dt: NUMERICS_DEFAULTS.dt, target, plant: resolvePlant(stored.config), knotFracs: fracs0 });
   // What the page would do with the answer: read the phrasing off the decode
   // and hand it to a replay.
   const dec = decodeDecision(x, K);

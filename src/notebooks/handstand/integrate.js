@@ -6,7 +6,7 @@
 // it is not used.
 
 import { forwardDynamics, momenta, fk } from './dynamics.js';
-import { computeContactForces, resetContacts } from './contact.js';
+import { computeContactForces, resetContacts, contactDamping } from './contact.js';
 import { applyJointStops } from './joint-stops.js';
 
 export function makeIntegratorWorkspace(n2) {
@@ -63,8 +63,18 @@ export function semiImplicitEulerStep(accel, q, qd, dt, qddScratch) {
 // without committing friction-anchor state, and jointDamping applied
 // explicitly, which requires damping small enough for RK4's stability
 // region but buys 4th-order accuracy at several times the step size).
+// The step size, in ONE place. Every default that used to say a number said a
+// DIFFERENT number -- simulate 2e-4, rolloutCost 5e-4, runScenario 2e-4 -- and
+// a scorer and a replay picking different ones is precisely the failure this
+// notebook keeps having to hunt down. rollout.js's NUMERICS_DEFAULTS reads
+// this; nothing else states it.
+//
+// Why it is what it is: see NUMERICS_DEFAULTS. In short, the step used to be
+// set by an explicit contact damper and is now set by accuracy.
+export const DEFAULT_DT = 5e-4;
+
 export function simulate(model, ws, {
-  q0, qd0, T, dt = 2e-4,
+  q0, qd0, T, dt = DEFAULT_DT,
   integrator = 'si',
   contacts = null,
   control = null,
@@ -114,6 +124,10 @@ export function simulate(model, ws, {
   // forces and are summed into tauTot, so rec.tau keeps one meaning under
   // both integrators and rec.tauStop carries the ligament share separately.
   const tauTot = jointStops ? new Float64Array(nq) : null;
+  // The contacts' generalized damping, rebuilt each step from the forces just
+  // computed and folded into the mass matrix rather than being integrated
+  // explicitly. It is what used to set the step size; see contact.js.
+  const cDamp = contacts ? new Float64Array(nq * nq) : null;
   const withStops = (qq, qqd) => {
     if (!jointStops) return tau;
     tauTot.set(tau);
@@ -153,7 +167,8 @@ export function simulate(model, ws, {
       q.set(y.subarray(0, nq));
       qd.set(y.subarray(nq));
     } else {
-      forwardDynamics(model, q, qd, tauUse, ext, qdd, ws, jointDamping, dt, true);
+      if (cDamp) contactDamping(model, ws, contacts, cDamp);
+      forwardDynamics(model, q, qd, tauUse, ext, qdd, ws, jointDamping, dt, true, cDamp);
       for (let i = 0; i < nq; i++) qd[i] += dt * qdd[i];
       for (let i = 0; i < nq; i++) q[i] += dt * qd[i];
     }

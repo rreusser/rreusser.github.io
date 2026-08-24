@@ -39,6 +39,12 @@ export function createContacts(model, {
       body: Int32Array.from(model.contacts.map((c) => c.body)),
       px: new Float64Array(n), py: new Float64Array(n),
       fx: new Float64Array(n), fy: new Float64Array(n),
+      // How hard each point resists a CHANGE of velocity, per axis: minus the
+      // derivative of the contact force with respect to the point's own
+      // velocity. This is the stiffest thing in the simulation and it is pure
+      // damping, so an integrator that is told about it can treat it
+      // implicitly and stop paying for it. See contactDamping below.
+      dx: new Float64Array(n), dy: new Float64Array(n),
     },
   };
 }
@@ -78,6 +84,7 @@ export function computeContactForces(model, ws, q, qd, contacts, commit = true, 
     const d = (cpt.r || 0) - py;
     if (d <= 0) {
       ext.fx[k] = 0; ext.fy[k] = 0;
+      ext.dx[k] = 0; ext.dy[k] = 0;
       if (commit) contacts.active[k] = 0;
       continue;
     }
@@ -93,8 +100,13 @@ export function computeContactForces(model, ws, q, qd, contacts, commit = true, 
     // went unstable in the first tenth of a second of a kick-up and threw the
     // whole entry; at 5e-4 and below it was fine, which is why the published
     // runs were right but only by a factor of two.
-    let Fn = kN * d * (1 + hcLambda * Math.max(-vy, -1 / Math.max(hcLambda, 1e-9)));
+    const hcFloor = -1 / Math.max(hcLambda, 1e-9);
+    let Fn = kN * d * (1 + hcLambda * Math.max(-vy, hcFloor));
     if (Fn < 0) Fn = 0;
+    // d(Fn)/d(vy) = -kN * d * hcLambda while the separation clamp is off, so
+    // the point damps vertical motion at kN * d * hcLambda. Zero once the
+    // clamp bites, because there the force no longer depends on velocity.
+    ext.dy[k] = (Fn > 0 && -vy > hcFloor) ? kN * d * hcLambda : 0;
     let anchor = contacts.active[k] ? contacts.anchor[k] : px;
     if (commit && !contacts.active[k]) {
       contacts.active[k] = 1;
@@ -102,8 +114,11 @@ export function computeContactForces(model, ws, q, qd, contacts, commit = true, 
     }
     let Ft = -kT * (px - anchor) - bT * vx;
     const Fmax = mu * Fn;
-    if (Ft > Fmax) { Ft = Fmax; if (commit) contacts.anchor[k] = px + Ft / kT; }
-    else if (Ft < -Fmax) { Ft = -Fmax; if (commit) contacts.anchor[k] = px + Ft / kT; }
+    // Sticking, the tangential force damps at bT. Sliding, it is pinned to the
+    // friction cone and does not depend on this point's velocity at all.
+    ext.dx[k] = bT;
+    if (Ft > Fmax) { Ft = Fmax; ext.dx[k] = 0; if (commit) contacts.anchor[k] = px + Ft / kT; }
+    else if (Ft < -Fmax) { Ft = -Fmax; ext.dx[k] = 0; if (commit) contacts.anchor[k] = px + Ft / kT; }
     ext.fx[k] = Ft; ext.fy[k] = Fn;
   }
   return ext;
@@ -119,4 +134,57 @@ export function groundReaction(contacts, handIdx = [0, 1]) {
     Ftan += contacts.ext.fx[k];
   }
   return { normal: Fn, tangential: Ftan, copX: Fn > 1e-9 ? FnX / Fn : NaN };
+}
+
+// The generalized damping the contacts impose: D = sum over points of
+// J^T B J, where J maps joint rates to that point's world velocity and B is
+// the per-axis damping recorded above.
+//
+// Why this exists. The contact damper is sized against an effective mass of a
+// quarter of the body but acts on the hand, which weighs under a kilogram, so
+// explicitly it is stable only below about half a millisecond -- and measured
+// on a kick-up it is what sets the step size for the whole simulation:
+// soften it and the largest usable step goes from 1e-3 to 4e-3, change
+// nothing else and it does not move. Damping is the easy thing to be implicit
+// about, so forwardDynamics adds dt * D to the mass matrix and the same
+// physics costs a fraction of the steps.
+//
+// D is symmetric positive semi-definite by construction (J^T B J with B
+// diagonal and non-negative), so M + dt * D is still symmetric positive
+// definite and the Cholesky factorization downstream is still valid.
+//
+// Call after computeContactForces, which fills ext.dx/dy and leaves the
+// workspace holding this pose's kinematics.
+export function contactDamping(model, ws, contacts, D) {
+  const nq = model.nq;
+  D.fill(0);
+  if (model.fixedBase) return D;      // no base columns to write into
+  const { ext } = contacts;
+  const { parent } = model;
+  const col = new Float64Array(2 * nq);
+  for (let k = 0; k < contacts.n; k++) {
+    const bx = ext.dx[k], by = ext.dy[k];
+    if (bx <= 0 && by <= 0) continue;
+    const px = ext.px[k], py = ext.py[k];
+    col.fill(0);
+    // The floating base: two translations and a rotation about body 0.
+    col[0] = 1;                                   // d vx / d qd[0]
+    col[nq + 1] = 1;                              // d vy / d qd[1]
+    col[2] = -(py - ws.py[0]);
+    col[nq + 2] = px - ws.px[0];
+    // Every joint between the root and this point's body turns the point
+    // about its own anchor.
+    for (let i = model.contacts[k].body; i > 0; i = parent[i]) {
+      col[2 + i] = -(py - ws.py[i]);
+      col[nq + 2 + i] = px - ws.px[i];
+    }
+    for (let i = 0; i < nq; i++) {
+      const jxi = col[i], jyi = col[nq + i];
+      if (jxi === 0 && jyi === 0) continue;
+      for (let j = 0; j < nq; j++) {
+        D[i * nq + j] += bx * jxi * col[j] + by * jyi * col[nq + j];
+      }
+    }
+  }
+  return D;
 }

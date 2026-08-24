@@ -276,8 +276,14 @@ export function choleskySolveInPlace(A, b, n) {
 // semi-implicit Euler. With dt = 0 the damping is applied explicitly (for
 // integrators like RK4 that provide their own accuracy, paired with damping
 // coefficients small enough for their stability region).
+// dampMatrix, when given with dt > 0, is a generalized damping matrix folded
+// into the mass matrix the same way the diagonal `damping` vector is -- the
+// linearly-implicit step (M + dt D) qdd = f, which is stable for a damping
+// rate the explicit form could not touch. Its force is expected to be in `ext`
+// already (unlike `damping`, whose force this function applies itself), so
+// only the matrix is added here and the right-hand side is left alone.
 export function forwardDynamics(model, q, qd, tauAct, ext, qdd, ws, damping = null, dt = 0,
-  fkCurrent = false) {
+  fkCurrent = false, dampMatrix = null) {
   const nq = model.nq;
   qdd.fill(0);
   rnea(model, q, qd, qdd, ws.bias, ext, { ws, fkCurrent });
@@ -291,6 +297,9 @@ export function forwardDynamics(model, q, qd, tauAct, ext, qdd, ws, damping = nu
       if (dt > 0) ws.Mchol[i * nq + i] += dt * damping[i];
       ws.rhs[i] -= damping[i] * qd[i];
     }
+  }
+  if (dampMatrix && dt > 0) {
+    for (let i = 0; i < nq * nq; i++) ws.Mchol[i] += dt * dampMatrix[i];
   }
   choleskySolveInPlace(ws.Mchol, ws.rhs, nq);
   qdd.set(ws.rhs);

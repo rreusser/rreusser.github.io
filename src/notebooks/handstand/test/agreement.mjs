@@ -20,6 +20,7 @@ import { ROM_DEFAULTS } from '../statics.js';
 import {
   rolloutCost, runScenario, encodeDecision, resolvePlant, resolveNumerics,
   resolveRom, resolveBody, symmetrizeKnots, SYMMETRIC_SCENARIOS, NJ, JOINT_KEYS, widenKnots,
+  NUMERICS_DEFAULTS,
 } from '../rollout.js';
 import { resampleKnots } from '../figure-kit.js';
 import { PRESET_TRAJECTORIES, builtinPreset } from '../presets.js';
@@ -34,11 +35,12 @@ function gate(name, ok, detail) {
 }
 
 const D = 180 / Math.PI;
-// The fine timestep both sides use: rolloutCost's finalCheck and the page's
-// replay. The search's coarse generations are deliberately coarser, and the
-// finalCheck exists precisely so the number reported at the end is the one a
-// replay reproduces.
-const DT = 2e-4;
+// The timestep both sides use: rolloutCost's finalCheck and the page's replay.
+// Read off NUMERICS_DEFAULTS rather than written down, because the replay side
+// below resolves it from there -- a number typed here is a second opinion
+// about the one thing this file exists to check they agree on, and when the
+// default moved it was this line, not the code, that reported a disagreement.
+const DT = NUMERICS_DEFAULTS.dt;
 
 // What the figure's body sliders produce with nothing touched.
 function pageBody(stored) {

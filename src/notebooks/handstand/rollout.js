@@ -11,7 +11,7 @@ import {
 } from './statics.js';
 import { createContacts } from './contact.js';
 import { createJointStops } from './joint-stops.js';
-import { simulate } from './integrate.js';
+import { simulate, DEFAULT_DT } from './integrate.js';
 import { createServo, createBalanceControl, knotTimes, evenlySpaced, JOINT_ORDER, LEGACY_JOINT_ORDER, widenKnots } from './control.js';
 import { availableTorque } from './strength.js';
 import { cmaes, mulberry32 } from './cma-es.js';
@@ -405,7 +405,20 @@ export const resolveConfig = resolvePlant;
 //
 // dt and settleT are the REPLAY numerics, not the search's: a search
 // deliberately integrates coarsely and a replay does not.
-export const NUMERICS_DEFAULTS = { dt: 2e-4, settleT: 2.5 };
+// dt was 2e-4, and it was 2e-4 because the contact damper was integrated
+// explicitly: it is sized against a quarter of the body and acts on a hand
+// weighing under a kilogram, which explicitly is stable only below about half
+// a millisecond. That term is folded into the mass matrix now (contact.js,
+// contactDamping), so the step is no longer chosen by a stability limit.
+//
+// 5e-4 is chosen for ACCURACY instead, with margin. Measured against a 5e-5
+// reference across four techniques and two bodies, everything that arrives
+// agrees to 0.29 mm here -- and stays under a millimetre out to 3e-3, which is
+// six times coarser again. A search runs 2.3x faster. Going further is
+// available and was measured (2e-3 is 7.3x and still sub-millimetre); this is
+// the conservative end of a range that no longer has a cliff in it, which is
+// the same reason KICK_T is the middle of its band rather than its optimum.
+export const NUMERICS_DEFAULTS = { dt: DEFAULT_DT, settleT: 2.5 };
 
 export function resolveNumerics(numerics) {
   return { ...NUMERICS_DEFAULTS, ...(numerics || {}) };
@@ -823,7 +836,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // page watches after the movement ends, and scoring over a different one is
   // scoring a different question.
   numerics = null,
-  K = 6, dt = 5e-4, settleT = numerics?.settleT ?? 2.5, weights = COST_WEIGHTS,
+  K = 6, dt = NUMERICS_DEFAULTS.dt, settleT = numerics?.settleT ?? 2.5, weights = COST_WEIGHTS,
   qdJitter = 0, jitterSeed = 1, integrator = plant?.integrator ?? 'si',
   // Plant knobs a robustness variant may perturb. They default to the plant
   // being scored on, so a variant that names one still wins and one that does
@@ -1315,7 +1328,10 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
 // because a variant that agreed with the nominal one would test nothing.
 export const ROBUST_VARIANTS = [
   { dt: NUMERICS_DEFAULTS.dt },
-  { dt: 3e-4, qdJitter: 0.05, jitterSeed: 9182 },
+  // Coarser than the nominal, not finer. The point of the second variant is
+  // that a technique which only works at one step is a knife edge rather than
+  // a technique, and the cheap direction to ask that in is the coarse one.
+  { dt: 8e-4, qdJitter: 0.05, jitterSeed: 9182 },
 ];
 
 export function robustRolloutCost(model, ws, strengthProf, rom, scenario, x, opts = {}) {
@@ -1711,7 +1727,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
 export function catchWindow(model, ws, strengthProf, {
   thetaLoDeg = -25, thetaHiDeg = 25, nTheta = 21,
   omegaLo = -2.5, omegaHi = 2.5, nOmega = 21,
-  T = 2.5, dt = 5e-4, balanceOpts = {},
+  T = 2.5, dt = NUMERICS_DEFAULTS.dt, balanceOpts = {},
   onRow = null,
 } = {}) {
   const qBal = balancedHandstand(model, ws);
@@ -1785,7 +1801,7 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     // authored -- so a stored artifact replays as the thing it was.
     knotFracs = null,
     settleT = 1.0,
-    dt = 2e-4,
+    dt = NUMERICS_DEFAULTS.dt,
     recordEvery = null,
     qdJitter = 0,
     jitterSeed = 1,
