@@ -974,58 +974,92 @@
     const preset = Generators.input(presetInput);
     display(simControls);
   </script>
-  <script id="sim-run" type="text/x-typescript">
-    const simResult = (() => {
-      // Whatever the picker names, resolved to ONE technique-shaped object.
+  <script id="technique-source" type="text/x-typescript">
+    // Resolving what the picker names, WITHOUT being a function of what it
+    // names. That is the whole point of this cell existing: a cell that reads
+    // `preset` re-runs when the selection changes, and everything downstream
+    // of it is rebuilt. For the editor that meant tearing the whole instrument
+    // down and building a new one -- new canvases, a new storyboard, a fresh
+    // expandable wrapper -- to change which technique was in it. Switching
+    // stopped the animation, dropped the filmstrip's scroll position and
+    // flashed. A technique is a thing the editor OPENS, not a thing it is made
+    // of, so the resolving lives here and the editor calls it.
+    const techniqueSource = (() => {
       // A built-in is derived here, on THIS body -- not on the default one --
       // so changing height or mass in the body controls gives a starting
       // technique for the body you are actually asking about.
       const builtins = builtinPresets(model, ws, ROM_DEFAULTS);
-      const sel = preset || 'builtin:lunge';
-      let stored = null;
-      if (sel.startsWith('builtin:')) {
-        stored = builtins[sel.slice(8)] || builtins.lunge;
-      } else {
-        const kept = readPresets().find((c) => c.id === sel);
-        // A kept preset that will not parse is not a reason to blank the
-        // notebook: say so and fall back to the built-in it was made from,
-        // or the kick-up.
-        if (kept) {
-          try { stored = { ...techniqueFromJSON(kept), id: kept.id, label: kept.label }; }
-          catch (err) { console.warn('kept preset unreadable, falling back:', err); }
+      const build = (sel) => {
+        let stored = null;
+        if (sel.startsWith('builtin:')) {
+          stored = builtins[sel.slice(8)] || builtins.lunge;
+        } else {
+          const kept = readPresets().find((c) => c.id === sel);
+          // A kept preset that will not parse is not a reason to blank the
+          // notebook: say so and fall back to the built-in it was made from,
+          // or the kick-up.
+          if (kept) {
+            try { stored = { ...techniqueFromJSON(kept), id: kept.id, label: kept.label }; }
+            catch (err) { console.warn('kept preset unreadable, falling back:', err); }
+          }
+          if (!stored) stored = builtins.lunge;
         }
-        if (!stored) stored = builtins.lunge;
-      }
-      // ONE closure produces the run on screen and every variant of it, so an
-      // edited or optimised trajectory is replayed exactly as the base one is:
-      // same plant, same integration. It takes the BODY too, because a
-      // technique is only good or bad relative to what it is asked of.
-      //
-      // A preset naming no plant runs on the CURRENT one, which is the whole
-      // point of deriving them: `...resolvePlant(p.config)` with config null
-      // resolves to today's defaults, so a servo fix shows up in the editor
-      // the moment it lands instead of waiting to be re-recorded.
-      const replay = (knots, T, over = null) => {
-        const p = over
-          ? { ...stored, knots, T, q0: over.q0 ?? null, target: over.target ?? null,
-            knotFracs: over.knotFracs || null,
-            strength: over.strength || stored.strength, rom: over.rom || stored.rom,
-            config: over.config || stored.config,
-            numerics: over.numerics || stored.numerics,
-            body: over.body || stored.body }
-          : { ...stored, knots, T };
-        return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
+        // ONE closure produces the run on screen and every variant of it, so an
+        // edited or optimised trajectory is replayed exactly as the base one is:
+        // same plant, same integration. It takes the BODY too, because a
+        // technique is only good or bad relative to what it is asked of.
+        //
+        // A preset naming no plant runs on the CURRENT one, which is the whole
+        // point of deriving them: `...resolvePlant(p.config)` with config null
+        // resolves to today's defaults, so a servo fix shows up in the editor
+        // the moment it lands instead of waiting to be re-recorded.
+        const replay = (knots, T, over = null) => {
+          const p = over
+            ? { ...stored, knots, T, q0: over.q0 ?? null, target: over.target ?? null,
+              knotFracs: over.knotFracs || null,
+              strength: over.strength || stored.strength, rom: over.rom || stored.rom,
+              config: over.config || stored.config,
+              numerics: over.numerics || stored.numerics,
+              body: over.body || stored.body }
+            : { ...stored, knots, T };
+          return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
+        };
+        return {
+          ...replay(stored.knots, stored.T),
+          replay, stored,
+          presetId: sel,
+          scenarioName: stored.scenario,
+          // The anatomy this technique was BUILT for: where the body sliders
+          // start, and what "revert" means.
+          baseRom: resolveRom(stored.rom),
+        };
       };
+      // One resolution per id, remembered, because two cells ask for the same
+      // technique and the answer has to be the SAME OBJECT rather than an
+      // equal one. Playback decides whether to show the editor's trajectory by
+      // comparing identity (`editResult.base === simResult`), so two
+      // indistinguishable runs would read as "that edit belongs to something
+      // else" and the figure above would quietly stop following the one below.
+      let last = { id: null, value: null };
       return {
-        ...replay(stored.knots, stored.T),
-        replay, stored,
-        presetId: sel,
-        scenarioName: stored.scenario,
-        // The anatomy this technique was BUILT for: where the body sliders
-        // start, and what "revert" means.
-        baseRom: resolveRom(stored.rom),
+        resolve(sel) {
+          const id = sel || 'builtin:lunge';
+          if (last.id !== id) last = { id, value: build(id) };
+          return last.value;
+        },
+        // Kept presets are written, renamed and forgotten under ids this has
+        // already answered for, so the answer has to be droppable. Called from
+        // the one place that changes the stored list.
+        forget() { last = { id: null, value: null }; },
       };
     })();
+  </script>
+  <script id="sim-run" type="text/x-typescript">
+    // What the playback figure above the editor is showing. It IS a function
+    // of the picker -- that figure is small and rebuilding it is free -- and
+    // it holds the same object the editor holds, which is what lets it show
+    // the editor's edits.
+    const simResult = techniqueSource.resolve(preset);
   </script>
   <script id="playback-state" type="text/x-typescript">
     const playState = {
@@ -1289,29 +1323,27 @@
         ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'][j], j]));
       const lockedJoint = (joint) => symmetric()
         && (joint === 3 + CH.hipR || joint === 3 + CH.kneeR);
-      const runModel = simResult.model || model;
-      // Mutable, and NOT a cell dependency. It used to live in its own cell, so
-      // every change of it re-ran this one and rebuilt every control in the
-      // figure -- picker, sliders, buttons, all of it -- to change the number
-      // of thumbnails in one row. Only the storyboard depends on the count, so
-      // only the storyboard is rebuilt.
+      // The technique the editor currently has OPEN, and the run of it the
+      // picker names. Not the simResult cell: naming that here would make this
+      // whole cell a function of the picker, and choosing another technique
+      // would tear the instrument down and build a new one -- new canvases, a
+      // new storyboard, a fresh expandable wrapper -- to change what is inside
+      // it. So this is a variable, openInto below swaps it, and everything
+      // that reads it is a function of it rather than a constant folded out of
+      // it at build time.
+      let sim = techniqueSource.resolve(presetInput.value);
+      const runModel = () => sim.model || model;
       // The technique this run IS -- the single object technique-file.js reads
-      // and writes. simResult carries the recording; this is the thing that was
+      // and writes. sim carries the recording; this is the thing that was
       // saved, and it is what opening one has to give back.
-      const openedTechnique = simResult.stored || null;
-      // Whether the picker is naming a technique the editor is not already
-      // holding. simResult changes identity whenever a different one is chosen.
-      const openedAnother = editState.base !== simResult || !editState.knots;
-      // The pose count comes from the TECHNIQUE. It used to be read off
-      // editState first and fall through to the technique only when the editor
-      // was empty -- so opening a six-pose technique while a seven-pose one was
-      // on screen kept the seven and quietly RESAMPLED the six onto it. You
-      // saved six and got back seven. The count is a setting of the figure only
-      // while you stay on one technique; the moment you open another, the
-      // technique wins, exactly as loading a file already did.
-      let K = Math.max(2, openedAnother
-        ? (openedTechnique?.knots?.[0]?.length ?? simResult.knots[0].length)
-        : editState.knots[0].length);
+      const openedTechnique = () => sim.stored || null;
+      // How many poses there are. Mutable, and NOT a cell dependency: it used
+      // to live in its own cell, so every change of it re-ran this one and
+      // rebuilt every control in the figure -- picker, sliders, buttons, all
+      // of it -- to change the number of thumbnails in one row. Only the
+      // storyboard depends on the count, so only the storyboard is rebuilt.
+      // openInto is the one place that decides it.
+      let K;
       // The stored technique, said with however many poses are asked for.
       // Reset restores THIS, not the stored count: at four poses a six-pose
       // technique cannot be represented exactly, and pretending otherwise
@@ -1328,90 +1360,36 @@
       // handles already keep an edited pose symmetric (the right leg gets
       // none); this is the same rule applied on the way in.
       // ---- the body this technique is run and scored on ----------------------
-      // Its VALUES live here, above everything that needs them, and in
-      // editState rather than in the sliders. The sliders are rebuilt whenever
-      // this cell re-runs, which it does whenever the pose count changes -- so
-      // reading the body off them meant asking for five poses quietly handed
-      // the technique back its stored shoulder and threw away the one you had
-      // set. The duration never had that problem because it was already read
-      // from editState; now the body is too.
-      const st0 = simResult.stored?.strength || null;
-      const rom0 = simResult.baseRom;
-      const bodyDefaults = [
-        st0?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
-        rom0.hipFlexStraightKneeMaxDeg,
-        rom0.shoulderFlexMaxDeg,
-        rom0.wristExtMaxDeg ?? 135,
-        rom0.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
-      ];
+      // Its VALUES live here, in editState, rather than in the sliders. A
+      // slider is a view of a number; reading the number OFF the view means
+      // the number only exists as long as the view does, and back when the
+      // pose count rebuilt this cell that made asking for five poses quietly
+      // hand the technique back its stored shoulder and throw away the one you
+      // had set. Nothing rebuilds those sliders now -- neither the pose count
+      // nor the technique does -- but the reason to keep the values here is
+      // the same one it always was: the sliders are what SHOWS the body, and
+      // syncTechniqueInputs pushes them back from here every time it changes.
+      const st0 = () => sim.stored?.strength || null;
+      const bodyDefaults = () => {
+        const rom0 = sim.baseRom;
+        return [
+          st0()?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
+          rom0.hipFlexStraightKneeMaxDeg,
+          rom0.shoulderFlexMaxDeg,
+          rom0.wristExtMaxDeg ?? 135,
+          rom0.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
+        ];
+      };
       const machineDefaults = () => ({
-        config: resolvePlant(simResult.stored?.config),
-        numerics: resolveNumerics(simResult.stored?.numerics),
-        body: resolveRunBody(simResult.stored?.body),
+        config: resolvePlant(sim.stored?.config),
+        numerics: resolveNumerics(sim.stored?.numerics),
+        body: resolveRunBody(sim.stored?.body),
       });
-      const sameRun = editState.base === simResult && editState.knots;
 
-      // Park what is being left, BEFORE anything below reassigns editState.
-      // The body, the machine and the mirror are all rewritten a few lines
-      // down with the INCOMING technique's defaults, and editState.base is
-      // about to become the incoming run -- so a snapshot taken any later is a
-      // snapshot of the wrong technique filed under the wrong id.
-      //
-      // Switching techniques used to destroy every edit made to the outgoing
-      // one. For a built-in there was nowhere else for them to live, because a
-      // built-in is derived rather than remembered: hold a pose, unpin an
-      // instant, drag a knot, look at another technique to compare, come back,
-      // and all of it was gone without a word. A document with unsaved changes
-      // is a draft, so that is what it becomes.
-      const leaving = editState.base;
-      if (!sameRun && leaving?.presetId && editState.edited && editState.knots) {
-        try {
-          const drafts = readDrafts();
-          drafts[leaving.presetId] = techniqueToJSON({
-            label: leaving.stored?.label || leaving.scenarioName,
-            saved: new Date().toISOString(),
-            scenario: leaving.scenarioName,
-            knots: editState.knots,
-            T: editState.T,
-            knotFracs: editState.fracs,
-            held: editState.held,
-            timeHeld: editState.timeHeld,
-            startHeld: editState.startHeld,
-            q0: editState.q0,
-            target: leaving.stored?.target || null,
-            rom: { ...(leaving.stored?.rom || {}),
-              hipFlexStraightKneeMaxDeg: editState.body?.[1],
-              shoulderFlexMaxDeg: editState.body?.[2],
-              wristExtMaxDeg: editState.body?.[3],
-              spineFlexMaxDeg: editState.body?.[4] },
-            strength: { ...(leaving.stored?.strength || {}),
-              shoulder: { ...(leaving.stored?.strength?.shoulder || STRENGTH_DEFAULTS.shoulder),
-                t0Vol: editState.body?.[0] } },
-            body: editState.machine?.body || null,
-            config: editState.machine?.config || null,
-            numerics: editState.machine?.numerics || null,
-            symmetric: editState.symmetric,
-            search: editState.search,
-            verdict: null, cost: null,
-          });
-          // Logged rather than shown: nobody asked for this write, and the
-          // status line is about to be about the technique being opened.
-          const err = writeDrafts(drafts);
-          if (err) console.warn('could not park a draft:', err);
-        } catch (err) { console.warn('could not park a draft:', err); }
-      }
-      editState.base = simResult;
-      if (!sameRun || editState.body?.length !== bodyDefaults.length) {
-        editState.body = bodyDefaults.slice();
-      }
-      if (!sameRun || !editState.machine) editState.machine = machineDefaults();
-      if (!sameRun || editState.symmetric == null) {
-        editState.symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
-      }
       const bodyOver = () => ({
-        strength: { ...(st0 || {}),
-          shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: editState.body[0] } },
-        rom: { ...(simResult.stored?.rom || {}),
+        strength: { ...(st0() || {}),
+          shoulder: { ...(st0()?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: editState.body[0] } },
+        rom: { ...(sim.stored?.rom || {}),
           hipFlexStraightKneeMaxDeg: editState.body[1],
           shoulderFlexMaxDeg: editState.body[2],
           wristExtMaxDeg: editState.body[3],
@@ -1431,20 +1409,23 @@
       const fit = (kn) => sym(clampKnotsToRom(kn, romNow()));
       // Functions rather than values, because K moves now: Revert at four
       // poses has to give back the stored technique said with four.
-      const sameCount = () => simResult.knots[0].length === K;
+      const sameCount = () => sim.knots[0].length === K;
       // Widened where the page adopts a stored technique. Everything above
       // this line speaks in eight channels; the presets and the recorded runs
       // still speak in six, and a six-channel technique IS an eight-channel
       // one with the spine and the neck straight.
-      const stored8 = () => widenKnots(simResult.knots.map((k) => Float64Array.from(k)));
+      const stored8 = () => widenKnots(sim.knots.map((k) => Float64Array.from(k)));
       const baseKnots = () => (sameCount()
         ? sym(stored8())
-        : fit(FIG.resampleKnots(stored8(), simResult.T, K, simResult.knotFracs)));
+        : fit(FIG.resampleKnots(stored8(), sim.T, K, sim.knotFracs)));
       // Even spacing, and only the ending held. This is what a technique
       // starts as and what Revert returns it to; a stored one may carry its own
       // phrasing, and does when it was authored with any.
-      const evenFracs = () => Float64Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
-      const freshHeld = () => Array.from({ length: K }, (_, k) => k === K - 1);
+      // Sized by argument, defaulting to the count on screen: openInto builds
+      // these for the technique it is opening, which is a count K does not
+      // have yet -- it is what openInto returns.
+      const evenFracs = (n = K) => Float64Array.from({ length: n }, (_, k) => (n === 1 ? 0 : k / (n - 1)));
+      const freshHeld = (n = K) => Array.from({ length: n }, (_, k) => k === n - 1);
       // The instants, held or free. Two different questions get asked of a
       // pose -- keep this shape, keep this moment -- and they are worth
       // asking separately: the shape of the pose you pass through and the
@@ -1463,9 +1444,9 @@
       // The ends are structural rather than pinned: the first pose is what
       // t = 0 means and the last is what T means, so neither is ever a
       // decision whatever you click.
-      const freshTimeHeld = () => Array.from({ length: K }, () => true);
-      const baseFracs = () => (sameCount() && simResult.knotFracs?.length === K
-        ? Float64Array.from(simResult.knotFracs) : evenFracs());
+      const freshTimeHeld = (n = K) => Array.from({ length: n }, () => true);
+      const baseFracs = () => (sameCount() && sim.knotFracs?.length === K
+        ? Float64Array.from(sim.knotFracs) : evenFracs());
 
       // Whether the technique on screen is still the one the run beside it was
       // produced from. Both a refit and a mirroring change the knots without
@@ -1519,7 +1500,7 @@
         editState.startHeld = rec.startHeld !== false;
         editState.symmetric = typeof rec.symmetric === 'boolean'
           ? rec.symmetric
-          : SYMMETRIC_SCENARIOS.has(rec.scenario || simResult.scenarioName);
+          : SYMMETRIC_SCENARIOS.has(rec.scenario || sim.scenarioName);
         editState.machine = {
           config: resolvePlant(rec.config),
           numerics: resolveNumerics(rec.numerics),
@@ -1536,40 +1517,134 @@
         return nk;
       };
 
-      if (!sameRun) {
-        // The draft for the technique being opened, if there is one, is what
-        // the reader is handed -- otherwise the technique itself.
-        const draft = simResult.presetId ? readDrafts()[simResult.presetId] : null;
-        let opened = null;
-        if (draft) {
-          try { opened = techniqueFromJSON(draft); } catch (err) {
-            console.warn('a parked draft would not read back, using the technique:', err);
-          }
+      // ---- opening a technique into the editor ------------------------------
+      // Called once when this figure is built and again every time another
+      // technique is chosen. That second call is the point: choosing one used
+      // to re-run this cell, which rebuilt every canvas, every control and the
+      // wrapper around them to change what was inside -- so the animation
+      // stopped, the filmstrip forgot where it was scrolled and the whole
+      // figure flashed. Nothing about the instrument depends on WHICH
+      // technique is in it, so nothing about it is rebuilt; this swaps the
+      // technique and everything downstream reads the new one.
+      //
+      // Returns the pose count the technique wants. The caller owns K, because
+      // changing it also re-lays the storyboard.
+      function openInto(next) {
+        const fresh = !(editState.base === next && editState.knots);
+        // Per open, not per figure: the mirror straightens the knots of the
+        // technique being opened, and whether it moved THOSE is the question
+        // the caller settles on.
+        stale = false;
+
+        // Park what is being left, BEFORE anything below reassigns editState.
+        // The body, the machine and the mirror are all rewritten a few lines
+        // down with the INCOMING technique's defaults, and editState.base is
+        // about to become the incoming run -- so a snapshot taken any later is a
+        // snapshot of the wrong technique filed under the wrong id.
+        //
+        // Switching techniques used to destroy every edit made to the outgoing
+        // one. For a built-in there was nowhere else for them to live, because a
+        // built-in is derived rather than remembered: hold a pose, unpin an
+        // instant, drag a knot, look at another technique to compare, come back,
+        // and all of it was gone without a word. A document with unsaved changes
+        // is a draft, so that is what it becomes.
+        const leaving = editState.base;
+        if (fresh && leaving?.presetId && editState.edited && editState.knots) {
+          try {
+            const drafts = readDrafts();
+            drafts[leaving.presetId] = techniqueToJSON({
+              label: leaving.stored?.label || leaving.scenarioName,
+              saved: new Date().toISOString(),
+              scenario: leaving.scenarioName,
+              knots: editState.knots,
+              T: editState.T,
+              knotFracs: editState.fracs,
+              held: editState.held,
+              timeHeld: editState.timeHeld,
+              startHeld: editState.startHeld,
+              q0: editState.q0,
+              target: leaving.stored?.target || null,
+              rom: { ...(leaving.stored?.rom || {}),
+                hipFlexStraightKneeMaxDeg: editState.body?.[1],
+                shoulderFlexMaxDeg: editState.body?.[2],
+                wristExtMaxDeg: editState.body?.[3],
+                spineFlexMaxDeg: editState.body?.[4] },
+              strength: { ...(leaving.stored?.strength || {}),
+                shoulder: { ...(leaving.stored?.strength?.shoulder || STRENGTH_DEFAULTS.shoulder),
+                  t0Vol: editState.body?.[0] } },
+              body: editState.machine?.body || null,
+              config: editState.machine?.config || null,
+              numerics: editState.machine?.numerics || null,
+              symmetric: editState.symmetric,
+              search: editState.search,
+              verdict: null, cost: null,
+            });
+            // Logged rather than shown: nobody asked for this write, and the
+            // status line is about to be about the technique being opened.
+            const err = writeDrafts(drafts);
+            if (err) console.warn('could not park a draft:', err);
+          } catch (err) { console.warn('could not park a draft:', err); }
         }
-        readTechnique(opened || openedTechnique || {
-          knots: simResult.knots, T: simResult.T, knotFracs: simResult.knotFracs,
-          rom: simResult.baseRom, scenario: simResult.scenarioName,
-        });
-        editState.hasDraft = !!opened;
-        // Mirroring a symmetric skill moves the knots without touching the
-        // recording beside them, and a figure whose grey poses have moved
-        // while its coloured body has not is the confusion this figure exists
-        // to remove -- so that means re-simulate rather than re-lay-out.
-        const raw = editState.knots.map((k) => Float64Array.from(k));
-        sym(editState.knots);
-        stale = differs(editState.knots, raw);
-        editState.run = simResult;
-        // A restored draft IS an edit -- it is the work you had done -- so the
-        // badge and the verdict's baseline comparison both stay on.
-        editState.edited = !!editState.hasDraft;
+        sim = next;
+        editState.base = sim;
+        if (fresh || editState.body?.length !== 5) editState.body = bodyDefaults();
+        if (fresh || !editState.machine) editState.machine = machineDefaults();
+        if (fresh || editState.symmetric == null) {
+          editState.symmetric = SYMMETRIC_SCENARIOS.has(sim.scenarioName);
+        }
+        // The pose count comes from the TECHNIQUE. It used to be read off
+        // editState first and fall through to the technique only when the
+        // editor was empty -- so opening a six-pose technique while a
+        // seven-pose one was on screen kept the seven and quietly RESAMPLED
+        // the six onto it. You saved six and got back seven. The count is a
+        // setting of the figure only while you stay on one technique; the
+        // moment you open another, the technique wins, exactly as loading a
+        // file already did. And it is what the READER gives back, not what the
+        // stored technique says: a parked draft is what gets opened when there
+        // is one, and a draft may have had a pose added to it.
+        let want = Math.max(2, fresh
+          ? (openedTechnique()?.knots?.[0]?.length ?? sim.knots[0].length)
+          : editState.knots[0].length);
+        if (fresh) {
+          // The draft for the technique being opened, if there is one, is what
+          // the reader is handed -- otherwise the technique itself.
+          const draft = sim.presetId ? readDrafts()[sim.presetId] : null;
+          let opened = null;
+          if (draft) {
+            try { opened = techniqueFromJSON(draft); } catch (err) {
+              console.warn('a parked draft would not read back, using the technique:', err);
+            }
+          }
+          want = readTechnique(opened || openedTechnique() || {
+            knots: sim.knots, T: sim.T, knotFracs: sim.knotFracs,
+            rom: sim.baseRom, scenario: sim.scenarioName,
+          });
+          editState.hasDraft = !!opened;
+          // Mirroring a symmetric skill moves the knots without touching the
+          // recording beside them, and a figure whose grey poses have moved
+          // while its coloured body has not is the confusion this figure exists
+          // to remove -- so that means re-simulate rather than re-lay-out.
+          const raw = editState.knots.map((k) => Float64Array.from(k));
+          sym(editState.knots);
+          stale = differs(editState.knots, raw);
+          editState.run = sim;
+          // A restored draft IS an edit -- it is the work you had done -- so the
+          // badge and the verdict's baseline comparison both stay on.
+          editState.edited = !!editState.hasDraft;
+        }
+        // Belt and braces for a technique stored before any of these existed.
+        if (editState.fracs?.length !== want) editState.fracs = evenFracs(want);
+        if (editState.held?.length !== want) editState.held = freshHeld(want);
+        editState.held[want - 1] = true;
+        if (editState.timeHeld?.length !== want) editState.timeHeld = freshTimeHeld(want);
+        editState.timeHeld[0] = editState.timeHeld[want - 1] = true;
+        if (!editState.search) editState.search = { seed: 7, maxGen: 120 };
+        return want;
       }
-      // Belt and braces for a technique stored before any of these existed.
-      if (editState.fracs?.length !== K) editState.fracs = evenFracs();
-      if (editState.held?.length !== K) editState.held = freshHeld();
-      editState.held[K - 1] = true;
-      if (editState.timeHeld?.length !== K) editState.timeHeld = freshTimeHeld();
-      editState.timeHeld[0] = editState.timeHeld[K - 1] = true;
-      if (!editState.search) editState.search = { seed: 7, maxGen: 120 };
+
+      // Open whatever the picker is naming right now. Everything below is
+      // built against the technique this leaves in editState.
+      K = openInto(sim);
 
       const dpr = devicePixelRatio;
       // Every reference pose has to fit, and a reference pose is not a pose the
@@ -1686,14 +1761,14 @@
         overlay.setAttribute('width', panelW);
         overlay.setAttribute('height', panelH);
       };
-      const askQ = new Float64Array(runModel.nq);
+      const askQ = new Float64Array(runModel().nq);
       // The pose the technique is aiming at IS its last knot. Drag that cell
       // and you have asked for a different ending -- a pike, a planche -- and
       // the search is told about it rather than snapping it back to a
       // handstand behind your back.
-      const tgtQ = new Float64Array(runModel.nq);
+      const tgtQ = new Float64Array(runModel().nq);
       const targetQ = () => FIG.knotPose(
-        editState.run?.model || simResult.model || model, editState.knots, K - 1, tgtQ);
+        editState.run?.model || sim.model || model, editState.knots, K - 1, tgtQ);
 
       const drawStage = () => {
         const run = editState.run, rec = run.rec;
@@ -1999,7 +2074,10 @@
       // stage was given the height left over from a chrome that has since got
       // taller. Either way the timeline ends up past the bottom edge.
       const layout = { refresh: null };
-      const setCount = (next) => {
+      // opts travel through to resim: opening another technique changes the
+      // count without that being an EDIT, and resim is what decides whether
+      // the document is badged as one.
+      const setCount = (next, opts) => {
         // A search in flight is a search for a DIFFERENT technique the moment
         // the pose count changes: it is still scoring K poses and will hand
         // back K of them, onto a page whose knots, phrasing and holds are all
@@ -2020,7 +2098,7 @@
         // which is not totalW while the figure is expanded.
         story.setCount(nCells);
         sel = Math.min(sel, nCells - 1);
-        resim();
+        resim(opts);
         layout.refresh?.();
       };
 
@@ -2042,11 +2120,11 @@
       // its angles read off the curve that is already there. The movement does
       // not change; you gain a handle on it. That IS the resampling -- of one
       // point, at one instant, rather than a least-squares refit of everything.
-      const insQ = new Float64Array(runModel.nq);
+      const insQ = new Float64Array(runModel().nq);
       const addPoseBefore = (k) => {
         if (K >= 12 || k <= 0 || k > K - 1) return;
         const frac = 0.5 * (editState.fracs[k - 1] + editState.fracs[k]);
-        FIG.requestPose(editState.run?.model || runModel, editState.knots, editState.T,
+        FIG.requestPose(editState.run?.model || runModel(), editState.knots, editState.T,
           frac * editState.T, insQ, editState.fracs);
         editState.knots = editState.knots.map((row, j) =>
           Float64Array.from([...row.slice(0, k), insQ[3 + j], ...row.slice(k)]));
@@ -2144,10 +2222,16 @@
         presetInput.value = pick.value;
         presetInput.dispatchEvent(new Event('input', { bubbles: true }));
       });
-      presetInput.addEventListener('input', syncPick);
       // Rebuild both lists and select `id`. Everything that adds or removes a
       // preset goes through here, so the two selects cannot drift.
-      const refreshPresets = (id = null) => { presetInput.refresh(id); syncPick(); };
+      const refreshPresets = (id = null) => {
+        // The stored list has changed, so anything techniqueSource remembers
+        // about an id in it is stale -- a preset can be overwritten, renamed
+        // or forgotten under an id it has already answered for.
+        techniqueSource.forget();
+        presetInput.refresh(id);
+        syncPick();
+      };
       // The blunt way to the same setting, and the only one that refits: asking
       // for a count says nothing about WHICH poses, so the curve is re-fitted
       // with that many and the phrasing goes back to even. The x and + on the
@@ -2264,7 +2348,7 @@
         ><span class="hs-btn__label">Revert</span></button>`;
       resetBtn.addEventListener('click', () => {
         stopSearch();
-        clearDraft(simResult.presetId);
+        clearDraft(sim.presetId);
         editState.hasDraft = false;
         // baseKnots is a FUNCTION -- it has to be, because the pose count can
         // move and reverting at four poses has to give back the stored
@@ -2276,8 +2360,8 @@
         // holds, the pins, the start pose, the mirror and the search settings
         // came back re-derived rather than restored, which made Revert a
         // different act from opening the very same technique.
-        if (sameCount() && openedTechnique) {
-          readTechnique(openedTechnique);
+        if (sameCount() && openedTechnique()) {
+          readTechnique(openedTechnique());
           sym(editState.knots);
         } else {
           // A different pose count is the one thing Revert leaves alone -- that
@@ -2285,17 +2369,17 @@
           // technique cannot be undone by restoring six numbers -- so here the
           // technique has to be resampled onto the count on screen.
           editState.knots = baseKnots().map((k) => Float64Array.from(k));
-          editState.T = simResult.T;
+          editState.T = sim.T;
           editState.fracs = baseFracs();
           editState.held = freshHeld();
           editState.timeHeld = freshTimeHeld();
-          editState.symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
+          editState.symmetric = SYMMETRIC_SCENARIOS.has(sim.scenarioName);
           editState.q0 = null;
-          editState.body = bodyDefaults.slice();
+          editState.body = bodyDefaults();
           editState.machine = machineDefaults();
         }
         syncTechniqueInputs();
-        editState.run = simResult;
+        editState.run = sim;
         optState.history = [];
         status = '';
         // A revert changes the knots, so the body on screen is no longer the
@@ -2311,9 +2395,9 @@
       // them is quietly missing. The shape is a stored artifact's, so a file
       // saved here is the same object a built-in preset is derived as.
       const asTechnique = () => ({
-        label: `${simResult.stored?.label || simResult.scenarioName} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+        label: `${sim.stored?.label || sim.scenarioName} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
         saved: new Date().toISOString(),
-        scenario: simResult.scenarioName,
+        scenario: sim.scenarioName,
         knots: editState.knots,
         T: editState.T,
         knotFracs: editState.fracs,
@@ -2336,7 +2420,7 @@
       saveBtn.addEventListener('click', () => {
         const text = JSON.stringify(techniqueToJSON(asTechnique()), null, 1);
         const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-        const a = html`<a download="${simResult.scenarioName}-preset.json" href="${url}"></a>`;
+        const a = html`<a download="${sim.scenarioName}-preset.json" href="${url}"></a>`;
         a.click();
         // Revoked on the next turn of the loop rather than immediately: some
         // browsers have not started reading the blob when click() returns.
@@ -2404,7 +2488,7 @@
         if (!err) {
           // The edit is a preset now, so the draft parked under whatever this
           // was opened from has nothing left to say.
-          clearDraft(simResult.presetId);
+          clearDraft(sim.presetId);
           editState.hasDraft = false;
           refreshPresets(rec.id);
           syncPresetButtons();
@@ -2438,7 +2522,7 @@
         // Falls back to the first built-in, which re-runs the simulation --
         // the preset that was showing no longer exists.
         if (!err) {
-          refreshPresets(`builtin:${simResult.scenarioName}`);
+          refreshPresets(`builtin:${sim.scenarioName}`);
           presetInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
         dirty = chromeDirty = true;
@@ -2483,7 +2567,7 @@
       function beginLoad(rec) {
         stopSearch();
         pendingLoad.rec = rec;
-        if (rec.scenario !== simResult.scenarioName) {
+        if (rec.scenario !== sim.scenarioName) {
           const key = `builtin:${rec.scenario}`;
           if (Array.from(presetInput.options).some((o) => o.value === key)) {
             presetInput.value = key;
@@ -2514,7 +2598,11 @@
       }
 
       const verdict = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
-      const baseStats = FIG.analyzeRun(simResult, simResult.prof || strengthProf, model);
+      // What the verdict compares an edit against: the technique as stored,
+      // replayed. A `let`, because opening another technique replaces it --
+      // a delta against the technique you are no longer looking at is a
+      // number about nothing.
+      let baseStats = FIG.analyzeRun(sim, sim.prof || strengthProf, model);
 
       // `revert` says the replay about to happen restores the technique the
       // picker names rather than changing it. Without it Revert left the page
@@ -2541,7 +2629,7 @@
         if (editState.q0) editState.q0 = Float64Array.from(run.rec.q[0]);
         editState.run = run;
         editState.edited = !revert;
-        editState.notify?.(revert ? null : { base: simResult, run });
+        editState.notify?.(revert ? null : { base: sim, run });
         relayout();
       };
 
@@ -2855,7 +2943,7 @@
         xEnd = Math.min(rec.t[rec.t.length - 1] || editState.T, editState.T + 1.0);
         if (t > xEnd) t = xEnd;
         strip.layout({
-          run, prof: run.prof || strengthProf, rom: run.rom || simResult.baseRom,
+          run, prof: run.prof || strengthProf, rom: run.rom || sim.baseRom,
           T: editState.T, xEnd, theme,
           knotTimes: Array.from({ length: K }, (_, k) => knotTime(k)),
           locks: editState.timeHeld,
@@ -2908,8 +2996,68 @@
         }
       });
       invalidation.then(() => loop.cancel());
-      if (pendingLoad.rec) applyLoaded();
-      else if (stale) resim(); else relayout();
+
+      // ---- settling on a technique that has just been opened ----------------
+      // A file waiting to be applied wins; then a technique whose knots the
+      // mirror moved, or a restored draft, both of which mean the recording
+      // beside them is of some other movement and has to be re-run. Otherwise
+      // the run the technique came with IS the run, and this only re-lays.
+      const settle = () => {
+        if (pendingLoad.rec) applyLoaded();
+        else if (stale || editState.hasDraft) resim();
+        else relayout();
+      };
+
+      // ---- swapping the technique, in place ---------------------------------
+      // The whole reason this figure no longer depends on the picker. Nothing
+      // here rebuilds anything: the storyboard is told a new cell count if the
+      // count changed, every control is pushed back from editState, and the
+      // clock keeps running -- so choosing another technique looks like the
+      // animation changing rather than the page rebuilding underneath it.
+      function openAnother(next) {
+        if (!next || (next === sim && !pendingLoad.rec)) return;
+        stopSearch();
+        const before = K;
+        const want = openInto(next);
+        baseStats = FIG.analyzeRun(sim, sim.prof || strengthProf, model);
+        syncTechniqueInputs();
+        syncPresetButtons();
+        syncPick();
+        optState.history = [];
+        status = '';
+        // The clock survives -- it is the one thing here that is about the
+        // reader rather than the technique -- but the selection does not: the
+        // pose you were editing was a pose of the other movement.
+        sel = -1;
+        closeConfirm?.();
+        if (pendingLoad.rec) {
+          // applyLoaded reads the file over the top of what was just opened
+          // and fixes the count itself, so all this owes it is a K that
+          // matches the storyboard it is about to compare against.
+          if (want !== before) { K = want; nCells = K + 1; story.setCount(nCells); }
+          applyLoaded();
+        } else if (want !== before) {
+          // A technique with a different number of poses still has to re-lay
+          // the storyboard, and setCount re-simulates as part of that -- but
+          // opening one is not an edit of it, so the replay says so. Except
+          // when a parked draft came back, which IS the work you had done.
+          setCount(want, { revert: !editState.hasDraft });
+        } else settle();
+        chromeDirty = dirty = true;
+      }
+      // Both ways in are the same act. The bar's own picker mirrors into the
+      // one above the playback figure, which is what the rest of the notebook
+      // listens to; this listens to it too, so a change made in either place
+      // opens the technique here exactly once.
+      const onPicked = () => { syncPick(); openAnother(techniqueSource.resolve(presetInput.value)); };
+      presetInput.addEventListener('input', onPicked);
+      // presetInput OUTLIVES this cell -- it belongs to the controls above the
+      // playback figure -- so a listener left on it would still be here, and
+      // still holding this cell's closure, the next time the body changes and
+      // this figure is rebuilt.
+      invalidation.then(() => presetInput.removeEventListener('input', onPicked));
+
+      settle();
       const stopTheme = observeTheme((th) => { theme = th; relayout(); });
       invalidation.then(stopTheme);
 
