@@ -40,13 +40,6 @@
          work, so the space goes to the slider. */
       .technique-controls form input[type=number] { width: 4.4em; flex: 0 0 auto; }
       .technique-controls form input[type=range] { flex: 1 1 auto; min-width: 90px; }
-      /* Floated out, the panel is already a box. */
-      .expandable-controls-panel .technique-controls {
-        border: none; padding: 0; margin-top: 0; max-width: none;
-      }
-      /* Floated out, the panel has a header of its own; two in a row is one
-         too many. */
-      .expandable-controls-panel .technique-controls > .hs-pane__head { display: none; }
       /* The site gives an open details a 3px rule down its left and an indent
          to match, which is right for a disclosure in the prose and wrong for a
          group of controls inside a panel that is already a box. */
@@ -167,6 +160,35 @@
         border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
       }
       .hs-editor__pane--first { border-top: none; }
+      /* The tab bar over the lower deck. Underline rather than a box: the panel
+         below it is already bounded by the shell, and a second box inside a box
+         is a seam. */
+      .hs-editor__deck { border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+      .hs-tabs {
+        display: flex; gap: 2px; padding: 0 8px;
+        border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+        background: color-mix(in srgb, currentColor 4%, transparent);
+      }
+      .hs-tab {
+        font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+        text-transform: uppercase; color: inherit; opacity: .55;
+        background: none; border: none; border-bottom: 2px solid transparent;
+        padding: 7px 10px 5px; margin-bottom: -1px; cursor: pointer;
+        transition: opacity 90ms linear, border-color 90ms linear;
+      }
+      .hs-tab:hover { opacity: .85; }
+      .hs-tab--on {
+        opacity: 1; border-bottom-color: color-mix(in srgb, currentColor 55%, transparent);
+      }
+      .hs-tab:focus-visible { outline: 2px solid color-mix(in srgb, currentColor 45%, transparent); outline-offset: -2px; }
+      [role=tabpanel][hidden] { display: none; }
+      /* Inside the deck the parameter box is not a box: the tab is its frame. */
+      .hs-editor__deck .technique-controls {
+        border: none; padding: 0; margin-top: 0; max-width: none; font-size: 12px;
+      }
+      .hs-editor__deck .technique-controls > details:first-of-type {
+        margin-top: 0; border-top: none;
+      }
       /* The exceptions: a sentence you might quote, and anything you type in. */
       .hs-editor__verdict, .hs-editor input, .hs-editor select {
         -webkit-user-select: text; user-select: text;
@@ -2913,16 +2935,88 @@
         <div class="hs-pane__head">${posesTitle}${confirmBar}</div>
         ${story.element}
       </div>`;
+      // "Effort", not "Timeline": the tab above it is the timeline, and this is
+      // one of the two things on it. What the strip actually shows is how much
+      // of each joint's strength the movement is spending, which is what the
+      // legend beside this title says too.
       const timelinePane = html`<div class="hs-editor__pane">
-        <div class="hs-pane__head"><span class="hs-pane__title">Timeline</span>${legend}</div>
+        <div class="hs-pane__head"><span class="hs-pane__title">Effort</span>${legend}</div>
         ${strip.element}
       </div>`;
       const verdictPane = html`<div class="hs-editor__pane hs-editor__verdict"
         style="font: 12.5px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;">${verdict}</div>`;
+
+      // ---- the deck -----------------------------------------------------------
+      // The lower half of the instrument, as two views of one technique with a
+      // tab bar over them.
+      //
+      // The parameters used to live outside the figure entirely, in a box under
+      // it, and expandable would lift that box into a panel floating over the
+      // figure when you went fullscreen. That was a reasonable arrangement for
+      // a picture with some sliders beside it and a poor one for this: there is
+      // enough interface here now that a second, draggable, differently-shaped
+      // window on top of it reads as another application. It also had nowhere
+      // good to sit -- its own toggle floats at the top-left of whatever it
+      // wraps, which since the title bar arrived is over the technique picker.
+      //
+      // Two tabs rather than three. The poses and the effort strip are both
+      // TIME views of the same movement and are wanted at the same time: you
+      // scrub one and read the other, and the frame you are editing is ringed
+      // in the first while the second says what it costs. Splitting them would
+      // break the one pairing in this figure that already works. The
+      // parameters are the other thing -- what body, what search, what servo --
+      // and they are set and then left alone.
+      const TABS = [
+        { id: 'timeline', label: 'Timeline', pane: html`<div></div>` },
+        { id: 'settings', label: 'Settings', pane: html`<div class="hs-editor__pane"></div>` },
+      ];
+      TABS[0].pane.append(posesPane, timelinePane);
+      const tabBtns = TABS.map((t, i) => {
+        const b = html`<button class="hs-tab" type="button" role="tab"
+          id="hs-tab-${t.id}" aria-controls="hs-tabpanel-${t.id}">${t.label}</button>`;
+        t.pane.id = `hs-tabpanel-${t.id}`;
+        t.pane.setAttribute('role', 'tabpanel');
+        t.pane.setAttribute('aria-labelledby', `hs-tab-${t.id}`);
+        b.addEventListener('click', () => selectTab(i));
+        // Left and right walk the tabs, which is what a tablist is expected to
+        // do and costs four lines.
+        b.addEventListener('keydown', (e) => {
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+          e.preventDefault();
+          const next = (i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length;
+          selectTab(next);
+          tabBtns[next].focus();
+        });
+        return b;
+      });
+      const tabBar = html`<div class="hs-tabs" role="tablist"
+        aria-label="what the lower half of the editor shows">${tabBtns}</div>`;
+      const selectTab = (n) => {
+        editState.ui.tab = TABS[n].id;
+        TABS.forEach((t, i) => {
+          const on = i === n;
+          tabBtns[i].classList.toggle('hs-tab--on', on);
+          tabBtns[i].setAttribute('aria-selected', on ? 'true' : 'false');
+          // Untabbable when not selected: a tablist takes ONE tab stop, and
+          // arrow keys move within it.
+          tabBtns[i].tabIndex = on ? 0 : -1;
+          t.pane.hidden = !on;
+        });
+        // The deck's two views are different heights, and expanded the stage
+        // is given whatever they leave -- so switching has to re-divide it.
+        layout.refresh?.();
+        // The flags directly rather than redraw(), which is a const declared
+        // further down: this runs once during the cell body to restore the tab
+        // the reader last had open, and naming redraw there would put it in
+        // its temporal dead zone. That has taken this figure down twice.
+        dirty = chromeDirty = true;
+      };
+      const deck = html`<div class="hs-editor__deck">${tabBar}${TABS.map((t) => t.pane)}</div>`;
+
       // Everything below the stage, in one element, because the stage is given
       // whatever vertical room the rest of it leaves and that is a number only
       // a measurement can give.
-      const chromeEl = html`<div>${transportPane}${posesPane}${timelinePane}${verdictPane}</div>`;
+      const chromeEl = html`<div>${transportPane}${deck}${verdictPane}</div>`;
 
       const figure = html`<figure class="hs-editor">${docBar}${stagePane}${chromeEl}</figure>`;
 
@@ -2945,10 +3039,8 @@
         ${rows}
       </details>`;
 
+      // No heading of its own any more: the tab it sits behind is its heading.
       const controlsBox = html`<div class="technique-controls">
-        <div class="hs-pane__head" style="margin-bottom:0;">
-          <span class="hs-pane__title">Parameters</span>
-        </div>
         ${group('technique', true,
           html`<div class="spline-controls">${poses}${durInput}</div>`,
           html`<div class="spline-controls">${symToggle}</div>`)}
@@ -2962,6 +3054,11 @@
           html`<div class="spline-controls">${servoInputs[0]}${servoInputs[1]}</div>`,
           html`<div class="spline-controls">${servoInputs[2]}${servoInputs[3]}</div>`)}
       </div>`;
+
+      TABS[1].pane.appendChild(controlsBox);
+      // Survives the cell re-running, which it does whenever the technique or
+      // the pose count changes -- like the expanded flag beside it.
+      selectTab(Math.max(0, TABS.findIndex((t) => t.id === editState.ui.tab)));
 
       const redraw = () => { dirty = chromeDirty = true; };
 
@@ -2979,7 +3076,6 @@
       // as tall as its contents; expandable measures that itself. This number
       // only matters expanded, where onResize divides it up.
       height: techniqueFigure.stageH,
-      controls: '.technique-controls',
       state: editState.ui,
       onResize(el, w, h, expanded) {
         // The shell is a box with a border and a padding, so the room its
@@ -3017,7 +3113,6 @@
     // which only the figure knows and only the wrapper can act on.
     techniqueFigure.layout.refresh = () => techniqueBox.refreshLayout?.();
     display(techniqueBox);
-    display(techniqueFigure.controlsBox);
   </script>
   <script id="optimizer-section" type="text/markdown">
     ## What the search is actually doing
