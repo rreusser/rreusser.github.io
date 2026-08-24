@@ -253,6 +253,12 @@ export function techniqueSearchArgs(rec) {
     rom: resolveRom(rec.rom),
     plant: resolvePlant(rec.config),
     numerics: resolveNumerics(rec.numerics),
+    // The step, said out loud, because the search is handed these fields one
+    // at a time and the one thing it must not be allowed to choose for itself
+    // is how this technique is integrated. Scoring over a different step than
+    // the page replays over is scoring a different problem, and it shows up as
+    // a technique that succeeds in the search and falls in playback.
+    dt: resolveNumerics(rec.numerics).dt,
     knotFracs: rec.knotFracs ? Array.from(rec.knotFracs) : null,
     locks: techniqueLocks(rec),
     timeLocks: techniqueTimeLocks(rec),

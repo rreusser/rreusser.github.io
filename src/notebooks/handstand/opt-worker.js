@@ -138,7 +138,9 @@ async function handle(msg) {
     // The pool scores candidates for THIS technique, so it is configured from
     // the same derivation rather than from a parallel set of message fields.
     const pool = await createPool({
-      scenario: sa.scenario, K: sa.K, dt: msg.dt ?? NUMERICS_DEFAULTS.dt,
+      // sa.dt, not a default and not anything the message carries: the
+      // technique decides how it is integrated. See techniqueSearchArgs.
+      scenario: sa.scenario, K: sa.K, dt: sa.dt,
       weights: msg.weights,
       modelParams: techniqueModelParams(rec),
       strengthOpts: techniqueStrengthOpts(rec),
@@ -164,7 +166,9 @@ async function handle(msg) {
       // throws the first generations far away from a technique that already
       // works, which reads as the search getting worse before it gets better.
       ...(msg.sigma0 ? { sigma0: msg.sigma0 } : {}),
-      dt: msg.dt ?? NUMERICS_DEFAULTS.dt,
+      // No dt here. It arrives in ...sa, from the technique, and an override
+      // on this line is exactly how the search came to be integrating one
+      // thing while the figure replayed another.
       weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === sa.maxGen - 1) {

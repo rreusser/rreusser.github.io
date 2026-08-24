@@ -9,7 +9,7 @@ import { buildModel } from './anthropometry.js';
 import { createWorkspace } from './dynamics.js';
 import { strengthProfile } from './strength.js';
 import { ROM_DEFAULTS } from './statics.js';
-import { rolloutCost, robustRolloutCost, COST_WEIGHTS, NUMERICS_DEFAULTS } from './rollout.js';
+import { rolloutCost, robustRolloutCost, COST_WEIGHTS } from './rollout.js';
 
 let model = null, ws = null, prof = null, rom = null, weights = null, costFn = null, cfg = null;
 
@@ -29,7 +29,11 @@ self.onmessage = ({ data }) => {
   const costs = [], poses = [];
   for (const x of xs) {
     const c = costFn(model, ws, prof, rom, cfg.scenario, Float64Array.from(x), {
-      K: cfg.K || 6, dt: cfg.dt || NUMERICS_DEFAULTS.dt, weights, q0: cfg.q0 || null, target: cfg.target || null,
+      // cfg.dt with no fallback: it is the technique's step, forwarded from
+      // techniqueSearchArgs, and a default here would be a second opinion
+      // about the one number the search and the page must share. Absent, the
+      // cost function reads it off cfg.numerics, which says the same thing.
+      K: cfg.K || 6, dt: cfg.dt, weights, q0: cfg.q0 || null, target: cfg.target || null,
       // The machine the page is showing, not this worker's idea of a default.
       plant: cfg.plant || null,
       // The phrasing and the held poses, for the same reason.

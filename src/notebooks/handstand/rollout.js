@@ -830,13 +830,19 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // page owns the plant, so it hands it in; leaving this null keeps the old
   // behaviour of scoring on the defaults.
   plant = null,
-  // The integration a replay of this technique will use. The search still
-  // chooses its own dt -- it deliberately integrates coarsely and a replay does
-  // not -- but the settle horizon is not a search setting: it is how long the
-  // page watches after the movement ends, and scoring over a different one is
-  // scoring a different question.
+  // The integration a replay of this technique uses -- and therefore the one
+  // scoring it uses, both fields of it. There is no such thing as the search's
+  // own dt: a candidate scored over a different integration than the page
+  // replays is a candidate scored on a different problem, and "it succeeds in
+  // the search and falls in playback" is what that looks like from outside.
+  //
+  // settleT already followed the technique here and dt did not, which is a
+  // difference with no reason behind it: the settle horizon is how long the
+  // page watches after the movement ends, and the step is how the page
+  // integrates it. Both are the technique's.
   numerics = null,
-  K = 6, dt = NUMERICS_DEFAULTS.dt, settleT = numerics?.settleT ?? 2.5, weights = COST_WEIGHTS,
+  K = 6, dt = numerics?.dt ?? NUMERICS_DEFAULTS.dt,
+  settleT = numerics?.settleT ?? 2.5, weights = COST_WEIGHTS,
   qdJitter = 0, jitterSeed = 1, integrator = plant?.integrator ?? 'si',
   // Plant knobs a robustness variant may perturb. They default to the plant
   // being scored on, so a variant that names one still wins and one that does
@@ -1326,16 +1332,31 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
 // integrated differently, or it is a knife-edge tuned to one step's contact
 // artifacts rather than a technique. It is deliberately NOT the replay's step,
 // because a variant that agreed with the nominal one would test nothing.
-export const ROBUST_VARIANTS = [
-  { dt: NUMERICS_DEFAULTS.dt },
-  // Coarser than the nominal, not finer. The point of the second variant is
-  // that a technique which only works at one step is a knife edge rather than
-  // a technique, and the cheap direction to ask that in is the coarse one.
-  { dt: 8e-4, qdJitter: 0.05, jitterSeed: 9182 },
-];
+// Relative to the technique's own step, not to the notebook's default. Written
+// as two absolute numbers, the nominal variant OVERRODE whatever it was handed
+// -- so a technique carrying its own integration (which every preset kept
+// before the default last moved does) was scored at the default and replayed
+// at its own. Two integrations, one cost, and the search and the figure
+// disagreeing about whether the same technique arrives.
+export const ROBUST_DT_RATIO = 1.6;
+export const ROBUST_JITTER = { qdJitter: 0.05, jitterSeed: 9182 };
+
+export function robustVariants(dt) {
+  return [
+    // No override at all: the nominal case is scored exactly as handed, which
+    // is exactly as the page replays it.
+    {},
+    // Coarser than the nominal, not finer. The point of the second variant is
+    // that a technique which only works at one step is a knife edge rather
+    // than a technique, and the cheap direction to ask that in is the coarse
+    // one.
+    { dt: dt * ROBUST_DT_RATIO, ...ROBUST_JITTER },
+  ];
+}
 
 export function robustRolloutCost(model, ws, strengthProf, rom, scenario, x, opts = {}) {
-  const variants = opts.variants || ROBUST_VARIANTS;
+  const variants = opts.variants
+    || robustVariants(opts.dt ?? opts.numerics?.dt ?? NUMERICS_DEFAULTS.dt);
   let worst = null;
   for (const v of variants) {
     const c = rolloutCost(model, ws, strengthProf, rom, scenario, x, { ...opts, ...v });
@@ -1560,12 +1581,15 @@ export function kickReference(model, ws, K = 7, rom = ROM_DEFAULTS) {
 
 // Optimize a scenario's knots with CMA-ES. Deterministic under seed. With
 // robust (the default) each candidate is scored as the worst case over
-// ROBUST_VARIANTS, or over an explicit variants list; the reported
+// robustVariants(dt), or over an explicit variants list; the reported
 // finalCheck is an independent fine-timestep nominal evaluation.
 export async function optimizeScenario(model, ws, strengthProf, rom, {
   scenario = 'lunge', K = 6, seed = 7, maxGen = 120, sigma0 = 0.25,
-  dt = NUMERICS_DEFAULTS.dt, weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
+  weights = COST_WEIGHTS, x0 = null, lambda = null, plant = null,
   knotFracs = null, locks = null, numerics = null, symmetric = null,
+  // Same rule as rolloutCost: the technique's integration, or the notebook's
+  // default when a caller hands in no technique at all.
+  dt = numerics?.dt ?? NUMERICS_DEFAULTS.dt,
   freeTimes = false, timeLocks = null, timeStepScale = TIME_STEP_SCALE,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
   trustRadius = 0, q0 = null, freeStart = false, target = null,
@@ -1691,7 +1715,10 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // final check is that the number reported at the end is the number the page
   // reproduces when it plays the answer back.
   const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX,
-    { K, dt: numerics?.dt ?? 2e-4, weights, q0, freeStart, target, plant, knotFracs, locks,
+    // The same dt the generations ran at, which is the technique's. This said
+    // 2e-4 outright -- a number left behind when the default moved, and a
+    // third opinion about the one thing search and playback have to share.
+    { K, dt, weights, q0, freeStart, target, plant, knotFracs, locks,
       timeLocks, numerics, symmetric });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.

@@ -18,7 +18,9 @@ import { createWorkspace } from '../dynamics.js';
 import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
 import { ROM_DEFAULTS } from '../statics.js';
 import {
-  rolloutCost, runScenario, encodeDecision, resolvePlant, resolveNumerics,
+  rolloutCost, robustRolloutCost, robustVariants, runScenario, encodeDecision,
+  optimizeScenario,
+  resolvePlant, resolveNumerics,
   resolveRom, resolveBody, symmetrizeKnots, SYMMETRIC_SCENARIOS, NJ, JOINT_KEYS, widenKnots,
   NUMERICS_DEFAULTS,
 } from '../rollout.js';
@@ -283,6 +285,95 @@ gate('B. and never disagree about arrival', verdictSplits === 0,
   gate('D3. and a freed instant is read off the technique that carries it',
     techniqueFreeTimes(rec) === true && techniqueFreeTimes({ ...rec, timeHeld: rec.timeHeld.map(() => true) }) === false,
     'a free interior instant lengthens the vector, all-pinned does not');
+}
+
+// ---------------------------------------------------------------------------
+// Gate E: a technique that carries its OWN integration is searched under it.
+//
+// Everything above compares the two call sites on techniques whose numerics
+// happen to be the notebook's defaults, so it cannot see the failure this
+// gate is for: the search reading the step off a GLOBAL rather than off the
+// technique in front of it. Every preset kept before the default last moved
+// carries its own dt, and for those the worker scored at the default while
+// the page replayed at the technique's -- two integrations, one cost, and a
+// technique that succeeded in the search and fell in playback.
+//
+// Three separate places had to be told: the worker (which overrode dt with a
+// default), the nominal robustness variant (which was written as an absolute
+// number and so overrode whatever it was handed), and the final check (which
+// still named a step the notebook had stopped using). So the gate checks all
+// of them, on a technique whose numerics are deliberately nothing like the
+// defaults.
+// ---------------------------------------------------------------------------
+{
+  const m0 = buildModel({}), ws0 = createWorkspace(m0);
+  const stored = builtinPreset(m0, ws0, 'lunge', { rom: ROM_DEFAULTS });
+  const m = pageBody(stored);
+  const ODD = { dt: 3e-4, settleT: 1.8 };
+  const rec = techniqueFromJSON(techniqueToJSON({ ...stored, numerics: ODD }));
+  const sa = techniqueSearchArgs(rec);
+
+  gate('E. the search args carry the technique\'s own integration',
+    sa.dt === ODD.dt && sa.numerics.settleT === ODD.settleT,
+    `dt ${sa.dt}, settleT ${sa.numerics.settleT} against the default `
+    + `${NUMERICS_DEFAULTS.dt} / ${NUMERICS_DEFAULTS.settleT}`);
+
+  // The nominal robustness variant must not override the step. Written as an
+  // absolute number it always did, whatever the technique said.
+  gate('E2. and the nominal robustness variant leaves it alone',
+    robustVariants(sa.dt)[0].dt === undefined
+    && Math.abs(robustVariants(sa.dt)[1].dt - sa.dt * 1.6) < 1e-12,
+    `nominal inherits, second is ${robustVariants(sa.dt)[1].dt.toExponential(2)}`);
+
+  // And the whole way through: scored as the worker scores it, against the
+  // same rollout asked for explicitly at the technique's own step.
+  const x = encodeDecision(rec.knots.map((k) => Float64Array.from(k)), rec.T);
+  const shared = {
+    K: sa.K, q0: sa.q0, target: sa.target, plant: sa.plant, knotFracs: sa.knotFracs,
+    locks: sa.locks, timeLocks: sa.timeLocks, numerics: sa.numerics, symmetric: sa.symmetric,
+  };
+  // The worker names the step (from the technique); a caller holding only a
+  // technique names nothing. Both must reach the same rollout -- worst case
+  // over the variants, which is the number the search actually minimises.
+  const viaWorker = robustRolloutCost(m.model, m.ws, m.prof, sa.rom, sa.scenario, x,
+    { ...shared, dt: sa.dt });
+  const viaNumerics = robustRolloutCost(m.model, m.ws, m.prof, sa.rom, sa.scenario, x, shared);
+  gate('E3. and scores the same whether or not the caller names the step',
+    viaWorker.cost === viaNumerics.cost,
+    `${viaWorker.cost.toFixed(6)} against ${viaNumerics.cost.toFixed(6)}`);
+
+  // And what the search would report at the end is the run the page replays.
+  // This is the whole point: the nominal case, scored and played, is one
+  // trajectory. It used to be two whenever the technique carried its own step.
+  const scoredNominal = rolloutCost(m.model, m.ws, m.prof, sa.rom, sa.scenario, x,
+    { ...shared, variants: [{}] });
+  const playedBack = runScenario(m.model, m.ws, m.prof, techniqueRunArgs(rec, m.model, m.ws));
+  const a = scoredNominal.rec.com[scoredNominal.rec.com.length - 1];
+  const b = playedBack.rec.com[playedBack.rec.com.length - 1];
+  gate('E4. and the nominal score is the run the page replays',
+    Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-12
+    && !!scoredNominal.verdict?.success === !!playedBack.verdict?.success,
+    `scored ends at (${a[0].toFixed(6)}, ${a[1].toFixed(6)}), `
+    + `replayed at (${b[0].toFixed(6)}, ${b[1].toFixed(6)})`);
+
+  // And the last link: what a real search REPORTS at the end. optimizeScenario
+  // re-scores its winner once to produce the number the page prints, and that
+  // call named its own step -- a third opinion, and the one a reader would see
+  // as "the search says 8.1 and the figure says it falls".
+  const r = await optimizeScenario(m.model, m.ws, m.prof, sa.rom, {
+    ...sa, maxGen: 1, sigma0: 0.01, robust: false,
+  });
+  const replay = runScenario(m.model, m.ws, m.prof, {
+    ...techniqueRunArgs(rec, m.model, m.ws),
+    knots: r.decoded.knots, T: r.decoded.T,
+  });
+  const c = r.finalCheck.rec.com[r.finalCheck.rec.com.length - 1];
+  const d = replay.rec.com[replay.rec.com.length - 1];
+  gate('E5. and a finished search reports the run the page replays',
+    Math.hypot(c[0] - d[0], c[1] - d[1]) < 1e-12
+    && !!r.finalCheck.verdict?.success === !!replay.verdict?.success,
+    `reported ends at (${c[0].toFixed(6)}, ${c[1].toFixed(6)}), `
+    + `replayed at (${d[0].toFixed(6)}, ${d[1].toFixed(6)})`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL GATES PASS' : `${failures} GATE(S) FAILED`}`);
