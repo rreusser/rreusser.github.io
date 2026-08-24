@@ -1716,7 +1716,31 @@
       // it -- it used to leave the clock where it was, so the pose being
       // edited and the instant everything else reported disagreed, and the
       // body behind it sat unchanging at some other moment entirely.
-      const startQ = () => editState.q0 || editState.run.rec.q[0];
+      // The pose the body BEGINS in, as the figure draws it.
+      //
+      // Two different things get called "the start" and they must not be the
+      // same variable: the pose the technique ASKS to begin in -- editState.q0,
+      // authored, yours -- and the pose the run actually began in, which is
+      // that one after it has been clamped into the body's range of motion and
+      // lifted clear of the floor. The figure draws the second, because that is
+      // what happened. The technique keeps the first, because a run must never
+      // edit its own input.
+      //
+      // resim used to write the run's start back into editState.q0, and that
+      // made the anatomy sliders ONE-WAY: narrow a joint's range, the start was
+      // clamped into it, the clamped pose was written back as though you had
+      // authored it, and widening the range again could not undo it because the
+      // angle you had started from no longer existed anywhere. The same
+      // technique arrived, then did not, and then still did not with every
+      // slider returned to where it began.
+      //
+      // Mid-drag is the exception. The run is a moment behind the hand -- it
+      // re-simulates on release, not during -- so while a start handle is held
+      // the figure has to draw what is being asked for rather than what was
+      // last integrated.
+      const startQ = () => ((drag && sel === 0 && editState.q0)
+        ? editState.q0
+        : (editState.run?.rec?.q?.[0] || editState.q0));
       const selectCell = (i) => {
         // Reaching for another pose is an answer: you are no longer looking at
         // the one you were asked about.
@@ -2641,10 +2665,10 @@
           // be different problems.
           run = storedRun.run(asTechnique());
         } catch (err) { console.warn('replay failed', err); return; }
-        // Read the start back out of the run. A start with a toe through the
-        // floor is lifted clear before it is integrated, so this is what makes
-        // the pose on screen the pose that was actually simulated.
-        if (editState.q0) editState.q0 = Float64Array.from(run.rec.q[0]);
+        // NOT written back into editState.q0. The run's start is this run's
+        // business -- see startQ, which draws it -- and the technique's start
+        // is the technique's. A rollout that edits the technique it was given
+        // is a rollout you cannot repeat.
         editState.run = run;
         editState.edited = !revert;
         editState.notify?.(revert ? null : { base: sim, run });
