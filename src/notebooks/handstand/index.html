@@ -189,6 +189,30 @@
       .hs-editor__deck .technique-controls > details:first-of-type {
         margin-top: 0; border-top: none;
       }
+      /* The deck is a column with ONE scrolling panel in it. Expanded, the
+         figure is a fixed box -- the stage takes what the deck leaves -- and
+         a deck that simply grew pushed its own bottom out through a wrapper
+         with overflow:hidden. Opening SERVO put four sliders somewhere you
+         could not reach and could not scroll to; switching tabs and back
+         "fixed" it only because that re-ran the measurement. Now the deck is
+         given a height and the panel inside it scrolls. */
+      .hs-editor__deck { display: flex; flex-direction: column; min-height: 0; }
+      .hs-editor__deck > [role=tabpanel] {
+        min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+      }
+      /* Wide, the parameters are not a column. Eleven controls stacked two to
+         a row wasted two thirds of a desktop window and made the panel taller
+         than the picture it drives; each row is now one wrapping flex line, so
+         a group is as many controls across as the width can hold and as few
+         lines deep as that allows. The sliders share the surplus and stop
+         growing at a width past which a slider is just longer, not better. */
+      .hs-editor__deck .spline-controls {
+        max-width: none; gap: 6px 18px; align-items: center;
+      }
+      .hs-editor__deck .spline-controls > form {
+        flex: 1 1 250px; max-width: 420px; min-width: 0;
+      }
       /* The exceptions: a sentence you might quote, and anything you type in. */
       .hs-editor__verdict, .hs-editor input, .hs-editor select {
         -webkit-user-select: text; user-select: text;
@@ -1136,6 +1160,8 @@
 
     The pose the body actually starts in is not a knot at all, and is not authored: every scenario *solves* its start from the body it is given. The press folds to the deepest the hamstrings allow and then bisects the shoulder angle until the center of mass sits over the palm — so an 85 degree fold starts with the shoulder at 100 and a 125 degree fold at 74, and a stiffer body has to lean further to get over its hands at all. The kick-up hinges the torso to 90 degrees over the hands and solves the stance hip until the toe reaches the floor. The bent-leg press solves the same lean to leave about a third of body weight standing on the feet, which is what makes it a hop rather than a press. So moving a flexibility slider moves where the body begins while the technique's first knot stays exactly where the search left it, and the gap between them — the one the label under the figure measures — opens or closes without a knot having been touched.
 
+    You can take that start over: drag it, and it stops being solved and becomes a pose the technique carries. You can also hand it to the *search*, which is the padlock on the first frame below, and then the eight angles the body begins in join the thirty-seven the optimizer is already moving.
+
     Below is that technique, and the three things that can change it: your hands, a search, and the body you make it do the work on. They all move the same thirty-seven numbers.
   </script>
   <script id="edit-state" type="text/x-typescript">
@@ -1149,6 +1175,11 @@
       base: null,   // the simResult these knots were loaded from
       knots: null,  // 6 x K, live and mutable
       q0: null,     // an edited start pose, or null for the one the scenario solves
+      // Whether the pose the body STARTS in is yours or the search's. Held by
+      // default: where a technique begins is usually the one thing about it
+      // its author is sure of. Unlocked, it joins the decision vector and the
+      // search may move it, which is how you ask "am I starting wrong?"
+      startHeld: true,
       T: 0,
       // Where the poses fall inside [0, T], as fractions, and which of them
       // are held by hand. Both are per-technique and both survive an edit;
@@ -1319,6 +1350,7 @@
             knotFracs: editState.fracs,
             held: editState.held,
             timeHeld: editState.timeHeld,
+            startHeld: editState.startHeld,
             q0: editState.q0,
             target: leaving.stored?.target || null,
             rom: { ...(leaving.stored?.rom || {}),
@@ -1458,6 +1490,7 @@
         editState.held[nk - 1] = true;
         editState.timeHeld[0] = editState.timeHeld[nk - 1] = true;
         editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
+        editState.startHeld = rec.startHeld !== false;
         editState.symmetric = typeof rec.symmetric === 'boolean'
           ? rec.symmetric
           : SYMMETRIC_SCENARIOS.has(rec.scenario || simResult.scenarioName);
@@ -1814,10 +1847,14 @@
 
       const story = FIG.createStoryboard({
         n: nCells, thumbW, thumbH, view: VIEW, dpr, onSelect: selectCell,
-        // Cell 0 is the start, which the search never moved in the first
-        // place; the last cell is the ending pose, which it may never move.
-        // Everything between is yours to hold or release.
-        canLock: (i) => (i === 0 ? null : i === nCells - 1 ? 'fixed' : 'toggle'),
+        // The start pose has a padlock too. It is not a knot -- it is where
+        // the body BEGINS -- but it is the one part of a technique the search
+        // could never answer back on, and "you are starting in the wrong
+        // place" is the most useful thing it has to say about a movement that
+        // nearly works. Held by default; unlocked, its joints join the
+        // decision vector. The ending stays permanently locked, because being
+        // the pose the technique aims at is what "ending pose" means.
+        canLock: (i) => (i === nCells - 1 ? 'fixed' : 'toggle'),
         // The first reference pose anchors t = 0 and the last IS the ending, so
         // neither goes; everything between is yours to drop. Same rule as the
         // timeline drag, for the same reason.
@@ -1847,6 +1884,19 @@
           chromeDirty = dirty = true;
         },
         onLock: (i) => {
+          if (i === 0) {
+            editState.startHeld = !editState.startHeld;
+            // Unlocking makes the start EXPLICIT. Left null it means "whatever
+            // this scenario solves", and the search would then begin from the
+            // solve rather than from the pose on screen -- which for a start
+            // the reader has dragged is a different technique.
+            if (!editState.startHeld && !editState.q0) {
+              editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+            }
+            editState.edited = true;
+            chromeDirty = dirty = true;
+            return;
+          }
           const k = i - 1;
           editState.held[k] = !editState.held[k];
           // Holding a pose does not change the movement -- it changes what the
@@ -1885,6 +1935,32 @@
           dirty = chromeDirty = true;
           if (settled) resim(); else relayout();
         },
+        // The last pose IS the end of the movement, so dragging it sets the
+        // duration. It was a slider in a panel -- "Duration T (s)" -- which
+        // asked the reader to set, in a number, the one thing the picture
+        // beside it draws as a position; and the handle a reader would
+        // actually reach for, the one at the end of the timeline, did nothing.
+        //
+        // Everything before it keeps the INSTANT it is at rather than the
+        // fraction: dragging the end moves the end, not the phrasing. The
+        // settle window that follows is fixed (numerics.settleT) and is what
+        // the axis draws past the T mark, so a longer movement does not buy
+        // more time to fall over in.
+        onDurationDrag: (Tsec, settled) => {
+          const times = Array.from({ length: K }, (_, k) => knotTime(k));
+          const Tmin = Math.max(T_RANGE[0], (times[K - 2] ?? 0) + 0.02);
+          const next = Math.min(Math.max(Tsec, Tmin), T_RANGE[1]);
+          editState.T = next;
+          for (let k = 1; k < K - 1; k++) editState.fracs[k] = times[k] / next;
+          editState.fracs[0] = 0;
+          editState.fracs[K - 1] = 1;
+          // The tempo is a field of the technique, so changing it is an edit --
+          // the same reason moving a pose is.
+          editState.edited = true;
+          t = next;
+          dirty = chromeDirty = true;
+          if (settled) resim(); else relayout();
+        },
       });
       // ---- changing how many poses there are ---------------------------------
       // Three ways in, one place they land. Nothing here re-runs the cell: the
@@ -1917,7 +1993,6 @@
         // The storyboard re-lays itself at whatever width it is currently at,
         // which is not totalW while the figure is expanded.
         story.setCount(nCells);
-        poses.value = K;
         sel = Math.min(sel, nCells - 1);
         resim();
         layout.refresh?.();
@@ -2072,17 +2147,12 @@
         resim();
       });
 
-      const poses = Inputs.range([2, 12], { label: 'Poses', step: 1, value: K });
-      poses.addEventListener('input', () => {
-        const next = Math.max(2, Math.round(+poses.value));
-        if (next === K) return;
-        editState.knots = fit(FIG.resampleKnots(editState.knots, editState.T, next, editState.fracs));
-        editState.fracs = Float64Array.from({ length: next }, (_, i) => i / (next - 1));
-        editState.held = Array.from({ length: next }, (_, i) => i === next - 1);
-        editState.timeHeld = Array.from({ length: next }, () => true);
-        editState.edited = true;
-        setCount(next);
-      });
+      // There was a "Poses" slider here, which asked for a COUNT and then
+      // refitted the curve onto it -- throwing away the phrasing and the holds
+      // to answer a question nobody has ("I want seven of something"). The x
+      // and + on the storyboard say which pose goes and where one arrives,
+      // which is the same setting reached the way it is actually thought
+      // about, and neither refits anything.
 
       // The clock's owner. The button that works it lives on the timeline now,
       // so every place that stops playback goes through here and the icon can
@@ -2127,13 +2197,10 @@
       // itself -- reading .min off it gives undefined, which travels as null
       // and lands as "no range given", quietly putting the search back on its
       // own default ceiling.
+      // It is the bound the timeline's end handle is dragged within, and the
+      // bound the search is pinned inside. It is no longer a slider: see
+      // onDurationDrag above.
       const T_RANGE = [0.5, 3.5];
-      const durInput = Inputs.range(T_RANGE, { label: 'Duration T (s)', value: editState.T, step: 0.01 });
-      durInput.title = 'how long the movement takes. Yours to set: the search is '
-        + 'pinned to it and will not change it. A movement that arrives only gets '
-        + 'cheaper as it slows, so left free the search spends its budget running '
-        + 'out of slider rather than finding a technique.';
-      durInput.addEventListener('input', () => { editState.T = +durInput.value; resim(); });
       // "Reset" said nothing about what it resets, sitting in a row with the
       // pose count and the duration as if it reset those. It reverts the
       // technique -- every angle, the timing, the holds, the duration, the
@@ -2226,6 +2293,7 @@
         knotFracs: editState.fracs,
         held: editState.held,
         timeHeld: editState.timeHeld,
+        startHeld: editState.startHeld,
         q0: editState.q0,
         target: targetQ(),
         rom: resolveRom(bodyOver().rom),
@@ -2502,7 +2570,6 @@
       function syncTechniqueInputs() {
         symToggle.value = editState.symmetric;
         bodyInputs.forEach((i, n) => { i.value = editState.body[n]; });
-        durInput.value = editState.T;
         optSeed.value = editState.search.seed;
         optGens.value = editState.search.maxGen;
         syncServo();
@@ -2510,8 +2577,9 @@
 
       // ---- the search --------------------------------------------------------
       // It changes the same numbers your hands do. That is the whole reason it
-      // lives here: you watch the six poses above move, and the duration slider
-      // move, because those ARE what CMA-ES is searching over.
+      // lives here: you watch the poses above move, and the start pose with
+      // them when you have unlocked it, because those ARE what CMA-ES is
+      // searching over.
       const optRun = html`<button class="hs-btn hs-btn--primary">Optimize</button>`;
       const optStop = html`<button class="hs-btn" disabled>Stop</button>`;
       // Read off the technique rather than hardcoded, because the seed and the
@@ -2597,7 +2665,10 @@
         if (data.knotFracs?.length === editState.knots[0].length) {
           editState.fracs = Float64Array.from(data.knotFracs);
         }
-        durInput.value = data.T;
+        // The start pose, when the search was allowed to move it. Null means
+        // it was not, and the page keeps its own -- the same rule the knots
+        // follow for a held pose.
+        if (data.q0?.length) editState.q0 = Float64Array.from(data.q0);
         resim();
       };
       const stopSearch = () => {
@@ -2793,7 +2864,8 @@
           story.draw({
             model: m, ws: run.ws || ws, sel, theme,
             items: [
-              { q: Float64Array.from(startQ()), label: 'start', time: null, solid: true },
+              { q: Float64Array.from(startQ()), label: 'start', time: null, solid: true,
+                locked: editState.startHeld, start: true },
               ...Array.from({ length: K }, (_, kk) => ({
                 q: Float64Array.from(FIG.knotPose(m, editState.knots, kk, cell)),
                 label: `${kk + 1}`, time: `${knotTime(kk).toFixed(2)}s`,
@@ -3040,20 +3112,32 @@
       </details>`;
 
       // No heading of its own any more: the tab it sits behind is its heading.
+      // One wrapping line per group rather than fixed pairs of rows: how many
+      // controls fit across is the width's business, not a decision baked into
+      // the markup, and hardcoded pairs left two thirds of a desktop window
+      // empty while stacking the panel taller than the picture it drives.
+      //
+      // "Technique" is gone as a group. Its three controls were a pose count
+      // (now the x and + on the storyboard), a duration (now the last pose's
+      // own handle on the timeline) and the leg mirror -- and the mirror is a
+      // statement about the BODY performing the skill, which is the group it
+      // sits in now.
       const controlsBox = html`<div class="technique-controls">
-        ${group('technique', true,
-          html`<div class="spline-controls">${poses}${durInput}</div>`,
-          html`<div class="spline-controls">${symToggle}</div>`)}
-        ${group('body', false,
-          html`<div class="spline-controls">${inShoulder}${inHam}</div>`,
-          html`<div class="spline-controls">${inShFlex}${inWrExt}</div>`,
-          html`<div class="spline-controls">${inSpine}</div>`)}
+        ${group('body', true,
+          html`<div class="spline-controls">${inShoulder}${inHam}${inShFlex}${inWrExt}${inSpine}${symToggle}</div>`)}
         ${group('search', false,
           html`<div class="spline-controls">${optGens}${optSeed}</div>`)}
         ${group('servo', false,
-          html`<div class="spline-controls">${servoInputs[0]}${servoInputs[1]}</div>`,
-          html`<div class="spline-controls">${servoInputs[2]}${servoInputs[3]}</div>`)}
+          html`<div class="spline-controls">${servoInputs.map((i) => i)}</div>`)}
       </div>`;
+      // Opening a group makes the panel taller, which expanded means the deck
+      // has to be re-divided against the stage. Without this the new controls
+      // were laid out below the bottom edge of a box that cannot scroll to
+      // them -- visible only after switching tabs away and back, which is the
+      // one other thing that re-runs the measurement.
+      controlsBox.querySelectorAll('details').forEach((d) => {
+        d.addEventListener('toggle', () => { layout.refresh?.(); dirty = chromeDirty = true; });
+      });
 
       TABS[1].pane.appendChild(controlsBox);
       // Survives the cell re-running, which it does whenever the technique or
@@ -3062,7 +3146,7 @@
 
       const redraw = () => { dirty = chromeDirty = true; };
 
-      return { figure, controlsBox, chromeEl, docBar, sizeStage, story, strip, redraw,
+      return { figure, controlsBox, chromeEl, docBar, deck, sizeStage, story, strip, redraw,
         layout, stageH: STAGE_H };
     })();
     // The figure first. Eight sliders ahead of it is a wall the reader has to
@@ -3095,16 +3179,35 @@
         // before there is a leftover to measure.
         techniqueFigure.story.resize(innerW);
         techniqueFigure.strip.resize(innerW);
+        // The deck is measured at its natural height, so what follows divides
+        // the room against what it WANTS rather than against the cap it was
+        // last given -- otherwise the cap is its own input and the panel can
+        // only ever shrink.
+        const deckEl = techniqueFigure.deck;
+        deckEl.style.maxHeight = '';
+        if (!expanded) {
+          techniqueFigure.sizeStage(innerW, techniqueFigure.stageH);
+          techniqueFigure.redraw();
+          return;
+        }
         // Measured, not guessed: the storyboard and the timeline both get
         // taller as they get wider, so the leftover is only honest after they
         // have been resized. The bar and the stage pane's own padding come off
         // it too, or the timeline hangs out of the bottom of the box by
         // exactly their height.
-        const spent = techniqueFigure.chromeEl.offsetHeight
+        //
+        // Expanded, the figure is a fixed box and the stage takes what the
+        // deck leaves. That only works while the deck is willing to be a size:
+        // opening SERVO used to push the panel's own bottom out through a
+        // wrapper with overflow:hidden, so four sliders existed somewhere you
+        // could neither see nor scroll to. So the room is divided the other
+        // way round now -- the stage keeps a floor, and whatever is left is
+        // the deck's height, which its panel scrolls inside.
+        const spent = techniqueFigure.chromeEl.offsetHeight - deckEl.offsetHeight
           + techniqueFigure.docBar.offsetHeight + PANE + 2 * BORDER;
-        const stageH = expanded
-          ? Math.max(200, h - spent - 4)
-          : techniqueFigure.stageH;
+        const room = Math.max(160, h - spent - 4);
+        const stageH = Math.max(200, room - deckEl.offsetHeight);
+        deckEl.style.maxHeight = `${Math.max(90, room - stageH)}px`;
         techniqueFigure.sizeStage(innerW, stageH);
         techniqueFigure.redraw();
       },
@@ -3119,7 +3222,7 @@
 
     CMA-ES climbs a score computed by simulating the candidate. The score is a weighted sum: did it arrive in the balanced pose and stop there; what it cost in metabolic work and in time spent near the torque cap; whether it went outside its own range of motion; whether it is still the skill it claims to be — feet leaving the floor once and not replanting, a bent-leg press actually passing through an inverted tuck, the legs not slung in at more than two metres a second; and whether it looks like a person, through terms on joint acceleration and on how fast the muscle drive is allowed to slew. Each candidate is scored as the *worst case* of two evaluations — the nominal one, and one at a different timestep with a small velocity jitter — so a knife-edge catch tuned to one timestep's contact artifacts pays full price for it.
 
-    What it cannot do is as informative as what it can. It searches angles, and nothing else: the tempo, where the poses fall within it, how many there are, and which of them are held are all yours. Tempo is the interesting one, because it used to be the search's and it should not have been. A movement that arrives at all gets cheaper the slower it runs — work and smoothness both fall — so wherever there was room to spare the gradient pointed at the longest duration on offer and stayed there. The straight-leg press arrives at every duration from 1.6 seconds up, and costs 4.59, 1.48, 1.15, 1.08, 1.05 and 1.03 as it slows to three and a half. That is not a search finding a tempo, it is a search running out of slider — and the slowest version is precisely the one where the shoulder supplies everything and nothing is carried by momentum, which is the opposite of technique. Set the tempo yourself and the search has to find a shape that works at it.
+    What it cannot do is as informative as what it can. It searches angles, and nothing else: the tempo, where the poses fall within it, how many there are, and which of them are held are all yours. The angles include the pose the body *starts* in, but only if you ask — the padlock on the first frame of the storyboard hands it over, and it is shut by default, because where a movement begins is usually the one thing about it you are sure of. Tempo is the interesting one, because it used to be the search's and it should not have been. A movement that arrives at all gets cheaper the slower it runs — work and smoothness both fall — so wherever there was room to spare the gradient pointed at the longest duration on offer and stayed there. The straight-leg press arrives at every duration from 1.6 seconds up, and costs 4.59, 1.48, 1.15, 1.08, 1.05 and 1.03 as it slows to three and a half. That is not a search finding a tempo, it is a search running out of slider — and the slowest version is precisely the one where the shoulder supplies everything and nothing is carried by momentum, which is the opposite of technique. Set the tempo yourself and the search has to find a shape that works at it.
 
     Every knot is boxed by the body's own range of motion, so lowering a flexibility limit takes technique away from the search rather than fining it afterwards. And every run above is re-simulated in your browser from its knots rather than replayed as an animation, so if a technique looks wrong it is wrong, whatever its cost says.
   </script>

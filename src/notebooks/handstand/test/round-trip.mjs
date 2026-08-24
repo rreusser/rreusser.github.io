@@ -55,6 +55,9 @@ const original = {
   held: [true, false, true, false, true],
   // Deliberately not all-pinned, for the same reason.
   timeHeld: [true, false, false, true, true],
+  // Deliberately false: true is the default and the fallback, so a dropped
+  // field would come back right by luck.
+  startHeld: false,
   // The kick-up is asymmetric by default, so true is a real choice here.
   symmetric: true,
   q0: Array.from({ length: model.nq }, (_, i) => 0.05 * i),
@@ -91,6 +94,8 @@ gate('which poses are held survives', same(original.held, bools(read.held)),
   `${JSON.stringify(original.held)} -> ${JSON.stringify(bools(read.held))}`);
 gate('which instants are pinned survives', same(original.timeHeld, bools(read.timeHeld)),
   `${JSON.stringify(original.timeHeld)} -> ${JSON.stringify(bools(read.timeHeld))}`);
+gate('whether the start is the search\'s survives', read.startHeld === false,
+  `${original.startHeld} -> ${read.startHeld}`);
 gate('the mirror survives', read.symmetric === original.symmetric,
   `${original.symmetric} -> ${read.symmetric}`);
 gate('the start pose survives', same(original.q0, list(read.q0)));
@@ -122,7 +127,7 @@ gate('writing what was read gives the same file back', same(written, again),
 // is the gate that would have caught the editor's picker path: it dropped five
 // fields, and every one of them was a field the writer had written.
 const CARRIED = ['label', 'saved', 'scenario', 'knots', 'T', 'knotFracs', 'held', 'timeHeld',
-  'symmetric', 'q0', 'target', 'rom', 'strength', 'body', 'config', 'numerics', 'search'];
+  'startHeld', 'symmetric', 'q0', 'target', 'rom', 'strength', 'body', 'config', 'numerics', 'search'];
 const missing = CARRIED.filter((k) => read[k] === undefined);
 gate('the reader returns every field the writer wrote', missing.length === 0,
   missing.length ? `dropped: ${missing.join(', ')}` : `${CARRIED.length} fields`);

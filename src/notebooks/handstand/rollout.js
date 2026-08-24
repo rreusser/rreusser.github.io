@@ -526,11 +526,15 @@ export function decisionBounds(K, {
   // second apart is a stretch -- so with the duration held fixed this is the
   // only way the search can find a rhythm rather than just a shape.
   freeTimes = false, timeLocks = null,
+  // Whether the pose the body STARTS in is the search's to choose. Its joints
+  // live inside the same anatomy as a knot, so they get the same box.
+  freeStart = false,
 } = {}) {
   // The same table knotBounds builds, which is where it now comes from.
   const { lo: jointLo, hi: jointHi } = knotBounds(rom);
   const nTimes = freeTimes ? Math.max(0, K - 2) : 0;
-  const n = NJ * K + 1 + nTimes;
+  const nStart = freeStart ? NJ : 0;
+  const n = NJ * K + 1 + nTimes + nStart;
   const lo = new Float64Array(n), hi = new Float64Array(n);
   for (let j = 0; j < NJ; j++) {
     for (let k = 0; k < K; k++) { lo[j * K + k] = jointLo[j]; hi[j * K + k] = jointHi[j]; }
@@ -547,6 +551,10 @@ export function decisionBounds(K, {
       const v = Math.min(Math.max(timeLocks[k], lo[i]), hi[i]);
       lo[i] = v; hi[i] = v;
     }
+  }
+  for (let j = 0; j < nStart; j++) {
+    const i = NJ * K + 1 + nTimes + j;
+    lo[i] = jointLo[j]; hi[i] = jointHi[j];
   }
   // A locked pose is not a decision. Collapsing its bounds onto the value it
   // is held at is not the thing that KEEPS it there -- rolloutCost writes it
@@ -634,31 +642,62 @@ export function symmetrizeKnots(knots) {
 // because the K-2 interior knot times may follow it. A vector without them --
 // every one written before phrasing was searchable, including the stored
 // artifacts -- decodes exactly as it did, with fracs null.
-export function decodeDecision(x, K) {
+// nStart says whether the vector carries a START POSE on the end -- the NJ
+// joint angles the body begins in -- which it does when the reader has
+// unlocked it. It has to be told rather than inferred: the interior instants
+// are also an optional tail, and a vector carrying one is exactly as long as
+// a vector carrying some of the other.
+export function decodeDecision(x, K, nStart = 0) {
   const knots = [];
   for (let j = 0; j < NJ; j++) knots.push(x.slice(j * K, (j + 1) * K));
   const nTimes = Math.max(0, K - 2);
   let fracs = null;
-  if (nTimes > 0 && x.length >= NJ * K + 1 + nTimes) {
+  if (nTimes > 0 && x.length - nStart >= NJ * K + 1 + nTimes) {
     fracs = new Float64Array(K);
     fracs[K - 1] = 1;
     for (let k = 1; k < K - 1; k++) fracs[k] = x[NJ * K + k];
   }
-  return { knots, T: x[NJ * K], fracs };
+  const start = nStart > 0 && x.length >= NJ * K + 1 + nStart
+    ? x.slice(x.length - nStart) : null;
+  return { knots, T: x[NJ * K], fracs, start };
 }
 
-export function encodeDecision(knots0, T, fracs = null) {
+export function encodeDecision(knots0, T, fracs = null, start = null) {
   // Widen here, at the boundary, so every caller that still speaks in six
   // joints -- the stored presets, the recorded artifacts, a saved file, the
   // gates -- keeps working and gets a neutral spine and neck.
   const knots = widenKnots(knots0);
   const K = knots[0].length;
   const nTimes = fracs ? Math.max(0, K - 2) : 0;
-  const x = new Float64Array(NJ * K + 1 + nTimes);
+  const nStart = start ? NJ : 0;
+  const x = new Float64Array(NJ * K + 1 + nTimes + nStart);
   for (let j = 0; j < NJ; j++) x.set(knots[j], j * K);
   x[NJ * K] = T;
   for (let k = 1; k <= nTimes; k++) x[NJ * K + k] = fracs[k];
+  for (let j = 0; j < nStart; j++) x[NJ * K + 1 + nTimes + j] = start[j];
   return x;
+}
+
+// The pose the body begins in, as a full configuration, from whatever the
+// search has to say about its joints.
+//
+// Only the JOINTS are searched. Where the body stands is not a free parameter
+// -- runScenario grounds the hand and lifts the feet clear whatever it is
+// handed -- so the base coordinates come from the pose the technique already
+// had, or from the one its scenario solves when it never had one.
+export function startPoseJoints(model, ws, scenario, rom, q0Given) {
+  const base = q0Given ? Float64Array.from(q0Given) : scenarioStart(model, ws, scenario, rom).q0;
+  return Float64Array.from({ length: NJ }, (_, j) => base[3 + j]);
+}
+
+export function startPoseFrom(model, ws, scenario, rom, q0Given, angles, symmetric = false) {
+  const q = Float64Array.from(q0Given || scenarioStart(model, ws, scenario, rom).q0);
+  if (!angles) return q;
+  for (let j = 0; j < NJ; j++) q[3 + j] = angles[j];
+  // The mirror applies to the start for the same reason it applies to a knot:
+  // a symmetric skill whose two legs begin differently is not the skill.
+  if (symmetric) { q[QI.hipR] = q[QI.hipL]; q[QI.kneeR] = q[QI.kneeL]; }
+  return q;
 }
 
 export const COST_WEIGHTS = {
@@ -817,14 +856,23 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // different problems wearing the same knots, and its answer nose-dives the
   // moment it is played back.
   q0 = null,
+  // Whether the start pose is the search's to choose. Off, q0 above is where
+  // the body begins and nothing moves it. On, the decision vector carries the
+  // start's joint angles on its end and they win -- which is the only way the
+  // search can answer "you are starting in the wrong place", the one thing a
+  // technique's author most often has wrong and the one thing the search
+  // could not previously say.
+  freeStart = false,
   // The pose it is trying to end in. The last knot IS this pose -- which is
   // why the search does not move it -- so handing in a target is how you ask
   // for a different ending, and the pin below then keeps the search off it
   // exactly as it keeps the search off a handstand.
   target = null,
 } = {}) {
-  const { knots, T, fracs } = decodeDecision(x, K);
-  if (symmetric ?? SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(knots);
+  const sym = symmetric ?? SYMMETRIC_SCENARIOS.has(scenario);
+  const { knots, T, fracs, start } = decodeDecision(x, K, freeStart ? NJ : 0);
+  const q0Used = start ? startPoseFrom(model, ws, scenario, rom, q0, start, sym) : q0;
+  if (sym) symmetrizeKnots(knots);
   applyLocks(knots, locks);
   // Where the poses fall. When the search is phrasing as well as posing the
   // decision vector carries the interior instants and they win; otherwise the
@@ -844,7 +892,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     // property of this rollout rather than of the machine.
     ...(plant || {}),
     scenario, knots, T, settleT, dt, integrator, qdJitter, jitterSeed, rom,
-    contactZeta, mu, q0, target: balanced, knotFracs: fracsUsed,
+    contactZeta, mu, q0: q0Used, target: balanced, knotFracs: fracsUsed,
     recordEvery: Math.max(1, Math.round(1 / (120 * dt))),
   });
   const rec = r.rec;
@@ -1500,7 +1548,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   knotFracs = null, locks = null, numerics = null, symmetric = null,
   freeTimes = false, timeLocks = null, timeStepScale = TIME_STEP_SCALE,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
-  trustRadius = 0, q0 = null, target = null,
+  trustRadius = 0, q0 = null, freeStart = false, target = null,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
 } = {}) {
   let start = x0 || (() => {
@@ -1514,16 +1562,24 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     return encodeDecision(ref.knots, Math.min(Math.max(t0, tLo), tHi));
   })();
   const nTimes = freeTimes ? Math.max(0, K - 2) : 0;
-  const bounds = decisionBounds(K, { tLo, tHi, rom, locks, freeTimes, timeLocks });
+  const nStart = freeStart ? NJ : 0;
+  const bounds = decisionBounds(K, { tLo, tHi, rom, locks, freeTimes, timeLocks, freeStart });
+  // Where the start pose begins the search: the one the technique carries, or
+  // the one its scenario solves when it carries none. Same rule as x0 itself
+  // -- turning something loose starts it where it already was.
+  const start0 = freeStart ? startPoseJoints(model, ws, scenario, rom, q0) : null;
   // A vector handed in from before phrasing was searchable -- a stored
   // technique, a warm start from an earlier run -- is short by the interior
   // instants. It gets them from the phrasing it was going to be scored under,
   // so turning the times loose starts the search exactly where it would have
   // started without them rather than jumping to even spacing first.
-  const n = NJ * K + 1 + nTimes;
+  const n = NJ * K + 1 + nTimes + nStart;
   if (start.length !== n) {
     const fitted = new Float64Array(n);
     for (let i = 0; i < NJ * K + 1; i++) fitted[i] = start[i];
+    // The start pose, when it is being searched: from the vector if it already
+    // carried one, otherwise from the technique's own start.
+    for (let j = 0; j < nStart; j++) fitted[NJ * K + 1 + nTimes + j] = start0[j];
     for (let k = 1; k <= nTimes; k++) {
       // From the phrasing this would have been scored under if it were not
       // being searched, so turning the instants loose starts where the search
@@ -1561,8 +1617,8 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
-  const costOpts = { K, dt, weights, q0, target, plant, knotFracs, locks, timeLocks, numerics, symmetric,
-    ...(variants ? { variants } : {}) };
+  const costOpts = { K, dt, weights, q0, freeStart, target, plant, knotFracs, locks, timeLocks,
+    numerics, symmetric, ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
       const c = costFn(model, ws, strengthProf, rom, scenario, x, costOpts);
@@ -1590,10 +1646,11 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // final check is that the number reported at the end is the number the page
   // reproduces when it plays the answer back.
   const finalCheck = rolloutCost(model, ws, strengthProf, rom, scenario, result.bestX,
-    { K, dt: numerics?.dt ?? 2e-4, weights, q0, target, plant, knotFracs, locks, timeLocks, numerics, symmetric });
+    { K, dt: numerics?.dt ?? 2e-4, weights, q0, freeStart, target, plant, knotFracs, locks,
+      timeLocks, numerics, symmetric });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
-  const decoded = decodeDecision(result.bestX, K);
+  const decoded = decodeDecision(result.bestX, K, nStart);
   if (symmetric ?? SYMMETRIC_SCENARIOS.has(scenario)) symmetrizeKnots(decoded.knots);
   applyLocks(decoded.knots, locks);
   // Finished the same way the scorer finished it, or the phrasing handed back
@@ -1601,6 +1658,13 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   if (decoded.fracs) applyTimeLocks(decoded.fracs, timeLocks);
   const qBal = target ? Float64Array.from(target) : balancedHandstand(model, ws);
   for (let j = 0; j < NJ; j++) decoded.knots[j][decoded.knots[j].length - 1] = qBal[3 + j];
+  // The start pose the search settled on, as a full configuration -- the same
+  // one the scorer ran, so adopting it replays what was scored. Null when the
+  // start was locked, which is what "the page keeps its own" means.
+  decoded.q0 = decoded.start
+    ? startPoseFrom(model, ws, scenario, rom, q0, decoded.start,
+      symmetric ?? SYMMETRIC_SCENARIOS.has(scenario))
+    : null;
   return {
     ...result, K, scenario, finalCheck, decoded,
     // From the finalCheck, which is the fine-timestep nominal evaluation --

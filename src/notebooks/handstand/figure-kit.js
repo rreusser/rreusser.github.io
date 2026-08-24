@@ -326,6 +326,13 @@ export function createStrip({
   // poses are the two ends of the movement and do not move; everything
   // between them does.
   onKnotDrag = null, onKnotPick = null,
+  // Dragging the LAST pose, which is a different quantity: where the movement
+  // ends is the duration, not a phrasing. onDurationDrag(T, settled) is called
+  // with the new duration in seconds. The duration used to be a slider in a
+  // panel, which is an odd way to say "this pose happens here" when the pose
+  // is drawn on a time axis an inch away -- and it left the one handle on the
+  // timeline that a reader would obviously reach for inert.
+  onDurationDrag = null,
   // The transport. A timeline that can be scrubbed but not played, next to a
   // Play button living in a panel somewhere else, is two halves of one control
   // -- so the button belongs here, on the thing it moves. onPlay(next) is
@@ -424,11 +431,15 @@ export function createStrip({
     };
     // Which movable pose, if any, is under the pointer.
     const grab = (e) => {
-      if (!onKnotDrag || !state?.knotTimes?.length) return -1;
+      if ((!onKnotDrag && !onDurationDrag) || !state?.knotTimes?.length) return -1;
       const r = canvas.getBoundingClientRect();
       const x = (e.clientX - r.left) * (width / (r.width || width));
       let best = -1, bestD = GRAB_PX;
-      for (let k = 1; k < state.knotTimes.length - 1; k++) {
+      // The interior poses when there is a handler for them, and the last one
+      // too when there is one for the duration.
+      const last = state.knotTimes.length - 1;
+      const end = onDurationDrag ? last : last - 1;
+      for (let k = onKnotDrag ? 1 : last; k <= end; k++) {
         const d = Math.abs(toX(state.knotTimes[k], state.xEnd) - x);
         if (d <= bestD) { bestD = d; best = k; }
       }
@@ -436,6 +447,16 @@ export function createStrip({
     };
     const dragTo = (e) => {
       const K = state.knotTimes.length;
+      // The end of the movement, in seconds. It is bounded by the pose before
+      // it and by the right-hand edge of the picture, which is as far as this
+      // gesture can see; a longer duration than that takes a second drag, on
+      // an axis that has grown to fit the first.
+      if (dragging === K - 1) {
+        const lo = (K > 1 ? state.knotTimes[K - 2] : 0) + MIN_GAP * state.T;
+        lastFrac = Math.min(Math.max(atX(e) * state.xEnd, lo), state.xEnd - 1e-3);
+        onDurationDrag(lastFrac, false);
+        return;
+      }
       const lo = (state.knotTimes[dragging - 1] / state.T) + MIN_GAP;
       const hi = (dragging + 1 < K ? state.knotTimes[dragging + 1] / state.T : 1) - MIN_GAP;
       const frac = (atX(e) * state.xEnd) / state.T;
@@ -447,7 +468,8 @@ export function createStrip({
       canvas.setPointerCapture?.(e.pointerId);
       dragging = grab(e);
       if (dragging > 0) {
-        lastFrac = state.knotTimes[dragging] / state.T;
+        lastFrac = dragging === state.knotTimes.length - 1
+          ? state.T : state.knotTimes[dragging] / state.T;
         onKnotPick?.(dragging);
       } else onSeek?.(atX(e) * state.xEnd);
       e.preventDefault();
@@ -467,7 +489,10 @@ export function createStrip({
       // The physics re-runs here and not before. Re-simulating mid-gesture
       // moves the body under the finger, which is the same reason dragging a
       // limb waits for the release.
-      if (dragging > 0) onKnotDrag(dragging, lastFrac, true);
+      if (dragging > 0) {
+        if (dragging === state.knotTimes.length - 1) onDurationDrag(lastFrac, true);
+        else onKnotDrag(dragging, lastFrac, true);
+      }
       dragging = -1;
     };
     canvas.addEventListener('pointerup', stop);
@@ -564,7 +589,7 @@ export function createStrip({
       ctx.moveTo(x, 0);
       ctx.lineTo(x, rows);
       ctx.stroke();
-      if (onKnotDrag && k > 0 && k < knotTimes.length - 1) {
+      if (k > 0 && (k < knotTimes.length - 1 ? onKnotDrag : onDurationDrag)) {
         ctx.fillStyle = fgc(0.55);
         ctx.beginPath();
         ctx.moveTo(x - 3.5, rows);
@@ -1061,7 +1086,13 @@ export function createStoryboard({
         btn.setAttribute('aria-label', it.locked ? 'held; release this pose' : 'free; hold this pose');
         btn.title = btn.disabled
           ? 'the pose the technique ends in — always held'
-          : it.locked ? 'held: the search may not move this pose' : 'free: the search may move this pose';
+          : it.start
+            ? (it.locked
+              ? 'held: the body begins here and the search may not move it. Click to let it '
+                + 'choose the start too.'
+              : 'free: the search may choose the pose the body begins in. Click to hold it '
+                + 'where it is.')
+            : it.locked ? 'held: the search may not move this pose' : 'free: the search may move this pose';
       }
       paintCell(k);
     }

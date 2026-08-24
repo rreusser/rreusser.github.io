@@ -11,6 +11,7 @@
 //   knotFracs    where the poses fall inside T, when it was phrased by hand
 //   held         which poses the search may not move
 //   timeHeld     which poses the search may not move in time
+//   startHeld    whether the pose the body STARTS in is the search's to move
 //   symmetric    whether the two legs do the same thing
 //   q0           the start pose, when one was constructed rather than solved
 //   target       the ending pose (derived from the last knot, stored to check)
@@ -65,6 +66,10 @@ export function techniqueToJSON(t) {
     knotFracs: arr(t.knotFracs),
     held: t.held ? Array.from(t.held, (v) => !!v) : null,
     timeHeld: t.timeHeld ? Array.from(t.timeHeld, (v) => !!v) : null,
+    // Held unless it says otherwise: a start the reader never unlocked is a
+    // start the search must not touch, and that is what every technique
+    // written before this existed meant.
+    startHeld: t.startHeld !== false,
     symmetric: !!t.symmetric,
     q0: arr(t.q0),
     target: arr(t.target),
@@ -132,6 +137,9 @@ export function techniqueFromJSON(json) {
     // opened.
     timeHeld: Array.isArray(j.timeHeld) && j.timeHeld.length === K
       ? j.timeHeld.map(Boolean) : Array.from({ length: K }, () => true),
+    // A file saved before the start could be unlocked means "locked", which is
+    // what the search did with it then.
+    startHeld: j.startHeld !== false,
     // A file saved before the legs could be un-mirrored means whatever its
     // scenario meant then.
     symmetric: typeof j.symmetric === 'boolean'
@@ -241,6 +249,10 @@ export function techniqueSearchArgs(rec) {
     locks: techniqueLocks(rec),
     timeLocks: techniqueTimeLocks(rec),
     freeTimes: techniqueFreeTimes(rec),
+    // Whether the pose the body begins in is the search's. Off, the start is
+    // whatever the technique says (or whatever its scenario solves); on, the
+    // decision vector carries it and the answer comes back with a q0.
+    freeStart: rec.startHeld === false,
     symmetric: !!rec.symmetric,
     tLo: rec.T, tHi: rec.T,
     seed: rec.search?.seed ?? 7,
@@ -248,6 +260,10 @@ export function techniqueSearchArgs(rec) {
     // Where the search starts: this technique. Derived here rather than
     // encoded by the caller, because an x0 that does not describe the
     // technique beside it is the exact failure this file exists to prevent.
-    x0: encodeDecision(rec.knots, rec.T),
+    // ...including the start pose, when it is being searched: an x0 that is
+    // short by a tail the search is about to add would start the pose at the
+    // scenario's solve rather than where the technique actually begins.
+    x0: encodeDecision(rec.knots, rec.T, null,
+      rec.startHeld === false && rec.q0 ? Array.from(rec.q0).slice(3, 3 + rec.knots.length) : null),
   };
 }

@@ -39,6 +39,10 @@ self.onmessage = ({ data }) => {
       // know that phrasing is being searched.
       timeLocks: cfg.timeLocks || null,
       numerics: cfg.numerics || null, symmetric: cfg.symmetric ?? null,
+      // Whether the start pose rides in the decision vector. Unlike the free
+      // INSTANTS this cannot be inferred from the length of x -- the two tails
+      // are the same size for six poses -- so it is forwarded.
+      freeStart: !!cfg.freeStart,
     });
     costs.push(c.cost);
     if (wantFrames && c.rec?.q?.length) {
