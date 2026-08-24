@@ -13,7 +13,7 @@
 // published in servo.applied and recorded by simulate() as rec.tauApplied.
 
 import { clampTorque, availableTorque } from './strength.js';
-import { rnea, momenta, crbaMassMatrix } from './dynamics.js';
+import { rnea, momenta, crbaMassMatrix, createWorkspace } from './dynamics.js';
 
 // The driven joints, in the order the state vector holds them (q[3..10]).
 // The order is not a choice: the dynamics reads joint i off body i, and the
@@ -230,20 +230,31 @@ export function createServo(model, strengthProf, {
     damping, kp, kd, qRef, qdRef, activationTau, applied,
     dampingRatio, brakeMargin, inertia, kpEff, loopOmegaTau,
     makeControl(knotMatrix, T, augment = null, times = null) {
+      // See the rnea call below. One per control closure, not one per step.
+      const gws = ws ? createWorkspace(model) : null;
       const des = new Float64Array(NJOINTS);
       const u = new Float64Array(NJOINTS);
       let lastT = null, lastInertiaT = null;
       return (t, q, qd, tau) => {
         evalReference(knotMatrix, T, Math.min(t, T), qRef, qdRef, times);
         if (t >= T) qdRef.fill(0);
-        if (gravityComp && ws) rnea(model, q, zero, zero, tauG, null, { ws });
+        // Its OWN workspace, not the caller's. This runs in the middle of a
+        // simulation step, between the contact forces and the forward
+        // dynamics, and it used to overwrite the kinematics both of those had
+        // just computed for (q, qd) with kinematics for (q, 0) -- so every
+        // step paid for fk three times over, and any caller that assumed the
+        // workspace still described the state it had just evaluated would have
+        // been quietly wrong. It wants the bias at ZERO velocity, which is a
+        // different pose-and-motion from the step's, so it needs somewhere
+        // else to put it rather than a flag.
+        if (gravityComp && ws) rnea(model, q, zero, zero, tauG, null, { ws: gws });
         // The inertia the servo is tuned against changes with the pose, but
         // on the timescale of the body, not the timestep; refreshing it at
         // inertiaHz keeps the extra mass-matrix factorization off the hot
         // path. (A nervous system does not re-identify its limbs at 5 kHz
         // either.)
         if (adaptive && (lastInertiaT === null || t - lastInertiaT >= 1 / inertiaHz)) {
-          crbaMassMatrix(model, q, Mbuf, ws);
+          crbaMassMatrix(model, q, Mbuf, gws);
           for (let j = 0; j < NJOINTS; j++) {
             const jq = 3 + j;
             inertia[j] = Math.max(Mbuf[jq * nq + jq], 1e-4);

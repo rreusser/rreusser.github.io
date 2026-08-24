@@ -5,7 +5,7 @@
 // accuracy and convergence checks; explicit Euler exists to demonstrate why
 // it is not used.
 
-import { forwardDynamics, momenta } from './dynamics.js';
+import { forwardDynamics, momenta, fk } from './dynamics.js';
 import { computeContactForces, resetContacts } from './contact.js';
 import { applyJointStops } from './joint-stops.js';
 
@@ -130,7 +130,16 @@ export function simulate(model, ws, {
   } : null;
 
   for (let k = 0; k < steps; k++) {
-    const ext = contacts ? computeContactForces(model, ws, q, qd, contacts, true) : null;
+    // ONE forward-kinematics pass per step, here, and everything below is told
+    // it has been done. It was being run four times on the same pose -- once
+    // for the contacts, once inside the servo's gravity term, and twice more
+    // inside forwardDynamics (rnea, then the mass matrix) -- which was 29% of
+    // a rollout spent computing the same sines and cosines over and over.
+    // The servo now keeps its own workspace, so nothing in between disturbs
+    // this; see control.js. Contacts and rnea both read the VELOCITY fields,
+    // so this is the fk that takes qd.
+    fk(model, q, qd, ws);
+    const ext = contacts ? computeContactForces(model, ws, q, qd, contacts, true, true) : null;
     tau.fill(0);
     control?.(k * dt, q, qd, tau);
     const tauUse = withStops(q, qd);
@@ -144,7 +153,7 @@ export function simulate(model, ws, {
       q.set(y.subarray(0, nq));
       qd.set(y.subarray(nq));
     } else {
-      forwardDynamics(model, q, qd, tauUse, ext, qdd, ws, jointDamping, dt);
+      forwardDynamics(model, q, qd, tauUse, ext, qdd, ws, jointDamping, dt, true);
       for (let i = 0; i < nq; i++) qd[i] += dt * qdd[i];
       for (let i = 0; i < nq; i++) q[i] += dt * qd[i];
     }

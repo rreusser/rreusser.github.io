@@ -56,8 +56,10 @@ export function resetContacts(contacts) {
 // commit controls whether stick-anchor state may mutate: integrators that
 // evaluate forces at trial substates (RK4 stages) pass commit = false so the
 // friction anchors and activation flags advance exactly once per step.
-export function computeContactForces(model, ws, q, qd, contacts, commit = true) {
-  fk(model, q, qd, ws);
+// fkCurrent: the caller has already run fk(q, qd) into this workspace. The
+// simulation loop does, once per step, for everything that needs it.
+export function computeContactForces(model, ws, q, qd, contacts, commit = true, fkCurrent = false) {
+  if (!fkCurrent) fk(model, q, qd, ws);
   const { mu, kN, kT, bT, ext, hcLambda } = contacts;
   for (let k = 0; k < contacts.n; k++) {
     const cpt = model.contacts[k];
