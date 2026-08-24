@@ -145,9 +145,11 @@
            top-right corner of whatever it wraps -- so on this figure it lands
            IN the title bar. That is the right place for it (it is a window
            control, and this is the window's title bar) but it is positioned
-           rather than laid out, so the bar has to leave it a gap or the menu
-           button ends up underneath it. 28 px of button and 8 px of clearance. */
-        padding: 6px 36px 6px 8px;
+           rather than laid out, so the bar has to leave room for it.
+           28 of button, 8 of offset from the edge, and 8 between the two: at
+           36 the reservation was exactly the button's own footprint and the
+           menu button sat flush against it with nothing in between. */
+        padding: 6px 44px 6px 8px;
         border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
         background: color-mix(in srgb, currentColor 6%, transparent);
         border-radius: 7px 7px 0 0;
@@ -219,8 +221,13 @@
       .hs-editor .hs-menu > summary,
       .hs-editor .hs-menu[open] > summary {
         list-style: none; display: grid; place-items: center;
-        width: 28px; height: 26px; padding: 0; margin: 0;
-        border-left: none; line-height: 1;
+        width: 28px; height: 26px; padding: 0; margin: 0; line-height: 1;
+        /* WIDTH and STYLE only, so the colour still comes from .hs-btn and
+           still changes on hover. This said `border-left: none`, which beat
+           the site's 3px rule on an open summary by removing the edge
+           altogether -- and took the button's own left border with it, so the
+           menu button was a box open on one side. */
+        border-left-width: 1px; border-left-style: solid;
       }
       .hs-menu > summary::-webkit-details-marker,
       .hs-menu > summary::marker { display: none; content: ''; }
@@ -269,7 +276,7 @@
       }
       @media (max-width: 520px) {
         .hs-editor__pane { padding: 6px; }
-        .hs-editor__bar { padding: 5px 36px 5px 6px; }
+        .hs-editor__bar { padding: 5px 44px 5px 6px; }
         /* Narrow enough and the transport wraps, which is exactly where a
            divider stops dividing: it lands at the head of the second line with
            nothing on its left. */
@@ -2968,15 +2975,6 @@
     const techniqueBox = expandable(techniqueFigure.figure, {
       id: 'technique-editor',
       width: pageW,
-      // Expanded, expandable floats its "Controls" chip at a fixed 16, 16 in
-      // the viewport -- over the top-left corner of whatever it wraps. That was
-      // harmless while the first thing in this figure was the animation; now
-      // the first thing is the title bar, and the chip landed on the technique
-      // picker. The chip is draggable, but a control you have to move before
-      // you can use the one underneath it is a bad first impression, so the
-      // expanded box starts below it. 16 of offset plus its ~34 of height,
-      // and 8 at the sides as before.
-      margin: [8, 58],
       // Collapsed, the stage keeps the height it always had and the figure is
       // as tall as its contents; expandable measures that itself. This number
       // only matters expanded, where onResize divides it up.
