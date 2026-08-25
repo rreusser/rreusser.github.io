@@ -39,7 +39,7 @@ const NJ = JOINT_ORDER.length;
 // is silently re-derived instead of restored comes back wrong rather than
 // coming back right by luck. A preset whose holds are all false and whose
 // instants are all pinned cannot tell "restored" from "defaulted".
-const base = builtinPresets(model, ws, ROM_DEFAULTS).lunge;
+const base = builtinPresets().lowflex;
 const K = 5;
 const knots = Array.from({ length: NJ }, (_, j) =>
   Array.from({ length: K }, (_, k) => 0.11 * (j + 1) - 0.037 * k));

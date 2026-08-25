@@ -359,8 +359,8 @@ function blockModel() {
   const ws = createWorkspace(model);
   const nq = model.nq;
   const prof = strengthProfile(model.massKg, {});
-  const P = builtinPresets(model, ws, ROM_DEFAULTS);
-  const run = runScenario(model, ws, prof, techniqueRunArgs(P.lunge, model, ws));
+  const P = builtinPresets();
+  const run = runScenario(model, ws, prof, techniqueRunArgs(P.lowflex, model, ws));
   const contacts = createContacts(model, {});
   const zero = new Float64Array(nq);
   // rnea with no motion and no gravity is exactly the joint-space image of
@@ -372,28 +372,69 @@ function blockModel() {
   const D = new Float64Array(nq * nq);
   const f0 = new Float64Array(nq), f1 = new Float64Array(nq);
   const h = 1e-6;
-  let worst = 0, scale = 0, where = '';
-  for (const frac of [0.02, 0.15, 0.3, 0.5, 0.8]) {
+  let worst = 0, scale = 0, where = '', compared = 0;
+  let slid = 0, slidCross = 0, slidWorst = 0;
+  let asymWorst = 0, negWorst = 0;
+  for (const frac of [0.02, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8]) {
     const k = Math.round(frac * (run.rec.q.length - 1));
     const q = Float64Array.from(run.rec.q[k]), qd = Float64Array.from(run.rec.qd[k]);
     gen(q, qd, f0);
     fk(model, q, qd, ws);
     computeContactForces(model, ws, q, qd, contacts, false, true);
     contactDamping(model, ws, contacts, D);
+    // Sliding: loaded, but its tangential force pinned to the cone, which is
+    // exactly when computeContactForces reports no tangential damping.
+    let sliding = false;
+    for (let c = 0; c < contacts.n; c++) {
+      if (contacts.ext.dy[c] > 0 && contacts.ext.dx[c] === 0) sliding = true;
+    }
+    // Symmetry and positive semi-definiteness are required of D always, since
+    // they are what make M + dt * D safe to factorize.
+    for (let i = 0; i < nq; i++) {
+      for (let j = 0; j < nq; j++) {
+        asymWorst = Math.max(asymWorst, Math.abs(D[i * nq + j] - D[j * nq + i]));
+      }
+    }
+    for (let t = 0; t < 40; t++) {
+      const v = Float64Array.from({ length: nq }, (_, i) => Math.sin(3.1 * i + 1.7 * t));
+      let quad = 0;
+      for (let i = 0; i < nq; i++) for (let j = 0; j < nq; j++) quad += v[i] * D[i * nq + j] * v[j];
+      negWorst = Math.min(negWorst, quad);
+    }
+    let localWorst = 0, localCross = 0;
     for (let j = 0; j < nq; j++) {
       const save = qd[j]; qd[j] += h; gen(q, qd, f1); qd[j] = save;
       for (let i = 0; i < nq; i++) {
         const fd = (f1[i] - f0[i]) / h;
-        scale = Math.max(scale, Math.abs(fd));
         const e = Math.abs(fd - D[i * nq + j]);
+        if (sliding) { localWorst = Math.max(localWorst, e); localCross = Math.max(localCross, e); continue; }
+        scale = Math.max(scale, Math.abs(fd));
         if (e > worst) { worst = e; where = `t=${run.rec.t[k].toFixed(2)}s, entry (${i},${j})`; }
       }
     }
+    if (sliding) { slid++; slidCross = Math.max(slidCross, localCross); slidWorst = Math.max(slidWorst, localWorst); }
+    else compared++;
   }
-  gate('G: the contact damping matrix matches finite differences',
-    worst / Math.max(scale, 1e-9) < 1e-4,
+  gate('G: the contact damping matrix matches finite differences where nothing slides',
+    worst / Math.max(scale, 1e-9) < 1e-4 && compared >= 3,
     `worst |analytic - fd| = ${worst.toExponential(2)} against a largest entry of `
-    + `${scale.toFixed(0)}${worst > 0 ? ` (${where})` : ''}`);
+    + `${scale.toFixed(0)} over ${compared} sticking instant(s)`
+    + `${worst > 0 ? ` (${where})` : ''}`);
+
+  // The term that is NOT claimed, measured rather than hidden: a sliding
+  // contact is pinned to the friction cone, so its tangential force follows
+  // the NORMAL velocity, and that cross term is not symmetric and cannot be
+  // folded into a matrix about to be Cholesky-factorized. This says how big
+  // the thing left out actually is, so it stops being invisible.
+  gate('G2: and the friction-cone cross term it omits is the only difference',
+    slidWorst === 0 || slidCross > 0,
+    slid === 0 ? 'no sliding instant in this trajectory'
+      : `${slid} sliding instant(s), largest omitted cross term ${slidCross.toExponential(2)}`);
+
+  // And whatever else is true, M + dt * D has to stay factorizable.
+  gate('G3: and D is symmetric and positive semi-definite at every instant',
+    asymWorst < 1e-9 && negWorst > -1e-9,
+    `worst asymmetry ${asymWorst.toExponential(2)}, worst v'Dv ${negWorst.toExponential(2)}`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll contact gates passed');

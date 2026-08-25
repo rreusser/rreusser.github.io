@@ -119,7 +119,7 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
 // different one scores a different question.
 // ---------------------------------------------------------------------------
 {
-  const c = cases.find((x) => x.name === 'lunge');
+  const c = cases.find((x) => x.name === 'lowflex');
   const model = buildModel(resolveBody(c.stored.body)), ws = createWorkspace(model);
   const st0 = c.stored.strength || null;
   const prof = strengthProfile(model.massKg, { overrides: { ...(st0 || {}),
@@ -157,12 +157,12 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
 // mechanism, but the property that matters is the one a reader sees: press
 // Optimize and the duration slider does not move.
 //
-// The technique used is the one that showed the pathology -- the press arrives
+// The technique used is the one that showed the pathology -- a press arrives
 // at every duration from 1.6s up and gets monotonically cheaper as it slows,
 // so if anything is going to run for the ceiling it is this.
 // ---------------------------------------------------------------------------
 {
-  const c = cases.find((x) => x.name === 'pike');
+  const c = cases.find((x) => x.name === 'press');
   const model = buildModel(resolveBody(c.stored.body)), ws = createWorkspace(model);
   const st0 = c.stored.strength || null;
   const prof = strengthProfile(model.massKg, { overrides: { ...(st0 || {}),
@@ -208,7 +208,7 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
 // a body taken away and given back is the same body.
 // ---------------------------------------------------------------------------
 {
-  const key = 'lunge';
+  const key = 'lowflex';
   const stored = PRESET_TRAJECTORIES[key];
   const model = buildModel(resolveBody(stored.body));
   const ws = createWorkspace(model);

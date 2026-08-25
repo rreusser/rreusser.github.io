@@ -40,11 +40,19 @@ function stateFor(name) {
     label: `${name} under test`,
     scenario: stored.scenario,
     knots, T: stored.T,
-    knotFracs: null,
-    held: Array.from({ length: K }, (_, k) => k === K - 1),
-    timeHeld: Array.from({ length: K }, () => true),
-    symmetric: SYMMETRIC_SCENARIOS.has(stored.scenario),
-    q0: null, target,
+    // The technique's own, not a blank: a recorded built-in carries the
+    // phrasing, the start and the holds it was searched with, and a round trip
+    // that starts from something else is not a round trip of this technique.
+    knotFracs: stored.knotFracs ? Float64Array.from(stored.knotFracs) : null,
+    held: stored.held ? Array.from(stored.held, Boolean)
+      : Array.from({ length: K }, (_, k) => k === K - 1),
+    timeHeld: stored.timeHeld ? Array.from(stored.timeHeld, Boolean)
+      : Array.from({ length: K }, () => true),
+    startHeld: stored.startHeld !== false,
+    symmetric: typeof stored.symmetric === 'boolean'
+      ? stored.symmetric : SYMMETRIC_SCENARIOS.has(stored.scenario),
+    q0: stored.q0 ? Float64Array.from(stored.q0) : null,
+    target: stored.target ? Float64Array.from(stored.target) : target,
     rom: resolveRom({ ...(stored.rom || {}) }),
     strength: stored.strength || null,
     body: resolveBody(stored.body),
@@ -109,8 +117,11 @@ const EDITS = {
   'a finer timestep': (t) => ({ ...t, numerics: { ...t.numerics, dt: 1e-4 } }),
   'a different search seed': (t) => ({ ...t, search: { seed: 42, maxGen: 260 } }),
   'the legs un-mirrored': (t) => ({ ...t, symmetric: !t.symmetric }),
+  // FLIPPED rather than set: the techniques carry their own pins now, and an
+  // edit that writes the value already there changes nothing and would report
+  // the field as missing from the file when it is merely unchanged.
   'a pose let loose in time': (t) => ({ ...t,
-    timeHeld: t.timeHeld.map((v, k) => (k === 1 ? false : v)) }),
+    timeHeld: t.timeHeld.map((v, k) => (k === 1 ? !v : v)) }),
 };
 
 // ---------------------------------------------------------------------------
@@ -139,7 +150,7 @@ const EDITS = {
 // same default, and the field is silently absent from the saved case.
 // ---------------------------------------------------------------------------
 {
-  const base = stateFor('lunge');
+  const base = stateFor('lowflex');
   const baseText = JSON.stringify(techniqueToJSON(base));
   const missing = [];
   for (const [what, f] of Object.entries(EDITS)) {
@@ -154,7 +165,7 @@ const EDITS = {
 // that loads as "mostly right" is worse than one that does not load.
 // ---------------------------------------------------------------------------
 {
-  const good = techniqueToJSON(stateFor('pike'));
+  const good = techniqueToJSON(stateFor('press'));
   const bad = [
     ['not JSON at all', '{'],
     ['a foreign file', JSON.stringify({ format: 'something-else', version: 1 })],

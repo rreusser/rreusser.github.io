@@ -28,13 +28,21 @@ function gate(name, ok, detail) {
 }
 const D = 180 / Math.PI;
 
-const stored = PRESET_TRAJECTORIES.lunge;
+const stored = PRESET_TRAJECTORIES.lowflex;
 const model = buildModel(resolveBody(stored.body)), ws = createWorkspace(model);
 const st0 = stored.strength || null;
 const prof = strengthProfile(model.massKg, { overrides: { ...(st0 || {}),
   shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder),
     t0Vol: st0?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol } } });
 const rom = resolveRom({ ...(stored.rom || {}) });
+// From the technique, all three of them. A recorded built-in carries its own
+// integration, its own start and its own phrasing, and a gate that supplies
+// its own instead is comparing two call sites on a technique neither of them
+// was given -- which they will happily agree about, having both been handed
+// the same wrong thing.
+const DT = resolveNumerics(stored.numerics).dt;
+const Q0 = stored.q0 ? Float64Array.from(stored.q0) : null;
+const FRACS0 = stored.knotFracs ? Float64Array.from(stored.knotFracs) : null;
 const knots = stored.knots.map((k) => Float64Array.from(k));
 const K = knots[0].length, T = stored.T;
 const target = new Float64Array(model.nq);
@@ -83,7 +91,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
 {
   const go = (fracs) => runScenario(model, ws, prof, {
     scenario: stored.scenario, knots: knots.map((k) => Float64Array.from(k)), T, rom, target,
-    knotFracs: fracs, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
+    q0: Q0, knotFracs: fracs, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
   });
   const flat = go(null), bent = go(unevenFracs);
   let d = 0;
@@ -109,13 +117,10 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
 {
   const a = rolloutCost(model, ws, prof, rom, stored.scenario,
     encodeDecision(knots.map((k) => Float64Array.from(k)), T),
-    // The default, read off NUMERICS_DEFAULTS: the replay below resolves it
-    // from there, and a number typed here would be a second opinion about the
-    // one thing this gate checks they agree on.
-    { K, dt: NUMERICS_DEFAULTS.dt, target, plant: resolvePlant(stored.config), knotFracs: unevenFracs });
+    { K, dt: DT, q0: Q0, target, plant: resolvePlant(stored.config), knotFracs: unevenFracs });
   const b = runScenario(model, ws, prof, {
     scenario: stored.scenario, knots: knots.map((k) => Float64Array.from(k)), T, rom, target,
-    knotFracs: unevenFracs, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
+    q0: Q0, knotFracs: unevenFracs, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
   });
   const byTime = new Map();
   for (let k = 0; k < b.rec.t.length; k++) byTime.set(b.rec.t[k].toFixed(9), k);
@@ -315,7 +320,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
     dec.fracs ? 'it carries instants' : 'the authored phrasing is used');
 
   // And the number it scores is the authored-phrasing number, to the last bit.
-  const opts = { K, dt: NUMERICS_DEFAULTS.dt, target, plant: resolvePlant(stored.config) };
+  const opts = { K, dt: DT, q0: Q0, target, plant: resolvePlant(stored.config) };
   const withFracs = rolloutCost(model, ws, prof, rom, stored.scenario, x,
     { ...opts, knotFracs: unevenFracs }).cost;
   const plain = rolloutCost(model, ws, prof, rom, stored.scenario, x,
@@ -341,14 +346,14 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   x[NJ * K + 1] = 0.12;
   x[NJ * K + 2] = 0.55;
   const scored = rolloutCost(model, ws, prof, rom, stored.scenario, x,
-    { K, dt: NUMERICS_DEFAULTS.dt, target, plant: resolvePlant(stored.config), knotFracs: fracs0 });
+    { K, dt: DT, q0: Q0, target, plant: resolvePlant(stored.config), knotFracs: fracs0 });
   // What the page would do with the answer: read the phrasing off the decode
   // and hand it to a replay.
   const dec = decodeDecision(x, K);
   applyTimeLocks(dec.fracs, null);
   const replay = runScenario(model, ws, prof, {
     scenario: stored.scenario, knots: dec.knots.map((k) => Float64Array.from(k)), T, rom, target,
-    knotFracs: dec.fracs, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
+    q0: Q0, knotFracs: dec.fracs, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
   });
   const byTime = new Map();
   for (let k = 0; k < replay.rec.t.length; k++) byTime.set(replay.rec.t[k].toFixed(9), k);
@@ -369,7 +374,7 @@ const unevenFracs = Float64Array.from([0, 0.1, 0.18, 0.5, 0.72, 1]);
   // forgot to adopt res.decoded.fracs would draw -- is a different movement.
   const naive = runScenario(model, ws, prof, {
     scenario: stored.scenario, knots: dec.knots.map((k) => Float64Array.from(k)), T, rom, target,
-    knotFracs: fracs0, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
+    q0: Q0, knotFracs: fracs0, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
   });
   let dn = 0;
   for (let k = 0; k < replay.rec.t.length && k < naive.rec.t.length; k++) {

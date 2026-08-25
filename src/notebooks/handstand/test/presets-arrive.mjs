@@ -1,44 +1,38 @@
-// Do the techniques the notebook opens with actually produce a handstand --
-// each one on the body it claims to need?
+// Do the techniques the notebook opens with actually produce a handstand?
 //
-// This is the gate that was missing, and its absence cost the notebook nine
-// commits of being quietly broken. The presets stopped being RECORDED (a
-// checked-in optimizer artifact, replayed on the plant it was made under) and
-// became DERIVED (a hand-authored reference, evaluated on today's plant),
-// which is the right rule and which turned every built-in technique into a
-// claim that nothing tested. The claim was false: the kick-up threw itself
-// past its fingers at t = 1.0, the straight-leg press drifted off the back of
-// its palms without ever rising, and the bent-leg press fell backwards out of
-// the start. Only "hold a handstand", which begins in one, arrived. A reader
-// opening the notebook saw "does not arrive" under every technique in the
-// picker, and a search warm-started inside that family had nothing to follow:
-// every member failed, so the only thing left ranking them was when they fell.
+// This is the gate that makes shipping RECORDINGS safe, and it is the reason
+// builtin-techniques.js is allowed to be data again. A recorded technique
+// pins the plant, the anatomy, the strength and the integration it was
+// searched under, so it can go stale in a way a derived one cannot: improve
+// the servo, articulate another joint, change how a contact is integrated,
+// and a checked-in answer is quietly an answer to a different question. The
+// only defence is to replay every one of them on every build and insist it
+// still arrives.
 //
-// The strength each technique is tested at is NOT a knob to make this pass.
-// It is the notebook's central claim, in the prose above the figure -- 1.6
-// Nm/kg of shoulder for a kick-up, 2.2 and 2.8 for a press -- and it is
-// reproduced independently by holding each reference pose in turn and watching
-// where the deep positions of a press become holdable:
+// Each one is replayed exactly as the page replays it -- on the body, the
+// range of motion, the strength, the plant and the step IT carries, not on
+// some table of expectations kept here. There is nothing to keep in step: the
+// technique is the whole problem statement, and if it stops arriving the
+// answer is either to re-search it or to say out loud that the model moved.
 //
-//     shoulder Nm/kg    press positions the body can hold
-//        1.6            only the near-handstand ones
-//        2.2            + the entry
-//        2.8            + most of the rise
-//        3.2            all of them
-//
-// So a press failing at the default 1.6 is the RESULT, not a bug, and this
-// gate asks each technique the only question a starting point has to answer
-// yes to: on the body you need, do you arrive?
+// The bodies are the subject, not the setting. Two of these are the same
+// skill -- a kick-up -- solved for two different bodies, one with sixty
+// degrees of straight-leg hip flexion and a 1.45 Nm/kg shoulder and one with
+// a hundred and thirty and half that strength. That contrast is what the
+// presets are for, and it is a thing only a recording can say.
 //
 // Run: node src/notebooks/handstand/test/presets-arrive.mjs
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace, momenta } from '../dynamics.js';
-import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
-import { ROM_DEFAULTS } from '../statics.js';
-import { builtinPresets, BUILTIN_SCENARIOS } from '../presets.js';
-import { runScenario, balancedHandstand, kickReference, KICK_T, robustRolloutCost,
-  encodeDecision, resolveRom, resolvePlant, PLANT_DEFAULTS } from '../rollout.js';
-import { techniqueRunArgs } from '../technique-file.js';
+import { strengthProfile } from '../strength.js';
+import { BUILTIN_TECHNIQUES } from '../builtin-techniques.js';
+import {
+  runScenario, balancedHandstand, robustRolloutCost, encodeDecision,
+} from '../rollout.js';
+import {
+  techniqueFromJSON, techniqueToJSON, techniqueRunArgs, techniqueSearchArgs,
+  techniqueModelParams, techniqueStrengthOpts,
+} from '../technique-file.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -46,78 +40,76 @@ function gate(name, ok, detail) {
   if (!ok) failures++;
 }
 
-// The shoulder each technique needs, in Nm/kg of body mass.
-const NEEDS = { lunge: 1.6, hold: 1.6, tuck: 2.8, pike: 2.8 };
-
-const model = buildModel({});
-const ws = createWorkspace(model);
-const presets = builtinPresets(model, ws, ROM_DEFAULTS);
-const comYbal = momenta(model, balancedHandstand(model, ws), new Float64Array(model.nq), ws).comY;
-
-const profAt = (t0Vol) => strengthProfile(model.massKg,
-  { overrides: { shoulder: { ...STRENGTH_DEFAULTS.shoulder, t0Vol } } });
-
-function replay(key, t0Vol) {
-  const p = presets[key];
-  const r = runScenario(model, ws, profAt(t0Vol), techniqueRunArgs(p, model, ws));
+const rows = [];
+console.log('  technique                  skill  K  T      shoulder  arrives  peak CoM  a handstand is');
+for (const t of BUILTIN_TECHNIQUES) {
+  const rec = techniqueFromJSON(techniqueToJSON(t));
+  const model = buildModel(techniqueModelParams(rec));
+  const ws = createWorkspace(model);
+  const prof = strengthProfile(model.massKg, techniqueStrengthOpts(rec));
+  const r = runScenario(model, ws, prof, techniqueRunArgs(rec, model, ws));
   let peak = -Infinity;
   for (let k = 0; k < r.rec.com.length; k++) peak = Math.max(peak, r.rec.com[k][1]);
-  return { arrives: !!r.verdict?.success, peak, T: p.T };
-}
-
-console.log(`a handstand puts the centre of mass at ${comYbal.toFixed(3)} m\n`);
-console.log('  scenario   needs   T      arrives  peak CoM');
-const rows = [];
-for (const s of BUILTIN_SCENARIOS) {
-  const need = NEEDS[s.key] ?? 1.6;
-  const row = { ...replay(s.key, need), key: s.key, label: s.label, need };
-  rows.push(row);
-  console.log(`  ${s.key.padEnd(10)} ${need.toFixed(1).padStart(5)}  ${row.T.toFixed(2)}   ` +
-    `${String(row.arrives).padEnd(8)} ${row.peak.toFixed(3).padStart(8)}   ${s.label}`);
+  const bal = momenta(model, balancedHandstand(model, ws), new Float64Array(model.nq), ws).comY;
+  rows.push({ t, rec, model, ws, prof, r, peak, bal });
+  console.log(`  ${t.label.padEnd(26)} ${rec.scenario.padEnd(6)} ${rec.knots[0].length}  `
+    + `${rec.T.toFixed(2)}   ${String(rec.strength?.shoulder?.t0Vol ?? '-').padStart(6)}    `
+    + `${String(!!r.verdict?.success).padEnd(7)}  ${peak.toFixed(3).padStart(8)}  ${bal.toFixed(3).padStart(8)}`);
 }
 console.log('');
 
 for (const row of rows) {
-  gate(`${row.key}: arrives on the body it needs (${row.need} Nm/kg of shoulder)`,
-    row.arrives, `peak CoM ${row.peak.toFixed(3)} m against ${comYbal.toFixed(3)}`);
+  gate(`${row.t.key}: arrives, on the body it carries`, !!row.r.verdict?.success,
+    `peak CoM ${row.peak.toFixed(3)} m against ${row.bal.toFixed(3)}`);
 }
 
-// The kick-up is the one the notebook says an ordinary shoulder can do, so it
-// gets the harder questions. A starting point that only works at one timestep
-// is a knife edge, not a technique: the search scores every candidate against
-// a second rollout at a different step with a jittered start, and the opening
-// technique has to survive that too.
-{
-  const { knots, target } = kickReference(model, ws, 6, ROM_DEFAULTS);
-  const c = robustRolloutCost(model, ws, profAt(NEEDS.lunge), resolveRom({}), 'lunge',
-    encodeDecision(knots, KICK_T),
-    { K: 6, target, plant: resolvePlant({ ...PLANT_DEFAULTS }) });
-  gate('lunge: and survives the robustness variants the search scores against',
-    c.terms.fall === 0, `worst-case cost ${c.cost.toFixed(1)}, fall term ${c.terms.fall.toFixed(1)}`);
+// A starting point that only works at one step is a knife edge, not a
+// technique. The search scores every candidate against a second rollout at a
+// coarser step with a jittered start (robustVariants), so what the notebook
+// opens with has to survive that too.
+for (const row of rows) {
+  const sa = techniqueSearchArgs(row.rec);
+  const c = robustRolloutCost(row.model, row.ws, row.prof, sa.rom, sa.scenario,
+    encodeDecision(row.rec.knots, row.rec.T), {
+      K: sa.K, q0: sa.q0, target: sa.target, plant: sa.plant, knotFracs: sa.knotFracs,
+      locks: sa.locks, timeLocks: sa.timeLocks, numerics: sa.numerics,
+      symmetric: sa.symmetric, dt: sa.dt,
+    });
+  gate(`${row.t.key}: and survives the robustness variants the search scores against`,
+    c.terms.fall === 0,
+    `worst-case cost ${c.cost.toFixed(1)}, fall term ${c.terms.fall.toFixed(1)}`);
 }
 
-// And it should not be balanced on a knife edge in TIME either. The tempo was
-// chosen as the middle of the band the throw arrives over rather than the
-// value the search stopped at, precisely so this holds.
-{
-  const p = presets.lunge;
-  const prof = profAt(NEEDS.lunge);
-  // At a CONVERGED step, deliberately. This gate is about the technique, not
-  // about the integrator: a kick-up on 1.6 Nm/kg of shoulder is marginal by
-  // construction -- that is the notebook's claim about the skill -- and a
-  // marginal trajectory scatters when it is sampled at a finite step. Swept
-  // in hundredths at dt = 5e-5 it arrives cleanly from 1.34 s to 1.60 s; at
-  // any given working step a tempo or two inside that band lands on the wrong
-  // side, and WHICH ones moves with the step size. Asking the question at the
-  // default step measured the scatter and called it the band.
+// And not a knife edge in TIME either. A tempo the movement works at only
+// EXACTLY is a number in a file rather than a technique, so each one is swept
+// either side of the tempo it was searched at and the contiguous band around
+// that tempo is measured. What is required is uniform and modest -- it must
+// survive being run 2% faster and 2% slower -- and what is REPORTED is the
+// whole band, because the bands differ and the difference is the interesting
+// part: a body that cannot fold has to throw hard enough to carry through, so
+// the low-flexibility kick-up can be sped up freely and cannot be slowed.
+//
+// Asked at a converged step, deliberately. These techniques sit close to what
+// their bodies can do -- that is what makes them worth opening -- and a
+// marginal trajectory scatters when it is sampled at a finite step, with
+// which tempos land on the wrong side moving as the step moves. Asking at the
+// replay step would measure that scatter and call it the band.
+const PCT = [];
+for (let i = -10; i <= 10; i++) PCT.push(i);
+for (const row of rows) {
   const at = (T) => {
-    const r = runScenario(model, ws, prof, { ...techniqueRunArgs(p, model, ws), T, dt: 1e-4 });
+    const r = runScenario(row.model, row.ws, row.prof,
+      { ...techniqueRunArgs(row.rec, row.model, row.ws), T, dt: 1e-4 });
     return !!r.verdict?.success;
   };
-  const margin = [-0.06, -0.03, 0, 0.03, 0.06].map((d) => at(KICK_T + d));
-  gate('lunge: and still arrives at +/- 0.06 s of its tempo',
-    margin.every(Boolean),
-    `${margin.filter(Boolean).length}/5 tempos in [${(KICK_T - 0.06).toFixed(2)}, ${(KICK_T + 0.06).toFixed(2)}]`);
+  const ok = new Map(PCT.map((d) => [d, at(row.rec.T * (1 + d / 100))]));
+  let lo = 0, hi = 0;
+  while (ok.get(lo - 1)) lo--;
+  while (ok.get(hi + 1)) hi++;
+  gate(`${row.t.key}: and is not a knife edge in tempo`,
+    ok.get(0) && lo <= -2 && hi >= 2,
+    `arrives from ${lo}% to ${hi}% of its own tempo`
+    + `${lo <= -10 || hi >= 10 ? ' (the sweep runs out before it does)' : ''}`);
 }
 
 console.log(failures ? `\n${failures} GATE(S) FAILED` : '\nALL GATES PASS');

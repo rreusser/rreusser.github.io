@@ -19,8 +19,10 @@
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
-import { rolloutCost, encodeDecision, resolvePlant, resolveRom, resolveBody, balancedHandstand }
-  from '../rollout.js';
+import {
+  rolloutCost, encodeDecision, resolvePlant, resolveRom, resolveBody, resolveNumerics,
+  balancedHandstand,
+} from '../rollout.js';
 import { PRESET_TRAJECTORIES } from '../presets.js';
 
 let failures = 0;
@@ -29,7 +31,7 @@ function gate(name, ok, detail) {
   if (!ok) failures++;
 }
 
-const stored = PRESET_TRAJECTORIES.lunge;
+const stored = PRESET_TRAJECTORIES.lowflex;
 const model = buildModel(resolveBody(stored.body)), ws = createWorkspace(model);
 const st0 = stored.strength || null;
 const prof = strengthProfile(model.massKg, { overrides: { ...(st0 || {}),
@@ -39,8 +41,19 @@ const rom = resolveRom({ ...(stored.rom || {}) });
 const K = stored.knots[0].length, T = stored.T;
 const bal = balancedHandstand(model, ws);
 const target = new Float64Array(model.nq);
-for (let j = 0; j < 6; j++) target[3 + j] = stored.knots[j][K - 1];
-const base = { K, target, plant: resolvePlant(stored.config), dt: 5e-4 };
+for (let j = 0; j < stored.knots.length; j++) target[3 + j] = stored.knots[j][K - 1];
+// The technique's own start, phrasing and integration. A recorded built-in
+// carries all three, and a sweep that supplies its own instead is not a sweep
+// AROUND this technique -- it is a sweep around a different movement that
+// happens to share its knots, and the first thing it reports is that the
+// technique does not arrive.
+const base = {
+  K, target, plant: resolvePlant(stored.config),
+  dt: resolveNumerics(stored.numerics).dt,
+  q0: stored.q0 ? Float64Array.from(stored.q0) : null,
+  knotFracs: stored.knotFracs ? Float64Array.from(stored.knotFracs) : null,
+  numerics: resolveNumerics(stored.numerics),
+};
 
 const at = (a) => {
   const kn = stored.knots.map((row, j) =>
@@ -51,13 +64,31 @@ const at = (a) => {
   return { cost: c.cost, ok: !!c.verdict?.success, peak, terms: c.terms };
 };
 
-// Reach far enough out that these actually fail. They used to sit at 0.80 to
-// 0.97 and 1.03 to 1.20, which was the right window when the technique they
-// bracket arrived only exactly at 1.00; the reference now has a real basin
-// -- 0.97 through 1.06 all arrive -- and a sweep that never leaves it cannot
-// say anything about the slope outside it, which is the whole question here.
-const UNDER = [0.55, 0.68, 0.78, 0.88];
-const OVER = [1.60, 1.45, 1.30, 1.18];
+// Where the slope is claimed, and where it is not.
+//
+// The basin has to be measured, not assumed, and it moves with the technique:
+// swept in twentieths this one arrives from 1.00 to 1.20 and nowhere else, so
+// the bracket has to sit outside that. It used to be 0.80-0.97 and 1.03-1.20,
+// then 0.55-0.88 and 1.18-1.60, and each time it was widened because the
+// technique underneath it had a bigger basin than the sweep did.
+//
+// The window is also NOT the whole real line, and that is a statement about
+// the cost function rather than about the sweep. Measured from 0.40 to 2.00:
+//
+//   alpha   0.40  0.55  0.65  0.70  0.80  0.90  0.95 | 1.00-1.20 | 1.25  1.35  1.55  1.60  2.00
+//   cost     370   398   458   437   331   266   201 |  arrives   |  221   370   394   338   367
+//
+// From 0.70 up and from 1.55 down the cost falls steadily toward the answer,
+// which is the property a search needs and the one these gates check. Outside
+// that it humps: a throw scaled to two thirds of itself and one scaled to a
+// third fail in qualitatively different ways -- one topples forward over the
+// hands, the other never leaves the floor -- and which of those is "closer" is
+// not a question the score is answering. The gates are scoped to the region
+// where the claim is meant to hold and this comment records the region where
+// it does not, because a gate quietly sampling only the good part is worse
+// than no gate.
+const UNDER = [0.70, 0.78, 0.86, 0.94];
+const OVER = [1.55, 1.45, 1.35, 1.27];
 const hit = at(1.00);
 const under = UNDER.map(at);
 const over = OVER.map(at);

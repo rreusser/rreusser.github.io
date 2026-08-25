@@ -37,12 +37,13 @@ function gate(name, ok, detail) {
 }
 
 const D = 180 / Math.PI;
-// The timestep both sides use: rolloutCost's finalCheck and the page's replay.
-// Read off NUMERICS_DEFAULTS rather than written down, because the replay side
-// below resolves it from there -- a number typed here is a second opinion
-// about the one thing this file exists to check they agree on, and when the
-// default moved it was this line, not the code, that reported a disagreement.
-const DT = NUMERICS_DEFAULTS.dt;
+// The timestep both sides use, PER TECHNIQUE. It was one number for the whole
+// file -- first written down, then read off NUMERICS_DEFAULTS -- and both were
+// second opinions about the one thing this file exists to check they agree on.
+// The replay side has always resolved it from the technique, so the moment the
+// built-ins started carrying their own integration a global here reported a
+// disagreement that was the test's, not the code's.
+const dtOf = (stored) => resolveNumerics(stored.numerics).dt;
 
 // What the figure's body sliders produce with nothing touched.
 function pageBody(stored) {
@@ -59,7 +60,7 @@ function pageBody(stored) {
 const scored = (m, stored, knots, T, q0, target, fracs = null) =>
   rolloutCost(m.model, m.ws, m.prof, m.rom, stored.scenario,
     encodeDecision(knots.map((k) => Float64Array.from(k)), T), {
-      K: knots[0].length, dt: DT, q0, target,
+      K: knots[0].length, dt: dtOf(stored), q0, target,
       // The page hands the search the machine it replays on, exactly as it
       // hands it the body, the anatomy, the start, the ending and the phrasing.
       plant: resolvePlant(stored.config), knotFracs: fracs,
@@ -99,11 +100,29 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   const base = asEdited(stored, widenKnots(stored.knots.map((k) => Float64Array.from(k))));
   const K0 = base[0].length;
 
-  // As shipped: no dragged start, ending is the stored one.
-  CASES.push({ label: `${name} as shipped`, m, stored, knots: base, T: stored.T, q0: null });
+  // The start the technique carries, or null where it has none and the
+  // scenario solves one. A recorded technique was searched FROM a particular
+  // start -- with the start pose itself among the things the search moved --
+  // so replacing it with the scenario's solve is not the same movement, and a
+  // gate that did so would be comparing two call sites on a technique neither
+  // of them was given.
+  const q0Stored = stored.q0 ? Float64Array.from(stored.q0) : null;
+  // ...and the phrasing it carries, for the same reason. A recorded technique
+  // was searched WITH its instants where they are; replayed at even spacing it
+  // is a different movement, and every fixture here fell on the floor while
+  // both call sites agreed perfectly about how. Two call sites agreeing on the
+  // wrong technique is a gate that has stopped asking anything.
+  const fracsStored = stored.knotFracs ? Float64Array.from(stored.knotFracs) : null;
+  // The ending it aims at is the technique's own, except where the case moves
+  // the last knot -- which is what dragging the last storyboard cell does.
+  const targetStored = stored.target ? Float64Array.from(stored.target) : null;
+
+  // As shipped: the technique exactly as the picker opens it.
+  CASES.push({ label: `${name} as shipped`, m, stored, knots: base, T: stored.T, q0: q0Stored,
+    fracs: fracsStored, target: targetStored });
 
   // A dragged start: the page reads it back out of the run it just made.
-  const seed = played(m, stored, base, stored.T, null, targetOf(m, base), null);
+  const seed = played(m, stored, base, stored.T, q0Stored, targetStored || targetOf(m, base), fracsStored);
   const q0 = Float64Array.from(seed.rec.q[0]);
   const q0Moved = Float64Array.from(q0);
   const QJ = Object.fromEntries(JOINT_KEYS.map((n, j) => [n, 3 + j]));
@@ -111,18 +130,20 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   if (SYMMETRIC_SCENARIOS.has(stored.scenario)) {
     q0Moved[QJ.hipR] = q0Moved[QJ.hipL]; q0Moved[QJ.kneeR] = q0Moved[QJ.kneeL];
   }
-  CASES.push({ label: `${name} dragged start`, m, stored, knots: base, T: stored.T, q0: q0Moved });
+  CASES.push({ label: `${name} dragged start`, m, stored, knots: base, T: stored.T, q0: q0Moved,
+    fracs: fracsStored, target: targetStored });
 
   // An ending that is not a handstand: the last knot moved, as dragging the
   // last cell of the storyboard does.
   const piked = base.map((k) => Float64Array.from(k));
   piked[JOINT_KEYS.indexOf('hipL')][K0 - 1] += 35 / D;         // fold at the hips
   piked[JOINT_KEYS.indexOf('hipR')][K0 - 1] += 35 / D;
-  CASES.push({ label: `${name} pike ending`, m, stored, knots: asEdited(stored, piked), T: stored.T, q0: null });
+  CASES.push({ label: `${name} pike ending`, m, stored, knots: asEdited(stored, piked), T: stored.T,
+    q0: q0Stored, fracs: fracsStored });
 
   // Phrasing placed by hand, with two poses close together -- the thing the
   // timeline drag exists for.
-  CASES.push({ label: `${name} phrased by hand`, m, stored, knots: base, T: stored.T, q0: null,
+  CASES.push({ label: `${name} phrased by hand`, m, stored, knots: base, T: stored.T, q0: q0Stored,
     fracs: Float64Array.from(Array.from({ length: K0 }, (_, k) => (k === 0 ? 0 : k === K0 - 1 ? 1
       : [0.1, 0.18, 0.5, 0.72][(k - 1) % 4]))) });
 
@@ -131,18 +152,18 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   // itself: an artifact recorded under one machine, scored on another.
   CASES.push({ label: `${name} on an old plant`, m,
     stored: { ...stored, config: { ...(stored.config || {}), kp: 400, kd: 40, activationTau: 0.08 } },
-    knots: base, T: stored.T, q0: null });
+    knots: base, T: stored.T, q0: q0Stored, fracs: fracsStored, target: targetStored });
 
   // A different number of poses, refitted as the count control does.
   for (const K of [3, 8]) {
     CASES.push({ label: `${name} at ${K} poses`, m, stored,
-      knots: asEdited(stored, resampleKnots(base, stored.T, K)), T: stored.T, q0: null });
+      knots: asEdited(stored, resampleKnots(base, stored.T, K)), T: stored.T, q0: q0Stored });
   }
 }
 
 let worstQ = 0, worstQd = 0, verdictSplits = 0, splitDetail = '';
 for (const c of CASES) {
-  const target = targetOf(c.m, c.knots);
+  const target = c.target || targetOf(c.m, c.knots);
   const a = scored(c.m, c.stored, c.knots, c.T, c.q0, target, c.fracs || null);
   const b = played(c.m, c.stored, c.knots, c.T, c.q0, target, c.fracs || null);
   // Matched by CLOCK, not by frame index. Scoring thins its recording to
@@ -234,7 +255,7 @@ gate('B. and never disagree about arrival', verdictSplits === 0,
 {
   const m0 = buildModel({});
   const ws0 = createWorkspace(m0);
-  const base = builtinPreset(m0, ws0, 'lunge', { rom: ROM_DEFAULTS });
+  const base = builtinPreset('lowflex');
   const edited = { ...base,
     T: 1.42,
     symmetric: true,
@@ -307,7 +328,7 @@ gate('B. and never disagree about arrival', verdictSplits === 0,
 // ---------------------------------------------------------------------------
 {
   const m0 = buildModel({}), ws0 = createWorkspace(m0);
-  const stored = builtinPreset(m0, ws0, 'lunge', { rom: ROM_DEFAULTS });
+  const stored = builtinPreset('lowflex');
   const m = pageBody(stored);
   const ODD = { dt: 3e-4, settleT: 1.8 };
   const rec = techniqueFromJSON(techniqueToJSON({ ...stored, numerics: ODD }));

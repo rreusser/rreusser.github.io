@@ -153,6 +153,21 @@ export function groundReaction(contacts, handIdx = [0, 1]) {
 // diagonal and non-negative), so M + dt * D is still symmetric positive
 // definite and the Cholesky factorization downstream is still valid.
 //
+// One term is deliberately left out, and it is the reason for that "diagonal".
+// A SLIDING contact is pinned to the friction cone, Ft = +/- mu * Fn, so its
+// tangential force depends on the NORMAL velocity through Fn -- a cross term
+// d(Fx)/d(vy) with no matching d(Fy)/d(vx) to pair it with. It is genuinely
+// part of the Jacobian and it is genuinely not symmetric, and a non-symmetric
+// term folded into a matrix that is about to be Cholesky-factorized is not a
+// stabilization, it is a crash or worse.
+//
+// Leaving it out costs stabilization, not correctness. The force itself is
+// exact -- it is in `ext`, and rnea puts it in the right-hand side untouched
+// -- so the scheme still converges to this model as dt shrinks; it is only
+// less well damped in that one direction at a large step. See test/contact.mjs
+// gate G, which checks the terms that ARE claimed and measures the one that
+// is not.
+//
 // Call after computeContactForces, which fills ext.dx/dy and leaves the
 // workspace holding this pose's kinematics.
 export function contactDamping(model, ws, contacts, D) {

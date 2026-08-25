@@ -945,8 +945,8 @@
     // offering them through three separate controls was three ways to reach
     // one idea, and the one you happened to use decided whether the scenario
     // came with it. The built-ins are derived from the current model rather
-    // than recorded (see presets.js), so this list can never offer a
-    // technique for a body the notebook no longer has.
+    // recorded (see builtin-techniques.js), each carrying the body and the
+    // anatomy it was searched for.
     const presetList = () => {
       const kept = readPresets();
       return [
@@ -967,7 +967,7 @@
       presetInput.value = items.some((it) => it.id === want) ? want : items[0].id;
       return items;
     };
-    presetInput.refresh('builtin:lunge');
+    presetInput.refresh(`builtin:${BUILTIN_SCENARIOS[0].key}`);
     const presetPicker = html`<label style="display:inline-flex; gap:6px; align-items:center;
       font: 13px system-ui, -apple-system, sans-serif;">Preset ${presetInput}</label>`;
     simControls.appendChild(presetPicker);
@@ -985,24 +985,23 @@
     // flashed. A technique is a thing the editor OPENS, not a thing it is made
     // of, so the resolving lives here and the editor calls it.
     const techniqueSource = (() => {
-      // A built-in is derived here, on THIS body -- not on the default one --
-      // so changing height or mass in the body controls gives a starting
-      // technique for the body you are actually asking about.
-      const builtins = builtinPresets(model, ws, ROM_DEFAULTS);
+      // A built-in carries its own body, anatomy and strength -- that is what
+      // it is FOR, since two of them are the same skill solved for two
+      // different bodies -- so nothing about the reader is passed in here.
+      const builtins = builtinPresets();
       const build = (sel) => {
         let stored = null;
         if (sel.startsWith('builtin:')) {
-          stored = builtins[sel.slice(8)] || builtins.lunge;
+          stored = builtins[sel.slice(8)] || builtins[BUILTIN_SCENARIOS[0].key];
         } else {
           const kept = readPresets().find((c) => c.id === sel);
           // A kept preset that will not parse is not a reason to blank the
-          // notebook: say so and fall back to the built-in it was made from,
-          // or the kick-up.
+          // notebook: say so and fall back to the first built-in.
           if (kept) {
             try { stored = { ...techniqueFromJSON(kept), id: kept.id, label: kept.label }; }
             catch (err) { console.warn('kept preset unreadable, falling back:', err); }
           }
-          if (!stored) stored = builtins.lunge;
+          if (!stored) stored = builtins[BUILTIN_SCENARIOS[0].key];
         }
         // ONE closure produces the run on screen and every variant of it, so an
         // edited or optimised trajectory is replayed exactly as the base one is:
@@ -1218,7 +1217,7 @@
 
     The straight-leg press does none of this. Its reference sits within a few degrees of the body at every knot, because a press never needs full effort from any joint and so never needs to lie to one. That is the difference between a technique you *hold* and a technique you *throw*.
 
-    The pose the body actually starts in is not a knot at all, and is not authored: every scenario *solves* its start from the body it is given. The press folds to the deepest the hamstrings allow and then bisects the shoulder angle until the center of mass sits over the palm — so an 85 degree fold starts with the shoulder at 100 and a 125 degree fold at 74, and a stiffer body has to lean further to get over its hands at all. The kick-up hinges the torso to 90 degrees over the hands and solves the stance hip until the toe reaches the floor. The bent-leg press solves the same lean to leave about a third of body weight standing on the feet, which is what makes it a hop rather than a press. So moving a flexibility slider moves where the body begins while the technique's first knot stays exactly where the search left it, and the gap between them — the one the label under the figure measures — opens or closes without a knot having been touched.
+    The pose the body actually starts in is not a knot at all. A technique may carry one — all three of the ones here do, because the search was allowed to choose where they begin — and where it carries none, the scenario *solves* one from the body it is given. The press folds to the deepest the hamstrings allow and then bisects the shoulder angle until the center of mass sits over the palm — so an 85 degree fold starts with the shoulder at 100 and a 125 degree fold at 74, and a stiffer body has to lean further to get over its hands at all. The kick-up hinges the torso to 90 degrees over the hands and solves the stance hip until the toe reaches the floor. The bent-leg press solves the same lean to leave about a third of body weight standing on the feet, which is what makes it a hop rather than a press. So moving a flexibility slider moves where the body begins while the technique's first knot stays exactly where the search left it, and the gap between them — the one the label under the figure measures — opens or closes without a knot having been touched.
 
     You can take that start over: drag it, and it stops being solved and becomes a pose the technique carries. You can also hand it to the *search*, which is the padlock on the first frame below, and then the eight angles the body begins in join the thirty-seven the optimizer is already moving.
 
@@ -2564,7 +2563,12 @@
         // Falls back to the first built-in, which re-runs the simulation --
         // the preset that was showing no longer exists.
         if (!err) {
-          refreshPresets(`builtin:${sim.scenarioName}`);
+          // Back to a built-in of the same skill when there is one, and to the
+          // first otherwise. Not `builtin:${scenarioName}` -- there can be
+          // several techniques for one skill now, so a scenario name is not
+          // an id.
+          refreshPresets(`builtin:${(BUILTIN_SCENARIOS.find((b) => b.scenario === sim.scenarioName)
+            || BUILTIN_SCENARIOS[0]).key}`);
           presetInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
         dirty = chromeDirty = true;
