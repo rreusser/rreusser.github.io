@@ -308,4 +308,102 @@ export const BUILTIN_TECHNIQUES = [
     },
     cost: null
   },
+  {
+    // "tuckup", not "tuck": `tuck` is the name of a SCENARIO -- a start
+    // position, sitting in a tuck on the floor -- and this starts from a pike
+    // stand like the press does. What is tucked is the way up, not the start.
+    key: "tuckup",
+    label: "Tuck up",
+    format: "handstand-technique",
+    version: 2,
+    scenario: "pike",
+    knots: [
+      [1.39903397248331, 1.7894307647742955, 1.7529077845124703, 1.2370026040590478, 1.2387942408651642, 1.418864422366212],
+      [1.4765675991598444, 1.3989892990897532, 0.26647410076383105, 0.2629521980437431, 0.1871750876617353, 0.1648299621506455],
+      [-0.2710797626444056, 0.28670886128822914, 0.4215947730981865, 0.4363323129985824, -0.2825960299264073, 0.04984048845541578],
+      [2.247087455366528, 1.9235098604955696, 1.6386693877301717, 2.4425609193288387, 2.152747604744334, 0.04292938687180459],
+      [-2.4171517867356007, -1.4803451593715988, -0.15302060099452447, -2.06931673859885, -2.290839487439213, 0],
+      [2.247087455366528, 1.9235098604955696, 1.6386693877301717, 2.4425609193288387, 2.152747604744334, 0.04292938687180459],
+      [-2.4171517867356007, -1.4803451593715988, -0.15302060099452447, -2.06931673859885, -2.290839487439213, 0],
+      [0.1211944489022735, 0.26127721679115934, 0.25479849987598285, 0.47334036738230006, 0.12867134301314948, 0]
+    ],
+    T: 1.7145876302225518,
+    knotFracs: [0, 0.21040296567107086, 0.23928551891484384, 0.4373313761433488, 0.6910640822292049, 1],
+    held: [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ],
+    timeHeld: [
+      true,
+      true,
+      false,
+      false,
+      false,
+      true
+    ],
+    startHeld: false,
+    symmetric: true,
+    q0: [0, 0.0525, 0, 1.9177179582791375, 1.4912898891343516, 0.3910127980252416, 2.22861294068127, -2.3000939119698547, 2.22861294068127, -2.3000939119698547, 0.0444874879242306],
+    target: [0, 0.0525, 0, 1.418864422366212, 0.1648299621506455, 0.04984048845541578, 0.04292938687180459, 0, 0.04292938687180459, 0, 0],
+    rom: {
+      wristExtMaxDeg: 110,
+      wristExtMinDeg: 70,
+      shoulderFlexMaxDeg: 170,
+      shoulderHyperDeg: 5,
+      shoulderCloseMaxDeg: 110,
+      hipFlexStraightKneeMaxDeg: 75,
+      hamstringCouplingPerDeg: 0.6,
+      hipFlexAbsMaxDeg: 140,
+      hipExtMaxDeg: 20,
+      kneeFlexMaxDeg: 145,
+      kneeHyperextDeg: 3,
+      spineFlexMaxDeg: 25,
+      spineExtMaxDeg: 20,
+      neckFlexMaxDeg: 30,
+      neckExtMaxDeg: 45
+    },
+    strength: {
+      shoulder: {
+        t0Vol: 1.1,
+        wmax: 18,
+        wc: 7,
+        amin: 0.7,
+        w1: 0,
+        m: 0.3
+      }
+    },
+    body: {},
+    config: {
+      dampingRatio: 2,
+      brakeMargin: 0.8,
+      dampingSpeed: 0.5,
+      romStopDeg: 5,
+      inertiaHz: 200,
+      romStopZeta: 0.7,
+      loopOmegaTau: 2,
+      tuckLoadFrac: 0.35,
+      tuckKneeDeg: 90,
+      kp: 800,
+      kd: 60,
+      kCom: 2000,
+      dCom: 1500,
+      activationTau: 0.05,
+      mu: 1,
+      contactZeta: 1,
+      integrator: "si"
+    },
+    numerics: {
+      dt: 0.0002,
+      settleT: 2.5
+    },
+    search: {
+      seed: 7,
+      maxGen: 400
+    },
+    cost: null
+  },
 ];
