@@ -1723,7 +1723,7 @@
       // pinned to, or null where it is free to move. Read off the knots, so a
       // pose you drag and then hold is held where you left it.
       const lockValues = () => editState.held.map((on, k) => (on
-        ? Array.from({ length: FIG.JOINTS.length }, (_, j) => editState.knots[j][k]) : null));
+        ? Array.from({ length: NJOINTS }, (_, j) => editState.knots[j][k]) : null));
       // And the pinned instants, the same way: the fraction each pinned pose
       // sits at, or null where the search may slide it.
       const timeLockValues = () => editState.timeHeld.map((on, k) => (on ? editState.fracs[k] : null));
@@ -1753,26 +1753,32 @@
       // technique arrived, then did not, and then still did not with every
       // slider returned to where it began.
       //
-      // The run is a moment behind the hand -- it re-simulates on release, not
-      // during -- so while a start handle is held the figure cannot wait for
-      // it. What it draws instead is the authored pose put through the SAME
-      // seating the rollout will put it through, so the two are one pose and
-      // the figure never jumps.
+      // WHILE YOU ARE EDITING THE START, the figure draws exactly the pose you
+      // authored. Not the clamped one, not the seated one, not the one the
+      // rollout will actually integrate -- yours, joint for joint.
       //
-      // It used to draw the raw authored pose mid-drag and the run's seated
-      // one the rest of the time. Those differ by however much the seating had
-      // to do, and three of the four techniques ship a start sitting several
-      // centimetres under the floor, so the seating was unfolding a hip by up
-      // to twenty-eight degrees. Pressing ANY handle -- the neck's, which
-      // cannot move a foot at all -- jumped the legs to the authored pose, and
-      // releasing it jumped them back. That is the snapping: not a constraint
-      // being misapplied, but two different poses being drawn for one state.
-      const startQ = () => {
-        const asked = editState.q0;
-        if (!asked) return editState.run?.rec?.q?.[0] || asked;
-        if (!drag || sel !== 0) return editState.run?.rec?.q?.[0] || asked;
-        return seatStart(model, ws, asked, romNow(), editState.startGrounded);
-      };
+      // This is the same rule the reference poses already follow, and for the
+      // reason stated beside clampKnotsToRom: a knot a HAND placed is
+      // deliberately not clamped, because a handle that stops for a reason the
+      // figure has not drawn is a handle that lies. The start pose is a pose a
+      // hand placed too, and it was the one place that rule was not applied.
+      //
+      // What it cost: the start is SEATED before it runs -- clamped into the
+      // range of motion, and moved so it does not begin inside the floor,
+      // because a contact below the ground fires an enormous penalty impulse at
+      // t = 0. Drawing the seated pose meant every constraint in that seating
+      // reached back into the editor as something moving that you had not
+      // touched. Half of all drags were silently eaten by the clamp -- drag a
+      // hip that is already on its limit and it comes back exactly where it
+      // started -- and the rest paid for the floor in some other joint.
+      //
+      // The seating still happens; it has to, or the rollout is not runnable.
+      // It happens where it belongs, inside the run, and the difference is
+      // visible where it belongs: press play and watch what the body does with
+      // the pose you gave it.
+      const startQ = () => (sel === 0 && editState.q0
+        ? editState.q0
+        : (editState.run?.rec?.q?.[0] || editState.q0));
       const selectCell = (i) => {
         // Reaching for another pose is an answer: you are no longer looking at
         // the one you were asked about.
@@ -1880,19 +1886,25 @@
           // has not re-run yet, so it read as broken rather than as context.
           const q = sel === 0 ? startQ() : FIG.knotPose(m, editState.knots, sel - 1, askQ);
           if (sel === 0) askQ.set(q);
+          // Red where a joint is outside the body's range. The pose is not
+          // clamped -- see startQ -- so this is the whole of what the editor
+          // says about anatomy while you are placing a pose by hand.
+          const outside = FIG.romOutside(m, q, romNow());
           const drawn = drawScene(stageCtx, {
-            ...common, q, segmentColors: sel === 0 ? null : FIG.requestTint(),
-            // Only on the START pose, and only when it has let go of the
-            // floor. A reference pose is joint angles and nothing else -- it
-            // has no base to move -- and a grounded start's base is solved
-            // rather than authored, so a handle on it would be a control that
-            // silently undoes itself.
-            baseHandles: sel === 0 && !editState.startGrounded,
+            ...common, q,
+            segmentColors: FIG.romTint(m, q, romNow(), sel === 0 ? null : FIG.REQUEST_COLOR),
+            // On the START pose, always. A reference pose is joint angles and
+            // nothing else -- there is no base to move -- but the start has
+            // one, and "you cannot drag the hands" is not something a pose
+            // editor should ever have to say. Grabbing one of these on a
+            // grounded start is how you let go of the floor: the toggle in the
+            // panel follows the hand rather than gating it.
+            baseHandles: sel === 0,
           });
           // Pixels per metre, as the handles were placed. The move handle turns
           // pointer travel back into metres with it.
           sceneScale = drawn.scale;
-          syncHandles(drawn.handles.filter((h) => !lockedJoint(h.joint)));
+          syncHandles(drawn.handles.filter((h) => !lockedJoint(h.joint)), outside);
         } else {
           // Watching: what happened is solid, in its strength colours. The
           // reference it was chasing goes behind it only if you asked for it
@@ -1911,7 +1923,7 @@
       const handleEls = new Map();
       // Pixels per metre at the last draw, for the one handle that translates.
       let sceneScale = 1;
-      const syncHandles = (handles) => {
+      const syncHandles = (handles, outside = null) => {
         const want = new Set(handles.map((h) => h.joint));
         for (const [j, el] of [...handleEls]) if (!want.has(j)) { el.remove(); handleEls.delete(j); }
         for (const h of handles) {
@@ -1940,11 +1952,20 @@
             });
             el.addEventListener('pointerleave', () => {
               if (drag?.el === el) return;
-              el.setAttribute('fill', FIG.REQUEST_FILL);
+              el.setAttribute('fill', el.dataset.bad ? FIG.ROM_COLOR : FIG.REQUEST_FILL);
               el.setAttribute('stroke-width', 1.6);
             });
             overlay.append(el);
             handleEls.set(h.joint, el);
+          }
+          // The handle you are holding says so too: a segment tinted red at
+          // the far end of a limb is easy to miss when your eye is on the dot
+          // under your finger.
+          const bad = !!outside?.has(h.joint);
+          el.dataset.bad = bad ? '1' : '';
+          el.setAttribute('stroke', bad ? FIG.ROM_COLOR : FIG.REQUEST_COLOR);
+          if (!drag || drag.el !== el) {
+            el.setAttribute('fill', bad ? FIG.ROM_COLOR : FIG.REQUEST_FILL);
           }
           el.setAttribute('cx', h.x);
           el.setAttribute('cy', h.y);
@@ -1963,6 +1984,15 @@
         const r = overlay.getBoundingClientRect();
         const px = +el.dataset.px, py = +el.dataset.py;
         const move = el.dataset.move === '1';
+        // Reaching for the hand IS asking for the start to leave the floor.
+        // Behind a toggle in a settings panel, this was a degree of freedom
+        // nobody could find.
+        if ((move || +el.dataset.joint === 2) && editState.startGrounded) {
+          editState.startGrounded = false;
+          groundToggle.value = false;
+          if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+          editState.edited = true;
+        }
         drag = {
           el, pointerId: e.pointerId, px, py, ch: +el.dataset.joint - 3, move, moved: false,
           a0: Math.atan2(-(e.clientY - r.top - py), e.clientX - r.left - px),
@@ -2008,7 +2038,7 @@
         if (!drag || (e && e.pointerId !== drag.pointerId)) return;
         try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) { /* gone */ }
         drag.el.style.cursor = 'grab';
-        drag.el.setAttribute('fill', FIG.REQUEST_FILL);
+        drag.el.setAttribute('fill', drag.el.dataset.bad ? FIG.ROM_COLOR : FIG.REQUEST_FILL);
         drag.el.setAttribute('stroke-width', 1.6);
         const moved = drag.moved;
         drag = null;

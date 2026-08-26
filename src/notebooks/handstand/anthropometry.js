@@ -63,6 +63,12 @@ import { buildSilhouette } from './silhouette.js';
 // a straight elbow is zero, and a foot in line with the shin -- a pointed
 // toe -- is zero. A technique recorded before either joint existed replays as
 // itself with both channels held at neutral.
+//
+// Signs: positive is flexion at the hip, the spine, the neck and the ankle,
+// which all fold on the body's front. The knee and the ELBOW are negative,
+// because neither folds that way -- the calf folds onto the hamstring behind,
+// and the arm, pronated in a handstand with its elbow pits toward the
+// fingers, folds toward them.
 
 // de Leva (1996) male table, per single limb where applicable.
 // len: fraction of stature; m: fraction of body mass;

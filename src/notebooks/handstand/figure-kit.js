@@ -46,7 +46,32 @@ const JOINT_LABELS = {
   hipL: 'hip L', kneeL: 'knee L', ankleL: 'ankle L',
   hipR: 'hip R', kneeR: 'knee R', ankleR: 'ankle R',
 };
-export const JOINTS = JOINT_ORDER.map((name, j) => ({ j, qi: 3 + j, label: JOINT_LABELS[name] || name }));
+// The order joints are DISPLAYED in, which is not the order the state vector
+// holds them. JOINT_ORDER is fixed by the dynamics -- the tree requires a
+// parent before its children, so each leg runs hip, knee, ankle and the two
+// legs are consecutive blocks. Read down a chart in that order and the same
+// joint of the two legs is six rows apart, so a kick-up's asymmetry has to be
+// found by counting rows instead of seen by looking.
+//
+// Paired instead: both hips, then both knees, then both ankles. A symmetric
+// technique now draws each pair as two identical rows touching each other,
+// which reads as one thing rather than as noise, and an asymmetric one shows
+// exactly where the two legs part company.
+//
+// Every entry carries its OWN channel (j) and state index (qi), so anything
+// reading a value goes through those and nothing depends on where the entry
+// sits in this list. Loops that are about channels rather than rows use
+// JOINT_ORDER directly.
+const DISPLAY_ORDER = ['wrist', 'elbow', 'shoulder', 'spine',
+  'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'neck'];
+export const JOINTS = DISPLAY_ORDER.map((name) => {
+  const j = JOINT_ORDER.indexOf(name);
+  if (j < 0) throw new Error(`the display order names ${name}, which is not a joint`);
+  return { j, qi: 3 + j, label: JOINT_LABELS[name] || name };
+});
+if (JOINTS.length !== JOINT_ORDER.length) {
+  throw new Error(`the display order lists ${JOINTS.length} joints, the body has ${JOINT_ORDER.length}`);
+}
 
 // Strength used: blue (idle) to red (at the voluntary torque cap). One ramp,
 // spent the same way by the segments of a moving body, the rows of the effort
@@ -71,10 +96,50 @@ export function effortColor(u, isDark = false, alpha = 1) {
 
 // Segment colours for drawScene. requestTint paints a whole body as a request;
 // effortTint paints it as a result.
-export const requestTint = () => new Array(7).fill(REQUEST_COLOR);
+// One entry per body, derived: written as a literal 7 this stopped colouring
+// whatever fell off the end of it, twice.
+export const requestTint = () => new Array(JOINT_ORDER.length + 1).fill(REQUEST_COLOR);
+
+// Segment colours for a pose being EDITED: red on any segment whose own joint
+// is outside the body's range of motion, and `base` everywhere else -- the
+// request grey for a reference pose, nothing at all for the start, which is a
+// real configuration of the body rather than something being asked for.
+//
+// This is what the editor says INSTEAD of stopping you. A pose you place by
+// hand is not clamped, because a handle that stops for a reason the figure has
+// not drawn is a handle that lies -- so the figure draws the reason. The
+// anatomy is still enforced where it is real: passive end-stops push the joint
+// back during the rollout, and the effort chart paints the excursion -- in
+// ROM_COLOR, which is why this uses it too: the legend above the timeline
+// already reads "outside range of motion" in that orange, so the figure is
+// saying the same thing in the same colour rather than inventing a second one.
+export function romTint(model, q, rom, base = null) {
+  const out = new Array(model.nb).fill(base);
+  for (let j = 0; j < JOINT_ORDER.length; j++) {
+    const jq = 3 + j;
+    const { lo, hi } = jointLimits(rom, q, jq);
+    // Joint q[3 + j] turns body 1 + j: the dynamics reads joint i off body i.
+    if (q[jq] < lo - 1e-9 || q[jq] > hi + 1e-9) out[1 + j] = ROM_COLOR;
+  }
+  return out;
+}
+
+// Which joints are outside the range, as a Set of q indices, for anything that
+// wants to mark the handle rather than the segment.
+export function romOutside(model, q, rom) {
+  const out = new Set();
+  for (let j = 0; j < JOINT_ORDER.length; j++) {
+    const jq = 3 + j;
+    const { lo, hi } = jointLimits(rom, q, jq);
+    if (q[jq] < lo - 1e-9 || q[jq] > hi + 1e-9) out.add(jq);
+  }
+  return out;
+}
 export function effortTint(run, k, prof, isDark) {
-  const out = new Array(7).fill(null);
-  for (let j = 0; j < JOINTS.length; j++) {
+  // One entry per BODY. Written as a literal 7 this stopped tinting whatever
+  // fell off the end of it every time the body grew a segment.
+  const out = new Array(JOINT_ORDER.length + 1).fill(null);
+  for (let j = 0; j < JOINT_ORDER.length; j++) {
     const tau = run.rec.tauApplied[k][j];
     const cap = availableTorque(prof[JOINT_ORDER[j]], tau, run.rec.qd[k][3 + j]);
     out[1 + j] = effortColor(Math.abs(tau) / Math.max(cap, 1e-6), isDark);
@@ -98,13 +163,13 @@ export function frameAt(rec, t) {
 // flat onto the floor. Poses nobody touched appeared to fly around, and a pose
 // just set snapped somewhere else the moment the drag was released. Planting
 // the hand makes a pose depend on exactly the numbers that define it.
-const refVal = new Float64Array(JOINTS.length), refRate = new Float64Array(JOINTS.length);
+const refVal = new Float64Array(JOINT_ORDER.length), refRate = new Float64Array(JOINT_ORDER.length);
 export function requestPose(model, knots, T, t, out, fracs = null) {
   out.fill(0);
   groundHand(model, out);
   evalReference(knots, T, Math.min(t, T), refVal, refRate,
     fracs ? knotTimes(T, knots[0].length, fracs) : null);
-  for (let j = 0; j < JOINTS.length; j++) out[3 + j] = refVal[j];
+  for (let j = 0; j < JOINT_ORDER.length; j++) out[3 + j] = refVal[j];
   return out;
 }
 
@@ -178,7 +243,7 @@ export function resampleKnots(knots0, T, newK, fracs = null) {
   }
 
   const out = [], y = new Float64Array(M), b = new Float64Array(n);
-  for (let j = 0; j < JOINTS.length; j++) {
+  for (let j = 0; j < JOINT_ORDER.length; j++) {
     const row = new Float64Array(K);
     const last = knots[j][knots[j].length - 1];
     row[K - 1] = last;
@@ -223,7 +288,7 @@ function solveInPlace(A, b, n) {
 export function knotPose(model, knots, k, out) {
   out.fill(0);
   groundHand(model, out);
-  for (let j = 0; j < JOINTS.length; j++) out[3 + j] = knots[j][k];
+  for (let j = 0; j < JOINT_ORDER.length; j++) out[3 + j] = knots[j][k];
   return out;
 }
 
@@ -233,7 +298,7 @@ export function knotPose(model, knots, k, out) {
 export function analyzeRun(run, prof, model) {
   const rec = run.rec;
   const m = run.model || model;
-  const NJ = JOINTS.length;
+  const NJ = JOINT_ORDER.length;
   const peak = new Float64Array(NJ), satT = new Float64Array(NJ), err = new Float64Array(NJ);
   const v = new Float64Array(NJ), r = new Float64Array(NJ);
   // The phrasing the run was produced with, read off the run rather than
@@ -248,7 +313,7 @@ export function analyzeRun(run, prof, model) {
     evalReference(run.knots, run.T, Math.min(rec.t[k], run.T), v, r, refTimes);
     const driving = rec.t[k] <= run.T;
     if (driving) n++;
-    for (let j = 0; j < JOINTS.length; j++) {
+    for (let j = 0; j < JOINT_ORDER.length; j++) {
       const tau = rec.tauApplied[k][j];
       const cap = availableTorque(prof[JOINT_ORDER[j]], tau, rec.qd[k][3 + j]);
       const u = Math.abs(tau) / Math.max(cap, 1e-6);

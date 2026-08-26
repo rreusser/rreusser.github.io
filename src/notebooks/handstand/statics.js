@@ -15,9 +15,9 @@ import { JOINT_ORDER } from './control.js';
 //            90deg = arm vertical. Below 90 leans the arm toward the
 //            fingertips (planche lean), which is what a dorsiflexion
 //            limit below 90deg forces.
-//   elbow    flexion positive, the bicep-curl direction: it folds the arm
-//            shut on its front, the same side the hip and spine fold to.
-//            Zero is the straight arm a handstand stands on.
+//   elbow    flexion NEGATIVE, like the knee: the arm is pronated in a
+//            handstand so it does not fold on the body's front, it folds
+//            toward the fingertips. Zero is the straight arm it stands on.
 //   shoulder closing angle; anatomical flexion = 180deg - q.
 //            Positive tips the torso's hip end toward the belly (-x), the
 //            compensation for which is arching (hip extension): the banana.
@@ -68,10 +68,17 @@ export const ROM_DEFAULTS = {
   shoulderFlexMaxDeg: 180,   // q4 >= 180 - this
   shoulderHyperDeg: 5,       // q4 >= -this is never allowed below
   shoulderCloseMaxDeg: 110,  // q4 <= this
-  // The elbow, positive being flexion -- the bicep-curl direction. In a
-  // handstand the belly faces -x, so flexion swings the shoulder end of the
-  // upper arm toward -x, which is the same sense as hip and spine flexion:
-  // positive folds the body shut on its front.
+  // The elbow, flexion NEGATIVE -- the same sense as the knee, and for the
+  // same reason. A handstand is held with the elbow pits facing the
+  // fingertips, which is the standard cue and the position the arm locks out
+  // in, so the joint closes on the +x side: flexing it swings the shoulder
+  // toward the fingertips, which is -1 in a CCW convention.
+  //
+  // This was written positive at first, by analogy with the hip and the spine
+  // -- but those fold on the body's front and the arm does not, because the
+  // arm is pronated in a handstand and its anterior is no longer the trunk's.
+  // Signed that way the arm folded away from the fingers, which is an elbow
+  // bending backwards.
   //
   // 145 is an ordinary elbow's flexion; the few degrees the other way are the
   // carrying angle a straight arm actually has, and they matter here because
@@ -183,8 +190,8 @@ export function jointLimits(rom, q, jointIndex) {
     case 'kneeL': case 'kneeR':
       return { lo: -rom.kneeFlexMaxDeg * D2R, hi: rom.kneeHyperextDeg * D2R };
     case 'elbow': return {
-      lo: -(rom.elbowHyperDeg ?? ROM_DEFAULTS.elbowHyperDeg) * D2R,
-      hi: (rom.elbowFlexMaxDeg ?? ROM_DEFAULTS.elbowFlexMaxDeg) * D2R,
+      lo: -(rom.elbowFlexMaxDeg ?? ROM_DEFAULTS.elbowFlexMaxDeg) * D2R,
+      hi: (rom.elbowHyperDeg ?? ROM_DEFAULTS.elbowHyperDeg) * D2R,
     };
     case 'ankleL': case 'ankleR': return {
       lo: -(rom.anklePointMaxDeg ?? ROM_DEFAULTS.anklePointMaxDeg) * D2R,
