@@ -19,11 +19,23 @@ export function bodyView(model, { cx = 0.15, yLo = -0.18, pad = 0.10 } = {}) {
   return { cx, yLo, yHi: model.reachM + pad };
 }
 
-export function viewTransform(width, height, { cx = 0.12, yLo = -0.18, yHi = 2.08 } = {}) {
-  const scale = height / (yHi - yLo);
-  const toX = (wx) => width / 2 + (wx - cx) * scale;
-  const toY = (wy) => height - (wy - yLo) * scale;
-  return { toX, toY, scale };
+// World -> screen. `zoom` and the pan offsets are the reader's, and they are
+// applied about the CENTRE of the window rather than its bottom-left corner, so
+// zooming stays put instead of sliding the body off the top. At zoom 1 with no
+// pan this is exactly the old mapping: yLo lands on the bottom edge and yHi on
+// the top, to the pixel.
+//
+// toWorld is the inverse, which anything turning a pointer position into a
+// place in the room needs -- zooming about the cursor, for one.
+export function viewTransform(width, height, {
+  cx = 0.12, yLo = -0.18, yHi = 2.08, zoom = 1, panX = 0, panY = 0,
+} = {}) {
+  const scale = (zoom * height) / (yHi - yLo);
+  const wx0 = cx + panX, wy0 = 0.5 * (yLo + yHi) + panY;
+  const toX = (wx) => width / 2 + (wx - wx0) * scale;
+  const toY = (wy) => height / 2 - (wy - wy0) * scale;
+  const toWorld = (sx, sy) => [wx0 + (sx - width / 2) / scale, wy0 - (sy - height / 2) / scale];
+  return { toX, toY, toWorld, scale, floorY: toY(0) };
 }
 
 // Draw a set of bodies as flat translucent silhouettes: the population of an
@@ -92,7 +104,7 @@ export function drawScene(ctx, opts) {
   const isDark = theme ? theme.isDark : false;
 
   fk(model, q, null, ws);
-  const { toX, toY, scale } = viewTransform(width, height, opts.view);
+  const { toX, toY, toWorld, scale, floorY } = viewTransform(width, height, opts.view);
 
   let mTot = 0, comX = 0, comY = 0;
   for (let i = 0; i < model.nb; i++) {
@@ -156,13 +168,21 @@ export function drawScene(ctx, opts) {
   // leg first, then head and torso, then the arm in front of the head, then
   // the near leg in front of everything.
   // By NAME, because the body indices moved when the trunk gained a hinge and
-  // the head became its own segment -- and a hardcoded list silently stops
-  // drawing whatever fell off the end of it, which is exactly what happened
-  // to the head.
-  const ORDER_NAMES = ['thighL', 'shankL', 'footL', 'headNeck', 'chest', 'pelvis',
-    'hand', 'forearm', 'upperArm', 'thighR', 'shankR', 'footR'];
-  const order = ORDER_NAMES.map((n) => model.names.indexOf(n)).filter((i) => i >= 0);
-  const farLeg = new Set(['thighL', 'shankL', 'footL']
+  // the head became its own segment.
+  const ORDER_NAMES = ['thighL', 'shankL', 'footL', 'toeL', 'headNeck', 'chest', 'pelvis',
+    'hand', 'forearm', 'upperArm', 'thighR', 'shankR', 'footR', 'toeR'];
+  const named = ORDER_NAMES.map((n) => model.names.indexOf(n)).filter((i) => i >= 0);
+  // Anything the list does not name still gets drawn, on the end.
+  //
+  // This list is an OCCLUSION order, so it has to be written by hand -- but
+  // written by hand and then filtered for -1 it silently stops drawing whatever
+  // fell off the end of it, which is what happened to the head when the trunk
+  // gained a hinge and to both toes when the feet gained one. A body missing
+  // from a draw order should come out in the wrong place, where you can see it,
+  // rather than not come out at all.
+  const order = named.concat(
+    Array.from({ length: model.nb }, (_, i) => i).filter((i) => !named.includes(i)));
+  const farLeg = new Set(['thighL', 'shankL', 'footL', 'toeL']
     .map((n) => model.names.indexOf(n)).filter((i) => i >= 0));
   const bg = theme ? theme.background : [1, 1, 1];
   const mix = (t) => [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * t);
@@ -372,5 +392,5 @@ export function drawScene(ctx, opts) {
   // floor, so it needs to turn pointer pixels back into metres, and computing
   // that a second time from the view is how the figure and the pointer come
   // to disagree at some widths and not others.
-  return { comX, comY, supported, handles, heelX, tipX, scale };
+  return { comX, comY, supported, handles, heelX, tipX, scale, floorY, toWorld };
 }

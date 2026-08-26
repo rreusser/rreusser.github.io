@@ -377,7 +377,7 @@
       solveWristForCom, QI,
     } from './statics.js';
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
-    import { drawScene, drawGhosts, bodyView } from './render.js';
+    import { drawScene, drawGhosts, bodyView, viewTransform } from './render.js';
     import {
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
@@ -1670,7 +1670,14 @@
       // body ever holds: measured over every knot of every stored technique the
       // widest reaches 1.18 m from the hand and the tallest 2.07 m. Fixed, so
       // six poses look like six poses of one body rather than six bodies.
-      const VIEW = bodyView(model, { yLo: -0.2 });
+      // What the reader is looking at. bodyView frames the whole body; zoom and
+      // the two pan offsets are theirs, and they live in editState.ui so they
+      // survive this cell being rebuilt when the body changes.
+      const FRAME = bodyView(model, { yLo: -0.2 });
+      editState.ui.view ??= { zoom: 1, panX: 0, panY: 0 };
+      const VIEW = new Proxy(FRAME, {
+        get: (t, k) => (k in editState.ui.view ? editState.ui.view[k] : t[k]),
+      });
       // Mutable, because the figure expands. Every one of these is re-derived
       // in onResize below, and the values here are only the collapsed start.
       let totalW = pageW;
@@ -1795,7 +1802,8 @@
       // opacity says which of the two you are acting on: the subject is solid
       // and on top, the other is a flat underlay in its own colour.
       const stage = html`<div style="position:relative; width:${panelW}px; height:${panelH}px;
-        touch-action:none; border:1px solid currentColor; border-radius:4px; box-sizing:border-box;
+        touch-action:none; cursor:grab; border:1px solid currentColor; border-radius:4px;
+        box-sizing:border-box;
         border-color:color-mix(in srgb, currentColor 18%, transparent);"></div>`;
       const canvas = html`<canvas style="position:absolute; left:0; top:0;
         width:${panelW}px; height:${panelH}px;"></canvas>`;
@@ -1806,7 +1814,9 @@
       const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       overlay.setAttribute('width', panelW);
       overlay.setAttribute('height', panelH);
-      overlay.style.cssText = 'position:absolute; left:0; top:0;';
+      // The overlay carries the handles and nothing else, so it must not eat
+      // the pointer between them -- that is what pans the stage.
+      overlay.style.cssText = 'position:absolute; left:0; top:0; pointer-events:none;';
       stage.appendChild(overlay);
       // Everything that draws itself at a fixed size, told the new one. The
       // canvas is the only thing here with a backing store, so it is the only
@@ -1848,7 +1858,7 @@
         if (field?.length) {
           // Searching: the generation, and nothing else. No incumbent on top,
           // because the question at that moment is what the whole field does.
-          const floorY = panelH - (0 - VIEW.yLo) * (panelH / (VIEW.yHi - VIEW.yLo));
+          const floorY = viewTransform(panelW, panelH, VIEW).floorY;
           const fg = theme?.foreground || [0.11, 0.12, 0.14];
           const rgb = fg.map((v) => Math.round(v * 255)).join(',');
           stageCtx.fillStyle = `rgba(${rgb},0.05)`;
@@ -2048,6 +2058,100 @@
       overlay.addEventListener('pointercancel', endDrag);
       overlay.addEventListener('lostpointercapture', endDrag);
 
+      // ---- pan and zoom ------------------------------------------------------
+      // The stage frames a whole body, and a whole body is 2.2 m of which a toe
+      // is two centimetres. Nothing about the picture changes shape when you
+      // close on one: the handles are placed in screen pixels at a fixed 10 px
+      // radius, so they stay the size of a fingertip at any scale.
+      const VIEW_MIN = 0.4, VIEW_MAX = 60;
+      const viewScale = (zoom) => (zoom * panelH) / (FRAME.yHi - FRAME.yLo);
+      const setView = (zoom, panX, panY) => {
+        const v = editState.ui.view;
+        v.zoom = Math.min(VIEW_MAX, Math.max(VIEW_MIN, zoom));
+        v.panX = panX;
+        v.panY = panY;
+        dirty = true;
+      };
+      // Zoom about a point on the screen: whatever world point is under the
+      // pointer has to still be under it afterwards, or the thing you were
+      // aiming at slides out of the window as you close on it.
+      const zoomAbout = (sx, sy, factor) => {
+        const v = editState.ui.view;
+        const [wx, wy] = viewTransform(panelW, panelH, VIEW).toWorld(sx, sy);
+        const zoom = Math.min(VIEW_MAX, Math.max(VIEW_MIN, v.zoom * factor));
+        const scale = viewScale(zoom);
+        const ymid = 0.5 * (FRAME.yLo + FRAME.yHi);
+        setView(zoom, wx - FRAME.cx - (sx - panelW / 2) / scale,
+          wy - ymid + (sy - panelH / 2) / scale);
+      };
+      stage.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const r = stage.getBoundingClientRect();
+        // Trackpads report pixels, wheels report lines or pages. Normalised so
+        // the same flick is the same zoom on both.
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? panelH : 1;
+        zoomAbout(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * unit / 420));
+      }, { passive: false });
+
+      // Two pointers pinch, one pans. Both live on the STAGE rather than the
+      // overlay, because the overlay answers the pointer only on a handle --
+      // which is the one thing a pan must not grab.
+      const pans = new Map();
+      let pinch = null;
+      const pinchState = () => {
+        const [a, b] = [...pans.values()];
+        return {
+          d: Math.hypot(a.x - b.x, a.y - b.y),
+          mx: 0.5 * (a.x + b.x), my: 0.5 * (a.y + b.y),
+        };
+      };
+      stage.addEventListener('pointerdown', (e) => {
+        if (drag || e.target instanceof SVGCircleElement) return;
+        const r = stage.getBoundingClientRect();
+        pans.set(e.pointerId, { x: e.clientX - r.left, y: e.clientY - r.top });
+        if (pans.size === 2) pinch = pinchState();
+        stage.style.cursor = 'grabbing';
+        try { stage.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
+        e.preventDefault();
+      });
+      stage.addEventListener('pointermove', (e) => {
+        const p = pans.get(e.pointerId);
+        if (!p) return;
+        const r = stage.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        const dx = x - p.x, dy = y - p.y;
+        p.x = x; p.y = y;
+        const v = editState.ui.view;
+        const scale = viewScale(v.zoom);
+        if (pans.size >= 2 && pinch) {
+          // The midpoint drags and the separation zooms, in one gesture: two
+          // fingers that spread while they slide do both at once.
+          const now = pinchState();
+          setView(v.zoom, v.panX - (now.mx - pinch.mx) / scale,
+            v.panY + (now.my - pinch.my) / scale);
+          if (pinch.d > 0 && now.d > 0) zoomAbout(now.mx, now.my, now.d / pinch.d);
+          pinch = now;
+        } else {
+          setView(v.zoom, v.panX - dx / scale, v.panY + dy / scale);
+        }
+        e.preventDefault();
+      });
+      const endPan = (e) => {
+        if (!pans.delete(e.pointerId)) return;
+        try { stage.releasePointerCapture(e.pointerId); } catch (_) { /* gone */ }
+        pinch = pans.size === 2 ? pinchState() : null;
+        if (!pans.size) stage.style.cursor = 'grab';
+      };
+      stage.addEventListener('pointerup', endPan);
+      stage.addEventListener('pointercancel', endPan);
+      stage.addEventListener('lostpointercapture', endPan);
+      // Back to the whole body. A reader who has closed on a toe and lost the
+      // rest of the figure needs one gesture that always works.
+      stage.addEventListener('dblclick', (e) => {
+        if (e.target instanceof SVGCircleElement) return;
+        setView(1, 0, 0);
+      });
+
       // A knot goes exactly where it is put. Nothing is clamped: a handle that
       // stops for a reason the figure has not drawn is a handle that lies.
       const writeKnot = (ch, k, q) => {
@@ -2080,7 +2184,10 @@
       };
 
       const story = FIG.createStoryboard({
-        n: nCells, thumbW, thumbH, view: VIEW, dpr, onSelect: selectCell,
+        // FRAME, not VIEW: the thumbnails are an index of the movement and
+        // have to show the whole body. Zooming the stage to look at a toe must
+        // not zoom seven postage stamps to the same toe.
+        n: nCells, thumbW, thumbH, view: FRAME, dpr, onSelect: selectCell,
         // The start pose has a padlock too. It is not a knot -- it is where
         // the body BEGINS -- but it is the one part of a technique the search
         // could never answer back on, and "you are starting in the wrong
