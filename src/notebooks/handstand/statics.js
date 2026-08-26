@@ -1,4 +1,4 @@
-import { JOINT_ORDER } from './control.js';
+import { JOINT_ORDER, ALL_JOINTS } from './control.js';
 // Static analysis and range-of-motion model for the handstand chain.
 //
 // Orientation conventions (derived once, used everywhere): world +x points
@@ -28,6 +28,9 @@ import { JOINT_ORDER } from './control.js';
 //   ankle    dorsiflexion positive, measured from the foot in line with the
 //            shin. Zero is the pointed toe; 90 is the foot square to the
 //            shin, which is where everyone else's ankle numbers start.
+//   toe      the ball of the foot, positive lifting the toes toward the shin.
+//            PASSIVE: no muscle drives it and no search moves it. Zero is the
+//            toes in line with the rest of the foot.
 //
 // The hamstring is a two-joint muscle: with straight knees hip flexion caps
 // at hipFlexStraightKneeMaxDeg; each degree of knee flexion buys
@@ -101,6 +104,17 @@ export const ROM_DEFAULTS = {
   // same courtesy the knee gets.
   anklePointMaxDeg: 3,
   ankleDorsiMaxDeg: 110,
+  // The ball of the foot -- the metatarsophalangeal joint -- measured from the
+  // toes in line with the rest of the foot, which is the handstand's zero and
+  // the geometry the foot had before it could bend. Positive lifts the toes
+  // toward the shin, which is the direction they go when you roll over the ball
+  // and the one that matters; the other way they curl only a little.
+  //
+  // Nothing drives this joint. It has a stiffness and it does what the ground
+  // tells it, so these two numbers are where it stops rather than where it is
+  // asked to go.
+  toeLiftMaxDeg: 70,
+  toePointMaxDeg: 35,
   hipFlexStraightKneeMaxDeg: 85,
   hamstringCouplingPerDeg: 0.6,
   hipFlexAbsMaxDeg: 140,
@@ -167,7 +181,10 @@ export function hipFlexMaxDeg(rom, kneeFlexDeg) {
 export const QI = Object.fromEntries(JOINT_ORDER.map((n, j) => [n, 3 + j]));
 
 export function jointLimits(rom, q, jointIndex) {
-  switch (JOINT_ORDER[jointIndex - 3]) {
+  // ALL_JOINTS, not JOINT_ORDER: the passive toes have a range of motion like
+  // any other joint -- they are held by the same ligaments -- even though
+  // nothing drives them and nothing searches them.
+  switch (ALL_JOINTS[jointIndex - 3]) {
     case 'wrist': { const w = wristQ3LimitsDeg(rom); return { lo: w.lo * D2R, hi: w.hi * D2R }; }
     case 'shoulder': return {
       lo: Math.max((180 - rom.shoulderFlexMaxDeg), -rom.shoulderHyperDeg) * D2R,
@@ -196,6 +213,10 @@ export function jointLimits(rom, q, jointIndex) {
     case 'ankleL': case 'ankleR': return {
       lo: -(rom.anklePointMaxDeg ?? ROM_DEFAULTS.anklePointMaxDeg) * D2R,
       hi: (rom.ankleDorsiMaxDeg ?? ROM_DEFAULTS.ankleDorsiMaxDeg) * D2R,
+    };
+    case 'toeL': case 'toeR': return {
+      lo: -(rom.toePointMaxDeg ?? ROM_DEFAULTS.toePointMaxDeg) * D2R,
+      hi: (rom.toeLiftMaxDeg ?? ROM_DEFAULTS.toeLiftMaxDeg) * D2R,
     };
     default: return { lo: -Infinity, hi: Infinity };
   }

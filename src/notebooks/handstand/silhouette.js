@@ -104,7 +104,8 @@ function tube(stations, capProx = 0, capDist = 0) {
 
 export function buildSilhouette({
   Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Lua, Larm, Lhn,
-  Ltr, Lth, Lsh, Lft, Lfoot, heelPt, ballPt, ankleH, heelBack, footFwd, ballFwd }) {
+  Ltr, Lth, Lsh, Lft, Lfoot, heelPt, ballPt, ankleH, heelBack, footFwd, ballFwd,
+  ballOnAxis, Ltoe }) {
   const s = SHAPE[sex] || SHAPE.male;
   const f = (v) => v * H;
 
@@ -249,6 +250,36 @@ export function buildSilhouette({
     P(hb - 0.003, 0.006),
   ], 3)];
 
+  // Split at the ball. The foot outline is drawn as one profile above, because
+  // that is how a foot is shaped; it becomes two bodies here by cutting the
+  // polygon at the joint. Everything behind the cut belongs to the foot,
+  // everything ahead to the toe -- re-expressed in the toe's own frame, whose
+  // origin is the ball and whose +x continues the foot's.
+  // The two halves OVERLAP across the cut rather than meeting at it. Meeting
+  // exactly is only continuous while the joint is straight; bend it and the two
+  // flat ends scissor apart, opening a wedge of background on the outside of
+  // the bend -- the same thing rounded caps fix at every other joint on the
+  // body. An overlap of a centimetre keeps the foot one shape at any toe angle.
+  const over = 0.010 * H;
+  const cut = (poly, keepAhead) => {
+    const edge = ballOnAxis + (keepAhead ? -over : over);
+    const pts = [];
+    const inSide = (p) => (keepAhead ? p[0] >= edge : p[0] <= edge);
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      if (inSide(a)) pts.push(a);
+      // Where an edge crosses the cut, put a point exactly on it, so the two
+      // halves share an edge and no seam opens when the joint bends.
+      if (inSide(a) !== inSide(b)) {
+        const t = (edge - a[0]) / (b[0] - a[0]);
+        pts.push([edge, a[1] + (b[1] - a[1]) * t]);
+      }
+    }
+    return keepAhead ? pts.map(([x, y]) => [x - ballOnAxis, y]) : pts;
+  };
+  const footBack = [cut(foot[0], false)];
+  const footToe = [cut(foot[0], true)];
+
   // Body order, which is the model's: hand, forearm, upper arm, chest, pelvis,
   // both legs down to their feet, then the head hanging off the chest. The
   // neck and skull are already written relative to the shoulder, which is
@@ -261,11 +292,13 @@ export function buildSilhouette({
     [pelvis],
     thigh,
     shank,
-    foot,
+    footBack,
     thigh,
     shank,
-    foot,
+    footBack,
     [neck, skull],
+    footToe,
+    footToe,
   ];
 }
 

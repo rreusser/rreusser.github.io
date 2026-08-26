@@ -121,6 +121,20 @@ function compose(pieces) {
   return { m, cx, cy, I };
 }
 
+// Every closed subpath counter-clockwise, by signed area. Rotating a body does
+// not change the sign, so this is a property of the outline and is settled once
+// here rather than per frame.
+function sameWinding(outline) {
+  return outline.map((shape) => shape.map((poly) => {
+    let a = 0;
+    for (let i = 0, n = poly.length; i < n; i++) {
+      const p = poly[i], q = poly[(i + 1) % n];
+      a += p[0] * q[1] - q[0] * p[1];
+    }
+    return a < 0 ? poly.slice().reverse() : poly;
+  }));
+}
+
 function rodPiece(m, x0, x1, comFrac, kFrac) {
   const L = x1 - x0;
   return { m, cx: x0 + comFrac * L, cy: 0, I: m * (kFrac * L) ** 2 };
@@ -134,10 +148,18 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
   // projected length (a documented approximation).
   const proj = Math.cos((straddleDeg / 2) * Math.PI / 180);
 
-  const nb = 12;
+  const nb = 14;
   const B = { hand: 0, forearm: 1, upperArm: 2, chest: 3, pelvis: 4,
-    thighL: 5, shankL: 6, footL: 7, thighR: 8, shankR: 9, footR: 10, headNeck: 11 };
-  const parent = new Int32Array([-1, 0, 1, 2, 3, 4, 5, 6, 4, 8, 9, 3]);
+    thighL: 5, shankL: 6, footL: 7, thighR: 8, shankR: 9, footR: 10, headNeck: 11,
+    // The toes come LAST, after the head, and that is the whole reason a
+    // PASSIVE joint is cheap here. Joint i lives at q[2 + i], so putting the
+    // toes at the end of the tree puts their coordinates at the end of q --
+    // which leaves q[3 .. 3 + NJ) exactly the DRIVEN joints, the contiguous
+    // block every servo loop, every bound, every knot row and every cost term
+    // in this notebook indexes. parent[i] < i still holds, because each toe's
+    // parent is a foot and the feet are 7 and 10.
+    toeL: 12, toeR: 13 };
+  const parent = new Int32Array([-1, 0, 1, 2, 3, 4, 5, 6, 4, 8, 9, 3, 7, 10]);
   const mass = new Float64Array(nb);
   const comX = new Float64Array(nb);
   const comY = new Float64Array(nb);
@@ -275,16 +297,42 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
   const heelPt = toFoot(-heelBack, -ankleH);
   const ballPt = toFoot(ballFrac * Lfoot - heelBack, -ankleH);
   const footCom = toFoot(d.foot.com * Lfoot - heelBack, -ankleH);
+  // The foot is TWO pieces, hinged at the ball -- the metatarsophalangeal
+  // joint, which is what a foot bends at when it rolls over it. The cut is on
+  // the ankle-to-toe line at the ball's station, so at a toe angle of zero the
+  // two pieces ARE the single segment they replace: the tip lands at Lft to the
+  // bit, and the heel and ball contacts do not move. A technique recorded
+  // before the toes existed therefore replays as itself.
+  //
+  // The mass split is DERIVED the way the trunk's is: two rods whose combined
+  // centre of mass reproduces de Leva's for the whole foot,
+  //
+  //     com = a*(c/2) + (1-a)*((1+c)/2)   =>   a = (1 + c) - 2*com
+  //
+  // for a cut at c = 0.72 of the length and de Leva's com of 0.4415. It comes
+  // out 16% of the foot's mass in the toes, which is the right sign and size:
+  // toes are long and light.
+  const ballOnAxis = ballPt[0];              // where the cut falls, along +x
+  const Ltoe = Lft - ballOnAxis;
+  const toeMassFrac = 1 - ((1 + ballFrac) - 2 * d.foot.com);
   for (const b of [B.footL, B.footR]) {
-    const m = d.foot.m * M;
+    const m = d.foot.m * M * (1 - toeMassFrac);
     mass[b] = m;
-    comX[b] = footCom[0]; comY[b] = footCom[1];
-    inertia[b] = m * (d.foot.k * Lfoot) ** 2;
+    comX[b] = 0.5 * ballOnAxis; comY[b] = footCom[1];
+    inertia[b] = m * (d.foot.k * ballOnAxis) ** 2;
     anchorX[b] = Lsh; anchorY[b] = 0;  // ankle at the shank's distal end
+  }
+  for (const b of [B.toeL, B.toeR]) {
+    const m = d.foot.m * M * toeMassFrac;
+    mass[b] = m;
+    comX[b] = 0.5 * Ltoe; comY[b] = 0;
+    inertia[b] = m * (d.foot.k * Ltoe) ** 2;
+    anchorX[b] = ballOnAxis; anchorY[b] = 0;   // the ball, on the foot's axis
   }
 
   const armPoly = [[0, 0], [Lfa, 0]];
-  const foot = [[heelPt[0], heelPt[1]], [0, 0], [ballPt[0], ballPt[1]], [Lft, 0]];
+  const foot = [[heelPt[0], heelPt[1]], [0, 0], [ballPt[0], ballPt[1]]];
+  const toePoly = [[0, 0], [Ltoe, 0]];
 
   // Ground contacts, per body. The SUPPORT set -- the palm, the fingers and
   // the three stations along each sole -- carries no radius, because the body
@@ -302,8 +350,8 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
   const contacts = [
     { body: B.hand, x: patchHeelX, y: -hw, name: 'palmHeel' },
     { body: B.hand, x: patchTipX, y: -hw, name: 'fingertips' },
-    { body: B.footL, x: Lft, y: 0, name: 'toeL' },
-    { body: B.footR, x: Lft, y: 0, name: 'toeR' },
+    { body: B.toeL, x: Ltoe, y: 0, name: 'toeL' },
+    { body: B.toeR, x: Ltoe, y: 0, name: 'toeR' },
     { body: B.footL, x: ballPt[0], y: ballPt[1], name: 'ballL' },
     { body: B.footR, x: ballPt[0], y: ballPt[1], name: 'ballR' },
     { body: B.footL, x: heelPt[0], y: heelPt[1], name: 'heelL' },
@@ -328,9 +376,11 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
     parent, mass, comX, comY, inertia, anchorX, anchorY,
     bodies: B,
     names: ['hand', 'forearm', 'upperArm', 'chest', 'pelvis',
-      'thighL', 'shankL', 'footL', 'thighR', 'shankR', 'footR', 'headNeck'],
+      'thighL', 'shankL', 'footL', 'thighR', 'shankR', 'footR', 'headNeck',
+      'toeL', 'toeR'],
     qNames: ['x', 'y', 'baseAngle', 'wrist', 'elbow', 'shoulder', 'spine',
-      'hipL', 'kneeL', 'ankleL', 'hipR', 'kneeR', 'ankleR', 'neck'],
+      'hipL', 'kneeL', 'ankleL', 'hipR', 'kneeR', 'ankleR', 'neck',
+      'toeL', 'toeR'],
     // Rendering polylines in each body frame.
     geometry: [
       [[patchHeelX, -hw], [patchTipX, -hw], [0.4 * Lh, -hw], [0, 0]],
@@ -345,6 +395,8 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
       [[0, 0], [Lsh, 0]],
       foot,
       [[-Lhn, 0], [0, 0]],
+      toePoly,
+      toePoly,
     ],
     contacts,
     // Which contacts belong to what, so nothing downstream has to know that
@@ -357,17 +409,26 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
       [named('toeL'), named('ballL'), named('heelL')],
       [named('toeR'), named('ballR'), named('heelR')],
     ],
+    // The bodies a foot is made of, so anything asking "where is this foot"
+    // scans both pieces. The toe is a separate body now.
+    footBodies: [[B.footL, B.toeL], [B.footR, B.toeR]],
     // The station each leg is placed by when a scenario stands it up, and the
     // one a technique's "feet left the floor" is measured at.
     toeContacts: [named('toeL'), named('toeR')],
-    // Closed body outlines for rendering only; see silhouette.js.
-    outline: buildSilhouette({
+    // Closed body outlines for rendering only; see silhouette.js. Wound
+    // consistently on the way out: drawGhosts fills a whole candidate as one
+    // path, and under the nonzero rule two subpaths wound against each other
+    // cancel where they overlap -- so an arm crossing a thigh would punch a
+    // hole through the figure rather than merging with it.
+    outline: sameWinding(buildSilhouette({
       H, sex, Lh, hw, patchHeelX, patchTipX, Lfa, Lua, Larm, Lhn, Ltr, Lch, Lpv,
       Lth, Lsh, Lft, Lfoot, heelPt, ballPt,
       // The standing profile the foot outline is drawn in, before it is rotated
       // into the ankle-to-toe frame. Same numbers the contacts came from.
       ankleH, heelBack, footFwd: toeFwd, ballFwd: ballFrac * Lfoot - heelBack,
-    }),
+      // Where the foot outline is cut into a foot and a toe.
+      ballOnAxis, Ltoe,
+    })),
     patch: { x0: patchHeelX, x1: patchTipX },
     wristHeight: hw,
     // How tall this body is when it is standing on its hands: the wrist above
@@ -377,9 +438,10 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
     // the body has been 2.21 since the legs grew feet -- so the toes ran off
     // the top of the picture in the one pose the whole notebook is about.
     reachM: hw + Lfa + Lua + Lch + Lpv + Lth + Lsh + Lft,
-    segLen: [Lh, Lfa, Lua, Lch, Lpv, Lth, Lsh, Lft, Lth, Lsh, Lft, Lhn],
+    segLen: [Lh, Lfa, Lua, Lch, Lpv, Lth, Lsh, ballOnAxis, Lth, Lsh, ballOnAxis,
+      Lhn, Ltoe, Ltoe],
     trunkSplit: { chest: Lch, pelvis: Lpv, headNeck: Lhn },
-    footGeom: { Lft, Lfoot, heelPt, ballPt, ankleH },
+    footGeom: { Lft, Lfoot, heelPt, ballPt, ankleH, ballOnAxis, Ltoe },
   };
 }
 

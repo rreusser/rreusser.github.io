@@ -46,11 +46,27 @@ export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, 
     fk(model, q, null, ws);
     if (color) { ctx.globalAlpha = alpha * (pose.weight ?? 1); ctx.fillStyle = color; }
     else ctx.fillStyle = css(fg, alpha * (pose.weight ?? 1));
+    // ONE path for the whole candidate, filled ONCE.
+    //
+    // Every body used to get its own beginPath and its own fill, which at this
+    // alpha meant the translucency compounded wherever two of them overlapped
+    // -- and they overlap at every joint by construction, because the segment
+    // ends are rounded specifically so a bent joint stays one continuous shape.
+    // Twenty candidates drawn that way is a field of bright lenses at the
+    // elbows, knees and ankles, and the brightest thing on screen is the thing
+    // that carries the least information.
+    //
+    // Accumulated into one path the union fills once, so a candidate is a flat
+    // silhouette at exactly `alpha` no matter how it is folded. That relies on
+    // every subpath winding the same way, which anthropometry.js guarantees
+    // when it builds the outlines: under the nonzero rule two subpaths wound
+    // AGAINST each other would cancel where they overlap and punch a hole in
+    // the figure instead of merging.
+    ctx.beginPath();
     for (let i = 0; i < model.nb; i++) {
       const c = Math.cos(ws.th[i]), sn = Math.sin(ws.th[i]);
       const shape = model.outline?.[i];
       if (!shape) continue;
-      ctx.beginPath();
       for (const poly of shape) {
         for (let k = 0; k < poly.length; k++) {
           const wx = ws.px[i] + c * poly[k][0] - sn * poly[k][1];
@@ -60,8 +76,8 @@ export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, 
         }
         ctx.closePath();
       }
-      ctx.fill();
     }
+    ctx.fill();
   }
   ctx.restore();
 }

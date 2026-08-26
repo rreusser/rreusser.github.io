@@ -12,33 +12,37 @@ import {
 import { createContacts } from './contact.js';
 import { createJointStops } from './joint-stops.js';
 import { simulate, DEFAULT_DT } from './integrate.js';
-import { createServo, createBalanceControl, knotTimes, evenlySpaced, JOINT_ORDER, LEGACY_JOINT_ORDER, jointOrderFor, widenKnots } from './control.js';
+import { createServo, createBalanceControl, knotTimes, evenlySpaced, JOINT_ORDER, LEGACY_JOINT_ORDER, jointOrderFor, widenKnots, widenQ } from './control.js';
 import { availableTorque } from './strength.js';
 import { cmaes, mulberry32 } from './cma-es.js';
 
 const D2R = Math.PI / 180;
 
-// The toe contact on a foot body. By NAME through the model's own index,
-// not "the first contact that happens to sit on this body": a foot has three
-// stations now -- toe, ball, heel -- and picking the first would have every
-// scenario stand the body up on whichever one the contact list happened to
-// list first.
-function toeContact(model, body) {
-  for (const i of model.toeContacts) if (model.contacts[i].body === body) return model.contacts[i];
-  throw new Error(`body ${body} carries no toe contact`);
+// The toe contact of a foot. By NAME through the model's own index, not "the
+// first contact that happens to sit on this body": a foot has three stations
+// -- toe, ball, heel -- across two bodies, and picking the first would have
+// every scenario stand the body up on whichever one the contact list happened
+// to list first.
+function toeContact(model, side) {
+  const i = model.toeContacts[side];
+  if (i == null) throw new Error(`foot ${side} carries no toe contact`);
+  return model.contacts[i];
 }
 
 // World y of the LOWEST ground station on a foot. This was the toe, because a
 // foot welded to a shank has only a toe; a foot that hinges is placed by
 // whichever part of it reaches the floor first, which is the heel in a squat
-// and the ball on the way out of one.
-function toeY(model, ws, q, body) {
+// and the ball on the way out of one. `side` is 0 or 1, and it scans BOTH
+// bodies that foot is made of -- the foot proper and the toe hinged off it.
+function toeY(model, ws, q, side) {
   fk(model, q, null, ws);
-  const c = Math.cos(ws.th[body]), s = Math.sin(ws.th[body]);
   let y = Infinity;
-  for (const cpt of model.contacts) {
-    if (cpt.body !== body) continue;
-    y = Math.min(y, ws.py[body] + s * cpt.x + c * cpt.y);
+  for (const b of model.footBodies[side]) {
+    const c = Math.cos(ws.th[b]), s = Math.sin(ws.th[b]);
+    for (const cpt of model.contacts) {
+      if (cpt.body !== b) continue;
+      y = Math.min(y, ws.py[b] + s * cpt.x + c * cpt.y);
+    }
   }
   return y;
 }
@@ -56,6 +60,7 @@ function toeY(model, ws, q, body) {
 // of a pointed foot: a releve nobody holds a press from.
 export function flatFootAnkle(model, ws, q, side, rom) {
   const body = side === 'L' ? BODY.footL : BODY.footR;
+  const leg = side === 'L' ? 0 : 1;
   const ankle = side === 'L' ? QI.ankleL : QI.ankleR;
   const { heelPt, Lft } = model.footGeom;
   // The sole's direction in the foot frame, heel toward toe.
@@ -79,11 +84,12 @@ export function flatFootAnkle(model, ws, q, side, rom) {
 }
 
 // Toe position along the floor, measured from the hand the way comX is.
-function toeXLocal(model, ws, q, body) {
+function toeXLocal(model, ws, q, side) {
   fk(model, q, null, ws);
-  const cpt = toeContact(model, body);
-  const c = Math.cos(ws.th[body]), s = Math.sin(ws.th[body]);
-  return ws.px[body] + c * cpt.x - s * cpt.y - q[0];
+  const cpt = toeContact(model, side);
+  const b = cpt.body;
+  const c = Math.cos(ws.th[b]), s = Math.sin(ws.th[b]);
+  return ws.px[b] + c * cpt.x - s * cpt.y - q[0];
 }
 
 // Bisect one hip angle so that leg's toe lands on the floor. Hip flexion
@@ -97,12 +103,12 @@ function solveHipForToeDown(model, ws, q, side) {
   // with a knee folded 175 degrees the wrong way, and the servo unwinding it
   // launched the body off the floor.
   const hip = side === 'L' ? QI.hipL : QI.hipR;
-  const body = side === 'L' ? BODY.footL : BODY.footR;
+  const leg = side === 'L' ? 0 : 1;
   let lo = 0 * D2R, hi = 175 * D2R;
-  if (toeY(model, ws, withQ(q, hip, hi), body) > 0) return NaN;
+  if (toeY(model, ws, withQ(q, hip, hi), leg) > 0) return NaN;
   for (let i = 0; i < 60; i++) {
     const mid = 0.5 * (lo + hi);
-    if (toeY(model, ws, withQ(q, hip, mid), body) > 0) lo = mid; else hi = mid;
+    if (toeY(model, ws, withQ(q, hip, mid), leg) > 0) lo = mid; else hi = mid;
   }
   q[hip] = 0.5 * (lo + hi);
   return q[hip];
@@ -127,9 +133,9 @@ export function balancedHandstand(model, ws) {
 // Solve the wrist angle (the whole-body lean about the planted hand) that
 // puts a given leg's toe on the floor. Larger wrist angle rotates the body
 // CCW and lowers the folded legs, so toe height decreases monotonically.
-function solveWristForToeDown(model, ws, q, body, loDeg = 35, hiDeg = 115) {
+function solveWristForToeDown(model, ws, q, side, loDeg = 35, hiDeg = 115) {
   const lo0 = loDeg * D2R, hi0 = hiDeg * D2R;
-  const at = (w) => { q[3] = w; return toeY(model, ws, q, body); };
+  const at = (w) => { q[3] = w; return toeY(model, ws, q, side); };
   if (at(lo0) < 0) { q[3] = lo0; return q[3]; }
   // Toe height is NOT monotone in the wrist angle. Leaning back rotates the
   // whole body about the palm, which swings the toe down and then, past the
@@ -206,8 +212,14 @@ function clearFeet(model, ws, q, minY = 5e-4, rom = ROM_DEFAULTS) {
   for (const side of ['L', 'R']) {
     const hip = side === 'L' ? QI.hipL : QI.hipR;
     const ankle = side === 'L' ? QI.ankleL : QI.ankleR;
-    const body = side === 'L' ? BODY.footL : BODY.footR;
-    if (toeY(model, ws, q, body) >= minY) continue;
+    const leg = side === 'L' ? 0 : 1;
+    // Genuine penetration, not merely "not clear enough". minY is the
+    // clearance this aims FOR, and triggering on it meant a foot the scenario
+    // had just solved to rest exactly on the floor read as a foot through it --
+    // so the repair fired on a correct pose and rolled a deliberately flat foot
+    // onto its toe tip. A contact at zero carries zero force; there is nothing
+    // to repair.
+    if (toeY(model, ws, q, leg) >= 0) continue;
 
     // The ankle, if it can. Scanned rather than solved: the lowest station on
     // a foot changes identity as it rotates -- heel, then ball, then toe --
@@ -219,7 +231,7 @@ function clearFeet(model, ws, q, minY = 5e-4, rom = ROM_DEFAULTS) {
     let best = null;
     for (let i = 0; i <= N; i++) {
       const a = aLo + (aHi - aLo) * (i / N);
-      const y = toeY(model, ws, withQ(q, ankle, a), body);
+      const y = toeY(model, ws, withQ(q, ankle, a), leg);
       if (y < minY) continue;
       const d = Math.abs(a - a0);
       if (!best || d < best.d) best = { a, d };
@@ -230,10 +242,10 @@ function clearFeet(model, ws, q, minY = 5e-4, rom = ROM_DEFAULTS) {
     // The ankle ran out of range, so the leg itself has to move. Rare now, and
     // it means the pose really does put that foot under the floor.
     let hi = q[hip], lo = q[hip] - 40 * D2R;
-    if (toeY(model, ws, withQ(q, hip, lo), body) < minY) { q[hip] = lo; continue; }
+    if (toeY(model, ws, withQ(q, hip, lo), leg) < minY) { q[hip] = lo; continue; }
     for (let i = 0; i < 40; i++) {
       const mid = 0.5 * (lo + hi);
-      if (toeY(model, ws, withQ(q, hip, mid), body) < minY) hi = mid; else lo = mid;
+      if (toeY(model, ws, withQ(q, hip, mid), leg) < minY) hi = mid; else lo = mid;
     }
     q[hip] = lo;
   }
@@ -259,13 +271,57 @@ function clearFeet(model, ws, q, minY = 5e-4, rom = ROM_DEFAULTS) {
 // that is a hip unfolded by twenty degrees. Every press and release of every
 // handle, the neck's included, snapped the legs to somewhere nobody had put
 // them and back again. One pose, drawn always.
+// Lay the toes along the floor.
+//
+// The ball of the foot is PASSIVE -- it has a stiffness and it does whatever
+// the ground tells it -- so during a rollout it finds its own angle and nothing
+// here needs to help. A start pose is the exception: the body has to BEGIN at
+// rest, and a rigid straight toe on a foot whose ball is already down means
+// starting with the toe either through the floor or propping the whole body up
+// on its tip. Either one is a spring compressed at t = 0.
+//
+// So the toe is rolled onto the floor the way the ground would roll it: for a
+// foot that is on the ground, the angle nearest straight that puts its tip on
+// the floor; for a foot in the air, straight. Within the range of motion, so a
+// foot planted somewhere a toe cannot reach simply keeps the toe it has.
+function layToes(model, ws, q, rom, onFloor = 0.02) {
+  for (let side = 0; side < 2; side++) {
+    const jq = 3 + JOINT_KEYS.length + side;
+    q[jq] = 0;
+    const ball = model.contacts[model.footContacts[side][1]];
+    fk(model, q, null, ws);
+    const b = ball.body, cb = Math.cos(ws.th[b]), sb = Math.sin(ws.th[b]);
+    if (ws.py[b] + sb * ball.x + cb * ball.y > onFloor) continue;
+    const tip = model.contacts[model.toeContacts[side]];
+    const { lo, hi } = jointLimits(rom, q, jq);
+    let best = null;
+    for (let i = 0; i <= 360; i++) {
+      const a = lo + (hi - lo) * (i / 360);
+      q[jq] = a;
+      fk(model, q, null, ws);
+      const t = tip.body, ct = Math.cos(ws.th[t]), st = Math.sin(ws.th[t]);
+      const y = ws.py[t] + st * tip.x + ct * tip.y;
+      if (y < 0) continue;
+      const d = Math.abs(a);
+      if (!best || y < best.y - 1e-6 || (y < best.y + 1e-6 && d < best.d)) best = { a, y, d };
+    }
+    q[jq] = best ? best.a : 0;
+  }
+  return q;
+}
+
 export function seatStart(model, ws, q0, rom = ROM_DEFAULTS, grounded = true) {
-  const q = clampToRom(Float64Array.from(q0), rom);
+  // Widened here, at the boundary, for the same reason the KNOTS are widened
+  // in runScenario: a start pose arrives from presets, recorded artifacts,
+  // saved files and gates, and one written for a body with fewer joints is a
+  // pose of this body with those joints at neutral. Taken at its own length it
+  // leaves the tail of q undefined, and undefined is NaN one multiply later.
+  const q = clampToRom(widenQ(q0, model.nq), rom);
   // Free: the base IS the pose. Nothing is grounded and no joint is bent to
   // clear the floor; the body is simply raised if it began inside it.
-  if (!grounded) return liftClear(model, ws, q);
+  if (!grounded) return layToes(model, ws, liftClear(model, ws, q), rom);
   groundHand(model, q);
-  if (lowestOffHand(model, ws, q) >= 5e-4) return q;
+  if (lowestOffHand(model, ws, q) >= 5e-4) return layToes(model, ws, q, rom);
 
   // Something is through the floor, and on a grounded start something has to
   // give: the palm is pinned at the origin and the feet may not be underground,
@@ -302,7 +358,7 @@ export function seatStart(model, ws, q0, rom = ROM_DEFAULTS, grounded = true) {
     if (!best || d < best.d) best = { w: q[jq], d };
   }
   q[jq] = best ? best.w : w0;
-  return best ? q : liftClear(model, ws, q);
+  return layToes(model, ws, best ? q : liftClear(model, ws, q), rom);
 }
 
 // The lowest ground station on the body, EXCLUDING the hand's own. groundHand
@@ -372,7 +428,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       const comAt = (sh) => {
         q[QI.shoulder] = sh;
         for (let i = 0; i < 2; i++) {
-          solveWristForToeDown(model, ws, q, BODY.footL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+          solveWristForToeDown(model, ws, q, 0, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
           flatFootAnkle(model, ws, q, 'L', rom);
           flatFootAnkle(model, ws, q, 'R', rom);
         }
@@ -420,11 +476,11 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       const errAt = (sh) => {
         q[QI.shoulder] = sh;
         for (let i = 0; i < 2; i++) {
-          solveWristForToeDown(model, ws, q, BODY.footL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+          solveWristForToeDown(model, ws, q, 0, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
           flatFootAnkle(model, ws, q, 'L', rom);
           flatFootAnkle(model, ws, q, 'R', rom);
         }
-        const toe = toeXLocal(model, ws, q, BODY.footL);
+        const toe = toeXLocal(model, ws, q, 0);
         const com = momenta(model, q, zeroQd9, ws).comX - q[0];
         return com - (palmT + tuckLoadFrac * (toe - palmT));
       };

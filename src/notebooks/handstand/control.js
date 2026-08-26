@@ -24,6 +24,17 @@ export const JOINT_ORDER = ['wrist', 'elbow', 'shoulder', 'spine',
   'hipL', 'kneeL', 'ankleL', 'hipR', 'kneeR', 'ankleR', 'neck'];
 const NJOINTS = JOINT_ORDER.length;
 
+// Joints the body has but nobody drives: the ball of the foot. There is no
+// muscle command, no knot row, no decision variable and no handle -- it has a
+// stiffness and it does what the ground tells it, which is what a toe does.
+//
+// They live at the END of q, after every driven joint, because the whole
+// notebook indexes the driven ones as the contiguous block q[3 .. 3 + NJ).
+// anthropometry.js puts the toe bodies last in the tree to arrange that.
+export const PASSIVE_JOINTS = ['toeL', 'toeR'];
+// Every joint the body has, driven then passive, in q order.
+export const ALL_JOINTS = [...JOINT_ORDER, ...PASSIVE_JOINTS];
+
 // Every joint list this notebook has ever had, oldest first, so a stored
 // technique can be read back whatever body it was written for. Each is a
 // SUBSET of the current order under the same names, which is the property
@@ -68,12 +79,15 @@ export function widenKnots(rows) {
 // The same widening for a whole CONFIGURATION -- three base coordinates and
 // then one angle per joint -- which is what a start pose and a target pose
 // are. Same rule: absent joints are neutral, and neutral is the handstand.
-export function widenQ(q, nq = 3 + NJOINTS) {
+export function widenQ(q, nq = 3 + ALL_JOINTS.length) {
   if (!q) return q;
   if (q.length === nq) return Float64Array.from(q);
-  const from = jointOrderFor(q.length - 3);
   const out = new Float64Array(nq);
   out[0] = q[0]; out[1] = q[1]; out[2] = q[2];
+  // A stored pose carries the DRIVEN joints of the body it was written for.
+  // The passive tail is left at zero, which is the straight toe a handstand
+  // has and the geometry the foot had before it could bend at all.
+  const from = jointOrderFor(Math.min(q.length - 3, NJOINTS));
   from.forEach((name, j) => { out[3 + JOINT_ORDER.indexOf(name)] = q[3 + j]; });
   return out;
 }
