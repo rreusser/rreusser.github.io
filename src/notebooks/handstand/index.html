@@ -377,7 +377,7 @@
       solveWristForCom, QI,
     } from './statics.js';
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
-    import { drawScene, drawGhosts } from './render.js';
+    import { drawScene, drawGhosts, bodyView } from './render.js';
     import {
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
@@ -613,7 +613,7 @@
     // The window has to be given, not defaulted: a body piked to 130 deg
     // reaches almost 0.9 m behind the hand, and centering on the hand the way
     // a straight handstand wants cuts the legs off the canvas.
-    const makePoseProbe = ({ w = 156, h = 220, view = { cx: 0.1, yLo: -0.15, yHi: 2.15 } } = {}) => {
+    const makePoseProbe = ({ w = 156, h = 220, view = bodyView(model, { cx: 0.1, yLo: -0.15 }) } = {}) => {
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(w * devicePixelRatio);
       canvas.height = Math.round(h * devicePixelRatio);
@@ -803,7 +803,7 @@
       };
       const probe = makePoseProbe({
         w: probeW, h: Math.round(probeW * 1.41),
-        view: { cx: -0.15, yLo: -0.15, yHi: 2.15 },
+        view: bodyView(model, { cx: -0.15, yLo: -0.15 }),
       });
       const nearest = (arr, v) => {
         let bi = 0;
@@ -1157,7 +1157,7 @@
 
       const canvas = playStack.elements.sim;
       const ctx = canvas.getContext('2d');
-      const view = { cx: 0.15, yLo: -0.18, yHi: 2.3 };
+      const view = bodyView(model);
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
       // One body here. What the spline ASKED for is a separate idea with its
@@ -1670,7 +1670,7 @@
       // body ever holds: measured over every knot of every stored technique the
       // widest reaches 1.18 m from the hand and the tallest 2.07 m. Fixed, so
       // six poses look like six poses of one body rather than six bodies.
-      const VIEW = { cx: 0.15, yLo: -0.2, yHi: 2.15 };
+      const VIEW = bodyView(model, { yLo: -0.2 });
       // Mutable, because the figure expands. Every one of these is re-derived
       // in onResize below, and the values here are only the collapsed start.
       let totalW = pageW;

@@ -364,9 +364,19 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
     outline: buildSilhouette({
       H, sex, Lh, hw, patchHeelX, patchTipX, Lfa, Lua, Larm, Lhn, Ltr, Lch, Lpv,
       Lth, Lsh, Lft, Lfoot, heelPt, ballPt,
+      // The standing profile the foot outline is drawn in, before it is rotated
+      // into the ankle-to-toe frame. Same numbers the contacts came from.
+      ankleH, heelBack, footFwd: toeFwd, ballFwd: ballFrac * Lfoot - heelBack,
     }),
     patch: { x0: patchHeelX, x1: patchTipX },
     wristHeight: hw,
+    // How tall this body is when it is standing on its hands: the wrist above
+    // the floor plus every segment of the chain from there to the pointed toe.
+    // Every figure sizes its view window from this rather than from a number
+    // typed into the page, because the number typed into the page was 2.15 and
+    // the body has been 2.21 since the legs grew feet -- so the toes ran off
+    // the top of the picture in the one pose the whole notebook is about.
+    reachM: hw + Lfa + Lua + Lch + Lpv + Lth + Lsh + Lft,
     segLen: [Lh, Lfa, Lua, Lch, Lpv, Lth, Lsh, Lft, Lth, Lsh, Lft, Lhn],
     trunkSplit: { chest: Lch, pelvis: Lpv, headNeck: Lhn },
     footGeom: { Lft, Lfoot, heelPt, ballPt, ankleH },

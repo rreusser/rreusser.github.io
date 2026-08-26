@@ -12,6 +12,13 @@ function css([r, g, b], a = 1) {
 
 // World window: x centered near the hand, y from just below the floor to a
 // bit above head height of the inverted body.
+// The window a body of THIS size needs, with room above the toes. Every figure
+// asks for this instead of naming a height, so a taller reader, a straddle, or
+// another segment on the end of the chain cannot crop the handstand.
+export function bodyView(model, { cx = 0.15, yLo = -0.18, pad = 0.10 } = {}) {
+  return { cx, yLo, yHi: model.reachM + pad };
+}
+
 export function viewTransform(width, height, { cx = 0.12, yLo = -0.18, yHi = 2.08 } = {}) {
   const scale = height / (yHi - yLo);
   const toX = (wx) => width / 2 + (wx - cx) * scale;

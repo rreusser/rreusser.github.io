@@ -104,7 +104,7 @@ function tube(stations, capProx = 0, capDist = 0) {
 
 export function buildSilhouette({
   Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Lua, Larm, Lhn,
-  Ltr, Lth, Lsh, Lft, Lfoot, heelPt, ballPt }) {
+  Ltr, Lth, Lsh, Lft, Lfoot, heelPt, ballPt, ankleH, heelBack, footFwd, ballFwd }) {
   const s = SHAPE[sex] || SHAPE.male;
   const f = (v) => v * H;
 
@@ -195,27 +195,59 @@ export function buildSilhouette({
     [Lsh, f(s.ankle), f(s.ankle) * 1.25],
   ], 0.60, 0.70))];
 
-  // Foot, in its own frame: +x from the ankle to the tip of the pointed toe,
-  // +y the top of the foot. Drawn as a polygon rather than a tube because it
-  // is the one segment that is not a rod about its own axis -- the heel juts
-  // back and down off the ankle, and the sole is a straight line from that
-  // heel to the toe while the top is a curve over the instep.
-  const fhx = heelPt[0], fhy = heelPt[1], fbx = ballPt[0], fby = ballPt[1];
-  const lerp2 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-  // The sole runs heel -> ball -> toe; the instep is the same line pushed out
-  // along the foot's own +y by the thickness of the foot at each station.
-  const up = (p, t) => [p[0], p[1] + f(t)];
+  // Foot.
+  //
+  // Drawn in the profile a foot actually has, which means drawing it STANDING
+  // -- sole on the floor, ankle above it -- and rotating that into the body
+  // frame, rather than trying to describe it in a frame whose +x runs from the
+  // ankle to the tip of a pointed toe. Described directly in that frame it came
+  // out a flipper: the widest part is at the heel and everything after it
+  // tapers monotonically to a point, which is exactly what a blade is.
+  //
+  // A foot in profile is not a taper. It has a heel that juts back and down as
+  // a rounded lobe, an arch that lifts the middle of the sole clear of the
+  // floor, a ball it rolls over, and toes that are shorter and blunter than the
+  // instep is tall. Those are the four things below, and they are what make it
+  // read as a foot at any ankle angle.
+  //
+  // x runs forward from the ANKLE, y up from the floor; the same rotation
+  // anthropometry.js uses to place the contacts brings them into the frame.
+  const ux = footFwd / Lft, uy = -ankleH / Lft;
+  const toFoot = (x, y) => [x * ux + (y - ankleH) * uy, -x * uy + (y - ankleH) * ux];
+  const P = (x, y) => toFoot(x * H, y * H);
+  const hb = -heelBack / H;            // the heel contact, behind the ankle
+  const tf = footFwd / H;              // the toe tip, ahead of it
+  const bl = ballFwd / H;              // the ball, between them
   const foot = [smoothClosed([
-    up([fhx, fhy], s.ankle * 1.5),                     // back of the heel, high
-    up(lerp2(heelPt, ballPt, 0.35), s.footTop * 1.30), // the instep
-    up(lerp2(heelPt, ballPt, 0.80), s.footTop * 1.05),
-    up([fbx, fby], s.footTop * 0.72),                  // over the knuckles
-    [Lft, f(0.008)],                                   // the toe
-    [Lft, -f(0.006)],
-    [fbx, fby],                                        // and back along the sole
-    lerp2(heelPt, ballPt, 0.45),
-    [fhx, fhy],
-  ], 5)];
+    // The sole, heel to toe. Two stations close together at the back give the
+    // heel a bottom rather than a curve, the arch lifts clear of the floor in
+    // the middle, and the ball and the toes come back down to it.
+    P(hb + 0.006, 0.000),
+    P(hb + 0.017, 0.000),
+    P(hb + 0.032, 0.004),
+    P(hb + 0.052, 0.008),              // the arch, at its highest
+    P(bl - 0.018, 0.004),
+    P(bl, 0.000),                      // the ball
+    P(bl + 0.030, 0.000),
+    P(tf - 0.003, 0.001),
+    // The toes. Blunt: the tip is a third the height of the instep, not a point.
+    P(tf, 0.006),
+    P(tf - 0.008, 0.011),
+    // Back along the top, rising over the knuckles and the instep to the notch
+    // at the front of the ankle. This edge is what stops it reading as a
+    // flipper -- it climbs steadily instead of tapering away.
+    P(bl + 0.028, 0.017),
+    P(bl, 0.026),
+    P(bl - 0.029, 0.035),
+    P(0.003, 0.043),
+    P(-0.009, 0.047),                  // the ankle, a little above the joint
+    // And round the heel: back, down, and under. The two stations at the
+    // bottom corner are close together on purpose, so the heel keeps a corner.
+    P(-0.023, 0.042),
+    P(hb + 0.001, 0.030),
+    P(hb - 0.005, 0.017),
+    P(hb - 0.003, 0.006),
+  ], 3)];
 
   // Body order, which is the model's: hand, forearm, upper arm, chest, pelvis,
   // both legs down to their feet, then the head hanging off the chest. The
