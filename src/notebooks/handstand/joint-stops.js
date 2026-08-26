@@ -101,8 +101,21 @@ export function applyJointStops(stops, q, qd, tau) {
 // ---------------------------------------------------------------------------
 export function createPassiveJoints(model, ws, {
   rom = ROM_DEFAULTS, qNominal = null,
-  // How far the ball of the foot gives under body weight, and how it settles.
-  toeSinkDeg = 20, toeZeta = 0.9,
+  // How far the ball of the foot gives, under how much load, and how it
+  // settles. The pair is the whole spring: k = (load * lever) / sink.
+  //
+  // The load is the fraction of body weight ONE toe carries at the moment it
+  // matters -- the push-off, where the other foot has already left and the arms
+  // are taking their share -- and not the whole body, which is a load a toe
+  // only sees standing still on one leg.
+  //
+  // 45 degrees under that is a joint that visibly rolls. Sized instead as "the
+  // whole body weight sinks it twenty degrees" it came out at 139 Nm/rad --
+  // 2.4 Nm per degree, an order of magnitude past what a measured
+  // metatarsophalangeal joint resists, and it read as what it was: a foot with
+  // a rigid chip on the end. It reached 32 Nm of passive torque at 13 degrees
+  // in the kick-ups, which is more than the ankle it hangs off can produce.
+  toeSinkDeg = 45, toeLoadFrac = 0.5, toeZeta = 0.9,
 } = {}) {
   if (!NP || model.nq < 3 + NJ + NP) return null;
   const nq = model.nq;
@@ -118,10 +131,10 @@ export function createPassiveJoints(model, ws, {
   // back NaN. The integrator already treats jointDamping implicitly, which is
   // the same trick the servo uses on the same problem.
   const damping = new Float64Array(nq);
-  const W = model.massKg * model.gravity;
-  // The lever the load actually acts on: body weight on the ball, the toe
-  // holding it up. Sized from that rather than by taste, the way the stops
-  // above are sized from voluntary torque.
+  const W = toeLoadFrac * model.massKg * model.gravity;
+  // The lever the load actually acts on: the ground under the toe, the joint
+  // at the ball holding it up. Sized from that rather than by taste, the way
+  // the stops above are sized from voluntary torque.
   const lever = model.footGeom?.Ltoe ?? 0.07;
   for (let i = 0; i < NP; i++) {
     const jq = 3 + NJ + i;

@@ -38,15 +38,16 @@ function gate(name, ok, detail) {
 // search has a gradient to climb. They need an arriving technique to sweep
 // around, and the recording is not one at the moment: articulating the elbow
 // and the ankles made the legs 13 cm longer and the recorded throw is now too
-// small for them. Swept, the same SHAPE arrives again at 1.55, which is the
-// honest reading of what changed -- a longer, heavier leg column needs a
-// bigger throw -- and it is the technique this file measures around until the
-// recording is re-searched on the articulated body.
+// small for them. Swept, the same SHAPE arrives again -- at 1.55 while the toe
+// was a rigid chip on the end of the foot, and at 1.60 now that the ball of the
+// foot has a spring a real toe would recognise, because a joint that gives
+// absorbs a little of the throw and the throw has to be that much bigger. Each
+// reading is the same honest statement about what moved underneath.
 //
 // Not a fudge to keep a suite green: ARRIVES below fails if that stops being
 // an arriving technique, which is the same thing the old fixture asserted at a
 // scale of 1.
-const ARRIVES_AT = 1.55;
+const ARRIVES_AT = 1.60;
 const stored0 = PRESET_TRAJECTORIES.lowflex;
 const model = buildModel(resolveBody(stored0.body)), ws = createWorkspace(model);
 const st0 = stored0.strength || null;
@@ -94,30 +95,33 @@ const at = (a) => {
 // The basin has to be measured, not assumed, and it moves with the technique.
 // It has been 0.80-0.97 and 1.03-1.20, then 0.55-0.88 and 1.18-1.60, then
 // 0.70-0.94 and 1.27-1.55, and each time it moved because the technique
-// underneath it did. Swept in twentieths on the articulated body it arrives at
-// 1.55 of the recording and nowhere else, which is a narrower basin than the
-// old body's -- an eleven-joint chain has more ways to be slightly wrong.
+// underneath it did. Swept in twentieths it arrives at 1.60 of the recording
+// and nowhere else, which is a narrow basin -- an eleven-joint chain has more
+// ways to be slightly wrong than the six-joint one this started as.
 //
 // The window is NOT the whole real line, and that is a statement about the
 // cost function rather than about the sweep. Measured from 0.55 to 2.00 of the
-// recording, which is 0.35 to 1.29 of the technique this file sweeps:
+// recording, which is 0.34 to 1.25 of the technique this file sweeps:
 //
-//   a(here)  0.35  0.45  0.55  0.65  0.77  0.84  0.90  0.97 | 1.00 | 1.03  1.06  1.10  1.13  1.29
-//   alpha    0.55  0.70  0.85  1.00  1.20  1.30  1.40  1.50 | 1.55 | 1.60  1.65  1.70  1.75  2.00
-//   cost      305   308   300   272   284   267   202   181 |  24  |  279   317   359   406   383
+//   a(here)  0.34  0.44  0.53  0.63  0.75  0.81  0.88  0.94 | 1.00 | 1.03  1.06  1.09  1.19  1.25
+//   alpha    0.55  0.70  0.85  1.00  1.20  1.30  1.40  1.50 | 1.60 | 1.65  1.70  1.75  1.90  2.00
+//   cost      295   270   277   279   300   280   263   253 |  25  |  254   305   336   332   346
 //
 // From 1.30 up and from 1.75 down the cost falls steadily toward the answer,
 // which is the property a search needs and the one these gates check. Outside
-// that it humps: below 1.20 it wanders between 272 and 308 with no slope worth
-// following, and above 1.85 it turns over again. A throw scaled to two thirds
-// of itself and one scaled to a third over fail in qualitatively different
+// that it humps: below 1.30 it wanders between 240 and 300 with no slope worth
+// following, and above 1.75 it turns over again. A throw scaled to two thirds
+// of itself and one scaled to a quarter over fail in qualitatively different
 // ways -- one topples forward over the hands, the other never leaves the floor
 // -- and which of those is "closer" is not a question the score is answering.
 // The gates are scoped to the region where the claim is meant to hold and this
 // comment records the region where it does not, because a gate quietly
 // sampling only the good part is worse than no gate.
-const UNDER = [1.30 / 1.55, 1.40 / 1.55, 1.50 / 1.55];
-const OVER = [1.75 / 1.55, 1.70 / 1.55, 1.65 / 1.55, 1.60 / 1.55];
+// OVER is three points where it used to be four. The fourth step out is 1.80,
+// and it costs 336 against 1.75's 336: the slope has already flattened there,
+// so a gate asserting it still descends would be asserting noise.
+const UNDER = [1.30 / 1.60, 1.40 / 1.60, 1.50 / 1.60];
+const OVER = [1.75 / 1.60, 1.70 / 1.60, 1.65 / 1.60];
 const hit = at(1.00);
 const under = UNDER.map(at);
 const over = OVER.map(at);
@@ -164,10 +168,10 @@ gate('C. and so does too hard a one', bad.length === 0,
 // On their OWN bracket, further out than the monotone one above. The reach
 // term is a shortfall in peak height and it is zero for anything that gets
 // there, so it has nothing to say about the near band: at 1.30 to 1.50 of the
-// recording the throw peaks at 0.96 to 1.01 m against a handstand's 1.02, so
+// recording the throw peaks at 0.94 to 0.98 m against a handstand's 1.02, so
 // it reaches and merely fails to stay. What reach is for is the body that
 // never gets up at all, and that is a long way further down.
-const SHORT = [1.00 / 1.55, 0.85 / 1.55, 0.70 / 1.55, 0.55 / 1.55];
+const SHORT = [1.00 / 1.60, 0.85 / 1.60, 0.70 / 1.60, 0.55 / 1.60];
 const short = SHORT.map(at);
 gate('D. a body that never gets up is charged for the shortfall',
   short.every((r) => (r.terms.reach || 0) > 0) && (hit.terms.reach || 0) === 0,

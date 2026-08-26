@@ -1142,7 +1142,7 @@
 
       // Per-joint utilization colors the segment each joint drives, against
       // the strength profile the run was simulated with.
-      const segmentColors = FIG.effortTint(sim, k, sim.prof || strengthProf, isDark);
+      const segmentColors = FIG.effortTint(sim, k, sim.prof || strengthProf, isDark, sim.model);
 
       const f = rec.forces[k];
       const forces = [];
@@ -1924,7 +1924,7 @@
             FIG.requestPose(m, editState.knots, editState.T, t, askQ, editState.fracs);
             drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.12, color: FIG.REQUEST_COLOR });
           }
-          drawScene(stageCtx, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
+          drawScene(stageCtx, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark, m) });
           syncHandles([]);
         }
       };

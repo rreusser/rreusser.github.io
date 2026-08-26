@@ -19,7 +19,7 @@
 import { drawScene } from './render.js';
 import { availableTorque } from './strength.js';
 import { jointLimits, groundHand } from './statics.js';
-import { JOINT_ORDER, widenKnots } from './control.js';
+import { JOINT_ORDER, ALL_JOINTS, widenKnots } from './control.js';
 import { evalReference, splineEval, knotTimes } from './control.js';
 import { WORK_EFFICIENCY } from './rollout.js';
 
@@ -96,9 +96,15 @@ export function effortColor(u, isDark = false, alpha = 1) {
 
 // Segment colours for drawScene. requestTint paints a whole body as a request;
 // effortTint paints it as a result.
-// One entry per body, derived: written as a literal 7 this stopped colouring
-// whatever fell off the end of it, twice.
-export const requestTint = () => new Array(JOINT_ORDER.length + 1).fill(REQUEST_COLOR);
+//
+// One entry per BODY, and the count comes from the model. It has been wrong
+// three times now -- written as a literal 7, then derived from JOINT_ORDER,
+// which counts the joints a search DRIVES and so stopped one short of the head
+// and two short of the toes. A body past the end of the array is not tinted at
+// all: it comes out in the neutral grey while the limb it belongs to is
+// coloured, which is exactly how both toes looked.
+export const requestTint = (model) =>
+  new Array(model?.nb ?? ALL_JOINTS.length + 1).fill(REQUEST_COLOR);
 
 // Segment colours for a pose being EDITED: red on any segment whose own joint
 // is outside the body's range of motion, and `base` everywhere else -- the
@@ -135,14 +141,23 @@ export function romOutside(model, q, rom) {
   }
   return out;
 }
-export function effortTint(run, k, prof, isDark) {
-  // One entry per BODY. Written as a literal 7 this stopped tinting whatever
-  // fell off the end of it every time the body grew a segment.
-  const out = new Array(JOINT_ORDER.length + 1).fill(null);
+export function effortTint(run, k, prof, isDark, model = run.model) {
+  // One entry per BODY -- see requestTint above for why that is not the same
+  // as one per driven joint.
+  const nb = model?.nb ?? ALL_JOINTS.length + 1;
+  const out = new Array(nb).fill(null);
   for (let j = 0; j < JOINT_ORDER.length; j++) {
     const tau = run.rec.tauApplied[k][j];
     const cap = availableTorque(prof[JOINT_ORDER[j]], tau, run.rec.qd[k][3 + j]);
     out[1 + j] = effortColor(Math.abs(tau) / Math.max(cap, 1e-6), isDark);
+  }
+  // A PASSIVE segment has no effort of its own: no torque is applied to it and
+  // no strength is spent holding it, so there is no fraction-of-capacity to
+  // colour it by. It wears its parent's, which is the limb it is part of --
+  // the toe reads as the end of the foot rather than as a grey chip stuck to
+  // it. parent[i] < i by construction, so one forward pass fills the tail.
+  if (model) {
+    for (let i = 1; i < nb; i++) if (out[i] === null) out[i] = out[model.parent[i]];
   }
   return out;
 }
@@ -1106,9 +1121,11 @@ export function createStoryboard({
     }
   }
 
-  // A request is drawn in the request grey; a body is drawn as a body.
-  const tint = requestTint();
+  // A request is drawn in the request grey; a body is drawn as a body. Sized
+  // from the model it is about to draw, not once up here: the body gains and
+  // loses segments as the reader moves the anthropometry sliders.
   const draw = ({ model, ws, items, sel = -1, theme }) => {
+    const tint = requestTint(model);
     selected = sel;
     for (let k = 0; k < K && k < items.length; k++) {
       const it = items[k];
