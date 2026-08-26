@@ -2515,15 +2515,47 @@
         const at = list.findIndex((c) => c.id === id);
         if (at >= 0) list[at] = rec; else list.push(rec);
         const err = writePresets(list);
-        status = err ? `could not ${doing}: ${err}` : `${done} "${rec.label}"`;
         if (!err) {
           // The edit is a preset now, so the draft parked under whatever this
           // was opened from has nothing left to say.
           clearDraft(sim.presetId);
           editState.hasDraft = false;
+          // The technique on screen IS a stored preset now -- this one -- so
+          // it is not an unsaved edit of anything any more. This has to be
+          // false BEFORE the open below, because it is the flag openInto
+          // reads to decide whether the technique being LEFT has unsaved work
+          // worth parking as a draft.
+          //
+          // Keep as new used to leave both of these alone. The picker showed
+          // the new preset, but the editor was still attached to the one the
+          // copy was derived from, still flagged edited -- so the next
+          // technique switch dutifully filed the copy's changes as a draft
+          // under the ORIGINAL's id, and reopening the original brought them
+          // back. Nothing was ever written over the original; the edit was
+          // filed under the wrong name, which is indistinguishable from the
+          // outside and just as bad.
+          editState.edited = false;
           refreshPresets(rec.id);
+          // refresh only sets the select's value. Opening is a separate act,
+          // and it is the one the rest of the notebook -- the playback figure
+          // included -- listens for, so Keep behaves exactly as choosing the
+          // new preset from the picker would: you are editing what you just
+          // saved, which is what every Save As means.
+          //
+          // Two things the open would throw away that a technique switch
+          // rightly does and this does not: the trajectory has not changed,
+          // so the convergence trace still describes it, and the pose being
+          // edited is still a pose of the same movement.
+          const hist = optState.history;
+          const keepSel = sel;
+          presetInput.dispatchEvent(new Event('input', { bubbles: true }));
+          optState.history = hist;
+          sel = keepSel;
           syncPresetButtons();
         }
+        // After the open, not before: opening a technique clears the status
+        // line, and this is the one message that has to survive it.
+        status = err ? `could not ${doing}: ${err}` : `${done} "${rec.label}"`;
         dirty = chromeDirty = true;
       };
       keepBtn.addEventListener('click', () => {
