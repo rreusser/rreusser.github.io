@@ -359,7 +359,7 @@
   <script id="model-section" type="text/markdown">
     ## A stick figure gymnast
 
-    Seven rigid segments in the sagittal plane: one hand, one arm (both arms merge by symmetry), a torso with the head, and a thigh and shank per leg, joined at the wrist, shoulder, two hips and two knees. Masses, mass centers and inertias follow de Leva's adjustment of the Zatsiorsky parameters, scaled by height and body mass.
+    Twelve rigid segments in the sagittal plane: one hand, a forearm and an upper arm (both arms merge by symmetry), a chest, a pelvis, a head, and a thigh, shank and foot per leg — joined at the wrist, elbow, shoulder, spine, neck, two hips, two knees and two ankles. Masses, mass centers and inertias follow de Leva's adjustment of the Zatsiorsky parameters, scaled by height and body mass. Every joint's zero is the stacked handstand: a straight elbow, a level spine, a pointed foot.
 
     The hand is the segment that matters. It is not a point of support but a patch, from the heel of the palm to the finger pads.
   </script>
@@ -382,8 +382,9 @@
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
       SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom, widenKnots,
-      JOINT_KEYS as JOINT_ORDER, NJ as NJOINTS,
+      COST_WEIGHTS, JOINT_KEYS as JOINT_ORDER, NJ as NJOINTS,
     } from './rollout.js';
+    import { widenQ } from './control.js';
     import {
       techniqueToJSON, techniqueFromJSON, techniqueRunArgs, techniqueSearchArgs,
       techniqueModelParams, techniqueStrengthOpts,
@@ -892,7 +893,7 @@
 
     To move, the model becomes a floating body: the hand is not attached to the floor, it rests on it, on one-sided spring contacts under the heel of the palm and the finger pads, with one under each foot. The center of pressure and every toppling failure emerge from those two palm contacts trading load.
 
-    Joints are driven by servo torques tracking a reference trajectory, capped by a Yeadon-King torque-velocity envelope and a fifty millisecond activation lag, so torque cannot step. Range of motion is enforced by passive end-stops built like the ground contacts one dimension down, and the servo reads its damping off the mass matrix, because these six joints span an effective inertia of two hundred to one.
+    Joints are driven by servo torques tracking a reference trajectory, capped by a Yeadon-King torque-velocity envelope and a fifty millisecond activation lag, so torque cannot step. Range of motion is enforced by passive end-stops built like the ground contacts one dimension down, and the servo reads its damping off the mass matrix, because these eleven joints span an effective inertia of two hundred to one.
   </script>
   <script id="replay-stored" type="text/x-typescript">
     // The ONE way to replay a stored run, whether it is a registered
@@ -1239,6 +1240,16 @@
       // its author is sure of. Unlocked, it joins the decision vector and the
       // search may move it, which is how you ask "am I starting wrong?"
       startHeld: true,
+      // Whether the start pose stands on its hands. On -- which is every
+      // technique this notebook shipped with -- the base is not yours: the
+      // palm goes flat on the floor at the origin and a foot through the floor
+      // is lifted by unfolding its hip. Off, the start pose is wherever you
+      // put it, and if the start is also unlocked the search may move it.
+      startGrounded: true,
+      // Cost terms this technique overrides. Only what it names; everything
+      // else is the notebook's. Today the one the panel exposes is liftoff --
+      // whether it costs anything for the hands to leave the floor.
+      weights: null,
       T: 0,
       // Where the poses fall inside [0, T], as fractions, and which of them
       // are held by hand. Both are per-technique and both survive an edit;
@@ -1318,10 +1329,14 @@
       // Which q indices the mirror takes away from you: the right leg follows
       // the left, so its two joints get no handles. By name -- the numbers
       // moved when the trunk gained a hinge.
-      const CH = Object.fromEntries(FIG.JOINTS.map((J, j) => [
-        ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'][j], j]));
+      // From the joint list, not zipped against a copy of it. Written out as a
+      // literal here, this was the EIGHT-joint order: once the arm gained an
+      // elbow and the legs gained feet the three extra channels got `undefined`
+      // for a name, and every name after the wrist pointed at the wrong joint --
+      // so the mirror wrote the left hip onto the right knee.
+      const CH = Object.fromEntries(JOINT_ORDER.map((n, j) => [n, j]));
       const lockedJoint = (joint) => symmetric()
-        && (joint === 3 + CH.hipR || joint === 3 + CH.kneeR);
+        && (joint === 3 + CH.hipR || joint === 3 + CH.kneeR || joint === 3 + CH.ankleR);
       // The technique the editor currently has OPEN, and the run of it the
       // picker names. Not the simResult cell: naming that here would make this
       // whole cell a function of the picker, and choosing another technique
@@ -1410,13 +1425,14 @@
       // poses has to give back the stored technique said with four.
       const sameCount = () => sim.knots[0].length === K;
       // Widened where the page adopts a stored technique. Everything above
-      // this line speaks in eight channels; the presets and the recorded runs
-      // still speak in six, and a six-channel technique IS an eight-channel
-      // one with the spine and the neck straight.
-      const stored8 = () => widenKnots(sim.knots.map((k) => Float64Array.from(k)));
+      // this line speaks in today's eleven channels; a stored technique may
+      // have been written for any body this notebook has had, and a technique
+      // written for a narrower one IS this one with the joints it never had
+      // held at neutral -- a straight elbow, a level spine, a pointed foot.
+      const storedWide = () => widenKnots(sim.knots.map((k) => Float64Array.from(k)));
       const baseKnots = () => (sameCount()
-        ? sym(stored8())
-        : fit(FIG.resampleKnots(stored8(), sim.T, K, sim.knotFracs)));
+        ? sym(storedWide())
+        : fit(FIG.resampleKnots(storedWide(), sim.T, K, sim.knotFracs)));
       // Even spacing, and only the ending held. This is what a technique
       // starts as and what Revert returns it to; a stored one may carry its own
       // phrasing, and does when it was authored with any.
@@ -1495,8 +1511,10 @@
         // whatever a file happens to say about them.
         editState.held[nk - 1] = true;
         editState.timeHeld[0] = editState.timeHeld[nk - 1] = true;
-        editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
+        editState.q0 = rec.q0 ? widenQ(rec.q0) : null;
         editState.startHeld = rec.startHeld !== false;
+        editState.startGrounded = rec.startGrounded !== false;
+        editState.weights = rec.weights ? { ...rec.weights } : null;
         editState.symmetric = typeof rec.symmetric === 'boolean'
           ? rec.symmetric
           : SYMMETRIC_SCENARIOS.has(rec.scenario || sim.scenarioName);
@@ -1561,6 +1579,8 @@
               held: editState.held,
               timeHeld: editState.timeHeld,
               startHeld: editState.startHeld,
+              startGrounded: editState.startGrounded,
+              weights: editState.weights,
               q0: editState.q0,
               target: leaving.stored?.target || null,
               rom: { ...(leaving.stored?.rom || {}),
@@ -1847,9 +1867,19 @@
           // has not re-run yet, so it read as broken rather than as context.
           const q = sel === 0 ? startQ() : FIG.knotPose(m, editState.knots, sel - 1, askQ);
           if (sel === 0) askQ.set(q);
-          syncHandles(drawScene(stageCtx, {
+          const drawn = drawScene(stageCtx, {
             ...common, q, segmentColors: sel === 0 ? null : FIG.requestTint(),
-          }).handles.filter((h) => !lockedJoint(h.joint)));
+            // Only on the START pose, and only when it has let go of the
+            // floor. A reference pose is joint angles and nothing else -- it
+            // has no base to move -- and a grounded start's base is solved
+            // rather than authored, so a handle on it would be a control that
+            // silently undoes itself.
+            baseHandles: sel === 0 && !editState.startGrounded,
+          });
+          // Pixels per metre, as the handles were placed. The move handle turns
+          // pointer travel back into metres with it.
+          sceneScale = drawn.scale;
+          syncHandles(drawn.handles.filter((h) => !lockedJoint(h.joint)));
         } else {
           // Watching: what happened is solid, in its strength colours. The
           // reference it was chasing goes behind it only if you asked for it
@@ -1866,6 +1896,8 @@
 
       // ---- joint handles ----------------------------------------------------
       const handleEls = new Map();
+      // Pixels per metre at the last draw, for the one handle that translates.
+      let sceneScale = 1;
       const syncHandles = (handles) => {
         const want = new Set(handles.map((h) => h.joint));
         for (const [j, el] of [...handleEls]) if (!want.has(j)) { el.remove(); handleEls.delete(j); }
@@ -1881,6 +1913,10 @@
             el.style.cursor = 'grab';
             el.style.transition = 'fill 90ms linear';
             el.dataset.joint = h.joint;
+            if (h.move) el.dataset.move = '1';
+            // The one handle that is not a hinge gets its own cursor, because
+            // it is the one that does not turn anything.
+            if (h.move) el.style.cursor = 'move';
             // A handle that does not answer the pointer looks like decoration.
             // It stays lit while it is HELD as well as while it is hovered,
             // because a finger that has wandered off a 10 px circle is still
@@ -1913,11 +1949,16 @@
         if (drag || !(el instanceof SVGCircleElement) || sel < 0 || searching) return;
         const r = overlay.getBoundingClientRect();
         const px = +el.dataset.px, py = +el.dataset.py;
+        const move = el.dataset.move === '1';
         drag = {
-          el, pointerId: e.pointerId, px, py, ch: +el.dataset.joint - 3, moved: false,
+          el, pointerId: e.pointerId, px, py, ch: +el.dataset.joint - 3, move, moved: false,
           a0: Math.atan2(-(e.clientY - r.top - py), e.clientX - r.left - px),
-          q0: sel === 0 ? startQ()[+el.dataset.joint]
-            : editState.knots[+el.dataset.joint - 3][sel - 1],
+          // A move handle carries where the body was and where the pointer
+          // started, in screen pixels; a turn handle carries one angle.
+          x0: e.clientX - r.left, y0: e.clientY - r.top,
+          b0: move ? Float64Array.of(startQ()[0], startQ()[1]) : null,
+          q0: move ? 0 : (sel === 0 ? startQ()[+el.dataset.joint]
+            : editState.knots[+el.dataset.joint - 3][sel - 1]),
         };
         try { el.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
         el.style.cursor = 'grabbing';
@@ -1928,6 +1969,18 @@
       overlay.addEventListener('pointermove', (e) => {
         if (!drag || e.pointerId !== drag.pointerId) return;
         const r = overlay.getBoundingClientRect();
+        if (drag.move) {
+          // Screen pixels back into metres through the same scale the scene was
+          // drawn at, so the body follows the pointer rather than drifting
+          // relative to it. y is inverted because the canvas is.
+          const s = sceneScale;
+          writeBase(drag.b0[0] + (e.clientX - r.left - drag.x0) / s,
+            drag.b0[1] - (e.clientY - r.top - drag.y0) / s);
+          drag.moved = true;
+          dirty = chromeDirty = true;
+          e.preventDefault();
+          return;
+        }
         const a = Math.atan2(-(e.clientY - r.top - drag.py), e.clientX - r.left - drag.px);
         let da = a - drag.a0;
         if (da > Math.PI) da -= 2 * Math.PI;
@@ -1958,15 +2011,29 @@
         editState.knots[ch][k] = q;
         if (symmetric() && ch === CH.hipL) editState.knots[CH.hipR][k] = q;
         if (symmetric() && ch === CH.kneeL) editState.knots[CH.kneeR][k] = q;
+        if (symmetric() && ch === CH.ankleL) editState.knots[CH.ankleR][k] = q;
       };
       // The start is not a knot -- it is the body's own configuration at t = 0
       // -- so it is written into its own vector, and the first edit forks it
       // off the one the scenario solved.
+      // Where the body stands, when the start has let go of the floor. Same
+      // rule as writeStart below it: touching it makes the start EXPLICIT,
+      // because a null q0 means "whatever the scenario solves" and what a
+      // scenario solves is a body on its hands.
+      const writeBase = (x, y) => {
+        if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+        editState.q0[0] = x;
+        editState.q0[1] = y;
+      };
       const writeStart = (ch, q) => {
         if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+        // The base ANGLE is q[2], which is channel -1 in the joints' numbering.
+        // The turn handle on the hand is a handle on a joint coordinate like
+        // any other; it just happens to be the one before the wrist.
         editState.q0[3 + ch] = q;
         if (symmetric() && ch === CH.hipL) editState.q0[3 + CH.hipR] = q;
         if (symmetric() && ch === CH.kneeL) editState.q0[3 + CH.kneeR] = q;
+        if (symmetric() && ch === CH.ankleL) editState.q0[3 + CH.ankleR] = q;
       };
 
       const story = FIG.createStoryboard({
@@ -2263,7 +2330,7 @@
       symToggle.title = 'the two legs do the same thing. On, the right leg follows the '
         + 'left -- it gets no handles of its own and the search cannot move it '
         + 'independently, which is what stops a press arriving with one leg straight '
-        + 'and the other folded. Off, all six joints are yours and the search\u2019s.';
+        + 'and the other folded. Off, both legs are yours and the search\u2019s, ankles included.';
       symToggle.addEventListener('input', () => {
         editState.symmetric = !!symToggle.value;
         if (editState.symmetric) {
@@ -2278,6 +2345,131 @@
         editState.edited = true;
         chromeDirty = dirty = true;
         resim();
+      });
+
+      // ---- the hands ---------------------------------------------------
+      // Two settings, both of which used to be facts of the notebook rather
+      // than choices a technique makes: that a technique begins with its palms
+      // flat on the floor at the origin, and that it costs a great deal for
+      // them to leave it. Neither is a property of a handstand. The first was
+      // an artefact of every scenario here happening to start on its hands;
+      // the second is a cost term, and a cost term with no way to turn it off
+      // is a rule.
+      const groundToggle = Inputs.toggle({
+        label: 'Start on the hands', value: editState.startGrounded,
+      });
+      groundToggle.title = 'where the body stands at t = 0. On, the palm is flat on the '
+        + 'floor at the origin and a foot through the floor is lifted by unfolding its '
+        + 'hip -- the start pose is a set of joint angles and nothing more. Off, the '
+        + 'start pose carries its own height, lean and position: it can begin in the '
+        + 'air, on its feet, or part way through a rotation, and if the start is also '
+        + 'unlocked the search chooses those three as well.';
+      groundToggle.addEventListener('input', () => {
+        editState.startGrounded = !!groundToggle.value;
+        // Letting go of the floor makes the start EXPLICIT, for the same
+        // reason unlocking it does: left null it means "whatever this scenario
+        // solves", and what a scenario solves is a body on its hands.
+        if (!editState.startGrounded && !editState.q0) {
+          editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+        }
+        editState.edited = true;
+        resim();
+        chromeDirty = dirty = true;
+      });
+      // ---- what the search is scoring ------------------------------------
+      // Every cost term, as a percentage of the notebook's own weight for it.
+      // 100% is the baseline, 0 turns the term off, 200 doubles it.
+      //
+      // These were constants, and a constant is a rule: the reason a technique
+      // never lifts a hand, never spends the end of its range and never runs a
+      // muscle flat out is that each of those costs a fixed amount nobody
+      // could see or argue with. They are not facts about handstands. They are
+      // this notebook's opinion about which handstands are worth finding, and
+      // an opinion belongs on a dial.
+      //
+      // What a dial CANNOT do is fake an arrival. The verdict beside the
+      // figure -- upright, over the hands, still, posed, feet free -- is read
+      // off the run itself and no weight enters it, so turning the whole score
+      // to zero produces a technique that scores nothing and still says
+      // whether it got there.
+      //
+      // Stored as absolute weights rather than as percentages, for the same
+      // reason the plant and the anatomy are stored resolved: a technique has
+      // to keep the numbers it was actually scored under, not a share of a
+      // baseline that may move underneath it.
+      const COST_TERMS = [
+        ['rom', 'range of motion', 'going outside the joint\u2019s anatomical range. '
+          + 'The end-stops are separate and physical -- this is the SEARCH being '
+          + 'discouraged from asking. At 0 it will ask.'],
+        ['romPeak', 'worst excursion', 'the single deepest excursion past a limit, on '
+          + 'top of the running total above. This is what stops one brief violent '
+          + 'overshoot hiding inside an otherwise clean average.'],
+        ['saturation', 'muscle at the cap', 'holding a joint at its maximum voluntary '
+          + 'torque. Turn it down for a technique that is allowed to be maximal.'],
+        ['effort', 'torque', 'raw joint torque, all movement long. The cheap, blunt '
+          + 'measure of trying hard.'],
+        ['work', 'energy', 'metabolic energy, positive work charged at a quarter '
+          + 'efficiency and negative credited at 1.2, as muscle is. This is the '
+          + 'number printed beside the verdict.'],
+        ['smooth', 'smoothness', 'joint acceleration. This is what keeps a technique '
+          + 'from flailing; at 0 the search will find whip-cracks, which are cheap in '
+          + 'every other term and are not movements anyone performs.'],
+        ['liftoff', 'hands down', 'every instant the two hand contacts carry less than '
+          + 'a tenth of body weight, over the whole movement. At 0 the hands are free '
+          + 'to leave the floor -- nothing ever glued them, this was the only thing '
+          + 'stopping it.'],
+        ['feet', 'feet unloaded', 'weight still under the feet in the settle tail. '
+          + 'A handstand does not rest a toe on the floor.'],
+        ['replant', 'no second push', 'a foot coming back DOWN after it has left. '
+          + 'This is what stops a press from settling back onto the floor and jumping.'],
+        ['settleCalm', 'quiet at the top', 'joint motion once it has arrived: the '
+          + 'banana back and forth after the handstand.'],
+        ['driveRate', 'quiet muscles', 'how fast the muscle drive slews. At 0 the '
+          + 'search may buzz the servos, which the body can do and a person cannot.'],
+        ['arrival', 'arrives, not thrown', 'peak foot speed over the closing quarter '
+          + 'of the entry. A handstand is arrived at; this is the difference between '
+          + 'pressing to one and being flung through one.'],
+        ['velocity', 'stops moving', 'how fast the whole body is still travelling at '
+          + 'the end.'],
+        ['pose', 'over the hands', 'how far the centre of mass ends from where a '
+          + 'handstand puts it.'],
+        ['poseAngles', 'in the shape', 'joint-space error against the stacked '
+          + 'handstand over the settle tail. Without it the search can prop a toe on '
+          + 'the floor in a sprawl and call the centre of mass a handstand.'],
+        ['reach', 'gets up at all', 'the shortfall in peak height for a technique that '
+          + 'never gets near. Zero for anything that arrives, so it only ever gives '
+          + 'the ones that do not a direction to move in.'],
+        ['fall', 'does not fall', 'falling over, which ends the attempt. Turning this '
+          + 'down is how you ask for a technique that may fail on the way.'],
+        ['tuckPhase', 'tuck shape', 'for the bent-leg press only: how near it ever '
+          + 'came to being stacked over the hands with the knees still bent. This is '
+          + 'the definition that separates a bent-leg press from a planche.'],
+      // Terms whose baseline is zero are left out: a percentage of nothing is
+      // nothing, so a slider for one would be a control that cannot do
+      // anything. quasiStatic is the only one.
+      ].filter(([k]) => (COST_WEIGHTS[k] || 0) > 0);
+      const pctOf = (k) => Math.round(100
+        * ((editState.weights?.[k] ?? COST_WEIGHTS[k]) / COST_WEIGHTS[k]));
+      const costInputs = COST_TERMS.map(([k, label, why]) => {
+        const input = Inputs.range([0, 200], {
+          label, step: 5, value: pctOf(k),
+        });
+        input.title = `${why}\n\nPer cent of this notebook\u2019s weight for the term `
+          + `(${COST_WEIGHTS[k]}). 100 is the baseline, 0 turns it off, 200 doubles it. `
+          + `It changes what the SEARCH wants, not what the body can do, so nothing `
+          + `moves until you optimize.`;
+        input.addEventListener('input', () => {
+          const pct = +input.value;
+          const w = { ...(editState.weights || {}) };
+          if (pct === 100) delete w[k]; else w[k] = COST_WEIGHTS[k] * pct / 100;
+          editState.weights = Object.keys(w).length ? w : null;
+          // Nothing is re-simulated: a weight is what the score wants, not what
+          // the body does. It is still an edit, because it is part of the
+          // technique -- the next search is a different search.
+          editState.edited = true;
+          chromeDirty = dirty = true;
+        });
+        return input;
       });
 
       // There was a "Poses" slider here, which asked for a COUNT and then
@@ -2427,6 +2619,8 @@
         held: editState.held,
         timeHeld: editState.timeHeld,
         startHeld: editState.startHeld,
+        startGrounded: editState.startGrounded,
+        weights: editState.weights,
         q0: editState.q0,
         target: targetQ(),
         rom: resolveRom(bodyOver().rom),
@@ -2761,6 +2955,8 @@
       // panel agree with it, and the two are always called together.
       function syncTechniqueInputs() {
         symToggle.value = editState.symmetric;
+        groundToggle.value = editState.startGrounded;
+        costInputs.forEach((input, n) => { input.value = pctOf(COST_TERMS[n][0]); });
         bodyInputs.forEach((i, n) => { i.value = editState.body[n]; });
         optSeed.value = editState.search.seed;
         optGens.value = editState.search.maxGen;
@@ -3378,6 +3574,10 @@
       const controlsBox = html`<div class="technique-controls">
         ${group('body', true,
           html`<div class="spline-controls">${inShoulder}${inHam}${inShFlex}${inWrExt}${inSpine}${symToggle}</div>`)}
+        ${group('start', false,
+          html`<div class="spline-controls">${groundToggle}</div>`)}
+        ${group('cost', false,
+          html`<div class="spline-controls">${costInputs.map((i) => i)}</div>`)}
         ${group('search', false,
           html`<div class="spline-controls">${optGens}${optSeed}</div>`)}
         ${group('servo', false,

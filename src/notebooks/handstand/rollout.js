@@ -7,29 +7,81 @@
 import { fk, momenta } from './dynamics.js';
 import {
   groundHand, solveWristForCom, romPenalty, clampPose, hipFlexMaxDeg, ROM_DEFAULTS,
-  wristQ3LimitsDeg,
+  wristQ3LimitsDeg, jointLimits,
 } from './statics.js';
 import { createContacts } from './contact.js';
 import { createJointStops } from './joint-stops.js';
 import { simulate, DEFAULT_DT } from './integrate.js';
-import { createServo, createBalanceControl, knotTimes, evenlySpaced, JOINT_ORDER, LEGACY_JOINT_ORDER, widenKnots } from './control.js';
+import { createServo, createBalanceControl, knotTimes, evenlySpaced, JOINT_ORDER, LEGACY_JOINT_ORDER, jointOrderFor, widenKnots } from './control.js';
 import { availableTorque } from './strength.js';
 import { cmaes, mulberry32 } from './cma-es.js';
 
 const D2R = Math.PI / 180;
 
-// World y of a leg's toe contact point (body 4 or 6).
+// The toe contact on a foot body. By NAME through the model's own index,
+// not "the first contact that happens to sit on this body": a foot has three
+// stations now -- toe, ball, heel -- and picking the first would have every
+// scenario stand the body up on whichever one the contact list happened to
+// list first.
+function toeContact(model, body) {
+  for (const i of model.toeContacts) if (model.contacts[i].body === body) return model.contacts[i];
+  throw new Error(`body ${body} carries no toe contact`);
+}
+
+// World y of the LOWEST ground station on a foot. This was the toe, because a
+// foot welded to a shank has only a toe; a foot that hinges is placed by
+// whichever part of it reaches the floor first, which is the heel in a squat
+// and the ball on the way out of one.
 function toeY(model, ws, q, body) {
   fk(model, q, null, ws);
-  const cpt = model.contacts.find((c) => c.body === body);
   const c = Math.cos(ws.th[body]), s = Math.sin(ws.th[body]);
-  return ws.py[body] + s * cpt.x + c * cpt.y;
+  let y = Infinity;
+  for (const cpt of model.contacts) {
+    if (cpt.body !== body) continue;
+    y = Math.min(y, ws.py[body] + s * cpt.x + c * cpt.y);
+  }
+  return y;
+}
+
+// The ankle angle that lays a foot's sole flat on the floor.
+//
+// The sole is the heel-to-toe line, which is a fixed direction in the foot's
+// own frame; laying it flat means cancelling the shank's world angle with the
+// ankle, and there are always two ways to do that a half turn apart -- sole
+// down and sole up. Only one of them is an ankle, so the one inside the range
+// of motion wins, and if neither is, the nearer is clamped.
+//
+// This is what a start pose standing on its feet is. Solved for the toe alone,
+// as the welded-ankle model necessarily was, a pike stand balances on the tip
+// of a pointed foot: a releve nobody holds a press from.
+export function flatFootAnkle(model, ws, q, side, rom) {
+  const body = side === 'L' ? BODY.footL : BODY.footR;
+  const ankle = side === 'L' ? QI.ankleL : QI.ankleR;
+  const { heelPt, Lft } = model.footGeom;
+  // The sole's direction in the foot frame, heel toward toe.
+  const sole = Math.atan2(-heelPt[1], Lft - heelPt[0]);
+  fk(model, q, null, ws);
+  // The shank's world angle is this foot's parent's, which is what the ankle
+  // is measured against.
+  const parentTh = ws.th[body] - q[ankle];
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const { lo, hi } = jointLimits(rom, q, ankle);
+  const cands = [wrap(-sole - parentTh), wrap(Math.PI - sole - parentTh)];
+  const inside = cands.filter((a) => a >= lo && a <= hi);
+  const pick = inside.length
+    ? inside[0]
+    : cands.reduce((best, a) => {
+      const d = Math.max(lo - a, a - hi, 0);
+      return d < best.d ? { a, d } : best;
+    }, { a: cands[0], d: Infinity }).a;
+  q[ankle] = Math.min(Math.max(pick, lo), hi);
+  return q[ankle];
 }
 
 // Toe position along the floor, measured from the hand the way comX is.
 function toeXLocal(model, ws, q, body) {
   fk(model, q, null, ws);
-  const cpt = model.contacts.find((c) => c.body === body);
+  const cpt = toeContact(model, body);
   const c = Math.cos(ws.th[body]), s = Math.sin(ws.th[body]);
   return ws.px[body] + c * cpt.x - s * cpt.y - q[0];
 }
@@ -45,7 +97,7 @@ function solveHipForToeDown(model, ws, q, side) {
   // with a knee folded 175 degrees the wrong way, and the servo unwinding it
   // launched the body off the floor.
   const hip = side === 'L' ? QI.hipL : QI.hipR;
-  const body = side === 'L' ? BODY.shankL : BODY.shankR;
+  const body = side === 'L' ? BODY.footL : BODY.footR;
   let lo = 0 * D2R, hi = 175 * D2R;
   if (toeY(model, ws, withQ(q, hip, hi), body) > 0) return NaN;
   for (let i = 0; i < 60; i++) {
@@ -110,10 +162,28 @@ function solveWristForToeDown(model, ws, q, body, loDeg = 35, hiDeg = 115) {
 // A toe below minY is lifted by reducing that leg's hip flexion.
 function clampToRom(q, rom) { clampPose(q, rom); return q; }
 
+// The same guarantee for a start that is NOT standing on its hands: nothing
+// may begin below the floor. A grounded start is repaired by unfolding the
+// hip, because where the body stands is not up for discussion -- the palm is
+// on the floor at the origin. A free one has somewhere else to go, so it goes
+// there: the whole body rises until its lowest point is on the floor, which
+// changes the pose not at all. Only ever upward, so a technique that means to
+// begin in the air keeps its height.
+function liftClear(model, ws, q, minY = 5e-4) {
+  fk(model, q, null, ws);
+  let low = Infinity;
+  for (const cpt of model.contacts) {
+    const b = cpt.body, c = Math.cos(ws.th[b]), sn = Math.sin(ws.th[b]);
+    low = Math.min(low, ws.py[b] + sn * cpt.x + c * cpt.y - (cpt.r || 0));
+  }
+  if (Number.isFinite(low) && low < minY) q[1] += minY - low;
+  return q;
+}
+
 function clearFeet(model, ws, q, minY = 5e-4) {
   for (const side of ['L', 'R']) {
     const hip = side === 'L' ? QI.hipL : QI.hipR;
-    const body = side === 'L' ? BODY.shankL : BODY.shankR;
+    const body = side === 'L' ? BODY.footL : BODY.footR;
     if (toeY(model, ws, q, body) >= minY) continue;
     let hi = q[hip], lo = q[hip] - 40 * D2R;
     if (toeY(model, ws, withQ(q, hip, lo), body) < minY) { q[hip] = lo; continue; }
@@ -171,9 +241,17 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       q[QI.hipL] = q[QI.hipR] = Math.min(hipFlexMaxDeg(rom, 0), 130) * D2R;
       q[QI.kneeL] = q[QI.kneeR] = 0;
       const targetX = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
+      // The feet are FLAT: a pike stand is a fold over two feet on the floor,
+      // not a releve. Solved inside the lean loop rather than once at the end,
+      // because the ankle that lays a sole flat depends on where the shank
+      // ends up and the shank is what the loop is moving.
       const comAt = (sh) => {
-        q[4] = sh;
-        solveWristForToeDown(model, ws, q, BODY.shankL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+        q[QI.shoulder] = sh;
+        for (let i = 0; i < 2; i++) {
+          solveWristForToeDown(model, ws, q, BODY.footL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+          flatFootAnkle(model, ws, q, 'L', rom);
+          flatFootAnkle(model, ws, q, 'R', rom);
+        }
         return momenta(model, q, zeroQd9, ws).comX - q[0];
       };
       let lo = 55 * D2R, hi = Math.min(rom.shoulderCloseMaxDeg, 110) * D2R;
@@ -216,9 +294,13 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       // old start: balanced over the palm with nothing on the legs.
       const palmT = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
       const errAt = (sh) => {
-        q[4] = sh;
-        solveWristForToeDown(model, ws, q, BODY.shankL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
-        const toe = toeXLocal(model, ws, q, BODY.shankL);
+        q[QI.shoulder] = sh;
+        for (let i = 0; i < 2; i++) {
+          solveWristForToeDown(model, ws, q, BODY.footL, 35, Math.min(115, wristQ3LimitsDeg(rom).hi));
+          flatFootAnkle(model, ws, q, 'L', rom);
+          flatFootAnkle(model, ws, q, 'R', rom);
+        }
+        const toe = toeXLocal(model, ws, q, BODY.footL);
         const com = momenta(model, q, zeroQd9, ws).comX - q[0];
         return com - (palmT + tuckLoadFrac * (toe - palmT));
       };
@@ -256,16 +338,25 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       // floor, swing leg extended low behind with its toe just off the
       // ground rather than floating above the hands.
       q[3] = Math.min(65, wristQ3LimitsDeg(rom).hi) * D2R;
-      q[4] = 90 * D2R;
+      q[QI.shoulder] = 90 * D2R;
       q[QI.kneeR] = -50 * D2R;             // stance knee bent
-      solveHipForToeDown(model, ws, q, 'R');
+      // Stance foot flat and hip re-solved against it; the swing foot stays
+      // pointed, which is what a leg trailing in the air does and what its
+      // zero already says.
+      for (let i = 0; i < 2; i++) {
+        solveHipForToeDown(model, ws, q, 'R');
+        flatFootAnkle(model, ws, q, 'R', rom);
+      }
       q[QI.kneeL] = 0;                     // swing leg straight
       q[QI.hipL] = Math.min(q[QI.hipR] / D2R - 18, hipFlexMaxDeg(rom, 0)) * D2R;
       clampPose(q, rom);
       // Re-plant the stance toe after any clamping shifted it, capped by the
       // bent-knee hamstring allowance, then guarantee neither toe starts
       // below the floor.
-      solveHipForToeDown(model, ws, q, 'R');
+      for (let i = 0; i < 2; i++) {
+        solveHipForToeDown(model, ws, q, 'R');
+        flatFootAnkle(model, ws, q, 'R', rom);
+      }
       const hipCapBent = hipFlexMaxDeg(rom, 50) * D2R;
       if (q[QI.hipR] > hipCapBent) q[QI.hipR] = hipCapBent;
       clearFeet(model, ws, q);
@@ -310,14 +401,20 @@ export const NJ = JOINT_KEYS.length;
 // full of bare indices is a file that renumbers wrongly exactly once.
 export const QI = Object.fromEntries(JOINT_KEYS.map((n, j) => [n, 3 + j]));
 
-// And the BODY indices, for the same reason: shankL was body 4 and is body 5
-// now that the trunk is two segments and the head is its own.
-export const BODY = { shankL: 5, shankR: 7, chest: 2, pelvis: 3, headNeck: 8 };
+// And the BODY indices, for the same reason: shankL has been body 4, then 5
+// when the trunk became two segments and the head its own, and 6 now that the
+// arm has an elbow in it. Read off the model rather than written down, so the
+// next segment to appear cannot renumber this behind its back.
+export const BODY = Object.fromEntries(
+  ['hand', 'forearm', 'upperArm', 'chest', 'pelvis',
+    'thighL', 'shankL', 'footL', 'thighR', 'shankR', 'footR', 'headNeck']
+    .map((n, i) => [n, i]));
 
 // A waypoint written in the old six-channel order, widened. The reference
 // shapes below are hand-authored poses for the optimizer to start from, and
-// they were written when a technique had six channels; the spine and the neck
-// stay neutral in them, which is the rigid body they were drawn on.
+// they were written when a technique had six channels; the spine, the neck,
+// the elbow and the ankles stay neutral in them, which is the straight-armed,
+// rigid-trunked, flat-footed body they were drawn on.
 function fromLegacy(v) {
   const out = new Float64Array(NJ);
   LEGACY_JOINT_ORDER.forEach((name, j) => { out[JOINT_KEYS.indexOf(name)] = v[j]; });
@@ -459,40 +556,53 @@ export function resolveRom(rom) {
   return { ...ROM_DEFAULTS, ...LEGACY_ROM, ...(rom || {}) };
 }
 
-// x = [6 joints x K knot angles (radians), duration T]. When a rom is
-// given, the knot bounds are the anatomy itself, so anatomically impossible
-// reference angles are unrepresentable (the earlier soft-penalty-only
-// treatment let the optimizer buy 30 degrees of impossible wrist flexion
-// for about one cost unit). Hip bounds use the absolute (bent-knee) cap;
-// the hamstring coupling with the knee remains a cost-side constraint.
+// x = [NJ joints x K knot angles (radians), duration T, ...]. The knot bounds
+// are the anatomy itself, so an anatomically impossible reference angle is
+// unrepresentable rather than merely expensive -- the earlier
+// soft-penalty-only treatment let the optimizer buy 30 degrees of impossible
+// wrist flexion for about one cost unit.
 // The per-joint bounds on a reference angle, which are the anatomy itself.
 // Split out of decisionBounds because they are not only the search's business:
 // anything that GENERATES knots rather than receiving them from a hand has to
 // stay inside the same box, or it hands the search a technique the search will
 // quietly straighten before scoring.
+// The box a knot with no anatomy behind it gets. It is the anatomy anyway --
+// a deliberately permissive one -- so that the derivation below is the only
+// place a per-joint limit is ever written, at either width. Written out as a
+// pair of literal arrays instead, this was a list of eight in the OLD joint
+// order: adding the elbow and the ankles left the last three joints on the
+// body with bounds of `undefined`, and a bound of undefined is a bound of NaN,
+// which is a search that returns NaN and reports nothing at all.
+const LOOSE_ROM = {
+  wristExtMaxDeg: 160, wristExtMinDeg: 50,
+  elbowHyperDeg: 15, elbowFlexMaxDeg: 160,
+  shoulderFlexMaxDeg: 195, shoulderHyperDeg: 15, shoulderCloseMaxDeg: 120,
+  spineExtMaxDeg: 20, spineFlexMaxDeg: 45,
+  hipExtMaxDeg: 40, hipFlexAbsMaxDeg: 175,
+  kneeFlexMaxDeg: 160, kneeHyperextDeg: 10,
+  anklePointMaxDeg: 15, ankleDorsiMaxDeg: 125,
+  neckExtMaxDeg: 45, neckFlexMaxDeg: 30,
+};
+
 export function knotBounds(rom = null) {
-  // In JOINT_KEYS order: wrist, shoulder, spine, hipL, kneeL, hipR, kneeR,
-  // neck. Positive spine is flexion -- ribs toward hips, the hollow -- and
-  // positive neck is the chin toward the chest, so a handstand looking at its
-  // hands sits at a negative neck angle.
-  const lo = rom
-    ? [wristQ3LimitsDeg(rom).lo * D2R,
-      // The same bound the passive end-stop enforces: a shoulder that only
-      // opens to 150 degrees must not have knots asking for 180, or the
-      // mobility setting is a fine rather than a limit.
-      Math.max(180 - rom.shoulderFlexMaxDeg, -rom.shoulderHyperDeg) * D2R,
-      -(rom.spineExtMaxDeg ?? ROM_DEFAULTS.spineExtMaxDeg) * D2R,
-      -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
-      -rom.hipExtMaxDeg * D2R, -rom.kneeFlexMaxDeg * D2R,
-      -(rom.neckExtMaxDeg ?? ROM_DEFAULTS.neckExtMaxDeg) * D2R]
-    : [20 * D2R, -15 * D2R, -20 * D2R, -40 * D2R, -160 * D2R, -40 * D2R, -160 * D2R, -45 * D2R];
-  const hi = rom
-    ? [wristQ3LimitsDeg(rom).hi * D2R, rom.shoulderCloseMaxDeg * D2R,
-      (rom.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg) * D2R,
-      rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
-      rom.hipFlexAbsMaxDeg * D2R, rom.kneeHyperextDeg * D2R,
-      (rom.neckFlexMaxDeg ?? ROM_DEFAULTS.neckFlexMaxDeg) * D2R]
-    : [130 * D2R, 120 * D2R, 45 * D2R, 175 * D2R, 10 * D2R, 175 * D2R, 10 * D2R, 30 * D2R];
+  const r = { ...ROM_DEFAULTS, ...(rom || LOOSE_ROM) };
+  // Read off jointLimits, one joint at a time, which is where every other
+  // consumer of the anatomy reads it -- the passive end-stops, the pose clamp,
+  // the range penalty. Two lists of the same limits can only agree by hand.
+  //
+  // jointLimits takes a POSE because one of them depends on one: the hamstring
+  // coupling reads the same leg's knee. The pose here is the handstand, all
+  // zeros, and then the hips are overwritten with the ABSOLUTE cap -- a knot
+  // may ask for a fold deeper than a straight knee allows, and whether the
+  // knee has bought it is a question about the pose, which is why the coupling
+  // stays a cost-side constraint rather than a bound.
+  const q = new Float64Array(3 + NJ);
+  const lo = new Float64Array(NJ), hi = new Float64Array(NJ);
+  for (let j = 0; j < NJ; j++) {
+    const l = jointLimits(r, q, 3 + j);
+    lo[j] = l.lo; hi[j] = l.hi;
+  }
+  hi[QI.hipL - 3] = hi[QI.hipR - 3] = r.hipFlexAbsMaxDeg * D2R;
   return { lo, hi };
 }
 
@@ -542,11 +652,20 @@ export function decisionBounds(K, {
   // Whether the pose the body STARTS in is the search's to choose. Its joints
   // live inside the same anatomy as a knot, so they get the same box.
   freeStart = false,
+  // And whether WHERE THE BODY STANDS is the search's too. Off -- which is
+  // every technique that begins on its hands -- the base is not a decision at
+  // all, because the hand is flat on the floor at the origin and that is the
+  // whole answer. On, three more channels ride on the end of the start pose:
+  // the two coordinates of the wrist and the lean of the hand. They get a box
+  // around whatever the technique already says rather than the run of the
+  // room, because a search free to put the body anywhere spends its budget
+  // discovering that most of anywhere is the floor.
+  freeBase = false, startBase = null,
 } = {}) {
   // The same table knotBounds builds, which is where it now comes from.
   const { lo: jointLo, hi: jointHi } = knotBounds(rom);
   const nTimes = freeTimes ? Math.max(0, K - 2) : 0;
-  const nStart = freeStart ? NJ : 0;
+  const nStart = freeStart ? startChannels(freeBase) : 0;
   const n = NJ * K + 1 + nTimes + nStart;
   const lo = new Float64Array(n), hi = new Float64Array(n);
   for (let j = 0; j < NJ; j++) {
@@ -565,9 +684,19 @@ export function decisionBounds(K, {
       lo[i] = v; hi[i] = v;
     }
   }
-  for (let j = 0; j < nStart; j++) {
+  for (let j = 0; j < Math.min(nStart, NJ); j++) {
     const i = NJ * K + 1 + nTimes + j;
     lo[i] = jointLo[j]; hi[i] = jointHi[j];
+  }
+  if (nStart > NJ) {
+    const b = startBase || [0, 0, 0];
+    const box = [[b[0] - 0.4, b[0] + 0.4],
+      [Math.max(0, b[1] - 0.4), b[1] + 0.4],
+      [b[2] - 60 * D2R, b[2] + 60 * D2R]];
+    for (let j = 0; j < 3; j++) {
+      const i = NJ * K + 1 + nTimes + NJ + j;
+      lo[i] = box[j][0]; hi[i] = box[j][1];
+    }
   }
   // A locked pose is not a decision. Collapsing its bounds onto the value it
   // is held at is not the thing that KEEPS it there -- rolloutCost writes it
@@ -641,12 +770,16 @@ export function symmetrizeKnots(knots) {
   // Works on either width: a six-channel technique is still in the old order,
   // where the legs sit two rows earlier. Mirroring MUTATES in place, so this
   // cannot just widen and hand back a copy.
-  const names = knots.length === NJ ? JOINT_KEYS : LEGACY_JOINT_ORDER;
+  const names = jointOrderFor(knots.length);
   const hipL = names.indexOf('hipL'), kneeL = names.indexOf('kneeL');
   const hipR = names.indexOf('hipR'), kneeR = names.indexOf('kneeR');
+  const ankleL = names.indexOf('ankleL'), ankleR = names.indexOf('ankleR');
   for (let k = 0; k < knots[hipL].length; k++) {
     knots[hipR][k] = knots[hipL][k];
     knots[kneeR][k] = knots[kneeL][k];
+    // A body written before the ankles existed has neither row, and -1 would
+    // mirror the wrist onto the elbow.
+    if (ankleL >= 0 && ankleR >= 0) knots[ankleR][k] = knots[ankleL][k];
   }
   return knots;
 }
@@ -656,10 +789,11 @@ export function symmetrizeKnots(knots) {
 // every one written before phrasing was searchable, including the stored
 // artifacts -- decodes exactly as it did, with fracs null.
 // nStart says whether the vector carries a START POSE on the end -- the NJ
-// joint angles the body begins in -- which it does when the reader has
-// unlocked it. It has to be told rather than inferred: the interior instants
-// are also an optional tail, and a vector carrying one is exactly as long as
-// a vector carrying some of the other.
+// joint angles the body begins in, and the three base coordinates after them
+// when the technique's hands are not on the floor -- which it does when the
+// reader has unlocked it. It has to be told rather than inferred: the interior
+// instants are also an optional tail, and a vector carrying one is exactly as
+// long as a vector carrying some of the other.
 export function decodeDecision(x, K, nStart = 0) {
   const knots = [];
   for (let j = 0; j < NJ; j++) knots.push(x.slice(j * K, (j + 1) * K));
@@ -682,7 +816,7 @@ export function encodeDecision(knots0, T, fracs = null, start = null) {
   const knots = widenKnots(knots0);
   const K = knots[0].length;
   const nTimes = fracs ? Math.max(0, K - 2) : 0;
-  const nStart = start ? NJ : 0;
+  const nStart = start ? start.length : 0;
   const x = new Float64Array(NJ * K + 1 + nTimes + nStart);
   for (let j = 0; j < NJ; j++) x.set(knots[j], j * K);
   x[NJ * K] = T;
@@ -691,25 +825,36 @@ export function encodeDecision(knots0, T, fracs = null, start = null) {
   return x;
 }
 
+// How many numbers a searchable start pose is: the joints, and the three base
+// coordinates as well once the technique has let go of the floor.
+export function startChannels(freeBase = false) { return NJ + (freeBase ? 3 : 0); }
+
 // The pose the body begins in, as a full configuration, from whatever the
-// search has to say about its joints.
+// search has to say about it.
 //
-// Only the JOINTS are searched. Where the body stands is not a free parameter
-// -- runScenario grounds the hand and lifts the feet clear whatever it is
-// handed -- so the base coordinates come from the pose the technique already
-// had, or from the one its scenario solves when it never had one.
-export function startPoseJoints(model, ws, scenario, rom, q0Given) {
+// The joints are always searched. WHERE THE BODY STANDS is searched only when
+// the technique's start is not grounded: a technique that begins on its hands
+// has its base solved for it -- the hand flat on the floor at the origin --
+// and there is nothing there for a search to choose. One that has let go of
+// the floor has three real degrees of freedom, and they ride along on the end.
+export function startPoseJoints(model, ws, scenario, rom, q0Given, freeBase = false) {
   const base = q0Given ? Float64Array.from(q0Given) : scenarioStart(model, ws, scenario, rom).q0;
-  return Float64Array.from({ length: NJ }, (_, j) => base[3 + j]);
+  const out = new Float64Array(startChannels(freeBase));
+  for (let j = 0; j < NJ; j++) out[j] = base[3 + j];
+  if (freeBase) { out[NJ] = base[0]; out[NJ + 1] = base[1]; out[NJ + 2] = base[2]; }
+  return out;
 }
 
 export function startPoseFrom(model, ws, scenario, rom, q0Given, angles, symmetric = false) {
   const q = Float64Array.from(q0Given || scenarioStart(model, ws, scenario, rom).q0);
   if (!angles) return q;
   for (let j = 0; j < NJ; j++) q[3 + j] = angles[j];
+  if (angles.length >= NJ + 3) { q[0] = angles[NJ]; q[1] = angles[NJ + 1]; q[2] = angles[NJ + 2]; }
   // The mirror applies to the start for the same reason it applies to a knot:
   // a symmetric skill whose two legs begin differently is not the skill.
-  if (symmetric) { q[QI.hipR] = q[QI.hipL]; q[QI.kneeR] = q[QI.kneeL]; }
+  if (symmetric) {
+    q[QI.hipR] = q[QI.hipL]; q[QI.kneeR] = q[QI.kneeL]; q[QI.ankleR] = q[QI.ankleL];
+  }
   return q;
 }
 
@@ -856,7 +1001,7 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // two key poses sit a tenth of a second apart is scored as one that spaces
   // them evenly. Null is the even spacing.
   knotFracs = null,
-  // Poses held by hand: locks[k] is the six angles pose k is pinned to, or a
+  // Poses held by hand: locks[k] is the NJ angles pose k is pinned to, or a
   // falsy entry for one the search may move. This is the same mechanism as
   // pinFinal, which is simply the ending pose being permanently locked.
   locks = null,
@@ -875,6 +1020,11 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // different problems wearing the same knots, and its answer nose-dives the
   // moment it is played back.
   q0 = null,
+  // Whether the technique's start has its hands on the floor. The default is
+  // the only thing every technique here has ever done; false says the pose is
+  // wherever it stands, which is what lets a technique begin in the air, on
+  // its feet, or halfway through a rotation.
+  startGrounded = true,
   // Whether the start pose is the search's to choose. Off, q0 above is where
   // the body begins and nothing moves it. On, the decision vector carries the
   // start's joint angles on its end and they win -- which is the only way the
@@ -889,7 +1039,8 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   target = null,
 } = {}) {
   const sym = symmetric ?? SYMMETRIC_SCENARIOS.has(scenario);
-  const { knots, T, fracs, start } = decodeDecision(x, K, freeStart ? NJ : 0);
+  const { knots, T, fracs, start } = decodeDecision(x, K,
+    freeStart ? startChannels(!startGrounded) : 0);
   const q0Used = start ? startPoseFrom(model, ws, scenario, rom, q0, start, sym) : q0;
   if (sym) symmetrizeKnots(knots);
   applyLocks(knots, locks);
@@ -1068,25 +1219,40 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
   // at the settle tail.
   let replant = 0;
   const footGone = [false, false];
+  // Which contact is which comes from the MODEL. It used to be written here
+  // as 0 and 1 for the hands and 2 and 3 for the feet, which was true while
+  // each foot was a single point on the end of a welded shank; a foot that
+  // hinges has three stations, and a foot's load is all of them.
+  const handC = model.handContacts;
+  const footC = model.footContacts;
+  const sumF = (f, list) => { let t = 0; for (const i of list) t += f.fy[i] || 0; return t; };
+  // How far the whole foot is off the floor is its LOWEST station, not its
+  // toe: a foot rolled up onto the ball has its toe down and its heel a hand's
+  // width up, and it has not left.
+  const minY = (f, list) => {
+    let y = Infinity;
+    for (const i of list) if (f.py[i] !== undefined) y = Math.min(y, f.py[i]);
+    return y;
+  };
   for (let k = 0; k < kEnd; k++) {
     const f = rec.forces[k];
     if (f) {
-      const handF = f.fy[0] + f.fy[1];
+      const handF = sumF(f, handC);
       const def = Math.max(0, 0.1 * W - handF) / (0.1 * W);
       liftoff += def * def;
       for (let s = 0; s < 2; s++) {
-        const c = 2 + s;
-        if (f.py[c] === undefined) continue;
-        if (!footGone[s] && f.py[c] > TOE_CLEAR_M) footGone[s] = true;
+        const lowest = minY(f, footC[s]);
+        if (!Number.isFinite(lowest)) continue;
+        if (!footGone[s] && lowest > TOE_CLEAR_M) footGone[s] = true;
         // Capped: a foot is either back on the floor or it is not, and how
         // HARD it lands is not the question. Uncapped, this squared force
         // ratio ran to ten times every other term put together on a kick-up
         // that toppled over the front, and it ran the wrong way -- the harder
         // the technique overthrew, the softer the landing and the cheaper the
         // score, so the search read "throw harder" all the way out.
-        if (footGone[s]) replant += Math.min(1, (f.fy[c] / (0.1 * W)) ** 2);
+        if (footGone[s]) replant += Math.min(1, (sumF(f, footC[s]) / (0.1 * W)) ** 2);
       }
-      const footF = (f.fy[2] || 0) + (f.fy[3] || 0);
+      const footF = sumF(f, footC[0]) + sumF(f, footC[1]);
       if (rec.t[k] >= settleStart) feet += (footF / (0.2 * W)) ** 2;
     }
     if (rec.t[k] >= settleStart) {
@@ -1146,9 +1312,9 @@ export function rolloutCost(model, ws, strengthProf, rom, scenario, x, {
     let closest = Infinity;
     for (let k = 0; k < rec.t.length; k++) {
       const f = rec.forces[k];
-      if (f && (f.fy[2] || 0) + (f.fy[3] || 0) > 0.05 * W) continue;
+      if (f && sumF(f, footC[0]) + sumF(f, footC[1]) > 0.05 * W) continue;
       const q = rec.q[k];
-      const open = Math.max(0, Math.abs(q[4]) - openScale) / openScale;
+      const open = Math.max(0, Math.abs(q[QI.shoulder]) - openScale) / openScale;
       const kneeFlex = 0.5 * (-q[QI.kneeL] + -q[QI.kneeR]);
       const bent = Math.max(0, bentScale - kneeFlex) / bentScale;
       const over = (rec.com[k][0] - (q[0] + patchTarget)) / TUCK_PHASE.overHandM;
@@ -1592,7 +1758,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   dt = numerics?.dt ?? NUMERICS_DEFAULTS.dt,
   freeTimes = false, timeLocks = null, timeStepScale = TIME_STEP_SCALE,
   tLo = 0.6, tHi = 3.0, t0 = 1.4, robust = true, variants = null,
-  trustRadius = 0, q0 = null, freeStart = false, target = null,
+  trustRadius = 0, q0 = null, freeStart = false, startGrounded = true, target = null,
   onGeneration = null, onCandidate = null, objectiveBatch = null,
 } = {}) {
   let start = x0 || (() => {
@@ -1606,12 +1772,16 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     return encodeDecision(ref.knots, Math.min(Math.max(t0, tLo), tHi));
   })();
   const nTimes = freeTimes ? Math.max(0, K - 2) : 0;
-  const nStart = freeStart ? NJ : 0;
-  const bounds = decisionBounds(K, { tLo, tHi, rom, locks, freeTimes, timeLocks, freeStart });
+  const freeBase = !startGrounded;
+  const nStart = freeStart ? startChannels(freeBase) : 0;
+  const startBase = freeBase
+    ? (q0 || scenarioStart(model, ws, scenario, rom).q0).slice(0, 3) : null;
+  const bounds = decisionBounds(K, { tLo, tHi, rom, locks, freeTimes, timeLocks,
+    freeStart, freeBase, startBase });
   // Where the start pose begins the search: the one the technique carries, or
   // the one its scenario solves when it carries none. Same rule as x0 itself
   // -- turning something loose starts it where it already was.
-  const start0 = freeStart ? startPoseJoints(model, ws, scenario, rom, q0) : null;
+  const start0 = freeStart ? startPoseJoints(model, ws, scenario, rom, q0, freeBase) : null;
   // A vector handed in from before phrasing was searchable -- a stored
   // technique, a warm start from an earlier run -- is short by the interior
   // instants. It gets them from the phrasing it was going to be scored under,
@@ -1637,9 +1807,14 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // either reading is defensible.
   const nTail = Math.max(0, start.length - (NJ * K + 1));
   const nT = Math.max(0, K - 2);
-  const hadTimes = nT > 0 && (nTail === nT + NJ || (nTail === nT && (nT !== NJ || freeTimes)));
-  const hadStart = nTail === nT + NJ ? nT > 0
-    : nTail === NJ && (nT !== NJ || !freeTimes);
+  // How long a start tail is on THIS run: the joints, plus the base when the
+  // technique's hands are not on the floor. Written as NJ throughout, this
+  // read a free-base vector's last NJ entries -- which are the last eight
+  // joints and the three base coordinates -- as if they were the start pose.
+  const nS = nStart || startChannels(freeBase);
+  const hadTimes = nT > 0 && (nTail === nT + nS || (nTail === nT && (nT !== nS || freeTimes)));
+  const hadStart = nTail === nT + nS ? nT > 0
+    : nTail === nS && (nT !== nS || !freeTimes);
   if (start.length !== n) {
     const fitted = new Float64Array(n);
     for (let i = 0; i < NJ * K + 1; i++) fitted[i] = start[i];
@@ -1655,7 +1830,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     // carried one -- from the END of it, which is where a start tail lives --
     // otherwise from the technique's own start.
     for (let j = 0; j < nStart; j++) {
-      fitted[NJ * K + 1 + nTimes + j] = hadStart ? start[start.length - NJ + j] : start0[j];
+      fitted[NJ * K + 1 + nTimes + j] = hadStart ? start[start.length - nS + j] : start0[j];
     }
     // Longer than the bounds is the dangerous direction: cmaes sizes itself
     // from x0 and would read past bounds.lo/hi into undefined, which clamps
@@ -1686,7 +1861,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
   // records the trajectory. onCandidate hands that recording to the caller
   // instead of dropping it, which is what lets a live view draw a whole
   // generation without simulating anything twice.
-  const costOpts = { K, dt, weights, q0, freeStart, target, plant, knotFracs, locks, timeLocks,
+  const costOpts = { K, dt, weights, q0, freeStart, startGrounded, target, plant, knotFracs, locks, timeLocks,
     numerics, symmetric, ...(variants ? { variants } : {}) };
   const scored = onCandidate
     ? (x) => {
@@ -1718,7 +1893,7 @@ export async function optimizeScenario(model, ws, strengthProf, rom, {
     // The same dt the generations ran at, which is the technique's. This said
     // 2e-4 outright -- a number left behind when the default moved, and a
     // third opinion about the one thing search and playback have to share.
-    { K, dt, weights, q0, freeStart, target, plant, knotFracs, locks,
+    { K, dt, weights, q0, freeStart, startGrounded, target, plant, knotFracs, locks,
       timeLocks, numerics, symmetric });
   // Return knots with the final knot pinned (as they were scored), so
   // presets and replays inherit the parked ending.
@@ -1834,6 +2009,11 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     jitterSeed = 1,
     balance = true,
     rom = ROM_DEFAULTS,
+    // Whether the start pose stands on its hands. True for every technique
+    // this notebook has held until now, and the reason `groundHand` reads as
+    // an unconditional fact of the model rather than a choice a technique
+    // makes.
+    startGrounded = true,
   } = opts;
   const solvedStart = scenarioStart(model, ws, scenario, rom, { tuckLoadFrac, tuckKneeDeg });
   // A body that begins with a toe through the floor is a contact explosion, so
@@ -1848,7 +2028,16 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   // names a knee folded most of a turn the wrong way. Replayed literally,
   // the servo unwinds it and throws the body off the floor; clamped, the
   // pose is the one that was meant.
-  const q0 = q0Given ? clearFeet(model, ws, clampToRom(Float64Array.from(q0Given), rom)) : solvedStart.q0;
+  const q0 = q0Given
+    ? (startGrounded
+      // Grounded: the palm is flat on the floor at the origin, whatever the
+      // stored base coordinates happen to say, and a foot through the floor is
+      // lifted by unfolding that leg's hip.
+      ? clearFeet(model, ws, groundHand(model, clampToRom(Float64Array.from(q0Given), rom)))
+      // Free: the base IS the pose. Nothing is grounded and no joint is bent
+      // to clear the floor; the body is simply raised if it began inside it.
+      : liftClear(model, ws, clampToRom(Float64Array.from(q0Given), rom)))
+    : solvedStart.q0;
   let qd0 = q0Given ? null : solvedStart.qd0;
   if (qdJitter > 0) {
     const rand = mulberry32(jitterSeed);
@@ -1890,7 +2079,7 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   const Wbody = model.massKg * model.gravity;
   const xTargetLocal = model.patch.x0 + HANDSTAND_TARGET_FRAC * (model.patch.x1 - model.patch.x0);
   const augment = balance ? (t, q, qd, des) => {
-    const handF = contacts.ext.fy[0] + contacts.ext.fy[1];
+    const handF = model.handContacts.reduce((t, i) => t + contacts.ext.fy[i], 0);
     const gain = Math.min(1, handF / (0.6 * Wbody));
     if (gain <= 0) return;
     const mo = momenta(model, q, qd, ws);
@@ -1936,7 +2125,8 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   for (let j = 3; j < 3 + NJ; j++) { const d = out.q[j] - qBal[j]; angSum += d * d; }
   const posed = Math.sqrt(angSum / NJ) < 12 * D2R;
   const W = mo.mass * model.gravity;
-  const feetFree = (contacts.ext.fy[2] + contacts.ext.fy[3]) < 0.05 * W;
+  const feetFree = model.footContacts
+    .reduce((t, list) => t + list.reduce((u, i) => u + contacts.ext.fy[i], 0), 0) < 0.05 * W;
   return {
     ...out, contacts, servo, stops, knots: ref, T, settleT, plant,
     // Reported like the plant and the body: what this rollout actually

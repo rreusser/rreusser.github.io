@@ -103,7 +103,8 @@ function tube(stations, capProx = 0, capDist = 0) {
 }
 
 export function buildSilhouette({
-  Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lth, Lsh, toeX }) {
+  Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Lua, Larm, Lhn,
+  Ltr, Lth, Lsh, Lft, Lfoot, heelPt, ballPt }) {
   const s = SHAPE[sex] || SHAPE.male;
   const f = (v) => v * H;
 
@@ -118,15 +119,20 @@ export function buildSilhouette({
     [patchTipX, -hw + f(0.005)], [patchTipX, -hw],
   ]];
 
-  // Arm: both arms merged, wrist to shoulder, with the forearm swell just
-  // past the wrist and the bicep short of the shoulder.
-  const arm = [smoothClosed(tube([
+  // Arm: both arms merged, in two tubes cut at the elbow. Same stations the
+  // single wrist-to-shoulder tube had; both ends at the cut are rounded, which
+  // is what lets the pair stay one continuous shape through a bent elbow
+  // instead of scissoring open on the outside of the bend.
+  const forearm = [smoothClosed(tube([
     [0, f(s.wrist), f(s.wrist)],
     [0.32 * Lfa, f(s.elbow) * 0.98, f(s.elbow) * 0.92],
     [Lfa, f(s.elbow) * 0.92, f(s.elbow) * 0.92],
-    [Lfa + 0.42 * (Larm - Lfa), f(s.bicep), f(s.bicep) * 0.92],
-    [Larm, f(s.shoulder), f(s.shoulder)],
-  ], 0, 0.55))];
+  ], 0, 0.75))];
+  const upperArm = [smoothClosed(tube([
+    [0, f(s.elbow) * 0.92, f(s.elbow) * 0.92],
+    [0.42 * Lua, f(s.bicep), f(s.bicep) * 0.92],
+    [Lua, f(s.shoulder), f(s.shoulder)],
+  ], 0.75, 0.55))];
 
   // The torso is TWO bodies now, hinged at the spine, so it is drawn as two
   // tubes cut at that hinge. The stations are the same ones the single tube
@@ -180,30 +186,53 @@ export function buildSilhouette({
     [Lth, f(s.knee), f(s.knee) * 0.94],
   ], 0.55, 0.60))];
 
-  // Shank with the foot folded in, matching the way the model itself lumps
-  // them: calf on the posterior side, then a pointed foot along +x.
+  // Shank: calf on the posterior side, ending at the ankle. The foot used to
+  // be drawn on the end of this as a taper, because the model welded it here.
   const shank = [smoothClosed(tube([
     [0, f(s.knee), f(s.knee) * 0.94],
     [0.28 * Lsh, f(s.calfA), f(s.calfP)],
     [0.72 * Lsh, f(s.ankle) * 1.35, f(s.calfP) * 0.52],
     [Lsh, f(s.ankle), f(s.ankle) * 1.25],
-    [Lsh + 0.45 * (toeX - Lsh), f(s.footTop) * 0.75, f(s.footSole) * 0.85],
-    [toeX, f(0.009), f(0.009)],
-  ], 0.60, 0))];
+  ], 0.60, 0.70))];
 
-  // Body order, which is the model's: hand, arm, chest, pelvis, both legs,
-  // then the head hanging off the chest. The neck and skull are already
-  // written relative to the shoulder, which is exactly the head body's own
-  // origin, so they move across unchanged.
+  // Foot, in its own frame: +x from the ankle to the tip of the pointed toe,
+  // +y the top of the foot. Drawn as a polygon rather than a tube because it
+  // is the one segment that is not a rod about its own axis -- the heel juts
+  // back and down off the ankle, and the sole is a straight line from that
+  // heel to the toe while the top is a curve over the instep.
+  const fhx = heelPt[0], fhy = heelPt[1], fbx = ballPt[0], fby = ballPt[1];
+  const lerp2 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  // The sole runs heel -> ball -> toe; the instep is the same line pushed out
+  // along the foot's own +y by the thickness of the foot at each station.
+  const up = (p, t) => [p[0], p[1] + f(t)];
+  const foot = [smoothClosed([
+    up([fhx, fhy], s.ankle * 1.5),                     // back of the heel, high
+    up(lerp2(heelPt, ballPt, 0.35), s.footTop * 1.30), // the instep
+    up(lerp2(heelPt, ballPt, 0.80), s.footTop * 1.05),
+    up([fbx, fby], s.footTop * 0.72),                  // over the knuckles
+    [Lft, f(0.008)],                                   // the toe
+    [Lft, -f(0.006)],
+    [fbx, fby],                                        // and back along the sole
+    lerp2(heelPt, ballPt, 0.45),
+    [fhx, fhy],
+  ], 5)];
+
+  // Body order, which is the model's: hand, forearm, upper arm, chest, pelvis,
+  // both legs down to their feet, then the head hanging off the chest. The
+  // neck and skull are already written relative to the shoulder, which is
+  // exactly the head body's own origin, so they move across unchanged.
   return [
     hand,
-    arm,
+    forearm,
+    upperArm,
     [chest],
     [pelvis],
     thigh,
     shank,
+    foot,
     thigh,
     shank,
+    foot,
     [neck, skull],
   ];
 }

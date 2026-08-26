@@ -384,9 +384,19 @@ gate('B. and never disagree about arrival', verdictSplits === 0,
   const r = await optimizeScenario(m.model, m.ws, m.prof, sa.rom, {
     ...sa, maxGen: 1, sigma0: 0.01, robust: false,
   });
+  // Including the START the search settled on. This gate is about the page
+  // reproducing what the search reports, and when the start is unlocked the
+  // search reports one -- adopting the knots and leaving the start behind
+  // replays a different problem. It went unnoticed while a one-generation
+  // search moved the start too little to see; a technique the search wants to
+  // start differently makes it centimetres.
   const replay = runScenario(m.model, m.ws, m.prof, {
     ...techniqueRunArgs(rec, m.model, m.ws),
     knots: r.decoded.knots, T: r.decoded.T,
+    q0: r.decoded.q0 || rec.q0 || null,
+    // And the phrasing, for the same reason: when the instants are the
+    // search's, the search reports those too.
+    knotFracs: r.decoded.fracs ? Array.from(r.decoded.fracs) : (rec.knotFracs || null),
   });
   const c = r.finalCheck.rec.com[r.finalCheck.rec.com.length - 1];
   const d = replay.rec.com[replay.rec.com.length - 1];

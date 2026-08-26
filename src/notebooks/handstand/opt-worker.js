@@ -12,7 +12,7 @@ import {
 import {
   optimizeScenario, catchWindow, COST_WEIGHTS, decodeDecision, plantFor,
   balancedHandstand, symmetrizeKnots, SYMMETRIC_SCENARIOS, NUMERICS_DEFAULTS, applyLocks,
-  applyTimeLocks, startPoseFrom,
+  applyTimeLocks, startPoseFrom, startChannels,
 } from './rollout.js';
 
 // A pool of nested evaluation workers, so a generation is spread across
@@ -126,7 +126,11 @@ async function handle(msg) {
     const { model, ws, prof } = setupFor(rec);
     // How many joints ride on the end of a decision vector when the start pose
     // is being searched. Read off the technique rather than written down.
-    const dec8 = rec.knots.length;
+    // How many numbers the start pose on the end of a decision vector is.
+    // Written as the technique's channel count, which was the same number
+    // while a start pose was only its joints; a start that has let go of the
+    // floor carries where the body stands as well.
+    const nStartCh = startChannels(rec.startGrounded === false);
     const rom = sa.rom;
     // Candidates of the generation being evaluated right now, as the
     // recordings scoring already made, thinned to something a canvas can
@@ -141,13 +145,18 @@ async function handle(msg) {
       // sa.dt, not a default and not anything the message carries: the
       // technique decides how it is integrated. See techniqueSearchArgs.
       scenario: sa.scenario, K: sa.K, dt: sa.dt,
-      weights: msg.weights,
+      // The technique's own weights first, then anything the message asks
+      // for on top. sa.weights is already COST_WEIGHTS with the technique's
+      // overrides applied -- which is where "the hands may leave the floor"
+      // lives -- so taking msg.weights alone here scored the pool workers on a
+      // different objective from the one this worker reports.
+      weights: { ...sa.weights, ...(msg.weights || {}) },
       modelParams: techniqueModelParams(rec),
       strengthOpts: techniqueStrengthOpts(rec),
       romOverrides: rom,
       q0: sa.q0, target: sa.target, plant: sa.plant,
       knotFracs: sa.knotFracs, locks: sa.locks,
-      timeLocks: sa.timeLocks, freeStart: sa.freeStart,
+      timeLocks: sa.timeLocks, freeStart: sa.freeStart, startGrounded: sa.startGrounded,
       numerics: sa.numerics, symmetric: sa.symmetric,
     }, Math.max(1, Math.min(12, cores - 1)));
     self.postMessage({ type: 'pool', size: pool ? pool.size : 1 });
@@ -169,7 +178,7 @@ async function handle(msg) {
       // No dt here. It arrives in ...sa, from the technique, and an override
       // on this line is exactly how the search came to be integrating one
       // thing while the figure replayed another.
-      weights: { ...COST_WEIGHTS, ...(msg.weights || {}) },
+      weights: { ...sa.weights, ...(msg.weights || {}) },
       onGeneration: (g) => {
         if (g.gen % 2 === 0 || g.gen === sa.maxGen - 1) {
           // The incumbent has to be finished the same way a completed run's
@@ -177,7 +186,7 @@ async function handle(msg) {
           // was never scoring: an unpinned final knot the settle phase then
           // has to fight, and, for a symmetric skill, whatever the untouched
           // right-leg parameters happen to say. Stop, save, and it fell over.
-          const dec = decodeDecision(g.bestX, sa.K, sa.freeStart ? dec8 : 0);
+          const dec = decodeDecision(g.bestX, sa.K, sa.freeStart ? nStartCh : 0);
           if (sa.symmetric ?? SYMMETRIC_SCENARIOS.has(sa.scenario)) symmetrizeKnots(dec.knots);
           applyLocks(dec.knots, sa.locks);
           if (dec.fracs) applyTimeLocks(dec.fracs, sa.timeLocks);

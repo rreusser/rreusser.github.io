@@ -32,8 +32,9 @@ import { ROM_DEFAULTS } from '../statics.js';
 import {
   encodeDecision, decodeDecision, rolloutCost, optimizeScenario, runScenario,
   kickReference, KICK_T, startPoseJoints, startPoseFrom, decisionBounds, NJ,
+  scenarioStart, startChannels, JOINT_KEYS,
 } from '../rollout.js';
-import { techniqueSearchArgs } from '../technique-file.js';
+import { techniqueSearchArgs, techniqueToJSON, techniqueFromJSON } from '../technique-file.js';
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -92,7 +93,11 @@ const { knots, target } = kickReference(model, ws, K, rom);
   const solved = startPoseJoints(model, ws, 'lunge', rom, null);
   // A start with the stance hip a good way from where the scenario solves it.
   const moved = Float64Array.from(solved);
-  moved[3] = solved[3] - 25 * D2R;   // hipL, in JOINT_KEYS order
+  // The stance hip, BY NAME. Written as index 3 -- "hipL, in JOINT_KEYS order"
+  // -- it was hipL for exactly as long as the body had eight joints; on the
+  // articulated one index 3 is the spine, whose range is a third as wide, so
+  // the gate went on perturbing something and quietly stopped perturbing a hip.
+  moved[JOINT_KEYS.indexOf('hipL')] = solved[JOINT_KEYS.indexOf('hipL')] - 25 * D2R;
   const x = encodeDecision(knots, KICK_T, null, moved);
   const c = rolloutCost(model, ws, prof, rom, 'lunge', x,
     { K, dt: 5e-4, target, freeStart: true });
@@ -212,6 +217,101 @@ const { knots, target } = kickReference(model, ws, K, rom);
     + `(${b[0].toFixed(4)}, ${b[1].toFixed(4)}) replayed`);
   gate('and it agrees about whether the technique arrives',
     !!r.finalCheck.verdict?.success === !!replay.verdict?.success);
+}
+
+// ---------------------------------------------------------------------------
+// The hands off the floor.
+//
+// A start pose used to be joint angles and nothing else, because runScenario
+// put the palm flat on the floor at the origin whatever it was handed. That is
+// a property of the techniques this notebook happened to hold, not of
+// handstands: a technique may begin in the air, on its feet, or part way
+// through a rotation, and when it does, WHERE the body stands is part of it.
+//
+// Four things have to be true for that to be a real degree of freedom rather
+// than a field nobody reads: the base survives the round trip into a run, it
+// is NOT respected when the technique says it is grounded, the decision vector
+// grows by exactly three when it is free, and the search actually moves it.
+// ---------------------------------------------------------------------------
+{
+  const solvedQ0 = scenarioStart(model, ws, 'lunge', rom).q0;
+  const lifted = Float64Array.from(solvedQ0);
+  lifted[0] = 0.22;                    // a fifth of a metre along the floor
+  lifted[1] = solvedQ0[1] + 0.35;      // and a third of a metre above it
+  lifted[2] = 18 * D2R;                // leaning
+
+  const freeRun = runScenario(model, ws, prof, {
+    scenario: 'lunge', knots, T: KICK_T, target, rom, dt: 5e-4, settleT: 0.4,
+    q0: lifted, startGrounded: false,
+  });
+  const g = freeRun.rec.q[0];
+  gate('a start that has let go of the floor begins where it says it does',
+    Math.abs(g[0] - lifted[0]) < 1e-9 && Math.abs(g[1] - lifted[1]) < 1e-9
+    && Math.abs(g[2] - lifted[2]) < 1e-9,
+    `asked for (${lifted[0].toFixed(3)}, ${lifted[1].toFixed(3)}, `
+    + `${(lifted[2] / D2R).toFixed(1)} deg), began at (${g[0].toFixed(3)}, `
+    + `${g[1].toFixed(3)}, ${(g[2] / D2R).toFixed(1)} deg)`);
+
+  const groundedRun = runScenario(model, ws, prof, {
+    scenario: 'lunge', knots, T: KICK_T, target, rom, dt: 5e-4, settleT: 0.4,
+    q0: lifted, startGrounded: true,
+  });
+  const h = groundedRun.rec.q[0];
+  gate('and the same pose grounded is put back on the floor at the origin',
+    Math.abs(h[0]) < 1e-12 && Math.abs(h[1] - model.wristHeight) < 1e-12
+    && Math.abs(h[2]) < 1e-12,
+    `began at (${h[0].toFixed(3)}, ${h[1].toFixed(3)}, ${(h[2] / D2R).toFixed(1)} deg)`);
+
+  // Nothing may start THROUGH the floor, free base or not -- a contact point
+  // below the ground is a penalty spring firing a large impulse at t = 0. A
+  // grounded start unfolds a hip to clear it; a free one has somewhere else to
+  // go, so it goes up, and the pose is untouched.
+  const sunk = Float64Array.from(lifted);
+  sunk[1] = -0.3;
+  const sunkRun = runScenario(model, ws, prof, {
+    scenario: 'lunge', knots, T: KICK_T, target, rom, dt: 5e-4, settleT: 0.4,
+    q0: sunk, startGrounded: false,
+  });
+  const s0 = sunkRun.rec.q[0];
+  const sameJoints = Math.max(...Array.from({ length: NJ },
+    (_, j) => Math.abs(s0[3 + j] - sunk[3 + j])));
+  gate('a free start below the floor is lifted, not folded',
+    s0[1] > sunk[1] && sameJoints < 1e-12,
+    `raised ${((s0[1] - sunk[1]) * 1000).toFixed(0)} mm, joints moved `
+    + `${(sameJoints / D2R).toFixed(3)} deg`);
+
+  // And the decision vector: three more channels, bounded around where the
+  // technique already stands rather than around the whole room.
+  const nGrounded = decisionBounds(K, { rom, freeStart: true }).lo.length;
+  const nFree = decisionBounds(K, { rom, freeStart: true, freeBase: true,
+    startBase: [lifted[0], lifted[1], lifted[2]] }).lo.length;
+  gate('a free base is exactly three more decisions', nFree - nGrounded === 3,
+    `${nGrounded} grounded, ${nFree} free`);
+  const bFree = decisionBounds(K, { rom, freeStart: true, freeBase: true,
+    startBase: [lifted[0], lifted[1], lifted[2]] });
+  const base0 = NJ * K + 1 + NJ;
+  gate('and its box is around the start, not the room',
+    bFree.lo[base0] < lifted[0] && bFree.hi[base0] > lifted[0]
+    && bFree.lo[base0 + 1] >= 0 && bFree.hi[base0 + 2] > lifted[2],
+    `x in [${bFree.lo[base0].toFixed(2)}, ${bFree.hi[base0].toFixed(2)}], `
+    + `y in [${bFree.lo[base0 + 1].toFixed(2)}, ${bFree.hi[base0 + 1].toFixed(2)}]`);
+
+  // The round trip, which is what makes it part of the TECHNIQUE rather than a
+  // runtime argument: saved and read back, a free start still stands where it
+  // stood.
+  const rec = techniqueFromJSON(techniqueToJSON({
+    label: 'free', scenario: 'lunge', knots, T: KICK_T, q0: lifted, target,
+    rom, startHeld: false, startGrounded: false, symmetric: false,
+    knotFracs: null, held: null, timeHeld: null,
+  }));
+  gate('and it survives the round trip through a file',
+    rec.startGrounded === false && Math.abs(rec.q0[1] - lifted[1]) < 1e-12,
+    `startGrounded ${rec.startGrounded}, y ${rec.q0[1].toFixed(4)}`);
+  const sa = techniqueSearchArgs(rec);
+  gate('and the search is handed a vector with the base on the end',
+    sa.startGrounded === false
+    && sa.x0.length === NJ * K + 1 + startChannels(true),
+    `x0 is ${sa.x0.length} long, base at ${sa.x0[sa.x0.length - 2].toFixed(3)}`);
 }
 
 console.log(failures ? `\n${failures} GATE(S) FAILED` : '\nALL GATES PASS');

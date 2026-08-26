@@ -42,8 +42,9 @@ const R2D = 180 / Math.PI;
 // what a hand-written table does the first time a joint is inserted in the
 // middle of the order.
 const JOINT_LABELS = {
-  wrist: 'wrist', shoulder: 'shoulder', spine: 'spine', neck: 'neck',
-  hipL: 'hip L', kneeL: 'knee L', hipR: 'hip R', kneeR: 'knee R',
+  wrist: 'wrist', elbow: 'elbow', shoulder: 'shoulder', spine: 'spine', neck: 'neck',
+  hipL: 'hip L', kneeL: 'knee L', ankleL: 'ankle L',
+  hipR: 'hip R', kneeR: 'knee R', ankleR: 'ankle R',
 };
 export const JOINTS = JOINT_ORDER.map((name, j) => ({ j, qi: 3 + j, label: JOINT_LABELS[name] || name }));
 
@@ -141,7 +142,7 @@ export function requestPose(model, knots, T, t, out, fracs = null) {
 // nonsingular, so they are the unique minimizer.
 export function resampleKnots(knots0, T, newK, fracs = null) {
   // Widened here too: a refit is asked for on whatever the page is holding,
-  // and a stored technique arrives with six channels.
+  // and a stored technique may arrive at any width this notebook has written.
   const knots = widenKnots(knots0);
   const K = Math.max(1, Math.round(newK));
   // The OLD curve is read with the phrasing it was authored in; the new one

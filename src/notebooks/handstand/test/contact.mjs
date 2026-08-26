@@ -25,8 +25,10 @@ import { createServo } from '../control.js';
 import { builtinPresets } from '../presets.js';
 import { techniqueRunArgs } from '../technique-file.js';
 import {
-  balancedHandstand, HANDSTAND_TARGET_FRAC, PLANT_DEFAULTS, LEGACY_PLANT, runScenario,
+  balancedHandstand, HANDSTAND_TARGET_FRAC, PLANT_DEFAULTS, LEGACY_PLANT, runScenario, NJ, JOINT_KEYS,
 } from '../rollout.js';
+// The q index of each joint, by name -- the same table the modules build.
+const QI = Object.fromEntries(JOINT_KEYS.map((n, j) => [n, 3 + j]));
 
 let failures = 0;
 function gate(name, ok, detail) {
@@ -146,15 +148,23 @@ function blockModel() {
 // D3 is the fix for both, and pins a second physical threshold found while
 // tuning: servo stiffness must comfortably exceed the gravitational
 // geometric stiffness W*h ~ 700 Nm/rad, or torque sag feeds back into CoM
-// displacement and the body creeps over the fingertips (kp = 1500 still
-// falls; kp = 3000 stands). With implicit damping, kp = 3000, and the pose
-// balanced over mid-patch, the model stands 3 s with GRF = body weight.
+// displacement and the body creeps over the fingertips. With implicit
+// damping and the pose balanced over mid-patch, the model stands 3 s with
+// GRF = body weight.
+//
+// The threshold is a property of the CHAIN, not of one joint, and it doubled
+// when the arm gained an elbow and the legs gained feet. Springs in series are
+// softer than any one of them, so the same column held by eleven joints at kp
+// sags twice as far as the same column held by eight. Swept on today's body:
+// kp = 3000 falls (1183 mm of drift, the old threshold exactly); kp = 6000
+// stands with 30 mm; 10000 with 9 mm; 20000 with 1 mm. This is a demonstration
+// of a threshold, so it is pinned just above it rather than comfortably above.
 // ---------------------------------------------------------------------------
 {
   const model = buildModel({ heightM: 1.75, massKg: 70 });
   const ws = createWorkspace(model);
   const W = model.massKg * model.gravity;
-  const kp = 3000, kd = 150;
+  const kp = 6000, kd = 150;
   const damping = new Float64Array(model.nq);
   for (let j = 3; j < 3 + model.nj; j++) damping[j] = kd;
 
@@ -227,10 +237,13 @@ function blockModel() {
   // a press with no trajectory in it, so what is measured is the servo.
   const pressIn = (openDeg, cfg) => {
     const q0 = Float64Array.from(qBal);
-    q0[4] += openDeg * D2R;
+    // The SHOULDER, by name. As a literal 4 this opened the elbow the moment
+    // the arm gained one, and then measured the elbow's arrival while the
+    // prose talked about a shoulder pressing to vertical.
+    q0[QI.shoulder] += openDeg * D2R;
     q0[3] = solveWristForCom(model, q0, ws, xTarget);
     const knots = [];
-    for (let j = 0; j < 6; j++) knots.push(Float64Array.of(qBal[3 + j], qBal[3 + j]));
+    for (let j = 0; j < NJ; j++) knots.push(Float64Array.of(qBal[3 + j], qBal[3 + j]));
     const servo = createServo(model, prof, { kp: 800, kd: 60, ws, activationTau: 0.05, ...cfg });
     const contacts = createContacts(model);
     const augment = (t, q, qd, des) => {
@@ -245,7 +258,7 @@ function blockModel() {
       control: servo.makeControl(knots, 1e-3, augment),
     });
     const rec = out.rec;
-    const err = (k) => rec.q[k][4] - qBal[4];
+    const err = (k) => rec.q[k][QI.shoulder] - qBal[QI.shoulder];
     // Arrival is reaching the pose, not crossing it: a servo that stops
     // exactly on target never changes sign, which is the whole point.
     const inbound = Math.sign(err(0));

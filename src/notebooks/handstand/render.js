@@ -136,10 +136,11 @@ export function drawScene(ctx, opts) {
   // the head became its own segment -- and a hardcoded list silently stops
   // drawing whatever fell off the end of it, which is exactly what happened
   // to the head.
-  const ORDER_NAMES = ['thighL', 'shankL', 'headNeck', 'chest', 'pelvis',
-    'hand', 'arm', 'thighR', 'shankR'];
+  const ORDER_NAMES = ['thighL', 'shankL', 'footL', 'headNeck', 'chest', 'pelvis',
+    'hand', 'forearm', 'upperArm', 'thighR', 'shankR', 'footR'];
   const order = ORDER_NAMES.map((n) => model.names.indexOf(n)).filter((i) => i >= 0);
-  const farLeg = new Set([model.names.indexOf('thighL'), model.names.indexOf('shankL')]);
+  const farLeg = new Set(['thighL', 'shankL', 'footL']
+    .map((n) => model.names.indexOf(n)).filter((i) => i >= 0));
   const bg = theme ? theme.background : [1, 1, 1];
   const mix = (t) => [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * t);
   const tracePoly = (poly, c, s, px, py, keepPath = false) => {
@@ -327,6 +328,26 @@ export function drawScene(ctx, opts) {
     const ch = firstChild(b);
     handles.push(H(2 + b, ch >= 0 ? [ws.px[ch], ws.py[ch]] : tip(b), b));
   }
+  // And the BASE, when the caller says this pose is free to be anywhere. Every
+  // handle above turns one body about its parent, which is all a pose is while
+  // the palm is flat on the floor at the origin -- there is nothing to move.
+  // A pose that has let go of the floor has three more degrees of freedom, and
+  // they need two handles: one that turns the whole body about the wrist, and
+  // one that picks it up and puts it somewhere else.
+  //
+  // Joint 2 is the base ANGLE, which is a joint coordinate like any other, so
+  // the turn handle needs no special case downstream. The move handle does,
+  // and says so: `move` is the pair (q[0], q[1]) and is dragged, not rotated.
+  if (opts.baseHandles) {
+    handles.push(H(2, tip(0), 0));
+    handles.push({ joint: 0, move: true, x: toX(ws.px[0]), y: toY(ws.py[0]),
+      pivotX: toX(ws.px[0]), pivotY: toY(ws.py[0]) });
+  }
 
-  return { comX, comY, supported, handles, heelX, tipX };
+  // The pixels-per-metre the handles above are expressed in. Returned rather
+  // than re-derived by the caller: the move handle drags a body across the
+  // floor, so it needs to turn pointer pixels back into metres, and computing
+  // that a second time from the view is how the figure and the pointer come
+  // to disagree at some widths and not others.
+  return { comX, comY, supported, handles, heelX, tipX, scale };
 }

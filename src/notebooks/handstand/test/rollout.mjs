@@ -5,17 +5,17 @@
 // Run: node src/notebooks/handstand/test/rollout.mjs   (~30 s)
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
+import { PRESET_TRAJECTORIES } from '../presets.js';
+import { techniqueFromJSON, techniqueSearchArgs } from '../technique-file.js';
 import { strengthProfile } from '../strength.js';
 import { ROM_DEFAULTS, jointLimits } from '../statics.js';
 import { splineEval } from '../control.js';
 import { cmaes } from '../cma-es.js';
 import {
-  naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds, NJ, JOINT_KEYS,
-  rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS,
-  scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC, SYMMETRIC_SCENARIOS,
-  tuckPressReference, runScenario, resolveRom, ROM_VIOLATION_SCALE, KICK_T,
-  NUMERICS_DEFAULTS,
+  naiveReference, kickReference, encodeDecision, decodeDecision, decisionBounds, NJ, JOINT_KEYS, rolloutCost, optimizeScenario, catchWindow, balancedHandstand, COST_WEIGHTS, scenarioStart, HANDSTAND_TARGET_FRAC, TUCK_LOAD_FRAC, SYMMETRIC_SCENARIOS, tuckPressReference, runScenario, resolveRom, ROM_VIOLATION_SCALE, KICK_T, NUMERICS_DEFAULTS, resolveBody,
 } from '../rollout.js';
+// The q index of each joint, by name -- the same table the modules build.
+const QI = Object.fromEntries(JOINT_KEYS.map((n, j) => [n, 3 + j]));
 import { momenta, fk } from '../dynamics.js';
 
 let failures = 0;
@@ -111,8 +111,11 @@ const rom = { ...ROM_DEFAULTS };
 // ---------------------------------------------------------------------------
 {
   const qBal = balancedHandstand(model, ws);
+  // NJ, not a literal 6. As a literal this built a SIX-channel matrix, which
+  // encodeDecision then widened as the six-joint body's joint list -- so the
+  // balanced-pose angles landed on the wrong joints and the rest went to zero.
   const knots = [];
-  for (let j = 0; j < 6; j++) knots.push(new Float64Array(6).fill(qBal[3 + j]));
+  for (let j = 0; j < NJ; j++) knots.push(new Float64Array(6).fill(qBal[3 + j]));
   const c = rolloutCost(model, ws, prof, rom, 'hold', encodeDecision(knots, 1.0), {});
   gate('E: constant balanced-pose trajectory scores success',
     c.verdict.success && c.terms.pose < 0.5 && c.terms.fall === 0,
@@ -180,10 +183,13 @@ const rom = { ...ROM_DEFAULTS };
 {
   const qBal = balancedHandstand(model, ws);
   const constKnots = [], pumpKnots = [];
-  for (let j = 0; j < 6; j++) {
+  // The two HIPS are what pump, by name: as indices 2 and 4 these were the
+  // six-joint body's hipL and hipR and are the shoulder and hipL now.
+  const pumped = new Set([QI.hipL - 3, QI.hipR - 3]);
+  for (let j = 0; j < NJ; j++) {
     constKnots.push(new Float64Array(6).fill(qBal[3 + j]));
     const row = new Float64Array(6).fill(qBal[3 + j]);
-    if (j === 2 || j === 4) {
+    if (pumped.has(j)) {
       for (let k = 1; k < 5; k++) row[k] += (k % 2 ? 0.5 : -0.5);
     }
     pumpKnots.push(row);
@@ -333,6 +339,74 @@ const rom = { ...ROM_DEFAULTS };
     SYMMETRIC_SCENARIOS.has('tuck') && SYMMETRIC_SCENARIOS.has('pike')
       && Math.abs(a.cost - b.cost) < 1e-9,
     `scissored ${a.cost.toFixed(4)} vs mirrored ${b.cost.toFixed(4)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate H: the cost weights are a technique's to set.
+//
+// Every term in the score used to be a constant, and a constant is a rule --
+// the reason a technique never lifts a hand or spends the end of its range is
+// that each of those costs a fixed amount nobody could see or argue with.
+// Those are opinions about which handstands are worth finding, not facts about
+// handstands, so a technique carries the ones it disagrees with and the panel
+// puts them on sliders.
+//
+// Three things have to hold for that to be real rather than a field nobody
+// reads: a weight the technique names reaches the score, a weight it does NOT
+// name stays at the notebook's, and no weight can change the verdict -- which
+// is read off the run and takes no weights at all, so turning the whole score
+// off produces a technique that scores nothing and still says whether it got
+// there.
+// ---------------------------------------------------------------------------
+{
+  const stored = PRESET_TRAJECTORIES.lowflex;
+  const rec = techniqueFromJSON({ ...stored, format: 'handstand-technique', version: 2 });
+  const m = buildModel(resolveBody(rec.body));
+  const w2 = createWorkspace(m);
+  const p2 = strengthProfile(m.massKg, { overrides: rec.strength || {} });
+  const sa = techniqueSearchArgs(rec);
+  const score = (weights) => rolloutCost(m, w2, p2, sa.rom, sa.scenario, sa.x0, {
+    K: sa.K, dt: sa.dt, weights, q0: sa.q0, freeStart: sa.freeStart,
+    startGrounded: sa.startGrounded, target: sa.target, plant: sa.plant,
+    knotFracs: sa.knotFracs, locks: sa.locks, timeLocks: sa.timeLocks,
+    numerics: sa.numerics, symmetric: sa.symmetric,
+  });
+  const at100 = score(COST_WEIGHTS);
+  // Doubling one term doubles exactly that term's contribution and leaves the
+  // rest alone -- the terms are reported already multiplied by their weight.
+  const doubled = score({ ...COST_WEIGHTS, rom: 2 * COST_WEIGHTS.rom });
+  const others = Object.keys(at100.terms).filter((k) => k !== 'rom');
+  const drift = Math.max(...others.map((k) => Math.abs(doubled.terms[k] - at100.terms[k])));
+  gate('H: doubling a weight doubles that term and moves no other',
+    Math.abs(doubled.terms.rom - 2 * at100.terms.rom) < 1e-9 && drift < 1e-9,
+    `rom ${at100.terms.rom.toFixed(4)} -> ${doubled.terms.rom.toFixed(4)}, `
+    + `worst other term moved ${drift.toExponential(1)}`);
+
+  const off = score({ ...COST_WEIGHTS, rom: 0 });
+  gate('H2: and turning it off removes it from the total',
+    off.terms.rom === 0 && Math.abs((at100.cost - off.cost) - at100.terms.rom) < 1e-9,
+    `total ${at100.cost.toFixed(3)} -> ${off.cost.toFixed(3)}, term was `
+    + `${at100.terms.rom.toFixed(3)}`);
+
+  // A technique that carries the override is scored under it, and one that
+  // does not is scored under the notebook's. This is the path the page and the
+  // worker both take, so it is the one that matters.
+  const freeHands = techniqueFromJSON({ ...stored, format: 'handstand-technique',
+    version: 2, weights: { liftoff: 0 } });
+  gate('H3: a technique carries the weights it disagrees with',
+    techniqueSearchArgs(freeHands).weights.liftoff === 0
+    && techniqueSearchArgs(freeHands).weights.rom === COST_WEIGHTS.rom
+    && techniqueSearchArgs(rec).weights.liftoff === COST_WEIGHTS.liftoff,
+    `liftoff ${COST_WEIGHTS.liftoff} by default, 0 when the technique says so, `
+    + 'every other weight the notebook\u2019s either way');
+
+  // And the verdict is not a weight. Score the same rollout with EVERY term at
+  // zero: the cost goes to nothing and the ✓/✗ does not move.
+  const none = score(Object.fromEntries(Object.keys(COST_WEIGHTS).map((k) => [k, 0])));
+  gate('H4: and no weight can change whether it arrives',
+    none.cost === 0 && !!none.verdict?.success === !!at100.verdict?.success,
+    `cost ${at100.cost.toFixed(3)} -> ${none.cost.toFixed(3)}, verdict `
+    + `${at100.verdict?.success ? 'arrives' : 'does not'} either way`);
 }
 
 console.log(failures ? `\n${failures} gate(s) FAILED` : '\nAll rollout gates passed');

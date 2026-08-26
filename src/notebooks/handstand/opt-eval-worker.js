@@ -47,6 +47,9 @@ self.onmessage = ({ data }) => {
       // INSTANTS this cannot be inferred from the length of x -- the two tails
       // are the same size for six poses -- so it is forwarded.
       freeStart: !!cfg.freeStart,
+      // And whether that start carries the base as well, which decides how
+      // long the tail is. Same reasoning: it cannot be inferred from x.
+      startGrounded: cfg.startGrounded !== false,
     });
     costs.push(c.cost);
     if (wantFrames && c.rec?.q?.length) {

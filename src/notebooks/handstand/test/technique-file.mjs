@@ -13,8 +13,11 @@
 import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
-import { runScenario, resolveRom, resolveBody, resolvePlant, resolveNumerics, SYMMETRIC_SCENARIOS,
-  NJ, widenKnots } from '../rollout.js';
+import {
+  runScenario, resolveRom, resolveBody, resolvePlant, resolveNumerics, SYMMETRIC_SCENARIOS, NJ, widenKnots, JOINT_KEYS,
+} from '../rollout.js';
+// The q index of each joint, by name -- the same table the modules build.
+const QI = Object.fromEntries(JOINT_KEYS.map((n, j) => [n, 3 + j]));
 import { techniqueToJSON, techniqueFromJSON, techniqueRunArgs, TECHNIQUE_FORMAT } from '../technique-file.js';
 import { PRESET_TRAJECTORIES } from '../presets.js';
 
@@ -97,15 +100,19 @@ const EDITS = {
   'held poses': (t) => ({ ...t, held: t.held.map((v, k) => v || k === 1 || k === 3) }),
   'a dragged start pose': (t) => {
     const q0 = Float64Array.from(play(t).rec.q[0]);
-    q0[5] += 9 / D; q0[6] -= 5 / D;
+    // By name: as 5 and 6 these were the six-joint body's left hip and knee,
+    // and are the spine and the left hip now. The gate perturbs a start pose
+    // and checks it survives a round trip, so it passed either way -- while
+    // measuring a perturbation it was not describing.
+    q0[QI.hipL] += 9 / D; q0[QI.kneeL] -= 5 / D;
     return { ...t, q0 };
   },
   'a different ending': (t) => {
     const k = t.knots.map((r) => Float64Array.from(r));
     const K = k[0].length;
-    k[2][K - 1] += 22 / D; k[4][K - 1] += 22 / D;
+    k[QI.hipL - 3][K - 1] += 22 / D; k[QI.hipR - 3][K - 1] += 22 / D;
     const target = Float64Array.from(t.target);
-    target[5] += 22 / D; target[7] += 22 / D;
+    target[QI.hipL] += 22 / D; target[QI.hipR] += 22 / D;
     return { ...t, knots: k, target };
   },
   'a weaker shoulder': (t) => ({ ...t, strength: { ...(t.strength || {}),
@@ -186,6 +193,80 @@ const EDITS = {
   let ok = true, why = '';
   try { techniqueFromJSON(JSON.stringify(good)); } catch (e) { ok = false; why = e.message; }
   gate('C2. and a good one is not', ok, why || `format "${TECHNIQUE_FORMAT}"`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate E: widening. A technique written for an older body reads back as the
+// same movement on this one.
+//
+// This is the claim that makes every stored artifact survive a joint being
+// added, and it is only true because of how the joints were chosen: each new
+// one is at ZERO in the stacked handstand, so "the body did not have it" and
+// "the body held it at neutral" are the same trajectory. If that ever stops
+// being true, widening becomes a guess and these files stop being replayable.
+// ---------------------------------------------------------------------------
+{
+  const wide = techniqueFromJSON(techniqueToJSON(stateFor('lowflex')));
+  // Narrow it back to each older width by dropping the joints that body did
+  // not have, then read it forward again.
+  const ORDERS = [
+    ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'],
+    ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'],
+  ];
+  // Only a technique whose absent joints really are at neutral can make the
+  // round trip, so each width gets its own: today's technique with everything
+  // that body did not have flattened, which is exactly what a recording made
+  // on it is.
+  const flatten = (order) => {
+    const f = techniqueToJSON(wide);
+    for (const n of JOINT_KEYS) {
+      if (order.includes(n)) continue;
+      const j = JOINT_KEYS.indexOf(n);
+      f.knots[j] = f.knots[j].map(() => 0);
+      f.q0[3 + j] = 0;
+      f.target[3 + j] = 0;
+    }
+    return f;
+  };
+  let worstK = 0, worstQ = 0, worstT = 0;
+  for (const order of ORDERS) {
+    const flat = flatten(order);
+    const flatRec = techniqueFromJSON(flat);
+    const narrow = {
+      ...flat,
+      knots: order.map((n) => flat.knots[JOINT_KEYS.indexOf(n)]),
+      q0: [flat.q0[0], flat.q0[1], flat.q0[2],
+        ...order.map((n) => flat.q0[3 + JOINT_KEYS.indexOf(n)])],
+      target: [flat.target[0], flat.target[1], flat.target[2],
+        ...order.map((n) => flat.target[3 + JOINT_KEYS.indexOf(n)])],
+    };
+    const back = techniqueFromJSON(narrow);
+    for (let j = 0; j < JOINT_KEYS.length; j++) {
+      for (let k = 0; k < back.knots[j].length; k++) {
+        worstK = Math.max(worstK, Math.abs(back.knots[j][k] - flatRec.knots[j][k]));
+      }
+      worstQ = Math.max(worstQ, Math.abs(back.q0[3 + j] - flatRec.q0[3 + j]));
+      worstT = Math.max(worstT, Math.abs(back.target[3 + j] - flatRec.target[3 + j]));
+    }
+  }
+  gate('E. a technique written for an older body widens to the same movement',
+    worstK === 0 && worstQ === 0 && worstT === 0,
+    `worst knot ${worstK.toExponential(1)}, start ${worstQ.toExponential(1)}, `
+    + `ending ${worstT.toExponential(1)} rad over ${ORDERS.length} older widths`);
+
+  // And it is not vacuous: the narrow forms really are narrower.
+  const narrowCount = ORDERS.map((o) => o.length).join(', ');
+  gate('E2. and those really were narrower bodies',
+    ORDERS.every((o) => o.length < JOINT_KEYS.length),
+    `${narrowCount} channels against today's ${JOINT_KEYS.length}`);
+
+  // A width this notebook has never written is refused rather than guessed at.
+  let refused = false;
+  try {
+    const f = techniqueToJSON(wide);
+    techniqueFromJSON({ ...f, knots: f.knots.slice(0, 7) });
+  } catch (_) { refused = true; }
+  gate('E3. and a width it has never written is refused, not guessed', refused);
 }
 
 console.log(`\n${failures === 0 ? 'ALL GATES PASS' : `${failures} GATE(S) FAILED`}`);

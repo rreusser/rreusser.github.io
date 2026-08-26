@@ -15,28 +15,66 @@
 import { clampTorque, availableTorque } from './strength.js';
 import { rnea, momenta, crbaMassMatrix, createWorkspace } from './dynamics.js';
 
-// The driven joints, in the order the state vector holds them (q[3..10]).
+// The driven joints, in the order the state vector holds them (q[3..13]).
 // The order is not a choice: the dynamics reads joint i off body i, and the
-// tree requires a parent before its children, so the spine lands between the
-// shoulder and the hips and the head goes last.
-export const JOINT_ORDER = ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'];
-// Where the six joints of a technique written before the trunk could bend sit
-// in that order. Everything that reads a stored technique goes through this.
-export const LEGACY_JOINT_ORDER = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+// tree requires a parent before its children, so the elbow lands between the
+// wrist and the shoulder, each ankle follows its own knee, and the head goes
+// last.
+export const JOINT_ORDER = ['wrist', 'elbow', 'shoulder', 'spine',
+  'hipL', 'kneeL', 'ankleL', 'hipR', 'kneeR', 'ankleR', 'neck'];
 const NJOINTS = JOINT_ORDER.length;
 
-// A technique written before the trunk could bend has six channels. Widen it
-// to eight, with the spine and the neck at neutral -- which is exactly the
-// rigid body those techniques were authored on, so the movement they describe
-// is unchanged by the widening itself.
+// Every joint list this notebook has ever had, oldest first, so a stored
+// technique can be read back whatever body it was written for. Each is a
+// SUBSET of the current order under the same names, which is the property
+// that makes widening a technique free rather than a guess: the joints the
+// old body did not have are the joints the old body held still, and every
+// one of them is at zero in the stacked handstand. Widening is therefore not
+// an approximation of the recorded movement -- it IS the recorded movement,
+// written for a body with more parts that happen not to move.
+//
+//   6  the original: a rigid trunk, a locked elbow, welded ankles
+//   8  the trunk hinged and the head came off it
+//  11  the elbow and the two ankles
+const JOINT_ORDERS = [
+  ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'],
+  ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'],
+  JOINT_ORDER,
+];
+// Kept under its old name because a good deal of prose and several tests
+// name it: the first list, the one a six-channel technique is written in.
+export const LEGACY_JOINT_ORDER = JOINT_ORDERS[0];
+
+// The joint list a channel count means. Ambiguity here would be a silent
+// mis-read of a stored artifact, so the counts are required to be distinct
+// and this throws rather than picking one.
+export function jointOrderFor(n) {
+  const hit = JOINT_ORDERS.filter((o) => o.length === n);
+  if (hit.length === 1) return hit[0];
+  throw new Error(`a technique with ${n} joints is none of ${JOINT_ORDERS.map((o) => o.length).join(', ')}`);
+}
+
+// A technique written for an older body, widened to this one, with the joints
+// that body did not have at neutral.
 export function widenKnots(rows) {
   if (rows.length === NJOINTS) return rows;
-  if (rows.length !== LEGACY_JOINT_ORDER.length) {
-    throw new Error(`a technique with ${rows.length} joints is neither ${LEGACY_JOINT_ORDER.length} nor ${NJOINTS}`);
-  }
+  const from = jointOrderFor(rows.length);
   const K = rows[0].length;
   const out = JOINT_ORDER.map(() => new Float64Array(K));
-  LEGACY_JOINT_ORDER.forEach((name, j) => { out[JOINT_ORDER.indexOf(name)].set(rows[j]); });
+  from.forEach((name, j) => { out[JOINT_ORDER.indexOf(name)].set(rows[j]); });
+  return out;
+}
+
+// The same widening for a whole CONFIGURATION -- three base coordinates and
+// then one angle per joint -- which is what a start pose and a target pose
+// are. Same rule: absent joints are neutral, and neutral is the handstand.
+export function widenQ(q, nq = 3 + NJOINTS) {
+  if (!q) return q;
+  if (q.length === nq) return Float64Array.from(q);
+  const from = jointOrderFor(q.length - 3);
+  const out = new Float64Array(nq);
+  out[0] = q[0]; out[1] = q[1]; out[2] = q[2];
+  from.forEach((name, j) => { out[3 + JOINT_ORDER.indexOf(name)] = q[3 + j]; });
   return out;
 }
 
@@ -90,12 +128,12 @@ export function splineEval(knots, T, t, times = null) {
   return { value, rate: h > 0 ? dv / h : 0 };
 }
 
-// Fill the six actuated reference angles/rates from knotMatrix[6][K].
+// Fill the actuated reference angles/rates from knotMatrix[NJOINTS][K].
 export function evalReference(knotMatrix0, T, t, qRef, qdRef, times = null) {
   // The last boundary. Everything that drives the body comes through here, so
-  // a six-channel technique -- a preset, a recorded artifact, a saved file, a
-  // hand-built matrix in a gate -- is widened once, here, rather than at every
-  // call site that might have one.
+  // a technique written for an older body -- a preset, a recorded artifact, a
+  // saved file, a hand-built matrix in a gate -- is widened once, here, rather
+  // than at every call site that might have one.
   const knotMatrix = widenKnots(knotMatrix0);
   for (let j = 0; j < NJOINTS; j++) {
     const r = splineEval(knotMatrix[j], T, t, times);
