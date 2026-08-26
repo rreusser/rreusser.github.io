@@ -180,11 +180,55 @@ function liftClear(model, ws, q, minY = 5e-4) {
   return q;
 }
 
-function clearFeet(model, ws, q, minY = 5e-4) {
+// Lift a foot out of the floor -- with the ANKLE first, and the hip only when
+// the ankle cannot reach.
+//
+// A start pose that begins with a foot through the floor is a contact
+// explosion, and not a small one: measured on the press, three centimetres of
+// penetration puts 34 times body weight through the contact in the first
+// fiftieth of a second and the technique that arrived without it falls. So
+// something has to give.
+//
+// What used to give was the HIP, and that is the wrong joint. A hip unfolds
+// the whole leg, so the repair was enormous -- dragging the SHOULDER ten
+// degrees rotates the body over the palm, dips a foot, and unfolded a hip
+// nobody had touched by up to twenty-eight degrees. From the editor that is
+// a pose snapping to somewhere you did not put it, in a joint you were not
+// holding, every time you let go.
+//
+// The ankle is the joint that actually decides where a sole sits, it is a
+// fifth of a metre long so it has plenty of authority, and it is the one
+// nobody has an opinion about in a start pose. It is also what a person uses:
+// you do not unfold your hip to get your foot flat. Chosen as the angle
+// NEAREST the one already there that clears the floor, so the repair is the
+// smallest one that works rather than the first one found.
+function clearFeet(model, ws, q, minY = 5e-4, rom = ROM_DEFAULTS) {
   for (const side of ['L', 'R']) {
     const hip = side === 'L' ? QI.hipL : QI.hipR;
+    const ankle = side === 'L' ? QI.ankleL : QI.ankleR;
     const body = side === 'L' ? BODY.footL : BODY.footR;
     if (toeY(model, ws, q, body) >= minY) continue;
+
+    // The ankle, if it can. Scanned rather than solved: the lowest station on
+    // a foot changes identity as it rotates -- heel, then ball, then toe --
+    // and the height of a minimum over three points is not smooth where they
+    // swap, so a bisection would happily converge on the wrong branch.
+    const a0 = q[ankle];
+    const { lo: aLo, hi: aHi } = jointLimits(rom, q, ankle);
+    const N = 360;
+    let best = null;
+    for (let i = 0; i <= N; i++) {
+      const a = aLo + (aHi - aLo) * (i / N);
+      const y = toeY(model, ws, withQ(q, ankle, a), body);
+      if (y < minY) continue;
+      const d = Math.abs(a - a0);
+      if (!best || d < best.d) best = { a, d };
+    }
+    if (best) { q[ankle] = best.a; continue; }
+    q[ankle] = a0;
+
+    // The ankle ran out of range, so the leg itself has to move. Rare now, and
+    // it means the pose really does put that foot under the floor.
     let hi = q[hip], lo = q[hip] - 40 * D2R;
     if (toeY(model, ws, withQ(q, hip, lo), body) < minY) { q[hip] = lo; continue; }
     for (let i = 0; i < 40; i++) {
@@ -194,6 +238,86 @@ function clearFeet(model, ws, q, minY = 5e-4) {
     q[hip] = lo;
   }
   return q;
+}
+
+// Seating a hand-authored start pose: what the body actually begins in, given
+// what it was ASKED to begin in.
+//
+// A start pose is not free. It has to be a pose this body can hold -- so it is
+// clamped into the range of motion -- and it must not begin inside the floor,
+// because a contact point below the ground is a penalty spring firing an
+// enormous impulse at t = 0. Measured on the press, three centimetres of
+// penetration puts 34 times body weight through the contact in the first
+// fiftieth of a second, and a technique that arrived without it falls. So the
+// seating is not a courtesy; it is what makes a start pose runnable.
+//
+// It lives here, exported, because the EDITOR has to draw the same pose the
+// rollout will run. It used to draw the authored pose while a handle was held
+// and the seated one the rest of the time, on the theory that the hand should
+// not be fought mid-gesture -- but those two poses differ by however much the
+// seating had to do, and with a start sitting six centimetres under the floor
+// that is a hip unfolded by twenty degrees. Every press and release of every
+// handle, the neck's included, snapped the legs to somewhere nobody had put
+// them and back again. One pose, drawn always.
+export function seatStart(model, ws, q0, rom = ROM_DEFAULTS, grounded = true) {
+  const q = clampToRom(Float64Array.from(q0), rom);
+  // Free: the base IS the pose. Nothing is grounded and no joint is bent to
+  // clear the floor; the body is simply raised if it began inside it.
+  if (!grounded) return liftClear(model, ws, q);
+  groundHand(model, q);
+  if (lowestOffHand(model, ws, q) >= 5e-4) return q;
+
+  // Something is through the floor, and on a grounded start something has to
+  // give: the palm is pinned at the origin and the feet may not be underground,
+  // which is two constraints on one pose. The question is only WHICH joint pays.
+  //
+  // It used to be the hip, and the hip is the worst answer available. A hip
+  // unfolds the whole leg, so rotating the body ten degrees over the palm --
+  // which is what dragging the wrist, the elbow or the shoulder does -- dipped
+  // a foot and unfolded a hip nobody had touched by up to thirty degrees. From
+  // the editor that is the shape of the movement changing in a joint you were
+  // not holding.
+  //
+  // The LEAN pays instead: the wrist is the whole-body rotation about the
+  // planted palm, so moving it changes no relative angle anywhere in the body.
+  // The shape you authored is preserved exactly and the only thing that
+  // changes is how far over your hands it stands -- which is the thing the
+  // floor is actually objecting to. It is also what every scenario solver
+  // already does when it builds a start from nothing.
+  //
+  // Scanned for the lean NEAREST the one asked for, so the correction is the
+  // smallest that works. When no lean clears it -- the body is simply too long
+  // for the room at that shape -- the whole body rises instead, which
+  // preserves every joint including the lean and lifts the palm off the floor.
+  // That last case is worth seeing rather than hiding: it says this pose
+  // cannot be held with the hands down.
+  const jq = QI.wrist;
+  const w0 = q[jq];
+  const { lo, hi } = jointLimits(rom, q, jq);
+  let best = null;
+  for (let i = 0; i <= 360; i++) {
+    q[jq] = lo + (hi - lo) * (i / 360);
+    if (lowestOffHand(model, ws, q) < 5e-4) continue;
+    const d = Math.abs(q[jq] - w0);
+    if (!best || d < best.d) best = { w: q[jq], d };
+  }
+  q[jq] = best ? best.w : w0;
+  return best ? q : liftClear(model, ws, q);
+}
+
+// The lowest ground station on the body, EXCLUDING the hand's own. groundHand
+// puts the palm exactly on the floor by construction, so it reads as zero --
+// or a rounding error's worth below it -- for every pose, and a clearance test
+// that counts it concludes that nothing ever clears anything.
+function lowestOffHand(model, ws, q) {
+  fk(model, q, null, ws);
+  let y = Infinity;
+  for (const c of model.contacts) {
+    if (c.body === model.bodies.hand) continue;
+    const b = c.body, cs = Math.cos(ws.th[b]), sn = Math.sin(ws.th[b]);
+    y = Math.min(y, ws.py[b] + sn * c.x + cs * c.y - (c.r || 0));
+  }
+  return y;
 }
 
 // Scenario starts, constructed from the flexibility model rather than
@@ -265,7 +389,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
         comAt(0.5 * (lo + hi));
       }
       clampPose(q, rom);
-      clearFeet(model, ws, q);
+      clearFeet(model, ws, q, 5e-4, rom);
       return { q0: q, qd0: null };
     }
     case 'tuck': {
@@ -329,7 +453,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
         errAt(best);
       }
       clampPose(q, rom);
-      clearFeet(model, ws, q);
+      clearFeet(model, ws, q, 5e-4, rom);
       return { q0: q, qd0: null };
     }
     case 'lunge': {
@@ -359,7 +483,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       }
       const hipCapBent = hipFlexMaxDeg(rom, 50) * D2R;
       if (q[QI.hipR] > hipCapBent) q[QI.hipR] = hipCapBent;
-      clearFeet(model, ws, q);
+      clearFeet(model, ws, q, 5e-4, rom);
       return { q0: q, qd0: null };
     }
     default: throw new Error(`unknown scenario ${name}`);
@@ -2028,16 +2152,7 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
   // names a knee folded most of a turn the wrong way. Replayed literally,
   // the servo unwinds it and throws the body off the floor; clamped, the
   // pose is the one that was meant.
-  const q0 = q0Given
-    ? (startGrounded
-      // Grounded: the palm is flat on the floor at the origin, whatever the
-      // stored base coordinates happen to say, and a foot through the floor is
-      // lifted by unfolding that leg's hip.
-      ? clearFeet(model, ws, groundHand(model, clampToRom(Float64Array.from(q0Given), rom)))
-      // Free: the base IS the pose. Nothing is grounded and no joint is bent
-      // to clear the floor; the body is simply raised if it began inside it.
-      : liftClear(model, ws, clampToRom(Float64Array.from(q0Given), rom)))
-    : solvedStart.q0;
+  const q0 = q0Given ? seatStart(model, ws, q0Given, rom, startGrounded) : solvedStart.q0;
   let qd0 = q0Given ? null : solvedStart.qd0;
   if (qdJitter > 0) {
     const rand = mulberry32(jitterSeed);

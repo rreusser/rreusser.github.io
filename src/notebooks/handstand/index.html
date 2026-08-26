@@ -381,7 +381,7 @@
     import {
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
-      SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom, widenKnots,
+      SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom, widenKnots, seatStart,
       COST_WEIGHTS, JOINT_KEYS as JOINT_ORDER, NJ as NJOINTS,
     } from './rollout.js';
     import { widenQ } from './control.js';
@@ -1753,13 +1753,26 @@
       // technique arrived, then did not, and then still did not with every
       // slider returned to where it began.
       //
-      // Mid-drag is the exception. The run is a moment behind the hand -- it
-      // re-simulates on release, not during -- so while a start handle is held
-      // the figure has to draw what is being asked for rather than what was
-      // last integrated.
-      const startQ = () => ((drag && sel === 0 && editState.q0)
-        ? editState.q0
-        : (editState.run?.rec?.q?.[0] || editState.q0));
+      // The run is a moment behind the hand -- it re-simulates on release, not
+      // during -- so while a start handle is held the figure cannot wait for
+      // it. What it draws instead is the authored pose put through the SAME
+      // seating the rollout will put it through, so the two are one pose and
+      // the figure never jumps.
+      //
+      // It used to draw the raw authored pose mid-drag and the run's seated
+      // one the rest of the time. Those differ by however much the seating had
+      // to do, and three of the four techniques ship a start sitting several
+      // centimetres under the floor, so the seating was unfolding a hip by up
+      // to twenty-eight degrees. Pressing ANY handle -- the neck's, which
+      // cannot move a foot at all -- jumped the legs to the authored pose, and
+      // releasing it jumped them back. That is the snapping: not a constraint
+      // being misapplied, but two different poses being drawn for one state.
+      const startQ = () => {
+        const asked = editState.q0;
+        if (!asked) return editState.run?.rec?.q?.[0] || asked;
+        if (!drag || sel !== 0) return editState.run?.rec?.q?.[0] || asked;
+        return seatStart(model, ws, asked, romNow(), editState.startGrounded);
+      };
       const selectCell = (i) => {
         // Reaching for another pose is an answer: you are no longer looking at
         // the one you were asked about.
