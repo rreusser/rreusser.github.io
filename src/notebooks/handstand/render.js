@@ -3,6 +3,7 @@
 // optional per-segment overrides are injected by the caller.
 
 import { fk } from './dynamics.js';
+import { PASSIVE_JOINTS } from './control.js';
 
 const TAU = Math.PI * 2;
 
@@ -353,7 +354,7 @@ export function drawScene(ctx, opts) {
     x: toX(grabW[0]), y: toY(grabW[1]),
     pivotX: toX(ws.px[pivotB]), pivotY: toY(ws.py[pivotB]),
   });
-  // One handle per driven body, WALKED from the tree. This was a hand-written
+  // One handle per DRIVEN body, walked from the tree. This was a hand-written
   // table of six entries in the old body numbering: once the trunk gained a
   // hinge it grabbed the wrong joints -- the handle on the torso turned out to
   // drive a hip -- and it stopped two bodies short, so the feet and the head
@@ -362,12 +363,24 @@ export function drawScene(ctx, opts) {
   // Each body is turned about its own origin, and the natural thing to take
   // hold of is its far end: the origin of its first child where it has one,
   // and its own tip where it does not.
+  //
+  // DRIVEN, though, and walking the whole tree is not the same thing. A
+  // passive joint has no muscle behind it, no channel in the technique and no
+  // dimension in the search: its angle is the ground's answer, not the
+  // reader's. Handed a handle anyway, both toes got one -- two of them, since
+  // symmetry only knows to hide the right hip, knee and ankle -- and dragging
+  // either did nothing visible, because seating lays the toes itself and
+  // overwrites whatever was authored on the way into every rollout. A control
+  // that does nothing is worse than no control: it reads as broken rather than
+  // as absent.
   const firstChild = (b) => {
     for (let i = 1; i < model.nb; i++) if (model.parent[i] === b) return i;
     return -1;
   };
   const handles = [];
   for (let b = 1; b < model.nb; b++) {
+    // Body b turns joint q[2 + b], so that is the name to ask about.
+    if (PASSIVE_JOINTS.includes(model.qNames?.[2 + b])) continue;
     const ch = firstChild(b);
     handles.push(H(2 + b, ch >= 0 ? [ws.px[ch], ws.py[ch]] : tip(b), b));
   }

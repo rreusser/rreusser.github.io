@@ -1783,9 +1783,19 @@
       // It happens where it belongs, inside the run, and the difference is
       // visible where it belongs: press play and watch what the body does with
       // the pose you gave it.
-      const startQ = () => (sel === 0 && editState.q0
-        ? editState.q0
-        : (editState.run?.rec?.q?.[0] || editState.q0));
+      // The start pose the editor draws. NOT a function of what is selected:
+      // reading `sel` here meant the start had two appearances -- the pose you
+      // authored while it was the cell in hand, and the pose the rollout
+      // actually began from the moment you looked away. Those differ by the
+      // seating (the lean the solver pays to keep the body out of the floor),
+      // so selecting and deselecting the first cell rocked it back and forth
+      // between two leans in the stage and in its own thumbnail.
+      //
+      // Once a start is authored it IS editState.q0, everywhere and always.
+      // The recording's first frame is the fallback for a technique nobody has
+      // touched yet, which is the only case where there is nothing authored to
+      // show.
+      const startQ = () => editState.q0 || editState.run?.rec?.q?.[0];
       const selectCell = (i) => {
         // Reaching for another pose is an answer: you are no longer looking at
         // the one you were asked about.
