@@ -420,11 +420,18 @@
     // made the thresholds -- 1.6 for a kick-up, 2.2 and 2.8 for a press --
     // unreadable off the control. Kept as an element as well as a value
     // because the press corridor mirrors it and Inputs.bind binds elements.
-    // Down to 0.5 Nm/kg. A handstand needs somewhere around 1 to hold and
+    // Down to ZERO. A handstand needs somewhere around 1 Nm/kg to hold and
     // more to press, so the bottom of this range is the interesting part: it
     // is where the technique has to stop asking the shoulder for what it does
-    // not have. The floor was 0.8, which cut that off.
-    const strengthInput = Inputs.range([0.5, 3.2], {
+    // not have. The floor was 0.8, then 0.5, and each of those cut the
+    // interesting part off at a number that was not a fact about anything --
+    // 0.5 is already a shoulder that cannot hold a handstand, so there was
+    // nothing being protected. Zero is at least an honest end of the axis: no
+    // shoulder torque at all, the arm as a free hinge, and the answer to "how
+    // much of this is the shoulder" read straight off the bottom of the slider
+    // rather than extrapolated toward it. It costs nothing numerically -- the
+    // torque simply clamps to zero, and the body folds.
+    const strengthInput = Inputs.range([0, 3.2], {
       label: 'Shoulder strength (Nm/kg)',
       value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05,
     });
@@ -677,7 +684,7 @@
         box.appendChild(input);
       };
       mirror([0, 120], { label: 'Straddle (deg)', step: 5 }, straddleInput);
-      mirror([0.5, 3.2], { label: 'Shoulder strength (Nm/kg)', step: 0.05 }, strengthInput);
+      mirror([0, 3.2], { label: 'Shoulder strength (Nm/kg)', step: 0.05 }, strengthInput);
       mirror([80, 150], { label: 'Wrist extension max', step: 1 }, inRomWrist);
       mirror([120, 185], { label: 'Shoulder flexion max', step: 1 }, inRomShoulder);
       mirror([40, 130], { label: 'Hip flexion max, straight knee', step: 1 }, inRomHip);
@@ -2654,7 +2661,7 @@
 
       // The sliders themselves: views onto editState.body, which is where the
       // numbers live (see above).
-      const inShoulder = Inputs.range([0.5, 3.2], { label: 'Shoulder (Nm/kg)', step: 0.05,
+      const inShoulder = Inputs.range([0, 3.2], { label: 'Shoulder (Nm/kg)', step: 0.05,
         value: editState.body[0] });
       const inHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', step: 1,
         value: editState.body[1] });

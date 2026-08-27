@@ -92,10 +92,37 @@ function toeXLocal(model, ws, q, side) {
   return ws.px[b] + c * cpt.x - s * cpt.y - q[0];
 }
 
-// Bisect one hip angle so that leg's toe lands on the floor. Hip flexion
-// rotates the leg toward the belly side and downward from the inverted
-// stack, so toe height decreases monotonically with hip flexion here.
-function solveHipForToeDown(model, ws, q, side) {
+// World y of one named contact station.
+function stationY(model, ws, q, ci) {
+  fk(model, q, null, ws);
+  const c = model.contacts[ci], b = c.body;
+  return ws.py[b] + Math.sin(ws.th[b]) * c.x + Math.cos(ws.th[b]) * c.y;
+}
+
+// Bisect one hip angle so that leg's foot lands on the floor. Hip flexion
+// rotates the leg toward the belly side and downward from the inverted stack,
+// so station height decreases monotonically with hip flexion here.
+//
+// The station planted is the BALL, not the lowest point of the foot, and that
+// is the whole difference between a lunge and a releve. Solved for the lowest
+// point, the bisection stops the instant ANY part of the foot touches -- and
+// with the ankle already at the end of its dorsiflexion the part that gets
+// there first is the tip of the toe. The stance foot then stood on its
+// fingertip with the ball seven centimetres up and the heel twenty-six, which
+// is not a lunge anybody pushes off from, and it was not repairable
+// downstream: clearFeet saw a foot resting legally on one point and had
+// nothing to fix.
+//
+// A person in a deep lunge puts the BALL down, lets the heel ride up, and
+// lets the toes bend to keep their pads on the floor. That is three
+// statements about three joints -- ankle as flat as it reaches, hip until the
+// ball touches, toe until the tip does -- and this is the middle one.
+//
+// If the ball cannot reach the floor at all across the hip's range, the old
+// behaviour stands: plant whatever part of the foot can get there. A pose
+// where the ball is out of reach is one where standing on the toe really is
+// the only thing on offer.
+function solveHipForFootDown(model, ws, q, side) {
   // By name, like clearFeet beside it. Written as raw indices these were the
   // SIX-joint body's numbering, so once the trunk gained a hinge the 'R'
   // solve wrote the stance hip angle into the left KNEE (old 7 = hipR, new
@@ -104,14 +131,42 @@ function solveHipForToeDown(model, ws, q, side) {
   // launched the body off the floor.
   const hip = side === 'L' ? QI.hipL : QI.hipR;
   const leg = side === 'L' ? 0 : 1;
-  let lo = 0 * D2R, hi = 175 * D2R;
-  if (toeY(model, ws, withQ(q, hip, hi), leg) > 0) return NaN;
-  for (let i = 0; i < 60; i++) {
-    const mid = 0.5 * (lo + hi);
-    if (toeY(model, ws, withQ(q, hip, mid), leg) > 0) lo = mid; else hi = mid;
-  }
-  q[hip] = 0.5 * (lo + hi);
-  return q[hip];
+  const ball = model.footContacts[leg][1];
+  const LO = 0 * D2R, HI = 175 * D2R, N = 180;
+
+  // SCANNED for the first crossing, not bisected against the endpoints. A
+  // station's height is not monotone in hip flexion over the whole range: the
+  // leg swings down, the foot reaches the floor, and then the leg keeps
+  // folding and carries it back UP -- at 175 degrees the ball is twenty
+  // centimetres in the air again. Tested only at the ends, the solve read
+  // that as "the floor is out of reach" and returned without moving the hip
+  // at all, so every call after the first -- the ankle having changed under
+  // it -- silently did nothing and the pose kept whatever the first pass left.
+  const plant = (yAt) => {
+    let prev = yAt(LO);
+    for (let i = 1; i <= N; i++) {
+      const a = LO + (HI - LO) * (i / N);
+      const y = yAt(a);
+      if (prev > 0 && y <= 0) {
+        let lo = LO + (HI - LO) * ((i - 1) / N), hi = a;
+        for (let k = 0; k < 60; k++) {
+          const mid = 0.5 * (lo + hi);
+          if (yAt(mid) > 0) lo = mid; else hi = mid;
+        }
+        q[hip] = 0.5 * (lo + hi);
+        return q[hip];
+      }
+      prev = y;
+    }
+    return NaN;
+  };
+
+  const got = plant((v) => stationY(model, ws, withQ(q, hip, v), ball));
+  if (!Number.isNaN(got)) return got;
+  // The ball cannot reach the floor anywhere in the hip's range. Then standing
+  // on whatever part of the foot CAN get there really is the only thing on
+  // offer, which is the behaviour this had before it knew about the ball.
+  return plant((v) => toeY(model, ws, withQ(q, hip, v), leg));
 }
 
 function withQ(q, i, v) { q[i] = v; return q; }
@@ -524,7 +579,7 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       // pointed, which is what a leg trailing in the air does and what its
       // zero already says.
       for (let i = 0; i < 2; i++) {
-        solveHipForToeDown(model, ws, q, 'R');
+        solveHipForFootDown(model, ws, q, 'R');
         flatFootAnkle(model, ws, q, 'R', rom);
       }
       q[QI.kneeL] = 0;                     // swing leg straight
@@ -534,11 +589,17 @@ export function scenarioStart(model, ws, name, rom = ROM_DEFAULTS, opts = {}) {
       // bent-knee hamstring allowance, then guarantee neither toe starts
       // below the floor.
       for (let i = 0; i < 2; i++) {
-        solveHipForToeDown(model, ws, q, 'R');
+        solveHipForFootDown(model, ws, q, 'R');
         flatFootAnkle(model, ws, q, 'R', rom);
       }
       const hipCapBent = hipFlexMaxDeg(rom, 50) * D2R;
       if (q[QI.hipR] > hipCapBent) q[QI.hipR] = hipCapBent;
+      // The third statement: the ball is down and the heel is up, so the toes
+      // bend to put their pads on the floor. BEFORE clearFeet, because the tip
+      // hangs below the floor until they do and clearFeet reads that as a foot
+      // through the ground -- which is how it used to roll this pose back onto
+      // the toe it had just been taken off.
+      layToes(model, ws, q, rom);
       clearFeet(model, ws, q, 5e-4, rom);
       return { q0: q, qd0: null };
     }
