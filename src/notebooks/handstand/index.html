@@ -40,10 +40,6 @@
          work, so the space goes to the slider. */
       .technique-controls form input[type=number] { width: 4.4em; flex: 0 0 auto; }
       .technique-controls form input[type=range] { flex: 1 1 auto; min-width: 90px; }
-      /* Floated out, the panel is already a box. */
-      .expandable-controls-panel .technique-controls {
-        border: none; padding: 0; margin-top: 0; max-width: none;
-      }
       /* The site gives an open details a 3px rule down its left and an indent
          to match, which is right for a disclosure in the prose and wrong for a
          group of controls inside a panel that is already a box. */
@@ -104,12 +100,266 @@
         margin-left: calc(50% - var(--w) / 2);
       }
       .wide-figure figcaption { max-width: 640px; }
+
+      /* ---- the technique editor -----------------------------------------
+         One instrument rather than five loose pictures stacked in a column.
+         The viewer, the transport, the filmstrip and the timeline are panes
+         inside one bordered shell with one padding: that is what stops the
+         frames sitting hard against the edge of a phone, and what makes the
+         whole thing read as a tool instead of a page. Everything is drawn in
+         currentColor at low alpha, so it is one instrument in either theme
+         and it never introduces a colour that would claim to mean something.
+      */
+      .hs-editor {
+        /* No margin of its own: `main figure` gives every figure on the page
+           the same air, and the editor is a figure like any other. */
+        box-sizing: border-box; max-width: 100%;
+        /* Nothing in here is prose. Every gesture this figure takes is a drag
+           -- a joint about its pivot, a pose along the timeline, the playhead
+           -- and on a touch screen a drag that lands on text selects it and on
+           a canvas raises the copy-image callout, so the thing you were
+           dragging stops moving and a grey highlight and a menu appear over
+           the animation instead. The verdict below is the one part anyone
+           would want to copy, and it says so for itself. */
+        -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, currentColor 2.5%, transparent);
+        font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      /* The document bar: which technique this is, and what may be done to it
+         AS a document. Presets used to live at the bottom of the parameter
+         panel, filed with the servo gains -- which said that opening one was
+         the same kind of act as changing a damping ratio. It is not: it is
+         opening a file, and it belongs where a file is named. */
+      .hs-editor__bar {
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 6px;
+        /* Room on the right for expandable's own button, which floats over the
+           top-right corner of whatever it wraps -- so on this figure it lands
+           IN the title bar. That is the right place for it (it is a window
+           control, and this is the window's title bar) but it is positioned
+           rather than laid out, so the bar has to leave room for it.
+           28 of button, 8 of offset from the edge, and 8 between the two: at
+           36 the reservation was exactly the button's own footprint and the
+           menu button sat flush against it with nothing in between. */
+        padding: 6px 44px 6px 8px;
+        border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+        background: color-mix(in srgb, currentColor 6%, transparent);
+        border-radius: 7px 7px 0 0;
+        position: relative; z-index: 3;
+      }
+      .hs-editor__bar select { font: inherit; text-overflow: ellipsis; }
+      .hs-editor__actions {
+        display: flex; gap: 6px; align-items: center; margin-left: auto; flex: 0 0 auto;
+      }
+      /* A button that is an icon and a word, so the word can go when the bar
+         runs out of room and the button stays the same control. */
+      .hs-btn--icontext { display: inline-flex; align-items: center; gap: 5px; }
+      .hs-editor__pane {
+        padding: 8px;
+        border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+      }
+      .hs-editor__pane--first { border-top: none; }
+      /* The tab bar over the lower deck. Underline rather than a box: the panel
+         below it is already bounded by the shell, and a second box inside a box
+         is a seam. */
+      .hs-editor__deck { border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+      .hs-tabs {
+        display: flex; gap: 2px; padding: 0 8px;
+        border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+        background: color-mix(in srgb, currentColor 4%, transparent);
+      }
+      .hs-tab {
+        font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+        text-transform: uppercase; color: inherit; opacity: .55;
+        background: none; border: none; border-bottom: 2px solid transparent;
+        padding: 7px 10px 5px; margin-bottom: -1px; cursor: pointer;
+        transition: opacity 90ms linear, border-color 90ms linear;
+      }
+      .hs-tab:hover { opacity: .85; }
+      .hs-tab--on {
+        opacity: 1; border-bottom-color: color-mix(in srgb, currentColor 55%, transparent);
+      }
+      .hs-tab:focus-visible { outline: 2px solid color-mix(in srgb, currentColor 45%, transparent); outline-offset: -2px; }
+      [role=tabpanel][hidden] { display: none; }
+      /* Inside the deck the parameter box is not a box: the tab is its frame. */
+      .hs-editor__deck .technique-controls {
+        border: none; padding: 0; margin-top: 0; max-width: none; font-size: 12px;
+      }
+      .hs-editor__deck .technique-controls > details:first-of-type {
+        margin-top: 0; border-top: none;
+      }
+      /* The deck is a column with ONE scrolling panel in it. Expanded, the
+         figure is a fixed box -- the stage takes what the deck leaves -- and
+         a deck that simply grew pushed its own bottom out through a wrapper
+         with overflow:hidden. Opening SERVO put four sliders somewhere you
+         could not reach and could not scroll to; switching tabs and back
+         "fixed" it only because that re-ran the measurement. Now the deck is
+         given a height and the panel inside it scrolls. */
+      .hs-editor__deck { display: flex; flex-direction: column; min-height: 0; }
+      .hs-editor__deck > [role=tabpanel] {
+        min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+      }
+      /* The tab bar's own underline is the line under the tab bar. A pane that
+         draws its own on top of it makes two, a few pixels apart, which reads
+         as a rule with nothing between it and the rule above. */
+      .hs-editor__deck > [role=tabpanel],
+      .hs-editor__deck > [role=tabpanel] > .hs-editor__pane:first-child {
+        border-top: none;
+      }
+      /* Wide, the parameters are not a column. Eleven controls stacked two to
+         a row wasted two thirds of a desktop window and made the panel taller
+         than the picture it drives; each row is now one wrapping flex line, so
+         a group is as many controls across as the width can hold and as few
+         lines deep as that allows. The sliders share the surplus and stop
+         growing at a width past which a slider is just longer, not better. */
+      .hs-editor__deck .spline-controls {
+        max-width: none; gap: 4px 18px; align-items: end;
+      }
+      .hs-editor__deck .spline-controls > form {
+        flex: 1 1 210px; max-width: 420px; min-width: 0; width: auto;
+      }
+      /* Observable lays a slider out as label-beside-input past a 480px
+         VIEWPORT -- and a viewport is not the box the slider is in. Two of
+         these to a line makes each box 250px while the rule keeps reserving
+         120 of them for the label and refuses to shrink it (flex-shrink: 0),
+         so the track ran out through the right-hand edge of its own column and,
+         in the last column, off the panel. Its own NARROW layout is the one
+         that fits: the label takes the line above, which is also where a label
+         belongs when the thing it names is a foot wide. */
+      .hs-editor__deck .spline-controls > form:has(input[type=range]) {
+        flex-wrap: wrap;
+      }
+      .hs-editor__deck .spline-controls > form:has(input[type=range]) > label {
+        flex: 0 0 100%; width: 100%; margin-right: 0; padding: 0 0 2px;
+      }
+      /* And the floor comes down with it. 90px was a sensible smallest track
+         when a row held two controls in 640px; it is part of what a form
+         cannot shrink below, so on a narrow panel it was pushing the overflow
+         rather than preventing it. */
+      .hs-editor__deck .technique-controls form input[type=range] { min-width: 60px; }
+      /* The exceptions: a sentence you might quote, and anything you type in. */
+      .hs-editor__verdict, .hs-editor input, .hs-editor select {
+        -webkit-user-select: text; user-select: text;
+      }
+      .hs-editor__transport { background: color-mix(in srgb, currentColor 4%, transparent); }
+      /* A pane header, in the small caps every editor labels its panes with.
+         The legend rides on the timeline's, which is the pane whose colours it
+         explains -- a legend floating between two pictures is read as a
+         caption for one of them. */
+      .hs-pane__head {
+        display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+        margin: 0 0 6px; row-gap: 2px;
+      }
+      .hs-pane__title {
+        font-size: 10px; font-weight: 600; letter-spacing: .08em;
+        text-transform: uppercase; opacity: .5;
+      }
+      .hs-legend { font-size: 11px; opacity: .85; }
+      /* Sits in the pane header, in place of the title, so asking the question
+         does not change the height of anything. */
+      .hs-confirm {
+        display: inline-flex; align-items: center; gap: 6px;
+        flex-wrap: wrap; row-gap: 4px; font-size: 12px;
+      }
+      .hs-confirm[hidden] { display: none; }
+      .hs-pane__title[hidden] { display: none; }
+      .hs-legend > span { display: inline-flex; align-items: center; margin-right: 12px; }
+      /* Says the technique on screen is no longer the one the picker names. */
+      .hs-tag {
+        display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
+        font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+        padding: 2px 5px; border-radius: 4px; opacity: .8;
+        border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+        background: color-mix(in srgb, currentColor 8%, transparent);
+      }
+      .hs-tag[hidden] { display: none; }
+      .hs-tag__dot {
+        width: 5px; height: 5px; border-radius: 50%; background: currentColor;
+        opacity: .75; flex: 0 0 auto;
+      }
+      /* Everything a preset can have done to it that is not "open" or "keep",
+         behind one control, because a bar with eight buttons on it is a bar
+         nobody reads. */
+      /* Scoped under .hs-editor, and it has to be: the site gives an open
+         details a 3px rule down its left and an indent to match, at a
+         specificity a bare class cannot reach. That is right for a disclosure
+         in the prose and absurd on a menu button. */
+      .hs-editor .hs-menu,
+      .hs-editor .hs-menu[open] {
+        position: relative; margin: 0; border-left: none; padding-left: 0;
+      }
+      .hs-editor .hs-menu > summary,
+      .hs-editor .hs-menu[open] > summary {
+        list-style: none; display: grid; place-items: center;
+        width: 28px; height: 26px; padding: 0; margin: 0; line-height: 1;
+        /* WIDTH and STYLE only, so the colour still comes from .hs-btn and
+           still changes on hover. This said `border-left: none`, which beat
+           the site's 3px rule on an open summary by removing the edge
+           altogether -- and took the button's own left border with it, so the
+           menu button was a box open on one side. */
+        border-left-width: 1px; border-left-style: solid;
+      }
+      .hs-menu > summary::-webkit-details-marker,
+      .hs-menu > summary::marker { display: none; content: ''; }
+      .hs-menu__panel {
+        position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
+        /* Opens leftward from a control on the right-hand edge, so the only
+           way off the screen is being wider than the page. */
+        min-width: 14em; max-width: min(20em, calc(100vw - 32px)); padding: 8px;
+        display: flex; flex-direction: column; gap: 6px;
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 6px;
+        background: var(--theme-background, #fff);
+        box-shadow: 0 6px 22px rgba(0, 0, 0, .18);
+      }
+      .hs-menu__row { display: flex; gap: 6px; align-items: center; }
+      .hs-menu__row input[type=text] { flex: 1 1 auto; min-width: 0; width: 100%; }
+      .hs-menu__row .hs-btn { flex: 0 1 auto; }
+      /* The two verbs that used to sit in the title bar: full width at the top
+         of the menu, because they are what it is mostly opened for. After the
+         rule above, or it loses the specificity tie to it. */
+      .hs-menu__row--wide .hs-btn {
+        flex: 1 1 auto; justify-content: center; padding-top: 6px; padding-bottom: 6px;
+      }
+      .hs-menu__sep {
+        height: 1px; margin: 2px 0;
+        background: color-mix(in srgb, currentColor 14%, transparent);
+      }
+      /* A pressed toggle, in the same ink as everything else. */
+      .hs-btn--on {
+        background: color-mix(in srgb, currentColor 20%, transparent);
+        border-color: color-mix(in srgb, currentColor 50%, transparent);
+      }
+      /* Narrow enough and the title bar cannot hold everything it says. It has
+         four things on it -- what this is, which technique, whether it differs
+         from the stored one, and what may be done to it -- plus 36 px reserved
+         for expandable's own button, and on a phone that came to some 500 px
+         of content in 300 px of bar and broke onto FOUR rows.
+         Nothing is removed: the pane title is decorative (the select is
+         self-evidently the technique picker), the badge keeps its dot and
+         loses its word, and Revert keeps its icon and loses its label. The
+         select takes back every pixel that frees up and truncates from the
+         end, which is where the auto-generated date suffix lives. */
+      @media (max-width: 600px) {
+        .hs-editor__bar > .hs-pane__title { display: none; }
+        .hs-tag__word { display: none; }
+      }
+      @media (max-width: 520px) {
+        .hs-editor__pane { padding: 6px; }
+        .hs-editor__bar { padding: 5px 44px 5px 6px; }
+        /* Narrow enough and the transport wraps, which is exactly where a
+           divider stops dividing: it lands at the head of the second line with
+           nothing on its left. */
+        .hs-rule { display: none; }
+      }
     </style>
   </script>
   <script id="model-section" type="text/markdown">
     ## A stick figure gymnast
 
-    Seven rigid segments in the sagittal plane: one hand, one arm (both arms merge by symmetry), a torso with the head, and a thigh and shank per leg, joined at the wrist, shoulder, two hips and two knees. Masses, mass centers and inertias follow de Leva's adjustment of the Zatsiorsky parameters, scaled by height and body mass.
+    Twelve rigid segments in the sagittal plane: one hand, a forearm and an upper arm (both arms merge by symmetry), a chest, a pelvis, a head, and a thigh, shank and foot per leg — joined at the wrist, elbow, shoulder, spine, neck, two hips, two knees and two ankles. Masses, mass centers and inertias follow de Leva's adjustment of the Zatsiorsky parameters, scaled by height and body mass. Every joint's zero is the stacked handstand: a straight elbow, a level spine, a pointed foot.
 
     The hand is the segment that matters. It is not a point of support but a patch, from the heel of the palm to the finger pads.
   </script>
@@ -127,20 +377,21 @@
       solveWristForCom, QI,
     } from './statics.js';
     import { strengthProfile, availableTorque, STRENGTH_DEFAULTS } from './strength.js';
-    import { drawScene, drawGhosts } from './render.js';
+    import { drawScene, drawGhosts, bodyView, viewTransform } from './render.js';
     import {
       runScenario, balancedHandstand, resolvePlant, resolveRom, resolveNumerics,
       resolveBody as resolveRunBody, HANDSTAND_TARGET_FRAC, encodeDecision,
-      SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom, widenKnots,
-      JOINT_KEYS as JOINT_ORDER, NJ as NJOINTS,
+      SYMMETRIC_SCENARIOS, symmetrizeKnots, clampKnotsToRom, widenKnots, seatStart,
+      COST_WEIGHTS, JOINT_KEYS as JOINT_ORDER, NJ as NJOINTS,
     } from './rollout.js';
+    import { widenQ } from './control.js';
     import {
       techniqueToJSON, techniqueFromJSON, techniqueRunArgs, techniqueSearchArgs,
       techniqueModelParams, techniqueStrengthOpts,
     } from './technique-file.js';
     import * as FIG from './figure-kit.js';
     import { builtinPresets, BUILTIN_SCENARIOS } from './presets.js';
-    import { readPresets, writePresets, nextId } from './preset-store.js';
+    import { readPresets, writePresets, nextId, readDrafts, writeDrafts } from './preset-store.js';
   </script>
   <script id="body-controls-cell" type="text/x-typescript">
     const bodyControls = html`<div class="body-controls"></div>`;
@@ -169,11 +420,18 @@
     // made the thresholds -- 1.6 for a kick-up, 2.2 and 2.8 for a press --
     // unreadable off the control. Kept as an element as well as a value
     // because the press corridor mirrors it and Inputs.bind binds elements.
-    // Down to 0.5 Nm/kg. A handstand needs somewhere around 1 to hold and
+    // Down to ZERO. A handstand needs somewhere around 1 Nm/kg to hold and
     // more to press, so the bottom of this range is the interesting part: it
     // is where the technique has to stop asking the shoulder for what it does
-    // not have. The floor was 0.8, which cut that off.
-    const strengthInput = Inputs.range([0.5, 3.2], {
+    // not have. The floor was 0.8, then 0.5, and each of those cut the
+    // interesting part off at a number that was not a fact about anything --
+    // 0.5 is already a shoulder that cannot hold a handstand, so there was
+    // nothing being protected. Zero is at least an honest end of the axis: no
+    // shoulder torque at all, the arm as a free hinge, and the answer to "how
+    // much of this is the shoulder" read straight off the bottom of the slider
+    // rather than extrapolated toward it. It costs nothing numerically -- the
+    // torque simply clamps to zero, and the body folds.
+    const strengthInput = Inputs.range([0, 3.2], {
       label: 'Shoulder strength (Nm/kg)',
       value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05,
     });
@@ -362,7 +620,7 @@
     // The window has to be given, not defaulted: a body piked to 130 deg
     // reaches almost 0.9 m behind the hand, and centering on the hand the way
     // a straight handstand wants cuts the legs off the canvas.
-    const makePoseProbe = ({ w = 156, h = 220, view = { cx: 0.1, yLo: -0.15, yHi: 2.15 } } = {}) => {
+    const makePoseProbe = ({ w = 156, h = 220, view = bodyView(model, { cx: 0.1, yLo: -0.15 }) } = {}) => {
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(w * devicePixelRatio);
       canvas.height = Math.round(h * devicePixelRatio);
@@ -426,7 +684,7 @@
         box.appendChild(input);
       };
       mirror([0, 120], { label: 'Straddle (deg)', step: 5 }, straddleInput);
-      mirror([0.5, 3.2], { label: 'Shoulder strength (Nm/kg)', step: 0.05 }, strengthInput);
+      mirror([0, 3.2], { label: 'Shoulder strength (Nm/kg)', step: 0.05 }, strengthInput);
       mirror([80, 150], { label: 'Wrist extension max', step: 1 }, inRomWrist);
       mirror([120, 185], { label: 'Shoulder flexion max', step: 1 }, inRomShoulder);
       mirror([40, 130], { label: 'Hip flexion max, straight knee', step: 1 }, inRomHip);
@@ -552,7 +810,7 @@
       };
       const probe = makePoseProbe({
         w: probeW, h: Math.round(probeW * 1.41),
-        view: { cx: -0.15, yLo: -0.15, yHi: 2.15 },
+        view: bodyView(model, { cx: -0.15, yLo: -0.15 }),
       });
       const nearest = (arr, v) => {
         let bi = 0;
@@ -642,7 +900,7 @@
 
     To move, the model becomes a floating body: the hand is not attached to the floor, it rests on it, on one-sided spring contacts under the heel of the palm and the finger pads, with one under each foot. The center of pressure and every toppling failure emerge from those two palm contacts trading load.
 
-    Joints are driven by servo torques tracking a reference trajectory, capped by a Yeadon-King torque-velocity envelope and a fifty millisecond activation lag, so torque cannot step. Range of motion is enforced by passive end-stops built like the ground contacts one dimension down, and the servo reads its damping off the mass matrix, because these six joints span an effective inertia of two hundred to one.
+    Joints are driven by servo torques tracking a reference trajectory, capped by a Yeadon-King torque-velocity envelope and a fifty millisecond activation lag, so torque cannot step. Range of motion is enforced by passive end-stops built like the ground contacts one dimension down, and the servo reads its damping off the mass matrix, because these eleven joints span an effective inertia of two hundred to one.
   </script>
   <script id="replay-stored" type="text/x-typescript">
     // The ONE way to replay a stored run, whether it is a registered
@@ -695,8 +953,8 @@
     // offering them through three separate controls was three ways to reach
     // one idea, and the one you happened to use decided whether the scenario
     // came with it. The built-ins are derived from the current model rather
-    // than recorded (see presets.js), so this list can never offer a
-    // technique for a body the notebook no longer has.
+    // recorded (see builtin-techniques.js), each carrying the body and the
+    // anatomy it was searched for.
     const presetList = () => {
       const kept = readPresets();
       return [
@@ -717,65 +975,98 @@
       presetInput.value = items.some((it) => it.id === want) ? want : items[0].id;
       return items;
     };
-    presetInput.refresh('builtin:lunge');
+    presetInput.refresh(`builtin:${BUILTIN_SCENARIOS[0].key}`);
     const presetPicker = html`<label style="display:inline-flex; gap:6px; align-items:center;
       font: 13px system-ui, -apple-system, sans-serif;">Preset ${presetInput}</label>`;
     simControls.appendChild(presetPicker);
     const preset = Generators.input(presetInput);
     display(simControls);
   </script>
-  <script id="sim-run" type="text/x-typescript">
-    const simResult = (() => {
-      // Whatever the picker names, resolved to ONE technique-shaped object.
-      // A built-in is derived here, on THIS body -- not on the default one --
-      // so changing height or mass in the body controls gives a starting
-      // technique for the body you are actually asking about.
-      const builtins = builtinPresets(model, ws, ROM_DEFAULTS);
-      const sel = preset || 'builtin:lunge';
-      let stored = null;
-      if (sel.startsWith('builtin:')) {
-        stored = builtins[sel.slice(8)] || builtins.lunge;
-      } else {
-        const kept = readPresets().find((c) => c.id === sel);
-        // A kept preset that will not parse is not a reason to blank the
-        // notebook: say so and fall back to the built-in it was made from,
-        // or the kick-up.
-        if (kept) {
-          try { stored = { ...techniqueFromJSON(kept), id: kept.id, label: kept.label }; }
-          catch (err) { console.warn('kept preset unreadable, falling back:', err); }
+  <script id="technique-source" type="text/x-typescript">
+    // Resolving what the picker names, WITHOUT being a function of what it
+    // names. That is the whole point of this cell existing: a cell that reads
+    // `preset` re-runs when the selection changes, and everything downstream
+    // of it is rebuilt. For the editor that meant tearing the whole instrument
+    // down and building a new one -- new canvases, a new storyboard, a fresh
+    // expandable wrapper -- to change which technique was in it. Switching
+    // stopped the animation, dropped the filmstrip's scroll position and
+    // flashed. A technique is a thing the editor OPENS, not a thing it is made
+    // of, so the resolving lives here and the editor calls it.
+    const techniqueSource = (() => {
+      // A built-in carries its own body, anatomy and strength -- that is what
+      // it is FOR, since two of them are the same skill solved for two
+      // different bodies -- so nothing about the reader is passed in here.
+      const builtins = builtinPresets();
+      const build = (sel) => {
+        let stored = null;
+        if (sel.startsWith('builtin:')) {
+          stored = builtins[sel.slice(8)] || builtins[BUILTIN_SCENARIOS[0].key];
+        } else {
+          const kept = readPresets().find((c) => c.id === sel);
+          // A kept preset that will not parse is not a reason to blank the
+          // notebook: say so and fall back to the first built-in.
+          if (kept) {
+            try { stored = { ...techniqueFromJSON(kept), id: kept.id, label: kept.label }; }
+            catch (err) { console.warn('kept preset unreadable, falling back:', err); }
+          }
+          if (!stored) stored = builtins[BUILTIN_SCENARIOS[0].key];
         }
-        if (!stored) stored = builtins.lunge;
-      }
-      // ONE closure produces the run on screen and every variant of it, so an
-      // edited or optimised trajectory is replayed exactly as the base one is:
-      // same plant, same integration. It takes the BODY too, because a
-      // technique is only good or bad relative to what it is asked of.
-      //
-      // A preset naming no plant runs on the CURRENT one, which is the whole
-      // point of deriving them: `...resolvePlant(p.config)` with config null
-      // resolves to today's defaults, so a servo fix shows up in the editor
-      // the moment it lands instead of waiting to be re-recorded.
-      const replay = (knots, T, over = null) => {
-        const p = over
-          ? { ...stored, knots, T, q0: over.q0 ?? null, target: over.target ?? null,
-            knotFracs: over.knotFracs || null,
-            strength: over.strength || stored.strength, rom: over.rom || stored.rom,
-            config: over.config || stored.config,
-            numerics: over.numerics || stored.numerics,
-            body: over.body || stored.body }
-          : { ...stored, knots, T };
-        return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
+        // ONE closure produces the run on screen and every variant of it, so an
+        // edited or optimised trajectory is replayed exactly as the base one is:
+        // same plant, same integration. It takes the BODY too, because a
+        // technique is only good or bad relative to what it is asked of.
+        //
+        // A preset naming no plant runs on the CURRENT one, which is the whole
+        // point of deriving them: `...resolvePlant(p.config)` with config null
+        // resolves to today's defaults, so a servo fix shows up in the editor
+        // the moment it lands instead of waiting to be re-recorded.
+        const replay = (knots, T, over = null) => {
+          const p = over
+            ? { ...stored, knots, T, q0: over.q0 ?? null, target: over.target ?? null,
+              knotFracs: over.knotFracs || null,
+              strength: over.strength || stored.strength, rom: over.rom || stored.rom,
+              config: over.config || stored.config,
+              numerics: over.numerics || stored.numerics,
+              body: over.body || stored.body }
+            : { ...stored, knots, T };
+          return { ...storedRun.run(p), prof: storedRun.profile(p), rom: resolveRom(p.rom) };
+        };
+        return {
+          ...replay(stored.knots, stored.T),
+          replay, stored,
+          presetId: sel,
+          scenarioName: stored.scenario,
+          // The anatomy this technique was BUILT for: where the body sliders
+          // start, and what "revert" means.
+          baseRom: resolveRom(stored.rom),
+        };
       };
+      // One resolution per id, remembered, because two cells ask for the same
+      // technique and the answer has to be the SAME OBJECT rather than an
+      // equal one. Playback decides whether to show the editor's trajectory by
+      // comparing identity (`editResult.base === simResult`), so two
+      // indistinguishable runs would read as "that edit belongs to something
+      // else" and the figure above would quietly stop following the one below.
+      let last = { id: null, value: null };
       return {
-        ...replay(stored.knots, stored.T),
-        replay, stored,
-        presetId: sel,
-        scenarioName: stored.scenario,
-        // The anatomy this technique was BUILT for: where the body sliders
-        // start, and what "revert" means.
-        baseRom: resolveRom(stored.rom),
+        resolve(sel) {
+          const id = sel || 'builtin:lunge';
+          if (last.id !== id) last = { id, value: build(id) };
+          return last.value;
+        },
+        // Kept presets are written, renamed and forgotten under ids this has
+        // already answered for, so the answer has to be droppable. Called from
+        // the one place that changes the stored list.
+        forget() { last = { id: null, value: null }; },
       };
     })();
+  </script>
+  <script id="sim-run" type="text/x-typescript">
+    // What the playback figure above the editor is showing. It IS a function
+    // of the picker -- that figure is small and rebuilding it is free -- and
+    // it holds the same object the editor holds, which is what lets it show
+    // the editor's edits.
+    const simResult = techniqueSource.resolve(preset);
   </script>
   <script id="playback-state" type="text/x-typescript">
     const playState = {
@@ -858,7 +1149,7 @@
 
       // Per-joint utilization colors the segment each joint drives, against
       // the strength profile the run was simulated with.
-      const segmentColors = FIG.effortTint(sim, k, sim.prof || strengthProf, isDark);
+      const segmentColors = FIG.effortTint(sim, k, sim.prof || strengthProf, isDark, sim.model);
 
       const f = rec.forces[k];
       const forces = [];
@@ -873,7 +1164,7 @@
 
       const canvas = playStack.elements.sim;
       const ctx = canvas.getContext('2d');
-      const view = { cx: 0.15, yLo: -0.18, yHi: 2.3 };
+      const view = bodyView(model);
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
       // One body here. What the spline ASKED for is a separate idea with its
@@ -934,7 +1225,9 @@
 
     The straight-leg press does none of this. Its reference sits within a few degrees of the body at every knot, because a press never needs full effort from any joint and so never needs to lie to one. That is the difference between a technique you *hold* and a technique you *throw*.
 
-    The pose the body actually starts in is not a knot at all, and is not authored: every scenario *solves* its start from the body it is given. The press folds to the deepest the hamstrings allow and then bisects the shoulder angle until the center of mass sits over the palm — so an 85 degree fold starts with the shoulder at 100 and a 125 degree fold at 74, and a stiffer body has to lean further to get over its hands at all. The kick-up hinges the torso to 90 degrees over the hands and solves the stance hip until the toe reaches the floor. The bent-leg press solves the same lean to leave about a third of body weight standing on the feet, which is what makes it a hop rather than a press. So moving a flexibility slider moves where the body begins while the technique's first knot stays exactly where the search left it, and the gap between them — the one the label under the figure measures — opens or closes without a knot having been touched.
+    The pose the body actually starts in is not a knot at all. A technique may carry one — all three of the ones here do, because the search was allowed to choose where they begin — and where it carries none, the scenario *solves* one from the body it is given. The press folds to the deepest the hamstrings allow and then bisects the shoulder angle until the center of mass sits over the palm — so an 85 degree fold starts with the shoulder at 100 and a 125 degree fold at 74, and a stiffer body has to lean further to get over its hands at all. The kick-up hinges the torso to 90 degrees over the hands and solves the stance hip until the toe reaches the floor. The bent-leg press solves the same lean to leave about a third of body weight standing on the feet, which is what makes it a hop rather than a press. So moving a flexibility slider moves where the body begins while the technique's first knot stays exactly where the search left it, and the gap between them — the one the label under the figure measures — opens or closes without a knot having been touched.
+
+    You can take that start over: drag it, and it stops being solved and becomes a pose the technique carries. You can also hand it to the *search*, which is the padlock on the first frame below, and then the eight angles the body begins in join the thirty-seven the optimizer is already moving.
 
     Below is that technique, and the three things that can change it: your hands, a search, and the body you make it do the work on. They all move the same thirty-seven numbers.
   </script>
@@ -949,6 +1242,21 @@
       base: null,   // the simResult these knots were loaded from
       knots: null,  // 6 x K, live and mutable
       q0: null,     // an edited start pose, or null for the one the scenario solves
+      // Whether the pose the body STARTS in is yours or the search's. Held by
+      // default: where a technique begins is usually the one thing about it
+      // its author is sure of. Unlocked, it joins the decision vector and the
+      // search may move it, which is how you ask "am I starting wrong?"
+      startHeld: true,
+      // Whether the start pose stands on its hands. On -- which is every
+      // technique this notebook shipped with -- the base is not yours: the
+      // palm goes flat on the floor at the origin and a foot through the floor
+      // is lifted by unfolding its hip. Off, the start pose is wherever you
+      // put it, and if the start is also unlocked the search may move it.
+      startGrounded: true,
+      // Cost terms this technique overrides. Only what it names; everything
+      // else is the notebook's. Today the one the panel exposes is liftoff --
+      // whether it costs anything for the hands to leave the floor.
+      weights: null,
       T: 0,
       // Where the poses fall inside [0, T], as fractions, and which of them
       // are held by hand. Both are per-technique and both survive an edit;
@@ -1028,18 +1336,35 @@
       // Which q indices the mirror takes away from you: the right leg follows
       // the left, so its two joints get no handles. By name -- the numbers
       // moved when the trunk gained a hinge.
-      const CH = Object.fromEntries(FIG.JOINTS.map((J, j) => [
-        ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'][j], j]));
+      // From the joint list, not zipped against a copy of it. Written out as a
+      // literal here, this was the EIGHT-joint order: once the arm gained an
+      // elbow and the legs gained feet the three extra channels got `undefined`
+      // for a name, and every name after the wrist pointed at the wrong joint --
+      // so the mirror wrote the left hip onto the right knee.
+      const CH = Object.fromEntries(JOINT_ORDER.map((n, j) => [n, j]));
       const lockedJoint = (joint) => symmetric()
-        && (joint === 3 + CH.hipR || joint === 3 + CH.kneeR);
-      const runModel = simResult.model || model;
-      // Mutable, and NOT a cell dependency. It used to live in its own cell, so
-      // every change of it re-ran this one and rebuilt every control in the
-      // figure -- picker, sliders, buttons, all of it -- to change the number
-      // of thumbnails in one row. Only the storyboard depends on the count, so
-      // only the storyboard is rebuilt.
-      let K = Math.max(2, editState.knots?.[0]?.length
-        || (editState.base === simResult ? 0 : 0) || simResult.knots[0].length);
+        && (joint === 3 + CH.hipR || joint === 3 + CH.kneeR || joint === 3 + CH.ankleR);
+      // The technique the editor currently has OPEN, and the run of it the
+      // picker names. Not the simResult cell: naming that here would make this
+      // whole cell a function of the picker, and choosing another technique
+      // would tear the instrument down and build a new one -- new canvases, a
+      // new storyboard, a fresh expandable wrapper -- to change what is inside
+      // it. So this is a variable, openInto below swaps it, and everything
+      // that reads it is a function of it rather than a constant folded out of
+      // it at build time.
+      let sim = techniqueSource.resolve(presetInput.value);
+      const runModel = () => sim.model || model;
+      // The technique this run IS -- the single object technique-file.js reads
+      // and writes. sim carries the recording; this is the thing that was
+      // saved, and it is what opening one has to give back.
+      const openedTechnique = () => sim.stored || null;
+      // How many poses there are. Mutable, and NOT a cell dependency: it used
+      // to live in its own cell, so every change of it re-ran this one and
+      // rebuilt every control in the figure -- picker, sliders, buttons, all
+      // of it -- to change the number of thumbnails in one row. Only the
+      // storyboard depends on the count, so only the storyboard is rebuilt.
+      // openInto is the one place that decides it.
+      let K;
       // The stored technique, said with however many poses are asked for.
       // Reset restores THIS, not the stored count: at four poses a six-pose
       // technique cannot be represented exactly, and pretending otherwise
@@ -1056,40 +1381,36 @@
       // handles already keep an edited pose symmetric (the right leg gets
       // none); this is the same rule applied on the way in.
       // ---- the body this technique is run and scored on ----------------------
-      // Its VALUES live here, above everything that needs them, and in
-      // editState rather than in the sliders. The sliders are rebuilt whenever
-      // this cell re-runs, which it does whenever the pose count changes -- so
-      // reading the body off them meant asking for five poses quietly handed
-      // the technique back its stored shoulder and threw away the one you had
-      // set. The duration never had that problem because it was already read
-      // from editState; now the body is too.
-      const st0 = simResult.stored?.strength || null;
-      const rom0 = simResult.baseRom;
-      const bodyDefaults = [
-        st0?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
-        rom0.hipFlexStraightKneeMaxDeg,
-        rom0.shoulderFlexMaxDeg,
-        rom0.wristExtMaxDeg ?? 135,
-        rom0.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
-      ];
+      // Its VALUES live here, in editState, rather than in the sliders. A
+      // slider is a view of a number; reading the number OFF the view means
+      // the number only exists as long as the view does, and back when the
+      // pose count rebuilt this cell that made asking for five poses quietly
+      // hand the technique back its stored shoulder and throw away the one you
+      // had set. Nothing rebuilds those sliders now -- neither the pose count
+      // nor the technique does -- but the reason to keep the values here is
+      // the same one it always was: the sliders are what SHOWS the body, and
+      // syncTechniqueInputs pushes them back from here every time it changes.
+      const st0 = () => sim.stored?.strength || null;
+      const bodyDefaults = () => {
+        const rom0 = sim.baseRom;
+        return [
+          st0()?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
+          rom0.hipFlexStraightKneeMaxDeg,
+          rom0.shoulderFlexMaxDeg,
+          rom0.wristExtMaxDeg ?? 135,
+          rom0.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
+        ];
+      };
       const machineDefaults = () => ({
-        config: resolvePlant(simResult.stored?.config),
-        numerics: resolveNumerics(simResult.stored?.numerics),
-        body: resolveRunBody(simResult.stored?.body),
+        config: resolvePlant(sim.stored?.config),
+        numerics: resolveNumerics(sim.stored?.numerics),
+        body: resolveRunBody(sim.stored?.body),
       });
-      const sameRun = editState.base === simResult && editState.knots;
-      editState.base = simResult;
-      if (!sameRun || editState.body?.length !== bodyDefaults.length) {
-        editState.body = bodyDefaults.slice();
-      }
-      if (!sameRun || !editState.machine) editState.machine = machineDefaults();
-      if (!sameRun || editState.symmetric == null) {
-        editState.symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
-      }
+
       const bodyOver = () => ({
-        strength: { ...(st0 || {}),
-          shoulder: { ...(st0?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: editState.body[0] } },
-        rom: { ...(simResult.stored?.rom || {}),
+        strength: { ...(st0() || {}),
+          shoulder: { ...(st0()?.shoulder || STRENGTH_DEFAULTS.shoulder), t0Vol: editState.body[0] } },
+        rom: { ...(sim.stored?.rom || {}),
           hipFlexStraightKneeMaxDeg: editState.body[1],
           shoulderFlexMaxDeg: editState.body[2],
           wristExtMaxDeg: editState.body[3],
@@ -1109,20 +1430,24 @@
       const fit = (kn) => sym(clampKnotsToRom(kn, romNow()));
       // Functions rather than values, because K moves now: Revert at four
       // poses has to give back the stored technique said with four.
-      const sameCount = () => simResult.knots[0].length === K;
+      const sameCount = () => sim.knots[0].length === K;
       // Widened where the page adopts a stored technique. Everything above
-      // this line speaks in eight channels; the presets and the recorded runs
-      // still speak in six, and a six-channel technique IS an eight-channel
-      // one with the spine and the neck straight.
-      const stored8 = () => widenKnots(simResult.knots.map((k) => Float64Array.from(k)));
+      // this line speaks in today's eleven channels; a stored technique may
+      // have been written for any body this notebook has had, and a technique
+      // written for a narrower one IS this one with the joints it never had
+      // held at neutral -- a straight elbow, a level spine, a pointed foot.
+      const storedWide = () => widenKnots(sim.knots.map((k) => Float64Array.from(k)));
       const baseKnots = () => (sameCount()
-        ? sym(stored8())
-        : fit(FIG.resampleKnots(stored8(), simResult.T, K, simResult.knotFracs)));
+        ? sym(storedWide())
+        : fit(FIG.resampleKnots(storedWide(), sim.T, K, sim.knotFracs)));
       // Even spacing, and only the ending held. This is what a technique
       // starts as and what Revert returns it to; a stored one may carry its own
       // phrasing, and does when it was authored with any.
-      const evenFracs = () => Float64Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
-      const freshHeld = () => Array.from({ length: K }, (_, k) => k === K - 1);
+      // Sized by argument, defaulting to the count on screen: openInto builds
+      // these for the technique it is opening, which is a count K does not
+      // have yet -- it is what openInto returns.
+      const evenFracs = (n = K) => Float64Array.from({ length: n }, (_, k) => (n === 1 ? 0 : k / (n - 1)));
+      const freshHeld = (n = K) => Array.from({ length: n }, (_, k) => k === n - 1);
       // The instants, held or free. Two different questions get asked of a
       // pose -- keep this shape, keep this moment -- and they are worth
       // asking separately: the shape of the pose you pass through and the
@@ -1141,9 +1466,9 @@
       // The ends are structural rather than pinned: the first pose is what
       // t = 0 means and the last is what T means, so neither is ever a
       // decision whatever you click.
-      const freshTimeHeld = () => Array.from({ length: K }, () => true);
-      const baseFracs = () => (sameCount() && simResult.knotFracs?.length === K
-        ? Float64Array.from(simResult.knotFracs) : evenFracs());
+      const freshTimeHeld = (n = K) => Array.from({ length: n }, () => true);
+      const baseFracs = () => (sameCount() && sim.knotFracs?.length === K
+        ? Float64Array.from(sim.knotFracs) : evenFracs());
 
       // Whether the technique on screen is still the one the run beside it was
       // produced from. Both a refit and a mirroring change the knots without
@@ -1154,33 +1479,212 @@
       const differs = (a, b) => a[0].length !== b[0].length
         || a.some((row, j) => row.some((v, k) => v !== b[j][k]));
 
-      if (!sameRun) {
-        const base = baseKnots();
-        editState.knots = base.map((k) => Float64Array.from(k));
-        editState.T = simResult.T;
-        editState.fracs = baseFracs();
-        editState.held = freshHeld();
-        editState.timeHeld = freshTimeHeld();
-        editState.run = simResult;
-        editState.edited = false;
-        editState.q0 = null;
-        // The stored run was made from the stored knots. If mirroring a
-        // symmetric skill moved them, that run is no longer this technique.
-        stale = differs(base, simResult.knots);
+      // ---- reading a technique, whole ---------------------------------------
+      // ONE reader. A technique is a single object -- the one technique-file.js
+      // writes -- and opening one has to give back every field of it: the
+      // knots, the tempo, the phrasing, which poses are held, which instants
+      // are pinned, the start pose, the mirror, the machine, the body, and the
+      // search settings.
+      //
+      // There used to be two readers and they disagreed. Loading a FILE
+      // restored all of it. Picking the same technique out of the list beside
+      // it restored the knots and the tempo and dropped the rest on the floor:
+      // the holds went back to "only the ending", every instant went back to
+      // pinned, an edited start pose was discarded, the mirror was re-derived
+      // from the scenario name, the search seed and generation count were left
+      // at whatever was on screen -- and the pose count was taken from the
+      // editor rather than the technique, so the knots themselves came back
+      // resampled. Keep wrote one thing and the picker read another, which
+      // means it was not a save/load at all.
+      //
+      // Returns the technique's own pose count, because the caller has to
+      // reconcile the figure with it.
+      const readTechnique = (rec) => {
+        const nk = rec.knots[0].length;
+        const rr = resolveRom(rec.rom);
+        editState.knots = widenKnots(rec.knots.map((k) => Float64Array.from(k)));
+        editState.T = +rec.T;
+        editState.fracs = rec.knotFracs?.length === nk
+          ? Float64Array.from(rec.knotFracs)
+          : Float64Array.from({ length: nk }, (_, k) => (nk === 1 ? 0 : k / (nk - 1)));
+        editState.held = rec.held?.length === nk
+          ? Array.from(rec.held, Boolean)
+          : Array.from({ length: nk }, (_, k) => k === nk - 1);
+        editState.timeHeld = rec.timeHeld?.length === nk
+          ? Array.from(rec.timeHeld, Boolean)
+          : Array.from({ length: nk }, () => true);
+        // Structural rather than stored: the ending pose is what the technique
+        // aims at and the two ends of the movement are 0 and T by definition,
+        // whatever a file happens to say about them.
+        editState.held[nk - 1] = true;
+        editState.timeHeld[0] = editState.timeHeld[nk - 1] = true;
+        editState.q0 = rec.q0 ? widenQ(rec.q0) : null;
+        editState.startHeld = rec.startHeld !== false;
+        editState.startGrounded = rec.startGrounded !== false;
+        editState.weights = rec.weights ? { ...rec.weights } : null;
+        editState.symmetric = typeof rec.symmetric === 'boolean'
+          ? rec.symmetric
+          : SYMMETRIC_SCENARIOS.has(rec.scenario || sim.scenarioName);
+        editState.machine = {
+          config: resolvePlant(rec.config),
+          numerics: resolveNumerics(rec.numerics),
+          body: resolveRunBody(rec.body),
+        };
+        editState.body = [
+          rec.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
+          rr.hipFlexStraightKneeMaxDeg,
+          rr.shoulderFlexMaxDeg,
+          rr.wristExtMaxDeg ?? 135,
+          rr.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
+        ];
+        editState.search = { seed: rec.search?.seed ?? 7, maxGen: rec.search?.maxGen ?? 120 };
+        return nk;
+      };
+
+      // ---- opening a technique into the editor ------------------------------
+      // Called once when this figure is built and again every time another
+      // technique is chosen. That second call is the point: choosing one used
+      // to re-run this cell, which rebuilt every canvas, every control and the
+      // wrapper around them to change what was inside -- so the animation
+      // stopped, the filmstrip forgot where it was scrolled and the whole
+      // figure flashed. Nothing about the instrument depends on WHICH
+      // technique is in it, so nothing about it is rebuilt; this swaps the
+      // technique and everything downstream reads the new one.
+      //
+      // Returns the pose count the technique wants. The caller owns K, because
+      // changing it also re-lays the storyboard.
+      function openInto(next) {
+        const fresh = !(editState.base === next && editState.knots);
+        // Per open, not per figure: the mirror straightens the knots of the
+        // technique being opened, and whether it moved THOSE is the question
+        // the caller settles on.
+        stale = false;
+
+        // Park what is being left, BEFORE anything below reassigns editState.
+        // The body, the machine and the mirror are all rewritten a few lines
+        // down with the INCOMING technique's defaults, and editState.base is
+        // about to become the incoming run -- so a snapshot taken any later is a
+        // snapshot of the wrong technique filed under the wrong id.
+        //
+        // Switching techniques used to destroy every edit made to the outgoing
+        // one. For a built-in there was nowhere else for them to live, because a
+        // built-in is derived rather than remembered: hold a pose, unpin an
+        // instant, drag a knot, look at another technique to compare, come back,
+        // and all of it was gone without a word. A document with unsaved changes
+        // is a draft, so that is what it becomes.
+        const leaving = editState.base;
+        if (fresh && leaving?.presetId && editState.edited && editState.knots) {
+          try {
+            const drafts = readDrafts();
+            drafts[leaving.presetId] = techniqueToJSON({
+              label: leaving.stored?.label || leaving.scenarioName,
+              saved: new Date().toISOString(),
+              scenario: leaving.scenarioName,
+              knots: editState.knots,
+              T: editState.T,
+              knotFracs: editState.fracs,
+              held: editState.held,
+              timeHeld: editState.timeHeld,
+              startHeld: editState.startHeld,
+              startGrounded: editState.startGrounded,
+              weights: editState.weights,
+              q0: editState.q0,
+              target: leaving.stored?.target || null,
+              rom: { ...(leaving.stored?.rom || {}),
+                hipFlexStraightKneeMaxDeg: editState.body?.[1],
+                shoulderFlexMaxDeg: editState.body?.[2],
+                wristExtMaxDeg: editState.body?.[3],
+                spineFlexMaxDeg: editState.body?.[4] },
+              strength: { ...(leaving.stored?.strength || {}),
+                shoulder: { ...(leaving.stored?.strength?.shoulder || STRENGTH_DEFAULTS.shoulder),
+                  t0Vol: editState.body?.[0] } },
+              body: editState.machine?.body || null,
+              config: editState.machine?.config || null,
+              numerics: editState.machine?.numerics || null,
+              symmetric: editState.symmetric,
+              search: editState.search,
+              verdict: null, cost: null,
+            });
+            // Logged rather than shown: nobody asked for this write, and the
+            // status line is about to be about the technique being opened.
+            const err = writeDrafts(drafts);
+            if (err) console.warn('could not park a draft:', err);
+          } catch (err) { console.warn('could not park a draft:', err); }
+        }
+        sim = next;
+        editState.base = sim;
+        if (fresh || editState.body?.length !== 5) editState.body = bodyDefaults();
+        if (fresh || !editState.machine) editState.machine = machineDefaults();
+        if (fresh || editState.symmetric == null) {
+          editState.symmetric = SYMMETRIC_SCENARIOS.has(sim.scenarioName);
+        }
+        // The pose count comes from the TECHNIQUE. It used to be read off
+        // editState first and fall through to the technique only when the
+        // editor was empty -- so opening a six-pose technique while a
+        // seven-pose one was on screen kept the seven and quietly RESAMPLED
+        // the six onto it. You saved six and got back seven. The count is a
+        // setting of the figure only while you stay on one technique; the
+        // moment you open another, the technique wins, exactly as loading a
+        // file already did. And it is what the READER gives back, not what the
+        // stored technique says: a parked draft is what gets opened when there
+        // is one, and a draft may have had a pose added to it.
+        let want = Math.max(2, fresh
+          ? (openedTechnique()?.knots?.[0]?.length ?? sim.knots[0].length)
+          : editState.knots[0].length);
+        if (fresh) {
+          // The draft for the technique being opened, if there is one, is what
+          // the reader is handed -- otherwise the technique itself.
+          const draft = sim.presetId ? readDrafts()[sim.presetId] : null;
+          let opened = null;
+          if (draft) {
+            try { opened = techniqueFromJSON(draft); } catch (err) {
+              console.warn('a parked draft would not read back, using the technique:', err);
+            }
+          }
+          want = readTechnique(opened || openedTechnique() || {
+            knots: sim.knots, T: sim.T, knotFracs: sim.knotFracs,
+            rom: sim.baseRom, scenario: sim.scenarioName,
+          });
+          editState.hasDraft = !!opened;
+          // Mirroring a symmetric skill moves the knots without touching the
+          // recording beside them, and a figure whose grey poses have moved
+          // while its coloured body has not is the confusion this figure exists
+          // to remove -- so that means re-simulate rather than re-lay-out.
+          const raw = editState.knots.map((k) => Float64Array.from(k));
+          sym(editState.knots);
+          stale = differs(editState.knots, raw);
+          editState.run = sim;
+          // A restored draft IS an edit -- it is the work you had done -- so the
+          // badge and the verdict's baseline comparison both stay on.
+          editState.edited = !!editState.hasDraft;
+        }
+        // Belt and braces for a technique stored before any of these existed.
+        if (editState.fracs?.length !== want) editState.fracs = evenFracs(want);
+        if (editState.held?.length !== want) editState.held = freshHeld(want);
+        editState.held[want - 1] = true;
+        if (editState.timeHeld?.length !== want) editState.timeHeld = freshTimeHeld(want);
+        editState.timeHeld[0] = editState.timeHeld[want - 1] = true;
+        if (!editState.search) editState.search = { seed: 7, maxGen: 120 };
+        return want;
       }
-      // Belt and braces for a technique loaded before either existed.
-      if (editState.fracs?.length !== K) editState.fracs = evenFracs();
-      if (editState.held?.length !== K) editState.held = freshHeld();
-      editState.held[K - 1] = true;
-      if (editState.timeHeld?.length !== K) editState.timeHeld = freshTimeHeld();
-      editState.timeHeld[0] = editState.timeHeld[K - 1] = true;
+
+      // Open whatever the picker is naming right now. Everything below is
+      // built against the technique this leaves in editState.
+      K = openInto(sim);
 
       const dpr = devicePixelRatio;
       // Every reference pose has to fit, and a reference pose is not a pose the
       // body ever holds: measured over every knot of every stored technique the
       // widest reaches 1.18 m from the hand and the tallest 2.07 m. Fixed, so
       // six poses look like six poses of one body rather than six bodies.
-      const VIEW = { cx: 0.15, yLo: -0.2, yHi: 2.15 };
+      // What the reader is looking at. bodyView frames the whole body; zoom and
+      // the two pan offsets are theirs, and they live in editState.ui so they
+      // survive this cell being rebuilt when the body changes.
+      const FRAME = bodyView(model, { yLo: -0.2 });
+      editState.ui.view ??= { zoom: 1, panX: 0, panY: 0 };
+      const VIEW = new Proxy(FRAME, {
+        get: (t, k) => (k in editState.ui.view ? editState.ui.view[k] : t[k]),
+      });
       // Mutable, because the figure expands. Every one of these is re-derived
       // in onResize below, and the values here are only the collapsed start.
       let totalW = pageW;
@@ -1190,27 +1694,50 @@
       const STAGE_H = panelH;
       // K + 1 cells: the pose the body STARTS in, then the K it asks for.
       let nCells = K + 1;
-      // As many columns as fit at a legible frame width, capped at the number of
-      // cells. A fixed seven wrapped at eight poses even in a figure with room
-      // for thirteen.
-      const colsFor = (w) => Math.min(nCells, Math.max(2, Math.floor((w + 4) / 78)));
-      let thumbCols = colsFor(totalW);
-      const thumbW = Math.floor((totalW - (thumbCols - 1) * 4) / thumbCols) - 4;
-      const thumbH = Math.round(thumbW / 1.13);
+      // Only an aspect ratio, in effect. The storyboard is ONE row and sizes
+      // its own frames to whatever width it is handed -- it used to be a grid
+      // that wrapped, and a wrapped storyboard stops being a time axis: the
+      // ninth pose of a movement sat underneath the first, and the eye had to
+      // jump back to the left margin in the middle of the phrase.
+      const thumbW = 88, thumbH = Math.round(88 / 1.13);
 
       let theme = null;
       let paintRamp = null;
+      // Assigned once the document bar below exists, and called through the
+      // optional chain the way paintRamp is. It cannot be a direct reference:
+      // createFrameLoop runs its callback ONCE, SYNCHRONOUSLY, at the moment
+      // the loop is created -- which is above the bar -- so naming the badge
+      // there put a const in its temporal dead zone, the first tick threw, and
+      // a frame loop that throws cancels itself. The whole figure went dark and
+      // stayed dark.
+      let syncDoc = null;
+      // Dropping a pose, asked and answered. Both are assigned further down --
+      // askDrop needs dropPose, and closeConfirm needs the strip it hides --
+      // and both are reached from callbacks that fire long after this cell
+      // body has run. Declared here and called through the optional chain all
+      // the same, because the last thing that named one of these directly
+      // from above its definition put a const in the frame loop's dead zone
+      // and took the whole figure down with it.
+      let askDrop = null;
+      let closeConfirm = null;
 
       // ---- one time variable, one selected pose ----------------------------
       let t = 0, sel = 0, playing = false, lastNow = null;
       let dirty = true, chromeDirty = true, xEnd = 1;
+      // Whether the reference is drawn behind the body while the movement
+      // plays. Off, because in playback it is not the subject: a second, grey,
+      // slightly-out-of-step body in the same picture reads as a smear on the
+      // animation rather than as the thing driving it. It is still there for
+      // the asking -- and while you are EDITING a pose the reference IS the
+      // subject, drawn alone, whatever this says.
+      let showRef = false;
       let searching = false, poolSize = null, status = '';
       const knotTime = (k) => editState.fracs[k] * editState.T;
       // The held poses as the search wants them: the six angles each one is
       // pinned to, or null where it is free to move. Read off the knots, so a
       // pose you drag and then hold is held where you left it.
       const lockValues = () => editState.held.map((on, k) => (on
-        ? Array.from({ length: FIG.JOINTS.length }, (_, j) => editState.knots[j][k]) : null));
+        ? Array.from({ length: NJOINTS }, (_, j) => editState.knots[j][k]) : null));
       // And the pinned instants, the same way: the fraction each pinned pose
       // sits at, or null where the search may slide it.
       const timeLockValues = () => editState.timeHeld.map((on, k) => (on ? editState.fracs[k] : null));
@@ -1222,8 +1749,64 @@
       // it -- it used to leave the clock where it was, so the pose being
       // edited and the instant everything else reported disagreed, and the
       // body behind it sat unchanging at some other moment entirely.
-      const startQ = () => editState.q0 || editState.run.rec.q[0];
+      // The pose the body BEGINS in, as the figure draws it.
+      //
+      // Two different things get called "the start" and they must not be the
+      // same variable: the pose the technique ASKS to begin in -- editState.q0,
+      // authored, yours -- and the pose the run actually began in, which is
+      // that one after it has been clamped into the body's range of motion and
+      // lifted clear of the floor. The figure draws the second, because that is
+      // what happened. The technique keeps the first, because a run must never
+      // edit its own input.
+      //
+      // resim used to write the run's start back into editState.q0, and that
+      // made the anatomy sliders ONE-WAY: narrow a joint's range, the start was
+      // clamped into it, the clamped pose was written back as though you had
+      // authored it, and widening the range again could not undo it because the
+      // angle you had started from no longer existed anywhere. The same
+      // technique arrived, then did not, and then still did not with every
+      // slider returned to where it began.
+      //
+      // WHILE YOU ARE EDITING THE START, the figure draws exactly the pose you
+      // authored. Not the clamped one, not the seated one, not the one the
+      // rollout will actually integrate -- yours, joint for joint.
+      //
+      // This is the same rule the reference poses already follow, and for the
+      // reason stated beside clampKnotsToRom: a knot a HAND placed is
+      // deliberately not clamped, because a handle that stops for a reason the
+      // figure has not drawn is a handle that lies. The start pose is a pose a
+      // hand placed too, and it was the one place that rule was not applied.
+      //
+      // What it cost: the start is SEATED before it runs -- clamped into the
+      // range of motion, and moved so it does not begin inside the floor,
+      // because a contact below the ground fires an enormous penalty impulse at
+      // t = 0. Drawing the seated pose meant every constraint in that seating
+      // reached back into the editor as something moving that you had not
+      // touched. Half of all drags were silently eaten by the clamp -- drag a
+      // hip that is already on its limit and it comes back exactly where it
+      // started -- and the rest paid for the floor in some other joint.
+      //
+      // The seating still happens; it has to, or the rollout is not runnable.
+      // It happens where it belongs, inside the run, and the difference is
+      // visible where it belongs: press play and watch what the body does with
+      // the pose you gave it.
+      // The start pose the editor draws. NOT a function of what is selected:
+      // reading `sel` here meant the start had two appearances -- the pose you
+      // authored while it was the cell in hand, and the pose the rollout
+      // actually began from the moment you looked away. Those differ by the
+      // seating (the lean the solver pays to keep the body out of the floor),
+      // so selecting and deselecting the first cell rocked it back and forth
+      // between two leans in the stage and in its own thumbnail.
+      //
+      // Once a start is authored it IS editState.q0, everywhere and always.
+      // The recording's first frame is the fallback for a technique nobody has
+      // touched yet, which is the only case where there is nothing authored to
+      // show.
+      const startQ = () => editState.q0 || editState.run?.rec?.q?.[0];
       const selectCell = (i) => {
+        // Reaching for another pose is an answer: you are no longer looking at
+        // the one you were asked about.
+        closeConfirm?.();
         sel = Math.min(nCells - 1, Math.max(0, i));
         t = sel === 0 ? 0 : knotTime(sel - 1);
         setPlaying(false);
@@ -1236,7 +1819,8 @@
       // opacity says which of the two you are acting on: the subject is solid
       // and on top, the other is a flat underlay in its own colour.
       const stage = html`<div style="position:relative; width:${panelW}px; height:${panelH}px;
-        touch-action:none; border:1px solid currentColor; border-radius:3px; box-sizing:border-box;
+        touch-action:none; cursor:grab; border:1px solid currentColor; border-radius:4px;
+        box-sizing:border-box;
         border-color:color-mix(in srgb, currentColor 18%, transparent);"></div>`;
       const canvas = html`<canvas style="position:absolute; left:0; top:0;
         width:${panelW}px; height:${panelH}px;"></canvas>`;
@@ -1247,7 +1831,9 @@
       const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       overlay.setAttribute('width', panelW);
       overlay.setAttribute('height', panelH);
-      overlay.style.cssText = 'position:absolute; left:0; top:0;';
+      // The overlay carries the handles and nothing else, so it must not eat
+      // the pointer between them -- that is what pans the stage.
+      overlay.style.cssText = 'position:absolute; left:0; top:0; pointer-events:none;';
       stage.appendChild(overlay);
       // Everything that draws itself at a fixed size, told the new one. The
       // canvas is the only thing here with a backing store, so it is the only
@@ -1264,14 +1850,14 @@
         overlay.setAttribute('width', panelW);
         overlay.setAttribute('height', panelH);
       };
-      const askQ = new Float64Array(runModel.nq);
+      const askQ = new Float64Array(runModel().nq);
       // The pose the technique is aiming at IS its last knot. Drag that cell
       // and you have asked for a different ending -- a pike, a planche -- and
       // the search is told about it rather than snapping it back to a
       // handstand behind your back.
-      const tgtQ = new Float64Array(runModel.nq);
+      const tgtQ = new Float64Array(runModel().nq);
       const targetQ = () => FIG.knotPose(
-        editState.run?.model || simResult.model || model, editState.knots, K - 1, tgtQ);
+        editState.run?.model || sim.model || model, editState.knots, K - 1, tgtQ);
 
       const drawStage = () => {
         const run = editState.run, rec = run.rec;
@@ -1289,7 +1875,7 @@
         if (field?.length) {
           // Searching: the generation, and nothing else. No incumbent on top,
           // because the question at that moment is what the whole field does.
-          const floorY = panelH - (0 - VIEW.yLo) * (panelH / (VIEW.yHi - VIEW.yLo));
+          const floorY = viewTransform(panelW, panelH, VIEW).floorY;
           const fg = theme?.foreground || [0.11, 0.12, 0.14];
           const rgb = fg.map((v) => Math.round(v * 255)).join(',');
           stageCtx.fillStyle = `rgba(${rgb},0.05)`;
@@ -1327,24 +1913,44 @@
           // has not re-run yet, so it read as broken rather than as context.
           const q = sel === 0 ? startQ() : FIG.knotPose(m, editState.knots, sel - 1, askQ);
           if (sel === 0) askQ.set(q);
-          syncHandles(drawScene(stageCtx, {
-            ...common, q, segmentColors: sel === 0 ? null : FIG.requestTint(),
-          }).handles.filter((h) => !lockedJoint(h.joint)));
+          // Red where a joint is outside the body's range. The pose is not
+          // clamped -- see startQ -- so this is the whole of what the editor
+          // says about anatomy while you are placing a pose by hand.
+          const outside = FIG.romOutside(m, q, romNow());
+          const drawn = drawScene(stageCtx, {
+            ...common, q,
+            segmentColors: FIG.romTint(m, q, romNow(), sel === 0 ? null : FIG.REQUEST_COLOR),
+            // On the START pose, always. A reference pose is joint angles and
+            // nothing else -- there is no base to move -- but the start has
+            // one, and "you cannot drag the hands" is not something a pose
+            // editor should ever have to say. Grabbing one of these on a
+            // grounded start is how you let go of the floor: the toggle in the
+            // panel follows the hand rather than gating it.
+            baseHandles: sel === 0,
+          });
+          // Pixels per metre, as the handles were placed. The move handle turns
+          // pointer travel back into metres with it.
+          sceneScale = drawn.scale;
+          syncHandles(drawn.handles.filter((h) => !lockedJoint(h.joint)), outside);
         } else {
-          FIG.requestPose(m, editState.knots, editState.T, t, askQ, editState.fracs);
-          // Watching: what happened is solid, in its strength colours, over
-          // the target it was chasing.
-          // A third of the opacity it has while you are editing it: when the
-          // movement is playing the target is context, not the subject.
-          drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.1, color: FIG.REQUEST_COLOR });
-          drawScene(stageCtx, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark) });
+          // Watching: what happened is solid, in its strength colours. The
+          // reference it was chasing goes behind it only if you asked for it
+          // -- see showRef. When it is drawn it is drawn faint, because at
+          // this moment the target is context and not the subject.
+          if (showRef) {
+            FIG.requestPose(m, editState.knots, editState.T, t, askQ, editState.fracs);
+            drawGhosts(stageCtx, { ...common, poses: [{ q: askQ }], alpha: 0.12, color: FIG.REQUEST_COLOR });
+          }
+          drawScene(stageCtx, { ...common, q: rec.q[k], segmentColors: FIG.effortTint(run, k, prof, isDark, m) });
           syncHandles([]);
         }
       };
 
       // ---- joint handles ----------------------------------------------------
       const handleEls = new Map();
-      const syncHandles = (handles) => {
+      // Pixels per metre at the last draw, for the one handle that translates.
+      let sceneScale = 1;
+      const syncHandles = (handles, outside = null) => {
         const want = new Set(handles.map((h) => h.joint));
         for (const [j, el] of [...handleEls]) if (!want.has(j)) { el.remove(); handleEls.delete(j); }
         for (const h of handles) {
@@ -1359,6 +1965,10 @@
             el.style.cursor = 'grab';
             el.style.transition = 'fill 90ms linear';
             el.dataset.joint = h.joint;
+            if (h.move) el.dataset.move = '1';
+            // The one handle that is not a hinge gets its own cursor, because
+            // it is the one that does not turn anything.
+            if (h.move) el.style.cursor = 'move';
             // A handle that does not answer the pointer looks like decoration.
             // It stays lit while it is HELD as well as while it is hovered,
             // because a finger that has wandered off a 10 px circle is still
@@ -1369,11 +1979,20 @@
             });
             el.addEventListener('pointerleave', () => {
               if (drag?.el === el) return;
-              el.setAttribute('fill', FIG.REQUEST_FILL);
+              el.setAttribute('fill', el.dataset.bad ? FIG.ROM_COLOR : FIG.REQUEST_FILL);
               el.setAttribute('stroke-width', 1.6);
             });
             overlay.append(el);
             handleEls.set(h.joint, el);
+          }
+          // The handle you are holding says so too: a segment tinted red at
+          // the far end of a limb is easy to miss when your eye is on the dot
+          // under your finger.
+          const bad = !!outside?.has(h.joint);
+          el.dataset.bad = bad ? '1' : '';
+          el.setAttribute('stroke', bad ? FIG.ROM_COLOR : FIG.REQUEST_COLOR);
+          if (!drag || drag.el !== el) {
+            el.setAttribute('fill', bad ? FIG.ROM_COLOR : FIG.REQUEST_FILL);
           }
           el.setAttribute('cx', h.x);
           el.setAttribute('cy', h.y);
@@ -1391,11 +2010,25 @@
         if (drag || !(el instanceof SVGCircleElement) || sel < 0 || searching) return;
         const r = overlay.getBoundingClientRect();
         const px = +el.dataset.px, py = +el.dataset.py;
+        const move = el.dataset.move === '1';
+        // Reaching for the hand IS asking for the start to leave the floor.
+        // Behind a toggle in a settings panel, this was a degree of freedom
+        // nobody could find.
+        if ((move || +el.dataset.joint === 2) && editState.startGrounded) {
+          editState.startGrounded = false;
+          groundToggle.value = false;
+          if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+          editState.edited = true;
+        }
         drag = {
-          el, pointerId: e.pointerId, px, py, ch: +el.dataset.joint - 3, moved: false,
+          el, pointerId: e.pointerId, px, py, ch: +el.dataset.joint - 3, move, moved: false,
           a0: Math.atan2(-(e.clientY - r.top - py), e.clientX - r.left - px),
-          q0: sel === 0 ? startQ()[+el.dataset.joint]
-            : editState.knots[+el.dataset.joint - 3][sel - 1],
+          // A move handle carries where the body was and where the pointer
+          // started, in screen pixels; a turn handle carries one angle.
+          x0: e.clientX - r.left, y0: e.clientY - r.top,
+          b0: move ? Float64Array.of(startQ()[0], startQ()[1]) : null,
+          q0: move ? 0 : (sel === 0 ? startQ()[+el.dataset.joint]
+            : editState.knots[+el.dataset.joint - 3][sel - 1]),
         };
         try { el.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
         el.style.cursor = 'grabbing';
@@ -1406,6 +2039,18 @@
       overlay.addEventListener('pointermove', (e) => {
         if (!drag || e.pointerId !== drag.pointerId) return;
         const r = overlay.getBoundingClientRect();
+        if (drag.move) {
+          // Screen pixels back into metres through the same scale the scene was
+          // drawn at, so the body follows the pointer rather than drifting
+          // relative to it. y is inverted because the canvas is.
+          const s = sceneScale;
+          writeBase(drag.b0[0] + (e.clientX - r.left - drag.x0) / s,
+            drag.b0[1] - (e.clientY - r.top - drag.y0) / s);
+          drag.moved = true;
+          dirty = chromeDirty = true;
+          e.preventDefault();
+          return;
+        }
         const a = Math.atan2(-(e.clientY - r.top - drag.py), e.clientX - r.left - drag.px);
         let da = a - drag.a0;
         if (da > Math.PI) da -= 2 * Math.PI;
@@ -1420,7 +2065,7 @@
         if (!drag || (e && e.pointerId !== drag.pointerId)) return;
         try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) { /* gone */ }
         drag.el.style.cursor = 'grab';
-        drag.el.setAttribute('fill', FIG.REQUEST_FILL);
+        drag.el.setAttribute('fill', drag.el.dataset.bad ? FIG.ROM_COLOR : FIG.REQUEST_FILL);
         drag.el.setAttribute('stroke-width', 1.6);
         const moved = drag.moved;
         drag = null;
@@ -1430,29 +2075,144 @@
       overlay.addEventListener('pointercancel', endDrag);
       overlay.addEventListener('lostpointercapture', endDrag);
 
+      // ---- pan and zoom ------------------------------------------------------
+      // The stage frames a whole body, and a whole body is 2.2 m of which a toe
+      // is two centimetres. Nothing about the picture changes shape when you
+      // close on one: the handles are placed in screen pixels at a fixed 10 px
+      // radius, so they stay the size of a fingertip at any scale.
+      const VIEW_MIN = 0.4, VIEW_MAX = 60;
+      const viewScale = (zoom) => (zoom * panelH) / (FRAME.yHi - FRAME.yLo);
+      const setView = (zoom, panX, panY) => {
+        const v = editState.ui.view;
+        v.zoom = Math.min(VIEW_MAX, Math.max(VIEW_MIN, zoom));
+        v.panX = panX;
+        v.panY = panY;
+        dirty = true;
+      };
+      // Zoom about a point on the screen: whatever world point is under the
+      // pointer has to still be under it afterwards, or the thing you were
+      // aiming at slides out of the window as you close on it.
+      const zoomAbout = (sx, sy, factor) => {
+        const v = editState.ui.view;
+        const [wx, wy] = viewTransform(panelW, panelH, VIEW).toWorld(sx, sy);
+        const zoom = Math.min(VIEW_MAX, Math.max(VIEW_MIN, v.zoom * factor));
+        const scale = viewScale(zoom);
+        const ymid = 0.5 * (FRAME.yLo + FRAME.yHi);
+        setView(zoom, wx - FRAME.cx - (sx - panelW / 2) / scale,
+          wy - ymid + (sy - panelH / 2) / scale);
+      };
+      stage.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const r = stage.getBoundingClientRect();
+        // Trackpads report pixels, wheels report lines or pages. Normalised so
+        // the same flick is the same zoom on both.
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? panelH : 1;
+        zoomAbout(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * unit / 420));
+      }, { passive: false });
+
+      // Two pointers pinch, one pans. Both live on the STAGE rather than the
+      // overlay, because the overlay answers the pointer only on a handle --
+      // which is the one thing a pan must not grab.
+      const pans = new Map();
+      let pinch = null;
+      const pinchState = () => {
+        const [a, b] = [...pans.values()];
+        return {
+          d: Math.hypot(a.x - b.x, a.y - b.y),
+          mx: 0.5 * (a.x + b.x), my: 0.5 * (a.y + b.y),
+        };
+      };
+      stage.addEventListener('pointerdown', (e) => {
+        if (drag || e.target instanceof SVGCircleElement) return;
+        const r = stage.getBoundingClientRect();
+        pans.set(e.pointerId, { x: e.clientX - r.left, y: e.clientY - r.top });
+        if (pans.size === 2) pinch = pinchState();
+        stage.style.cursor = 'grabbing';
+        try { stage.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
+        e.preventDefault();
+      });
+      stage.addEventListener('pointermove', (e) => {
+        const p = pans.get(e.pointerId);
+        if (!p) return;
+        const r = stage.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        const dx = x - p.x, dy = y - p.y;
+        p.x = x; p.y = y;
+        const v = editState.ui.view;
+        const scale = viewScale(v.zoom);
+        if (pans.size >= 2 && pinch) {
+          // The midpoint drags and the separation zooms, in one gesture: two
+          // fingers that spread while they slide do both at once.
+          const now = pinchState();
+          setView(v.zoom, v.panX - (now.mx - pinch.mx) / scale,
+            v.panY + (now.my - pinch.my) / scale);
+          if (pinch.d > 0 && now.d > 0) zoomAbout(now.mx, now.my, now.d / pinch.d);
+          pinch = now;
+        } else {
+          setView(v.zoom, v.panX - dx / scale, v.panY + dy / scale);
+        }
+        e.preventDefault();
+      });
+      const endPan = (e) => {
+        if (!pans.delete(e.pointerId)) return;
+        try { stage.releasePointerCapture(e.pointerId); } catch (_) { /* gone */ }
+        pinch = pans.size === 2 ? pinchState() : null;
+        if (!pans.size) stage.style.cursor = 'grab';
+      };
+      stage.addEventListener('pointerup', endPan);
+      stage.addEventListener('pointercancel', endPan);
+      stage.addEventListener('lostpointercapture', endPan);
+      // Back to the whole body. A reader who has closed on a toe and lost the
+      // rest of the figure needs one gesture that always works.
+      stage.addEventListener('dblclick', (e) => {
+        if (e.target instanceof SVGCircleElement) return;
+        setView(1, 0, 0);
+      });
+
       // A knot goes exactly where it is put. Nothing is clamped: a handle that
       // stops for a reason the figure has not drawn is a handle that lies.
       const writeKnot = (ch, k, q) => {
         editState.knots[ch][k] = q;
         if (symmetric() && ch === CH.hipL) editState.knots[CH.hipR][k] = q;
         if (symmetric() && ch === CH.kneeL) editState.knots[CH.kneeR][k] = q;
+        if (symmetric() && ch === CH.ankleL) editState.knots[CH.ankleR][k] = q;
       };
       // The start is not a knot -- it is the body's own configuration at t = 0
       // -- so it is written into its own vector, and the first edit forks it
       // off the one the scenario solved.
+      // Where the body stands, when the start has let go of the floor. Same
+      // rule as writeStart below it: touching it makes the start EXPLICIT,
+      // because a null q0 means "whatever the scenario solves" and what a
+      // scenario solves is a body on its hands.
+      const writeBase = (x, y) => {
+        if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+        editState.q0[0] = x;
+        editState.q0[1] = y;
+      };
       const writeStart = (ch, q) => {
         if (!editState.q0) editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+        // The base ANGLE is q[2], which is channel -1 in the joints' numbering.
+        // The turn handle on the hand is a handle on a joint coordinate like
+        // any other; it just happens to be the one before the wrist.
         editState.q0[3 + ch] = q;
         if (symmetric() && ch === CH.hipL) editState.q0[3 + CH.hipR] = q;
         if (symmetric() && ch === CH.kneeL) editState.q0[3 + CH.kneeR] = q;
+        if (symmetric() && ch === CH.ankleL) editState.q0[3 + CH.ankleR] = q;
       };
 
       const story = FIG.createStoryboard({
-        n: nCells, cols: thumbCols, thumbW, thumbH, view: VIEW, dpr, onSelect: selectCell,
-        // Cell 0 is the start, which the search never moved in the first
-        // place; the last cell is the ending pose, which it may never move.
-        // Everything between is yours to hold or release.
-        canLock: (i) => (i === 0 ? null : i === nCells - 1 ? 'fixed' : 'toggle'),
+        // FRAME, not VIEW: the thumbnails are an index of the movement and
+        // have to show the whole body. Zooming the stage to look at a toe must
+        // not zoom seven postage stamps to the same toe.
+        n: nCells, thumbW, thumbH, view: FRAME, dpr, onSelect: selectCell,
+        // The start pose has a padlock too. It is not a knot -- it is where
+        // the body BEGINS -- but it is the one part of a technique the search
+        // could never answer back on, and "you are starting in the wrong
+        // place" is the most useful thing it has to say about a movement that
+        // nearly works. Held by default; unlocked, its joints join the
+        // decision vector. The ending stays permanently locked, because being
+        // the pose the technique aims at is what "ending pose" means.
+        canLock: (i) => (i === nCells - 1 ? 'fixed' : 'toggle'),
         // The first reference pose anchors t = 0 and the last IS the ending, so
         // neither goes; everything between is yours to drop. Same rule as the
         // timeline drag, for the same reason.
@@ -1460,7 +2220,11 @@
         // And a gap to add one in: before every knot after the first, which is
         // every boundary between two poses.
         canInsertBefore: (i) => i >= 2,
-        onDelete: (i) => dropPose(i - 1),
+        // Asks. Dropping a pose is the one edit in this figure that cannot be
+        // undone -- every other one moves a number you can move back -- and it
+        // hangs off an 18px button in the corner of the target that SELECTS
+        // the pose. See askDrop.
+        onDelete: (i) => askDrop?.(i),
         onInsert: (i) => addPoseBefore(i - 1),
         // The instants of the interior poses -- the ends are 0 and T by
         // definition, and the start cell is not a knot at all.
@@ -1469,18 +2233,37 @@
           const k = i - 1;
           editState.timeHeld[k] = !editState.timeHeld[k];
           // Same as holding a pose: it changes what the search may do, not
-          // what the body does, so nothing is re-simulated.
+          // what the body does, so nothing is re-simulated. It IS an edit
+          // though -- which instants are pinned is a field of the technique,
+          // written to every file -- and saying otherwise meant the editor
+          // thought nothing had changed and threw the pins away on the next
+          // technique switch.
+          editState.edited = true;
           chromeDirty = dirty = true;
         },
         onLock: (i) => {
+          if (i === 0) {
+            editState.startHeld = !editState.startHeld;
+            // Unlocking makes the start EXPLICIT. Left null it means "whatever
+            // this scenario solves", and the search would then begin from the
+            // solve rather than from the pose on screen -- which for a start
+            // the reader has dragged is a different technique.
+            if (!editState.startHeld && !editState.q0) {
+              editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+            }
+            editState.edited = true;
+            chromeDirty = dirty = true;
+            return;
+          }
           const k = i - 1;
           editState.held[k] = !editState.held[k];
           // Holding a pose does not change the movement -- it changes what the
-          // search is allowed to do with it -- so nothing is re-simulated.
+          // search is allowed to do with it -- so nothing is re-simulated. It
+          // is still an edit: which poses are held is part of the technique.
+          editState.edited = true;
           chromeDirty = dirty = true;
         },
       });
-      story.setColsFor(colsFor);
       const strip = FIG.createStrip({
         width: totalW, dpr,
         onSeek: (x) => {
@@ -1510,6 +2293,32 @@
           dirty = chromeDirty = true;
           if (settled) resim(); else relayout();
         },
+        // The last pose IS the end of the movement, so dragging it sets the
+        // duration. It was a slider in a panel -- "Duration T (s)" -- which
+        // asked the reader to set, in a number, the one thing the picture
+        // beside it draws as a position; and the handle a reader would
+        // actually reach for, the one at the end of the timeline, did nothing.
+        //
+        // Everything before it keeps the INSTANT it is at rather than the
+        // fraction: dragging the end moves the end, not the phrasing. The
+        // settle window that follows is fixed (numerics.settleT) and is what
+        // the axis draws past the T mark, so a longer movement does not buy
+        // more time to fall over in.
+        onDurationDrag: (Tsec, settled) => {
+          const times = Array.from({ length: K }, (_, k) => knotTime(k));
+          const Tmin = Math.max(T_RANGE[0], (times[K - 2] ?? 0) + 0.02);
+          const next = Math.min(Math.max(Tsec, Tmin), T_RANGE[1]);
+          editState.T = next;
+          for (let k = 1; k < K - 1; k++) editState.fracs[k] = times[k] / next;
+          editState.fracs[0] = 0;
+          editState.fracs[K - 1] = 1;
+          // The tempo is a field of the technique, so changing it is an edit --
+          // the same reason moving a pose is.
+          editState.edited = true;
+          t = next;
+          dirty = chromeDirty = true;
+          if (settled) resim(); else relayout();
+        },
       });
       // ---- changing how many poses there are ---------------------------------
       // Three ways in, one place they land. Nothing here re-runs the cell: the
@@ -1522,7 +2331,10 @@
       // stage was given the height left over from a chrome that has since got
       // taller. Either way the timeline ends up past the bottom edge.
       const layout = { refresh: null };
-      const setCount = (next) => {
+      // opts travel through to resim: opening another technique changes the
+      // count without that being an EDIT, and resim is what decides whether
+      // the document is badged as one.
+      const setCount = (next, opts) => {
         // A search in flight is a search for a DIFFERENT technique the moment
         // the pose count changes: it is still scoring K poses and will hand
         // back K of them, onto a page whose knots, phrasing and holds are all
@@ -1542,9 +2354,8 @@
         // The storyboard re-lays itself at whatever width it is currently at,
         // which is not totalW while the figure is expanded.
         story.setCount(nCells);
-        poses.value = K;
         sel = Math.min(sel, nCells - 1);
-        resim();
+        resim(opts);
         layout.refresh?.();
       };
 
@@ -1566,11 +2377,11 @@
       // its angles read off the curve that is already there. The movement does
       // not change; you gain a handle on it. That IS the resampling -- of one
       // point, at one instant, rather than a least-squares refit of everything.
-      const insQ = new Float64Array(runModel.nq);
+      const insQ = new Float64Array(runModel().nq);
       const addPoseBefore = (k) => {
         if (K >= 12 || k <= 0 || k > K - 1) return;
         const frac = 0.5 * (editState.fracs[k - 1] + editState.fracs[k]);
-        FIG.requestPose(editState.run?.model || runModel, editState.knots, editState.T,
+        FIG.requestPose(editState.run?.model || runModel(), editState.knots, editState.T,
           frac * editState.T, insQ, editState.fracs);
         editState.knots = editState.knots.map((row, j) =>
           Float64Array.from([...row.slice(0, k), insQ[3 + j], ...row.slice(k)]));
@@ -1581,6 +2392,66 @@
         setCount(K + 1);
       };
 
+      // ---- asking before dropping a pose --------------------------------------
+      // Dropping a pose is the one edit in this figure that cannot be undone.
+      // Every other one moves a number you can move back; this one takes a
+      // column out of the knot matrix, and Revert -- the only way back -- also
+      // discards everything else you have done since.
+      //
+      // And it hangs off an 18px button in the corner of the 40px target that
+      // SELECTS the pose. On a desktop that button only appears under the
+      // pointer, so it is hard to hit by mistake. On a phone there is no
+      // pointer: it was invisible and live at the same time, and reaching for
+      // a pose to look at deleted it instead, over and over, with nothing on
+      // screen to say what had just happened. The storyboard now hides what it
+      // cannot reveal (see HOVER in figure-kit), and the button asks.
+      //
+      // The asking is in the pane header rather than on the frame, because two
+      // finger-sized answers do not fit on a frame 40 pixels wide -- and
+      // because a question about the strip belongs to the strip. The frame
+      // being asked about goes solid-bordered with its neighbours dimmed, so
+      // "pose 3" and which one that is are the same fact.
+      let confirmCell = -1;
+      const confirmText = html`<span style="opacity:.85;"></span>`;
+      const confirmYes = html`<button class="hs-btn hs-btn--primary">Delete</button>`;
+      const confirmNo = html`<button class="hs-btn">Cancel</button>`;
+      const confirmBar = html`<span class="hs-confirm" hidden aria-live="assertive"
+        >${confirmText}${confirmYes}${confirmNo}</span>`;
+      const posesTitle = html`<span class="hs-pane__title">Poses</span>`;
+      closeConfirm = (focusBack = false) => {
+        if (confirmCell < 0) return;
+        const back = story.cells[confirmCell]?.host;
+        confirmCell = -1;
+        story.setPending(-1);
+        confirmBar.hidden = true;
+        posesTitle.hidden = false;
+        // The strip is the same height as the title it replaces, so this is
+        // belt and braces -- but a pane that changes height inside a box whose
+        // height was measured once is a pane that gets clipped.
+        layout.refresh?.();
+        if (focusBack) back?.focus?.();
+      };
+      askDrop = (i) => {
+        // Nothing to ask about: the first reference pose anchors t = 0 and the
+        // last IS the ending. Same rule the storyboard uses to decide whether
+        // this cell has a button at all.
+        if (i < 2 || i > nCells - 2 || K <= 2) return;
+        confirmCell = i;
+        story.setPending(i);
+        confirmText.textContent = `Drop pose ${i}?`;
+        confirmBar.hidden = false;
+        posesTitle.hidden = true;
+        layout.refresh?.();
+        // The safe answer takes the focus, so a stray Enter cancels.
+        confirmNo.focus?.();
+      };
+      confirmNo.addEventListener('click', () => closeConfirm(true));
+      confirmYes.addEventListener('click', () => {
+        const k = confirmCell - 1;
+        closeConfirm();
+        dropPose(k);
+      });
+
       // Mirrored from the picker above rather than duplicated: one technique,
       // one selection, two places you can reach it. The section that is ABOUT
       // a technique should not be the one section with no way to choose one.
@@ -1589,7 +2460,15 @@
       // more because both are plain selects whose options change as presets
       // are kept and forgotten, so the mirroring is explicit -- and it copies
       // the OPTIONS as well as the value, or the panel offers a stale list.
-      const pick = html`<select style="min-width:11em; max-width:16em;"></select>`;
+      // Flexes and truncates rather than demanding a width. Kept presets are
+      // auto-named "<technique> · <date>", which is wider than a phone, and a
+      // select that insists on 11em pushed everything else onto a second row.
+      // The name is the front of that string, so an ellipsis loses the part
+      // nobody reads.
+      // Shrinks but does not grow: its natural width is its longest option, so
+      // where there is room it sizes to what it has to say and no further, and
+      // where there is not it gives way rather than pushing the row apart.
+      const pick = html`<select style="flex:0 1 auto; min-width:0; max-width:18em;"></select>`;
       const syncPick = () => {
         pick.replaceChildren(...Array.from(presetInput.options,
           (o) => html`<option value="${o.value}">${o.textContent}</option>`));
@@ -1600,10 +2479,16 @@
         presetInput.value = pick.value;
         presetInput.dispatchEvent(new Event('input', { bubbles: true }));
       });
-      presetInput.addEventListener('input', syncPick);
       // Rebuild both lists and select `id`. Everything that adds or removes a
       // preset goes through here, so the two selects cannot drift.
-      const refreshPresets = (id = null) => { presetInput.refresh(id); syncPick(); };
+      const refreshPresets = (id = null) => {
+        // The stored list has changed, so anything techniqueSource remembers
+        // about an id in it is stale -- a preset can be overwritten, renamed
+        // or forgotten under an id it has already answered for.
+        techniqueSource.forget();
+        presetInput.refresh(id);
+        syncPick();
+      };
       // The blunt way to the same setting, and the only one that refits: asking
       // for a count says nothing about WHICH poses, so the curve is re-fitted
       // with that many and the phrasing goes back to even. The x and + on the
@@ -1612,7 +2497,7 @@
       symToggle.title = 'the two legs do the same thing. On, the right leg follows the '
         + 'left -- it gets no handles of its own and the search cannot move it '
         + 'independently, which is what stops a press arriving with one leg straight '
-        + 'and the other folded. Off, all six joints are yours and the search\u2019s.';
+        + 'and the other folded. Off, both legs are yours and the search\u2019s, ankles included.';
       symToggle.addEventListener('input', () => {
         editState.symmetric = !!symToggle.value;
         if (editState.symmetric) {
@@ -1629,17 +2514,137 @@
         resim();
       });
 
-      const poses = Inputs.range([2, 12], { label: 'Poses', step: 1, value: K });
-      poses.addEventListener('input', () => {
-        const next = Math.max(2, Math.round(+poses.value));
-        if (next === K) return;
-        editState.knots = fit(FIG.resampleKnots(editState.knots, editState.T, next, editState.fracs));
-        editState.fracs = Float64Array.from({ length: next }, (_, i) => i / (next - 1));
-        editState.held = Array.from({ length: next }, (_, i) => i === next - 1);
-        editState.timeHeld = Array.from({ length: next }, () => true);
-        editState.edited = true;
-        setCount(next);
+      // ---- the hands ---------------------------------------------------
+      // Two settings, both of which used to be facts of the notebook rather
+      // than choices a technique makes: that a technique begins with its palms
+      // flat on the floor at the origin, and that it costs a great deal for
+      // them to leave it. Neither is a property of a handstand. The first was
+      // an artefact of every scenario here happening to start on its hands;
+      // the second is a cost term, and a cost term with no way to turn it off
+      // is a rule.
+      const groundToggle = Inputs.toggle({
+        label: 'Start on the hands', value: editState.startGrounded,
       });
+      groundToggle.title = 'where the body stands at t = 0. On, the palm is flat on the '
+        + 'floor at the origin and a foot through the floor is lifted by unfolding its '
+        + 'hip -- the start pose is a set of joint angles and nothing more. Off, the '
+        + 'start pose carries its own height, lean and position: it can begin in the '
+        + 'air, on its feet, or part way through a rotation, and if the start is also '
+        + 'unlocked the search chooses those three as well.';
+      groundToggle.addEventListener('input', () => {
+        editState.startGrounded = !!groundToggle.value;
+        // Letting go of the floor makes the start EXPLICIT, for the same
+        // reason unlocking it does: left null it means "whatever this scenario
+        // solves", and what a scenario solves is a body on its hands.
+        if (!editState.startGrounded && !editState.q0) {
+          editState.q0 = Float64Array.from(editState.run.rec.q[0]);
+        }
+        editState.edited = true;
+        resim();
+        chromeDirty = dirty = true;
+      });
+      // ---- what the search is scoring ------------------------------------
+      // Every cost term, as a percentage of the notebook's own weight for it.
+      // 100% is the baseline, 0 turns the term off, 200 doubles it.
+      //
+      // These were constants, and a constant is a rule: the reason a technique
+      // never lifts a hand, never spends the end of its range and never runs a
+      // muscle flat out is that each of those costs a fixed amount nobody
+      // could see or argue with. They are not facts about handstands. They are
+      // this notebook's opinion about which handstands are worth finding, and
+      // an opinion belongs on a dial.
+      //
+      // What a dial CANNOT do is fake an arrival. The verdict beside the
+      // figure -- upright, over the hands, still, posed, feet free -- is read
+      // off the run itself and no weight enters it, so turning the whole score
+      // to zero produces a technique that scores nothing and still says
+      // whether it got there.
+      //
+      // Stored as absolute weights rather than as percentages, for the same
+      // reason the plant and the anatomy are stored resolved: a technique has
+      // to keep the numbers it was actually scored under, not a share of a
+      // baseline that may move underneath it.
+      const COST_TERMS = [
+        ['rom', 'range of motion', 'going outside the joint\u2019s anatomical range. '
+          + 'The end-stops are separate and physical -- this is the SEARCH being '
+          + 'discouraged from asking. At 0 it will ask.'],
+        ['romPeak', 'worst excursion', 'the single deepest excursion past a limit, on '
+          + 'top of the running total above. This is what stops one brief violent '
+          + 'overshoot hiding inside an otherwise clean average.'],
+        ['saturation', 'muscle at the cap', 'holding a joint at its maximum voluntary '
+          + 'torque. Turn it down for a technique that is allowed to be maximal.'],
+        ['effort', 'torque', 'raw joint torque, all movement long. The cheap, blunt '
+          + 'measure of trying hard.'],
+        ['work', 'energy', 'metabolic energy, positive work charged at a quarter '
+          + 'efficiency and negative credited at 1.2, as muscle is. This is the '
+          + 'number printed beside the verdict.'],
+        ['smooth', 'smoothness', 'joint acceleration. This is what keeps a technique '
+          + 'from flailing; at 0 the search will find whip-cracks, which are cheap in '
+          + 'every other term and are not movements anyone performs.'],
+        ['liftoff', 'hands down', 'every instant the two hand contacts carry less than '
+          + 'a tenth of body weight, over the whole movement. At 0 the hands are free '
+          + 'to leave the floor -- nothing ever glued them, this was the only thing '
+          + 'stopping it.'],
+        ['feet', 'feet unloaded', 'weight still under the feet in the settle tail. '
+          + 'A handstand does not rest a toe on the floor.'],
+        ['replant', 'no second push', 'a foot coming back DOWN after it has left. '
+          + 'This is what stops a press from settling back onto the floor and jumping.'],
+        ['settleCalm', 'quiet at the top', 'joint motion once it has arrived: the '
+          + 'banana back and forth after the handstand.'],
+        ['driveRate', 'quiet muscles', 'how fast the muscle drive slews. At 0 the '
+          + 'search may buzz the servos, which the body can do and a person cannot.'],
+        ['arrival', 'arrives, not thrown', 'peak foot speed over the closing quarter '
+          + 'of the entry. A handstand is arrived at; this is the difference between '
+          + 'pressing to one and being flung through one.'],
+        ['velocity', 'stops moving', 'how fast the whole body is still travelling at '
+          + 'the end.'],
+        ['pose', 'over the hands', 'how far the centre of mass ends from where a '
+          + 'handstand puts it.'],
+        ['poseAngles', 'in the shape', 'joint-space error against the stacked '
+          + 'handstand over the settle tail. Without it the search can prop a toe on '
+          + 'the floor in a sprawl and call the centre of mass a handstand.'],
+        ['reach', 'gets up at all', 'the shortfall in peak height for a technique that '
+          + 'never gets near. Zero for anything that arrives, so it only ever gives '
+          + 'the ones that do not a direction to move in.'],
+        ['fall', 'does not fall', 'falling over, which ends the attempt. Turning this '
+          + 'down is how you ask for a technique that may fail on the way.'],
+        ['tuckPhase', 'tuck shape', 'for the bent-leg press only: how near it ever '
+          + 'came to being stacked over the hands with the knees still bent. This is '
+          + 'the definition that separates a bent-leg press from a planche.'],
+      // Terms whose baseline is zero are left out: a percentage of nothing is
+      // nothing, so a slider for one would be a control that cannot do
+      // anything. quasiStatic is the only one.
+      ].filter(([k]) => (COST_WEIGHTS[k] || 0) > 0);
+      const pctOf = (k) => Math.round(100
+        * ((editState.weights?.[k] ?? COST_WEIGHTS[k]) / COST_WEIGHTS[k]));
+      const costInputs = COST_TERMS.map(([k, label, why]) => {
+        const input = Inputs.range([0, 200], {
+          label, step: 5, value: pctOf(k),
+        });
+        input.title = `${why}\n\nPer cent of this notebook\u2019s weight for the term `
+          + `(${COST_WEIGHTS[k]}). 100 is the baseline, 0 turns it off, 200 doubles it. `
+          + `It changes what the SEARCH wants, not what the body can do, so nothing `
+          + `moves until you optimize.`;
+        input.addEventListener('input', () => {
+          const pct = +input.value;
+          const w = { ...(editState.weights || {}) };
+          if (pct === 100) delete w[k]; else w[k] = COST_WEIGHTS[k] * pct / 100;
+          editState.weights = Object.keys(w).length ? w : null;
+          // Nothing is re-simulated: a weight is what the score wants, not what
+          // the body does. It is still an edit, because it is part of the
+          // technique -- the next search is a different search.
+          editState.edited = true;
+          chromeDirty = dirty = true;
+        });
+        return input;
+      });
+
+      // There was a "Poses" slider here, which asked for a COUNT and then
+      // refitted the curve onto it -- throwing away the phrasing and the holds
+      // to answer a question nobody has ("I want seven of something"). The x
+      // and + on the storyboard say which pose goes and where one arrives,
+      // which is the same setting reached the way it is actually thought
+      // about, and neither refits anything.
 
       // The clock's owner. The button that works it lives on the timeline now,
       // so every place that stops playback goes through here and the icon can
@@ -1656,7 +2661,7 @@
 
       // The sliders themselves: views onto editState.body, which is where the
       // numbers live (see above).
-      const inShoulder = Inputs.range([0.5, 3.2], { label: 'Shoulder (Nm/kg)', step: 0.05,
+      const inShoulder = Inputs.range([0, 3.2], { label: 'Shoulder (Nm/kg)', step: 0.05,
         value: editState.body[0] });
       const inHam = Inputs.range([40, 140], { label: 'Hamstrings (deg)', step: 1,
         value: editState.body[1] });
@@ -1684,52 +2689,85 @@
       // itself -- reading .min off it gives undefined, which travels as null
       // and lands as "no range given", quietly putting the search back on its
       // own default ceiling.
+      // It is the bound the timeline's end handle is dragged within, and the
+      // bound the search is pinned inside. It is no longer a slider: see
+      // onDurationDrag above.
       const T_RANGE = [0.5, 3.5];
-      const durInput = Inputs.range(T_RANGE, { label: 'Duration T (s)', value: editState.T, step: 0.01 });
-      durInput.title = 'how long the movement takes. Yours to set: the search is '
-        + 'pinned to it and will not change it. A movement that arrives only gets '
-        + 'cheaper as it slows, so left free the search spends its budget running '
-        + 'out of slider rather than finding a technique.';
-      durInput.addEventListener('input', () => { editState.T = +durInput.value; resim(); });
       // "Reset" said nothing about what it resets, sitting in a row with the
       // pose count and the duration as if it reset those. It reverts the
       // technique -- every angle, the timing, the holds, the duration, the
-      // start pose and the body sliders -- so it says so, and it sits with the
-      // picker that names the thing it reverts to. The pose count is the one
-      // thing it leaves alone: that is a setting, not part of the technique,
-      // and a four-pose refit of a six-pose technique cannot be undone by
-      // restoring six numbers.
-      const resetBtn = html`<button class="hs-btn" title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it.">Revert to stored</button>`;
+      // start pose and the body sliders -- so it lives on the document bar
+      // beside the picker that names the thing it reverts TO, which is the
+      // only place the word needs no object. The pose count is the one thing
+      // it leaves alone: that is a setting, not part of the technique, and a
+      // four-pose refit of a six-pose technique cannot be undone by restoring
+      // six numbers.
+      // A draft is what an unsaved edit IS, so the two things that mean "I do
+      // not want that edit any more" have to say so: Revert, which asks for
+      // the stored technique back, and Forget, which throws the preset away.
+      // Without this, Revert cleaned the editor and the parked draft came
+      // straight back the next time the technique was opened.
+      const clearDraft = (id) => {
+        if (!id) return;
+        try {
+          const drafts = readDrafts();
+          if (drafts[id] === undefined) return;
+          delete drafts[id];
+          const err = writeDrafts(drafts);
+          if (err) console.warn('could not clear a draft:', err);
+        } catch (err) { console.warn('could not clear a draft:', err); }
+      };
+
+      // Icon AND word: on a phone the word goes and the icon stays, which is
+      // the only one of the three actions that can survive losing its label --
+      // Keep/Update says which of the two it will do, and the menu is already
+      // just a glyph.
+      const resetBtn = html`<button class="hs-btn hs-btn--icontext" aria-label="Revert"
+        title="discard every edit and go back to this technique as stored — angles, timing, held poses, duration and the body sliders. The number of poses is a setting and stays as you set it."
+        ><svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor"
+          stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+          ><polyline points="0.9 2.4 0.9 5.9 4.4 5.9"/><path d="M2.2 8.6a5.1 5.1 0 1 0 1.2-5.3L0.9 5.9"/></svg
+        ><span class="hs-btn__label">Revert</span></button>`;
       resetBtn.addEventListener('click', () => {
         stopSearch();
+        clearDraft(sim.presetId);
+        editState.hasDraft = false;
         // baseKnots is a FUNCTION -- it has to be, because the pose count can
         // move and reverting at four poses has to give back the stored
         // technique said with four. Calling .map on the function itself threw
         // on the first line, so Revert had been doing nothing at all except
         // stopping the search: every button press was a silent no-op.
-        editState.knots = baseKnots().map((k) => Float64Array.from(k));
-        editState.T = simResult.T;
-        editState.fracs = baseFracs();
-        editState.held = freshHeld();
-        editState.timeHeld = freshTimeHeld();
-        // The mirror is part of the technique, so reverting the technique
-        // reverts it too -- it was left wherever it had been set.
-        editState.symmetric = SYMMETRIC_SCENARIOS.has(simResult.scenarioName);
-        symToggle.value = editState.symmetric;
-        editState.q0 = null;
-        durInput.value = simResult.T;
-        editState.body = bodyDefaults.slice();
-        editState.machine = machineDefaults();
-        syncServo();
-        bodyInputs.forEach((i, n) => { i.value = bodyDefaults[n]; });
-        editState.run = simResult;
-        editState.edited = false;
-        editState.notify?.(null);
+        // The same reader again, when the technique can be said exactly. Revert
+        // means "give me the stored technique", and that is one object: the
+        // holds, the pins, the start pose, the mirror and the search settings
+        // came back re-derived rather than restored, which made Revert a
+        // different act from opening the very same technique.
+        if (sameCount() && openedTechnique()) {
+          readTechnique(openedTechnique());
+          sym(editState.knots);
+        } else {
+          // A different pose count is the one thing Revert leaves alone -- that
+          // is a setting of the figure, and a four-pose refit of a six-pose
+          // technique cannot be undone by restoring six numbers -- so here the
+          // technique has to be resampled onto the count on screen.
+          editState.knots = baseKnots().map((k) => Float64Array.from(k));
+          editState.T = sim.T;
+          editState.fracs = baseFracs();
+          editState.held = freshHeld();
+          editState.timeHeld = freshTimeHeld();
+          editState.symmetric = SYMMETRIC_SCENARIOS.has(sim.scenarioName);
+          editState.q0 = null;
+          editState.body = bodyDefaults();
+          editState.machine = machineDefaults();
+        }
+        syncTechniqueInputs();
+        editState.run = sim;
         optState.history = [];
         status = '';
         // A revert changes the knots, so the body on screen is no longer the
-        // one beside them: re-simulate rather than merely re-draw.
-        resim();
+        // one beside them: re-simulate rather than merely re-draw. The flag is
+        // what makes it a revert rather than one more edit -- see resim.
+        resim({ revert: true });
       });
 
       // ---- save and load ------------------------------------------------------
@@ -1739,14 +2777,17 @@
       // them is quietly missing. The shape is a stored artifact's, so a file
       // saved here is the same object a built-in preset is derived as.
       const asTechnique = () => ({
-        label: `${simResult.stored?.label || simResult.scenarioName} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+        label: `${sim.stored?.label || sim.scenarioName} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
         saved: new Date().toISOString(),
-        scenario: simResult.scenarioName,
+        scenario: sim.scenarioName,
         knots: editState.knots,
         T: editState.T,
         knotFracs: editState.fracs,
         held: editState.held,
         timeHeld: editState.timeHeld,
+        startHeld: editState.startHeld,
+        startGrounded: editState.startGrounded,
+        weights: editState.weights,
         q0: editState.q0,
         target: targetQ(),
         rom: resolveRom(bodyOver().rom),
@@ -1763,7 +2804,7 @@
       saveBtn.addEventListener('click', () => {
         const text = JSON.stringify(techniqueToJSON(asTechnique()), null, 1);
         const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-        const a = html`<a download="${simResult.scenarioName}-preset.json" href="${url}"></a>`;
+        const a = html`<a download="${sim.scenarioName}-preset.json" href="${url}"></a>`;
         a.click();
         // Revoked on the next turn of the loop rather than immediately: some
         // browsers have not started reading the blob when click() returns.
@@ -1778,8 +2819,17 @@
       // applied a technique on top of whatever scenario the first one happened
       // to be showing.
       const presetName = html`<input type="text" placeholder="name this preset"
-        style="width:11em; font: inherit; font-size:13px; padding:2px 4px;">`;
-      const keepBtn = html`<button class="hs-btn" title="keep the technique on screen in this browser, under the name beside it. Exactly what Save writes to a file — the technique, the body, the anatomy, the servo and the integration.">Keep</button>`;
+        style="font: inherit; font-size:13px; padding:2px 4px; min-width:0;">`;
+      // Keep MAKES one. Update OVERWRITES one. They were a single button that
+      // decided which it was by whether the name you had typed happened to
+      // match the name of the preset selected -- so the same click, in the
+      // same place, either kept a copy or destroyed the original, and which of
+      // the two you got depended on a comparison you were not making. Renaming
+      // a preset and pressing it was enough to lose the preset. An action that
+      // cannot be undone does not get to be inferred, so it has its own
+      // button, which says what it will overwrite.
+      const keepBtn = html`<button class="hs-btn" title="keep the technique on screen as a NEW preset in this browser, under the name beside it. Exactly what Save writes to a file — the technique, the body, the anatomy, the servo and the integration.">Keep as new</button>`;
+      const updateBtn = html`<button class="hs-btn">Update</button>`;
       const renameBtn = html`<button class="hs-btn" title="rename the selected preset to the name beside it">Rename</button>`;
       const dropBtn = html`<button class="hs-btn" title="forget the selected preset">Forget</button>`;
       const isBuiltin = () => String(pick.value).startsWith('builtin:');
@@ -1792,50 +2842,98 @@
       // current. Typing a different name is how you ask for a copy, and a
       // built-in is never overwritten because it is derived rather than
       // remembered: there is nothing there to write to.
-      const keepTarget = () => {
-        if (isBuiltin()) return null;
-        const cur = readPresets().find((c) => c.id === pick.value);
-        if (!cur) return null;
-        const typed = presetName.value.trim();
-        return (!typed || typed === (cur.label || '')) ? cur : null;
-      };
+      // What Update would overwrite: the kept preset the picker is naming, or
+      // nothing when it names a built-in. It is no longer a question about the
+      // name box -- the name box says what a NEW preset would be called, and
+      // that is all it says.
+      const keepTarget = () => (isBuiltin()
+        ? null : readPresets().find((c) => c.id === pick.value) || null);
       // A built-in is derived, not remembered, so there is nothing to rename
       // or forget -- Keep is how you make one of your own from it.
       const syncPresetButtons = () => {
         renameBtn.disabled = dropBtn.disabled = isBuiltin();
         const cur = readPresets().find((c) => c.id === pick.value);
         presetName.value = cur?.label || '';
-        // The button says which of the two it will do, because the difference
-        // matters and the only thing that decides it is the name box.
+        // Update names its victim, in the button and in the tooltip, because
+        // the whole point of it being a separate button is that you can see
+        // what it is about to do before you do it.
         const over = keepTarget();
-        keepBtn.textContent = over ? 'Update' : 'Keep';
-        keepBtn.title = over
-          ? `overwrite "${over.label}" with the technique on screen. Type a different name to keep a copy instead.`
-          : 'keep the technique on screen in this browser, under the name beside it. '
-            + 'Exactly what Save writes to a file \u2014 the technique, the body, the anatomy, '
-            + 'the servo and the integration.';
+        updateBtn.disabled = !over;
+        updateBtn.textContent = over ? `Update \u201c${over.label}\u201d` : 'Update';
+        updateBtn.title = over
+          ? `overwrite "${over.label}" with the technique on screen. This cannot be undone.`
+          : 'nothing to update: a built-in is derived rather than remembered. '
+            + 'Keep as new makes one of your own from it.';
+      };
+      // Writing the technique on screen into the list under `id`, replacing
+      // whatever is there. Both buttons land here; they differ only in which
+      // id they hand it and what they call it.
+      const writePreset = (id, label, [doing, done]) => {
+        const list = readPresets();
+        const rec = techniqueToJSON(asTechnique());
+        rec.id = id;
+        rec.label = label;
+        const at = list.findIndex((c) => c.id === id);
+        if (at >= 0) list[at] = rec; else list.push(rec);
+        const err = writePresets(list);
+        if (!err) {
+          // The edit is a preset now, so the draft parked under whatever this
+          // was opened from has nothing left to say.
+          clearDraft(sim.presetId);
+          editState.hasDraft = false;
+          // The technique on screen IS a stored preset now -- this one -- so
+          // it is not an unsaved edit of anything any more. This has to be
+          // false BEFORE the open below, because it is the flag openInto
+          // reads to decide whether the technique being LEFT has unsaved work
+          // worth parking as a draft.
+          //
+          // Keep as new used to leave both of these alone. The picker showed
+          // the new preset, but the editor was still attached to the one the
+          // copy was derived from, still flagged edited -- so the next
+          // technique switch dutifully filed the copy's changes as a draft
+          // under the ORIGINAL's id, and reopening the original brought them
+          // back. Nothing was ever written over the original; the edit was
+          // filed under the wrong name, which is indistinguishable from the
+          // outside and just as bad.
+          editState.edited = false;
+          refreshPresets(rec.id);
+          // refresh only sets the select's value. Opening is a separate act,
+          // and it is the one the rest of the notebook -- the playback figure
+          // included -- listens for, so Keep behaves exactly as choosing the
+          // new preset from the picker would: you are editing what you just
+          // saved, which is what every Save As means.
+          //
+          // Two things the open would throw away that a technique switch
+          // rightly does and this does not: the trajectory has not changed,
+          // so the convergence trace still describes it, and the pose being
+          // edited is still a pose of the same movement.
+          const hist = optState.history;
+          const keepSel = sel;
+          presetInput.dispatchEvent(new Event('input', { bubbles: true }));
+          optState.history = hist;
+          sel = keepSel;
+          syncPresetButtons();
+        }
+        // After the open, not before: opening a technique clears the status
+        // line, and this is the one message that has to survive it.
+        status = err ? `could not ${doing}: ${err}` : `${done} "${rec.label}"`;
+        dirty = chromeDirty = true;
       };
       keepBtn.addEventListener('click', () => {
         const list = readPresets();
-        const rec = techniqueToJSON(asTechnique());
-        const over = keepTarget();
-        // Its own id and its own name: overwriting must not renumber the
-        // preset or the picker's selection lands somewhere else.
-        rec.id = over ? over.id : nextId(list);
-        rec.label = presetName.value.trim() || over?.label || rec.label;
-        const at = over ? list.findIndex((c) => c.id === over.id) : -1;
-        if (at >= 0) list[at] = rec; else list.push(rec);
-        const err = writePresets(list);
-        status = err ? `could not keep: ${err}`
-          : (over ? `updated "${rec.label}"` : `kept "${rec.label}"`);
-        if (!err) { refreshPresets(rec.id); syncPresetButtons(); }
-        dirty = chromeDirty = true;
+        // A new id every time, so this can only ever ADD. Its own name too:
+        // the box if you typed one, and the auto-generated "<technique> ·
+        // <when>" if you did not, which is at least unique.
+        writePreset(nextId(list), presetName.value.trim()
+          || techniqueToJSON(asTechnique()).label, ['keep', 'kept']);
       });
-      // The name box decides between Update and Keep, so the button has to
-      // re-read it as you type rather than only when the selection changes.
-      presetName.addEventListener('input', () => {
+      updateBtn.addEventListener('click', () => {
         const over = keepTarget();
-        keepBtn.textContent = over ? 'Update' : 'Keep';
+        if (!over) return;
+        // Its own id and its own name: overwriting must not renumber the
+        // preset or the picker's selection lands somewhere else, and must not
+        // rename it either -- renaming is what Rename is for.
+        writePreset(over.id, over.label, ['update', 'updated']);
       });
       renameBtn.addEventListener('click', () => {
         const name = presetName.value.trim();
@@ -1851,13 +2949,19 @@
       });
       dropBtn.addEventListener('click', () => {
         const gone = readPresets().find((c) => c.id === pick.value);
+        clearDraft(pick.value);
         const list = readPresets().filter((c) => c.id !== pick.value);
         const err = writePresets(list);
         status = err ? `could not forget: ${err}` : `forgot "${gone?.label || 'preset'}"`;
         // Falls back to the first built-in, which re-runs the simulation --
         // the preset that was showing no longer exists.
         if (!err) {
-          refreshPresets(`builtin:${simResult.scenarioName}`);
+          // Back to a built-in of the same skill when there is one, and to the
+          // first otherwise. Not `builtin:${scenarioName}` -- there can be
+          // several techniques for one skill now, so a scenario name is not
+          // an id.
+          refreshPresets(`builtin:${(BUILTIN_SCENARIOS.find((b) => b.scenario === sim.scenarioName)
+            || BUILTIN_SCENARIOS[0]).key}`);
           presetInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
         dirty = chromeDirty = true;
@@ -1902,7 +3006,7 @@
       function beginLoad(rec) {
         stopSearch();
         pendingLoad.rec = rec;
-        if (rec.scenario !== simResult.scenarioName) {
+        if (rec.scenario !== sim.scenarioName) {
           const key = `builtin:${rec.scenario}`;
           if (Array.from(presetInput.options).some((o) => o.value === key)) {
             presetInput.value = key;
@@ -1917,43 +3021,35 @@
         const rec = pendingLoad.rec;
         if (!rec) return;
         pendingLoad.rec = null;
-        const loadedK = rec.knots[0].length;
-        editState.knots = rec.knots.map((k) => Float64Array.from(k));
-        editState.T = rec.T;
-        editState.fracs = rec.knotFracs
-          ? Float64Array.from(rec.knotFracs)
-          : Float64Array.from({ length: loadedK }, (_, k) => (loadedK === 1 ? 0 : k / (loadedK - 1)));
-        editState.held = rec.held.slice();
-        editState.held[loadedK - 1] = true;
-        editState.timeHeld = rec.timeHeld.slice();
-        editState.timeHeld[0] = editState.timeHeld[loadedK - 1] = true;
-        editState.q0 = rec.q0 ? Float64Array.from(rec.q0) : null;
-        editState.machine = { config: rec.config, numerics: rec.numerics, body: rec.body };
-        syncServo();
-        editState.symmetric = rec.symmetric;
-        symToggle.value = rec.symmetric;
-        editState.body = [
-          rec.strength?.shoulder?.t0Vol ?? STRENGTH_DEFAULTS.shoulder.t0Vol,
-          rec.rom.hipFlexStraightKneeMaxDeg, rec.rom.shoulderFlexMaxDeg, rec.rom.wristExtMaxDeg,
-          rec.rom.spineFlexMaxDeg ?? ROM_DEFAULTS.spineFlexMaxDeg,
-        ];
-        bodyInputs.forEach((i, n) => { i.value = editState.body[n]; });
-        durInput.value = rec.T;
-        optSeed.value = rec.search.seed;
-        optGens.value = rec.search.maxGen;
+        // The same reader the picker uses. This used to be a second,
+        // hand-kept copy of it, and the two drifted -- which is how opening a
+        // technique from the list stopped being the same act as opening the
+        // file it was saved to.
+        const loadedK = readTechnique(rec);
+        syncTechniqueInputs();
         editState.edited = true;
         optState.history = [];
         status = rec.label ? `loaded ${rec.label}` : 'loaded';
         sel = -1;
-        // The pose count is a setting of the figure; the file is a technique
-        // with a definite number of poses. The file wins.
+        // The pose count is a setting of the figure; a technique has a definite
+        // number of poses. The technique wins.
         if (loadedK !== K) setCount(loadedK); else resim();
       }
 
       const verdict = html`<div style="font-size:13px; margin:6px 0 2px;"></div>`;
-      const baseStats = FIG.analyzeRun(simResult, simResult.prof || strengthProf, model);
+      // What the verdict compares an edit against: the technique as stored,
+      // replayed. A `let`, because opening another technique replaces it --
+      // a delta against the technique you are no longer looking at is a
+      // number about nothing.
+      let baseStats = FIG.analyzeRun(sim, sim.prof || strengthProf, model);
 
-      const resim = () => {
+      // `revert` says the replay about to happen restores the technique the
+      // picker names rather than changing it. Without it Revert left the page
+      // marked as edited: the handler set the flag to false and then called
+      // this, which set it straight back to true -- so the verdict kept
+      // reporting a delta against a baseline it now equalled, and there was no
+      // honest way to badge the document.
+      const resim = ({ revert = false } = {}) => {
         let run;
         try {
           // Always bodyOver(), never "the stored body when no slider moved":
@@ -1966,13 +3062,13 @@
           // be different problems.
           run = storedRun.run(asTechnique());
         } catch (err) { console.warn('replay failed', err); return; }
-        // Read the start back out of the run. A start with a toe through the
-        // floor is lifted clear before it is integrated, so this is what makes
-        // the pose on screen the pose that was actually simulated.
-        if (editState.q0) editState.q0 = Float64Array.from(run.rec.q[0]);
+        // NOT written back into editState.q0. The run's start is this run's
+        // business -- see startQ, which draws it -- and the technique's start
+        // is the technique's. A rollout that edits the technique it was given
+        // is a rollout you cannot repeat.
         editState.run = run;
-        editState.edited = true;
-        editState.notify?.({ base: simResult, run });
+        editState.edited = !revert;
+        editState.notify?.(revert ? null : { base: sim, run });
         relayout();
       };
 
@@ -2021,15 +3117,36 @@
       const syncServo = () => servoInputs.forEach((inp, n) => {
         inp.value = editState.machine.config[SERVO[n].key];
       });
+      // Every control that shows a field of the technique, pushed back from
+      // editState in one place. readTechnique writes the state; this makes the
+      // panel agree with it, and the two are always called together.
+      function syncTechniqueInputs() {
+        symToggle.value = editState.symmetric;
+        groundToggle.value = editState.startGrounded;
+        costInputs.forEach((input, n) => { input.value = pctOf(COST_TERMS[n][0]); });
+        bodyInputs.forEach((i, n) => { i.value = editState.body[n]; });
+        optSeed.value = editState.search.seed;
+        optGens.value = editState.search.maxGen;
+        syncServo();
+      }
 
       // ---- the search --------------------------------------------------------
       // It changes the same numbers your hands do. That is the whole reason it
-      // lives here: you watch the six poses above move, and the duration slider
-      // move, because those ARE what CMA-ES is searching over.
+      // lives here: you watch the poses above move, and the start pose with
+      // them when you have unlocked it, because those ARE what CMA-ES is
+      // searching over.
       const optRun = html`<button class="hs-btn hs-btn--primary">Optimize</button>`;
       const optStop = html`<button class="hs-btn" disabled>Stop</button>`;
-      const optGens = Inputs.range([20, 400], { label: 'Generations', value: 120, step: 10 });
-      const optSeed = Inputs.range([1, 99], { label: 'Search seed', value: 7, step: 1 });
+      // Read off the technique rather than hardcoded, because the seed and the
+      // generation count are fields of it: Save writes them and Load restored
+      // them, while opening the same technique from the picker left whatever
+      // was on screen. Same object, same fields, both ways in.
+      const optGens = Inputs.range([20, 400], { label: 'Generations',
+        value: editState.search.maxGen, step: 10 });
+      const optSeed = Inputs.range([1, 99], { label: 'Search seed',
+        value: editState.search.seed, step: 1 });
+      optGens.addEventListener('input', () => { editState.search.maxGen = +optGens.value; });
+      optSeed.addEventListener('input', () => { editState.search.seed = +optSeed.value; });
       // Short. It sits in a wrapping row next to three buttons and a
       // sparkline, and "searching · generation 12 · best cost 5.55 · 12
       // workers" was long enough to push itself onto a line of its own at some
@@ -2037,14 +3154,21 @@
       // things that change; the sparkline beside it already says the cost is a
       // cost, and how many cores are busy is not something anyone acts on.
       const statusEl = html`<span style="font-size:12px; opacity:.8;
-        font-variant-numeric:tabular-nums; white-space:nowrap;"></span>`;
-      const spark = html`<canvas style="width:150px; height:26px; vertical-align:middle;"></canvas>`;
-      spark.width = Math.round(150 * dpr); spark.height = Math.round(26 * dpr);
+        font-variant-numeric:tabular-nums; white-space:nowrap;"
+        title="what the search is minimising, which is the worst this technique scores across the robustness variants — the same rollout at a second timestep with a jittered start. Worst-case rather than nominal so the answer cannot be a knife edge tuned to one timestep's contact artifacts, and it only ever falls, because it is the best found so far."></span>`;
+      // 110 rather than 150. The transport carries the play button, the clock,
+      // the reference toggle, two search buttons, this and the status line, and
+      // at 150 the sum was forty pixels wider than the column -- so the status
+      // line spent every search on a second row. The curve is a shape, not a
+      // reading; it loses nothing at this width.
+      const SPARK_W = 110;
+      const spark = html`<canvas style="width:${SPARK_W}px; height:26px; vertical-align:middle;"></canvas>`;
+      spark.width = Math.round(SPARK_W * dpr); spark.height = Math.round(26 * dpr);
       const drawSpark = () => {
         const h = optState.history;
         const c = spark.getContext('2d');
         c.setTransform(dpr, 0, 0, dpr, 0, 0);
-        c.clearRect(0, 0, 150, 26);
+        c.clearRect(0, 0, SPARK_W, 26);
         if (h.length < 2) return;
         const fg = theme?.foreground || [0.11, 0.12, 0.14];
         const rgb = fg.map((v) => Math.round(v * 255)).join(',');
@@ -2054,7 +3178,7 @@
         c.lineWidth = 1.5;
         c.beginPath();
         h.forEach((p, i) => {
-          const x = 1 + (i / (h.length - 1)) * 148;
+          const x = 1 + (i / (h.length - 1)) * (SPARK_W - 2);
           const y = 24 - ((ys[i] - lo) / span) * 22;
           if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
         });
@@ -2096,7 +3220,10 @@
         if (data.knotFracs?.length === editState.knots[0].length) {
           editState.fracs = Float64Array.from(data.knotFracs);
         }
-        durInput.value = data.T;
+        // The start pose, when the search was allowed to move it. Null means
+        // it was not, and the page keeps its own -- the same rule the knots
+        // follow for a held pose.
+        if (data.q0?.length) editState.q0 = Float64Array.from(data.q0);
         resim();
       };
       const stopSearch = () => {
@@ -2158,6 +3285,11 @@
             return;
           }
           if (data.type === 'progress') {
+            // The objective, which is what a progress reading has to be: the
+            // search only ever lowers it, so the curve falls or holds. It is
+            // the worst case over the robustness variants rather than a single
+            // rollout -- see statusEl's title, and the worker's comment on why
+            // reporting a nominal replay here made progress look like noise.
             optState.history.push({ gen: data.gen, best: data.best });
             status = `gen ${data.gen} · cost ${data.best.toFixed(2)}`;
             // Held, not applied. A generation is swapped in at the end of a
@@ -2167,8 +3299,20 @@
             // jumping at one moment and the field behind them at another.
             pending = data;
           } else if (data.type === 'done') {
-            optState.history.push({ gen: optState.history.length, best: data.fineCost });
-            status = `done · cost ${data.fineCost.toFixed(2)}`;
+            // The same quantity the generations reported, so the last point
+            // belongs on the same curve and the closing number is where the
+            // curve actually ended. These were two different measurements once
+            // -- the generations showed the objective and the finish showed an
+            // independent nominal replay, both labelled "cost" -- so the number
+            // fell for forty generations and jumped at the end. Nothing had
+            // gone wrong with the search; the label had changed under it.
+            //
+            // fineCost is still sent, and still worth having: it is the
+            // technique replayed the way the figure replays it, and the two
+            // disagreeing about whether it ARRIVES is the console warning
+            // below.
+            optState.history.push({ gen: optState.history.length, best: data.best });
+            status = `done · cost ${data.best.toFixed(2)}`;
             pending = null;
             adopt(data);
             // The search reports what it scored; the figure has just
@@ -2240,7 +3384,7 @@
         xEnd = Math.min(rec.t[rec.t.length - 1] || editState.T, editState.T + 1.0);
         if (t > xEnd) t = xEnd;
         strip.layout({
-          run, prof: run.prof || strengthProf, rom: run.rom || simResult.baseRom,
+          run, prof: run.prof || strengthProf, rom: run.rom || sim.baseRom,
           T: editState.T, xEnd, theme,
           knotTimes: Array.from({ length: K }, (_, k) => knotTime(k)),
           locks: editState.timeHeld,
@@ -2275,7 +3419,8 @@
           story.draw({
             model: m, ws: run.ws || ws, sel, theme,
             items: [
-              { q: Float64Array.from(startQ()), label: 'start', time: null, solid: true },
+              { q: Float64Array.from(startQ()), label: 'start', time: null, solid: true,
+                locked: editState.startHeld, start: true },
               ...Array.from({ length: K }, (_, kk) => ({
                 q: Float64Array.from(FIG.knotPose(m, editState.knots, kk, cell)),
                 label: `${kk + 1}`, time: `${knotTime(kk).toFixed(2)}s`,
@@ -2284,16 +3429,80 @@
             ],
           });
           statusEl.textContent = status;
+          // Says the technique on screen is no longer the one the picker
+          // names. Read off the same flag the verdict uses to decide whether
+          // to report a delta, so the badge and the numbers cannot disagree.
+          syncDoc?.();
           drawSpark();
         }
       });
       invalidation.then(() => loop.cancel());
-      if (pendingLoad.rec) applyLoaded();
-      else if (stale) resim(); else relayout();
+
+      // ---- settling on a technique that has just been opened ----------------
+      // A file waiting to be applied wins; then a technique whose knots the
+      // mirror moved, or a restored draft, both of which mean the recording
+      // beside them is of some other movement and has to be re-run. Otherwise
+      // the run the technique came with IS the run, and this only re-lays.
+      const settle = () => {
+        if (pendingLoad.rec) applyLoaded();
+        else if (stale || editState.hasDraft) resim();
+        else relayout();
+      };
+
+      // ---- swapping the technique, in place ---------------------------------
+      // The whole reason this figure no longer depends on the picker. Nothing
+      // here rebuilds anything: the storyboard is told a new cell count if the
+      // count changed, every control is pushed back from editState, and the
+      // clock keeps running -- so choosing another technique looks like the
+      // animation changing rather than the page rebuilding underneath it.
+      function openAnother(next) {
+        if (!next || (next === sim && !pendingLoad.rec)) return;
+        stopSearch();
+        const before = K;
+        const want = openInto(next);
+        baseStats = FIG.analyzeRun(sim, sim.prof || strengthProf, model);
+        syncTechniqueInputs();
+        syncPresetButtons();
+        syncPick();
+        optState.history = [];
+        status = '';
+        // The clock survives -- it is the one thing here that is about the
+        // reader rather than the technique -- but the selection does not: the
+        // pose you were editing was a pose of the other movement.
+        sel = -1;
+        closeConfirm?.();
+        if (pendingLoad.rec) {
+          // applyLoaded reads the file over the top of what was just opened
+          // and fixes the count itself, so all this owes it is a K that
+          // matches the storyboard it is about to compare against.
+          if (want !== before) { K = want; nCells = K + 1; story.setCount(nCells); }
+          applyLoaded();
+        } else if (want !== before) {
+          // A technique with a different number of poses still has to re-lay
+          // the storyboard, and setCount re-simulates as part of that -- but
+          // opening one is not an edit of it, so the replay says so. Except
+          // when a parked draft came back, which IS the work you had done.
+          setCount(want, { revert: !editState.hasDraft });
+        } else settle();
+        chromeDirty = dirty = true;
+      }
+      // Both ways in are the same act. The bar's own picker mirrors into the
+      // one above the playback figure, which is what the rest of the notebook
+      // listens to; this listens to it too, so a change made in either place
+      // opens the technique here exactly once.
+      const onPicked = () => { syncPick(); openAnother(techniqueSource.resolve(presetInput.value)); };
+      presetInput.addEventListener('input', onPicked);
+      // presetInput OUTLIVES this cell -- it belongs to the controls above the
+      // playback figure -- so a listener left on it would still be here, and
+      // still holding this cell's closure, the next time the body changes and
+      // this figure is rebuilt.
+      invalidation.then(() => presetInput.removeEventListener('input', onPicked));
+
+      settle();
       const stopTheme = observeTheme((th) => { theme = th; relayout(); });
       invalidation.then(stopTheme);
 
-      const key = (mark, text) => html`<span style="margin-right:14px; white-space:nowrap;">${mark}${text}</span>`;
+      const key = (mark, text) => html`<span>${mark}${text}</span>`;
       const dot = (fill) => html`<span style="display:inline-block; width:.75em; height:.75em;
         background:${fill}; vertical-align:-.05em; margin-right:.3em; border-radius:2px;"></span>`;
       const ramp = html`<span style="display:inline-block; width:3em; height:.75em; vertical-align:-.05em;
@@ -2304,42 +3513,213 @@
           + ` ${FIG.effortColor(0.5, d)}, ${FIG.effortColor(1, d)})`;
       };
       paintRamp();
+      const legend = html`<span class="hs-legend">${
+        key(ramp, 'strength used')}${key(dot(FIG.ROM_COLOR), 'outside range of motion')}</span>`;
 
-      // What you WATCH, and everything else. The figure is the movement, the
-      // poses and the timeline, plus the one thing that cannot be read without
-      // them -- the legend that says what the colours on the strip mean.
-      //
-      // Everything else is the box: what technique to show, what to do with
-      // it, what it did. The two status lines go there too even though they
-      // are readouts rather than settings, because they are sentences, and a
-      // sentence sitting between two pictures is read as a caption for one of
-      // them. In the box they read as the panel telling you what it is
-      // pointing at.
-      // Everything you DO to the movement lives on one line, on the timeline
-      // it acts on: play it, and search for a better one. Opening the panel is
-      // for changing a parameter, not for running the thing.
-      const rule = () => html`<span style="width:1px; height:16px; margin:0 2px;
+      // ---- the transport ------------------------------------------------------
+      // Everything you DO to the movement, on one bar, directly under the thing
+      // it moves: play it, choose whether the request is drawn behind it, and
+      // search for a better one. Opening the parameter panel is for changing a
+      // number, not for running the thing.
+      const rule = () => html`<span class="hs-rule" style="width:1px; height:16px; margin:0 2px;
         background:color-mix(in srgb, currentColor 20%, transparent);"></span>`;
-      strip.transport?.append(rule(), optRun, optStop,
+      const refBtn = html`<button class="hs-btn" aria-pressed="false"
+        title="draw the reference the servo is chasing behind the body while the movement plays. Off by default: in playback it is a second, grey, slightly out-of-step body in the same picture, which reads as a smear on the animation rather than as the thing driving it. Editing a pose always shows it — there it is the subject.">Reference</button>`;
+      const syncRef = () => {
+        refBtn.classList.toggle('hs-btn--on', showRef);
+        refBtn.setAttribute('aria-pressed', showRef ? 'true' : 'false');
+      };
+      refBtn.addEventListener('click', () => { showRef = !showRef; syncRef(); dirty = true; });
+      syncRef();
+      strip.transport?.append(refBtn,
+        // The search's two buttons and the rule that separates them from the
+        // transport, wrapping as ONE thing. Narrow enough and this bar wraps;
+        // loose, it wrapped between them, so a phone got "Stop" alone on a
+        // line reading as a third control and a divider dangling off the end
+        // of the line above.
+        html`<span style="display:inline-flex; gap:6px; align-items:center;">${
+          rule()}${optRun}${optStop}</span>`,
         html`<span style="flex:1 1 12px;"></span>`, spark, statusEl);
 
-      const chromeEl = html`<div>
-        <div style="margin-top:12px;">${story.element}</div>
-        <div style="margin-top:14px;">${strip.element}</div>
-        <div style="display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
-          margin-top:9px;">
-          <small style="opacity:.85; font: 11px system-ui, -apple-system, sans-serif;">${
-            key(ramp, 'strength used')}${
-            key(dot(FIG.ROM_COLOR), 'outside range of motion')}</small>
+      // ---- the document bar ---------------------------------------------------
+      // Which technique this is, and what may be done to it AS a document.
+      // Presets used to sit at the bottom of the parameter panel, filed
+      // between the search seed and the servo gains, which said that opening
+      // one was the same kind of act as changing a damping ratio. It is not.
+      // Opening, reverting, keeping and saving are what you do to a file, and
+      // they belong at the top of the thing the file IS -- so the picker that
+      // was two controls in two places (one above the figure, one buried in
+      // the panel) is now the editor's own title bar.
+      // A dot and a word. Below the breakpoint the word goes and the dot stays:
+      // "this differs from what the picker names" is a one-bit fact and does
+      // not need fifty pixels to say so.
+      const editedTag = html`<span class="hs-tag" hidden role="status"
+        title="the technique on screen is no longer the one the picker names. Revert puts it back; Keep makes it a preset of its own."
+        ><span class="hs-tag__dot" aria-hidden="true"></span
+        ><span class="hs-tag__word">edited</span></span>`;
+      // The rest of the verbs, behind one control: a bar with eight buttons on
+      // it is a bar nobody reads.
+      // Everything you can DO to the technique, in one place. The bar used to
+      // carry Revert and Keep as well, which made a title bar into a row of
+      // five verbs -- and on a phone it was five verbs and a picker in three
+      // hundred pixels. A title bar's job is to say WHICH technique this is
+      // and whether it differs from what is stored; acting on it is what the
+      // menu is for, and there is only one of those to find.
+      const docMenu = html`<details class="hs-menu">
+        <summary class="hs-btn" aria-label="what can be done with this technique"
+          title="keep, update, revert, rename, forget, and files">⋯</summary>
+        <div class="hs-menu__panel">
+          <div class="hs-menu__row hs-menu__row--wide">${keepBtn}</div>
+          <div class="hs-menu__row hs-menu__row--wide">${updateBtn}</div>
+          <div class="hs-menu__row hs-menu__row--wide">${resetBtn}</div>
+          <div class="hs-menu__sep"></div>
+          <div class="hs-menu__row">${presetName}</div>
+          <div class="hs-menu__row">${renameBtn}${dropBtn}</div>
+          <div class="hs-menu__sep"></div>
+          <div class="hs-menu__row">${saveBtn}${loadBtn}${loadInput}</div>
         </div>
-        <div style="margin-top:8px; font: 12.5px/1.45 system-ui, -apple-system,
-          'Segoe UI', sans-serif;">${verdict}</div>
+      </details>`;
+      // A details stays open until its own summary is clicked again, which for
+      // a menu means it stays open behind whatever you do next.
+      const closeMenu = (e) => { if (!docMenu.contains(e.target)) docMenu.open = false; };
+      const escMenu = (e) => {
+        if (e.key !== 'Escape') return;
+        docMenu.open = false;
+        closeConfirm?.(true);
+      };
+      document.addEventListener('pointerdown', closeMenu);
+      document.addEventListener('keydown', escMenu);
+      invalidation.then(() => {
+        document.removeEventListener('pointerdown', closeMenu);
+        document.removeEventListener('keydown', escMenu);
+      });
+      // Pressing one of the verbs inside says what it did on the status line,
+      // which is on the transport bar and not in the menu -- so the menu shuts
+      // itself and gets out of the way.
+      for (const b of [keepBtn, updateBtn, resetBtn, renameBtn, dropBtn, saveBtn, loadBtn]) {
+        b.addEventListener('click', () => { docMenu.open = false; });
+      }
+      // The verbs in one group with `margin-left:auto` rather than each of them
+      // after a flexible spacer. A spacer only pushes what is on ITS line, so
+      // on a phone -- where the bar wraps -- the buttons dropped to a second
+      // row hard against the left margin, and the menu opening off the right
+      // of a control sitting at x = 0 hung its panel off the screen.
+      const docBar = html`<div class="hs-editor__bar">
+        <span class="hs-pane__title">Technique</span>
+        ${pick}${editedTag}
+        <span class="hs-editor__actions">${docMenu}</span>
       </div>`;
+      syncDoc = () => { editedTag.hidden = !editState.edited; };
+      syncDoc();
 
+      // ---- the panes ----------------------------------------------------------
+      // What you WATCH, what you PRESS, which poses there are, and when. Four
+      // panes of one instrument, in the order you work them, each with the same
+      // padding -- which is the whole reason the frames no longer sit hard
+      // against the edge of a phone.
+      const stagePane = html`<div class="hs-editor__pane hs-editor__pane--first">${stage}</div>`;
+      const transportPane = html`<div class="hs-editor__pane hs-editor__transport">${strip.transport}</div>`;
+      const posesPane = html`<div class="hs-editor__pane">
+        <div class="hs-pane__head">${posesTitle}${confirmBar}</div>
+        ${story.element}
+      </div>`;
+      // "Effort", not "Timeline": the tab above it is the timeline, and this is
+      // one of the two things on it. What the strip actually shows is how much
+      // of each joint's strength the movement is spending, which is what the
+      // legend beside this title says too.
+      const timelinePane = html`<div class="hs-editor__pane">
+        <div class="hs-pane__head"><span class="hs-pane__title">Effort</span>${legend}</div>
+        ${strip.element}
+      </div>`;
+      const verdictPane = html`<div class="hs-editor__pane hs-editor__verdict"
+        style="font: 12.5px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;">${verdict}</div>`;
+
+      // ---- the deck -----------------------------------------------------------
+      // The lower half of the instrument, as two views of one technique with a
+      // tab bar over them.
+      //
+      // The parameters used to live outside the figure entirely, in a box under
+      // it, and expandable would lift that box into a panel floating over the
+      // figure when you went fullscreen. That was a reasonable arrangement for
+      // a picture with some sliders beside it and a poor one for this: there is
+      // enough interface here now that a second, draggable, differently-shaped
+      // window on top of it reads as another application. It also had nowhere
+      // good to sit -- its own toggle floats at the top-left of whatever it
+      // wraps, which since the title bar arrived is over the technique picker.
+      //
+      // Two tabs rather than three. The poses and the effort strip are both
+      // TIME views of the same movement and are wanted at the same time: you
+      // scrub one and read the other, and the frame you are editing is ringed
+      // in the first while the second says what it costs. Splitting them would
+      // break the one pairing in this figure that already works. The
+      // parameters are the other thing -- what body, what search, what servo --
+      // and they are set and then left alone.
+      const TABS = [
+        { id: 'timeline', label: 'Timeline', pane: html`<div></div>` },
+        { id: 'settings', label: 'Settings', pane: html`<div class="hs-editor__pane"></div>` },
+      ];
+      TABS[0].pane.append(posesPane, timelinePane);
+      const tabBtns = TABS.map((t, i) => {
+        const b = html`<button class="hs-tab" type="button" role="tab"
+          id="hs-tab-${t.id}" aria-controls="hs-tabpanel-${t.id}">${t.label}</button>`;
+        t.pane.id = `hs-tabpanel-${t.id}`;
+        t.pane.setAttribute('role', 'tabpanel');
+        t.pane.setAttribute('aria-labelledby', `hs-tab-${t.id}`);
+        b.addEventListener('click', () => selectTab(i));
+        // Left and right walk the tabs, which is what a tablist is expected to
+        // do and costs four lines.
+        b.addEventListener('keydown', (e) => {
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+          e.preventDefault();
+          const next = (i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length;
+          selectTab(next);
+          tabBtns[next].focus();
+        });
+        return b;
+      });
+      const tabBar = html`<div class="hs-tabs" role="tablist"
+        aria-label="what the lower half of the editor shows">${tabBtns}</div>`;
+      const selectTab = (n) => {
+        editState.ui.tab = TABS[n].id;
+        TABS.forEach((t, i) => {
+          const on = i === n;
+          tabBtns[i].classList.toggle('hs-tab--on', on);
+          tabBtns[i].setAttribute('aria-selected', on ? 'true' : 'false');
+          // Untabbable when not selected: a tablist takes ONE tab stop, and
+          // arrow keys move within it.
+          tabBtns[i].tabIndex = on ? 0 : -1;
+          t.pane.hidden = !on;
+        });
+        // The deck's two views are different heights, and expanded the stage
+        // is given whatever they leave -- so switching has to re-divide it.
+        layout.refresh?.();
+        // The flags directly rather than redraw(), which is a const declared
+        // further down: this runs once during the cell body to restore the tab
+        // the reader last had open, and naming redraw there would put it in
+        // its temporal dead zone. That has taken this figure down twice.
+        dirty = chromeDirty = true;
+      };
+      const deck = html`<div class="hs-editor__deck">${tabBar}${TABS.map((t) => t.pane)}</div>`;
+
+      // Everything below the stage, in one element, because the stage is given
+      // whatever vertical room the rest of it leaves and that is a number only
+      // a measurement can give.
+      const chromeEl = html`<div>${transportPane}${deck}${verdictPane}</div>`;
+
+      const figure = html`<figure class="hs-editor">${docBar}${stagePane}${chromeEl}</figure>`;
+
+      // ---- the parameters -----------------------------------------------------
       // Grouped, and every group collapsible. Eleven controls in one column is a
       // list to read rather than a panel to use; folded, what is open says what
-      // you are currently working on. The transport and the two status lines
-      // stay outside any group -- they are what you are always looking at.
+      // you are currently working on.
+      //
+      // What is NOT here any more is the presets. They were a group at the
+      // bottom of this list, filed between the search seed and the servo
+      // gains, which said that opening a technique was the same kind of act as
+      // changing a damping ratio -- and put the picker in two places, so the
+      // one you happened to reach decided whether the scenario came with it.
+      // Opening, reverting, keeping and saving are what you do to a document,
+      // and they are on the editor's own title bar now.
       const group = (title, open, ...rows) => html`<details ${open ? 'open' : ''}
         style="margin-top:8px; border-top:1px solid color-mix(in srgb, currentColor 12%, transparent);">
         <summary style="cursor:pointer; font-size:11px; font-weight:600; letter-spacing:.04em;
@@ -2347,31 +3727,47 @@
         ${rows}
       </details>`;
 
+      // No heading of its own any more: the tab it sits behind is its heading.
+      // One wrapping line per group rather than fixed pairs of rows: how many
+      // controls fit across is the width's business, not a decision baked into
+      // the markup, and hardcoded pairs left two thirds of a desktop window
+      // empty while stacking the panel taller than the picture it drives.
+      //
+      // "Technique" is gone as a group. Its three controls were a pose count
+      // (now the x and + on the storyboard), a duration (now the last pose's
+      // own handle on the timeline) and the leg mirror -- and the mirror is a
+      // statement about the BODY performing the skill, which is the group it
+      // sits in now.
       const controlsBox = html`<div class="technique-controls">
-        <div class="spline-controls" style="margin-bottom:4px;">${pick}${resetBtn}</div>
-        ${group('technique', true,
-          html`<div class="spline-controls">${poses}${durInput}</div>`,
-          html`<div class="spline-controls">${symToggle}</div>`)}
-        ${group('body', false,
-          html`<div class="spline-controls">${inShoulder}${inHam}</div>`,
-          html`<div class="spline-controls">${inShFlex}${inWrExt}</div>`,
-          html`<div class="spline-controls">${inSpine}</div>`)}
+        ${group('body', true,
+          html`<div class="spline-controls">${inShoulder}${inHam}${inShFlex}${inWrExt}${inSpine}${symToggle}</div>`)}
+        ${group('start', false,
+          html`<div class="spline-controls">${groundToggle}</div>`)}
+        ${group('cost', false,
+          html`<div class="spline-controls">${costInputs.map((i) => i)}</div>`)}
         ${group('search', false,
           html`<div class="spline-controls">${optGens}${optSeed}</div>`)}
         ${group('servo', false,
-          html`<div class="spline-controls">${servoInputs[0]}${servoInputs[1]}</div>`,
-          html`<div class="spline-controls">${servoInputs[2]}${servoInputs[3]}</div>`)}
-        ${group('presets', false,
-          html`<div class="spline-controls">${presetName}${keepBtn}${renameBtn}${dropBtn}</div>`,
-          html`<div class="spline-controls" style="margin-top:6px;">${saveBtn}${loadBtn}${loadInput}</div>`)}
+          html`<div class="spline-controls">${servoInputs.map((i) => i)}</div>`)}
       </div>`;
+      // Opening a group makes the panel taller, which expanded means the deck
+      // has to be re-divided against the stage. Without this the new controls
+      // were laid out below the bottom edge of a box that cannot scroll to
+      // them -- visible only after switching tabs away and back, which is the
+      // one other thing that re-runs the measurement.
+      controlsBox.querySelectorAll('details').forEach((d) => {
+        d.addEventListener('toggle', () => { layout.refresh?.(); dirty = chromeDirty = true; });
+      });
 
-      const figure = html`<figure>
-        ${stage}${chromeEl}
-      </figure>`;
+      TABS[1].pane.appendChild(controlsBox);
+      // Survives the cell re-running, which it does whenever the technique or
+      // the pose count changes -- like the expanded flag beside it.
+      selectTab(Math.max(0, TABS.findIndex((t) => t.id === editState.ui.tab)));
 
       const redraw = () => { dirty = chromeDirty = true; };
-      return { figure, controlsBox, chromeEl, sizeStage, story, strip, colsFor, redraw, layout, stageH: STAGE_H };
+
+      return { figure, controlsBox, chromeEl, docBar, deck, sizeStage, story, strip, redraw,
+        layout, stageH: STAGE_H };
     })();
     // The figure first. Eight sliders ahead of it is a wall the reader has to
     // climb before reaching the thing the sliders act on; expandable() resolves
@@ -2384,22 +3780,55 @@
       // as tall as its contents; expandable measures that itself. This number
       // only matters expanded, where onResize divides it up.
       height: techniqueFigure.stageH,
-      controls: '.technique-controls',
       state: editState.ui,
       onResize(el, w, h, expanded) {
-        // Width first: the storyboard's thumbnails and the timeline both get
-        // taller or shorter as they get wider, and the stage is given whatever
+        // The shell is a box with a border and a padding, so the room its
+        // panes actually have is neither w nor h. The padding is READ OFF a
+        // pane rather than written down again here: it is set in the
+        // stylesheet, and it changes there on a narrow screen -- arithmetic
+        // that did not know about that media query would walk the timeline off
+        // the edge of the box by exactly the difference.
+        const BORDER = 1;
+        const pane = getComputedStyle(techniqueFigure.chromeEl.firstElementChild);
+        const PANE = (parseFloat(pane.paddingLeft) || 8) + (parseFloat(pane.paddingRight) || 8);
+        techniqueFigure.figure.style.width = `${Math.round(w)}px`;
+        const innerW = Math.max(200, Math.round(w) - 2 * BORDER - PANE);
+        // Width first: the storyboard's frames and the timeline both get taller
+        // or shorter as they get wider, and the stage is given whatever
         // vertical room is left over -- so their heights have to be settled
         // before there is a leftover to measure.
-        techniqueFigure.story.resize(w, techniqueFigure.colsFor(w));
-        techniqueFigure.strip.resize(w);
+        techniqueFigure.story.resize(innerW);
+        techniqueFigure.strip.resize(innerW);
+        // The deck is measured at its natural height, so what follows divides
+        // the room against what it WANTS rather than against the cap it was
+        // last given -- otherwise the cap is its own input and the panel can
+        // only ever shrink.
+        const deckEl = techniqueFigure.deck;
+        deckEl.style.maxHeight = '';
+        if (!expanded) {
+          techniqueFigure.sizeStage(innerW, techniqueFigure.stageH);
+          techniqueFigure.redraw();
+          return;
+        }
         // Measured, not guessed: the storyboard and the timeline both get
         // taller as they get wider, so the leftover is only honest after they
-        // have been resized.
-        const stageH = expanded
-          ? Math.max(220, h - techniqueFigure.chromeEl.offsetHeight - 8)
-          : techniqueFigure.stageH;
-        techniqueFigure.sizeStage(w, stageH);
+        // have been resized. The bar and the stage pane's own padding come off
+        // it too, or the timeline hangs out of the bottom of the box by
+        // exactly their height.
+        //
+        // Expanded, the figure is a fixed box and the stage takes what the
+        // deck leaves. That only works while the deck is willing to be a size:
+        // opening SERVO used to push the panel's own bottom out through a
+        // wrapper with overflow:hidden, so four sliders existed somewhere you
+        // could neither see nor scroll to. So the room is divided the other
+        // way round now -- the stage keeps a floor, and whatever is left is
+        // the deck's height, which its panel scrolls inside.
+        const spent = techniqueFigure.chromeEl.offsetHeight - deckEl.offsetHeight
+          + techniqueFigure.docBar.offsetHeight + PANE + 2 * BORDER;
+        const room = Math.max(160, h - spent - 4);
+        const stageH = Math.max(200, room - deckEl.offsetHeight);
+        deckEl.style.maxHeight = `${Math.max(90, room - stageH)}px`;
+        techniqueFigure.sizeStage(innerW, stageH);
         techniqueFigure.redraw();
       },
     });
@@ -2407,14 +3836,13 @@
     // which only the figure knows and only the wrapper can act on.
     techniqueFigure.layout.refresh = () => techniqueBox.refreshLayout?.();
     display(techniqueBox);
-    display(techniqueFigure.controlsBox);
   </script>
   <script id="optimizer-section" type="text/markdown">
     ## What the search is actually doing
 
     CMA-ES climbs a score computed by simulating the candidate. The score is a weighted sum: did it arrive in the balanced pose and stop there; what it cost in metabolic work and in time spent near the torque cap; whether it went outside its own range of motion; whether it is still the skill it claims to be — feet leaving the floor once and not replanting, a bent-leg press actually passing through an inverted tuck, the legs not slung in at more than two metres a second; and whether it looks like a person, through terms on joint acceleration and on how fast the muscle drive is allowed to slew. Each candidate is scored as the *worst case* of two evaluations — the nominal one, and one at a different timestep with a small velocity jitter — so a knife-edge catch tuned to one timestep's contact artifacts pays full price for it.
 
-    What it cannot do is as informative as what it can. It searches angles, and nothing else: the tempo, where the poses fall within it, how many there are, and which of them are held are all yours. Tempo is the interesting one, because it used to be the search's and it should not have been. A movement that arrives at all gets cheaper the slower it runs — work and smoothness both fall — so wherever there was room to spare the gradient pointed at the longest duration on offer and stayed there. The straight-leg press arrives at every duration from 1.6 seconds up, and costs 4.59, 1.48, 1.15, 1.08, 1.05 and 1.03 as it slows to three and a half. That is not a search finding a tempo, it is a search running out of slider — and the slowest version is precisely the one where the shoulder supplies everything and nothing is carried by momentum, which is the opposite of technique. Set the tempo yourself and the search has to find a shape that works at it.
+    What it cannot do is as informative as what it can. It searches angles, and nothing else: the tempo, where the poses fall within it, how many there are, and which of them are held are all yours. The angles include the pose the body *starts* in, but only if you ask — the padlock on the first frame of the storyboard hands it over, and it is shut by default, because where a movement begins is usually the one thing about it you are sure of. Tempo is the interesting one, because it used to be the search's and it should not have been. A movement that arrives at all gets cheaper the slower it runs — work and smoothness both fall — so wherever there was room to spare the gradient pointed at the longest duration on offer and stayed there. The straight-leg press arrives at every duration from 1.6 seconds up, and costs 4.59, 1.48, 1.15, 1.08, 1.05 and 1.03 as it slows to three and a half. That is not a search finding a tempo, it is a search running out of slider — and the slowest version is precisely the one where the shoulder supplies everything and nothing is carried by momentum, which is the opposite of technique. Set the tempo yourself and the search has to find a shape that works at it.
 
     Every knot is boxed by the body's own range of motion, so lowering a flexibility limit takes technique away from the search rather than fining it afterwards. And every run above is re-simulated in your browser from its knots rather than replayed as an animation, so if a technique looks wrong it is wrong, whatever its cost says.
   </script>

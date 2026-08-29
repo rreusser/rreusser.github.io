@@ -8,7 +8,7 @@
 // Run: node src/notebooks/handstand/test/strength.mjs
 import {
   tetanicTorque, activation, maxVoluntaryTorque, voluntaryToTetanic,
-  strengthProfile, availableTorque, clampTorque, STRENGTH_DEFAULTS,
+  strengthProfile, availableTorque, clampTorque, STRENGTH_DEFAULTS, JOINT_KIND,
 } from '../strength.js';
 
 let failures = 0;
@@ -83,8 +83,9 @@ const P = { T0: 300, wmax: 20, wc: 8, amin: 0.7, w1: 0.2, m: 0.3 };
   const prof = strengthProfile(massKg, { scale: 1.25 });
   let worst = 0;
   for (const [name, jp] of Object.entries(prof)) {
-    const kind = name.startsWith('hip') ? 'hip' : name.startsWith('knee') ? 'knee' : name;
-    const want = STRENGTH_DEFAULTS[kind].t0Vol * 1.25 * massKg;
+    // From the module, not re-derived here. Written as a startsWith rule this
+    // read `ankleL` as its own kind and threw the moment the legs grew feet.
+    const want = STRENGTH_DEFAULTS[JOINT_KIND[name]].t0Vol * 1.25 * massKg;
     worst = Math.max(worst, Math.abs(maxVoluntaryTorque(0, jp) - want));
   }
   gate('D: voluntary isometric normalization', worst < 1e-9,

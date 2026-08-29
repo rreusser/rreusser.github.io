@@ -5,7 +5,7 @@ import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile } from '../strength.js';
 import { ROM_DEFAULTS } from '../statics.js';
-import { rolloutCost, robustRolloutCost, COST_WEIGHTS } from '../rollout.js';
+import { rolloutCost, robustRolloutCost, COST_WEIGHTS, NUMERICS_DEFAULTS } from '../rollout.js';
 
 const cfg = workerData;
 const model = buildModel(cfg.modelParams || {});
@@ -18,7 +18,7 @@ const costFn = cfg.robust === false ? rolloutCost : robustRolloutCost;
 parentPort.on('message', ({ id, xs }) => {
   const costs = xs.map((x) =>
     costFn(model, ws, prof, rom, cfg.scenario, Float64Array.from(x), {
-      K: cfg.K || 6, dt: cfg.dt || 2.5e-4, weights,
+      K: cfg.K || 6, dt: cfg.dt || NUMERICS_DEFAULTS.dt, weights,
       ...(cfg.variants ? { variants: cfg.variants } : {}),
     }).cost);
   parentPort.postMessage({ id, costs });

@@ -19,7 +19,7 @@
 import { drawScene } from './render.js';
 import { availableTorque } from './strength.js';
 import { jointLimits, groundHand } from './statics.js';
-import { JOINT_ORDER, widenKnots } from './control.js';
+import { JOINT_ORDER, ALL_JOINTS, widenKnots } from './control.js';
 import { evalReference, splineEval, knotTimes } from './control.js';
 import { WORK_EFFICIENCY } from './rollout.js';
 
@@ -42,10 +42,36 @@ const R2D = 180 / Math.PI;
 // what a hand-written table does the first time a joint is inserted in the
 // middle of the order.
 const JOINT_LABELS = {
-  wrist: 'wrist', shoulder: 'shoulder', spine: 'spine', neck: 'neck',
-  hipL: 'hip L', kneeL: 'knee L', hipR: 'hip R', kneeR: 'knee R',
+  wrist: 'wrist', elbow: 'elbow', shoulder: 'shoulder', spine: 'spine', neck: 'neck',
+  hipL: 'hip L', kneeL: 'knee L', ankleL: 'ankle L',
+  hipR: 'hip R', kneeR: 'knee R', ankleR: 'ankle R',
 };
-export const JOINTS = JOINT_ORDER.map((name, j) => ({ j, qi: 3 + j, label: JOINT_LABELS[name] || name }));
+// The order joints are DISPLAYED in, which is not the order the state vector
+// holds them. JOINT_ORDER is fixed by the dynamics -- the tree requires a
+// parent before its children, so each leg runs hip, knee, ankle and the two
+// legs are consecutive blocks. Read down a chart in that order and the same
+// joint of the two legs is six rows apart, so a kick-up's asymmetry has to be
+// found by counting rows instead of seen by looking.
+//
+// Paired instead: both hips, then both knees, then both ankles. A symmetric
+// technique now draws each pair as two identical rows touching each other,
+// which reads as one thing rather than as noise, and an asymmetric one shows
+// exactly where the two legs part company.
+//
+// Every entry carries its OWN channel (j) and state index (qi), so anything
+// reading a value goes through those and nothing depends on where the entry
+// sits in this list. Loops that are about channels rather than rows use
+// JOINT_ORDER directly.
+const DISPLAY_ORDER = ['wrist', 'elbow', 'shoulder', 'spine',
+  'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'neck'];
+export const JOINTS = DISPLAY_ORDER.map((name) => {
+  const j = JOINT_ORDER.indexOf(name);
+  if (j < 0) throw new Error(`the display order names ${name}, which is not a joint`);
+  return { j, qi: 3 + j, label: JOINT_LABELS[name] || name };
+});
+if (JOINTS.length !== JOINT_ORDER.length) {
+  throw new Error(`the display order lists ${JOINTS.length} joints, the body has ${JOINT_ORDER.length}`);
+}
 
 // Strength used: blue (idle) to red (at the voluntary torque cap). One ramp,
 // spent the same way by the segments of a moving body, the rows of the effort
@@ -70,13 +96,68 @@ export function effortColor(u, isDark = false, alpha = 1) {
 
 // Segment colours for drawScene. requestTint paints a whole body as a request;
 // effortTint paints it as a result.
-export const requestTint = () => new Array(7).fill(REQUEST_COLOR);
-export function effortTint(run, k, prof, isDark) {
-  const out = new Array(7).fill(null);
-  for (let j = 0; j < JOINTS.length; j++) {
+//
+// One entry per BODY, and the count comes from the model. It has been wrong
+// three times now -- written as a literal 7, then derived from JOINT_ORDER,
+// which counts the joints a search DRIVES and so stopped one short of the head
+// and two short of the toes. A body past the end of the array is not tinted at
+// all: it comes out in the neutral grey while the limb it belongs to is
+// coloured, which is exactly how both toes looked.
+export const requestTint = (model) =>
+  new Array(model?.nb ?? ALL_JOINTS.length + 1).fill(REQUEST_COLOR);
+
+// Segment colours for a pose being EDITED: red on any segment whose own joint
+// is outside the body's range of motion, and `base` everywhere else -- the
+// request grey for a reference pose, nothing at all for the start, which is a
+// real configuration of the body rather than something being asked for.
+//
+// This is what the editor says INSTEAD of stopping you. A pose you place by
+// hand is not clamped, because a handle that stops for a reason the figure has
+// not drawn is a handle that lies -- so the figure draws the reason. The
+// anatomy is still enforced where it is real: passive end-stops push the joint
+// back during the rollout, and the effort chart paints the excursion -- in
+// ROM_COLOR, which is why this uses it too: the legend above the timeline
+// already reads "outside range of motion" in that orange, so the figure is
+// saying the same thing in the same colour rather than inventing a second one.
+export function romTint(model, q, rom, base = null) {
+  const out = new Array(model.nb).fill(base);
+  for (let j = 0; j < JOINT_ORDER.length; j++) {
+    const jq = 3 + j;
+    const { lo, hi } = jointLimits(rom, q, jq);
+    // Joint q[3 + j] turns body 1 + j: the dynamics reads joint i off body i.
+    if (q[jq] < lo - 1e-9 || q[jq] > hi + 1e-9) out[1 + j] = ROM_COLOR;
+  }
+  return out;
+}
+
+// Which joints are outside the range, as a Set of q indices, for anything that
+// wants to mark the handle rather than the segment.
+export function romOutside(model, q, rom) {
+  const out = new Set();
+  for (let j = 0; j < JOINT_ORDER.length; j++) {
+    const jq = 3 + j;
+    const { lo, hi } = jointLimits(rom, q, jq);
+    if (q[jq] < lo - 1e-9 || q[jq] > hi + 1e-9) out.add(jq);
+  }
+  return out;
+}
+export function effortTint(run, k, prof, isDark, model = run.model) {
+  // One entry per BODY -- see requestTint above for why that is not the same
+  // as one per driven joint.
+  const nb = model?.nb ?? ALL_JOINTS.length + 1;
+  const out = new Array(nb).fill(null);
+  for (let j = 0; j < JOINT_ORDER.length; j++) {
     const tau = run.rec.tauApplied[k][j];
     const cap = availableTorque(prof[JOINT_ORDER[j]], tau, run.rec.qd[k][3 + j]);
     out[1 + j] = effortColor(Math.abs(tau) / Math.max(cap, 1e-6), isDark);
+  }
+  // A PASSIVE segment has no effort of its own: no torque is applied to it and
+  // no strength is spent holding it, so there is no fraction-of-capacity to
+  // colour it by. It wears its parent's, which is the limb it is part of --
+  // the toe reads as the end of the foot rather than as a grey chip stuck to
+  // it. parent[i] < i by construction, so one forward pass fills the tail.
+  if (model) {
+    for (let i = 1; i < nb; i++) if (out[i] === null) out[i] = out[model.parent[i]];
   }
   return out;
 }
@@ -97,13 +178,13 @@ export function frameAt(rec, t) {
 // flat onto the floor. Poses nobody touched appeared to fly around, and a pose
 // just set snapped somewhere else the moment the drag was released. Planting
 // the hand makes a pose depend on exactly the numbers that define it.
-const refVal = new Float64Array(JOINTS.length), refRate = new Float64Array(JOINTS.length);
+const refVal = new Float64Array(JOINT_ORDER.length), refRate = new Float64Array(JOINT_ORDER.length);
 export function requestPose(model, knots, T, t, out, fracs = null) {
   out.fill(0);
   groundHand(model, out);
   evalReference(knots, T, Math.min(t, T), refVal, refRate,
     fracs ? knotTimes(T, knots[0].length, fracs) : null);
-  for (let j = 0; j < JOINTS.length; j++) out[3 + j] = refVal[j];
+  for (let j = 0; j < JOINT_ORDER.length; j++) out[3 + j] = refVal[j];
   return out;
 }
 
@@ -141,7 +222,7 @@ export function requestPose(model, knots, T, t, out, fracs = null) {
 // nonsingular, so they are the unique minimizer.
 export function resampleKnots(knots0, T, newK, fracs = null) {
   // Widened here too: a refit is asked for on whatever the page is holding,
-  // and a stored technique arrives with six channels.
+  // and a stored technique may arrive at any width this notebook has written.
   const knots = widenKnots(knots0);
   const K = Math.max(1, Math.round(newK));
   // The OLD curve is read with the phrasing it was authored in; the new one
@@ -177,7 +258,7 @@ export function resampleKnots(knots0, T, newK, fracs = null) {
   }
 
   const out = [], y = new Float64Array(M), b = new Float64Array(n);
-  for (let j = 0; j < JOINTS.length; j++) {
+  for (let j = 0; j < JOINT_ORDER.length; j++) {
     const row = new Float64Array(K);
     const last = knots[j][knots[j].length - 1];
     row[K - 1] = last;
@@ -222,7 +303,7 @@ function solveInPlace(A, b, n) {
 export function knotPose(model, knots, k, out) {
   out.fill(0);
   groundHand(model, out);
-  for (let j = 0; j < JOINTS.length; j++) out[3 + j] = knots[j][k];
+  for (let j = 0; j < JOINT_ORDER.length; j++) out[3 + j] = knots[j][k];
   return out;
 }
 
@@ -232,7 +313,7 @@ export function knotPose(model, knots, k, out) {
 export function analyzeRun(run, prof, model) {
   const rec = run.rec;
   const m = run.model || model;
-  const NJ = JOINTS.length;
+  const NJ = JOINT_ORDER.length;
   const peak = new Float64Array(NJ), satT = new Float64Array(NJ), err = new Float64Array(NJ);
   const v = new Float64Array(NJ), r = new Float64Array(NJ);
   // The phrasing the run was produced with, read off the run rather than
@@ -247,7 +328,7 @@ export function analyzeRun(run, prof, model) {
     evalReference(run.knots, run.T, Math.min(rec.t[k], run.T), v, r, refTimes);
     const driving = rec.t[k] <= run.T;
     if (driving) n++;
-    for (let j = 0; j < JOINTS.length; j++) {
+    for (let j = 0; j < JOINT_ORDER.length; j++) {
       const tau = rec.tauApplied[k][j];
       const cap = availableTorque(prof[JOINT_ORDER[j]], tau, rec.qd[k][3 + j]);
       const u = Math.abs(tau) / Math.max(cap, 1e-6);
@@ -326,6 +407,13 @@ export function createStrip({
   // poses are the two ends of the movement and do not move; everything
   // between them does.
   onKnotDrag = null, onKnotPick = null,
+  // Dragging the LAST pose, which is a different quantity: where the movement
+  // ends is the duration, not a phrasing. onDurationDrag(T, settled) is called
+  // with the new duration in seconds. The duration used to be a slider in a
+  // panel, which is an odd way to say "this pose happens here" when the pose
+  // is drawn on a time axis an inch away -- and it left the one handle on the
+  // timeline that a reader would obviously reach for inert.
+  onDurationDrag = null,
   // The transport. A timeline that can be scrubbed but not played, next to a
   // Play button living in a panel somewhere else, is two halves of one control
   // -- so the button belongs here, on the thing it moves. onPlay(next) is
@@ -365,8 +453,12 @@ export function createStrip({
   let playBtn = null, playPath = null, timeEl = null, playing = false, transport = null;
   if (onPlay) {
     const bar = document.createElement('div');
+    // No margin of its own. It is handed back so the caller can dock the
+    // transport wherever it belongs -- directly under the viewer, in this
+    // figure's case -- and spacing chosen for one position is wrong in every
+    // other; the pane it lands in owns that.
     bar.style.cssText = 'display:flex; align-items:center; gap:8px; min-height:26px;'
-      + 'margin:0 0 7px; flex-wrap:wrap; row-gap:6px;';
+      + 'margin:0; flex-wrap:wrap; row-gap:6px;';
     playBtn = document.createElement('button');
     playBtn.type = 'button';
     playBtn.className = 'hs-btn hs-btn--icon';
@@ -420,11 +512,15 @@ export function createStrip({
     };
     // Which movable pose, if any, is under the pointer.
     const grab = (e) => {
-      if (!onKnotDrag || !state?.knotTimes?.length) return -1;
+      if ((!onKnotDrag && !onDurationDrag) || !state?.knotTimes?.length) return -1;
       const r = canvas.getBoundingClientRect();
       const x = (e.clientX - r.left) * (width / (r.width || width));
       let best = -1, bestD = GRAB_PX;
-      for (let k = 1; k < state.knotTimes.length - 1; k++) {
+      // The interior poses when there is a handler for them, and the last one
+      // too when there is one for the duration.
+      const last = state.knotTimes.length - 1;
+      const end = onDurationDrag ? last : last - 1;
+      for (let k = onKnotDrag ? 1 : last; k <= end; k++) {
         const d = Math.abs(toX(state.knotTimes[k], state.xEnd) - x);
         if (d <= bestD) { bestD = d; best = k; }
       }
@@ -432,6 +528,16 @@ export function createStrip({
     };
     const dragTo = (e) => {
       const K = state.knotTimes.length;
+      // The end of the movement, in seconds. It is bounded by the pose before
+      // it and by the right-hand edge of the picture, which is as far as this
+      // gesture can see; a longer duration than that takes a second drag, on
+      // an axis that has grown to fit the first.
+      if (dragging === K - 1) {
+        const lo = (K > 1 ? state.knotTimes[K - 2] : 0) + MIN_GAP * state.T;
+        lastFrac = Math.min(Math.max(atX(e) * state.xEnd, lo), state.xEnd - 1e-3);
+        onDurationDrag(lastFrac, false);
+        return;
+      }
       const lo = (state.knotTimes[dragging - 1] / state.T) + MIN_GAP;
       const hi = (dragging + 1 < K ? state.knotTimes[dragging + 1] / state.T : 1) - MIN_GAP;
       const frac = (atX(e) * state.xEnd) / state.T;
@@ -443,7 +549,8 @@ export function createStrip({
       canvas.setPointerCapture?.(e.pointerId);
       dragging = grab(e);
       if (dragging > 0) {
-        lastFrac = state.knotTimes[dragging] / state.T;
+        lastFrac = dragging === state.knotTimes.length - 1
+          ? state.T : state.knotTimes[dragging] / state.T;
         onKnotPick?.(dragging);
       } else onSeek?.(atX(e) * state.xEnd);
       e.preventDefault();
@@ -463,7 +570,10 @@ export function createStrip({
       // The physics re-runs here and not before. Re-simulating mid-gesture
       // moves the body under the finger, which is the same reason dragging a
       // limb waits for the release.
-      if (dragging > 0) onKnotDrag(dragging, lastFrac, true);
+      if (dragging > 0) {
+        if (dragging === state.knotTimes.length - 1) onDurationDrag(lastFrac, true);
+        else onKnotDrag(dragging, lastFrac, true);
+      }
       dragging = -1;
     };
     canvas.addEventListener('pointerup', stop);
@@ -560,7 +670,7 @@ export function createStrip({
       ctx.moveTo(x, 0);
       ctx.lineTo(x, rows);
       ctx.stroke();
-      if (onKnotDrag && k > 0 && k < knotTimes.length - 1) {
+      if (k > 0 && (k < knotTimes.length - 1 ? onKnotDrag : onDurationDrag)) {
         ctx.fillStyle = fgc(0.55);
         ctx.beginPath();
         ctx.moveTo(x - 3.5, rows);
@@ -654,7 +764,7 @@ export function createStrip({
 // that is not earning its place, or adding one where the curve needs a handle,
 // says what you mean in a way that "6" does not.
 export function createStoryboard({
-  n, cols: cols0, thumbW: thumbW0, thumbH: thumbH0, view, dpr = 1, onSelect = null,
+  n, thumbW: thumbW0, thumbH: thumbH0, view, dpr = 1, onSelect = null,
   onLock = null, canLock = null, onDelete = null, canDelete = null,
   onInsert = null, canInsertBefore = null,
   // Pinning a pose to its instant. It hangs off the time already printed
@@ -671,17 +781,81 @@ export function createStoryboard({
 }) {
   let K = n;
   const ASPECT = thumbW0 / thumbH0;
-  let cols = cols0, thumbW = thumbW0, thumbH = thumbH0;
+  let thumbW = thumbW0, thumbH = thumbH0;
+  // A filmstrip is one row. It used to be a grid that wrapped, and a wrapped
+  // storyboard is a worse picture than a small one: the eye reads left to
+  // right and then has to jump back, so the ninth pose of a movement sat
+  // underneath the first and the strip stopped being a time axis. So the
+  // frames shrink to fit, down to a floor, and past that the row scrolls --
+  // which is what every editor that has ever shown a sequence of frames does.
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex; gap:4px; width:max-content; margin:0 auto;';
   const element = document.createElement('div');
-  element.style.display = 'grid';
-  // Column gap stays tight -- the insert affordance is measured from it -- but
-  // a row that wraps needs to read as a new row rather than a crease.
-  element.style.columnGap = '4px';
-  element.style.rowGap = '10px';
-  element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  element.style.maxWidth = '640px';
+  element.style.cssText = 'overflow-x:auto; overflow-y:hidden; max-width:100%;'
+    + 'scrollbar-width:thin; overscroll-behavior-x:contain;';
+  element.appendChild(row);
   const cells = [];
   const cellLocks = [];
+  // Below this the caption cannot hold "3 · 0.42s" and the number it drops is
+  // the time: which pose this is stays legible at any size, and the instant is
+  // printed on the timeline directly beneath it anyway.
+  let compact = false;
+  // Hover is a mouse idea. `mouseenter` never fires on a touch screen, so a
+  // control that only appears on hover is a control that is INVISIBLE AND LIVE
+  // at the same time -- and an 18px delete button you cannot see, sitting in
+  // the corner of the 40px target that selects the pose, is one you hit by
+  // accident. Repeatedly. Where there is no hover, a cell's own controls
+  // belong to the SELECTED cell and nothing else: until you have deliberately
+  // picked a frame the strip is frames, with nothing on them to hit.
+  //
+  // Hidden means gone, not transparent: opacity 0 still takes the tap.
+  const HOVER = typeof matchMedia === 'function' ? matchMedia('(hover: hover)').matches : true;
+  let selected = -1;
+  // The cell whose deletion is being confirmed somewhere else. Drawn under a
+  // solid border with its neighbours dimmed, so the question being asked has a
+  // subject you can see: the strip says "pose 3" and this is which one that is.
+  let pending = -1;
+  const paintCell = (k) => {
+    const c = cells[k];
+    if (!c) return;
+    // Whether this cell's own controls answer a finger. With a pointer, always
+    // -- they are small but you can see exactly where it is. Without one, only
+    // once the cell is selected: a frame is 44 px wide and its two corner
+    // buttons are 18 px square, so a seventh of it is controls, and every one
+    // of them stops the click from reaching the frame. Tapping a pose to LOOK
+    // at it landed on a padlock or a delete as often as not.
+    const armed = HOVER || selected === k || pending === k;
+    c.host.style.borderColor = pending === k ? 'currentColor'
+      : k === selected ? REQUEST_COLOR : 'transparent';
+    c.canvas.style.opacity = pending >= 0 && pending !== k ? '0.45' : '1';
+    // The two padlocks stay VISIBLE either way -- held-or-free and pinned-or-
+    // free are things the storyboard is telling you, and a strip that hid them
+    // until you tapped would be a strip that stopped saying what the search is
+    // allowed to do. They just stop taking the tap, so the first one selects
+    // the frame and the second works the lock.
+    if (c.lockBtn) c.lockBtn.style.pointerEvents = armed ? 'auto' : 'none';
+    if (c.pinnable) c.capTime.style.pointerEvents = armed ? 'auto' : 'none';
+    // The two actions are hidden outright when they are not reachable, because
+    // they are verbs rather than readings and there is nothing to say about a
+    // pose you have not picked. Hidden means GONE, not transparent: opacity 0
+    // still takes the tap, which is exactly how the delete kept being hit.
+    if (c.delBtn) {
+      const lit = c.delHot || pending === k;
+      c.delBtn.style.opacity = !armed ? '0' : lit ? '0.95' : '0.3';
+      c.delBtn.style.pointerEvents = armed ? 'auto' : 'none';
+    }
+    if (c.insBtn) {
+      // Without hover there is nothing to reach WITH, so a reachable cell
+      // shows its plus outright rather than waiting for a pointer that is
+      // never coming.
+      const reachable = HOVER || selected === k;
+      const lit = reachable && (c.insHot || !HOVER);
+      c.insIcon.style.opacity = lit ? '1' : '0';
+      c.insLine.style.opacity = lit ? '.4' : '.13';
+      c.insBtn.style.pointerEvents = reachable ? 'auto' : 'none';
+    }
+  };
+  const paintAll = () => { for (let k = 0; k < cells.length; k++) paintCell(k); };
   // Closed, and open: the shackle's right leg leaves the body rather than the
   // whole glyph changing, so the two states are one object in two positions.
   const SHUT = 'M3.4 6.4V4.3a2.6 2.6 0 0 1 5.2 0v2.1';
@@ -806,8 +980,15 @@ export function createStoryboard({
       delBtn.title = 'drop this pose. The others keep their shapes and their '
         + 'timing exactly -- nothing is refitted.';
       delBtn.setAttribute('aria-label', 'delete this pose');
-      delBtn.addEventListener('mouseenter', () => { delBtn.style.opacity = '0.95'; });
-      delBtn.addEventListener('mouseleave', () => { delBtn.style.opacity = '0.3'; });
+      // A flag rather than a direct opacity write: whether this button shows
+      // is now a question of hover AND selection AND whether it is the one
+      // being confirmed, and three handlers each writing the answer they
+      // happen to know about is how they come to disagree.
+      const hot = (on) => { if (cells[k]) cells[k].delHot = on; paintCell(k); };
+      delBtn.addEventListener('mouseenter', () => hot(true));
+      delBtn.addEventListener('mouseleave', () => hot(false));
+      delBtn.addEventListener('focus', () => hot(true));
+      delBtn.addEventListener('blur', () => hot(false));
       delBtn.addEventListener('click', (e) => { e.stopPropagation(); onDelete(k); });
       host.appendChild(delBtn);
     }
@@ -836,23 +1017,23 @@ export function createStoryboard({
       insBtn.title = 'add a pose here. Its angles are read off the curve you '
         + 'already have, so the movement does not change -- you just gain a handle on it.';
       insBtn.setAttribute('aria-label', 'add a pose here');
-      const show = () => { insIcon.style.opacity = '1'; insLine.style.opacity = '.4'; };
-      const hide = () => { insIcon.style.opacity = '0'; insLine.style.opacity = '.13'; };
-      insBtn.addEventListener('mouseenter', show);
-      insBtn.addEventListener('mouseleave', hide);
-      insBtn.addEventListener('focus', show);
-      insBtn.addEventListener('blur', hide);
+      const hot = (on) => { if (cells[k]) cells[k].insHot = on; paintCell(k); };
+      insBtn.addEventListener('mouseenter', () => hot(true));
+      insBtn.addEventListener('mouseleave', () => hot(false));
+      insBtn.addEventListener('focus', () => hot(true));
+      insBtn.addEventListener('blur', () => hot(false));
       insBtn.addEventListener('click', (e) => { e.stopPropagation(); onInsert(k); });
       host.appendChild(insBtn);
     }
 
-    element.appendChild(host);
-    cells.push({ canvas, cap, capName, capTime, capTimeText, timeShackle, pinnable, host, lockBtn, delBtn, insBtn, insIcon, insLine });
+    row.appendChild(host);
+    cells.push({ canvas, cap, capName, capTime, capTimeText, timeShackle, pinnable, host,
+      lockBtn, delBtn, insBtn, insIcon, insLine, delHot: false, insHot: false });
     cellLocks.push(shackle);
   }
 
   function buildAll() {
-    element.replaceChildren();
+    row.replaceChildren();
     cells.length = 0;
     cellLocks.length = 0;
     for (let k = 0; k < K; k++) buildCell(k);
@@ -866,34 +1047,46 @@ export function createStoryboard({
   const setCount = (nextN) => {
     if (nextN === K) return;
     K = nextN;
+    // Whatever was being confirmed went with the cells that were rebuilt, and
+    // an index into the old row names a cell nobody meant.
+    pending = -1;
     buildAll();
-    resize(lastWidth, colsFor ? colsFor(lastWidth) : cols);
+    resize(lastWidth);
   };
 
   let lastWidth = 640;
-  let colsFor = null;
-  const setColsFor = (fn) => { colsFor = fn; };
 
   const GAP = 4;
   const CHROME = 5;                           // the host's own border + padding
-  // Lay the storyboard out at a new width. Expanded, the figure is several
-  // times wider than the column, and a row of thumbnails that stayed
-  // column-sized would leave the space it was given empty.
-  function resize(w, colCount = cols) {
+  // The smallest frame still worth looking at, and the number is set by the two
+  // cases that have to stay on one row: the longest technique in the column
+  // (twelve poses plus the start is thirteen cells across 622 px, so 39 each)
+  // and an ordinary one on a phone (seven cells across 336, so 39 again). A
+  // floor above 39 would force one of those to scroll for no reason. Below it
+  // the frames stop shrinking and the row scrolls, which is the honest answer
+  // for twelve poses on a phone.
+  const MIN_FRAME = 36;
+  // Lay the storyboard out at a new width: one row, frames sized to fill it.
+  // Expanded, the figure is several times wider than the column, and a row of
+  // thumbnails that stayed column-sized would leave the space it was given
+  // empty; collapsed on a phone the same arithmetic runs the other way.
+  function resize(w) {
     lastWidth = w;
-    cols = Math.max(1, colCount);
-    const cellW = Math.max(40, Math.floor((w - (cols - 1) * GAP) / cols));
-    const room = Math.max(24, cellW - CHROME);
-    // Fill the column until the frame hits its ceiling, then hold that size and
-    // let the grid space them out instead. The cell is narrowed to the frame
-    // rather than the frame centred in the cell, so the lock stays on the
-    // frame's own corner instead of drifting off to the column's edge.
+    const per = (w - (K - 1) * GAP) / K;
+    const room = Math.max(MIN_FRAME, Math.floor(per) - CHROME);
+    // Fill the row until the frame hits its ceiling, then hold that size: a
+    // three-pose technique should not be three enormous portraits.
     thumbH = Math.min(maxThumbH, Math.round(room / ASPECT));
     thumbW = Math.min(room, Math.round(thumbH * ASPECT));
-    element.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    element.style.justifyItems = 'center';
-    element.style.maxWidth = `${Math.round(w)}px`;
+    compact = thumbW < 58;
     const hostW = thumbW + CHROME;
+    // Centred while the row fits, hard left once it does not. `margin: auto`
+    // on an overflowing flex child puts the start of the row on the wrong side
+    // of the scroll origin in several browsers -- the first frame becomes
+    // unreachable -- so which of the two it is has to be decided here, where
+    // the total width is known, rather than left to the box model.
+    const total = K * hostW + Math.max(0, K - 1) * GAP;
+    row.style.margin = total <= w ? '0 auto' : '0';
     for (const c of cells) {
       c.host.style.width = `${hostW}px`;
       c.canvas.style.width = `${thumbW}px`;
@@ -902,26 +1095,13 @@ export function createStoryboard({
       c.canvas.height = Math.round(thumbH * dpr);
     }
 
-    // Where the boundary actually falls, MEASURED. The host is narrower than
-    // its grid column once the frames stop growing and is centred in it, so the
-    // gap between two frames is the leftover on both sides plus the grid gap --
-    // not the 4px the gap property names, and not quite what arithmetic on a
-    // floored column width says either. Anchoring to the host's own edge put
-    // the plus hard against the right-hand frame; computing the gutter put it
-    // a pixel and a half off centre. Reading it back is exact.
-    const fallback = Math.max(GAP, cellW - hostW + GAP);
-    const rect = cells.map((c) => c.host.getBoundingClientRect());
-    for (let k = 0; k < cells.length; k++) {
-      const c = cells[k];
+    // The boundary before each cell. With a flex row at a fixed gap the gutter
+    // IS the gap -- no 1fr sub-pixel rounding to read back -- so the plus goes
+    // on the middle of it and the hit area straddles both neighbours.
+    const hitW = 14;
+    for (const c of cells) {
       if (!c.insLine && !c.insBtn) continue;
-      // This gap, not the average of them: 1fr columns round to sub-pixels
-      // independently, so the gutters differ by up to a pixel across the row.
-      let gutter = fallback;
-      if (k > 0 && rect[k].left > rect[k - 1].right && Math.abs(rect[k].top - rect[k - 1].top) < 1) {
-        gutter = rect[k].left - rect[k - 1].right;
-      }
-      const mid = -gutter / 2;
-      const hitW = Math.max(14, Math.min(22, gutter + 8));
+      const mid = -GAP / 2;
       if (c.insLine) {
         // Its own width taken off, so the LINE is centred rather than its left
         // edge sitting on the middle.
@@ -929,17 +1109,24 @@ export function createStoryboard({
         c.insLine.style.height = `${thumbH}px`;
       }
       if (c.insBtn) {
+        // Below the corner buttons rather than through them: full height it
+        // lay under the previous cell's lock, and three controls in one corner
+        // is three nobody can hit.
+        const top = Math.min(22, Math.round(thumbH * 0.3));
         c.insBtn.style.left = `${mid - hitW / 2}px`;
         c.insBtn.style.width = `${hitW}px`;
-        c.insBtn.style.top = '22px';
-        c.insBtn.style.height = `${Math.max(10, thumbH - 22)}px`;
+        c.insBtn.style.top = `${top}px`;
+        c.insBtn.style.height = `${Math.max(10, thumbH - top)}px`;
       }
     }
   }
 
-  // A request is drawn in the request grey; a body is drawn as a body.
-  const tint = requestTint();
+  // A request is drawn in the request grey; a body is drawn as a body. Sized
+  // from the model it is about to draw, not once up here: the body gains and
+  // loses segments as the reader moves the anthropometry sliders.
   const draw = ({ model, ws, items, sel = -1, theme }) => {
+    const tint = requestTint(model);
+    selected = sel;
     for (let k = 0; k < K && k < items.length; k++) {
       const it = items[k];
       const ctx = cells[k].canvas.getContext('2d');
@@ -949,10 +1136,14 @@ export function createStoryboard({
         clear: false, model, ws, width: thumbW, height: thumbH, theme, view,
         q: it.q, segmentColors: it.solid ? null : tint,
       });
-      cells[k].host.style.borderColor = k === sel ? REQUEST_COLOR : 'transparent';
       const c = cells[k];
-      c.capName.textContent = it.time == null ? it.label : `${it.label} · `;
-      c.capTimeText.textContent = it.time == null ? '' : it.time;
+      // Compact: the frame is too narrow to hold both, so the caption keeps
+      // which pose this is and drops the instant. The padlock stays -- it is
+      // the only place the pin lives -- and the timeline underneath is still
+      // printing the time.
+      const showTime = it.time != null && !compact;
+      c.capName.textContent = showTime ? `${it.label} · ` : it.label;
+      c.capTimeText.textContent = showTime ? it.time : '';
       if (c.pinnable) {
         // Shut means pinned, open means free -- the same glyph and the same
         // polarity as the pose lock above it, so one picture means one thing
@@ -978,9 +1169,26 @@ export function createStoryboard({
         btn.setAttribute('aria-label', it.locked ? 'held; release this pose' : 'free; hold this pose');
         btn.title = btn.disabled
           ? 'the pose the technique ends in — always held'
-          : it.locked ? 'held: the search may not move this pose' : 'free: the search may move this pose';
+          : it.start
+            ? (it.locked
+              ? 'held: the body begins here and the search may not move it. Click to let it '
+                + 'choose the start too.'
+              : 'free: the search may choose the pose the body begins in. Click to hold it '
+                + 'where it is.')
+            : it.locked ? 'held: the search may not move this pose' : 'free: the search may move this pose';
       }
+      paintCell(k);
     }
   };
-  return { element, draw, resize, setCount, setColsFor, cells, get count() { return K; } };
+
+  // Which cell, if any, is being confirmed for deletion -- -1 for none. The
+  // question itself is asked elsewhere, because there is no room for two
+  // finger-sized answers on a 40px frame; this is only how the frame says that
+  // it is the one the question is about.
+  const setPending = (k) => {
+    pending = k == null ? -1 : k;
+    paintAll();
+  };
+  return { element, draw, resize, setCount, setPending, cells,
+    get hoverable() { return HOVER; }, get count() { return K; } };
 }

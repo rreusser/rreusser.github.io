@@ -1,109 +1,51 @@
 // The techniques the editor opens with.
 //
-// These used to be RECORDED: the winning artifact of some past search,
-// checked in as a wall of JSON along with the exact plant, body, anatomy and
-// integration it was produced under, and replayed on that plant forever after
-// so history could not be rewritten. That rule is right for a documented
-// result and wrong for a starting point, and the difference had gone unnoticed
-// because for a long time the two were the same object.
-//
-// It stopped being harmless the moment the machine improved. A recorded plant
-// pins the servo tuning too, so every fix to the controller was invisible in
-// the editor -- the head went on bobbling on a preset recorded before the
-// bobbling was fixed, and no amount of correct new physics could show through
-// a technique that insisted on the old. Worse, the knots themselves described
-// a body with a rigid trunk, so once the spine and neck were articulated the
-// stored answers were not merely stale, they were answers to a different
-// question, and none of them arrived.
-//
-// So nothing here is stored. A built-in preset is DERIVED, at load, from the
-// hand-authored reference for its scenario on whatever body and anatomy it is
-// asked about, and it runs on today's plant because it names none of its own.
-// It cannot go stale, because there is nothing to go stale: change the model
-// and the presets change with it.
-//
 // A preset is a technique is a saved case -- one shape, the one
-// technique-file.js reads and writes, whether it was derived here, kept in the
-// browser, or loaded from disk.
-import { buildModel } from './anthropometry.js';
-import { createWorkspace } from './dynamics.js';
-import { ROM_DEFAULTS } from './statics.js';
-import {
-  kickReference, pressReference, tuckPressReference, naiveReference,
-  balancedHandstand, SYMMETRIC_SCENARIOS, PLANT_DEFAULTS, NUMERICS_DEFAULTS,
-} from './rollout.js';
-
-// Scenario -> how the editor should open it. The duration is the one number
-// here that is a judgement rather than a derivation: it is the tempo the
-// movement is authored at, and the search is pinned to it.
-export const BUILTIN_SCENARIOS = [
-  { key: 'lunge', label: 'Kick-up', T: 1.9, K: 6 },
-  { key: 'pike', label: 'Press, straight legs', T: 2.2, K: 6 },
-  { key: 'tuck', label: 'Bent-leg press', T: 1.8, K: 6 },
-  { key: 'hold', label: 'Hold a handstand', T: 1.2, K: 3 },
-];
-
-function referenceFor(model, ws, scenario, K, rom) {
-  if (scenario === 'lunge') return kickReference(model, ws, K, rom);
-  if (scenario === 'pike') return pressReference(model, ws, K, rom);
-  if (scenario === 'tuck') return tuckPressReference(model, ws, K, rom);
-  return naiveReference(model, ws, scenario, K, rom);
-}
-
-// One built-in preset, in the shape technique-file.js reads.
+// technique-file.js reads and writes, whether it is recorded in
+// builtin-techniques.js, kept in the browser, or loaded from disk. This file
+// is only the door onto the first of those; see that file for why they are
+// recordings again rather than derivations.
 //
-// The plant is written down, and it has to be: null does NOT mean "today's
-// machine" anywhere in this notebook -- resolvePlant fills a missing key with
-// the behaviour that predated it, which is the right rule for reading an old
-// artifact and exactly the wrong one here. A preset with no config resolves
-// to the LEGACY plant: no damping ratio, no bandwidth cap, and no end-stops
-// at all. So today's defaults are copied in, at load, every time. That is not
-// a recording -- there is nothing here to go stale, because the copy is taken
-// fresh from PLANT_DEFAULTS whenever these are built.
-export function builtinPreset(model, ws, scenario, { rom = ROM_DEFAULTS, T = null, K = null } = {}) {
-  const spec = BUILTIN_SCENARIOS.find((s) => s.key === scenario) || BUILTIN_SCENARIOS[0];
-  const nK = K ?? spec.K;
-  const { knots, target } = referenceFor(model, ws, spec.key, nK, rom);
-  const end = balancedHandstand(model, ws);
-  return {
-    builtin: true,
-    id: `builtin:${spec.key}`,
-    label: spec.label,
-    scenario: spec.key,
-    knots: knots.map((k) => Array.from(k)),
-    T: T ?? spec.T,
-    knotFracs: null,
-    held: Array.from({ length: nK }, (_, k) => k === nK - 1),
-    timeHeld: Array.from({ length: nK }, () => true),
-    symmetric: SYMMETRIC_SCENARIOS.has(spec.key),
-    // Solved from the scenario, not constructed: null is how a technique says
-    // "start where this skill starts", and it is what lets a start solver fix
-    // itself without every preset carrying the old answer.
-    q0: null,
-    target: Array.from(target || end),
-    rom,
-    strength: null,
-    // The body is the reader's, not the technique's: null lets whoever asks
-    // supply their own height and mass, which is the one thing here that
-    // genuinely should not be pinned.
-    body: null,
-    config: { ...PLANT_DEFAULTS },
-    numerics: { ...NUMERICS_DEFAULTS },
-    search: { seed: 7, maxGen: 120 },
-    verdict: null,
-    cost: null,
-  };
+// Nothing here takes a model, a body or an anatomy any more, and that is the
+// whole point of the change: a recorded technique carries its own. Asking for
+// "the press on YOUR body" is a question a derived preset answered and a
+// recorded one refuses, because the body is what the technique is about.
+import { BUILTIN_TECHNIQUES } from './builtin-techniques.js';
+
+// What the picker lists. Read off the techniques rather than written down a
+// second time, so a technique added to the recording appears in the list and
+// one removed disappears from it, with nothing to keep in step by hand.
+export const BUILTIN_SCENARIOS = BUILTIN_TECHNIQUES.map((t) => ({
+  key: t.key,
+  label: t.label,
+  // The skill it is an instance of. Two of these are kick-ups, which is
+  // exactly why the key cannot be the scenario: the list is techniques, not
+  // scenarios, and it always was -- the two only looked like one thing while
+  // there happened to be one technique per skill.
+  scenario: t.scenario,
+  T: t.T,
+  K: t.knots[0].length,
+}));
+
+// A deep copy, because a preset is handed to an editor that will mutate it.
+// Structured cloning a plain record is enough here: everything in it is
+// numbers, strings, booleans and arrays of those.
+const clone = (t) => JSON.parse(JSON.stringify(t));
+
+// One built-in, in the shape technique-file.js reads. Unknown keys fall back
+// to the first, which is what the picker does with a stale selection.
+export function builtinPreset(key) {
+  const t = BUILTIN_TECHNIQUES.find((x) => x.key === key) || BUILTIN_TECHNIQUES[0];
+  return { ...clone(t), builtin: true, id: `builtin:${t.key}` };
 }
 
-export function builtinPresets(model, ws, rom = ROM_DEFAULTS) {
+export function builtinPresets() {
   const out = {};
-  for (const s of BUILTIN_SCENARIOS) out[s.key] = builtinPreset(model, ws, s.key, { rom });
+  for (const t of BUILTIN_TECHNIQUES) out[t.key] = builtinPreset(t.key);
   return out;
 }
 
-// The same presets on the default body, for callers that do not have a model
-// of their own -- the gates, mostly. Built once, at import.
-const defaultModel = buildModel({});
-const defaultWs = createWorkspace(defaultModel);
-
-export const PRESET_TRAJECTORIES = builtinPresets(defaultModel, defaultWs, ROM_DEFAULTS);
+// The same set, for callers that want it once. A fresh copy per call is the
+// safe default above; this is the convenience, and it is frozen so a caller
+// that mutates it is told rather than quietly corrupting everyone else's.
+export const PRESET_TRAJECTORIES = builtinPresets();

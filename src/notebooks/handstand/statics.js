@@ -1,4 +1,4 @@
-import { JOINT_ORDER } from './control.js';
+import { JOINT_ORDER, ALL_JOINTS } from './control.js';
 // Static analysis and range-of-motion model for the handstand chain.
 //
 // Orientation conventions (derived once, used everywhere): world +x points
@@ -6,19 +6,31 @@ import { JOINT_ORDER } from './control.js';
 // -x and the back faces +x, so overbalance (falling toward the fingertips)
 // is falling toward the back side; the fingertips are what save it.
 //
-// Joint angle anatomy (q indices 3..8 = wrist, shoulder, hipL, kneeL, hipR,
-// kneeR, all relative, stacked handstand = [90deg, 0, 0, 0, 0, 0]):
-//   wrist    q3: dorsiflexion angle between the flat hand and the arm.
-//            90deg = arm vertical. q3 < 90 leans the arm toward the
+// Joint angle anatomy. Every joint is relative to its parent, and the stacked
+// handstand is every one of them at zero except the wrist at 90 degrees --
+// which is the invariant the whole file leans on. Names, not indices: the
+// numbers have moved twice, once when the trunk gained a hinge and once when
+// the arm gained an elbow and the legs gained feet.
+//   wrist    dorsiflexion angle between the flat hand and the arm.
+//            90deg = arm vertical. Below 90 leans the arm toward the
 //            fingertips (planche lean), which is what a dorsiflexion
 //            limit below 90deg forces.
-//   shoulder q4: closing angle; anatomical flexion = 180deg - q4.
-//            q4 > 0 tips the torso's hip end toward the belly (-x), the
+//   elbow    flexion NEGATIVE, like the knee: the arm is pronated in a
+//            handstand so it does not fold on the body's front, it folds
+//            toward the fingertips. Zero is the straight arm it stands on.
+//   shoulder closing angle; anatomical flexion = 180deg - q.
+//            Positive tips the torso's hip end toward the belly (-x), the
 //            compensation for which is arching (hip extension): the banana.
-//   hip      q5/q7: flexion positive (pike folds the legs to the belly
-//            side), extension (arch) negative.
-//   knee     q6/q8: flexion NEGATIVE (the calf folds onto the hamstring on
-//            the back side); anatomical knee flexion = -q.
+//   hip      flexion positive (pike folds the legs to the belly side),
+//            extension (arch) negative.
+//   knee     flexion NEGATIVE (the calf folds onto the hamstring on the back
+//            side); anatomical knee flexion = -q.
+//   ankle    dorsiflexion positive, measured from the foot in line with the
+//            shin. Zero is the pointed toe; 90 is the foot square to the
+//            shin, which is where everyone else's ankle numbers start.
+//   toe      the ball of the foot, positive lifting the toes toward the shin.
+//            PASSIVE: no muscle drives it and no search moves it. Zero is the
+//            toes in line with the rest of the foot.
 //
 // The hamstring is a two-joint muscle: with straight knees hip flexion caps
 // at hipFlexStraightKneeMaxDeg; each degree of knee flexion buys
@@ -59,6 +71,50 @@ export const ROM_DEFAULTS = {
   shoulderFlexMaxDeg: 180,   // q4 >= 180 - this
   shoulderHyperDeg: 5,       // q4 >= -this is never allowed below
   shoulderCloseMaxDeg: 110,  // q4 <= this
+  // The elbow, flexion NEGATIVE -- the same sense as the knee, and for the
+  // same reason. A handstand is held with the elbow pits facing the
+  // fingertips, which is the standard cue and the position the arm locks out
+  // in, so the joint closes on the +x side: flexing it swings the shoulder
+  // toward the fingertips, which is -1 in a CCW convention.
+  //
+  // This was written positive at first, by analogy with the hip and the spine
+  // -- but those fold on the body's front and the arm does not, because the
+  // arm is pronated in a handstand and its anterior is no longer the trunk's.
+  // Signed that way the arm folded away from the fingers, which is an elbow
+  // bending backwards.
+  //
+  // 145 is an ordinary elbow's flexion; the few degrees the other way are the
+  // carrying angle a straight arm actually has, and they matter here because
+  // a handstand is held on locked elbows resting ON that stop rather than
+  // holding themselves at exactly zero.
+  elbowFlexMaxDeg: 145,
+  elbowHyperDeg: 5,
+  // The ankle, measured from the foot IN LINE with the shin -- the pointed
+  // toe, and the zero of the stacked handstand. Positive is dorsiflexion,
+  // toes toward the shin, which is again the front-of-the-body direction.
+  //
+  // So 90 degrees is the foot square to the shin, the anatomical neutral
+  // everyone else's ankle numbers are quoted from, and the 110 here is that
+  // plus an ordinary 20 degrees of dorsiflexion. The other end is the one
+  // worth reading twice: a real ankle plantarflexes about 50 degrees past
+  // square, which leaves the FOOT some 40 degrees short of the shin line --
+  // but this segment runs from the ankle to the tip of the pointed TOE, and
+  // the toes make up that difference. A pointed foot is this model's zero,
+  // which is what a pointed foot looks like, and 3 degrees past it is the
+  // same courtesy the knee gets.
+  anklePointMaxDeg: 3,
+  ankleDorsiMaxDeg: 110,
+  // The ball of the foot -- the metatarsophalangeal joint -- measured from the
+  // toes in line with the rest of the foot, which is the handstand's zero and
+  // the geometry the foot had before it could bend. Positive lifts the toes
+  // toward the shin, which is the direction they go when you roll over the ball
+  // and the one that matters; the other way they curl only a little.
+  //
+  // Nothing drives this joint. It has a stiffness and it does what the ground
+  // tells it, so these two numbers are where it stops rather than where it is
+  // asked to go.
+  toeLiftMaxDeg: 70,
+  toePointMaxDeg: 35,
   hipFlexStraightKneeMaxDeg: 85,
   hamstringCouplingPerDeg: 0.6,
   hipFlexAbsMaxDeg: 140,
@@ -74,8 +130,26 @@ export const ROM_DEFAULTS = {
   spineExtMaxDeg: 20,
   // The head. Extension is looking toward the hands, which is what a
   // handstand actually does; flexion is chin to chest.
-  neckFlexMaxDeg: 30,
-  neckExtMaxDeg: 45,
+  //
+  // Same rule as the trunk above, and for the same reason: a neck flexes
+  // about 45 degrees and extends about 60, and a handstand spends almost
+  // none of it. Every start pose in this notebook has the head in line with
+  // the trunk and so does the balanced handstand, so the whole travel the
+  // skill asks for is a look toward the floor and back.
+  //
+  // Leaving the box that big was not free, though, because the head is a mass
+  // on a lever like anything else: snapping it back and forth is a real
+  // momentum kick, and it is the CHEAPEST one on the body. The smoothness term
+  // charges the swing of a limb and the flick of a head by the same rule,
+  // while the head weighs almost nothing -- so a wag was momentum at a
+  // discount. The search found that. The recorded kick-up reference wags the
+  // neck +14, -11, -9, -14, +14 degrees on its way up, which is 60 degrees of
+  // back-and-forth to travel 14; replayed with that flattened to zero it
+  // reaches the same height to the millimetre, holds its whole tempo band and
+  // scores 9.22 against 9.46. It bought nothing. It was there because there
+  // was room for it, and this is that room.
+  neckFlexMaxDeg: 12,
+  neckExtMaxDeg: 15,
 };
 
 // Wrist limits as bounds on the joint coordinate q3, in degrees. Accepts
@@ -107,7 +181,10 @@ export function hipFlexMaxDeg(rom, kneeFlexDeg) {
 export const QI = Object.fromEntries(JOINT_ORDER.map((n, j) => [n, 3 + j]));
 
 export function jointLimits(rom, q, jointIndex) {
-  switch (JOINT_ORDER[jointIndex - 3]) {
+  // ALL_JOINTS, not JOINT_ORDER: the passive toes have a range of motion like
+  // any other joint -- they are held by the same ligaments -- even though
+  // nothing drives them and nothing searches them.
+  switch (ALL_JOINTS[jointIndex - 3]) {
     case 'wrist': { const w = wristQ3LimitsDeg(rom); return { lo: w.lo * D2R, hi: w.hi * D2R }; }
     case 'shoulder': return {
       lo: Math.max((180 - rom.shoulderFlexMaxDeg), -rom.shoulderHyperDeg) * D2R,
@@ -129,15 +206,33 @@ export function jointLimits(rom, q, jointIndex) {
     }
     case 'kneeL': case 'kneeR':
       return { lo: -rom.kneeFlexMaxDeg * D2R, hi: rom.kneeHyperextDeg * D2R };
+    case 'elbow': return {
+      lo: -(rom.elbowFlexMaxDeg ?? ROM_DEFAULTS.elbowFlexMaxDeg) * D2R,
+      hi: (rom.elbowHyperDeg ?? ROM_DEFAULTS.elbowHyperDeg) * D2R,
+    };
+    case 'ankleL': case 'ankleR': return {
+      lo: -(rom.anklePointMaxDeg ?? ROM_DEFAULTS.anklePointMaxDeg) * D2R,
+      hi: (rom.ankleDorsiMaxDeg ?? ROM_DEFAULTS.ankleDorsiMaxDeg) * D2R,
+    };
+    case 'toeL': case 'toeR': return {
+      lo: -(rom.toePointMaxDeg ?? ROM_DEFAULTS.toePointMaxDeg) * D2R,
+      hi: (rom.toeLiftMaxDeg ?? ROM_DEFAULTS.toeLiftMaxDeg) * D2R,
+    };
     default: return { lo: -Infinity, hi: Infinity };
   }
 }
 
 // Clamp a pose to the ROM in place; returns a bitmask of clamped joints.
 // Knees clamp before hips so the hamstring coupling sees final knee angles.
+// Everything else is independent, so it is every remaining joint in order --
+// derived from the joint list rather than written out, because the list this
+// was written out as went stale twice, and a joint missing from it is a joint
+// with no range of motion at all.
+const CLAMP_ORDER = [QI.kneeL, QI.kneeR,
+  ...JOINT_ORDER.map((n, j) => 3 + j).filter((j) => j !== QI.kneeL && j !== QI.kneeR)];
 export function clampPose(q, rom) {
   let clamped = 0;
-  for (const j of [QI.kneeL, QI.kneeR, QI.wrist, QI.shoulder, QI.spine, QI.neck, QI.hipL, QI.hipR]) {
+  for (const j of CLAMP_ORDER) {
     const { lo, hi } = jointLimits(rom, q, j);
     if (q[j] < lo) { q[j] = lo; clamped |= 1 << j; }
     else if (q[j] > hi) { q[j] = hi; clamped |= 1 << j; }
