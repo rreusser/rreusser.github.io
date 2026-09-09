@@ -205,7 +205,7 @@ import { createGPULines } from './lib/webgpu-instanced-lines.js';
 import { createRenderer } from './renderer.js';
 import * as Scales from './scales.js';
 import * as vocabulary from './vocabulary.js';
-import { ROLE, capsulePath } from './vocabulary.js';
+import { ROLE, LEVEL_TINTS, capsulePath } from './vocabulary.js';
   </script>
 
   <script id="intro" type="text/markdown">
@@ -684,7 +684,8 @@ await new Promise((r) => setTimeout(r, 100));
     { text: "To keep any of them in frame we have to rescale as we go. The readout says what the magnification has reached, and how fast the core is going.", left: "8%", bottom: "12%" },
     { text: "Ordinarily this would die out. In turbulence the velocity at a scale goes like the cube root of it, so the Reynolds number <em>falls</em> as the eddies get smaller and viscosity gains at every step down, until it wins.", right: "8%", bottom: "12%" },
     { text: "Here the velocity grows fast enough as the scale shrinks that the product of the two goes the other way. Each generation has a <em>larger</em> Reynolds number than the last, and viscosity is never given the chance to catch up.", left: "8%", bottom: "12%" },
-    { text: "So the clock stalls just short of <em>T</em>* while the magnification and the speed run away: infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", right: "8%", bottom: "12%" }
+    { text: "Here the zoom gives up: there is no vantage point left from which to follow it down. The rest arrive where they really are, piling into a point, and faster with every one.", right: "8%", bottom: "12%" },
+    { text: "The clock stalls just short of <em>T</em>* while they do. Infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", left: "8%", bottom: "12%" }
   ];
 
   const frameCount = captions.length;
@@ -703,13 +704,14 @@ await new Promise((r) => setTimeout(r, 100));
    * How many generations carry fluid. One.
    *
    * Drawing every visible generation's parcels made a dense, pretty tangle that
-   * said nothing a reader could use: it looked the same at every depth, and it
-   * buried the outlines, which are the only thing in the figure that actually
-   * shows the scale of the solution. One generation's worth, faint, says the
-   * same thing -- these outlines have fluid turning inside them -- without
-   * competing with what it is annotating.
+   * said nothing a reader could use. But drawing exactly one meant the fluid
+   * cut to a different generation's parcels the instant the scroll crossed an
+   * integer, which is the jump that made the descent hard to follow. Three: the
+   * one being emphasised and its two neighbours, cross-faded, so a handover is
+   * one fading up as the other fades down and there is no frame at which
+   * anything is replaced.
    */
-  const DRAW_GENS = 1;
+  const DRAW_GENS = 3;
   const TWIST = 0.9;
 
   // The readout is drawn from the ledger at a fixed h. The slider further down
@@ -726,21 +728,48 @@ await new Promise((r) => setTimeout(r, 100));
   const CAMERA = { distance: 17, fov: 0.38, theta: 0.14, phi: 0.5 };
 
   /** How far down the cascade the scroll goes. */
-  const GEN_END = 11;
+  const GEN_END = 24;
 
   /**
-   * How quickly the frame rescales itself to the generation now being driven.
+   * Where the zoom gives up.
    *
-   * The frame chases a staircase -- the radius of whichever generation is
-   * active -- rather than the continuous radius, so the target holds still
-   * through a slot and steps inward at the handoff. Between handoffs the
-   * structure contracts against a frame that has stopped, which is the
-   * shrinking made visible; at the handoff the frame catches up. Chasing the
-   * continuous radius instead would cancel the two exactly and the picture
-   * would never move at all, which is what strictly co-moving coordinates look
-   * like.
+   * Up to here the frame rescales to follow the cascade down. Past it the frame
+   * holds still and the remaining generations arrive at their true sizes inside
+   * it, which means piling into the middle and going sub-pixel within a few
+   * steps. That is the honest end of the picture: there is no vantage point
+   * from which the rest of an infinite sequence can be seen, and pretending
+   * otherwise by zooming forever would be drawing something nobody can look at.
+   * What is left to watch is the rate -- they arrive faster and faster, and the
+   * clock stalls anyway.
    */
-  const FRAME_CHASE = 1.6;
+  const HOLD_GEN = 7;
+
+  /** Outlines are cheap, so they run well past the generations carrying fluid. */
+  const RING_COUNT = 22;
+
+  /**
+   * The figure shows the cascade refined up to a level, not a window sliding
+   * along it. Everything coarser than where the reader has got to stays on
+   * screen, because it is still there; only the finest level reached is at full
+   * strength.
+   *
+   * `arrivedOf` is how far a generation has come into existence, and `finestOf`
+   * is how recently it was the finest -- one when the descent is on it, nothing
+   * a generation later. The two of them either side of a handover sum to one,
+   * so the fluid is handed over rather than swapped, which is what made the
+   * transitions jump.
+   */
+  const arrivedOf = (m, gen) => smoothstep(m + 0.05, m + 1, gen);
+  const finestOf = (m, gen) => 1 - smoothstep(0, 1, Math.max(0, gen - (m + 1)));
+
+  /** Read a per-generation array at a fractional generation. */
+  const interpolate = (arr, gen) => {
+    const n = Math.min(arr.length - 1, Math.max(1, gen));
+    const i = Math.min(arr.length - 2, Math.max(0, Math.floor(n) - 1));
+    const f = Math.min(1, Math.max(0, n - Math.floor(n)));
+    return arr[i] + f * (arr[i + 1] - arr[i]);
+  };
+
 
   /** Turnover of the first generation, in turns per second of the reader's time. */
   const ACTIVE_RATE = 0.55;
@@ -777,7 +806,16 @@ await new Promise((r) => setTimeout(r, 100));
   // when the descent reaches it, so the reader adds them by scrolling rather
   // than watching them arrive on a clock of their own.
   const sequencer = createSequencer({
-    gen:           [{ t: 0, value: 1 }, { t: 0.7, value: 1 }, { t: frameCount, value: GEN_END, ease: linear }],
+    // Even going down to the hold, then accelerating: each segment covers more
+    // generations than the last for the same scrolling, so the arrivals speed
+    // up without limit as the clock runs out.
+    gen: [
+      { t: 0, value: 1 }, { t: 0.7, value: 1, ease: linear },
+      { t: 5.2, value: HOLD_GEN, ease: linear },
+      { t: 6.4, value: 11, ease: linear },
+      { t: 7.2, value: 16, ease: linear },
+      { t: frameCount, value: GEN_END, ease: linear }
+    ],
     streamOpacity: [{ t: 0.2, value: 0 }, { t: 1.1, value: 1 }],
     stripOpacity:  [{ t: 2.2, value: 0 }, { t: 3.0, value: 1 }],
     glyphOpacity:  [{ t: 0, value: 0 }, { t: 0.5, value: 1 }]
@@ -793,8 +831,23 @@ await new Promise((r) => setTimeout(r, 100));
    * straight interpolation between 5e3 and 1e4 spends most of its length in the
    * wrong decade.
    */
-  const logRadial = ledgerRows.map((r) => Math.log(r.radial));
   const logVelocity = ledgerRows.map((r) => Math.log(r.velocity));
+
+  /**
+   * Log radius per generation, made monotone by a running minimum.
+   *
+   * The ledger's radii are not quite monotone: the floor in nu(n) lets a
+   * generation come out slightly wider than the one before it, about every
+   * sixth. Drawn faithfully that is a nest which occasionally un-nests and a
+   * zoom which occasionally reverses, and it reads as a mistake rather than as
+   * the accounting detail it is. The running minimum keeps the descent going
+   * one way; the widenings are still in the ledger, and in the plots below.
+   */
+  const logRadial = [];
+  ledgerRows.forEach((r, i) => {
+    const v = Math.log(r.radial);
+    logRadial.push(i === 0 ? v : Math.min(logRadial[i - 1], v));
+  });
 
   function atGeneration(g) {
     const n = Math.min(ledgerRows.length - 1, Math.max(1, g));
@@ -849,8 +902,9 @@ await new Promise((r) => setTimeout(r, 100));
       const barW = Math.min(300, w - 64), barX = cx - barW / 2, barY = h - 54;
       layer.innerHTML = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:100%"
           font-family="inherit" font-size="13">
-        ${ledgerRows.slice(0, GEN_COUNT).map((r, k) => `<path id="ring-${k}" d=""
-            fill="none" stroke="${ROLE.size}" stroke-width="1.6" opacity="0"/>`).join('')}
+        ${ledgerRows.slice(0, RING_COUNT).map((r, k) => `<path id="ring-${k}" d=""
+            fill="none" stroke="${LEVEL_TINTS[k % LEVEL_TINTS.length]}"
+            stroke-width="1.6" opacity="0"/>`).join('')}
         <rect x="${barX}" y="${barY}" width="${barW}" height="5" rx="2.5"
               fill="var(--theme-foreground)" fill-opacity="0.16"/>
         <rect id="ring-clock" x="${barX}" y="${barY}" width="0" height="5" rx="2.5"
@@ -859,7 +913,7 @@ await new Promise((r) => setTimeout(r, 100));
               fill="var(--theme-foreground)" opacity="0.55" font-size="12">time → T*</text>
       </svg>`;
       svg = layer.firstElementChild;
-      rings = ledgerRows.slice(0, GEN_COUNT).map((_, k) => svg.querySelector(`#ring-${k}`));
+      rings = ledgerRows.slice(0, RING_COUNT).map((_, k) => svg.querySelector(`#ring-${k}`));
       fill = svg.querySelector('#ring-clock');
       layout.geom = { cx, cy, scale, barW };
       return true;
@@ -874,18 +928,18 @@ await new Promise((r) => setTimeout(r, 100));
         const row = ledgerRows[k];
         // A generation arrives as the descent reaches it, and fades once it has
         // grown far enough past the frame to be no more than a passing edge.
-        const arrived = smoothstep(k + 0.35, k + 0.95, state.gen);
         const s = Math.exp(logRadial[k] - logFrame);
         const halfW = s * CORE * scale;
         const halfH = halfW * (row.axial / row.radial);
         const tooBig = 1 - smoothstep(2.4, 4.2, halfW / (cy || 1));
-        const opacity = arrived * tooBig;
+        // Coarser levels stay, at a fraction of the strength: the cascade
+        // refined this far, with the finest of it picked out.
+        const finest = finestOf(k, state.gen);
+        const opacity = arrivedOf(k, state.gen) * tooBig * (0.16 + 0.84 * finest);
         rings[k].setAttribute('opacity', opacity.toFixed(3));
         if (opacity > 0.004) {
           rings[k].setAttribute('d', capsulePath(cx, cy, halfW * 2, halfH * 2));
-          // The one being driven is drawn a little harder than its neighbours.
-          const active = 1 - Math.min(1, Math.abs(state.gen - (k + 1)));
-          rings[k].setAttribute('stroke-width', (1.3 + 1.3 * active).toFixed(2));
+          rings[k].setAttribute('stroke-width', (1.15 + 1.5 * finest).toFixed(2));
         }
       }
       fill.setAttribute('width', (barW * elapsedFraction).toFixed(1));
@@ -1127,7 +1181,6 @@ await new Promise((r) => setTimeout(r, 100));
   let stepIndex = 0;
   let headSlot = 0;
   let elapsedSeconds = 0;
-  let logFrame = logRadial[0];
   let last = performance.now();
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -1143,17 +1196,21 @@ await new Promise((r) => setTimeout(r, 100));
     const here = atGeneration(s.gen);
     const active = Math.max(1, Math.min(GEN_COUNT, Math.floor(s.gen)));
 
-    // The frame's own scale, chasing the active generation's radius. It is a
-    // staircase, so it holds through a slot while the structure contracts
-    // against it, then steps in at the handoff.
-    logFrame += (logRadial[active - 1] - logFrame) * Math.min(1, dt * FRAME_CHASE);
+    // The frame's scale, read straight off the fractional generation rather than
+    // chased toward a staircase. Chasing a staircase meant the whole picture
+    // lurched at every integer and then settled, which is the abruptness that
+    // made the descent confusing; taken continuously the nest simply slides
+    // outward at the speed the reader scrolls.
+    // The zoom follows the cascade down and then stops. Past the hold the frame
+    // is fixed and the rest of the sequence arrives inside it.
+    const logFrame = interpolate(logRadial, Math.min(s.gen, HOLD_GEN));
     const magnified = Math.exp(logRadial[0] - logFrame);
     updateStrip(s.gen, s.stripOpacity, magnified);
     updateOutlines(s, logFrame, here.elapsed / blowupTime);
     canvas.style.opacity = String(s.streamOpacity);
 
-    // Draw a run of generations around the active one: one larger, the rest
-    // inside it.
+    // The run of generations carrying fluid: the one being emphasised and its
+    // neighbours either side.
     const genOffset = Math.max(0, Math.min(GEN_COUNT - DRAW_GENS, active - 2));
 
     for (let i = 0; i < DRAW_GENS; i++) {
@@ -1166,14 +1223,20 @@ await new Promise((r) => setTimeout(r, 100));
 
       // Drawn at its true size against the frame, so the nest is the ledger's
       // own radii rather than a fixed ratio.
-      const age = s.gen - (m + 1);
       genData[i * 4] = Math.exp(logRadial[m] - logFrame);
       genData[i * 4 + 1] = m * TWIST;
-      // Lit by how near it is to the generation being driven. This envelope is
-      // illustrative -- the ledger fixes when a generation is active, not how
-      // brightly to draw its neighbours.
-      genData[i * 4 + 2] = s.streamOpacity * smoothstep(-1.7, -0.2, age) * (1 - smoothstep(1.1, 3.6, age));
-      genData[i * 4 + 3] = 0;
+      // Emphasis: one generation at a time, and the pair either side of a
+      // handover sum to one, so the fluid never thins out or doubles up
+      // mid-transition.
+      // Only the finest level reached carries fluid. A coarser generation is
+      // still drawn -- its outline is still there -- but its parcels have been
+      // handed on to the level inside it.
+      // Fluid runs out before the outlines do: past the last simulated
+      // generation there is nothing left to draw inside them, which is also
+      // the point at which they are too small to hold anything.
+      genData[i * 4 + 2] = s.streamOpacity * arrivedOf(m, s.gen) * finestOf(m, s.gen)
+        * (1 - smoothstep(GEN_COUNT - 2, GEN_COUNT, s.gen));
+      genData[i * 4 + 3] = m % LEVEL_TINTS.length;
     }
     device.queue.writeBuffer(genBuffer, 0, genData);
 

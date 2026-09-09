@@ -329,7 +329,8 @@ struct Generation {
   scale: f32,
   twist: f32,
   opacity: f32,
-  pulse: f32,
+  /** Which tint this generation is drawn in, matching its outline. */
+  tint: f32,
 };
 @group(1) @binding(3) var<storage, read> gens: array<Generation>;
 `;
@@ -399,7 +400,7 @@ export function trailVertexBody(params = FIELD) {
 struct Vertex {
   position: vec4f,
   width: f32,
-  scalar: f32,
+  tint: f32,
   along: f32,
   opacity: f32,
 };
@@ -447,16 +448,13 @@ fn getVertex(index: u32) -> Vertex {
   let sn = sin(gen.twist);
   let world = gen.scale * vec3f(up.x * c + up.z * sn, up.y, -up.x * sn + up.z * c);
 
-  let speed = length(velocity(p));
-  let scalar = clamp((speed - view.speedLo) / max(view.speedHi - view.speedLo, 1e-6), 0.0, 1.0);
-
   // Width in device pixels, tapering toward the tail. Constant across
   // generations: a stroke is a mark on the page, so the zoom moves the parcels
   // without thickening their trails.
   return Vertex(
     view.projView * vec4f(world, 1.0),
     view.width * (0.35 + 0.65 * along),
-    scalar,
+    gen.tint,
     along,
     gen.opacity * fade
   );
@@ -464,21 +462,24 @@ fn getVertex(index: u32) -> Vertex {
 `;
 }
 
-export const trailFragmentBody = VIEW_BLOCK + colormapWGSL + PEEL + /* wgsl */`
-fn getColor(lineCoord: vec2f, scalar: f32, along: f32, opacity: f32, fragPosition: vec4f) -> vec4f {
+export const trailFragmentBody = VIEW_BLOCK + PEEL + /* wgsl */`
+const TINTS = array<vec3f, 3>(
+  vec3f(0.247, 0.784, 0.863),
+  vec3f(0.165, 0.576, 0.722),
+  vec3f(0.435, 0.847, 0.776)
+);
+
+fn getColor(lineCoord: vec2f, tint: f32, along: f32, opacity: f32, fragPosition: vec4f) -> vec4f {
   // Round the caps. Elsewhere lineCoord.x is zero and nothing is discarded.
   if (abs(lineCoord.x) > 0.0 && dot(lineCoord, lineCoord) > 1.0) { discard; }
   if (peeled(fragPosition)) { discard; }
 
-  // One colour, faint. These are not the subject: the outlines are, and they
-  // are what carries the scale of the solution. Colouring the fluid by speed
-  // made it the loudest thing in the frame and told the reader nothing they
-  // could act on -- every generation looked the same rainbow whatever depth it
-  // was at. Monochrome, it reads as texture: this outline has fluid turning
-  // inside it, and that is all it needs to say.
-  var base = view.background + (vec3f(1.0) - 2.0 * view.background) * 0.0;
-  base = mix(vec3f(0.16, 0.44, 0.52), vec3f(0.42, 0.78, 0.86), view.isDark);
-  let unused = scalar;
+  // The tint of the generation these parcels belong to, matching its outline,
+  // so it is never a question which fluid goes with which ring. Not a speed
+  // ramp: colouring by speed made the fluid the loudest thing in the frame
+  // while saying nothing the outlines were not already saying better.
+  var base = TINTS[clamp(i32(tint + 0.5), 0, 2)];
+  base = mix(base * 0.62, base, view.isDark);
 
   // Darken across the width so a stroke reads as a filament rather than a flat
   // ribbon. This is the only shading: a line carries no normal.

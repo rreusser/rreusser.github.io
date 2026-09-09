@@ -26,6 +26,19 @@ export const ROLE = {
 };
 
 /**
+ * Tints for successive generations, cycling.
+ *
+ * All of them are the size colour -- a generation's outline is still saying
+ * "this is how big it is" -- but adjacent ones differ enough to be told apart,
+ * and a generation's parcels take the same tint as its outline so it is never a
+ * question which fluid belongs to which ring. Three, so the cycle repeats every
+ * third generation, which is far enough apart in scale that two of a colour are
+ * never confusable and close enough that the repetition reads as the structure
+ * repeating.
+ */
+export const LEVEL_TINTS = ['#3fc8dc', '#2a93b8', '#6fd8c6'];
+
+/**
  * A generation, as a glyph: a rounded core of the given width and length.
  *
  * This is the shape the notebook abbreviates a vortex to, and it is deliberately
