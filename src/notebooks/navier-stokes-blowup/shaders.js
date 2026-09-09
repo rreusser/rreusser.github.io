@@ -174,7 +174,12 @@ fn vs(
   // and all, rather than only the core.
   var placedWorld = pr;
   var tilted = nr;
-  let writhe = instC.y * sr;
+  // The amplitude arrives already scaled. It used to be multiplied by the
+  // instance's radial contraction here, which is the core's stretch factor and
+  // is one for anything that does not set it -- so the core wandered by
+  // amplitude times its contraction while the parcels orbiting it wandered by
+  // the full amplitude, and the swarm circled a filament that was not there.
+  let writhe = instC.y;
   if (writhe > 0.0) {
     let h = pr.y;
     let w = wanderAt(h, writhe, u.time);

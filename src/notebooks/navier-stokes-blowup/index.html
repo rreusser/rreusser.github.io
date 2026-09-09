@@ -568,7 +568,11 @@ await new Promise((r) => setTimeout(r, 100));
     // rather than a diagram. The loops breathe with the core, since they are
     // painted on it.
     const breath = 1 + 0.035 * Math.sin(0.55 * elapsed);
-    const core = { stretchR: sr * breath, opacity: s.tubeOpacity, pulseAmp: 0, writhe: WRITHE };
+    // One amplitude, shared by the core and by everything orbiting it, so they
+    // wander together. It rides the radial contraction, so stretching visibly
+    // pulls the filament straight.
+    const wander = WRITHE * sr * breath;
+    const core = { stretchR: sr * breath, opacity: s.tubeOpacity, pulseAmp: 0, writhe: wander };
 
     // Material loops painted on the tube. The flow carries them apart in
     // proportion to the stretch, contracts them with the core, and turns them.
@@ -592,7 +596,7 @@ await new Promise((r) => setTimeout(r, 100));
         bend: true,
         // The parcels ride the vortex's wander, so the core never cuts through
         // the fluid orbiting it.
-        writhe: WRITHE
+        writhe: wander
       });
     });
 
@@ -673,16 +677,14 @@ await new Promise((r) => setTimeout(r, 100));
 
 {
   const captions = [
-    { text: "That whole first figure — the tube, the flow around it, the stretching — is one generation. From here on it is drawn as its outline.", left: "8%", bottom: "12%" },
-    { text: "Three numbers describe it: how <span style='color:#21b0c4'>wide</span> it is, how fast it <span style='color:#e8a765'>turns</span>, and how long it <span style='color:#a78bda'>lasts</span>. Those three, and nothing else, are what every figure from here on is about.", right: "8%", bottom: "12%" },
-    { text: "Hold five of them at the same length, so only the shape can change. Each is narrower than the last — and length over width is exactly the Reynolds number, so that shape <em>is</em> the margin over viscosity.", left: "8%", bottom: "12%" },
-    { text: "Drawn at their real sizes they nest instead: each generation fits inside the one before it. Five here, and no smallest one.", right: "8%", bottom: "12%" },
-    { text: "Here is that nest with the fluid put back in. The clock is running: everything below is one moment being followed to the next.", left: "8%", bottom: "12%" },
-    { text: "To follow it at all we have to keep rescaling. The frame steps inward each time the cascade hands off, and the readout says what the magnification has reached.", right: "8%", bottom: "12%" },
-    { text: "In these rescaled coordinates the flow is nearly steady. That is what self-similar means, and it is why one shape serves every generation.", left: "8%", bottom: "12%" },
+    { text: "That whole first figure — the tube, the flow around it, the stretching — is one generation. Here it is as an outline, with its fluid faint inside.", left: "8%", bottom: "12%" },
+    { text: "A second arrives inside it: narrower, and turning quicker.", right: "8%", bottom: "12%" },
+    { text: "And a third, and a fourth. Every one costs you the same amount of scrolling.", left: "8%", bottom: "12%" },
+    { text: "Now look at the clock. It has almost stopped.", right: "8%", bottom: "12%" },
+    { text: "To keep any of them in frame we have to rescale as we go. The readout says what the magnification has reached, and how fast the core is going.", left: "8%", bottom: "12%" },
     { text: "Ordinarily this would die out. In turbulence the velocity at a scale goes like the cube root of it, so the Reynolds number <em>falls</em> as the eddies get smaller and viscosity gains at every step down, until it wins.", right: "8%", bottom: "12%" },
     { text: "Here the velocity grows fast enough as the scale shrinks that the product of the two goes the other way. Each generation has a <em>larger</em> Reynolds number than the last, and viscosity is never given the chance to catch up.", left: "8%", bottom: "12%" },
-    { text: "And the slots keep shortening. The clock stalls just short of <em>T</em>* while the magnification and the speed run away: infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", right: "8%", bottom: "12%" }
+    { text: "So the clock stalls just short of <em>T</em>* while the magnification and the speed run away: infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", right: "8%", bottom: "12%" }
   ];
 
   const frameCount = captions.length;
@@ -715,6 +717,13 @@ await new Promise((r) => setTimeout(r, 100));
   // pipelines on every drag.
   const H_STRIP = 0.25;
   const GEN_MAX = 12;
+
+  /**
+   * The camera, as numbers rather than only as a camera, because the outlines
+   * are laid out in CSS pixels and have to agree with what the fluid is drawn
+   * through. Both read these.
+   */
+  const CAMERA = { distance: 17, fov: 0.38, theta: 0.14, phi: 0.5 };
 
   /** How far down the cascade the scroll goes. */
   const GEN_END = 11;
@@ -764,18 +773,14 @@ await new Promise((r) => setTimeout(r, 100));
   // any more, which is what the figure was previously doing in two places at
   // once: parcels moved in wall-clock seconds through a field that never
   // changed, while the readout's time moved only when the page was scrolled.
+  // One driver still, and now the outlines are on it too: a generation appears
+  // when the descent reaches it, so the reader adds them by scrolling rather
+  // than watching them arrive on a clock of their own.
   const sequencer = createSequencer({
-    // The schematic holds the first four frames, then dissolves into the fluid.
-    // The descent itself does not begin until the fluid is there to show it.
-    gen:           [{ t: 0, value: 1 }, { t: 4.6, value: 1 }, { t: frameCount, value: GEN_END, ease: linear }],
-    streamOpacity: [{ t: 3.6, value: 0 }, { t: 4.5, value: 1 }],
-    stripOpacity:  [{ t: 4.0, value: 0 }, { t: 4.8, value: 1 }],
-    // One core, then the row of them, then the nest. Each hands over to the
-    // next rather than all three being present at once.
-    glyphOpacity:  [{ t: 0, value: 0 }, { t: 0.4, value: 1 }, { t: 3.4, value: 1 }, { t: 4.2, value: 0 }],
-    labelOpacity:  [{ t: 0.6, value: 0 }, { t: 1.2, value: 1 }, { t: 1.9, value: 1 }, { t: 2.3, value: 0 }],
-    rowOpacity:    [{ t: 1.8, value: 0 }, { t: 2.4, value: 1 }, { t: 2.9, value: 1 }, { t: 3.3, value: 0 }],
-    nestOpacity:   [{ t: 2.9, value: 0 }, { t: 3.5, value: 1 }, { t: 3.9, value: 1 }, { t: 4.3, value: 0 }]
+    gen:           [{ t: 0, value: 1 }, { t: 0.7, value: 1 }, { t: frameCount, value: GEN_END, ease: linear }],
+    streamOpacity: [{ t: 0.2, value: 0 }, { t: 1.1, value: 1 }],
+    stripOpacity:  [{ t: 2.2, value: 0 }, { t: 3.0, value: 1 }],
+    glyphOpacity:  [{ t: 0, value: 0 }, { t: 0.5, value: 1 }]
   });
 
   const ledgerRows = Scales.ledger(H_STRIP, 40);
@@ -809,179 +814,97 @@ await new Promise((r) => setTimeout(r, 100));
   await new Promise((r) => setTimeout(r, 100));
 
   /**
-   * The schematic layer, over the same pinned box as the fluid.
+   * The outlines, over the same pinned box as the fluid, and aligned to it.
    *
-   * Its job is to say that the tube in the first figure and the packets in this
-   * one are the same object. It opens on a single core at the size the first
-   * figure left it, labels the three numbers that describe it, repeats it along
-   * a row to show the shape narrowing, collapses that into the nest, and
-   * dissolves as the fluid comes up underneath. Nothing new is introduced: the
-   * outline is the silhouette of the tube the reader has just spent a figure
-   * watching.
+   * These are the subject. Each is a generation drawn at its own ledger radius
+   * and its own aspect -- and the aspect is the Reynolds number exactly, so the
+   * shape carries the margin over viscosity without anything having to say so.
+   * They arrive as the reader scrolls, one per generation, at a constant cost in
+   * scrolling; the clock underneath is what shows that constant cost buys ever
+   * less time. That pairing is the whole argument, and neither half of it needs
+   * a label.
+   *
+   * Sized from the same camera the fluid is drawn with, so an outline and the
+   * parcels turning inside it are the same object seen two ways rather than two
+   * drawings that happen to overlap.
    */
-  function buildSchematic(host) {
-    const rows = ledgerRows;
-    const shown = rows.slice(0, 5);
-    const stepOf = (f) => Math.pow(f(rows[19]) / f(rows[0]), 1 / 19);
-    const dWidth = stepOf((r) => r.radial);
-    const dSpeed = stepOf((r) => r.velocity);
-    const dTime = stepOf((r) => r.duration);
-
-    const W = 560, H = 380, cx = W / 2, cy = 176;
-    const aspect = (r) => r.axial / r.radial;
-
-    // The single core, at the proportions of the first figure's tube.
-    const soloH = 170, soloW = soloH / aspect(shown[0]);
-
-    // The row: one length, so only the shape varies.
-    const rowL = 92, rowY = 176, gap = 100, x0 = 76;
-    const row = shown.map((r, i) => ({
-      x: x0 + i * gap, w: rowL / aspect(r), n: i + 1, re: aspect(r)
-    }));
-
-    // The nest: true relative size, about the point they concentrate on, and
-    // built one generation at a time on the ledger's own schedule.
-    const NEST_GENS = 8;
-    const nestH = 268;
-    const nested = rows.slice(0, NEST_GENS);
-    const nest = nested.map((r, i) => ({
-      h: nestH * (r.axial / nested[0].axial),
-      w: nestH * (r.radial / nested[0].axial),
-      // When this one arrives, as a fraction of the way to the blowup time.
-      at: r.start / blowupTime,
-      n: i + 1
-    }));
-
-    // The clock underneath, in the time colour, ticked where each generation
-    // begins. It is the same track as the readout on the running figure, so the
-    // rhythm the reader is watching and the bar they will see later are the
-    // same object.
-    const barY = 348, barX = cx - 150, barW = 300;
-
-    const fg = 'var(--theme-foreground)';
-    const tick = (x1, y1, x2, y2) =>
-      `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${fg}" stroke-opacity="0.4" stroke-width="1"/>`;
-
-    const svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"
-        style="position:absolute;inset:0;width:100%;height:100%" font-family="inherit" font-size="14">
-      <defs><marker id="schArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7"
-        orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="${fg}" fill-opacity="0.4"/></marker></defs>
-
-      <g id="sch-solo">
-        <path d="${capsulePath(cx, cy, soloW, soloH)}" fill="${ROLE.size}" fill-opacity="0.14"
-              stroke="${ROLE.size}" stroke-width="2"/>
-      </g>
-
-      <g id="sch-labels">
-        ${tick(cx - soloW / 2, cy + soloH / 2 + 14, cx + soloW / 2, cy + soloH / 2 + 14)}
-        <text x="${cx}" y="${cy + soloH / 2 + 34}" text-anchor="middle" fill="${ROLE.size}">width</text>
-        ${tick(cx + soloW / 2 + 16, cy - soloH / 2, cx + soloW / 2 + 16, cy + soloH / 2)}
-        <text x="${cx + soloW / 2 + 24}" y="${cy + 5}" fill="${ROLE.speed}">turns this fast</text>
-        <text x="${cx - soloW / 2 - 24}" y="${cy + 5}" text-anchor="end" fill="${ROLE.time}">lasts this long</text>
-      </g>
-
-      <g id="sch-row">
-        <text x="${cx}" y="${rowY - rowL / 2 - 26}" text-anchor="middle" fill="${fg}" opacity="0.65"
-              font-size="13">held at one length, so the only thing changing is the shape</text>
-        ${row.map((p) => `
-          <path d="${capsulePath(p.x, rowY, p.w, rowL)}" fill="${ROLE.size}" fill-opacity="0.14"
-                stroke="${ROLE.size}" stroke-width="1.6"/>
-          <text x="${p.x}" y="${rowY + rowL / 2 + 20}" text-anchor="middle" fill="${fg}" opacity="0.7"
-                font-size="12">n = ${p.n}</text>
-          <text x="${p.x}" y="${rowY + rowL / 2 + 37}" text-anchor="middle" fill="${ROLE.speed}"
-                font-size="12">Re ${p.re.toFixed(2)}</text>
-        `).join('')}
-        ${row.slice(0, -1).map((p, i) => {
-          const q = row[i + 1];
-          return `<path d="M ${(p.x + p.w / 2 + 7).toFixed(1)} ${rowY} L ${(q.x - q.w / 2 - 7).toFixed(1)} ${rowY}"
-            stroke="${fg}" stroke-opacity="0.4" stroke-width="1" marker-end="url(#schArrow)"/>`;
-        }).join('')}
-        <text x="${cx}" y="${rowY + rowL / 2 + 68}" text-anchor="middle" fill="${fg}">
-          each step: <tspan fill="${ROLE.size}">width ×${dWidth.toFixed(2)}</tspan>,
-          <tspan fill="${ROLE.speed}">speed ×${dSpeed.toFixed(2)}</tspan>,
-          <tspan fill="${ROLE.time}">lifetime ×${dTime.toFixed(2)}</tspan>
-        </text>
-      </g>
-
-      <g id="sch-nest">
-        <text x="${cx}" y="18" text-anchor="middle" fill="${fg}" opacity="0.65" font-size="13">
-          at true size, each arriving inside the last
-        </text>
-        ${nest.map((p) => `<path id="nest-${p.n}" d="${capsulePath(cx, cy, p.w, p.h)}" fill="none"
-            stroke="${ROLE.size}" stroke-width="1.5" stroke-opacity="0.9" opacity="0"/>`).join('')}
-        <text id="nest-count" x="${cx}" y="${barY - 22}" text-anchor="middle"
-              fill="${fg}" opacity="0.8" font-size="13"></text>
-        <rect x="${barX}" y="${barY}" width="${barW}" height="5" rx="2.5"
-              fill="${fg}" fill-opacity="0.16"/>
-        <rect id="nest-fill" x="${barX}" y="${barY}" width="0" height="5" rx="2.5"
-              fill="${ROLE.time}" fill-opacity="0.85"/>
-        ${nest.slice(1).map((p) => `<rect x="${(barX + barW * p.at).toFixed(1)}" y="${barY - 2}"
-            width="1" height="9" fill="${ROLE.time}" fill-opacity="0.55"/>`).join('')}
-        <text x="${barX}" y="${barY + 22}" fill="${fg}" opacity="0.55" font-size="12">0</text>
-        <text x="${barX + barW}" y="${barY + 22}" text-anchor="end" fill="${fg}" opacity="0.55"
-              font-size="12">T*</text>
-      </g>
-    </svg>`;
-
+  function buildOutlines(host) {
     const layer = html`<div style="position:absolute;inset:0;pointer-events:none;z-index:1"></div>`;
-    layer.innerHTML = svg;
     host.appendChild(layer);
-    const g = (id) => layer.querySelector(`#${id}`);
-    const solo = g('sch-solo'), labels = g('sch-labels'), rowG = g('sch-row'), nestG = g('sch-nest');
-    const rings = nest.map((p) => g(`nest-${p.n}`));
-    const fill = g('nest-fill'), count = g('nest-count');
 
-    /**
-     * How long one run through the cascade takes on screen. The whole of T* is
-     * played in this, so the waits between arrivals are the ledger's own slot
-     * lengths, to scale.
-     */
-    const CYCLE = 9;
+    /** World radial half-extent of a packet at unit scale: the core of the ansatz. */
+    const CORE = 1.2;
+    const focal = 1 / Math.tan(CAMERA.fov / 2);
 
-    return (state, elapsed) => {
-      // The single core and the row occupy the same place, so they cross-fade
-      // rather than overlapping: the row is that core, repeated.
+    let svg = null, rings = [], fill = null, sized = '';
+    function layout() {
+      const w = host.offsetWidth, h = host.offsetHeight;
+      if (!w || !h) return false;
+      const key = `${w}x${h}`;
+      if (key === sized) return true;
+      sized = key;
+      // Pixels per world unit at the focal plane, from the camera's own numbers.
+      const scale = (h / 2) * focal / CAMERA.distance;
+      const cx = w / 2, cy = h / 2;
+      const barW = Math.min(300, w - 64), barX = cx - barW / 2, barY = h - 54;
+      layer.innerHTML = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:100%"
+          font-family="inherit" font-size="13">
+        ${ledgerRows.slice(0, GEN_COUNT).map((r, k) => `<path id="ring-${k}" d=""
+            fill="none" stroke="${ROLE.size}" stroke-width="1.6" opacity="0"/>`).join('')}
+        <rect x="${barX}" y="${barY}" width="${barW}" height="5" rx="2.5"
+              fill="var(--theme-foreground)" fill-opacity="0.16"/>
+        <rect id="ring-clock" x="${barX}" y="${barY}" width="0" height="5" rx="2.5"
+              fill="${ROLE.time}" fill-opacity="0.85"/>
+        <text x="${barX + barW}" y="${barY + 22}" text-anchor="end"
+              fill="var(--theme-foreground)" opacity="0.55" font-size="12">time → T*</text>
+      </svg>`;
+      svg = layer.firstElementChild;
+      rings = ledgerRows.slice(0, GEN_COUNT).map((_, k) => svg.querySelector(`#ring-${k}`));
+      fill = svg.querySelector('#ring-clock');
+      layout.geom = { cx, cy, scale, barW };
+      return true;
+    }
+
+    return (state, logFrame, elapsedFraction) => {
       layer.style.opacity = String(state.glyphOpacity);
-      solo.style.opacity = String(Math.max(0, 1 - state.rowOpacity - state.nestOpacity));
-      labels.style.opacity = String(state.labelOpacity);
-      rowG.style.opacity = String(state.rowOpacity);
-      nestG.style.opacity = String(state.nestOpacity);
-      if (state.nestOpacity <= 0.004) return;
+      if (state.glyphOpacity <= 0.004 || !layout()) return;
+      const { cx, cy, scale, barW } = layout.geom;
 
-      // The nest builds itself on the ledger's schedule, looping. Generation one
-      // holds the frame alone for over half the run, and the rest crowd into
-      // what is left -- the arrivals accelerate without limit while the bar
-      // underneath stalls short of the end. That rhythm is the series
-      // converging, which is the one thing about this that a still picture
-      // cannot say.
-      const phase = (elapsed % CYCLE) / CYCLE;
-      let newest = 0;
-      for (let i = 0; i < rings.length; i++) {
-        const since = phase - nest[i].at;
-        const on = Math.max(0, Math.min(1, since / 0.035));
-        rings[i].style.opacity = String(on);
-        // Landing brightly and settling, so an arrival is an event.
-        rings[i].setAttribute('stroke-width', (1.5 + 2.2 * Math.max(0, 1 - since / 0.05)).toFixed(2));
-        if (on > 0.5) newest = nest[i].n;
+      for (let k = 0; k < rings.length; k++) {
+        const row = ledgerRows[k];
+        // A generation arrives as the descent reaches it, and fades once it has
+        // grown far enough past the frame to be no more than a passing edge.
+        const arrived = smoothstep(k + 0.35, k + 0.95, state.gen);
+        const s = Math.exp(logRadial[k] - logFrame);
+        const halfW = s * CORE * scale;
+        const halfH = halfW * (row.axial / row.radial);
+        const tooBig = 1 - smoothstep(2.4, 4.2, halfW / (cy || 1));
+        const opacity = arrived * tooBig;
+        rings[k].setAttribute('opacity', opacity.toFixed(3));
+        if (opacity > 0.004) {
+          rings[k].setAttribute('d', capsulePath(cx, cy, halfW * 2, halfH * 2));
+          // The one being driven is drawn a little harder than its neighbours.
+          const active = 1 - Math.min(1, Math.abs(state.gen - (k + 1)));
+          rings[k].setAttribute('stroke-width', (1.3 + 1.3 * active).toFixed(2));
+        }
       }
-      fill.setAttribute('width', (barW * phase).toFixed(1));
-      count.textContent = newest ? `${newest} generation${newest > 1 ? 's' : ''} so far` : '';
+      fill.setAttribute('width', (barW * elapsedFraction).toFixed(1));
     };
   }
 
   const { canvas, resize } = attachCanvas(fixed);
   addModeToggle(fixed, canvas);
   const updateStrip = buildBlowupStrip(fixed, ledgerRows, blowupTime, GEN_MAX);
-  const updateSchematic = buildSchematic(fixed);
+  const updateOutlines = buildOutlines(fixed);
 
   const gpuContext = canvas.getContext('webgpu');
   gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
 
   const camera = createUnifiedCamera(canvas, {
     mode: 'orbit',
-    distance: 17,
-    theta: 0.14,
-    phi: 0.5,
+    distance: CAMERA.distance,
+    theta: CAMERA.theta,
+    phi: CAMERA.phi,
     // Narrower than it looks: tan(fov/2) halves against the 0.75 this started
     // at, so the figure is drawn about 2.05x larger and fills the frame. Done
     // by narrowing the lens rather than by moving the camera in, which keeps
@@ -989,7 +912,7 @@ await new Promise((r) => setTimeout(r, 100));
     // every depth relationship in the scene exactly as they were. Stroke widths
     // are in pixels and do not care either way. The outermost generation now
     // runs off the edges, which is what filling the frame costs.
-    fov: 0.38,
+    fov: CAMERA.fov,
     wheel: false,
     renderContinuously: false
   });
@@ -1226,7 +1149,7 @@ await new Promise((r) => setTimeout(r, 100));
     logFrame += (logRadial[active - 1] - logFrame) * Math.min(1, dt * FRAME_CHASE);
     const magnified = Math.exp(logRadial[0] - logFrame);
     updateStrip(s.gen, s.stripOpacity, magnified);
-    updateSchematic(s, elapsedSeconds);
+    updateOutlines(s, logFrame, here.elapsed / blowupTime);
     canvas.style.opacity = String(s.streamOpacity);
 
     // Draw a run of generations around the active one: one larger, the rest
@@ -1288,13 +1211,14 @@ await new Promise((r) => setTimeout(r, 100));
     viewF32[19] = TRAIL_WIDTH * dpr;
     viewF32[20] = themeState.isDark ? 1 : 0;
     viewF32[21] = 1;
-    viewF32[22] = range[0];
-    viewF32[23] = range[1];
+    // The fluid is monochrome now, so the speed normalisation the colour ramp
+    // used is no longer read by anything.
+    viewF32[22] = 0;
+    viewF32[23] = 1;
     viewU32[24] = genOffset;
     viewU32[25] = PER_GEN;
     viewU32[26] = (headSlot + 1) % TRAIL;
     viewU32[27] = DRAW_GENS;
-    viewF32[29] = BACKBONE_WIDTH * dpr;
     device.queue.writeBuffer(viewBuffer, 0, viewData);
 
     const bg = themeState.background;
