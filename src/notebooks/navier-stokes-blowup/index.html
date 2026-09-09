@@ -177,6 +177,29 @@
         background: #a78bda;
       }
 
+      /* The family explorer's sliders and readout. Four sliders wrap into as
+         many columns as the column width allows, and the readout sits between
+         them and the picture so the numbers are next to the thing they
+         describe. */
+      .family-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 22px;
+        margin-top: 2px;
+      }
+
+      .family-readout {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 18px;
+        margin-top: 10px;
+        font-size: 0.82em;
+        opacity: 0.85;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .family-readout b { font-weight: 600; }
+
       figure { margin: 2em 0; }
     </style>
   </script>
@@ -198,6 +221,12 @@ import {
   seedParticles, integrateShaderCode, trailVertexBody, trailFragmentBody,
   VIEW_SIZE, TRAIL, FIELD
 } from './cascade-particles.js';
+import {
+  FAMILY_DEFAULTS, ZK_RATIO, FAMILY_VIEW_SIZE, coreExtent, maxSpeed, turnsPerEfold,
+  capsuleWireframe, familyStreamlines, packCurves, packStreamlines,
+  familyVertexBody, familyStreamFragment, familyCapsuleFragment
+} from './family.js';
+import { expandable } from './lib/expandable.js';
 // Vendored rather than from npm: the cascade's peel test needs the fragment's
 // builtin position, which the published module does not expose. See the header
 // of that file.
@@ -672,12 +701,351 @@ That last step is the whole difficulty of the problem. Stretching sharpens a vor
 The construction below is an argument that it need not.
   </script>
 
+  <script id="family-intro" type="text/markdown">
+## One flow, four numbers
+
+The construction is not a new equation. It is one flow, repeated — and that flow is the object you have just watched being stretched, written down: an axisymmetric vortex with swirl, squeezed along its own axis by a strain.
+
+Four numbers pick one member out of that family. Two of them say how hard it is driven: ${tex`\gamma`}, the strength of the strain, and ${tex`\omega`}, the rate the core spins. Two say how big the core is: ${tex`\sigma`} across and ${tex`z_H`} along. Between them they fix the only two things about a member that survive into everything that follows — the shape of the region the motion is confined to, and how many turns a parcel makes before the strain carries it out of that region.
+
+Nothing here is shrinking yet. The outline is held at whatever size keeps it on the screen, so moving the sliders changes its shape and never its scale; the shrinking is the next figure's business.
+  </script>
+
+  <script id="family-figure" type="text/x-typescript">
+{
+  const small = isSmallScreen();
+
+  /**
+   * The live parameters, mutated in place.
+   *
+   * A slider writing into a reactive cell would tear down and rebuild the GPU
+   * pipelines on every pixel of a drag. This object is written by the input
+   * handlers and read by the frame loop, and the cell never re-runs.
+   */
+  const params = { ...FAMILY_DEFAULTS };
+  const pending = { geometry: true };
+
+  const RINGS = small ? 4 : 5;
+  const PER_RING = small ? 6 : 8;
+  const MAX_STEPS = small ? 200 : 260;
+  // Two half-streamlines per seed and a break between curves.
+  const STREAM_CAP = RINGS * PER_RING * (2 * MAX_STEPS + 2);
+  const CAPSULE_CAP = 900;
+
+  const FOV = 0.62;
+  const STREAM_WIDTH = small ? 1.4 : 1.7;
+  const CAPSULE_WIDTH = 1.0;
+  const CAPSULE_ALPHA = 0.34;
+
+  const streamData = new Float32Array(STREAM_CAP * 4);
+  const capsuleData = new Float32Array(CAPSULE_CAP * 4);
+  let streamCount = 0;
+  let capsuleCount = 0;
+  let core = coreExtent(params);
+
+  const canvas = html`<canvas style="position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab"></canvas>`;
+  const stage = html`<div style="position:relative;width:100%;height:100%"></div>`;
+  stage.appendChild(canvas);
+
+  const gpu = canvas.getContext('webgpu');
+  gpu.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+  const camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
+    distance: 6,
+    theta: 0.18,
+    phi: 0.9,
+    fov: FOV,
+    // This figure sits in the flow of the article, so it must never take a
+    // gesture the page needs. No wheel, and no touch handling at all: a finger
+    // scrolls past it as if it were a picture, while a mouse can still drag it
+    // round.
+    wheel: false,
+    touch: false,
+    renderContinuously: false
+  });
+
+  const lineOptions = {
+    join: 'miter',
+    cap: 'round',
+    maxCapResolution: 4,
+    // Multisampled rather than supersampled. The cascade cannot do this because
+    // its peel test reads a depth texture per fragment; there is no peeling
+    // here, so the cheaper answer is available.
+    multisample: { count: 4 }
+  };
+
+  const streams = createGPULines(device, {
+    ...lineOptions,
+    colorTargets: [{ format: canvasFormat }],
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    vertexShaderBody: familyVertexBody('streamWidth'),
+    fragmentShaderBody: familyStreamFragment
+  });
+
+  /**
+   * The outline, drawn after the streamlines with the depth test on and depth
+   * writes off.
+   *
+   * It is translucent, so it must not hide what is behind it; it is a surface,
+   * so it must still be hidden by the streamlines in front of it. Those two
+   * requirements are exactly a second pipeline rather than a second draw, since
+   * depth writing is pipeline state.
+   */
+  const capsuleLines = createGPULines(device, {
+    ...lineOptions,
+    colorTargets: [{
+      format: canvasFormat,
+      blend: {
+        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+      }
+    }],
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+    vertexShaderBody: familyVertexBody('capsuleWidth'),
+    fragmentShaderBody: familyCapsuleFragment
+  });
+
+  const streamBuffer = device.createBuffer({
+    label: 'family-streams', size: streamData.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+  const capsuleBuffer = device.createBuffer({
+    label: 'family-capsule', size: capsuleData.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+  const viewBuffer = device.createBuffer({
+    label: 'family-view', size: FAMILY_VIEW_SIZE,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+
+  const bindOf = (lines, buffer) => device.createBindGroup({
+    layout: lines.getBindGroupLayout(1),
+    entries: [
+      { binding: 0, resource: { buffer } },
+      { binding: 1, resource: { buffer: viewBuffer } }
+    ]
+  });
+  const streamBind = bindOf(streams, streamBuffer);
+  const capsuleBind = bindOf(capsuleLines, capsuleBuffer);
+
+  const viewData = new Float32Array(FAMILY_VIEW_SIZE / 4);
+
+  const dpr = Math.min(2, window.devicePixelRatio);
+  let targets = null;
+  let targetKey = '';
+  function ensureTargets() {
+    const key = `${canvas.width}x${canvas.height}`;
+    if (key === targetKey || !canvas.width || !canvas.height) return;
+    targetKey = key;
+    for (const t of targets ?? []) t.destroy();
+    const size = [canvas.width, canvas.height];
+    targets = [
+      device.createTexture({
+        label: 'family-msaa', size, format: canvasFormat,
+        sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
+      }),
+      device.createTexture({
+        label: 'family-depth', size, format: 'depth24plus',
+        sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
+      })
+    ];
+  }
+
+  // The readout: what the four sliders add up to. Sizes take the size colour and
+  // the speed takes the speed colour, the same as everywhere else.
+  const num = (v, d = 2) => v.toFixed(d);
+  const readRadial = html`<b style="color:${ROLE.size}"></b>`;
+  const readAxial = html`<b style="color:${ROLE.size}"></b>`;
+  const readAspect = html`<b style="color:${ROLE.size}"></b>`;
+  const readTurns = html`<b></b>`;
+  const readSpeed = html`<b style="color:${ROLE.speed}"></b>`;
+  const readout = html`<div class="family-readout">
+    <span>core radius ${readRadial}</span>
+    <span>half-length ${readAxial}</span>
+    <span>${tex`\ell/r`} ${readAspect}</span>
+    <span>turns per e-fold ${readTurns}</span>
+    <span>peak speed ${readSpeed}</span>
+  </div>`;
+
+  function rebuild() {
+    const field = createField({
+      gamma: params.gamma, omega: params.omega, sigma: params.sigma,
+      zH: params.zH, zK: params.zH * ZK_RATIO
+    });
+    core = coreExtent(params);
+
+    const lines = familyStreamlines(field, core, {
+      rings: RINGS, perRing: PER_RING, maxSteps: MAX_STEPS
+    });
+    streamCount = packStreamlines(streamData, lines);
+    capsuleCount = packCurves(capsuleData, capsuleWireframe(core.radial, core.axial, {
+      meridians: 4, rings: 5, segments: small ? 32 : 48
+    }));
+
+    device.queue.writeBuffer(streamBuffer, 0, streamData, 0, streamCount * 4);
+    device.queue.writeBuffer(capsuleBuffer, 0, capsuleData, 0, capsuleCount * 4);
+
+    readRadial.textContent = num(core.radial);
+    readAxial.textContent = num(core.axial);
+    readAspect.textContent = num(core.aspect);
+    readTurns.textContent = num(turnsPerEfold(params));
+    readSpeed.textContent = num(maxSpeed(lines));
+    frameCamera();
+  }
+
+  /**
+   * Hold the core at a constant apparent size, whatever shape it is.
+   *
+   * This is the figure's one rule: the family is being explored, not shrunk, so
+   * a member that is genuinely narrower must read as narrower rather than as
+   * further away. Backing the camera off to fit the core keeps the scale out of
+   * the picture entirely and leaves only the shape.
+   */
+  function frameCamera() {
+    const aspect = (canvas.width || 1) / (canvas.height || 1);
+    const need = Math.max(core.axial, core.radial / aspect);
+    const distance = (need * 1.55) / Math.tan(FOV / 2);
+    camera.state.distance = distance;
+    // Clip planes wrapped round the scene rather than left at the defaults. At
+    // near = 0.1 and a camera eight units out, everything drawn lands between
+    // depths 0.983 and 0.990 -- it works, but it is a hundredth of the buffer
+    // doing all of the ordering, and the ordering is the only thing telling the
+    // reader which side of the core a curve is on.
+    camera.state.near = Math.max(0.05, distance - 3.2 * need);
+    camera.state.far = distance + 3.2 * need;
+    camera.taint();
+  }
+
+  const controls = html`<div id="family-controls" class="family-controls"></div>`;
+  const slider = (key, label, range, step) => {
+    const input = Inputs.range(range, { label, value: params[key], step, width: 210 });
+    input.addEventListener('input', () => {
+      params[key] = +input.value;
+      // Rebuilt on the next frame rather than here, so a drag costs one
+      // integration per frame instead of one per pixel of slider travel.
+      pending.geometry = true;
+    });
+    controls.appendChild(input);
+  };
+  slider('gamma', 'γ  stretch', [0.4, 3.2], 0.05);
+  slider('omega', 'ω  swirl', [0.4, 7.0], 0.05);
+  slider('sigma', 'σ  core width', [0.2, 1.8], 0.02);
+  slider('zH', 'z_H  core length', [0.5, 2.6], 0.02);
+
+  const onResize = (_el, w, h) => {
+    canvas.width = Math.max(1, Math.round(w * dpr));
+    canvas.height = Math.max(1, Math.round(h * dpr));
+    frameCamera();
+  };
+
+  // Off screen this figure does nothing at all: it turns continuously, which is
+  // the only reason a static plot needs a frame loop, and turning something
+  // nobody is looking at is pure cost.
+  let visible = true;
+  const observer = new IntersectionObserver(([e]) => { visible = e.isIntersecting; }, { rootMargin: '80px' });
+  observer.observe(stage);
+
+  let last = performance.now();
+  const loop = createFrameLoop((now) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!visible || !canvas.width || !canvas.height) return;
+
+    if (pending.geometry) { pending.geometry = false; rebuild(); }
+    ensureTargets();
+    if (!targets || !streamCount) return;
+
+    // The flow is axisymmetric, so turning the camera about the axis costs
+    // nothing and is the cheapest way to make a still picture read as three
+    // dimensional -- which matters most on a phone, where there is no dragging
+    // it round.
+    camera.state.phi += 0.14 * dt;
+    camera.taint();
+
+    const { projView } = camera.update(canvas.width / canvas.height);
+    viewData.set(projView, 0);
+    viewData[16] = STREAM_WIDTH * dpr;
+    viewData[17] = CAPSULE_WIDTH * dpr;
+    viewData[18] = themeState.isDark ? 1 : 0;
+    viewData[19] = CAPSULE_ALPHA;
+    device.queue.writeBuffer(viewBuffer, 0, viewData);
+
+    const resolution = [canvas.width, canvas.height];
+    const streamProps = { vertexCount: streamCount, resolution };
+    const capsuleProps = { vertexCount: capsuleCount, resolution };
+    // Uniforms have to be written before any pass opens.
+    streams.updateUniforms(streamProps);
+    capsuleLines.updateUniforms(capsuleProps);
+
+    const bg = themeState.background;
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: targets[0].createView(),
+        resolveTarget: gpu.getCurrentTexture().createView(),
+        clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
+        loadOp: 'clear',
+        storeOp: 'discard'
+      }],
+      depthStencilAttachment: {
+        view: targets[1].createView(),
+        depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard'
+      }
+    });
+    streams.draw(pass, { ...streamProps, skipUniformUpdate: true }, [streamBind]);
+    capsuleLines.draw(pass, { ...capsuleProps, skipUniformUpdate: true }, [capsuleBind]);
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+  });
+
+  invalidation.then(() => {
+    loop.cancel();
+    observer.disconnect();
+    camera.destroy();
+    for (const t of targets ?? []) t.destroy();
+    streams.destroy();
+    capsuleLines.destroy();
+    streamBuffer.destroy();
+    capsuleBuffer.destroy();
+    viewBuffer.destroy();
+  });
+
+  display(html`<figure style="margin:1.75em 0">
+    ${expandable(stage, {
+      id: 'family',
+      width: 680,
+      height: 440,
+      minHeight: 300,
+      controls,
+      onResize
+    })}
+    ${readout}
+    ${controls}
+    <figcaption>
+      Streamlines of the ansatz, coloured by speed on a scale that does not move with
+      the sliders — a member of the family that is genuinely faster comes out genuinely
+      hotter, rather than being renormalised back into the same picture. The outline is
+      the surface where the profiles' shared envelope
+      ${tex`e^{-s/\sigma}e^{-z^2/2z_H^2}`} has fallen to ${tex`1/e`} of its peak, which is
+      radius ${tex`\sqrt{2\sigma}`} around the equator and ${tex`\sqrt{2}\,z_H`} at the poles;
+      the Lean sources cut the support out as a cylinder in ${tex`s`} and ${tex`z`}, so a
+      rounded cylinder is what it honestly looks like. ${tex`\gamma`} and ${tex`\omega`}
+      together set the pitch of the helices — ${tex`\omega/2\pi\gamma`} is how many turns a
+      parcel makes while the strain stretches it by a factor of ${tex`e`} — and
+      ${tex`\sigma`} and ${tex`z_H`} set the shape of the box it does that in. The view turns
+      on its own; drag it to turn it faster.
+    </figcaption>
+  </figure>`);
+}
+  </script>
+
   <script id="scrolly-cascade" type="module">
 await new Promise((r) => setTimeout(r, 100));
 
 {
   const captions = [
-    { text: "That whole first figure — the tube, the flow around it, the stretching — is one generation. Here it is as an outline, with its fluid faint inside.", left: "8%", bottom: "12%" },
+    { text: "One member of that family, whole — the tube, the flow around it, the stretching — is a single generation. Here it is as an outline, with its fluid faint inside.", left: "8%", bottom: "12%" },
     { text: "A second arrives inside it: narrower, and turning quicker.", right: "8%", bottom: "12%" },
     { text: "And a third, and a fourth. Every one costs you the same amount of scrolling.", left: "8%", bottom: "12%" },
     { text: "Now look at the clock. It has almost stopped.", right: "8%", bottom: "12%" },
