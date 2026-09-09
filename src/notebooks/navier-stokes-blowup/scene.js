@@ -138,19 +138,45 @@ export function buildLessonScene() {
  * Outside the core the vortex is free, so the orbital speed goes like
  * u = Gamma / 2 pi r and the angular rate like 1 / r^2. Streaks near the axis
  * whip round while the outer ones barely drift, which is what shears the swarm
- * into a tornado. Radii, heights and phases are spread by golden-ratio steps so
- * the swarm looks scattered without being random.
+ * into a tornado.
+ *
+ * Radius, height and phase must be genuinely independent. Under differential
+ * rotation any correlation between a particle's radius and where it sits is
+ * sheared into a visible spiral that winds up without limit, because points at
+ * different radii separate in angle without bound. A cloud that starts uniform
+ * in phase at every radius stays uniform, since angle only ever wraps.
+ *
+ * So the three coordinates come from the R3 quasirandom sequence, whose
+ * generator is the plastic number -- the same low-discrepancy construction the
+ * strange-attractor notebook uses to seed its particles. Stepping one sequence
+ * by different multiples of the golden ratio is not good enough: 0.6180339887
+ * and 0.3819660113 sum to exactly one, so those two coordinates come out exact
+ * complements of each other and every particle lands on one line.
  */
-export const STREAKS = Array.from({ length: 76 }, (_, i) => {
-  // Kept clear of the core: a thin vortex really does spin very fast close in,
-  // and the free-vortex law would put those particles past strobing.
-  const radius = 0.38 * Math.pow(1.4 / 0.38, (i * 0.6180339887) % 1);
+const PLASTIC = 1.22074408460575947536;
+const R3 = [1 / PLASTIC, 1 / PLASTIC ** 2, 1 / PLASTIC ** 3];
+const quasi = (n, k) => (0.5 + (n + 0.5) * R3[k]) % 1;
+
+/**
+ * Radial extent of the swarm. The orbital period goes like r^2, so the ratio of
+ * the slowest period to the fastest is fixed at (STREAK_R1 / STREAK_R0)^2 by
+ * this choice alone: wide enough to read as differential rotation, narrow
+ * enough that the outer particles still visibly drift.
+ */
+const STREAK_R0 = 0.36;
+const STREAK_R1 = 1.10;
+
+export const STREAKS = Array.from({ length: 120 }, (_, i) => {
+  // Uniform in radius. Uniform in area would be the honest seeding of a fluid,
+  // but it puts well over half the swarm in the outermost, slowest band, where
+  // the free-vortex law leaves it looking static.
+  const radius = STREAK_R0 + (STREAK_R1 - STREAK_R0) * quasi(i, 0);
   return {
     radius,
     // Spread the length of the visible core, not bunched around the middle.
-    y: -0.95 + 1.9 * ((i * 0.3819660113) % 1),
-    twist: i * 2.39996,
-    band: radius < 0.62 ? 'streakFast' : radius < 0.95 ? 'streakMid' : 'streakSlow'
+    y: -0.95 + 1.9 * quasi(i, 1),
+    twist: 2 * Math.PI * quasi(i, 2),
+    band: radius < 0.58 ? 'streakFast' : radius < 0.84 ? 'streakMid' : 'streakSlow'
   };
 });
 

@@ -1,5 +1,5 @@
 const UNIFORM_SIZE = 176;
-const MAX_INSTANCES = 160;
+const MAX_INSTANCES = 224;
 const INSTANCE_FLOATS = 12;
 const MAX_PEEL_LAYERS = 5;
 
