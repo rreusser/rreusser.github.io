@@ -1,4 +1,4 @@
-const UNIFORM_SIZE = 192;
+const UNIFORM_SIZE = 176;
 const MAX_INSTANCES = 64;
 const INSTANCE_FLOATS = 8;
 const MAX_PEEL_LAYERS = 5;
@@ -252,7 +252,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
         instanceData[o] = it.scale ?? 1;
         instanceData[o + 1] = it.twist ?? 0;
         instanceData[o + 2] = it.opacity ?? 1;
-        instanceData[o + 3] = it.rate ?? 1;
+        instanceData[o + 3] = it.phase ?? 0;
         instanceData[o + 4] = it.stretchY ?? 1;
         instanceData[o + 5] = it.stretchR ?? 1;
         instanceData[o + 6] = it.offsetY ?? 0;
@@ -275,7 +275,8 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
   }
 
   /**
-   * @param params.layers      [{ id, instances: [...] }]; order does not matter
+   * @param params.layers      [{ id, instances: [...] }]; order does not matter,
+   *                            since peeling resolves depth per pixel
    * @param params.peelLayers  surfaces resolved per pixel, 1..MAX_PEEL_LAYERS
    */
   function render(gpuContext, params, camera, w, h) {
@@ -299,16 +300,13 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     f32.set(projection, 0);
     f32.set(view, 16);
     f32[32] = eye[0]; f32[33] = eye[1]; f32[34] = eye[2];
-    f32[35] = params.time ?? 0;
+    f32[35] = params.isDark ? 1 : 0;
     f32[36] = params.background[0];
     f32[37] = params.background[1];
     f32[38] = params.background[2];
     f32[39] = params.flowRate ?? 1.2;
     f32[40] = params.flowAmp ?? 0.55;
     f32[41] = params.exposure ?? 1.05;
-    f32[42] = params.fogDensity ?? 0.05;
-    f32[43] = params.fogStart ?? 6;
-    f32[44] = params.isDark ? 1 : 0;
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
     const draws = packInstances(params.layers);

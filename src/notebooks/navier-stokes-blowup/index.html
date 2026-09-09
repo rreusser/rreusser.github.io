@@ -330,6 +330,10 @@ await new Promise((r) => setTimeout(r, 100));
   // not enough to read as "faster".
   const BASE_SPIN = 0.5;
   let spinAngle = 0;
+  // Pulse phases are integrated, not derived from a clock times a rate: the
+  // swirl rate follows the stretch, and multiplying a changing rate by an
+  // absolute time slews the pulses by whole cycles.
+  const pulse = { core: 0, swirl: 0, axial: 0, radial: 0, child: 0 };
   let smoothed = 0;
   let last = performance.now();
 
@@ -348,11 +352,16 @@ await new Promise((r) => setTimeout(r, 100));
     const sy = s.stretch;
     const sr = 1 / Math.sqrt(sy);
     spinAngle += dt * BASE_SPIN * sy * sy;
+    pulse.core += dt * 0.9;
+    pulse.swirl += dt * 0.5 * sy * sy;
+    pulse.axial += dt * 1.1;
+    pulse.radial += dt * 1.2;
+    pulse.child += dt * 2.2;
 
     const H = scene.H;
     const shift = (sy - 1) * H;
 
-    const core = { stretchY: sy, stretchR: sr, opacity: s.tubeOpacity, rate: 1 };
+    const core = { stretchY: sy, stretchR: sr, opacity: s.tubeOpacity, phase: pulse.core };
     // Arrows shrink as the core spins up: length and width both go like 1/sy,
     // against an angular rate going like sy^2. Circulation, hand-waved.
     const arrow = 1 / Math.sqrt(sy);
@@ -362,14 +371,14 @@ await new Promise((r) => setTimeout(r, 100));
       stretchR: sr,
       twist: -spinAngle,
       opacity: s.swirlOpacity,
-      rate: sy * sy
+      phase: pulse.swirl
     }));
     const radialRing = RADIAL_PLACEMENTS.map((p) => ({
       twist: p.twist,
       offsetY: p.y * H * sy,
       offsetR: scene.R * sr + 0.18 - 1.9 * scene.R,
       opacity: s.radialOpacity,
-      rate: 1.6
+      phase: pulse.radial
     }));
 
     // Children are the same geometry again, smaller and placed off-axis. The
@@ -380,7 +389,7 @@ await new Promise((r) => setTimeout(r, 100));
       scale: c.scale, twist: c.twist,
       offsetR: c.radius / c.scale, offsetY: c.y / c.scale,
       stretchY: CHILD_STRETCH, stretchR: childR,
-      opacity: s.childOpacity * s.tubeOpacity, rate: 1
+      opacity: s.childOpacity * s.tubeOpacity, phase: pulse.core
     }));
     // Two arcs each, because at this size a single one is easy to miss.
     // A child's twist is its azimuth around the main axis, because the offset is
@@ -392,25 +401,22 @@ await new Promise((r) => setTimeout(r, 100));
         offsetR: c.radius / c.scale,
         offsetY: c.y / c.scale + f * H * CHILD_STRETCH,
         stretchR: childR,
-        opacity: s.childOpacity, rate: 2.8
+        opacity: s.childOpacity, phase: pulse.child
       })));
 
     renderer.render(gpuContext, {
       background: themeState.background,
       isDark: themeState.isDark,
-      time: now / 1000,
       flowRate: 1.15,
       flowAmp: 0.7,
-      fogDensity: 0.03,
-      fogStart: 5,
       sceneRadius: 4.2,
       peelLayers: small ? 3 : 4,
       layers: [
         { id: 'tube', instances: [core] },
         { id: 'childTube', instances: childCores },
         { id: 'swirl', instances: [...swirlRing, ...childSwirls] },
-        { id: 'axialUp', instances: [{ offsetY: shift, opacity: s.axialOpacity, rate: 1.4 }] },
-        { id: 'axialDown', instances: [{ offsetY: -shift, opacity: s.axialOpacity, rate: 1.4 }] },
+        { id: 'axialUp', instances: [{ offsetY: shift, opacity: s.axialOpacity, phase: pulse.axial }] },
+        { id: 'axialDown', instances: [{ offsetY: -shift, opacity: s.axialOpacity, phase: pulse.axial }] },
         { id: 'radial', instances: radialRing }
       ]
     }, camera, canvas.width, canvas.height);
@@ -439,7 +445,7 @@ await new Promise((r) => setTimeout(r, 100));
 {
   const captions = [
     { text: "Here is the same mechanism, tuned so that it never runs out.", left: "8%", bottom: "12%" },
-    { text: "Each generation is a copy of the one above it, shrunk by a fixed factor and running faster.", right: "8%", bottom: "12%" },
+    { text: "Each generation is a copy of the last, shrunk by a fixed factor and running faster, nested inside it.", right: "8%", bottom: "12%" },
     { text: "Every generation is <em>more</em> inviscid than the last, so diffusion is always a step behind.", left: "8%", bottom: "12%" },
     { text: "And each takes less time than the last, by enough that the total is finite.", right: "8%", bottom: "12%" },
     { text: "So the descent never has to stop, and it is over before a fixed moment. The velocity has nowhere to end up but infinity.", left: "8%", bottom: "12%" }
@@ -447,7 +453,6 @@ await new Promise((r) => setTimeout(r, 100));
 
   const frameCount = captions.length;
   const COPIES = 5;
-  const CHAIN_OFFSET = 5.0;
   const TWIST = 0.9;
 
   const sequencer = createSequencer({
@@ -501,16 +506,24 @@ await new Promise((r) => setTimeout(r, 100));
   };
 
   let smoothed = 0;
+  let streamPhase = 0;
+  let last = performance.now();
   const loop = createFrameLoop((now) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
     if (!updateBackgroundPosition(container, background)) return;
 
+    streamPhase += dt * 0.85;
     smoothed += (scrollProgress(container) - smoothed) * 0.1;
     sequencer.setPosition(smoothed * frameCount);
     const s = sequencer.getState();
 
-    // Generation m sits at scale Lambda^-m and offset CHAIN_OFFSET * Lambda^-m,
-    // a family that maps onto itself when m shifts by one. Sweeping m and
-    // recycling the copies through a fade is therefore an unbroken zoom.
+    // Generation m is drawn at scale Lambda^-m about the blowup point, a family
+    // that maps onto itself when m shifts by one. Sweeping m and recycling the
+    // copies through a fade is an unbroken zoom, and because the generations
+    // share a centre it is a zoom about the middle of the frame rather than a
+    // drift across it. It is also the truer arrangement: the cascade
+    // concentrates at a point rather than stringing out along the axis.
     const u = s.zoom - Math.floor(s.zoom);
     const instances = [];
     for (let k = 0; k < COPIES; k++) {
@@ -518,21 +531,17 @@ await new Promise((r) => setTimeout(r, 100));
       instances.push({
         scale: Math.pow(Scales.LAMBDA, -m),
         twist: m * TWIST,
-        offsetY: CHAIN_OFFSET,
         opacity: s.streamOpacity * smoothstep(-1, 0, m) * (1 - smoothstep(COPIES - 2, COPIES - 1, m)),
-        rate: Math.pow(Scales.COVER_GROWTH, m * 0.4)
+        phase: streamPhase
       });
     }
 
     renderer.render(gpuContext, {
       background: themeState.background,
       isDark: themeState.isDark,
-      time: now / 1000,
       flowRate: 1.2,
       flowAmp: 0.55,
-      fogDensity: 0.075,
-      fogStart: 6,
-      sceneRadius: 8.5,
+      sceneRadius: 9,
       peelLayers: small ? 3 : 4,
       layers: [{ id: 'stream', instances }]
     }, camera, canvas.width, canvas.height);
@@ -637,9 +646,9 @@ The forcing carries the rest. The theorem is not that a fluid at rest tears itse
 
 The ansatz, the constants ${tex`T_g = 4+\sqrt 2`}, ${tex`\Lambda = 4-\sqrt 2`} and ${tex`\kappa = 10^{-5}`}, the definitions of ${tex`\nu(n)`}, ${tex`\tau_n`} and ${tex`R_n`}, and the core velocity, radial and axial scalings are transcribed from the published Lean 4 sources in [openai/NavierStokesAndEuler](https://github.com/openai/NavierStokesAndEuler), specifically `ChartScales.lean`, `SlotColoring.lean`, `Scaling.lean` and `AxisymmetricFields.lean`. The plots are those formulas evaluated, the ratio between successive packets in the second figure is the manuscript's ${tex`\Lambda`}, and the streamlines are integrated from a genuine curl of the stated potential, divergence-free to roundoff.
 
-The profiles are not exact. The manuscript's ${tex`H`} and ${tex`K`} come out of an inductive scheme with corrections at every stage and are not something you can write on a line. The figures substitute the simplest profiles with the right behaviour, a localized axial strain and a Gaussian-cored swirl. One packet is drawn per generation where the construction places many on a mesh of spacing ${tex`Q_n^a/n^6`}, and they are strung along the axis to be seen rather than nested where they would hide inside one another. Successive packets differ only in scale, since after rescaling a self-similar cascade repeats; the real generations also drift in shape, and that drift is not drawn. The rate at which deep packets appear to run is compressed, because the true ratio strobes within a couple of generations.
+The profiles are not exact. The manuscript's ${tex`H`} and ${tex`K`} come out of an inductive scheme with corrections at every stage and are not something you can write on a line. The figures substitute the simplest profiles with the right behaviour, a localized axial strain and a Gaussian-cored swirl. One packet is drawn per generation, where the construction places many on a mesh of spacing ${tex`Q_n^a/n^6`}. Generations are nested about the point the cascade concentrates on, each turned by a fixed angle from the last so they can be told apart. Successive packets differ only in scale, since after rescaling a self-similar cascade repeats; the real generations also drift in shape, and that drift is not drawn.
 
-The first walkthrough is a diagram rather than a simulation: an idealized core with arrows for the two motions acting on it, not integrated fluid. The relationship it shows is real, and it is the one the whole construction runs on.
+The first walkthrough is a diagram rather than a simulation: an idealized core with arrows for the two motions acting on it, not integrated fluid. Its spin-up is exaggerated, running as the square of the stretch where conservation of circulation gives the first power, and the swirl arrows shrink as its inverse so that the trade between size and rate is visible at all. The relationship it shows is real, and it is the one the whole construction runs on.
 
 This is a picture of the mechanism, not a rendering of the solution. Whether the proof is correct is a question for referees, and at the time of writing it is open.
   </script>

@@ -1,23 +1,19 @@
 // Geometry reaches the GPU already in render coordinates, with +y as the axis
 // of symmetry. The uniform block is shared by both pipelines; offsets follow
 // WGSL's alignment rules (mat4x4f and vec3f both align to 16), giving a struct
-// of 192 bytes that the renderer writes by float index.
+// of 176 bytes that the renderer writes by float index.
 const UNIFORMS = /* wgsl */`
 struct Uniforms {
   projection: mat4x4f,
   view: mat4x4f,
   eye: vec3f,
-  time: f32,
+  isDark: f32,
   background: vec3f,
   flowRate: f32,
   flowAmp: f32,
   exposure: f32,
-  fogDensity: f32,
-  fogStart: f32,
-  isDark: f32,
   _pad0: f32,
   _pad1: f32,
-  _pad2: f32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -53,16 +49,21 @@ struct VertexOutput {
   @location(2) vScalar: f32,
   @location(3) vPhase: f32,
   @location(4) vOpacity: f32,
-  @location(5) vRate: f32,
+  @location(5) vPulse: f32,
 };
 
 /**
  * Two instance records per draw.
  *
- * instA = (scale, twist, opacity, pulse rate) places one generation of the
- * cascade: generation m sits at scale Lambda^-m, centred at offset * Lambda^-m
- * along the axis, so the chain maps onto itself when m shifts by one and
- * sweeping m continuously is a seamless zoom.
+ * instA = (scale, twist, opacity, pulse phase) places one generation of the
+ * cascade. Generation m is drawn at scale Lambda^-m about a shared centre, so
+ * the family maps onto itself when m shifts by one and sweeping m continuously
+ * is a seamless zoom about the middle of the picture.
+ *
+ * The phase is accumulated by the caller rather than derived from a clock times
+ * a rate. A rate that varies with scroll, multiplied by an absolute time that
+ * has grown to hundreds of seconds, slews the pulses by whole cycles for a
+ * fractional change in rate.
  *
  * instB = (stretchY, stretchR, offsetY, offsetR) is the volume-preserving
  * stretch of the walkthrough, pulling a tube to stretchY along the axis while
@@ -107,7 +108,7 @@ fn vs(
   out.vScalar = scalar;
   out.vPhase = phase;
   out.vOpacity = instA.z;
-  out.vRate = instA.w;
+  out.vPulse = instA.w;
   return out;
 }
 
@@ -122,11 +123,11 @@ fn shade(in: VertexOutput) -> vec4f {
   // On a light ground the top of the ramp washes out, so deepen it.
   base = mix(base * 0.72, base, u.isDark);
 
-  // A pulse travelling along the streamline or arrow. Phase is elapsed
-  // advection time for tubes and tail-to-tip position for arrows, so in both
-  // cases a pulse moving in phase reads as motion in the flow direction. Both
-  // smoothstep edges ascend: WGSL leaves it undefined when low >= high.
-  let pulse = fract(in.vPhase * u.flowRate - u.time * in.vRate);
+  // A pulse travelling along the streamline or arrow. The vertex phase is
+  // elapsed advection time for tubes and tail-to-tip position for arrows, so in
+  // both cases a pulse moving through it reads as motion in the flow direction.
+  // Both smoothstep edges ascend: WGSL leaves it undefined when low >= high.
+  let pulse = fract(in.vPhase * u.flowRate - in.vPulse);
   let band = smoothstep(0.55, 0.9, pulse) * (1.0 - smoothstep(0.9, 1.0, pulse));
   base = base * (1.0 + u.flowAmp * band);
 
@@ -144,11 +145,6 @@ fn shade(in: VertexOutput) -> vec4f {
   let rim = mix(0.08, 0.35, u.isDark) * pow(1.0 - max(dot(Nf, V), 0.0), 2.6);
 
   var color = (base * (ambient + diffuse) + vec3f(spec) + base * rim) * u.exposure;
-
-  // Depth fade separates the layers of the tangle.
-  let dist = length(u.eye - in.vPosition);
-  let fog = 1.0 - exp(-u.fogDensity * max(dist - u.fogStart, 0.0));
-  color = mix(color, u.background, clamp(fog, 0.0, 1.0));
 
   // Premultiplied, so the peel layers composite with one / one-minus-src-alpha.
   return vec4f(color * in.vOpacity, in.vOpacity);
