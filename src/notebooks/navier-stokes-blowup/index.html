@@ -547,7 +547,13 @@ await new Promise((r) => setTimeout(r, 100));
     rings: 4,
     perRing: small ? 6 : 7,
     rMin: 0.36, rMax: 2.7, zSeed: 0.9,
-    step: 0.022, maxSteps: small ? 440 : 520, bound: 4.6
+    step: 0.022, maxSteps: small ? 440 : 520, bound: 4.6,
+    // Stop a streamline once the fluid all but stops. The dash pattern below is
+    // periodic in advection time, so its wavelength is proportional to the local
+    // speed, and the near-stagnant tails would draw dashes a fraction of a pixel
+    // long. Cutting at 0.12 takes the spread of speeds along a line from 12.6:1
+    // down to 5.4:1 and drops 46% of the samples, which the phones also want.
+    minSpeed: 0.12
   });
   const range = speedRange(lines);
   renderer.setLayer('stream', toYUp(mergeMeshes(lines.map((l) =>
@@ -559,15 +565,29 @@ await new Promise((r) => setTimeout(r, 100));
     return t * t * (3 - 2 * t);
   };
 
+  /**
+   * How fast the dash pattern is carried through the outermost packet, in
+   * patterns per second. Each step inward multiplies it by the manuscript's own
+   * time-zoom factor T_g = 4 + sqrt(2), the companion of the spatial factor
+   * Lambda that already sets the scale ratio between drawn generations.
+   */
+  const DASH_RATE = 0.45;
+
+  // Phase is accumulated per slot rather than taken as a clock times a rate,
+  // because the rate depends on the generation and the generation slides with
+  // the scroll: multiplying a large elapsed time by a rate that moves would slew
+  // the pattern by whole periods for a fractional change. Only the fractional
+  // part is ever read, so wrapping it keeps f32 precision exact no matter how
+  // long the page has been open.
+  const slotPhase = new Float64Array(COPIES);
+
   let smoothed = 0;
-  let streamPhase = 0;
   let last = performance.now();
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (!updateBackgroundPosition(container, background)) return;
 
-    streamPhase += dt * 0.85;
     smoothed += (scrollProgress(container) - smoothed) * 0.1;
     sequencer.setPosition(smoothed * frameCount);
     const s = sequencer.getState();
@@ -582,11 +602,19 @@ await new Promise((r) => setTimeout(r, 100));
     const instances = [];
     for (let k = 0; k < COPIES; k++) {
       const m = k - u;
+      slotPhase[k] = (slotPhase[k] + dt * DASH_RATE * Math.pow(Scales.COVER_GROWTH, m)) % 1;
       instances.push({
         scale: Math.pow(Scales.LAMBDA, -m),
         twist: m * TWIST,
         opacity: s.streamOpacity * smoothstep(-1, 0, m) * (1 - smoothstep(COPIES - 2, COPIES - 1, m)),
-        phase: streamPhase
+        phase: slotPhase[k],
+        // Dash only the generations whose pattern is still resolvable. A step
+        // inward divides the dash length by Lambda and multiplies its rate by
+        // T_g, so after about two steps it is a couple of pixels long and moving
+        // ten times a second, which aliases into noise rather than reading as
+        // speed. Those go solid, and the honest impression is the one that
+        // leaves: the deeper the packet, the faster than the eye can follow.
+        dash: 1 - smoothstep(1.2, 2.2, m)
       });
     }
 
