@@ -1,0 +1,12 @@
+publishedAt: "September 9, 2026"
+maxWidth: 640px
+description: Drawing the vortex-stretching cascade behind OpenAI's claimed finite-time blowup for the three-dimensional Navier-Stokes equations
+tags:
+  - webgpu
+  - math
+  - pde
+  - physics
+seeAlso:
+  - stable-fluids
+  - simulating-the-2d-kuramoto-sivashinsky-equation-in-webgpu
+  - perfectly-matched-layers-for-the-wave-equation
