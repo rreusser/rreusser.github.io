@@ -289,6 +289,30 @@ export function packStreamlines(lines, [lo, hi]) {
   return { samples, phases, count };
 }
 
+/**
+ * Depth peeling. The previous layer's depth is sampled at this fragment's own
+ * pixel, so anything at or in front of it is discarded and the pass captures
+ * the next surface back.
+ *
+ * The fragment's own position is what makes this possible, and it is why the
+ * line module is vendored: the published build hands getColor only lineCoord
+ * and the user's varyings. A vertex function can pass its clip position across,
+ * but that lies on the line's centre while the fragment may be half a stroke
+ * width away -- and the edge of a stroke is exactly where peeling shows its
+ * artifacts.
+ *
+ * Layer zero binds a depth texture cleared to zero, against which nothing is
+ * ever in front, so one shader serves every layer.
+ */
+const PEEL = /* wgsl */`
+@group(2) @binding(0) var prevDepth: texture_depth_2d;
+
+fn peeled(fragPosition: vec4f) -> bool {
+  let d = textureLoad(prevDepth, vec2i(fragPosition.xy), 0);
+  return fragPosition.z <= d + 1e-7;
+}
+`;
+
 const GENERATION_STRUCT = /* wgsl */`
 /** One drawn generation: its scale about the blowup point, its azimuth, how far
  *  it has faded into the visible window, and where its pulses have got to. */
@@ -339,9 +363,10 @@ fn getVertex(index: u32) -> Vertex {
 }
 `;
 
-export const backboneFragmentBody = VIEW_BLOCK + colormapWGSL + /* wgsl */`
-fn getColor(lineCoord: vec2f, scalar: f32, pulse: f32, opacity: f32) -> vec4f {
+export const backboneFragmentBody = VIEW_BLOCK + colormapWGSL + PEEL + /* wgsl */`
+fn getColor(lineCoord: vec2f, scalar: f32, pulse: f32, opacity: f32, fragPosition: vec4f) -> vec4f {
   if (abs(lineCoord.x) > 0.0 && dot(lineCoord, lineCoord) > 1.0) { discard; }
+  if (peeled(fragPosition)) { discard; }
   var base = colormap(scalar);
   base = mix(base * 0.72, base, view.isDark);
   let f = fract(pulse);
@@ -349,10 +374,12 @@ fn getColor(lineCoord: vec2f, scalar: f32, pulse: f32, opacity: f32) -> vec4f {
   base = base * (1.0 + view.flowAmp * band);
   let r = abs(lineCoord.y);
   base = base * (1.0 - 0.5 * r * r) * view.exposure;
-  // Real transparency. Fading toward the background instead only darkens a
+  // Premultiplied, so the peel layers composite with one / one-minus-src-alpha.
+  // Real transparency: fading toward the background instead only darkens a
   // stroke, so a faded line reads as a dark line crossing a bright one rather
   // than as something on its way out.
-  return vec4f(base, opacity);
+  if (opacity < 0.004) { discard; }
+  return vec4f(base * opacity, opacity);
 }
 `;
 
@@ -428,10 +455,11 @@ fn getVertex(index: u32) -> Vertex {
 `;
 }
 
-export const trailFragmentBody = VIEW_BLOCK + colormapWGSL + /* wgsl */`
-fn getColor(lineCoord: vec2f, scalar: f32, along: f32, opacity: f32) -> vec4f {
+export const trailFragmentBody = VIEW_BLOCK + colormapWGSL + PEEL + /* wgsl */`
+fn getColor(lineCoord: vec2f, scalar: f32, along: f32, opacity: f32, fragPosition: vec4f) -> vec4f {
   // Round the caps. Elsewhere lineCoord.x is zero and nothing is discarded.
   if (abs(lineCoord.x) > 0.0 && dot(lineCoord, lineCoord) > 1.0) { discard; }
+  if (peeled(fragPosition)) { discard; }
 
   var base = colormap(scalar);
   base = mix(base * 0.72, base, view.isDark);
@@ -445,7 +473,10 @@ fn getColor(lineCoord: vec2f, scalar: f32, along: f32, opacity: f32) -> vec4f {
   // The head is opaque and the tail fades out. As alpha, not as a mix toward
   // the background: a trail that dims toward the background turns dark rather
   // than turning transparent, and crossing trails then read as dark scratches.
-  let weight = opacity * (0.10 + 0.90 * clamp(along, 0.0, 1.0));
-  return vec4f(base, clamp(weight, 0.0, 1.0));
+  let weight = clamp(opacity * (0.10 + 0.90 * clamp(along, 0.0, 1.0)), 0.0, 1.0);
+  // A gap that still shaded would hold a peel layer open, and there are only
+  // three or four of those.
+  if (weight < 0.004) { discard; }
+  return vec4f(base * weight, weight);
 }
 `;

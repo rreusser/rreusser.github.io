@@ -195,7 +195,10 @@ import {
   packStreamlines, seedParticles, integrateShaderCode, backboneVertexBody, backboneFragmentBody,
   trailVertexBody, trailFragmentBody, VIEW_SIZE, TRAIL, FIELD
 } from './cascade-particles.js';
-import { createGPULines } from 'npm:webgpu-instanced-lines';
+// Vendored rather than from npm: the cascade's peel test needs the fragment's
+// builtin position, which the published module does not expose. See the header
+// of that file.
+import { createGPULines } from './lib/webgpu-instanced-lines.js';
 import { createRenderer } from './renderer.js';
 import * as Scales from './scales.js';
   </script>
@@ -743,12 +746,14 @@ await new Promise((r) => setTimeout(r, 100));
     distance: 17,
     theta: 0.14,
     phi: 0.5,
-    // No centre offset. The cascade geometry is centred on the origin (its
-    // world bbox spans y in [-3.37, 3.25]), and every generation is scaled
-    // about the origin too, so that is where the camera must look. Aiming it
-    // at y = 2.2 put the figure 143 px low on an 844 px screen -- 17% of the
-    // height -- which is not a viewport problem and no CSS unit can fix it.
-    fov: 0.75,
+    // Narrower than it looks: tan(fov/2) halves against the 0.75 this started
+    // at, so the figure is drawn about 2.05x larger and fills the frame. Done
+    // by narrowing the lens rather than by moving the camera in, which keeps
+    // the eye where it was and so leaves the perspective, the parallax and
+    // every depth relationship in the scene exactly as they were. Stroke widths
+    // are in pixels and do not care either way. The outermost generation now
+    // runs off the edges, which is what filling the frame costs.
+    fov: 0.38,
     wheel: false,
     renderContinuously: false
   });
@@ -836,18 +841,32 @@ await new Promise((r) => setTimeout(r, 100));
     ]
   });
 
-  // Both layers blend with straight alpha, so a stroke fades by going
-  // transparent rather than by going dark, and neither needs depth peeling.
-  // They differ in what they do with the depth buffer.
+  /**
+   * Order-independent transparency by depth peeling, over both entities at once.
+   *
+   * Each pass writes depth and discards anything at or in front of the depth
+   * the previous pass captured, so the passes walk backwards through the scene
+   * one surface at a time and the layers composite back to front exactly. Both
+   * entities are drawn in every pass and share one depth buffer, which is what
+   * makes a trail behind a backbone curve resolve against it rather than
+   * against whichever happened to be drawn second.
+   *
+   * Peeling cannot be multisampled, since the peel test reads a depth texture
+   * per fragment, so the canvas backing store is oversampled instead -- which
+   * attachCanvas already does.
+   */
+  const PEEL_LAYERS = small ? 3 : 4;
+
   const lineOptions = {
+    // Premultiplied alpha, so the layers composite with one/one-minus-src-alpha.
     colorTargets: [{
-      format: canvasFormat,
+      format: 'rgba8unorm',
       blend: {
-        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
         alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
       }
     }],
-    multisample: { count: 4 },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' },
     join: 'miter',
     cap: 'round',
     maxCapResolution: 4
@@ -855,24 +874,31 @@ await new Promise((r) => setTimeout(r, 100));
 
   const backbone = createGPULines(device, {
     ...lineOptions,
-    // The backbone writes depth. It is opaque except at the edges of a
-    // generation's fade, and it is the layer whose own front and back have to
-    // read correctly: a curve that loops has to hide the part of itself that
-    // is behind, which without a depth buffer is decided by nothing more than
-    // the order the samples happen to sit in the buffer.
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     vertexShaderBody: backboneVertexBody,
     fragmentShaderBody: backboneFragmentBody
   });
   const trails = createGPULines(device, {
     ...lineOptions,
-    // The trails test against that depth but do not write it, so they are
-    // hidden where the backbone is in front of them while still blending freely
-    // among themselves. Writing depth here would put back the hole-punching
-    // that transparency was meant to fix, thousands of times over.
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     vertexShaderBody: trailVertexBody(FIELD),
     fragmentShaderBody: trailFragmentBody
+  });
+
+  const compositeModule = device.createShaderModule({ code: compositeShaderCode });
+  const compositePipeline = device.createRenderPipeline({
+    label: 'cascade-composite',
+    layout: 'auto',
+    vertex: { module: compositeModule, entryPoint: 'vs' },
+    fragment: {
+      module: compositeModule, entryPoint: 'fs',
+      targets: [{
+        format: canvasFormat,
+        blend: {
+          color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list' }
   });
 
   const backboneBind = device.createBindGroup({
@@ -894,24 +920,48 @@ await new Promise((r) => setTimeout(r, 100));
   });
 
   // Reallocated on resize, and only then.
-  let msaaTexture = null;
-  let depthTexture = null;
+  let targets = null;
   let targetKey = '';
   function ensureTargets() {
     const key = `${canvas.width}x${canvas.height}`;
     if (key === targetKey) return;
     targetKey = key;
-    msaaTexture?.destroy();
-    depthTexture?.destroy();
+    for (const t of targets?.all ?? []) t.destroy();
+
     const size = [canvas.width, canvas.height];
-    msaaTexture = device.createTexture({
-      label: 'cascade-msaa', size, format: canvasFormat,
-      sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
+    const RB = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    const tex = (label, format) => device.createTexture({ label, size, format, usage: RB });
+
+    const layers = Array.from({ length: PEEL_LAYERS }, (_, i) => tex(`cascade-layer${i}`, 'rgba8unorm'));
+    const depths = [0, 1].map((i) => tex(`cascade-depth${i}`, 'depth32float'));
+    // Bound as the previous depth for layer zero. Cleared to zero, so nothing
+    // is ever in front of it and the first pass peels nothing away; that is
+    // what lets one shader serve every layer.
+    const zero = tex('cascade-depth-zero', 'depth32float');
+    const encoder = device.createCommandEncoder();
+    encoder.beginRenderPass({
+      colorAttachments: [],
+      depthStencilAttachment: {
+        view: zero.createView(), depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'store'
+      }
+    }).end();
+    device.queue.submit([encoder.finish()]);
+
+    const peelBind = (lines, view) => device.createBindGroup({
+      layout: lines.getBindGroupLayout(2),
+      entries: [{ binding: 0, resource: view }]
     });
-    depthTexture = device.createTexture({
-      label: 'cascade-depth', size, format: 'depth24plus',
-      sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
-    });
+    const views = [zero.createView(), depths[0].createView(), depths[1].createView()];
+    targets = {
+      all: [...layers, ...depths, zero],
+      layers, depths,
+      backbonePeel: views.map((v) => peelBind(backbone, v)),
+      trailPeel: views.map((v) => peelBind(trails, v)),
+      composite: layers.map((t) => device.createBindGroup({
+        layout: compositePipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: t.createView() }]
+      }))
+    };
   }
 
   const genData = new Float32Array(DRAW_GENS * 4);
@@ -1044,28 +1094,52 @@ await new Promise((r) => setTimeout(r, 100));
       resolution: [canvas.width, canvas.height]
     };
 
-    const pass = encoder.beginRenderPass({
+    // Both line renderers' uniforms have to be written before any pass opens.
+    backbone.updateUniforms(backboneProps);
+    trails.updateUniforms(trailProps);
+
+    // Peel. Each pass captures the next surface back across both entities at
+    // once: they share the depth buffer, so a trail behind a backbone curve is
+    // resolved against that curve rather than against whichever of the two
+    // happened to be drawn second.
+    for (let i = 0; i < PEEL_LAYERS; i++) {
+      const prev = i === 0 ? 0 : 1 + ((i - 1) % 2);
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: targets.layers[i].createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }],
+        depthStencilAttachment: {
+          view: targets.depths[i % 2].createView(),
+          depthClearValue: 1,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store'
+        }
+      });
+      backbone.draw(pass, { ...backboneProps, skipUniformUpdate: true },
+        [backboneBind, targets.backbonePeel[prev]]);
+      trails.draw(pass, { ...trailProps, skipUniformUpdate: true },
+        [trailBind, targets.trailPeel[prev]]);
+      pass.end();
+    }
+
+    // Composite back to front onto the canvas, over the background.
+    const composite = encoder.beginRenderPass({
       colorAttachments: [{
-        view: msaaTexture.createView(),
-        resolveTarget: gpuContext.getCurrentTexture().createView(),
+        view: gpuContext.getCurrentTexture().createView(),
         clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
         loadOp: 'clear',
         storeOp: 'store'
-      }],
-      depthStencilAttachment: {
-        view: depthTexture.createView(),
-        depthClearValue: 1,
-        depthLoadOp: 'clear',
-        depthStoreOp: 'store'
-      }
+      }]
     });
-    // Backbone first, so its depth is laid down before the trails are tested
-    // against it. Uniforms for both must be written before the pass opens.
-    backbone.updateUniforms(backboneProps);
-    backbone.draw(pass, { ...backboneProps, skipUniformUpdate: true }, [backboneBind]);
-    trails.updateUniforms(trailProps);
-    trails.draw(pass, { ...trailProps, skipUniformUpdate: true }, [trailBind]);
-    pass.end();
+    composite.setPipeline(compositePipeline);
+    for (let i = PEEL_LAYERS - 1; i >= 0; i--) {
+      composite.setBindGroup(0, targets.composite[i]);
+      composite.draw(3);
+    }
+    composite.end();
     device.queue.submit([encoder.finish()]);
   });
 
@@ -1084,8 +1158,7 @@ await new Promise((r) => setTimeout(r, 100));
     viewBuffer.destroy();
     genBuffer.destroy();
     simBuffer.destroy();
-    msaaTexture?.destroy();
-    depthTexture?.destroy();
+    for (const t of targets?.all ?? []) t.destroy();
   });
 }
   </script>
