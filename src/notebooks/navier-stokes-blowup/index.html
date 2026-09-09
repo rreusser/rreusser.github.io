@@ -127,8 +127,8 @@ import { observeTheme } from './lib/theme.js';
 import { createField, seedRings, decimate, tubeMesh, mergeMeshes, speedRange } from './field.js';
 import { toYUp } from './arrows.js';
 import {
-  buildLessonScene, SWIRL_HEIGHTS, RADIAL_PLACEMENTS, STRAIN_AZIMUTHS,
-  AXIAL_PULSE_RATE, RADIAL_PULSE_RATE
+  buildLessonScene, STREAKS, seedStrainParcels,
+  GAMMA, SPEED_TO_LENGTH, AXIAL_SPAN, RADIAL_SPAN
 } from './scene.js';
 import { tubeShaderCode, compositeShaderCode } from './shaders.js';
 import { createRenderer } from './renderer.js';
@@ -192,6 +192,11 @@ function buildScrollyteller(id: string, captions: any[]) {
   container.appendChild(foreground);
   return { container, background, fixed, foreground };
 }
+
+const smoothstep = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
 
 /** Phones get less geometry and one fewer peel layer. */
 function isSmallScreen() {
@@ -277,10 +282,10 @@ await new Promise((r) => setTimeout(r, 100));
 
 {
   const captions = [
-    { text: "A vortex line: a thread of spinning fluid. It has no ends, because a vortex tube cannot stop in mid-fluid, so it leaves the frame both ways.", left: "8%", bottom: "12%" },
+    { text: "A vortex line: a thread of spinning fluid, with the flow around it drawn as drifting streaks. It has no ends, because a vortex tube cannot stop in mid-fluid.", left: "8%", bottom: "12%" },
     { text: "Now a second, unrelated motion: the fluid is pulled apart along that same axis, and drawn inward from the sides to replace it.", right: "8%", bottom: "12%" },
     { text: "Run both at once.", left: "8%", bottom: "12%" },
-    { text: "Stretching it makes it thinner, and pulls it straight. The loops drift apart and contract, and the same circulation around a smaller circle has to turn faster.", right: "8%", bottom: "12%" },
+    { text: "Stretching it makes it thinner and pulls it straight. The fluid is drawn inward and whips faster, because the same circulation now wraps a smaller circle.", right: "8%", bottom: "12%" },
     { text: "A skater pulling their arms in. Nothing is added; the rotation just has less room.", left: "8%", bottom: "12%" },
     { text: "This is ordinary three-dimensional fluid motion. It is also precisely what two-dimensional flow cannot do, which is why the two-dimensional problem was settled long ago.", right: "8%", bottom: "12%" },
     { text: "Keep pulling and it keeps going: thinner, faster, finer. This is the turbulent cascade, energy walking down the scales.", left: "8%", bottom: "12%" },
@@ -290,7 +295,7 @@ await new Promise((r) => setTimeout(r, 100));
   const frameCount = captions.length;
   const sequencer = createSequencer({
     tubeOpacity:   [{ t: 0, value: 0 }, { t: 0.45, value: 0.8 }, { t: 7.3, value: 0.8 }, { t: 8, value: 0.45 }],
-    swirlOpacity:  [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.06 }, { t: 2.4, value: 0.06 }, { t: 3.0, value: 1 }],
+    streakOpacity:  [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.06 }, { t: 2.4, value: 0.06 }, { t: 3.0, value: 1 }],
     axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 4.7, value: 1 }, { t: 5.5, value: 0 }, { t: 6.5, value: 0 }, { t: 6.9, value: 0.9 }, { t: 7.4, value: 0.9 }, { t: 7.9, value: 0 }],
     radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 4.7, value: 1 }, { t: 5.5, value: 0 }, { t: 6.5, value: 0 }, { t: 6.9, value: 0.9 }, { t: 7.4, value: 0.9 }, { t: 7.9, value: 0 }],
     stretch:       [{ t: 2.6, value: 1 }, { t: 3.3, value: 1.2 }, { t: 4.7, value: 2.1 }, { t: 6.5, value: 2.1 }, { t: 7.4, value: 3.2 }, { t: 8, value: 2.6 }],
@@ -321,7 +326,9 @@ await new Promise((r) => setTimeout(r, 100));
   const small = isSmallScreen();
   const scene = buildLessonScene({});
   renderer.setLayer('tube', scene.tube);
-  renderer.setLayer('swirl', scene.swirl);
+  renderer.setLayer('streakFast', scene.streakFast);
+  renderer.setLayer('streakMid', scene.streakMid);
+  renderer.setLayer('streakSlow', scene.streakSlow);
   renderer.setLayer('axialUp', scene.axialUp);
   renderer.setLayer('axialDown', scene.axialDown);
   renderer.setLayer('radial', scene.radial);
@@ -329,13 +336,20 @@ await new Promise((r) => setTimeout(r, 100));
   // Circulation around the core is conserved, so the angular rate rises in step
   // with how much the core has been stretched. One number drives both the
   // visible rotation and how fast the pulses run along the arrows.
-  const BASE_SPIN = 0.6;
-  let spinAngle = 0;
+  // Angular rate of a streak: outside the core the vortex is free, so
+  // u = Gamma / 2 pi r and Omega = Gamma / 2 pi r^2. A streak is material, so
+  // its radius contracts as 1/sqrt(stretch) while Gamma is conserved, leaving
+  // Omega proportional to stretch / radius^2. One constant sets the whole swarm.
+  const SWIRL_RATE = 0.06;
+  const streakAngle = new Float64Array(STREAKS.length);
   // Pulse phases are integrated, not derived from a clock times a rate: the
   // swirl rate follows the stretch, and multiplying a changing rate by an
   // absolute time slews the pulses by whole cycles.
-  const pulse = { axial: 0, radial: 0 };
-  const PULSE_SPEED = 0.8;
+  // Parcels of fluid carried by the straining flow. An arrow is that parcel's
+  // velocity vector, so it lengthens as the parcel accelerates outward along
+  // the axis and shortens as it slows on its way in. Pinning them in place, as
+  // fixed labels, left them frozen while everything they annotate moved.
+  const parcels = seedStrainParcels();
   let elapsed = 0;
   let smoothed = 0;
   let last = performance.now();
@@ -355,18 +369,29 @@ await new Promise((r) => setTimeout(r, 100));
     const sy = s.stretch;
     const sr = 1 / Math.sqrt(sy);
 
-    // Circulation is conserved: the loops contract as 1/sqrt(stretch) and turn
-    // as the stretch, so Gamma ~ Omega r^2 stays put. Exaggerating the rate
-    // would break the one law the figure exists to show, so the sequence
-    // stretches further instead.
-    spinAngle += dt * BASE_SPIN * sy;
+    for (let i = 0; i < STREAKS.length; i++) {
+      streakAngle[i] += dt * SWIRL_RATE * sy / (STREAKS[i].radius * STREAKS[i].radius);
+    }
 
     // The straining arrows are Eulerian, so their highlights run at the local
     // speed of the strain: u_z = gamma z along the axis and u_r = -gamma r / 2
     // across it, each divided by the length of the arrow drawing it.
     elapsed += dt;
-    pulse.axial += dt * PULSE_SPEED * AXIAL_PULSE_RATE;
-    pulse.radial += dt * PULSE_SPEED * RADIAL_PULSE_RATE;
+
+    // Advect the parcels: dz/dt = gamma z away from the stagnation plane and
+    // dr/dt = -gamma r / 2 toward the axis, which is the strain exactly. Each
+    // is recycled once it has run its course.
+    const grow = Math.exp(GAMMA * dt);
+    const draw = Math.exp((-GAMMA * dt) / 2);
+    for (const p of parcels.axial) {
+      p.z *= grow;
+      p.radius *= draw;
+      if (p.z > AXIAL_SPAN[1]) { p.z = AXIAL_SPAN[0]; p.radius = 0.98; }
+    }
+    for (const p of parcels.radial) {
+      p.radius *= draw;
+      if (p.radius < RADIAL_SPAN[0]) p.radius = RADIAL_SPAN[1];
+    }
 
     // The core is an open, gently curved tube. Stretching narrows it and never
     // lengthens it into view, and because the lateral wander scales with the
@@ -381,27 +406,55 @@ await new Promise((r) => setTimeout(r, 100));
 
     // Material loops painted on the tube. The flow carries them apart in
     // proportion to the stretch, contracts them with the core, and turns them.
-    const swirlRing = SWIRL_HEIGHTS.map((f, i) => ({
-      offsetY: f * sy + 0.05 * Math.sin(0.8 * elapsed + i * 2.1),
-      stretchR: sr * breath,
-      twist: -spinAngle,
-      opacity: s.swirlOpacity,
-      pulseAmp: 0
-    }));
+    // Each streak is carried by the flow: drawn inward as the core contracts,
+    // apart as it is stretched, and around at its own rate. The offset is
+    // applied before the scale, so the height divides through.
+    const swarm = { streakFast: [], streakMid: [], streakSlow: [] };
+    STREAKS.forEach((t, i) => {
+      const radius = t.radius * sr * breath;
+      swarm[t.band].push({
+        scale: radius,
+        offsetY: (t.y * sy + 0.04 * Math.sin(0.7 * elapsed + i)) / radius,
+        twist: t.twist + streakAngle[i],
+        opacity: s.streakOpacity,
+        pulseAmp: 0
+      });
+    });
 
-    const strainUp = STRAIN_AZIMUTHS.map((twist) => ({
-      twist, opacity: s.axialOpacity, phase: pulse.axial, pulseAmp: 1
-    }));
-    const strainDown = STRAIN_AZIMUTHS.map((twist) => ({
-      twist, opacity: s.axialOpacity, phase: pulse.axial, pulseAmp: 1
-    }));
-    const radialRing = RADIAL_PLACEMENTS.map((p) => ({
-      twist: p.twist,
-      offsetY: p.y,
-      opacity: s.radialOpacity,
-      phase: pulse.radial,
-      pulseAmp: 1
-    }));
+    // Fade a parcel in as it is born and out as it is retired, so recycling
+    // never shows as a pop.
+    const ends = (f) => smoothstep(0, 0.14, f) * (1 - smoothstep(0.86, 1, f));
+
+    const strainUp = [];
+    const strainDown = [];
+    const axialLife = Math.log(AXIAL_SPAN[1] / AXIAL_SPAN[0]);
+    for (const p of parcels.axial) {
+      // The arrow is the velocity vector: u_z = gamma z, drawn to scale.
+      const length = SPEED_TO_LENGTH * GAMMA * p.z;
+      const inst = {
+        scale: length,
+        twist: p.twist,
+        offsetR: p.radius / length,
+        offsetY: (p.sign * p.z) / length,
+        opacity: s.axialOpacity * ends(Math.log(p.z / AXIAL_SPAN[0]) / axialLife),
+        pulseAmp: 0
+      };
+      (p.sign > 0 ? strainUp : strainDown).push(inst);
+    }
+
+    const radialLife = Math.log(RADIAL_SPAN[1] / RADIAL_SPAN[0]);
+    const radialRing = parcels.radial.map((p) => {
+      // u_r = -gamma r / 2, so an inflow arrow shortens as it closes on the axis.
+      const length = SPEED_TO_LENGTH * GAMMA * p.radius * 0.5;
+      return {
+        scale: length,
+        twist: p.twist,
+        offsetR: (p.radius - length) / length,
+        offsetY: p.y / length,
+        opacity: s.radialOpacity * ends(Math.log(RADIAL_SPAN[1] / p.radius) / radialLife),
+        pulseAmp: 0
+      };
+    });
 
     renderer.render(gpuContext, {
       background: themeState.background,
@@ -412,7 +465,9 @@ await new Promise((r) => setTimeout(r, 100));
       peelLayers: small ? 3 : 4,
       layers: [
         { id: 'tube', instances: [core] },
-        { id: 'swirl', instances: swirlRing },
+        { id: 'streakSlow', instances: swarm.streakSlow },
+        { id: 'streakMid', instances: swarm.streakMid },
+        { id: 'streakFast', instances: swarm.streakFast },
         { id: 'axialUp', instances: strainUp },
         { id: 'axialDown', instances: strainDown },
         { id: 'radial', instances: radialRing }
@@ -646,7 +701,11 @@ The ansatz, the constants ${tex`T_g = 4+\sqrt 2`}, ${tex`\Lambda = 4-\sqrt 2`} a
 
 The profiles are not exact. The manuscript's ${tex`H`} and ${tex`K`} come out of an inductive scheme with corrections at every stage and are not something you can write on a line. The figures substitute the simplest profiles with the right behaviour, a localized axial strain and a Gaussian-cored swirl. One packet is drawn per generation, where the construction places many on a mesh of spacing ${tex`Q_n^a/n^6`}. Generations are nested about the point the cascade concentrates on, each turned by a fixed angle from the last so they can be told apart. Successive packets differ only in scale, since after rescaling a self-similar cascade repeats; the real generations also drift in shape, and that drift is not drawn.
 
-The first walkthrough is a diagram rather than a simulation: an idealized core with arrows for the two motions acting on it, not integrated fluid. Its spin-up is exaggerated, running as the square of the stretch where conservation of circulation gives the first power, and the swirl arrows shrink as its inverse so that the trade between size and rate is visible at all. The relationship it shows is real, and it is the one the whole construction runs on.
+The first walkthrough is a diagram rather than a simulation. It is drawn to one rule: everything on screen either moves with the fluid or measures it, and nothing does both.
+
+The core is a vortex tube, so it has no ends and it thins rather than lengthens. The streaks are parcels of fluid orbiting it, at the free-vortex rate ${tex`u_\theta = \Gamma / 2\pi r`}, which is why the ones near the axis whip round and the outer ones barely drift. They are carried inward as the core contracts and apart as it is stretched, so their radius goes like ${tex`S^{-1/2}`} and their angular rate like ${tex`S`}, leaving ${tex`\Gamma \sim \Omega r^2`} exactly constant. Nothing about the spin is exaggerated: the sequence stretches further instead. Arrows mean one thing only, the straining flow, and each is the velocity vector of the parcel carrying it, drawn to scale, lengthening as ${tex`u_z = \gamma z`} carries it out and shortening as ${tex`u_r = -\gamma r/2`} brings it in.
+
+Two things there are for legibility rather than fidelity. The strain runs at a fixed rate while the reader controls how far it has progressed, so the arrows keep streaming when you stop to read. And the core breathes slightly while the streaks bob, which no vortex does, so that a paused figure still reads as a process.
 
 This is a picture of the mechanism, not a rendering of the solution. Whether the proof is correct is a question for referees, and at the time of writing it is open.
   </script>
