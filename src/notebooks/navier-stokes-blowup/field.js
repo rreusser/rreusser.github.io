@@ -147,7 +147,7 @@ export function decimate(line, stride) {
  * twist artifacts a naive Frenet frame produces where the curve is nearly straight.
  * Tubes taper to a point at both ends.
  */
-export function tubeMesh(line, { radius = 0.02, sides = 8, taper = 0.16, scalarRange = [0, 1] } = {}) {
+export function tubeMesh(line, { radius = 0.02, sides = 8, taper = 0.16, taperEnds = true, scalarRange = [0, 1] } = {}) {
   const { points, speeds, times, count } = line;
   if (count < 2) return null;
 
@@ -197,10 +197,11 @@ export function tubeMesh(line, { radius = 0.02, sides = 8, taper = 0.16, scalarR
     binormal[1] = tangent[2] * normal[0] - tangent[0] * normal[2];
     binormal[2] = tangent[0] * normal[1] - tangent[1] * normal[0];
 
-    // Taper both ends to a point.
+    // Taper both ends to a point. A vortex tube must not: it cannot end in the
+    // fluid, so its geometry keeps full radius and simply leaves the frame.
     const u = i / (count - 1);
     const edge = Math.min(u, 1 - u) / taper;
-    const r = radius * Math.pow(Math.min(1, Math.max(0, edge)), 0.55);
+    const r = taperEnds ? radius * Math.pow(Math.min(1, Math.max(0, edge)), 0.55) : radius;
 
     const scalar = Math.min(1, Math.max(0, (speeds[i] - lo) / span));
 

@@ -1,6 +1,6 @@
 const UNIFORM_SIZE = 176;
 const MAX_INSTANCES = 64;
-const INSTANCE_FLOATS = 8;
+const INSTANCE_FLOATS = 12;
 const MAX_PEEL_LAYERS = 5;
 
 /** Interleave the vertex attributes into a single buffer. */
@@ -86,7 +86,8 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       stepMode: 'instance',
       attributes: [
         { shaderLocation: 4, offset: 0, format: 'float32x4' },
-        { shaderLocation: 5, offset: 16, format: 'float32x4' }
+        { shaderLocation: 5, offset: 16, format: 'float32x4' },
+        { shaderLocation: 6, offset: 32, format: 'float32x4' }
       ]
     }
   ];
@@ -257,6 +258,10 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
         instanceData[o + 5] = it.stretchR ?? 1;
         instanceData[o + 6] = it.offsetY ?? 0;
         instanceData[o + 7] = it.offsetR ?? 0;
+        instanceData[o + 8] = it.pulseAmp ?? 0;
+        instanceData[o + 9] = 0;
+        instanceData[o + 10] = 0;
+        instanceData[o + 11] = 0;
         slot++;
       }
       draws.push({ geometry, first, count: visible.length });

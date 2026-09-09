@@ -1,124 +1,139 @@
-import { straightArrow, arcArrow, revolution } from './arrows.js';
-
-/**
- * A capsule: constant radius through the middle, hemispherical caps. The
- * previous profile collapsed to a point through a fan of near-degenerate
- * triangles, which showed up as banding along the core.
- */
-function capsuleRadius(y, H, R) {
-  const straight = H - R;
-  const d = Math.abs(y);
-  if (d <= straight) return R;
-  const t = (d - straight) / R;
-  return R * Math.sqrt(Math.max(0, 1 - t * t));
-}
+import { straightArrow, arcArrow } from './arrows.js';
+import { tubeMesh } from './field.js';
 
 /**
  * Geometry for the vortex-stretching walkthrough.
  *
- * Each piece is built once, in a neutral position, and then placed by instance
- * data at draw time. The swirl arc and the radial arrow are each built a single
- * time and repeated around the axis by the instance twist, so adding a ring of
- * arrows costs nothing but instances.
+ * The picture is a Burgers vortex: a vortex line held by an axial strain that
+ * draws fluid in across the stagnation plane and pushes it out along the axis.
+ * Three rules govern what is drawn, and all three are physics rather than taste.
  *
- * The straight arrows deliberately do not stretch with the core. They stand for
- * the straining flow that is doing the pulling, not for fluid being pulled, so
- * they keep their proportions and are simply moved out of the way as the core
- * lengthens.
+ * A vortex tube cannot end in the fluid. Helmholtz allows it to close on itself,
+ * run to infinity, or end on a boundary, and nothing else. So the core is a tube
+ * of constant radius that leaves the frame at both ends, never capped, and
+ * stretching it does not lengthen it into view. It thins, which is the whole
+ * mechanism.
+ *
+ * A vortex is a line, not a cylinder. The core follows a gently curved
+ * centreline rather than a perfect axis, because that is what vorticity in a
+ * real flow looks like, and because stretching a curved tube straightens it: the
+ * lateral wander contracts with the radius, so the tube visibly pulls straight
+ * as it thins.
+ *
+ * An arrow either moves with the fluid or annotates it, never both. The swirl
+ * arcs are material loops around the core, so the flow carries them and they
+ * have no travelling highlight of their own. The straining arrows are Eulerian,
+ * so they stay put and a highlight runs along them at the local speed. An arrow
+ * that both moves and pulses claims two different velocities at once.
  */
-export function buildLessonScene({ H = 0.85, R = 0.40 } = {}) {
-  // A rounded cylinder: nearly constant radius with softened ends.
-  const tube = revolution({
-    profile: (v) => {
-      const y = (-1 + 2 * v) * H;
-      return [capsuleRadius(y, H, R), y];
-    },
-    rows: 44,
-    sides: 40,
-    scalar: 0.06
-  });
 
-  // A single arc at y = 0, repeated up the axis by instance offsets. Ending it
-  // near the front means the head is never hidden behind the core.
-  // A lighter core for the child vortices, so a small copy still reads against
-  // the background instead of going to a dark smudge.
-  const childTube = revolution({
-    profile: (v) => {
-      const y = (-1 + 2 * v) * H;
-      return [capsuleRadius(y, H, R), y];
-    },
-    rows: 30,
-    sides: 24,
-    scalar: 0.33
-  });
+/** Half-length of the core. Long enough to leave the frame at both ends. */
+export const TUBE_HALF = 5.0;
 
+/** Radius of the vortex core at zero stretch. A line, not a pipe. */
+export const CORE_RADIUS = 0.105;
+
+/**
+ * Lateral wander of the centreline. Contracts with the core as it stretches.
+ * Kept well inside the material loops, which are centred on the axis rather
+ * than on the wandering line, so that the loops always encircle the core.
+ */
+const WANDER = 0.075;
+
+/** Radius of the material loops. Comfortably clear of the wandering core. */
+const LOOP_RADIUS = 0.58;
+
+/** A gently curved centreline, mostly along +y, as an untapered tube. */
+function curvedCore(radius) {
+  const stations = 96;
+  const points = [];
+  const speeds = [];
+  const times = [];
+  for (let i = 0; i < stations; i++) {
+    const t = -1 + (2 * i) / (stations - 1);
+    const y = t * TUBE_HALF;
+    // Two incommensurate turns, so it reads as a wandering line rather than a
+    // coil. Amplitude eases off nowhere: the tube is curved all the way out.
+    points.push(
+      WANDER * Math.sin(1.15 * y + 0.4),
+      y,
+      WANDER * 0.75 * Math.cos(0.83 * y - 0.7)
+    );
+    speeds.push(0.06);
+    times.push(t);
+  }
+  return tubeMesh({ points, speeds, times, count: stations }, {
+    radius,
+    sides: 20,
+    taperEnds: false,
+    scalarRange: [0, 1]
+  });
+}
+
+export function buildLessonScene() {
+  const tube = curvedCore(CORE_RADIUS);
+
+  // A material loop around the core, repeated up the axis by instance offsets.
+  // It ends near the front so its head is never hidden behind the tube.
   const swirl = arcArrow({
-    radius: R * 2.0,
+    radius: LOOP_RADIUS,
     y: 0,
-    from: -1.7,
-    to: 0.6,
-    tube: 0.062,
+    from: -2.2,
+    to: 0.7,
+    tube: 0.05,
     headScale: 2.3,
     segments: 40,
     sides: 12,
     scalar: 0.9
   });
 
-  // Set well clear of the core, or the shaft disappears into it and only the
-  // head shows, which reads as a cone stuck on the end.
+  // The straining flow in the surrounding fluid: outward along the axis, away
+  // from the stagnation plane. Built off-axis at one azimuth and repeated
+  // around by the instance twist, so it never collides with the core.
   const axialUp = straightArrow({
-    from: [0, H + 0.34, 0],
-    to: [0, H + 1.24, 0],
-    radius: 0.058,
+    from: [0.98, 0.5, 0],
+    to: [0.98, 1.5, 0],
+    radius: 0.05,
     sides: 12,
     scalar: 0.10
   });
 
   const axialDown = straightArrow({
-    from: [0, -(H + 0.34), 0],
-    to: [0, -(H + 1.24), 0],
-    radius: 0.058,
+    from: [0.98, -0.5, 0],
+    to: [0.98, -1.5, 0],
+    radius: 0.05,
     sides: 12,
     scalar: 0.10
   });
 
-  // One inward arrow along +x, repeated around the axis by instance twist.
+  // Inflow across the stagnation plane, replacing what the axis carries away.
   const radial = straightArrow({
-    from: [3.4 * R, 0, 0],
-    to: [1.9 * R, 0, 0],
-    radius: 0.05,
+    from: [1.55, 0, 0],
+    to: [0.85, 0, 0],
+    radius: 0.045,
     sides: 12,
     scalar: 0.55
   });
 
-  return { tube, childTube, swirl, axialUp, axialDown, radial, H, R };
+  return { tube, swirl, axialUp, axialDown, radial };
 }
 
-/** Heights, as a fraction of H, at which swirl arcs wrap the core. */
-export const SWIRL_HEIGHTS = [-0.55, 0, 0.55];
+/**
+ * Heights of the material loops, in units of length at zero stretch. The flow
+ * carries them, so they drift apart in proportion to the stretch while their
+ * radius contracts with the core.
+ */
+export const SWIRL_HEIGHTS = [-0.62, 0, 0.62];
 
-/** Azimuths and heights for the ring of inward-pointing arrows. */
-export const RADIAL_PLACEMENTS = [0, 1, 2, 3, 4].map((i) => ({
-  twist: (i / 5) * Math.PI * 2 + 0.35,
-  y: (i % 2 ? 0.3 : -0.3)
+/** Azimuths for the ring of straining arrows. */
+export const STRAIN_AZIMUTHS = [0.5, 2.6, 4.7];
+
+/** Azimuths and heights for the inward arrows across the stagnation plane. */
+export const RADIAL_PLACEMENTS = [0, 1, 2, 3].map((i) => ({
+  twist: (i / 4) * Math.PI * 2 + 0.9,
+  y: (i % 2 ? 0.2 : -0.2)
 }));
 
-/**
- * Smaller vortices spun off the parent, for the beat about the turbulent
- * cascade. Each is a scaled copy placed off-axis, so it costs only instances.
- *
- * `radius` and `y` are where the child should land in world space. The shader
- * applies the instance offset before the instance scale, so callers divide by
- * the scale; placing them without that puts every child inside its parent.
- */
-export const CHILDREN = [
-  { scale: 0.46, radius: 1.55, y: 0.85, twist: 0.7 },
-  { scale: 0.36, radius: 1.8, y: -1.0, twist: 2.9 },
-  { scale: 0.28, radius: 1.35, y: 0.15, twist: 4.7 }
-];
-
-/** A child is stretched too, but less, so it still reads as a tube. */
-export const CHILD_STRETCH = 1.35;
-
-/** Heights within a child at which its own swirl arcs sit. */
-export const CHILD_SWIRL_HEIGHTS = [-0.45, 0.45];
+/** Local speed of the straining flow at each arrow, over the arrow's length. */
+export const AXIAL_PULSE_RATE = 1.0 / 1.0;
+export const RADIAL_PULSE_RATE = (0.5 * 1.2) / 0.7;

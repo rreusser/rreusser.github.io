@@ -50,6 +50,7 @@ struct VertexOutput {
   @location(3) vPhase: f32,
   @location(4) vOpacity: f32,
   @location(5) vPulse: f32,
+  @location(6) vPulseAmp: f32,
 };
 
 /**
@@ -79,7 +80,8 @@ fn vs(
   @location(2) scalar: f32,
   @location(3) phase: f32,
   @location(4) instA: vec4f,
-  @location(5) instB: vec4f
+  @location(5) instB: vec4f,
+  @location(6) instC: vec4f
 ) -> VertexOutput {
   let sy = instB.x;
   let sr = instB.y;
@@ -109,6 +111,10 @@ fn vs(
   out.vPhase = phase;
   out.vOpacity = instA.z;
   out.vPulse = instA.w;
+  // instC.x is the pulse amplitude. A material marker carried by the flow gets
+  // zero: its own motion already shows the velocity, and a highlight running
+  // along it as well would claim a second, different one.
+  out.vPulseAmp = instC.x;
   return out;
 }
 
@@ -129,7 +135,7 @@ fn shade(in: VertexOutput) -> vec4f {
   // Both smoothstep edges ascend: WGSL leaves it undefined when low >= high.
   let pulse = fract(in.vPhase * u.flowRate - in.vPulse);
   let band = smoothstep(0.55, 0.9, pulse) * (1.0 - smoothstep(0.9, 1.0, pulse));
-  base = base * (1.0 + u.flowAmp * band);
+  base = base * (1.0 + u.flowAmp * in.vPulseAmp * band);
 
   let key = normalize(vec3f(0.45, 0.6, 0.75));
   let fill = normalize(vec3f(-0.6, 0.35, -0.3));

@@ -19,7 +19,12 @@
         top: 0;
         left: 0;
         width: 100%;
+        /* Small viewport height, not 100vh. On iOS 100vh is the height the page
+           would have with the toolbars hidden, so a pinned element sized that
+           way runs underneath the toolbar and its centre — where the figure is
+           drawn — sits below the centre of what you can actually see. */
         height: 100vh;
+        height: 100svh;
         z-index: 0;
         pointer-events: none;
       }
@@ -50,6 +55,7 @@
 
       .scrollyteller__frame {
         height: 100vh;
+        height: 100svh;
         position: relative;
       }
 
@@ -121,8 +127,8 @@ import { observeTheme } from './lib/theme.js';
 import { createField, seedRings, decimate, tubeMesh, mergeMeshes, speedRange } from './field.js';
 import { toYUp } from './arrows.js';
 import {
-  buildLessonScene, SWIRL_HEIGHTS, RADIAL_PLACEMENTS,
-  CHILDREN, CHILD_STRETCH, CHILD_SWIRL_HEIGHTS
+  buildLessonScene, SWIRL_HEIGHTS, RADIAL_PLACEMENTS, STRAIN_AZIMUTHS,
+  AXIAL_PULSE_RATE, RADIAL_PULSE_RATE
 } from './scene.js';
 import { tubeShaderCode, compositeShaderCode } from './shaders.js';
 import { createRenderer } from './renderer.js';
@@ -271,25 +277,24 @@ await new Promise((r) => setTimeout(r, 100));
 
 {
   const captions = [
-    { text: "A tube of spinning fluid. Its axis of rotation runs up the middle.", left: "8%", bottom: "12%" },
+    { text: "A vortex line: a thread of spinning fluid. It has no ends, because a vortex tube cannot stop in mid-fluid, so it leaves the frame both ways.", left: "8%", bottom: "12%" },
     { text: "Now a second, unrelated motion: the fluid is pulled apart along that same axis, and drawn inward from the sides to replace it.", right: "8%", bottom: "12%" },
     { text: "Run both at once.", left: "8%", bottom: "12%" },
-    { text: "Stretching the tube makes it thinner. Thinner means the same spin packed into a smaller circle, so it turns faster.", right: "8%", bottom: "12%" },
+    { text: "Stretching it makes it thinner, and pulls it straight. The loops drift apart and contract, and the same circulation around a smaller circle has to turn faster.", right: "8%", bottom: "12%" },
     { text: "A skater pulling their arms in. Nothing is added; the rotation just has less room.", left: "8%", bottom: "12%" },
     { text: "This is ordinary three-dimensional fluid motion. It is also precisely what two-dimensional flow cannot do, which is why the two-dimensional problem was settled long ago.", right: "8%", bottom: "12%" },
-    { text: "It is how turbulence works. Each stretched vortex spins up smaller ones, and energy walks down the scales.", left: "8%", bottom: "12%" },
-    { text: "And normally it stops. Below some scale, viscosity smooths faster than stretching sharpens, and the cascade dies out.", right: "8%", bottom: "12%" }
+    { text: "Keep pulling and it keeps going: thinner, faster, finer. This is the turbulent cascade, energy walking down the scales.", left: "8%", bottom: "12%" },
+    { text: "And normally it stops. Below some scale viscosity spreads the core faster than stretching can thin it, and the cascade dies out.", right: "8%", bottom: "12%" }
   ];
 
   const frameCount = captions.length;
   const sequencer = createSequencer({
     tubeOpacity:   [{ t: 0, value: 0 }, { t: 0.45, value: 0.8 }, { t: 7.3, value: 0.8 }, { t: 8, value: 0.45 }],
     swirlOpacity:  [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.06 }, { t: 2.4, value: 0.06 }, { t: 3.0, value: 1 }],
-    axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.14 }],
-    radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.10 }],
-    childOpacity:  [{ t: 6.3, value: 0 }, { t: 7.0, value: 1 }, { t: 7.4, value: 1 }, { t: 7.95, value: 0.04 }],
-    stretch:       [{ t: 2.6, value: 1 }, { t: 3.3, value: 1.14 }, { t: 4.3, value: 1.9 }, { t: 5.7, value: 1.9 }, { t: 6.4, value: 1.6 }],
-    distance:      [{ t: 0, value: 5.6 }, { t: 4.3, value: 7.3 }, { t: 5.7, value: 7.6 }, { t: 6.8, value: 8.4 }]
+    axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 4.7, value: 1 }, { t: 5.5, value: 0 }, { t: 6.5, value: 0 }, { t: 6.9, value: 0.9 }, { t: 7.4, value: 0.9 }, { t: 7.9, value: 0 }],
+    radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 4.7, value: 1 }, { t: 5.5, value: 0 }, { t: 6.5, value: 0 }, { t: 6.9, value: 0.9 }, { t: 7.4, value: 0.9 }, { t: 7.9, value: 0 }],
+    stretch:       [{ t: 2.6, value: 1 }, { t: 3.3, value: 1.2 }, { t: 4.7, value: 2.1 }, { t: 6.5, value: 2.1 }, { t: 7.4, value: 3.2 }, { t: 8, value: 2.6 }],
+    distance:      [{ t: 0, value: 5.8 }, { t: 4.7, value: 6.3 }, { t: 7.4, value: 6.7 }]
   });
 
   const { container, background, fixed } = buildScrollyteller('scrolly-stretching', captions);
@@ -316,7 +321,6 @@ await new Promise((r) => setTimeout(r, 100));
   const small = isSmallScreen();
   const scene = buildLessonScene({});
   renderer.setLayer('tube', scene.tube);
-  renderer.setLayer('childTube', scene.childTube);
   renderer.setLayer('swirl', scene.swirl);
   renderer.setLayer('axialUp', scene.axialUp);
   renderer.setLayer('axialDown', scene.axialDown);
@@ -325,15 +329,14 @@ await new Promise((r) => setTimeout(r, 100));
   // Circulation around the core is conserved, so the angular rate rises in step
   // with how much the core has been stretched. One number drives both the
   // visible rotation and how fast the pulses run along the arrows.
-  // Circulation is conserved, so the angular rate goes like the stretch. The
-  // figure shows it squared, because a factor of two over the whole sequence is
-  // not enough to read as "faster".
-  const BASE_SPIN = 0.5;
+  const BASE_SPIN = 0.6;
   let spinAngle = 0;
   // Pulse phases are integrated, not derived from a clock times a rate: the
   // swirl rate follows the stretch, and multiplying a changing rate by an
   // absolute time slews the pulses by whole cycles.
-  const pulse = { core: 0, swirl: 0, axial: 0, radial: 0, child: 0 };
+  const pulse = { axial: 0, radial: 0 };
+  const PULSE_SPEED = 0.8;
+  let elapsed = 0;
   let smoothed = 0;
   let last = performance.now();
 
@@ -351,72 +354,67 @@ await new Promise((r) => setTimeout(r, 100));
 
     const sy = s.stretch;
     const sr = 1 / Math.sqrt(sy);
-    spinAngle += dt * BASE_SPIN * sy * sy;
-    pulse.core += dt * 0.9;
-    pulse.swirl += dt * 0.5 * sy * sy;
-    pulse.axial += dt * 1.1;
-    pulse.radial += dt * 1.2;
-    pulse.child += dt * 2.2;
 
-    const H = scene.H;
-    const shift = (sy - 1) * H;
+    // Circulation is conserved: the loops contract as 1/sqrt(stretch) and turn
+    // as the stretch, so Gamma ~ Omega r^2 stays put. Exaggerating the rate
+    // would break the one law the figure exists to show, so the sequence
+    // stretches further instead.
+    spinAngle += dt * BASE_SPIN * sy;
 
-    const core = { stretchY: sy, stretchR: sr, opacity: s.tubeOpacity, phase: pulse.core };
-    // Arrows shrink as the core spins up: length and width both go like 1/sy,
-    // against an angular rate going like sy^2. Circulation, hand-waved.
-    const arrow = 1 / Math.sqrt(sy);
-    const swirlRing = SWIRL_HEIGHTS.map((f) => ({
-      scale: arrow,
-      offsetY: (f * H * sy) / arrow,
-      stretchR: sr,
+    // The straining arrows are Eulerian, so their highlights run at the local
+    // speed of the strain: u_z = gamma z along the axis and u_r = -gamma r / 2
+    // across it, each divided by the length of the arrow drawing it.
+    elapsed += dt;
+    pulse.axial += dt * PULSE_SPEED * AXIAL_PULSE_RATE;
+    pulse.radial += dt * PULSE_SPEED * RADIAL_PULSE_RATE;
+
+    // The core is an open, gently curved tube. Stretching narrows it and never
+    // lengthens it into view, and because the lateral wander scales with the
+    // radius the line visibly pulls straight as it thins. Material markers
+    // carry no highlight of their own.
+    // A slow breath on the core, and a slight bob on each loop. Neither is a
+    // real vortex evolution; they are there so the figure reads as a process
+    // rather than a diagram. The loops breathe with the core, since they are
+    // painted on it.
+    const breath = 1 + 0.035 * Math.sin(0.55 * elapsed);
+    const core = { stretchR: sr * breath, opacity: s.tubeOpacity, pulseAmp: 0 };
+
+    // Material loops painted on the tube. The flow carries them apart in
+    // proportion to the stretch, contracts them with the core, and turns them.
+    const swirlRing = SWIRL_HEIGHTS.map((f, i) => ({
+      offsetY: f * sy + 0.05 * Math.sin(0.8 * elapsed + i * 2.1),
+      stretchR: sr * breath,
       twist: -spinAngle,
       opacity: s.swirlOpacity,
-      phase: pulse.swirl
+      pulseAmp: 0
+    }));
+
+    const strainUp = STRAIN_AZIMUTHS.map((twist) => ({
+      twist, opacity: s.axialOpacity, phase: pulse.axial, pulseAmp: 1
+    }));
+    const strainDown = STRAIN_AZIMUTHS.map((twist) => ({
+      twist, opacity: s.axialOpacity, phase: pulse.axial, pulseAmp: 1
     }));
     const radialRing = RADIAL_PLACEMENTS.map((p) => ({
       twist: p.twist,
-      offsetY: p.y * H * sy,
-      offsetR: scene.R * sr + 0.18 - 1.9 * scene.R,
+      offsetY: p.y,
       opacity: s.radialOpacity,
-      phase: pulse.radial
+      phase: pulse.radial,
+      pulseAmp: 1
     }));
-
-    // Children are the same geometry again, smaller and placed off-axis. The
-    // offset is applied before the scale, so divide through to land them where
-    // scene.js says rather than inside the parent.
-    const childR = 1 / Math.sqrt(CHILD_STRETCH);
-    const childCores = CHILDREN.map((c) => ({
-      scale: c.scale, twist: c.twist,
-      offsetR: c.radius / c.scale, offsetY: c.y / c.scale,
-      stretchY: CHILD_STRETCH, stretchR: childR,
-      opacity: s.childOpacity * s.tubeOpacity, phase: pulse.core
-    }));
-    // Two arcs each, because at this size a single one is easy to miss.
-    // A child's twist is its azimuth around the main axis, because the offset is
-    // applied before the rotation. Adding spin to it would orbit the child
-    // rather than turn it, so the pulses alone carry its rotation.
-    const childSwirls = CHILDREN.flatMap((c) =>
-      CHILD_SWIRL_HEIGHTS.map((f) => ({
-        scale: c.scale, twist: c.twist,
-        offsetR: c.radius / c.scale,
-        offsetY: c.y / c.scale + f * H * CHILD_STRETCH,
-        stretchR: childR,
-        opacity: s.childOpacity, phase: pulse.child
-      })));
 
     renderer.render(gpuContext, {
       background: themeState.background,
       isDark: themeState.isDark,
-      flowRate: 1.15,
-      flowAmp: 0.7,
-      sceneRadius: 4.2,
+      flowRate: 1.0,
+      flowAmp: 0.85,
+      sceneRadius: 3.2,
       peelLayers: small ? 3 : 4,
       layers: [
         { id: 'tube', instances: [core] },
-        { id: 'childTube', instances: childCores },
-        { id: 'swirl', instances: [...swirlRing, ...childSwirls] },
-        { id: 'axialUp', instances: [{ offsetY: shift, opacity: s.axialOpacity, phase: pulse.axial }] },
-        { id: 'axialDown', instances: [{ offsetY: -shift, opacity: s.axialOpacity, phase: pulse.axial }] },
+        { id: 'swirl', instances: swirlRing },
+        { id: 'axialUp', instances: strainUp },
+        { id: 'axialDown', instances: strainDown },
         { id: 'radial', instances: radialRing }
       ]
     }, camera, canvas.width, canvas.height);
