@@ -289,19 +289,23 @@ await new Promise((r) => setTimeout(r, 100));
     { text: "Run both at once.", left: "8%", bottom: "12%" },
     { text: "Stretching it makes it thinner and pulls it straight. The fluid is drawn inward and whips faster, because the same circulation now wraps a smaller circle.", right: "8%", bottom: "12%" },
     { text: "A skater pulling their arms in. Nothing is added; the rotation just has less room.", left: "8%", bottom: "12%" },
-    { text: "This is ordinary three-dimensional fluid motion. It is also precisely what two-dimensional flow cannot do, which is why the two-dimensional problem was settled long ago.", right: "8%", bottom: "12%" },
-    { text: "Keep pulling and it keeps going: thinner, faster, finer. This is the turbulent cascade, energy walking down the scales.", left: "8%", bottom: "12%" },
-    { text: "And normally it stops. Below some scale viscosity spreads the core faster than stretching can thin it, and the cascade dies out.", right: "8%", bottom: "12%" }
+    { text: "Thinner, faster, finer. This is the turbulent cascade, energy walking down the scales.", right: "8%", bottom: "12%" },
+    { text: "And normally it stops. Below some scale viscosity spreads the core faster than stretching can thin it, and the cascade dies out.", left: "8%", bottom: "12%" }
   ];
 
+  // One pull, start to finish. The stretch rises once and then levels off,
+  // which is the last caption: viscosity catching up is the curve going flat,
+  // not a new thing appearing. The strain arrows are on only while it is rising,
+  // since they are there to show a change and there is nothing to show once it
+  // stops.
   const frameCount = captions.length;
   const sequencer = createSequencer({
-    tubeOpacity:   [{ t: 0, value: 0 }, { t: 0.45, value: 0.8 }, { t: 7.3, value: 0.8 }, { t: 8, value: 0.45 }],
-    streakOpacity:  [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.06 }, { t: 2.4, value: 0.06 }, { t: 3.0, value: 1 }],
-    axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 4.7, value: 1 }, { t: 5.5, value: 0 }, { t: 6.5, value: 0 }, { t: 6.9, value: 0.9 }, { t: 7.4, value: 0.9 }, { t: 7.9, value: 0 }],
-    radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 4.7, value: 1 }, { t: 5.5, value: 0 }, { t: 6.5, value: 0 }, { t: 6.9, value: 0.9 }, { t: 7.4, value: 0.9 }, { t: 7.9, value: 0 }],
-    stretch:       [{ t: 2.6, value: 1 }, { t: 3.3, value: 1.2 }, { t: 4.7, value: 2.1 }, { t: 6.5, value: 2.1 }, { t: 7.4, value: 3.2 }, { t: 8, value: 2.6 }],
-    distance:      [{ t: 0, value: 5.8 }, { t: 4.7, value: 6.3 }, { t: 7.4, value: 6.7 }]
+    tubeOpacity:   [{ t: 0, value: 0 }, { t: 0.45, value: 0.8 }, { t: 7, value: 0.8 }],
+    streakOpacity: [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.06 }, { t: 2.4, value: 0.06 }, { t: 3.0, value: 1 }],
+    axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 5.4, value: 1 }, { t: 6.2, value: 0 }],
+    radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 5.4, value: 1 }, { t: 6.2, value: 0 }],
+    stretch:       [{ t: 2.4, value: 1 }, { t: 3.4, value: 1.35 }, { t: 4.6, value: 2.0 }, { t: 5.8, value: 3.0 }, { t: 6.4, value: 3.2 }, { t: 7, value: 3.2 }],
+    distance:      [{ t: 0, value: 5.8 }, { t: 4.6, value: 6.3 }, { t: 6.4, value: 6.7 }]
   });
 
   const { container, background, fixed } = buildScrollyteller('scrolly-stretching', captions);
