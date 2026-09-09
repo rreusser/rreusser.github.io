@@ -775,6 +775,16 @@ await new Promise((r) => setTimeout(r, 100));
     const instances = [];
     for (let k = 0; k < COPIES; k++) {
       const m = k - u;
+      // The pattern's spatial frequency is a uniform, shared by every copy, and
+      // it has to stay that way. Scaling it per copy to hold the stripe length
+      // fixed on screen means scaling it by Lambda^-m, and m = k - u moves with
+      // the scroll; multiplying a baked advection time that reaches 170 by a
+      // factor that slides is what makes the pattern zip along the streamlines
+      // as the page moves. Tying it to the whole generation instead does not
+      // help: the copies recycle, so any frequency that keeps the picture
+      // continuous through a wrap must be a function of m, and any function of
+      // m moves with the scroll. Stripes on the inner copies are finer, and the
+      // only honest lever on that is flowRate, which moves all of them at once.
       const scale = Math.pow(Scales.LAMBDA, -m);
       // Rate inversely proportional to the copy's scale, so the pulses travel at
       // one speed across the screen however deep the packet is and the nesting
@@ -785,11 +795,6 @@ await new Promise((r) => setTimeout(r, 100));
       slotPhase[k] = (slotPhase[k] + dt * PULSE_CAP * Math.tanh(raw / PULSE_CAP)) % 1;
       instances.push({
         scale,
-        // Cancel the copy's own scaling of the pattern, so a stripe is the same
-        // length on screen in every generation instead of Lambda^-m shorter.
-        // The nesting is still self-similar in shape; only the marking on it is
-        // held at a size the eye can resolve.
-        freq: scale,
         twist: m * TWIST,
         opacity: s.streamOpacity * smoothstep(-1, 0, m) * (1 - smoothstep(COPIES - 2, COPIES - 1, m)),
         phase: slotPhase[k],
@@ -800,7 +805,7 @@ await new Promise((r) => setTimeout(r, 100));
     renderer.render(gpuContext, {
       background: themeState.background,
       isDark: themeState.isDark,
-      flowRate: 1.0,
+      flowRate: 0.8,
       flowAmp: 0.55,
       sceneRadius: 9,
       peelLayers: small ? 3 : 4,

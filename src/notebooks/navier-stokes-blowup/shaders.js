@@ -51,7 +51,6 @@ struct VertexOutput {
   @location(4) vOpacity: f32,
   @location(5) vPulse: f32,
   @location(6) vPulseAmp: f32,
-  @location(7) vFreq: f32,
 };
 
 /**
@@ -128,10 +127,6 @@ fn vs(
   // zero: its own motion already shows the velocity, and a highlight running
   // along it as well would claim a second, different one.
   out.vPulseAmp = instC.x;
-  // instC.z scales the pattern's spatial frequency for this instance. The phase
-  // is baked in advection time, so without it a copy drawn at scale s carries
-  // stripes s times finer on screen and the deep ones comb down into a mush.
-  out.vFreq = instC.z;
   return out;
 }
 
@@ -150,7 +145,7 @@ fn shade(in: VertexOutput) -> vec4f {
   // elapsed advection time for tubes and tail-to-tip position for arrows, so in
   // both cases a pulse moving through it reads as motion in the flow direction.
   // Both smoothstep edges ascend: WGSL leaves it undefined when low >= high.
-  let pulse = fract(in.vPhase * u.flowRate * in.vFreq - in.vPulse);
+  let pulse = fract(in.vPhase * u.flowRate - in.vPulse);
   let band = smoothstep(0.55, 0.9, pulse) * (1.0 - smoothstep(0.9, 1.0, pulse));
   base = base * (1.0 + u.flowAmp * in.vPulseAmp * band);
 
