@@ -668,8 +668,9 @@ await new Promise((r) => setTimeout(r, 100));
     { text: "Here is the same mechanism, tuned so that it never runs out. The clock is running: everything below is one moment being followed to the next.", left: "8%", bottom: "12%" },
     { text: "To follow it at all we have to keep rescaling. The frame steps inward each time the cascade hands off, and the readout says what the magnification has reached.", right: "8%", bottom: "12%" },
     { text: "In these rescaled coordinates the flow is nearly steady. That is what self-similar means, and it is why one shape serves every generation.", left: "8%", bottom: "12%" },
-    { text: "The cost of holding it still is on the readout. Every handoff the magnification and the speed multiply again, while each generation is more inviscid than the last, so diffusion never catches up.", right: "8%", bottom: "12%" },
-    { text: "And the slots keep shortening. The clock stalls just short of <em>T</em>* while the magnification and the speed run away: infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", left: "8%", bottom: "12%" }
+    { text: "Ordinarily this would die out. In turbulence the velocity at a scale goes like the cube root of it, so the Reynolds number <em>falls</em> as the eddies get smaller and viscosity gains at every step down, until it wins.", right: "8%", bottom: "12%" },
+    { text: "Here the velocity grows fast enough as the scale shrinks that the product of the two goes the other way. Each generation has a <em>larger</em> Reynolds number than the last, and viscosity is never given the chance to catch up.", left: "8%", bottom: "12%" },
+    { text: "And the slots keep shortening. The clock stalls just short of <em>T</em>* while the magnification and the speed run away: infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", right: "8%", bottom: "12%" }
   ];
 
   const frameCount = captions.length;
@@ -1039,8 +1040,21 @@ await new Promise((r) => setTimeout(r, 100));
   const genPulse = new Float64Array(GEN_COUNT);
   const rateData = new Float32Array(GEN_COUNT);
 
+  /**
+   * Frames between stored trail samples.
+   *
+   * A trail is TRAIL samples long, so at one sample a frame it only ever
+   * covered TRAIL frames of a parcel's past -- about a fifth of a second, which
+   * came out around twenty pixels. Storing every fourth frame instead spans
+   * four times as much history for the same geometry. The head is still
+   * rewritten every frame, so nothing about the motion changes: only how far
+   * back the tail reaches.
+   */
+  const COMMIT = 4;
+
   let smoothed = 0;
   let stepIndex = 0;
+  let headSlot = 0;
   let logFrame = logRadial[0];
   let last = performance.now();
   const loop = createFrameLoop((now) => {
@@ -1100,8 +1114,14 @@ await new Promise((r) => setTimeout(r, 100));
     }
     device.queue.writeBuffer(rateBuffer, 0, rateData);
 
-    const srcStep = stepIndex % TRAIL;
-    const dstStep = (stepIndex + 1) % TRAIL;
+    // The ring advances once every COMMIT frames, but the head is rewritten
+    // every frame, so a parcel still moves smoothly while its trail spans
+    // COMMIT times as much of its past. Lengthening the trail by raising the
+    // rate instead would have made the parcels move faster to get it.
+    const committing = stepIndex % COMMIT === 0;
+    const srcStep = headSlot;
+    const dstStep = committing ? (headSlot + 1) % TRAIL : headSlot;
+    headSlot = dstStep;
     simF32[0] = dt;
     simU32[4] = srcStep;
     simU32[5] = dstStep;
@@ -1122,7 +1142,7 @@ await new Promise((r) => setTimeout(r, 100));
     viewF32[23] = range[1];
     viewU32[24] = genOffset;
     viewU32[25] = PER_GEN;
-    viewU32[26] = (stepIndex + 1) % TRAIL;
+    viewU32[26] = (headSlot + 1) % TRAIL;
     viewU32[27] = DRAW_GENS;
     viewU32[28] = packed.count;
     viewF32[29] = BACKBONE_WIDTH * dpr;
@@ -1251,7 +1271,11 @@ Everything about a stage is then written in terms of one number that shrinks wit
 
 ${tex.block`\mathrm{Re}_n = Q_n^{-h} = 2^{nh},`}
 
-which grows without bound as long as ${tex`h > 0`}. That is the third caption made precise: every stage is more inviscid than the one before, so viscosity never catches up. It is also why ${tex`h`} cannot be zero.
+which grows without bound as long as ${tex`h > 0`}.
+
+This is the crux, and it runs against the picture the first figure leaves you with. In ordinary turbulence the velocity at scale ${tex`\ell`} goes like ${tex`\ell^{1/3}`}, so ${tex`\mathrm{Re} \sim \ell^{4/3}`} *falls* as the eddies get smaller: viscosity gains at every step down the cascade, and below the Kolmogorov scale it wins and the cascade stops. That is why the ordinary cascade is not a route to a singularity.
+
+Here the velocity grows quickly enough as the scale shrinks to reverse that. Writing the core width as ${tex`r = Q_n^{1/2}`}, the core speed is ${tex`u \sim r^{-(1+2h)}`} rather than ${tex`r^{1/3}`}, so the product ${tex`u\,r`} that sets the Reynolds number *grows* as ${tex`r`} falls, by a factor ${tex`2^{h}`} at every stage. Viscosity is never given the chance to catch up. It is also exactly why ${tex`h`} cannot be zero: at ${tex`h = 0`} the Reynolds number is the same from one stage to the next, the balance is precisely critical, and there is no margin left to run the argument on.
 
 What remains is to say when each stage happens, and this is where the whole thing is won or lost. A stage cannot be placed at an arbitrary moment: the cascade only zooms in whole steps, so stage ${tex`n`} has to be assigned some whole number of them,
 
