@@ -49,24 +49,32 @@ export const WRITHE = 0.085;
  * turns the swarm into a few enormous sweeping arcs.
  */
 function particle(scalar) {
-  const segments = 12;
-  const half = 0.085;
+  const segments = 8;
   const points = [];
   const speeds = [];
   const times = [];
   for (let i = 0; i < segments; i++) {
     const f = i / (segments - 1);
-    points.push(0, 0, -half + 2 * half * f);
+    points.push(0, 0, -PARTICLE_HALF + 2 * PARTICLE_HALF * f);
     speeds.push(scalar);
     times.push(f);
   }
+  // Few segments and few sides: there are well over a thousand of these, and
+  // each one is a couple of pixels across.
   return tubeMesh({ points, speeds, times, count: segments }, {
-    radius: 0.019,
-    sides: 6,
+    radius: 0.008,
+    sides: 5,
     taper: 0.45,
     scalarRange: [0, 1]
   });
 }
+
+/**
+ * Half-length of a dash at the reference speed. An instance stretches it along
+ * its own axis in proportion to how fast that parcel is actually moving, so a
+ * dash is a streak of fixed exposure rather than a bead of fixed size.
+ */
+const PARTICLE_HALF = 0.045;
 
 /** A gently curved centreline, mostly along +y, as an untapered tube. */
 function curvedCore(radius) {
@@ -163,23 +171,6 @@ const quasi = (n, k) => (0.5 + (n + 0.5) * R3[k]) % 1;
  * this choice alone: wide enough to read as differential rotation, narrow
  * enough that the outer particles still visibly drift.
  */
-const STREAK_R0 = 0.36;
-const STREAK_R1 = 1.10;
-
-export const STREAKS = Array.from({ length: 120 }, (_, i) => {
-  // Uniform in radius. Uniform in area would be the honest seeding of a fluid,
-  // but it puts well over half the swarm in the outermost, slowest band, where
-  // the free-vortex law leaves it looking static.
-  const radius = STREAK_R0 + (STREAK_R1 - STREAK_R0) * quasi(i, 0);
-  return {
-    radius,
-    // Spread the length of the visible core, not bunched around the middle.
-    y: -0.95 + 1.9 * quasi(i, 1),
-    twist: 2 * Math.PI * quasi(i, 2),
-    band: radius < 0.58 ? 'streakFast' : radius < 0.84 ? 'streakMid' : 'streakSlow'
-  };
-});
-
 /**
  * Gamma / 2 pi, in figure units: the one constant setting the whole swarm. A
  * particle at radius r orbits at u = SWIRL_STRENGTH / r, so the angular rate is
@@ -187,6 +178,32 @@ export const STREAKS = Array.from({ length: 120 }, (_, i) => {
  * one over root stretch, which leaves the rate proportional to the stretch.
  */
 export const SWIRL_STRENGTH = 0.30;
+
+const STREAK_R0 = 0.36;
+const STREAK_R1 = 1.10;
+
+export function seedStreaks(count) {
+  return Array.from({ length: count }, (_, i) => {
+    // Uniform in radius. Uniform in area would be the honest seeding of a fluid,
+    // but it puts well over half the swarm in the outermost, slowest band, where
+    // the free-vortex law leaves it looking static.
+    const radius = STREAK_R0 + (STREAK_R1 - STREAK_R0) * quasi(i, 0);
+    return {
+      radius,
+      // Spread the length of the visible core, not bunched around the middle.
+      y: -0.95 + 1.9 * quasi(i, 1),
+      twist: 2 * Math.PI * quasi(i, 2),
+      band: radius < 0.58 ? 'streakFast' : radius < 0.84 ? 'streakMid' : 'streakSlow'
+    };
+  });
+}
+
+/**
+ * The orbital speed at the middle of the swarm before any stretching, which is
+ * the speed a dash is drawn at its built length. Everything faster is drawn
+ * longer and everything slower shorter, in proportion.
+ */
+export const STREAK_REF_SPEED = SWIRL_STRENGTH / ((STREAK_R0 + STREAK_R1) / 2);
 
 /**
  * The nominal strain rate the arrows depict, in figure units. The reader

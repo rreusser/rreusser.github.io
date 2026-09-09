@@ -86,10 +86,16 @@ fn vs(
   let sy = instB.x;
   let sr = instB.y;
 
+  // instC.z stretches a piece along its own z before anything else, which for
+  // the swarm's dashes is the direction they travel. A parcel moving twice as
+  // fast leaves twice the streak in the same exposure, so the length carries the
+  // speed and the thickness stays put. Everything else passes 1.
+  let ez = instC.z;
+
   // Anisotropic stretch about the axis. Normals transform by the inverse
   // transpose, which for a diagonal scale is the reciprocal on each axis.
-  var stretched = vec3f(position.x * sr, position.y * sy, position.z * sr);
-  let nStretched = normalize(vec3f(normal.x / sr, normal.y / sy, normal.z / sr));
+  var stretched = vec3f(position.x * sr, position.y * sy, position.z * sr * ez);
+  let nStretched = normalize(vec3f(normal.x / sr, normal.y / sy, normal.z / (sr * ez)));
 
   // A slow writhe along the core. Vorticity in a real flow is never a straight
   // line, and stretching pulls a tube straight, so the amplitude rides on the

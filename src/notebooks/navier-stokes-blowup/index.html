@@ -187,7 +187,7 @@ import { observeTheme } from './lib/theme.js';
 import { createField, seedRings, decimate, tubeMesh, mergeMeshes, speedRange } from './field.js';
 import { toYUp } from './arrows.js';
 import {
-  buildLessonScene, STREAKS, SWIRL_STRENGTH, WRITHE, seedStrainParcels,
+  buildLessonScene, seedStreaks, STREAK_REF_SPEED, SWIRL_STRENGTH, WRITHE, seedStrainParcels,
   GAMMA, SPEED_TO_LENGTH, AXIAL_SPAN, RADIAL_SPAN
 } from './scene.js';
 import { tubeShaderCode, compositeShaderCode } from './shaders.js';
@@ -433,8 +433,12 @@ await new Promise((r) => setTimeout(r, 100));
     streakOpacity: [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.06 }, { t: 2.4, value: 0.06 }, { t: 3.0, value: 1 }],
     axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 5.4, value: 1 }, { t: 6.2, value: 0 }],
     radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 5.4, value: 1 }, { t: 6.2, value: 0 }],
-    stretch:       [{ t: 2.4, value: 1 }, { t: 3.4, value: 1.35 }, { t: 4.6, value: 2.0 }, { t: 5.8, value: 3.0 }, { t: 6.4, value: 3.2 }, { t: 7, value: 3.2 }],
-    distance:      [{ t: 0, value: 5.8 }, { t: 4.6, value: 6.3 }, { t: 6.4, value: 6.7 }]
+    // One gesture, not a sequence of them. Interior keyframes each ease in and
+    // out of their own segment, which is what made the pull read as three
+    // separate tugs; this is a single ramp instead, and the stretch is its
+    // exponential. That is also what a constant strain rate actually does to a
+    // material line, so the smooth version is the physical one.
+    strain:        [{ t: 2.4, value: 0 }, { t: 6.6, value: 1 }]
   });
 
   const { container, background, fixed } = buildScrollyteller('scrolly-stretching', captions);
@@ -471,6 +475,13 @@ await new Promise((r) => setTimeout(r, 100));
   // Circulation around the core is conserved, so the angular rate rises in step
   // with how much the core has been stretched. One number drives both the
   // visible rotation and how fast the pulses run along the arrows.
+  // A torrent, not a handful. The dashes are a few pixels across, so the count
+  // is what makes it read as fluid rather than as objects.
+  const STREAKS = seedStreaks(small ? 650 : 1300);
+
+  /** Total elongation of the core over the whole pull. */
+  const MAX_STRETCH = 3.2;
+
   const streakAngle = new Float64Array(STREAKS.length);
   // Pulse phases are integrated, not derived from a clock times a rate: the
   // swirl rate follows the stretch, and multiplying a changing rate by an
@@ -494,9 +505,12 @@ await new Promise((r) => setTimeout(r, 100));
     const s = sequencer.getState();
 
     // Set the camera before drawing, or the distance trails the scroll by a frame.
-    camera.setState({ distance: s.distance });
+    // The stretch and the camera pull-back both ride the one strain ramp, so
+    // there is a single smooth motion rather than several curves easing against
+    // each other.
+    const sy = Math.pow(MAX_STRETCH, s.strain);
+    camera.setState({ distance: 5.8 + 0.9 * s.strain });
 
-    const sy = s.stretch;
     const sr = 1 / Math.sqrt(sy);
 
     for (let i = 0; i < STREAKS.length; i++) {
@@ -541,12 +555,18 @@ await new Promise((r) => setTimeout(r, 100));
     // applied before the scale, so the height divides through.
     const swarm = { streakFast: [], streakMid: [], streakSlow: [] };
     STREAKS.forEach((t, i) => {
+      // Free vortex: the orbital speed is Gamma / 2 pi r at the parcel's own
+      // contracted radius, so it rises as the core is drawn in. The dash is
+      // drawn in proportion, which is what turns the swarm into streaks near
+      // the axis and drifting specks at the rim.
+      const speed = SWIRL_STRENGTH / (t.radius * sr);
       swarm[t.band].push({
         offsetR: t.radius * sr * breath,
         offsetY: t.y * sy + 0.03 * Math.sin(0.7 * elapsed + i),
         twist: t.twist + streakAngle[i],
         opacity: s.streakOpacity,
-        pulseAmp: 0
+        pulseAmp: 0,
+        elongate: speed / STREAK_REF_SPEED
       });
     });
 
@@ -644,8 +664,36 @@ await new Promise((r) => setTimeout(r, 100));
   const H_STRIP = 0.25;
   const GEN_MAX = 16;
 
+  /** How many chart steps the scroll zooms through. */
+  const ZOOM_SPAN = 3.4;
+
+  /**
+   * The pattern's spatial frequency at the top of the scroll. A median
+   * streamline spans about twenty units of advection time, so this is roughly
+   * six stripes along one -- long enough to read as a stripe rather than a comb.
+   */
+  const FLOW_RATE = 0.3;
+
+  /**
+   * How much the stripes lengthen over the descent.
+   *
+   * A streak of fixed exposure is as long as the fluid is fast, so if the flow
+   * runs ZOOM_ACCEL times quicker per generation the pattern should lengthen by
+   * the same factor, 6.2x across this scroll. That leaves under one stripe on a
+   * streamline by the bottom, so it is compressed to 3x, the same kind of
+   * dialling back as the rate itself.
+   *
+   * This is safe where the per-copy version was not. That one scaled frequency
+   * by Lambda^(u-k), which cycles through a factor of 2.6 within every single
+   * unit of zoom, so the pattern slid by tens of periods over and over. This
+   * changes by 3x once, monotonically, over the entire figure: about eight
+   * periods at the far end of the longest streamline spread over five frames of
+   * scrolling, which reads as the pattern stretching rather than running.
+   */
+  const PATTERN_GROWTH = 3;
+
   const sequencer = createSequencer({
-    zoom:          [{ t: 0, value: 0 }, { t: frameCount, value: 3.4, ease: linear }],
+    zoom:          [{ t: 0, value: 0 }, { t: frameCount, value: ZOOM_SPAN, ease: linear }],
     streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }],
     // The descent through generations, which the readout reports. It runs well
     // past the 3.4 chart steps the picture zooms through, because the point it
@@ -775,16 +823,14 @@ await new Promise((r) => setTimeout(r, 100));
     const instances = [];
     for (let k = 0; k < COPIES; k++) {
       const m = k - u;
-      // The pattern's spatial frequency is a uniform, shared by every copy, and
-      // it has to stay that way. Scaling it per copy to hold the stripe length
-      // fixed on screen means scaling it by Lambda^-m, and m = k - u moves with
-      // the scroll; multiplying a baked advection time that reaches 170 by a
-      // factor that slides is what makes the pattern zip along the streamlines
-      // as the page moves. Tying it to the whole generation instead does not
-      // help: the copies recycle, so any frequency that keeps the picture
-      // continuous through a wrap must be a function of m, and any function of
-      // m moves with the scroll. Stripes on the inner copies are finer, and the
-      // only honest lever on that is flowRate, which moves all of them at once.
+      // The pattern's frequency stays a uniform, shared by every copy. Scaling
+      // it per copy to hold the stripe length fixed on screen means scaling by
+      // Lambda^-m, and m = k - u cycles through a factor of Lambda within every
+      // unit of zoom, which slides the pattern by tens of periods over and over
+      // as the page moves. A slow monotone factor in the total zoom, which is
+      // what flowRate carries, does not: it stretches the pattern once across
+      // the whole figure. Inner copies still carry finer stripes than outer
+      // ones, and that is the part with no fix.
       const scale = Math.pow(Scales.LAMBDA, -m);
       // Rate inversely proportional to the copy's scale, so the pulses travel at
       // one speed across the screen however deep the packet is and the nesting
@@ -805,7 +851,7 @@ await new Promise((r) => setTimeout(r, 100));
     renderer.render(gpuContext, {
       background: themeState.background,
       isDark: themeState.isDark,
-      flowRate: 0.8,
+      flowRate: FLOW_RATE / Math.pow(PATTERN_GROWTH, s.zoom / ZOOM_SPAN),
       flowAmp: 0.55,
       sceneRadius: 9,
       peelLayers: small ? 3 : 4,

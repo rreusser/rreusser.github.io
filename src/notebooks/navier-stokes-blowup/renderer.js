@@ -1,5 +1,5 @@
 const UNIFORM_SIZE = 176;
-const MAX_INSTANCES = 224;
+const MAX_INSTANCES = 1400;
 const INSTANCE_FLOATS = 12;
 const MAX_PEEL_LAYERS = 5;
 
@@ -260,7 +260,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
         instanceData[o + 7] = it.offsetR ?? 0;
         instanceData[o + 8] = it.pulseAmp ?? 0;
         instanceData[o + 9] = it.writhe ?? 0;
-        instanceData[o + 10] = 0;
+        instanceData[o + 10] = it.elongate ?? 1;
         instanceData[o + 11] = 0;
         slot++;
       }
