@@ -1,7 +1,7 @@
 const UNIFORM_SIZE = 192;
-const SAMPLE_COUNT = 4;
 const MAX_INSTANCES = 64;
 const INSTANCE_FLOATS = 8;
+const MAX_PEEL_LAYERS = 5;
 
 /** Interleave the vertex attributes into a single buffer. */
 function interleave(mesh) {
@@ -22,16 +22,27 @@ function interleave(mesh) {
 }
 
 /**
- * A layered renderer.
+ * A layered renderer with order-independent transparency by depth peeling.
  *
- * Geometry is registered once per named layer and then drawn with a list of
- * instances per frame, each carrying its own placement, opacity and stretch.
- * Layers whose opacity has reached zero are skipped, which is what lets the
- * walkthrough fade parts of the figure in and out without paying for them.
+ * Geometry is registered once per named layer and drawn with a list of
+ * instances, each carrying its own placement, opacity and stretch. Fades are
+ * the whole vocabulary of the walkthrough, so transparency has to be correct
+ * regardless of draw order: sorting layers by hand fails as soon as two of them
+ * interleave in depth, and switching a layer between depth-writing and not as
+ * its opacity crosses a threshold makes everything it was hiding pop.
+ *
+ * So each frame peels a fixed number of surfaces front to back, each pass
+ * discarding anything at or in front of the previous pass's depth, then
+ * composites them back to front. The cost is the geometry drawn once per layer,
+ * and no multisampling, since the peel passes have to read their depth buffer
+ * back. Supersampling through the canvas backing store covers the second.
  */
 export function createRenderer(device, canvasFormat, shaderCodes) {
   const tubeModule = device.createShaderModule({ label: 'ns-blowup-tubes', code: shaderCodes.tube });
-  const axisModule = device.createShaderModule({ label: 'ns-blowup-axis', code: shaderCodes.axis });
+  const compositeModule = device.createShaderModule({
+    label: 'ns-blowup-composite',
+    code: shaderCodes.composite
+  });
 
   const uniformBuffer = device.createBuffer({
     label: 'ns-blowup-uniforms',
@@ -39,7 +50,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
 
-  const bindGroupLayout = device.createBindGroupLayout({
+  const uniformLayout = device.createBindGroupLayout({
     entries: [{
       binding: 0,
       visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
@@ -47,12 +58,18 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     }]
   });
 
-  const bindGroup = device.createBindGroup({
-    layout: bindGroupLayout,
+  const uniformBindGroup = device.createBindGroup({
+    layout: uniformLayout,
     entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
   });
 
-  const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+  const depthReadLayout = device.createBindGroupLayout({
+    entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } }]
+  });
+
+  const layerReadLayout = device.createBindGroupLayout({
+    entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }]
+  });
 
   const vertexBuffers = [
     {
@@ -79,62 +96,36 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
   };
 
-  /**
-   * One pipeline for everything, always blending and always writing depth.
-   *
-   * The obvious alternative, routing opaque layers through a depth-writing
-   * pipeline and translucent ones through a non-writing one, means a layer
-   * changes its occlusion behaviour the instant its opacity crosses the
-   * threshold. Everything it was hiding pops into view mid-fade. Since the
-   * whole walkthrough is built out of fades, that snap is constant.
-   *
-   * Writing depth for translucent geometry costs the ability to see one
-   * translucent surface through another, which this scene never needs: layers
-   * are drawn in back-to-front order and the arrows sit outside the core.
-   */
-  const tubePipeline = device.createRenderPipeline({
-    label: 'ns-blowup-tubes',
-    layout: pipelineLayout,
-    vertex: { module: tubeModule, entryPoint: 'vs', buffers: vertexBuffers },
-    fragment: {
-      module: tubeModule,
-      entryPoint: 'fs',
-      targets: [{ format: canvasFormat, blend: premultiplied }]
-    },
-    // Cull back faces: a closed surface drawn double-sided blends its own
-    // interior against its exterior, which reads as banding.
-    primitive: { topology: 'triangle-list', cullMode: 'back' },
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-    multisample: { count: SAMPLE_COUNT }
-  });
+  function makePeelPipeline(entryPoint, layouts) {
+    return device.createRenderPipeline({
+      label: `ns-blowup-${entryPoint}`,
+      layout: device.createPipelineLayout({ bindGroupLayouts: layouts }),
+      vertex: { module: tubeModule, entryPoint: 'vs', buffers: vertexBuffers },
+      // Each peel layer holds exactly one surface, so it needs no blending.
+      fragment: { module: tubeModule, entryPoint, targets: [{ format: 'rgba8unorm' }] },
+      // Back faces are culled: a closed surface drawn double-sided peels its own
+      // interior as a separate layer, which wastes a layer and reads as banding.
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' }
+    });
+  }
 
-  const axisPipeline = device.createRenderPipeline({
-    label: 'ns-blowup-axis-pipeline',
-    layout: pipelineLayout,
-    vertex: {
-      module: axisModule,
-      entryPoint: 'vs',
-      buffers: [{
-        arrayStride: 16,
-        attributes: [
-          { shaderLocation: 0, offset: 0, format: 'float32x3' },
-          { shaderLocation: 1, offset: 12, format: 'float32' }
-        ]
-      }]
-    },
+  const firstPipeline = makePeelPipeline('fsFirst', [uniformLayout]);
+  const peelPipeline = makePeelPipeline('fsPeel', [uniformLayout, depthReadLayout]);
+
+  const compositePipeline = device.createRenderPipeline({
+    label: 'ns-blowup-composite',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [layerReadLayout] }),
+    vertex: { module: compositeModule, entryPoint: 'vs' },
     fragment: {
-      module: axisModule,
+      module: compositeModule,
       entryPoint: 'fs',
       targets: [{ format: canvasFormat, blend: premultiplied }]
     },
-    primitive: { topology: 'line-list' },
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
-    multisample: { count: SAMPLE_COUNT }
+    primitive: { topology: 'triangle-list' }
   });
 
   const layers = new Map();
-  let axisBuffer = null;
-  let axisCount = 0;
 
   const instanceData = new Float32Array(MAX_INSTANCES * INSTANCE_FLOATS);
   const instanceBuffer = device.createBuffer({
@@ -143,10 +134,10 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
   });
 
-  let colorTexture = null;
-  let depthTexture = null;
-  let colorView = null;
-  let depthView = null;
+  let layerTextures = [];
+  let depthTextures = [];
+  let depthBindGroups = [];
+  let layerBindGroups = [];
   let texWidth = 0;
   let texHeight = 0;
 
@@ -182,58 +173,49 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     layers.set(id, { vertexBuffer, indexBuffer, indexCount: mesh.indices.length });
   }
 
-  const hasLayer = (id) => layers.has(id);
-
-  /**
-   * A faint dashed line along the axis of symmetry, which every generation
-   * shares. It is left unscaled because the axis is the one scale-invariant
-   * part of the picture.
-   */
-  function setAxis(y0, y1) {
-    if (axisBuffer) { axisBuffer.destroy(); axisBuffer = null; }
-    const dashes = 64;
-    const data = new Float32Array(dashes * 2 * 4);
-    for (let i = 0; i < dashes; i++) {
-      const a = y0 + ((y1 - y0) * i) / dashes;
-      const b = a + ((y1 - y0) / dashes) * 0.5;
-      const fade = 1 - Math.max(0, (a - y0) / (y1 - y0));
-      for (const [k, y] of [[0, a], [1, b]]) {
-        const o = (i * 2 + k) * 4;
-        data[o] = 0; data[o + 1] = y; data[o + 2] = 0;
-        data[o + 3] = Math.max(0, fade);
-      }
-    }
-    axisBuffer = device.createBuffer({
-      label: 'ns-blowup-axis',
-      size: data.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-    });
-    device.queue.writeBuffer(axisBuffer, 0, data);
-    axisCount = dashes * 2;
+  function releaseTextures() {
+    for (const t of layerTextures) t.destroy();
+    for (const t of depthTextures) t.destroy();
+    layerTextures = [];
+    depthTextures = [];
+    depthBindGroups = [];
+    layerBindGroups = [];
   }
 
   function ensureTextures(w, h) {
     if (texWidth === w && texHeight === h) return;
-    if (colorTexture) colorTexture.destroy();
-    if (depthTexture) depthTexture.destroy();
+    releaseTextures();
 
-    colorTexture = device.createTexture({
-      label: 'ns-blowup-msaa-color',
-      size: [w, h],
-      format: canvasFormat,
-      sampleCount: SAMPLE_COUNT,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT
-    });
-    depthTexture = device.createTexture({
-      label: 'ns-blowup-msaa-depth',
-      size: [w, h],
-      format: 'depth24plus',
-      sampleCount: SAMPLE_COUNT,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT
-    });
+    // Two depth buffers, ping-ponged: one being written, one being read.
+    for (let i = 0; i < 2; i++) {
+      depthTextures.push(device.createTexture({
+        label: `ns-blowup-peel-depth-${i}`,
+        size: [w, h],
+        format: 'depth32float',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      }));
+    }
+    for (let i = 0; i < MAX_PEEL_LAYERS; i++) {
+      layerTextures.push(device.createTexture({
+        label: `ns-blowup-peel-layer-${i}`,
+        size: [w, h],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      }));
+    }
+    for (let i = 0; i < 2; i++) {
+      depthBindGroups.push(device.createBindGroup({
+        layout: depthReadLayout,
+        entries: [{ binding: 0, resource: depthTextures[i].createView() }]
+      }));
+    }
+    for (let i = 0; i < MAX_PEEL_LAYERS; i++) {
+      layerBindGroups.push(device.createBindGroup({
+        layout: layerReadLayout,
+        entries: [{ binding: 0, resource: layerTextures[i].createView() }]
+      }));
+    }
 
-    colorView = colorTexture.createView();
-    depthView = depthTexture.createView();
     texWidth = w;
     texHeight = h;
   }
@@ -242,10 +224,11 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
    * Clip planes tight around the scene.
    *
    * The distance is taken from the camera's own orbit radius, i.e. from the
-   * point it is looking at, not from the world origin. Measuring from the
-   * origin while the camera orbits something else pushes the near plane toward
-   * zero, and a near/far ratio like 0.3/35 leaves almost no depth precision
-   * where the geometry actually is.
+   * point it is looking at, not from the world origin. Measuring from the origin
+   * while the camera orbits something else pushes the near plane toward zero,
+   * and a near/far ratio like 0.3/35 leaves almost no depth precision where the
+   * geometry actually is. Peeling compares depths directly, so it is especially
+   * sensitive to that.
    */
   function computeClipPlanes(camera, radius) {
     const distance = camera.getState().distance;
@@ -253,14 +236,59 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     return { near: smoothMax(distance - radius, 0.1, 0.25), far: distance + radius };
   }
 
+  /** Pack every layer's instances into one buffer and note where each starts. */
+  function packInstances(layerList) {
+    const draws = [];
+    let slot = 0;
+    for (const layer of layerList) {
+      const geometry = layers.get(layer.id);
+      if (!geometry) continue;
+      const visible = (layer.instances ?? []).filter((it) => (it.opacity ?? 1) > 0.004);
+      if (visible.length === 0 || slot + visible.length > MAX_INSTANCES) continue;
+
+      const first = slot;
+      for (const it of visible) {
+        const o = slot * INSTANCE_FLOATS;
+        instanceData[o] = it.scale ?? 1;
+        instanceData[o + 1] = it.twist ?? 0;
+        instanceData[o + 2] = it.opacity ?? 1;
+        instanceData[o + 3] = it.rate ?? 1;
+        instanceData[o + 4] = it.stretchY ?? 1;
+        instanceData[o + 5] = it.stretchR ?? 1;
+        instanceData[o + 6] = it.offsetY ?? 0;
+        instanceData[o + 7] = it.offsetR ?? 0;
+        slot++;
+      }
+      draws.push({ geometry, first, count: visible.length });
+    }
+    if (slot > 0) device.queue.writeBuffer(instanceBuffer, 0, instanceData, 0, slot * INSTANCE_FLOATS);
+    return draws;
+  }
+
+  function drawAll(pass, draws) {
+    for (const d of draws) {
+      pass.setVertexBuffer(0, d.geometry.vertexBuffer);
+      pass.setVertexBuffer(1, instanceBuffer, d.first * INSTANCE_FLOATS * 4);
+      pass.setIndexBuffer(d.geometry.indexBuffer, 'uint32');
+      pass.drawIndexed(d.geometry.indexCount, d.count);
+    }
+  }
+
   /**
-   * @param params.layers  [{ id, instances: [...] }] drawn in the given order,
-   *                        which should run back to front.
+   * @param params.layers      [{ id, instances: [...] }]; order does not matter
+   * @param params.peelLayers  surfaces resolved per pixel, 1..MAX_PEEL_LAYERS
    */
   function render(gpuContext, params, camera, w, h) {
     if (w === 0 || h === 0) return false;
-    const { view, projection, eye } = camera.update(w / h);
 
+    let target;
+    try {
+      target = gpuContext.getCurrentTexture();
+    } catch (e) {
+      return false;
+    }
+
+    const { view, projection, eye } = camera.update(w / h);
     ensureTextures(w, h);
 
     const { near, far } = computeClipPlanes(camera, params.sceneRadius ?? 12);
@@ -283,70 +311,52 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     f32[44] = params.isDark ? 1 : 0;
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
-    // Pack every layer's instances into one buffer, then draw each layer from
-    // its own slice of it.
-    const draws = [];
-    let slot = 0;
-    for (const layer of params.layers) {
-      const geometry = layers.get(layer.id);
-      if (!geometry) continue;
-      const visible = (layer.instances ?? []).filter((it) => (it.opacity ?? 1) > 0.004);
-      if (visible.length === 0 || slot + visible.length > MAX_INSTANCES) continue;
-
-      const first = slot;
-      for (const it of visible) {
-        const o = slot * INSTANCE_FLOATS;
-        instanceData[o] = it.scale ?? 1;
-        instanceData[o + 1] = it.twist ?? 0;
-        instanceData[o + 2] = it.opacity ?? 1;
-        instanceData[o + 3] = it.rate ?? 1;
-        instanceData[o + 4] = it.stretchY ?? 1;
-        instanceData[o + 5] = it.stretchR ?? 1;
-        instanceData[o + 6] = it.offset ?? 0;
-        instanceData[o + 7] = 0;
-        slot++;
-      }
-      draws.push({ geometry, first, count: visible.length });
-    }
-    if (slot > 0) device.queue.writeBuffer(instanceBuffer, 0, instanceData, 0, slot * INSTANCE_FLOATS);
-
-    const bg = params.background;
+    const draws = packInstances(params.layers);
+    const peels = Math.max(1, Math.min(MAX_PEEL_LAYERS, params.peelLayers ?? 4));
     const encoder = device.createCommandEncoder({ label: 'ns-blowup-frame' });
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: colorView,
-        resolveTarget: gpuContext.getCurrentTexture().createView(),
-        clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
-        loadOp: 'clear',
-        storeOp: 'store'
-      }],
-      depthStencilAttachment: {
-        view: depthView,
-        depthClearValue: 1,
-        depthLoadOp: 'clear',
-        depthStoreOp: 'store'
-      }
-    });
 
-    pass.setBindGroup(0, bindGroup);
-
-    // Layers are drawn in the order the caller gave them, which is back to
-    // front. Nothing switches pipeline as it fades.
-    if (draws.length > 0) pass.setPipeline(tubePipeline);
-    for (const d of draws) {
-      pass.setVertexBuffer(0, d.geometry.vertexBuffer);
-      pass.setVertexBuffer(1, instanceBuffer, d.first * INSTANCE_FLOATS * 4);
-      pass.setIndexBuffer(d.geometry.indexBuffer, 'uint32');
-      pass.drawIndexed(d.geometry.indexCount, d.count);
+    for (let layer = 0; layer < peels; layer++) {
+      const pass = encoder.beginRenderPass({
+        label: `peel-${layer}`,
+        colorAttachments: [{
+          view: layerTextures[layer].createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }],
+        depthStencilAttachment: {
+          view: depthTextures[layer % 2].createView(),
+          depthClearValue: 1,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store'
+        }
+      });
+      pass.setPipeline(layer === 0 ? firstPipeline : peelPipeline);
+      pass.setBindGroup(0, uniformBindGroup);
+      if (layer > 0) pass.setBindGroup(1, depthBindGroups[(layer - 1) % 2]);
+      drawAll(pass, draws);
+      pass.end();
     }
 
-    if (axisCount > 0 && (params.axisOpacity ?? 0) > 0.004) {
-      pass.setPipeline(axisPipeline);
-      pass.setVertexBuffer(0, axisBuffer);
-      pass.draw(axisCount);
+    // Composite back to front over the background.
+    const bg = params.background;
+    for (let layer = peels - 1; layer >= 0; layer--) {
+      const last = layer === peels - 1;
+      const pass = encoder.beginRenderPass({
+        label: `composite-${layer}`,
+        colorAttachments: [{
+          view: target.createView(),
+          clearValue: last ? { r: bg[0], g: bg[1], b: bg[2], a: 1 } : undefined,
+          loadOp: last ? 'clear' : 'load',
+          storeOp: 'store'
+        }]
+      });
+      pass.setPipeline(compositePipeline);
+      pass.setBindGroup(0, layerBindGroups[layer]);
+      pass.draw(3);
+      pass.end();
     }
 
-    pass.end();
     device.queue.submit([encoder.finish()]);
     return true;
   }
@@ -357,12 +367,10 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
       layer.indexBuffer.destroy();
     }
     layers.clear();
-    if (axisBuffer) axisBuffer.destroy();
+    releaseTextures();
     instanceBuffer.destroy();
-    if (colorTexture) colorTexture.destroy();
-    if (depthTexture) depthTexture.destroy();
     uniformBuffer.destroy();
   }
 
-  return { setLayer, hasLayer, setAxis, render, destroy };
+  return { setLayer, render, destroy };
 }

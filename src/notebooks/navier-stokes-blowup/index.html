@@ -124,7 +124,7 @@ import {
   buildLessonScene, SWIRL_HEIGHTS, RADIAL_PLACEMENTS,
   CHILDREN, CHILD_STRETCH, CHILD_SWIRL_HEIGHTS
 } from './scene.js';
-import { tubeShaderCode, axisShaderCode } from './shaders.js';
+import { tubeShaderCode, compositeShaderCode } from './shaders.js';
 import { createRenderer } from './renderer.js';
 import * as Scales from './scales.js';
   </script>
@@ -187,6 +187,11 @@ function buildScrollyteller(id: string, captions: any[]) {
   return { container, background, fixed, foreground };
 }
 
+/** Phones get less geometry and one fewer peel layer. */
+function isSmallScreen() {
+  return Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
+}
+
 /** Progress through a scrollyteller, in [0, 1]. */
 function scrollProgress(container: HTMLElement) {
   const rect = container.getBoundingClientRect();
@@ -243,7 +248,9 @@ function attachCanvas(fixed: HTMLElement) {
     'position:absolute;top:0;left:0;width:100%;height:100%;display:block;cursor:grab;';
   fixed.appendChild(canvas);
 
-  const dpi = Math.min(1.75, window.devicePixelRatio);
+  // The peel passes cannot be multisampled, so oversample the backing store
+  // instead and let the browser downscale.
+  const dpi = Math.min(2, window.devicePixelRatio);
   const resize = () => {
     canvas.width = Math.max(1, Math.floor(fixed.offsetWidth * dpi));
     canvas.height = Math.max(1, Math.floor(fixed.offsetHeight * dpi));
@@ -282,8 +289,7 @@ await new Promise((r) => setTimeout(r, 100));
     radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.10 }],
     childOpacity:  [{ t: 6.3, value: 0 }, { t: 7.0, value: 1 }, { t: 7.4, value: 1 }, { t: 7.95, value: 0.04 }],
     stretch:       [{ t: 2.6, value: 1 }, { t: 3.3, value: 1.14 }, { t: 4.3, value: 1.9 }, { t: 5.7, value: 1.9 }, { t: 6.4, value: 1.6 }],
-    distance:      [{ t: 0, value: 5.6 }, { t: 4.3, value: 7.3 }, { t: 5.7, value: 7.6 }, { t: 6.8, value: 8.4 }],
-    axisOpacity:   [{ t: 0, value: 0 }, { t: 0.7, value: 0.32 }]
+    distance:      [{ t: 0, value: 5.6 }, { t: 4.3, value: 7.3 }, { t: 5.7, value: 7.6 }, { t: 6.8, value: 8.4 }]
   });
 
   const { container, background, fixed } = buildScrollyteller('scrolly-stretching', captions);
@@ -306,7 +312,8 @@ await new Promise((r) => setTimeout(r, 100));
     renderContinuously: false
   });
 
-  const renderer = createRenderer(device, canvasFormat, { tube: tubeShaderCode, axis: axisShaderCode });
+  const renderer = createRenderer(device, canvasFormat, { tube: tubeShaderCode, composite: compositeShaderCode });
+  const small = isSmallScreen();
   const scene = buildLessonScene({});
   renderer.setLayer('tube', scene.tube);
   renderer.setLayer('childTube', scene.childTube);
@@ -314,7 +321,6 @@ await new Promise((r) => setTimeout(r, 100));
   renderer.setLayer('axialUp', scene.axialUp);
   renderer.setLayer('axialDown', scene.axialDown);
   renderer.setLayer('radial', scene.radial);
-  renderer.setAxis(-2.6, 2.6);
 
   // Circulation around the core is conserved, so the angular rate rises in step
   // with how much the core has been stretched. One number drives both the
@@ -398,7 +404,7 @@ await new Promise((r) => setTimeout(r, 100));
       fogDensity: 0.03,
       fogStart: 5,
       sceneRadius: 4.2,
-      axisOpacity: s.axisOpacity,
+      peelLayers: small ? 3 : 4,
       layers: [
         { id: 'tube', instances: [core] },
         { id: 'childTube', instances: childCores },
@@ -446,8 +452,7 @@ await new Promise((r) => setTimeout(r, 100));
 
   const sequencer = createSequencer({
     zoom:          [{ t: 0, value: 0 }, { t: frameCount, value: 3.4, ease: linear }],
-    streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }],
-    axisOpacity:   [{ t: 0, value: 0 }, { t: 0.7, value: 0.3 }]
+    streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }]
   });
 
   const { container, background, fixed } = buildScrollyteller('scrolly-cascade', captions);
@@ -471,12 +476,12 @@ await new Promise((r) => setTimeout(r, 100));
     renderContinuously: false
   });
 
-  const renderer = createRenderer(device, canvasFormat, { tube: tubeShaderCode, axis: axisShaderCode });
+  const renderer = createRenderer(device, canvasFormat, { tube: tubeShaderCode, composite: compositeShaderCode });
 
   // One generation's streamlines, integrated once. Every other generation is
   // this same geometry at a different scale.
   const field = createField({ gamma: 1.6, omega: 3.0, sigma: 0.7, zH: 1.15, zK: 0.95 });
-  const small = Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
+  const small = isSmallScreen();
   // Few, thick and short. Densely packed thin tubes read as mud rather than as
   // a flow, and several generations are on screen at once.
   const lines = seedRings(field, {
@@ -489,7 +494,6 @@ await new Promise((r) => setTimeout(r, 100));
   renderer.setLayer('stream', toYUp(mergeMeshes(lines.map((l) =>
     tubeMesh(decimate(l, 3), { radius: 0.045, sides: 7, scalarRange: range })
   ))));
-  renderer.setAxis(0, CHAIN_OFFSET * 1.5);
 
   const smoothstep = (a, b, x) => {
     const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -529,7 +533,7 @@ await new Promise((r) => setTimeout(r, 100));
       fogDensity: 0.075,
       fogStart: 6,
       sceneRadius: 8.5,
-      axisOpacity: s.axisOpacity,
+      peelLayers: small ? 3 : 4,
       layers: [{ id: 'stream', instances }]
     }, camera, canvas.width, canvas.height);
   });

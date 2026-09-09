@@ -111,8 +111,7 @@ fn vs(
   return out;
 }
 
-@fragment
-fn fs(in: VertexOutput) -> @location(0) vec4f {
+fn shade(in: VertexOutput) -> vec4f {
   let N = normalize(in.vNormal);
   let V = normalize(u.eye - in.vPosition);
 
@@ -151,28 +150,44 @@ fn fs(in: VertexOutput) -> @location(0) vec4f {
   let fog = 1.0 - exp(-u.fogDensity * max(dist - u.fogStart, 0.0));
   color = mix(color, u.background, clamp(fog, 0.0, 1.0));
 
+  // Premultiplied, so the peel layers composite with one / one-minus-src-alpha.
   return vec4f(color * in.vOpacity, in.vOpacity);
-}
-`;
-
-export const axisShaderCode = UNIFORMS + /* wgsl */`
-struct VertexOutput {
-  @builtin(position) position: vec4f,
-  @location(0) vAlpha: f32,
-};
-
-@vertex
-fn vs(@location(0) position: vec3f, @location(1) alpha: f32) -> VertexOutput {
-  var out: VertexOutput;
-  out.position = u.projection * u.view * vec4f(position, 1.0);
-  out.vAlpha = alpha;
-  return out;
 }
 
 @fragment
-fn fs(in: VertexOutput) -> @location(0) vec4f {
-  let tint = mix(vec3f(0.28, 0.32, 0.38), vec3f(0.72, 0.76, 0.82), u.isDark);
-  let a = in.vAlpha;
-  return vec4f(tint * a, a);
+fn fsFirst(in: VertexOutput) -> @location(0) vec4f {
+  return shade(in);
+}
+
+@group(1) @binding(0) var prevDepthTex: texture_depth_2d;
+
+/**
+ * One peel deeper. Anything at or in front of the depth captured by the
+ * previous pass is discarded, so this pass captures the next surface back.
+ */
+@fragment
+fn fsPeel(in: VertexOutput) -> @location(0) vec4f {
+  let coords = vec2i(i32(in.position.x), i32(in.position.y));
+  let prevDepth = textureLoad(prevDepthTex, coords, 0);
+  if (in.position.z <= prevDepth + 1e-6) {
+    discard;
+  }
+  return shade(in);
+}
+`;
+
+export const compositeShaderCode = /* wgsl */`
+@group(0) @binding(0) var layerTex: texture_2d<f32>;
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  // One oversized triangle covering the viewport.
+  var p = array(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  return vec4f(p[i], 0.0, 1.0);
+}
+
+@fragment
+fn fs(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  return textureLoad(layerTex, vec2i(i32(position.x), i32(position.y)), 0);
 }
 `;
