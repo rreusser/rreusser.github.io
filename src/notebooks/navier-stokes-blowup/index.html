@@ -203,23 +203,10 @@ function isSmallScreen() {
   return Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
 }
 
-/**
- * The region actually visible, which on iOS is none of 100vh, innerHeight or
- * the layout viewport: the toolbars overlay the page and the visual viewport
- * slides against the layout one. visualViewport is the only thing that
- * describes it, so the pinned figure is sized and offset from that.
- */
-function visibleBox() {
-  const vv = window.visualViewport;
-  return vv
-    ? { height: vv.height, offsetTop: vv.offsetTop }
-    : { height: window.innerHeight, offsetTop: 0 };
-}
-
 /** Progress through a scrollyteller, in [0, 1]. */
 function scrollProgress(container: HTMLElement) {
   const rect = container.getBoundingClientRect();
-  const scrollHeight = container.offsetHeight - visibleBox().height;
+  const scrollHeight = container.offsetHeight - window.innerHeight;
   if (scrollHeight <= 0) return 0;
   return Math.max(0, Math.min(1, -rect.top / scrollHeight));
 }
@@ -227,20 +214,15 @@ function scrollProgress(container: HTMLElement) {
 /** Pin, release, or park the background, and report whether it is on screen. */
 function updateBackgroundPosition(container: HTMLElement, background: HTMLElement) {
   const rect = container.getBoundingClientRect();
-  const view = visibleBox();
+  const height = window.innerHeight;
   const topAbove = rect.top <= 0;
-  const bottomBelow = rect.bottom >= view.height;
+  const bottomBelow = rect.bottom >= height;
   const fixed = topAbove && bottomBelow;
 
   background.classList.toggle('is-fixed', fixed);
   background.classList.toggle('is-bottom', topAbove && !fixed);
 
-  // Match the pinned box to the visible region rather than to a CSS viewport
-  // unit, so the middle of the canvas is the middle of what you can see.
-  background.style.height = `${view.height}px`;
-  background.style.top = fixed ? `${view.offsetTop}px` : '';
-
-  return rect.top < view.height && rect.bottom > 0;
+  return rect.top < height && rect.bottom > 0;
 }
 
 /**
@@ -492,11 +474,9 @@ await new Promise((r) => setTimeout(r, 100));
 
   const onResize = () => { resize(); camera.taint(); };
   window.addEventListener('resize', onResize);
-  window.visualViewport?.addEventListener('resize', onResize);
   invalidation.then(() => {
     loop.cancel();
     window.removeEventListener('resize', onResize);
-    window.visualViewport?.removeEventListener('resize', onResize);
     camera.destroy();
     renderer.destroy();
   });
@@ -545,7 +525,11 @@ await new Promise((r) => setTimeout(r, 100));
     distance: 17,
     theta: 0.14,
     phi: 0.5,
-    center: [0, 2.2, 0],
+    // No centre offset. The cascade geometry is centred on the origin (its
+    // world bbox spans y in [-3.37, 3.25]), and every generation is scaled
+    // about the origin too, so that is where the camera must look. Aiming it
+    // at y = 2.2 put the figure 143 px low on an 844 px screen -- 17% of the
+    // height -- which is not a viewport problem and no CSS unit can fix it.
     fov: 0.75,
     wheel: false,
     renderContinuously: false
@@ -619,11 +603,9 @@ await new Promise((r) => setTimeout(r, 100));
 
   const onResize = () => { resize(); camera.taint(); };
   window.addEventListener('resize', onResize);
-  window.visualViewport?.addEventListener('resize', onResize);
   invalidation.then(() => {
     loop.cancel();
     window.removeEventListener('resize', onResize);
-    window.visualViewport?.removeEventListener('resize', onResize);
     camera.destroy();
     renderer.destroy();
   });
