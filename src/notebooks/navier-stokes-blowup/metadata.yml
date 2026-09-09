@@ -1,6 +1,6 @@
 publishedAt: "September 9, 2026"
 maxWidth: 640px
-description: Drawing the vortex-stretching cascade behind OpenAI's claimed finite-time blowup for the three-dimensional Navier-Stokes equations
+description: A scrolling walkthrough of vortex stretching, the ordinary 3D mechanism behind the turbulent cascade, and how OpenAI's claimed finite-time blowup for Navier-Stokes tunes it so viscosity never catches up
 tags:
   - webgpu
   - math

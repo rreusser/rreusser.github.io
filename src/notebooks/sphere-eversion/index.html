@@ -129,7 +129,7 @@ We start with a full presentation of the sphere eversion of Bednorz and Bednorz 
     import { createRenderer } from './renderer.js';
     import { createFrameLoop } from './lib/frame-loop.js';
     import { peelShaderCode, peelCompositeShaderCode } from './shaders.js';
-    import { createSequencer, linear } from './sequencer.js';
+    import { createSequencer, linear } from './lib/sequencer.js';
 
     const { device, canvasFormat } = await createWebGPUContext();
     const shaderCodes = { peel: peelShaderCode, peelComposite: peelCompositeShaderCode };

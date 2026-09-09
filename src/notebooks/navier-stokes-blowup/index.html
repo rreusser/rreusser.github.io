@@ -1,36 +1,528 @@
 <!doctype html>
-<notebook theme="ink">
+<notebook>
   <title>A Finite-Time Singularity for Navier–Stokes</title>
 
   <script id="title" type="text/markdown">
 # A Finite-Time Singularity for Navier–Stokes
   </script>
 
+  <script id="styles" type="text/html">
+    <style>
+      .scrollyteller {
+        position: relative;
+        width: 100vw;
+        margin-left: calc(-50vw + 50%);
+      }
+
+      .scrollyteller__background {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100vh;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .scrollyteller__background.is-fixed { position: fixed; }
+
+      .scrollyteller__background.is-bottom {
+        position: absolute;
+        top: auto;
+        bottom: 0;
+      }
+
+      .scrollyteller__background .scrollyteller__fixed-content { pointer-events: auto; }
+
+      .scrollyteller__fixed-content {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .scrollyteller__foreground {
+        position: relative;
+        z-index: 1;
+        pointer-events: none;
+      }
+
+      .scrollyteller__frame {
+        height: 100vh;
+        position: relative;
+      }
+
+      .scrollyteller__caption {
+        position: absolute;
+        background: color-mix(in srgb, var(--theme-background) 88%, transparent);
+        color: var(--theme-foreground);
+        padding: 12px 16px;
+        font-size: 1.05em;
+        line-height: 1.5;
+        max-width: 320px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+        pointer-events: auto;
+      }
+
+      /* The drag/scroll toggle. Only shown where touch is the primary input,
+         because a mouse can already drag without stealing the scroll. */
+      .scrolly-mode {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        z-index: 3;
+        display: none;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        font-size: 0.85em;
+        border: 1px solid color-mix(in srgb, var(--theme-foreground) 25%, transparent);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--theme-background) 90%, transparent);
+        color: var(--theme-foreground);
+        cursor: pointer;
+        pointer-events: auto;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .scrolly-mode.is-touch { display: inline-flex; }
+      .scrolly-mode[aria-pressed="true"] {
+        border-color: color-mix(in srgb, var(--theme-foreground) 55%, transparent);
+        font-weight: 600;
+      }
+
+      /* On a phone the captions cannot float in a corner without covering the
+         figure, so they sit in a band across the bottom instead. */
+      @media (max-width: 640px) {
+        .scrollyteller__caption {
+          left: 12px !important;
+          right: 12px !important;
+          top: auto !important;
+          bottom: 76px !important;
+          max-width: none;
+          font-size: 1em;
+        }
+      }
+
+      figure { margin: 2em 0; }
+    </style>
+  </script>
+
   <script id="imports" type="text/x-typescript">
 import { createWebGPUContext } from './lib/webgpu-canvas.js';
 import { createUnifiedCamera } from './lib/unified-camera.js';
-import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js';
-import { createCameraSnapshotButton } from './lib/snapshot.js';
-import { createWebGPUCaptureHandler } from './lib/webgpu-snapshot.js';
 import { createFrameLoop } from './lib/frame-loop.js';
+import { createSequencer, linear } from './lib/sequencer.js';
+import { observeTheme } from './lib/theme.js';
 import { createField, seedRings, decimate, tubeMesh, mergeMeshes, speedRange } from './field.js';
+import { toYUp } from './arrows.js';
+import { buildLessonScene, SWIRL_HEIGHTS, RADIAL_PLACEMENTS, CHILDREN } from './scene.js';
 import { tubeShaderCode, axisShaderCode } from './shaders.js';
 import { createRenderer } from './renderer.js';
 import * as Scales from './scales.js';
   </script>
 
   <script id="intro" type="text/markdown">
-In September 2026 OpenAI announced that one of its systems had produced a proof that the three-dimensional incompressible Navier–Stokes equations can lose smoothness in finite time, together with a complete formalization in Lean 4. The claim resolves alternatives **(C)** and **(D)** of the Clay Millennium Prize problem, the two alternatives that ask for a *breakdown* example rather than a proof of global regularity. The announcement was immediately contested on questions of priority and independent verification, and none of that is settled here.
+In September 2026 OpenAI announced that one of its systems had produced a proof that the three-dimensional incompressible Navier–Stokes equations can lose smoothness in finite time, with a complete formalization in Lean 4. The claim resolves alternatives **(C)** and **(D)** of the Clay Millennium Prize problem, the two that ask for a *breakdown* example rather than a proof that solutions stay smooth forever. Priority and independent verification were contested immediately, and none of that is settled here.
 
-This notebook is more modest. The proof is a long piece of multi-scale analysis and almost none of it is legible as a picture. But the object at the centre of it is a fluid flow, and a fluid flow can be drawn.
+What follows is not the proof. It is the picture underneath it, which turns out to be something you already have intuition for.
   </script>
 
-  <script id="mechanism" type="text/markdown">
-## The mechanism
+  <script id="theme-state" type="text/x-typescript">
+// A stable object the render loops read every frame. Keeping the theme here
+// rather than as a cell dependency means a light/dark switch never re-runs the
+// cells that own the GPU pipelines.
+const themeState = { background: [1, 1, 1], foreground: [0, 0, 0], isDark: false };
+  </script>
 
-The engine is vortex stretching, the one thing three-dimensional fluids can do that two-dimensional fluids cannot. A spinning column of fluid pulled along its own axis has to get thinner, and a thinner column carrying the same angular momentum spins faster. A figure skater pulling their arms in, with no lower limit on how far in the arms can come.
+  <script id="theme-observe" type="text/x-typescript">
+const theme = Generators.observe(observeTheme);
+  </script>
 
-The construction is axisymmetric with swirl. Writing ${tex`s = (x_0^2 + x_1^2)/2`} for half the squared radius and using two scalar profiles ${tex`H(s,z)`} and ${tex`K(s,z)`}, the velocity is the curl of
+  <script id="theme-sync" type="text/x-typescript">
+Object.assign(themeState, theme);
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+const { device, canvasFormat } = await createWebGPUContext();
+  </script>
+
+  <script id="scrolly-helpers" type="text/x-typescript">
+/**
+ * Wire up the shared scrollyteller shell: a full-bleed container, a background
+ * that pins itself while the container is on screen, and one full-height frame
+ * per caption.
+ */
+function buildScrollyteller(id: string, captions: any[]) {
+  const container = html`<div class="scrollyteller" id="${id}"></div>`;
+  const background = html`<div class="scrollyteller__background"></div>`;
+  const fixed = html`<div class="scrollyteller__fixed-content"></div>`;
+  const foreground = html`<div class="scrollyteller__foreground"></div>`;
+
+  for (const caption of captions) {
+    const frame = html`<div class="scrollyteller__frame"></div>`;
+    if (caption.text) {
+      const el = html`<div class="scrollyteller__caption" style="
+        ${caption.left ? `left: ${caption.left};` : ''}
+        ${caption.right ? `right: ${caption.right};` : ''}
+        ${caption.top ? `top: ${caption.top};` : ''}
+        ${caption.bottom ? `bottom: ${caption.bottom};` : ''}
+      "></div>`;
+      el.innerHTML = caption.text;
+      frame.appendChild(el);
+    }
+    foreground.appendChild(frame);
+  }
+
+  background.appendChild(fixed);
+  container.appendChild(background);
+  container.appendChild(foreground);
+  return { container, background, fixed, foreground };
+}
+
+/** Progress through a scrollyteller, in [0, 1]. */
+function scrollProgress(container: HTMLElement) {
+  const rect = container.getBoundingClientRect();
+  const scrollHeight = container.offsetHeight - window.innerHeight;
+  if (scrollHeight <= 0) return 0;
+  return Math.max(0, Math.min(1, -rect.top / scrollHeight));
+}
+
+/** Pin, release, or park the background, and report whether it is on screen. */
+function updateBackgroundPosition(container: HTMLElement, background: HTMLElement) {
+  const rect = container.getBoundingClientRect();
+  const topAbove = rect.top <= 0;
+  const bottomBelow = rect.bottom >= window.innerHeight;
+
+  background.classList.toggle('is-fixed', topAbove && bottomBelow);
+  background.classList.toggle('is-bottom', topAbove && !bottomBelow);
+
+  return rect.top < window.innerHeight && rect.bottom > 0;
+}
+
+/**
+ * A corner button that swaps between scrolling the page and rotating the view.
+ *
+ * On touch devices the canvas starts transparent to pointer events, so a drag
+ * scrolls the article. Pressing the button hands pointers to the canvas and
+ * turns off touch scrolling over it. A mouse never needs this, since the camera
+ * is created with the wheel disabled and dragging does not scroll.
+ */
+function addModeToggle(fixed: HTMLElement, canvas: HTMLCanvasElement) {
+  const isTouch = navigator.maxTouchPoints > 0;
+  const button = html`<button class="scrolly-mode" type="button" aria-pressed="false">
+    <span>Scroll</span>
+  </button>` as HTMLButtonElement;
+  if (isTouch) button.classList.add('is-touch');
+
+  let rotating = false;
+  const apply = () => {
+    canvas.style.pointerEvents = rotating || !isTouch ? 'auto' : 'none';
+    canvas.style.touchAction = rotating ? 'none' : 'auto';
+    button.setAttribute('aria-pressed', String(rotating));
+    button.firstElementChild!.textContent = rotating ? 'Rotate' : 'Scroll';
+  };
+
+  button.addEventListener('click', () => { rotating = !rotating; apply(); });
+  apply();
+  fixed.appendChild(button);
+  return button;
+}
+
+/** Create the sticky canvas for a scrollyteller, sized to its container. */
+function attachCanvas(fixed: HTMLElement) {
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText =
+    'position:absolute;top:0;left:0;width:100%;height:100%;display:block;cursor:grab;';
+  fixed.appendChild(canvas);
+
+  const dpi = Math.min(1.75, window.devicePixelRatio);
+  const resize = () => {
+    canvas.width = Math.max(1, Math.floor(fixed.offsetWidth * dpi));
+    canvas.height = Math.max(1, Math.floor(fixed.offsetHeight * dpi));
+  };
+  resize();
+  return { canvas, resize };
+}
+  </script>
+
+  <script id="lesson-intro" type="text/markdown">
+## Vortex stretching
+
+Start somewhere ordinary. Scroll.
+  </script>
+
+  <script id="scrolly-stretching" type="module">
+await new Promise((r) => setTimeout(r, 100));
+
+{
+  const captions = [
+    { text: "A tube of spinning fluid. Its axis of rotation runs up the middle.", left: "8%", bottom: "12%" },
+    { text: "Now a second, unrelated motion: the fluid is pulled apart along that same axis, and drawn inward from the sides to replace it.", right: "8%", bottom: "12%" },
+    { text: "Run both at once.", left: "8%", bottom: "12%" },
+    { text: "Stretching the tube makes it thinner. Thinner means the same spin packed into a smaller circle, so it turns faster.", right: "8%", bottom: "12%" },
+    { text: "A skater pulling their arms in. Nothing is added; the rotation just has less room.", left: "8%", bottom: "12%" },
+    { text: "This is ordinary three-dimensional fluid motion. It is also precisely what two-dimensional flow cannot do, which is why the two-dimensional problem was settled long ago.", right: "8%", bottom: "12%" },
+    { text: "It is how turbulence works. Each stretched vortex spins up smaller ones, and energy walks down the scales.", left: "8%", bottom: "12%" },
+    { text: "And normally it stops. Below some scale, viscosity smooths faster than stretching sharpens, and the cascade dies out.", right: "8%", bottom: "12%" }
+  ];
+
+  const frameCount = captions.length;
+  const sequencer = createSequencer({
+    tubeOpacity:   [{ t: 0, value: 0 }, { t: 0.45, value: 0.8 }, { t: 7.3, value: 0.8 }, { t: 8, value: 0.45 }],
+    swirlOpacity:  [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.12 }, { t: 2.4, value: 0.12 }, { t: 3.0, value: 1 }],
+    axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.35 }],
+    radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.25 }],
+    childOpacity:  [{ t: 6.3, value: 0 }, { t: 7.0, value: 1 }, { t: 7.4, value: 1 }, { t: 7.95, value: 0.1 }],
+    stretch:       [{ t: 2.6, value: 1 }, { t: 3.3, value: 1.14 }, { t: 4.3, value: 1.9 }, { t: 5.7, value: 1.9 }, { t: 6.4, value: 1.6 }],
+    distance:      [{ t: 0, value: 5.6 }, { t: 4.3, value: 6.5 }, { t: 5.7, value: 7.1 }, { t: 6.8, value: 8.8 }],
+    axisOpacity:   [{ t: 0, value: 0 }, { t: 0.7, value: 0.32 }]
+  });
+
+  const { container, background, fixed } = buildScrollyteller('scrolly-stretching', captions);
+  display(container);
+  await new Promise((r) => setTimeout(r, 100));
+
+  const { canvas, resize } = attachCanvas(fixed);
+  addModeToggle(fixed, canvas);
+
+  const gpuContext = canvas.getContext('webgpu');
+  gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+  const camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
+    distance: 5.6,
+    theta: 0.18,
+    phi: 0.6,
+    fov: 0.7,
+    wheel: false,
+    renderContinuously: false
+  });
+
+  const renderer = createRenderer(device, canvasFormat, { tube: tubeShaderCode, axis: axisShaderCode });
+  const scene = buildLessonScene({});
+  renderer.setLayer('tube', scene.tube);
+  renderer.setLayer('swirl', scene.swirl);
+  renderer.setLayer('axialUp', scene.axialUp);
+  renderer.setLayer('axialDown', scene.axialDown);
+  renderer.setLayer('radial', scene.radial);
+  renderer.setAxis(-2.6, 2.6);
+
+  // Circulation around the core is conserved, so the angular rate rises in step
+  // with how much the core has been stretched. One number drives both the
+  // visible rotation and how fast the pulses run along the arrows.
+  const BASE_SPIN = 0.55;
+  let spinAngle = 0;
+  let smoothed = 0;
+  let last = performance.now();
+
+  const loop = createFrameLoop((now) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!updateBackgroundPosition(container, background)) return;
+
+    smoothed += (scrollProgress(container) - smoothed) * 0.1;
+    sequencer.setPosition(smoothed * frameCount);
+    const s = sequencer.getState();
+
+    const sy = s.stretch;
+    const sr = 1 / Math.sqrt(sy);
+    spinAngle += dt * BASE_SPIN * sy;
+
+    const H = scene.H;
+    const shift = (sy - 1) * H;
+
+    const core = { stretchY: sy, stretchR: sr, opacity: s.tubeOpacity, rate: 1 };
+    const swirlRing = SWIRL_HEIGHTS.map((f) => ({
+      offsetY: f * H * sy,
+      stretchR: sr,
+      twist: spinAngle,
+      opacity: s.swirlOpacity,
+      rate: sy
+    }));
+    const radialRing = RADIAL_PLACEMENTS.map((p) => ({
+      twist: p.twist,
+      offsetY: p.y * H * sy,
+      offsetR: (sr - 1) * 2.2 * scene.R,
+      opacity: s.radialOpacity,
+      rate: 1.6
+    }));
+
+    // Children are the same geometry again, smaller and placed off-axis.
+    const childCores = CHILDREN.map((c) => ({
+      scale: c.scale, twist: c.twist, offsetR: c.radius, offsetY: c.y,
+      stretchY: 1.7, stretchR: 1 / Math.sqrt(1.7),
+      opacity: s.childOpacity * s.tubeOpacity, rate: 1
+    }));
+    const childSwirls = CHILDREN.map((c) => ({
+      scale: c.scale, twist: c.twist + spinAngle * 2.2, offsetR: c.radius, offsetY: c.y,
+      stretchR: 1 / Math.sqrt(1.7),
+      opacity: s.childOpacity, rate: 2.6
+    }));
+
+    renderer.render(gpuContext, {
+      background: themeState.background,
+      isDark: themeState.isDark,
+      time: now / 1000,
+      flowRate: 1.15,
+      flowAmp: 0.7,
+      fogDensity: 0.03,
+      fogStart: 5,
+      sceneRadius: 6,
+      axisOpacity: s.axisOpacity,
+      layers: [
+        { id: 'tube', instances: [core, ...childCores] },
+        { id: 'swirl', instances: [...swirlRing, ...childSwirls] },
+        { id: 'axialUp', instances: [{ offsetY: shift, opacity: s.axialOpacity, rate: 1.4 }] },
+        { id: 'axialDown', instances: [{ offsetY: -shift, opacity: s.axialOpacity, rate: 1.4 }] },
+        { id: 'radial', instances: radialRing }
+      ]
+    }, camera, canvas.width, canvas.height);
+
+    camera.setState({ distance: s.distance });
+  });
+
+  const onResize = () => { resize(); camera.taint(); };
+  window.addEventListener('resize', onResize);
+  invalidation.then(() => {
+    loop.cancel();
+    window.removeEventListener('resize', onResize);
+    camera.destroy();
+    renderer.destroy();
+  });
+}
+  </script>
+
+  <script id="after-stretching" type="text/markdown">
+That last step is the whole difficulty of the problem. Stretching sharpens a vortex; viscosity smooths it. In every fluid anyone has ever measured, viscosity wins in the end, at a small but strictly positive scale. Whether it *must* win is what the Millennium problem asks.
+
+The construction below is an argument that it need not.
+  </script>
+
+  <script id="scrolly-cascade" type="module">
+await new Promise((r) => setTimeout(r, 100));
+
+{
+  const captions = [
+    { text: "Here is the same mechanism, tuned so that it never runs out.", left: "8%", bottom: "12%" },
+    { text: "Each generation is a copy of the one above it, shrunk by a fixed factor and running faster.", right: "8%", bottom: "12%" },
+    { text: "Every generation is <em>more</em> inviscid than the last, so diffusion is always a step behind.", left: "8%", bottom: "12%" },
+    { text: "And each takes less time than the last, by enough that the total is finite.", right: "8%", bottom: "12%" },
+    { text: "So the descent never has to stop, and it is over before a fixed moment. The velocity has nowhere to end up but infinity.", left: "8%", bottom: "12%" }
+  ];
+
+  const frameCount = captions.length;
+  const COPIES = 5;
+  const CHAIN_OFFSET = 5.0;
+  const TWIST = 0.9;
+
+  const sequencer = createSequencer({
+    zoom:          [{ t: 0, value: 0 }, { t: frameCount, value: 3.4, ease: linear }],
+    streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }],
+    axisOpacity:   [{ t: 0, value: 0 }, { t: 0.7, value: 0.3 }]
+  });
+
+  const { container, background, fixed } = buildScrollyteller('scrolly-cascade', captions);
+  display(container);
+  await new Promise((r) => setTimeout(r, 100));
+
+  const { canvas, resize } = attachCanvas(fixed);
+  addModeToggle(fixed, canvas);
+
+  const gpuContext = canvas.getContext('webgpu');
+  gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+  const camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
+    distance: 21,
+    theta: 0.14,
+    phi: 0.5,
+    center: [0, 3.6, 0],
+    fov: 0.75,
+    wheel: false,
+    renderContinuously: false
+  });
+
+  const renderer = createRenderer(device, canvasFormat, { tube: tubeShaderCode, axis: axisShaderCode });
+
+  // One generation's streamlines, integrated once. Every other generation is
+  // this same geometry at a different scale.
+  const field = createField({ gamma: 1.6, omega: 3.0, sigma: 0.7, zH: 1.15, zK: 0.95 });
+  const small = Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
+  const lines = seedRings(field, {
+    rings: small ? 6 : 7,
+    perRing: small ? 9 : 10,
+    rMin: 0.30, rMax: 2.9, zSeed: 0.9,
+    step: 0.02, maxSteps: small ? 620 : 700, bound: 5
+  });
+  const range = speedRange(lines);
+  renderer.setLayer('stream', toYUp(mergeMeshes(lines.map((l) =>
+    tubeMesh(decimate(l, 3), { radius: 0.027, sides: 6, scalarRange: range })
+  ))));
+  renderer.setAxis(0, CHAIN_OFFSET * 2.6);
+
+  const smoothstep = (a, b, x) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+
+  let smoothed = 0;
+  const loop = createFrameLoop((now) => {
+    if (!updateBackgroundPosition(container, background)) return;
+
+    smoothed += (scrollProgress(container) - smoothed) * 0.1;
+    sequencer.setPosition(smoothed * frameCount);
+    const s = sequencer.getState();
+
+    // Generation m sits at scale Lambda^-m and offset CHAIN_OFFSET * Lambda^-m,
+    // a family that maps onto itself when m shifts by one. Sweeping m and
+    // recycling the copies through a fade is therefore an unbroken zoom.
+    const u = s.zoom - Math.floor(s.zoom);
+    const instances = [];
+    for (let k = 0; k < COPIES; k++) {
+      const m = k - u;
+      instances.push({
+        scale: Math.pow(Scales.LAMBDA, -m),
+        twist: m * TWIST,
+        offsetY: CHAIN_OFFSET,
+        opacity: s.streamOpacity * smoothstep(-1, 0, m) * (1 - smoothstep(COPIES - 2, COPIES - 1, m)),
+        rate: Math.pow(Scales.COVER_GROWTH, m * 0.4)
+      });
+    }
+
+    renderer.render(gpuContext, {
+      background: themeState.background,
+      isDark: themeState.isDark,
+      time: now / 1000,
+      flowRate: 1.2,
+      flowAmp: 0.55,
+      fogDensity: 0.05,
+      fogStart: 7,
+      sceneRadius: 22,
+      axisOpacity: s.axisOpacity,
+      layers: [{ id: 'stream', instances }]
+    }, camera, canvas.width, canvas.height);
+  });
+
+  const onResize = () => { resize(); camera.taint(); };
+  window.addEventListener('resize', onResize);
+  invalidation.then(() => {
+    loop.cancel();
+    window.removeEventListener('resize', onResize);
+    camera.destroy();
+    renderer.destroy();
+  });
+}
+  </script>
+
+  <script id="formulation-intro" type="text/markdown">
+## Writing it down
+
+Everything above is qualitative. Here is the same object stated precisely enough to implement, taken from the Lean sources published with the paper.
+
+The flow is axisymmetric with swirl. Let ${tex`s = (x_0^2 + x_1^2)/2`}, half the squared distance from the axis, and pick two scalar profiles ${tex`H(s,z)`} and ${tex`K(s,z)`}. The velocity is the curl of
 
 ${tex.block`A = -\tfrac{1}{2} x_1 H \,e_0 + \tfrac{1}{2} x_0 H \,e_1 + K \,e_2,`}
 
@@ -38,519 +530,84 @@ which in cylindrical components is
 
 ${tex.block`u_r = -\tfrac{r}{2}\,\partial_z H, \qquad u_\theta = -r\,\partial_s K, \qquad u_z = \partial_s\!\left(s H\right).`}
 
-Working in ${tex`s`} rather than ${tex`r`} is what keeps the field smooth on the axis, since nothing is ever divided by the radius. ${tex`H`} supplies the meridional circulation that draws fluid inward and stretches it along ${tex`z`}, and ${tex`K`} supplies the swirl that the stretching amplifies.
+${tex`H`} is the stretching from the walkthrough and ${tex`K`} is the spin. Using ${tex`s`} instead of ${tex`r`} is not cosmetic: it is what keeps the field smooth on the axis, since nothing is ever divided by the radius. Taking ${tex`H = \gamma z`} and ${tex`K = -\omega s`} near the axis recovers exactly the picture above, ${tex`u_r = -\gamma r/2`}, ${tex`u_z = \gamma z`}, ${tex`u_\theta = \omega r`}, and that is what the figures are drawn from.
   </script>
 
-  <script id="gpu-context" type="text/x-typescript">
-const { device, canvasFormat } = await createWebGPUContext();
-  </script>
-
-  <script id="state" type="text/x-typescript">
-const state = {
-  gpuContext: null as GPUCanvasContext | null,
-  renderer: null as any,
-  cache: new Map<string, any>(),
-  builtKey: null as string | null,
-  readout: null as HTMLElement | null,
-  ledgerSlot: null as HTMLElement | null,
-  ledgerKey: -1,
-  visible: true,
-  // The continuous generation coordinate. This is the source of truth rather
-  // than the slider, whose setter snaps to the step grid and would swallow
-  // per-frame increments smaller than one step.
-  generation: 1,
-  // How fast the pulses travel, in advection-time units per second. Grows with
-  // the generation's turnover rate, so the flow visibly quickens toward T*.
-  flowSpeed: 0.5,
-  expandedState: { expanded: false },
-  renderParams: {
-    time: 0,
-    background: [0.043, 0.047, 0.055] as number[],
-    // Spatial frequency of the travelling pulses along a streamline, in inverse
-    // advection-time units. Constant: it is the speed that carries the story.
-    flowRate: 1.2,
-    flowAmp: 0.55,
-    exposure: 1.05,
-    fogDensity: 0.055,
-    axisFade: 1,
-    animating: true
-  }
-};
-  </script>
-
-  <script id="tables" type="text/x-typescript">
-// Summing the slot lengths runs to thousands of terms, and the readout needs the
-// tail on every frame. Build the table once per value of h and reuse it.
-const tailCache = { h: NaN, T: 0, tail: null as Float64Array | null };
-
-function tailTable(h: number) {
-  if (tailCache.h === h && tailCache.tail) return tailCache;
-  const N = 4000;
-  const tail = new Float64Array(N + 2);
-  for (let n = N; n >= 1; n--) tail[n] = tail[n + 1] + Scales.timeCoefficient(h, n);
-  tailCache.h = h;
-  tailCache.tail = tail;
-  tailCache.T = tail[1];
-  return tailCache;
-}
-
-/** Time remaining before blowup at the start of generation n. */
-function remainingAt(h: number, n: number) {
-  const t = tailTable(h);
-  return t.tail![Math.min(n, 4000)];
-}
-  </script>
-
-  <script id="detail" type="text/x-typescript">
-// Pick a vertex budget from the device. Phones get roughly a third of the
-// geometry, which keeps a rebuild inside a frame or two.
-function autoDetail() {
-  const small = Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
-  return small ? 'Balanced' : 'Detailed';
-}
-
-// Each entry is a vertex budget. A tube carries rings*perRing*(maxSteps/stride)
-// *sides vertices, and the whole set is rebuilt when the generation ticks over,
-// so these stay small enough that a rebuild and its upload fit in a frame or two.
-const DETAIL: Record<string, any> = {
-  Light:    { rings: 5, perRing: 7,  maxSteps: 520, stride: 4, sides: 5, radius: 0.032 },
-  Balanced: { rings: 6, perRing: 9,  maxSteps: 620, stride: 3, sides: 6, radius: 0.028 },
-  Detailed: { rings: 7, perRing: 10, maxSteps: 700, stride: 3, sides: 6, radius: 0.026 }
-};
-
-const N_MAX = 24;
-  </script>
-
-  <script id="controls" type="text/x-typescript">
-const controlsContainer = html`<div id="blowup-controls" class="controls-panel"></div>`;
-
-function addControl(input: HTMLElement) {
-  controlsContainer.appendChild(input);
-  return input;
-}
-
-const playInput = addControl(Inputs.toggle({ label: 'Run', value: true })) as any;
-const genInput = addControl(Inputs.range([1, N_MAX], {
-  label: 'Generation', value: 1, step: 0.02
-})) as any;
-const hInput = addControl(Inputs.range([0.05, 0.45], {
-  label: 'Parameter h', value: 0.25, step: 0.01
-})) as any;
-const detailInput = addControl(Inputs.select(['Light', 'Balanced', 'Detailed'], {
-  label: 'Detail', value: autoDetail()
-})) as any;
-
-// These are read imperatively rather than through view(), because the animation
-// loop writes to the generation slider on every frame and view() would re-run
-// dependent cells each time.
-  </script>
-
-  <script id="geometry" type="text/x-typescript">
-/**
- * The integrated streamlines for a generation, decimated and cached.
- *
- * Two things vary with the generation, and both are compressions of quantities
- * that in the construction grow without bound: the swirl-to-strain ratio follows
- * the generation's Reynolds number logarithmically, and the core narrows slowly.
- * At the true rates the core would be sub-pixel within a few generations. The
- * numbers in the caption are not compressed.
- *
- * Only the polylines are kept, not the tube meshes. A tube mesh for one
- * generation is several megabytes, and caching two dozen of them would cost more
- * than a hundred, which is not something to do to a phone. The polylines are an
- * order of magnitude smaller, and rebuilding tubes from them is the cheap half.
- */
-function streamlinesFor(n: number, h: number, detailName: string) {
-  const key = `${n}|${h.toFixed(3)}|${detailName}`;
-  const hit = state.cache.get(key);
-  if (hit) return hit;
-
-  const d = DETAIL[detailName] ?? DETAIL.Balanced;
-  const field = createField({
-    gamma: 1.6,
-    omega: 2.0 * (1 + n * h),
-    sigma: 0.72 / (1 + 0.10 * (n - 1)),
-    zH: 1.15,
-    zK: 0.95
-  });
-
-  const raw = seedRings(field, {
-    rings: d.rings, perRing: d.perRing,
-    rMin: 0.30, rMax: 2.9, zSeed: 0.9,
-    step: 0.02, maxSteps: d.maxSteps, bound: 5
-  });
-
-  const entry = { lines: raw.map((l) => decimate(l, d.stride)), range: speedRange(raw) };
-  if (state.cache.size > N_MAX + 4) state.cache.clear();
-  state.cache.set(key, entry);
-  return entry;
-}
-
-function buildGeometry(n: number, h: number, detailName: string) {
-  const d = DETAIL[detailName] ?? DETAIL.Balanced;
-  const { lines, range } = streamlinesFor(n, h, detailName);
-  return mergeMeshes(lines.map((l) =>
-    tubeMesh(l, { radius: d.radius, sides: d.sides, scalarRange: range })
-  ));
-}
-
-const whenIdle: (fn: () => void) => void =
-  (globalThis as any).requestIdleCallback
-    ? (fn) => (globalThis as any).requestIdleCallback(fn, { timeout: 250 })
-    : (fn) => setTimeout(fn, 16);
-
-/**
- * Build every generation's geometry ahead of time, one per idle slot. Playback
- * steps through the generations continuously, and building on demand puts a
- * visible hitch at each step the first time through. `stale` lets a run abandon
- * itself when the reader changes h or the detail level underneath it.
- */
-let warmToken = 0;
-
-function warmCache(h: number, detailName: string) {
-  const token = ++warmToken;
-  let n = 1;
-  const step = () => {
-    if (n > N_MAX || token !== warmToken) return;
-    streamlinesFor(n++, h, detailName);
-    whenIdle(step);
-  };
-  whenIdle(step);
-}
-  </script>
-
-  <script id="format" type="text/x-typescript">
-const SUPER: Record<string, string> = {
-  '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³',
-  '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹'
-};
-
-function superscript(e: number) {
-  return String(e).split('').map((c) => SUPER[c] ?? c).join('');
-}
-
-/** Compact scientific notation, so the caption stays one line on a phone. */
-function fmt(x: number, digits = 2) {
-  if (!isFinite(x)) return '∞';
-  if (x === 0) return '0';
-  const e = Math.floor(Math.log10(Math.abs(x)));
-  if (e >= -2 && e < 4) return x.toFixed(Math.max(0, digits - Math.max(0, e)));
-  return `${(x / Math.pow(10, e)).toFixed(digits)}×10${superscript(e)}`;
-}
-  </script>
-
-  <script id="camera" type="text/x-typescript">
-const canvas = document.createElement('canvas');
-canvas.id = 'blowup-canvas';
-canvas.style.width = '100%';
-canvas.style.height = '100%';
-canvas.style.display = 'block';
-
-const camera = createUnifiedCamera(canvas, {
-  mode: 'orbit',
-  distance: 11.5,
-  phi: 0.5,
-  theta: 0.16,
-  fov: 0.75,
-  renderContinuously: true,
-  observeResize: true,
-  canvas: canvas
-});
-
-invalidation.then(() => camera.destroy());
-  </script>
-
-  <script id="engine" type="text/x-typescript">
-// Everything that must survive a resize lives here. This cell deliberately does
-// not read `width`, so the GPU pipelines are built once.
-const gpuContext = canvas.getContext('webgpu')!;
-gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
-
-const renderer = createRenderer(device, canvasFormat, {
-  tube: tubeShaderCode,
-  axis: axisShaderCode
-});
-renderer.setAxis(3.4);
-state.gpuContext = gpuContext;
-state.renderer = renderer;
-
-const figureBody = html`<div id="blowup-figure" style="position:relative;width:100%;height:100%;"></div>`;
-// Without this a touch drag both scrolls the page and dies mid-gesture.
-figureBody.style.touchAction = 'none';
-figureBody.appendChild(canvas);
-
-const readout = html`<figcaption id="blowup-readout"></figcaption>`;
-state.readout = readout;
-const figureEl = html`<figure style="margin:0">${figureBody}${readout}</figure>`;
-
-function updateReadout(nContinuous: number, h: number) {
-  const n = Math.round(nContinuous);
-  const g = Scales.generation(h, n);
-  readout.innerHTML =
-    `<strong>Generation ${n}</strong> · ` +
-    `time to blowup ${fmt(remainingAt(h, n), 3)} · ` +
-    `core radius ${fmt(g.radial)} · ` +
-    `core speed ${fmt(g.velocity)} · ` +
-    `Re ${fmt(g.reynolds)}` +
-    `<br><span style="opacity:0.68">Drag to rotate, pinch or scroll to zoom. ` +
-    `Every generation is smaller, faster and shorter-lived than the one before it.</span>`;
-}
-
-function syncGeometry() {
-  const n = state.generation;
-  const h = Number(hInput.value);
-  const detail = String(detailInput.value);
-  const key = `${Math.round(n)}|${h.toFixed(3)}|${detail}`;
-  if (key !== state.builtKey) {
-    renderer.setGeometry(buildGeometry(Math.round(n), h, detail));
-    state.builtKey = key;
-  }
-  // The visible flow accelerates with the generation's turnover rate. The true
-  // ratio spans many orders of magnitude, so it is shown at a compressed power.
-  const ratio = Scales.timeCoefficient(h, 1) / Scales.timeCoefficient(h, Math.round(n));
-  state.flowSpeed = 0.5 * Math.pow(ratio, 0.30);
-  updateReadout(n, h);
-  updateLedger(Math.round(n), h);
-}
-
-// A control moved by the reader takes over the generation coordinate. The loop
-// writes back to the slider without dispatching, so this does not feed back.
-controlsContainer.addEventListener('input', () => {
-  state.generation = Number(genInput.value);
-  syncGeometry();
-  startWarming();
-});
-
-function startWarming() {
-  warmCache(Number(hInput.value), String(detailInput.value));
-}
-
-function renderFrame(force: boolean) {
-  return renderer.render(gpuContext, state.renderParams, camera, canvas.width, canvas.height, force);
-}
-
-camera.on('capture', createWebGPUCaptureHandler({
-  canvas,
-  render: () => renderFrame(true)
-}));
-
-// Stop drawing when the figure scrolls out of view, which matters on a phone.
-// While the element is still detached the observer reports no intersection, so
-// only gate on it once the figure is actually in the document.
-const visibility = new IntersectionObserver((entries) => {
-  const entry = entries[entries.length - 1];
-  state.visible = figureBody.isConnected ? entry.isIntersecting : true;
-}, { rootMargin: '200px' });
-visibility.observe(figureBody);
-
-let previous = performance.now();
-const loop = createFrameLoop((t) => {
-  const dt = Math.min(0.05, (t - previous) / 1000);
-  previous = t;
-  if (!state.visible) return;
-
-  const playing = Boolean(playInput.value);
-  state.renderParams.animating = playing;
-
-  if (playing) {
-    const next = state.generation + dt * 0.5;
-    state.generation = next > N_MAX ? 1 : next;
-    genInput.value = state.generation;
-    state.renderParams.time += dt * state.flowSpeed;
-    syncGeometry();
-    renderFrame(true);
-  } else {
-    // Paused: only repaint when the camera moves.
-    renderFrame(false);
-  }
-});
-
-invalidation.then(() => {
-  loop.cancel();
-  visibility.disconnect();
-  renderer.destroy();
-});
-
-syncGeometry();
-startWarming();
-  </script>
-
-  <script id="figure" type="text/x-typescript">
-const figureWidth = Math.min(width, 720);
-// The structure is a vertical column, so a narrow screen gets a portrait figure
-// rather than the square a phone-width column would otherwise produce.
-const aspect = figureWidth < 480 ? 1.2 : 0.95;
-const figureHeight = Math.max(360, Math.min(580, Math.round(figureWidth * aspect)));
-
-let expandableContainer;
-expandableContainer = expandable(figureEl, {
-  id: 'blowup-viewer',
-  width: figureWidth,
-  height: figureHeight,
-  controls: controlsContainer,
-  state: state.expandedState,
-  buttons: [
-    {
-      icon: camera.getMode() === 'orbit' ? ICON_ORBIT : ICON_ARCBALL,
-      title: 'Toggle camera mode (orbit/arcball)',
-      onClick: (content, expanded, button) => {
-        const mode = camera.getMode() === 'orbit' ? 'arcball' : 'orbit';
-        camera.setMode(mode);
-        camera.triggerRepaint();
-        if (button) button.innerHTML = mode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
-      }
-    },
-    createCameraSnapshotButton(camera, { filename: 'navier-stokes-blowup.png' })
-  ],
-  onResize(el, w, h) {
-    const dpr = Math.min(devicePixelRatio, 2);
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-    camera.triggerRepaint();
-  }
-});
-
-display(expandableContainer);
-display(controlsContainer);
-  </script>
-
-  <script id="reading-the-figure" type="text/markdown">
-Cool colours are slow outer fluid, warm colours the fast core. The outer streamlines arrive almost radially, because the swirl decays away from the axis and there is nothing out there to turn them. Reaching the core they are caught by the rotation, wound into tight helices, and thrown back out along the axis in both directions. The travelling highlights move at the local advection speed, so where they hurry, the fluid hurries.
-
-Nothing in that picture is singular. It is a smooth flow with a finite largest speed. The singularity is in what happens when you do it again, and again.
-  </script>
-
-  <script id="cascade" type="text/markdown">
-## The cascade
-
-A packet of swirl is stretched, spins up, and hands the result to a smaller packet, which does the same thing faster. The construction organizes this into generations indexed by ${tex`n`}, built on a dyadic parameter ${tex`Q_n = 2^{-n}`} and a polynomial weight ${tex`S_n = n^2`}. Two constants set the geometry, a time zoom and a space zoom,
+  <script id="ledger-text" type="text/markdown">
+The generations are indexed by ${tex`n`}, on a dyadic parameter ${tex`Q_n = 2^{-n}`} with a polynomial weight ${tex`S_n = n^2`}. Two constants set the geometry, a time zoom and a space zoom,
 
 ${tex.block`T_g = 4 + \sqrt{2} \approx 5.414, \qquad \Lambda = 4 - \sqrt{2} \approx 2.586,`}
 
-whose ratio fixes a self-similar exponent ${tex`\rho = \log \Lambda / \log T_g \approx 0.5625`}, so that lengths scale against times like ${tex`r \sim t^{\rho}`}. Each generation gets a native index ${tex`\nu(n) = \lfloor \log_{T_g}(Q_n^{-1-h} / n^2) \rfloor`}, and from it a time slot and a radial scale
+whose ratio gives the self-similar exponent ${tex`\rho = \log \Lambda / \log T_g \approx 0.5625`}, so lengths scale against times like ${tex`r \sim t^{\rho}`}. ${tex`\Lambda`} is the factor between successive packets in the figure above. Generation ${tex`n`} gets a native index ${tex`\nu(n) = \lfloor \log_{T_g}(Q_n^{-1-h}/n^2) \rfloor`} and from it
 
 ${tex.block`\tau_n = T_g^{\nu(n)}\, Q_n^{1+h}, \qquad R_n = \Lambda^{\nu(n)}\, Q_n^{(1+h)\rho - h\kappa},`}
 
-with ${tex`\kappa = 10^{-5}`} a small detuning and ${tex`h \in (0, \tfrac12)`} the free parameter. Inside a generation the core carries velocity ${tex`Q_n^{-(1/2+h)}`} across radial width ${tex`Q_n^{1/2}`} and axial length ${tex`Q_n^{1/2-h}`}.
+with ${tex`\kappa = 10^{-5}`} and ${tex`h \in (0, \tfrac12)`} free. Its core carries velocity ${tex`Q_n^{-(1/2+h)}`} across radial width ${tex`Q_n^{1/2}`} and axial length ${tex`Q_n^{1/2-h}`}, so the Reynolds number on the radial scale is ${tex`\mathrm{Re}_n = Q_n^{-h} = 2^{nh}`}, growing geometrically. That is the frame-3 claim made precise, and why ${tex`h`} must be strictly positive.
+
+The floor in ${tex`\nu(n)`} looks like an accounting detail and is in fact the point. It makes ${tex`T_g^{\nu(n)}`} very nearly cancel ${tex`Q_n^{-1-h}/n^2`}, leaving
+
+${tex.block`\tau_n \asymp \frac{1}{n^2},`}
+
+and ${tex`\sum_n n^{-2}`} converges. Infinitely many stages, finite total time.
   </script>
 
-  <script id="zeno" type="text/markdown">
-Those definitions look arbitrary until you evaluate them. Because ${tex`\nu(n)`} is the floor of a logarithm, the factor ${tex`T_g^{\nu(n)}`} very nearly cancels ${tex`Q_n^{-1-h}/n^2`}, and the slot length collapses to
-
-${tex.block`\tau_n \asymp \frac{1}{n^2}.`}
-
-The machinery is arranged so that the ${tex`n`}th stage takes about ${tex`1/n^2`} units of time. There are infinitely many stages, but ${tex`\sum_n n^{-2}`} converges, so all of them are done before a finite time ${tex`T^*`}. The velocity meanwhile grows like ${tex`Q_n^{-(1/2+h)}`}, without bound. Equivalently, the generation you are watching is roughly the reciprocal of the time remaining: to reach stage ${tex`n`} you must come within about ${tex`1/2n`} of ${tex`T^*`}.
-  </script>
-
-  <script id="ledger" type="text/x-typescript">
-const ledgerSlot = html`<div id="blowup-ledger"></div>`;
-state.ledgerSlot = ledgerSlot;
-
-const PLOT_STYLE = { background: 'transparent', color: '#c9ccd1' };
-
-// The width is measured from the slot rather than read from the reactive `width`
-// global, so that a resize does not invalidate the cell that owns the GPU
-// pipelines. Plot has no reflow, so the charts are rebuilt on a real width change.
-function slotWidth() {
-  return Math.min(ledgerSlot.clientWidth || 640, 720);
-}
-
-function ledgerPlots(nCurrent: number, h: number) {
-  const rows = Scales.ledger(h, 40);
-  const T = tailTable(h).T;
-  const here = rows.filter((r) => r.n === nCurrent);
-  const w = slotWidth();
-  const pw = w > 540 ? Math.floor((w - 16) / 2) : w;
-
-  const staircase = Plot.plot({
-    width: pw, height: 230, marginLeft: 46, marginBottom: 34,
-    style: PLOT_STYLE,
-    x: { label: 'generation n' },
-    y: { label: 'elapsed time', domain: [0, T * 1.1] },
-    marks: [
-      Plot.ruleY([T], { stroke: '#e8a765', strokeDasharray: '3,3' }),
-      Plot.text([`T* = ${T.toFixed(3)}`], { x: 20, y: T, dy: -9, fill: '#e8a765', fontSize: 11 }),
-      Plot.areaY(rows, { x: 'n', y: 'end', fill: '#21b0c4', fillOpacity: 0.15, curve: 'step-after' }),
-      Plot.line(rows, { x: 'n', y: 'end', stroke: '#21b0c4', strokeWidth: 1.6, curve: 'step-after' }),
-      Plot.dot(here, { x: 'n', y: 'end', fill: '#e8a765', r: 4 })
-    ]
-  });
-
-  const magnitudes = Plot.plot({
-    width: pw, height: 230, marginLeft: 56, marginBottom: 34,
-    style: PLOT_STYLE,
-    x: { label: 'generation n' },
-    y: { label: 'core speed and radius', type: 'log' },
-    marks: [
-      Plot.ruleY([1], { stroke: '#c9ccd1', strokeOpacity: 0.25 }),
-      Plot.line(rows, { x: 'n', y: 'velocity', stroke: '#e8a765', strokeWidth: 1.6 }),
-      Plot.line(rows, { x: 'n', y: 'radial', stroke: '#21b0c4', strokeWidth: 1.6 }),
-      Plot.dot(here, { x: 'n', y: 'velocity', fill: '#e8a765', r: 4 }),
-      Plot.dot(here, { x: 'n', y: 'radial', fill: '#21b0c4', r: 4 }),
-      Plot.text(['speed'], { x: 28, y: rows[27].velocity, dy: -10, fill: '#e8a765', fontSize: 11 }),
-      Plot.text(['radius'], { x: 28, y: rows[27].radial, dy: 12, fill: '#21b0c4', fontSize: 11 })
-    ]
-  });
-
-  return html`<div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">
-    ${staircase}${magnitudes}
-  </div>`;
-}
-
-// Called on every animation frame, so it must not touch layout. The key is the
-// generation and h only; a width change invalidates it from the observer below.
-function updateLedger(n: number, h: number) {
-  if (!state.ledgerSlot) return;
-  const key = n * 1000 + Math.round(h * 1000);
-  if (key === state.ledgerKey) return;
-  state.ledgerKey = key;
-  state.ledgerSlot.replaceChildren(ledgerPlots(n, h));
-}
-
-// Quantise, and react only to a genuine width change. Without both guards the
-// observer refires on the height change its own redraw causes.
-let lastSlotWidth = 0;
-const ledgerResize = new ResizeObserver(() => {
-  const w = Math.floor(slotWidth() / 20) * 20;
-  if (w <= 0 || w === lastSlotWidth) return;
-  lastSlotWidth = w;
-  state.ledgerKey = -1;
-  updateLedger(Math.round(state.generation), Number(hInput.value));
-});
-ledgerResize.observe(ledgerSlot);
-invalidation.then(() => ledgerResize.disconnect());
+  <script id="ledger-controls" type="text/x-typescript">
+const h = view(Inputs.range([0.05, 0.45], { label: 'h', value: 0.25, step: 0.01 }));
   </script>
 
   <script id="ledger-figure" type="text/x-typescript">
-updateLedger(Math.round(state.generation), Number(hInput.value));
+const rows = Scales.ledger(h, 40);
+const T = Scales.blowupTime(h);
+const panelWidth = width > 560 ? Math.floor((Math.min(width, 720) - 16) / 2) : Math.min(width, 720);
+const plotStyle = { background: 'transparent' };
 
-display(html`<figure style="margin:0">${ledgerSlot}<figcaption>
-  Elapsed time accumulates in ever shorter slots and stalls at ${tex`T^*`}, while the core
-  speed leaves the top of a logarithmic axis and the core radius leaves the bottom.
-  The markers follow the figure above.
-</figcaption></figure>`);
+const staircase = Plot.plot({
+  width: panelWidth, height: 220, marginLeft: 46, marginBottom: 34, style: plotStyle,
+  x: { label: 'generation n' },
+  y: { label: 'elapsed time', domain: [0, T * 1.1] },
+  marks: [
+    Plot.ruleY([T], { stroke: '#e8a765', strokeDasharray: '3,3' }),
+    Plot.text([`T* = ${T.toFixed(3)}`], { x: 20, y: T, dy: -9, fill: '#e8a765', fontSize: 11 }),
+    Plot.areaY(rows, { x: 'n', y: 'end', fill: '#21b0c4', fillOpacity: 0.15, curve: 'step-after' }),
+    Plot.line(rows, { x: 'n', y: 'end', stroke: '#21b0c4', strokeWidth: 1.6, curve: 'step-after' })
+  ]
+});
+
+const magnitudes = Plot.plot({
+  width: panelWidth, height: 220, marginLeft: 56, marginBottom: 34, style: plotStyle,
+  x: { label: 'generation n' },
+  y: { label: 'core speed and radius', type: 'log' },
+  marks: [
+    Plot.ruleY([1], { strokeOpacity: 0.25 }),
+    Plot.line(rows, { x: 'n', y: 'velocity', stroke: '#e8a765', strokeWidth: 1.6 }),
+    Plot.line(rows, { x: 'n', y: 'radial', stroke: '#21b0c4', strokeWidth: 1.6 }),
+    Plot.text(['speed'], { x: 28, y: rows[27].velocity, dy: -10, fill: '#e8a765', fontSize: 11 }),
+    Plot.text(['radius'], { x: 28, y: rows[27].radial, dy: 12, fill: '#21b0c4', fontSize: 11 })
+  ]
+});
+
+display(html`<figure style="margin:1em 0">
+  <div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">${staircase}${magnitudes}</div>
+  <figcaption>
+    Elapsed time accumulates in ever shorter slots and stalls at ${tex`T^*`}, while the core speed
+    leaves the top of a logarithmic axis and the core radius leaves the bottom. Move ${tex`h`} to
+    see how little room there is between a cascade that outruns diffusion and one that does not.
+  </figcaption>
+</figure>`);
   </script>
 
-  <script id="viscosity" type="text/markdown">
-## Why viscosity does not stop it
-
-The obvious objection is that Navier–Stokes is not Euler. Viscosity smooths, and the smaller the structure the harder it smooths, which is why the two-dimensional problem is settled and why no naive cascade survives. The construction answers this by keeping every generation supercritical. On the radial scale the Reynolds number is
-
-${tex.block`\mathrm{Re}_n = Q_n^{-(1/2+h)} \cdot Q_n^{1/2} = Q_n^{-h} = 2^{nh},`}
-
-which grows geometrically, while the viscosity measured against the inertial scale is ${tex`Q_n^{h} \to 0`}. Each generation is more inviscid than the last, so diffusion never catches the cascade. That is what the parameter ${tex`h`} buys and why it must be strictly positive. Push the slider toward zero and the mechanism goes critical.
-
-The forcing carries the rest. The theorem is not that a fluid at rest blows up unaided, but that there is a smooth finite-energy forcing driving a fluid from rest into a singularity in finite time, which is what alternatives (C) and (D) ask for.
+  <script id="closing" type="text/markdown">
+The forcing carries the rest. The theorem is not that a fluid at rest tears itself apart unaided, but that there is a smooth, finite-energy forcing which drives one from rest into a singularity in finite time. That is exactly what alternatives (C) and (D) ask for.
   </script>
 
   <script id="caveats" type="text/markdown">
 ## What is exact here, and what is not
 
-The ansatz, the constants ${tex`T_g = 4+\sqrt 2`}, ${tex`\Lambda = 4-\sqrt 2`} and ${tex`\kappa = 10^{-5}`}, the definitions of ${tex`\nu(n)`}, ${tex`\tau_n`} and ${tex`R_n`}, and the core velocity, radial and axial scalings are transcribed from the published Lean 4 sources in [openai/NavierStokesAndEuler](https://github.com/openai/NavierStokesAndEuler), specifically `ChartScales.lean`, `SlotColoring.lean`, `Scaling.lean` and `AxisymmetricFields.lean`. The ledger plots are those formulas evaluated. The rendered field is a genuine curl of the stated potential, divergence-free to roundoff.
+The ansatz, the constants ${tex`T_g = 4+\sqrt 2`}, ${tex`\Lambda = 4-\sqrt 2`} and ${tex`\kappa = 10^{-5}`}, the definitions of ${tex`\nu(n)`}, ${tex`\tau_n`} and ${tex`R_n`}, and the core velocity, radial and axial scalings are transcribed from the published Lean 4 sources in [openai/NavierStokesAndEuler](https://github.com/openai/NavierStokesAndEuler), specifically `ChartScales.lean`, `SlotColoring.lean`, `Scaling.lean` and `AxisymmetricFields.lean`. The plots are those formulas evaluated, the ratio between successive packets in the second figure is the manuscript's ${tex`\Lambda`}, and the streamlines are integrated from a genuine curl of the stated potential, divergence-free to roundoff.
 
-The profiles are not exact. The manuscript's ${tex`H`} and ${tex`K`} come out of an inductive scheme with corrections at every stage and are not something you can write on a line. The figure substitutes the simplest profiles with the right qualitative behaviour, a localized axial strain and a Gaussian-cored swirl, reducing near the axis to ${tex`u_r = -\gamma r/2`}, ${tex`u_z = \gamma z`} and ${tex`u_\theta = \omega r`}. The spatial arrangement is likewise illustrative: the construction places many packets per generation on a mesh of spacing ${tex`Q_n^a / n^6`}, and the figure draws one. The growth of swirl and the narrowing of the core across generations are shown at compressed rates, because at the true rates the structure falls below one pixel almost at once. The numbers in the caption are not compressed.
+The profiles are not exact. The manuscript's ${tex`H`} and ${tex`K`} come out of an inductive scheme with corrections at every stage and are not something you can write on a line. The figures substitute the simplest profiles with the right behaviour, a localized axial strain and a Gaussian-cored swirl. One packet is drawn per generation where the construction places many on a mesh of spacing ${tex`Q_n^a/n^6`}, and they are strung along the axis to be seen rather than nested where they would hide inside one another. Successive packets differ only in scale, since after rescaling a self-similar cascade repeats; the real generations also drift in shape, and that drift is not drawn. The rate at which deep packets appear to run is compressed, because the true ratio strobes within a couple of generations.
+
+The first walkthrough is a diagram rather than a simulation: an idealized core with arrows for the two motions acting on it, not integrated fluid. The relationship it shows is real, and it is the one the whole construction runs on.
 
 This is a picture of the mechanism, not a rendering of the solution. Whether the proof is correct is a question for referees, and at the time of writing it is open.
   </script>
