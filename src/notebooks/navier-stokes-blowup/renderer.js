@@ -261,7 +261,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
         instanceData[o + 8] = it.pulseAmp ?? 0;
         instanceData[o + 9] = it.writhe ?? 0;
         instanceData[o + 10] = it.elongate ?? 1;
-        instanceData[o + 11] = 0;
+        instanceData[o + 11] = it.bend ? 1 : 0;
         slot++;
       }
       draws.push({ geometry, first, count: visible.length });

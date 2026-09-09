@@ -191,14 +191,17 @@ import {
   GAMMA, SPEED_TO_LENGTH, AXIAL_SPAN, RADIAL_SPAN
 } from './scene.js';
 import { tubeShaderCode, compositeShaderCode } from './shaders.js';
-import { packStreamlines, lineVertexBody, lineFragmentBody, VIEW_SIZE } from './cascade-lines.js';
+import {
+  packStreamlines, seedParticles, integrateShaderCode, backboneVertexBody, backboneFragmentBody,
+  trailVertexBody, trailFragmentBody, VIEW_SIZE, TRAIL, FIELD
+} from './cascade-particles.js';
 import { createGPULines } from 'npm:webgpu-instanced-lines';
 import { createRenderer } from './renderer.js';
 import * as Scales from './scales.js';
   </script>
 
   <script id="intro" type="text/markdown">
-In September 2026 OpenAI announced that one of its systems had produced a proof that the three-dimensional incompressible Navier–Stokes equations can lose smoothness in finite time, with a complete formalization in Lean 4. The claim resolves alternatives **(C)** and **(D)** of the Clay Millennium Prize problem, the two that ask for a *breakdown* example rather than a proof that solutions stay smooth forever. Priority and independent verification were contested immediately, and none of that is settled here.
+In September 2026 OpenAI announced that one of its systems had produced a proof that the three-dimensional incompressible Navier–Stokes equations can lose smoothness in finite time, with a complete formalization in Lean 4. The Clay Millennium Prize problem offers four ways to settle the question. Two ask you to prove that solutions always stay smooth, in three dimensions without forcing and then with it; the other two ask for the opposite, a single example of a solution that breaks down. This claim is of the second kind, and it is the forced version: a smooth forcing that drives a fluid from rest into a singularity. Priority and independent verification were contested immediately, and none of that is settled here.
 
 What follows is not the proof. It is the picture underneath it, which turns out to be something you already have intuition for.
   </script>
@@ -568,7 +571,8 @@ await new Promise((r) => setTimeout(r, 100));
         twist: t.twist + streakAngle[i],
         opacity: s.streakOpacity,
         pulseAmp: 0,
-        elongate: speed / STREAK_REF_SPEED
+        elongate: speed / STREAK_REF_SPEED,
+        bend: true
       });
     });
 
@@ -657,7 +661,18 @@ await new Promise((r) => setTimeout(r, 100));
   ];
 
   const frameCount = captions.length;
-  const COPIES = 5;
+
+  /**
+   * Generations are indexed absolutely and never recycled. The old figure held
+   * a fixed set of slots and slid a fractional offset through them, which made
+   * the visible arrangement exactly periodic in the zoom -- identical to the
+   * last digit at zoom 0, 1, 2 and 3 -- so nothing in it could appear to speed
+   * up however the rates were set. Generation m now sits at scale
+   * Lambda^(zoom - m) for good, and zooming in genuinely arrives at deeper,
+   * faster generations.
+   */
+  const GEN_COUNT = 8;
+  const DRAW_GENS = 5;
   const TWIST = 0.9;
 
   // The readout is drawn from the ledger at a fixed h. The slider further down
@@ -695,13 +710,17 @@ await new Promise((r) => setTimeout(r, 100));
   const PATTERN_GROWTH = 3;
 
   const sequencer = createSequencer({
-    zoom:          [{ t: 0, value: 0 }, { t: frameCount, value: ZOOM_SPAN, ease: linear }],
+    // Hold at the top of the cascade for the first frame. Ramping from t = 0
+    // meant the readout was already at generation 2.8 by the time the figure
+    // had finished fading in, so the descent had started before the reader
+    // could see where it started from.
+    zoom:          [{ t: 0, value: 0 }, { t: 1, value: 0 }, { t: frameCount, value: ZOOM_SPAN, ease: linear }],
     streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }],
     // The descent through generations, which the readout reports. It runs well
     // past the 3.4 chart steps the picture zooms through, because the point it
     // has to make is what happens after the picture stops being able to show
     // anything: by generation 16 the elapsed time is within 4% of T*.
-    gen:           [{ t: 0, value: 1 }, { t: frameCount, value: GEN_MAX, ease: linear }],
+    gen:           [{ t: 0, value: 1 }, { t: 1, value: 1 }, { t: frameCount, value: GEN_MAX, ease: linear }],
     stripOpacity:  [{ t: 0, value: 0 }, { t: 0.6, value: 1 }]
   });
 
@@ -734,38 +753,44 @@ await new Promise((r) => setTimeout(r, 100));
     renderContinuously: false
   });
 
-  // One generation's streamlines, integrated once. Every other generation is
-  // this same table at a different scale.
-  const field = createField({ gamma: 1.6, omega: 3.0, sigma: 0.7, zH: 1.15, zK: 0.95 });
   const small = isSmallScreen();
+  const field = createField(FIELD);
+
+  // The backbone: a handful of long tabulated curves, the same in every
+  // generation. The trails below show the field is alive, but each one only
+  // sees its own small piece of it; these carry the shape that does not depend
+  // on scale, and seeing one curve at four sizes at once is the self-similarity
+  // stated rather than asserted.
   const lines = seedRings(field, {
-    rings: 5,
-    perRing: small ? 8 : 11,
-    rMin: 0.36, rMax: 2.7, zSeed: 0.9,
+    rings: 2,
+    perRing: small ? 2 : 3,
+    rMin: 0.5, rMax: 2.1, zSeed: 0.9,
     step: 0.022, maxSteps: small ? 440 : 520, bound: 4.6,
-    // Stop a streamline once the fluid all but stops, rather than integrating a
-    // long tail through the stagnation region that carries no information.
     minSpeed: 0.07
   });
-  const packed = packStreamlines(lines.map((l) => decimate(l, 3)), speedRange(lines));
+  const range = speedRange(lines);
+  const packed = packStreamlines(lines.map((l) => decimate(l, 3)), range);
 
-  /** Stroke weight in CSS pixels, the same in every generation. */
-  const LINE_WIDTH = small ? 1.6 : 2.0;
+  // The ambient field: many short, thin trails, integrated on the GPU.
+  const PER_GEN = small ? 90 : 190;
+  const seeded = seedParticles(field, PER_GEN * GEN_COUNT);
 
-  const gpuLines = createGPULines(device, {
-    colorTargets: [{ format: canvasFormat }],
-    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-    // The strokes are opaque, so the depth test alone resolves every crossing
-    // and multisampling can do the edges. Both were out of reach for the tubes:
-    // they needed transparency, transparency needed depth peeling, and peeling
-    // cannot be multisampled.
-    multisample: { count: 4 },
-    join: 'miter',
-    cap: 'round',
-    maxCapResolution: 4,
-    vertexShaderBody: lineVertexBody,
-    fragmentShaderBody: lineFragmentBody
+  const BACKBONE_WIDTH = small ? 2.0 : 2.4;
+  const TRAIL_WIDTH = small ? 1.1 : 1.4;
+
+  const dpr = Math.min(2, window.devicePixelRatio);
+
+  const stateBuffer = device.createBuffer({
+    label: 'cascade-state', size: seeded.state.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
   });
+  device.queue.writeBuffer(stateBuffer, 0, seeded.state);
+
+  const metaBuffer = device.createBuffer({
+    label: 'cascade-meta', size: seeded.meta.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+  device.queue.writeBuffer(metaBuffer, 0, seeded.meta);
 
   const sampleBuffer = device.createBuffer({
     label: 'cascade-samples', size: packed.samples.byteLength,
@@ -785,12 +810,61 @@ await new Promise((r) => setTimeout(r, 100));
   });
 
   const genBuffer = device.createBuffer({
-    label: 'cascade-generations', size: COPIES * 16,
+    label: 'cascade-generations', size: DRAW_GENS * 16,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
   });
 
-  const lineBindGroup = device.createBindGroup({
-    layout: gpuLines.getBindGroupLayout(1),
+  const simBuffer = device.createBuffer({
+    label: 'cascade-sim', size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+
+  const integrate = device.createComputePipeline({
+    label: 'cascade-integrate',
+    layout: 'auto',
+    compute: { module: device.createShaderModule({ code: integrateShaderCode(FIELD) }), entryPoint: 'main' }
+  });
+  const integrateBind = device.createBindGroup({
+    layout: integrate.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: stateBuffer } },
+      { binding: 1, resource: { buffer: metaBuffer } },
+      { binding: 2, resource: { buffer: simBuffer } }
+    ]
+  });
+
+  const lineOptions = {
+    // Straight alpha, and no depth buffer at all. Strokes a couple of pixels
+    // wide crossing a mostly empty frame do not need occlusion, and wanting it
+    // is what would drag depth peeling back in; what they do need is to fade by
+    // going transparent rather than by going dark. Order errors between two
+    // translucent hairlines are invisible. Multisampling does the edges.
+    colorTargets: [{
+      format: canvasFormat,
+      blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+      }
+    }],
+    multisample: { count: 4 },
+    join: 'miter',
+    cap: 'round',
+    maxCapResolution: 4
+  };
+
+  const backbone = createGPULines(device, {
+    ...lineOptions,
+    vertexShaderBody: backboneVertexBody,
+    fragmentShaderBody: backboneFragmentBody
+  });
+  const trails = createGPULines(device, {
+    ...lineOptions,
+    vertexShaderBody: trailVertexBody(FIELD),
+    fragmentShaderBody: trailFragmentBody
+  });
+
+  const backboneBind = device.createBindGroup({
+    layout: backbone.getBindGroupLayout(1),
     entries: [
       { binding: 0, resource: { buffer: sampleBuffer } },
       { binding: 1, resource: { buffer: phaseBuffer } },
@@ -798,32 +872,36 @@ await new Promise((r) => setTimeout(r, 100));
       { binding: 3, resource: { buffer: genBuffer } }
     ]
   });
+  const trailBind = device.createBindGroup({
+    layout: trails.getBindGroupLayout(1),
+    entries: [
+      { binding: 0, resource: { buffer: stateBuffer } },
+      { binding: 2, resource: { buffer: viewBuffer } },
+      { binding: 3, resource: { buffer: genBuffer } }
+    ]
+  });
 
   // Reallocated on resize, and only then.
   let msaaTexture = null;
-  let depthTexture = null;
   let targetKey = '';
   function ensureTargets() {
     const key = `${canvas.width}x${canvas.height}`;
     if (key === targetKey) return;
     targetKey = key;
     msaaTexture?.destroy();
-    depthTexture?.destroy();
-    const size = [canvas.width, canvas.height];
     msaaTexture = device.createTexture({
-      label: 'cascade-msaa', size, format: canvasFormat, sampleCount: 4,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT
-    });
-    depthTexture = device.createTexture({
-      label: 'cascade-depth', size, format: 'depth24plus', sampleCount: 4,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT
+      label: 'cascade-msaa', size: [canvas.width, canvas.height], format: canvasFormat,
+      sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
   }
 
+  const genData = new Float32Array(DRAW_GENS * 4);
   const viewData = new ArrayBuffer(VIEW_SIZE);
   const viewF32 = new Float32Array(viewData);
   const viewU32 = new Uint32Array(viewData);
-  const genData = new Float32Array(COPIES * 4);
+  const simData = new ArrayBuffer(32);
+  const simF32 = new Float32Array(simData);
+  const simU32 = new Uint32Array(simData);
 
   const smoothstep = (a, b, x) => {
     const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -831,44 +909,33 @@ await new Promise((r) => setTimeout(r, 100));
   };
 
   /**
-   * Pulse rate for a copy drawn at unit scale, at the top of the scroll, in
-   * pulses per second.
-   */
-  const PULSE_RATE = 1.4;
-
-  /**
-   * How much faster everything runs per generation of zoom.
+   * How fast the whole field runs at the top of the scroll, and how much faster
+   * per generation of descent.
    *
-   * Something has to depend on the total zoom or the figure cannot appear to
-   * speed up at all. The zoom recycles a fixed set of copies: as it advances by
-   * one, every copy's generation index slides by one and the slots relabel, so
-   * a rate that is any function of that index alone repeats exactly. Measured,
-   * the visible arrangement at zoom 0, 1, 2 and 3 was identical to the last
-   * digit, which is why the descent looked like a still picture.
-   *
-   * The true factor is the manuscript's own time zoom T_g = 4 + sqrt(2). Over
-   * the 3.4 generations this scroll covers that is 312x, which takes a rate you
-   * can follow at the top into a strobe at the bottom, so it is compressed to 2
-   * per generation, about 6x end to end. The acceleration is real and the
-   * ordering is right; only its steepness is dialled back.
+   * A generation is drawn at scale Lambda^(zoom - m) and stepped Lambda^m
+   * faster in its own time, so those cancel and every generation moves at one
+   * speed across the screen -- the nest reads as a single fluid rather than a
+   * gradient of flicker. What is left is this factor, shared by all of them and
+   * growing with the zoom, which is the acceleration the reader is meant to
+   * see. The true factor per generation is T_g = 5.41, which over the 3.4
+   * generations this scroll covers is 312x and unwatchable; it is compressed to
+   * 2, about 10x end to end, with a smooth ceiling so the bottom does not blur.
    */
+  const BASE_RATE = 2.0;
   const ZOOM_ACCEL = 2;
+  const RATE_CAP = 7.5;
 
-  /**
-   * A ceiling on the rate, applied smoothly. The innermost copies are both the
-   * smallest and the quickest, and without it they cross into flicker.
-   */
-  const PULSE_CAP = 7;
+  /** Pulse rate along the backbone, in pulses per second. */
+  const PULSE_RATE = 1.0;
 
-  // Phase is accumulated per slot rather than taken as a clock times a rate,
-  // because the rate depends on the zoom and the zoom moves with the scroll:
-  // multiplying a large elapsed time by a rate that changes would slew the
-  // pulses by whole cycles for a fractional change. Only the fractional part is
-  // ever read, so wrapping it keeps f32 precision exact no matter how long the
-  // page has been open.
-  const slotPhase = new Float64Array(COPIES);
+  // Pulse phase is accumulated rather than taken as a clock times a rate: the
+  // rate moves with the scroll, and multiplying a large elapsed time by a
+  // moving rate slews the pulses by whole cycles. Only the fractional part is
+  // read, so wrapping keeps f32 exact however long the page has been open.
+  const genPulse = new Float64Array(GEN_COUNT);
 
   let smoothed = 0;
+  let stepIndex = 0;
   let last = performance.now();
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -878,67 +945,82 @@ await new Promise((r) => setTimeout(r, 100));
     smoothed += (scrollProgress(container) - smoothed) * 0.1;
     sequencer.setPosition(smoothed * frameCount);
     const s = sequencer.getState();
-
-    // Generation m is drawn at scale Lambda^-m about the blowup point, a family
-    // that maps onto itself when m shifts by one. Sweeping m and recycling the
-    // copies through a fade is an unbroken zoom, and because the generations
-    // share a centre it is a zoom about the middle of the frame rather than a
-    // drift across it. It is also the truer arrangement: the cascade
-    // concentrates at a point rather than stringing out along the axis.
     updateStrip(s.gen, s.stripOpacity);
 
-    const u = s.zoom - Math.floor(s.zoom);
-    const instances = [];
-    for (let k = 0; k < COPIES; k++) {
-      const m = k - u;
-      // The pattern's frequency stays a uniform, shared by every copy. Scaling
-      // it per copy to hold the stripe length fixed on screen means scaling by
-      // Lambda^-m, and m = k - u cycles through a factor of Lambda within every
-      // unit of zoom, which slides the pattern by tens of periods over and over
-      // as the page moves. A slow monotone factor in the total zoom, which is
-      // what flowRate carries, does not: it stretches the pattern once across
-      // the whole figure. Inner copies still carry finer stripes than outer
-      // ones, and that is the part with no fix.
-      const scale = Math.pow(Scales.LAMBDA, -m);
-      // Rate inversely proportional to the copy's scale, so the pulses travel at
-      // one speed across the screen however deep the packet is and the nesting
-      // reads as a single continuous flow. A smaller copy is not slower for it:
-      // its pulses are closer together, so they arrive more often, which is the
-      // generation running faster.
-      const raw = (PULSE_RATE * Math.pow(ZOOM_ACCEL, s.zoom)) / scale;
-      slotPhase[k] = (slotPhase[k] + dt * PULSE_CAP * Math.tanh(raw / PULSE_CAP)) % 1;
+    const raw = BASE_RATE * Math.pow(ZOOM_ACCEL, s.zoom);
+    const rate = RATE_CAP * Math.tanh(raw / RATE_CAP);
 
-      genData[k * 4] = scale;
-      genData[k * 4 + 1] = m * TWIST;
-      genData[k * 4 + 2] = s.streamOpacity * smoothstep(-1, 0, m) * (1 - smoothstep(COPIES - 2, COPIES - 1, m));
-      genData[k * 4 + 3] = slotPhase[k];
+    // Which run of generations is on screen. Generation m is drawn at
+    // Lambda^(zoom - m), so the ones worth drawing are those a little larger
+    // than the frame down to a few steps inside it.
+    const genOffset = Math.max(0, Math.min(GEN_COUNT - DRAW_GENS, Math.floor(s.zoom) - 1));
+
+    for (let i = 0; i < DRAW_GENS; i++) {
+      const m = genOffset + i;
+      const d = s.zoom - m;
+      genPulse[m] = (genPulse[m] + dt * PULSE_RATE * Math.pow(ZOOM_ACCEL, s.zoom)) % 1;
+      genData[i * 4] = Math.pow(Scales.LAMBDA, d);
+      genData[i * 4 + 1] = m * TWIST;
+      genData[i * 4 + 2] = s.streamOpacity * smoothstep(-3.4, -2.6, d) * (1 - smoothstep(0.6, 1.2, d));
+      genData[i * 4 + 3] = genPulse[m];
     }
     device.queue.writeBuffer(genBuffer, 0, genData);
+
+    // Step every generation, including the ones off screen, so nothing is stale
+    // when the descent reaches it.
+    const srcStep = stepIndex % TRAIL;
+    const dstStep = (stepIndex + 1) % TRAIL;
+    simF32[0] = dt;
+    simF32[1] = rate;
+    simF32[2] = Scales.LAMBDA;
+    simF32[3] = s.zoom;
+    simU32[4] = srcStep;
+    simU32[5] = dstStep;
+    simU32[6] = PER_GEN;
+    simU32[7] = GEN_COUNT;
+    device.queue.writeBuffer(simBuffer, 0, simData);
 
     ensureTargets();
     const { projView } = camera.update(canvas.width / canvas.height);
     viewF32.set(projView, 0);
     viewF32.set(themeState.background, 16);
-    // Width in device pixels. This is the whole point of drawing the cascade
-    // this way: a stroke is a mark on the page, so it is the same weight in
-    // every generation and the zoom moves the curves without thickening them.
-    viewF32[19] = LINE_WIDTH * Math.min(2, window.devicePixelRatio);
-    viewF32[20] = FLOW_RATE / Math.pow(PATTERN_GROWTH, s.zoom / ZOOM_SPAN);
-    viewF32[21] = 0.55;
-    viewF32[22] = themeState.isDark ? 1 : 0;
-    viewF32[23] = 1;
-    viewU32[24] = packed.count;
-    viewU32[25] = COPIES;
+    // Widths in device pixels, identical in every generation: a stroke is a
+    // mark on the page, so the zoom moves the curves without thickening them.
+    viewF32[19] = TRAIL_WIDTH * dpr;
+    viewF32[20] = themeState.isDark ? 1 : 0;
+    viewF32[21] = 1;
+    viewF32[22] = range[0];
+    viewF32[23] = range[1];
+    viewU32[24] = genOffset;
+    viewU32[25] = PER_GEN;
+    viewU32[26] = (stepIndex + 1) % TRAIL;
+    viewU32[27] = DRAW_GENS;
+    viewU32[28] = packed.count;
+    viewF32[29] = BACKBONE_WIDTH * dpr;
+    viewF32[30] = FLOW_RATE / Math.pow(PATTERN_GROWTH, s.zoom / ZOOM_SPAN);
+    viewF32[31] = 0.55;
     device.queue.writeBuffer(viewBuffer, 0, viewData);
 
     const bg = themeState.background;
     const encoder = device.createCommandEncoder();
-    const drawProps = {
-      vertexCount: packed.count * COPIES,
-      width: viewF32[19],
+
+    const compute = encoder.beginComputePass();
+    compute.setPipeline(integrate);
+    compute.setBindGroup(0, integrateBind);
+    compute.dispatchWorkgroups(Math.ceil((PER_GEN * GEN_COUNT) / 64));
+    compute.end();
+    stepIndex++;
+
+    const backboneProps = {
+      vertexCount: packed.count * DRAW_GENS,
+      width: BACKBONE_WIDTH * dpr,
       resolution: [canvas.width, canvas.height]
     };
-    gpuLines.updateUniforms(drawProps);
+    const trailProps = {
+      vertexCount: PER_GEN * (TRAIL + 1) * DRAW_GENS,
+      width: TRAIL_WIDTH * dpr,
+      resolution: [canvas.width, canvas.height]
+    };
 
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
@@ -947,15 +1029,13 @@ await new Promise((r) => setTimeout(r, 100));
         clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
         loadOp: 'clear',
         storeOp: 'store'
-      }],
-      depthStencilAttachment: {
-        view: depthTexture.createView(),
-        depthClearValue: 1,
-        depthLoadOp: 'clear',
-        depthStoreOp: 'store'
-      }
+      }]
     });
-    gpuLines.draw(pass, { ...drawProps, skipUniformUpdate: true }, [lineBindGroup]);
+    // Uniforms for both line renderers must be written before the pass opens.
+    trails.updateUniforms(trailProps);
+    trails.draw(pass, { ...trailProps, skipUniformUpdate: true }, [trailBind]);
+    backbone.updateUniforms(backboneProps);
+    backbone.draw(pass, { ...backboneProps, skipUniformUpdate: true }, [backboneBind]);
     pass.end();
     device.queue.submit([encoder.finish()]);
   });
@@ -966,13 +1046,16 @@ await new Promise((r) => setTimeout(r, 100));
     loop.cancel();
     window.removeEventListener('resize', onResize);
     camera.destroy();
-    gpuLines.destroy();
+    backbone.destroy();
+    trails.destroy();
+    stateBuffer.destroy();
+    metaBuffer.destroy();
     sampleBuffer.destroy();
     phaseBuffer.destroy();
     viewBuffer.destroy();
     genBuffer.destroy();
+    simBuffer.destroy();
     msaaTexture?.destroy();
-    depthTexture?.destroy();
   });
 }
   </script>
@@ -1065,7 +1148,7 @@ display(html`<figure style="margin:1em 0">
   </script>
 
   <script id="closing" type="text/markdown">
-The forcing carries the rest. The theorem is not that a fluid at rest tears itself apart unaided, but that there is a smooth, finite-energy forcing which drives one from rest into a singularity in finite time. That is exactly what alternatives (C) and (D) ask for.
+The forcing carries the rest. The theorem is not that a fluid at rest tears itself apart unaided, but that there is a smooth, finite-energy forcing which drives one from rest into a singularity in finite time. That is exactly what the breakdown half of the Millennium problem asks for.
   </script>
 
   <script id="caveats" type="text/markdown">

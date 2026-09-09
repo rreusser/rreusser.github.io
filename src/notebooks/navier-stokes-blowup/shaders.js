@@ -95,7 +95,7 @@ fn vs(
   // Anisotropic stretch about the axis. Normals transform by the inverse
   // transpose, which for a diagonal scale is the reciprocal on each axis.
   var stretched = vec3f(position.x * sr, position.y * sy, position.z * sr * ez);
-  let nStretched = normalize(vec3f(normal.x / sr, normal.y / sy, normal.z / (sr * ez)));
+  var nStretched = normalize(vec3f(normal.x / sr, normal.y / sy, normal.z / (sr * ez)));
 
   // A slow writhe along the core. Vorticity in a real flow is never a straight
   // line, and stretching pulls a tube straight, so the amplitude rides on the
@@ -105,13 +105,34 @@ fn vs(
   let writhe = instC.y * sr;
   if (writhe > 0.0) {
     let h = stretched.y;
-    stretched.x += writhe * (sin(0.62 * h + 0.23 * u.time) + 0.55 * sin(1.13 * h - 0.17 * u.time));
-    stretched.z += writhe * (cos(0.71 * h - 0.19 * u.time) + 0.55 * cos(0.94 * h + 0.21 * u.time));
+    stretched.x += writhe * (sin(0.62 * h + 0.62 * u.time) + 0.55 * sin(1.13 * h - 0.44 * u.time));
+    stretched.z += writhe * (cos(0.71 * h - 0.50 * u.time) + 0.55 * cos(0.94 * h + 0.55 * u.time));
   }
 
   // Offset first, then twist, so the twist doubles as an azimuth for repeated
   // pieces. A y-axis rotation fixes the y offset either way.
-  let placed = stretched + vec3f(instB.w, instB.z, 0.0);
+  var placed = stretched + vec3f(instB.w, instB.z, 0.0);
+
+  // instC.w bends a piece around the axis at its own orbital radius instead of
+  // placing it as a straight chord. A parcel's dash lies along the direction it
+  // travels, which is an arc, and once the dash is stretched by its speed a
+  // chord leaves the circle entirely: the swarm grows straight spikes that
+  // visibly do not follow the tube they are orbiting. Wrapping the local z into
+  // an angle keeps every dash on its own streamline however long it gets.
+  let R = instB.w;
+  if (instC.w > 0.0 && R > 1e-4) {
+    let ang = stretched.z / R;
+    let ca2 = cos(ang);
+    let sa2 = sin(ang);
+    let rad = R + stretched.x;
+    placed = vec3f(rad * ca2, stretched.y + instB.z, rad * sa2);
+    // The bend rotates the local frame about y by the same angle.
+    nStretched = vec3f(
+      nStretched.x * ca2 - nStretched.z * sa2,
+      nStretched.y,
+      nStretched.x * sa2 + nStretched.z * ca2
+    );
+  }
 
   let a = instA.y;
   let ca = cos(a);
