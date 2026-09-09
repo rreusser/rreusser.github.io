@@ -19,7 +19,7 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> u: Uniforms;
 `;
 
-const SHARED = /* wgsl */`
+export const colormapWGSL = /* wgsl */`
 // A six-stop ramp from deep teal through cyan and blue into warm amber. Slow
 // outer fluid reads cool, the fast core reads hot, and the arrow families pick
 // fixed points on the same ramp so the whole figure stays one palette.
@@ -41,7 +41,7 @@ fn colormap(t: f32) -> vec3f {
 }
 `;
 
-export const tubeShaderCode = UNIFORMS + SHARED + /* wgsl */`
+export const tubeShaderCode = UNIFORMS + colormapWGSL + /* wgsl */`
 struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) vPosition: vec3f,
