@@ -297,18 +297,26 @@ function buildBlowupStrip(fixed: HTMLElement, rows: any[], blowupTime: number, g
 
   const genLabel = html`<span></span>`;
   const speedLabel = html`<span></span>`;
+  // What the rescaling is worth. Without it the reader cannot tell whether the
+  // structure is shrinking or the camera is moving in, and that is the whole
+  // difference between a zoom and a singularity.
+  const zoomLabel = html`<span></span>`;
   const el = html`<div class="blowup-strip">
     <div class="blowup-strip__row">${genLabel}${speedLabel}</div>
     ${track}
-    <div class="blowup-strip__row"><span>0</span><span>time → ${tex`T^*`}</span></div>
+    <div class="blowup-strip__row">${zoomLabel}<span>time → ${tex`T^*`}</span></div>
   </div>`;
   fixed.appendChild(el);
 
   const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumSignificantDigits: 2 });
   const base = rows[0].velocity;
 
-  /** @param gen fractional generation index, from 1. */
-  const update = (gen: number, opacity: number) => {
+  /**
+   * @param gen        fractional generation index, from 1
+   * @param opacity    fade of the readout itself
+   * @param magnified  how much the frame is rescaled against generation one
+   */
+  const update = (gen: number, opacity: number, magnified: number) => {
     el.style.opacity = String(opacity);
     const g = Math.min(genMax, Math.max(1, gen));
     const i = Math.min(rows.length - 2, Math.floor(g) - 1);
@@ -325,13 +333,14 @@ function buildBlowupStrip(fixed: HTMLElement, rows: any[], blowupTime: number, g
     fill.style.width = `${frac * 100}%`;
     head.style.left = `calc(${frac * 100}% - 1px)`;
     genLabel.textContent = `generation ${Math.floor(g)}`;
-    speedLabel.textContent = `core speed ×${compact.format(speed / base)}`;
+    speedLabel.textContent = `speed ×${compact.format(speed / base)}`;
+    zoomLabel.textContent = `shown ×${compact.format(magnified)}`;
   };
 
   // The frame loop does not run while the figure is off screen, so fill the
   // labels in now and start hidden. Otherwise the strip scrolls into view as an
   // empty box for a frame.
-  update(1, 0);
+  update(1, 0, 1);
   return update;
 }
 
@@ -656,11 +665,11 @@ await new Promise((r) => setTimeout(r, 100));
 
 {
   const captions = [
-    { text: "Here is the same mechanism, tuned so that it never runs out.", left: "8%", bottom: "12%" },
-    { text: "Each generation is a copy of the last, shrunk by a fixed factor and running faster, nested inside it.", right: "8%", bottom: "12%" },
-    { text: "Every generation is <em>more</em> inviscid than the last, so diffusion is always a step behind.", left: "8%", bottom: "12%" },
-    { text: "And each takes less time than the last. Watch the clock: the first generation alone spends half of all the time there is, and every one after it crowds into what little is left.", right: "8%", bottom: "12%" },
-    { text: html`So the clock stalls just short of ${tex`T^*`} while the speed runs away. Infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.`, left: "8%", bottom: "12%" }
+    { text: "Here is the same mechanism, tuned so that it never runs out. The clock is running: everything below is one moment being followed to the next.", left: "8%", bottom: "12%" },
+    { text: "To follow it at all we have to keep rescaling. The frame steps inward each time the cascade hands off, and the readout says what the magnification has reached.", right: "8%", bottom: "12%" },
+    { text: "In these rescaled coordinates the flow is nearly steady. That is what self-similar means, and it is why one shape serves every generation.", left: "8%", bottom: "12%" },
+    { text: "The cost of holding it still is on the readout. Every handoff the magnification and the speed multiply again, while each generation is more inviscid than the last, so diffusion never catches up.", right: "8%", bottom: "12%" },
+    { text: "And the slots keep shortening. The clock stalls just short of <em>T</em>* while the magnification and the speed run away: infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", left: "8%", bottom: "12%" }
   ];
 
   const frameCount = captions.length;
@@ -684,45 +693,49 @@ await new Promise((r) => setTimeout(r, 100));
   const H_STRIP = 0.25;
   const GEN_MAX = 12;
 
-  /**
-   * How many chart steps the scroll zooms through. A generation is about 0.88
-   * of one, so this is roughly how many generations the descent covers, and it
-   * is what decides how far the readout gets: at 3.4 it stopped at generation 5
-   * with the core only 36 times its first speed, which is not a runaway.
-   */
-  const ZOOM_SPAN = 6;
+  /** How far down the cascade the scroll goes. */
+  const GEN_END = 11;
 
   /**
-   * The pattern's spatial frequency at the top of the scroll. A median
-   * streamline spans about twenty units of advection time, so this is roughly
-   * six stripes along one -- long enough to read as a stripe rather than a comb.
+   * How quickly the frame rescales itself to the generation now being driven.
+   *
+   * The frame chases a staircase -- the radius of whichever generation is
+   * active -- rather than the continuous radius, so the target holds still
+   * through a slot and steps inward at the handoff. Between handoffs the
+   * structure contracts against a frame that has stopped, which is the
+   * shrinking made visible; at the handoff the frame catches up. Chasing the
+   * continuous radius instead would cancel the two exactly and the picture
+   * would never move at all, which is what strictly co-moving coordinates look
+   * like.
    */
+  const FRAME_CHASE = 1.6;
+
+  /**
+   * Turnover of the generation being watched, in turns per second of the
+   * reader's time. Everything else is fixed against it by the ledger: a
+   * generation whose slot is half as long turns twice as often.
+   */
+  const ACTIVE_RATE = 0.55;
+
+  /** A ceiling on the rescaled rate, so the deepest packet cannot flicker. */
+  const RATE_CAP = 9;
+
+  /** Pulse rate along the backbone, in pulses per second. */
+  const PULSE_RATE = 1.0;
+
+  /** Spatial frequency of the backbone's stripes. */
   const FLOW_RATE = 0.3;
 
-  /**
-   * How much the stripes lengthen over the descent.
-   *
-   * A streak of fixed exposure is as long as the fluid is fast, so if the flow
-   * runs ZOOM_ACCEL times quicker per generation the pattern should lengthen by
-   * the same factor, 6.2x across this scroll. That leaves under one stripe on a
-   * streamline by the bottom, so it is compressed to 3x, the same kind of
-   * dialling back as the rate itself.
-   *
-   * This is safe where the per-copy version was not. That one scaled frequency
-   * by Lambda^(u-k), which cycles through a factor of 2.6 within every single
-   * unit of zoom, so the pattern slid by tens of periods over and over. This
-   * changes by 3x once, monotonically, over the entire figure: about eight
-   * periods at the far end of the longest streamline spread over five frames of
-   * scrolling, which reads as the pattern stretching rather than running.
-   */
-  const PATTERN_GROWTH = 3;
-
+  // One driver. The scroll picks a place in the cascade; the ledger turns that
+  // into a time, a radius, a speed and a slot length, and the picture, the rates
+  // and the readout all derive from those. Nothing here keeps a clock of its own
+  // any more, which is what the figure was previously doing in two places at
+  // once: parcels moved in wall-clock seconds through a field that never
+  // changed, while the readout's time moved only when the page was scrolled.
   const sequencer = createSequencer({
-    // Hold at the top of the cascade for the first frame. Ramping from t = 0
-    // meant the readout was already at generation 2.8 by the time the figure
-    // had finished fading in, so the descent had started before the reader
-    // could see where it started from.
-    zoom:          [{ t: 0, value: 0 }, { t: 1, value: 0 }, { t: frameCount, value: ZOOM_SPAN, ease: linear }],
+    // Hold at the top for the first frame, so the descent does not begin before
+    // the reader has seen where it begins from.
+    gen:           [{ t: 0, value: 1 }, { t: 1, value: 1 }, { t: frameCount, value: GEN_END, ease: linear }],
     streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }],
     stripOpacity:  [{ t: 0, value: 0 }, { t: 0.6, value: 1 }]
   });
@@ -731,34 +744,26 @@ await new Promise((r) => setTimeout(r, 100));
   const blowupTime = Scales.blowupTime(H_STRIP);
 
   /**
-   * Which generation the picture is currently showing.
+   * Everything the ledger says about a fractional place in the cascade.
    *
-   * The nesting drawn in the figure and the generations the readout counts are
-   * two different indices, and they had been ramped independently: the zoom ran
-   * over 3.4 chart steps while the counter ran to 16, so the counter claimed
-   * about four times the descent the reader could see happening.
-   *
-   * The figure nests by Lambda, one chart step per drawn packet. A generation's
-   * own radius shrinks by about 0.434 each time, which is Lambda^0.88 -- close
-   * to a packet but not equal to it, and not equal in a way that compounds. So
-   * the counter is now read off the ledger rather than ramped: at zoom z the
-   * generation on show is the first whose radius has fallen to that of the
-   * first generation divided by Lambda^z.
-   *
-   * The radii are not quite monotone -- the floor in nu(n) lets one generation
-   * come out slightly wider than the one before it -- so this takes the first
-   * crossing, which is.
+   * Radius and speed interpolate in the log, since both move geometrically; a
+   * straight interpolation between 5e3 and 1e4 spends most of its length in the
+   * wrong decade.
    */
   const logRadial = ledgerRows.map((r) => Math.log(r.radial));
-  const logLambda = Math.log(Scales.LAMBDA);
-  function generationAtZoom(z) {
-    const target = logRadial[0] - z * logLambda;
-    for (let i = 1; i < logRadial.length; i++) {
-      if (logRadial[i] <= target) {
-        return i + (logRadial[i - 1] - target) / (logRadial[i - 1] - logRadial[i]);
-      }
-    }
-    return logRadial.length;
+  const logVelocity = ledgerRows.map((r) => Math.log(r.velocity));
+
+  function atGeneration(g) {
+    const n = Math.min(ledgerRows.length - 1, Math.max(1, g));
+    const i = Math.min(ledgerRows.length - 2, Math.max(0, Math.floor(n) - 1));
+    const f = Math.min(1, Math.max(0, n - Math.floor(n)));
+    const row = ledgerRows[i];
+    return {
+      elapsed: row.start + f * row.duration,
+      duration: row.duration,
+      logR: logRadial[i] + f * (logRadial[i + 1] - logRadial[i]),
+      logU: logVelocity[i] + f * (logVelocity[i + 1] - logVelocity[i])
+    };
   }
 
   const { container, background, fixed } = buildScrollyteller('scrolly-cascade', captions);
@@ -858,6 +863,11 @@ await new Promise((r) => setTimeout(r, 100));
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
 
+  const rateBuffer = device.createBuffer({
+    label: 'cascade-rates', size: GEN_COUNT * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+
   const integrate = device.createComputePipeline({
     label: 'cascade-integrate',
     layout: 'auto',
@@ -868,7 +878,8 @@ await new Promise((r) => setTimeout(r, 100));
     entries: [
       { binding: 0, resource: { buffer: stateBuffer } },
       { binding: 1, resource: { buffer: metaBuffer } },
-      { binding: 2, resource: { buffer: simBuffer } }
+      { binding: 2, resource: { buffer: simBuffer } },
+      { binding: 3, resource: { buffer: rateBuffer } }
     ]
   });
 
@@ -1021,21 +1032,16 @@ await new Promise((r) => setTimeout(r, 100));
    * generations this scroll covers is 312x and unwatchable; it is compressed to
    * 2, about 10x end to end, with a smooth ceiling so the bottom does not blur.
    */
-  const BASE_RATE = 2.0;
-  const ZOOM_ACCEL = 2;
-  const RATE_CAP = 7.5;
-
-  /** Pulse rate along the backbone, in pulses per second. */
-  const PULSE_RATE = 1.0;
-
   // Pulse phase is accumulated rather than taken as a clock times a rate: the
-  // rate moves with the scroll, and multiplying a large elapsed time by a
+  // rate moves with the descent, and multiplying a large elapsed time by a
   // moving rate slews the pulses by whole cycles. Only the fractional part is
   // read, so wrapping keeps f32 exact however long the page has been open.
   const genPulse = new Float64Array(GEN_COUNT);
+  const rateData = new Float32Array(GEN_COUNT);
 
   let smoothed = 0;
   let stepIndex = 0;
+  let logFrame = logRadial[0];
   let last = performance.now();
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -1045,35 +1051,58 @@ await new Promise((r) => setTimeout(r, 100));
     smoothed += (scrollProgress(container) - smoothed) * 0.1;
     sequencer.setPosition(smoothed * frameCount);
     const s = sequencer.getState();
-    updateStrip(generationAtZoom(s.zoom), s.stripOpacity);
 
-    const raw = BASE_RATE * Math.pow(ZOOM_ACCEL, s.zoom);
-    const rate = RATE_CAP * Math.tanh(raw / RATE_CAP);
+    // Where the cascade has got to, and what the ledger says about it.
+    const here = atGeneration(s.gen);
+    const active = Math.max(1, Math.min(GEN_COUNT, Math.floor(s.gen)));
 
-    // Which run of generations is on screen. Generation m is drawn at
-    // Lambda^(zoom - m), so the ones worth drawing are those a little larger
-    // than the frame down to a few steps inside it.
-    const genOffset = Math.max(0, Math.min(GEN_COUNT - DRAW_GENS, Math.floor(s.zoom) - 1));
+    // The frame's own scale, chasing the active generation's radius. It is a
+    // staircase, so it holds through a slot while the structure contracts
+    // against it, then steps in at the handoff.
+    logFrame += (logRadial[active - 1] - logFrame) * Math.min(1, dt * FRAME_CHASE);
+    const magnified = Math.exp(logRadial[0] - logFrame);
+    updateStrip(s.gen, s.stripOpacity, magnified);
+
+    // Draw a run of generations around the active one: one larger, the rest
+    // inside it.
+    const genOffset = Math.max(0, Math.min(GEN_COUNT - DRAW_GENS, active - 2));
 
     for (let i = 0; i < DRAW_GENS; i++) {
       const m = genOffset + i;
-      const d = s.zoom - m;
-      genPulse[m] = (genPulse[m] + dt * PULSE_RATE * Math.pow(ZOOM_ACCEL, s.zoom)) % 1;
-      genData[i * 4] = Math.pow(Scales.LAMBDA, d);
+      // Its own turnover, from its own slot: a generation whose slot is half as
+      // long turns twice as often. Divided through by the active generation's
+      // rate, which is what makes this the rescaled time of the self-similar
+      // frame.
+      const rate = Math.min(RATE_CAP, (ACTIVE_RATE * here.duration) / ledgerRows[m].duration);
+      rateData[m] = rate;
+      genPulse[m] = (genPulse[m] + dt * PULSE_RATE * rate) % 1;
+
+      // Drawn at its true size against the frame, so the nest is the ledger's
+      // own radii rather than a fixed ratio.
+      const age = s.gen - (m + 1);
+      genData[i * 4] = Math.exp(logRadial[m] - logFrame);
       genData[i * 4 + 1] = m * TWIST;
-      genData[i * 4 + 2] = s.streamOpacity * smoothstep(-3.4, -2.6, d) * (1 - smoothstep(0.6, 1.2, d));
+      // Lit by how near it is to the generation being driven. This envelope is
+      // illustrative -- the ledger fixes when a generation is active, not how
+      // brightly to draw its neighbours.
+      genData[i * 4 + 2] = s.streamOpacity * smoothstep(-1.7, -0.2, age) * (1 - smoothstep(1.1, 3.6, age));
       genData[i * 4 + 3] = genPulse[m];
     }
     device.queue.writeBuffer(genBuffer, 0, genData);
 
-    // Step every generation, including the ones off screen, so nothing is stale
-    // when the descent reaches it.
+    // Every generation is stepped, including the ones off screen, so none is
+    // stale when the descent reaches it. Those outside the drawn run keep the
+    // rate they had.
+    for (let m = 0; m < GEN_COUNT; m++) {
+      if (m < genOffset || m >= genOffset + DRAW_GENS) {
+        rateData[m] = Math.min(RATE_CAP, (ACTIVE_RATE * here.duration) / ledgerRows[m].duration);
+      }
+    }
+    device.queue.writeBuffer(rateBuffer, 0, rateData);
+
     const srcStep = stepIndex % TRAIL;
     const dstStep = (stepIndex + 1) % TRAIL;
     simF32[0] = dt;
-    simF32[1] = rate;
-    simF32[2] = Scales.LAMBDA;
-    simF32[3] = s.zoom;
     simU32[4] = srcStep;
     simU32[5] = dstStep;
     simU32[6] = PER_GEN;
@@ -1097,7 +1126,7 @@ await new Promise((r) => setTimeout(r, 100));
     viewU32[27] = DRAW_GENS;
     viewU32[28] = packed.count;
     viewF32[29] = BACKBONE_WIDTH * dpr;
-    viewF32[30] = FLOW_RATE / Math.pow(PATTERN_GROWTH, s.zoom / ZOOM_SPAN);
+    viewF32[30] = FLOW_RATE;
     // Stripe depth on the backbone. These mark the flow along a curve; at much
     // more than this they stop reading as motion and start reading as texture,
     // and compete with the trails for attention.
@@ -1189,6 +1218,7 @@ await new Promise((r) => setTimeout(r, 100));
     viewBuffer.destroy();
     genBuffer.destroy();
     simBuffer.destroy();
+    rateBuffer.destroy();
     for (const t of targets?.all ?? []) t.destroy();
   });
 }

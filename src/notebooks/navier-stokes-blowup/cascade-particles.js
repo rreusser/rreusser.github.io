@@ -157,9 +157,9 @@ export function integrateShaderCode(params = FIELD) {
   return fieldWGSL(params) + SEEDING + /* wgsl */`
 struct Sim {
   dt: f32,
-  globalRate: f32,
-  lambda: f32,
-  zoom: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
   srcStep: u32,
   dstStep: u32,
   perGen: u32,
@@ -169,6 +169,15 @@ struct Sim {
 @group(0) @binding(0) var<storage, read_write> state: array<vec4f>;
 @group(0) @binding(1) var<storage, read_write> parcels: array<vec4f>;
 @group(0) @binding(2) var<uniform> sim: Sim;
+
+/**
+ * How fast each generation's own clock runs, in units of the rescaled time the
+ * parcels are integrated in. Supplied per generation from the ledger rather
+ * than assumed geometric: tau_n falls by about 0.42 a step, but the floor in
+ * nu(n) makes it jump back up every few generations, so a constant ratio would
+ * be a guess where an exact number is available.
+ */
+@group(0) @binding(3) var<storage, read> rates: array<f32>;
 
 fn step4(p: vec3f, h: f32) -> vec3f {
   let k1 = velocity(p);
@@ -186,12 +195,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   let g = n / sim.perGen;
 
-  // Generation m runs Lambda^m faster in its own time and is drawn
-  // Lambda^(zoom - m) smaller, so the two cancel and every generation moves at
-  // one speed across the screen. What is left, globalRate, carries the descent:
-  // it is the same for all of them and grows as the zoom goes deeper, which is
-  // the acceleration the reader is meant to see.
-  let dtField = sim.dt * sim.globalRate * pow(sim.lambda, f32(g) - sim.zoom);
+  // Generation g turns over once every tau_g, so its own clock runs at 1/tau_g.
+  // The caller divides through by the active generation's rate, which is what
+  // makes this the rescaled time of the self-similar frame: the generation being
+  // watched turns at a fixed pace on screen, and its neighbours are faster and
+  // slower than it by exactly the ratio of their slot lengths.
+  let dtField = sim.dt * rates[g];
 
   var p = state[n * ${TRAIL}u + sim.srcStep].xyz;
   var age = state[n * ${TRAIL}u + sim.srcStep].w;
