@@ -327,6 +327,9 @@ await new Promise((r) => setTimeout(r, 100));
     sequencer.setPosition(smoothed * frameCount);
     const s = sequencer.getState();
 
+    // Set the camera before drawing, or the distance trails the scroll by a frame.
+    camera.setState({ distance: s.distance });
+
     const sy = s.stretch;
     const sr = 1 / Math.sqrt(sy);
     spinAngle += dt * BASE_SPIN * sy;
@@ -380,8 +383,6 @@ await new Promise((r) => setTimeout(r, 100));
         { id: 'radial', instances: radialRing }
       ]
     }, camera, canvas.width, canvas.height);
-
-    camera.setState({ distance: s.distance });
   });
 
   const onResize = () => { resize(); camera.taint(); };
