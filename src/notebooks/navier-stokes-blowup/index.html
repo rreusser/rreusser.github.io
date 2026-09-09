@@ -114,6 +114,66 @@
         }
       }
 
+      /* The blowup readout: a time track under the cascade. Sits top-left so it
+         never reaches the rotate button in the top-right corner. */
+      .blowup-strip {
+        position: absolute;
+        left: calc(12px + env(safe-area-inset-left, 0px));
+        top: calc(12px + env(safe-area-inset-top, 0px));
+        width: min(340px, calc(100% - 150px));
+        z-index: 2;
+        pointer-events: none;
+        color: var(--theme-foreground);
+        font-size: 0.78em;
+        line-height: 1.3;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 1px 3px var(--theme-background);
+      }
+
+      .blowup-strip__row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        opacity: 0.85;
+      }
+
+      .blowup-strip__track {
+        position: relative;
+        height: 9px;
+        margin: 4px 0 2px;
+        border-radius: 5px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--theme-foreground) 16%, transparent);
+      }
+
+      .blowup-strip__fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        background: #21b0c4;
+        opacity: 0.75;
+      }
+
+      /* One per generation boundary. They crowd into the last sliver of the
+         track, which is the whole point: the slots shrink fast enough to sum. */
+      .blowup-strip__tick {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: var(--theme-background);
+        opacity: 0.8;
+      }
+
+      .blowup-strip__head {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #e8a765;
+      }
+
       figure { margin: 2em 0; }
     </style>
   </script>
@@ -181,7 +241,11 @@ function buildScrollyteller(id: string, captions: any[]) {
         ${caption.top ? `top: ${caption.top};` : ''}
         ${caption.bottom ? `bottom: ${caption.bottom};` : ''}
       "></div>`;
-      el.innerHTML = caption.text;
+      // A caption may be a node rather than markup, which is what lets one hold
+      // a tex expression: `tex` returns an element, so it cannot go through
+      // innerHTML.
+      if (caption.text instanceof Node) el.appendChild(caption.text);
+      else el.innerHTML = caption.text;
       frame.appendChild(el);
     }
     foreground.appendChild(frame);
@@ -197,6 +261,71 @@ const smoothstep = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
+
+/**
+ * The readout that says why this ends rather than just repeating: a track from
+ * zero to the blowup time, ticked at every generation boundary, with the core
+ * speed beside it.
+ *
+ * The cascade picture on its own is self-similar, and self-similar pictures
+ * look eternal -- nothing about a nest of copies says it is over by a fixed
+ * moment. The ledger does say it. Generation 1 alone eats half the total time
+ * and generation 3 leaves only a sixth of it, so the ticks pile into the right
+ * hand end of the track and the fill visibly stalls there, while the speed
+ * beside it runs away by four orders of magnitude. Stalling and running away at
+ * once is the singularity.
+ */
+function buildBlowupStrip(fixed: HTMLElement, rows: any[], blowupTime: number, genMax: number) {
+  const fill = html`<div class="blowup-strip__fill"></div>`;
+  const head = html`<div class="blowup-strip__head"></div>`;
+  const track = html`<div class="blowup-strip__track"></div>`;
+  track.appendChild(fill);
+  for (let n = 1; n <= genMax; n++) {
+    const tick = html`<div class="blowup-strip__tick"></div>`;
+    tick.style.left = `${(rows[n - 1].end / blowupTime) * 100}%`;
+    track.appendChild(tick);
+  }
+  track.appendChild(head);
+
+  const genLabel = html`<span></span>`;
+  const speedLabel = html`<span></span>`;
+  const el = html`<div class="blowup-strip">
+    <div class="blowup-strip__row">${genLabel}${speedLabel}</div>
+    ${track}
+    <div class="blowup-strip__row"><span>0</span><span>time → ${tex`T^*`}</span></div>
+  </div>`;
+  fixed.appendChild(el);
+
+  const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumSignificantDigits: 2 });
+  const base = rows[0].velocity;
+
+  /** @param gen fractional generation index, from 1. */
+  const update = (gen: number, opacity: number) => {
+    el.style.opacity = String(opacity);
+    const g = Math.min(genMax, Math.max(1, gen));
+    const i = Math.min(rows.length - 2, Math.floor(g) - 1);
+    const f = g - Math.floor(g);
+    const row = rows[i];
+    const elapsed = row.start + f * row.duration;
+    // Speed grows geometrically, so interpolate it in the log rather than
+    // straight: a linear step between 5e3 and 1e4 spends most of its length in
+    // the wrong decade.
+    const speed = Math.exp(
+      Math.log(row.velocity) + f * (Math.log(rows[i + 1].velocity) - Math.log(row.velocity))
+    );
+    const frac = elapsed / blowupTime;
+    fill.style.width = `${frac * 100}%`;
+    head.style.left = `calc(${frac * 100}% - 1px)`;
+    genLabel.textContent = `generation ${Math.floor(g)}`;
+    speedLabel.textContent = `core speed ×${compact.format(speed / base)}`;
+  };
+
+  // The frame loop does not run while the figure is off screen, so fill the
+  // labels in now and start hidden. Otherwise the strip scrolls into view as an
+  // empty box for a frame.
+  update(1, 0);
+  return update;
+}
 
 /** Phones get less geometry and one fewer peel layer. */
 function isSmallScreen() {
@@ -501,18 +630,33 @@ await new Promise((r) => setTimeout(r, 100));
     { text: "Here is the same mechanism, tuned so that it never runs out.", left: "8%", bottom: "12%" },
     { text: "Each generation is a copy of the last, shrunk by a fixed factor and running faster, nested inside it.", right: "8%", bottom: "12%" },
     { text: "Every generation is <em>more</em> inviscid than the last, so diffusion is always a step behind.", left: "8%", bottom: "12%" },
-    { text: "And each takes less time than the last, by enough that the total is finite.", right: "8%", bottom: "12%" },
-    { text: "So the descent never has to stop, and it is over before a fixed moment. The velocity has nowhere to end up but infinity.", left: "8%", bottom: "12%" }
+    { text: "And each takes less time than the last. Watch the clock: the first generation alone spends half of all the time there is, and every one after it crowds into what little is left.", right: "8%", bottom: "12%" },
+    { text: html`So the clock stalls just short of ${tex`T^*`} while the speed runs away. Infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.`, left: "8%", bottom: "12%" }
   ];
 
   const frameCount = captions.length;
   const COPIES = 5;
   const TWIST = 0.9;
 
+  // The readout is drawn from the ledger at a fixed h. The slider further down
+  // the page is a different cell; reading it here would tear down the GPU
+  // pipelines on every drag.
+  const H_STRIP = 0.25;
+  const GEN_MAX = 16;
+
   const sequencer = createSequencer({
     zoom:          [{ t: 0, value: 0 }, { t: frameCount, value: 3.4, ease: linear }],
-    streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }]
+    streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }],
+    // The descent through generations, which the readout reports. It runs well
+    // past the 3.4 chart steps the picture zooms through, because the point it
+    // has to make is what happens after the picture stops being able to show
+    // anything: by generation 16 the elapsed time is within 4% of T*.
+    gen:           [{ t: 0, value: 1 }, { t: frameCount, value: GEN_MAX, ease: linear }],
+    stripOpacity:  [{ t: 0, value: 0 }, { t: 0.6, value: 1 }]
   });
+
+  const ledgerRows = Scales.ledger(H_STRIP, GEN_MAX + 2);
+  const blowupTime = Scales.blowupTime(H_STRIP);
 
   const { container, background, fixed } = buildScrollyteller('scrolly-cascade', captions);
   display(container);
@@ -520,6 +664,7 @@ await new Promise((r) => setTimeout(r, 100));
 
   const { canvas, resize } = attachCanvas(fixed);
   addModeToggle(fixed, canvas);
+  const updateStrip = buildBlowupStrip(fixed, ledgerRows, blowupTime, GEN_MAX);
 
   const gpuContext = canvas.getContext('webgpu');
   gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
@@ -573,7 +718,7 @@ await new Promise((r) => setTimeout(r, 100));
    * Pulse rate for a copy drawn at unit scale, at the top of the scroll, in
    * pulses per second.
    */
-  const PULSE_RATE = 0.45;
+  const PULSE_RATE = 1.0;
 
   /**
    * How much faster everything runs per generation of zoom.
@@ -597,7 +742,7 @@ await new Promise((r) => setTimeout(r, 100));
    * A ceiling on the rate, applied smoothly. The innermost copies are both the
    * smallest and the quickest, and without it they cross into flicker.
    */
-  const PULSE_CAP = 4.5;
+  const PULSE_CAP = 7;
 
   // Phase is accumulated per slot rather than taken as a clock times a rate,
   // because the rate depends on the zoom and the zoom moves with the scroll:
@@ -624,6 +769,8 @@ await new Promise((r) => setTimeout(r, 100));
     // share a centre it is a zoom about the middle of the frame rather than a
     // drift across it. It is also the truer arrangement: the cascade
     // concentrates at a point rather than stringing out along the axis.
+    updateStrip(s.gen, s.stripOpacity);
+
     const u = s.zoom - Math.floor(s.zoom);
     const instances = [];
     for (let k = 0; k < COPIES; k++) {
@@ -648,7 +795,7 @@ await new Promise((r) => setTimeout(r, 100));
     renderer.render(gpuContext, {
       background: themeState.background,
       isDark: themeState.isDark,
-      flowRate: 1.2,
+      flowRate: 2.0,
       flowAmp: 0.55,
       sceneRadius: 9,
       peelLayers: small ? 3 : 4,
