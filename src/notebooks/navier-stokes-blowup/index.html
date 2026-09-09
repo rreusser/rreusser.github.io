@@ -718,7 +718,7 @@ await new Promise((r) => setTimeout(r, 100));
    * Pulse rate for a copy drawn at unit scale, at the top of the scroll, in
    * pulses per second.
    */
-  const PULSE_RATE = 1.0;
+  const PULSE_RATE = 1.4;
 
   /**
    * How much faster everything runs per generation of zoom.
@@ -785,6 +785,11 @@ await new Promise((r) => setTimeout(r, 100));
       slotPhase[k] = (slotPhase[k] + dt * PULSE_CAP * Math.tanh(raw / PULSE_CAP)) % 1;
       instances.push({
         scale,
+        // Cancel the copy's own scaling of the pattern, so a stripe is the same
+        // length on screen in every generation instead of Lambda^-m shorter.
+        // The nesting is still self-similar in shape; only the marking on it is
+        // held at a size the eye can resolve.
+        freq: scale,
         twist: m * TWIST,
         opacity: s.streamOpacity * smoothstep(-1, 0, m) * (1 - smoothstep(COPIES - 2, COPIES - 1, m)),
         phase: slotPhase[k],
@@ -795,7 +800,7 @@ await new Promise((r) => setTimeout(r, 100));
     renderer.render(gpuContext, {
       background: themeState.background,
       isDark: themeState.isDark,
-      flowRate: 2.0,
+      flowRate: 1.0,
       flowAmp: 0.55,
       sceneRadius: 9,
       peelLayers: small ? 3 : 4,

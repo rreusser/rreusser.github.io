@@ -260,7 +260,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
         instanceData[o + 7] = it.offsetR ?? 0;
         instanceData[o + 8] = it.pulseAmp ?? 0;
         instanceData[o + 9] = it.writhe ?? 0;
-        instanceData[o + 10] = 0;
+        instanceData[o + 10] = it.freq ?? 1;
         instanceData[o + 11] = 0;
         slot++;
       }
