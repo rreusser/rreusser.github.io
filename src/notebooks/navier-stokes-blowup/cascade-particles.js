@@ -470,21 +470,24 @@ fn getColor(lineCoord: vec2f, scalar: f32, along: f32, opacity: f32, fragPositio
   if (abs(lineCoord.x) > 0.0 && dot(lineCoord, lineCoord) > 1.0) { discard; }
   if (peeled(fragPosition)) { discard; }
 
-  var base = colormap(scalar);
-  base = mix(base * 0.72, base, view.isDark);
+  // One colour, faint. These are not the subject: the outlines are, and they
+  // are what carries the scale of the solution. Colouring the fluid by speed
+  // made it the loudest thing in the frame and told the reader nothing they
+  // could act on -- every generation looked the same rainbow whatever depth it
+  // was at. Monochrome, it reads as texture: this outline has fluid turning
+  // inside it, and that is all it needs to say.
+  var base = view.background + (vec3f(1.0) - 2.0 * view.background) * 0.0;
+  base = mix(vec3f(0.16, 0.44, 0.52), vec3f(0.42, 0.78, 0.86), view.isDark);
+  let unused = scalar;
 
   // Darken across the width so a stroke reads as a filament rather than a flat
-  // ribbon. This is the only shading: a line carries no normal, and lighting it
-  // would put back the solid-object look these are here to avoid.
+  // ribbon. This is the only shading: a line carries no normal.
   let r = abs(lineCoord.y);
-  base = base * (1.0 - 0.5 * r * r) * view.exposure;
+  base = base * (1.0 - 0.4 * r * r) * view.exposure;
 
-  // The head is opaque and the tail fades out. As alpha, not as a mix toward
-  // the background: a trail that dims toward the background turns dark rather
-  // than turning transparent, and crossing trails then read as dark scratches.
-  let weight = clamp(opacity * (0.10 + 0.90 * clamp(along, 0.0, 1.0)), 0.0, 1.0);
-  // A gap that still shaded would hold a peel layer open, and there are only
-  // three or four of those.
+  // The head is brightest and the tail fades out, and the whole thing is held
+  // well under the outlines it sits inside.
+  let weight = clamp(opacity * (0.06 + 0.94 * clamp(along, 0.0, 1.0)), 0.0, 1.0) * 0.5;
   if (weight < 0.004) { discard; }
   return vec4f(base * weight, weight);
 }

@@ -73,6 +73,43 @@ struct VertexOutput {
  * the stretch per instance rather than as a uniform lets the core deform while
  * the arrows representing the straining flow keep their proportions.
  */
+/**
+ * The vortex's wander at a height, and the slope of it.
+ *
+ * Two incommensurate wavenumbers on each axis, so it never reads as a coil.
+ * The slope is what the orbiting fluid needs: a filament pushed sideways is
+ * also tilted, and a parcel going round it turns in the plane across the
+ * filament, not in a horizontal one. At this amplitude the tilt reaches about
+ * twenty degrees, which is far too much to ignore.
+ */
+struct Wander {
+  offset: vec2f,
+  slope: vec2f,
+};
+
+fn wanderAt(h: f32, amp: f32, t: f32) -> Wander {
+  var w: Wander;
+  w.offset = vec2f(
+    amp * (sin(0.62 * h + 0.62 * t) + 0.55 * sin(1.13 * h - 0.44 * t)),
+    amp * (cos(0.71 * h - 0.50 * t) + 0.55 * cos(0.94 * h + 0.55 * t))
+  );
+  w.slope = vec2f(
+    amp * (0.62 * cos(0.62 * h + 0.62 * t) + 0.6215 * cos(1.13 * h - 0.44 * t)),
+    amp * (-0.71 * sin(0.71 * h - 0.50 * t) - 0.5170 * sin(0.94 * h + 0.55 * t))
+  );
+  return w;
+}
+
+/** Rotate a vector by the shortest rotation carrying +y onto the tangent. */
+fn tiltToTangent(v: vec3f, tangent: vec3f) -> vec3f {
+  let c = tangent.y;
+  let axis = vec3f(tangent.z, 0.0, -tangent.x);
+  let sn = length(axis);
+  if (sn < 1e-6) { return v; }
+  let k = axis / sn;
+  return v * c + cross(k, v) * sn + k * dot(k, v) * (1.0 - c);
+}
+
 @vertex
 fn vs(
   @location(0) position: vec3f,
@@ -128,24 +165,33 @@ fn vs(
   let pr = vec3f(placed.x * ca + placed.z * sa, placed.y, -placed.x * sa + placed.z * ca);
   let nr = vec3f(nStretched.x * ca + nStretched.z * sa, nStretched.y, -nStretched.x * sa + nStretched.z * ca);
 
-  // A slow writhe of the whole vortex. Vorticity in a real flow is never a
-  // straight line, and stretching pulls a tube straight, so the amplitude rides
-  // on the radial contraction and the line visibly relaxes as it thins. Two
-  // incommensurate wavenumbers per axis keep it from reading as a coil.
+  // The vortex wanders as a whole. Vorticity in a real flow is never a straight
+  // line, and stretching pulls a tube straight, so the amplitude rides on the
+  // radial contraction and the line visibly relaxes as it thins.
   //
-  // Applied here, after the placement and the twist, rather than to the raw
-  // geometry: this is a displacement of the vortex as a whole, so it has to be
-  // evaluated at a piece's final height and applied in world x and z. Done
-  // earlier it was evaluated at the height of the geometry's own origin, which
-  // for the orbiting parcels is zero -- so the core could wander but the fluid
-  // around it could not follow, and the amplitude had to stay smaller than the
-  // innermost orbit to avoid the core cutting through it.
+  // Applied here, after placement and twist, so it is evaluated at a piece's
+  // final height and applied in world x and z: it displaces the vortex, parcels
+  // and all, rather than only the core.
   var placedWorld = pr;
+  var tilted = nr;
   let writhe = instC.y * sr;
   if (writhe > 0.0) {
     let h = pr.y;
-    placedWorld.x += writhe * (sin(0.62 * h + 0.62 * u.time) + 0.55 * sin(1.13 * h - 0.44 * u.time));
-    placedWorld.z += writhe * (cos(0.71 * h - 0.50 * u.time) + 0.55 * cos(0.94 * h + 0.55 * u.time));
+    let w = wanderAt(h, writhe, u.time);
+
+    // A parcel orbits across the filament, not around the vertical. Leaving its
+    // orbit horizontal while the filament leans puts the ring off the line it is
+    // supposed to be going round, which is visible as soon as the wander is
+    // large enough to be worth drawing.
+    if (instC.w > 0.0) {
+      let tangent = normalize(vec3f(w.slope.x, 1.0, w.slope.y));
+      let across = tiltToTangent(vec3f(pr.x, 0.0, pr.z), tangent);
+      placedWorld = vec3f(0.0, h, 0.0) + across;
+      tilted = tiltToTangent(nr, tangent);
+    }
+
+    placedWorld.x += w.offset.x;
+    placedWorld.z += w.offset.y;
   }
 
   let world = instA.x * placedWorld;
@@ -153,7 +199,7 @@ fn vs(
   var out: VertexOutput;
   out.position = u.projection * u.view * vec4f(world, 1.0);
   out.vPosition = world;
-  out.vNormal = nr;
+  out.vNormal = tilted;
   out.vScalar = scalar;
   out.vPhase = phase;
   out.vOpacity = instA.z;

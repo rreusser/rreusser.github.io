@@ -195,8 +195,8 @@ import {
 } from './scene.js';
 import { tubeShaderCode, compositeShaderCode } from './shaders.js';
 import {
-  packStreamlines, seedParticles, integrateShaderCode, backboneVertexBody, backboneFragmentBody,
-  trailVertexBody, trailFragmentBody, VIEW_SIZE, TRAIL, FIELD
+  seedParticles, integrateShaderCode, trailVertexBody, trailFragmentBody,
+  VIEW_SIZE, TRAIL, FIELD
 } from './cascade-particles.js';
 // Vendored rather than from npm: the cascade's peel test needs the fragment's
 // builtin position, which the published module does not expose. See the header
@@ -697,7 +697,17 @@ await new Promise((r) => setTimeout(r, 100));
    * faster generations.
    */
   const GEN_COUNT = 10;
-  const DRAW_GENS = 5;
+  /**
+   * How many generations carry fluid. One.
+   *
+   * Drawing every visible generation's parcels made a dense, pretty tangle that
+   * said nothing a reader could use: it looked the same at every depth, and it
+   * buried the outlines, which are the only thing in the figure that actually
+   * shows the scale of the solution. One generation's worth, faint, says the
+   * same thing -- these outlines have fluid turning inside them -- without
+   * competing with what it is annotating.
+   */
+  const DRAW_GENS = 1;
   const TWIST = 0.9;
 
   // The readout is drawn from the ledger at a fixed h. The slider further down
@@ -747,12 +757,6 @@ await new Promise((r) => setTimeout(r, 100));
 
   /** A ceiling on the rate, so the deepest packet on screen cannot flicker. */
   const RATE_CAP = 12;
-
-  /** Pulse rate along the backbone, in pulses per second. */
-  const PULSE_RATE = 1.0;
-
-  /** Spatial frequency of the backbone's stripes. */
-  const FLOW_RATE = 0.3;
 
   // One driver. The scroll picks a place in the cascade; the ledger turns that
   // into a time, a radius, a speed and a slot length, and the picture, the rates
@@ -993,21 +997,6 @@ await new Promise((r) => setTimeout(r, 100));
   const small = isSmallScreen();
   const field = createField(FIELD);
 
-  // The backbone: a handful of long tabulated curves, the same in every
-  // generation. The trails below show the field is alive, but each one only
-  // sees its own small piece of it; these carry the shape that does not depend
-  // on scale, and seeing one curve at four sizes at once is the self-similarity
-  // stated rather than asserted.
-  const lines = seedRings(field, {
-    rings: 2,
-    perRing: small ? 2 : 3,
-    rMin: 0.5, rMax: 2.1, zSeed: 0.9,
-    step: 0.022, maxSteps: small ? 440 : 520, bound: 4.6,
-    minSpeed: 0.07
-  });
-  const range = speedRange(lines);
-  const packed = packStreamlines(lines.map((l) => decimate(l, 3)), range);
-
   // The ambient field: many short, thin trails, integrated on the GPU.
   // Enough parcels that the ambient layer reads as fluid rather than as a
   // scattering of marks. Cost is linear in this: each parcel is TRAIL + 1 line
@@ -1015,8 +1004,7 @@ await new Promise((r) => setTimeout(r, 100));
   const PER_GEN = small ? 260 : 600;
   const seeded = seedParticles(field, PER_GEN * GEN_COUNT);
 
-  const BACKBONE_WIDTH = small ? 2.0 : 2.4;
-  const TRAIL_WIDTH = small ? 1.1 : 1.4;
+  const TRAIL_WIDTH = small ? 1.2 : 1.5;
 
   const dpr = Math.min(2, window.devicePixelRatio);
 
@@ -1031,18 +1019,6 @@ await new Promise((r) => setTimeout(r, 100));
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
   });
   device.queue.writeBuffer(metaBuffer, 0, seeded.meta);
-
-  const sampleBuffer = device.createBuffer({
-    label: 'cascade-samples', size: packed.samples.byteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-  });
-  device.queue.writeBuffer(sampleBuffer, 0, packed.samples);
-
-  const phaseBuffer = device.createBuffer({
-    label: 'cascade-phases', size: packed.phases.byteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-  });
-  device.queue.writeBuffer(phaseBuffer, 0, packed.phases);
 
   const viewBuffer = device.createBuffer({
     label: 'cascade-view', size: VIEW_SIZE,
@@ -1080,14 +1056,14 @@ await new Promise((r) => setTimeout(r, 100));
   });
 
   /**
-   * Order-independent transparency by depth peeling, over both entities at once.
+   * Order-independent transparency by depth peeling.
    *
    * Each pass writes depth and discards anything at or in front of the depth
    * the previous pass captured, so the passes walk backwards through the scene
    * one surface at a time and the layers composite back to front exactly. Both
    * entities are drawn in every pass and share one depth buffer, which is what
-   * makes a trail behind a backbone curve resolve against it rather than
-   * against whichever happened to be drawn second.
+   * resolves a trail against whatever is in front of it rather than against
+   * whatever happened to be drawn second.
    *
    * Peeling cannot be multisampled, since the peel test reads a depth texture
    * per fragment, so the canvas backing store is oversampled instead -- which
@@ -1110,11 +1086,6 @@ await new Promise((r) => setTimeout(r, 100));
     maxCapResolution: 4
   };
 
-  const backbone = createGPULines(device, {
-    ...lineOptions,
-    vertexShaderBody: backboneVertexBody,
-    fragmentShaderBody: backboneFragmentBody
-  });
   const trails = createGPULines(device, {
     ...lineOptions,
     vertexShaderBody: trailVertexBody(FIELD),
@@ -1139,15 +1110,6 @@ await new Promise((r) => setTimeout(r, 100));
     primitive: { topology: 'triangle-list' }
   });
 
-  const backboneBind = device.createBindGroup({
-    layout: backbone.getBindGroupLayout(1),
-    entries: [
-      { binding: 0, resource: { buffer: sampleBuffer } },
-      { binding: 1, resource: { buffer: phaseBuffer } },
-      { binding: 2, resource: { buffer: viewBuffer } },
-      { binding: 3, resource: { buffer: genBuffer } }
-    ]
-  });
   const trailBind = device.createBindGroup({
     layout: trails.getBindGroupLayout(1),
     entries: [
@@ -1193,7 +1155,6 @@ await new Promise((r) => setTimeout(r, 100));
     targets = {
       all: [...layers, ...depths, zero],
       layers, depths,
-      backbonePeel: views.map((v) => peelBind(backbone, v)),
       trailPeel: views.map((v) => peelBind(trails, v)),
       composite: layers.map((t) => device.createBindGroup({
         layout: compositePipeline.getBindGroupLayout(0),
@@ -1228,11 +1189,6 @@ await new Promise((r) => setTimeout(r, 100));
    * generations this scroll covers is 312x and unwatchable; it is compressed to
    * 2, about 10x end to end, with a smooth ceiling so the bottom does not blur.
    */
-  // Pulse phase is accumulated rather than taken as a clock times a rate: the
-  // rate moves with the descent, and multiplying a large elapsed time by a
-  // moving rate slews the pulses by whole cycles. Only the fractional part is
-  // read, so wrapping keeps f32 exact however long the page has been open.
-  const genPulse = new Float64Array(GEN_COUNT);
   const rateData = new Float32Array(GEN_COUNT);
 
   /**
@@ -1284,7 +1240,6 @@ await new Promise((r) => setTimeout(r, 100));
       // in the descent turns faster than the same neighbour did earlier.
       const rate = rateOf(m);
       rateData[m] = rate;
-      genPulse[m] = (genPulse[m] + dt * PULSE_RATE * rate) % 1;
 
       // Drawn at its true size against the frame, so the nest is the ledger's
       // own radii rather than a fixed ratio.
@@ -1295,7 +1250,7 @@ await new Promise((r) => setTimeout(r, 100));
       // illustrative -- the ledger fixes when a generation is active, not how
       // brightly to draw its neighbours.
       genData[i * 4 + 2] = s.streamOpacity * smoothstep(-1.7, -0.2, age) * (1 - smoothstep(1.1, 3.6, age));
-      genData[i * 4 + 3] = genPulse[m];
+      genData[i * 4 + 3] = 0;
     }
     device.queue.writeBuffer(genBuffer, 0, genData);
 
@@ -1339,13 +1294,7 @@ await new Promise((r) => setTimeout(r, 100));
     viewU32[25] = PER_GEN;
     viewU32[26] = (headSlot + 1) % TRAIL;
     viewU32[27] = DRAW_GENS;
-    viewU32[28] = packed.count;
     viewF32[29] = BACKBONE_WIDTH * dpr;
-    viewF32[30] = FLOW_RATE;
-    // Stripe depth on the backbone. These mark the flow along a curve; at much
-    // more than this they stop reading as motion and start reading as texture,
-    // and compete with the trails for attention.
-    viewF32[31] = 0.22;
     device.queue.writeBuffer(viewBuffer, 0, viewData);
 
     const bg = themeState.background;
@@ -1358,25 +1307,17 @@ await new Promise((r) => setTimeout(r, 100));
     compute.end();
     stepIndex++;
 
-    const backboneProps = {
-      vertexCount: packed.count * DRAW_GENS,
-      width: BACKBONE_WIDTH * dpr,
-      resolution: [canvas.width, canvas.height]
-    };
     const trailProps = {
       vertexCount: PER_GEN * (TRAIL + 1) * DRAW_GENS,
       width: TRAIL_WIDTH * dpr,
       resolution: [canvas.width, canvas.height]
     };
 
-    // Both line renderers' uniforms have to be written before any pass opens.
-    backbone.updateUniforms(backboneProps);
+    // Uniforms have to be written before any pass opens.
     trails.updateUniforms(trailProps);
 
     // Peel. Each pass captures the next surface back across both entities at
-    // once: they share the depth buffer, so a trail behind a backbone curve is
-    // resolved against that curve rather than against whichever of the two
-    // happened to be drawn second.
+    // once.
     for (let i = 0; i < PEEL_LAYERS; i++) {
       const prev = i === 0 ? 0 : 1 + ((i - 1) % 2);
       const pass = encoder.beginRenderPass({
@@ -1393,8 +1334,6 @@ await new Promise((r) => setTimeout(r, 100));
           depthStoreOp: 'store'
         }
       });
-      backbone.draw(pass, { ...backboneProps, skipUniformUpdate: true },
-        [backboneBind, targets.backbonePeel[prev]]);
       trails.draw(pass, { ...trailProps, skipUniformUpdate: true },
         [trailBind, targets.trailPeel[prev]]);
       pass.end();
@@ -1424,12 +1363,9 @@ await new Promise((r) => setTimeout(r, 100));
     loop.cancel();
     window.removeEventListener('resize', onResize);
     camera.destroy();
-    backbone.destroy();
     trails.destroy();
     stateBuffer.destroy();
     metaBuffer.destroy();
-    sampleBuffer.destroy();
-    phaseBuffer.destroy();
     viewBuffer.destroy();
     genBuffer.destroy();
     simBuffer.destroy();
