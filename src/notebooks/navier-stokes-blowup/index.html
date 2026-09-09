@@ -63,15 +63,17 @@
         max-width: 320px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         border-radius: 4px;
-        pointer-events: auto;
+        /* The caption band scrolls across the pinned canvas. Letting it take
+           pointer events is what made dragging to rotate feel dead. */
+        pointer-events: none;
       }
 
       /* The drag/scroll toggle. Only shown where touch is the primary input,
          because a mouse can already drag without stealing the scroll. */
       .scrolly-mode {
         position: absolute;
-        right: 12px;
-        bottom: 12px;
+        right: calc(12px + env(safe-area-inset-right, 0px));
+        top: calc(12px + env(safe-area-inset-top, 0px));
         z-index: 3;
         display: none;
         align-items: center;
@@ -118,7 +120,10 @@ import { createSequencer, linear } from './lib/sequencer.js';
 import { observeTheme } from './lib/theme.js';
 import { createField, seedRings, decimate, tubeMesh, mergeMeshes, speedRange } from './field.js';
 import { toYUp } from './arrows.js';
-import { buildLessonScene, SWIRL_HEIGHTS, RADIAL_PLACEMENTS, CHILDREN } from './scene.js';
+import {
+  buildLessonScene, SWIRL_HEIGHTS, RADIAL_PLACEMENTS,
+  CHILDREN, CHILD_STRETCH, CHILD_SWIRL_HEIGHTS
+} from './scene.js';
 import { tubeShaderCode, axisShaderCode } from './shaders.js';
 import { createRenderer } from './renderer.js';
 import * as Scales from './scales.js';
@@ -272,12 +277,12 @@ await new Promise((r) => setTimeout(r, 100));
   const frameCount = captions.length;
   const sequencer = createSequencer({
     tubeOpacity:   [{ t: 0, value: 0 }, { t: 0.45, value: 0.8 }, { t: 7.3, value: 0.8 }, { t: 8, value: 0.45 }],
-    swirlOpacity:  [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.12 }, { t: 2.4, value: 0.12 }, { t: 3.0, value: 1 }],
-    axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.35 }],
-    radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.25 }],
-    childOpacity:  [{ t: 6.3, value: 0 }, { t: 7.0, value: 1 }, { t: 7.4, value: 1 }, { t: 7.95, value: 0.1 }],
+    swirlOpacity:  [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.06 }, { t: 2.4, value: 0.06 }, { t: 3.0, value: 1 }],
+    axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.14 }],
+    radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 6.2, value: 1 }, { t: 6.9, value: 0.10 }],
+    childOpacity:  [{ t: 6.3, value: 0 }, { t: 7.0, value: 1 }, { t: 7.4, value: 1 }, { t: 7.95, value: 0.04 }],
     stretch:       [{ t: 2.6, value: 1 }, { t: 3.3, value: 1.14 }, { t: 4.3, value: 1.9 }, { t: 5.7, value: 1.9 }, { t: 6.4, value: 1.6 }],
-    distance:      [{ t: 0, value: 5.6 }, { t: 4.3, value: 6.5 }, { t: 5.7, value: 7.1 }, { t: 6.8, value: 8.8 }],
+    distance:      [{ t: 0, value: 5.6 }, { t: 4.3, value: 7.3 }, { t: 5.7, value: 7.6 }, { t: 6.8, value: 8.4 }],
     axisOpacity:   [{ t: 0, value: 0 }, { t: 0.7, value: 0.32 }]
   });
 
@@ -304,6 +309,7 @@ await new Promise((r) => setTimeout(r, 100));
   const renderer = createRenderer(device, canvasFormat, { tube: tubeShaderCode, axis: axisShaderCode });
   const scene = buildLessonScene({});
   renderer.setLayer('tube', scene.tube);
+  renderer.setLayer('childTube', scene.childTube);
   renderer.setLayer('swirl', scene.swirl);
   renderer.setLayer('axialUp', scene.axialUp);
   renderer.setLayer('axialDown', scene.axialDown);
@@ -313,7 +319,10 @@ await new Promise((r) => setTimeout(r, 100));
   // Circulation around the core is conserved, so the angular rate rises in step
   // with how much the core has been stretched. One number drives both the
   // visible rotation and how fast the pulses run along the arrows.
-  const BASE_SPIN = 0.55;
+  // Circulation is conserved, so the angular rate goes like the stretch. The
+  // figure shows it squared, because a factor of two over the whole sequence is
+  // not enough to read as "faster".
+  const BASE_SPIN = 0.5;
   let spinAngle = 0;
   let smoothed = 0;
   let last = performance.now();
@@ -332,38 +341,53 @@ await new Promise((r) => setTimeout(r, 100));
 
     const sy = s.stretch;
     const sr = 1 / Math.sqrt(sy);
-    spinAngle += dt * BASE_SPIN * sy;
+    spinAngle += dt * BASE_SPIN * sy * sy;
 
     const H = scene.H;
     const shift = (sy - 1) * H;
 
     const core = { stretchY: sy, stretchR: sr, opacity: s.tubeOpacity, rate: 1 };
+    // Arrows shrink as the core spins up: length and width both go like 1/sy,
+    // against an angular rate going like sy^2. Circulation, hand-waved.
+    const arrow = 1 / Math.sqrt(sy);
     const swirlRing = SWIRL_HEIGHTS.map((f) => ({
-      offsetY: f * H * sy,
+      scale: arrow,
+      offsetY: (f * H * sy) / arrow,
       stretchR: sr,
-      twist: spinAngle,
+      twist: -spinAngle,
       opacity: s.swirlOpacity,
-      rate: sy
+      rate: sy * sy
     }));
     const radialRing = RADIAL_PLACEMENTS.map((p) => ({
       twist: p.twist,
       offsetY: p.y * H * sy,
-      offsetR: (sr - 1) * 2.2 * scene.R,
+      offsetR: scene.R * sr + 0.18 - 1.9 * scene.R,
       opacity: s.radialOpacity,
       rate: 1.6
     }));
 
-    // Children are the same geometry again, smaller and placed off-axis.
+    // Children are the same geometry again, smaller and placed off-axis. The
+    // offset is applied before the scale, so divide through to land them where
+    // scene.js says rather than inside the parent.
+    const childR = 1 / Math.sqrt(CHILD_STRETCH);
     const childCores = CHILDREN.map((c) => ({
-      scale: c.scale, twist: c.twist, offsetR: c.radius, offsetY: c.y,
-      stretchY: 1.7, stretchR: 1 / Math.sqrt(1.7),
+      scale: c.scale, twist: c.twist,
+      offsetR: c.radius / c.scale, offsetY: c.y / c.scale,
+      stretchY: CHILD_STRETCH, stretchR: childR,
       opacity: s.childOpacity * s.tubeOpacity, rate: 1
     }));
-    const childSwirls = CHILDREN.map((c) => ({
-      scale: c.scale, twist: c.twist + spinAngle * 2.2, offsetR: c.radius, offsetY: c.y,
-      stretchR: 1 / Math.sqrt(1.7),
-      opacity: s.childOpacity, rate: 2.6
-    }));
+    // Two arcs each, because at this size a single one is easy to miss.
+    // A child's twist is its azimuth around the main axis, because the offset is
+    // applied before the rotation. Adding spin to it would orbit the child
+    // rather than turn it, so the pulses alone carry its rotation.
+    const childSwirls = CHILDREN.flatMap((c) =>
+      CHILD_SWIRL_HEIGHTS.map((f) => ({
+        scale: c.scale, twist: c.twist,
+        offsetR: c.radius / c.scale,
+        offsetY: c.y / c.scale + f * H * CHILD_STRETCH,
+        stretchR: childR,
+        opacity: s.childOpacity, rate: 2.8
+      })));
 
     renderer.render(gpuContext, {
       background: themeState.background,
@@ -373,10 +397,11 @@ await new Promise((r) => setTimeout(r, 100));
       flowAmp: 0.7,
       fogDensity: 0.03,
       fogStart: 5,
-      sceneRadius: 6,
+      sceneRadius: 4.2,
       axisOpacity: s.axisOpacity,
       layers: [
-        { id: 'tube', instances: [core, ...childCores] },
+        { id: 'tube', instances: [core] },
+        { id: 'childTube', instances: childCores },
         { id: 'swirl', instances: [...swirlRing, ...childSwirls] },
         { id: 'axialUp', instances: [{ offsetY: shift, opacity: s.axialOpacity, rate: 1.4 }] },
         { id: 'axialDown', instances: [{ offsetY: -shift, opacity: s.axialOpacity, rate: 1.4 }] },
@@ -437,10 +462,10 @@ await new Promise((r) => setTimeout(r, 100));
 
   const camera = createUnifiedCamera(canvas, {
     mode: 'orbit',
-    distance: 21,
+    distance: 17,
     theta: 0.14,
     phi: 0.5,
-    center: [0, 3.6, 0],
+    center: [0, 2.2, 0],
     fov: 0.75,
     wheel: false,
     renderContinuously: false
@@ -452,17 +477,19 @@ await new Promise((r) => setTimeout(r, 100));
   // this same geometry at a different scale.
   const field = createField({ gamma: 1.6, omega: 3.0, sigma: 0.7, zH: 1.15, zK: 0.95 });
   const small = Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
+  // Few, thick and short. Densely packed thin tubes read as mud rather than as
+  // a flow, and several generations are on screen at once.
   const lines = seedRings(field, {
-    rings: small ? 6 : 7,
-    perRing: small ? 9 : 10,
-    rMin: 0.30, rMax: 2.9, zSeed: 0.9,
-    step: 0.02, maxSteps: small ? 620 : 700, bound: 5
+    rings: 4,
+    perRing: small ? 6 : 7,
+    rMin: 0.36, rMax: 2.7, zSeed: 0.9,
+    step: 0.022, maxSteps: small ? 440 : 520, bound: 4.6
   });
   const range = speedRange(lines);
   renderer.setLayer('stream', toYUp(mergeMeshes(lines.map((l) =>
-    tubeMesh(decimate(l, 3), { radius: 0.027, sides: 6, scalarRange: range })
+    tubeMesh(decimate(l, 3), { radius: 0.045, sides: 7, scalarRange: range })
   ))));
-  renderer.setAxis(0, CHAIN_OFFSET * 2.6);
+  renderer.setAxis(0, CHAIN_OFFSET * 1.5);
 
   const smoothstep = (a, b, x) => {
     const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -499,9 +526,9 @@ await new Promise((r) => setTimeout(r, 100));
       time: now / 1000,
       flowRate: 1.2,
       flowAmp: 0.55,
-      fogDensity: 0.05,
-      fogStart: 7,
-      sceneRadius: 22,
+      fogDensity: 0.075,
+      fogStart: 6,
+      sceneRadius: 8.5,
       axisOpacity: s.axisOpacity,
       layers: [{ id: 'stream', instances }]
     }, camera, canvas.width, canvas.height);

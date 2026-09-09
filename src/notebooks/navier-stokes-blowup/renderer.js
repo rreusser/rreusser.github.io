@@ -74,32 +74,39 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     }
   ];
 
-  // The shader emits premultiplied alpha, so a fully opaque layer comes out the
-  // same through either pipeline. Opaque layers write depth; translucent ones do
-  // not, which avoids having to sort them against each other.
   const premultiplied = {
     color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
     alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
   };
 
-  function makeTubePipeline(blend) {
-    return device.createRenderPipeline({
-      label: blend ? 'ns-blowup-blend' : 'ns-blowup-opaque',
-      layout: pipelineLayout,
-      vertex: { module: tubeModule, entryPoint: 'vs', buffers: vertexBuffers },
-      fragment: {
-        module: tubeModule,
-        entryPoint: 'fs',
-        targets: [{ format: canvasFormat, blend: blend ? premultiplied : undefined }]
-      },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: !blend, depthCompare: 'less' },
-      multisample: { count: SAMPLE_COUNT }
-    });
-  }
-
-  const opaquePipeline = makeTubePipeline(false);
-  const blendPipeline = makeTubePipeline(true);
+  /**
+   * One pipeline for everything, always blending and always writing depth.
+   *
+   * The obvious alternative, routing opaque layers through a depth-writing
+   * pipeline and translucent ones through a non-writing one, means a layer
+   * changes its occlusion behaviour the instant its opacity crosses the
+   * threshold. Everything it was hiding pops into view mid-fade. Since the
+   * whole walkthrough is built out of fades, that snap is constant.
+   *
+   * Writing depth for translucent geometry costs the ability to see one
+   * translucent surface through another, which this scene never needs: layers
+   * are drawn in back-to-front order and the arrows sit outside the core.
+   */
+  const tubePipeline = device.createRenderPipeline({
+    label: 'ns-blowup-tubes',
+    layout: pipelineLayout,
+    vertex: { module: tubeModule, entryPoint: 'vs', buffers: vertexBuffers },
+    fragment: {
+      module: tubeModule,
+      entryPoint: 'fs',
+      targets: [{ format: canvasFormat, blend: premultiplied }]
+    },
+    // Cull back faces: a closed surface drawn double-sided blends its own
+    // interior against its exterior, which reads as banding.
+    primitive: { topology: 'triangle-list', cullMode: 'back' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    multisample: { count: SAMPLE_COUNT }
+  });
 
   const axisPipeline = device.createRenderPipeline({
     label: 'ns-blowup-axis-pipeline',
@@ -231,14 +238,24 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     texHeight = h;
   }
 
-  function computeClipPlanes(eye, radius) {
-    const eyeDist = Math.hypot(eye[0], eye[1], eye[2]);
+  /**
+   * Clip planes tight around the scene.
+   *
+   * The distance is taken from the camera's own orbit radius, i.e. from the
+   * point it is looking at, not from the world origin. Measuring from the
+   * origin while the camera orbits something else pushes the near plane toward
+   * zero, and a near/far ratio like 0.3/35 leaves almost no depth precision
+   * where the geometry actually is.
+   */
+  function computeClipPlanes(camera, radius) {
+    const distance = camera.getState().distance;
     const smoothMax = (a, b, k) => 0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k));
-    return { near: smoothMax(eyeDist - radius, 0.02, 0.5), far: eyeDist + radius };
+    return { near: smoothMax(distance - radius, 0.1, 0.25), far: distance + radius };
   }
 
   /**
-   * @param params.layers  [{ id, instances: [{scale,twist,opacity,rate,stretchY,stretchR,offset}] }]
+   * @param params.layers  [{ id, instances: [...] }] drawn in the given order,
+   *                        which should run back to front.
    */
   function render(gpuContext, params, camera, w, h) {
     if (w === 0 || h === 0) return false;
@@ -246,7 +263,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
 
     ensureTextures(w, h);
 
-    const { near, far } = computeClipPlanes(eye, params.sceneRadius ?? 12);
+    const { near, far } = computeClipPlanes(camera, params.sceneRadius ?? 12);
     const rangeInv = 1 / (near - far);
     projection[10] = far * rangeInv;
     projection[14] = near * far * rangeInv;
@@ -289,12 +306,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
         instanceData[o + 7] = 0;
         slot++;
       }
-      draws.push({
-        geometry,
-        first,
-        count: visible.length,
-        opaque: visible.every((it) => (it.opacity ?? 1) >= 0.995)
-      });
+      draws.push({ geometry, first, count: visible.length });
     }
     if (slot > 0) device.queue.writeBuffer(instanceBuffer, 0, instanceData, 0, slot * INSTANCE_FLOATS);
 
@@ -318,18 +330,14 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
 
     pass.setBindGroup(0, bindGroup);
 
-    // Opaque first, so translucent geometry depth-tests against it.
-    for (const pipeline of [opaquePipeline, blendPipeline]) {
-      const wantOpaque = pipeline === opaquePipeline;
-      let bound = false;
-      for (const d of draws) {
-        if (d.opaque !== wantOpaque) continue;
-        if (!bound) { pass.setPipeline(pipeline); bound = true; }
-        pass.setVertexBuffer(0, d.geometry.vertexBuffer);
-        pass.setVertexBuffer(1, instanceBuffer, d.first * INSTANCE_FLOATS * 4);
-        pass.setIndexBuffer(d.geometry.indexBuffer, 'uint32');
-        pass.drawIndexed(d.geometry.indexCount, d.count);
-      }
+    // Layers are drawn in the order the caller gave them, which is back to
+    // front. Nothing switches pipeline as it fades.
+    if (draws.length > 0) pass.setPipeline(tubePipeline);
+    for (const d of draws) {
+      pass.setVertexBuffer(0, d.geometry.vertexBuffer);
+      pass.setVertexBuffer(1, instanceBuffer, d.first * INSTANCE_FLOATS * 4);
+      pass.setIndexBuffer(d.geometry.indexBuffer, 'uint32');
+      pass.drawIndexed(d.geometry.indexCount, d.count);
     }
 
     if (axisCount > 0 && (params.axisOpacity ?? 0) > 0.004) {

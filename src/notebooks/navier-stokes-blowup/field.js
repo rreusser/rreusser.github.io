@@ -226,8 +226,9 @@ export function tubeMesh(line, { radius = 0.02, sides = 8, taper = 0.16, scalarR
       const j1 = (j + 1) % sides;
       const a = i * sides + j, b = i * sides + j1;
       const c = (i + 1) * sides + j, d = (i + 1) * sides + j1;
-      indices[m++] = a; indices[m++] = c; indices[m++] = b;
-      indices[m++] = b; indices[m++] = c; indices[m++] = d;
+      // Outward face front-facing, matching arrows.js.
+      indices[m++] = a; indices[m++] = b; indices[m++] = c;
+      indices[m++] = b; indices[m++] = d; indices[m++] = c;
     }
   }
 

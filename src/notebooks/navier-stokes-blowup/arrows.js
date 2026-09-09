@@ -83,8 +83,9 @@ function sweep(stations, sides, scalar) {
       const b = i * sides + j1;
       const c = (i + 1) * sides + j;
       const d = (i + 1) * sides + j1;
-      mesh.indices[m++] = a; mesh.indices[m++] = c; mesh.indices[m++] = b;
-      mesh.indices[m++] = b; mesh.indices[m++] = c; mesh.indices[m++] = d;
+      // Wound so the outward face is front-facing, matching revolution().
+      mesh.indices[m++] = a; mesh.indices[m++] = b; mesh.indices[m++] = c;
+      mesh.indices[m++] = b; mesh.indices[m++] = d; mesh.indices[m++] = c;
     }
   }
   return mesh;

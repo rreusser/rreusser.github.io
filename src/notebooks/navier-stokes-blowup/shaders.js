@@ -28,12 +28,12 @@ const SHARED = /* wgsl */`
 // outer fluid reads cool, the fast core reads hot, and the arrow families pick
 // fixed points on the same ramp so the whole figure stays one palette.
 fn colormap(t: f32) -> vec3f {
-  let c0 = vec3f(0.043, 0.220, 0.263);
-  let c1 = vec3f(0.129, 0.690, 0.769);
-  let c2 = vec3f(0.184, 0.435, 0.816);
-  let c3 = vec3f(0.365, 0.396, 0.722);
-  let c4 = vec3f(0.788, 0.545, 0.322);
-  let c5 = vec3f(0.965, 0.729, 0.451);
+  let c0 = vec3f(0.102, 0.451, 0.541);
+  let c1 = vec3f(0.180, 0.800, 0.867);
+  let c2 = vec3f(0.235, 0.522, 0.902);
+  let c3 = vec3f(0.510, 0.451, 0.784);
+  let c4 = vec3f(0.898, 0.612, 0.341);
+  let c5 = vec3f(0.980, 0.812, 0.569);
 
   let x = clamp(t, 0.0, 1.0) * 5.0;
   var c = mix(c0, c1, smoothstep(0.0, 1.0, x));
