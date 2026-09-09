@@ -12,8 +12,8 @@ struct Uniforms {
   flowRate: f32,
   flowAmp: f32,
   exposure: f32,
+  time: f32,
   _pad0: f32,
-  _pad1: f32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -88,8 +88,20 @@ fn vs(
 
   // Anisotropic stretch about the axis. Normals transform by the inverse
   // transpose, which for a diagonal scale is the reciprocal on each axis.
-  let stretched = vec3f(position.x * sr, position.y * sy, position.z * sr);
+  var stretched = vec3f(position.x * sr, position.y * sy, position.z * sr);
   let nStretched = normalize(vec3f(normal.x / sr, normal.y / sy, normal.z / sr));
+
+  // A slow writhe along the core. Vorticity in a real flow is never a straight
+  // line, and stretching pulls a tube straight, so the amplitude rides on the
+  // radial contraction: the line visibly relaxes as it thins. Two incommensurate
+  // wavenumbers per axis keep it from reading as a coil, and the spatial
+  // frequencies are low enough that the surface normals are barely affected.
+  let writhe = instC.y * sr;
+  if (writhe > 0.0) {
+    let h = stretched.y;
+    stretched.x += writhe * (sin(0.62 * h + 0.23 * u.time) + 0.55 * sin(1.13 * h - 0.17 * u.time));
+    stretched.z += writhe * (cos(0.71 * h - 0.19 * u.time) + 0.55 * cos(0.94 * h + 0.21 * u.time));
+  }
 
   // Offset first, then twist, so the twist doubles as an azimuth for repeated
   // pieces. A y-axis rotation fixes the y offset either way.

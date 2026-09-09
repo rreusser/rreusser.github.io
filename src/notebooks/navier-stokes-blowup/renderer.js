@@ -1,5 +1,5 @@
 const UNIFORM_SIZE = 176;
-const MAX_INSTANCES = 96;
+const MAX_INSTANCES = 160;
 const INSTANCE_FLOATS = 12;
 const MAX_PEEL_LAYERS = 5;
 
@@ -259,7 +259,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
         instanceData[o + 6] = it.offsetY ?? 0;
         instanceData[o + 7] = it.offsetR ?? 0;
         instanceData[o + 8] = it.pulseAmp ?? 0;
-        instanceData[o + 9] = 0;
+        instanceData[o + 9] = it.writhe ?? 0;
         instanceData[o + 10] = 0;
         instanceData[o + 11] = 0;
         slot++;
@@ -312,6 +312,7 @@ export function createRenderer(device, canvasFormat, shaderCodes) {
     f32[39] = params.flowRate ?? 1.2;
     f32[40] = params.flowAmp ?? 0.55;
     f32[41] = params.exposure ?? 1.05;
+    f32[42] = params.time ?? 0;
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
     const draws = packInstances(params.layers);

@@ -35,33 +35,35 @@ export const TUBE_HALF = 5.0;
 export const CORE_RADIUS = 0.105;
 
 /**
- * Lateral wander of the centreline. Contracts with the core as it stretches.
- * Kept well inside the material loops, which are centred on the axis rather
- * than on the wandering line, so that the loops always encircle the core.
+ * Amplitude of the core's writhe. The shape itself is applied in the vertex
+ * shader so that it can vary with time; the centreline built here is straight.
+ * Kept well inside the innermost orbiting particles.
  */
-const WANDER = 0.075;
+export const WRITHE = 0.085;
 
 /**
- * A short arc of fluid, tapered at both ends, built at unit radius in the plane
- * y = 0. Instances place it by scaling, so a streak nearer the axis is
- * correspondingly shorter and finer, as a contracted material arc should be.
+ * One particle of fluid: a short dash, tapered at both ends, lying along the
+ * direction it travels. It is built at the origin rather than at a radius, so
+ * an instance places it with an offset and every particle comes out the same
+ * size no matter how far from the axis it sits. Sizing them by radius instead
+ * turns the swarm into a few enormous sweeping arcs.
  */
-function streakArc(scalar) {
-  const segments = 26;
-  const span = 0.85;
+function particle(scalar) {
+  const segments = 12;
+  const half = 0.085;
   const points = [];
   const speeds = [];
   const times = [];
   for (let i = 0; i < segments; i++) {
-    const a = -span / 2 + (span * i) / (segments - 1);
-    points.push(Math.cos(a), 0, Math.sin(a));
+    const f = i / (segments - 1);
+    points.push(0, 0, -half + 2 * half * f);
     speeds.push(scalar);
-    times.push(i / (segments - 1));
+    times.push(f);
   }
   return tubeMesh({ points, speeds, times, count: segments }, {
-    radius: 0.028,
+    radius: 0.019,
     sides: 6,
-    taper: 0.4,
+    taper: 0.45,
     scalarRange: [0, 1]
   });
 }
@@ -75,19 +77,13 @@ function curvedCore(radius) {
   for (let i = 0; i < stations; i++) {
     const t = -1 + (2 * i) / (stations - 1);
     const y = t * TUBE_HALF;
-    // Two incommensurate turns, so it reads as a wandering line rather than a
-    // coil. Amplitude eases off nowhere: the tube is curved all the way out.
-    points.push(
-      WANDER * Math.sin(1.15 * y + 0.4),
-      y,
-      WANDER * 0.75 * Math.cos(0.83 * y - 0.7)
-    );
+    points.push(0, y, 0);
     speeds.push(0.06);
     times.push(t);
   }
   return tubeMesh({ points, speeds, times, count: stations }, {
     radius,
-    sides: 20,
+    sides: 18,
     taperEnds: false,
     scalarRange: [0, 1]
   });
@@ -96,11 +92,11 @@ function curvedCore(radius) {
 export function buildLessonScene() {
   const tube = curvedCore(CORE_RADIUS);
 
-  // Three bands so a streak's colour can carry its speed, warm nearest the
+  // Three bands so a particle's colour can carry its speed, warm nearest the
   // axis where the fluid is quickest.
-  const streakFast = streakArc(0.95);
-  const streakMid = streakArc(0.55);
-  const streakSlow = streakArc(0.16);
+  const streakFast = particle(0.95);
+  const streakMid = particle(0.55);
+  const streakSlow = particle(0.16);
 
   // Unit arrows, tail at the origin and tip one unit away. Instances scale them
   // by the local flow speed and place them by their tail, so an arrow is a
@@ -145,15 +141,26 @@ export function buildLessonScene() {
  * into a tornado. Radii, heights and phases are spread by golden-ratio steps so
  * the swarm looks scattered without being random.
  */
-export const STREAKS = Array.from({ length: 44 }, (_, i) => {
-  const radius = 0.24 * Math.pow(1.55 / 0.24, (i * 0.6180339887) % 1);
+export const STREAKS = Array.from({ length: 76 }, (_, i) => {
+  // Kept clear of the core: a thin vortex really does spin very fast close in,
+  // and the free-vortex law would put those particles past strobing.
+  const radius = 0.38 * Math.pow(1.4 / 0.38, (i * 0.6180339887) % 1);
   return {
     radius,
-    y: -0.72 + 1.44 * ((i * 0.3819660113) % 1),
+    // Spread the length of the visible core, not bunched around the middle.
+    y: -0.95 + 1.9 * ((i * 0.3819660113) % 1),
     twist: i * 2.39996,
-    band: radius < 0.46 ? 'streakFast' : radius < 0.88 ? 'streakMid' : 'streakSlow'
+    band: radius < 0.62 ? 'streakFast' : radius < 0.95 ? 'streakMid' : 'streakSlow'
   };
 });
+
+/**
+ * Gamma / 2 pi, in figure units: the one constant setting the whole swarm. A
+ * particle at radius r orbits at u = SWIRL_STRENGTH / r, so the angular rate is
+ * SWIRL_STRENGTH / r^2. Because a particle is material its radius contracts as
+ * one over root stretch, which leaves the rate proportional to the stretch.
+ */
+export const SWIRL_STRENGTH = 0.30;
 
 /**
  * The nominal strain rate the arrows depict, in figure units. The reader

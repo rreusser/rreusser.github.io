@@ -127,7 +127,7 @@ import { observeTheme } from './lib/theme.js';
 import { createField, seedRings, decimate, tubeMesh, mergeMeshes, speedRange } from './field.js';
 import { toYUp } from './arrows.js';
 import {
-  buildLessonScene, STREAKS, seedStrainParcels,
+  buildLessonScene, STREAKS, SWIRL_STRENGTH, WRITHE, seedStrainParcels,
   GAMMA, SPEED_TO_LENGTH, AXIAL_SPAN, RADIAL_SPAN
 } from './scene.js';
 import { tubeShaderCode, compositeShaderCode } from './shaders.js';
@@ -203,10 +203,23 @@ function isSmallScreen() {
   return Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
 }
 
+/**
+ * The region actually visible, which on iOS is none of 100vh, innerHeight or
+ * the layout viewport: the toolbars overlay the page and the visual viewport
+ * slides against the layout one. visualViewport is the only thing that
+ * describes it, so the pinned figure is sized and offset from that.
+ */
+function visibleBox() {
+  const vv = window.visualViewport;
+  return vv
+    ? { height: vv.height, offsetTop: vv.offsetTop }
+    : { height: window.innerHeight, offsetTop: 0 };
+}
+
 /** Progress through a scrollyteller, in [0, 1]. */
 function scrollProgress(container: HTMLElement) {
   const rect = container.getBoundingClientRect();
-  const scrollHeight = container.offsetHeight - window.innerHeight;
+  const scrollHeight = container.offsetHeight - visibleBox().height;
   if (scrollHeight <= 0) return 0;
   return Math.max(0, Math.min(1, -rect.top / scrollHeight));
 }
@@ -214,13 +227,20 @@ function scrollProgress(container: HTMLElement) {
 /** Pin, release, or park the background, and report whether it is on screen. */
 function updateBackgroundPosition(container: HTMLElement, background: HTMLElement) {
   const rect = container.getBoundingClientRect();
+  const view = visibleBox();
   const topAbove = rect.top <= 0;
-  const bottomBelow = rect.bottom >= window.innerHeight;
+  const bottomBelow = rect.bottom >= view.height;
+  const fixed = topAbove && bottomBelow;
 
-  background.classList.toggle('is-fixed', topAbove && bottomBelow);
-  background.classList.toggle('is-bottom', topAbove && !bottomBelow);
+  background.classList.toggle('is-fixed', fixed);
+  background.classList.toggle('is-bottom', topAbove && !fixed);
 
-  return rect.top < window.innerHeight && rect.bottom > 0;
+  // Match the pinned box to the visible region rather than to a CSS viewport
+  // unit, so the middle of the canvas is the middle of what you can see.
+  background.style.height = `${view.height}px`;
+  background.style.top = fixed ? `${view.offsetTop}px` : '';
+
+  return rect.top < view.height && rect.bottom > 0;
 }
 
 /**
@@ -336,11 +356,6 @@ await new Promise((r) => setTimeout(r, 100));
   // Circulation around the core is conserved, so the angular rate rises in step
   // with how much the core has been stretched. One number drives both the
   // visible rotation and how fast the pulses run along the arrows.
-  // Angular rate of a streak: outside the core the vortex is free, so
-  // u = Gamma / 2 pi r and Omega = Gamma / 2 pi r^2. A streak is material, so
-  // its radius contracts as 1/sqrt(stretch) while Gamma is conserved, leaving
-  // Omega proportional to stretch / radius^2. One constant sets the whole swarm.
-  const SWIRL_RATE = 0.06;
   const streakAngle = new Float64Array(STREAKS.length);
   // Pulse phases are integrated, not derived from a clock times a rate: the
   // swirl rate follows the stretch, and multiplying a changing rate by an
@@ -370,7 +385,7 @@ await new Promise((r) => setTimeout(r, 100));
     const sr = 1 / Math.sqrt(sy);
 
     for (let i = 0; i < STREAKS.length; i++) {
-      streakAngle[i] += dt * SWIRL_RATE * sy / (STREAKS[i].radius * STREAKS[i].radius);
+      streakAngle[i] += (dt * SWIRL_STRENGTH * sy) / (STREAKS[i].radius * STREAKS[i].radius);
     }
 
     // The straining arrows are Eulerian, so their highlights run at the local
@@ -402,7 +417,7 @@ await new Promise((r) => setTimeout(r, 100));
     // rather than a diagram. The loops breathe with the core, since they are
     // painted on it.
     const breath = 1 + 0.035 * Math.sin(0.55 * elapsed);
-    const core = { stretchR: sr * breath, opacity: s.tubeOpacity, pulseAmp: 0 };
+    const core = { stretchR: sr * breath, opacity: s.tubeOpacity, pulseAmp: 0, writhe: WRITHE };
 
     // Material loops painted on the tube. The flow carries them apart in
     // proportion to the stretch, contracts them with the core, and turns them.
@@ -411,10 +426,9 @@ await new Promise((r) => setTimeout(r, 100));
     // applied before the scale, so the height divides through.
     const swarm = { streakFast: [], streakMid: [], streakSlow: [] };
     STREAKS.forEach((t, i) => {
-      const radius = t.radius * sr * breath;
       swarm[t.band].push({
-        scale: radius,
-        offsetY: (t.y * sy + 0.04 * Math.sin(0.7 * elapsed + i)) / radius,
+        offsetR: t.radius * sr * breath,
+        offsetY: t.y * sy + 0.03 * Math.sin(0.7 * elapsed + i),
         twist: t.twist + streakAngle[i],
         opacity: s.streakOpacity,
         pulseAmp: 0
@@ -459,6 +473,7 @@ await new Promise((r) => setTimeout(r, 100));
     renderer.render(gpuContext, {
       background: themeState.background,
       isDark: themeState.isDark,
+      time: elapsed,
       flowRate: 1.0,
       flowAmp: 0.85,
       sceneRadius: 3.2,
@@ -477,9 +492,11 @@ await new Promise((r) => setTimeout(r, 100));
 
   const onResize = () => { resize(); camera.taint(); };
   window.addEventListener('resize', onResize);
+  window.visualViewport?.addEventListener('resize', onResize);
   invalidation.then(() => {
     loop.cancel();
     window.removeEventListener('resize', onResize);
+    window.visualViewport?.removeEventListener('resize', onResize);
     camera.destroy();
     renderer.destroy();
   });
@@ -602,9 +619,11 @@ await new Promise((r) => setTimeout(r, 100));
 
   const onResize = () => { resize(); camera.taint(); };
   window.addEventListener('resize', onResize);
+  window.visualViewport?.addEventListener('resize', onResize);
   invalidation.then(() => {
     loop.cancel();
     window.removeEventListener('resize', onResize);
+    window.visualViewport?.removeEventListener('resize', onResize);
     camera.destroy();
     renderer.destroy();
   });
