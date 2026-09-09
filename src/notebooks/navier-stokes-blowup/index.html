@@ -146,12 +146,15 @@
         background: color-mix(in srgb, var(--theme-foreground) 16%, transparent);
       }
 
+      /* The track is the clock, so it takes the time colour; the marker on it
+         is the same colour at full strength. Speed is named in the row above
+         and takes the speed colour there. */
       .blowup-strip__fill {
         position: absolute;
         left: 0;
         top: 0;
         bottom: 0;
-        background: #21b0c4;
+        background: #a78bda;
         opacity: 0.75;
       }
 
@@ -171,7 +174,7 @@
         top: 0;
         bottom: 0;
         width: 2px;
-        background: #e8a765;
+        background: #a78bda;
       }
 
       figure { margin: 2em 0; }
@@ -201,6 +204,8 @@ import {
 import { createGPULines } from './lib/webgpu-instanced-lines.js';
 import { createRenderer } from './renderer.js';
 import * as Scales from './scales.js';
+import * as vocabulary from './vocabulary.js';
+import { ROLE, capsulePath } from './vocabulary.js';
   </script>
 
   <script id="intro" type="text/markdown">
@@ -296,11 +301,11 @@ function buildBlowupStrip(fixed: HTMLElement, rows: any[], blowupTime: number, g
   track.appendChild(head);
 
   const genLabel = html`<span></span>`;
-  const speedLabel = html`<span></span>`;
+  const speedLabel = html`<span style="color:#e8a765"></span>`;
   // What the rescaling is worth. Without it the reader cannot tell whether the
   // structure is shrinking or the camera is moving in, and that is the whole
   // difference between a zoom and a singularity.
-  const zoomLabel = html`<span></span>`;
+  const zoomLabel = html`<span style="color:#21b0c4"></span>`;
   const el = html`<div class="blowup-strip">
     <div class="blowup-strip__row">${genLabel}${speedLabel}</div>
     ${track}
@@ -660,204 +665,16 @@ That last step is the whole difficulty of the problem. Stretching sharpens a vor
 The construction below is an argument that it need not.
   </script>
 
-  <script id="rule-intro" type="text/markdown">
-## One step of the chain
-
-Everything below the first figure is that same stretching, applied over and over. What makes it a construction rather than a hope is that each application is pinned to the last by fixed ratios, so the whole chain is decided by one step and one parameter.
-
-The parameter is ${tex`h`}. It sets how much faster each generation is than the one it came from, and the entire argument turns on it being strictly greater than zero. Move it and watch the margin open and close.
-  </script>
-
-  <script id="ledger-controls" type="text/x-typescript">
-const h = view(Inputs.range([0.05, 0.45], { label: 'h', value: 0.25, step: 0.01 }));
-  </script>
-
-  <script id="rule-figure" type="text/x-typescript">
-{
-  const rows = Scales.ledger(h, 24);
-  const step = (f) => Math.pow(f(rows[19]) / f(rows[0]), 1 / 19);
-  const dWidth = step((r) => r.radial);
-  const dSpeed = step((r) => r.velocity);
-  const dTime = step((r) => r.duration);
-  const dReynolds = Math.pow(2, h);
-
-  const W = 720, H = 470;
-  const shown = rows.slice(0, 5);
-
-  const fg = 'var(--theme-foreground)';
-  const teal = '#21b0c4', amber = '#e8a765';
-
-  // Two bands, because a generation differs from the one before it in two ways
-  // and drawing both at once hides both. The top band fixes the length so the
-  // only thing varying is the shape; the bottom band draws them at true size so
-  // the only thing varying is how much room they take.
-  const L = 92, top = 44;
-  const gap = 128, x0 = 96;
-  const packets = shown.map((r, i) => {
-    const aspect = r.axial / r.radial;
-    return { x: x0 + i * gap, w: L / aspect, n: i + 1, aspect };
-  });
-
-  // True relative size, nested about the point they all concentrate on.
-  const nestTop = 252, nestH = 190, cy = nestTop + nestH / 2, cx = W / 2;
-  const nest = shown.map((r, i) => ({
-    h: nestH * (r.axial / shown[0].axial),
-    w: nestH * (r.radial / shown[0].axial),
-    n: i + 1
-  }));
-
-  const svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible"
-      font-family="inherit" font-size="12">
-    <defs><marker id="ruleArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7"
-      orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="${fg}" fill-opacity="0.35"/></marker></defs>
-
-    <text x="${W / 2}" y="18" text-anchor="middle" fill="${fg}" opacity="0.6">
-      drawn at one length, so the only thing changing is the shape
-    </text>
-
-    ${packets.map((p) => `
-      <rect x="${(p.x - p.w / 2).toFixed(1)}" y="${top}" width="${p.w.toFixed(1)}" height="${L}"
-            rx="${(p.w / 2).toFixed(1)}" fill="${teal}" fill-opacity="0.22"
-            stroke="${teal}" stroke-width="1.5"/>
-      <text x="${p.x}" y="${top + L + 18}" text-anchor="middle" fill="${fg}" opacity="0.75">n = ${p.n}</text>
-      <text x="${p.x}" y="${top + L + 34}" text-anchor="middle" fill="${teal}" font-size="11">Re ${p.aspect.toFixed(2)}</text>
-    `).join('')}
-
-    ${packets.slice(0, -1).map((p, i) => {
-      const q = packets[i + 1];
-      return `<path d="M ${(p.x + p.w / 2 + 8).toFixed(1)} ${top + L / 2} L ${(q.x - q.w / 2 - 8).toFixed(1)} ${top + L / 2}"
-                stroke="${fg}" stroke-opacity="0.35" stroke-width="1" marker-end="url(#ruleArrow)"/>`;
-    }).join('')}
-
-    <text x="${W / 2}" y="${top + L + 62}" text-anchor="middle" fill="${fg}">
-      each step: width <tspan fill="${teal}">×${dWidth.toFixed(2)}</tspan>,
-      speed <tspan fill="${amber}">×${dSpeed.toFixed(2)}</tspan>,
-      lifetime <tspan fill="${teal}">×${dTime.toFixed(2)}</tspan>
-    </text>
-    <text x="${W / 2}" y="${top + L + 82}" text-anchor="middle" fill="${fg}" opacity="0.75">
-      so speed × width goes <tspan fill="${amber}">×${(dSpeed * dWidth).toFixed(2)}</tspan> — up, not down
-    </text>
-
-    <text x="${W / 2}" y="${nestTop - 14}" text-anchor="middle" fill="${fg}" opacity="0.6">
-      and at true size, so the only thing changing is how much room it takes
-    </text>
-    ${nest.map((p) => `
-      <rect x="${(cx - p.w / 2).toFixed(1)}" y="${(cy - p.h / 2).toFixed(1)}"
-            width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" rx="${(p.w / 2).toFixed(1)}"
-            fill="none" stroke="${teal}" stroke-width="1.2" stroke-opacity="0.85"/>
-    `).join('')}
-    <path d="M ${(cx + nest[0].w / 2 + 14).toFixed(1)} ${cy} L ${(cx + nest[0].w / 2 + 74).toFixed(1)} ${cy}"
-      stroke="${fg}" stroke-opacity="0.3" stroke-width="1"/>
-    <text x="${(cx + nest[0].w / 2 + 80).toFixed(1)}" y="${cy - 3}" fill="${fg}" opacity="0.75" font-size="11">five generations,</text>
-    <text x="${(cx + nest[0].w / 2 + 80).toFixed(1)}" y="${cy + 12}" fill="${fg}" opacity="0.75" font-size="11">and it never bottoms out</text>
-  </svg>`;
-
-  // Built as markup and inserted, rather than through the html tag: that is a
-  // tagged template and wants a raw property, not a bare array.
-  const holder = html`<div></div>`;
-  holder.innerHTML = svg;
-
-  display(html`<figure style="margin:1.5em 0">
-    ${holder}
-    <figcaption>
-      A generation is a slender core: ${tex`Q_n^{1/2}`} across and ${tex`Q_n^{1/2-h}`} long. Divide
-      one by the other and the aspect ratio is ${tex`Q_n^{-h}`}, which is the Reynolds number itself —
-      so a packet's slenderness is not decoration, it is the margin over viscosity, drawn. Each step
-      narrows it further. At ${tex`h = 0`} every packet in the row would be the same shape and there
-      would be no margin at all.
-    </figcaption>
-  </figure>`);
-}
-  </script>
-
-  <script id="margins-intro" type="text/markdown">
-Two things have to hold for that chain to reach a singularity, and they pull against each other. Viscosity must never catch up, which wants each generation to be violent; and the whole infinite sequence must fit inside a finite time, which wants each generation to be brief.
-  </script>
-
-  <script id="margins-figure" type="text/x-typescript">
-{
-  const rows = Scales.ledger(h, 30);
-  const T = Scales.blowupTime(h);
-  const panelWidth = width > 620 ? Math.floor((Math.min(width, 760) - 16) / 2) : Math.min(width, 760);
-  const plotStyle = { background: 'transparent' };
-  const teal = '#21b0c4', amber = '#e8a765';
-
-  // Left: does viscosity catch up? Against the same sequence of lengths carrying
-  // ordinary turbulent velocities, u ~ l^(1/3), for which Re ~ l^(4/3).
-  const reynolds = rows.flatMap((r, i) => [
-    { n: r.n, v: r.reynolds / rows[0].reynolds, which: 'this construction' },
-    { n: r.n, v: Math.pow(r.radial / rows[0].radial, 4 / 3), which: 'ordinary turbulence' }
-  ]);
-
-  const viscosity = Plot.plot({
-    width: panelWidth, height: 250, marginLeft: 54, marginBottom: 36, style: plotStyle,
-    x: { label: 'generation n' },
-    y: { label: 'Reynolds number, relative to the first', type: 'log' },
-    color: { domain: ['this construction', 'ordinary turbulence'], range: [amber, teal] },
-    marks: [
-      Plot.ruleY([1], { strokeOpacity: 0.2 }),
-      Plot.line(reynolds, { x: 'n', y: 'v', stroke: 'which', strokeWidth: 1.8 }),
-      Plot.text(['climbing: viscosity never catches up'], {
-        x: 15, y: rows[14].reynolds / rows[0].reynolds, dy: -12, fill: amber, fontSize: 11
-      }),
-      Plot.text(['falling: the cascade dies'], {
-        x: 15, y: Math.pow(rows[14].radial / rows[0].radial, 4 / 3), dy: 14, fill: teal, fontSize: 11
-      })
-    ]
-  });
-
-  // Right: does the clock run out? Against a sequence whose slots shrink only
-  // like 1/n, which is the nearest thing that fails: still shrinking, still
-  // going to zero, and still adding up to infinity.
-  let a = 0, b = 0;
-  const clock = rows.flatMap((r) => {
-    a += r.duration;
-    b += rows[0].duration / r.n;
-    return [
-      { n: r.n, v: a, which: 'slots like 1/n²' },
-      { n: r.n, v: b, which: 'slots like 1/n' }
-    ];
-  });
-
-  const time = Plot.plot({
-    width: panelWidth, height: 250, marginLeft: 54, marginBottom: 36, style: plotStyle,
-    x: { label: 'generation n' },
-    y: { label: 'elapsed time', domain: [0, T * 2.2] },
-    color: { domain: ['slots like 1/n²', 'slots like 1/n'], range: [amber, teal] },
-    marks: [
-      Plot.ruleY([T], { stroke: amber, strokeDasharray: '3,3' }),
-      Plot.text([`T* = ${T.toFixed(3)}`], { x: 30, y: T, dy: -8, fill: amber, fontSize: 11, textAnchor: 'end' }),
-      Plot.line(clock, { x: 'n', y: 'v', stroke: 'which', strokeWidth: 1.8, curve: 'step-after' }),
-      Plot.text(['slots like 1/n: still climbing'], {
-        x: 17, y: b * (17 / 30), dy: -12, fill: teal, fontSize: 11, textAnchor: 'middle'
-      }),
-      Plot.text(['slots like 1/n²: stops'], {
-        x: 17, y: T, dy: 20, fill: amber, fontSize: 11, textAnchor: 'middle'
-      })
-    ]
-  });
-
-  display(html`<figure style="margin:1.5em 0">
-    <div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">${viscosity}${time}</div>
-    <figcaption>
-      Left: the same lengths carrying ordinary turbulent velocities, ${tex`u \sim \ell^{1/3}`}, would
-      have a Reynolds number falling like ${tex`\ell^{4/3}`} — that is the cascade being extinguished,
-      and it is why the ordinary one is no route to a singularity. Here it climbs instead.
-      Right: the slots have to shrink, but shrinking is not enough. Slots going like ${tex`1/n`} still
-      go to zero and still add up to infinity; it is ${tex`1/n^2`} that leaves a finite ${tex`T^*`} for
-      the whole infinite sequence to happen before. Both panels move with ${tex`h`}, and both margins
-      close as it goes to zero.
-    </figcaption>
-  </figure>`);
-}
-  </script>
-
   <script id="scrolly-cascade" type="module">
 await new Promise((r) => setTimeout(r, 100));
 
 {
   const captions = [
-    { text: "Here is the same mechanism, tuned so that it never runs out. The clock is running: everything below is one moment being followed to the next.", left: "8%", bottom: "12%" },
+    { text: "That whole first figure — the tube, the flow around it, the stretching — is one generation. From here on it is drawn as its outline.", left: "8%", bottom: "12%" },
+    { text: "Three numbers describe it: how <span style='color:#21b0c4'>wide</span> it is, how fast it <span style='color:#e8a765'>turns</span>, and how long it <span style='color:#a78bda'>lasts</span>. Those three, and nothing else, are what every figure from here on is about.", right: "8%", bottom: "12%" },
+    { text: "The next generation is the same shape, narrower. Length over width is exactly the Reynolds number, so the shape you are looking at <em>is</em> the margin over viscosity.", left: "8%", bottom: "12%" },
+    { text: "And each one fits inside the one before it. Five here, and no smallest one.", right: "8%", bottom: "12%" },
+    { text: "Here is that nest with the fluid put back in. The clock is running: everything below is one moment being followed to the next.", left: "8%", bottom: "12%" },
     { text: "To follow it at all we have to keep rescaling. The frame steps inward each time the cascade hands off, and the readout says what the magnification has reached.", right: "8%", bottom: "12%" },
     { text: "In these rescaled coordinates the flow is nearly steady. That is what self-similar means, and it is why one shape serves every generation.", left: "8%", bottom: "12%" },
     { text: "Ordinarily this would die out. In turbulence the velocity at a scale goes like the cube root of it, so the Reynolds number <em>falls</em> as the eddies get smaller and viscosity gains at every step down, until it wins.", right: "8%", bottom: "12%" },
@@ -926,11 +743,17 @@ await new Promise((r) => setTimeout(r, 100));
   // once: parcels moved in wall-clock seconds through a field that never
   // changed, while the readout's time moved only when the page was scrolled.
   const sequencer = createSequencer({
-    // Hold at the top for the first frame, so the descent does not begin before
-    // the reader has seen where it begins from.
-    gen:           [{ t: 0, value: 1 }, { t: 1, value: 1 }, { t: frameCount, value: GEN_END, ease: linear }],
-    streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }],
-    stripOpacity:  [{ t: 0, value: 0 }, { t: 0.6, value: 1 }]
+    // The schematic holds the first four frames, then dissolves into the fluid.
+    // The descent itself does not begin until the fluid is there to show it.
+    gen:           [{ t: 0, value: 1 }, { t: 4.6, value: 1 }, { t: frameCount, value: GEN_END, ease: linear }],
+    streamOpacity: [{ t: 3.6, value: 0 }, { t: 4.5, value: 1 }],
+    stripOpacity:  [{ t: 4.0, value: 0 }, { t: 4.8, value: 1 }],
+    // One core, then the row of them, then the nest. Each hands over to the
+    // next rather than all three being present at once.
+    glyphOpacity:  [{ t: 0, value: 0 }, { t: 0.4, value: 1 }, { t: 3.4, value: 1 }, { t: 4.2, value: 0 }],
+    labelOpacity:  [{ t: 0.6, value: 0 }, { t: 1.2, value: 1 }, { t: 1.9, value: 1 }, { t: 2.3, value: 0 }],
+    rowOpacity:    [{ t: 1.8, value: 0 }, { t: 2.4, value: 1 }, { t: 2.9, value: 1 }, { t: 3.3, value: 0 }],
+    nestOpacity:   [{ t: 2.9, value: 0 }, { t: 3.5, value: 1 }, { t: 3.9, value: 1 }, { t: 4.3, value: 0 }]
   });
 
   const ledgerRows = Scales.ledger(H_STRIP, 40);
@@ -963,9 +786,113 @@ await new Promise((r) => setTimeout(r, 100));
   display(container);
   await new Promise((r) => setTimeout(r, 100));
 
+  /**
+   * The schematic layer, over the same pinned box as the fluid.
+   *
+   * Its job is to say that the tube in the first figure and the packets in this
+   * one are the same object. It opens on a single core at the size the first
+   * figure left it, labels the three numbers that describe it, repeats it along
+   * a row to show the shape narrowing, collapses that into the nest, and
+   * dissolves as the fluid comes up underneath. Nothing new is introduced: the
+   * outline is the silhouette of the tube the reader has just spent a figure
+   * watching.
+   */
+  function buildSchematic(host) {
+    const rows = ledgerRows;
+    const shown = rows.slice(0, 5);
+    const stepOf = (f) => Math.pow(f(rows[19]) / f(rows[0]), 1 / 19);
+    const dWidth = stepOf((r) => r.radial);
+    const dSpeed = stepOf((r) => r.velocity);
+    const dTime = stepOf((r) => r.duration);
+
+    const W = 560, H = 380, cx = W / 2, cy = 176;
+    const aspect = (r) => r.axial / r.radial;
+
+    // The single core, at the proportions of the first figure's tube.
+    const soloH = 170, soloW = soloH / aspect(shown[0]);
+
+    // The row: one length, so only the shape varies.
+    const rowL = 92, rowY = 176, gap = 100, x0 = 76;
+    const row = shown.map((r, i) => ({
+      x: x0 + i * gap, w: rowL / aspect(r), n: i + 1, re: aspect(r)
+    }));
+
+    // The nest: true relative size, about the point they concentrate on.
+    const nestH = 210;
+    const nest = shown.map((r) => ({
+      h: nestH * (r.axial / shown[0].axial),
+      w: nestH * (r.radial / shown[0].axial)
+    }));
+
+    const fg = 'var(--theme-foreground)';
+    const tick = (x1, y1, x2, y2) =>
+      `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${fg}" stroke-opacity="0.4" stroke-width="1"/>`;
+
+    const svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"
+        style="position:absolute;inset:0;width:100%;height:100%" font-family="inherit" font-size="14">
+      <defs><marker id="schArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7"
+        orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="${fg}" fill-opacity="0.4"/></marker></defs>
+
+      <g id="sch-solo">
+        <path d="${capsulePath(cx, cy, soloW, soloH)}" fill="${ROLE.size}" fill-opacity="0.14"
+              stroke="${ROLE.size}" stroke-width="2"/>
+      </g>
+
+      <g id="sch-labels">
+        ${tick(cx - soloW / 2, cy + soloH / 2 + 14, cx + soloW / 2, cy + soloH / 2 + 14)}
+        <text x="${cx}" y="${cy + soloH / 2 + 34}" text-anchor="middle" fill="${ROLE.size}">width</text>
+        ${tick(cx + soloW / 2 + 16, cy - soloH / 2, cx + soloW / 2 + 16, cy + soloH / 2)}
+        <text x="${cx + soloW / 2 + 24}" y="${cy + 5}" fill="${ROLE.speed}">turns this fast</text>
+        <text x="${cx - soloW / 2 - 24}" y="${cy + 5}" text-anchor="end" fill="${ROLE.time}">lasts this long</text>
+      </g>
+
+      <g id="sch-row">
+        ${row.map((p) => `
+          <path d="${capsulePath(p.x, rowY, p.w, rowL)}" fill="${ROLE.size}" fill-opacity="0.14"
+                stroke="${ROLE.size}" stroke-width="1.6"/>
+          <text x="${p.x}" y="${rowY + rowL / 2 + 20}" text-anchor="middle" fill="${fg}" opacity="0.7"
+                font-size="12">n = ${p.n}</text>
+          <text x="${p.x}" y="${rowY + rowL / 2 + 37}" text-anchor="middle" fill="${ROLE.speed}"
+                font-size="12">Re ${p.re.toFixed(2)}</text>
+        `).join('')}
+        ${row.slice(0, -1).map((p, i) => {
+          const q = row[i + 1];
+          return `<path d="M ${(p.x + p.w / 2 + 7).toFixed(1)} ${rowY} L ${(q.x - q.w / 2 - 7).toFixed(1)} ${rowY}"
+            stroke="${fg}" stroke-opacity="0.4" stroke-width="1" marker-end="url(#schArrow)"/>`;
+        }).join('')}
+        <text x="${cx}" y="${rowY + rowL / 2 + 68}" text-anchor="middle" fill="${fg}">
+          each step: <tspan fill="${ROLE.size}">width ×${dWidth.toFixed(2)}</tspan>,
+          <tspan fill="${ROLE.speed}">speed ×${dSpeed.toFixed(2)}</tspan>,
+          <tspan fill="${ROLE.time}">lifetime ×${dTime.toFixed(2)}</tspan>
+        </text>
+      </g>
+
+      <g id="sch-nest">
+        ${nest.map((p) => `<path d="${capsulePath(cx, cy, p.w, p.h)}" fill="none"
+            stroke="${ROLE.size}" stroke-width="1.4" stroke-opacity="0.9"/>`).join('')}
+      </g>
+    </svg>`;
+
+    const layer = html`<div style="position:absolute;inset:0;pointer-events:none;z-index:1"></div>`;
+    layer.innerHTML = svg;
+    host.appendChild(layer);
+    const g = (id) => layer.querySelector(`#${id}`);
+    const solo = g('sch-solo'), labels = g('sch-labels'), rowG = g('sch-row'), nestG = g('sch-nest');
+    return (state) => {
+      // The single core and the row occupy the same place, so they cross-fade
+      // rather than overlapping: the row is that core, repeated.
+      layer.style.opacity = String(state.glyphOpacity);
+      solo.style.opacity = String(Math.max(0, 1 - state.rowOpacity - state.nestOpacity));
+      labels.style.opacity = String(state.labelOpacity);
+      rowG.style.opacity = String(state.rowOpacity);
+      nestG.style.opacity = String(state.nestOpacity);
+    };
+  }
+
   const { canvas, resize } = attachCanvas(fixed);
   addModeToggle(fixed, canvas);
   const updateStrip = buildBlowupStrip(fixed, ledgerRows, blowupTime, GEN_MAX);
+  const updateSchematic = buildSchematic(fixed);
 
   const gpuContext = canvas.getContext('webgpu');
   gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
@@ -1268,6 +1195,8 @@ await new Promise((r) => setTimeout(r, 100));
     logFrame += (logRadial[active - 1] - logFrame) * Math.min(1, dt * FRAME_CHASE);
     const magnified = Math.exp(logRadial[0] - logFrame);
     updateStrip(s.gen, s.stripOpacity, magnified);
+    updateSchematic(s);
+    canvas.style.opacity = String(s.streamOpacity);
 
     // Draw a run of generations around the active one: one larger, the rest
     // inside it.
@@ -1436,6 +1365,101 @@ await new Promise((r) => setTimeout(r, 100));
 }
   </script>
 
+  <script id="rule-intro" type="text/markdown">
+## What has to hold
+
+The sequence is settled by a single step and by one number. That number is ${tex`h`}: it sets how much faster each generation is than the one it came from, and everything turns on it being strictly greater than zero.
+  </script>
+
+  <script id="ledger-controls" type="text/x-typescript">
+const h = view(Inputs.range([0.05, 0.45], { label: 'h', value: 0.25, step: 0.01 }));
+  </script>
+
+  <script id="margins-intro" type="text/markdown">
+Two things have to hold for the chain to reach a singularity, and they pull against each other. Viscosity must never catch up, which wants each generation to be violent; and the whole infinite sequence must fit inside a finite time, which wants each generation to be brief. Move ${tex`h`} and watch both margins open and close.
+  </script>
+
+  <script id="margins-figure" type="text/x-typescript">
+{
+  const rows = Scales.ledger(h, 30);
+  const T = Scales.blowupTime(h);
+  const panelWidth = width > 620 ? Math.floor((Math.min(width, 760) - 16) / 2) : Math.min(width, 760);
+  const plotStyle = { background: 'transparent' };
+  // One colour per quantity, and the thing being beaten in neutral grey so it
+  // cannot be mistaken for a fourth quantity.
+  const { ROLE } = vocabulary;
+  const amber = ROLE.speed, violet = ROLE.time, foil = ROLE.foil;
+
+  // Left: does viscosity catch up? Against the same sequence of lengths carrying
+  // ordinary turbulent velocities, u ~ l^(1/3), for which Re ~ l^(4/3).
+  const reynolds = rows.flatMap((r, i) => [
+    { n: r.n, v: r.reynolds / rows[0].reynolds, which: 'this construction' },
+    { n: r.n, v: Math.pow(r.radial / rows[0].radial, 4 / 3), which: 'ordinary turbulence' }
+  ]);
+
+  const viscosity = Plot.plot({
+    width: panelWidth, height: 250, marginLeft: 54, marginBottom: 36, style: plotStyle,
+    x: { label: 'generation n' },
+    y: { label: 'Reynolds number, relative to the first', type: 'log' },
+    color: { domain: ['this construction', 'ordinary turbulence'], range: [amber, foil] },
+    marks: [
+      Plot.ruleY([1], { strokeOpacity: 0.2 }),
+      Plot.line(reynolds, { x: 'n', y: 'v', stroke: 'which', strokeWidth: 1.8 }),
+      Plot.text(['climbing: viscosity never catches up'], {
+        x: 15, y: rows[14].reynolds / rows[0].reynolds, dy: -12, fill: amber, fontSize: 11
+      }),
+      Plot.text(['falling: the cascade dies'], {
+        x: 15, y: Math.pow(rows[14].radial / rows[0].radial, 4 / 3), dy: 14, fill: foil, fontSize: 11
+      })
+    ]
+  });
+
+  // Right: does the clock run out? Against a sequence whose slots shrink only
+  // like 1/n, which is the nearest thing that fails: still shrinking, still
+  // going to zero, and still adding up to infinity.
+  let a = 0, b = 0;
+  const clock = rows.flatMap((r) => {
+    a += r.duration;
+    b += rows[0].duration / r.n;
+    return [
+      { n: r.n, v: a, which: 'slots like 1/n²' },
+      { n: r.n, v: b, which: 'slots like 1/n' }
+    ];
+  });
+
+  const time = Plot.plot({
+    width: panelWidth, height: 250, marginLeft: 54, marginBottom: 36, style: plotStyle,
+    x: { label: 'generation n' },
+    y: { label: 'elapsed time', domain: [0, T * 2.2] },
+    color: { domain: ['slots like 1/n²', 'slots like 1/n'], range: [violet, foil] },
+    marks: [
+      Plot.ruleY([T], { stroke: violet, strokeDasharray: '3,3' }),
+      Plot.text([`T* = ${T.toFixed(3)}`], { x: 30, y: T, dy: -8, fill: violet, fontSize: 11, textAnchor: 'end' }),
+      Plot.line(clock, { x: 'n', y: 'v', stroke: 'which', strokeWidth: 1.8, curve: 'step-after' }),
+      Plot.text(['slots like 1/n: still climbing'], {
+        x: 17, y: b * (17 / 30), dy: -12, fill: foil, fontSize: 11, textAnchor: 'middle'
+      }),
+      Plot.text(['slots like 1/n²: stops'], {
+        x: 17, y: T, dy: 20, fill: violet, fontSize: 11, textAnchor: 'middle'
+      })
+    ]
+  });
+
+  display(html`<figure style="margin:1.5em 0">
+    <div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">${viscosity}${time}</div>
+    <figcaption>
+      Left: the same lengths carrying ordinary turbulent velocities, ${tex`u \sim \ell^{1/3}`}, would
+      have a Reynolds number falling like ${tex`\ell^{4/3}`} — that is the cascade being extinguished,
+      and it is why the ordinary one is no route to a singularity. Here it climbs instead.
+      Right: the slots have to shrink, but shrinking is not enough. Slots going like ${tex`1/n`} still
+      go to zero and still add up to infinity; it is ${tex`1/n^2`} that leaves a finite ${tex`T^*`} for
+      the whole infinite sequence to happen before. Both panels move with ${tex`h`}, and both margins
+      close as it goes to zero.
+    </figcaption>
+  </figure>`);
+}
+  </script>
+
   <script id="formulation-intro" type="text/markdown">
 ## Writing it down
 
@@ -1494,10 +1518,10 @@ const staircase = Plot.plot({
   x: { label: 'generation n' },
   y: { label: 'elapsed time', domain: [0, T * 1.1] },
   marks: [
-    Plot.ruleY([T], { stroke: '#e8a765', strokeDasharray: '3,3' }),
-    Plot.text([`T* = ${T.toFixed(3)}`], { x: 20, y: T, dy: -9, fill: '#e8a765', fontSize: 11 }),
-    Plot.areaY(rows, { x: 'n', y: 'end', fill: '#21b0c4', fillOpacity: 0.15, curve: 'step-after' }),
-    Plot.line(rows, { x: 'n', y: 'end', stroke: '#21b0c4', strokeWidth: 1.6, curve: 'step-after' })
+    Plot.ruleY([T], { stroke: '#a78bda', strokeDasharray: '3,3' }),
+    Plot.text([`T* = ${T.toFixed(3)}`], { x: 20, y: T, dy: -9, fill: '#a78bda', fontSize: 11 }),
+    Plot.areaY(rows, { x: 'n', y: 'end', fill: '#a78bda', fillOpacity: 0.15, curve: 'step-after' }),
+    Plot.line(rows, { x: 'n', y: 'end', stroke: '#a78bda', strokeWidth: 1.6, curve: 'step-after' })
   ]
 });
 
