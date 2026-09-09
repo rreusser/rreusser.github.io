@@ -51,7 +51,6 @@ struct VertexOutput {
   @location(4) vOpacity: f32,
   @location(5) vPulse: f32,
   @location(6) vPulseAmp: f32,
-  @location(7) vDash: f32,
 };
 
 /**
@@ -128,8 +127,6 @@ fn vs(
   // zero: its own motion already shows the velocity, and a highlight running
   // along it as well would claim a second, different one.
   out.vPulseAmp = instC.x;
-  // instC.z is how strongly this instance is dashed: 0 solid, 1 fully dashed.
-  out.vDash = instC.z;
   return out;
 }
 
@@ -152,23 +149,6 @@ fn shade(in: VertexOutput) -> vec4f {
   let band = smoothstep(0.55, 0.9, pulse) * (1.0 - smoothstep(0.9, 1.0, pulse));
   base = base * (1.0 + u.flowAmp * in.vPulseAmp * band);
 
-  // The same phase read as a dash pattern rather than a highlight. Because the
-  // phase is elapsed advection time, a pattern periodic in it and translated at
-  // a constant rate travels at the local fluid speed: dashes stretch where the
-  // fluid is quick and bunch where it is slow, so their length reads as speed
-  // at the same time as their motion does. One part dash to two parts gap.
-  var alpha = in.vOpacity;
-  if (in.vDash > 0.0) {
-    let duty = 1.0 / 3.0;
-    let edge = 0.06;
-    let mask = smoothstep(0.0, edge, pulse) * (1.0 - smoothstep(duty - edge, duty, pulse));
-    alpha = alpha * mix(1.0, mask, in.vDash);
-  }
-  // Cut the gaps rather than dimming them. A gap that still shaded would hold a
-  // depth-peel layer open, and there are only three or four of those, so the
-  // packet's interior would stay hidden behind its own transparent holes.
-  if (alpha < 0.004) { discard; }
-
   let key = normalize(vec3f(0.45, 0.6, 0.75));
   let fill = normalize(vec3f(-0.6, 0.35, -0.3));
 
@@ -185,7 +165,7 @@ fn shade(in: VertexOutput) -> vec4f {
   var color = (base * (ambient + diffuse) + vec3f(spec) + base * rim) * u.exposure;
 
   // Premultiplied, so the peel layers composite with one / one-minus-src-alpha.
-  return vec4f(color * alpha, alpha);
+  return vec4f(color * in.vOpacity, in.vOpacity);
 }
 
 @fragment

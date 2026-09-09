@@ -570,19 +570,41 @@ await new Promise((r) => setTimeout(r, 100));
   };
 
   /**
-   * How fast the dash pattern is carried through the outermost packet, in
-   * patterns per second. Each step inward multiplies it by the manuscript's own
-   * time-zoom factor T_g = 4 + sqrt(2), the companion of the spatial factor
-   * Lambda that already sets the scale ratio between drawn generations.
+   * Pulse rate for a copy drawn at unit scale, at the top of the scroll, in
+   * pulses per second.
    */
-  const DASH_RATE = 0.45;
+  const PULSE_RATE = 0.45;
+
+  /**
+   * How much faster everything runs per generation of zoom.
+   *
+   * Something has to depend on the total zoom or the figure cannot appear to
+   * speed up at all. The zoom recycles a fixed set of copies: as it advances by
+   * one, every copy's generation index slides by one and the slots relabel, so
+   * a rate that is any function of that index alone repeats exactly. Measured,
+   * the visible arrangement at zoom 0, 1, 2 and 3 was identical to the last
+   * digit, which is why the descent looked like a still picture.
+   *
+   * The true factor is the manuscript's own time zoom T_g = 4 + sqrt(2). Over
+   * the 3.4 generations this scroll covers that is 312x, which takes a rate you
+   * can follow at the top into a strobe at the bottom, so it is compressed to 2
+   * per generation, about 6x end to end. The acceleration is real and the
+   * ordering is right; only its steepness is dialled back.
+   */
+  const ZOOM_ACCEL = 2;
+
+  /**
+   * A ceiling on the rate, applied smoothly. The innermost copies are both the
+   * smallest and the quickest, and without it they cross into flicker.
+   */
+  const PULSE_CAP = 4.5;
 
   // Phase is accumulated per slot rather than taken as a clock times a rate,
-  // because the rate depends on the generation and the generation slides with
-  // the scroll: multiplying a large elapsed time by a rate that moves would slew
-  // the pattern by whole periods for a fractional change. Only the fractional
-  // part is ever read, so wrapping it keeps f32 precision exact no matter how
-  // long the page has been open.
+  // because the rate depends on the zoom and the zoom moves with the scroll:
+  // multiplying a large elapsed time by a rate that changes would slew the
+  // pulses by whole cycles for a fractional change. Only the fractional part is
+  // ever read, so wrapping it keeps f32 precision exact no matter how long the
+  // page has been open.
   const slotPhase = new Float64Array(COPIES);
 
   let smoothed = 0;
@@ -606,19 +628,20 @@ await new Promise((r) => setTimeout(r, 100));
     const instances = [];
     for (let k = 0; k < COPIES; k++) {
       const m = k - u;
-      slotPhase[k] = (slotPhase[k] + dt * DASH_RATE * Math.pow(Scales.COVER_GROWTH, m)) % 1;
+      const scale = Math.pow(Scales.LAMBDA, -m);
+      // Rate inversely proportional to the copy's scale, so the pulses travel at
+      // one speed across the screen however deep the packet is and the nesting
+      // reads as a single continuous flow. A smaller copy is not slower for it:
+      // its pulses are closer together, so they arrive more often, which is the
+      // generation running faster.
+      const raw = (PULSE_RATE * Math.pow(ZOOM_ACCEL, s.zoom)) / scale;
+      slotPhase[k] = (slotPhase[k] + dt * PULSE_CAP * Math.tanh(raw / PULSE_CAP)) % 1;
       instances.push({
-        scale: Math.pow(Scales.LAMBDA, -m),
+        scale,
         twist: m * TWIST,
         opacity: s.streamOpacity * smoothstep(-1, 0, m) * (1 - smoothstep(COPIES - 2, COPIES - 1, m)),
         phase: slotPhase[k],
-        // Dash only the generations whose pattern is still resolvable. A step
-        // inward divides the dash length by Lambda and multiplies its rate by
-        // T_g, so after about two steps it is a couple of pixels long and moving
-        // ten times a second, which aliases into noise rather than reading as
-        // speed. Those go solid, and the honest impression is the one that
-        // leaves: the deeper the packet, the faster than the eye can follow.
-        dash: 1 - smoothstep(1.2, 2.2, m)
+        pulseAmp: 1
       });
     }
 
