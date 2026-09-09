@@ -684,7 +684,7 @@ await new Promise((r) => setTimeout(r, 100));
     { text: "To keep any of them in frame we have to rescale as we go. The readout says what the magnification has reached, and how fast the core is going.", left: "8%", bottom: "12%" },
     { text: "Ordinarily this would die out. In turbulence the velocity at a scale goes like the cube root of it, so the Reynolds number <em>falls</em> as the eddies get smaller and viscosity gains at every step down, until it wins.", right: "8%", bottom: "12%" },
     { text: "Here the velocity grows fast enough as the scale shrinks that the product of the two goes the other way. Each generation has a <em>larger</em> Reynolds number than the last, and viscosity is never given the chance to catch up.", left: "8%", bottom: "12%" },
-    { text: "Here the zoom gives up: there is no vantage point left from which to follow it down. The rest arrive where they really are, piling into a point, and faster with every one.", right: "8%", bottom: "12%" },
+    { text: "The zoom has been slowing for a while, and by now it has come to rest: there is no vantage point left from which to follow the cascade down. The rest arrive where they really are, piling into a point, and faster with every one.", right: "8%", bottom: "12%" },
     { text: "The clock stalls just short of <em>T</em>* while they do. Infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", left: "8%", bottom: "12%" }
   ];
 
@@ -699,7 +699,7 @@ await new Promise((r) => setTimeout(r, 100));
    * Lambda^(zoom - m) for good, and zooming in genuinely arrives at deeper,
    * faster generations.
    */
-  const GEN_COUNT = 10;
+  const GEN_COUNT = 14;
   /**
    * How many generations carry fluid. One.
    *
@@ -718,7 +718,7 @@ await new Promise((r) => setTimeout(r, 100));
   // the page is a different cell; reading it here would tear down the GPU
   // pipelines on every drag.
   const H_STRIP = 0.25;
-  const GEN_MAX = 12;
+  const GEN_MAX = 17;
 
   /**
    * The camera, as numbers rather than only as a camera, because the outlines
@@ -727,8 +727,15 @@ await new Promise((r) => setTimeout(r, 100));
    */
   const CAMERA = { distance: 17, fov: 0.38, theta: 0.14, phi: 0.5 };
 
-  /** How far down the cascade the scroll goes. */
-  const GEN_END = 24;
+  /**
+   * How far down the cascade the scroll goes.
+   *
+   * Not as far as it can be counted -- as far as it can be seen. Past the
+   * seventeenth the outlines are a pixel across and there is no fluid small
+   * enough to put in them, so anything beyond this is scrolling past a picture
+   * that has stopped changing.
+   */
+  const GEN_END = 17;
 
   /**
    * Where the zoom gives up.
@@ -744,8 +751,41 @@ await new Promise((r) => setTimeout(r, 100));
    */
   const HOLD_GEN = 7;
 
-  /** Outlines are cheap, so they run well past the generations carrying fluid. */
-  const RING_COUNT = 22;
+  /**
+   * How the zoom comes to rest.
+   *
+   * Clamping the frame's generation at the hold stopped the zoom dead: the
+   * frame slid outward at a steady rate right up to the hold and then, in one
+   * frame, did not move at all. A camera that halts on a corner reads as a
+   * glitch, not as running out of room.
+   *
+   * So the frame's generation is the descent's, eased: at the start of the
+   * window it tracks the descent exactly, and its rate falls linearly to zero
+   * across the window, which is a constant deceleration and the same shape as
+   * anything physical coming to a stop. Written as f(u) = u - u^2/2 over
+   * u in [0, 1], whose slope runs 1 -> 0 and which travels half the window, so
+   * the ease spans HOLD_GEN +/- ZOOM_EASE/2 and rests exactly at HOLD_GEN.
+   *
+   * Six generations of window puts the deceleration under the stretch of scroll
+   * where the outlines are arriving fastest, which is what the reader should be
+   * watching by then anyway: the frame gives up gradually while the cascade
+   * keeps going, and the two crossing is the point.
+   */
+  const ZOOM_EASE = 6;
+  const ZOOM_START = HOLD_GEN - ZOOM_EASE / 2;
+  const zoomGen = (g) => {
+    if (g <= ZOOM_START) return g;
+    const u = Math.min(1, (g - ZOOM_START) / ZOOM_EASE);
+    return ZOOM_START + ZOOM_EASE * (u - u * u / 2);
+  };
+
+  /**
+   * Outlines run a little past the generations carrying fluid, and no further:
+   * each is 0.586 the width of the one outside it, so by the eighteenth there
+   * is under a pixel of it left however the frame is placed. Provisioning more
+   * than that buys nothing but scroll with nothing in it.
+   */
+  const RING_COUNT = 18;
 
   /**
    * The figure shows the cascade refined up to a level, not a window sliding
@@ -781,13 +821,13 @@ await new Promise((r) => setTimeout(r, 100));
    * nothing: normalising the rates to the active generation pinned it at one
    * turn per 1.8 seconds at every depth, so the entire descent looked identical
    * however far down it went. What that normalisation was throwing away is the
-   * whole point -- the turnover 1/tau_n grows by a factor of 83 from the first
-   * generation to the tenth.
+   * whole point -- the turnover 1/tau_n grows by a factor of 216 from the first
+   * generation to the fifteenth.
    *
    * So size is normalised, to keep the structure in frame, and time is not.
    * Every rate here is the true one raised to this power, which is the one
-   * concession: at the true power of one the descent ends 83 times faster than
-   * it starts and is a blur long before then, and at 0.4 it ends about six
+   * concession: at the true power of one the descent ends 216 times faster than
+   * it starts and is a blur long before then, and at 0.4 it ends about nine
    * times faster, which can be watched. The readout beside the figure gives the
    * uncompressed number.
    */
@@ -812,55 +852,49 @@ await new Promise((r) => setTimeout(r, 100));
     gen: [
       { t: 0, value: 1 }, { t: 0.7, value: 1, ease: linear },
       { t: 5.2, value: HOLD_GEN, ease: linear },
-      { t: 6.4, value: 11, ease: linear },
-      { t: 7.2, value: 16, ease: linear },
+      { t: 6.8, value: 10, ease: linear },
+      { t: 8.0, value: 13, ease: linear },
       { t: frameCount, value: GEN_END, ease: linear }
     ],
-    streamOpacity: [{ t: 0.2, value: 0 }, { t: 1.1, value: 1 }],
-    stripOpacity:  [{ t: 2.2, value: 0 }, { t: 3.0, value: 1 }],
-    glyphOpacity:  [{ t: 0, value: 0 }, { t: 0.5, value: 1 }]
+    // The outlines and the fluid inside them come up on one ramp. On separate
+    // ones the first outline arrived well before anything was turning in it,
+    // which reads as two unrelated things rather than as one.
+    streamOpacity: [{ t: 0.15, value: 0 }, { t: 0.9, value: 1 }],
+    glyphOpacity:  [{ t: 0.15, value: 0 }, { t: 0.9, value: 1 }],
+    stripOpacity:  [{ t: 2.2, value: 0 }, { t: 3.0, value: 1 }]
   });
 
   const ledgerRows = Scales.ledger(H_STRIP, 40);
   const blowupTime = Scales.blowupTime(H_STRIP);
 
   /**
-   * Everything the ledger says about a fractional place in the cascade.
+   * Log radius per generation, along the geometric trend rather than sample by
+   * sample.
    *
-   * Radius and speed interpolate in the log, since both move geometrically; a
-   * straight interpolation between 5e3 and 1e4 spends most of its length in the
-   * wrong decade.
-   */
-  const logVelocity = ledgerRows.map((r) => Math.log(r.velocity));
-
-  /**
-   * Log radius per generation, made monotone by a running minimum.
+   * The ledger's radii do not fall monotonically: the floor in nu(n) makes
+   * roughly every other generation come out slightly wider than the one before
+   * it, so a nest drawn from them un-nests as often as it nests. Clamping with a
+   * running minimum was worse, and visibly so -- it gave two consecutive
+   * generations the same width while leaving them their own aspect ratios, which
+   * drew as one capsule inside another with coincident sides and different
+   * heights.
    *
-   * The ledger's radii are not quite monotone: the floor in nu(n) lets a
-   * generation come out slightly wider than the one before it, about every
-   * sixth. Drawn faithfully that is a nest which occasionally un-nests and a
-   * zoom which occasionally reverses, and it reads as a mistake rather than as
-   * the accounting detail it is. The running minimum keeps the descent going
-   * one way; the widenings are still in the ledger, and in the plots below.
+   * So the drawn radius follows the trend the samples are scattered about,
+   * anchored across a fixed span of the ledger rather than across however many
+   * outlines are provisioned: a fixed ratio of 0.586 a generation.
+   * The aspect ratio stays exactly what the ledger says, since that one really
+   * is monotone -- it is 2^(nh) -- and it is the quantity the shape is there to
+   * carry. Width and height then both fall strictly, by 0.586 and 0.697, and the
+   * nest only ever nests. The scatter is still in the ledger and still in the
+   * plots below; it is a fact about the accounting, not about the shape of the
+   * solution.
    */
-  const logRadial = [];
-  ledgerRows.forEach((r, i) => {
-    const v = Math.log(r.radial);
-    logRadial.push(i === 0 ? v : Math.min(logRadial[i - 1], v));
-  });
-
-  function atGeneration(g) {
-    const n = Math.min(ledgerRows.length - 1, Math.max(1, g));
-    const i = Math.min(ledgerRows.length - 2, Math.max(0, Math.floor(n) - 1));
-    const f = Math.min(1, Math.max(0, n - Math.floor(n)));
-    const row = ledgerRows[i];
-    return {
-      elapsed: row.start + f * row.duration,
-      duration: row.duration,
-      logR: logRadial[i] + f * (logRadial[i + 1] - logRadial[i]),
-      logU: logVelocity[i] + f * (logVelocity[i + 1] - logVelocity[i])
-    };
-  }
+  const TREND_SPAN = 20;
+  const stepRatio = Math.pow(
+    ledgerRows[TREND_SPAN - 1].radial / ledgerRows[0].radial,
+    1 / (TREND_SPAN - 1)
+  );
+  const logRadial = ledgerRows.map((r, i) => Math.log(ledgerRows[0].radial) + i * Math.log(stepRatio));
 
   const { container, background, fixed } = buildScrollyteller('scrolly-cascade', captions);
   display(container);
@@ -889,7 +923,7 @@ await new Promise((r) => setTimeout(r, 100));
     const CORE = 1.2;
     const focal = 1 / Math.tan(CAMERA.fov / 2);
 
-    let svg = null, rings = [], fill = null, sized = '';
+    let svg = null, rings = [], sized = '';
     function layout() {
       const w = host.offsetWidth, h = host.offsetHeight;
       if (!w || !h) return false;
@@ -899,30 +933,25 @@ await new Promise((r) => setTimeout(r, 100));
       // Pixels per world unit at the focal plane, from the camera's own numbers.
       const scale = (h / 2) * focal / CAMERA.distance;
       const cx = w / 2, cy = h / 2;
-      const barW = Math.min(300, w - 64), barX = cx - barW / 2, barY = h - 54;
+      // No clock here. The readout in the corner already carries the time
+      // track, and drawing a second one under the nest put two of the same
+      // scale on screen at once -- which reads as two different quantities.
       layer.innerHTML = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:100%"
           font-family="inherit" font-size="13">
         ${ledgerRows.slice(0, RING_COUNT).map((r, k) => `<path id="ring-${k}" d=""
             fill="none" stroke="${LEVEL_TINTS[k % LEVEL_TINTS.length]}"
             stroke-width="1.6" opacity="0"/>`).join('')}
-        <rect x="${barX}" y="${barY}" width="${barW}" height="5" rx="2.5"
-              fill="var(--theme-foreground)" fill-opacity="0.16"/>
-        <rect id="ring-clock" x="${barX}" y="${barY}" width="0" height="5" rx="2.5"
-              fill="${ROLE.time}" fill-opacity="0.85"/>
-        <text x="${barX + barW}" y="${barY + 22}" text-anchor="end"
-              fill="var(--theme-foreground)" opacity="0.55" font-size="12">time → T*</text>
       </svg>`;
       svg = layer.firstElementChild;
       rings = ledgerRows.slice(0, RING_COUNT).map((_, k) => svg.querySelector(`#ring-${k}`));
-      fill = svg.querySelector('#ring-clock');
-      layout.geom = { cx, cy, scale, barW };
+      layout.geom = { cx, cy, scale };
       return true;
     }
 
-    return (state, logFrame, elapsedFraction) => {
+    return (state, logFrame) => {
       layer.style.opacity = String(state.glyphOpacity);
       if (state.glyphOpacity <= 0.004 || !layout()) return;
-      const { cx, cy, scale, barW } = layout.geom;
+      const { cx, cy, scale } = layout.geom;
 
       for (let k = 0; k < rings.length; k++) {
         const row = ledgerRows[k];
@@ -942,7 +971,6 @@ await new Promise((r) => setTimeout(r, 100));
           rings[k].setAttribute('stroke-width', (1.15 + 1.5 * finest).toFixed(2));
         }
       }
-      fill.setAttribute('width', (barW * elapsedFraction).toFixed(1));
     };
   }
 
@@ -1153,19 +1181,7 @@ await new Promise((r) => setTimeout(r, 100));
     return t * t * (3 - 2 * t);
   };
 
-  /**
-   * How fast the whole field runs at the top of the scroll, and how much faster
-   * per generation of descent.
-   *
-   * A generation is drawn at scale Lambda^(zoom - m) and stepped Lambda^m
-   * faster in its own time, so those cancel and every generation moves at one
-   * speed across the screen -- the nest reads as a single fluid rather than a
-   * gradient of flicker. What is left is this factor, shared by all of them and
-   * growing with the zoom, which is the acceleration the reader is meant to
-   * see. The true factor per generation is T_g = 5.41, which over the 3.4
-   * generations this scroll covers is 312x and unwatchable; it is compressed to
-   * 2, about 10x end to end, with a smooth ceiling so the bottom does not blur.
-   */
+  /** One rate per generation, whether it is being drawn this frame or not. */
   const rateData = new Float32Array(GEN_COUNT);
 
   /**
@@ -1192,8 +1208,6 @@ await new Promise((r) => setTimeout(r, 100));
     sequencer.setPosition(smoothed * frameCount);
     const s = sequencer.getState();
 
-    // Where the cascade has got to, and what the ledger says about it.
-    const here = atGeneration(s.gen);
     const active = Math.max(1, Math.min(GEN_COUNT, Math.floor(s.gen)));
 
     // The frame's scale, read straight off the fractional generation rather than
@@ -1201,12 +1215,12 @@ await new Promise((r) => setTimeout(r, 100));
     // lurched at every integer and then settled, which is the abruptness that
     // made the descent confusing; taken continuously the nest simply slides
     // outward at the speed the reader scrolls.
-    // The zoom follows the cascade down and then stops. Past the hold the frame
-    // is fixed and the rest of the sequence arrives inside it.
-    const logFrame = interpolate(logRadial, Math.min(s.gen, HOLD_GEN));
+    // The zoom follows the cascade down and then eases to a stop; past that the
+    // frame is fixed and the rest of the sequence arrives inside it.
+    const logFrame = interpolate(logRadial, zoomGen(s.gen));
     const magnified = Math.exp(logRadial[0] - logFrame);
     updateStrip(s.gen, s.stripOpacity, magnified);
-    updateOutlines(s, logFrame, here.elapsed / blowupTime);
+    updateOutlines(s, logFrame);
     canvas.style.opacity = String(s.streamOpacity);
 
     // The run of generations carrying fluid: the one being emphasised and its
@@ -1223,7 +1237,8 @@ await new Promise((r) => setTimeout(r, 100));
 
       // Drawn at its true size against the frame, so the nest is the ledger's
       // own radii rather than a fixed ratio.
-      genData[i * 4] = Math.exp(logRadial[m] - logFrame);
+      const scale = Math.exp(logRadial[m] - logFrame);
+      genData[i * 4] = scale;
       genData[i * 4 + 1] = m * TWIST;
       // Emphasis: one generation at a time, and the pair either side of a
       // handover sum to one, so the fluid never thins out or doubles up
@@ -1231,11 +1246,17 @@ await new Promise((r) => setTimeout(r, 100));
       // Only the finest level reached carries fluid. A coarser generation is
       // still drawn -- its outline is still there -- but its parcels have been
       // handed on to the level inside it.
-      // Fluid runs out before the outlines do: past the last simulated
-      // generation there is nothing left to draw inside them, which is also
-      // the point at which they are too small to hold anything.
+      //
+      // Fluid runs out before the outlines do, and it goes out by size rather
+      // than by index: while the frame is still keeping up, a generation is
+      // drawn about as large as the one before it and nothing dims, and once
+      // the frame has come to rest each is 0.586 of the last, so a few
+      // generations later a tangle of trails is a smudge rather than a motion
+      // and there is nothing to be gained by drawing it. A hard cutoff on the
+      // generation index used to do this instead, and it took the fluid out
+      // with a third of the scroll still to run.
       genData[i * 4 + 2] = s.streamOpacity * arrivedOf(m, s.gen) * finestOf(m, s.gen)
-        * (1 - smoothstep(GEN_COUNT - 2, GEN_COUNT, s.gen));
+        * smoothstep(0.04, 0.18, scale);
       genData[i * 4 + 3] = m % LEVEL_TINTS.length;
     }
     device.queue.writeBuffer(genBuffer, 0, genData);
