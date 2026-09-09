@@ -861,7 +861,13 @@ await new Promise((r) => setTimeout(r, 100));
     // which reads as two unrelated things rather than as one.
     streamOpacity: [{ t: 0.15, value: 0 }, { t: 0.9, value: 1 }],
     glyphOpacity:  [{ t: 0.15, value: 0 }, { t: 0.9, value: 1 }],
-    stripOpacity:  [{ t: 2.2, value: 0 }, { t: 3.0, value: 1 }]
+    // The readout is the frame of reference for everything else in the figure --
+    // which generation this is, how far the clock has run, what the frame has
+    // been magnified by -- so it belongs on screen from about the moment there
+    // is a second generation to compare the first one against. It used to wait
+    // until a third of the way down the scroll, by which point the reader had
+    // already had to decide for themselves what they were looking at.
+    stripOpacity:  [{ t: 0.6, value: 0 }, { t: 1.4, value: 1 }]
   });
 
   const ledgerRows = Scales.ledger(H_STRIP, 40);
