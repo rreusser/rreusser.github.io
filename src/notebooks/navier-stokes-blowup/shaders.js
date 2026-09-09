@@ -97,18 +97,6 @@ fn vs(
   var stretched = vec3f(position.x * sr, position.y * sy, position.z * sr * ez);
   var nStretched = normalize(vec3f(normal.x / sr, normal.y / sy, normal.z / (sr * ez)));
 
-  // A slow writhe along the core. Vorticity in a real flow is never a straight
-  // line, and stretching pulls a tube straight, so the amplitude rides on the
-  // radial contraction: the line visibly relaxes as it thins. Two incommensurate
-  // wavenumbers per axis keep it from reading as a coil, and the spatial
-  // frequencies are low enough that the surface normals are barely affected.
-  let writhe = instC.y * sr;
-  if (writhe > 0.0) {
-    let h = stretched.y;
-    stretched.x += writhe * (sin(0.62 * h + 0.62 * u.time) + 0.55 * sin(1.13 * h - 0.44 * u.time));
-    stretched.z += writhe * (cos(0.71 * h - 0.50 * u.time) + 0.55 * cos(0.94 * h + 0.55 * u.time));
-  }
-
   // Offset first, then twist, so the twist doubles as an azimuth for repeated
   // pieces. A y-axis rotation fixes the y offset either way.
   var placed = stretched + vec3f(instB.w, instB.z, 0.0);
@@ -140,7 +128,27 @@ fn vs(
   let pr = vec3f(placed.x * ca + placed.z * sa, placed.y, -placed.x * sa + placed.z * ca);
   let nr = vec3f(nStretched.x * ca + nStretched.z * sa, nStretched.y, -nStretched.x * sa + nStretched.z * ca);
 
-  let world = instA.x * pr;
+  // A slow writhe of the whole vortex. Vorticity in a real flow is never a
+  // straight line, and stretching pulls a tube straight, so the amplitude rides
+  // on the radial contraction and the line visibly relaxes as it thins. Two
+  // incommensurate wavenumbers per axis keep it from reading as a coil.
+  //
+  // Applied here, after the placement and the twist, rather than to the raw
+  // geometry: this is a displacement of the vortex as a whole, so it has to be
+  // evaluated at a piece's final height and applied in world x and z. Done
+  // earlier it was evaluated at the height of the geometry's own origin, which
+  // for the orbiting parcels is zero -- so the core could wander but the fluid
+  // around it could not follow, and the amplitude had to stay smaller than the
+  // innermost orbit to avoid the core cutting through it.
+  var placedWorld = pr;
+  let writhe = instC.y * sr;
+  if (writhe > 0.0) {
+    let h = pr.y;
+    placedWorld.x += writhe * (sin(0.62 * h + 0.62 * u.time) + 0.55 * sin(1.13 * h - 0.44 * u.time));
+    placedWorld.z += writhe * (cos(0.71 * h - 0.50 * u.time) + 0.55 * cos(0.94 * h + 0.55 * u.time));
+  }
+
+  let world = instA.x * placedWorld;
 
   var out: VertexOutput;
   out.position = u.projection * u.view * vec4f(world, 1.0);

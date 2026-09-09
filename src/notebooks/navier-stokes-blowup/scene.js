@@ -35,11 +35,18 @@ export const TUBE_HALF = 5.0;
 export const CORE_RADIUS = 0.105;
 
 /**
- * Amplitude of the core's writhe. The shape itself is applied in the vertex
- * shader so that it can vary with time; the centreline built here is straight.
- * Kept well inside the innermost orbiting particles.
+ * Amplitude of the vortex's writhe. The shape is applied in the vertex shader
+ * so it can vary with time; the centreline built here is straight.
+ *
+ * The two wavenumbers on each axis sum to at most 1.55 times this, so the core
+ * swings about half a unit across a visible span of four -- enough to read as a
+ * filament being pushed around rather than a wire. It used to be a quarter of
+ * that, because the displacement was applied to the core alone and anything
+ * larger drove the core through the parcels orbiting it. The displacement now
+ * carries the whole vortex, parcels included, so the amplitude is limited only
+ * by what looks right.
  */
-export const WRITHE = 0.085;
+export const WRITHE = 0.34;
 
 /**
  * One particle of fluid: a short dash, tapered at both ends, lying along the

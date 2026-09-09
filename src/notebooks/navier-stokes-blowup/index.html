@@ -589,7 +589,10 @@ await new Promise((r) => setTimeout(r, 100));
         opacity: s.streakOpacity,
         pulseAmp: 0,
         elongate: speed / STREAK_REF_SPEED,
-        bend: true
+        bend: true,
+        // The parcels ride the vortex's wander, so the core never cuts through
+        // the fluid orbiting it.
+        writhe: WRITHE
       });
     });
 
@@ -672,8 +675,8 @@ await new Promise((r) => setTimeout(r, 100));
   const captions = [
     { text: "That whole first figure — the tube, the flow around it, the stretching — is one generation. From here on it is drawn as its outline.", left: "8%", bottom: "12%" },
     { text: "Three numbers describe it: how <span style='color:#21b0c4'>wide</span> it is, how fast it <span style='color:#e8a765'>turns</span>, and how long it <span style='color:#a78bda'>lasts</span>. Those three, and nothing else, are what every figure from here on is about.", right: "8%", bottom: "12%" },
-    { text: "The next generation is the same shape, narrower. Length over width is exactly the Reynolds number, so the shape you are looking at <em>is</em> the margin over viscosity.", left: "8%", bottom: "12%" },
-    { text: "And each one fits inside the one before it. Five here, and no smallest one.", right: "8%", bottom: "12%" },
+    { text: "Hold five of them at the same length, so only the shape can change. Each is narrower than the last — and length over width is exactly the Reynolds number, so that shape <em>is</em> the margin over viscosity.", left: "8%", bottom: "12%" },
+    { text: "Drawn at their real sizes they nest instead: each generation fits inside the one before it. Five here, and no smallest one.", right: "8%", bottom: "12%" },
     { text: "Here is that nest with the fluid put back in. The clock is running: everything below is one moment being followed to the next.", left: "8%", bottom: "12%" },
     { text: "To follow it at all we have to keep rescaling. The frame steps inward each time the cascade hands off, and the readout says what the magnification has reached.", right: "8%", bottom: "12%" },
     { text: "In these rescaled coordinates the flow is nearly steady. That is what self-similar means, and it is why one shape serves every generation.", left: "8%", bottom: "12%" },
@@ -720,15 +723,30 @@ await new Promise((r) => setTimeout(r, 100));
    */
   const FRAME_CHASE = 1.6;
 
-  /**
-   * Turnover of the generation being watched, in turns per second of the
-   * reader's time. Everything else is fixed against it by the ledger: a
-   * generation whose slot is half as long turns twice as often.
-   */
+  /** Turnover of the first generation, in turns per second of the reader's time. */
   const ACTIVE_RATE = 0.55;
 
-  /** A ceiling on the rescaled rate, so the deepest packet cannot flicker. */
-  const RATE_CAP = 9;
+  /**
+   * The frame rescales space but deliberately not time.
+   *
+   * A self-similar frame rescales both, and a frame that rescales both shows
+   * nothing: normalising the rates to the active generation pinned it at one
+   * turn per 1.8 seconds at every depth, so the entire descent looked identical
+   * however far down it went. What that normalisation was throwing away is the
+   * whole point -- the turnover 1/tau_n grows by a factor of 83 from the first
+   * generation to the tenth.
+   *
+   * So size is normalised, to keep the structure in frame, and time is not.
+   * Every rate here is the true one raised to this power, which is the one
+   * concession: at the true power of one the descent ends 83 times faster than
+   * it starts and is a blur long before then, and at 0.4 it ends about six
+   * times faster, which can be watched. The readout beside the figure gives the
+   * uncompressed number.
+   */
+  const TIME_COMPRESSION = 0.4;
+
+  /** A ceiling on the rate, so the deepest packet on screen cannot flicker. */
+  const RATE_CAP = 12;
 
   /** Pulse rate along the backbone, in pulses per second. */
   const PULSE_RATE = 1.0;
@@ -817,12 +835,24 @@ await new Promise((r) => setTimeout(r, 100));
       x: x0 + i * gap, w: rowL / aspect(r), n: i + 1, re: aspect(r)
     }));
 
-    // The nest: true relative size, about the point they concentrate on.
-    const nestH = 210;
-    const nest = shown.map((r) => ({
-      h: nestH * (r.axial / shown[0].axial),
-      w: nestH * (r.radial / shown[0].axial)
+    // The nest: true relative size, about the point they concentrate on, and
+    // built one generation at a time on the ledger's own schedule.
+    const NEST_GENS = 8;
+    const nestH = 268;
+    const nested = rows.slice(0, NEST_GENS);
+    const nest = nested.map((r, i) => ({
+      h: nestH * (r.axial / nested[0].axial),
+      w: nestH * (r.radial / nested[0].axial),
+      // When this one arrives, as a fraction of the way to the blowup time.
+      at: r.start / blowupTime,
+      n: i + 1
     }));
+
+    // The clock underneath, in the time colour, ticked where each generation
+    // begins. It is the same track as the readout on the running figure, so the
+    // rhythm the reader is watching and the bar they will see later are the
+    // same object.
+    const barY = 348, barX = cx - 150, barW = 300;
 
     const fg = 'var(--theme-foreground)';
     const tick = (x1, y1, x2, y2) =>
@@ -847,6 +877,8 @@ await new Promise((r) => setTimeout(r, 100));
       </g>
 
       <g id="sch-row">
+        <text x="${cx}" y="${rowY - rowL / 2 - 26}" text-anchor="middle" fill="${fg}" opacity="0.65"
+              font-size="13">held at one length, so the only thing changing is the shape</text>
         ${row.map((p) => `
           <path d="${capsulePath(p.x, rowY, p.w, rowL)}" fill="${ROLE.size}" fill-opacity="0.14"
                 stroke="${ROLE.size}" stroke-width="1.6"/>
@@ -868,8 +900,22 @@ await new Promise((r) => setTimeout(r, 100));
       </g>
 
       <g id="sch-nest">
-        ${nest.map((p) => `<path d="${capsulePath(cx, cy, p.w, p.h)}" fill="none"
-            stroke="${ROLE.size}" stroke-width="1.4" stroke-opacity="0.9"/>`).join('')}
+        <text x="${cx}" y="18" text-anchor="middle" fill="${fg}" opacity="0.65" font-size="13">
+          at true size, each arriving inside the last
+        </text>
+        ${nest.map((p) => `<path id="nest-${p.n}" d="${capsulePath(cx, cy, p.w, p.h)}" fill="none"
+            stroke="${ROLE.size}" stroke-width="1.5" stroke-opacity="0.9" opacity="0"/>`).join('')}
+        <text id="nest-count" x="${cx}" y="${barY - 22}" text-anchor="middle"
+              fill="${fg}" opacity="0.8" font-size="13"></text>
+        <rect x="${barX}" y="${barY}" width="${barW}" height="5" rx="2.5"
+              fill="${fg}" fill-opacity="0.16"/>
+        <rect id="nest-fill" x="${barX}" y="${barY}" width="0" height="5" rx="2.5"
+              fill="${ROLE.time}" fill-opacity="0.85"/>
+        ${nest.slice(1).map((p) => `<rect x="${(barX + barW * p.at).toFixed(1)}" y="${barY - 2}"
+            width="1" height="9" fill="${ROLE.time}" fill-opacity="0.55"/>`).join('')}
+        <text x="${barX}" y="${barY + 22}" fill="${fg}" opacity="0.55" font-size="12">0</text>
+        <text x="${barX + barW}" y="${barY + 22}" text-anchor="end" fill="${fg}" opacity="0.55"
+              font-size="12">T*</text>
       </g>
     </svg>`;
 
@@ -878,7 +924,17 @@ await new Promise((r) => setTimeout(r, 100));
     host.appendChild(layer);
     const g = (id) => layer.querySelector(`#${id}`);
     const solo = g('sch-solo'), labels = g('sch-labels'), rowG = g('sch-row'), nestG = g('sch-nest');
-    return (state) => {
+    const rings = nest.map((p) => g(`nest-${p.n}`));
+    const fill = g('nest-fill'), count = g('nest-count');
+
+    /**
+     * How long one run through the cascade takes on screen. The whole of T* is
+     * played in this, so the waits between arrivals are the ledger's own slot
+     * lengths, to scale.
+     */
+    const CYCLE = 9;
+
+    return (state, elapsed) => {
       // The single core and the row occupy the same place, so they cross-fade
       // rather than overlapping: the row is that core, repeated.
       layer.style.opacity = String(state.glyphOpacity);
@@ -886,6 +942,26 @@ await new Promise((r) => setTimeout(r, 100));
       labels.style.opacity = String(state.labelOpacity);
       rowG.style.opacity = String(state.rowOpacity);
       nestG.style.opacity = String(state.nestOpacity);
+      if (state.nestOpacity <= 0.004) return;
+
+      // The nest builds itself on the ledger's schedule, looping. Generation one
+      // holds the frame alone for over half the run, and the rest crowd into
+      // what is left -- the arrivals accelerate without limit while the bar
+      // underneath stalls short of the end. That rhythm is the series
+      // converging, which is the one thing about this that a still picture
+      // cannot say.
+      const phase = (elapsed % CYCLE) / CYCLE;
+      let newest = 0;
+      for (let i = 0; i < rings.length; i++) {
+        const since = phase - nest[i].at;
+        const on = Math.max(0, Math.min(1, since / 0.035));
+        rings[i].style.opacity = String(on);
+        // Landing brightly and settling, so an arrival is an event.
+        rings[i].setAttribute('stroke-width', (1.5 + 2.2 * Math.max(0, 1 - since / 0.05)).toFixed(2));
+        if (on > 0.5) newest = nest[i].n;
+      }
+      fill.setAttribute('width', (barW * phase).toFixed(1));
+      count.textContent = newest ? `${newest} generation${newest > 1 ? 's' : ''} so far` : '';
     };
   }
 
@@ -1160,26 +1236,25 @@ await new Promise((r) => setTimeout(r, 100));
   const rateData = new Float32Array(GEN_COUNT);
 
   /**
-   * Frames between stored trail samples.
-   *
-   * A trail is TRAIL samples long, so at one sample a frame it only ever
-   * covered TRAIL frames of a parcel's past -- about a fifth of a second, which
-   * came out around twenty pixels. Storing every fourth frame instead spans
-   * four times as much history for the same geometry. The head is still
-   * rewritten every frame, so nothing about the motion changes: only how far
-   * back the tail reaches.
+   * A generation's rate: its true turnover, compressed by TIME_COMPRESSION and
+   * scaled so the first generation runs at ACTIVE_RATE.
    */
-  const COMMIT = 4;
+  const rateOf = (m) => Math.min(
+    RATE_CAP,
+    ACTIVE_RATE * Math.pow(ledgerRows[0].duration / ledgerRows[m].duration, TIME_COMPRESSION)
+  );
 
   let smoothed = 0;
   let stepIndex = 0;
   let headSlot = 0;
+  let elapsedSeconds = 0;
   let logFrame = logRadial[0];
   let last = performance.now();
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (!updateBackgroundPosition(container, background)) return;
+    elapsedSeconds += dt;
 
     smoothed += (scrollProgress(container) - smoothed) * 0.1;
     sequencer.setPosition(smoothed * frameCount);
@@ -1195,7 +1270,7 @@ await new Promise((r) => setTimeout(r, 100));
     logFrame += (logRadial[active - 1] - logFrame) * Math.min(1, dt * FRAME_CHASE);
     const magnified = Math.exp(logRadial[0] - logFrame);
     updateStrip(s.gen, s.stripOpacity, magnified);
-    updateSchematic(s);
+    updateSchematic(s, elapsedSeconds);
     canvas.style.opacity = String(s.streamOpacity);
 
     // Draw a run of generations around the active one: one larger, the rest
@@ -1204,11 +1279,10 @@ await new Promise((r) => setTimeout(r, 100));
 
     for (let i = 0; i < DRAW_GENS; i++) {
       const m = genOffset + i;
-      // Its own turnover, from its own slot: a generation whose slot is half as
-      // long turns twice as often. Divided through by the active generation's
-      // rate, which is what makes this the rescaled time of the self-similar
-      // frame.
-      const rate = Math.min(RATE_CAP, (ACTIVE_RATE * here.duration) / ledgerRows[m].duration);
+      // Its own turnover, from its own slot, compressed but never normalised
+      // away: a generation whose slot is shorter turns faster, and one deeper
+      // in the descent turns faster than the same neighbour did earlier.
+      const rate = rateOf(m);
       rateData[m] = rate;
       genPulse[m] = (genPulse[m] + dt * PULSE_RATE * rate) % 1;
 
@@ -1229,16 +1303,16 @@ await new Promise((r) => setTimeout(r, 100));
     // stale when the descent reaches it. Those outside the drawn run keep the
     // rate they had.
     for (let m = 0; m < GEN_COUNT; m++) {
-      if (m < genOffset || m >= genOffset + DRAW_GENS) {
-        rateData[m] = Math.min(RATE_CAP, (ACTIVE_RATE * here.duration) / ledgerRows[m].duration);
-      }
+      if (m < genOffset || m >= genOffset + DRAW_GENS) rateData[m] = rateOf(m);
     }
     device.queue.writeBuffer(rateBuffer, 0, rateData);
 
-    // The ring advances once every COMMIT frames, but the head is rewritten
-    // every frame, so a parcel still moves smoothly while its trail spans
-    // COMMIT times as much of its past. Lengthening the trail by raising the
-    // rate instead would have made the parcels move faster to get it.
+    // The ring advances once every so many frames, but the head is rewritten
+    // every frame, so a parcel moves smoothly while its trail spans that many
+    // times as much of its past. The interval shortens as the descent speeds
+    // up, so a trail stays about the same length on screen instead of growing
+    // with the rate.
+    const COMMIT = Math.max(1, Math.min(6, Math.round((4 * ACTIVE_RATE) / rateOf(active - 1))));
     const committing = stepIndex % COMMIT === 0;
     const srcStep = headSlot;
     const dstStep = committing ? (headSlot + 1) % TRAIL : headSlot;
