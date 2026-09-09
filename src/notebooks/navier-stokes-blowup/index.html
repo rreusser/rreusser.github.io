@@ -660,6 +660,198 @@ That last step is the whole difficulty of the problem. Stretching sharpens a vor
 The construction below is an argument that it need not.
   </script>
 
+  <script id="rule-intro" type="text/markdown">
+## One step of the chain
+
+Everything below the first figure is that same stretching, applied over and over. What makes it a construction rather than a hope is that each application is pinned to the last by fixed ratios, so the whole chain is decided by one step and one parameter.
+
+The parameter is ${tex`h`}. It sets how much faster each generation is than the one it came from, and the entire argument turns on it being strictly greater than zero. Move it and watch the margin open and close.
+  </script>
+
+  <script id="ledger-controls" type="text/x-typescript">
+const h = view(Inputs.range([0.05, 0.45], { label: 'h', value: 0.25, step: 0.01 }));
+  </script>
+
+  <script id="rule-figure" type="text/x-typescript">
+{
+  const rows = Scales.ledger(h, 24);
+  const step = (f) => Math.pow(f(rows[19]) / f(rows[0]), 1 / 19);
+  const dWidth = step((r) => r.radial);
+  const dSpeed = step((r) => r.velocity);
+  const dTime = step((r) => r.duration);
+  const dReynolds = Math.pow(2, h);
+
+  const W = 720, H = 470;
+  const shown = rows.slice(0, 5);
+
+  const fg = 'var(--theme-foreground)';
+  const teal = '#21b0c4', amber = '#e8a765';
+
+  // Two bands, because a generation differs from the one before it in two ways
+  // and drawing both at once hides both. The top band fixes the length so the
+  // only thing varying is the shape; the bottom band draws them at true size so
+  // the only thing varying is how much room they take.
+  const L = 92, top = 44;
+  const gap = 128, x0 = 96;
+  const packets = shown.map((r, i) => {
+    const aspect = r.axial / r.radial;
+    return { x: x0 + i * gap, w: L / aspect, n: i + 1, aspect };
+  });
+
+  // True relative size, nested about the point they all concentrate on.
+  const nestTop = 252, nestH = 190, cy = nestTop + nestH / 2, cx = W / 2;
+  const nest = shown.map((r, i) => ({
+    h: nestH * (r.axial / shown[0].axial),
+    w: nestH * (r.radial / shown[0].axial),
+    n: i + 1
+  }));
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible"
+      font-family="inherit" font-size="12">
+    <defs><marker id="ruleArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7"
+      orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="${fg}" fill-opacity="0.35"/></marker></defs>
+
+    <text x="${W / 2}" y="18" text-anchor="middle" fill="${fg}" opacity="0.6">
+      drawn at one length, so the only thing changing is the shape
+    </text>
+
+    ${packets.map((p) => `
+      <rect x="${(p.x - p.w / 2).toFixed(1)}" y="${top}" width="${p.w.toFixed(1)}" height="${L}"
+            rx="${(p.w / 2).toFixed(1)}" fill="${teal}" fill-opacity="0.22"
+            stroke="${teal}" stroke-width="1.5"/>
+      <text x="${p.x}" y="${top + L + 18}" text-anchor="middle" fill="${fg}" opacity="0.75">n = ${p.n}</text>
+      <text x="${p.x}" y="${top + L + 34}" text-anchor="middle" fill="${teal}" font-size="11">Re ${p.aspect.toFixed(2)}</text>
+    `).join('')}
+
+    ${packets.slice(0, -1).map((p, i) => {
+      const q = packets[i + 1];
+      return `<path d="M ${(p.x + p.w / 2 + 8).toFixed(1)} ${top + L / 2} L ${(q.x - q.w / 2 - 8).toFixed(1)} ${top + L / 2}"
+                stroke="${fg}" stroke-opacity="0.35" stroke-width="1" marker-end="url(#ruleArrow)"/>`;
+    }).join('')}
+
+    <text x="${W / 2}" y="${top + L + 62}" text-anchor="middle" fill="${fg}">
+      each step: width <tspan fill="${teal}">×${dWidth.toFixed(2)}</tspan>,
+      speed <tspan fill="${amber}">×${dSpeed.toFixed(2)}</tspan>,
+      lifetime <tspan fill="${teal}">×${dTime.toFixed(2)}</tspan>
+    </text>
+    <text x="${W / 2}" y="${top + L + 82}" text-anchor="middle" fill="${fg}" opacity="0.75">
+      so speed × width goes <tspan fill="${amber}">×${(dSpeed * dWidth).toFixed(2)}</tspan> — up, not down
+    </text>
+
+    <text x="${W / 2}" y="${nestTop - 14}" text-anchor="middle" fill="${fg}" opacity="0.6">
+      and at true size, so the only thing changing is how much room it takes
+    </text>
+    ${nest.map((p) => `
+      <rect x="${(cx - p.w / 2).toFixed(1)}" y="${(cy - p.h / 2).toFixed(1)}"
+            width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" rx="${(p.w / 2).toFixed(1)}"
+            fill="none" stroke="${teal}" stroke-width="1.2" stroke-opacity="0.85"/>
+    `).join('')}
+    <path d="M ${(cx + nest[0].w / 2 + 14).toFixed(1)} ${cy} L ${(cx + nest[0].w / 2 + 74).toFixed(1)} ${cy}"
+      stroke="${fg}" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="${(cx + nest[0].w / 2 + 80).toFixed(1)}" y="${cy - 3}" fill="${fg}" opacity="0.75" font-size="11">five generations,</text>
+    <text x="${(cx + nest[0].w / 2 + 80).toFixed(1)}" y="${cy + 12}" fill="${fg}" opacity="0.75" font-size="11">and it never bottoms out</text>
+  </svg>`;
+
+  // Built as markup and inserted, rather than through the html tag: that is a
+  // tagged template and wants a raw property, not a bare array.
+  const holder = html`<div></div>`;
+  holder.innerHTML = svg;
+
+  display(html`<figure style="margin:1.5em 0">
+    ${holder}
+    <figcaption>
+      A generation is a slender core: ${tex`Q_n^{1/2}`} across and ${tex`Q_n^{1/2-h}`} long. Divide
+      one by the other and the aspect ratio is ${tex`Q_n^{-h}`}, which is the Reynolds number itself —
+      so a packet's slenderness is not decoration, it is the margin over viscosity, drawn. Each step
+      narrows it further. At ${tex`h = 0`} every packet in the row would be the same shape and there
+      would be no margin at all.
+    </figcaption>
+  </figure>`);
+}
+  </script>
+
+  <script id="margins-intro" type="text/markdown">
+Two things have to hold for that chain to reach a singularity, and they pull against each other. Viscosity must never catch up, which wants each generation to be violent; and the whole infinite sequence must fit inside a finite time, which wants each generation to be brief.
+  </script>
+
+  <script id="margins-figure" type="text/x-typescript">
+{
+  const rows = Scales.ledger(h, 30);
+  const T = Scales.blowupTime(h);
+  const panelWidth = width > 620 ? Math.floor((Math.min(width, 760) - 16) / 2) : Math.min(width, 760);
+  const plotStyle = { background: 'transparent' };
+  const teal = '#21b0c4', amber = '#e8a765';
+
+  // Left: does viscosity catch up? Against the same sequence of lengths carrying
+  // ordinary turbulent velocities, u ~ l^(1/3), for which Re ~ l^(4/3).
+  const reynolds = rows.flatMap((r, i) => [
+    { n: r.n, v: r.reynolds / rows[0].reynolds, which: 'this construction' },
+    { n: r.n, v: Math.pow(r.radial / rows[0].radial, 4 / 3), which: 'ordinary turbulence' }
+  ]);
+
+  const viscosity = Plot.plot({
+    width: panelWidth, height: 250, marginLeft: 54, marginBottom: 36, style: plotStyle,
+    x: { label: 'generation n' },
+    y: { label: 'Reynolds number, relative to the first', type: 'log' },
+    color: { domain: ['this construction', 'ordinary turbulence'], range: [amber, teal] },
+    marks: [
+      Plot.ruleY([1], { strokeOpacity: 0.2 }),
+      Plot.line(reynolds, { x: 'n', y: 'v', stroke: 'which', strokeWidth: 1.8 }),
+      Plot.text(['climbing: viscosity never catches up'], {
+        x: 15, y: rows[14].reynolds / rows[0].reynolds, dy: -12, fill: amber, fontSize: 11
+      }),
+      Plot.text(['falling: the cascade dies'], {
+        x: 15, y: Math.pow(rows[14].radial / rows[0].radial, 4 / 3), dy: 14, fill: teal, fontSize: 11
+      })
+    ]
+  });
+
+  // Right: does the clock run out? Against a sequence whose slots shrink only
+  // like 1/n, which is the nearest thing that fails: still shrinking, still
+  // going to zero, and still adding up to infinity.
+  let a = 0, b = 0;
+  const clock = rows.flatMap((r) => {
+    a += r.duration;
+    b += rows[0].duration / r.n;
+    return [
+      { n: r.n, v: a, which: 'slots like 1/n²' },
+      { n: r.n, v: b, which: 'slots like 1/n' }
+    ];
+  });
+
+  const time = Plot.plot({
+    width: panelWidth, height: 250, marginLeft: 54, marginBottom: 36, style: plotStyle,
+    x: { label: 'generation n' },
+    y: { label: 'elapsed time', domain: [0, T * 2.2] },
+    color: { domain: ['slots like 1/n²', 'slots like 1/n'], range: [amber, teal] },
+    marks: [
+      Plot.ruleY([T], { stroke: amber, strokeDasharray: '3,3' }),
+      Plot.text([`T* = ${T.toFixed(3)}`], { x: 30, y: T, dy: -8, fill: amber, fontSize: 11, textAnchor: 'end' }),
+      Plot.line(clock, { x: 'n', y: 'v', stroke: 'which', strokeWidth: 1.8, curve: 'step-after' }),
+      Plot.text(['slots like 1/n: still climbing'], {
+        x: 17, y: b * (17 / 30), dy: -12, fill: teal, fontSize: 11, textAnchor: 'middle'
+      }),
+      Plot.text(['slots like 1/n²: stops'], {
+        x: 17, y: T, dy: 20, fill: amber, fontSize: 11, textAnchor: 'middle'
+      })
+    ]
+  });
+
+  display(html`<figure style="margin:1.5em 0">
+    <div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">${viscosity}${time}</div>
+    <figcaption>
+      Left: the same lengths carrying ordinary turbulent velocities, ${tex`u \sim \ell^{1/3}`}, would
+      have a Reynolds number falling like ${tex`\ell^{4/3}`} — that is the cascade being extinguished,
+      and it is why the ordinary one is no route to a singularity. Here it climbs instead.
+      Right: the slots have to shrink, but shrinking is not enough. Slots going like ${tex`1/n`} still
+      go to zero and still add up to infinity; it is ${tex`1/n^2`} that leaves a finite ${tex`T^*`} for
+      the whole infinite sequence to happen before. Both panels move with ${tex`h`}, and both margins
+      close as it goes to zero.
+    </figcaption>
+  </figure>`);
+}
+  </script>
+
   <script id="scrolly-cascade" type="module">
 await new Promise((r) => setTimeout(r, 100));
 
@@ -1290,9 +1482,6 @@ ${tex.block`\tau_n \asymp \frac{1}{n^2}.`}
 So the stages take ${tex`1, \tfrac14, \tfrac19, \tfrac{1}{16}, \ldots`} of a unit of time, and that series converges. There is no last stage, and there is no need for one: the sum of all of them is finite, and the flow runs out of time before it runs out of stages.
   </script>
 
-  <script id="ledger-controls" type="text/x-typescript">
-const h = view(Inputs.range([0.05, 0.45], { label: 'h', value: 0.25, step: 0.01 }));
-  </script>
 
   <script id="ledger-figure" type="text/x-typescript">
 const rows = Scales.ledger(h, 40);
