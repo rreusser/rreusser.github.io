@@ -674,7 +674,7 @@ await new Promise((r) => setTimeout(r, 100));
    * Lambda^(zoom - m) for good, and zooming in genuinely arrives at deeper,
    * faster generations.
    */
-  const GEN_COUNT = 8;
+  const GEN_COUNT = 10;
   const DRAW_GENS = 5;
   const TWIST = 0.9;
 
@@ -682,10 +682,15 @@ await new Promise((r) => setTimeout(r, 100));
   // the page is a different cell; reading it here would tear down the GPU
   // pipelines on every drag.
   const H_STRIP = 0.25;
-  const GEN_MAX = 16;
+  const GEN_MAX = 12;
 
-  /** How many chart steps the scroll zooms through. */
-  const ZOOM_SPAN = 3.4;
+  /**
+   * How many chart steps the scroll zooms through. A generation is about 0.88
+   * of one, so this is roughly how many generations the descent covers, and it
+   * is what decides how far the readout gets: at 3.4 it stopped at generation 5
+   * with the core only 36 times its first speed, which is not a runaway.
+   */
+  const ZOOM_SPAN = 6;
 
   /**
    * The pattern's spatial frequency at the top of the scroll. A median
@@ -719,16 +724,42 @@ await new Promise((r) => setTimeout(r, 100));
     // could see where it started from.
     zoom:          [{ t: 0, value: 0 }, { t: 1, value: 0 }, { t: frameCount, value: ZOOM_SPAN, ease: linear }],
     streamOpacity: [{ t: 0, value: 0 }, { t: 0.5, value: 1 }],
-    // The descent through generations, which the readout reports. It runs well
-    // past the 3.4 chart steps the picture zooms through, because the point it
-    // has to make is what happens after the picture stops being able to show
-    // anything: by generation 16 the elapsed time is within 4% of T*.
-    gen:           [{ t: 0, value: 1 }, { t: 1, value: 1 }, { t: frameCount, value: GEN_MAX, ease: linear }],
     stripOpacity:  [{ t: 0, value: 0 }, { t: 0.6, value: 1 }]
   });
 
-  const ledgerRows = Scales.ledger(H_STRIP, GEN_MAX + 2);
+  const ledgerRows = Scales.ledger(H_STRIP, 40);
   const blowupTime = Scales.blowupTime(H_STRIP);
+
+  /**
+   * Which generation the picture is currently showing.
+   *
+   * The nesting drawn in the figure and the generations the readout counts are
+   * two different indices, and they had been ramped independently: the zoom ran
+   * over 3.4 chart steps while the counter ran to 16, so the counter claimed
+   * about four times the descent the reader could see happening.
+   *
+   * The figure nests by Lambda, one chart step per drawn packet. A generation's
+   * own radius shrinks by about 0.434 each time, which is Lambda^0.88 -- close
+   * to a packet but not equal to it, and not equal in a way that compounds. So
+   * the counter is now read off the ledger rather than ramped: at zoom z the
+   * generation on show is the first whose radius has fallen to that of the
+   * first generation divided by Lambda^z.
+   *
+   * The radii are not quite monotone -- the floor in nu(n) lets one generation
+   * come out slightly wider than the one before it -- so this takes the first
+   * crossing, which is.
+   */
+  const logRadial = ledgerRows.map((r) => Math.log(r.radial));
+  const logLambda = Math.log(Scales.LAMBDA);
+  function generationAtZoom(z) {
+    const target = logRadial[0] - z * logLambda;
+    for (let i = 1; i < logRadial.length; i++) {
+      if (logRadial[i] <= target) {
+        return i + (logRadial[i - 1] - target) / (logRadial[i - 1] - logRadial[i]);
+      }
+    }
+    return logRadial.length;
+  }
 
   const { container, background, fixed } = buildScrollyteller('scrolly-cascade', captions);
   display(container);
@@ -1014,7 +1045,7 @@ await new Promise((r) => setTimeout(r, 100));
     smoothed += (scrollProgress(container) - smoothed) * 0.1;
     sequencer.setPosition(smoothed * frameCount);
     const s = sequencer.getState();
-    updateStrip(s.gen, s.stripOpacity);
+    updateStrip(generationAtZoom(s.zoom), s.stripOpacity);
 
     const raw = BASE_RATE * Math.pow(ZOOM_ACCEL, s.zoom);
     const rate = RATE_CAP * Math.tanh(raw / RATE_CAP);
