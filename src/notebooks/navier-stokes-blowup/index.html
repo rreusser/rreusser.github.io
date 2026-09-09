@@ -772,7 +772,10 @@ await new Promise((r) => setTimeout(r, 100));
   const packed = packStreamlines(lines.map((l) => decimate(l, 3)), range);
 
   // The ambient field: many short, thin trails, integrated on the GPU.
-  const PER_GEN = small ? 90 : 190;
+  // Enough parcels that the ambient layer reads as fluid rather than as a
+  // scattering of marks. Cost is linear in this: each parcel is TRAIL + 1 line
+  // vertices in each of the drawn generations.
+  const PER_GEN = small ? 260 : 600;
   const seeded = seedParticles(field, PER_GEN * GEN_COUNT);
 
   const BACKBONE_WIDTH = small ? 2.0 : 2.4;
@@ -833,12 +836,10 @@ await new Promise((r) => setTimeout(r, 100));
     ]
   });
 
+  // Both layers blend with straight alpha, so a stroke fades by going
+  // transparent rather than by going dark, and neither needs depth peeling.
+  // They differ in what they do with the depth buffer.
   const lineOptions = {
-    // Straight alpha, and no depth buffer at all. Strokes a couple of pixels
-    // wide crossing a mostly empty frame do not need occlusion, and wanting it
-    // is what would drag depth peeling back in; what they do need is to fade by
-    // going transparent rather than by going dark. Order errors between two
-    // translucent hairlines are invisible. Multisampling does the edges.
     colorTargets: [{
       format: canvasFormat,
       blend: {
@@ -854,11 +855,22 @@ await new Promise((r) => setTimeout(r, 100));
 
   const backbone = createGPULines(device, {
     ...lineOptions,
+    // The backbone writes depth. It is opaque except at the edges of a
+    // generation's fade, and it is the layer whose own front and back have to
+    // read correctly: a curve that loops has to hide the part of itself that
+    // is behind, which without a depth buffer is decided by nothing more than
+    // the order the samples happen to sit in the buffer.
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     vertexShaderBody: backboneVertexBody,
     fragmentShaderBody: backboneFragmentBody
   });
   const trails = createGPULines(device, {
     ...lineOptions,
+    // The trails test against that depth but do not write it, so they are
+    // hidden where the backbone is in front of them while still blending freely
+    // among themselves. Writing depth here would put back the hole-punching
+    // that transparency was meant to fix, thousands of times over.
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     vertexShaderBody: trailVertexBody(FIELD),
     fragmentShaderBody: trailFragmentBody
   });
@@ -883,14 +895,21 @@ await new Promise((r) => setTimeout(r, 100));
 
   // Reallocated on resize, and only then.
   let msaaTexture = null;
+  let depthTexture = null;
   let targetKey = '';
   function ensureTargets() {
     const key = `${canvas.width}x${canvas.height}`;
     if (key === targetKey) return;
     targetKey = key;
     msaaTexture?.destroy();
+    depthTexture?.destroy();
+    const size = [canvas.width, canvas.height];
     msaaTexture = device.createTexture({
-      label: 'cascade-msaa', size: [canvas.width, canvas.height], format: canvasFormat,
+      label: 'cascade-msaa', size, format: canvasFormat,
+      sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    depthTexture = device.createTexture({
+      label: 'cascade-depth', size, format: 'depth24plus',
       sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
   }
@@ -998,7 +1017,10 @@ await new Promise((r) => setTimeout(r, 100));
     viewU32[28] = packed.count;
     viewF32[29] = BACKBONE_WIDTH * dpr;
     viewF32[30] = FLOW_RATE / Math.pow(PATTERN_GROWTH, s.zoom / ZOOM_SPAN);
-    viewF32[31] = 0.55;
+    // Stripe depth on the backbone. These mark the flow along a curve; at much
+    // more than this they stop reading as motion and start reading as texture,
+    // and compete with the trails for attention.
+    viewF32[31] = 0.22;
     device.queue.writeBuffer(viewBuffer, 0, viewData);
 
     const bg = themeState.background;
@@ -1029,13 +1051,20 @@ await new Promise((r) => setTimeout(r, 100));
         clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
         loadOp: 'clear',
         storeOp: 'store'
-      }]
+      }],
+      depthStencilAttachment: {
+        view: depthTexture.createView(),
+        depthClearValue: 1,
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store'
+      }
     });
-    // Uniforms for both line renderers must be written before the pass opens.
-    trails.updateUniforms(trailProps);
-    trails.draw(pass, { ...trailProps, skipUniformUpdate: true }, [trailBind]);
+    // Backbone first, so its depth is laid down before the trails are tested
+    // against it. Uniforms for both must be written before the pass opens.
     backbone.updateUniforms(backboneProps);
     backbone.draw(pass, { ...backboneProps, skipUniformUpdate: true }, [backboneBind]);
+    trails.updateUniforms(trailProps);
+    trails.draw(pass, { ...trailProps, skipUniformUpdate: true }, [trailBind]);
     pass.end();
     device.queue.submit([encoder.finish()]);
   });
@@ -1056,6 +1085,7 @@ await new Promise((r) => setTimeout(r, 100));
     genBuffer.destroy();
     simBuffer.destroy();
     msaaTexture?.destroy();
+    depthTexture?.destroy();
   });
 }
   </script>
