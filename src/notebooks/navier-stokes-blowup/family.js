@@ -248,97 +248,186 @@ export function familyStreamlines(field, { radial, axial }, { rings = 4, perRing
   return lines;
 }
 
-/** Plastic number, for a low-discrepancy phase per curve. */
-const PLASTIC = 1.32471795724474602596;
+/** Plastic number, for a low-discrepancy seeding. */
+const PLASTIC = 1.22074408460575947536;
+const R3 = [1 / PLASTIC, 1 / PLASTIC ** 2, 1 / PLASTIC ** 3];
+const quasi = (n, k) => (0.5 + n * R3[k]) % 1;
+
+const smooth01 = (x) => {
+  const t = Math.min(1, Math.max(0, x));
+  return t * t * (3 - 2 * t);
+};
+
+/** Samples of history each parcel drags behind it. */
+export const PARCEL_TRAIL = 12;
 
 /**
- * The piece of a curve a parcel has just covered, walking back from its head.
+ * A swarm of parcels, integrated.
  *
- * The walk stops when both budgets are met: a fixed span of advection time, so
- * the trail is longer where the fluid is quicker, and a floor on arc length so
- * that a parcel in genuinely slow fluid is a dot rather than nothing at all.
- * The floor is a drawing minimum and not a claim about the flow -- everything
- * about how fast the fluid is going is in the colour.
+ * These are not markers walking along the tabulated streamlines. Each one is a
+ * point of fluid with a position, an age and a lifetime, stepped through the
+ * velocity field by the same Runge-Kutta the streamlines are drawn with, and
+ * dragging a short ring buffer of where it has just been. It agrees with the
+ * streamlines because the field is steady and they are solutions of the same
+ * equation, not because it was told to follow one -- and when a slider moves
+ * the field out from under it, it does what fluid does rather than snapping to
+ * a curve that has been recomputed.
+ *
+ * The trail spans a fixed number of frames, so its length on the page is the
+ * distance the parcel has just covered: long where the fluid is quick and a dot
+ * where it dawdles.
  */
-function parcelTrail(line, headTime, trailTime, minArc) {
-  const { points, speeds, times, count } = line;
+export function createParcelSwarm(capacity) {
+  return {
+    capacity,
+    /** How many of them the reader has asked for. The rest are not touched. */
+    active: 0,
+    pos: new Float64Array(capacity * 3),
+    age: new Float64Array(capacity),
+    life: new Float64Array(capacity),
+    respawn: new Int32Array(capacity),
+    /** Ring buffer of x, y, z, speed, particle-major. */
+    trail: new Float64Array(capacity * PARCEL_TRAIL * 4),
+    /** Samples committed since this parcel was last born, capped at the trail. */
+    filled: new Int32Array(capacity),
+    head: 0
+  };
+}
 
-  let hi = 1;
-  while (hi < count - 1 && times[hi] < headTime) hi++;
-  const t0 = times[hi - 1], t1 = times[hi];
-  const f = t1 > t0 ? Math.min(1, Math.max(0, (headTime - t0) / (t1 - t0))) : 0;
-  const p = (hi - 1) * 3, q = hi * 3;
-  let px = points[p] + f * (points[q] - points[p]);
-  let py = points[p + 1] + f * (points[q + 1] - points[p + 1]);
-  let pz = points[p + 2] + f * (points[q + 2] - points[p + 2]);
+const LIFE = { min: 2.6, max: 5.4 };
 
-  const P = [px, py, pz];
-  const S = [speeds[hi - 1] + f * (speeds[hi] - speeds[hi - 1])];
-  const tailTime = headTime - trailTime;
-  let arc = 0;
-
-  for (let i = hi - 1; i >= 0; i--) {
-    const x = points[i * 3], y = points[i * 3 + 1], z = points[i * 3 + 2];
-    const d = Math.hypot(x - px, y - py, z - pz);
-    // A zero-length segment would leave the line renderer normalising a zero
-    // vector, so coincident samples are dropped rather than emitted.
-    if (d > 1e-9) {
-      arc += d;
-      P.push(x, y, z);
-      S.push(speeds[i]);
-      px = x; py = y; pz = z;
-    }
-    if (times[i] <= tailTime && arc >= minArc) break;
-  }
-
-  if (S.length < 2) return null;
-  return { points: P, speeds: S, count: S.length };
+/** Put parcel `i` somewhere new, and forget where it has been. */
+function bear(swarm, i, core) {
+  const t = i + swarm.respawn[i] * 977;
+  // Uniform in radius rather than in area. Uniform in area is the honest
+  // seeding of a disc and it puts most of the swarm in the outer ring, where
+  // this flow is slowest and there is least to see.
+  const r = core.radial * (0.06 + 1.22 * quasi(t, 0));
+  const th = 2 * Math.PI * quasi(t, 1);
+  const q = quasi(t, 2);
+  swarm.pos[i * 3] = r * Math.cos(th);
+  swarm.pos[i * 3 + 1] = r * Math.sin(th);
+  swarm.pos[i * 3 + 2] = core.axial * 1.15 * (2 * q - 1);
+  swarm.age[i] = 0;
+  swarm.life[i] = LIFE.min + (LIFE.max - LIFE.min) * quasi(t + 31, 1);
+  swarm.filled[i] = 0;
 }
 
 /**
- * Parcels riding the streamlines, at the fluid's own speed.
+ * Step every parcel forward by `dt` seconds of the reader's time.
  *
- * Not a separate simulation: a parcel is placed by advection time on the curve
- * it is riding, so it is on the streamline by construction rather than by
- * agreeing with it to within an integration error. That is the whole reason the
- * integrator carries a clock. The only liberty taken is `rate`, one global
- * factor on everyone's clock, which is watching in slow motion rather than
- * moving anything at a speed of its own.
- *
- * More than one parcel per curve, spaced evenly around its cycle, because the
- * curves' traverse times differ by a factor of seventy inside a single member
- * of the family -- a curve out near the stagnation plane really does take that
- * much longer than one through the core. One parcel each would leave most of
- * the picture apparently frozen while a few raced. Releasing them at a roughly
- * fixed interval of advection time instead puts a crowd of slow parcels on a
- * slow curve and one quick parcel on a quick one, which is what dye released at
- * a steady rate does, and the crowding is itself the flow being slow there.
+ * `rate` is one global factor on everyone's clock -- watching in slow motion,
+ * not moving anything at a speed of its own. Substepping is by how far a parcel
+ * would travel: the core of a fast member is stepped several times per frame
+ * while the outer fluid of a slow one is stepped once, so the cost goes where
+ * the motion is.
  */
-export function familyParcels(lines, clock, {
-  trailTime = 0.5, minArc = 0.03, release = 6, rate = 1.6, maxPerCurve = 14
-} = {}) {
-  const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const span = line.times[line.count - 1];
-    if (!(span > 1e-6)) continue;
-    // One pass along the curve plus one trail length, so a parcel shortens into
-    // the downstream end and grows out of the upstream one instead of appearing
-    // and vanishing whole.
-    const cycle = span + trailTime;
-    const n = Math.min(maxPerCurve, Math.max(1, Math.round(cycle / release)));
-    // Fixed per curve index rather than random, so rebuilding the geometry
-    // mid-drag does not teleport every parcel.
-    const phase = ((0.5 + i / PLASTIC) % 1) * cycle;
-    for (let j = 0; j < n; j++) {
-      const head = (((clock * rate + phase + (j * cycle) / n) % cycle) + cycle) % cycle;
-      if (head <= 0 || head > span) continue;
-      const trail = parcelTrail(line, head, trailTime, minArc);
-      if (trail) out.push(trail);
+export function advanceParcels(swarm, field, core, dt, { rate = 1.4, active } = {}) {
+  const { pos, trail } = swarm;
+  const scale = Math.max(core.radial, core.axial);
+  const boundR = 1.55 * core.radial, boundZ = 1.7 * core.axial;
+  const maxTravel = 0.05 * scale;
+
+  const count = Math.min(swarm.capacity, Math.max(0, active ?? swarm.active));
+  // Parcels the reader has just asked for are born where the core is now, not
+  // where it was when the figure loaded.
+  for (let i = swarm.active; i < count; i++) bear(swarm, i, core);
+  swarm.active = count;
+  if (!count) return;
+
+  const k1 = [0, 0, 0], k2 = [0, 0, 0], k3 = [0, 0, 0], k4 = [0, 0, 0], tmp = [0, 0, 0];
+  const h = dt * rate;
+  const slot = (swarm.head + 1) % PARCEL_TRAIL;
+
+  for (let i = 0; i < count; i++) {
+    let x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+
+    field(x, y, z, k1);
+    const speed = Math.hypot(k1[0], k1[1], k1[2]);
+
+    const sub = Math.min(8, Math.max(1, Math.ceil((h * speed) / maxTravel)));
+    const hs = h / sub;
+    for (let n = 0; n < sub; n++) {
+      // k1 is already the velocity here on the first substep; recomputing it on
+      // the later ones is what the substepping is for.
+      if (n) field(x, y, z, k1);
+      tmp[0] = x + 0.5 * hs * k1[0]; tmp[1] = y + 0.5 * hs * k1[1]; tmp[2] = z + 0.5 * hs * k1[2];
+      field(tmp[0], tmp[1], tmp[2], k2);
+      tmp[0] = x + 0.5 * hs * k2[0]; tmp[1] = y + 0.5 * hs * k2[1]; tmp[2] = z + 0.5 * hs * k2[2];
+      field(tmp[0], tmp[1], tmp[2], k3);
+      tmp[0] = x + hs * k3[0]; tmp[1] = y + hs * k3[1]; tmp[2] = z + hs * k3[2];
+      field(tmp[0], tmp[1], tmp[2], k4);
+      x += (hs / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
+      y += (hs / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
+      z += (hs / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]);
     }
+
+    pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
+    swarm.age[i] += dt;
+
+    // Retire a parcel that has run its life, left the neighbourhood of the
+    // core, or been left stranded outside it by a slider moving the core out
+    // from under it. The trail is forgotten with it rather than being broken,
+    // so nothing has to be drawn across the jump.
+    const escaped = Math.hypot(x, y) > boundR || Math.abs(z) > boundZ ||
+      !Number.isFinite(x + y + z);
+    if (swarm.age[i] > swarm.life[i] || escaped) {
+      swarm.respawn[i]++;
+      bear(swarm, i, core);
+      x = pos[i * 3]; y = pos[i * 3 + 1]; z = pos[i * 3 + 2];
+    }
+
+    const k = (i * PARCEL_TRAIL + slot) * 4;
+    trail[k] = x; trail[k + 1] = y; trail[k + 2] = z; trail[k + 3] = speed;
+    if (swarm.filled[i] < PARCEL_TRAIL) swarm.filled[i]++;
   }
-  return out;
+
+  swarm.head = slot;
 }
+
+/**
+ * Flatten the swarm into the renderer's buffer, two vec4 per vertex.
+ *
+ * The first carries position and speed, the second the parcel's fade and the
+ * taper of its stroke -- a second varying, which is why parcels have a vertex
+ * function of their own rather than sharing the streamlines'. A negative speed
+ * in the first is the break between parcels.
+ */
+export function packParcels(target, swarm) {
+  const { active: count, trail, filled, head } = swarm;
+  const capacity = target.length / 8;
+  let n = 0;
+
+  for (let i = 0; i < count; i++) {
+    const v = filled[i];
+    if (v < 2) continue;
+    if (n + v + 1 > capacity) break;
+
+    // Born and retired gently, so recycling never shows as a pop.
+    const f = swarm.age[i] / swarm.life[i];
+    const fade = smooth01(f / 0.09) * (1 - smooth01((f - 0.8) / 0.2));
+    if (fade < 0.01) continue;
+
+    for (let j = 0; j < v; j++) {
+      // Oldest first: the ring's head is the parcel's present.
+      const s = (head - (v - 1) + j + 2 * PARCEL_TRAIL) % PARCEL_TRAIL;
+      const k = (i * PARCEL_TRAIL + s) * 4;
+      const along = v > 1 ? j / (v - 1) : 1;
+      const o = n * 8;
+      target[o] = trail[k];
+      target[o + 1] = trail[k + 2];
+      target[o + 2] = -trail[k + 1];
+      target[o + 3] = Math.min(1, trail[k + 3] / SPEED_REF);
+      target[o + 4] = fade;
+      target[o + 5] = 0.34 + 0.66 * along;
+      n++;
+    }
+    target[n * 8 + 3] = -1;
+    n++;
+  }
+  return n;
+}
+
 
 /**
  * Flatten curves into the renderer's buffer.
@@ -460,6 +549,46 @@ fn getColor(lineCoord: vec2f, scalar: f32) -> vec4f {
 }
 `;
 }
+
+/**
+ * The parcels' own vertex function.
+ *
+ * Two vec4 per vertex rather than one, because a parcel needs a second varying
+ * the streamlines do not: how far through its life it is. The stroke tapers
+ * toward the tail out of the same record.
+ */
+export const parcelVertexBody = VIEW_BLOCK + /* wgsl */`
+@group(1) @binding(0) var<storage, read> samples: array<vec4f>;
+
+struct Vertex {
+  position: vec4f,
+  width: f32,
+  scalar: f32,
+  fade: f32,
+};
+
+fn getVertex(index: u32) -> Vertex {
+  let a = samples[index * 2u];
+  if (a.w < 0.0) { return Vertex(vec4f(0.0), 0.0, 0.0, 0.0); }
+  let b = samples[index * 2u + 1u];
+  return Vertex(view.projView * vec4f(a.xyz, 1.0), view.parcelWidth * b.y, a.w, b.x);
+}
+`;
+
+export const familyParcelFragment = VIEW_BLOCK + colormapWGSL + /* wgsl */`
+fn getColor(lineCoord: vec2f, scalar: f32, fade: f32) -> vec4f {
+  if (abs(lineCoord.x) > 0.0 && dot(lineCoord, lineCoord) > 1.0) { discard; }
+
+  var c = colormap(scalar);
+  c = mix(c * 0.66, c, view.isDark);
+  let r = abs(lineCoord.y);
+  c = c * (1.0 - 0.35 * r * r);
+
+  // Faded toward the page as the parcel is born and again as it is retired, so
+  // recycling never shows as a pop.
+  return vec4f(mix(view.background, c, view.parcelGain * clamp(fade, 0.0, 1.0)), 1.0);
+}
+`;
 
 export const familyCapsuleFragment = VIEW_BLOCK + /* wgsl */`
 fn getColor(lineCoord: vec2f, scalar: f32) -> vec4f {

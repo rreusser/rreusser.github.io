@@ -221,7 +221,7 @@ import { createField, seedRings, decimate, tubeMesh, mergeMeshes, speedRange } f
 import { toYUp } from './arrows.js';
 import {
   buildLessonScene, seedStreaks, STREAK_REF_SPEED, SWIRL_STRENGTH, WRITHE, seedStrainParcels,
-  GAMMA, SPEED_TO_LENGTH, AXIAL_SPAN, RADIAL_SPAN
+  GAMMA, SPEED_TO_LENGTH, AXIAL_SPAN, RADIAL_SPAN, MAX_STRETCH
 } from './scene.js';
 import { tubeShaderCode, compositeShaderCode } from './shaders.js';
 import {
@@ -230,8 +230,10 @@ import {
 } from './cascade-particles.js';
 import {
   FAMILY_DEFAULTS, ZK_RATIO, FAMILY_VIEW_SIZE, coreExtent, maxSpeed, turnsPerEfold,
-  capsuleWireframe, familyStreamlines, familyParcels, packCurves, packStreamlines,
-  familyVertexBody, familyLineFragment, familyCapsuleFragment
+  capsuleWireframe, familyStreamlines, packCurves, packStreamlines,
+  createParcelSwarm, advanceParcels, packParcels, PARCEL_TRAIL,
+  familyVertexBody, familyLineFragment, parcelVertexBody, familyParcelFragment,
+  familyCapsuleFragment
 } from './family.js';
 import { expandable } from './lib/expandable.js';
 // Vendored rather than from npm: the cascade's peel test needs the fragment's
@@ -385,6 +387,24 @@ function buildBlowupStrip(fixed: HTMLElement, rows: any[], blowupTime: number, g
   return update;
 }
 
+/**
+ * Whether an element is anywhere near the viewport.
+ *
+ * Every animated figure here has to stop when it is not being looked at, and
+ * the cheap way to ask is not to ask: an IntersectionObserver reports the
+ * answer when it changes, where measuring a rectangle every frame forces the
+ * browser to settle layout sixty times a second whether or not anything is on
+ * screen. The margin is generous, so the scrollytellers have their pinning
+ * logic running before they arrive rather than snapping into place.
+ */
+function observeVisibility(el: HTMLElement, rootMargin = '25%') {
+  const state = { visible: false, stop: () => {} };
+  const observer = new IntersectionObserver(([e]) => { state.visible = e.isIntersecting; }, { rootMargin });
+  observer.observe(el);
+  state.stop = () => observer.disconnect();
+  return state;
+}
+
 /** Phones get less geometry and one fewer peel layer. */
 function isSmallScreen() {
   return Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
@@ -535,10 +555,10 @@ await new Promise((r) => setTimeout(r, 100));
   // visible rotation and how fast the pulses run along the arrows.
   // A torrent, not a handful. The dashes are a few pixels across, so the count
   // is what makes it read as fluid rather than as objects.
-  const STREAKS = seedStreaks(small ? 650 : 1300);
-
-  /** Total elongation of the core over the whole pull. */
-  const MAX_STRETCH = 3.2;
+  // Twice as many as before, because the swarm now covers the whole height of
+  // the frame rather than a band across the middle of it, and because the pull
+  // carries most of them out of the top and bottom before it is over.
+  const STREAKS = seedStreaks(small ? 1300 : 2600);
 
   const streakAngle = new Float64Array(STREAKS.length);
   // Pulse phases are integrated, not derived from a clock times a rate: the
@@ -553,9 +573,11 @@ await new Promise((r) => setTimeout(r, 100));
   let smoothed = 0;
   let last = performance.now();
 
+  const seen = observeVisibility(container);
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
+    if (!seen.visible) return;
     if (!updateBackgroundPosition(container, background)) return;
 
     smoothed += (scrollProgress(container) - smoothed) * 0.1;
@@ -695,6 +717,7 @@ await new Promise((r) => setTimeout(r, 100));
   window.addEventListener('resize', onResize);
   invalidation.then(() => {
     loop.cancel();
+    seen.stop();
     window.removeEventListener('resize', onResize);
     camera.destroy();
     renderer.destroy();
@@ -730,35 +753,42 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
    * handlers and read by the frame loop, and the cell never re-runs.
    */
   const params = { ...FAMILY_DEFAULTS };
-  const shown = { capsule: true, streams: true, parcels: true };
+  const shown = { capsule: true, streams: true };
   const pending = { geometry: true };
 
   const RINGS = small ? 4 : 5;
   const PER_RING = small ? 6 : 8;
   // Measured across an eighty-one point grid over the corners and midpoints of
-  // the slider box: the worst member needs 14988 and 2810. Packing stops when
-  // full rather than overrunning, so these are headroom and not a guess.
+  // the slider box: the worst member needs 14988 stream vertices. Packing stops
+  // when full rather than overrunning, so this is headroom and not a guess.
   const STREAM_CAP = 18000;
-  const PARCEL_CAP = 3600;
   const CAPSULE_CAP = 900;
+  /** The top of the parcel slider, and what the swarm is allocated for. */
+  const MAX_PARCELS = small ? 1500 : 4000;
+  // Every parcel is its trail plus one break, and every parcel vertex is two
+  // vec4: position and speed, then fade and taper.
+  const PARCEL_CAP = MAX_PARCELS * (PARCEL_TRAIL + 1);
 
   const FOV = 0.62;
   const STREAM_WIDTH = small ? 1.3 : 1.5;
-  const PARCEL_WIDTH = small ? 2.2 : 2.6;
+  const PARCEL_WIDTH = small ? 2.0 : 2.4;
   const CAPSULE_WIDTH = 1.0;
   const CAPSULE_ALPHA = 0.34;
-  /** How far the streamlines are faded back while parcels are running on them. */
-  const STREAM_DIM = 0.5;
+  /** How far the streamlines are faded back under a full swarm. */
+  const STREAM_DIM = 0.42;
   /** One global factor on every parcel's clock: slow motion, not a made-up speed. */
-  const PARCEL_RATE = 1.6;
+  const PARCEL_RATE = 1.4;
 
   const streamData = new Float32Array(STREAM_CAP * 4);
-  const parcelData = new Float32Array(PARCEL_CAP * 4);
+  const parcelData = new Float32Array(PARCEL_CAP * 8);
   const capsuleData = new Float32Array(CAPSULE_CAP * 4);
+  const swarm = createParcelSwarm(MAX_PARCELS);
   let lines = [];
+  let field = null;
   let streamCount = 0;
   let parcelCount = 0;
   let capsuleCount = 0;
+  let wanted = small ? 400 : 900;
   let core = coreExtent(params);
 
   const canvas = html`<canvas style="position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab"></canvas>`;
@@ -814,8 +844,8 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     ...lineOptions,
     colorTargets: opaqueTarget,
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less-equal' },
-    vertexShaderBody: familyVertexBody('parcelWidth'),
-    fragmentShaderBody: familyLineFragment('parcelGain')
+    vertexShaderBody: parcelVertexBody,
+    fragmentShaderBody: familyParcelFragment
   });
 
   /**
@@ -903,7 +933,7 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
   </div>`;
 
   function rebuild() {
-    const field = createField({
+    field = createField({
       gamma: params.gamma, omega: params.omega, sigma: params.sigma,
       zH: params.zH, zK: params.zH * ZK_RATIO
     });
@@ -962,7 +992,6 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
   };
   toggle('capsule', 'outline');
   toggle('streams', 'streamlines');
-  toggle('parcels', 'parcels');
 
   const slider = (key, label, range, step) => {
     const input = Inputs.range(range, { label, value: params[key], step, width: 210 });
@@ -974,6 +1003,20 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     });
     sliderRow.appendChild(input);
   };
+  // Parcels get a count rather than an on-off, and the count is logarithmic:
+  // the interesting range runs from a dozen tracers you can follow individually
+  // to a few thousand that read as fluid, and linear travel would spend nine
+  // tenths of the slider inside the last doubling.
+  {
+    const input = Inputs.range([8, MAX_PARCELS], {
+      label: 'parcels', value: wanted, width: 210,
+      transform: Math.log, invert: Math.exp,
+      format: (v) => String(Math.round(v))
+    });
+    input.addEventListener('input', () => { wanted = Math.round(+input.value); });
+    sliderRow.appendChild(input);
+  }
+
   slider('gamma', 'γ  stretch', [0.4, 3.2], 0.05);
   slider('omega', 'ω  swirl', [0.4, 7.0], 0.05);
   slider('sigma', 'σ  core width', [0.2, 1.8], 0.02);
@@ -988,30 +1031,28 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
   // Off screen this figure does nothing at all: it turns continuously and it
   // advects parcels, which is the only reason a plot needs a frame loop, and
   // doing either for nobody is pure cost.
-  let visible = true;
-  const observer = new IntersectionObserver(([e]) => { visible = e.isIntersecting; }, { rootMargin: '80px' });
-  observer.observe(stage);
+  const seen = observeVisibility(stage, '15%');
 
   let clock = 0;
   let last = performance.now();
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    if (!visible || !canvas.width || !canvas.height) return;
+    if (!seen.visible || !canvas.width || !canvas.height) return;
     clock += dt;
 
     if (pending.geometry) { pending.geometry = false; rebuild(); }
     ensureTargets();
     if (!targets) return;
 
-    if (shown.parcels && lines.length) {
-      parcelCount = packStreamlines(parcelData, familyParcels(lines, clock, {
-        rate: PARCEL_RATE,
-        minArc: 0.035 * Math.max(core.radial, core.axial)
-      }));
-      device.queue.writeBuffer(parcelBuffer, 0, parcelData, 0, parcelCount * 4);
-    } else {
-      parcelCount = 0;
+    // The swarm is stepped through the current field, whatever the sliders have
+    // just done to it: a parcel left stranded outside the new core is retired
+    // by the same test that retires one the flow has carried out, rather than
+    // being snapped onto a recomputed curve.
+    advanceParcels(swarm, field, core, dt, { rate: PARCEL_RATE, active: wanted });
+    parcelCount = packParcels(parcelData, swarm);
+    if (parcelCount > 1) {
+      device.queue.writeBuffer(parcelBuffer, 0, parcelData, 0, parcelCount * 8);
     }
 
     // The flow is axisymmetric, so turning the camera about the axis costs
@@ -1029,9 +1070,11 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     viewData[20] = PARCEL_WIDTH * dpr;
     viewData[21] = CAPSULE_WIDTH * dpr;
     viewData[22] = themeState.isDark ? 1 : 0;
-    // Faded back toward the page while parcels are running along them, so the
-    // parcels read as the moving thing and the curves as what they move on.
-    viewData[23] = shown.parcels ? STREAM_DIM : 1;
+    // Faded back toward the page as the swarm fills in, so the parcels read as
+    // the moving thing and the curves as what they move through. Continuous in
+    // the count, so the slider never steps the streamlines.
+    const density = Math.min(1, Math.max(0, (wanted - 60) / 700));
+    viewData[23] = 1 - (1 - STREAM_DIM) * density * density * (3 - 2 * density);
     viewData[24] = 1;
     viewData[25] = CAPSULE_ALPHA;
     device.queue.writeBuffer(viewBuffer, 0, viewData);
@@ -1072,7 +1115,7 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
 
   invalidation.then(() => {
     loop.cancel();
-    observer.disconnect();
+    seen.stop();
     camera.destroy();
     for (const t of targets ?? []) t.destroy();
     for (const p of [streams, parcels, capsuleLines]) p.destroy();
@@ -1643,9 +1686,11 @@ await new Promise((r) => setTimeout(r, 100));
   let headSlot = 0;
   let elapsedSeconds = 0;
   let last = performance.now();
+  const seen = observeVisibility(container);
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
+    if (!seen.visible) return;
     if (!updateBackgroundPosition(container, background)) return;
     elapsedSeconds += dt;
 
@@ -1814,6 +1859,7 @@ await new Promise((r) => setTimeout(r, 100));
   window.addEventListener('resize', onResize);
   invalidation.then(() => {
     loop.cancel();
+    seen.stop();
     window.removeEventListener('resize', onResize);
     camera.destroy();
     trails.destroy();

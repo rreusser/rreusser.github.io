@@ -184,10 +184,35 @@ const quasi = (n, k) => (0.5 + (n + 0.5) * R3[k]) % 1;
  * SWIRL_STRENGTH / r^2. Because a particle is material its radius contracts as
  * one over root stretch, which leaves the rate proportional to the stretch.
  */
-export const SWIRL_STRENGTH = 0.30;
+export const SWIRL_STRENGTH = 0.20;
 
-const STREAK_R0 = 0.36;
-const STREAK_R1 = 1.10;
+/**
+ * Radial extent of the swarm.
+ *
+ * Wider than the visible core, and deliberately so: a parcel's radius contracts
+ * as one over root stretch, so the outer ring is where the contraction is
+ * easiest to see. Wide enough that some of it leaves the frame sideways on a
+ * narrow screen, which costs nothing -- the fluid does not stop at the edge of
+ * the picture.
+ */
+const STREAK_R0 = 0.34;
+const STREAK_R1 = 1.35;
+
+/**
+ * Total elongation of the core over the whole pull, and the reference the
+ * dashes are drawn against.
+ *
+ * The dash length is the parcel's speed over STREAK_REF_SPEED, so where that
+ * reference is taken decides nothing about the ratio -- speed goes like root
+ * stretch whatever it is measured against -- and everything about whether the
+ * change is visible. Taken at the start, the swarm begins at full length and
+ * can only grow, which puts the interesting half of the pull past the length at
+ * which a dash stops reading as a dash. It is taken at the midpoint of the pull
+ * instead, in log stretch, so the streaks run from three quarters of their
+ * built length to four thirds of it and the growth happens where the eye can
+ * see it.
+ */
+export const MAX_STRETCH = 3.2;
 
 export function seedStreaks(count) {
   return Array.from({ length: count }, (_, i) => {
@@ -197,8 +222,13 @@ export function seedStreaks(count) {
     const radius = STREAK_R0 + (STREAK_R1 - STREAK_R0) * quasi(i, 0);
     return {
       radius,
-      // Spread the length of the visible core, not bunched around the middle.
-      y: -0.95 + 1.9 * quasi(i, 1),
+      // The full height of the frame, not a band across the middle of it. The
+      // camera sees about two units either side of the stagnation plane before
+      // it starts pulling back, so a swarm ending at one unit was leaving the
+      // top and bottom thirds of the picture empty. Stretching carries most of
+      // this out of the frame, which is the point of the figure and not a
+      // reason to seed less of it.
+      y: -2.1 + 4.2 * quasi(i, 1),
       twist: 2 * Math.PI * quasi(i, 2),
       band: radius < 0.58 ? 'streakFast' : radius < 0.84 ? 'streakMid' : 'streakSlow'
     };
@@ -206,11 +236,12 @@ export function seedStreaks(count) {
 }
 
 /**
- * The orbital speed at the middle of the swarm before any stretching, which is
- * the speed a dash is drawn at its built length. Everything faster is drawn
+ * The orbital speed at the middle of the swarm, halfway through the pull, which
+ * is the speed a dash is drawn at its built length. Everything faster is drawn
  * longer and everything slower shorter, in proportion.
  */
-export const STREAK_REF_SPEED = SWIRL_STRENGTH / ((STREAK_R0 + STREAK_R1) / 2);
+export const STREAK_REF_SPEED =
+  (SWIRL_STRENGTH * Math.pow(MAX_STRETCH, 0.25)) / ((STREAK_R0 + STREAK_R1) / 2);
 
 /**
  * The nominal strain rate the arrows depict, in figure units. The reader
