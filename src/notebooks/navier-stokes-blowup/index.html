@@ -181,7 +181,14 @@
          many columns as the column width allows, and the readout sits between
          them and the picture so the numbers are next to the thing they
          describe. */
-      .family-controls {
+      .family-toggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 20px;
+        margin-top: 6px;
+      }
+
+      .family-sliders {
         display: flex;
         flex-wrap: wrap;
         gap: 2px 22px;
@@ -223,8 +230,8 @@ import {
 } from './cascade-particles.js';
 import {
   FAMILY_DEFAULTS, ZK_RATIO, FAMILY_VIEW_SIZE, coreExtent, maxSpeed, turnsPerEfold,
-  capsuleWireframe, familyStreamlines, packCurves, packStreamlines,
-  familyVertexBody, familyStreamFragment, familyCapsuleFragment
+  capsuleWireframe, familyStreamlines, familyParcels, packCurves, packStreamlines,
+  familyVertexBody, familyLineFragment, familyCapsuleFragment
 } from './family.js';
 import { expandable } from './lib/expandable.js';
 // Vendored rather than from npm: the cascade's peel test needs the fragment's
@@ -723,23 +730,34 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
    * handlers and read by the frame loop, and the cell never re-runs.
    */
   const params = { ...FAMILY_DEFAULTS };
+  const shown = { capsule: true, streams: true, parcels: true };
   const pending = { geometry: true };
 
   const RINGS = small ? 4 : 5;
   const PER_RING = small ? 6 : 8;
-  const MAX_STEPS = small ? 200 : 260;
-  // Two half-streamlines per seed and a break between curves.
-  const STREAM_CAP = RINGS * PER_RING * (2 * MAX_STEPS + 2);
+  // Measured across an eighty-one point grid over the corners and midpoints of
+  // the slider box: the worst member needs 14988 and 2810. Packing stops when
+  // full rather than overrunning, so these are headroom and not a guess.
+  const STREAM_CAP = 18000;
+  const PARCEL_CAP = 3600;
   const CAPSULE_CAP = 900;
 
   const FOV = 0.62;
-  const STREAM_WIDTH = small ? 1.4 : 1.7;
+  const STREAM_WIDTH = small ? 1.3 : 1.5;
+  const PARCEL_WIDTH = small ? 2.2 : 2.6;
   const CAPSULE_WIDTH = 1.0;
   const CAPSULE_ALPHA = 0.34;
+  /** How far the streamlines are faded back while parcels are running on them. */
+  const STREAM_DIM = 0.5;
+  /** One global factor on every parcel's clock: slow motion, not a made-up speed. */
+  const PARCEL_RATE = 1.6;
 
   const streamData = new Float32Array(STREAM_CAP * 4);
+  const parcelData = new Float32Array(PARCEL_CAP * 4);
   const capsuleData = new Float32Array(CAPSULE_CAP * 4);
+  let lines = [];
   let streamCount = 0;
+  let parcelCount = 0;
   let capsuleCount = 0;
   let core = coreExtent(params);
 
@@ -774,23 +792,39 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     // here, so the cheaper answer is available.
     multisample: { count: 4 }
   };
+  const opaqueTarget = [{ format: canvasFormat }];
 
   const streams = createGPULines(device, {
     ...lineOptions,
-    colorTargets: [{ format: canvasFormat }],
+    colorTargets: opaqueTarget,
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     vertexShaderBody: familyVertexBody('streamWidth'),
-    fragmentShaderBody: familyStreamFragment
+    fragmentShaderBody: familyLineFragment('streamGain')
   });
 
   /**
-   * The outline, drawn after the streamlines with the depth test on and depth
-   * writes off.
+   * The parcels, on `less-equal` rather than `less`.
+   *
+   * A parcel is a piece of the streamline it rides, at the same coordinates, so
+   * against a strict test the streamline drawn first would win every pixel of
+   * it. Drawn second and allowed to tie, the parcel covers the curve it is on
+   * and nothing else.
+   */
+  const parcels = createGPULines(device, {
+    ...lineOptions,
+    colorTargets: opaqueTarget,
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less-equal' },
+    vertexShaderBody: familyVertexBody('parcelWidth'),
+    fragmentShaderBody: familyLineFragment('parcelGain')
+  });
+
+  /**
+   * The outline, drawn last with the depth test on and depth writes off.
    *
    * It is translucent, so it must not hide what is behind it; it is a surface,
-   * so it must still be hidden by the streamlines in front of it. Those two
-   * requirements are exactly a second pipeline rather than a second draw, since
-   * depth writing is pipeline state.
+   * so it must still be hidden by what is in front of it. Those two together
+   * are a third pipeline rather than a third draw, since depth writing is
+   * pipeline state.
    */
   const capsuleLines = createGPULines(device, {
     ...lineOptions,
@@ -806,27 +840,27 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     fragmentShaderBody: familyCapsuleFragment
   });
 
-  const streamBuffer = device.createBuffer({
-    label: 'family-streams', size: streamData.byteLength,
+  const storage = (label, data) => device.createBuffer({
+    label, size: data.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
   });
-  const capsuleBuffer = device.createBuffer({
-    label: 'family-capsule', size: capsuleData.byteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-  });
+  const streamBuffer = storage('family-streams', streamData);
+  const parcelBuffer = storage('family-parcels', parcelData);
+  const capsuleBuffer = storage('family-capsule', capsuleData);
   const viewBuffer = device.createBuffer({
     label: 'family-view', size: FAMILY_VIEW_SIZE,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
 
-  const bindOf = (lines, buffer) => device.createBindGroup({
-    layout: lines.getBindGroupLayout(1),
+  const bindOf = (pipeline, buffer) => device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(1),
     entries: [
       { binding: 0, resource: { buffer } },
       { binding: 1, resource: { buffer: viewBuffer } }
     ]
   });
   const streamBind = bindOf(streams, streamBuffer);
+  const parcelBind = bindOf(parcels, parcelBuffer);
   const capsuleBind = bindOf(capsuleLines, capsuleBuffer);
 
   const viewData = new Float32Array(FAMILY_VIEW_SIZE / 4);
@@ -854,7 +888,7 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
 
   // The readout: what the four sliders add up to. Sizes take the size colour and
   // the speed takes the speed colour, the same as everywhere else.
-  const num = (v, d = 2) => v.toFixed(d);
+  const num = (v) => v.toFixed(2);
   const readRadial = html`<b style="color:${ROLE.size}"></b>`;
   const readAxial = html`<b style="color:${ROLE.size}"></b>`;
   const readAspect = html`<b style="color:${ROLE.size}"></b>`;
@@ -875,9 +909,7 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     });
     core = coreExtent(params);
 
-    const lines = familyStreamlines(field, core, {
-      rings: RINGS, perRing: PER_RING, maxSteps: MAX_STEPS
-    });
+    lines = familyStreamlines(field, core, { rings: RINGS, perRing: PER_RING });
     streamCount = packStreamlines(streamData, lines);
     capsuleCount = packCurves(capsuleData, capsuleWireframe(core.radial, core.axial, {
       meridians: 4, rings: 5, segments: small ? 32 : 48
@@ -917,7 +949,21 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     camera.taint();
   }
 
-  const controls = html`<div id="family-controls" class="family-controls"></div>`;
+  const controls = html`<div id="family-controls"></div>`;
+  const toggleRow = html`<div class="family-toggles"></div>`;
+  const sliderRow = html`<div class="family-sliders"></div>`;
+  controls.appendChild(toggleRow);
+  controls.appendChild(sliderRow);
+
+  const toggle = (key, label) => {
+    const input = Inputs.toggle({ label, value: shown[key] });
+    input.addEventListener('input', () => { shown[key] = !!input.value; });
+    toggleRow.appendChild(input);
+  };
+  toggle('capsule', 'outline');
+  toggle('streams', 'streamlines');
+  toggle('parcels', 'parcels');
+
   const slider = (key, label, range, step) => {
     const input = Inputs.range(range, { label, value: params[key], step, width: 210 });
     input.addEventListener('input', () => {
@@ -926,7 +972,7 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
       // integration per frame instead of one per pixel of slider travel.
       pending.geometry = true;
     });
-    controls.appendChild(input);
+    sliderRow.appendChild(input);
   };
   slider('gamma', 'γ  stretch', [0.4, 3.2], 0.05);
   slider('omega', 'ω  swirl', [0.4, 7.0], 0.05);
@@ -939,22 +985,34 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     frameCamera();
   };
 
-  // Off screen this figure does nothing at all: it turns continuously, which is
-  // the only reason a static plot needs a frame loop, and turning something
-  // nobody is looking at is pure cost.
+  // Off screen this figure does nothing at all: it turns continuously and it
+  // advects parcels, which is the only reason a plot needs a frame loop, and
+  // doing either for nobody is pure cost.
   let visible = true;
   const observer = new IntersectionObserver(([e]) => { visible = e.isIntersecting; }, { rootMargin: '80px' });
   observer.observe(stage);
 
+  let clock = 0;
   let last = performance.now();
   const loop = createFrameLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (!visible || !canvas.width || !canvas.height) return;
+    clock += dt;
 
     if (pending.geometry) { pending.geometry = false; rebuild(); }
     ensureTargets();
-    if (!targets || !streamCount) return;
+    if (!targets) return;
+
+    if (shown.parcels && lines.length) {
+      parcelCount = packStreamlines(parcelData, familyParcels(lines, clock, {
+        rate: PARCEL_RATE,
+        minArc: 0.035 * Math.max(core.radial, core.axial)
+      }));
+      device.queue.writeBuffer(parcelBuffer, 0, parcelData, 0, parcelCount * 4);
+    } else {
+      parcelCount = 0;
+    }
 
     // The flow is axisymmetric, so turning the camera about the axis costs
     // nothing and is the cheapest way to make a still picture read as three
@@ -963,22 +1021,32 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     camera.state.phi += 0.14 * dt;
     camera.taint();
 
+    const bg = themeState.background;
     const { projView } = camera.update(canvas.width / canvas.height);
     viewData.set(projView, 0);
-    viewData[16] = STREAM_WIDTH * dpr;
-    viewData[17] = CAPSULE_WIDTH * dpr;
-    viewData[18] = themeState.isDark ? 1 : 0;
-    viewData[19] = CAPSULE_ALPHA;
+    viewData.set(bg, 16);
+    viewData[19] = STREAM_WIDTH * dpr;
+    viewData[20] = PARCEL_WIDTH * dpr;
+    viewData[21] = CAPSULE_WIDTH * dpr;
+    viewData[22] = themeState.isDark ? 1 : 0;
+    // Faded back toward the page while parcels are running along them, so the
+    // parcels read as the moving thing and the curves as what they move on.
+    viewData[23] = shown.parcels ? STREAM_DIM : 1;
+    viewData[24] = 1;
+    viewData[25] = CAPSULE_ALPHA;
     device.queue.writeBuffer(viewBuffer, 0, viewData);
 
     const resolution = [canvas.width, canvas.height];
-    const streamProps = { vertexCount: streamCount, resolution };
-    const capsuleProps = { vertexCount: capsuleCount, resolution };
+    const draws = [
+      [streams, streamBind, shown.streams ? streamCount : 0],
+      [parcels, parcelBind, parcelCount],
+      [capsuleLines, capsuleBind, shown.capsule ? capsuleCount : 0]
+    ];
     // Uniforms have to be written before any pass opens.
-    streams.updateUniforms(streamProps);
-    capsuleLines.updateUniforms(capsuleProps);
+    for (const [pipeline, , count] of draws) {
+      if (count > 1) pipeline.updateUniforms({ vertexCount: count, resolution });
+    }
 
-    const bg = themeState.background;
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
@@ -993,8 +1061,11 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
         depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard'
       }
     });
-    streams.draw(pass, { ...streamProps, skipUniformUpdate: true }, [streamBind]);
-    capsuleLines.draw(pass, { ...capsuleProps, skipUniformUpdate: true }, [capsuleBind]);
+    for (const [pipeline, bind, count] of draws) {
+      if (count > 1) {
+        pipeline.draw(pass, { vertexCount: count, resolution, skipUniformUpdate: true }, [bind]);
+      }
+    }
     pass.end();
     device.queue.submit([encoder.finish()]);
   });
@@ -1004,11 +1075,8 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     observer.disconnect();
     camera.destroy();
     for (const t of targets ?? []) t.destroy();
-    streams.destroy();
-    capsuleLines.destroy();
-    streamBuffer.destroy();
-    capsuleBuffer.destroy();
-    viewBuffer.destroy();
+    for (const p of [streams, parcels, capsuleLines]) p.destroy();
+    for (const b of [streamBuffer, parcelBuffer, capsuleBuffer, viewBuffer]) b.destroy();
   });
 
   display(html`<figure style="margin:1.75em 0">
@@ -1025,16 +1093,19 @@ Nothing here is shrinking yet. The outline is held at whatever size keeps it on 
     <figcaption>
       Streamlines of the ansatz, coloured by speed on a scale that does not move with
       the sliders — a member of the family that is genuinely faster comes out genuinely
-      hotter, rather than being renormalised back into the same picture. The outline is
-      the surface where the profiles' shared envelope
-      ${tex`e^{-s/\sigma}e^{-z^2/2z_H^2}`} has fallen to ${tex`1/e`} of its peak, which is
-      radius ${tex`\sqrt{2\sigma}`} around the equator and ${tex`\sqrt{2}\,z_H`} at the poles;
-      the Lean sources cut the support out as a cylinder in ${tex`s`} and ${tex`z`}, so a
-      rounded cylinder is what it honestly looks like. ${tex`\gamma`} and ${tex`\omega`}
-      together set the pitch of the helices — ${tex`\omega/2\pi\gamma`} is how many turns a
-      parcel makes while the strain stretches it by a factor of ${tex`e`} — and
-      ${tex`\sigma`} and ${tex`z_H`} set the shape of the box it does that in. The view turns
-      on its own; drag it to turn it faster.
+      hotter, rather than being renormalised back into the same picture. The parcels ride
+      those streamlines at the fluid's own speed, slowed by one factor shared by all of
+      them, and each trail covers a fixed interval of time, so it is long where the flow
+      is quick and a dot where it is not. The outline is the surface where the profiles'
+      shared envelope ${tex`e^{-s/\sigma}e^{-z^2/2z_H^2}`} has fallen to ${tex`1/e`} of its
+      peak, which is radius ${tex`\sqrt{2\sigma}`} around the equator and
+      ${tex`\sqrt{2}\,z_H`} at the poles; the Lean sources cut the support out as a
+      cylinder in ${tex`s`} and ${tex`z`}, so a rounded cylinder is what it honestly looks
+      like. ${tex`\gamma`} and ${tex`\omega`} together set the pitch of the helices —
+      ${tex`\omega/2\pi\gamma`} is how many turns a parcel makes while the strain stretches
+      it by a factor of ${tex`e`} — and ${tex`\sigma`} and ${tex`z_H`} set the shape of the
+      box it does that in. Each of the three pieces can be taken out to see what the other
+      two are doing without it. The view turns on its own; drag it to turn it faster.
     </figcaption>
   </figure>`);
 }

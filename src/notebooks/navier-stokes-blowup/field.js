@@ -99,6 +99,161 @@ export function streamline(field, seed, { step = 0.01, maxSteps = 4000, bound = 
 }
 
 /**
+ * Cash-Karp: an embedded Runge-Kutta 4(5) pair.
+ *
+ * Six stages produce both a fifth-order and a fourth-order estimate of the same
+ * step; their difference is an estimate of the error in the fourth-order one,
+ * which is what lets the step size be chosen rather than guessed.
+ */
+const CK_A = [0, 1 / 5, 3 / 10, 3 / 5, 1, 7 / 8];
+const CK_B = [
+  [],
+  [1 / 5],
+  [3 / 40, 9 / 40],
+  [3 / 10, -9 / 10, 6 / 5],
+  [-11 / 54, 5 / 2, -70 / 27, 35 / 27],
+  [1631 / 55296, 175 / 512, 575 / 13824, 44275 / 110592, 253 / 4096]
+];
+/** Fifth-order weights: the solution that is actually advanced. */
+const CK_C = [37 / 378, 0, 250 / 621, 125 / 594, 0, 512 / 1771];
+/** Fifth minus fourth order: the error estimate. */
+const CK_E = [
+  37 / 378 - 2825 / 27648, 0, 250 / 621 - 18575 / 48384,
+  125 / 594 - 13525 / 55296, -277 / 14336, 512 / 1771 - 1 / 4
+];
+
+/**
+ * Integrate one streamline adaptively, by arc length.
+ *
+ * The fixed-step integrator above spends the same number of samples on a
+ * straight run as on a tight helical turn, so the only way to resolve the turn
+ * is to over-sample everything -- and the notebook's family figure re-integrates
+ * every streamline on every frame of a slider drag, where that waste is the
+ * whole cost. This one puts samples where the curve needs them.
+ *
+ * Two things are controlled, and both are needed. The Cash-Karp error estimate
+ * bounds how far the computed point is from the true trajectory. It says nothing
+ * about the polyline drawn between two computed points, which can bow away from
+ * a curve the integrator is tracking perfectly, so the turn in the tangent
+ * across a step is bounded as well: at a turn of `maxTurn` the chord of a
+ * circular arc sags by about `radius * maxTurn^2 / 8` from the arc, which at a
+ * quarter radian is under a fifth of a percent and comfortably sub-pixel.
+ *
+ * Parameterised by arc length rather than by time, as above, so the samples are
+ * about the geometry and not about how fast the fluid happens to be moving.
+ * Advection time rides along as a fourth component, integrated by the same
+ * weights, and it is what a parcel moving along the finished curve is placed by.
+ *
+ * @param direction  +1 downstream, -1 upstream; the time component accumulates
+ *                   positively either way, so a curve integrated backwards can
+ *                   be reversed and joined to its forward half.
+ */
+export function adaptiveStreamline(field, seed, {
+  direction = 1,
+  tol = 2e-4,
+  maxTurn = 0.25,
+  hInit = 0.05,
+  hMin = 1e-4,
+  hMax = 0.25,
+  maxLength = 20,
+  maxSteps = 2000,
+  bound = 6,
+  minSpeed = 1e-4
+} = {}) {
+  const points = [], speeds = [], times = [];
+  const u = [0, 0, 0];
+  const y = [seed[0], seed[1], seed[2], 0];
+  const y5 = [0, 0, 0, 0];
+  const tmp = [0, 0, 0, 0];
+  const k = [0, 1, 2, 3, 4, 5].map(() => [0, 0, 0, 0]);
+
+  /** Unit tangent and time-per-arc-length at p; returns the speed, or 0 to stop. */
+  const deriv = (p, out) => {
+    field(p[0], p[1], p[2], u);
+    const m = Math.hypot(u[0], u[1], u[2]);
+    if (!(m > minSpeed)) return 0;
+    out[0] = (direction * u[0]) / m;
+    out[1] = (direction * u[1]) / m;
+    out[2] = (direction * u[2]) / m;
+    out[3] = 1 / m;
+    return m;
+  };
+
+  const record = (m) => {
+    points.push(y[0], y[1], y[2]);
+    speeds.push(m);
+    times.push(y[3]);
+  };
+
+  const outside = () =>
+    Math.abs(y[0]) > bound || Math.abs(y[1]) > bound || Math.abs(y[2]) > bound ||
+    !Number.isFinite(y[0] + y[1] + y[2]);
+
+  let m = deriv(y, k[0]);
+  if (!m) return { points, speeds, times, count: 0 };
+  record(m);
+
+  let h = Math.min(hInit, hMax);
+  let s = 0;
+
+  for (let step = 0; step < maxSteps && s < maxLength; step++) {
+    h = Math.min(h, hMax, maxLength - s);
+
+    // Stages two through six. Stage one is already in k[0], either from before
+    // the loop or from the end of the previous accepted step.
+    let stalled = false;
+    for (let i = 1; i < 6; i++) {
+      for (let c = 0; c < 4; c++) {
+        let acc = y[c];
+        for (let j = 0; j < i; j++) acc += h * CK_B[i][j] * k[j][c];
+        tmp[c] = acc;
+      }
+      if (!deriv(tmp, k[i])) { stalled = true; break; }
+    }
+    if (stalled) break;
+
+    let err = 0;
+    for (let c = 0; c < 4; c++) {
+      let sol = 0, e = 0;
+      for (let i = 0; i < 6; i++) {
+        sol += CK_C[i] * k[i][c];
+        e += CK_E[i] * k[i][c];
+      }
+      y5[c] = y[c] + h * sol;
+      // Position only. Time is carried along for the parcels to ride and is an
+      // order more accurate than they need; letting it into the error estimate
+      // would just make the step size a function of the units speed is in.
+      if (c < 3) err = Math.max(err, Math.abs(h * e));
+    }
+
+    // How far the tangent turned over the step. k[5] is the tangent seven
+    // eighths of the way along, so the full-step turn is that scaled up.
+    const dot = k[0][0] * k[5][0] + k[0][1] * k[5][1] + k[0][2] * k[5][2];
+    const turn = Math.acos(Math.min(1, Math.max(-1, dot))) * (8 / 7);
+
+    const rErr = tol / Math.max(err, 1e-30);
+    const rTurn = maxTurn / Math.max(turn, 1e-30);
+    // The error shrinks like h^5 and the turn like h, so each proposes its own
+    // factor and the smaller one wins.
+    const proposal = 0.9 * Math.min(Math.pow(rErr, 0.2), rTurn);
+
+    if ((err <= tol && turn <= maxTurn) || h <= hMin * 1.000001) {
+      s += h;
+      for (let c = 0; c < 4; c++) y[c] = y5[c];
+      if (outside()) break;
+      m = deriv(y, k[0]);
+      if (!m) break;
+      record(m);
+      h = Math.min(hMax, h * Math.min(4, Math.max(1, proposal)));
+    } else {
+      h = Math.max(hMin, h * Math.min(0.9, Math.max(0.1, proposal)));
+    }
+  }
+
+  return { points, speeds, times, count: speeds.length };
+}
+
+/**
  * Seed streamlines on a set of rings. Seeds sit off the stagnation plane z = 0,
  * where u_z vanishes identically and a particle would spiral in the plane forever.
  */

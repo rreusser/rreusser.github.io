@@ -20,7 +20,7 @@
  * solid model being looked at.
  */
 
-import { streamline } from './field.js';
+import { adaptiveStreamline } from './field.js';
 import { colormapWGSL } from './shaders.js';
 
 /** The member of the family every other figure in the notebook is drawn from. */
@@ -173,27 +173,34 @@ export function capsuleWireframe(a, b, { meridians = 4, rings = 5, segments = 48
  *
  * Seeds sit off the stagnation plane z = 0, where the axial velocity vanishes
  * identically and a parcel would circle in the plane forever.
+ *
+ * Advection time is carried through the join so it increases monotonically from
+ * the upstream end of the finished curve: the backward half's clock is counted
+ * down to the seed and the forward half's counted up from it. That is what the
+ * parcels ride, and it is the reason both halves are integrated with the time
+ * component accumulating positively.
  */
-export function familyStreamlines(field, { radial, axial }, { rings = 4, perRing = 8, maxSteps = 700 } = {}) {
-  const reversed = (x, y, z, out) => {
-    field(x, y, z, out);
-    out[0] = -out[0]; out[1] = -out[1]; out[2] = -out[2];
-    return out;
-  };
-
+export function familyStreamlines(field, { radial, axial }, { rings = 4, perRing = 8, tol = 1e-5, maxTurn = 0.14 } = {}) {
   const scale = Math.max(radial, axial);
-  // The integrator's own bound is set just outside the clip below rather than
-  // far outside it. Every step taken past the clip is thrown away, and this is
-  // rebuilt on every frame of a slider drag, so the difference is most of the
-  // cost of the drag.
-  const opts = { step: 0.05 * scale, maxSteps, bound: 1.75 * scale };
   // Cut each curve where it has left the neighbourhood of the core. Tight
   // enough that most of what is drawn is inside the outline, loose enough that
   // curves visibly leave through the ends rather than stopping on the surface,
   // which is what the strain is doing to the fluid and is worth seeing.
   const clipR = 1.45 * radial, clipZ = 1.6 * axial;
+  const opts = {
+    tol, maxTurn,
+    hInit: 0.04 * scale,
+    hMin: 0.002 * scale,
+    hMax: 0.22 * scale,
+    // The integrator stops just outside the clip rather than far outside it.
+    // Every step past the clip is thrown away, and this is rebuilt on every
+    // frame of a slider drag, so it is most of the cost of the drag.
+    maxLength: 7 * scale,
+    bound: 1.75 * scale,
+    maxSteps: 600
+  };
 
-  /** Keep the leading run of samples inside the drawn region. */
+  /** How many leading samples are inside the drawn region. */
   const clip = (line) => {
     let n = 0;
     while (n < line.count) {
@@ -215,24 +222,122 @@ export function familyStreamlines(field, { radial, axial }, { rings = 4, perRing
       const z = sign * axial * 0.42 * (0.3 + 0.7 * ((j * 0.37 + i * 0.19) % 1));
       const seed = [r * Math.cos(theta), r * Math.sin(theta), z];
 
-      const back = streamline(reversed, seed, opts);
-      const fwd = streamline(field, seed, opts);
+      const back = adaptiveStreamline(field, seed, { ...opts, direction: -1 });
+      const fwd = adaptiveStreamline(field, seed, { ...opts, direction: 1 });
       const nb = clip(back), nf = clip(fwd);
-      if (nb + nf < 12) continue;
+      if (nb + nf < 6) continue;
 
-      const points = [], speeds = [];
+      const points = [], speeds = [], times = [];
+      const tSeed = nb ? back.times[nb - 1] : 0;
       for (let n = nb - 1; n >= 0; n--) {
         points.push(back.points[n * 3], back.points[n * 3 + 1], back.points[n * 3 + 2]);
         speeds.push(back.speeds[n]);
+        times.push(tSeed - back.times[n]);
       }
-      for (let n = 0; n < nf; n++) {
+      // From one, not zero: the forward half's first sample is the seed, which
+      // the backward half has already contributed. Emitting it twice would put a
+      // zero-length segment in the middle of every curve.
+      for (let n = nb ? 1 : 0; n < nf; n++) {
         points.push(fwd.points[n * 3], fwd.points[n * 3 + 1], fwd.points[n * 3 + 2]);
         speeds.push(fwd.speeds[n]);
+        times.push(tSeed + fwd.times[n]);
       }
-      lines.push({ points, speeds, count: speeds.length });
+      if (speeds.length > 2) lines.push({ points, speeds, times, count: speeds.length });
     }
   }
   return lines;
+}
+
+/** Plastic number, for a low-discrepancy phase per curve. */
+const PLASTIC = 1.32471795724474602596;
+
+/**
+ * The piece of a curve a parcel has just covered, walking back from its head.
+ *
+ * The walk stops when both budgets are met: a fixed span of advection time, so
+ * the trail is longer where the fluid is quicker, and a floor on arc length so
+ * that a parcel in genuinely slow fluid is a dot rather than nothing at all.
+ * The floor is a drawing minimum and not a claim about the flow -- everything
+ * about how fast the fluid is going is in the colour.
+ */
+function parcelTrail(line, headTime, trailTime, minArc) {
+  const { points, speeds, times, count } = line;
+
+  let hi = 1;
+  while (hi < count - 1 && times[hi] < headTime) hi++;
+  const t0 = times[hi - 1], t1 = times[hi];
+  const f = t1 > t0 ? Math.min(1, Math.max(0, (headTime - t0) / (t1 - t0))) : 0;
+  const p = (hi - 1) * 3, q = hi * 3;
+  let px = points[p] + f * (points[q] - points[p]);
+  let py = points[p + 1] + f * (points[q + 1] - points[p + 1]);
+  let pz = points[p + 2] + f * (points[q + 2] - points[p + 2]);
+
+  const P = [px, py, pz];
+  const S = [speeds[hi - 1] + f * (speeds[hi] - speeds[hi - 1])];
+  const tailTime = headTime - trailTime;
+  let arc = 0;
+
+  for (let i = hi - 1; i >= 0; i--) {
+    const x = points[i * 3], y = points[i * 3 + 1], z = points[i * 3 + 2];
+    const d = Math.hypot(x - px, y - py, z - pz);
+    // A zero-length segment would leave the line renderer normalising a zero
+    // vector, so coincident samples are dropped rather than emitted.
+    if (d > 1e-9) {
+      arc += d;
+      P.push(x, y, z);
+      S.push(speeds[i]);
+      px = x; py = y; pz = z;
+    }
+    if (times[i] <= tailTime && arc >= minArc) break;
+  }
+
+  if (S.length < 2) return null;
+  return { points: P, speeds: S, count: S.length };
+}
+
+/**
+ * Parcels riding the streamlines, at the fluid's own speed.
+ *
+ * Not a separate simulation: a parcel is placed by advection time on the curve
+ * it is riding, so it is on the streamline by construction rather than by
+ * agreeing with it to within an integration error. That is the whole reason the
+ * integrator carries a clock. The only liberty taken is `rate`, one global
+ * factor on everyone's clock, which is watching in slow motion rather than
+ * moving anything at a speed of its own.
+ *
+ * More than one parcel per curve, spaced evenly around its cycle, because the
+ * curves' traverse times differ by a factor of seventy inside a single member
+ * of the family -- a curve out near the stagnation plane really does take that
+ * much longer than one through the core. One parcel each would leave most of
+ * the picture apparently frozen while a few raced. Releasing them at a roughly
+ * fixed interval of advection time instead puts a crowd of slow parcels on a
+ * slow curve and one quick parcel on a quick one, which is what dye released at
+ * a steady rate does, and the crowding is itself the flow being slow there.
+ */
+export function familyParcels(lines, clock, {
+  trailTime = 0.5, minArc = 0.03, release = 6, rate = 1.6, maxPerCurve = 14
+} = {}) {
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const span = line.times[line.count - 1];
+    if (!(span > 1e-6)) continue;
+    // One pass along the curve plus one trail length, so a parcel shortens into
+    // the downstream end and grows out of the upstream one instead of appearing
+    // and vanishing whole.
+    const cycle = span + trailTime;
+    const n = Math.min(maxPerCurve, Math.max(1, Math.round(cycle / release)));
+    // Fixed per curve index rather than random, so rebuilding the geometry
+    // mid-drag does not teleport every parcel.
+    const phase = ((0.5 + i / PLASTIC) % 1) * cycle;
+    for (let j = 0; j < n; j++) {
+      const head = (((clock * rate + phase + (j * cycle) / n) % cycle) + cycle) % cycle;
+      if (head <= 0 || head > span) continue;
+      const trail = parcelTrail(line, head, trailTime, minArc);
+      if (trail) out.push(trail);
+    }
+  }
+  return out;
 }
 
 /**
@@ -263,7 +368,7 @@ export function packCurves(target, curves, offset = 0) {
   return n;
 }
 
-/** The same, for the streamlines, which arrive as flat point/speed arrays. */
+/** The same, for curves that arrive as flat point/speed arrays. */
 export function packStreamlines(target, lines, offset = 0) {
   let n = offset;
   const capacity = target.length / 4;
@@ -284,14 +389,18 @@ export function packStreamlines(target, lines, offset = 0) {
 }
 
 /** Byte size of the shared view block. */
-export const FAMILY_VIEW_SIZE = 80;
+export const FAMILY_VIEW_SIZE = 112;
 
 const VIEW_BLOCK = /* wgsl */`
 struct FamilyView {
   projView: mat4x4f,
+  background: vec3f,
   streamWidth: f32,
+  parcelWidth: f32,
   capsuleWidth: f32,
   isDark: f32,
+  streamGain: f32,
+  parcelGain: f32,
   capsuleAlpha: f32,
 };
 
@@ -299,8 +408,8 @@ struct FamilyView {
 `;
 
 /**
- * @param widthField which of the two widths this entity is stroked at, so both
- *        share one vertex function and one uniform block.
+ * @param widthField which of the three widths this entity is stroked at, so all
+ *        of them share one vertex function and one uniform block.
  */
 export function familyVertexBody(widthField) {
   return VIEW_BLOCK + /* wgsl */`
@@ -320,7 +429,19 @@ fn getVertex(index: u32) -> Vertex {
 `;
 }
 
-export const familyStreamFragment = VIEW_BLOCK + colormapWGSL + /* wgsl */`
+/**
+ * Streamlines and parcels, which differ only in how far they are held off the
+ * background.
+ *
+ * With parcels running, the streamlines they run along are faded back rather
+ * than darkened: a curve that is meant to recede has to move toward the paper,
+ * not toward black, or it turns into a different and louder mark on a light
+ * page. Which is why the background is in the uniform block at all.
+ *
+ * @param gainField how much of the full colour this entity keeps.
+ */
+export function familyLineFragment(gainField) {
+  return VIEW_BLOCK + colormapWGSL + /* wgsl */`
 fn getColor(lineCoord: vec2f, scalar: f32) -> vec4f {
   if (abs(lineCoord.x) > 0.0 && dot(lineCoord, lineCoord) > 1.0) { discard; }
 
@@ -333,9 +454,12 @@ fn getColor(lineCoord: vec2f, scalar: f32) -> vec4f {
   // Darken across the width, so a stroke reads as a filament rather than a flat
   // ribbon. A line carries no normal, so this is the only shading available.
   let r = abs(lineCoord.y);
-  return vec4f(c * (1.0 - 0.35 * r * r), 1.0);
+  c = c * (1.0 - 0.35 * r * r);
+
+  return vec4f(mix(view.background, c, view.${gainField}), 1.0);
 }
 `;
+}
 
 export const familyCapsuleFragment = VIEW_BLOCK + /* wgsl */`
 fn getColor(lineCoord: vec2f, scalar: f32) -> vec4f {
@@ -345,10 +469,9 @@ fn getColor(lineCoord: vec2f, scalar: f32) -> vec4f {
   var c = vec3f(0.129, 0.690, 0.769);
   c = mix(c * 0.72, c, view.isDark);
 
-  // Premultiplied, and the far side of the surface is dimmer than the near
-  // side: the wireframe is drawn after the streamlines with the depth test on
-  // and depth writes off, so what is behind them is already gone, and what is
-  // left only has to read as a surface rather than as a cage.
+  // Premultiplied. The wireframe is drawn after everything else with the depth
+  // test on and depth writes off, so whatever is in front of it has already
+  // removed it and what is left only has to read as a surface.
   let a = view.capsuleAlpha;
   return vec4f(c * a, a);
 }
