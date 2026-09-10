@@ -1,0 +1,287 @@
+import { straightArrow } from './arrows.js';
+import { tubeMesh } from './field.js';
+
+/**
+ * Geometry for the vortex-stretching walkthrough.
+ *
+ * The picture is a Burgers vortex: a vortex line held by an axial strain that
+ * draws fluid in across the stagnation plane and pushes it out along the axis.
+ * Three rules govern what is drawn, and all three are physics rather than taste.
+ *
+ * A vortex tube cannot end in the fluid. Helmholtz allows it to close on itself,
+ * run to infinity, or end on a boundary, and nothing else. So the core is a tube
+ * of constant radius that leaves the frame at both ends, never capped, and
+ * stretching it does not lengthen it into view. It thins, which is the whole
+ * mechanism.
+ *
+ * A vortex is a line, not a cylinder. The core follows a gently curved
+ * centreline rather than a perfect axis, because that is what vorticity in a
+ * real flow looks like, and because stretching a curved tube straightens it: the
+ * lateral wander contracts with the radius, so the tube visibly pulls straight
+ * as it thins.
+ *
+ * Arrows mean one thing only: the straining flow acting on the vortex. The
+ * rotation is shown as moving fluid instead, a swarm of material streaks
+ * orbiting the core, because using arrows for both the strain and the swirl
+ * makes one symbol stand for two different physical things. The streaks are
+ * Lagrangian and carry no travelling highlight; the strain arrows are Eulerian,
+ * stay put, and do. An arrow that both moves and pulses claims two velocities.
+ */
+
+/** Half-length of the core. Long enough to leave the frame at both ends. */
+export const TUBE_HALF = 5.0;
+
+/** Radius of the vortex core at zero stretch. A line, not a pipe. */
+export const CORE_RADIUS = 0.105;
+
+/**
+ * Amplitude of the vortex's writhe. The shape is applied in the vertex shader
+ * so it can vary with time; the centreline built here is straight.
+ *
+ * The two wavenumbers on each axis sum to at most 1.55 times this, so the core
+ * swings about half a unit across a visible span of four -- enough to read as a
+ * filament being pushed around rather than a wire. It used to be a quarter of
+ * that, because the displacement was applied to the core alone and anything
+ * larger drove the core through the parcels orbiting it. The displacement now
+ * carries the whole vortex, parcels included, so the amplitude is limited only
+ * by what looks right.
+ */
+export const WRITHE = 0.34;
+
+/**
+ * One particle of fluid: a short dash, tapered at both ends, lying along the
+ * direction it travels. It is built at the origin rather than at a radius, so
+ * an instance places it with an offset and every particle comes out the same
+ * size no matter how far from the axis it sits. Sizing them by radius instead
+ * turns the swarm into a few enormous sweeping arcs.
+ */
+function particle(scalar) {
+  const segments = 8;
+  const points = [];
+  const speeds = [];
+  const times = [];
+  for (let i = 0; i < segments; i++) {
+    const f = i / (segments - 1);
+    points.push(0, 0, -PARTICLE_HALF + 2 * PARTICLE_HALF * f);
+    speeds.push(scalar);
+    times.push(f);
+  }
+  // Few segments and few sides: there are well over a thousand of these, and
+  // each one is a couple of pixels across.
+  return tubeMesh({ points, speeds, times, count: segments }, {
+    radius: 0.008,
+    sides: 5,
+    taper: 0.45,
+    scalarRange: [0, 1]
+  });
+}
+
+/**
+ * Half-length of a dash at the reference speed. An instance stretches it along
+ * its own axis in proportion to how fast that parcel is actually moving, so a
+ * dash is a streak of fixed exposure rather than a bead of fixed size.
+ */
+const PARTICLE_HALF = 0.045;
+
+/** A gently curved centreline, mostly along +y, as an untapered tube. */
+function curvedCore(radius) {
+  const stations = 96;
+  const points = [];
+  const speeds = [];
+  const times = [];
+  for (let i = 0; i < stations; i++) {
+    const t = -1 + (2 * i) / (stations - 1);
+    const y = t * TUBE_HALF;
+    points.push(0, y, 0);
+    speeds.push(0.06);
+    times.push(t);
+  }
+  return tubeMesh({ points, speeds, times, count: stations }, {
+    radius,
+    sides: 18,
+    taperEnds: false,
+    scalarRange: [0, 1]
+  });
+}
+
+export function buildLessonScene() {
+  const tube = curvedCore(CORE_RADIUS);
+
+  // Three bands so a particle's colour can carry its speed, warm nearest the
+  // axis where the fluid is quickest.
+  const streakFast = particle(0.95);
+  const streakMid = particle(0.55);
+  const streakSlow = particle(0.16);
+
+  // Unit arrows, tail at the origin and tip one unit away. Instances scale them
+  // by the local flow speed and place them by their tail, so an arrow is a
+  // velocity vector carried by a parcel of fluid rather than a fixed label.
+  const axialUp = straightArrow({
+    from: [0, 0, 0],
+    to: [0, 1, 0],
+    radius: 0.075,
+    sides: 12,
+    scalar: 0.10
+  });
+
+  const axialDown = straightArrow({
+    from: [0, 0, 0],
+    to: [0, -1, 0],
+    radius: 0.075,
+    sides: 12,
+    scalar: 0.10
+  });
+
+  // Inflow across the stagnation plane: tail out at unit radius, tip on the
+  // axis, so an instance places it by where its tip should fall.
+  const radial = straightArrow({
+    from: [1, 0, 0],
+    to: [0, 0, 0],
+    radius: 0.075,
+    sides: 12,
+    scalar: 0.55
+  });
+
+  return { tube, streakFast, streakMid, streakSlow, axialUp, axialDown, radial };
+}
+
+/**
+ * The swarm. Each streak is a parcel of fluid orbiting the core, placed at a
+ * radius and height at zero stretch; the flow carries it from there, drawing it
+ * inward as the core contracts and apart as the core is stretched.
+ *
+ * Outside the core the vortex is free, so the orbital speed goes like
+ * u = Gamma / 2 pi r and the angular rate like 1 / r^2. Streaks near the axis
+ * whip round while the outer ones barely drift, which is what shears the swarm
+ * into a tornado.
+ *
+ * Radius, height and phase must be genuinely independent. Under differential
+ * rotation any correlation between a particle's radius and where it sits is
+ * sheared into a visible spiral that winds up without limit, because points at
+ * different radii separate in angle without bound. A cloud that starts uniform
+ * in phase at every radius stays uniform, since angle only ever wraps.
+ *
+ * So the three coordinates come from the R3 quasirandom sequence, whose
+ * generator is the plastic number -- the same low-discrepancy construction the
+ * strange-attractor notebook uses to seed its particles. Stepping one sequence
+ * by different multiples of the golden ratio is not good enough: 0.6180339887
+ * and 0.3819660113 sum to exactly one, so those two coordinates come out exact
+ * complements of each other and every particle lands on one line.
+ */
+const PLASTIC = 1.22074408460575947536;
+const R3 = [1 / PLASTIC, 1 / PLASTIC ** 2, 1 / PLASTIC ** 3];
+const quasi = (n, k) => (0.5 + (n + 0.5) * R3[k]) % 1;
+
+/**
+ * Radial extent of the swarm. The orbital period goes like r^2, so the ratio of
+ * the slowest period to the fastest is fixed at (STREAK_R1 / STREAK_R0)^2 by
+ * this choice alone: wide enough to read as differential rotation, narrow
+ * enough that the outer particles still visibly drift.
+ */
+/**
+ * Gamma / 2 pi, in figure units: the one constant setting the whole swarm. A
+ * particle at radius r orbits at u = SWIRL_STRENGTH / r, so the angular rate is
+ * SWIRL_STRENGTH / r^2. Because a particle is material its radius contracts as
+ * one over root stretch, which leaves the rate proportional to the stretch.
+ */
+export const SWIRL_STRENGTH = 0.20;
+
+/**
+ * Radial extent of the swarm.
+ *
+ * Wider than the visible core, and deliberately so: a parcel's radius contracts
+ * as one over root stretch, so the outer ring is where the contraction is
+ * easiest to see. Wide enough that some of it leaves the frame sideways on a
+ * narrow screen, which costs nothing -- the fluid does not stop at the edge of
+ * the picture.
+ */
+const STREAK_R0 = 0.34;
+const STREAK_R1 = 1.35;
+
+/**
+ * Total elongation of the core over the whole pull, and the reference the
+ * dashes are drawn against.
+ *
+ * The dash length is the parcel's speed over STREAK_REF_SPEED, so where that
+ * reference is taken decides nothing about the ratio -- speed goes like root
+ * stretch whatever it is measured against -- and everything about whether the
+ * change is visible. Taken at the start, the swarm begins at full length and
+ * can only grow, which puts the interesting half of the pull past the length at
+ * which a dash stops reading as a dash. It is taken at the midpoint of the pull
+ * instead, in log stretch, so the streaks run from three quarters of their
+ * built length to four thirds of it and the growth happens where the eye can
+ * see it.
+ */
+export const MAX_STRETCH = 3.2;
+
+export function seedStreaks(count) {
+  return Array.from({ length: count }, (_, i) => {
+    // Uniform in radius. Uniform in area would be the honest seeding of a fluid,
+    // but it puts well over half the swarm in the outermost, slowest band, where
+    // the free-vortex law leaves it looking static.
+    const radius = STREAK_R0 + (STREAK_R1 - STREAK_R0) * quasi(i, 0);
+    return {
+      radius,
+      // The full height of the frame, not a band across the middle of it. The
+      // camera sees about two units either side of the stagnation plane before
+      // it starts pulling back, so a swarm ending at one unit was leaving the
+      // top and bottom thirds of the picture empty. Stretching carries most of
+      // this out of the frame, which is the point of the figure and not a
+      // reason to seed less of it.
+      y: -2.1 + 4.2 * quasi(i, 1),
+      twist: 2 * Math.PI * quasi(i, 2),
+      band: radius < 0.58 ? 'streakFast' : radius < 0.84 ? 'streakMid' : 'streakSlow'
+    };
+  });
+}
+
+/**
+ * The orbital speed at the middle of the swarm, halfway through the pull, which
+ * is the speed a dash is drawn at its built length. Everything faster is drawn
+ * longer and everything slower shorter, in proportion.
+ */
+export const STREAK_REF_SPEED =
+  (SWIRL_STRENGTH * Math.pow(MAX_STRETCH, 0.25)) / ((STREAK_R0 + STREAK_R1) / 2);
+
+/**
+ * The nominal strain rate the arrows depict, in figure units. The reader
+ * controls how far the stretch has progressed; this is the rate at which the
+ * straining flow itself is shown running.
+ */
+export const GAMMA = 0.55;
+
+/** Arrow length per unit speed. Sets how long a velocity vector is drawn. */
+export const SPEED_TO_LENGTH = 1.1;
+
+/** Where a parcel of the straining flow is born and where it is retired. */
+export const AXIAL_SPAN = [0.26, 2.05];
+export const RADIAL_SPAN = [0.42, 1.75];
+
+/**
+ * Parcels of fluid carried by the straining flow, seeded so that the ring is
+ * evenly spread in phase along its own trajectory rather than all arriving at
+ * once. Axial parcels start near the stagnation plane and accelerate outward;
+ * radial ones start far out and slow as they close on the axis.
+ */
+export function seedStrainParcels() {
+  const axial = [];
+  for (let i = 0; i < 8; i++) {
+    const f = i / 8;
+    axial.push({
+      twist: (i / 4) * Math.PI + 0.5,
+      sign: i % 2 ? 1 : -1,
+      radius: 0.98,
+      z: AXIAL_SPAN[0] * Math.pow(AXIAL_SPAN[1] / AXIAL_SPAN[0], f)
+    });
+  }
+  const radial = [];
+  for (let i = 0; i < 5; i++) {
+    const f = i / 5;
+    radial.push({
+      twist: (i / 5) * Math.PI * 2 + 0.9,
+      y: (i % 2 ? 0.2 : -0.2),
+      radius: RADIAL_SPAN[1] * Math.pow(RADIAL_SPAN[0] / RADIAL_SPAN[1], f)
+    });
+  }
+  return { axial, radial };
+}

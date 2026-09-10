@@ -1,0 +1,2080 @@
+<!doctype html>
+<notebook>
+  <title>A Finite-Time Singularity for Navier–Stokes</title>
+
+  <script id="title" type="text/markdown">
+# A Finite-Time Singularity for Navier–Stokes
+  </script>
+
+  <script id="styles" type="text/html">
+    <style>
+      .scrollyteller {
+        position: relative;
+        width: 100vw;
+        margin-left: calc(-50vw + 50%);
+      }
+
+      .scrollyteller__background {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        /* Small viewport height, not 100vh. On iOS 100vh is the height the page
+           would have with the toolbars hidden, so a pinned element sized that
+           way runs underneath the toolbar and its centre — where the figure is
+           drawn — sits below the centre of what you can actually see. */
+        height: 100vh;
+        height: 100svh;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .scrollyteller__background.is-fixed { position: fixed; }
+
+      .scrollyteller__background.is-bottom {
+        position: absolute;
+        top: auto;
+        bottom: 0;
+      }
+
+      .scrollyteller__background .scrollyteller__fixed-content { pointer-events: auto; }
+
+      .scrollyteller__fixed-content {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .scrollyteller__foreground {
+        position: relative;
+        z-index: 1;
+        pointer-events: none;
+      }
+
+      .scrollyteller__frame {
+        height: 100vh;
+        height: 100svh;
+        position: relative;
+      }
+
+      .scrollyteller__caption {
+        position: absolute;
+        background: color-mix(in srgb, var(--theme-background) 88%, transparent);
+        color: var(--theme-foreground);
+        padding: 12px 16px;
+        font-size: 1.05em;
+        line-height: 1.5;
+        max-width: 320px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+        /* The caption band scrolls across the pinned canvas. Letting it take
+           pointer events is what made dragging to rotate feel dead. */
+        pointer-events: none;
+      }
+
+      /* The drag/scroll toggle. Only shown where touch is the primary input,
+         because a mouse can already drag without stealing the scroll. */
+      .scrolly-mode {
+        position: absolute;
+        right: calc(12px + env(safe-area-inset-right, 0px));
+        top: calc(12px + env(safe-area-inset-top, 0px));
+        z-index: 3;
+        display: none;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        font-size: 0.85em;
+        border: 1px solid color-mix(in srgb, var(--theme-foreground) 25%, transparent);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--theme-background) 90%, transparent);
+        color: var(--theme-foreground);
+        cursor: pointer;
+        pointer-events: auto;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .scrolly-mode.is-touch { display: inline-flex; }
+      .scrolly-mode[aria-pressed="true"] {
+        border-color: color-mix(in srgb, var(--theme-foreground) 55%, transparent);
+        font-weight: 600;
+      }
+
+      /* On a phone the captions cannot float in a corner without covering the
+         figure, so they sit in a band across the bottom instead. */
+      @media (max-width: 640px) {
+        .scrollyteller__caption {
+          left: 12px !important;
+          right: 12px !important;
+          top: auto !important;
+          bottom: 76px !important;
+          max-width: none;
+          font-size: 1em;
+        }
+      }
+
+      /* The blowup readout: a time track under the cascade. Sits top-left so it
+         never reaches the rotate button in the top-right corner. */
+      .blowup-strip {
+        position: absolute;
+        left: calc(12px + env(safe-area-inset-left, 0px));
+        top: calc(12px + env(safe-area-inset-top, 0px));
+        width: min(340px, calc(100% - 150px));
+        z-index: 2;
+        pointer-events: none;
+        color: var(--theme-foreground);
+        font-size: 0.78em;
+        line-height: 1.3;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 1px 3px var(--theme-background);
+      }
+
+      .blowup-strip__row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        opacity: 0.85;
+      }
+
+      .blowup-strip__track {
+        position: relative;
+        height: 9px;
+        margin: 4px 0 2px;
+        border-radius: 5px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--theme-foreground) 16%, transparent);
+      }
+
+      /* The track is the clock, so it takes the time colour; the marker on it
+         is the same colour at full strength. Speed is named in the row above
+         and takes the speed colour there. */
+      .blowup-strip__fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        background: #a78bda;
+        opacity: 0.75;
+      }
+
+      /* One per generation boundary. They crowd into the last sliver of the
+         track, which is the whole point: the slots shrink fast enough to sum. */
+      .blowup-strip__tick {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: var(--theme-background);
+        opacity: 0.8;
+      }
+
+      .blowup-strip__head {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #a78bda;
+      }
+
+      /* The family explorer's sliders and readout. Four sliders wrap into as
+         many columns as the column width allows, and the readout sits between
+         them and the picture so the numbers are next to the thing they
+         describe. */
+      .family-toggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 20px;
+        margin-top: 6px;
+      }
+
+      .family-sliders {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 22px;
+        margin-top: 2px;
+      }
+
+      .family-readout {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 18px;
+        margin-top: 10px;
+        font-size: 0.82em;
+        opacity: 0.85;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .family-readout b { font-weight: 600; }
+
+      figure { margin: 2em 0; }
+    </style>
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+import { createWebGPUContext } from './lib/webgpu-canvas.js';
+import { createUnifiedCamera } from './lib/unified-camera.js';
+import { createFrameLoop } from './lib/frame-loop.js';
+import { createSequencer, linear } from './lib/sequencer.js';
+import { observeTheme } from './lib/theme.js';
+import { createField, seedRings, decimate, tubeMesh, mergeMeshes, speedRange } from './field.js';
+import { toYUp } from './arrows.js';
+import {
+  buildLessonScene, seedStreaks, STREAK_REF_SPEED, SWIRL_STRENGTH, WRITHE, seedStrainParcels,
+  GAMMA, SPEED_TO_LENGTH, AXIAL_SPAN, RADIAL_SPAN, MAX_STRETCH
+} from './scene.js';
+import { tubeShaderCode, compositeShaderCode } from './shaders.js';
+import {
+  seedParticles, integrateShaderCode, trailVertexBody, trailFragmentBody,
+  VIEW_SIZE, TRAIL, FIELD
+} from './cascade-particles.js';
+import {
+  FAMILY_DEFAULTS, ZK_RATIO, FAMILY_VIEW_SIZE, coreExtent, maxSpeed, turnsPerEfold,
+  capsuleWireframe, familyStreamlines, packCurves, packStreamlines,
+  createParcelSwarm, advanceParcels, packParcels, PARCEL_TRAIL,
+  familyVertexBody, familyLineFragment, parcelVertexBody, familyParcelFragment,
+  familyCapsuleFragment
+} from './family.js';
+import { expandable } from './lib/expandable.js';
+// Vendored rather than from npm: the cascade's peel test needs the fragment's
+// builtin position, which the published module does not expose. See the header
+// of that file.
+import { createGPULines } from './lib/webgpu-instanced-lines.js';
+import { createRenderer } from './renderer.js';
+import * as Scales from './scales.js';
+import * as vocabulary from './vocabulary.js';
+import { ROLE, LEVEL_TINTS, capsulePath } from './vocabulary.js';
+  </script>
+
+  <script id="intro" type="text/markdown">
+In September 2026 OpenAI announced that one of its systems had produced a proof that the three-dimensional incompressible Navier–Stokes equations can lose smoothness in finite time, with a complete formalization in Lean 4. The Clay Millennium Prize problem offers four ways to settle the question. Two ask you to prove that solutions always stay smooth, in three dimensions without forcing and then with it; the other two ask for the opposite, a single example of a solution that breaks down. This claim is of the second kind, and it is the forced version: a smooth forcing that drives a fluid from rest into a singularity. Priority and independent verification were contested immediately, and none of that is settled here.
+
+What follows is not the proof. It is the picture underneath it, which turns out to be something you already have intuition for.
+  </script>
+
+  <script id="theme-state" type="text/x-typescript">
+// A stable object the render loops read every frame. Keeping the theme here
+// rather than as a cell dependency means a light/dark switch never re-runs the
+// cells that own the GPU pipelines.
+const themeState = { background: [1, 1, 1], foreground: [0, 0, 0], isDark: false };
+  </script>
+
+  <script id="theme-observe" type="text/x-typescript">
+const theme = Generators.observe(observeTheme);
+  </script>
+
+  <script id="theme-sync" type="text/x-typescript">
+Object.assign(themeState, theme);
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+const { device, canvasFormat } = await createWebGPUContext();
+  </script>
+
+  <script id="scrolly-helpers" type="text/x-typescript">
+/**
+ * Wire up the shared scrollyteller shell: a full-bleed container, a background
+ * that pins itself while the container is on screen, and one full-height frame
+ * per caption.
+ */
+function buildScrollyteller(id: string, captions: any[]) {
+  const container = html`<div class="scrollyteller" id="${id}"></div>`;
+  const background = html`<div class="scrollyteller__background"></div>`;
+  const fixed = html`<div class="scrollyteller__fixed-content"></div>`;
+  const foreground = html`<div class="scrollyteller__foreground"></div>`;
+
+  for (const caption of captions) {
+    const frame = html`<div class="scrollyteller__frame"></div>`;
+    if (caption.text) {
+      const el = html`<div class="scrollyteller__caption" style="
+        ${caption.left ? `left: ${caption.left};` : ''}
+        ${caption.right ? `right: ${caption.right};` : ''}
+        ${caption.top ? `top: ${caption.top};` : ''}
+        ${caption.bottom ? `bottom: ${caption.bottom};` : ''}
+      "></div>`;
+      // A caption may be a node rather than markup, which is what lets one hold
+      // a tex expression: `tex` returns an element, so it cannot go through
+      // innerHTML.
+      if (caption.text instanceof Node) el.appendChild(caption.text);
+      else el.innerHTML = caption.text;
+      frame.appendChild(el);
+    }
+    foreground.appendChild(frame);
+  }
+
+  background.appendChild(fixed);
+  container.appendChild(background);
+  container.appendChild(foreground);
+  return { container, background, fixed, foreground };
+}
+
+const smoothstep = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * The readout that says why this ends rather than just repeating: a track from
+ * zero to the blowup time, ticked at every generation boundary, with the core
+ * speed beside it.
+ *
+ * The cascade picture on its own is self-similar, and self-similar pictures
+ * look eternal -- nothing about a nest of copies says it is over by a fixed
+ * moment. The ledger does say it. Generation 1 alone eats half the total time
+ * and generation 3 leaves only a sixth of it, so the ticks pile into the right
+ * hand end of the track and the fill visibly stalls there, while the speed
+ * beside it runs away by four orders of magnitude. Stalling and running away at
+ * once is the singularity.
+ */
+function buildBlowupStrip(fixed: HTMLElement, rows: any[], blowupTime: number, genMax: number) {
+  const fill = html`<div class="blowup-strip__fill"></div>`;
+  const head = html`<div class="blowup-strip__head"></div>`;
+  const track = html`<div class="blowup-strip__track"></div>`;
+  track.appendChild(fill);
+  for (let n = 1; n <= genMax; n++) {
+    const tick = html`<div class="blowup-strip__tick"></div>`;
+    tick.style.left = `${(rows[n - 1].end / blowupTime) * 100}%`;
+    track.appendChild(tick);
+  }
+  track.appendChild(head);
+
+  const genLabel = html`<span></span>`;
+  const speedLabel = html`<span style="color:#e8a765"></span>`;
+  // What the rescaling is worth. Without it the reader cannot tell whether the
+  // structure is shrinking or the camera is moving in, and that is the whole
+  // difference between a zoom and a singularity.
+  const zoomLabel = html`<span style="color:#21b0c4"></span>`;
+  const el = html`<div class="blowup-strip">
+    <div class="blowup-strip__row">${genLabel}${speedLabel}</div>
+    ${track}
+    <div class="blowup-strip__row">${zoomLabel}<span>time → ${tex`T^*`}</span></div>
+  </div>`;
+  fixed.appendChild(el);
+
+  const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumSignificantDigits: 2 });
+  const base = rows[0].velocity;
+
+  /**
+   * @param gen        fractional generation index, from 1
+   * @param opacity    fade of the readout itself
+   * @param magnified  how much the frame is rescaled against generation one
+   */
+  const update = (gen: number, opacity: number, magnified: number) => {
+    el.style.opacity = String(opacity);
+    const g = Math.min(genMax, Math.max(1, gen));
+    const i = Math.min(rows.length - 2, Math.floor(g) - 1);
+    const f = g - Math.floor(g);
+    const row = rows[i];
+    const elapsed = row.start + f * row.duration;
+    // Speed grows geometrically, so interpolate it in the log rather than
+    // straight: a linear step between 5e3 and 1e4 spends most of its length in
+    // the wrong decade.
+    const speed = Math.exp(
+      Math.log(row.velocity) + f * (Math.log(rows[i + 1].velocity) - Math.log(row.velocity))
+    );
+    const frac = elapsed / blowupTime;
+    fill.style.width = `${frac * 100}%`;
+    head.style.left = `calc(${frac * 100}% - 1px)`;
+    genLabel.textContent = `generation ${Math.floor(g)}`;
+    speedLabel.textContent = `speed ×${compact.format(speed / base)}`;
+    zoomLabel.textContent = `shown ×${compact.format(magnified)}`;
+  };
+
+  // The frame loop does not run while the figure is off screen, so fill the
+  // labels in now and start hidden. Otherwise the strip scrolls into view as an
+  // empty box for a frame.
+  update(1, 0, 1);
+  return update;
+}
+
+/**
+ * Whether an element is anywhere near the viewport.
+ *
+ * Every animated figure here has to stop when it is not being looked at, and
+ * the cheap way to ask is not to ask: an IntersectionObserver reports the
+ * answer when it changes, where measuring a rectangle every frame forces the
+ * browser to settle layout sixty times a second whether or not anything is on
+ * screen. The margin is generous, so the scrollytellers have their pinning
+ * logic running before they arrive rather than snapping into place.
+ */
+function observeVisibility(el: HTMLElement, rootMargin = '25%') {
+  const state = { visible: false, stop: () => {} };
+  const observer = new IntersectionObserver(([e]) => { state.visible = e.isIntersecting; }, { rootMargin });
+  observer.observe(el);
+  state.stop = () => observer.disconnect();
+  return state;
+}
+
+/** Phones get less geometry and one fewer peel layer. */
+function isSmallScreen() {
+  return Math.min(screen.width, screen.height) < 520 || navigator.maxTouchPoints > 0;
+}
+
+/** Progress through a scrollyteller, in [0, 1]. */
+function scrollProgress(container: HTMLElement) {
+  const rect = container.getBoundingClientRect();
+  const scrollHeight = container.offsetHeight - window.innerHeight;
+  if (scrollHeight <= 0) return 0;
+  return Math.max(0, Math.min(1, -rect.top / scrollHeight));
+}
+
+/** Pin, release, or park the background, and report whether it is on screen. */
+function updateBackgroundPosition(container: HTMLElement, background: HTMLElement) {
+  const rect = container.getBoundingClientRect();
+  const height = window.innerHeight;
+  const topAbove = rect.top <= 0;
+  const bottomBelow = rect.bottom >= height;
+  const fixed = topAbove && bottomBelow;
+
+  background.classList.toggle('is-fixed', fixed);
+  background.classList.toggle('is-bottom', topAbove && !fixed);
+
+  return rect.top < height && rect.bottom > 0;
+}
+
+/**
+ * A corner button that swaps between scrolling the page and rotating the view.
+ *
+ * On touch devices the canvas starts transparent to pointer events, so a drag
+ * scrolls the article. Pressing the button hands pointers to the canvas and
+ * turns off touch scrolling over it. A mouse never needs this, since the camera
+ * is created with the wheel disabled and dragging does not scroll.
+ */
+function addModeToggle(fixed: HTMLElement, canvas: HTMLCanvasElement) {
+  const isTouch = navigator.maxTouchPoints > 0;
+  const button = html`<button class="scrolly-mode" type="button" aria-pressed="false">
+    <span>Scroll</span>
+  </button>` as HTMLButtonElement;
+  if (isTouch) button.classList.add('is-touch');
+
+  let rotating = false;
+  const apply = () => {
+    canvas.style.pointerEvents = rotating || !isTouch ? 'auto' : 'none';
+    canvas.style.touchAction = rotating ? 'none' : 'auto';
+    button.setAttribute('aria-pressed', String(rotating));
+    button.firstElementChild!.textContent = rotating ? 'Rotate' : 'Scroll';
+  };
+
+  button.addEventListener('click', () => { rotating = !rotating; apply(); });
+  apply();
+  fixed.appendChild(button);
+  return button;
+}
+
+/** Create the sticky canvas for a scrollyteller, sized to its container. */
+function attachCanvas(fixed: HTMLElement) {
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText =
+    'position:absolute;top:0;left:0;width:100%;height:100%;display:block;cursor:grab;';
+  fixed.appendChild(canvas);
+
+  // The peel passes cannot be multisampled, so oversample the backing store
+  // instead and let the browser downscale.
+  const dpi = Math.min(2, window.devicePixelRatio);
+  const resize = () => {
+    canvas.width = Math.max(1, Math.floor(fixed.offsetWidth * dpi));
+    canvas.height = Math.max(1, Math.floor(fixed.offsetHeight * dpi));
+  };
+  resize();
+  return { canvas, resize };
+}
+  </script>
+
+  <script id="lesson-intro" type="text/markdown">
+## Vortex stretching
+
+Start somewhere ordinary. Scroll.
+  </script>
+
+  <script id="scrolly-stretching" type="module">
+await new Promise((r) => setTimeout(r, 100));
+
+{
+  const captions = [
+    { text: "A vortex line: a thread of spinning fluid, with the flow around it drawn as drifting streaks. It has no ends, because a vortex tube cannot stop in mid-fluid.", left: "8%", bottom: "12%" },
+    { text: "Now a second, unrelated motion: the fluid is pulled apart along that same axis, and drawn inward from the sides to replace it.", right: "8%", bottom: "12%" },
+    { text: "Run both at once.", left: "8%", bottom: "12%" },
+    { text: "Stretching it makes it thinner and pulls it straight. The fluid is drawn inward and whips faster, because the same circulation now wraps a smaller circle.", right: "8%", bottom: "12%" },
+    { text: "A skater pulling their arms in. Nothing is added; the rotation just has less room.", left: "8%", bottom: "12%" },
+    { text: "Thinner, faster, finer. This is the turbulent cascade, energy walking down the scales.", right: "8%", bottom: "12%" },
+    { text: "And normally it stops. Below some scale viscosity spreads the core faster than stretching can thin it, and the cascade dies out.", left: "8%", bottom: "12%" }
+  ];
+
+  // One pull, start to finish. The stretch rises once and then levels off,
+  // which is the last caption: viscosity catching up is the curve going flat,
+  // not a new thing appearing. The strain arrows are on only while it is rising,
+  // since they are there to show a change and there is nothing to show once it
+  // stops.
+  const frameCount = captions.length;
+  const sequencer = createSequencer({
+    tubeOpacity:   [{ t: 0, value: 0 }, { t: 0.45, value: 0.8 }, { t: 7, value: 0.8 }],
+    streakOpacity: [{ t: 0, value: 0 }, { t: 0.55, value: 1 }, { t: 1.2, value: 1 }, { t: 1.8, value: 0.06 }, { t: 2.4, value: 0.06 }, { t: 3.0, value: 1 }],
+    axialOpacity:  [{ t: 1.15, value: 0 }, { t: 1.8, value: 1 }, { t: 5.4, value: 1 }, { t: 6.2, value: 0 }],
+    radialOpacity: [{ t: 1.15, value: 0 }, { t: 2.0, value: 1 }, { t: 5.4, value: 1 }, { t: 6.2, value: 0 }],
+    // One gesture, not a sequence of them. Interior keyframes each ease in and
+    // out of their own segment, which is what made the pull read as three
+    // separate tugs; this is a single ramp instead, and the stretch is its
+    // exponential. That is also what a constant strain rate actually does to a
+    // material line, so the smooth version is the physical one.
+    strain:        [{ t: 2.4, value: 0 }, { t: 6.6, value: 1 }]
+  });
+
+  const { container, background, fixed } = buildScrollyteller('scrolly-stretching', captions);
+  display(container);
+  await new Promise((r) => setTimeout(r, 100));
+
+  const { canvas, resize } = attachCanvas(fixed);
+  addModeToggle(fixed, canvas);
+
+  const gpuContext = canvas.getContext('webgpu');
+  gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+  const camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
+    distance: 5.6,
+    theta: 0.18,
+    phi: 0.6,
+    fov: 0.7,
+    wheel: false,
+    renderContinuously: false
+  });
+
+  const renderer = createRenderer(device, canvasFormat, { tube: tubeShaderCode, composite: compositeShaderCode });
+  const small = isSmallScreen();
+  const scene = buildLessonScene({});
+  renderer.setLayer('tube', scene.tube);
+  renderer.setLayer('streakFast', scene.streakFast);
+  renderer.setLayer('streakMid', scene.streakMid);
+  renderer.setLayer('streakSlow', scene.streakSlow);
+  renderer.setLayer('axialUp', scene.axialUp);
+  renderer.setLayer('axialDown', scene.axialDown);
+  renderer.setLayer('radial', scene.radial);
+
+  // Circulation around the core is conserved, so the angular rate rises in step
+  // with how much the core has been stretched. One number drives both the
+  // visible rotation and how fast the pulses run along the arrows.
+  // A torrent, not a handful. The dashes are a few pixels across, so the count
+  // is what makes it read as fluid rather than as objects.
+  // Twice as many as before, because the swarm now covers the whole height of
+  // the frame rather than a band across the middle of it, and because the pull
+  // carries most of them out of the top and bottom before it is over.
+  const STREAKS = seedStreaks(small ? 1300 : 2600);
+
+  const streakAngle = new Float64Array(STREAKS.length);
+  // Pulse phases are integrated, not derived from a clock times a rate: the
+  // swirl rate follows the stretch, and multiplying a changing rate by an
+  // absolute time slews the pulses by whole cycles.
+  // Parcels of fluid carried by the straining flow. An arrow is that parcel's
+  // velocity vector, so it lengthens as the parcel accelerates outward along
+  // the axis and shortens as it slows on its way in. Pinning them in place, as
+  // fixed labels, left them frozen while everything they annotate moved.
+  const parcels = seedStrainParcels();
+  let elapsed = 0;
+  let smoothed = 0;
+  let last = performance.now();
+
+  const seen = observeVisibility(container);
+  const loop = createFrameLoop((now) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!seen.visible) return;
+    if (!updateBackgroundPosition(container, background)) return;
+
+    smoothed += (scrollProgress(container) - smoothed) * 0.1;
+    sequencer.setPosition(smoothed * frameCount);
+    const s = sequencer.getState();
+
+    // Set the camera before drawing, or the distance trails the scroll by a frame.
+    // The stretch and the camera pull-back both ride the one strain ramp, so
+    // there is a single smooth motion rather than several curves easing against
+    // each other.
+    const sy = Math.pow(MAX_STRETCH, s.strain);
+    camera.setState({ distance: 5.8 + 0.9 * s.strain });
+
+    const sr = 1 / Math.sqrt(sy);
+
+    for (let i = 0; i < STREAKS.length; i++) {
+      streakAngle[i] += (dt * SWIRL_STRENGTH * sy) / (STREAKS[i].radius * STREAKS[i].radius);
+    }
+
+    // The straining arrows are Eulerian, so their highlights run at the local
+    // speed of the strain: u_z = gamma z along the axis and u_r = -gamma r / 2
+    // across it, each divided by the length of the arrow drawing it.
+    elapsed += dt;
+
+    // Advect the parcels: dz/dt = gamma z away from the stagnation plane and
+    // dr/dt = -gamma r / 2 toward the axis, which is the strain exactly. Each
+    // is recycled once it has run its course.
+    const grow = Math.exp(GAMMA * dt);
+    const draw = Math.exp((-GAMMA * dt) / 2);
+    for (const p of parcels.axial) {
+      p.z *= grow;
+      p.radius *= draw;
+      if (p.z > AXIAL_SPAN[1]) { p.z = AXIAL_SPAN[0]; p.radius = 0.98; }
+    }
+    for (const p of parcels.radial) {
+      p.radius *= draw;
+      if (p.radius < RADIAL_SPAN[0]) p.radius = RADIAL_SPAN[1];
+    }
+
+    // The core is an open, gently curved tube. Stretching narrows it and never
+    // lengthens it into view, and because the lateral wander scales with the
+    // radius the line visibly pulls straight as it thins. Material markers
+    // carry no highlight of their own.
+    // A slow breath on the core, and a slight bob on each loop. Neither is a
+    // real vortex evolution; they are there so the figure reads as a process
+    // rather than a diagram. The loops breathe with the core, since they are
+    // painted on it.
+    const breath = 1 + 0.035 * Math.sin(0.55 * elapsed);
+    // One amplitude, shared by the core and by everything orbiting it, so they
+    // wander together. It rides the radial contraction, so stretching visibly
+    // pulls the filament straight.
+    const wander = WRITHE * sr * breath;
+    const core = { stretchR: sr * breath, opacity: s.tubeOpacity, pulseAmp: 0, writhe: wander };
+
+    // Material loops painted on the tube. The flow carries them apart in
+    // proportion to the stretch, contracts them with the core, and turns them.
+    // Each streak is carried by the flow: drawn inward as the core contracts,
+    // apart as it is stretched, and around at its own rate. The offset is
+    // applied before the scale, so the height divides through.
+    const swarm = { streakFast: [], streakMid: [], streakSlow: [] };
+    STREAKS.forEach((t, i) => {
+      // Free vortex: the orbital speed is Gamma / 2 pi r at the parcel's own
+      // contracted radius, so it rises as the core is drawn in. The dash is
+      // drawn in proportion, which is what turns the swarm into streaks near
+      // the axis and drifting specks at the rim.
+      const speed = SWIRL_STRENGTH / (t.radius * sr);
+      swarm[t.band].push({
+        offsetR: t.radius * sr * breath,
+        offsetY: t.y * sy + 0.03 * Math.sin(0.7 * elapsed + i),
+        twist: t.twist + streakAngle[i],
+        opacity: s.streakOpacity,
+        pulseAmp: 0,
+        elongate: speed / STREAK_REF_SPEED,
+        bend: true,
+        // The parcels ride the vortex's wander, so the core never cuts through
+        // the fluid orbiting it.
+        writhe: wander
+      });
+    });
+
+    // Fade a parcel in as it is born and out as it is retired, so recycling
+    // never shows as a pop.
+    const ends = (f) => smoothstep(0, 0.14, f) * (1 - smoothstep(0.86, 1, f));
+
+    const strainUp = [];
+    const strainDown = [];
+    const axialLife = Math.log(AXIAL_SPAN[1] / AXIAL_SPAN[0]);
+    for (const p of parcels.axial) {
+      // The arrow is the velocity vector: u_z = gamma z, drawn to scale.
+      const length = SPEED_TO_LENGTH * GAMMA * p.z;
+      const inst = {
+        scale: length,
+        twist: p.twist,
+        offsetR: p.radius / length,
+        offsetY: (p.sign * p.z) / length,
+        opacity: s.axialOpacity * ends(Math.log(p.z / AXIAL_SPAN[0]) / axialLife),
+        pulseAmp: 0
+      };
+      (p.sign > 0 ? strainUp : strainDown).push(inst);
+    }
+
+    const radialLife = Math.log(RADIAL_SPAN[1] / RADIAL_SPAN[0]);
+    const radialRing = parcels.radial.map((p) => {
+      // u_r = -gamma r / 2, so an inflow arrow shortens as it closes on the axis.
+      const length = SPEED_TO_LENGTH * GAMMA * p.radius * 0.5;
+      return {
+        scale: length,
+        twist: p.twist,
+        offsetR: (p.radius - length) / length,
+        offsetY: p.y / length,
+        opacity: s.radialOpacity * ends(Math.log(RADIAL_SPAN[1] / p.radius) / radialLife),
+        pulseAmp: 0
+      };
+    });
+
+    renderer.render(gpuContext, {
+      background: themeState.background,
+      isDark: themeState.isDark,
+      time: elapsed,
+      flowRate: 1.0,
+      flowAmp: 0.85,
+      sceneRadius: 3.2,
+      peelLayers: small ? 3 : 4,
+      layers: [
+        { id: 'tube', instances: [core] },
+        { id: 'streakSlow', instances: swarm.streakSlow },
+        { id: 'streakMid', instances: swarm.streakMid },
+        { id: 'streakFast', instances: swarm.streakFast },
+        { id: 'axialUp', instances: strainUp },
+        { id: 'axialDown', instances: strainDown },
+        { id: 'radial', instances: radialRing }
+      ]
+    }, camera, canvas.width, canvas.height);
+  });
+
+  const onResize = () => { resize(); camera.taint(); };
+  window.addEventListener('resize', onResize);
+  invalidation.then(() => {
+    loop.cancel();
+    seen.stop();
+    window.removeEventListener('resize', onResize);
+    camera.destroy();
+    renderer.destroy();
+  });
+}
+  </script>
+
+  <script id="after-stretching" type="text/markdown">
+That last step is the whole difficulty of the problem. Stretching sharpens a vortex; viscosity smooths it. In every fluid anyone has ever measured, viscosity wins in the end, at a small but strictly positive scale. Whether it *must* win is what the Millennium problem asks.
+
+The construction below is an argument that it need not.
+  </script>
+
+  <script id="family-intro" type="text/markdown">
+## One flow, four numbers
+
+The construction is not a new equation. It is one flow, repeated — and that flow is the object you have just watched being stretched, written down: an axisymmetric vortex with swirl, squeezed along its own axis by a strain.
+
+Four numbers pick one member out of that family. Two of them say how hard it is driven: ${tex`\gamma`}, the strength of the strain, and ${tex`\omega`}, the rate the core spins. Two say how big the core is: ${tex`\sigma`} across and ${tex`z_H`} along. Between them they fix the only two things about a member that survive into everything that follows — the shape of the region the motion is confined to, and how many turns a parcel makes before the strain carries it out of that region.
+
+Nothing here is shrinking yet. The outline is held at whatever size keeps it on the screen, so moving the sliders changes its shape and never its scale; the shrinking is the next figure's business.
+  </script>
+
+  <script id="family-figure" type="text/x-typescript">
+{
+  const small = isSmallScreen();
+
+  /**
+   * The live parameters, mutated in place.
+   *
+   * A slider writing into a reactive cell would tear down and rebuild the GPU
+   * pipelines on every pixel of a drag. This object is written by the input
+   * handlers and read by the frame loop, and the cell never re-runs.
+   */
+  const params = { ...FAMILY_DEFAULTS };
+  const shown = { capsule: true, streams: true };
+  const pending = { geometry: true };
+
+  const RINGS = small ? 4 : 5;
+  const PER_RING = small ? 6 : 8;
+  // Measured across an eighty-one point grid over the corners and midpoints of
+  // the slider box: the worst member needs 14988 stream vertices. Packing stops
+  // when full rather than overrunning, so this is headroom and not a guess.
+  const STREAM_CAP = 18000;
+  const CAPSULE_CAP = 900;
+  /** The top of the parcel slider, and what the swarm is allocated for. */
+  const MAX_PARCELS = small ? 1500 : 4000;
+  // Every parcel is its trail plus one break, and every parcel vertex is two
+  // vec4: position and speed, then fade and taper.
+  const PARCEL_CAP = MAX_PARCELS * (PARCEL_TRAIL + 1);
+
+  const FOV = 0.62;
+  const STREAM_WIDTH = small ? 1.3 : 1.5;
+  const PARCEL_WIDTH = small ? 2.0 : 2.4;
+  const CAPSULE_WIDTH = 1.0;
+  const CAPSULE_ALPHA = 0.34;
+  /** How far the streamlines are faded back under a full swarm. */
+  const STREAM_DIM = 0.42;
+  /** One global factor on every parcel's clock: slow motion, not a made-up speed. */
+  const PARCEL_RATE = 1.4;
+
+  const streamData = new Float32Array(STREAM_CAP * 4);
+  const parcelData = new Float32Array(PARCEL_CAP * 8);
+  const capsuleData = new Float32Array(CAPSULE_CAP * 4);
+  const swarm = createParcelSwarm(MAX_PARCELS);
+  let lines = [];
+  let field = null;
+  let streamCount = 0;
+  let parcelCount = 0;
+  let capsuleCount = 0;
+  let wanted = small ? 400 : 900;
+  let core = coreExtent(params);
+
+  const canvas = html`<canvas style="position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab"></canvas>`;
+  const stage = html`<div style="position:relative;width:100%;height:100%"></div>`;
+  stage.appendChild(canvas);
+
+  const gpu = canvas.getContext('webgpu');
+  gpu.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+  const camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
+    distance: 6,
+    theta: 0.18,
+    phi: 0.9,
+    fov: FOV,
+    // This figure sits in the flow of the article, so it must never take a
+    // gesture the page needs. No wheel, and no touch handling at all: a finger
+    // scrolls past it as if it were a picture, while a mouse can still drag it
+    // round.
+    wheel: false,
+    touch: false,
+    renderContinuously: false
+  });
+
+  const lineOptions = {
+    join: 'miter',
+    cap: 'round',
+    maxCapResolution: 4,
+    // Multisampled rather than supersampled. The cascade cannot do this because
+    // its peel test reads a depth texture per fragment; there is no peeling
+    // here, so the cheaper answer is available.
+    multisample: { count: 4 }
+  };
+  const opaqueTarget = [{ format: canvasFormat }];
+
+  const streams = createGPULines(device, {
+    ...lineOptions,
+    colorTargets: opaqueTarget,
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    vertexShaderBody: familyVertexBody('streamWidth'),
+    fragmentShaderBody: familyLineFragment('streamGain')
+  });
+
+  /**
+   * The parcels, on `less-equal` rather than `less`.
+   *
+   * A parcel is a piece of the streamline it rides, at the same coordinates, so
+   * against a strict test the streamline drawn first would win every pixel of
+   * it. Drawn second and allowed to tie, the parcel covers the curve it is on
+   * and nothing else.
+   */
+  const parcels = createGPULines(device, {
+    ...lineOptions,
+    colorTargets: opaqueTarget,
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less-equal' },
+    vertexShaderBody: parcelVertexBody,
+    fragmentShaderBody: familyParcelFragment
+  });
+
+  /**
+   * The outline, drawn last with the depth test on and depth writes off.
+   *
+   * It is translucent, so it must not hide what is behind it; it is a surface,
+   * so it must still be hidden by what is in front of it. Those two together
+   * are a third pipeline rather than a third draw, since depth writing is
+   * pipeline state.
+   */
+  const capsuleLines = createGPULines(device, {
+    ...lineOptions,
+    colorTargets: [{
+      format: canvasFormat,
+      blend: {
+        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+      }
+    }],
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+    vertexShaderBody: familyVertexBody('capsuleWidth'),
+    fragmentShaderBody: familyCapsuleFragment
+  });
+
+  const storage = (label, data) => device.createBuffer({
+    label, size: data.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+  const streamBuffer = storage('family-streams', streamData);
+  const parcelBuffer = storage('family-parcels', parcelData);
+  const capsuleBuffer = storage('family-capsule', capsuleData);
+  const viewBuffer = device.createBuffer({
+    label: 'family-view', size: FAMILY_VIEW_SIZE,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+
+  const bindOf = (pipeline, buffer) => device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(1),
+    entries: [
+      { binding: 0, resource: { buffer } },
+      { binding: 1, resource: { buffer: viewBuffer } }
+    ]
+  });
+  const streamBind = bindOf(streams, streamBuffer);
+  const parcelBind = bindOf(parcels, parcelBuffer);
+  const capsuleBind = bindOf(capsuleLines, capsuleBuffer);
+
+  const viewData = new Float32Array(FAMILY_VIEW_SIZE / 4);
+
+  const dpr = Math.min(2, window.devicePixelRatio);
+  let targets = null;
+  let targetKey = '';
+  function ensureTargets() {
+    const key = `${canvas.width}x${canvas.height}`;
+    if (key === targetKey || !canvas.width || !canvas.height) return;
+    targetKey = key;
+    for (const t of targets ?? []) t.destroy();
+    const size = [canvas.width, canvas.height];
+    targets = [
+      device.createTexture({
+        label: 'family-msaa', size, format: canvasFormat,
+        sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
+      }),
+      device.createTexture({
+        label: 'family-depth', size, format: 'depth24plus',
+        sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT
+      })
+    ];
+  }
+
+  // The readout: what the four sliders add up to. Sizes take the size colour and
+  // the speed takes the speed colour, the same as everywhere else.
+  const num = (v) => v.toFixed(2);
+  const readRadial = html`<b style="color:${ROLE.size}"></b>`;
+  const readAxial = html`<b style="color:${ROLE.size}"></b>`;
+  const readAspect = html`<b style="color:${ROLE.size}"></b>`;
+  const readTurns = html`<b></b>`;
+  const readSpeed = html`<b style="color:${ROLE.speed}"></b>`;
+  const readout = html`<div class="family-readout">
+    <span>core radius ${readRadial}</span>
+    <span>half-length ${readAxial}</span>
+    <span>${tex`\ell/r`} ${readAspect}</span>
+    <span>turns per e-fold ${readTurns}</span>
+    <span>peak speed ${readSpeed}</span>
+  </div>`;
+
+  function rebuild() {
+    field = createField({
+      gamma: params.gamma, omega: params.omega, sigma: params.sigma,
+      zH: params.zH, zK: params.zH * ZK_RATIO
+    });
+    core = coreExtent(params);
+
+    lines = familyStreamlines(field, core, { rings: RINGS, perRing: PER_RING });
+    streamCount = packStreamlines(streamData, lines);
+    capsuleCount = packCurves(capsuleData, capsuleWireframe(core.radial, core.axial, {
+      meridians: 4, rings: 5, segments: small ? 32 : 48
+    }));
+
+    device.queue.writeBuffer(streamBuffer, 0, streamData, 0, streamCount * 4);
+    device.queue.writeBuffer(capsuleBuffer, 0, capsuleData, 0, capsuleCount * 4);
+
+    readRadial.textContent = num(core.radial);
+    readAxial.textContent = num(core.axial);
+    readAspect.textContent = num(core.aspect);
+    readTurns.textContent = num(turnsPerEfold(params));
+    readSpeed.textContent = num(maxSpeed(lines));
+    frameCamera();
+  }
+
+  /**
+   * Hold the core at a constant apparent size, whatever shape it is.
+   *
+   * This is the figure's one rule: the family is being explored, not shrunk, so
+   * a member that is genuinely narrower must read as narrower rather than as
+   * further away. Backing the camera off to fit the core keeps the scale out of
+   * the picture entirely and leaves only the shape.
+   */
+  function frameCamera() {
+    const aspect = (canvas.width || 1) / (canvas.height || 1);
+    const need = Math.max(core.axial, core.radial / aspect);
+    const distance = (need * 1.55) / Math.tan(FOV / 2);
+    camera.state.distance = distance;
+    // Clip planes wrapped round the scene rather than left at the defaults. At
+    // near = 0.1 and a camera eight units out, everything drawn lands between
+    // depths 0.983 and 0.990 -- it works, but it is a hundredth of the buffer
+    // doing all of the ordering, and the ordering is the only thing telling the
+    // reader which side of the core a curve is on.
+    camera.state.near = Math.max(0.05, distance - 3.2 * need);
+    camera.state.far = distance + 3.2 * need;
+    camera.taint();
+  }
+
+  const controls = html`<div id="family-controls"></div>`;
+  const toggleRow = html`<div class="family-toggles"></div>`;
+  const sliderRow = html`<div class="family-sliders"></div>`;
+  controls.appendChild(toggleRow);
+  controls.appendChild(sliderRow);
+
+  const toggle = (key, label) => {
+    const input = Inputs.toggle({ label, value: shown[key] });
+    input.addEventListener('input', () => { shown[key] = !!input.value; });
+    toggleRow.appendChild(input);
+  };
+  toggle('capsule', 'outline');
+  toggle('streams', 'streamlines');
+
+  const slider = (key, label, range, step) => {
+    const input = Inputs.range(range, { label, value: params[key], step, width: 210 });
+    input.addEventListener('input', () => {
+      params[key] = +input.value;
+      // Rebuilt on the next frame rather than here, so a drag costs one
+      // integration per frame instead of one per pixel of slider travel.
+      pending.geometry = true;
+    });
+    sliderRow.appendChild(input);
+  };
+  // Parcels get a count rather than an on-off, and the count is logarithmic:
+  // the interesting range runs from a dozen tracers you can follow individually
+  // to a few thousand that read as fluid, and linear travel would spend nine
+  // tenths of the slider inside the last doubling.
+  {
+    const input = Inputs.range([8, MAX_PARCELS], {
+      label: 'parcels', value: wanted, width: 210,
+      transform: Math.log, invert: Math.exp,
+      format: (v) => String(Math.round(v))
+    });
+    input.addEventListener('input', () => { wanted = Math.round(+input.value); });
+    sliderRow.appendChild(input);
+  }
+
+  slider('gamma', 'γ  stretch', [0.4, 3.2], 0.05);
+  slider('omega', 'ω  swirl', [0.4, 7.0], 0.05);
+  slider('sigma', 'σ  core width', [0.2, 1.8], 0.02);
+  slider('zH', 'z_H  core length', [0.5, 2.6], 0.02);
+
+  const onResize = (_el, w, h) => {
+    canvas.width = Math.max(1, Math.round(w * dpr));
+    canvas.height = Math.max(1, Math.round(h * dpr));
+    frameCamera();
+  };
+
+  // Off screen this figure does nothing at all: it turns continuously and it
+  // advects parcels, which is the only reason a plot needs a frame loop, and
+  // doing either for nobody is pure cost.
+  const seen = observeVisibility(stage, '15%');
+
+  let clock = 0;
+  let last = performance.now();
+  const loop = createFrameLoop((now) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!seen.visible || !canvas.width || !canvas.height) return;
+    clock += dt;
+
+    if (pending.geometry) { pending.geometry = false; rebuild(); }
+    ensureTargets();
+    if (!targets) return;
+
+    // The swarm is stepped through the current field, whatever the sliders have
+    // just done to it: a parcel left stranded outside the new core is retired
+    // by the same test that retires one the flow has carried out, rather than
+    // being snapped onto a recomputed curve.
+    advanceParcels(swarm, field, core, dt, { rate: PARCEL_RATE, active: wanted });
+    parcelCount = packParcels(parcelData, swarm);
+    if (parcelCount > 1) {
+      device.queue.writeBuffer(parcelBuffer, 0, parcelData, 0, parcelCount * 8);
+    }
+
+    // The flow is axisymmetric, so turning the camera about the axis costs
+    // nothing and is the cheapest way to make a still picture read as three
+    // dimensional -- which matters most on a phone, where there is no dragging
+    // it round.
+    camera.state.phi += 0.14 * dt;
+    camera.taint();
+
+    const bg = themeState.background;
+    const { projView } = camera.update(canvas.width / canvas.height);
+    viewData.set(projView, 0);
+    viewData.set(bg, 16);
+    viewData[19] = STREAM_WIDTH * dpr;
+    viewData[20] = PARCEL_WIDTH * dpr;
+    viewData[21] = CAPSULE_WIDTH * dpr;
+    viewData[22] = themeState.isDark ? 1 : 0;
+    // Faded back toward the page as the swarm fills in, so the parcels read as
+    // the moving thing and the curves as what they move through. Continuous in
+    // the count, so the slider never steps the streamlines.
+    const density = Math.min(1, Math.max(0, (wanted - 60) / 700));
+    viewData[23] = 1 - (1 - STREAM_DIM) * density * density * (3 - 2 * density);
+    viewData[24] = 1;
+    viewData[25] = CAPSULE_ALPHA;
+    device.queue.writeBuffer(viewBuffer, 0, viewData);
+
+    const resolution = [canvas.width, canvas.height];
+    const draws = [
+      [streams, streamBind, shown.streams ? streamCount : 0],
+      [parcels, parcelBind, parcelCount],
+      [capsuleLines, capsuleBind, shown.capsule ? capsuleCount : 0]
+    ];
+    // Uniforms have to be written before any pass opens.
+    for (const [pipeline, , count] of draws) {
+      if (count > 1) pipeline.updateUniforms({ vertexCount: count, resolution });
+    }
+
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: targets[0].createView(),
+        resolveTarget: gpu.getCurrentTexture().createView(),
+        clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
+        loadOp: 'clear',
+        storeOp: 'discard'
+      }],
+      depthStencilAttachment: {
+        view: targets[1].createView(),
+        depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard'
+      }
+    });
+    for (const [pipeline, bind, count] of draws) {
+      if (count > 1) {
+        pipeline.draw(pass, { vertexCount: count, resolution, skipUniformUpdate: true }, [bind]);
+      }
+    }
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+  });
+
+  invalidation.then(() => {
+    loop.cancel();
+    seen.stop();
+    camera.destroy();
+    for (const t of targets ?? []) t.destroy();
+    for (const p of [streams, parcels, capsuleLines]) p.destroy();
+    for (const b of [streamBuffer, parcelBuffer, capsuleBuffer, viewBuffer]) b.destroy();
+  });
+
+  display(html`<figure style="margin:1.75em 0">
+    ${expandable(stage, {
+      id: 'family',
+      width: 680,
+      height: 440,
+      minHeight: 300,
+      controls,
+      onResize
+    })}
+    ${readout}
+    ${controls}
+    <figcaption>
+      Streamlines of the ansatz, coloured by speed on a scale that does not move with
+      the sliders — a member of the family that is genuinely faster comes out genuinely
+      hotter, rather than being renormalised back into the same picture. The parcels ride
+      those streamlines at the fluid's own speed, slowed by one factor shared by all of
+      them, and each trail covers a fixed interval of time, so it is long where the flow
+      is quick and a dot where it is not. The outline is the surface where the profiles'
+      shared envelope ${tex`e^{-s/\sigma}e^{-z^2/2z_H^2}`} has fallen to ${tex`1/e`} of its
+      peak, which is radius ${tex`\sqrt{2\sigma}`} around the equator and
+      ${tex`\sqrt{2}\,z_H`} at the poles; the Lean sources cut the support out as a
+      cylinder in ${tex`s`} and ${tex`z`}, so a rounded cylinder is what it honestly looks
+      like. ${tex`\gamma`} and ${tex`\omega`} together set the pitch of the helices —
+      ${tex`\omega/2\pi\gamma`} is how many turns a parcel makes while the strain stretches
+      it by a factor of ${tex`e`} — and ${tex`\sigma`} and ${tex`z_H`} set the shape of the
+      box it does that in. Each of the three pieces can be taken out to see what the other
+      two are doing without it. The view turns on its own; drag it to turn it faster.
+    </figcaption>
+  </figure>`);
+}
+  </script>
+
+  <script id="scrolly-cascade" type="module">
+await new Promise((r) => setTimeout(r, 100));
+
+{
+  const captions = [
+    { text: "One member of that family, whole — the tube, the flow around it, the stretching — is a single generation. Here it is as an outline, with its fluid faint inside.", left: "8%", bottom: "12%" },
+    { text: "A second arrives inside it: narrower, and turning quicker.", right: "8%", bottom: "12%" },
+    { text: "And a third, and a fourth. Every one costs you the same amount of scrolling.", left: "8%", bottom: "12%" },
+    { text: "Now look at the clock. It has almost stopped.", right: "8%", bottom: "12%" },
+    { text: "To keep any of them in frame we have to rescale as we go. The readout says what the magnification has reached, and how fast the core is going.", left: "8%", bottom: "12%" },
+    { text: "Ordinarily this would die out. In turbulence the velocity at a scale goes like the cube root of it, so the Reynolds number <em>falls</em> as the eddies get smaller and viscosity gains at every step down, until it wins.", right: "8%", bottom: "12%" },
+    { text: "Here the velocity grows fast enough as the scale shrinks that the product of the two goes the other way. Each generation has a <em>larger</em> Reynolds number than the last, and viscosity is never given the chance to catch up.", left: "8%", bottom: "12%" },
+    { text: "The zoom has been slowing for a while, and by now it has come to rest: there is no vantage point left from which to follow the cascade down. The rest arrive where they really are, piling into a point, and faster with every one.", right: "8%", bottom: "12%" },
+    { text: "The clock stalls just short of <em>T</em>* while they do. Infinitely many generations, finite total time, and nowhere for the velocity to end up but infinity.", left: "8%", bottom: "12%" }
+  ];
+
+  const frameCount = captions.length;
+
+  /**
+   * Generations are indexed absolutely and never recycled. The old figure held
+   * a fixed set of slots and slid a fractional offset through them, which made
+   * the visible arrangement exactly periodic in the zoom -- identical to the
+   * last digit at zoom 0, 1, 2 and 3 -- so nothing in it could appear to speed
+   * up however the rates were set. Generation m now sits at scale
+   * Lambda^(zoom - m) for good, and zooming in genuinely arrives at deeper,
+   * faster generations.
+   */
+  const GEN_COUNT = 14;
+  /**
+   * How many generations carry fluid. One.
+   *
+   * Drawing every visible generation's parcels made a dense, pretty tangle that
+   * said nothing a reader could use. But drawing exactly one meant the fluid
+   * cut to a different generation's parcels the instant the scroll crossed an
+   * integer, which is the jump that made the descent hard to follow. Three: the
+   * one being emphasised and its two neighbours, cross-faded, so a handover is
+   * one fading up as the other fades down and there is no frame at which
+   * anything is replaced.
+   */
+  const DRAW_GENS = 3;
+  const TWIST = 0.9;
+
+  // The readout is drawn from the ledger at a fixed h. The slider further down
+  // the page is a different cell; reading it here would tear down the GPU
+  // pipelines on every drag.
+  const H_STRIP = 0.25;
+  const GEN_MAX = 17;
+
+  /**
+   * The camera, as numbers rather than only as a camera, because the outlines
+   * are laid out in CSS pixels and have to agree with what the fluid is drawn
+   * through. Both read these.
+   */
+  const CAMERA = { distance: 17, fov: 0.38, theta: 0.14, phi: 0.5 };
+
+  /**
+   * How far down the cascade the scroll goes.
+   *
+   * Not as far as it can be counted -- as far as it can be seen. Past the
+   * seventeenth the outlines are a pixel across and there is no fluid small
+   * enough to put in them, so anything beyond this is scrolling past a picture
+   * that has stopped changing.
+   */
+  const GEN_END = 17;
+
+  /**
+   * Where the zoom gives up.
+   *
+   * Up to here the frame rescales to follow the cascade down. Past it the frame
+   * holds still and the remaining generations arrive at their true sizes inside
+   * it, which means piling into the middle and going sub-pixel within a few
+   * steps. That is the honest end of the picture: there is no vantage point
+   * from which the rest of an infinite sequence can be seen, and pretending
+   * otherwise by zooming forever would be drawing something nobody can look at.
+   * What is left to watch is the rate -- they arrive faster and faster, and the
+   * clock stalls anyway.
+   */
+  const HOLD_GEN = 7;
+
+  /**
+   * How the zoom comes to rest.
+   *
+   * Clamping the frame's generation at the hold stopped the zoom dead: the
+   * frame slid outward at a steady rate right up to the hold and then, in one
+   * frame, did not move at all. A camera that halts on a corner reads as a
+   * glitch, not as running out of room.
+   *
+   * So the frame's generation is the descent's, eased: at the start of the
+   * window it tracks the descent exactly, and its rate falls linearly to zero
+   * across the window, which is a constant deceleration and the same shape as
+   * anything physical coming to a stop. Written as f(u) = u - u^2/2 over
+   * u in [0, 1], whose slope runs 1 -> 0 and which travels half the window, so
+   * the ease spans HOLD_GEN +/- ZOOM_EASE/2 and rests exactly at HOLD_GEN.
+   *
+   * Six generations of window puts the deceleration under the stretch of scroll
+   * where the outlines are arriving fastest, which is what the reader should be
+   * watching by then anyway: the frame gives up gradually while the cascade
+   * keeps going, and the two crossing is the point.
+   */
+  const ZOOM_EASE = 6;
+  const ZOOM_START = HOLD_GEN - ZOOM_EASE / 2;
+  const zoomGen = (g) => {
+    if (g <= ZOOM_START) return g;
+    const u = Math.min(1, (g - ZOOM_START) / ZOOM_EASE);
+    return ZOOM_START + ZOOM_EASE * (u - u * u / 2);
+  };
+
+  /**
+   * Outlines run a little past the generations carrying fluid, and no further:
+   * each is 0.586 the width of the one outside it, so by the eighteenth there
+   * is under a pixel of it left however the frame is placed. Provisioning more
+   * than that buys nothing but scroll with nothing in it.
+   */
+  const RING_COUNT = 18;
+
+  /**
+   * The figure shows the cascade refined up to a level, not a window sliding
+   * along it. Everything coarser than where the reader has got to stays on
+   * screen, because it is still there; only the finest level reached is at full
+   * strength.
+   *
+   * `arrivedOf` is how far a generation has come into existence, and `finestOf`
+   * is how recently it was the finest -- one when the descent is on it, nothing
+   * a generation later. The two of them either side of a handover sum to one,
+   * so the fluid is handed over rather than swapped, which is what made the
+   * transitions jump.
+   */
+  const arrivedOf = (m, gen) => smoothstep(m + 0.05, m + 1, gen);
+  const finestOf = (m, gen) => 1 - smoothstep(0, 1, Math.max(0, gen - (m + 1)));
+
+  /** Read a per-generation array at a fractional generation. */
+  const interpolate = (arr, gen) => {
+    const n = Math.min(arr.length - 1, Math.max(1, gen));
+    const i = Math.min(arr.length - 2, Math.max(0, Math.floor(n) - 1));
+    const f = Math.min(1, Math.max(0, n - Math.floor(n)));
+    return arr[i] + f * (arr[i + 1] - arr[i]);
+  };
+
+
+  /** Turnover of the first generation, in turns per second of the reader's time. */
+  const ACTIVE_RATE = 0.55;
+
+  /**
+   * The frame rescales space but deliberately not time.
+   *
+   * A self-similar frame rescales both, and a frame that rescales both shows
+   * nothing: normalising the rates to the active generation pinned it at one
+   * turn per 1.8 seconds at every depth, so the entire descent looked identical
+   * however far down it went. What that normalisation was throwing away is the
+   * whole point -- the turnover 1/tau_n grows by a factor of 216 from the first
+   * generation to the fifteenth.
+   *
+   * So size is normalised, to keep the structure in frame, and time is not.
+   * Every rate here is the true one raised to this power, which is the one
+   * concession: at the true power of one the descent ends 216 times faster than
+   * it starts and is a blur long before then, and at 0.4 it ends about nine
+   * times faster, which can be watched. The readout beside the figure gives the
+   * uncompressed number.
+   */
+  const TIME_COMPRESSION = 0.4;
+
+  /** A ceiling on the rate, so the deepest packet on screen cannot flicker. */
+  const RATE_CAP = 12;
+
+  // One driver. The scroll picks a place in the cascade; the ledger turns that
+  // into a time, a radius, a speed and a slot length, and the picture, the rates
+  // and the readout all derive from those. Nothing here keeps a clock of its own
+  // any more, which is what the figure was previously doing in two places at
+  // once: parcels moved in wall-clock seconds through a field that never
+  // changed, while the readout's time moved only when the page was scrolled.
+  // One driver still, and now the outlines are on it too: a generation appears
+  // when the descent reaches it, so the reader adds them by scrolling rather
+  // than watching them arrive on a clock of their own.
+  const sequencer = createSequencer({
+    // Even going down to the hold, then accelerating: each segment covers more
+    // generations than the last for the same scrolling, so the arrivals speed
+    // up without limit as the clock runs out.
+    gen: [
+      { t: 0, value: 1 }, { t: 0.7, value: 1, ease: linear },
+      { t: 5.2, value: HOLD_GEN, ease: linear },
+      { t: 6.8, value: 10, ease: linear },
+      { t: 8.0, value: 13, ease: linear },
+      { t: frameCount, value: GEN_END, ease: linear }
+    ],
+    // The outlines and the fluid inside them come up on one ramp. On separate
+    // ones the first outline arrived well before anything was turning in it,
+    // which reads as two unrelated things rather than as one.
+    streamOpacity: [{ t: 0.15, value: 0 }, { t: 0.9, value: 1 }],
+    glyphOpacity:  [{ t: 0.15, value: 0 }, { t: 0.9, value: 1 }],
+    // The readout is the frame of reference for everything else in the figure --
+    // which generation this is, how far the clock has run, what the frame has
+    // been magnified by -- so it belongs on screen from about the moment there
+    // is a second generation to compare the first one against. It used to wait
+    // until a third of the way down the scroll, by which point the reader had
+    // already had to decide for themselves what they were looking at.
+    stripOpacity:  [{ t: 0.6, value: 0 }, { t: 1.4, value: 1 }]
+  });
+
+  const ledgerRows = Scales.ledger(H_STRIP, 40);
+  const blowupTime = Scales.blowupTime(H_STRIP);
+
+  /**
+   * Log radius per generation, along the geometric trend rather than sample by
+   * sample.
+   *
+   * The ledger's radii do not fall monotonically: the floor in nu(n) makes
+   * roughly every other generation come out slightly wider than the one before
+   * it, so a nest drawn from them un-nests as often as it nests. Clamping with a
+   * running minimum was worse, and visibly so -- it gave two consecutive
+   * generations the same width while leaving them their own aspect ratios, which
+   * drew as one capsule inside another with coincident sides and different
+   * heights.
+   *
+   * So the drawn radius follows the trend the samples are scattered about,
+   * anchored across a fixed span of the ledger rather than across however many
+   * outlines are provisioned: a fixed ratio of 0.586 a generation.
+   * The aspect ratio stays exactly what the ledger says, since that one really
+   * is monotone -- it is 2^(nh) -- and it is the quantity the shape is there to
+   * carry. Width and height then both fall strictly, by 0.586 and 0.697, and the
+   * nest only ever nests. The scatter is still in the ledger and still in the
+   * plots below; it is a fact about the accounting, not about the shape of the
+   * solution.
+   */
+  const TREND_SPAN = 20;
+  const stepRatio = Math.pow(
+    ledgerRows[TREND_SPAN - 1].radial / ledgerRows[0].radial,
+    1 / (TREND_SPAN - 1)
+  );
+  const logRadial = ledgerRows.map((r, i) => Math.log(ledgerRows[0].radial) + i * Math.log(stepRatio));
+
+  const { container, background, fixed } = buildScrollyteller('scrolly-cascade', captions);
+  display(container);
+  await new Promise((r) => setTimeout(r, 100));
+
+  /**
+   * The outlines, over the same pinned box as the fluid, and aligned to it.
+   *
+   * These are the subject. Each is a generation drawn at its own ledger radius
+   * and its own aspect -- and the aspect is the Reynolds number exactly, so the
+   * shape carries the margin over viscosity without anything having to say so.
+   * They arrive as the reader scrolls, one per generation, at a constant cost in
+   * scrolling; the clock underneath is what shows that constant cost buys ever
+   * less time. That pairing is the whole argument, and neither half of it needs
+   * a label.
+   *
+   * Sized from the same camera the fluid is drawn with, so an outline and the
+   * parcels turning inside it are the same object seen two ways rather than two
+   * drawings that happen to overlap.
+   */
+  function buildOutlines(host) {
+    const layer = html`<div style="position:absolute;inset:0;pointer-events:none;z-index:1"></div>`;
+    host.appendChild(layer);
+
+    /** World radial half-extent of a packet at unit scale: the core of the ansatz. */
+    const CORE = 1.2;
+    const focal = 1 / Math.tan(CAMERA.fov / 2);
+
+    let svg = null, rings = [], sized = '';
+    function layout() {
+      const w = host.offsetWidth, h = host.offsetHeight;
+      if (!w || !h) return false;
+      const key = `${w}x${h}`;
+      if (key === sized) return true;
+      sized = key;
+      // Pixels per world unit at the focal plane, from the camera's own numbers.
+      const scale = (h / 2) * focal / CAMERA.distance;
+      const cx = w / 2, cy = h / 2;
+      // No clock here. The readout in the corner already carries the time
+      // track, and drawing a second one under the nest put two of the same
+      // scale on screen at once -- which reads as two different quantities.
+      layer.innerHTML = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:100%"
+          font-family="inherit" font-size="13">
+        ${ledgerRows.slice(0, RING_COUNT).map((r, k) => `<path id="ring-${k}" d=""
+            fill="none" stroke="${LEVEL_TINTS[k % LEVEL_TINTS.length]}"
+            stroke-width="1.6" opacity="0"/>`).join('')}
+      </svg>`;
+      svg = layer.firstElementChild;
+      rings = ledgerRows.slice(0, RING_COUNT).map((_, k) => svg.querySelector(`#ring-${k}`));
+      layout.geom = { cx, cy, scale };
+      return true;
+    }
+
+    return (state, logFrame) => {
+      layer.style.opacity = String(state.glyphOpacity);
+      if (state.glyphOpacity <= 0.004 || !layout()) return;
+      const { cx, cy, scale } = layout.geom;
+
+      for (let k = 0; k < rings.length; k++) {
+        const row = ledgerRows[k];
+        // A generation arrives as the descent reaches it, and fades once it has
+        // grown far enough past the frame to be no more than a passing edge.
+        const s = Math.exp(logRadial[k] - logFrame);
+        const halfW = s * CORE * scale;
+        const halfH = halfW * (row.axial / row.radial);
+        const tooBig = 1 - smoothstep(2.4, 4.2, halfW / (cy || 1));
+        // Coarser levels stay, at a fraction of the strength: the cascade
+        // refined this far, with the finest of it picked out.
+        const finest = finestOf(k, state.gen);
+        const opacity = arrivedOf(k, state.gen) * tooBig * (0.16 + 0.84 * finest);
+        rings[k].setAttribute('opacity', opacity.toFixed(3));
+        if (opacity > 0.004) {
+          rings[k].setAttribute('d', capsulePath(cx, cy, halfW * 2, halfH * 2));
+          rings[k].setAttribute('stroke-width', (1.15 + 1.5 * finest).toFixed(2));
+        }
+      }
+    };
+  }
+
+  const { canvas, resize } = attachCanvas(fixed);
+  addModeToggle(fixed, canvas);
+  const updateStrip = buildBlowupStrip(fixed, ledgerRows, blowupTime, GEN_MAX);
+  const updateOutlines = buildOutlines(fixed);
+
+  const gpuContext = canvas.getContext('webgpu');
+  gpuContext.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+  const camera = createUnifiedCamera(canvas, {
+    mode: 'orbit',
+    distance: CAMERA.distance,
+    theta: CAMERA.theta,
+    phi: CAMERA.phi,
+    // Narrower than it looks: tan(fov/2) halves against the 0.75 this started
+    // at, so the figure is drawn about 2.05x larger and fills the frame. Done
+    // by narrowing the lens rather than by moving the camera in, which keeps
+    // the eye where it was and so leaves the perspective, the parallax and
+    // every depth relationship in the scene exactly as they were. Stroke widths
+    // are in pixels and do not care either way. The outermost generation now
+    // runs off the edges, which is what filling the frame costs.
+    fov: CAMERA.fov,
+    wheel: false,
+    renderContinuously: false
+  });
+
+  const small = isSmallScreen();
+  const field = createField(FIELD);
+
+  // The ambient field: many short, thin trails, integrated on the GPU.
+  // Enough parcels that the ambient layer reads as fluid rather than as a
+  // scattering of marks. Cost is linear in this: each parcel is TRAIL + 1 line
+  // vertices in each of the drawn generations.
+  const PER_GEN = small ? 260 : 600;
+  const seeded = seedParticles(field, PER_GEN * GEN_COUNT);
+
+  const TRAIL_WIDTH = small ? 1.2 : 1.5;
+
+  const dpr = Math.min(2, window.devicePixelRatio);
+
+  const stateBuffer = device.createBuffer({
+    label: 'cascade-state', size: seeded.state.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+  device.queue.writeBuffer(stateBuffer, 0, seeded.state);
+
+  const metaBuffer = device.createBuffer({
+    label: 'cascade-meta', size: seeded.meta.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+  device.queue.writeBuffer(metaBuffer, 0, seeded.meta);
+
+  const viewBuffer = device.createBuffer({
+    label: 'cascade-view', size: VIEW_SIZE,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+
+  const genBuffer = device.createBuffer({
+    label: 'cascade-generations', size: DRAW_GENS * 16,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+
+  const simBuffer = device.createBuffer({
+    label: 'cascade-sim', size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+
+  const rateBuffer = device.createBuffer({
+    label: 'cascade-rates', size: GEN_COUNT * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+
+  const integrate = device.createComputePipeline({
+    label: 'cascade-integrate',
+    layout: 'auto',
+    compute: { module: device.createShaderModule({ code: integrateShaderCode(FIELD) }), entryPoint: 'main' }
+  });
+  const integrateBind = device.createBindGroup({
+    layout: integrate.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: stateBuffer } },
+      { binding: 1, resource: { buffer: metaBuffer } },
+      { binding: 2, resource: { buffer: simBuffer } },
+      { binding: 3, resource: { buffer: rateBuffer } }
+    ]
+  });
+
+  /**
+   * Order-independent transparency by depth peeling.
+   *
+   * Each pass writes depth and discards anything at or in front of the depth
+   * the previous pass captured, so the passes walk backwards through the scene
+   * one surface at a time and the layers composite back to front exactly. Both
+   * entities are drawn in every pass and share one depth buffer, which is what
+   * resolves a trail against whatever is in front of it rather than against
+   * whatever happened to be drawn second.
+   *
+   * Peeling cannot be multisampled, since the peel test reads a depth texture
+   * per fragment, so the canvas backing store is oversampled instead -- which
+   * attachCanvas already does.
+   */
+  const PEEL_LAYERS = small ? 3 : 4;
+
+  const lineOptions = {
+    // Premultiplied alpha, so the layers composite with one/one-minus-src-alpha.
+    colorTargets: [{
+      format: 'rgba8unorm',
+      blend: {
+        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+      }
+    }],
+    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' },
+    join: 'miter',
+    cap: 'round',
+    maxCapResolution: 4
+  };
+
+  const trails = createGPULines(device, {
+    ...lineOptions,
+    vertexShaderBody: trailVertexBody(FIELD),
+    fragmentShaderBody: trailFragmentBody
+  });
+
+  const compositeModule = device.createShaderModule({ code: compositeShaderCode });
+  const compositePipeline = device.createRenderPipeline({
+    label: 'cascade-composite',
+    layout: 'auto',
+    vertex: { module: compositeModule, entryPoint: 'vs' },
+    fragment: {
+      module: compositeModule, entryPoint: 'fs',
+      targets: [{
+        format: canvasFormat,
+        blend: {
+          color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list' }
+  });
+
+  const trailBind = device.createBindGroup({
+    layout: trails.getBindGroupLayout(1),
+    entries: [
+      { binding: 0, resource: { buffer: stateBuffer } },
+      { binding: 2, resource: { buffer: viewBuffer } },
+      { binding: 3, resource: { buffer: genBuffer } }
+    ]
+  });
+
+  // Reallocated on resize, and only then.
+  let targets = null;
+  let targetKey = '';
+  function ensureTargets() {
+    const key = `${canvas.width}x${canvas.height}`;
+    if (key === targetKey) return;
+    targetKey = key;
+    for (const t of targets?.all ?? []) t.destroy();
+
+    const size = [canvas.width, canvas.height];
+    const RB = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    const tex = (label, format) => device.createTexture({ label, size, format, usage: RB });
+
+    const layers = Array.from({ length: PEEL_LAYERS }, (_, i) => tex(`cascade-layer${i}`, 'rgba8unorm'));
+    const depths = [0, 1].map((i) => tex(`cascade-depth${i}`, 'depth32float'));
+    // Bound as the previous depth for layer zero. Cleared to zero, so nothing
+    // is ever in front of it and the first pass peels nothing away; that is
+    // what lets one shader serve every layer.
+    const zero = tex('cascade-depth-zero', 'depth32float');
+    const encoder = device.createCommandEncoder();
+    encoder.beginRenderPass({
+      colorAttachments: [],
+      depthStencilAttachment: {
+        view: zero.createView(), depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'store'
+      }
+    }).end();
+    device.queue.submit([encoder.finish()]);
+
+    const peelBind = (lines, view) => device.createBindGroup({
+      layout: lines.getBindGroupLayout(2),
+      entries: [{ binding: 0, resource: view }]
+    });
+    const views = [zero.createView(), depths[0].createView(), depths[1].createView()];
+    targets = {
+      all: [...layers, ...depths, zero],
+      layers, depths,
+      trailPeel: views.map((v) => peelBind(trails, v)),
+      composite: layers.map((t) => device.createBindGroup({
+        layout: compositePipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: t.createView() }]
+      }))
+    };
+  }
+
+  const genData = new Float32Array(DRAW_GENS * 4);
+  const viewData = new ArrayBuffer(VIEW_SIZE);
+  const viewF32 = new Float32Array(viewData);
+  const viewU32 = new Uint32Array(viewData);
+  const simData = new ArrayBuffer(32);
+  const simF32 = new Float32Array(simData);
+  const simU32 = new Uint32Array(simData);
+
+  const smoothstep = (a, b, x) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+
+  /** One rate per generation, whether it is being drawn this frame or not. */
+  const rateData = new Float32Array(GEN_COUNT);
+
+  /**
+   * A generation's rate: its true turnover, compressed by TIME_COMPRESSION and
+   * scaled so the first generation runs at ACTIVE_RATE.
+   */
+  const rateOf = (m) => Math.min(
+    RATE_CAP,
+    ACTIVE_RATE * Math.pow(ledgerRows[0].duration / ledgerRows[m].duration, TIME_COMPRESSION)
+  );
+
+  let smoothed = 0;
+  let stepIndex = 0;
+  let headSlot = 0;
+  let elapsedSeconds = 0;
+  let last = performance.now();
+  const seen = observeVisibility(container);
+  const loop = createFrameLoop((now) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!seen.visible) return;
+    if (!updateBackgroundPosition(container, background)) return;
+    elapsedSeconds += dt;
+
+    smoothed += (scrollProgress(container) - smoothed) * 0.1;
+    sequencer.setPosition(smoothed * frameCount);
+    const s = sequencer.getState();
+
+    const active = Math.max(1, Math.min(GEN_COUNT, Math.floor(s.gen)));
+
+    // The frame's scale, read straight off the fractional generation rather than
+    // chased toward a staircase. Chasing a staircase meant the whole picture
+    // lurched at every integer and then settled, which is the abruptness that
+    // made the descent confusing; taken continuously the nest simply slides
+    // outward at the speed the reader scrolls.
+    // The zoom follows the cascade down and then eases to a stop; past that the
+    // frame is fixed and the rest of the sequence arrives inside it.
+    const logFrame = interpolate(logRadial, zoomGen(s.gen));
+    const magnified = Math.exp(logRadial[0] - logFrame);
+    updateStrip(s.gen, s.stripOpacity, magnified);
+    updateOutlines(s, logFrame);
+    canvas.style.opacity = String(s.streamOpacity);
+
+    // The run of generations carrying fluid: the one being emphasised and its
+    // neighbours either side.
+    const genOffset = Math.max(0, Math.min(GEN_COUNT - DRAW_GENS, active - 2));
+
+    for (let i = 0; i < DRAW_GENS; i++) {
+      const m = genOffset + i;
+      // Its own turnover, from its own slot, compressed but never normalised
+      // away: a generation whose slot is shorter turns faster, and one deeper
+      // in the descent turns faster than the same neighbour did earlier.
+      const rate = rateOf(m);
+      rateData[m] = rate;
+
+      // Drawn at its true size against the frame, so the nest is the ledger's
+      // own radii rather than a fixed ratio.
+      const scale = Math.exp(logRadial[m] - logFrame);
+      genData[i * 4] = scale;
+      genData[i * 4 + 1] = m * TWIST;
+      // Emphasis: one generation at a time, and the pair either side of a
+      // handover sum to one, so the fluid never thins out or doubles up
+      // mid-transition.
+      // Only the finest level reached carries fluid. A coarser generation is
+      // still drawn -- its outline is still there -- but its parcels have been
+      // handed on to the level inside it.
+      //
+      // Fluid runs out before the outlines do, and it goes out by size rather
+      // than by index: while the frame is still keeping up, a generation is
+      // drawn about as large as the one before it and nothing dims, and once
+      // the frame has come to rest each is 0.586 of the last, so a few
+      // generations later a tangle of trails is a smudge rather than a motion
+      // and there is nothing to be gained by drawing it. A hard cutoff on the
+      // generation index used to do this instead, and it took the fluid out
+      // with a third of the scroll still to run.
+      genData[i * 4 + 2] = s.streamOpacity * arrivedOf(m, s.gen) * finestOf(m, s.gen)
+        * smoothstep(0.04, 0.18, scale);
+      genData[i * 4 + 3] = m % LEVEL_TINTS.length;
+    }
+    device.queue.writeBuffer(genBuffer, 0, genData);
+
+    // Every generation is stepped, including the ones off screen, so none is
+    // stale when the descent reaches it. Those outside the drawn run keep the
+    // rate they had.
+    for (let m = 0; m < GEN_COUNT; m++) {
+      if (m < genOffset || m >= genOffset + DRAW_GENS) rateData[m] = rateOf(m);
+    }
+    device.queue.writeBuffer(rateBuffer, 0, rateData);
+
+    // The ring advances once every so many frames, but the head is rewritten
+    // every frame, so a parcel moves smoothly while its trail spans that many
+    // times as much of its past. The interval shortens as the descent speeds
+    // up, so a trail stays about the same length on screen instead of growing
+    // with the rate.
+    const COMMIT = Math.max(1, Math.min(6, Math.round((4 * ACTIVE_RATE) / rateOf(active - 1))));
+    const committing = stepIndex % COMMIT === 0;
+    const srcStep = headSlot;
+    const dstStep = committing ? (headSlot + 1) % TRAIL : headSlot;
+    headSlot = dstStep;
+    simF32[0] = dt;
+    simU32[4] = srcStep;
+    simU32[5] = dstStep;
+    simU32[6] = PER_GEN;
+    simU32[7] = GEN_COUNT;
+    device.queue.writeBuffer(simBuffer, 0, simData);
+
+    ensureTargets();
+    const { projView } = camera.update(canvas.width / canvas.height);
+    viewF32.set(projView, 0);
+    viewF32.set(themeState.background, 16);
+    // Widths in device pixels, identical in every generation: a stroke is a
+    // mark on the page, so the zoom moves the curves without thickening them.
+    viewF32[19] = TRAIL_WIDTH * dpr;
+    viewF32[20] = themeState.isDark ? 1 : 0;
+    viewF32[21] = 1;
+    // The fluid is monochrome now, so the speed normalisation the colour ramp
+    // used is no longer read by anything.
+    viewF32[22] = 0;
+    viewF32[23] = 1;
+    viewU32[24] = genOffset;
+    viewU32[25] = PER_GEN;
+    viewU32[26] = (headSlot + 1) % TRAIL;
+    viewU32[27] = DRAW_GENS;
+    device.queue.writeBuffer(viewBuffer, 0, viewData);
+
+    const bg = themeState.background;
+    const encoder = device.createCommandEncoder();
+
+    const compute = encoder.beginComputePass();
+    compute.setPipeline(integrate);
+    compute.setBindGroup(0, integrateBind);
+    compute.dispatchWorkgroups(Math.ceil((PER_GEN * GEN_COUNT) / 64));
+    compute.end();
+    stepIndex++;
+
+    const trailProps = {
+      vertexCount: PER_GEN * (TRAIL + 1) * DRAW_GENS,
+      width: TRAIL_WIDTH * dpr,
+      resolution: [canvas.width, canvas.height]
+    };
+
+    // Uniforms have to be written before any pass opens.
+    trails.updateUniforms(trailProps);
+
+    // Peel. Each pass captures the next surface back across both entities at
+    // once.
+    for (let i = 0; i < PEEL_LAYERS; i++) {
+      const prev = i === 0 ? 0 : 1 + ((i - 1) % 2);
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: targets.layers[i].createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }],
+        depthStencilAttachment: {
+          view: targets.depths[i % 2].createView(),
+          depthClearValue: 1,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store'
+        }
+      });
+      trails.draw(pass, { ...trailProps, skipUniformUpdate: true },
+        [trailBind, targets.trailPeel[prev]]);
+      pass.end();
+    }
+
+    // Composite back to front onto the canvas, over the background.
+    const composite = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: gpuContext.getCurrentTexture().createView(),
+        clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
+        loadOp: 'clear',
+        storeOp: 'store'
+      }]
+    });
+    composite.setPipeline(compositePipeline);
+    for (let i = PEEL_LAYERS - 1; i >= 0; i--) {
+      composite.setBindGroup(0, targets.composite[i]);
+      composite.draw(3);
+    }
+    composite.end();
+    device.queue.submit([encoder.finish()]);
+  });
+
+  const onResize = () => { resize(); camera.taint(); };
+  window.addEventListener('resize', onResize);
+  invalidation.then(() => {
+    loop.cancel();
+    seen.stop();
+    window.removeEventListener('resize', onResize);
+    camera.destroy();
+    trails.destroy();
+    stateBuffer.destroy();
+    metaBuffer.destroy();
+    viewBuffer.destroy();
+    genBuffer.destroy();
+    simBuffer.destroy();
+    rateBuffer.destroy();
+    for (const t of targets?.all ?? []) t.destroy();
+  });
+}
+  </script>
+
+  <script id="rule-intro" type="text/markdown">
+## What has to hold
+
+The sequence is settled by a single step and by one number. That number is ${tex`h`}: it sets how much faster each generation is than the one it came from, and everything turns on it being strictly greater than zero.
+  </script>
+
+  <script id="ledger-controls" type="text/x-typescript">
+const h = view(Inputs.range([0.05, 0.45], { label: 'h', value: 0.25, step: 0.01 }));
+  </script>
+
+  <script id="margins-intro" type="text/markdown">
+Two things have to hold for the chain to reach a singularity, and they pull against each other. Viscosity must never catch up, which wants each generation to be violent; and the whole infinite sequence must fit inside a finite time, which wants each generation to be brief. Move ${tex`h`} and watch both margins open and close.
+  </script>
+
+  <script id="margins-figure" type="text/x-typescript">
+{
+  const rows = Scales.ledger(h, 30);
+  const T = Scales.blowupTime(h);
+  const panelWidth = width > 620 ? Math.floor((Math.min(width, 760) - 16) / 2) : Math.min(width, 760);
+  const plotStyle = { background: 'transparent' };
+  // One colour per quantity, and the thing being beaten in neutral grey so it
+  // cannot be mistaken for a fourth quantity.
+  const { ROLE } = vocabulary;
+  const amber = ROLE.speed, violet = ROLE.time, foil = ROLE.foil;
+
+  // Left: does viscosity catch up? Against the same sequence of lengths carrying
+  // ordinary turbulent velocities, u ~ l^(1/3), for which Re ~ l^(4/3).
+  const reynolds = rows.flatMap((r, i) => [
+    { n: r.n, v: r.reynolds / rows[0].reynolds, which: 'this construction' },
+    { n: r.n, v: Math.pow(r.radial / rows[0].radial, 4 / 3), which: 'ordinary turbulence' }
+  ]);
+
+  const viscosity = Plot.plot({
+    width: panelWidth, height: 250, marginLeft: 54, marginBottom: 36, style: plotStyle,
+    x: { label: 'generation n' },
+    y: { label: 'Reynolds number, relative to the first', type: 'log' },
+    color: { domain: ['this construction', 'ordinary turbulence'], range: [amber, foil] },
+    marks: [
+      Plot.ruleY([1], { strokeOpacity: 0.2 }),
+      Plot.line(reynolds, { x: 'n', y: 'v', stroke: 'which', strokeWidth: 1.8 }),
+      Plot.text(['climbing: viscosity never catches up'], {
+        x: 15, y: rows[14].reynolds / rows[0].reynolds, dy: -12, fill: amber, fontSize: 11
+      }),
+      Plot.text(['falling: the cascade dies'], {
+        x: 15, y: Math.pow(rows[14].radial / rows[0].radial, 4 / 3), dy: 14, fill: foil, fontSize: 11
+      })
+    ]
+  });
+
+  // Right: does the clock run out? Against a sequence whose slots shrink only
+  // like 1/n, which is the nearest thing that fails: still shrinking, still
+  // going to zero, and still adding up to infinity.
+  let a = 0, b = 0;
+  const clock = rows.flatMap((r) => {
+    a += r.duration;
+    b += rows[0].duration / r.n;
+    return [
+      { n: r.n, v: a, which: 'slots like 1/n²' },
+      { n: r.n, v: b, which: 'slots like 1/n' }
+    ];
+  });
+
+  const time = Plot.plot({
+    width: panelWidth, height: 250, marginLeft: 54, marginBottom: 36, style: plotStyle,
+    x: { label: 'generation n' },
+    y: { label: 'elapsed time', domain: [0, T * 2.2] },
+    color: { domain: ['slots like 1/n²', 'slots like 1/n'], range: [violet, foil] },
+    marks: [
+      Plot.ruleY([T], { stroke: violet, strokeDasharray: '3,3' }),
+      Plot.text([`T* = ${T.toFixed(3)}`], { x: 30, y: T, dy: -8, fill: violet, fontSize: 11, textAnchor: 'end' }),
+      Plot.line(clock, { x: 'n', y: 'v', stroke: 'which', strokeWidth: 1.8, curve: 'step-after' }),
+      Plot.text(['slots like 1/n: still climbing'], {
+        x: 17, y: b * (17 / 30), dy: -12, fill: foil, fontSize: 11, textAnchor: 'middle'
+      }),
+      Plot.text(['slots like 1/n²: stops'], {
+        x: 17, y: T, dy: 20, fill: violet, fontSize: 11, textAnchor: 'middle'
+      })
+    ]
+  });
+
+  display(html`<figure style="margin:1.5em 0">
+    <div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">${viscosity}${time}</div>
+    <figcaption>
+      Left: the same lengths carrying ordinary turbulent velocities, ${tex`u \sim \ell^{1/3}`}, would
+      have a Reynolds number falling like ${tex`\ell^{4/3}`} — that is the cascade being extinguished,
+      and it is why the ordinary one is no route to a singularity. Here it climbs instead.
+      Right: the slots have to shrink, but shrinking is not enough. Slots going like ${tex`1/n`} still
+      go to zero and still add up to infinity; it is ${tex`1/n^2`} that leaves a finite ${tex`T^*`} for
+      the whole infinite sequence to happen before. Both panels move with ${tex`h`}, and both margins
+      close as it goes to zero.
+    </figcaption>
+  </figure>`);
+}
+  </script>
+
+  <script id="formulation-intro" type="text/markdown">
+## Writing it down
+
+Everything above is qualitative. Here is the same object stated precisely enough to implement, taken from the Lean sources published with the paper.
+
+The flow is axisymmetric with swirl. Let ${tex`s = (x_0^2 + x_1^2)/2`}, half the squared distance from the axis, and pick two scalar profiles ${tex`H(s,z)`} and ${tex`K(s,z)`}. The velocity is the curl of
+
+${tex.block`A = -\tfrac{1}{2} x_1 H \,e_0 + \tfrac{1}{2} x_0 H \,e_1 + K \,e_2,`}
+
+which in cylindrical components is
+
+${tex.block`u_r = -\tfrac{r}{2}\,\partial_z H, \qquad u_\theta = -r\,\partial_s K, \qquad u_z = \partial_s\!\left(s H\right).`}
+
+${tex`H`} is the stretching from the walkthrough and ${tex`K`} is the spin. Using ${tex`s`} instead of ${tex`r`} is not cosmetic: it is what keeps the field smooth on the axis, since nothing is ever divided by the radius. Taking ${tex`H = \gamma z`} and ${tex`K = -\omega s`} near the axis recovers exactly the picture above, ${tex`u_r = -\gamma r/2`}, ${tex`u_z = \gamma z`}, ${tex`u_\theta = \omega r`}, and that is what the figures are drawn from.
+  </script>
+
+  <script id="ledger-text" type="text/markdown">
+Number the stages of the cascade ${tex`n = 1, 2, 3, \ldots`}. Two fixed ratios carry one stage to the next, one for space and one for time:
+
+${tex.block`\Lambda = 4 - \sqrt{2} \approx 2.586, \qquad T_g = 4 + \sqrt{2} \approx 5.414.`}
+
+Each stage is ${tex`\Lambda`} times smaller than the one before it and runs ${tex`T_g`} times faster. ${tex`\Lambda`} is the ratio between the nested packets in the figure above. Their logarithms give the exchange rate between the two, ${tex`\rho = \log \Lambda / \log T_g \approx 0.5625`}: buying a length shrunk by ${tex`\Lambda`} costs ${tex`T_g`} in time, which is what ${tex`r \sim t^{\rho}`} says.
+
+Everything about a stage is then written in terms of one number that shrinks with it, ${tex`Q_n = 2^{-n}`}. The core of stage ${tex`n`} is ${tex`Q_n^{1/2}`} wide, ${tex`Q_n^{1/2 - h}`} long, and moves at ${tex`Q_n^{-(1/2+h)}`}, for a parameter ${tex`h`} between ${tex`0`} and ${tex`\tfrac12`} that the construction is free to choose. Divide the speed into the width and the viscosity out, and the Reynolds number of stage ${tex`n`} is
+
+${tex.block`\mathrm{Re}_n = Q_n^{-h} = 2^{nh},`}
+
+which grows without bound as long as ${tex`h > 0`}.
+
+This is the crux, and it runs against the picture the first figure leaves you with. In ordinary turbulence the velocity at scale ${tex`\ell`} goes like ${tex`\ell^{1/3}`}, so ${tex`\mathrm{Re} \sim \ell^{4/3}`} *falls* as the eddies get smaller: viscosity gains at every step down the cascade, and below the Kolmogorov scale it wins and the cascade stops. That is why the ordinary cascade is not a route to a singularity.
+
+Here the velocity grows quickly enough as the scale shrinks to reverse that. Writing the core width as ${tex`r = Q_n^{1/2}`}, the core speed is ${tex`u \sim r^{-(1+2h)}`} rather than ${tex`r^{1/3}`}, so the product ${tex`u\,r`} that sets the Reynolds number *grows* as ${tex`r`} falls, by a factor ${tex`2^{h}`} at every stage. Viscosity is never given the chance to catch up. It is also exactly why ${tex`h`} cannot be zero: at ${tex`h = 0`} the Reynolds number is the same from one stage to the next, the balance is precisely critical, and there is no margin left to run the argument on.
+
+What remains is to say when each stage happens, and this is where the whole thing is won or lost. A stage cannot be placed at an arbitrary moment: the cascade only zooms in whole steps, so stage ${tex`n`} has to be assigned some whole number of them,
+
+${tex.block`\nu(n) = \left\lfloor \log_{T_g}\!\left(\frac{Q_n^{-1-h}}{n^2}\right) \right\rfloor,`}
+
+and its duration and radius follow, ${tex`\tau_n = T_g^{\nu(n)} Q_n^{1+h}`} and ${tex`R_n = \Lambda^{\nu(n)} Q_n^{(1+h)\rho - h\kappa}`}, with ${tex`\kappa = 10^{-5}`} a small detuning that keeps the cascade off the critical scaling.
+
+The rounding down looks like bookkeeping and is the entire trick. It is chosen so that ${tex`T_g^{\nu(n)}`} very nearly cancels ${tex`Q_n^{-1-h}`}, and what survives the cancellation is the ${tex`n^2`} that was put inside the logarithm on purpose:
+
+${tex.block`\tau_n \asymp \frac{1}{n^2}.`}
+
+So the stages take ${tex`1, \tfrac14, \tfrac19, \tfrac{1}{16}, \ldots`} of a unit of time, and that series converges. There is no last stage, and there is no need for one: the sum of all of them is finite, and the flow runs out of time before it runs out of stages.
+  </script>
+
+
+  <script id="ledger-figure" type="text/x-typescript">
+const rows = Scales.ledger(h, 40);
+const T = Scales.blowupTime(h);
+const panelWidth = width > 560 ? Math.floor((Math.min(width, 720) - 16) / 2) : Math.min(width, 720);
+const plotStyle = { background: 'transparent' };
+
+const staircase = Plot.plot({
+  width: panelWidth, height: 220, marginLeft: 46, marginBottom: 34, style: plotStyle,
+  x: { label: 'generation n' },
+  y: { label: 'elapsed time', domain: [0, T * 1.1] },
+  marks: [
+    Plot.ruleY([T], { stroke: '#a78bda', strokeDasharray: '3,3' }),
+    Plot.text([`T* = ${T.toFixed(3)}`], { x: 20, y: T, dy: -9, fill: '#a78bda', fontSize: 11 }),
+    Plot.areaY(rows, { x: 'n', y: 'end', fill: '#a78bda', fillOpacity: 0.15, curve: 'step-after' }),
+    Plot.line(rows, { x: 'n', y: 'end', stroke: '#a78bda', strokeWidth: 1.6, curve: 'step-after' })
+  ]
+});
+
+const magnitudes = Plot.plot({
+  width: panelWidth, height: 220, marginLeft: 56, marginBottom: 34, style: plotStyle,
+  x: { label: 'generation n' },
+  y: { label: 'core speed and radius', type: 'log' },
+  marks: [
+    Plot.ruleY([1], { strokeOpacity: 0.25 }),
+    Plot.line(rows, { x: 'n', y: 'velocity', stroke: '#e8a765', strokeWidth: 1.6 }),
+    Plot.line(rows, { x: 'n', y: 'radial', stroke: '#21b0c4', strokeWidth: 1.6 }),
+    Plot.text(['speed'], { x: 28, y: rows[27].velocity, dy: -10, fill: '#e8a765', fontSize: 11 }),
+    Plot.text(['radius'], { x: 28, y: rows[27].radial, dy: 12, fill: '#21b0c4', fontSize: 11 })
+  ]
+});
+
+display(html`<figure style="margin:1em 0">
+  <div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">${staircase}${magnitudes}</div>
+  <figcaption>
+    Elapsed time accumulates in ever shorter slots and stalls at ${tex`T^*`}, while the core speed
+    leaves the top of a logarithmic axis and the core radius leaves the bottom. Move ${tex`h`} to
+    see how little room there is between a cascade that outruns diffusion and one that does not.
+  </figcaption>
+</figure>`);
+  </script>
+
+  <script id="closing" type="text/markdown">
+The forcing carries the rest. The theorem is not that a fluid at rest tears itself apart unaided, but that there is a smooth, finite-energy forcing which drives one from rest into a singularity in finite time. That is exactly what the breakdown half of the Millennium problem asks for.
+  </script>
+
+  <script id="caveats" type="text/markdown">
+## What is exact here, and what is not
+
+The ansatz, the constants ${tex`T_g = 4+\sqrt 2`}, ${tex`\Lambda = 4-\sqrt 2`} and ${tex`\kappa = 10^{-5}`}, the definitions of ${tex`\nu(n)`}, ${tex`\tau_n`} and ${tex`R_n`}, and the core velocity, radial and axial scalings are transcribed from the published Lean 4 sources in [openai/NavierStokesAndEuler](https://github.com/openai/NavierStokesAndEuler), specifically `ChartScales.lean`, `SlotColoring.lean`, `Scaling.lean` and `AxisymmetricFields.lean`. The plots are those formulas evaluated, the ratio between successive packets in the second figure is the manuscript's ${tex`\Lambda`}, and the streamlines are integrated from a genuine curl of the stated potential, divergence-free to roundoff.
+
+The profiles are not exact. The manuscript's ${tex`H`} and ${tex`K`} come out of an inductive scheme with corrections at every stage and are not something you can write on a line. The figures substitute the simplest profiles with the right behaviour, a localized axial strain and a Gaussian-cored swirl. One packet is drawn per generation, where the construction places many on a mesh of spacing ${tex`Q_n^a/n^6`}. Generations are nested about the point the cascade concentrates on, each turned by a fixed angle from the last so they can be told apart. Successive packets differ only in scale, since after rescaling a self-similar cascade repeats; the real generations also drift in shape, and that drift is not drawn.
+
+The first walkthrough is a diagram rather than a simulation. It is drawn to one rule: everything on screen either moves with the fluid or measures it, and nothing does both.
+
+The core is a vortex tube, so it has no ends and it thins rather than lengthens. The streaks are parcels of fluid orbiting it, at the free-vortex rate ${tex`u_\theta = \Gamma / 2\pi r`}, which is why the ones near the axis whip round and the outer ones barely drift. They are carried inward as the core contracts and apart as it is stretched, so their radius goes like ${tex`S^{-1/2}`} and their angular rate like ${tex`S`}, leaving ${tex`\Gamma \sim \Omega r^2`} exactly constant. Nothing about the spin is exaggerated: the sequence stretches further instead. Arrows mean one thing only, the straining flow, and each is the velocity vector of the parcel carrying it, drawn to scale, lengthening as ${tex`u_z = \gamma z`} carries it out and shortening as ${tex`u_r = -\gamma r/2`} brings it in.
+
+Two things there are for legibility rather than fidelity. The strain runs at a fixed rate while the reader controls how far it has progressed, so the arrows keep streaming when you stop to read. And the core breathes slightly while the streaks bob, which no vortex does, so that a paused figure still reads as a process.
+
+This is a picture of the mechanism, not a rendering of the solution. Whether the proof is correct is a question for referees, and at the time of writing it is open.
+  </script>
+
+</notebook>
