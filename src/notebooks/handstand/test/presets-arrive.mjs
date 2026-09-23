@@ -18,11 +18,18 @@
 // the recordings the model has moved out from under, so the debt is visible
 // rather than either hidden by a weakened gate or drowned in a red suite.
 //
-// The bodies are the subject, not the setting. Two of these are the same
-// skill -- a kick-up -- solved for two different bodies, one with sixty
-// degrees of straight-leg hip flexion and a 1.45 Nm/kg shoulder and one with
-// a hundred and thirty and half that strength. That contrast is what the
-// presets are for, and it is a thing only a recording can say.
+// The bodies are the subject, not the setting. Three of these are the same
+// skill -- a kick-up -- solved for three different bodies: seventy degrees of
+// straight-leg hip flexion on a 1.2 Nm/kg shoulder, a hundred and fifteen
+// degrees on a 0.5, and a hundred on a 1.0 that finishes in a split. That
+// contrast is what the presets are for, and it is a thing only a recording
+// can say.
+//
+// The endings are a subject too, and the reason two of these peak below a
+// stacked handstand's centre of mass rather than at it: a split and a pike
+// are lower than a stack by construction. Arriving is a verdict about being
+// upright, over the hands, still and in the pose that was asked for -- not
+// about reaching any particular height.
 //
 // Run: node src/notebooks/handstand/test/presets-arrive.mjs
 import { buildModel } from '../anthropometry.js';
@@ -41,19 +48,19 @@ import {
 // on it. They are not held to arriving, because they cannot be: a recording is
 // an answer to the body it was found on, and the body changed under it.
 //
-// This list is a debt, not an exemption. It exists because articulating the
-// elbow and the ankles made the legs 13 cm longer and gave the push-off a
-// joint it did not have, and a kick-up tuned for the old proportions does not
-// survive that -- the straight-leg press does, which is what a slow
-// quasi-static movement being robust looks like. Each of these needs a search
-// on the articulated body, and the entry comes out of this list when it gets
-// one.
+// EMPTY, and that is the point of it. It held lowflex, highflex and tuckup
+// from the day the elbow and the ankles were articulated -- which made the
+// legs 13 cm longer and gave the push-off a joint it did not have, and a
+// kick-up tuned for the old proportions does not survive that. All three have
+// now been re-searched on the articulated body and all three arrive, so all
+// three came off. The debt is paid; the list stays because the next change to
+// the body will open it again.
 //
 // It cannot rot quietly: gate 0 below fails if a technique named here turns
 // out to arrive after all, so a name left behind after a successful re-search
 // is caught rather than silently excusing a technique that no longer needs
 // excusing.
-const AWAITING_SEARCH = new Set(['lowflex', 'highflex', 'tuckup']);
+const AWAITING_SEARCH = new Set([]);
 
 let failures = 0;
 function gate(name, ok, detail) {

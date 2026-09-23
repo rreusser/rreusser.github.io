@@ -1221,15 +1221,15 @@
 
     Which means the reference is not the movement. It is a request. Where the body can follow it the two coincide; where it cannot, the request is a cheque the muscle does not cash, and the physics is still exactly right while the handstand is expensive, ugly, or absent. A bad reference does not produce a bad simulation. It produces a good simulation of someone attempting a bad idea.
 
-    So the reference poses are not, in general, poses. A servo's torque is proportional to how far the joint is from its target, clipped at what the muscle can produce, which means the only way to hold a joint at its maximum is to keep the target far ahead of the body. The optimizer discovered that and used it. Two thirds of the way through the kick-up the reference is asking the trunk to stand at 75 degrees — thirteen degrees *past* the handstand — while the body is still at 123, and the shoulder is at a hundred per cent of its cap the whole time. It is a carrot on a stick. The same is true at the start: only the *last* knot is pinned, so the first is free, and the kick-up opens asking the hip for 26 degrees while the lunge it starts from is folded to 83.
+    So the reference poses are not, in general, poses. A servo's torque is proportional to how far the joint is from its target, clipped at what the muscle can produce, which means the only way to hold a joint at its maximum is to keep the target far ahead of the body. The optimizer discovered that and used it. Two thirds of the way through the kick-up the reference is asking the shoulder for 14 degrees while the body is still at 59 — forty-five degrees apart — and the shoulder is at a hundred per cent of its cap there, as it is for 62 per cent of the movement. It is a carrot on a stick. The trunk is asked for something it is never meant to reach at all: the reference swings the spine 16 degrees *arched* two thirds of the way through, when the handstand it is aiming at is 6 degrees hollow. The same is true at the start: only the *last* knot is pinned, so the first is free, and the kick-up opens asking the swing hip for 131 degrees while the lunge it starts from holds it at 36.
 
     The straight-leg press does none of this. Its reference sits within a few degrees of the body at every knot, because a press never needs full effort from any joint and so never needs to lie to one. That is the difference between a technique you *hold* and a technique you *throw*.
 
-    The pose the body actually starts in is not a knot at all. A technique may carry one — all three of the ones here do, because the search was allowed to choose where they begin — and where it carries none, the scenario *solves* one from the body it is given. The press folds to the deepest the hamstrings allow and then bisects the shoulder angle until the center of mass sits over the palm — so an 85 degree fold starts with the shoulder at 100 and a 125 degree fold at 74, and a stiffer body has to lean further to get over its hands at all. The kick-up hinges the torso to 90 degrees over the hands and solves the stance hip until the toe reaches the floor. The bent-leg press solves the same lean to leave about a third of body weight standing on the feet, which is what makes it a hop rather than a press. So moving a flexibility slider moves where the body begins while the technique's first knot stays exactly where the search left it, and the gap between them — the one the label under the figure measures — opens or closes without a knot having been touched.
+    The pose the body actually starts in is not a knot at all. A technique may carry one — all six of the ones here do, because the search was allowed to choose where they begin — and where it carries none, the scenario *solves* one from the body it is given. The press folds to the deepest the hamstrings allow and then bisects the shoulder angle until the center of mass sits over the palm — so an 85 degree fold starts with the shoulder at 100 and a 125 degree fold at 74, and a stiffer body has to lean further to get over its hands at all. The kick-up hinges the torso to 90 degrees over the hands and solves the stance hip until the *ball* of the foot reaches the floor — the heel rides up and the toes bend under, which is what a deep lunge is. The bent-leg press solves the same lean to leave about a third of body weight standing on the feet, which is what makes it a hop rather than a press. So moving a flexibility slider moves where the body begins while the technique's first knot stays exactly where the search left it, and the gap between them — the one the label under the figure measures — opens or closes without a knot having been touched.
 
-    You can take that start over: drag it, and it stops being solved and becomes a pose the technique carries. You can also hand it to the *search*, which is the padlock on the first frame below, and then the eight angles the body begins in join the thirty-seven the optimizer is already moving.
+    You can take that start over: drag it, and it stops being solved and becomes a pose the technique carries. You can also hand it to the *search*, which is the padlock on the first frame below, and then the eleven angles the body begins in join the sixty-seven the optimizer is already moving — fourteen, if the start has also let go of the floor, because then where the body stands is three more.
 
-    Below is that technique, and the three things that can change it: your hands, a search, and the body you make it do the work on. They all move the same thirty-seven numbers.
+    Below is that technique, and the three things that can change it: your hands, a search, and the body you make it do the work on. They all move the same sixty-seven numbers: eleven joint angles at each of six poses, and the duration.
   </script>
   <script id="edit-state" type="text/x-typescript">
     // The reference trajectory as something you can take hold of. simResult
@@ -1308,7 +1308,7 @@
     //
     // It used to be three figures and three control panels -- a planner, a
     // population preview, a cost curve, a result readout -- each showing the
-    // same thirty-seven numbers in its own words, and a reader had to work out
+    // same sixty-seven numbers in its own words, and a reader had to work out
     // that they were the same numbers. They are not three things. There is one
     // thing and three ways to act on it: your hands, the search, and the body
     // you make it do the work on.
@@ -1733,7 +1733,7 @@
       let showRef = false;
       let searching = false, poolSize = null, status = '';
       const knotTime = (k) => editState.fracs[k] * editState.T;
-      // The held poses as the search wants them: the six angles each one is
+      // The held poses as the search wants them: the eleven angles each one is
       // pinned to, or null where it is free to move. Read off the knots, so a
       // pose you drag and then hold is held where you left it.
       const lockValues = () => editState.held.map((on, k) => (on

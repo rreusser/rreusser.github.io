@@ -18,10 +18,10 @@ import { BUILTIN_TECHNIQUES } from './builtin-techniques.js';
 export const BUILTIN_SCENARIOS = BUILTIN_TECHNIQUES.map((t) => ({
   key: t.key,
   label: t.label,
-  // The skill it is an instance of. Two of these are kick-ups, which is
-  // exactly why the key cannot be the scenario: the list is techniques, not
-  // scenarios, and it always was -- the two only looked like one thing while
-  // there happened to be one technique per skill.
+  // The skill it is an instance of. Three of these are kick-ups and three are
+  // presses, which is exactly why the key cannot be the scenario: the list is
+  // techniques, not scenarios, and it always was -- the two only looked like
+  // one thing while there happened to be one technique per skill.
   scenario: t.scenario,
   T: t.T,
   K: t.knots[0].length,

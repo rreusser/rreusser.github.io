@@ -31,23 +31,25 @@ function gate(name, ok, detail) {
   if (!ok) failures++;
 }
 
-// The low-flexibility kick-up, scaled to where it arrives.
+// The low-flexibility kick-up, at the scale it arrives at -- which is its own.
 //
 // These gates are about the SHAPE of the cost surface around a technique that
-// works -- that the score falls steadily toward it from either side, so a
-// search has a gradient to climb. They need an arriving technique to sweep
-// around, and the recording is not one at the moment: articulating the elbow
-// and the ankles made the legs 13 cm longer and the recorded throw is now too
-// small for them. Swept, the same SHAPE arrives again -- at 1.55 while the toe
-// was a rigid chip on the end of the foot, and at 1.60 now that the ball of the
-// foot has a spring a real toe would recognise, because a joint that gives
-// absorbs a little of the throw and the throw has to be that much bigger. Each
-// reading is the same honest statement about what moved underneath.
+// works: that the score falls steadily toward it from either side, so a search
+// has a gradient to climb. They need an arriving technique to sweep around.
 //
-// Not a fudge to keep a suite green: ARRIVES below fails if that stops being
-// an arriving technique, which is the same thing the old fixture asserted at a
-// scale of 1.
-const ARRIVES_AT = 1.60;
+// For a while the recording was not one, and this constant carried the gap.
+// Articulating the elbow and the ankles made the legs 13 cm longer and left
+// the recorded throw too small for them, so the same SHAPE only came back
+// further out: at 1.55 while the toe was a rigid chip on the end of the foot,
+// then 1.60 once the ball of the foot had a spring a real toe would recognise,
+// because a joint that gives absorbs a little of the throw. The recording has
+// now been re-searched on the articulated body and arrives as itself, so the
+// scale is 1 again and this file sweeps the technique rather than a stand-in
+// for it.
+//
+// Not a fudge to keep a suite green, in either direction: gate A below fails
+// if this stops being an arriving technique.
+const ARRIVES_AT = 1.00;
 const stored0 = PRESET_TRAJECTORIES.lowflex;
 const model = buildModel(resolveBody(stored0.body)), ws = createWorkspace(model);
 const st0 = stored0.strength || null;
@@ -120,8 +122,12 @@ const at = (a) => {
 // OVER is three points where it used to be four. The fourth step out is 1.80,
 // and it costs 336 against 1.75's 336: the slope has already flattened there,
 // so a gate asserting it still descends would be asserting noise.
-const UNDER = [1.30 / 1.60, 1.40 / 1.60, 1.50 / 1.60];
-const OVER = [1.75 / 1.60, 1.70 / 1.60, 1.65 / 1.60];
+// Relative to the recording, ARRIVES_AT being 1. Measured in twentieths, the
+// cost falls 334 > 251 > 200 > 184 into 3.4 from below and 285 > 268 > 243 >
+// 181 into it from above; further out than this in either direction it humps,
+// which the table above records.
+const UNDER = [0.80, 0.85, 0.90, 0.95];
+const OVER = [1.20, 1.15, 1.10, 1.05];
 const hit = at(1.00);
 const under = UNDER.map(at);
 const over = OVER.map(at);
@@ -171,7 +177,7 @@ gate('C. and so does too hard a one', bad.length === 0,
 // recording the throw peaks at 0.94 to 0.98 m against a handstand's 1.02, so
 // it reaches and merely fails to stay. What reach is for is the body that
 // never gets up at all, and that is a long way further down.
-const SHORT = [1.00 / 1.60, 0.85 / 1.60, 0.70 / 1.60, 0.55 / 1.60];
+const SHORT = [0.90, 0.85, 0.80, 0.75];
 const short = SHORT.map(at);
 gate('D. a body that never gets up is charged for the shortfall',
   short.every((r) => (r.terms.reach || 0) > 0) && (hit.terms.reach || 0) === 0,
