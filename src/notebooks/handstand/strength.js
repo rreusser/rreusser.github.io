@@ -98,6 +98,22 @@ export const STRENGTH_DEFAULTS = {
   // not snap: wmax below the hip's is what stops the search using the trunk
   // as a whip.
   spine:    { t0Vol: 2.0, wmax: 12, wc: 5, amin: 0.7, w1: 0, m: 0.3 },
+  // The elbow, merged over both arms like the wrist and the shoulder above
+  // it. Elbow extension peaks near 55 Nm per arm in an untrained man, so 110
+  // merged is about 1.6 Nm/kg; this sits a little under the shoulder because
+  // that is the joint a bent-arm press actually runs out of, and because the
+  // single symmetric cap here has to stand for a flexion side that is the
+  // weaker of the two. Fast, like the shoulder: the elbow is the joint a
+  // bent-arm entry snaps.
+  elbow:    { t0Vol: 1.2, wmax: 18, wc: 7, amin: 0.7, w1: 0, m: 0.3 },
+  // The ankle, per leg. Plantarflexion is the strongest single-joint action
+  // on the body against its own lever -- 130 Nm is an ordinary man's -- and
+  // it is what a kick-up leaves the floor with. The cap is symmetric, as
+  // every joint's here is, which overstates dorsiflexion by a factor of four;
+  // nothing in a handstand asks the shin muscles for anything, so the
+  // overstatement is unspent rather than exploited. Slow, because a calf
+  // shortening against a short lever is: wmax below the hip's.
+  ankle:    { t0Vol: 1.9, wmax: 14, wc: 6, amin: 0.7, w1: 0, m: 0.3 },
   // And the neck, which is the weakest joint on the body by a wide margin.
   // This number is doing real work: the head is eight per cent of body mass
   // on a long lever and almost no rotational inertia, so without a small cap
@@ -106,9 +122,14 @@ export const STRENGTH_DEFAULTS = {
   neck:     { t0Vol: 0.35, wmax: 10, wc: 4, amin: 0.7, w1: 0, m: 0.3 },
 };
 
-const JOINT_KIND = {
-  wrist: 'wrist', shoulder: 'shoulder', spine: 'spine', neck: 'neck',
+// Which strength group each driven joint draws on. Exported because it is the
+// answer to "what kind of joint is this", and a caller that re-derives it from
+// the name -- as the gate here did, with startsWith -- gets it right until a
+// joint arrives whose name does not fit the pattern.
+export const JOINT_KIND = {
+  wrist: 'wrist', elbow: 'elbow', shoulder: 'shoulder', spine: 'spine', neck: 'neck',
   hipL: 'hip', hipR: 'hip', kneeL: 'knee', kneeR: 'knee',
+  ankleL: 'ankle', ankleR: 'ankle',
 };
 
 // Build resolved per-joint parameter objects for a model.

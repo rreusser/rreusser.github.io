@@ -119,7 +119,7 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
 // different one scores a different question.
 // ---------------------------------------------------------------------------
 {
-  const c = cases.find((x) => x.name === 'lunge');
+  const c = cases.find((x) => x.name === 'lowflex');
   const model = buildModel(resolveBody(c.stored.body)), ws = createWorkspace(model);
   const st0 = c.stored.strength || null;
   const prof = strengthProfile(model.massKg, { overrides: { ...(st0 || {}),
@@ -157,12 +157,12 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
 // mechanism, but the property that matters is the one a reader sees: press
 // Optimize and the duration slider does not move.
 //
-// The technique used is the one that showed the pathology -- the press arrives
+// The technique used is the one that showed the pathology -- a press arrives
 // at every duration from 1.6s up and gets monotonically cheaper as it slows,
 // so if anything is going to run for the ceiling it is this.
 // ---------------------------------------------------------------------------
 {
-  const c = cases.find((x) => x.name === 'pike');
+  const c = cases.find((x) => x.name === 'press');
   const model = buildModel(resolveBody(c.stored.body)), ws = createWorkspace(model);
   const st0 = c.stored.strength || null;
   const prof = strengthProfile(model.massKg, { overrides: { ...(st0 || {}),
@@ -188,6 +188,65 @@ function driftUnderBounds(knots, T, rom, scenario, locks = null) {
     angle = Math.max(angle, Math.abs(res.decoded.knots[j][k] - c.stored.knots[j][k]));
   }
   gate('D2. (and it did move the angles)', angle * D > 0.1, `${(angle * D).toFixed(2)} deg`);
+}
+
+// ---------------------------------------------------------------------------
+// Gate E: a replay does not edit the technique it was handed, and narrowing
+// the anatomy and widening it again gives the movement back.
+//
+// The page had a one-way anatomy. It replayed the technique, then wrote the
+// run's own start pose back into the technique as if the reader had authored
+// it -- and a run's start is the authored one after it has been clamped into
+// the body's range of motion. So narrowing a joint's range truncated the pose
+// the movement began from, permanently: widening the range again could not
+// restore an angle that no longer existed anywhere. A technique arrived, then
+// did not, and then still did not with every slider back where it started.
+//
+// The rollout layer was never the guilty party -- it copies q0 before
+// clamping -- but it is the layer where this must stay true, because the fix
+// above depends on it. So: nothing a rollout is given comes back changed, and
+// a body taken away and given back is the same body.
+// ---------------------------------------------------------------------------
+{
+  const key = 'lowflex';
+  const stored = PRESET_TRAJECTORIES[key];
+  const model = buildModel(resolveBody(stored.body));
+  const ws = createWorkspace(model);
+  const prof = strengthProfile(model.massKg, { overrides: stored.strength || {} });
+  const romA = resolveRom(stored.rom);
+  // Deliberately tighter than the pose the technique starts in, on the joint
+  // whose start angle is largest: this is the case that used to truncate.
+  const romB = { ...romA, wristExtMaxDeg: 90, spineFlexMaxDeg: 10 };
+  // An EXPLICIT start, because that is the state the bug needed: a technique
+  // whose start is authored rather than solved.
+  const solved = runScenario(model, ws, prof, {
+    scenario: stored.scenario, knots: stored.knots.map((k) => Float64Array.from(k)),
+    T: stored.T, rom: romA, ...resolvePlant(stored.config), ...resolveNumerics(stored.numerics),
+  });
+  const rec = {
+    scenario: stored.scenario, knots: stored.knots.map((k) => Float64Array.from(k)),
+    T: stored.T, q0: Float64Array.from(solved.rec.q[0]),
+    rom: romA, config: stored.config, numerics: stored.numerics,
+  };
+  const before = JSON.stringify({ q0: Array.from(rec.q0), knots: rec.knots.map((k) => Array.from(k)), T: rec.T });
+
+  const play = (rom) => runScenario(model, ws, prof, {
+    scenario: rec.scenario, knots: rec.knots.map((k) => Float64Array.from(k)), T: rec.T,
+    q0: rec.q0, rom, ...resolvePlant(rec.config), ...resolveNumerics(rec.numerics),
+  });
+  const a1 = play(romA);
+  play(romB);
+  const a2 = play(romA);
+
+  const after = JSON.stringify({ q0: Array.from(rec.q0), knots: rec.knots.map((k) => Array.from(k)), T: rec.T });
+  gate('E. a replay leaves the technique it was given exactly as it found it',
+    before === after, before === after ? 'q0, knots and tempo untouched' : 'the technique came back changed');
+
+  let d = 0;
+  for (let i = 0; i < a1.q.length; i++) d = Math.max(d, Math.abs(a1.q[i] - a2.q[i]));
+  gate('E2. and narrowing the anatomy and widening it back gives the movement back',
+    d === 0 && !!a1.verdict?.success === !!a2.verdict?.success,
+    `worst |dq| ${d.toExponential(1)}, ${a1.verdict?.success ? 'arrives' : 'falls'} both times`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL GATES PASS' : `${failures} GATE(S) FAILED`}`);

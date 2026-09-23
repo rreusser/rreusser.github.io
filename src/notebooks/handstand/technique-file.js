@@ -11,6 +11,9 @@
 //   knotFracs    where the poses fall inside T, when it was phrased by hand
 //   held         which poses the search may not move
 //   timeHeld     which poses the search may not move in time
+//   startHeld    whether the pose the body STARTS in is the search's to move
+//   startGrounded  whether that start pose stands on its hands, or is free to
+//                be anywhere -- in the air, on its feet, mid-rotation
 //   symmetric    whether the two legs do the same thing
 //   q0           the start pose, when one was constructed rather than solved
 //   target       the ending pose (derived from the last knot, stored to check)
@@ -19,6 +22,8 @@
 //   body         the frame: height, mass, straddle, sex
 //   config       the plant, fully resolved
 //   numerics     the integration a replay uses
+//   weights      the cost terms this technique overrides, if any -- today
+//                that means whether its hands may leave the floor
 //   search       seed and generation count -- not part of the movement, but
 //                part of reproducing how it was found
 //
@@ -26,12 +31,26 @@
 // saved here can be dropped into the registry the regression suite replays.
 import {
   resolvePlant, resolveRom, resolveNumerics, resolveBody, balancedHandstand,
-  SYMMETRIC_SCENARIOS, widenKnots, encodeDecision,
+  SYMMETRIC_SCENARIOS, widenKnots, encodeDecision, COST_WEIGHTS,
 } from './rollout.js';
-import { JOINT_ORDER, LEGACY_JOINT_ORDER } from './control.js';
+import { JOINT_ORDER, jointOrderFor, widenQ } from './control.js';
 
 export const TECHNIQUE_FORMAT = 'handstand-technique';
-export const TECHNIQUE_VERSION = 1;
+// 2, because everything written as 1 is suspect. Until this version the
+// editor had two readers for one format: loading a FILE restored the whole
+// technique, while picking the same technique out of the list beside it
+// restored the knots and the tempo, re-derived the holds, the pins, the start
+// pose and the mirror, and -- worst -- took the POSE COUNT from whatever was
+// already on screen, resampling the knots onto it. So a technique kept after
+// opening another one was written down with a shape its author never chose,
+// and the file is a faithful record of the wrong thing.
+//
+// There is no migration, because there is nothing to migrate to: the
+// information about what was intended was destroyed before the file was
+// written. A version 1 file is refused, by name, rather than opened into
+// something that looks right.
+export const TECHNIQUE_VERSION = 2;
+export const TECHNIQUE_MIN_VERSION = 2;
 
 const arr = (a) => (a == null ? null : Array.from(a, (v) => +v));
 const mat = (m) => (m == null ? null : m.map((row) => Array.from(row, (v) => +v)));
@@ -51,6 +70,13 @@ export function techniqueToJSON(t) {
     knotFracs: arr(t.knotFracs),
     held: t.held ? Array.from(t.held, (v) => !!v) : null,
     timeHeld: t.timeHeld ? Array.from(t.timeHeld, (v) => !!v) : null,
+    // Held unless it says otherwise: a start the reader never unlocked is a
+    // start the search must not touch, and that is what every technique
+    // written before this existed meant.
+    startHeld: t.startHeld !== false,
+    // Grounded unless it says otherwise, which is what every technique written
+    // before the hands could leave the floor meant.
+    startGrounded: t.startGrounded !== false,
     symmetric: !!t.symmetric,
     q0: arr(t.q0),
     target: arr(t.target),
@@ -60,6 +86,7 @@ export function techniqueToJSON(t) {
     config: { ...resolvePlant(t.config) },
     numerics: { ...resolveNumerics(t.numerics) },
     search: { seed: t.search?.seed ?? 7, maxGen: t.search?.maxGen ?? 120 },
+    weights: t.weights && Object.keys(t.weights).length ? { ...t.weights } : null,
     // Informational: what it did when it was saved. Never read back as input --
     // a replay recomputes it, and the two disagreeing is the point of saving it.
     verdict: t.verdict || null,
@@ -77,16 +104,22 @@ export function techniqueFromJSON(json) {
   if (!(j.version <= TECHNIQUE_VERSION)) {
     throw new Error(`saved by a newer version of this notebook (version ${j.version})`);
   }
-  // Both widths are a technique: LEGACY_JOINT_ORDER is what every file
-  // written before the trunk gained a hinge says, and widenKnots turns it
-  // into today's body with a straight spine and a level head -- which is
-  // exactly what those files meant. Refusing them would have made every
-  // saved technique unopenable, which is what a written-down six did.
-  const NJ = JOINT_ORDER.length, NJ0 = LEGACY_JOINT_ORDER.length;
-  if (!Array.isArray(j.knots) || !j.knots.every(Array.isArray)
-    || (j.knots.length !== NJ && j.knots.length !== NJ0)) {
-    throw new Error(`knots must be ${NJ0} or ${NJ} arrays, one per joint`);
+  if (!(j.version >= TECHNIQUE_MIN_VERSION)) {
+    throw new Error(`saved by a version of this notebook whose editor could change a `
+      + `technique's pose count while opening it, so what is in this file is not `
+      + `necessarily what was authored (version ${j.version}). Rebuild it and keep it again.`);
   }
+  // Every width this notebook has ever written is a technique. control.js
+  // keeps the joint lists; jointOrderFor says which one a channel count means
+  // and throws if it is none of them, and widenKnots then fills the joints
+  // that body did not have with neutral -- which is exactly what those files
+  // meant, since every one of those joints is at zero in a handstand.
+  // Refusing them would make every saved technique unopenable, which is what
+  // a written-down channel count did twice.
+  if (!Array.isArray(j.knots) || !j.knots.every(Array.isArray)) {
+    throw new Error('knots must be an array of arrays, one per joint');
+  }
+  jointOrderFor(j.knots.length);
   const K = j.knots[0].length;
   if (K < 1 || !j.knots.every((r) => r.length === K)) {
     throw new Error('every joint must have the same number of knots');
@@ -113,18 +146,34 @@ export function techniqueFromJSON(json) {
     // opened.
     timeHeld: Array.isArray(j.timeHeld) && j.timeHeld.length === K
       ? j.timeHeld.map(Boolean) : Array.from({ length: K }, () => true),
+    // A file saved before the start could be unlocked means "locked", which is
+    // what the search did with it then.
+    startHeld: j.startHeld !== false,
+    // A file saved before the hands could leave the floor means they do not.
+    startGrounded: j.startGrounded !== false,
     // A file saved before the legs could be un-mirrored means whatever its
     // scenario meant then.
     symmetric: typeof j.symmetric === 'boolean'
       ? j.symmetric : SYMMETRIC_SCENARIOS.has(j.scenario || 'hold'),
-    q0: j.q0 ? Float64Array.from(j.q0) : null,
-    target: j.target ? Float64Array.from(j.target) : null,
+    // Widened the same way the knots are, and it has to be: a start pose and
+    // an ending pose are configurations of the same body, so a technique
+    // written for a body with fewer joints carries a shorter one. Left
+    // unwidened, a six-joint q0 would be read as a fourteen-slot pose with the
+    // last five slots missing and the ones it does have in the wrong places.
+    q0: widenQ(j.q0),
+    target: widenQ(j.target),
     rom: resolveRom(j.rom),
     strength: j.strength || null,
     body: resolveBody(j.body),
     config: resolvePlant(j.config),
     numerics: resolveNumerics(j.numerics),
     search: { seed: j.search?.seed ?? 7, maxGen: j.search?.maxGen ?? 120 },
+    // Cost weights the technique overrides. Only the ones it names: the rest
+    // come from COST_WEIGHTS, so a technique does not freeze a scoring change
+    // it never had an opinion about. Today the only one the editor exposes is
+    // liftoff -- whether the hands may leave the floor.
+    weights: j.weights && typeof j.weights === 'object'
+      ? { ...j.weights } : null,
     verdict: j.verdict || null,
     cost: j.cost == null ? null : +j.cost,
   };
@@ -170,6 +219,7 @@ export function techniqueRunArgs(rec, model, ws) {
     T: rec.T,
     knotFracs: rec.knotFracs || null,
     q0: rec.q0 || null,
+    startGrounded: rec.startGrounded !== false,
     target: rec.target || (model && ws ? balancedHandstand(model, ws) : null),
     rom: resolveRom(rec.rom),
     ...resolvePlant(rec.config),
@@ -190,11 +240,19 @@ export function techniqueLocks(rec) {
 // Which instants are pinned, and whether anything is left for the search to
 // phrase. An interior pose whose instant is free is the only thing that
 // lengthens the decision vector, so these two must be read off the same flags.
+// Where the poses fall, always as K numbers: the technique's own phrasing, or
+// the even spacing that is what "no phrasing" means.
+export function techniqueFracs(rec) {
+  const K = rec.knots[0].length;
+  return rec.knotFracs
+    ? Array.from(rec.knotFracs, Number)
+    : Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
+}
+
 export function techniqueTimeLocks(rec) {
   const K = rec.knots[0].length;
   const timeHeld = rec.timeHeld || [];
-  const fracs = rec.knotFracs
-    || Array.from({ length: K }, (_, k) => (K === 1 ? 0 : k / (K - 1)));
+  const fracs = techniqueFracs(rec);
   return Array.from({ length: K }, (_, k) => (timeHeld[k] ? fracs[k] : null));
 }
 
@@ -203,6 +261,24 @@ export function techniqueFreeTimes(rec) {
   const timeHeld = rec.timeHeld || [];
   for (let k = 1; k < K - 1; k++) if (!timeHeld[k]) return true;
   return false;
+}
+
+// The start pose as the decision vector carries it: the joint angles, and the
+// three base coordinates after them when the technique's hands are not on the
+// floor. Null when the start is locked, which means the search does not carry
+// it at all.
+//
+// This used to slice `3 .. 3 + knots.length`, reading the channel count off
+// the knots -- true only while a start pose was exactly its joints and the
+// technique was written for today's body. A technique read back from an older
+// one is widened before it gets here, so the two counts are the same again;
+// the base is what makes them differ now.
+function techniqueStartChannels(rec) {
+  if (rec.startHeld !== false || !rec.q0) return null;
+  const nj = rec.knots.length;
+  const out = Array.from(rec.q0).slice(3, 3 + nj);
+  if (rec.startGrounded === false) out.push(rec.q0[0], rec.q0[1], rec.q0[2]);
+  return out;
 }
 
 // The exact option object optimizeScenario needs to search THIS technique.
@@ -218,10 +294,29 @@ export function techniqueSearchArgs(rec) {
     rom: resolveRom(rec.rom),
     plant: resolvePlant(rec.config),
     numerics: resolveNumerics(rec.numerics),
+    // The step, said out loud, because the search is handed these fields one
+    // at a time and the one thing it must not be allowed to choose for itself
+    // is how this technique is integrated. Scoring over a different step than
+    // the page replays over is scoring a different problem, and it shows up as
+    // a technique that succeeds in the search and falls in playback.
+    dt: resolveNumerics(rec.numerics).dt,
     knotFracs: rec.knotFracs ? Array.from(rec.knotFracs) : null,
     locks: techniqueLocks(rec),
     timeLocks: techniqueTimeLocks(rec),
     freeTimes: techniqueFreeTimes(rec),
+    // Whether the pose the body begins in is the search's. Off, the start is
+    // whatever the technique says (or whatever its scenario solves); on, the
+    // decision vector carries it and the answer comes back with a q0.
+    freeStart: rec.startHeld === false,
+    // Whether the hands are on the floor at t = 0. Off, the start pose's base
+    // is part of the technique and, when the start is also unlocked, part of
+    // what the search chooses.
+    startGrounded: rec.startGrounded !== false,
+    // The cost terms this technique overrides, on top of the notebook's. Only
+    // what it names, so a technique keeps its opinion about the hands leaving
+    // the floor without freezing every other weight at the value it was
+    // recorded under.
+    weights: rec.weights ? { ...COST_WEIGHTS, ...rec.weights } : COST_WEIGHTS,
     symmetric: !!rec.symmetric,
     tLo: rec.T, tHi: rec.T,
     seed: rec.search?.seed ?? 7,
@@ -229,6 +324,14 @@ export function techniqueSearchArgs(rec) {
     // Where the search starts: this technique. Derived here rather than
     // encoded by the caller, because an x0 that does not describe the
     // technique beside it is the exact failure this file exists to prevent.
-    x0: encodeDecision(rec.knots, rec.T),
+    // ...in the layout the search is about to use, tails and all. A short x0
+    // is refitted at the far end, and a refit is a second opinion about what a
+    // technique says: it fills the instants from the phrasing and the start
+    // from the scenario's solve, which is only the same answer by agreement.
+    // Written out here it is the technique itself, exactly, and the refit is
+    // left for the callers that genuinely hand in an older vector.
+    x0: encodeDecision(rec.knots, rec.T,
+      techniqueFreeTimes(rec) ? techniqueFracs(rec) : null,
+      techniqueStartChannels(rec)),
   };
 }

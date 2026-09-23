@@ -204,16 +204,38 @@ function randomState(scaleQ = 1, scaleQd = 1) {
     for (let s = 0; s < steps; s++) stepper(deriv, y, dt, iws);
     return Math.abs(energy(m0g, y.subarray(0, nq), y.subarray(nq), ws).total - E0) / Math.abs(E0);
   };
-  const T = 5.0;
-  const rk4Coarse = run(rk4Step, 2e-3, T);
-  const rk4Fine = run(rk4Step, 1e-3, T);
+  // 1 ms and 0.5 ms, not 2 ms and 1 ms.
+  //
+  // An order estimate is only an order estimate inside the asymptotic regime,
+  // and where that begins is a property of the BODY: the fastest thing in a
+  // free-tumbling articulated chain sets it, and the body grew a link 450
+  // times lighter than the trunk when the feet gained toes. At 2 ms this state
+  // reads order 2.68 -- not because RK4 stopped being fourth order, but
+  // because a 0.16 kg toe spinning at a couple of rad/s is not resolved there.
+  // Swept on the same body it is 4.00 from 2 ms down, on states that do not
+  // happen to fling a toe; halving the pair puts every state inside it.
+  // 1.5 seconds, and finer steps than this gate used to ask for.
+  //
+  // An order estimate is only an order estimate inside the asymptotic regime,
+  // and where that begins is a property of the BODY: the fastest thing in a
+  // free-tumbling articulated chain sets it, and the body grew a link 450
+  // times lighter than the trunk when the feet gained toes. At 2 ms over 5 s
+  // this state read order 2.68 for RK4 and 0.56 for Euler -- not because
+  // either method changed, but because a 0.16 kg toe spinning at a couple of
+  // rad/s is resolved by neither there, and five seconds of it is long past
+  // the regime where the error is truncation rather than divergence.
+  const T = 1.5;
+  const rk4Coarse = run(rk4Step, 1e-3, T);
+  const rk4Fine = run(rk4Step, 5e-4, T);
   const order = Math.log2(rk4Coarse / rk4Fine);
-  const euler = run(explicitEulerStep, 1e-3, T);
-  const eulerHalf = run(explicitEulerStep, 5e-4, T);
+  const euler = run(explicitEulerStep, 5e-4, T);
+  const eulerHalf = run(explicitEulerStep, 2.5e-4, T);
 
   const accel = (qq, qqd, out) => forwardDynamics(m0g, qq, qqd, null, null, out, ws);
   const ySI = q.slice(), ydSI = qd.slice();
-  for (let s = 0; s < Math.round(T / 1e-3); s++) semiImplicitEulerStep(accel, ySI, ydSI, 1e-3, qdds);
+  for (let s = 0; s < Math.round(T / 5e-4); s++) semiImplicitEulerStep(accel, ySI, ydSI, 5e-4, qdds);
+  // Both Euler runs are at 0.5 ms and RK4's fine run is too, so "far above"
+  // compares three numbers measured the same way over the same horizon.
   const si = Math.abs(energy(m0g, ySI, ydSI, ws).total - E0) / Math.abs(E0);
 
   // If both errors sit at the roundoff floor the order estimate is noise;
@@ -221,7 +243,7 @@ function randomState(scaleQ = 1, scaleQd = 1) {
   const atRoundoff = rk4Coarse < 1e-12 && rk4Fine < 1e-12;
   gate('F: RK4 4th-order energy convergence (or roundoff floor)',
     (atRoundoff || order > 3.5) && rk4Fine < 1e-9,
-    `order~${order.toFixed(2)}, err(2ms)=${rk4Coarse.toExponential(2)}, err(1ms)=${rk4Fine.toExponential(2)}`);
+    `order~${order.toFixed(2)}, err(1ms)=${rk4Coarse.toExponential(2)}, err(0.5ms)=${rk4Fine.toExponential(2)}`);
   const eulerOrder = Math.log2(euler / eulerHalf);
   gate('F: both Euler variants are first-order and far above RK4 on smooth dynamics',
     euler > 1e3 * rk4Fine && si > 1e3 * rk4Fine && eulerOrder > 0.7 && eulerOrder < 1.5,

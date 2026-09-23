@@ -13,30 +13,82 @@
 // published in servo.applied and recorded by simulate() as rec.tauApplied.
 
 import { clampTorque, availableTorque } from './strength.js';
-import { rnea, momenta, crbaMassMatrix } from './dynamics.js';
+import { rnea, momenta, crbaMassMatrix, createWorkspace } from './dynamics.js';
 
-// The driven joints, in the order the state vector holds them (q[3..10]).
+// The driven joints, in the order the state vector holds them (q[3..13]).
 // The order is not a choice: the dynamics reads joint i off body i, and the
-// tree requires a parent before its children, so the spine lands between the
-// shoulder and the hips and the head goes last.
-export const JOINT_ORDER = ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'];
-// Where the six joints of a technique written before the trunk could bend sit
-// in that order. Everything that reads a stored technique goes through this.
-export const LEGACY_JOINT_ORDER = ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'];
+// tree requires a parent before its children, so the elbow lands between the
+// wrist and the shoulder, each ankle follows its own knee, and the head goes
+// last.
+export const JOINT_ORDER = ['wrist', 'elbow', 'shoulder', 'spine',
+  'hipL', 'kneeL', 'ankleL', 'hipR', 'kneeR', 'ankleR', 'neck'];
 const NJOINTS = JOINT_ORDER.length;
 
-// A technique written before the trunk could bend has six channels. Widen it
-// to eight, with the spine and the neck at neutral -- which is exactly the
-// rigid body those techniques were authored on, so the movement they describe
-// is unchanged by the widening itself.
+// Joints the body has but nobody drives: the ball of the foot. There is no
+// muscle command, no knot row, no decision variable and no handle -- it has a
+// stiffness and it does what the ground tells it, which is what a toe does.
+//
+// They live at the END of q, after every driven joint, because the whole
+// notebook indexes the driven ones as the contiguous block q[3 .. 3 + NJ).
+// anthropometry.js puts the toe bodies last in the tree to arrange that.
+export const PASSIVE_JOINTS = ['toeL', 'toeR'];
+// Every joint the body has, driven then passive, in q order.
+export const ALL_JOINTS = [...JOINT_ORDER, ...PASSIVE_JOINTS];
+
+// Every joint list this notebook has ever had, oldest first, so a stored
+// technique can be read back whatever body it was written for. Each is a
+// SUBSET of the current order under the same names, which is the property
+// that makes widening a technique free rather than a guess: the joints the
+// old body did not have are the joints the old body held still, and every
+// one of them is at zero in the stacked handstand. Widening is therefore not
+// an approximation of the recorded movement -- it IS the recorded movement,
+// written for a body with more parts that happen not to move.
+//
+//   6  the original: a rigid trunk, a locked elbow, welded ankles
+//   8  the trunk hinged and the head came off it
+//  11  the elbow and the two ankles
+const JOINT_ORDERS = [
+  ['wrist', 'shoulder', 'hipL', 'kneeL', 'hipR', 'kneeR'],
+  ['wrist', 'shoulder', 'spine', 'hipL', 'kneeL', 'hipR', 'kneeR', 'neck'],
+  JOINT_ORDER,
+];
+// Kept under its old name because a good deal of prose and several tests
+// name it: the first list, the one a six-channel technique is written in.
+export const LEGACY_JOINT_ORDER = JOINT_ORDERS[0];
+
+// The joint list a channel count means. Ambiguity here would be a silent
+// mis-read of a stored artifact, so the counts are required to be distinct
+// and this throws rather than picking one.
+export function jointOrderFor(n) {
+  const hit = JOINT_ORDERS.filter((o) => o.length === n);
+  if (hit.length === 1) return hit[0];
+  throw new Error(`a technique with ${n} joints is none of ${JOINT_ORDERS.map((o) => o.length).join(', ')}`);
+}
+
+// A technique written for an older body, widened to this one, with the joints
+// that body did not have at neutral.
 export function widenKnots(rows) {
   if (rows.length === NJOINTS) return rows;
-  if (rows.length !== LEGACY_JOINT_ORDER.length) {
-    throw new Error(`a technique with ${rows.length} joints is neither ${LEGACY_JOINT_ORDER.length} nor ${NJOINTS}`);
-  }
+  const from = jointOrderFor(rows.length);
   const K = rows[0].length;
   const out = JOINT_ORDER.map(() => new Float64Array(K));
-  LEGACY_JOINT_ORDER.forEach((name, j) => { out[JOINT_ORDER.indexOf(name)].set(rows[j]); });
+  from.forEach((name, j) => { out[JOINT_ORDER.indexOf(name)].set(rows[j]); });
+  return out;
+}
+
+// The same widening for a whole CONFIGURATION -- three base coordinates and
+// then one angle per joint -- which is what a start pose and a target pose
+// are. Same rule: absent joints are neutral, and neutral is the handstand.
+export function widenQ(q, nq = 3 + ALL_JOINTS.length) {
+  if (!q) return q;
+  if (q.length === nq) return Float64Array.from(q);
+  const out = new Float64Array(nq);
+  out[0] = q[0]; out[1] = q[1]; out[2] = q[2];
+  // A stored pose carries the DRIVEN joints of the body it was written for.
+  // The passive tail is left at zero, which is the straight toe a handstand
+  // has and the geometry the foot had before it could bend at all.
+  const from = jointOrderFor(Math.min(q.length - 3, NJOINTS));
+  from.forEach((name, j) => { out[3 + JOINT_ORDER.indexOf(name)] = q[3 + j]; });
   return out;
 }
 
@@ -90,12 +142,12 @@ export function splineEval(knots, T, t, times = null) {
   return { value, rate: h > 0 ? dv / h : 0 };
 }
 
-// Fill the six actuated reference angles/rates from knotMatrix[6][K].
+// Fill the actuated reference angles/rates from knotMatrix[NJOINTS][K].
 export function evalReference(knotMatrix0, T, t, qRef, qdRef, times = null) {
   // The last boundary. Everything that drives the body comes through here, so
-  // a six-channel technique -- a preset, a recorded artifact, a saved file, a
-  // hand-built matrix in a gate -- is widened once, here, rather than at every
-  // call site that might have one.
+  // a technique written for an older body -- a preset, a recorded artifact, a
+  // saved file, a hand-built matrix in a gate -- is widened once, here, rather
+  // than at every call site that might have one.
   const knotMatrix = widenKnots(knotMatrix0);
   for (let j = 0; j < NJOINTS; j++) {
     const r = splineEval(knotMatrix[j], T, t, times);
@@ -230,20 +282,31 @@ export function createServo(model, strengthProf, {
     damping, kp, kd, qRef, qdRef, activationTau, applied,
     dampingRatio, brakeMargin, inertia, kpEff, loopOmegaTau,
     makeControl(knotMatrix, T, augment = null, times = null) {
+      // See the rnea call below. One per control closure, not one per step.
+      const gws = ws ? createWorkspace(model) : null;
       const des = new Float64Array(NJOINTS);
       const u = new Float64Array(NJOINTS);
       let lastT = null, lastInertiaT = null;
       return (t, q, qd, tau) => {
         evalReference(knotMatrix, T, Math.min(t, T), qRef, qdRef, times);
         if (t >= T) qdRef.fill(0);
-        if (gravityComp && ws) rnea(model, q, zero, zero, tauG, null, { ws });
+        // Its OWN workspace, not the caller's. This runs in the middle of a
+        // simulation step, between the contact forces and the forward
+        // dynamics, and it used to overwrite the kinematics both of those had
+        // just computed for (q, qd) with kinematics for (q, 0) -- so every
+        // step paid for fk three times over, and any caller that assumed the
+        // workspace still described the state it had just evaluated would have
+        // been quietly wrong. It wants the bias at ZERO velocity, which is a
+        // different pose-and-motion from the step's, so it needs somewhere
+        // else to put it rather than a flag.
+        if (gravityComp && ws) rnea(model, q, zero, zero, tauG, null, { ws: gws });
         // The inertia the servo is tuned against changes with the pose, but
         // on the timescale of the body, not the timestep; refreshing it at
         // inertiaHz keeps the extra mass-matrix factorization off the hot
         // path. (A nervous system does not re-identify its limbs at 5 kHz
         // either.)
         if (adaptive && (lastInertiaT === null || t - lastInertiaT >= 1 / inertiaHz)) {
-          crbaMassMatrix(model, q, Mbuf, ws);
+          crbaMassMatrix(model, q, Mbuf, gws);
           for (let j = 0; j < NJOINTS; j++) {
             const jq = 3 + j;
             inertia[j] = Math.max(Mbuf[jq * nq + jq], 1e-4);

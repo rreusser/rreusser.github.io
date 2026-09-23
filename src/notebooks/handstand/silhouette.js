@@ -103,7 +103,9 @@ function tube(stations, capProx = 0, capDist = 0) {
 }
 
 export function buildSilhouette({
-  Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Larm, Lhn, Ltr, Lth, Lsh, toeX }) {
+  Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Lua, Larm, Lhn,
+  Ltr, Lth, Lsh, Lft, Lfoot, heelPt, ballPt, ankleH, heelBack, footFwd, ballFwd,
+  ballOnAxis, Ltoe }) {
   const s = SHAPE[sex] || SHAPE.male;
   const f = (v) => v * H;
 
@@ -118,15 +120,20 @@ export function buildSilhouette({
     [patchTipX, -hw + f(0.005)], [patchTipX, -hw],
   ]];
 
-  // Arm: both arms merged, wrist to shoulder, with the forearm swell just
-  // past the wrist and the bicep short of the shoulder.
-  const arm = [smoothClosed(tube([
+  // Arm: both arms merged, in two tubes cut at the elbow. Same stations the
+  // single wrist-to-shoulder tube had; both ends at the cut are rounded, which
+  // is what lets the pair stay one continuous shape through a bent elbow
+  // instead of scissoring open on the outside of the bend.
+  const forearm = [smoothClosed(tube([
     [0, f(s.wrist), f(s.wrist)],
     [0.32 * Lfa, f(s.elbow) * 0.98, f(s.elbow) * 0.92],
     [Lfa, f(s.elbow) * 0.92, f(s.elbow) * 0.92],
-    [Lfa + 0.42 * (Larm - Lfa), f(s.bicep), f(s.bicep) * 0.92],
-    [Larm, f(s.shoulder), f(s.shoulder)],
-  ], 0, 0.55))];
+  ], 0, 0.75))];
+  const upperArm = [smoothClosed(tube([
+    [0, f(s.elbow) * 0.92, f(s.elbow) * 0.92],
+    [0.42 * Lua, f(s.bicep), f(s.bicep) * 0.92],
+    [Lua, f(s.shoulder), f(s.shoulder)],
+  ], 0.75, 0.55))];
 
   // The torso is TWO bodies now, hinged at the spine, so it is drawn as two
   // tubes cut at that hinge. The stations are the same ones the single tube
@@ -180,31 +187,118 @@ export function buildSilhouette({
     [Lth, f(s.knee), f(s.knee) * 0.94],
   ], 0.55, 0.60))];
 
-  // Shank with the foot folded in, matching the way the model itself lumps
-  // them: calf on the posterior side, then a pointed foot along +x.
+  // Shank: calf on the posterior side, ending at the ankle. The foot used to
+  // be drawn on the end of this as a taper, because the model welded it here.
   const shank = [smoothClosed(tube([
     [0, f(s.knee), f(s.knee) * 0.94],
     [0.28 * Lsh, f(s.calfA), f(s.calfP)],
     [0.72 * Lsh, f(s.ankle) * 1.35, f(s.calfP) * 0.52],
     [Lsh, f(s.ankle), f(s.ankle) * 1.25],
-    [Lsh + 0.45 * (toeX - Lsh), f(s.footTop) * 0.75, f(s.footSole) * 0.85],
-    [toeX, f(0.009), f(0.009)],
-  ], 0.60, 0))];
+  ], 0.60, 0.70))];
 
-  // Body order, which is the model's: hand, arm, chest, pelvis, both legs,
-  // then the head hanging off the chest. The neck and skull are already
-  // written relative to the shoulder, which is exactly the head body's own
-  // origin, so they move across unchanged.
+  // Foot.
+  //
+  // Drawn in the profile a foot actually has, which means drawing it STANDING
+  // -- sole on the floor, ankle above it -- and rotating that into the body
+  // frame, rather than trying to describe it in a frame whose +x runs from the
+  // ankle to the tip of a pointed toe. Described directly in that frame it came
+  // out a flipper: the widest part is at the heel and everything after it
+  // tapers monotonically to a point, which is exactly what a blade is.
+  //
+  // A foot in profile is not a taper. It has a heel that juts back and down as
+  // a rounded lobe, an arch that lifts the middle of the sole clear of the
+  // floor, a ball it rolls over, and toes that are shorter and blunter than the
+  // instep is tall. Those are the four things below, and they are what make it
+  // read as a foot at any ankle angle.
+  //
+  // x runs forward from the ANKLE, y up from the floor; the same rotation
+  // anthropometry.js uses to place the contacts brings them into the frame.
+  const ux = footFwd / Lft, uy = -ankleH / Lft;
+  const toFoot = (x, y) => [x * ux + (y - ankleH) * uy, -x * uy + (y - ankleH) * ux];
+  const P = (x, y) => toFoot(x * H, y * H);
+  const hb = -heelBack / H;            // the heel contact, behind the ankle
+  const tf = footFwd / H;              // the toe tip, ahead of it
+  const bl = ballFwd / H;              // the ball, between them
+  const foot = [smoothClosed([
+    // The sole, heel to toe. Two stations close together at the back give the
+    // heel a bottom rather than a curve, the arch lifts clear of the floor in
+    // the middle, and the ball and the toes come back down to it.
+    P(hb + 0.006, 0.000),
+    P(hb + 0.017, 0.000),
+    P(hb + 0.032, 0.004),
+    P(hb + 0.052, 0.008),              // the arch, at its highest
+    P(bl - 0.018, 0.004),
+    P(bl, 0.000),                      // the ball
+    P(bl + 0.030, 0.000),
+    P(tf - 0.003, 0.001),
+    // The toes. Blunt: the tip is a third the height of the instep, not a point.
+    P(tf, 0.006),
+    P(tf - 0.008, 0.011),
+    // Back along the top, rising over the knuckles and the instep to the notch
+    // at the front of the ankle. This edge is what stops it reading as a
+    // flipper -- it climbs steadily instead of tapering away.
+    P(bl + 0.028, 0.017),
+    P(bl, 0.026),
+    P(bl - 0.029, 0.035),
+    P(0.003, 0.043),
+    P(-0.009, 0.047),                  // the ankle, a little above the joint
+    // And round the heel: back, down, and under. The two stations at the
+    // bottom corner are close together on purpose, so the heel keeps a corner.
+    P(-0.023, 0.042),
+    P(hb + 0.001, 0.030),
+    P(hb - 0.005, 0.017),
+    P(hb - 0.003, 0.006),
+  ], 3)];
+
+  // Split at the ball. The foot outline is drawn as one profile above, because
+  // that is how a foot is shaped; it becomes two bodies here by cutting the
+  // polygon at the joint. Everything behind the cut belongs to the foot,
+  // everything ahead to the toe -- re-expressed in the toe's own frame, whose
+  // origin is the ball and whose +x continues the foot's.
+  // The two halves OVERLAP across the cut rather than meeting at it. Meeting
+  // exactly is only continuous while the joint is straight; bend it and the two
+  // flat ends scissor apart, opening a wedge of background on the outside of
+  // the bend -- the same thing rounded caps fix at every other joint on the
+  // body. An overlap of a centimetre keeps the foot one shape at any toe angle.
+  const over = 0.010 * H;
+  const cut = (poly, keepAhead) => {
+    const edge = ballOnAxis + (keepAhead ? -over : over);
+    const pts = [];
+    const inSide = (p) => (keepAhead ? p[0] >= edge : p[0] <= edge);
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      if (inSide(a)) pts.push(a);
+      // Where an edge crosses the cut, put a point exactly on it, so the two
+      // halves share an edge and no seam opens when the joint bends.
+      if (inSide(a) !== inSide(b)) {
+        const t = (edge - a[0]) / (b[0] - a[0]);
+        pts.push([edge, a[1] + (b[1] - a[1]) * t]);
+      }
+    }
+    return keepAhead ? pts.map(([x, y]) => [x - ballOnAxis, y]) : pts;
+  };
+  const footBack = [cut(foot[0], false)];
+  const footToe = [cut(foot[0], true)];
+
+  // Body order, which is the model's: hand, forearm, upper arm, chest, pelvis,
+  // both legs down to their feet, then the head hanging off the chest. The
+  // neck and skull are already written relative to the shoulder, which is
+  // exactly the head body's own origin, so they move across unchanged.
   return [
     hand,
-    arm,
+    forearm,
+    upperArm,
     [chest],
     [pelvis],
     thigh,
     shank,
+    footBack,
     thigh,
     shank,
+    footBack,
     [neck, skull],
+    footToe,
+    footToe,
   ];
 }
 

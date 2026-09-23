@@ -1,4 +1,6 @@
 import { JOINT_ORDER } from '../control.js';
+// The q index of each joint, by name -- the same table statics.js builds.
+const QI = Object.fromEntries(JOINT_ORDER.map((n, j) => [n, 3 + j]));
 // Verification gates for the static analysis and ROM model.
 //
 // Run: node src/notebooks/handstand/test/statics.mjs
@@ -131,9 +133,13 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7ffffff
   for (let trial = 0; trial < 20; trial++) {
     const q = new Float64Array(nq);
     groundHand(model, q);
-    q[4] = 40 * rnd() * D2R;
-    q[5] = (30 + 60 * rnd()) * D2R; q[7] = (30 + 60 * rnd()) * D2R;
-    q[6] = -(20 + 40 * rnd()) * D2R; q[8] = -(20 + 40 * rnd()) * D2R;
+    // By name. Written as 4/5/6/7/8 these were the six-joint body's shoulder,
+    // hips and knees; on today's body the same numbers are the elbow, the
+    // spine and one hip, so the gate went on passing while probing a pose it
+    // was not describing.
+    q[QI.shoulder] = 40 * rnd() * D2R;
+    q[QI.hipL] = (30 + 60 * rnd()) * D2R; q[QI.hipR] = (30 + 60 * rnd()) * D2R;
+    q[QI.kneeL] = -(20 + 40 * rnd()) * D2R; q[QI.kneeR] = -(20 + 40 * rnd()) * D2R;
     const target = 0.03 + 0.05 * rnd();
     const w = solveWristForCom(model, q, ws, target);
     if (Number.isNaN(w)) continue;
@@ -194,9 +200,9 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7ffffff
   // Shoulder torque to hold the straight body at a given lean off the line.
   const leanCost = (deg) => {
     const qq = Float64Array.from(q);
-    qq[4] += deg * Math.PI / 180;
+    qq[QI.shoulder] += deg * Math.PI / 180;
     rnea(model, qq, zero, zero, tau, null, { ws });
-    return Math.abs(tau[4]);
+    return Math.abs(tau[QI.shoulder]);
   };
   const cap = prof.shoulder.voluntaryIso;
   const hold = leanCost(0), lean10 = leanCost(10), lean30 = leanCost(30);

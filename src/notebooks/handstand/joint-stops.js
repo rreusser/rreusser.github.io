@@ -23,9 +23,9 @@
 // movement outside its anatomy for free.
 
 import { crbaMassMatrix } from './dynamics.js';
-import { jointLimits } from './statics.js';
+import { jointLimits, ROM_DEFAULTS } from './statics.js';
 import { availableTorque } from './strength.js';
-import { JOINT_ORDER } from './control.js';
+import { JOINT_ORDER, PASSIVE_JOINTS } from './control.js';
 
 const D2R = Math.PI / 180;
 // Derived from the joint list rather than written down beside it. Written
@@ -34,6 +34,7 @@ const D2R = Math.PI / 180;
 // strength -- and the last two joints on the body, the right knee and the
 // neck, got no end-stop at all. A neck with no stop is a head on a string.
 const NJ = JOINT_ORDER.length;
+const NP = PASSIVE_JOINTS.length;
 
 // stopDeg: penetration at full voluntary torque (0 disables stops entirely).
 // zeta: damping ratio of the stop against the joint's nominal inertia.
@@ -43,12 +44,16 @@ const NJ = JOINT_ORDER.length;
 export function createJointStops(model, rom, strengthProf, ws, {
   stopDeg = 5, zeta = 0.7, qNominal = null,
 } = {}) {
-  if (!(stopDeg > 0)) return null;
   const nq = model.nq;
   const M = new Float64Array(nq * nq);
   crbaMassMatrix(model, qNominal || new Float64Array(nq), M, ws);
   const k = new Float64Array(NJ), b = new Float64Array(NJ);
-  for (let j = 0; j < NJ; j++) {
+  // stopDeg of 0 turns the DRIVEN joints' end-stops off, which some gates ask
+  // for to isolate what the stops do. It cannot turn the passive rest spring
+  // off: a joint with no muscle and no spring is not a modelling choice, it is
+  // a floppy segment, and the toe would flail on the end of the foot.
+  const on = stopDeg > 0;
+  for (let j = 0; on && j < NJ; j++) {
     const jq = 3 + j;
     const cap = availableTorque(strengthProf[JOINT_ORDER[j]], 0, 0);
     k[j] = cap / (stopDeg * D2R);
@@ -57,8 +62,9 @@ export function createJointStops(model, rom, strengthProf, ws, {
   return { rom, k, b, stopDeg, zeta, torque: new Float64Array(NJ) };
 }
 
-// Adds end-stop torques to the actuated rows of tau. Returns the stop torques
-// for instrumentation (nonzero only where the joint is outside its range).
+// Adds end-stop torques to the actuated rows of tau, and the rest spring plus
+// end-stops to the passive ones. Returns the stop torques for instrumentation
+// (nonzero only where the joint is outside its range).
 export function applyJointStops(stops, q, qd, tau) {
   const { rom, k, b, torque } = stops;
   for (let j = 0; j < NJ; j++) {
@@ -72,6 +78,85 @@ export function applyJointStops(stops, q, qd, tau) {
       t = Math.max(0, k[j] * (lo - q[jq]) - b[j] * qd[jq]);
     }
     torque[j] = t;
+    tau[jq] += t;
+  }
+  return torque;
+}
+
+
+// ---------------------------------------------------------------------------
+// The passive joints: the ball of the foot.
+//
+// Nothing drives it, so unlike every joint above it needs more than a stop at
+// each end -- it needs a REST, or it is not a joint, it is a floppy segment on
+// the end of the foot.
+//
+// This belongs to the BODY, not to whoever assembled the rollout. It was built
+// alongside the end-stops at first, which meant every caller that drives
+// simulate() directly -- the catch-window sweep, half the contact gates, the
+// integrator-order gates -- got a toe with no spring at all and blew up. A
+// model with a passive joint has that joint's stiffness in the same sense that
+// it has that joint's mass, so simulate() builds this itself and every caller
+// gets it whether it knows about it or not.
+// ---------------------------------------------------------------------------
+export function createPassiveJoints(model, ws, {
+  rom = ROM_DEFAULTS, qNominal = null,
+  // How far the ball of the foot gives, under how much load, and how it
+  // settles. The pair is the whole spring: k = (load * lever) / sink.
+  //
+  // The load is the fraction of body weight ONE toe carries at the moment it
+  // matters -- the push-off, where the other foot has already left and the arms
+  // are taking their share -- and not the whole body, which is a load a toe
+  // only sees standing still on one leg.
+  //
+  // 45 degrees under that is a joint that visibly rolls. Sized instead as "the
+  // whole body weight sinks it twenty degrees" it came out at 139 Nm/rad --
+  // 2.4 Nm per degree, an order of magnitude past what a measured
+  // metatarsophalangeal joint resists, and it read as what it was: a foot with
+  // a rigid chip on the end. It reached 32 Nm of passive torque at 13 degrees
+  // in the kick-ups, which is more than the ankle it hangs off can produce.
+  toeSinkDeg = 45, toeLoadFrac = 0.5, toeZeta = 0.9,
+} = {}) {
+  if (!NP || model.nq < 3 + NJ + NP) return null;
+  const nq = model.nq;
+  const M = new Float64Array(nq * nq);
+  crbaMassMatrix(model, qNominal || new Float64Array(nq), M, ws);
+  const k = new Float64Array(NP);
+  // The damping goes out as a jointDamping row, NOT as a torque, and that is
+  // not a stylistic choice. A toe is light -- a sixth of a foot, about
+  // 6e-5 kg m^2 -- and damping near critical against a spring sized for body
+  // weight is b ~ 0.16, which explicit integration survives only below
+  // dt = 2I/b = 0.7 ms. The notebook integrates at 0.5 ms and scores a
+  // robustness variant at 0.8, so half the evaluations went unstable and came
+  // back NaN. The integrator already treats jointDamping implicitly, which is
+  // the same trick the servo uses on the same problem.
+  const damping = new Float64Array(nq);
+  const W = toeLoadFrac * model.massKg * model.gravity;
+  // The lever the load actually acts on: the ground under the toe, the joint
+  // at the ball holding it up. Sized from that rather than by taste, the way
+  // the stops above are sized from voluntary torque.
+  const lever = model.footGeom?.Ltoe ?? 0.07;
+  for (let i = 0; i < NP; i++) {
+    const jq = 3 + NJ + i;
+    k[i] = (W * lever) / Math.max(toeSinkDeg * D2R, 1e-6);
+    damping[jq] = 2 * toeZeta * Math.sqrt(k[i] * Math.max(M[jq * nq + jq], 1e-6));
+  }
+  return { rom, k, damping, torque: new Float64Array(NP) };
+}
+
+// The rest spring and the end-stops. The damping is not here: it rides in the
+// `damping` row above, which the integrator folds into the mass matrix.
+export function applyPassiveJoints(passive, q, tau) {
+  const { rom, k, torque } = passive;
+  for (let i = 0; i < NP; i++) {
+    const jq = 3 + NJ + i;
+    let t = -k[i] * q[jq];
+    const { lo, hi } = jointLimits(rom, q, jq);
+    // Past the end of the range the ligament takes over. Ten times the rest
+    // spring is a joint that gives, and then stops giving.
+    if (q[jq] > hi) t += Math.min(0, -10 * k[i] * (q[jq] - hi));
+    else if (q[jq] < lo) t += Math.max(0, 10 * k[i] * (lo - q[jq]));
+    torque[i] = t;
     tau[jq] += t;
   }
   return torque;
