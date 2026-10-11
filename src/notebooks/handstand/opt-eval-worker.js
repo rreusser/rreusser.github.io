@@ -29,7 +29,11 @@ self.onmessage = ({ data }) => {
   const costs = [], poses = [];
   for (const x of xs) {
     const c = costFn(model, ws, prof, rom, cfg.scenario, Float64Array.from(x), {
-      K: cfg.K || 6, dt: cfg.dt || 2.5e-4, weights, q0: cfg.q0 || null, target: cfg.target || null,
+      // cfg.dt with no fallback: it is the technique's step, forwarded from
+      // techniqueSearchArgs, and a default here would be a second opinion
+      // about the one number the search and the page must share. Absent, the
+      // cost function reads it off cfg.numerics, which says the same thing.
+      K: cfg.K || 6, dt: cfg.dt, weights, q0: cfg.q0 || null, target: cfg.target || null,
       // The machine the page is showing, not this worker's idea of a default.
       plant: cfg.plant || null,
       // The phrasing and the held poses, for the same reason.
@@ -39,6 +43,13 @@ self.onmessage = ({ data }) => {
       // know that phrasing is being searched.
       timeLocks: cfg.timeLocks || null,
       numerics: cfg.numerics || null, symmetric: cfg.symmetric ?? null,
+      // Whether the start pose rides in the decision vector. Unlike the free
+      // INSTANTS this cannot be inferred from the length of x -- the two tails
+      // are the same size for six poses -- so it is forwarded.
+      freeStart: !!cfg.freeStart,
+      // And whether that start carries the base as well, which decides how
+      // long the tail is. Same reasoning: it cannot be inferred from x.
+      startGrounded: cfg.startGrounded !== false,
     });
     costs.push(c.cost);
     if (wantFrames && c.rec?.q?.length) {

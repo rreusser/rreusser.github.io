@@ -3,6 +3,7 @@
 // optional per-segment overrides are injected by the caller.
 
 import { fk } from './dynamics.js';
+import { PASSIVE_JOINTS } from './control.js';
 
 const TAU = Math.PI * 2;
 
@@ -12,11 +13,30 @@ function css([r, g, b], a = 1) {
 
 // World window: x centered near the hand, y from just below the floor to a
 // bit above head height of the inverted body.
-export function viewTransform(width, height, { cx = 0.12, yLo = -0.18, yHi = 2.08 } = {}) {
-  const scale = height / (yHi - yLo);
-  const toX = (wx) => width / 2 + (wx - cx) * scale;
-  const toY = (wy) => height - (wy - yLo) * scale;
-  return { toX, toY, scale };
+// The window a body of THIS size needs, with room above the toes. Every figure
+// asks for this instead of naming a height, so a taller reader, a straddle, or
+// another segment on the end of the chain cannot crop the handstand.
+export function bodyView(model, { cx = 0.15, yLo = -0.18, pad = 0.10 } = {}) {
+  return { cx, yLo, yHi: model.reachM + pad };
+}
+
+// World -> screen. `zoom` and the pan offsets are the reader's, and they are
+// applied about the CENTRE of the window rather than its bottom-left corner, so
+// zooming stays put instead of sliding the body off the top. At zoom 1 with no
+// pan this is exactly the old mapping: yLo lands on the bottom edge and yHi on
+// the top, to the pixel.
+//
+// toWorld is the inverse, which anything turning a pointer position into a
+// place in the room needs -- zooming about the cursor, for one.
+export function viewTransform(width, height, {
+  cx = 0.12, yLo = -0.18, yHi = 2.08, zoom = 1, panX = 0, panY = 0,
+} = {}) {
+  const scale = (zoom * height) / (yHi - yLo);
+  const wx0 = cx + panX, wy0 = 0.5 * (yLo + yHi) + panY;
+  const toX = (wx) => width / 2 + (wx - wx0) * scale;
+  const toY = (wy) => height / 2 - (wy - wy0) * scale;
+  const toWorld = (sx, sy) => [wx0 + (sx - width / 2) / scale, wy0 - (sy - height / 2) / scale];
+  return { toX, toY, toWorld, scale, floorY: toY(0) };
 }
 
 // Draw a set of bodies as flat translucent silhouettes: the population of an
@@ -39,11 +59,27 @@ export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, 
     fk(model, q, null, ws);
     if (color) { ctx.globalAlpha = alpha * (pose.weight ?? 1); ctx.fillStyle = color; }
     else ctx.fillStyle = css(fg, alpha * (pose.weight ?? 1));
+    // ONE path for the whole candidate, filled ONCE.
+    //
+    // Every body used to get its own beginPath and its own fill, which at this
+    // alpha meant the translucency compounded wherever two of them overlapped
+    // -- and they overlap at every joint by construction, because the segment
+    // ends are rounded specifically so a bent joint stays one continuous shape.
+    // Twenty candidates drawn that way is a field of bright lenses at the
+    // elbows, knees and ankles, and the brightest thing on screen is the thing
+    // that carries the least information.
+    //
+    // Accumulated into one path the union fills once, so a candidate is a flat
+    // silhouette at exactly `alpha` no matter how it is folded. That relies on
+    // every subpath winding the same way, which anthropometry.js guarantees
+    // when it builds the outlines: under the nonzero rule two subpaths wound
+    // AGAINST each other would cancel where they overlap and punch a hole in
+    // the figure instead of merging.
+    ctx.beginPath();
     for (let i = 0; i < model.nb; i++) {
       const c = Math.cos(ws.th[i]), sn = Math.sin(ws.th[i]);
       const shape = model.outline?.[i];
       if (!shape) continue;
-      ctx.beginPath();
       for (const poly of shape) {
         for (let k = 0; k < poly.length; k++) {
           const wx = ws.px[i] + c * poly[k][0] - sn * poly[k][1];
@@ -53,8 +89,8 @@ export function drawGhosts(ctx, { model, ws, poses, width, height, theme, view, 
         }
         ctx.closePath();
       }
-      ctx.fill();
     }
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -69,7 +105,7 @@ export function drawScene(ctx, opts) {
   const isDark = theme ? theme.isDark : false;
 
   fk(model, q, null, ws);
-  const { toX, toY, scale } = viewTransform(width, height, opts.view);
+  const { toX, toY, toWorld, scale, floorY } = viewTransform(width, height, opts.view);
 
   let mTot = 0, comX = 0, comY = 0;
   for (let i = 0; i < model.nb; i++) {
@@ -133,13 +169,22 @@ export function drawScene(ctx, opts) {
   // leg first, then head and torso, then the arm in front of the head, then
   // the near leg in front of everything.
   // By NAME, because the body indices moved when the trunk gained a hinge and
-  // the head became its own segment -- and a hardcoded list silently stops
-  // drawing whatever fell off the end of it, which is exactly what happened
-  // to the head.
-  const ORDER_NAMES = ['thighL', 'shankL', 'headNeck', 'chest', 'pelvis',
-    'hand', 'arm', 'thighR', 'shankR'];
-  const order = ORDER_NAMES.map((n) => model.names.indexOf(n)).filter((i) => i >= 0);
-  const farLeg = new Set([model.names.indexOf('thighL'), model.names.indexOf('shankL')]);
+  // the head became its own segment.
+  const ORDER_NAMES = ['thighL', 'shankL', 'footL', 'toeL', 'headNeck', 'chest', 'pelvis',
+    'hand', 'forearm', 'upperArm', 'thighR', 'shankR', 'footR', 'toeR'];
+  const named = ORDER_NAMES.map((n) => model.names.indexOf(n)).filter((i) => i >= 0);
+  // Anything the list does not name still gets drawn, on the end.
+  //
+  // This list is an OCCLUSION order, so it has to be written by hand -- but
+  // written by hand and then filtered for -1 it silently stops drawing whatever
+  // fell off the end of it, which is what happened to the head when the trunk
+  // gained a hinge and to both toes when the feet gained one. A body missing
+  // from a draw order should come out in the wrong place, where you can see it,
+  // rather than not come out at all.
+  const order = named.concat(
+    Array.from({ length: model.nb }, (_, i) => i).filter((i) => !named.includes(i)));
+  const farLeg = new Set(['thighL', 'shankL', 'footL', 'toeL']
+    .map((n) => model.names.indexOf(n)).filter((i) => i >= 0));
   const bg = theme ? theme.background : [1, 1, 1];
   const mix = (t) => [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * t);
   const tracePoly = (poly, c, s, px, py, keepPath = false) => {
@@ -309,7 +354,7 @@ export function drawScene(ctx, opts) {
     x: toX(grabW[0]), y: toY(grabW[1]),
     pivotX: toX(ws.px[pivotB]), pivotY: toY(ws.py[pivotB]),
   });
-  // One handle per driven body, WALKED from the tree. This was a hand-written
+  // One handle per DRIVEN body, walked from the tree. This was a hand-written
   // table of six entries in the old body numbering: once the trunk gained a
   // hinge it grabbed the wrong joints -- the handle on the torso turned out to
   // drive a hip -- and it stopped two bodies short, so the feet and the head
@@ -318,15 +363,47 @@ export function drawScene(ctx, opts) {
   // Each body is turned about its own origin, and the natural thing to take
   // hold of is its far end: the origin of its first child where it has one,
   // and its own tip where it does not.
+  //
+  // DRIVEN, though, and walking the whole tree is not the same thing. A
+  // passive joint has no muscle behind it, no channel in the technique and no
+  // dimension in the search: its angle is the ground's answer, not the
+  // reader's. Handed a handle anyway, both toes got one -- two of them, since
+  // symmetry only knows to hide the right hip, knee and ankle -- and dragging
+  // either did nothing visible, because seating lays the toes itself and
+  // overwrites whatever was authored on the way into every rollout. A control
+  // that does nothing is worse than no control: it reads as broken rather than
+  // as absent.
   const firstChild = (b) => {
     for (let i = 1; i < model.nb; i++) if (model.parent[i] === b) return i;
     return -1;
   };
   const handles = [];
   for (let b = 1; b < model.nb; b++) {
+    // Body b turns joint q[2 + b], so that is the name to ask about.
+    if (PASSIVE_JOINTS.includes(model.qNames?.[2 + b])) continue;
     const ch = firstChild(b);
     handles.push(H(2 + b, ch >= 0 ? [ws.px[ch], ws.py[ch]] : tip(b), b));
   }
+  // And the BASE, when the caller says this pose is free to be anywhere. Every
+  // handle above turns one body about its parent, which is all a pose is while
+  // the palm is flat on the floor at the origin -- there is nothing to move.
+  // A pose that has let go of the floor has three more degrees of freedom, and
+  // they need two handles: one that turns the whole body about the wrist, and
+  // one that picks it up and puts it somewhere else.
+  //
+  // Joint 2 is the base ANGLE, which is a joint coordinate like any other, so
+  // the turn handle needs no special case downstream. The move handle does,
+  // and says so: `move` is the pair (q[0], q[1]) and is dragged, not rotated.
+  if (opts.baseHandles) {
+    handles.push(H(2, tip(0), 0));
+    handles.push({ joint: 0, move: true, x: toX(ws.px[0]), y: toY(ws.py[0]),
+      pivotX: toX(ws.px[0]), pivotY: toY(ws.py[0]) });
+  }
 
-  return { comX, comY, supported, handles, heelX, tipX };
+  // The pixels-per-metre the handles above are expressed in. Returned rather
+  // than re-derived by the caller: the move handle drags a body across the
+  // floor, so it needs to turn pointer pixels back into metres, and computing
+  // that a second time from the view is how the figure and the pointer come
+  // to disagree at some widths and not others.
+  return { comX, comY, supported, handles, heelX, tipX, scale, floorY, toWorld };
 }

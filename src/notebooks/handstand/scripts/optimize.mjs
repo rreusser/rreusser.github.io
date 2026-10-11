@@ -9,7 +9,7 @@ import { buildModel } from '../anthropometry.js';
 import { createWorkspace } from '../dynamics.js';
 import { strengthProfile } from '../strength.js';
 import { ROM_DEFAULTS } from '../statics.js';
-import { optimizeScenario, COST_WEIGHTS } from '../rollout.js';
+import { optimizeScenario, COST_WEIGHTS, NUMERICS_DEFAULTS } from '../rollout.js';
 
 const [scenario = 'lunge', maxGenS = '200', seedS = '7', outfile = null] = process.argv.slice(2);
 const maxGen = +maxGenS, seed = +seedS;
@@ -39,7 +39,7 @@ let pool = null;
 if (+(process.env.PARALLEL ?? '0') !== 1) {
   const { createEvalPool } = await import('./pool.mjs');
   pool = createEvalPool({
-    scenario, K: optOpts.K || 6, dt: optOpts.dt || 2.5e-4,
+    scenario, K: optOpts.K || 6, dt: optOpts.dt || NUMERICS_DEFAULTS.dt,
     weights, romOverrides, strengthOpts, robust: optOpts.robust, variants: optOpts.variants,
   }, process.env.PARALLEL ? +process.env.PARALLEL : undefined);
   // Round the population up to a whole number of worker-rounds. A generation

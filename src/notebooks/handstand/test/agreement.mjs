@@ -18,8 +18,11 @@ import { createWorkspace } from '../dynamics.js';
 import { strengthProfile, STRENGTH_DEFAULTS } from '../strength.js';
 import { ROM_DEFAULTS } from '../statics.js';
 import {
-  rolloutCost, runScenario, encodeDecision, resolvePlant, resolveNumerics,
+  rolloutCost, robustRolloutCost, robustVariants, runScenario, encodeDecision,
+  optimizeScenario,
+  resolvePlant, resolveNumerics,
   resolveRom, resolveBody, symmetrizeKnots, SYMMETRIC_SCENARIOS, NJ, JOINT_KEYS, widenKnots,
+  NUMERICS_DEFAULTS,
 } from '../rollout.js';
 import { resampleKnots } from '../figure-kit.js';
 import { PRESET_TRAJECTORIES, builtinPreset } from '../presets.js';
@@ -34,11 +37,13 @@ function gate(name, ok, detail) {
 }
 
 const D = 180 / Math.PI;
-// The fine timestep both sides use: rolloutCost's finalCheck and the page's
-// replay. The search's coarse generations are deliberately coarser, and the
-// finalCheck exists precisely so the number reported at the end is the one a
-// replay reproduces.
-const DT = 2e-4;
+// The timestep both sides use, PER TECHNIQUE. It was one number for the whole
+// file -- first written down, then read off NUMERICS_DEFAULTS -- and both were
+// second opinions about the one thing this file exists to check they agree on.
+// The replay side has always resolved it from the technique, so the moment the
+// built-ins started carrying their own integration a global here reported a
+// disagreement that was the test's, not the code's.
+const dtOf = (stored) => resolveNumerics(stored.numerics).dt;
 
 // What the figure's body sliders produce with nothing touched.
 function pageBody(stored) {
@@ -55,7 +60,7 @@ function pageBody(stored) {
 const scored = (m, stored, knots, T, q0, target, fracs = null) =>
   rolloutCost(m.model, m.ws, m.prof, m.rom, stored.scenario,
     encodeDecision(knots.map((k) => Float64Array.from(k)), T), {
-      K: knots[0].length, dt: DT, q0, target,
+      K: knots[0].length, dt: dtOf(stored), q0, target,
       // The page hands the search the machine it replays on, exactly as it
       // hands it the body, the anatomy, the start, the ending and the phrasing.
       plant: resolvePlant(stored.config), knotFracs: fracs,
@@ -95,11 +100,29 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   const base = asEdited(stored, widenKnots(stored.knots.map((k) => Float64Array.from(k))));
   const K0 = base[0].length;
 
-  // As shipped: no dragged start, ending is the stored one.
-  CASES.push({ label: `${name} as shipped`, m, stored, knots: base, T: stored.T, q0: null });
+  // The start the technique carries, or null where it has none and the
+  // scenario solves one. A recorded technique was searched FROM a particular
+  // start -- with the start pose itself among the things the search moved --
+  // so replacing it with the scenario's solve is not the same movement, and a
+  // gate that did so would be comparing two call sites on a technique neither
+  // of them was given.
+  const q0Stored = stored.q0 ? Float64Array.from(stored.q0) : null;
+  // ...and the phrasing it carries, for the same reason. A recorded technique
+  // was searched WITH its instants where they are; replayed at even spacing it
+  // is a different movement, and every fixture here fell on the floor while
+  // both call sites agreed perfectly about how. Two call sites agreeing on the
+  // wrong technique is a gate that has stopped asking anything.
+  const fracsStored = stored.knotFracs ? Float64Array.from(stored.knotFracs) : null;
+  // The ending it aims at is the technique's own, except where the case moves
+  // the last knot -- which is what dragging the last storyboard cell does.
+  const targetStored = stored.target ? Float64Array.from(stored.target) : null;
+
+  // As shipped: the technique exactly as the picker opens it.
+  CASES.push({ label: `${name} as shipped`, m, stored, knots: base, T: stored.T, q0: q0Stored,
+    fracs: fracsStored, target: targetStored });
 
   // A dragged start: the page reads it back out of the run it just made.
-  const seed = played(m, stored, base, stored.T, null, targetOf(m, base), null);
+  const seed = played(m, stored, base, stored.T, q0Stored, targetStored || targetOf(m, base), fracsStored);
   const q0 = Float64Array.from(seed.rec.q[0]);
   const q0Moved = Float64Array.from(q0);
   const QJ = Object.fromEntries(JOINT_KEYS.map((n, j) => [n, 3 + j]));
@@ -107,18 +130,20 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   if (SYMMETRIC_SCENARIOS.has(stored.scenario)) {
     q0Moved[QJ.hipR] = q0Moved[QJ.hipL]; q0Moved[QJ.kneeR] = q0Moved[QJ.kneeL];
   }
-  CASES.push({ label: `${name} dragged start`, m, stored, knots: base, T: stored.T, q0: q0Moved });
+  CASES.push({ label: `${name} dragged start`, m, stored, knots: base, T: stored.T, q0: q0Moved,
+    fracs: fracsStored, target: targetStored });
 
   // An ending that is not a handstand: the last knot moved, as dragging the
   // last cell of the storyboard does.
   const piked = base.map((k) => Float64Array.from(k));
   piked[JOINT_KEYS.indexOf('hipL')][K0 - 1] += 35 / D;         // fold at the hips
   piked[JOINT_KEYS.indexOf('hipR')][K0 - 1] += 35 / D;
-  CASES.push({ label: `${name} pike ending`, m, stored, knots: asEdited(stored, piked), T: stored.T, q0: null });
+  CASES.push({ label: `${name} pike ending`, m, stored, knots: asEdited(stored, piked), T: stored.T,
+    q0: q0Stored, fracs: fracsStored });
 
   // Phrasing placed by hand, with two poses close together -- the thing the
   // timeline drag exists for.
-  CASES.push({ label: `${name} phrased by hand`, m, stored, knots: base, T: stored.T, q0: null,
+  CASES.push({ label: `${name} phrased by hand`, m, stored, knots: base, T: stored.T, q0: q0Stored,
     fracs: Float64Array.from(Array.from({ length: K0 }, (_, k) => (k === 0 ? 0 : k === K0 - 1 ? 1
       : [0.1, 0.18, 0.5, 0.72][(k - 1) % 4]))) });
 
@@ -127,18 +152,18 @@ for (const name of Object.keys(PRESET_TRAJECTORIES)) {
   // itself: an artifact recorded under one machine, scored on another.
   CASES.push({ label: `${name} on an old plant`, m,
     stored: { ...stored, config: { ...(stored.config || {}), kp: 400, kd: 40, activationTau: 0.08 } },
-    knots: base, T: stored.T, q0: null });
+    knots: base, T: stored.T, q0: q0Stored, fracs: fracsStored, target: targetStored });
 
   // A different number of poses, refitted as the count control does.
   for (const K of [3, 8]) {
     CASES.push({ label: `${name} at ${K} poses`, m, stored,
-      knots: asEdited(stored, resampleKnots(base, stored.T, K)), T: stored.T, q0: null });
+      knots: asEdited(stored, resampleKnots(base, stored.T, K)), T: stored.T, q0: q0Stored });
   }
 }
 
 let worstQ = 0, worstQd = 0, verdictSplits = 0, splitDetail = '';
 for (const c of CASES) {
-  const target = targetOf(c.m, c.knots);
+  const target = c.target || targetOf(c.m, c.knots);
   const a = scored(c.m, c.stored, c.knots, c.T, c.q0, target, c.fracs || null);
   const b = played(c.m, c.stored, c.knots, c.T, c.q0, target, c.fracs || null);
   // Matched by CLOCK, not by frame index. Scoring thins its recording to
@@ -230,7 +255,7 @@ gate('B. and never disagree about arrival', verdictSplits === 0,
 {
   const m0 = buildModel({});
   const ws0 = createWorkspace(m0);
-  const base = builtinPreset(m0, ws0, 'lunge', { rom: ROM_DEFAULTS });
+  const base = builtinPreset('lowflex');
   const edited = { ...base,
     T: 1.42,
     symmetric: true,
@@ -281,6 +306,105 @@ gate('B. and never disagree about arrival', verdictSplits === 0,
   gate('D3. and a freed instant is read off the technique that carries it',
     techniqueFreeTimes(rec) === true && techniqueFreeTimes({ ...rec, timeHeld: rec.timeHeld.map(() => true) }) === false,
     'a free interior instant lengthens the vector, all-pinned does not');
+}
+
+// ---------------------------------------------------------------------------
+// Gate E: a technique that carries its OWN integration is searched under it.
+//
+// Everything above compares the two call sites on techniques whose numerics
+// happen to be the notebook's defaults, so it cannot see the failure this
+// gate is for: the search reading the step off a GLOBAL rather than off the
+// technique in front of it. Every preset kept before the default last moved
+// carries its own dt, and for those the worker scored at the default while
+// the page replayed at the technique's -- two integrations, one cost, and a
+// technique that succeeded in the search and fell in playback.
+//
+// Three separate places had to be told: the worker (which overrode dt with a
+// default), the nominal robustness variant (which was written as an absolute
+// number and so overrode whatever it was handed), and the final check (which
+// still named a step the notebook had stopped using). So the gate checks all
+// of them, on a technique whose numerics are deliberately nothing like the
+// defaults.
+// ---------------------------------------------------------------------------
+{
+  const m0 = buildModel({}), ws0 = createWorkspace(m0);
+  const stored = builtinPreset('lowflex');
+  const m = pageBody(stored);
+  const ODD = { dt: 3e-4, settleT: 1.8 };
+  const rec = techniqueFromJSON(techniqueToJSON({ ...stored, numerics: ODD }));
+  const sa = techniqueSearchArgs(rec);
+
+  gate('E. the search args carry the technique\'s own integration',
+    sa.dt === ODD.dt && sa.numerics.settleT === ODD.settleT,
+    `dt ${sa.dt}, settleT ${sa.numerics.settleT} against the default `
+    + `${NUMERICS_DEFAULTS.dt} / ${NUMERICS_DEFAULTS.settleT}`);
+
+  // The nominal robustness variant must not override the step. Written as an
+  // absolute number it always did, whatever the technique said.
+  gate('E2. and the nominal robustness variant leaves it alone',
+    robustVariants(sa.dt)[0].dt === undefined
+    && Math.abs(robustVariants(sa.dt)[1].dt - sa.dt * 1.6) < 1e-12,
+    `nominal inherits, second is ${robustVariants(sa.dt)[1].dt.toExponential(2)}`);
+
+  // And the whole way through: scored as the worker scores it, against the
+  // same rollout asked for explicitly at the technique's own step.
+  const x = encodeDecision(rec.knots.map((k) => Float64Array.from(k)), rec.T);
+  const shared = {
+    K: sa.K, q0: sa.q0, target: sa.target, plant: sa.plant, knotFracs: sa.knotFracs,
+    locks: sa.locks, timeLocks: sa.timeLocks, numerics: sa.numerics, symmetric: sa.symmetric,
+  };
+  // The worker names the step (from the technique); a caller holding only a
+  // technique names nothing. Both must reach the same rollout -- worst case
+  // over the variants, which is the number the search actually minimises.
+  const viaWorker = robustRolloutCost(m.model, m.ws, m.prof, sa.rom, sa.scenario, x,
+    { ...shared, dt: sa.dt });
+  const viaNumerics = robustRolloutCost(m.model, m.ws, m.prof, sa.rom, sa.scenario, x, shared);
+  gate('E3. and scores the same whether or not the caller names the step',
+    viaWorker.cost === viaNumerics.cost,
+    `${viaWorker.cost.toFixed(6)} against ${viaNumerics.cost.toFixed(6)}`);
+
+  // And what the search would report at the end is the run the page replays.
+  // This is the whole point: the nominal case, scored and played, is one
+  // trajectory. It used to be two whenever the technique carried its own step.
+  const scoredNominal = rolloutCost(m.model, m.ws, m.prof, sa.rom, sa.scenario, x,
+    { ...shared, variants: [{}] });
+  const playedBack = runScenario(m.model, m.ws, m.prof, techniqueRunArgs(rec, m.model, m.ws));
+  const a = scoredNominal.rec.com[scoredNominal.rec.com.length - 1];
+  const b = playedBack.rec.com[playedBack.rec.com.length - 1];
+  gate('E4. and the nominal score is the run the page replays',
+    Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-12
+    && !!scoredNominal.verdict?.success === !!playedBack.verdict?.success,
+    `scored ends at (${a[0].toFixed(6)}, ${a[1].toFixed(6)}), `
+    + `replayed at (${b[0].toFixed(6)}, ${b[1].toFixed(6)})`);
+
+  // And the last link: what a real search REPORTS at the end. optimizeScenario
+  // re-scores its winner once to produce the number the page prints, and that
+  // call named its own step -- a third opinion, and the one a reader would see
+  // as "the search says 8.1 and the figure says it falls".
+  const r = await optimizeScenario(m.model, m.ws, m.prof, sa.rom, {
+    ...sa, maxGen: 1, sigma0: 0.01, robust: false,
+  });
+  // Including the START the search settled on. This gate is about the page
+  // reproducing what the search reports, and when the start is unlocked the
+  // search reports one -- adopting the knots and leaving the start behind
+  // replays a different problem. It went unnoticed while a one-generation
+  // search moved the start too little to see; a technique the search wants to
+  // start differently makes it centimetres.
+  const replay = runScenario(m.model, m.ws, m.prof, {
+    ...techniqueRunArgs(rec, m.model, m.ws),
+    knots: r.decoded.knots, T: r.decoded.T,
+    q0: r.decoded.q0 || rec.q0 || null,
+    // And the phrasing, for the same reason: when the instants are the
+    // search's, the search reports those too.
+    knotFracs: r.decoded.fracs ? Array.from(r.decoded.fracs) : (rec.knotFracs || null),
+  });
+  const c = r.finalCheck.rec.com[r.finalCheck.rec.com.length - 1];
+  const d = replay.rec.com[replay.rec.com.length - 1];
+  gate('E5. and a finished search reports the run the page replays',
+    Math.hypot(c[0] - d[0], c[1] - d[1]) < 1e-12
+    && !!r.finalCheck.verdict?.success === !!replay.verdict?.success,
+    `reported ends at (${c[0].toFixed(6)}, ${c[1].toFixed(6)}), `
+    + `replayed at (${d[0].toFixed(6)}, ${d[1].toFixed(6)})`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL GATES PASS' : `${failures} GATE(S) FAILED`}`);

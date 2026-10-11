@@ -37,10 +37,15 @@ const ws = createWorkspace(model);
 // ending -- so it is excluded here rather than allowed to decide the gate.
 const moves = (knots) => knots.some((r) => Math.max(...r) - Math.min(...r) > 1e-3);
 const cases = [];
+// Resampled HERE rather than asked for at a pose count, because a built-in is
+// a recording now and a recording has the poses it has. resampleKnots is the
+// same routine the editor's pose count uses, which is the thing under test.
 for (const s of BUILTIN_SCENARIOS) {
+  const p = builtinPreset(s.key);
+  const base = p.knots.map((r) => Float64Array.from(r));
   for (const K of [4, 6, 9]) {
-    const p = builtinPreset(model, ws, s.key, { rom: ROM_DEFAULTS, K });
-    const knots = p.knots.map((r) => Float64Array.from(r));
+    const knots = K === base[0].length ? base
+      : resampleKnots(base, p.T, K, p.knotFracs).map((r) => Float64Array.from(r));
     if (!moves(knots)) continue;
     cases.push({ name: `${s.key} at ${K}`, knots, T: p.T });
   }

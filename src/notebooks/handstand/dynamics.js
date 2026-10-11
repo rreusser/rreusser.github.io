@@ -86,7 +86,10 @@ export function rnea(model, q, qd, qdd, tau, ext = null, opts = {}) {
   const joff = model.fixedBase ? -1 : 2;
   const { th, px, py, om, ax, ay, al, rcx, rcy, acx, acy, fX, fY, nZ } = ws;
 
-  fk(model, q, qd, ws);
+  // Same contract as crbaMassMatrix: the caller may say the workspace already
+  // holds fk(q, qd). Unlike the mass matrix this reads the VELOCITY fields
+  // too, so the caller's fk must have been the one that takes qd.
+  if (!opts.fkCurrent) fk(model, q, qd, ws);
 
   if (model.fixedBase) {
     ax[0] = 0; ay[0] = g; al[0] = 0;
@@ -146,9 +149,17 @@ const zeroQd = new Float64Array(16);
 // out of cross(u, perp(w)) = u . w in the plane). Base rows follow from the
 // whole-body composite. Verified against RNEA column extraction by gate;
 // this is ~6x cheaper and dominates the simulation hot loop.
-export function crbaMassMatrix(model, q, M, ws) {
+// fkCurrent says the caller has ALREADY run fk on this exact q into this exact
+// workspace, so the kinematics in it are this pose's. Only the position fields
+// are read here, so a caller that ran fk WITH velocities qualifies too.
+//
+// This is not a micro-optimisation: fk was 29% of a rollout, and four fifths
+// of that was recomputing the same pose. forwardDynamics below calls rnea and
+// then this, back to back, on one q -- so half of those four calls were the
+// same trigonometry twice in a row.
+export function crbaMassMatrix(model, q, M, ws, fkCurrent = false) {
   const { nb, parent, mass, inertia } = model;
-  fk(model, q, null, ws);
+  if (!fkCurrent) fk(model, q, null, ws);
   const { px, py, rcx, rcy } = ws;
   const mC = ws.mC || (ws.mC = new Float64Array(nb));
   const cx = ws.cCx || (ws.cCx = new Float64Array(nb));
@@ -265,11 +276,20 @@ export function choleskySolveInPlace(A, b, n) {
 // semi-implicit Euler. With dt = 0 the damping is applied explicitly (for
 // integrators like RK4 that provide their own accuracy, paired with damping
 // coefficients small enough for their stability region).
-export function forwardDynamics(model, q, qd, tauAct, ext, qdd, ws, damping = null, dt = 0) {
+// dampMatrix, when given with dt > 0, is a generalized damping matrix folded
+// into the mass matrix the same way the diagonal `damping` vector is -- the
+// linearly-implicit step (M + dt D) qdd = f, which is stable for a damping
+// rate the explicit form could not touch. Its force is expected to be in `ext`
+// already (unlike `damping`, whose force this function applies itself), so
+// only the matrix is added here and the right-hand side is left alone.
+export function forwardDynamics(model, q, qd, tauAct, ext, qdd, ws, damping = null, dt = 0,
+  fkCurrent = false, dampMatrix = null) {
   const nq = model.nq;
   qdd.fill(0);
-  rnea(model, q, qd, qdd, ws.bias, ext, { ws });
-  crbaMassMatrix(model, q, ws.M, ws);
+  rnea(model, q, qd, qdd, ws.bias, ext, { ws, fkCurrent });
+  // rnea has just run fk on this q into this ws, so the mass matrix does not
+  // need to run it again.
+  crbaMassMatrix(model, q, ws.M, ws, true);
   ws.Mchol.set(ws.M);
   for (let i = 0; i < nq; i++) ws.rhs[i] = (tauAct ? tauAct[i] : 0) - ws.bias[i];
   if (damping) {
@@ -277,6 +297,9 @@ export function forwardDynamics(model, q, qd, tauAct, ext, qdd, ws, damping = nu
       if (dt > 0) ws.Mchol[i * nq + i] += dt * damping[i];
       ws.rhs[i] -= damping[i] * qd[i];
     }
+  }
+  if (dampMatrix && dt > 0) {
+    for (let i = 0; i < nq * nq; i++) ws.Mchol[i] += dt * dampMatrix[i];
   }
   choleskySolveInPlace(ws.Mchol, ws.rhs, nq);
   qdd.set(ws.rhs);
