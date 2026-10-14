@@ -13,10 +13,10 @@ const meshTopologyCache = new WeakMap();
 
 function getOrUpdateTopologyCache(mesh) {
   let cache = meshTopologyCache.get(mesh);
-  if (cache && cache.vertexCount === mesh.vertexCount && cache.edgeCount === mesh.edgeCount) {
-    return cache;
-  }
+  // The mesh discards its cached faces on any topology change (including
+  // count-preserving ones like Stone-Wales flips), so compare by identity.
   const faces = mesh.extractFaces();
+  if (cache && cache.faces === faces) return cache;
   let totalTriangles = 0;
   for (const face of faces) {
     if (face.length >= 3) totalTriangles += face.length - 2;
@@ -36,7 +36,7 @@ function getOrUpdateTopologyCache(mesh) {
       triIdx++;
     }
   }
-  cache = { vertexCount: mesh.vertexCount, edgeCount: mesh.edgeCount,
+  cache = { faces,
             triangleCount: totalTriangles, triangleVertexIndices, triangleEdgeCounts };
   meshTopologyCache.set(mesh, cache);
   return cache;
