@@ -7,13 +7,13 @@ const meshTopologyCache = new WeakMap();
 function getOrUpdateTopologyCache(mesh) {
   let cache = meshTopologyCache.get(mesh);
 
-  // Check if cache is valid (topology unchanged)
-  if (cache && cache.vertexCount === mesh.vertexCount && cache.edgeCount === mesh.edgeCount) {
+  // The mesh caches its faces and discards them on any topology change (including
+  // count-preserving changes like Stone-Wales flips), so a new faces array means
+  // the topology changed.
+  const faces = mesh.extractFaces();
+  if (cache && cache.faces === faces) {
     return cache;
   }
-
-  // Rebuild cache - topology changed
-  const faces = mesh.extractFaces();
 
   // Count triangles
   let totalTriangles = 0;
@@ -50,8 +50,7 @@ function getOrUpdateTopologyCache(mesh) {
   const normalData = new Float32Array(totalTriangles * 9);
 
   cache = {
-    vertexCount: mesh.vertexCount,
-    edgeCount: mesh.edgeCount,
+    faces,
     triangleCount: totalTriangles,
     triangleVertexIndices,
     triangleEdgeCounts,
