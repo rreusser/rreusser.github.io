@@ -16,6 +16,8 @@
     import { expandable } from './lib/expandable.js'
     import { createFrameLoop } from './lib/frame-loop.js'
     import { observeTheme } from './lib/theme.js'
+    import { createWebGPUContext, isWebGPUAvailable } from './lib/webgpu-canvas.js'
+    import { createGPUDance } from './gpu-dance.js'
   </script>
 
   <script id="params" type="text/x-typescript">
@@ -131,6 +133,8 @@
       colors.fg = css(theme.foreground);
       colors.bg = css(theme.background);
       colors.isDark = theme.isDark;
+      colors.fgRGB = theme.foreground;
+      colors.bgRGB = theme.background;
     }
   </script>
 
@@ -300,5 +304,261 @@
 
   <script id="try" type="text/markdown">
     A few things to try. Set the two steps equal to get the swarm of flies. Turn the softening up and the clumps loosen into diffuse clouds, or down to near zero and they collapse into tight knots. Turn the changes of heart to zero and the dance slowly settles into a fixed choreography, then click *Everyone reconsiders* to scramble it. Woods closed by saying he'd love to see what other dances could be created with other simple rules, which is a good invitation to keep playing.
+  </script>
+
+  <script id="gpu-intro" type="text/markdown">
+    ## A million dancers
+
+    Each step is perfectly suited to the GPU. A dancer reads the old positions of exactly two others and writes only its own new position, so there's no neighbor search, no sorting, and no contention. The only real question is how to keep the CPU out of the loop.
+
+    In the version below, everything lives in GPU buffers. That includes positions (double-buffered, since all dancers move at once), friends and enemies, a random number generator state for each dancer, and even the index of the dancer you've clicked on. Initialization runs in a compute shader, so nothing is uploaded at startup. Changes of heart happen inside the step kernel, where each dancer rolls their own die. The renderer's vertex shaders read the position buffer directly. Several steps per frame are just several dispatches in one compute pass, and the CPU knows which buffer is current simply by counting, never by asking.
+  </script>
+
+  <script id="gpu-intro-2" type="text/markdown">
+    Clicking to follow a dancer would normally mean reading positions back to find the nearest one. Instead the click point goes to the GPU, where one pass computes each dancer's squared distance and takes an `atomicMin` over its bits (non-negative floats sort the same as their bit patterns), and a second pass records whichever dancer matches. The highlight overlay then reads that index straight from the buffer. Apart from a few bytes of uniforms when a control or click changes something, a frame sends nothing to the GPU besides a command buffer, and nothing ever comes back.
+  </script>
+
+  <script id="gpu-compute-shader" type="module" pinned="">
+    const danceComputeWGSL = /* wgsl */ `
+    struct SimParams {
+      attract: f32, repel: f32, contract: f32, eps: f32,
+      reshuffleProb: f32, n: u32, seed: u32, _pad: u32,
+      pick: vec2f,
+    }
+    struct Pick { minBits: atomic<u32>, index: atomic<u32> }
+
+    @group(0) @binding(0) var<uniform> P: SimParams;
+    @group(0) @binding(1) var<storage, read> src: array<vec2f>;
+    @group(0) @binding(2) var<storage, read_write> dst: array<vec2f>;
+    @group(0) @binding(3) var<storage, read_write> partners: array<vec2u>;
+    @group(0) @binding(4) var<storage, read_write> rng: array<u32>;
+    @group(0) @binding(5) var<storage, read_write> pick: Pick;
+
+    // PCG: a full-period LCG step followed by an output permutation
+    fn permute(s: u32) -> u32 {
+      let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+      return (w >> 22u) ^ w;
+    }
+    fn next(s: ptr<function, u32>) -> u32 {
+      *s = *s * 747796405u + 2891336453u;
+      return permute(*s);
+    }
+    fn unit(r: u32) -> f32 { return f32(r >> 8u) / 16777216.0; }
+
+    // A step of unit length, fading to zero within about eps of the target
+    fn toward(v: vec2f) -> vec2f { return v / (P.eps + length(v)); }
+
+    @compute @workgroup_size(256)
+    fn advance(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      let x = src[i];
+      var p = partners[i];
+      dst[i] = P.contract * x + P.attract * toward(src[p.x] - x) - P.repel * toward(src[p.y] - x);
+
+      // Every so often, a change of heart
+      var s = rng[i];
+      if (unit(next(&s)) < P.reshuffleProb) {
+        p = vec2u(next(&s) % P.n, next(&s) % P.n);
+        partners[i] = p;
+      }
+      rng[i] = s;
+    }
+
+    @compute @workgroup_size(256)
+    fn init(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      if (i == 0u) { atomicStore(&pick.index, 0u); }
+      var s = permute(i + permute(P.seed));
+      dst[i] = vec2f(unit(next(&s)), unit(next(&s))) * 2.0 - 1.0;
+      partners[i] = vec2u(next(&s) % P.n, next(&s) % P.n);
+      rng[i] = s;
+    }
+
+    @compute @workgroup_size(256)
+    fn reshuffleAll(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      var s = rng[i];
+      partners[i] = vec2u(next(&s) % P.n, next(&s) % P.n);
+      rng[i] = s;
+    }
+
+    @compute @workgroup_size(1)
+    fn pickReset() { atomicStore(&pick.minBits, 0x7f800000u); }
+
+    fn pickDistanceBits(i: u32) -> u32 {
+      let d = src[i] - P.pick;
+      return bitcast<u32>(dot(d, d));
+    }
+
+    @compute @workgroup_size(256)
+    fn pickMin(@builtin(global_invocation_id) id: vec3u) {
+      if (id.x >= P.n) { return; }
+      atomicMin(&pick.minBits, pickDistanceBits(id.x));
+    }
+
+    @compute @workgroup_size(256)
+    fn pickSelect(@builtin(global_invocation_id) id: vec3u) {
+      if (id.x >= P.n) { return; }
+      if (pickDistanceBits(id.x) == atomicLoad(&pick.minBits)) {
+        atomicStore(&pick.index, id.x);
+      }
+    }
+    `;
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+    const gpu = isWebGPUAvailable() ? await createWebGPUContext().catch(() => null) : null;
+    const device = gpu?.device;
+    const canvasFormat = gpu?.canvasFormat;
+    if (device) invalidation.then(() => device.destroy());
+  </script>
+
+  <script id="gpu-params" type="text/x-typescript">
+    const gpuDefaults = { attract: 0.02, repel: 0.01, contract: 0.995, eps: 0.01, reshuffleRate: 0.1 };
+    const gpuParams = {
+      ...gpuDefaults,
+      n: 250000,
+      stepsPerFrame: 1,
+      trails: 0,
+      paused: false,
+      showLinks: false,
+      showHighlight: true,
+      requests: { restart: false, reshuffle: false },
+    };
+  </script>
+
+  <script id="gpu-controls" type="text/x-typescript">
+    const gpuControls = html`<div id="gpu-dance-controls"></div>`;
+    {
+      const add = (key, input) => {
+        gpuControls.appendChild(input);
+        input.addEventListener('input', () => { gpuParams[key] = input.value; });
+        return input;
+      };
+      const inputs = {
+        n: add('n', Inputs.range([1000, 4000000], { label: 'Dancers', value: gpuParams.n, step: 1, transform: Math.log })),
+        attract: add('attract', Inputs.range([0, 0.05], { label: 'Toward friend', value: gpuParams.attract, step: 0.001 })),
+        repel: add('repel', Inputs.range([0, 0.05], { label: 'Away from enemy', value: gpuParams.repel, step: 0.001 })),
+        contract: add('contract', Inputs.range([0.95, 1], { label: 'Contraction', value: gpuParams.contract, step: 0.001 })),
+        eps: add('eps', Inputs.range([0.0001, 0.5], { label: 'Softening', value: gpuParams.eps, transform: Math.log })),
+        reshuffleRate: add('reshuffleRate', Inputs.range([0, 20], { label: 'Changes of heart per 1000', value: gpuParams.reshuffleRate, step: 0.01, transform: Math.sqrt })),
+        stepsPerFrame: add('stepsPerFrame', Inputs.range([1, 10], { label: 'Steps per frame', value: gpuParams.stepsPerFrame, step: 1 })),
+        trails: add('trails', Inputs.range([0, 0.95], { label: 'Trails', value: gpuParams.trails, step: 0.01 })),
+      };
+      const toggles = Inputs.checkbox(['Pause', 'Highlight one dancer', 'Draw friend links'], { value: ['Highlight one dancer'] });
+      toggles.addEventListener('input', () => {
+        gpuParams.paused = toggles.value.includes('Pause');
+        gpuParams.showHighlight = toggles.value.includes('Highlight one dancer');
+        gpuParams.showLinks = toggles.value.includes('Draw friend links');
+      });
+      gpuControls.appendChild(toggles);
+      gpuControls.appendChild(Inputs.button([
+        ['Restart', () => { gpuParams.requests.restart = true; }],
+        ['Everyone reconsiders', () => { gpuParams.requests.reshuffle = true; }],
+        ['Original settings', () => {
+          for (const [key, v] of Object.entries(gpuDefaults)) {
+            inputs[key].value = v;
+            inputs[key].dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }],
+      ]));
+    }
+    display(gpuControls);
+  </script>
+
+  <script id="gpu-figure" type="text/x-typescript">
+    if (!device) {
+      display(html`<div style="color: #b00; padding: 16px; border: 1px solid #f0caca; background: #fff6f6; border-radius: 6px;">
+        <strong>WebGPU is not available.</strong> This figure needs a WebGPU-capable browser (Chrome/Edge 113+, or Safari 18+ / Firefox with WebGPU enabled).
+      </div>`);
+    } else {
+      const gpuCanvas = document.createElement('canvas');
+      gpuCanvas.id = 'gpu-dance-canvas';
+      gpuCanvas.style.display = 'block';
+      gpuCanvas.style.cursor = 'crosshair';
+      const context = gpuCanvas.getContext('webgpu');
+      context.configure({
+        device,
+        format: canvasFormat,
+        alphaMode: 'opaque',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST,
+      });
+
+      const dance = createGPUDance(device, canvasFormat, { computeWGSL: danceComputeWGSL });
+      invalidation.then(() => dance.destroy());
+
+      const size = { w: 1, h: 1 };
+      let currentN = -1;
+
+      // The click is converted to world coordinates here; finding the nearest
+      // dancer happens on the GPU
+      gpuCanvas.addEventListener('pointerdown', (e) => {
+        const rect = gpuCanvas.getBoundingClientRect();
+        const scale = Math.min(size.w, size.h) / 4;
+        dance.pickAt((e.clientX - rect.left - size.w / 2) / scale, -(e.clientY - rect.top - size.h / 2) / scale);
+      });
+
+      const friendRGB = [0x1f / 255, 0x6f / 255, 0xb2 / 255];
+      const enemyRGB = [0xc8 / 255, 0x37 / 255, 0x2d / 255];
+      const friendRGBDark = [0x5a / 255, 0xa9 / 255, 0xe6 / 255];
+      const enemyRGBDark = [0xf0 / 255, 0x70 / 255, 0x5f / 255];
+
+      function frame() {
+        const n = Math.round(gpuParams.n);
+        if (n !== currentN) { dance.setCount(n); currentN = n; }
+        if (gpuParams.requests.restart) dance.restart();
+        if (gpuParams.requests.reshuffle) dance.reshuffleAll();
+        gpuParams.requests.restart = gpuParams.requests.reshuffle = false;
+
+        const dpr = devicePixelRatio;
+        const minSide = Math.min(size.w, size.h);
+        // Match the canvas version's dot size at 1000 dancers, shrinking as the
+        // crowd grows and fading once dots reach a minimum size
+        const ideal = 0.0035 * minSide * Math.sqrt(1000 / n);
+        const radius = Math.max(0.6, ideal);
+        const dotAlpha = Math.min(1, Math.max(0.04, 3 * (ideal / radius) ** 2));
+
+        dance.frame(context, gpuParams, {
+          width: gpuCanvas.width,
+          height: gpuCanvas.height,
+          scale: (minSide / 4) * dpr,
+          radius: radius * dpr,
+          pixelRatio: dpr,
+          dotAlpha,
+          colors: {
+            fg: colors.fgRGB ?? [0.1, 0.12, 0.14],
+            bg: colors.bgRGB ?? [1, 1, 1],
+            friend: colors.isDark ? friendRGBDark : friendRGB,
+            enemy: colors.isDark ? enemyRGBDark : enemyRGB,
+          },
+        }, gpuParams.paused ? 0 : gpuParams.stepsPerFrame);
+      }
+
+      const gpuFigure = html`<figure style="margin: 0">
+        ${gpuCanvas}
+        <figcaption>The same dance on the GPU. Click or tap to follow a different dancer.</figcaption>
+      </figure>`;
+
+      display(expandable(gpuFigure, {
+        width: Math.min(width, 640),
+        height: Math.min(width, 640),
+        controls: '#gpu-dance-controls',
+        id: 'gpu-dance',
+        onResize(el, w, h) {
+          size.w = w;
+          size.h = h;
+          gpuCanvas.width = Math.max(1, Math.round(w * devicePixelRatio));
+          gpuCanvas.height = Math.max(1, Math.round(h * devicePixelRatio));
+          gpuCanvas.style.width = `${w}px`;
+          gpuCanvas.style.height = `${h}px`;
+        }
+      }));
+
+      const gpuLoop = createFrameLoop(frame);
+      invalidation.then(() => gpuLoop.cancel());
+    }
   </script>
 </notebook>
