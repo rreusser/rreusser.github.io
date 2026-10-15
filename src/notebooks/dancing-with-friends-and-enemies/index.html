@@ -9,258 +9,312 @@
   </script>
 
   <script id="intro-2" type="text/markdown">
-    That's all there is to it, but the result swirls and clumps and streams in a way that looks a lot like a flock of starlings. Here it is.
+    That's all there is to it, but the result swirls and clumps and streams in a way that looks a lot like a flock of starlings. Below, the dance floor is three-dimensional and the crowd is a few hundred thousand strong, computed and drawn entirely on the GPU with WebGPU. Drag to rotate, scroll to zoom, and click to follow a dancer.
   </script>
 
   <script id="imports" type="text/x-typescript">
-    import { expandable } from './lib/expandable.js'
+    import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js'
     import { createFrameLoop } from './lib/frame-loop.js'
     import { observeTheme } from './lib/theme.js'
     import { createWebGPUContext, isWebGPUAvailable } from './lib/webgpu-canvas.js'
-    import { createGPUDance } from './gpu-dance.js'
+    import { createUnifiedCamera } from './lib/unified-camera.js'
+    import { createGPUDance, COLOR_MODES } from './gpu-dance.js'
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+    const gpu = isWebGPUAvailable()
+      ? await createWebGPUContext({ optionalFeatures: ['float32-blendable'] }).catch(() => null)
+      : null;
+    const device = gpu?.device;
+    const canvasFormat = gpu?.canvasFormat;
+    // Additive blending into rgba32float needs an optional feature. Without
+    // it, rgba16float still works, though very dense clumps lose precision.
+    const accumFormat = gpu?.features.has('float32-blendable') ? 'rgba32float' : 'rgba16float';
+    if (device) invalidation.then(() => device.destroy());
   </script>
 
   <script id="params" type="text/x-typescript">
-    // Stable, mutable parameters shared by the controls and the render loop
+    const defaults = { attract: 0.02, repel: 0.01, contract: 0.995, eps: 0.01, reshuffleRate: 0.1 };
     const params = {
-      attract: 0.02,
-      repel: 0.01,
-      contract: 0.995,
-      eps: 0.01,
-      reshuffleRate: 0.1,
+      ...defaults,
+      n: 300000,
       stepsPerFrame: 1,
       trails: 0,
+      exposure: 0,
+      colorMode: 'Heading',
       paused: false,
       showLinks: false,
       showHighlight: true,
+      requests: { restart: false, reshuffle: false },
     };
-    const colors = { fg: 'rgb(27,30,35)', bg: 'rgb(255,255,255)', isDark: false };
-    // Holds the current dancers so the render loop survives a restart
-    const world = { dancers: null };
+    const colors = { fg: [0.1, 0.12, 0.14], bg: [1, 1, 1], isDark: false };
   </script>
 
-  <script id="simulation" type="text/x-typescript" pinned="">
-    function createDancers(n) {
-      const x = new Float64Array(2 * n);
-      for (let i = 0; i < 2 * n; i++) x[i] = 2 * Math.random() - 1;
-      const friend = new Uint32Array(n);
-      const enemy = new Uint32Array(n);
-      for (let i = 0; i < n; i++) rechoose(i);
-
-      function rechoose(i) {
-        friend[i] = Math.floor(Math.random() * n);
-        enemy[i] = Math.floor(Math.random() * n);
-      }
-
-      return { n, x, next: new Float64Array(2 * n), friend, enemy, rechoose, highlight: 0 };
-    }
-
-    function step(d, { attract, repel, contract, eps, reshuffleRate }) {
-      const { n, x, next, friend, enemy } = d;
-      for (let i = 0; i < n; i++) {
-        const xi = x[2 * i], yi = x[2 * i + 1];
-
-        // A unit-ish step toward the friend, which fades to zero at close range
-        let dx = x[2 * friend[i]] - xi, dy = x[2 * friend[i] + 1] - yi;
-        let s = attract / (eps + Math.hypot(dx, dy));
-        let vx = s * dx, vy = s * dy;
-
-        // A smaller step away from the enemy
-        dx = x[2 * enemy[i]] - xi; dy = x[2 * enemy[i] + 1] - yi;
-        s = repel / (eps + Math.hypot(dx, dy));
-        vx -= s * dx; vy -= s * dy;
-
-        // Every dancer moves simultaneously, so write into a second buffer
-        next[2 * i] = contract * xi + vx;
-        next[2 * i + 1] = contract * yi + vy;
-      }
-      d.x = next;
-      d.next = x;
-
-      // Every so often, a random dancer picks a new friend and enemy
-      let count = Math.floor(reshuffleRate);
-      if (Math.random() < reshuffleRate - count) count++;
-      for (let k = 0; k < count; k++) d.rechoose(Math.floor(Math.random() * n));
-    }
-  </script>
-
-  <script id="controls" type="text/x-typescript">
-    const controlsContainer = html`<div id="dance-controls"></div>`;
-    function ctrl(input) {
-      controlsContainer.appendChild(input);
-      return Generators.input(input);
-    }
-    const n = ctrl(Inputs.range([10, 20000], { label: 'Dancers', value: 1000, step: 1, transform: Math.log }));
-    const attract = ctrl(Inputs.range([0, 0.05], { label: 'Toward friend', value: 0.02, step: 0.001 }));
-    const repel = ctrl(Inputs.range([0, 0.05], { label: 'Away from enemy', value: 0.01, step: 0.001 }));
-    const contract = ctrl(Inputs.range([0.95, 1], { label: 'Contraction', value: 0.995, step: 0.001 }));
-    const eps = ctrl(Inputs.range([0.0001, 0.5], { label: 'Softening', value: 0.01, transform: Math.log }));
-    const reshuffleRate = ctrl(Inputs.range([0, 20], { label: 'Changes of heart', value: 0.1, step: 0.01, transform: Math.sqrt }));
-    const stepsPerFrame = ctrl(Inputs.range([1, 10], { label: 'Steps per frame', value: 1, step: 1 }));
-    const trails = ctrl(Inputs.range([0, 0.95], { label: 'Trails', value: 0, step: 0.01 }));
-    const toggles = ctrl(Inputs.checkbox(['Pause', 'Highlight one dancer', 'Draw friend links'], { value: ['Highlight one dancer'] }));
-    const inputs = controlsContainer.children;
-    const restoreDefaults = () => {
-      const defaults = [null, 0.02, 0.01, 0.995, 0.01, 0.1];
-      defaults.forEach((v, i) => {
-        if (v === null) return;
-        inputs[i].value = v;
-        inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
-      });
-    };
-    controlsContainer.appendChild(Inputs.button([
-      ['Restart', () => { world.dancers = createDancers(world.dancers.n); }],
-      ['Everyone reconsiders', () => { for (let i = 0; i < world.dancers.n; i++) world.dancers.rechoose(i); }],
-      ['Original settings', restoreDefaults],
-    ]));
-    display(controlsContainer);
-  </script>
-
-  <script id="sync-params" type="text/x-typescript">
-    Object.assign(params, { attract, repel, contract, eps, reshuffleRate, stepsPerFrame, trails });
-    params.paused = toggles.includes('Pause');
-    params.showHighlight = toggles.includes('Highlight one dancer');
-    params.showLinks = toggles.includes('Draw friend links');
-  </script>
-
-  <script id="theme-sync" type="text/x-typescript">
+  <script id="theme" type="text/x-typescript">
     const theme = Generators.observe(observeTheme);
   </script>
 
   <script id="apply-theme" type="text/x-typescript">
-    {
-      const css = (c) => `rgb(${c.map((v) => Math.round(255 * v)).join(',')})`;
-      colors.fg = css(theme.foreground);
-      colors.bg = css(theme.background);
-      colors.isDark = theme.isDark;
-      colors.fgRGB = theme.foreground;
-      colors.bgRGB = theme.background;
-    }
+    colors.fg = theme.foreground;
+    colors.bg = theme.background;
+    colors.isDark = theme.isDark;
   </script>
 
-  <script id="dancers" type="text/x-typescript">
-    // A new floor whenever the number of dancers changes
-    world.dancers = createDancers(n);
+  <script id="controls" type="text/x-typescript">
+    const controls = html`<div id="dance-controls"></div>`;
+    {
+      const add = (key, input) => {
+        controls.appendChild(input);
+        input.addEventListener('input', () => { params[key] = input.value; });
+        return input;
+      };
+      const inputs = {
+        n: add('n', Inputs.range([1000, 4000000], { label: 'Dancers', value: params.n, step: 1, transform: Math.log })),
+        attract: add('attract', Inputs.range([0, 0.05], { label: 'Toward friend', value: params.attract, step: 0.001 })),
+        repel: add('repel', Inputs.range([0, 0.05], { label: 'Away from enemy', value: params.repel, step: 0.001 })),
+        contract: add('contract', Inputs.range([0.95, 1], { label: 'Contraction', value: params.contract, step: 0.001 })),
+        eps: add('eps', Inputs.range([0.0001, 0.5], { label: 'Softening', value: params.eps, transform: Math.log })),
+        reshuffleRate: add('reshuffleRate', Inputs.range([0, 20], { label: 'Changes of heart per 1000', value: params.reshuffleRate, step: 0.01, transform: Math.sqrt })),
+        stepsPerFrame: add('stepsPerFrame', Inputs.range([1, 10], { label: 'Steps per frame', value: params.stepsPerFrame, step: 1 })),
+        trails: add('trails', Inputs.range([0, 0.95], { label: 'Trails', value: params.trails, step: 0.01 })),
+        exposure: add('exposure', Inputs.range([-6, 6], { label: 'Exposure', value: params.exposure, step: 0.1 })),
+        colorMode: add('colorMode', Inputs.select(Object.keys(COLOR_MODES), { label: 'Color by', value: params.colorMode })),
+      };
+      const toggles = Inputs.checkbox(['Pause', 'Highlight one dancer', 'Draw friend links'], { value: ['Highlight one dancer'] });
+      toggles.addEventListener('input', () => {
+        params.paused = toggles.value.includes('Pause');
+        params.showHighlight = toggles.value.includes('Highlight one dancer');
+        params.showLinks = toggles.value.includes('Draw friend links');
+      });
+      controls.appendChild(toggles);
+      controls.appendChild(Inputs.button([
+        ['Restart', () => { params.requests.restart = true; }],
+        ['Everyone reconsiders', () => { params.requests.reshuffle = true; }],
+        ['Original settings', () => {
+          for (const [key, v] of Object.entries(defaults)) {
+            inputs[key].value = v;
+            inputs[key].dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }],
+      ]));
+    }
+    display(controls);
+  </script>
+
+  <script id="compute-shader" type="module">
+    const danceComputeWGSL = /* wgsl */ `
+    struct SimParams {
+      attract: f32, repel: f32, contract: f32, eps: f32,
+      reshuffleProb: f32, n: u32, seed: u32, _pad: u32,
+      pick: vec2f, aspect: f32, _pad2: f32,
+      pickMatrix: mat4x4f,
+    }
+    struct Pick { minBits: atomic<u32>, index: atomic<u32> }
+
+    @group(0) @binding(0) var<uniform> P: SimParams;
+    @group(0) @binding(1) var<storage, read> src: array<vec4f>;
+    @group(0) @binding(2) var<storage, read_write> dst: array<vec4f>;
+    @group(0) @binding(3) var<storage, read_write> partners: array<vec2u>;
+    @group(0) @binding(4) var<storage, read_write> rng: array<u32>;
+    @group(0) @binding(5) var<storage, read_write> pick: Pick;
+
+    // PCG: a full-period LCG step followed by an output permutation
+    fn permute(s: u32) -> u32 {
+      let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+      return (w >> 22u) ^ w;
+    }
+    fn next(s: ptr<function, u32>) -> u32 {
+      *s = *s * 747796405u + 2891336453u;
+      return permute(*s);
+    }
+    fn unit(r: u32) -> f32 { return f32(r >> 8u) / 16777216.0; }
+
+    // A step of unit length, fading to zero within about eps of the target
+    fn toward(v: vec3f) -> vec3f { return v / (P.eps + length(v)); }
+
+    @compute @workgroup_size(256)
+    fn advance(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      let x = src[i].xyz;
+      var p = partners[i];
+      let next_x = P.contract * x
+        + P.attract * toward(src[p.x].xyz - x)
+        - P.repel * toward(src[p.y].xyz - x);
+      dst[i] = vec4f(next_x, 1);
+
+      // Every so often, a change of heart
+      var s = rng[i];
+      if (unit(next(&s)) < P.reshuffleProb) {
+        p = vec2u(next(&s) % P.n, next(&s) % P.n);
+        partners[i] = p;
+      }
+      rng[i] = s;
+    }
+
+    @compute @workgroup_size(256)
+    fn init(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      if (i == 0u) { atomicStore(&pick.index, 0u); }
+      var s = permute(i + permute(P.seed));
+      let x = vec3f(unit(next(&s)), unit(next(&s)), unit(next(&s))) * 2.0 - 1.0;
+      dst[i] = vec4f(x, 1);
+      partners[i] = vec2u(next(&s) % P.n, next(&s) % P.n);
+      rng[i] = s;
+    }
+
+    @compute @workgroup_size(256)
+    fn reshuffleAll(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      var s = rng[i];
+      partners[i] = vec2u(next(&s) % P.n, next(&s) % P.n);
+      rng[i] = s;
+    }
+
+    // Picking: the squared screen-space distance from the click to each
+    // dancer, as float bits, which sort the same as the non-negative floats
+    // they encode. Dancers behind the camera get +infinity.
+    fn pickDistanceBits(i: u32) -> u32 {
+      let clip = P.pickMatrix * vec4f(src[i].xyz, 1);
+      if (clip.w <= 1e-3) { return 0x7f800000u; }
+      let d = (clip.xy / clip.w - P.pick) * vec2f(P.aspect, 1);
+      return bitcast<u32>(dot(d, d));
+    }
+
+    @compute @workgroup_size(1)
+    fn pickReset() { atomicStore(&pick.minBits, 0x7f800000u); }
+
+    @compute @workgroup_size(256)
+    fn pickMin(@builtin(global_invocation_id) id: vec3u) {
+      if (id.x >= P.n) { return; }
+      atomicMin(&pick.minBits, pickDistanceBits(id.x));
+    }
+
+    @compute @workgroup_size(256)
+    fn pickSelect(@builtin(global_invocation_id) id: vec3u) {
+      if (id.x >= P.n) { return; }
+      if (pickDistanceBits(id.x) == atomicLoad(&pick.minBits)) {
+        atomicStore(&pick.index, id.x);
+      }
+    }
+    `;
   </script>
 
   <script id="figure" type="text/x-typescript">
-    const canvas = document.createElement('canvas');
-    canvas.id = 'dance-canvas';
-    canvas.style.display = 'block';
-    canvas.style.cursor = 'crosshair';
-    const ctx = canvas.getContext('2d');
-    const viewport = { w: 1, h: 1, scale: 1 };
+    if (!device) {
+      display(html`<div style="color: #b00; padding: 16px; border: 1px solid #f0caca; background: #fff6f6; border-radius: 6px;">
+        <strong>WebGPU is not available.</strong> This notebook needs a WebGPU-capable browser (Chrome/Edge 113+, or Safari 18+ / Firefox with WebGPU enabled).
+      </div>`);
+    } else {
+      const canvas = document.createElement('canvas');
+      canvas.id = 'dance-canvas';
+      canvas.style.display = 'block';
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      const context = canvas.getContext('webgpu');
+      context.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
 
-    // Click or tap to follow the dancer nearest the pointer
-    canvas.addEventListener('pointerdown', (e) => {
-      if (!world.dancers) return;
-      const rect = canvas.getBoundingClientRect();
-      const px = (e.clientX - rect.left - viewport.w / 2) / viewport.scale;
-      const py = -(e.clientY - rect.top - viewport.h / 2) / viewport.scale;
-      const { x, n } = world.dancers;
-      let best = 0, bestDist = Infinity;
-      for (let i = 0; i < n; i++) {
-        const d = (x[2 * i] - px) ** 2 + (x[2 * i + 1] - py) ** 2;
-        if (d < bestDist) { bestDist = d; best = i; }
+      const camera = createUnifiedCamera(canvas, {
+        mode: 'orbit',
+        distance: 5,
+        phi: 0.6,
+        theta: 0.35,
+        center: [0, 0, 0],
+        fov: Math.PI / 4,
+        near: 0.05,
+        far: 100,
+      });
+      invalidation.then(() => camera.destroy());
+
+      const dance = createGPUDance(device, canvasFormat, { computeWGSL: danceComputeWGSL, accumFormat });
+      invalidation.then(() => dance.destroy());
+
+      let currentN = -1;
+      let lastProjView = new Float32Array(16);
+
+      // A click that doesn't drag selects the dancer nearest the pointer. Only
+      // the click point and the current camera matrix go to the GPU, which
+      // finds the nearest dancer itself.
+      let down = null;
+      canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
+      canvas.addEventListener('pointerup', (e) => {
+        if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+        down = null;
+        const rect = canvas.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = 1 - ((e.clientY - rect.top) / rect.height) * 2;
+        dance.pickAt(x, y, rect.width / rect.height, lastProjView);
+      });
+
+      const friend = [0x1f / 255, 0x6f / 255, 0xb2 / 255];
+      const enemy = [0xc8 / 255, 0x37 / 255, 0x2d / 255];
+      const friendDark = [0x5a / 255, 0xa9 / 255, 0xe6 / 255];
+      const enemyDark = [0xf0 / 255, 0x70 / 255, 0x5f / 255];
+
+      function frame() {
+        const n = Math.round(params.n);
+        if (n !== currentN) { dance.setCount(n); currentN = n; }
+        if (params.requests.restart) dance.restart();
+        if (params.requests.reshuffle) dance.reshuffleAll();
+        params.requests.restart = params.requests.reshuffle = false;
+
+        const { projView, projection } = camera.update(canvas.width / canvas.height);
+        lastProjView = projView;
+        const dpr = devicePixelRatio;
+
+        dance.frame(context, params, {
+          width: canvas.width,
+          height: canvas.height,
+          projView,
+          focal: projection[5] * canvas.height / 2,
+          // Dot size matched to the original at 1000 dancers, shrinking as the
+          // crowd grows so the total ink stays the same
+          radius: 0.014 * Math.sqrt(1000 / n),
+          minRadius: 0.6 * dpr,
+          pixelRatio: dpr,
+          exposure: 4 * 2 ** params.exposure,
+          colorMode: COLOR_MODES[params.colorMode],
+          colors: {
+            fg: colors.fg,
+            bg: colors.bg,
+            isDark: colors.isDark,
+            friend: colors.isDark ? friendDark : friend,
+            enemy: colors.isDark ? enemyDark : enemy,
+          },
+        }, params.paused ? 0 : params.stepsPerFrame);
       }
-      world.dancers.highlight = best;
-    });
 
-    function draw() {
-      const d = world.dancers;
-      if (!d) return;
-      const { x, n, friend, enemy } = d;
-      const dpr = devicePixelRatio;
-      const { w, h, scale } = viewport;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const container = html`<div style="position: relative; width: 100%; height: 100%; touch-action: none;">${canvas}</div>`;
 
-      ctx.globalAlpha = 1 - params.trails;
-      ctx.fillStyle = colors.bg;
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalAlpha = 1;
+      display(expandable(container, {
+        width: Math.min(width, 640),
+        height: Math.min(width, 640),
+        controls: '#dance-controls',
+        id: 'dance-floor',
+        buttons: [{
+          icon: camera.getMode() === 'orbit' ? ICON_ORBIT : ICON_ARCBALL,
+          title: 'Toggle camera mode (orbit/arcball)',
+          onClick: (content, expanded, button) => {
+            const mode = camera.getMode() === 'orbit' ? 'arcball' : 'orbit';
+            camera.setMode(mode);
+            if (button) button.innerHTML = mode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
+          },
+        }],
+        onResize(el, w, h) {
+          canvas.width = Math.max(1, Math.round(w * devicePixelRatio));
+          canvas.height = Math.max(1, Math.round(h * devicePixelRatio));
+        },
+      }));
 
-      const sx = (i) => w / 2 + scale * x[2 * i];
-      const sy = (i) => h / 2 - scale * x[2 * i + 1];
-
-      if (params.showLinks) {
-        ctx.beginPath();
-        for (let i = 0; i < n; i++) {
-          ctx.moveTo(sx(i), sy(i));
-          ctx.lineTo(sx(friend[i]), sy(friend[i]));
-        }
-        ctx.strokeStyle = colors.fg;
-        ctx.globalAlpha = Math.min(0.4, 3 / Math.sqrt(n));
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-
-      // Mathematica's PointSize[0.007] is a diameter, as a fraction of the plot width
-      const r = Math.max(0.6, 0.0035 * Math.min(w, h) * Math.min(1, Math.sqrt(1000 / n)));
-      ctx.beginPath();
-      for (let i = 0; i < n; i++) {
-        const X = sx(i), Y = sy(i);
-        ctx.moveTo(X + r, Y);
-        ctx.arc(X, Y, r, 0, 2 * Math.PI);
-      }
-      ctx.fillStyle = colors.fg;
-      ctx.fill();
-
-      if (params.showHighlight && d.highlight < n) {
-        const i = d.highlight, f = friend[i], e = enemy[i];
-        const blue = colors.isDark ? '#5aa9e6' : '#1f6fb2';
-        const red = colors.isDark ? '#f0705f' : '#c8372d';
-        ctx.lineWidth = 1.5;
-        for (const [j, color] of [[f, blue], [e, red]]) {
-          ctx.strokeStyle = color;
-          ctx.beginPath();
-          ctx.moveTo(sx(i), sy(i));
-          ctx.lineTo(sx(j), sy(j));
-          ctx.stroke();
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          ctx.arc(sx(j), sy(j), r + 2.5, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-        ctx.fillStyle = colors.fg;
-        ctx.strokeStyle = colors.bg;
-        ctx.beginPath();
-        ctx.arc(sx(i), sy(i), r + 3.5, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.stroke();
-      }
+      const loop = createFrameLoop(frame);
+      invalidation.then(() => loop.cancel());
     }
+  </script>
 
-    const figure = html`<figure style="margin: 0">
-      ${canvas}
-      <figcaption>Each dancer steps toward their friend and away from their enemy. The highlighted dancer's friend is shown in <span style="color:#1f6fb2">blue</span> and enemy in <span style="color:#c8372d">red</span>. Click or tap to follow a different dancer.</figcaption>
-    </figure>`;
-
-    display(expandable(figure, {
-      width: Math.min(width, 640),
-      height: Math.min(width, 640),
-      controls: '#dance-controls',
-      id: 'dance-floor',
-      onResize(el, w, h) {
-        viewport.w = w;
-        viewport.h = h;
-        // Mathematica's PlotRange -> 2 shows [-2, 2] along the shorter side
-        viewport.scale = Math.min(w, h) / 4;
-        canvas.width = Math.round(w * devicePixelRatio);
-        canvas.height = Math.round(h * devicePixelRatio);
-        canvas.style.width = `${w}px`;
-        canvas.style.height = `${h}px`;
-        draw();
-      }
-    }));
-
-    const loop = createFrameLoop(() => {
-      if (world.dancers && !params.paused) {
-        for (let k = 0; k < params.stepsPerFrame; k++) step(world.dancers, params);
-      }
-      draw();
-    });
-    invalidation.then(() => loop.cancel());
+  <script id="caption" type="text/markdown">
+    The highlighted dancer's friend is shown in <span style="color:#1f6fb2">blue</span> and their enemy in <span style="color:#c8372d">red</span>. By default, color shows each dancer's direction of travel, with hue for the compass heading and lightness for climbing or falling.
   </script>
 
   <script id="the-program" type="text/markdown">
@@ -287,7 +341,7 @@
 
     ${tex.block`\mathbf{x}_i \leftarrow c\,\mathbf{x}_i + a\,\mathbf{f}(\mathbf{x}_{p_i} - \mathbf{x}_i) - b\,\mathbf{f}(\mathbf{x}_{q_i} - \mathbf{x}_i), \qquad \mathbf{f}(\mathbf{v}) = \frac{\mathbf{v}}{\varepsilon + |\mathbf{v}|}`}
 
-    with contraction ${tex`c = 0.995`}, a step of ${tex`a = 0.02`} toward the friend, a step of ${tex`b = 0.01`} away from the enemy, and softening ${tex`\varepsilon = 0.01`}. All dancers move at once, based on where everyone stood before the step. Finally, the condition `r < 100` draws a random integer from one to a thousand, so on about one frame in ten a random dancer picks a new friend and a new enemy. The JavaScript above is a line-for-line port of this, with the frequency of those changes of heart exposed as an expected number per step.
+    with contraction ${tex`c = 0.995`}, a step of ${tex`a = 0.02`} toward the friend, a step of ${tex`b = 0.01`} away from the enemy, and softening ${tex`\varepsilon = 0.01`}. All dancers move at once, based on where everyone stood before the step. Finally, the condition `r < 100` draws a random integer from one to a thousand, so on about one frame in ten a random dancer picks a new friend and a new enemy. The version here follows the same rule in three dimensions, starting from a cube rather than a square. Since the crowd is much larger, the frequency of changes of heart is expressed per thousand dancers, so each dancer reconsiders as often as in the original.
   </script>
 
   <script id="why" type="text/markdown">
@@ -306,259 +360,21 @@
     A few things to try. Set the two steps equal to get the swarm of flies. Turn the softening up and the clumps loosen into diffuse clouds, or down to near zero and they collapse into tight knots. Turn the changes of heart to zero and the dance slowly settles into a fixed choreography, then click *Everyone reconsiders* to scramble it. Woods closed by saying he'd love to see what other dances could be created with other simple rules, which is a good invitation to keep playing.
   </script>
 
-  <script id="gpu-intro" type="text/markdown">
-    ## A million dancers
+  <script id="gpu-section" type="text/markdown">
+    ## On the GPU
 
-    Each step is perfectly suited to the GPU. A dancer reads the old positions of exactly two others and writes only its own new position, so there's no neighbor search, no sorting, and no contention. The only real question is how to keep the CPU out of the loop.
+    Each step suits the GPU perfectly. A dancer reads the old positions of exactly two others and writes only its own new position, so there's no neighbor search, no sorting, and no contention. Nothing in the rule depends on the dimension of the floor, either, so moving it to three dimensions just means swapping two-component vectors for three-component ones. The more interesting question is how to keep the CPU out of the loop.
 
-    In the version below, everything lives in GPU buffers. That includes positions (double-buffered, since all dancers move at once), friends and enemies, a random number generator state for each dancer, and even the index of the dancer you've clicked on. Initialization runs in a compute shader, so nothing is uploaded at startup. Changes of heart happen inside the step kernel, where each dancer rolls their own die. The renderer's vertex shaders read the position buffer directly. Several steps per frame are just several dispatches in one compute pass, and the CPU knows which buffer is current simply by counting, never by asking.
+    Everything lives in GPU buffers. That includes positions (double-buffered, since all dancers move at once), friends and enemies, a random number generator state for each dancer, and even the index of the dancer you've clicked on. Initialization runs in a compute shader, so nothing is uploaded at startup. Changes of heart happen inside the step kernel, where each dancer rolls their own die. Several steps per frame are just several dispatches in one compute pass, and the CPU knows which position buffer is current by counting, never by asking.
   </script>
 
-  <script id="gpu-intro-2" type="text/markdown">
-    Clicking to follow a dancer would normally mean reading positions back to find the nearest one. Instead the click point goes to the GPU, where one pass computes each dancer's squared distance and takes an `atomicMin` over its bits (non-negative floats sort the same as their bit patterns), and a second pass records whichever dancer matches. The highlight overlay then reads that index straight from the buffer. Apart from a few bytes of uniforms when a control or click changes something, a frame sends nothing to the GPU besides a command buffer, and nothing ever comes back.
+  <script id="gpu-picking" type="text/markdown">
+    Clicking to follow a dancer would normally mean reading positions back to find the nearest one. Instead, the click point and camera matrix go to the GPU, where one pass projects every dancer to the screen, computes its squared distance to the click, and takes an `atomicMin` over the float's bits (non-negative floats sort the same as their bit patterns). A second pass records whichever dancer matches. The overlay then reads that index straight from the buffer. Apart from a few bytes of uniforms when the camera moves or a control changes, a frame sends nothing to the GPU besides a command buffer, and nothing ever comes back.
   </script>
 
-  <script id="gpu-compute-shader" type="module" pinned="">
-    const danceComputeWGSL = /* wgsl */ `
-    struct SimParams {
-      attract: f32, repel: f32, contract: f32, eps: f32,
-      reshuffleProb: f32, n: u32, seed: u32, _pad: u32,
-      pick: vec2f,
-    }
-    struct Pick { minBits: atomic<u32>, index: atomic<u32> }
+  <script id="gpu-rendering" type="text/markdown">
+    For drawing, each dancer is splatted as a small disc into a floating-point texture with additive blending. Addition doesn't care about order, so there's no need to sort a few hundred thousand points by depth. Discs are sized by perspective but never smaller than about a pixel. A dancer whose disc has hit that minimum deposits proportionally less ink, so the total amount of ink stays the same however large the crowd.
 
-    @group(0) @binding(0) var<uniform> P: SimParams;
-    @group(0) @binding(1) var<storage, read> src: array<vec2f>;
-    @group(0) @binding(2) var<storage, read_write> dst: array<vec2f>;
-    @group(0) @binding(3) var<storage, read_write> partners: array<vec2u>;
-    @group(0) @binding(4) var<storage, read_write> rng: array<u32>;
-    @group(0) @binding(5) var<storage, read_write> pick: Pick;
-
-    // PCG: a full-period LCG step followed by an output permutation
-    fn permute(s: u32) -> u32 {
-      let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
-      return (w >> 22u) ^ w;
-    }
-    fn next(s: ptr<function, u32>) -> u32 {
-      *s = *s * 747796405u + 2891336453u;
-      return permute(*s);
-    }
-    fn unit(r: u32) -> f32 { return f32(r >> 8u) / 16777216.0; }
-
-    // A step of unit length, fading to zero within about eps of the target
-    fn toward(v: vec2f) -> vec2f { return v / (P.eps + length(v)); }
-
-    @compute @workgroup_size(256)
-    fn advance(@builtin(global_invocation_id) id: vec3u) {
-      let i = id.x;
-      if (i >= P.n) { return; }
-      let x = src[i];
-      var p = partners[i];
-      dst[i] = P.contract * x + P.attract * toward(src[p.x] - x) - P.repel * toward(src[p.y] - x);
-
-      // Every so often, a change of heart
-      var s = rng[i];
-      if (unit(next(&s)) < P.reshuffleProb) {
-        p = vec2u(next(&s) % P.n, next(&s) % P.n);
-        partners[i] = p;
-      }
-      rng[i] = s;
-    }
-
-    @compute @workgroup_size(256)
-    fn init(@builtin(global_invocation_id) id: vec3u) {
-      let i = id.x;
-      if (i >= P.n) { return; }
-      if (i == 0u) { atomicStore(&pick.index, 0u); }
-      var s = permute(i + permute(P.seed));
-      dst[i] = vec2f(unit(next(&s)), unit(next(&s))) * 2.0 - 1.0;
-      partners[i] = vec2u(next(&s) % P.n, next(&s) % P.n);
-      rng[i] = s;
-    }
-
-    @compute @workgroup_size(256)
-    fn reshuffleAll(@builtin(global_invocation_id) id: vec3u) {
-      let i = id.x;
-      if (i >= P.n) { return; }
-      var s = rng[i];
-      partners[i] = vec2u(next(&s) % P.n, next(&s) % P.n);
-      rng[i] = s;
-    }
-
-    @compute @workgroup_size(1)
-    fn pickReset() { atomicStore(&pick.minBits, 0x7f800000u); }
-
-    fn pickDistanceBits(i: u32) -> u32 {
-      let d = src[i] - P.pick;
-      return bitcast<u32>(dot(d, d));
-    }
-
-    @compute @workgroup_size(256)
-    fn pickMin(@builtin(global_invocation_id) id: vec3u) {
-      if (id.x >= P.n) { return; }
-      atomicMin(&pick.minBits, pickDistanceBits(id.x));
-    }
-
-    @compute @workgroup_size(256)
-    fn pickSelect(@builtin(global_invocation_id) id: vec3u) {
-      if (id.x >= P.n) { return; }
-      if (pickDistanceBits(id.x) == atomicLoad(&pick.minBits)) {
-        atomicStore(&pick.index, id.x);
-      }
-    }
-    `;
-  </script>
-
-  <script id="gpu-context" type="text/x-typescript">
-    const gpu = isWebGPUAvailable() ? await createWebGPUContext().catch(() => null) : null;
-    const device = gpu?.device;
-    const canvasFormat = gpu?.canvasFormat;
-    if (device) invalidation.then(() => device.destroy());
-  </script>
-
-  <script id="gpu-params" type="text/x-typescript">
-    const gpuDefaults = { attract: 0.02, repel: 0.01, contract: 0.995, eps: 0.01, reshuffleRate: 0.1 };
-    const gpuParams = {
-      ...gpuDefaults,
-      n: 250000,
-      stepsPerFrame: 1,
-      trails: 0,
-      paused: false,
-      showLinks: false,
-      showHighlight: true,
-      requests: { restart: false, reshuffle: false },
-    };
-  </script>
-
-  <script id="gpu-controls" type="text/x-typescript">
-    const gpuControls = html`<div id="gpu-dance-controls"></div>`;
-    {
-      const add = (key, input) => {
-        gpuControls.appendChild(input);
-        input.addEventListener('input', () => { gpuParams[key] = input.value; });
-        return input;
-      };
-      const inputs = {
-        n: add('n', Inputs.range([1000, 4000000], { label: 'Dancers', value: gpuParams.n, step: 1, transform: Math.log })),
-        attract: add('attract', Inputs.range([0, 0.05], { label: 'Toward friend', value: gpuParams.attract, step: 0.001 })),
-        repel: add('repel', Inputs.range([0, 0.05], { label: 'Away from enemy', value: gpuParams.repel, step: 0.001 })),
-        contract: add('contract', Inputs.range([0.95, 1], { label: 'Contraction', value: gpuParams.contract, step: 0.001 })),
-        eps: add('eps', Inputs.range([0.0001, 0.5], { label: 'Softening', value: gpuParams.eps, transform: Math.log })),
-        reshuffleRate: add('reshuffleRate', Inputs.range([0, 20], { label: 'Changes of heart per 1000', value: gpuParams.reshuffleRate, step: 0.01, transform: Math.sqrt })),
-        stepsPerFrame: add('stepsPerFrame', Inputs.range([1, 10], { label: 'Steps per frame', value: gpuParams.stepsPerFrame, step: 1 })),
-        trails: add('trails', Inputs.range([0, 0.95], { label: 'Trails', value: gpuParams.trails, step: 0.01 })),
-      };
-      const toggles = Inputs.checkbox(['Pause', 'Highlight one dancer', 'Draw friend links'], { value: ['Highlight one dancer'] });
-      toggles.addEventListener('input', () => {
-        gpuParams.paused = toggles.value.includes('Pause');
-        gpuParams.showHighlight = toggles.value.includes('Highlight one dancer');
-        gpuParams.showLinks = toggles.value.includes('Draw friend links');
-      });
-      gpuControls.appendChild(toggles);
-      gpuControls.appendChild(Inputs.button([
-        ['Restart', () => { gpuParams.requests.restart = true; }],
-        ['Everyone reconsiders', () => { gpuParams.requests.reshuffle = true; }],
-        ['Original settings', () => {
-          for (const [key, v] of Object.entries(gpuDefaults)) {
-            inputs[key].value = v;
-            inputs[key].dispatchEvent(new Event('input', { bubbles: true }));
-          }
-        }],
-      ]));
-    }
-    display(gpuControls);
-  </script>
-
-  <script id="gpu-figure" type="text/x-typescript">
-    if (!device) {
-      display(html`<div style="color: #b00; padding: 16px; border: 1px solid #f0caca; background: #fff6f6; border-radius: 6px;">
-        <strong>WebGPU is not available.</strong> This figure needs a WebGPU-capable browser (Chrome/Edge 113+, or Safari 18+ / Firefox with WebGPU enabled).
-      </div>`);
-    } else {
-      const gpuCanvas = document.createElement('canvas');
-      gpuCanvas.id = 'gpu-dance-canvas';
-      gpuCanvas.style.display = 'block';
-      gpuCanvas.style.cursor = 'crosshair';
-      const context = gpuCanvas.getContext('webgpu');
-      context.configure({
-        device,
-        format: canvasFormat,
-        alphaMode: 'opaque',
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST,
-      });
-
-      const dance = createGPUDance(device, canvasFormat, { computeWGSL: danceComputeWGSL });
-      invalidation.then(() => dance.destroy());
-
-      const size = { w: 1, h: 1 };
-      let currentN = -1;
-
-      // The click is converted to world coordinates here; finding the nearest
-      // dancer happens on the GPU
-      gpuCanvas.addEventListener('pointerdown', (e) => {
-        const rect = gpuCanvas.getBoundingClientRect();
-        const scale = Math.min(size.w, size.h) / 4;
-        dance.pickAt((e.clientX - rect.left - size.w / 2) / scale, -(e.clientY - rect.top - size.h / 2) / scale);
-      });
-
-      const friendRGB = [0x1f / 255, 0x6f / 255, 0xb2 / 255];
-      const enemyRGB = [0xc8 / 255, 0x37 / 255, 0x2d / 255];
-      const friendRGBDark = [0x5a / 255, 0xa9 / 255, 0xe6 / 255];
-      const enemyRGBDark = [0xf0 / 255, 0x70 / 255, 0x5f / 255];
-
-      function frame() {
-        const n = Math.round(gpuParams.n);
-        if (n !== currentN) { dance.setCount(n); currentN = n; }
-        if (gpuParams.requests.restart) dance.restart();
-        if (gpuParams.requests.reshuffle) dance.reshuffleAll();
-        gpuParams.requests.restart = gpuParams.requests.reshuffle = false;
-
-        const dpr = devicePixelRatio;
-        const minSide = Math.min(size.w, size.h);
-        // Match the canvas version's dot size at 1000 dancers, shrinking as the
-        // crowd grows and fading once dots reach a minimum size
-        const ideal = 0.0035 * minSide * Math.sqrt(1000 / n);
-        const radius = Math.max(0.6, ideal);
-        const dotAlpha = Math.min(1, Math.max(0.04, 3 * (ideal / radius) ** 2));
-
-        dance.frame(context, gpuParams, {
-          width: gpuCanvas.width,
-          height: gpuCanvas.height,
-          scale: (minSide / 4) * dpr,
-          radius: radius * dpr,
-          pixelRatio: dpr,
-          dotAlpha,
-          colors: {
-            fg: colors.fgRGB ?? [0.1, 0.12, 0.14],
-            bg: colors.bgRGB ?? [1, 1, 1],
-            friend: colors.isDark ? friendRGBDark : friendRGB,
-            enemy: colors.isDark ? enemyRGBDark : enemyRGB,
-          },
-        }, gpuParams.paused ? 0 : gpuParams.stepsPerFrame);
-      }
-
-      const gpuFigure = html`<figure style="margin: 0">
-        ${gpuCanvas}
-        <figcaption>The same dance on the GPU. Click or tap to follow a different dancer.</figcaption>
-      </figure>`;
-
-      display(expandable(gpuFigure, {
-        width: Math.min(width, 640),
-        height: Math.min(width, 640),
-        controls: '#gpu-dance-controls',
-        id: 'gpu-dance',
-        onResize(el, w, h) {
-          size.w = w;
-          size.h = h;
-          gpuCanvas.width = Math.max(1, Math.round(w * devicePixelRatio));
-          gpuCanvas.height = Math.max(1, Math.round(h * devicePixelRatio));
-          gpuCanvas.style.width = `${w}px`;
-          gpuCanvas.style.height = `${h}px`;
-        }
-      }));
-
-      const gpuLoop = createFrameLoop(frame);
-      invalidation.then(() => gpuLoop.cancel());
-    }
+    A final pass tone-maps the accumulated ink to the screen using two exposure curves. The first brings sparse regions up to full color quickly. The second, sixteen times slower, keeps deepening the densest clumps instead of letting them clip, so structure survives in the core of the swarm. The color of each pixel is the average color of the ink that landed there. The *Exposure* slider shifts both curves together.
   </script>
 </notebook>
