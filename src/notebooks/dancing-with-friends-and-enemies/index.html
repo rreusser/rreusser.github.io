@@ -1,0 +1,304 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Dancing with Friends and Enemies</title>
+
+  <script id="intro" type="text/markdown">
+    # Dancing with Friends and Enemies
+
+    In 2013, Simon Woods posted a short Mathematica program to Wolfram Community under the title [*Dancing with friends and enemies: boids' swarm intelligence*](https://community.wolfram.com/groups/-/m/t/122095). It describes a dance. A thousand dancers take random positions on the floor, and each picks one friend and one enemy at random. At every step, each dancer drifts half a percent toward the center of the floor, takes a large step toward their friend and a small step away from their enemy. Every so often, one dancer changes their mind and picks a new friend and a new enemy.
+  </script>
+
+  <script id="intro-2" type="text/markdown">
+    That's all there is to it, but the result swirls and clumps and streams in a way that looks a lot like a flock of starlings. Here it is.
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+    import { expandable } from './lib/expandable.js'
+    import { createFrameLoop } from './lib/frame-loop.js'
+    import { observeTheme } from './lib/theme.js'
+  </script>
+
+  <script id="params" type="text/x-typescript">
+    // Stable, mutable parameters shared by the controls and the render loop
+    const params = {
+      attract: 0.02,
+      repel: 0.01,
+      contract: 0.995,
+      eps: 0.01,
+      reshuffleRate: 0.1,
+      stepsPerFrame: 1,
+      trails: 0,
+      paused: false,
+      showLinks: false,
+      showHighlight: true,
+    };
+    const colors = { fg: 'rgb(27,30,35)', bg: 'rgb(255,255,255)', isDark: false };
+    // Holds the current dancers so the render loop survives a restart
+    const world = { dancers: null };
+  </script>
+
+  <script id="simulation" type="text/x-typescript" pinned="">
+    function createDancers(n) {
+      const x = new Float64Array(2 * n);
+      for (let i = 0; i < 2 * n; i++) x[i] = 2 * Math.random() - 1;
+      const friend = new Uint32Array(n);
+      const enemy = new Uint32Array(n);
+      for (let i = 0; i < n; i++) rechoose(i);
+
+      function rechoose(i) {
+        friend[i] = Math.floor(Math.random() * n);
+        enemy[i] = Math.floor(Math.random() * n);
+      }
+
+      return { n, x, next: new Float64Array(2 * n), friend, enemy, rechoose, highlight: 0 };
+    }
+
+    function step(d, { attract, repel, contract, eps, reshuffleRate }) {
+      const { n, x, next, friend, enemy } = d;
+      for (let i = 0; i < n; i++) {
+        const xi = x[2 * i], yi = x[2 * i + 1];
+
+        // A unit-ish step toward the friend, which fades to zero at close range
+        let dx = x[2 * friend[i]] - xi, dy = x[2 * friend[i] + 1] - yi;
+        let s = attract / (eps + Math.hypot(dx, dy));
+        let vx = s * dx, vy = s * dy;
+
+        // A smaller step away from the enemy
+        dx = x[2 * enemy[i]] - xi; dy = x[2 * enemy[i] + 1] - yi;
+        s = repel / (eps + Math.hypot(dx, dy));
+        vx -= s * dx; vy -= s * dy;
+
+        // Every dancer moves simultaneously, so write into a second buffer
+        next[2 * i] = contract * xi + vx;
+        next[2 * i + 1] = contract * yi + vy;
+      }
+      d.x = next;
+      d.next = x;
+
+      // Every so often, a random dancer picks a new friend and enemy
+      let count = Math.floor(reshuffleRate);
+      if (Math.random() < reshuffleRate - count) count++;
+      for (let k = 0; k < count; k++) d.rechoose(Math.floor(Math.random() * n));
+    }
+  </script>
+
+  <script id="controls" type="text/x-typescript">
+    const controlsContainer = html`<div id="dance-controls"></div>`;
+    function ctrl(input) {
+      controlsContainer.appendChild(input);
+      return Generators.input(input);
+    }
+    const n = ctrl(Inputs.range([10, 20000], { label: 'Dancers', value: 1000, step: 1, transform: Math.log }));
+    const attract = ctrl(Inputs.range([0, 0.05], { label: 'Toward friend', value: 0.02, step: 0.001 }));
+    const repel = ctrl(Inputs.range([0, 0.05], { label: 'Away from enemy', value: 0.01, step: 0.001 }));
+    const contract = ctrl(Inputs.range([0.95, 1], { label: 'Contraction', value: 0.995, step: 0.001 }));
+    const eps = ctrl(Inputs.range([0.0001, 0.5], { label: 'Softening', value: 0.01, transform: Math.log }));
+    const reshuffleRate = ctrl(Inputs.range([0, 20], { label: 'Changes of heart', value: 0.1, step: 0.01, transform: Math.sqrt }));
+    const stepsPerFrame = ctrl(Inputs.range([1, 10], { label: 'Steps per frame', value: 1, step: 1 }));
+    const trails = ctrl(Inputs.range([0, 0.95], { label: 'Trails', value: 0, step: 0.01 }));
+    const toggles = ctrl(Inputs.checkbox(['Pause', 'Highlight one dancer', 'Draw friend links'], { value: ['Highlight one dancer'] }));
+    const inputs = controlsContainer.children;
+    const restoreDefaults = () => {
+      const defaults = [null, 0.02, 0.01, 0.995, 0.01, 0.1];
+      defaults.forEach((v, i) => {
+        if (v === null) return;
+        inputs[i].value = v;
+        inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    controlsContainer.appendChild(Inputs.button([
+      ['Restart', () => { world.dancers = createDancers(world.dancers.n); }],
+      ['Everyone reconsiders', () => { for (let i = 0; i < world.dancers.n; i++) world.dancers.rechoose(i); }],
+      ['Original settings', restoreDefaults],
+    ]));
+    display(controlsContainer);
+  </script>
+
+  <script id="sync-params" type="text/x-typescript">
+    Object.assign(params, { attract, repel, contract, eps, reshuffleRate, stepsPerFrame, trails });
+    params.paused = toggles.includes('Pause');
+    params.showHighlight = toggles.includes('Highlight one dancer');
+    params.showLinks = toggles.includes('Draw friend links');
+  </script>
+
+  <script id="theme-sync" type="text/x-typescript">
+    const theme = Generators.observe(observeTheme);
+  </script>
+
+  <script id="apply-theme" type="text/x-typescript">
+    {
+      const css = (c) => `rgb(${c.map((v) => Math.round(255 * v)).join(',')})`;
+      colors.fg = css(theme.foreground);
+      colors.bg = css(theme.background);
+      colors.isDark = theme.isDark;
+    }
+  </script>
+
+  <script id="dancers" type="text/x-typescript">
+    // A new floor whenever the number of dancers changes
+    world.dancers = createDancers(n);
+  </script>
+
+  <script id="figure" type="text/x-typescript">
+    const canvas = document.createElement('canvas');
+    canvas.id = 'dance-canvas';
+    canvas.style.display = 'block';
+    canvas.style.cursor = 'crosshair';
+    const ctx = canvas.getContext('2d');
+    const viewport = { w: 1, h: 1, scale: 1 };
+
+    // Click or tap to follow the dancer nearest the pointer
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!world.dancers) return;
+      const rect = canvas.getBoundingClientRect();
+      const px = (e.clientX - rect.left - viewport.w / 2) / viewport.scale;
+      const py = -(e.clientY - rect.top - viewport.h / 2) / viewport.scale;
+      const { x, n } = world.dancers;
+      let best = 0, bestDist = Infinity;
+      for (let i = 0; i < n; i++) {
+        const d = (x[2 * i] - px) ** 2 + (x[2 * i + 1] - py) ** 2;
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      world.dancers.highlight = best;
+    });
+
+    function draw() {
+      const d = world.dancers;
+      if (!d) return;
+      const { x, n, friend, enemy } = d;
+      const dpr = devicePixelRatio;
+      const { w, h, scale } = viewport;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      ctx.globalAlpha = 1 - params.trails;
+      ctx.fillStyle = colors.bg;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
+
+      const sx = (i) => w / 2 + scale * x[2 * i];
+      const sy = (i) => h / 2 - scale * x[2 * i + 1];
+
+      if (params.showLinks) {
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) {
+          ctx.moveTo(sx(i), sy(i));
+          ctx.lineTo(sx(friend[i]), sy(friend[i]));
+        }
+        ctx.strokeStyle = colors.fg;
+        ctx.globalAlpha = Math.min(0.4, 3 / Math.sqrt(n));
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      // Mathematica's PointSize[0.007] is a diameter, as a fraction of the plot width
+      const r = Math.max(0.6, 0.0035 * Math.min(w, h) * Math.min(1, Math.sqrt(1000 / n)));
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const X = sx(i), Y = sy(i);
+        ctx.moveTo(X + r, Y);
+        ctx.arc(X, Y, r, 0, 2 * Math.PI);
+      }
+      ctx.fillStyle = colors.fg;
+      ctx.fill();
+
+      if (params.showHighlight && d.highlight < n) {
+        const i = d.highlight, f = friend[i], e = enemy[i];
+        const blue = colors.isDark ? '#5aa9e6' : '#1f6fb2';
+        const red = colors.isDark ? '#f0705f' : '#c8372d';
+        ctx.lineWidth = 1.5;
+        for (const [j, color] of [[f, blue], [e, red]]) {
+          ctx.strokeStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(sx(i), sy(i));
+          ctx.lineTo(sx(j), sy(j));
+          ctx.stroke();
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(sx(j), sy(j), r + 2.5, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+        ctx.fillStyle = colors.fg;
+        ctx.strokeStyle = colors.bg;
+        ctx.beginPath();
+        ctx.arc(sx(i), sy(i), r + 3.5, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    const figure = html`<figure style="margin: 0">
+      ${canvas}
+      <figcaption>Each dancer steps toward their friend and away from their enemy. The highlighted dancer's friend is shown in <span style="color:#1f6fb2">blue</span> and enemy in <span style="color:#c8372d">red</span>. Click or tap to follow a different dancer.</figcaption>
+    </figure>`;
+
+    display(expandable(figure, {
+      width: Math.min(width, 640),
+      height: Math.min(width, 640),
+      controls: '#dance-controls',
+      id: 'dance-floor',
+      onResize(el, w, h) {
+        viewport.w = w;
+        viewport.h = h;
+        // Mathematica's PlotRange -> 2 shows [-2, 2] along the shorter side
+        viewport.scale = Math.min(w, h) / 4;
+        canvas.width = Math.round(w * devicePixelRatio);
+        canvas.height = Math.round(h * devicePixelRatio);
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+        draw();
+      }
+    }));
+
+    const loop = createFrameLoop(() => {
+      if (world.dancers && !params.paused) {
+        for (let k = 0; k < params.stepsPerFrame; k++) step(world.dancers, params);
+      }
+      draw();
+    });
+    invalidation.then(() => loop.cancel());
+  </script>
+
+  <script id="the-program" type="text/markdown">
+    ## The original program
+
+    Here is Woods' program in its entirety.
+
+    ```mathematica
+    n = 1000;
+    r := RandomInteger[{1, n}];
+    f := (#/(.01 + Sqrt[#.#])) & /@ (x[[#]] - x) &;
+    s := With[{r1 = r}, p[[r1]] = r; q[[r1]] = r];
+    x = RandomReal[{-1, 1}, {n, 2}];
+    {p, q} = RandomInteger[{1, n}, {2, n}];
+    Graphics[{PointSize[0.007], Dynamic[If[r < 100, s];
+      Point[x = 0.995 x + 0.02 f[p] - 0.01 f[q]]]}, PlotRange -> 2]
+    ```
+
+    The arrays ${tex`p`} and ${tex`q`} hold each dancer's friend and enemy. The function ${tex`f`} takes one of those arrays and returns, for every dancer, the vector pointing toward their partner, scaled down to roughly unit length. On every frame, `Dynamic` redraws the points and, as a side effect, advances the dance by one step.
+  </script>
+
+  <script id="the-rule" type="text/markdown">
+    Written out, the position ${tex`\mathbf{x}_i`} of dancer ${tex`i`}, whose friend is ${tex`p_i`} and enemy is ${tex`q_i`}, updates according to
+
+    ${tex.block`\mathbf{x}_i \leftarrow c\,\mathbf{x}_i + a\,\mathbf{f}(\mathbf{x}_{p_i} - \mathbf{x}_i) - b\,\mathbf{f}(\mathbf{x}_{q_i} - \mathbf{x}_i), \qquad \mathbf{f}(\mathbf{v}) = \frac{\mathbf{v}}{\varepsilon + |\mathbf{v}|}`}
+
+    with contraction ${tex`c = 0.995`}, a step of ${tex`a = 0.02`} toward the friend, a step of ${tex`b = 0.01`} away from the enemy, and softening ${tex`\varepsilon = 0.01`}. All dancers move at once, based on where everyone stood before the step. Finally, the condition `r < 100` draws a random integer from one to a thousand, so on about one frame in ten a random dancer picks a new friend and a new enemy. The JavaScript above is a line-for-line port of this, with the frequency of those changes of heart exposed as an expected number per step.
+  </script>
+
+  <script id="why" type="text/markdown">
+    ## Why it works
+
+    In the comments, Woods explained where the idea came from. The coordinated motion of flocks of starlings and shoals of herring is often explained by each animal following simple rules about its nearest neighbors, roughly to keep up and not to collide. Finding nearest neighbors in Mathematica was slow, so he tried something cheaper. What if each particle reacted to just two others, regardless of how far away they were? Move toward one and away from the other.
+
+    Each remaining piece of the rule patches a problem. The contraction keeps the cloud from dispersing to infinity or drifting off the floor. The step sizes are tuned to balance clumping against spreading, and he noted that equal step sizes give something more like a swarm of flies. With partners fixed, the system settles into a sort of dynamic equilibrium, so the occasional change of heart keeps it moving. And the softening ${tex`\varepsilon`} makes the pull fade to zero at very close range, which prevents very tight clumps and also avoids dividing by zero when a dancer happens to choose themself.
+  </script>
+
+  <script id="graph" type="text/markdown">
+    Some of the structure is visible in the friendships alone. Because every dancer has exactly one friend, the friendships form a random [functional graph](https://en.wikipedia.org/wiki/Random_mapping). Every connected component of such a graph contains exactly one cycle, with trees of dancers feeding into it. A cycle of dancers each chasing the next is the classic [pursuit problem](https://en.wikipedia.org/wiki/Mice_problem), whose solution is a spiral, and the dancers in the trees trail along behind whoever they follow, which is where the streams and clumps come from. Check *Draw friend links* above to see them. Enemies are drawn independently and at random, so they mostly act as a source of noise that keeps everything from collapsing to a point.
+  </script>
+
+  <script id="try" type="text/markdown">
+    A few things to try. Set the two steps equal to get the swarm of flies. Turn the softening up and the clumps loosen into diffuse clouds, or down to near zero and they collapse into tight knots. Turn the changes of heart to zero and the dance slowly settles into a fixed choreography, then click *Everyone reconsiders* to scramble it. Woods closed by saying he'd love to see what other dances could be created with other simple rules, which is a good invitation to keep playing.
+  </script>
+</notebook>
