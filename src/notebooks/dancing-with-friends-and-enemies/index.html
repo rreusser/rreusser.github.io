@@ -69,12 +69,12 @@
         return input;
       };
       const inputs = {
-        n: add('n', Inputs.range([1000, 4000000], { label: 'Dancers', value: params.n, step: 1, transform: Math.log })),
+        n: add('n', Inputs.range([1000, 4000000], { label: 'Dancers', value: params.n, step: 1, transform: Math.log, invert: Math.exp })),
         attract: add('attract', Inputs.range([0, 0.05], { label: 'Toward friend', value: params.attract, step: 0.001 })),
         repel: add('repel', Inputs.range([0, 0.05], { label: 'Away from enemy', value: params.repel, step: 0.001 })),
         contract: add('contract', Inputs.range([0.95, 1], { label: 'Contraction', value: params.contract, step: 0.001 })),
-        eps: add('eps', Inputs.range([0.0001, 0.5], { label: 'Softening', value: params.eps, transform: Math.log })),
-        reshuffleRate: add('reshuffleRate', Inputs.range([1e-5, 20], { label: 'Changes of heart per 1000', value: params.reshuffleRate, transform: Math.log })),
+        eps: add('eps', Inputs.range([0.0001, 0.5], { label: 'Softening', value: params.eps, transform: Math.log, invert: Math.exp })),
+        reshuffleRate: add('reshuffleRate', Inputs.range([1e-5, 20], { label: 'Changes of heart per 1000', value: params.reshuffleRate, transform: Math.log, invert: Math.exp })),
         stepsPerFrame: add('stepsPerFrame', Inputs.range([1, 10], { label: 'Steps per frame', value: params.stepsPerFrame, step: 1 })),
         trails: add('trails', Inputs.range([0, 0.95], { label: 'Trails', value: params.trails, step: 0.01 })),
         exposure: add('exposure', Inputs.range([-6, 6], { label: 'Exposure', value: params.exposure, step: 0.1 })),
