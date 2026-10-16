@@ -895,6 +895,46 @@ ${tex.block`\frac{\partial E}{\partial v_{a, z}} = k_{axial}  \left(1 - \frac{r_
 The gradient with respect to the coordinates of vertex ${tex`b`} are equal and opposite.
   </script>
 
+  <script id="demo-colors" type="text/x-typescript">
+// Palette for the 2D energy-minimization demos. This cell has no reactive
+// dependencies so the demos aren't re-created on theme change; the
+// update-demo-colors cell below mutates it in place and the demos' animation
+// loops pick up the new colors on the next frame.
+type RGB = [number, number, number];
+
+function mixRGB(a: RGB, b: RGB, t: number): RGB {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+
+function cssRGB(c: RGB): string {
+  const [r, g, b] = c.map(x => Math.round(Math.max(0, Math.min(1, x)) * 255));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+const demoColors = {
+  isDark: false,
+  background: [1, 1, 1] as RGB,
+  foreground: [0, 0, 0] as RGB,
+  fill: '#fff',
+  edge: '#333',
+  vertex: [0.137, 0.4, 0.686] as RGB,
+  hover: '#0a0',
+  dragging: '#f00'
+};
+  </script>
+
+  <script id="update-demo-colors" type="text/x-typescript">
+demoColors.isDark = theme.isDark;
+demoColors.background = theme.background;
+demoColors.foreground = theme.foreground;
+// Very slightly offset from the page background so the figure reads as a panel
+demoColors.fill = cssRGB(mixRGB(theme.background, theme.foreground, theme.isDark ? 0.05 : 0.025));
+demoColors.edge = cssRGB(mixRGB(theme.background, theme.foreground, 0.8));
+demoColors.vertex = theme.isDark ? [0.42, 0.64, 0.95] : [0.137, 0.4, 0.686];
+demoColors.hover = theme.isDark ? '#4c4' : '#0a0';
+demoColors.dragging = theme.isDark ? '#ff5c5c' : '#f00';
+  </script>
+
   <script id="axial-demo-controls" type="text/x-typescript">
 const axialControlsContainer = html`<div class="demo-controls"></div>`;
 
@@ -969,7 +1009,7 @@ function axialDraw(): void {
   const scale = 120;
   const cx = w / 2, cy = h / 2;
 
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = demoColors.fill;
   ctx.fillRect(0, 0, w, h);
 
   // Draw edges with strain coloring
@@ -978,10 +1018,11 @@ function axialDraw(): void {
     const p1 = axialGraph.vertices[i1];
     const l = axialDist(p0, p1);
     const strain = (l / axialL0Input.value) - 1;
-    const r = Math.max(0, Math.min(255, 128 + strain * 300));
-    const b = Math.max(0, Math.min(255, 128 - strain * 300));
+    const mid = demoColors.isDark ? 170 : 128;
+    const r = Math.max(0, Math.min(255, mid + strain * 300));
+    const b = Math.max(0, Math.min(255, mid - strain * 300));
 
-    ctx.strokeStyle = `rgb(${r}, 80, ${b})`;
+    ctx.strokeStyle = `rgb(${r}, ${demoColors.isDark ? 120 : 80}, ${b})`;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(cx + p0[0] * scale, cy - p0[1] * scale);
@@ -995,7 +1036,7 @@ function axialDraw(): void {
     const isHover = i === axialInteraction.hoverIndex;
     const isDragging = i === axialInteraction.dragging;
 
-    ctx.fillStyle = isDragging ? '#f00' : (isHover ? '#0a0' : '#2366af');
+    ctx.fillStyle = isDragging ? demoColors.dragging : (isHover ? demoColors.hover : cssRGB(demoColors.vertex));
     ctx.beginPath();
     ctx.arc(cx + p[0] * scale, cy - p[1] * scale, 8, 0, Math.PI * 2);
     ctx.fill();
@@ -1221,11 +1262,11 @@ function dihedralDraw(): void {
   const scale = 120;
   const cx = w / 2, cy = h / 2;
 
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = demoColors.fill;
   ctx.fillRect(0, 0, w, h);
 
   // Draw edges
-  ctx.strokeStyle = '#333';
+  ctx.strokeStyle = demoColors.edge;
   ctx.lineWidth = 3;
   for (const [i0, i1] of dihedralGraph.edges) {
     const p0 = dihedralGraph.vertices[i0];
@@ -1242,7 +1283,7 @@ function dihedralDraw(): void {
     const isHover = i === dihedralInteraction.hoverIndex;
     const isDragging = i === dihedralInteraction.dragging;
 
-    ctx.fillStyle = isDragging ? '#f00' : (isHover ? '#0a0' : '#2366af');
+    ctx.fillStyle = isDragging ? demoColors.dragging : (isHover ? demoColors.hover : cssRGB(demoColors.vertex));
     ctx.beginPath();
     ctx.arc(cx + p[0] * scale, cy - p[1] * scale, 8, 0, Math.PI * 2);
     ctx.fill();
@@ -1751,7 +1792,7 @@ function torsionDraw3D(): void {
   const w = torsionCanvas.width;
   const h = torsionCanvas.height;
 
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = demoColors.fill;
   ctx.fillRect(0, 0, w, h);
 
   // Project all vertices
@@ -1771,8 +1812,9 @@ function torsionDraw3D(): void {
     const p1 = projected[i1];
     // Color based on depth
     const avgDepth = (p0[2] + p1[2]) / 2;
-    const brightness = Math.max(50, Math.min(200, 150 - avgDepth * 20));
-    ctx.strokeStyle = `rgb(${brightness}, ${brightness}, ${brightness})`;
+    // Fade far edges toward the background
+    const fade = Math.max(0, Math.min(1, 0.5 + (avgDepth - torsionCamera.distance) / 3));
+    ctx.strokeStyle = cssRGB(mixRGB(demoColors.foreground, demoColors.background, 0.15 + 0.6 * fade));
     ctx.beginPath();
     ctx.moveTo(p0[0], p0[1]);
     ctx.lineTo(p1[0], p1[1]);
@@ -1790,17 +1832,18 @@ function torsionDraw3D(): void {
     const isDragging = i === torsionInteraction.vertexDragging;
 
     if (isDragging) {
-      ctx.fillStyle = '#f00';
+      ctx.fillStyle = demoColors.dragging;
     } else if (isHover) {
-      ctx.fillStyle = '#0a0';
+      ctx.fillStyle = demoColors.hover;
     } else {
-      const brightness = Math.max(30, Math.min(200, 100 - depth * 15));
-      ctx.fillStyle = `rgb(${brightness}, ${brightness + 50}, ${brightness + 100})`;
+      // Fade far vertices toward the background
+      const fade = Math.max(0, Math.min(1, 0.5 + (depth - torsionCamera.distance) / 3));
+      ctx.fillStyle = cssRGB(mixRGB(demoColors.vertex, demoColors.background, 0.6 * fade));
     }
     ctx.beginPath();
     ctx.arc(p[0], p[1], size, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#333';
+    ctx.strokeStyle = demoColors.edge;
     ctx.lineWidth = 1;
     ctx.stroke();
   }
@@ -1916,6 +1959,10 @@ display(torsionFigure);
   <script id="styles" type="text/x-typescript">
 display(html`
   <style>
+    #axial-canvas, #dihedral-canvas, #torsion-canvas {
+      border: 1px solid var(--theme-foreground-faintest);
+      border-radius: 4px;
+    }
     .controls-heading {
       font: 600 11px/1 var(--sans-serif, system-ui, sans-serif);
       text-transform: uppercase;
