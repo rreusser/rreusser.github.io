@@ -107,6 +107,42 @@ export class MeshInteractions {
     return Math.sqrt(dx * dx + dy * dy) < this.deadZoneRadius;
   }
 
+  // Set the cursor class to match the current hover state.
+  // The default 'grab' cursor comes from CSS, so no class is needed for it.
+  _updateCursorFromHover() {
+    this.element.classList.remove('cursor-move', 'cursor-pointer', 'cursor-grabbing');
+    if (this.hoverVertexIndex >= 0) {
+      this.element.classList.add('cursor-move');
+    } else if (this.hoverEdgeIndex >= 0) {
+      this.element.classList.add('cursor-pointer');
+    }
+  }
+
+  // Recompute the hover target from a pointer event, clearing it when the pointer
+  // is outside the element. Used to restore hover after a gesture that suppressed it.
+  _refreshHover(event) {
+    const rect = this.element.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    let newVertexHover = -1;
+    let newEdgeHover = -1;
+    if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
+      const target = this._getSelectionTarget(x, y, 20, 12);
+      if (target.type === 'vertex') {
+        newVertexHover = target.index;
+      } else if (target.type === 'edge') {
+        newEdgeHover = target.index;
+      }
+    }
+
+    if (newVertexHover !== this.hoverVertexIndex || newEdgeHover !== this.hoverEdgeIndex) {
+      this.hoverVertexIndex = newVertexHover;
+      this.hoverEdgeIndex = newEdgeHover;
+      this.dirty = true;
+    }
+  }
+
   // ============ Picking ============
 
   _getClosestVertex(x, y) {
@@ -360,14 +396,7 @@ export class MeshInteractions {
       if (newVertexHover !== this.hoverVertexIndex || newEdgeHover !== this.hoverEdgeIndex) {
         this.hoverVertexIndex = newVertexHover;
         this.hoverEdgeIndex = newEdgeHover;
-        // Update cursor via CSS classes
-        this.element.classList.remove('cursor-move', 'cursor-pointer', 'cursor-grabbing');
-        if (newVertexHover >= 0) {
-          this.element.classList.add('cursor-move');
-        } else if (newEdgeHover >= 0) {
-          this.element.classList.add('cursor-pointer');
-        }
-        // Default 'grab' cursor comes from CSS rule, no class needed
+        this._updateCursorFromHover();
         this.dirty = true;
       }
       return;
@@ -390,10 +419,23 @@ export class MeshInteractions {
     window.removeEventListener('mousemove', this._onMouseMove);
     window.removeEventListener('mouseup', this._onMouseUp);
 
-    // Clean up background click tracking (but preserve exitedDeadZone for _onClick)
-    // Will be reset in _onClick or next mousedown
+    // Clear background click tracking here instead of waiting for _onClick. A drag
+    // released outside the canvas dispatches 'click' on a common ancestor rather than
+    // on the canvas, so _onClick never runs and the stale flag would disable hover
+    // detection indefinitely. backgroundExitedDeadZone is preserved for _onClick,
+    // which uses it to tell a camera rotation apart from a click.
+    this.backgroundClickStart = null;
 
-    if (!this.isDragging) return;
+    if (!this.isDragging) {
+      // End of a background (camera) drag. _onMouseMove suppresses hover tracking
+      // while the camera is rotating, so recompute it and restore the cursor; the
+      // 'grabbing' cursor would otherwise persist until the pointer crossed a
+      // vertex or edge.
+      this._refreshHover(event);
+      this._updateCursorFromHover();
+      this.dirty = true;
+      return;
+    }
 
     this._getMousePos(event, this.currentMousePos);
 
@@ -436,14 +478,7 @@ export class MeshInteractions {
     this.activeVertexIndex = -1;
     this.activeEdgeIndex = -1;
     this.candidateEdge = null;
-    // Update cursor based on current hover state
-    this.element.classList.remove('cursor-move', 'cursor-pointer', 'cursor-grabbing');
-    if (this.hoverVertexIndex >= 0) {
-      this.element.classList.add('cursor-move');
-    } else if (this.hoverEdgeIndex >= 0) {
-      this.element.classList.add('cursor-pointer');
-    }
-    // Default 'grab' comes from CSS
+    this._updateCursorFromHover();
     this.dirty = true;
 
     this.onChange();
