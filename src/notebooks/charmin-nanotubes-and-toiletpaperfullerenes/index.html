@@ -148,9 +148,15 @@ const presetGraph = ctrl(Inputs.select(Object.keys(presetGraphs), {
   value: "C260 I[5,7]"
 }));
 
-const resetButton = ctrl(Inputs.button("Reset"));
+const resetButton = ctrl(Inputs.button("Reset", { label: "Reset preset" }));
 
 const simulate = ctrl(Inputs.toggle({ label: "Simulate", value: true }));
+
+const iterations = ctrl(Inputs.range([0, 200], {
+  label: "Iterations per frame",
+  value: 5,
+  step: 1
+}));
 
 display(controlsContainer);
   </script>
@@ -163,46 +169,47 @@ function ctrl2(input: HTMLElement) {
   return Generators.input(input);
 }
 
-const iterations = ctrl2(Inputs.range([0, 200], {
-  label: "Iterations per frame",
-  value: 5,
-  step: 1
-}));
+function heading(text: string) {
+  secondaryControlsContainer.appendChild(html`<div class="controls-heading">${text}</div>`);
+}
+
+heading("Axial springs");
 
 const k = ctrl2(Inputs.range([0, 2], {
-  label: "Axial spring constant",
+  label: "Stiffness",
   value: 1,
   step: 0.01
 }));
 
 const l0 = ctrl2(Inputs.range([0.1, 2], {
-  label: "Equilibrium length, l₀",
+  label: "Rest length, l₀",
   value: 1,
   step: 0.01
 }));
 
-const strainColoring = ctrl2(Inputs.toggle({
-  label: "Axial strain coloring",
-  value: false
-}));
+heading("Dihedral springs");
 
 const kBend = ctrl2(Inputs.range([0, 2], {
-  label: "Dihedral spring constant",
+  label: "Stiffness",
   value: 0.3,
   step: 0.01
 }));
 
 const theta0 = ctrl2(Inputs.range([1, 180], {
-  label: "Equilibrium dihedral angle, θ₀",
+  label: "Rest angle, θ₀",
   value: 150,
   step: 1
 }));
 
+heading("Torsional springs");
+
 const kTorsion = ctrl2(Inputs.range([0, 0.2], {
-  label: "Torsional spring constant",
+  label: "Stiffness",
   value: 0.1,
   step: 0.01
 }));
+
+heading("Display");
 
 const pointSize = ctrl2(Inputs.range([0.5, 5], {
   label: "Vertex size",
@@ -214,6 +221,11 @@ const edgeWidth = ctrl2(Inputs.range([0, 6], {
   label: "Edge width",
   value: 3,
   step: 0.5
+}));
+
+const strainColoring = ctrl2(Inputs.toggle({
+  label: "Color edges by strain",
+  value: false
 }));
 
 const faceOpacity = ctrl2(Inputs.range([0, 1], {
@@ -228,7 +240,7 @@ const faceShading = ctrl2(Inputs.toggle({
 }));
 
 const depthFalloffWidth = ctrl2(Inputs.range([1, 20], {
-  label: "Focus radius (×l₀)",
+  label: "Selection fade radius (×l₀)",
   value: 7,
   step: 0.5
 }));
@@ -1904,6 +1916,16 @@ display(torsionFigure);
   <script id="styles" type="text/x-typescript">
 display(html`
   <style>
+    .controls-heading {
+      font: 600 11px/1 var(--sans-serif, system-ui, sans-serif);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--theme-foreground-muted);
+      margin: 10px 0 2px;
+    }
+    .controls-heading:first-child {
+      margin-top: 0;
+    }
     kbd {
       background-color: #eee;
       border-radius: 3px;
