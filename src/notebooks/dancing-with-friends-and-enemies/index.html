@@ -74,7 +74,7 @@
         repel: add('repel', Inputs.range([0, 0.05], { label: 'Away from enemy', value: params.repel, step: 0.001 })),
         contract: add('contract', Inputs.range([0.95, 1], { label: 'Contraction', value: params.contract, step: 0.001 })),
         eps: add('eps', Inputs.range([0.0001, 0.5], { label: 'Softening', value: params.eps, transform: Math.log })),
-        reshuffleRate: add('reshuffleRate', Inputs.range([0, 20], { label: 'Changes of heart per 1000', value: params.reshuffleRate, step: 0.01, transform: Math.sqrt })),
+        reshuffleRate: add('reshuffleRate', Inputs.range([1e-5, 20], { label: 'Changes of heart per 1000', value: params.reshuffleRate, transform: Math.log })),
         stepsPerFrame: add('stepsPerFrame', Inputs.range([1, 10], { label: 'Steps per frame', value: params.stepsPerFrame, step: 1 })),
         trails: add('trails', Inputs.range([0, 0.95], { label: 'Trails', value: params.trails, step: 0.01 })),
         exposure: add('exposure', Inputs.range([-6, 6], { label: 'Exposure', value: params.exposure, step: 0.1 })),
@@ -145,7 +145,8 @@
 
       // Every so often, a change of heart
       var s = rng[i];
-      if (unit(next(&s)) < P.reshuffleProb) {
+      // Compare against the full 32-bit draw so tiny probabilities still register
+      if (f32(next(&s)) < P.reshuffleProb * 4294967296.0) {
         p = vec2u(next(&s) % P.n, next(&s) % P.n);
         partners[i] = p;
       }
