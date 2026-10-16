@@ -1,0 +1,381 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Dancing with Friends and Enemies</title>
+
+  <script id="intro" type="text/markdown">
+    # Dancing with Friends and Enemies
+
+    In 2013, Simon Woods posted a short Mathematica program to Wolfram Community under the title [*Dancing with friends and enemies: boids' swarm intelligence*](https://community.wolfram.com/groups/-/m/t/122095). It describes a dance. A thousand dancers take random positions on the floor, and each picks one friend and one enemy at random. At every step, each dancer drifts half a percent toward the center of the floor, takes a large step toward their friend and a small step away from their enemy. Every so often, one dancer changes their mind and picks a new friend and a new enemy.
+  </script>
+
+  <script id="intro-2" type="text/markdown">
+    That's all there is to it, but the result swirls and clumps and streams in a way that looks a lot like a flock of starlings. Below, the dance floor is three-dimensional and the crowd is a few hundred thousand strong, computed and drawn entirely on the GPU with WebGPU. Drag to rotate, scroll to zoom, and click to follow a dancer.
+  </script>
+
+  <script id="imports" type="text/x-typescript">
+    import { expandable, ICON_ORBIT, ICON_ARCBALL } from './lib/expandable.js'
+    import { createFrameLoop } from './lib/frame-loop.js'
+    import { observeTheme } from './lib/theme.js'
+    import { createWebGPUContext, isWebGPUAvailable } from './lib/webgpu-canvas.js'
+    import { createUnifiedCamera } from './lib/unified-camera.js'
+    import { createGPUDance, COLOR_MODES } from './gpu-dance.js'
+  </script>
+
+  <script id="gpu-context" type="text/x-typescript">
+    const gpu = isWebGPUAvailable()
+      ? await createWebGPUContext({ optionalFeatures: ['float32-blendable'] }).catch(() => null)
+      : null;
+    const device = gpu?.device;
+    const canvasFormat = gpu?.canvasFormat;
+    // Additive blending into rgba32float needs an optional feature. Without
+    // it, rgba16float still works, though very dense clumps lose precision.
+    const accumFormat = gpu?.features.has('float32-blendable') ? 'rgba32float' : 'rgba16float';
+    if (device) invalidation.then(() => device.destroy());
+  </script>
+
+  <script id="params" type="text/x-typescript">
+    const defaults = { attract: 0.02, repel: 0.01, contract: 0.995, eps: 0.01, reshuffleRate: 0.1 };
+    const params = {
+      ...defaults,
+      n: 300000,
+      stepsPerFrame: 1,
+      trails: 0,
+      exposure: 0,
+      colorMode: 'Heading',
+      paused: false,
+      showLinks: false,
+      showHighlight: true,
+      requests: { restart: false, reshuffle: false },
+    };
+    const colors = { fg: [0.1, 0.12, 0.14], bg: [1, 1, 1], isDark: false };
+  </script>
+
+  <script id="theme" type="text/x-typescript">
+    const theme = Generators.observe(observeTheme);
+  </script>
+
+  <script id="apply-theme" type="text/x-typescript">
+    colors.fg = theme.foreground;
+    colors.bg = theme.background;
+    colors.isDark = theme.isDark;
+  </script>
+
+  <script id="controls" type="text/x-typescript">
+    const controls = html`<div id="dance-controls"></div>`;
+    {
+      const add = (key, input) => {
+        controls.appendChild(input);
+        input.addEventListener('input', () => { params[key] = input.value; });
+        return input;
+      };
+      const inputs = {
+        n: add('n', Inputs.range([1000, 4000000], { label: 'Dancers', value: params.n, step: 1, transform: Math.log, invert: Math.exp })),
+        attract: add('attract', Inputs.range([0, 0.05], { label: 'Toward friend', value: params.attract, step: 0.001 })),
+        repel: add('repel', Inputs.range([0, 0.05], { label: 'Away from enemy', value: params.repel, step: 0.001 })),
+        contract: add('contract', Inputs.range([0.95, 1], { label: 'Contraction', value: params.contract, step: 0.001 })),
+        eps: add('eps', Inputs.range([0.0001, 0.5], { label: 'Softening', value: params.eps, transform: Math.log, invert: Math.exp })),
+        reshuffleRate: add('reshuffleRate', Inputs.range([1e-5, 20], { label: 'Changes of heart per 1000', value: params.reshuffleRate, transform: Math.log, invert: Math.exp })),
+        stepsPerFrame: add('stepsPerFrame', Inputs.range([1, 10], { label: 'Steps per frame', value: params.stepsPerFrame, step: 1 })),
+        trails: add('trails', Inputs.range([0, 0.95], { label: 'Trails', value: params.trails, step: 0.01 })),
+        exposure: add('exposure', Inputs.range([-6, 6], { label: 'Exposure', value: params.exposure, step: 0.1 })),
+        colorMode: add('colorMode', Inputs.select(Object.keys(COLOR_MODES), { label: 'Color by', value: params.colorMode })),
+      };
+      const toggles = Inputs.checkbox(['Pause', 'Highlight one dancer', 'Draw friend links'], { value: ['Highlight one dancer'] });
+      toggles.addEventListener('input', () => {
+        params.paused = toggles.value.includes('Pause');
+        params.showHighlight = toggles.value.includes('Highlight one dancer');
+        params.showLinks = toggles.value.includes('Draw friend links');
+      });
+      controls.appendChild(toggles);
+      controls.appendChild(Inputs.button([
+        ['Restart', () => { params.requests.restart = true; }],
+        ['Everyone reconsiders', () => { params.requests.reshuffle = true; }],
+        ['Original settings', () => {
+          for (const [key, v] of Object.entries(defaults)) {
+            inputs[key].value = v;
+            inputs[key].dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }],
+      ]));
+    }
+    display(controls);
+  </script>
+
+  <script id="compute-shader" type="module">
+    const danceComputeWGSL = /* wgsl */ `
+    struct SimParams {
+      attract: f32, repel: f32, contract: f32, eps: f32,
+      reshuffleProb: f32, n: u32, seed: u32, _pad: u32,
+      pick: vec2f, aspect: f32, _pad2: f32,
+      pickMatrix: mat4x4f,
+    }
+    struct Pick { minBits: atomic<u32>, index: atomic<u32> }
+
+    @group(0) @binding(0) var<uniform> P: SimParams;
+    @group(0) @binding(1) var<storage, read> src: array<vec4f>;
+    @group(0) @binding(2) var<storage, read_write> dst: array<vec4f>;
+    @group(0) @binding(3) var<storage, read_write> partners: array<vec2u>;
+    @group(0) @binding(4) var<storage, read_write> rng: array<u32>;
+    @group(0) @binding(5) var<storage, read_write> pick: Pick;
+
+    // PCG: a full-period LCG step followed by an output permutation
+    fn permute(s: u32) -> u32 {
+      let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+      return (w >> 22u) ^ w;
+    }
+    fn next(s: ptr<function, u32>) -> u32 {
+      *s = *s * 747796405u + 2891336453u;
+      return permute(*s);
+    }
+    fn unit(r: u32) -> f32 { return f32(r >> 8u) / 16777216.0; }
+
+    // A step of unit length, fading to zero within about eps of the target
+    fn toward(v: vec3f) -> vec3f { return v / (P.eps + length(v)); }
+
+    @compute @workgroup_size(256)
+    fn advance(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      let x = src[i].xyz;
+      var p = partners[i];
+      let next_x = P.contract * x
+        + P.attract * toward(src[p.x].xyz - x)
+        - P.repel * toward(src[p.y].xyz - x);
+      dst[i] = vec4f(next_x, 1);
+
+      // Every so often, a change of heart
+      var s = rng[i];
+      // Compare against the full 32-bit draw so tiny probabilities still register
+      if (f32(next(&s)) < P.reshuffleProb * 4294967296.0) {
+        p = vec2u(next(&s) % P.n, next(&s) % P.n);
+        partners[i] = p;
+      }
+      rng[i] = s;
+    }
+
+    @compute @workgroup_size(256)
+    fn init(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      if (i == 0u) { atomicStore(&pick.index, 0u); }
+      var s = permute(i + permute(P.seed));
+      let x = vec3f(unit(next(&s)), unit(next(&s)), unit(next(&s))) * 2.0 - 1.0;
+      dst[i] = vec4f(x, 1);
+      partners[i] = vec2u(next(&s) % P.n, next(&s) % P.n);
+      rng[i] = s;
+    }
+
+    @compute @workgroup_size(256)
+    fn reshuffleAll(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x;
+      if (i >= P.n) { return; }
+      var s = rng[i];
+      partners[i] = vec2u(next(&s) % P.n, next(&s) % P.n);
+      rng[i] = s;
+    }
+
+    // Picking: the squared screen-space distance from the click to each
+    // dancer, as float bits, which sort the same as the non-negative floats
+    // they encode. Dancers behind the camera get +infinity.
+    fn pickDistanceBits(i: u32) -> u32 {
+      let clip = P.pickMatrix * vec4f(src[i].xyz, 1);
+      if (clip.w <= 1e-3) { return 0x7f800000u; }
+      let d = (clip.xy / clip.w - P.pick) * vec2f(P.aspect, 1);
+      return bitcast<u32>(dot(d, d));
+    }
+
+    @compute @workgroup_size(1)
+    fn pickReset() { atomicStore(&pick.minBits, 0x7f800000u); }
+
+    @compute @workgroup_size(256)
+    fn pickMin(@builtin(global_invocation_id) id: vec3u) {
+      if (id.x >= P.n) { return; }
+      atomicMin(&pick.minBits, pickDistanceBits(id.x));
+    }
+
+    @compute @workgroup_size(256)
+    fn pickSelect(@builtin(global_invocation_id) id: vec3u) {
+      if (id.x >= P.n) { return; }
+      if (pickDistanceBits(id.x) == atomicLoad(&pick.minBits)) {
+        atomicStore(&pick.index, id.x);
+      }
+    }
+    `;
+  </script>
+
+  <script id="figure" type="text/x-typescript">
+    if (!device) {
+      display(html`<div style="color: #b00; padding: 16px; border: 1px solid #f0caca; background: #fff6f6; border-radius: 6px;">
+        <strong>WebGPU is not available.</strong> This notebook needs a WebGPU-capable browser (Chrome/Edge 113+, or Safari 18+ / Firefox with WebGPU enabled).
+      </div>`);
+    } else {
+      const canvas = document.createElement('canvas');
+      canvas.id = 'dance-canvas';
+      canvas.style.display = 'block';
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      const context = canvas.getContext('webgpu');
+      context.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+
+      const camera = createUnifiedCamera(canvas, {
+        mode: 'orbit',
+        distance: 5,
+        phi: 0.6,
+        theta: 0.35,
+        center: [0, 0, 0],
+        fov: Math.PI / 4,
+        near: 0.05,
+        far: 100,
+      });
+      invalidation.then(() => camera.destroy());
+
+      const dance = createGPUDance(device, canvasFormat, { computeWGSL: danceComputeWGSL, accumFormat });
+      invalidation.then(() => dance.destroy());
+
+      let currentN = -1;
+      let lastProjView = new Float32Array(16);
+
+      // A click that doesn't drag selects the dancer nearest the pointer. Only
+      // the click point and the current camera matrix go to the GPU, which
+      // finds the nearest dancer itself.
+      let down = null;
+      canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
+      canvas.addEventListener('pointerup', (e) => {
+        if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+        down = null;
+        const rect = canvas.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = 1 - ((e.clientY - rect.top) / rect.height) * 2;
+        dance.pickAt(x, y, rect.width / rect.height, lastProjView);
+      });
+
+      const friend = [0x1f / 255, 0x6f / 255, 0xb2 / 255];
+      const enemy = [0xc8 / 255, 0x37 / 255, 0x2d / 255];
+      const friendDark = [0x5a / 255, 0xa9 / 255, 0xe6 / 255];
+      const enemyDark = [0xf0 / 255, 0x70 / 255, 0x5f / 255];
+
+      function frame() {
+        const n = Math.round(params.n);
+        if (n !== currentN) { dance.setCount(n); currentN = n; }
+        if (params.requests.restart) dance.restart();
+        if (params.requests.reshuffle) dance.reshuffleAll();
+        params.requests.restart = params.requests.reshuffle = false;
+
+        const { projView, projection } = camera.update(canvas.width / canvas.height);
+        lastProjView = projView;
+        const dpr = devicePixelRatio;
+
+        dance.frame(context, params, {
+          width: canvas.width,
+          height: canvas.height,
+          projView,
+          focal: projection[5] * canvas.height / 2,
+          // Dot size matched to the original at 1000 dancers, shrinking as the
+          // crowd grows so the total ink stays the same
+          radius: 0.014 * Math.sqrt(1000 / n),
+          minRadius: 0.6 * dpr,
+          pixelRatio: dpr,
+          exposure: 4 * 2 ** params.exposure,
+          colorMode: COLOR_MODES[params.colorMode],
+          colors: {
+            fg: colors.fg,
+            bg: colors.bg,
+            isDark: colors.isDark,
+            friend: colors.isDark ? friendDark : friend,
+            enemy: colors.isDark ? enemyDark : enemy,
+          },
+        }, params.paused ? 0 : params.stepsPerFrame);
+      }
+
+      const container = html`<div style="position: relative; width: 100%; height: 100%; touch-action: none;">${canvas}</div>`;
+
+      display(expandable(container, {
+        width: Math.min(width, 640),
+        height: Math.min(width, 640),
+        controls: '#dance-controls',
+        id: 'dance-floor',
+        buttons: [{
+          icon: camera.getMode() === 'orbit' ? ICON_ORBIT : ICON_ARCBALL,
+          title: 'Toggle camera mode (orbit/arcball)',
+          onClick: (content, expanded, button) => {
+            const mode = camera.getMode() === 'orbit' ? 'arcball' : 'orbit';
+            camera.setMode(mode);
+            if (button) button.innerHTML = mode === 'orbit' ? ICON_ORBIT : ICON_ARCBALL;
+          },
+        }],
+        onResize(el, w, h) {
+          canvas.width = Math.max(1, Math.round(w * devicePixelRatio));
+          canvas.height = Math.max(1, Math.round(h * devicePixelRatio));
+        },
+      }));
+
+      const loop = createFrameLoop(frame);
+      invalidation.then(() => loop.cancel());
+    }
+  </script>
+
+  <script id="caption" type="text/markdown">
+    The highlighted dancer's friend is shown in <span style="color:#1f6fb2">blue</span> and their enemy in <span style="color:#c8372d">red</span>. By default, color shows each dancer's direction of travel, with hue for the compass heading and lightness for climbing or falling.
+  </script>
+
+  <script id="the-program" type="text/markdown">
+    ## The original program
+
+    Here is Woods' program in its entirety.
+
+    ```mathematica
+    n = 1000;
+    r := RandomInteger[{1, n}];
+    f := (#/(.01 + Sqrt[#.#])) & /@ (x[[#]] - x) &;
+    s := With[{r1 = r}, p[[r1]] = r; q[[r1]] = r];
+    x = RandomReal[{-1, 1}, {n, 2}];
+    {p, q} = RandomInteger[{1, n}, {2, n}];
+    Graphics[{PointSize[0.007], Dynamic[If[r < 100, s];
+      Point[x = 0.995 x + 0.02 f[p] - 0.01 f[q]]]}, PlotRange -> 2]
+    ```
+
+    The arrays ${tex`p`} and ${tex`q`} hold each dancer's friend and enemy. The function ${tex`f`} takes one of those arrays and returns, for every dancer, the vector pointing toward their partner, scaled down to roughly unit length. On every frame, `Dynamic` redraws the points and, as a side effect, advances the dance by one step.
+  </script>
+
+  <script id="the-rule" type="text/markdown">
+    Written out, the position ${tex`\mathbf{x}_i`} of dancer ${tex`i`}, whose friend is ${tex`p_i`} and enemy is ${tex`q_i`}, updates according to
+
+    ${tex.block`\mathbf{x}_i \leftarrow c\,\mathbf{x}_i + a\,\mathbf{f}(\mathbf{x}_{p_i} - \mathbf{x}_i) - b\,\mathbf{f}(\mathbf{x}_{q_i} - \mathbf{x}_i), \qquad \mathbf{f}(\mathbf{v}) = \frac{\mathbf{v}}{\varepsilon + |\mathbf{v}|}`}
+
+    with contraction ${tex`c = 0.995`}, a step of ${tex`a = 0.02`} toward the friend, a step of ${tex`b = 0.01`} away from the enemy, and softening ${tex`\varepsilon = 0.01`}. All dancers move at once, based on where everyone stood before the step. Finally, the condition `r < 100` draws a random integer from one to a thousand, so on about one frame in ten a random dancer picks a new friend and a new enemy. The version here follows the same rule in three dimensions, starting from a cube rather than a square. Since the crowd is much larger, the frequency of changes of heart is expressed per thousand dancers, so each dancer reconsiders as often as in the original.
+  </script>
+
+  <script id="why" type="text/markdown">
+    ## Why it works
+
+    In the comments, Woods explained where the idea came from. The coordinated motion of flocks of starlings and shoals of herring is often explained by each animal following simple rules about its nearest neighbors, roughly to keep up and not to collide. Finding nearest neighbors in Mathematica was slow, so he tried something cheaper. What if each particle reacted to just two others, regardless of how far away they were? Move toward one and away from the other.
+
+    Each remaining piece of the rule patches a problem. The contraction keeps the cloud from dispersing to infinity or drifting off the floor. The step sizes are tuned to balance clumping against spreading, and he noted that equal step sizes give something more like a swarm of flies. With partners fixed, the system settles into a sort of dynamic equilibrium, so the occasional change of heart keeps it moving. And the softening ${tex`\varepsilon`} makes the pull fade to zero at very close range, which prevents very tight clumps and also avoids dividing by zero when a dancer happens to choose themself.
+  </script>
+
+  <script id="graph" type="text/markdown">
+    Some of the structure is visible in the friendships alone. Because every dancer has exactly one friend, the friendships form a random [functional graph](https://en.wikipedia.org/wiki/Random_mapping). Every connected component of such a graph contains exactly one cycle, with trees of dancers feeding into it. A cycle of dancers each chasing the next is the classic [pursuit problem](https://en.wikipedia.org/wiki/Mice_problem), whose solution is a spiral, and the dancers in the trees trail along behind whoever they follow, which is where the streams and clumps come from. Check *Draw friend links* above to see them. Enemies are drawn independently and at random, so they mostly act as a source of noise that keeps everything from collapsing to a point.
+  </script>
+
+  <script id="try" type="text/markdown">
+    A few things to try. Set the two steps equal to get the swarm of flies. Turn the softening up and the clumps loosen into diffuse clouds, or down to near zero and they collapse into tight knots. Turn the changes of heart to zero and the dance slowly settles into a fixed choreography, then click *Everyone reconsiders* to scramble it. Woods closed by saying he'd love to see what other dances could be created with other simple rules, which is a good invitation to keep playing.
+  </script>
+
+  <script id="gpu-section" type="text/markdown">
+    ## On the GPU
+
+    Each step suits the GPU perfectly. A dancer reads the old positions of exactly two others and writes only its own new position, so there's no neighbor search, no sorting, and no contention. Nothing in the rule depends on the dimension of the floor, either, so moving it to three dimensions just means swapping two-component vectors for three-component ones. The more interesting question is how to keep the CPU out of the loop.
+
+    Everything lives in GPU buffers. That includes positions (double-buffered, since all dancers move at once), friends and enemies, a random number generator state for each dancer, and even the index of the dancer you've clicked on. Initialization runs in a compute shader, so nothing is uploaded at startup. Changes of heart happen inside the step kernel, where each dancer rolls their own die. Several steps per frame are just several dispatches in one compute pass, and the CPU knows which position buffer is current by counting, never by asking.
+  </script>
+
+  <script id="gpu-picking" type="text/markdown">
+    Clicking to follow a dancer would normally mean reading positions back to find the nearest one. Instead, the click point and camera matrix go to the GPU, where one pass projects every dancer to the screen, computes its squared distance to the click, and takes an `atomicMin` over the float's bits (non-negative floats sort the same as their bit patterns). A second pass records whichever dancer matches. The overlay then reads that index straight from the buffer. Apart from a few bytes of uniforms when the camera moves or a control changes, a frame sends nothing to the GPU besides a command buffer, and nothing ever comes back.
+  </script>
+
+  <script id="gpu-rendering" type="text/markdown">
+    For drawing, each dancer is splatted as a small disc into a floating-point texture with additive blending. Addition doesn't care about order, so there's no need to sort a few hundred thousand points by depth. Discs are sized by perspective but never smaller than about a pixel. A dancer whose disc has hit that minimum deposits proportionally less ink, so the total amount of ink stays the same however large the crowd.
+
+    A final pass tone-maps the accumulated ink to the screen using two exposure curves. The first brings sparse regions up to full color quickly. The second, sixteen times slower, keeps deepening the densest clumps instead of letting them clip, so structure survives in the core of the swarm. The color of each pixel is the average color of the ink that landed there. The *Exposure* slider shifts both curves together.
+  </script>
+</notebook>
