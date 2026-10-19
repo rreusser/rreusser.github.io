@@ -1,0 +1,10 @@
+publishedAt: "October 15, 2026"
+description: "Hundreds of thousands of dancers in WebGPU, each chasing a friend and fleeing an enemy"
+tags:
+  - webgpu
+  - math
+  - chaos
+seeAlso:
+  - of-noise-and-neighbors
+  - clifford-and-de-jong-attractors
+  - smooth-life
