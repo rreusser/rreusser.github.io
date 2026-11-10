@@ -62,6 +62,9 @@ const redirects = [
   ["/logistic-map/", "/sketches/logistic-map/"],
   ["/pulsar/", "/sketches/pulsar/"],
   ["/centripetal-b-splines/", "/sketches/centripetal-b-splines/"],
+  ["/k-means/", "/sketches/k-means/"],
+  ["/magnet/", "/sketches/magnet/"],
+  ["/logistic-map/", "/sketches/logistic-map/"],
 ];
 
 function htmlFor(targetUrl) {
