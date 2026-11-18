@@ -19,7 +19,7 @@
 //   target       the ending pose (derived from the last knot, stored to check)
 //   rom          the anatomy, fully resolved
 //   strength     the strength overrides
-//   body         the frame: height, mass, straddle, sex
+//   body         the frame: height, mass, straddle, sex, leg length and leg mass
 //   config       the plant, fully resolved
 //   numerics     the integration a replay uses
 //   weights      the cost terms this technique overrides, if any -- today
@@ -201,7 +201,11 @@ export function techniqueFromJSON(json) {
 // The body a technique is performed by.
 export function techniqueModelParams(rec) {
   const b = resolveBody(rec.body);
-  return { heightM: b.heightM, massKg: b.massKg, straddleDeg: b.straddleDeg, sex: b.sex };
+  // Proportions arrived after the first techniques were written; a body
+  // recorded without them is the table's, which is what buildModel gives for
+  // undefined.
+  return { heightM: b.heightM, massKg: b.massKg, straddleDeg: b.straddleDeg, sex: b.sex,
+    legFrac: b.legFrac, legMassScale: b.legMassScale };
 }
 
 // The strength profile options for that body.
