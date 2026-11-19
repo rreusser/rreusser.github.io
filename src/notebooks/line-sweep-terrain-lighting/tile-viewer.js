@@ -147,7 +147,7 @@ struct Global {
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
-  ao: vec4<f32>,           // x=floorRaw for the active LSAO falloff, y=contrast exponent, zw unused
+  ao: vec4<f32>,           // x=floorRaw for the active LSAO falloff, yzw unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -265,15 +265,20 @@ fn sampleElev(uv: vec2<f32>, n: i32) -> f32 {
 // recalibrating the tint, and it is also what makes enclosure 0 mean
 // "flat" in both modes.
 //
-// The contrast argument shapes how enclosure maps to the shift. It is
-// an exponent, so it fixes both ends: enclosure 0 stays 0 whatever it
-// is set to, which is what keeps the flat-ground guarantee free of the
-// control. Below 1 it expands mildly enclosed ground into visible
-// structure; above 1 it keeps only the deepest hollows.
-fn opennessOffset(ao: f32, floorRaw: f32, contrast: f32) -> f32 {
+// The shift is linear in enclosure. An exponent was tried here as a
+// contrast control and removed: because the effect is one-directional,
+// every offset has the same sign, so reshaping the curve necessarily
+// moves its mean. Over a plausible spread of terrain the mean shift
+// ran from -0.08 to -0.41 across the control's range, which reads as a
+// second brightness knob rather than as contrast, and it duplicated
+// what the strength slider already does. An exponent can only be
+// brightness-neutral on a quantity that is already centred, and pinning
+// flat ground to one end of the range is exactly what stops this one
+// from being.
+fn opennessOffset(ao: f32, floorRaw: f32) -> f32 {
   let raw = sqrt(max(ao, 0.0));                                  // undo aoGamma = 2
   let enc = clamp((1.0 - raw) / max(1.0 - floorRaw, 1e-6), 0.0, 1.0);
-  return -pow(enc, max(contrast, 0.05));
+  return -enc;
 }
 
 // Elevation to Oklab, linearly blending the two bracketing ramp
@@ -492,7 +497,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // enough for openness alone to traverse the whole ramp.
   let h = sampleElev(in.uv, i32(t.tileZXY.w));
   let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
-  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x, g.ao.y) * 0.5 * rampSpan;
+  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x) * 0.5 * rampSpan;
   let lab = rampAt(hSample);
   let L2 = clamp(lab.x * k, 0.0, 1.0);
   // Scale chroma with lightness rather than holding it fixed. Holding
@@ -898,9 +903,6 @@ export function createTileViewer(opts) {
     // Openness tint: how far the LSAO term is allowed to shift where
     // the ramp is sampled, as a fraction of half the ramp window.
     opennessTint: 0,
-    // Shape of the openness response, 0..1 with 0.5 neutral. Below 0.5
-    // compresses the bulk toward the extremes, above 0.5 expands it.
-    opennessContrast: 0.5,
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -1584,7 +1586,7 @@ export function createTileViewer(opts) {
     //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
     //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, opennessTint)
-    //   f32[20..23] = ao (floorRaw for the active falloff, contrast exponent, unused x2)
+    //   f32[20..23] = ao (floorRaw for the active falloff, unused x3)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1609,11 +1611,7 @@ export function createTileViewer(opts) {
     // Naaji's exp(-sin a), 0 for the Lambertian cos2 a. Normalising by
     // it keeps the openness tint calibrated across both falloffs.
     globalData[20] = lighting.lsaoFalloff === "exp" ? Math.exp(-1) : 0;
-    // Contrast exponent. The control is 0..1 with 0.5 neutral, mapped
-    // so the ends land exactly on the parabolic and square-root cases:
-    // 0 -> 2, 0.5 -> 1, 1 -> 0.5. Never 0, which would turn pow(0, p)
-    // into 1 and break the flat-ground guarantee.
-    globalData[21] = Math.pow(2, 1 - 2 * lighting.opennessContrast);
+    globalData[21] = 0;
     globalData[22] = 0;
     globalData[23] = 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);

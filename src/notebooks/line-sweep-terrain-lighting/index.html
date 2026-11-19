@@ -1947,13 +1947,6 @@
       value: 0.25,
       step: 0.01,
     });
-    // Shape of the openness response. 0.5 is the plain fitted curve;
-    // the ends are exactly the parabolic and square-root cases.
-    const opennessContrastEl = Inputs.range([0, 1], {
-      label: "openness contrast",
-      value: 0.5,
-      step: 0.01,
-    });
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1969,7 +1962,6 @@
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
     tileViewerControlsDiv.appendChild(tintEl);
     tileViewerControlsDiv.appendChild(opennessTintEl);
-    tileViewerControlsDiv.appendChild(opennessContrastEl);
     tileViewerControlsDiv.appendChild(sunModeEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
@@ -1985,7 +1977,6 @@
       sunCalendarEl,
       tintEl,
       opennessTintEl,
-      opennessContrastEl,
     };
   </script>
   <script id="72" type="module">
@@ -2233,7 +2224,6 @@
           // branch is reached, so there is nothing to suppress there.
           tintStrength: Number(c.tintEl.value),
           opennessTint: Number(c.opennessTintEl.value),
-          opennessContrast: Number(c.opennessContrastEl.value),
         };
         if (solar) lightingUpdate.solar = solar;
         viewer.setLighting(lightingUpdate);
@@ -2263,7 +2253,7 @@
 
     That anchoring has a consequence worth stating. The sweep starts its horizon flat and only counts blockers strictly above the ray, so a convex hill crest and a ridge top come back at exactly the same 1 as flat ground. The channel sees concavity and is blind to convexity, so with flat pinned at neutral the tint can only move hollows down the ramp; nothing moves up. Getting hollows down and rims up at once, with flat still fixed, would mean comparing openness against a blurred copy of itself rather than against a constant.
 
-    The two falloffs also do not share a range, since cos²α reaches zero when fully enclosed while e^(−sin α) bottoms out at 1/e, so the enclosure is normalised by whichever floor is in use and the AO falloff radio no longer quietly recalibrates the tint. The shift is a fraction of the ramp window rather than a fixed number of metres, so it keeps its weight when the window is resized, and the **openness contrast** slider sets the exponent, from a square root that brings out mildly enclosed ground to a parabola that keeps only the deepest hollows. Being an exponent, it fixes both ends, so the flat-ground guarantee does not depend on where it is set.
+    The two falloffs also do not share a range, since cos²α reaches zero when fully enclosed while e^(−sin α) bottoms out at 1/e, so the enclosure is normalised by whichever floor is in use and the AO falloff radio no longer quietly recalibrates the tint. The shift is a fraction of the ramp window rather than a fixed number of metres, so it keeps its weight when the window is resized, and it is simply linear in enclosure. An exponent was tried as a separate contrast control and taken out again: because the effect is one-directional every offset carries the same sign, so reshaping the curve moves its mean along with it, and the control turned out to be a second brightness knob that duplicated the strength slider. A contrast control can only leave brightness alone when what it reshapes is already centred, and pinning flat ground to one end of the range is exactly what prevents that here.
 
     **How the lighting is composited onto it.** Multiplying the tint by the shading is the obvious move, and it looks bad. Average shading sits well below one, so a straight multiply drags the whole map toward black and the colours turn muddy. Instead the shader works out what flat, unoccluded, unshadowed ground would render at under the same sun, and applies the shading as a ratio against that reference. Flat ground then comes out as exactly the ramp colour, and only real relief departs from it. That ratio scales Oklab lightness, with chroma scaled alongside so that deep shade does not read as a lurid version of the same hue. Whatever still lands outside sRGB is pulled back by reducing chroma at fixed lightness and hue, rather than by clamping channels, which would both shift the hue and flatten the relief precisely where the terrain is most strongly lit.
   </script>

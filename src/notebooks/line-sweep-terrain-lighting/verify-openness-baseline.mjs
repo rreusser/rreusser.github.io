@@ -79,16 +79,12 @@ for (const falloff of ["exp", "cos2"]) {
         Math.abs(enclosure(sealed, falloff) - 1) < 1e-12, `enc=${enclosure(sealed, falloff)}`);
 }
 
-// enclosure 0 means the offset is -pow(0, p) = 0 for every exponent the
-// contrast control can produce, so the no-op does not depend on it.
-console.log("\nThe offset at the baseline, over the contrast control's range:\n");
-let worst = 0;
-for (let c = 0; c <= 1.0001; c += 0.05) {
-  const p = Math.pow(2, 1 - 2 * c);
-  const offset = -Math.pow(enclosure(1, "exp"), Math.max(p, 0.05));
-  worst = Math.max(worst, Math.abs(offset));
+// The shift is -enclosure, so the baseline is an exact zero.
+console.log("\nThe offset at the baseline:\n");
+for (const falloff of ["exp", "cos2"]) {
+  const offset = -enclosure(1, falloff);
+  check(`${falloff.padEnd(4)} flat offset is exactly 0`, offset === 0, `offset = ${offset}`);
 }
-check("flat offset is exactly 0 for every contrast setting", worst === 0, `max |offset| = ${worst}`);
 
 // Convexity is invisible: a hill crest and a ridge saturate at the same
 // value as flat ground. Recorded here so the one-directional behaviour
