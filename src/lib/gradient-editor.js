@@ -225,6 +225,8 @@ const CSS = `
   height: 11px;
   border-radius: 2px;
   border: 1px solid rgba(0, 0, 0, 0.4);
+  background-origin: border-box;
+  background-repeat: no-repeat;
 }
 .grd-preset-btn .caret { flex: 0 0 auto; opacity: 0.7; }
 
@@ -270,6 +272,8 @@ const CSS = `
   height: 11px;
   border-radius: 2px;
   border: 1px solid rgba(0, 0, 0, 0.4);
+  background-origin: border-box;
+  background-repeat: no-repeat;
 }
 
 /* The range slider ships a theme tuned for a page background. On this

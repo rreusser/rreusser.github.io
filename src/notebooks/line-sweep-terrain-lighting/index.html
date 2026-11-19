@@ -1886,7 +1886,7 @@
     Overall, I'm pretty happy with the technique, and at least happy that I probably took this idea and ran with it about as far as one would be advised to do. I wonder if [mipmaps](https://en.wikipedia.org/wiki/Mipmap) would enable soft shadows with a single pass. I'm not sure if it's performant enough to be practical. And at any rate, if you really want good shadowing, you might just be advised to use more standard shadow map techniques for shadowing.
   </script>
   <script id="69" type="module">
-    const tileViewerSunDirMut = Mutable({ az: 314.5, alt: 25 });
+    const tileViewerSunDirMut = Mutable({ az: 288.5, alt: 30 });
     const tileViewerSunDirAccessor = (() => { const m = tileViewerSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
   <script id="70" type="module">
@@ -1907,22 +1907,22 @@
     );
     const strengthEl = Inputs.range([0, 1], {
       label: "relief strength",
-      value: 0.28,
+      value: 0.38,
       step: 0.01,
     });
     const aoEl = Inputs.range([0, 1], {
       label: "AO strength",
-      value: 0.5,
+      value: 0.3,
       step: 0.01,
     });
     const shadowEl = Inputs.range([0, 1], {
       label: "shadow strength",
-      value: 0.5,
+      value: 0.47,
       step: 0.01,
     });
     const sunDiameterEl = Inputs.range([0.5, 30], {
       label: "sun diameter (°)",
-      value: 5,
+      value: 0.92,
       step: 0.01,
       transform: Math.log,
     });
@@ -1946,12 +1946,12 @@
     });
     const opennessTintEl = Inputs.range([0, 1], {
       label: "tint structure",
-      value: 0.25,
+      value: 0.7,
       step: 0.01,
     });
     const opennessContrastEl = Inputs.range([0, 1], {
       label: "structure contrast",
-      value: 0.5,
+      value: 0.49,
       step: 0.01,
     });
     let _viewerRef = null;
@@ -2070,11 +2070,10 @@
         tileSize: 256,
         minZoom: 0,
         maxZoom: 15,
-        zoom: 14.5,
+        zoom: 15,
         center: [
-          38.2376607744605508,
-          -109.8195024690180048
-          //37.0476, -110.1072
+          38.2370777197178029,
+          -109.8215841076250143
         ],
       });
       tileViewerRef.set(viewer);
@@ -2145,7 +2144,6 @@
         ]),
       ];
 
-      let autoFitDone = false;
       // Elevation bounds of the loaded tiles, padded a little and
       // rounded outward to 100 m so the axis labels come out tidy.
       // Shared by the fit button and the one-time fit below.
@@ -2166,18 +2164,25 @@
         // Starts folded down to its header so the map is unobstructed;
         // the caret opens it.
         collapsed: true,
-        domain: [0, 5200],
+        domain: [810, 1520],
         // The window slider spans land elevation end to end, from the
         // Dead Sea shore to Everest, so the control means the same
         // thing wherever on the planet the map happens to be.
         bounds: [-440, 8848],
         boundsStep: 10,
-        // Lowland green through desert tan to snow. The top stop stops
-        // short of white on purpose: at Oklab L = 1 there is no headroom
-        // left, so a sunlit slope on a summit renders the same as a
-        // shaded one and the relief goes flat exactly where the terrain
-        // is most dramatic.
-        stops: terrainStops.map((st) => ({ value: st.t * 5200, color: st.color })),
+        // Tuned by hand over the canyon this map opens on, which is
+        // why the stops carry absolute elevations rather than being
+        // stretched from the terrain preset. The top stop stops short
+        // of white on purpose: at Oklab L = 1 there is no headroom
+        // left, so a sunlit slope renders the same as a shaded one and
+        // the relief goes flat where the terrain is most dramatic.
+        stops: [
+          { value: 918, color: "#6a7f66" },
+          { value: 1002, color: "#c8aa92" },
+          { value: 1174, color: "#eab69a" },
+          { value: 1329, color: "#b9826a" },
+          { value: 1436, color: "#ffd5c7" },
+        ],
         presets: rampPresets,
         onFit: fitRange,
         onChange: ({ lut, domain }) => viewer.setRamp(lut, domain),
@@ -2185,24 +2190,10 @@
       rampWrapper.appendChild(gradientEditor.element);
       viewerEl.appendChild(rampWrapper);
 
-      // The default 0 to 5200 m axis spans the whole plausible range of
-      // land elevation, which on any one view collapses the interesting
-      // part of the ramp into a sliver. Fit the axis to the terrain once
-      // the first tiles have reported their bounds, then leave it alone:
-      // re-fitting on every pan would make the colours mean something
-      // different from one moment to the next, which is the opposite of
-      // what a hypsometric ramp is for.
-      const autoFit = () => {
-        if (autoFitDone) return;
-        const range = fitRange();
-        if (!range) {
-          requestAnimationFrame(autoFit);
-          return;
-        }
-        autoFitDone = true;
-        gradientEditor.setWindow(range);
-      };
-      requestAnimationFrame(autoFit);
+      // No auto-fit on load any more: the window above is tuned for the
+      // view this map opens on, and fitting would immediately throw it
+      // away. The fit button is still there for when you pan somewhere
+      // the ramp no longer suits.
 
       // Poll the sun mutable and the three sliders each frame; when
       // anything has changed, push the new values through as a single
