@@ -1897,7 +1897,6 @@
     import { solarTimeQuantities } from "./solar-time.js";
     import { createGradientEditor } from "./lib/gradient-editor.js";
     import * as d3chromatic from "npm:d3-scale-chromatic";
-    import { fitRampStops } from "./lib/color-ramp.js";
   </script>
   <script id="71" type="module">
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
@@ -2104,14 +2103,17 @@
         const q = (v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0");
         return `#${q(r)}${q(g)}${q(b)}`;
       };
-      // Stop positions are fitted rather than spaced evenly. Even
-      // spacing wastes stops on the straight parts of a scale and
-      // starves the corners, which for magma and inferno sit at the
-      // dark end where they turn hue fastest. Fitting lets 9 stops beat
-      // what 13 evenly spaced ones managed, on every scale here.
+      // Evenly spaced. Fitting the positions to each scale's own curve
+      // tracks the originals more closely, but it puts the stops in
+      // different places for every ramp, which makes the chip rail read
+      // as arbitrary. Even spacing is easier to reason about and to
+      // drag, and the fidelity it gives up is mostly invisible.
       const sampled = (name, interp, n = 9) => ({
         name,
-        stops: fitRampStops((t) => rgbToHex(interp(t)), n),
+        stops: Array.from({ length: n }, (_, i) => {
+          const t = i / (n - 1);
+          return { t, color: rgbToHex(interp(t)) };
+        }),
       });
       const terrainStops = [
         { t: 0.0,  color: "#46773f" },
