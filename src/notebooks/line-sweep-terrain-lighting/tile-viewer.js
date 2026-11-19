@@ -148,6 +148,7 @@ struct Global {
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
   ao: vec4<f32>,           // x=floorRaw, y=1 when the falloff is exp, z=contrast exponent, w unused
+  imagery: vec4<f32>,      // x=satellite opacity, yzw unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -172,6 +173,14 @@ struct TileData {
 // already exists per tile for the shadow re-bake, so the tint costs no
 // extra memory: in CPU bake mode it was simply going unwritten.
 @group(1) @binding(3) var<storage, read> elev: array<f32>;
+// Satellite imagery for this tile, same z/x/y as the elevation tile.
+// Bound to a 1x1 fully transparent placeholder whenever the tile has
+// no imagery — either because imagery is switched off (in which case
+// nothing was fetched and no per-tile texture exists) or because the
+// fetch has not landed yet. The composite weights the layer by
+// opacity * alpha, so the placeholder contributes exactly nothing
+// and a tile fades in on its own as its image arrives.
+@group(1) @binding(4) var satTex: texture_2d<f32>;
 
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
@@ -378,6 +387,30 @@ fn oklabToLinearSrgb(lab: vec3<f32>) -> vec3<f32> {
   );
 }
 
+// Gamma-encoded sRGB to Oklab, inverting the pair above. Used to
+// bring satellite imagery into the same space the ramp colours live
+// in, so the one shading routine applies to both.
+fn srgbToLinear(x: f32) -> f32 {
+  let c = clamp(x, 0.0, 1.0);
+  if (c <= 0.04045) { return c / 12.92; }
+  return pow((c + 0.055) / 1.055, 2.4);
+}
+
+fn srgbToOklab(srgb: vec3<f32>) -> vec3<f32> {
+  let c = vec3<f32>(srgbToLinear(srgb.r), srgbToLinear(srgb.g), srgbToLinear(srgb.b));
+  let l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
+  let m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
+  let s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
+  let l_ = pow(max(l, 0.0), 1.0 / 3.0);
+  let m_ = pow(max(m, 0.0), 1.0 / 3.0);
+  let s_ = pow(max(s, 0.0), 1.0 / 3.0);
+  return vec3<f32>(
+    0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+    1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+    0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+  );
+}
+
 fn inGamut(c: vec3<f32>) -> bool {
   return all(c >= vec3<f32>(-1e-4)) && all(c <= vec3<f32>(1.0001));
 }
@@ -406,6 +439,17 @@ fn oklabToSrgbClipped(lab: vec3<f32>) -> vec3<f32> {
   }
   let c = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
   return vec3<f32>(linearToSrgb(c.r), linearToSrgb(c.g), linearToSrgb(c.b));
+}
+
+// Shade an Oklab albedo by the composite's relative brightness factor
+// and return gamma-encoded sRGB. Chroma scales with lightness rather
+// than being held fixed: holding it fixed makes deep shade read as an
+// unnaturally saturated version of the same hue, and pushes colours
+// out of gamut exactly where the clipper has least room to work.
+fn shadeOklab(lab: vec3<f32>, k: f32) -> vec3<f32> {
+  let L2 = clamp(lab.x * k, 0.0, 1.0);
+  let cs = select(0.0, L2 / max(lab.x, 1e-4), lab.x > 0.0);
+  return oklabToSrgbClipped(vec3<f32>(L2, lab.y * cs, lab.z * cs));
 }
 
 // Invert web-mercator: (uv in tile, plus integer tile z/x/y) → lat/lng
@@ -552,7 +596,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let v = clamp(baseSrgb * aoFactor * nightMask, 0.0, 1.0);
 
   let tint = g.hypso.z;
-  if (tint <= 0.0) {
+  // Sampled unconditionally. The binding always carries a texture, so
+  // there is nothing to guard against, and keeping the fetch out of a
+  // branch keeps it in uniform control flow. Weighting by the sampled
+  // alpha is what makes a tile with no image yet cost nothing: the
+  // placeholder is transparent, so its weight is zero.
+  let sat = textureSample(satTex, tileSampler, in.uv);
+  let satWeight = clamp(g.imagery.x, 0.0, 1.0) * sat.a;
+  if (tint <= 0.0 && satWeight <= 0.0) {
     return vec4<f32>(v, v, v, 1.0);
   }
 
@@ -571,24 +622,31 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let v0 = max(mix(flatLamb, 1.0, reliefMode), 0.35);
   let k = clamp(v / v0, 0.0, 2.0);
 
-  // Sample the ramp at the pixel's elevation, shifted by openness. The
-  // shift is expressed as a fraction of the ramp window rather than in
-  // metres, so it keeps its visual weight when the window is resized.
-  // At full strength it reaches half the window either way, which is
-  // enough for openness alone to traverse the whole ramp.
-  let h = sampleElev(in.uv, i32(t.tileZXY.w));
-  let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
-  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x, slopeMag, nz, g.ao.y, g.ao.z) * 0.5 * rampSpan;
-  let lab = rampAt(hSample);
-  let L2 = clamp(lab.x * k, 0.0, 1.0);
-  // Scale chroma with lightness rather than holding it fixed. Holding
-  // it fixed makes deep shade read as an unnaturally saturated version
-  // of the same hue, and pushes colours out of gamut exactly where the
-  // clipper has least room to work.
-  let cs = select(0.0, L2 / max(lab.x, 1e-4), lab.x > 0.0);
-  let rgb = oklabToSrgbClipped(vec3<f32>(L2, lab.y * cs, lab.z * cs));
+  // Layers, painted bottom up over the shaded white base: the
+  // hypsometric ramp by tint, then satellite imagery by its own
+  // opacity. Both are albedos, and both go through the same shading
+  // factor before they are mixed in, so imagery picks up the relief,
+  // the shadows and the terminator exactly as the ramp does, and the
+  // two can be blended in any proportion.
+  var layered = vec3<f32>(v, v, v);
 
-  return vec4<f32>(mix(vec3<f32>(v, v, v), rgb, tint), 1.0);
+  if (tint > 0.0) {
+    // Sample the ramp at the pixel's elevation, shifted by openness. The
+    // shift is expressed as a fraction of the ramp window rather than in
+    // metres, so it keeps its visual weight when the window is resized.
+    // At full strength it reaches half the window either way, which is
+    // enough for openness alone to traverse the whole ramp.
+    let h = sampleElev(in.uv, i32(t.tileZXY.w));
+    let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
+    let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x, slopeMag, nz, g.ao.y, g.ao.z) * 0.5 * rampSpan;
+    layered = mix(layered, shadeOklab(rampAt(hSample), k), tint);
+  }
+
+  if (satWeight > 0.0) {
+    layered = mix(layered, shadeOklab(srgbToOklab(sat.rgb), k), satWeight);
+  }
+
+  return vec4<f32>(layered, 1.0);
 }
 `;
 
@@ -603,6 +661,16 @@ export function createTileViewer(opts) {
     maxZoom = 14,
     zoom: initialZoom = 11,
     center: initialCenter = [0, 0],
+    // Optional satellite-imagery source, same {z}/{x}/{y} template
+    // form as `tileUrl` and fetched on the same tile grid, so one
+    // image lands per elevation tile at whatever size the source
+    // serves. Nothing here is touched — no fetch, no texture, no
+    // decode — until `satOpacity` is raised above zero, and it is all
+    // released again when it goes back to zero. `imageryAttribution`
+    // is HTML shown in a corner chip for as long as imagery is
+    // visible; most sources require the credit.
+    imageryUrl = null,
+    imageryAttribution = "",
     // Parent-horizon zoom delta. At `parentDZ = dz` a 2×2 block of
     // (z - dz) parents guarantees a (2^dz + 1)×(2^dz + 1) target-tile
     // symmetric window around the comp tile at (1/2^dz) parent
@@ -672,6 +740,29 @@ export function createTileViewer(opts) {
     sizeChipTimer = setTimeout(() => {
       sizeChip.style.opacity = "0";
     }, 1600);
+  }
+
+  // Imagery credit. Hidden until the satellite layer is actually
+  // visible, since that is the only time the credit is owed. Top-left
+  // is the one free corner of this figure — the sun handle has the
+  // top-right, the ramp editor the bottom-left and the size chip the
+  // bottom-right. It is not captured by `captureFrame` (that reads the
+  // WebGPU swap chain, not the DOM), so a recording carries no chip
+  // burned into it.
+  let attributionChip = null;
+  if (imageryUrl && imageryAttribution) {
+    attributionChip = document.createElement("div");
+    attributionChip.style.cssText =
+      "position:absolute; left:8px; top:8px; z-index:600;" +
+      " font:10px/1.4 ui-sans-serif,system-ui,sans-serif;" +
+      " padding:2px 6px; border-radius:4px;" +
+      " background:rgba(255,255,255,0.72); color:#333;" +
+      " display:none;";
+    attributionChip.innerHTML = imageryAttribution;
+    for (const a of attributionChip.querySelectorAll("a")) {
+      a.style.color = "#0366d6";
+    }
+    container.appendChild(attributionChip);
   }
 
   const gpuCtx = canvas.getContext("webgpu");
@@ -830,6 +921,11 @@ export function createTileViewer(opts) {
         visibility: GPUShaderStage.FRAGMENT,
         buffer: { type: "read-only-storage" },
       },
+      {
+        binding: 4,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "float" },
+      },
     ],
   });
   const pipeline = device.createRenderPipeline({
@@ -853,10 +949,30 @@ export function createTileViewer(opts) {
     addressModeV: "clamp-to-edge",
   });
 
-  // Global uniform buffer (96 bytes: six vec4s — viewport, sunDir,
-  // params, solar, hypso, ao).
+  // Stand-in for a tile's satellite texture. One texel, all zeroes, so
+  // it is fully transparent and the composite's `opacity * alpha`
+  // weight comes out zero. Every tile binds this until it has an image
+  // of its own, which is what lets the imagery layer be allocated per
+  // tile and on demand rather than up front: the bind group layout is
+  // satisfied either way. 256 bytes of VRAM, shared by every tile.
+  const emptySatTexture = device.createTexture({
+    size: [1, 1, 1],
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    label: "tile-viewer empty imagery",
+  });
+  device.queue.writeTexture(
+    { texture: emptySatTexture },
+    new Uint8Array([0, 0, 0, 0]),
+    { bytesPerRow: 4 },
+    { width: 1, height: 1 },
+  );
+  const emptySatView = emptySatTexture.createView();
+
+  // Global uniform buffer (112 bytes: seven vec4s — viewport, sunDir,
+  // params, solar, hypso, ao, imagery).
   const globalBuffer = device.createBuffer({
-    size: 96,
+    size: 112,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "tile-viewer global uniforms",
   });
@@ -888,7 +1004,7 @@ export function createTileViewer(opts) {
       { binding: 1, resource: { buffer: rampBuffer } },
     ],
   });
-  const globalData = new Float32Array(24);
+  const globalData = new Float32Array(28);
 
   // ------------------------------------------------------------------
   // GPU tile-bake resources.
@@ -1041,7 +1157,22 @@ export function createTileViewer(opts) {
     opennessTint: 0,
     // How hard to pull apart the crowded middle of that signal, 0 to 1.
     opennessContrast: 0,
+    // Satellite imagery, mixed over the tint. Exactly zero means the
+    // layer does not exist: no tile has an image, none is in flight,
+    // and no imagery texture is allocated. The first non-zero value
+    // starts the fetches, and going back to zero frees them again.
+    satOpacity: 0,
   };
+
+  const clampSatOpacity = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
+  // Imagery is live only when the viewer was given a source and the
+  // opacity is above zero. Every fetch and every texture allocation is
+  // gated on this, so with the slider at zero the layer costs nothing
+  // beyond the shared 1×1 placeholder.
+  const imageryLive = () =>
+    !!imageryUrl && clampSatOpacity(lighting.satOpacity) > 0;
+  const imageryTileUrl = (z, x, y) =>
+    imageryUrl.replace("{z}", z).replace("{x}", x).replace("{y}", y);
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
   // to stratify the azimuth offsets of the N shadow samples across a
@@ -1105,7 +1236,114 @@ export function createTileViewer(opts) {
       this._cpuNy = null;
       this._cpuAo = null;
       this._shadowPending = false;
+      this.satTexture = null;  // satellite imagery, allocated on demand
+      this._satAbort = null;
+      this._satPending = false;
       this._populate();
+      // Imagery is independent of the elevation fetch, so it starts
+      // right away rather than waiting for the bake. Whichever lands
+      // first, `_rebuildBindGroup` picks up both.
+      this.ensureImagery();
+    }
+
+    // Rebuild the display bind group from whatever this tile currently
+    // has. Called when the elevation fetch resolves and again whenever
+    // the imagery texture appears or is released.
+    _rebuildBindGroup() {
+      if (!this.texture || !this.elevBuffer) return;
+      this.bindGroup = device.createBindGroup({
+        layout: tileBindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer } },
+          { binding: 1, resource: this.texture.createView() },
+          { binding: 2, resource: sampler },
+          { binding: 3, resource: { buffer: this.elevBuffer } },
+          {
+            binding: 4,
+            resource: this.satTexture ? this.satTexture.createView() : emptySatView,
+          },
+        ],
+      });
+    }
+
+    // Fetch this tile's satellite image, if imagery is live and we
+    // don't already have one in hand or in flight. A no-op otherwise —
+    // which is the whole point: with the opacity at zero this returns
+    // before touching the network or the GPU.
+    ensureImagery() {
+      if (!imageryLive()) return;
+      if (this.destroyed || this.satTexture || this._satPending) return;
+      const controller = new AbortController();
+      this._satAbort = controller;
+      this._satPending = true;
+      const done = () => {
+        this._satPending = false;
+        if (this._satAbort === controller) this._satAbort = null;
+      };
+      fetch(imageryTileUrl(this.z, this.x, this.y), { signal: controller.signal })
+        .then((res) => {
+          if (!res.ok) throw new Error(`imagery fetch failed (${res.status})`);
+          return res.blob();
+        })
+        // Decoding a blob this way keeps the JPEG off the main thread;
+        // only the upload below runs here.
+        .then((blob) => createImageBitmap(blob))
+        .then((bitmap) => {
+          // The opacity may have gone back to zero, or the tile may
+          // have scrolled off, while this was in flight. Either way the
+          // image is dropped rather than uploaded, so a quick toggle
+          // leaves nothing allocated behind it.
+          if (this.destroyed || controller.signal.aborted || !imageryLive()) {
+            bitmap.close();
+            done();
+            return;
+          }
+          this.satTexture = device.createTexture({
+            size: [bitmap.width, bitmap.height, 1],
+            format: "rgba8unorm",
+            // RENDER_ATTACHMENT is not optional even though nothing
+            // ever renders into this texture: it is what
+            // copyExternalImageToTexture requires of its destination,
+            // and without it the upload is silently dropped and the
+            // tile keeps showing the transparent placeholder.
+            usage:
+              GPUTextureUsage.TEXTURE_BINDING |
+              GPUTextureUsage.COPY_DST |
+              GPUTextureUsage.RENDER_ATTACHMENT,
+            label: `tile ${this.z}/${this.x}/${this.y} imagery`,
+          });
+          device.queue.copyExternalImageToTexture(
+            { source: bitmap },
+            { texture: this.satTexture },
+            [bitmap.width, bitmap.height],
+          );
+          bitmap.close();
+          this._rebuildBindGroup();
+          done();
+          needsRender = true;
+        })
+        .catch((err) => {
+          done();
+          if (controller.signal.aborted) return;
+          // A missing or failed image is not fatal: the tile keeps the
+          // transparent placeholder and renders as tinted relief.
+          console.warn(`tile-viewer imagery ${this.z}/${this.x}/${this.y}:`, err.message);
+        });
+    }
+
+    // Release this tile's imagery and cancel any fetch for it. Used
+    // when the opacity returns to zero, and on destroy.
+    dropImagery() {
+      this._satAbort?.abort();
+      this._satAbort = null;
+      this._satPending = false;
+      if (this.satTexture) {
+        try {
+          this.satTexture.destroy();
+        } catch (_) {}
+        this.satTexture = null;
+        this._rebuildBindGroup();
+      }
     }
 
     async _populate() {
@@ -1142,15 +1380,7 @@ export function createTileViewer(opts) {
           usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
           label: `tile ${this.z}/${this.x}/${this.y} horizon`,
         });
-        this.bindGroup = device.createBindGroup({
-          layout: tileBindGroupLayout,
-          entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer } },
-            { binding: 1, resource: this.texture.createView() },
-            { binding: 2, resource: sampler },
-            { binding: 3, resource: { buffer: this.elevBuffer } },
-          ],
-        });
+        this._rebuildBindGroup();
 
         this._compN = compN;
         // The display shader reads the elevation grid for hypsometric
@@ -1253,6 +1483,7 @@ export function createTileViewer(opts) {
 
     destroy() {
       this.destroyed = true;
+      this.dropImagery();
       // Cancel any in-flight fetch in the data-prep worker.
       const key = `${this.z}/${this.x}/${this.y}`;
       if (pendingTiles.has(key)) {
@@ -1812,6 +2043,10 @@ export function createTileViewer(opts) {
       if (tile.destroyed) continue;
       if (!tile.ready) return false;
       if (tile._shadowPending) return false;
+      // A tile whose image is still in flight would be captured as
+      // tinted relief, so a recording waits for it the same way it
+      // waits for a bake.
+      if (tile._satPending) return false;
     }
     return true;
   }
@@ -1835,6 +2070,7 @@ export function createTileViewer(opts) {
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
     //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, opennessTint)
     //   f32[20..23] = ao (floorRaw, 1 when the falloff is exp, contrast exponent, unused)
+    //   f32[24..27] = imagery (satellite opacity, unused x3)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1866,6 +2102,10 @@ export function createTileViewer(opts) {
     // flat-ground guarantee.
     globalData[22] = Math.pow(2, -lighting.opennessContrast);
     globalData[23] = 0;
+    globalData[24] = imageryUrl ? clampSatOpacity(lighting.satOpacity) : 0;
+    globalData[25] = 0;
+    globalData[26] = 0;
+    globalData[27] = 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32
@@ -2242,7 +2482,27 @@ export function createTileViewer(opts) {
       const prevUseTime = lighting.useTime;
       const prevSolar = lighting.solar;
       const wasInteracting = lighting.sunInteracting;
+      const prevSatLive = imageryLive();
       Object.assign(lighting, state);
+
+      // Crossing zero either way flips the imagery layer into or out of
+      // existence. Above zero the opacity is just a uniform, so sliding
+      // it around costs nothing and nothing is refetched.
+      const satLive = imageryLive();
+      if (satLive !== prevSatLive) {
+        for (const tile of tiles.values()) {
+          if (satLive) tile.ensureImagery();
+          else tile.dropImagery();
+        }
+        for (const stale of staleTiles) {
+          if (satLive) stale.ensureImagery();
+          else stale.dropImagery();
+        }
+        if (attributionChip) {
+          attributionChip.style.display = satLive ? "block" : "none";
+        }
+      }
+
       const solarChanged =
         lighting.useTime &&
         (!prevSolar ||
@@ -2401,6 +2661,9 @@ export function createTileViewer(opts) {
       } catch (_) {}
       try {
         rampBuffer.destroy();
+      } catch (_) {}
+      try {
+        emptySatTexture.destroy();
       } catch (_) {}
       try {
         captureBuffer?.destroy();
