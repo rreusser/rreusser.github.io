@@ -147,7 +147,7 @@ struct Global {
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
-  ao: vec4<f32>,           // x=floorRaw for the active LSAO falloff, yzw unused
+  ao: vec4<f32>,           // x=floorRaw for the active LSAO falloff, y=contrast exponent, zw unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -280,10 +280,19 @@ fn sampleElev(uv: vec2<f32>, n: i32) -> f32 {
 // constant recolouring rather than a loss of structure.
 const AO_ENC_MU: f32 = 0.25;
 
-fn opennessOffset(ao: f32, floorRaw: f32) -> f32 {
+fn opennessOffset(ao: f32, floorRaw: f32, contrast: f32) -> f32 {
   let raw = sqrt(max(ao, 0.0));                                  // undo aoGamma = 2
   let enc = clamp((1.0 - raw) / max(1.0 - floorRaw, 1e-6), 0.0, 1.0);
-  return clamp(2.0 * exp(-enc / AO_ENC_MU) - 1.0, -1.0, 1.0);
+  // 1 - exp(-enc/MU) is the fitted CDF, so t is the quantile mapped to
+  // [-1, 1]: roughly uniform, median 0.
+  let t = clamp(2.0 * exp(-enc / AO_ENC_MU) - 1.0, -1.0, 1.0);
+  // Contrast shapes that quantile without moving it off centre.
+  // sign(t)*|t|^p fixes t = 0 and t = ±1 and is odd, so the median
+  // stays at 0 and the up/down balance survives whatever p is. Below 1
+  // it expands the crowd of near-neutral pixels into visible structure
+  // and flattens the extremes; above 1 it does the reverse, keeping
+  // only the deepest hollows and the most exposed rims.
+  return sign(t) * pow(abs(t), contrast);
 }
 
 // Elevation to Oklab, linearly blending the two bracketing ramp
@@ -502,7 +511,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // enough for openness alone to traverse the whole ramp.
   let h = sampleElev(in.uv, i32(t.tileZXY.w));
   let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
-  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x) * 0.5 * rampSpan;
+  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x, g.ao.y) * 0.5 * rampSpan;
   let lab = rampAt(hSample);
   let L2 = clamp(lab.x * k, 0.0, 1.0);
   // Scale chroma with lightness rather than holding it fixed. Holding
@@ -908,6 +917,9 @@ export function createTileViewer(opts) {
     // Openness tint: how far the LSAO term is allowed to shift where
     // the ramp is sampled, as a fraction of half the ramp window.
     opennessTint: 0,
+    // Shape of the openness response, 0..1 with 0.5 neutral. Below 0.5
+    // compresses the bulk toward the extremes, above 0.5 expands it.
+    opennessContrast: 0.5,
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -1591,7 +1603,7 @@ export function createTileViewer(opts) {
     //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
     //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, opennessTint)
-    //   f32[20..23] = ao (floorRaw for the active falloff, unused x3)
+    //   f32[20..23] = ao (floorRaw for the active falloff, contrast exponent, unused x2)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1616,7 +1628,10 @@ export function createTileViewer(opts) {
     // Naaji's exp(-sin a), 0 for the Lambertian cos2 a. Normalising by
     // it keeps the openness tint calibrated across both falloffs.
     globalData[20] = lighting.lsaoFalloff === "exp" ? Math.exp(-1) : 0;
-    globalData[21] = 0;
+    // Contrast exponent. The control is 0..1 with 0.5 neutral, mapped
+    // so the ends land exactly on the parabolic and square-root cases:
+    // 0 -> 2, 0.5 -> 1, 1 -> 0.5.
+    globalData[21] = Math.pow(2, 1 - 2 * lighting.opennessContrast);
     globalData[22] = 0;
     globalData[23] = 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);

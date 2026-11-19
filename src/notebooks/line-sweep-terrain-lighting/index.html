@@ -1947,6 +1947,13 @@
       value: 0.25,
       step: 0.01,
     });
+    // Shape of the openness response. 0.5 is the plain fitted curve;
+    // the ends are exactly the parabolic and square-root cases.
+    const opennessContrastEl = Inputs.range([0, 1], {
+      label: "openness contrast",
+      value: 0.5,
+      step: 0.01,
+    });
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1962,6 +1969,7 @@
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
     tileViewerControlsDiv.appendChild(tintEl);
     tileViewerControlsDiv.appendChild(opennessTintEl);
+    tileViewerControlsDiv.appendChild(opennessContrastEl);
     tileViewerControlsDiv.appendChild(sunModeEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
@@ -1977,6 +1985,7 @@
       sunCalendarEl,
       tintEl,
       opennessTintEl,
+      opennessContrastEl,
     };
   </script>
   <script id="72" type="module">
@@ -2224,6 +2233,7 @@
           // branch is reached, so there is nothing to suppress there.
           tintStrength: Number(c.tintEl.value),
           opennessTint: Number(c.opennessTintEl.value),
+          opennessContrast: Number(c.opennessContrastEl.value),
         };
         if (solar) lightingUpdate.solar = solar;
         viewer.setLighting(lightingUpdate);
@@ -2247,7 +2257,7 @@
 
     **How the ramp is interpolated.** Stops are converted to [Oklab](https://bottosson.github.io/posts/oklab/), and L, a and b each run through a monotone cubic (PCHIP) interpolant. Oklab is what makes the midpoint of a transition look like a blend of its endpoints instead of lurching toward whichever end is brighter. Monotone cubic is what keeps the ramp smooth without overshooting, and overshoot in a colour ramp is not subtle: it puts a band of colour that is nowhere in the ramp just outside every sharp transition. The lookup table stores Oklab as well, so the blend between neighbouring entries happens in the space the ramp was authored in and the shader only ever needs the Oklab to sRGB direction.
 
-    **Reusing the ambient occlusion as a second cue.** Elevation alone flattens a view whose relief is small next to the ramp window: every feature in it maps to nearly the same colour, and a canyon reads as one wash of tan. The LSAO term is already sitting in the blue channel of each baked tile, and it is a serviceable proxy for how open the sky is above a pixel, so it costs nothing to reuse. The **openness tint** slider lets it shift where the ramp is sampled, upward in the open and downward in enclosed ground, which pulls the drainages and side canyons back out of the wash. The shift is a fraction of the ramp window rather than a fixed number of metres, so it keeps its weight when the window is resized. Getting the remap right took some care. The sweep starts its horizon flat and only counts blockers strictly above the ray, so a flat surface, a hill crest and a ridge top all come back as exactly the same value: the channel measures concavity and is blind to convexity. The two falloff modes do not even share a range, since cos²α reaches zero when fully enclosed while e^(−sin α) bottoms out at 1/e, which means the AO falloff radio would quietly recalibrate the tint if nothing were done about it. And real terrain is far from uniform in this variable: over 4.7 million pixels of the tiles here, enclosure piles up near the open end with a long tail into the canyons. So the shader undoes the bake's gamma, normalises to an enclosure that is zero for flat ground and one for a sealed slot whichever falloff is in use, then maps that through the cumulative distribution of an exponential fitted to the measured spread. Matching the distribution is what makes the result balanced: the offset comes out roughly uniform between its limits, pushing colours up and down about equally, and it approaches its extremes asymptotically so no part of the map is ever pinned flat against the end of its range.
+    **Reusing the ambient occlusion as a second cue.** Elevation alone flattens a view whose relief is small next to the ramp window: every feature in it maps to nearly the same colour, and a canyon reads as one wash of tan. The LSAO term is already sitting in the blue channel of each baked tile, and it is a serviceable proxy for how open the sky is above a pixel, so it costs nothing to reuse. The **openness tint** slider lets it shift where the ramp is sampled, upward in the open and downward in enclosed ground, which pulls the drainages and side canyons back out of the wash. The shift is a fraction of the ramp window rather than a fixed number of metres, so it keeps its weight when the window is resized. Getting the remap right took some care. The sweep starts its horizon flat and only counts blockers strictly above the ray, so a flat surface, a hill crest and a ridge top all come back as exactly the same value: the channel measures concavity and is blind to convexity. The two falloff modes do not even share a range, since cos²α reaches zero when fully enclosed while e^(−sin α) bottoms out at 1/e, which means the AO falloff radio would quietly recalibrate the tint if nothing were done about it. And real terrain is far from uniform in this variable: over 4.7 million pixels of the tiles here, enclosure piles up near the open end with a long tail into the canyons. So the shader undoes the bake's gamma, normalises to an enclosure that is zero for flat ground and one for a sealed slot whichever falloff is in use, then maps that through the cumulative distribution of an exponential fitted to the measured spread. Matching the distribution is what makes the result balanced: the offset comes out roughly uniform between its limits, pushing colours up and down about equally, and it approaches its extremes asymptotically so no part of the map is ever pinned flat against the end of its range. The **openness contrast** slider then reshapes that quantile without moving it off centre, since raising a signed value to a power leaves zero and the two limits where they were. Its ends are exactly the two cases you would reach for by hand: at one end a square root, which expands the crowd of near-neutral pixels into visible structure and flattens the extremes, and at the other a parabola, which does the reverse and keeps only the deepest hollows and the most exposed rims. The balance survives either way, measuring a fifty-fifty split and a median within a few hundredths of zero across the whole range of the control.
 
     **How the lighting is composited onto it.** Multiplying the tint by the shading is the obvious move, and it looks bad. Average shading sits well below one, so a straight multiply drags the whole map toward black and the colours turn muddy. Instead the shader works out what flat, unoccluded, unshadowed ground would render at under the same sun, and applies the shading as a ratio against that reference. Flat ground then comes out as exactly the ramp colour, and only real relief departs from it. That ratio scales Oklab lightness, with chroma scaled alongside so that deep shade does not read as a lurid version of the same hue. Whatever still lands outside sRGB is pulled back by reducing chroma at fixed lightness and hue, rather than by clamping channels, which would both shift the hue and flatten the relief precisely where the terrain is most strongly lit.
   </script>
