@@ -2091,6 +2091,11 @@
         // it folded down to its header there and let the reader open it.
         collapsed: window.innerWidth < 700,
         domain: [0, 5200],
+        // The window slider spans land elevation end to end, from the
+        // Dead Sea shore to Everest, so the control means the same
+        // thing wherever on the planet the map happens to be.
+        bounds: [-440, 8848],
+        boundsStep: 10,
         // A fairly conventional lowland-green through desert-tan to
         // snow ramp. The top stop stops short of white on purpose: at
         // Oklab L = 1 there is no headroom left, so a sunlit slope on a
@@ -2128,7 +2133,7 @@
           return;
         }
         autoFitDone = true;
-        gradientEditor.fitTo(range);
+        gradientEditor.setWindow(range);
       };
       requestAnimationFrame(autoFit);
 
@@ -2218,7 +2223,9 @@
   <script id="75" type="text/markdown">
     ## Hypsometric tint
 
-    Shaded relief tells you the shape of the terrain but nothing about how high it is. The cartographic answer is a hypsometric tint, a colour ramp keyed to elevation, which the map above lays underneath the lighting. Open the **Elevation tint** panel at the lower left to edit it: click the ramp to add a stop, drag a chip to move one, and use the minus button or the Delete key to remove one. The **fit** button snaps the axis to the elevations currently on screen, which is also what it does once automatically when the first tiles arrive.
+    Shaded relief tells you the shape of the terrain but nothing about how high it is. The cartographic answer is a hypsometric tint, a colour ramp keyed to elevation, which the map above lays underneath the lighting. Open the **Elevation tint** panel at the lower left to edit it: click the ramp to add a stop, drag a chip to move one, and use the minus button or the Delete key to remove one.
+
+    The slider underneath is the ramp's elevation window, spanning land elevation end to end from the Dead Sea shore to Everest. Drag a thumb to stretch the window, drag the bar between them to slide it, click the track to jump it somewhere at its current width, or roll the wheel over it to zoom. Moving the window carries the ramp with it: every stop keeps its position on screen and its elevation changes to match, so panning the map up a thousand metres and following with the window takes one gesture rather than a retyped range and nine stops dragged back into place. The **fit** button sets the window from the terrain on screen, which is also what happens once automatically when the first tiles arrive.
 
     Three parts of this were worth some care.
 

@@ -3,9 +3,20 @@
 //
 // The ramp runs vertically because that is how an elevation legend
 // reads: low at the bottom, high at the top. Stops are pinned to values
-// in the domain (metres, for terrain), not to normalized positions, so
-// changing the domain moves the axis under the stops rather than
-// dragging the stops around with it.
+// in the domain (metres, for terrain): each one has an elevation you can
+// read off the axis and type into a field.
+//
+// The domain itself is a *window* that you move and resize, and moving
+// it carries the ramp along: every stop keeps its position on screen
+// while its elevation changes to match. Panning a map from a 1000-1500 m
+// valley to a 1500-2000 m one is then a single drag of the window
+// control, not a retyped range followed by nine stops dragged back into
+// place. A window control is offered when `bounds` is given, and it is a
+// two-thumb range slider over the whole plausible span of the quantity
+// (for terrain, roughly the Dead Sea shore to Everest): drag a thumb to
+// resize, drag the bar between them to slide, click the track outside
+// the selection to jump the window there at its current width, or roll
+// the wheel over it to zoom about its centre.
 //
 // Interaction:
 //   - drag a chip to move its stop
@@ -28,6 +39,7 @@
 // happens to start a swipe on it.
 
 import { buildOklabLUT, lutToImageData, oklabToHex, sampleLUT } from "./color-ramp.js";
+import { rangeInput } from "./range-slider.js";
 
 let _uid = 0;
 
@@ -191,6 +203,44 @@ const CSS = `
 .grd-editor button.grd-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); }
 .grd-editor button.grd-btn:disabled { opacity: 0.4; cursor: default; }
 .grd-hint { color: var(--grd-fg-dim); opacity: 0.8; }
+
+/* The range slider ships a theme tuned for a page background. On this
+   dark translucent panel its track disappears, so restate the surfaces
+   it draws. These selectors carry an extra class over the component's
+   own (which are .scope-xxx .thumb and the like) because it injects its
+   stylesheet inside its own DOM, later in the document than this one,
+   so a tie on specificity would go to the component. */
+.grd-window { padding: 0 2px; }
+.grd-editor .grd-window .range-slider {
+  width: 100%;
+  margin: 2px 0 0;
+  color: #9ecbff;
+  --thumb-size: 13px;
+}
+.grd-editor .grd-window .range-track {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.grd-editor .grd-window .thumb {
+  background: #9ecbff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+/* The component centres each thumb on its edge of the selection, so the
+   two of them eat one thumb-width out of the middle. A 500 m window on
+   a -440 to 8848 m track is about 14 px wide, which leaves nothing at
+   all to grab, and dragging the middle to slide the window is the whole
+   point of the control here. Move the thumbs to flank the selection
+   instead, so the bar between them stays grabbable at any width. */
+.grd-editor .grd-window .thumb-min { left: calc(-1 * var(--thumb-size)); }
+.grd-editor .grd-window .thumb-max { right: calc(-1 * var(--thumb-size)); }
+.grd-window-ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--grd-fg-dim);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  margin-top: 9px;
+}
 `;
 
 let _cssInstalled = false;
@@ -225,6 +275,9 @@ function niceStep(span, target) {
  *        on every edit, and once on construction
  * @param {() => [number,number] | null} [opts.onFit]  supplies a domain for
  *        the "fit" button; omit the option to hide the button
+ * @param {[number,number]} [opts.bounds]  outer limits of the window
+ *        control, e.g. [-440, 8848] for land elevation. Omit to hide it.
+ * @param {number} [opts.boundsStep]       quantisation of the window control
  */
 export function createGradientEditor({
   stops: initialStops,
@@ -236,6 +289,8 @@ export function createGradientEditor({
   collapsed = false,
   onChange,
   onFit,
+  bounds,
+  boundsStep = 10,
 } = {}) {
   installCSS();
   const ns = `grd${++_uid}`;
@@ -337,16 +392,74 @@ export function createGradientEditor({
     fitBtn.textContent = "fit";
     fitBtn.title = "Fit the axis to what is on screen";
     fitBtn.addEventListener("click", () => {
-      fitTo(onFit());
+      setWindow(onFit());
     });
     domainRow.append(fitBtn);
   }
 
+  // Window control: a two-thumb slider over the full plausible span.
+  let windowSlider = null;
+  let windowRow = null;
+  if (bounds && Number.isFinite(bounds[0]) && Number.isFinite(bounds[1]) && bounds[1] > bounds[0]) {
+    windowRow = document.createElement("div");
+    windowRow.className = "grd-window";
+    windowSlider = rangeInput({
+      min: bounds[0],
+      max: bounds[1],
+      step: boundsStep,
+      value: [domain[0], domain[1]],
+      ticks: Math.max(boundsStep, Math.round((bounds[1] - bounds[0]) / 8)),
+    });
+    windowSlider.title =
+      "Drag a thumb to resize the window, the bar between them to slide it," +
+      " click the track to jump it, or roll the wheel to zoom. The ramp" +
+      " stretches to follow.";
+    // While a gesture is in flight, rescale without rounding; round once
+    // it settles. See the note on setWindow.
+    windowSlider.addEventListener("input", () => {
+      if (syncingWindow) return;
+      setWindow(windowSlider.value, { snap: false });
+    });
+    windowSlider.addEventListener("change", () => {
+      if (syncingWindow) return;
+      snapStops();
+      refresh();
+      emit();
+    });
+    const ends = document.createElement("div");
+    ends.className = "grd-window-ends";
+    const lo = document.createElement("span");
+    lo.textContent = `${bounds[0]}${unit}`;
+    const hi = document.createElement("span");
+    hi.textContent = `${bounds[1]}${unit}`;
+    ends.append(lo, hi);
+    windowRow.append(windowSlider, ends);
+  }
+
+  // Guard against the feedback loop of pushing the domain into the
+  // slider and having its setter echo back as another window change.
+  let syncingWindow = false;
+  function syncWindowControl() {
+    if (!windowSlider) return;
+    const v = windowSlider.value;
+    if (v[0] === domain[0] && v[1] === domain[1]) return;
+    syncingWindow = true;
+    try {
+      windowSlider.value = [domain[0], domain[1]];
+    } finally {
+      syncingWindow = false;
+    }
+  }
+
   const hint = document.createElement("div");
   hint.className = "grd-hint";
-  hint.textContent = "Click the ramp to add a stop; drag a chip to move it.";
+  hint.textContent = bounds
+    ? "Click the ramp to add a stop, drag a chip to move it. The slider moves the whole ramp."
+    : "Click the ramp to add a stop; drag a chip to move it.";
 
-  body.append(strip, stopRow, domainRow, hint);
+  body.append(strip, stopRow, domainRow);
+  if (windowRow) body.append(windowRow);
+  body.append(hint);
   root.append(head, body);
 
   // ---- geometry ----------------------------------------------------
@@ -478,32 +591,44 @@ export function createGradientEditor({
   }
 
   /**
-   * Move the axis to `d` and carry the stops with it, rescaling them so
-   * the ramp still spans the full range.
+   * Move the window to `d`, carrying the stops with it so that each one
+   * keeps the position it had on screen. A stop at the ramp's midpoint
+   * stays at the midpoint and its elevation becomes the midpoint of the
+   * new window; a stop that sat outside the window stays proportionally
+   * outside.
    *
-   * Moving the axis alone is the wrong thing here. A ramp authored
-   * across 0 to 5200 m, fitted to 500 m of local relief, would collapse
-   * to a single flat colour: every stop but one lands outside the
-   * window. Typing into the range fields does move the axis alone,
-   * which is the pure reading of "stops are pinned to elevations"; this
-   * button is the one that refits the ramp itself.
+   * Moving the axis and leaving the elevations alone is the wrong
+   * default. A ramp authored across 0 to 5200 m, windowed onto 500 m of
+   * local relief, would collapse to a single flat colour, because every
+   * stop but one falls outside the window.
+   *
+   * `snap` rounds the stops to whole units afterwards, which is only
+   * wanted once a gesture is finished: rounding on every frame of a
+   * drag would let the stops creep relative to one another, since each
+   * frame would renormalise values that the previous frame had already
+   * rounded.
    */
-  function fitTo(d) {
+  function setWindow(d, { snap = true } = {}) {
     if (!d || !Number.isFinite(d[0]) || !Number.isFinite(d[1]) || d[1] <= d[0]) return false;
-    const vals = stops.map((s) => s.value);
-    const lo = Math.min(...vals);
-    const hi = Math.max(...vals);
-    if (hi > lo) {
-      const snap = Math.abs(d[1] - d[0]) >= 100;
+    const [o0, o1] = domain;
+    const oSpan = o1 - o0;
+    if (oSpan > 0) {
       for (const s of stops) {
-        const v = d[0] + ((s.value - lo) / (hi - lo)) * (d[1] - d[0]);
-        s.value = snap ? Math.round(v) : v;
+        s.value = d[0] + ((s.value - o0) / oSpan) * (d[1] - d[0]);
       }
     }
     domain = [d[0], d[1]];
+    if (snap) snapStops();
+    syncWindowControl();
     refresh();
     emit();
     return true;
+  }
+
+  /** Round stop values to whole units on a coarse domain. */
+  function snapStops() {
+    if (Math.abs(domain[1] - domain[0]) < 100) return;
+    for (const s of stops) s.value = Math.round(s.value);
   }
 
   function deleteSelected() {
@@ -599,13 +724,14 @@ export function createGradientEditor({
 
   delBtn.addEventListener("click", deleteSelected);
 
+  // Typing a range is the same operation as dragging the window
+  // control, so the ramp follows here too. One meaning for "the window
+  // moved", whichever control moved it.
   const onDomainInput = () => {
     const lo = Number(minInput.value);
     const hi = Number(maxInput.value);
     if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return;
-    domain = [lo, hi];
-    refresh();
-    emit();
+    setWindow([lo, hi]);
   };
   minInput.addEventListener("input", onDomainInput);
   maxInput.addEventListener("input", onDomainInput);
@@ -645,15 +771,23 @@ export function createGradientEditor({
       refresh();
       emit();
     },
-    /** Move the axis, leaving the stops where they are. */
+    /**
+     * Move the window, carrying the stops so each keeps its position on
+     * screen. Returns false on a bad range.
+     */
+    setWindow,
+    /**
+     * Move the axis, leaving stop elevations untouched. The ramp will
+     * appear to slide and clip. Rarely what you want; `setWindow` is
+     * the operation every control in the UI performs.
+     */
     setDomain(next) {
       if (!Number.isFinite(next[0]) || !Number.isFinite(next[1]) || next[1] <= next[0]) return;
       domain = [next[0], next[1]];
+      syncWindowControl();
       refresh();
       emit();
     },
-    /** Move the axis and rescale the stops to span it. Returns false on a bad range. */
-    fitTo,
     setCollapsed(v) {
       root.dataset.collapsed = v ? "1" : "0";
       headToggle.textContent = v ? "▸" : "▾";
