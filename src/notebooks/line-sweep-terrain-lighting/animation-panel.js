@@ -331,5 +331,9 @@ export function createAnimationPanel({
     clearInterval(readoutTimer);
   }
 
-  return { element: details, timeOverride, dispose };
+  // The recorder's settings, exposed so the notebook can keep them in
+  // the URL hash alongside the rest of its state.
+  const inputs = { duration: durationEl, fps: fpsEl, qp: qpEl, span: spanEl };
+
+  return { element: details, timeOverride, dispose, inputs };
 }

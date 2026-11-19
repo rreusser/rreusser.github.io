@@ -87,12 +87,15 @@ export function computeLSAO(heights, N, pxSizeByRow, horizon, HN, lsaoFalloff, p
   return ao;
 }
 
-export function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples, parentScale, compHMin, horizonHMax, horizonPN) {
+// `horizonFloor` is passed through to sweepCore: true (the default)
+// keeps the soft penumbra window above the horizon, false lets it
+// follow the sun down through it. See the option's comment there.
+export function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples, parentScale, compHMin, horizonHMax, horizonPN, horizonFloor = true) {
   const shadow = new Float32Array(N * N);
   if (samples <= 1) {
     const result = sweepCore({
       W: N, H: N, elev: heights, azDeg, pxSizeByRow,
-      mode: 'soft', altDeg, sunRadiusDeg, weight: 1,
+      mode: 'soft', altDeg, sunRadiusDeg, horizonFloor, weight: 1,
       horizon: HN > 0 ? horizon : null, HN,
       parentScale, horizonPN,
       compElevMin: compHMin, horizonElevMax: horizonHMax,
@@ -108,7 +111,7 @@ export function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDe
     const daz = q * sigma;
     const result = sweepCore({
       W: N, H: N, elev: heights, azDeg: azDeg + daz, pxSizeByRow,
-      mode: 'soft', altDeg, sunRadiusDeg, weight,
+      mode: 'soft', altDeg, sunRadiusDeg, horizonFloor, weight,
       horizon: HN > 0 ? horizon : null, HN,
       parentScale, horizonPN,
       compElevMin: compHMin, horizonElevMax: horizonHMax,

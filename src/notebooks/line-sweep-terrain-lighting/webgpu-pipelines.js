@@ -1233,6 +1233,10 @@ export function deriveSweepParams({
   W, H, azDeg, pxSizeM, mode,
   eqPxSizeM, tileY, z,
   altDeg = 0, sunRadiusDeg = 0, weight = 1,
+  // Hold the soft penumbra window above the horizon, or let it follow
+  // the sun down through it. See sweepCore's own `horizonFloor` for
+  // why the single-tile figures want one and the map does not.
+  horizonFloor = true,
   horizonN = 0,
   parentScale = 2,
   compElevMin = null,
@@ -1263,7 +1267,8 @@ export function deriveSweepParams({
   const tanAlt = Math.tan((altDeg * Math.PI) / 180);
 
   const halfWidthDeg = 1.5 * sunRadiusDeg;
-  const effectiveAltDeg = altDeg < halfWidthDeg ? halfWidthDeg : altDeg;
+  const effectiveAltDeg =
+    horizonFloor && altDeg < halfWidthDeg ? halfWidthDeg : altDeg;
   const tanAltBot = Math.tan(((effectiveAltDeg - halfWidthDeg) * Math.PI) / 180);
   const tanAltTop = Math.tan(((effectiveAltDeg + halfWidthDeg) * Math.PI) / 180);
 
