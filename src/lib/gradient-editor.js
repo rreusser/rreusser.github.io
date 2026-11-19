@@ -204,6 +204,23 @@ const CSS = `
 .grd-editor button.grd-btn:disabled { opacity: 0.4; cursor: default; }
 
 .grd-preset-wrap { position: relative; flex: 1 1 auto; min-width: 0; }
+.grd-invert {
+  flex: 0 0 auto;
+  font: inherit;
+  line-height: 1;
+  color: var(--grd-fg);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--grd-line);
+  border-radius: 4px;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.grd-invert:hover { background: rgba(255, 255, 255, 0.2); }
+.grd-invert[data-on="1"] {
+  background: #9ecbff;
+  border-color: #9ecbff;
+  color: #10243a;
+}
 .grd-preset-btn {
   width: 100%;
   font: inherit;
@@ -489,13 +506,17 @@ export function createGradientEditor({
   let presetMenu = null;
   let presetRow = null;
   let presetName = "";            // "" means hand-edited
+  // Inversion is a mode rather than a one-shot: several scales run light
+  // to dark, which reads backwards on elevation, and you want the next
+  // ramp you pick to come in the right way round too.
+  let inverted = false;
   let applyingPreset = false;
   let menuSnapshot = null;        // stops to restore if the menu is dismissed
 
   // A CSS gradient sampled from the preset's own LUT, so the swatch is
   // built the same way the ramp is.
   const swatchCss = (p) => {
-    const lut = buildOklabLUT(p.stops.map((st) => ({ value: st.t, color: st.color })),
+    const lut = buildOklabLUT(p.stops.map((st) => ({ value: inverted ? 1 - st.t : st.t, color: st.color })),
       { size: 128, domain: [0, 1] });
     const n = 16;
     const parts = [];
@@ -604,15 +625,47 @@ export function createGradientEditor({
       if (presetMenu.hidden) openMenu(); else closeMenu(false);
     });
 
+    const invertBtn = document.createElement("button");
+    invertBtn.type = "button";
+    invertBtn.className = "grd-invert";
+    invertBtn.textContent = "\u21C5";
+    invertBtn.title = "Flip the ramp end for end";
+    invertBtn.dataset.on = "0";
+    invertBtn.addEventListener("click", () => {
+      inverted = !inverted;
+      invertBtn.dataset.on = inverted ? "1" : "0";
+      // Mirror the stops about the window so what is on screen flips
+      // immediately, not just the next ramp picked.
+      const [d0, d1] = domain;
+      const snap = Math.abs(d1 - d0) >= 100;
+      for (const st of stops) {
+        const v = d0 + d1 - st.value;
+        st.value = snap ? Math.round(v) : v;
+      }
+      for (const [, el] of chipEls) el.remove();
+      chipEls.clear();
+      refresh();
+      emit();
+      // Redraw the menu swatches so they show which way round a pick
+      // will land.
+      for (const r of presetMenu.querySelectorAll(".grd-preset-row")) {
+        const p = presets.find((q) => q.name === r.dataset.name);
+        if (p) r.querySelector(".sw").style.background = swatchCss(p);
+      }
+      refreshPresetButton();
+    });
+
     wrap.append(presetBtn, presetMenu);
-    presetRow.append(label, wrap);
+    presetRow.append(label, wrap, invertBtn);
   }
 
   function applyPreset(p, { preview = false } = {}) {
     const [d0, d1] = domain;
     const snap = Math.abs(d1 - d0) >= 100;
     const next = p.stops.map((st) => {
-      const v = d0 + Math.min(1, Math.max(0, st.t)) * (d1 - d0);
+      const t0 = Math.min(1, Math.max(0, st.t));
+      const t = inverted ? 1 - t0 : t0;
+      const v = d0 + t * (d1 - d0);
       return { value: snap ? Math.round(v) : v, color: st.color };
     });
     applyingPreset = true;
@@ -1016,6 +1069,8 @@ export function createGradientEditor({
     },
     /** Name of the ramp in effect, or "" when it has been hand-edited. */
     get presetName() { return presetName; },
+    /** Whether ramps are being flipped end for end. */
+    get inverted() { return inverted; },
     /**
      * Move the window, carrying the stops so each keeps its position on
      * screen. Returns false on a bad range.

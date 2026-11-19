@@ -1897,7 +1897,6 @@
     import { solarTimeQuantities } from "./solar-time.js";
     import { createGradientEditor } from "./lib/gradient-editor.js";
     import * as d3chromatic from "npm:d3-scale-chromatic";
-    import { fitRampStops } from "./lib/color-ramp.js";
   </script>
   <script id="71" type="module">
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
@@ -2104,14 +2103,17 @@
         const q = (v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0");
         return `#${q(r)}${q(g)}${q(b)}`;
       };
-      // Stop positions are fitted rather than spaced evenly. Even
-      // spacing wastes stops on the straight parts of a scale and
-      // starves the corners, which for magma and inferno sit at the
-      // dark end where they turn hue fastest. Fitting lets 9 stops beat
-      // what 13 evenly spaced ones managed, on every scale here.
+      // Evenly spaced. Fitting the positions to each scale's own curve
+      // tracks the originals more closely, but it puts the stops in
+      // different places for every ramp, which makes the chip rail read
+      // as arbitrary. Even spacing is easier to reason about and to
+      // drag, and the fidelity it gives up is mostly invisible.
       const sampled = (name, interp, n = 9) => ({
         name,
-        stops: fitRampStops((t) => rgbToHex(interp(t)), n),
+        stops: Array.from({ length: n }, (_, i) => {
+          const t = i / (n - 1);
+          return { t, color: rgbToHex(interp(t)) };
+        }),
       });
       const terrainStops = [
         { t: 0.0,  color: "#46773f" },
@@ -2165,10 +2167,13 @@
         // the caret opens it.
         collapsed: true,
         domain: [810, 1520],
-        // The window slider spans land elevation end to end, from the
-        // Dead Sea shore to Everest, so the control means the same
-        // thing wherever on the planet the map happens to be.
-        bounds: [-440, 8848],
+        // The window slider tops out at Everest, so the control means
+        // the same thing wherever on the planet the map happens to be.
+        // The bottom goes well past the Dead Sea shore on purpose: the
+        // structure offset shifts where the ramp is read, so pulling
+        // the window's floor below any real terrain gives that shift
+        // somewhere to go instead of pinning against the lowest stop.
+        bounds: [-1000, 8848],
         boundsStep: 10,
         // Tuned by hand over the canyon this map opens on, which is
         // why the stops carry absolute elevations rather than being
