@@ -710,6 +710,9 @@ export function createTileViewer(opts) {
   // size a recording will come out as. It flashes on every resize so
   // the user can pick a recording resolution just by sizing the
   // window, WYSIWYG, and the animation panel pins it while open.
+  // The figure's backing store is device pixels, so on a 2x display
+  // the chip reads twice the figure's CSS size; that is the honest
+  // number, since a capture reads the backing store.
   const evenDown = (v) => Math.max(2, v - (v % 2));
   const sizeChip = document.createElement("div");
   sizeChip.style.cssText =
@@ -1123,6 +1126,24 @@ export function createTileViewer(opts) {
   }
 
   const displayScale = () => Math.pow(2, zoom - baseZoom);
+
+  // Backing-store resolution. The figure is laid out in CSS pixels but
+  // the canvas is sized in device pixels, so a 2x display actually
+  // resolves the 512-texel terrain raster and the merged satellite
+  // block instead of handing three quarters of them to the compositor
+  // to throw away. Capped at 2: past that the fragment cost keeps
+  // growing and there is nothing left for the eye to pick up.
+  const MAX_PIXEL_RATIO = 2;
+  const resolvePixelRatio = () =>
+    Math.max(1, Math.min(MAX_PIXEL_RATIO, window.devicePixelRatio || 1));
+  let pixelRatio = resolvePixelRatio();
+
+  // World (baseZoom tile pixels) to canvas device pixels. This is the
+  // space `viewportW`/`viewportH`, the `viewportPx` uniform and every
+  // tile rectangle live in. Pointer events arrive in CSS pixels and are
+  // converted at the handler boundary, so nothing in between has to
+  // know the pixel ratio.
+  const screenScale = () => displayScale() * pixelRatio;
 
   const lighting = {
     sunX: 0,
@@ -1892,7 +1913,7 @@ export function createTileViewer(opts) {
   }
 
   function updateTiles() {
-    const scale = displayScale();
+    const scale = screenScale();
     // Viewport → baseZoom world coordinates. At display scale > 1 one
     // baseZoom pixel covers more than one screen pixel, so the visible
     // range contracts accordingly.
@@ -1932,7 +1953,7 @@ export function createTileViewer(opts) {
     const clamped = Math.max(minZoom, Math.min(maxZoom, newZoom));
     if (clamped === zoom) return;
 
-    const oldScale = displayScale();
+    const oldScale = screenScale();
     const ax = anchorPx ? anchorPx.x : viewportW / 2;
     const ay = anchorPx ? anchorPx.y : viewportH / 2;
     // Geographic position under the anchor, in current baseZoom pixels.
@@ -1944,7 +1965,7 @@ export function createTileViewer(opts) {
     // Rescale the geographic position into the new base zoom's pixels.
     const newCursorWorldX = cursorWorldX * baseShift;
     const newCursorWorldY = cursorWorldY * baseShift;
-    const newScale = Math.pow(2, clamped - newBaseZoom);
+    const newScale = Math.pow(2, clamped - newBaseZoom) * pixelRatio;
     const newCenterWorldX = newCursorWorldX - (ax - viewportW / 2) / newScale;
     const newCenterWorldY = newCursorWorldY - (ay - viewportH / 2) / newScale;
 
@@ -1973,10 +1994,15 @@ export function createTileViewer(opts) {
     const rect = container.getBoundingClientRect();
     const prevW = viewportW;
     const prevH = viewportH;
-    viewportW = Math.max(1, Math.round(rect.width));
-    viewportH = Math.max(1, Math.round(rect.height));
-    canvas.style.width = viewportW + "px";
-    canvas.style.height = viewportH + "px";
+    pixelRatio = resolvePixelRatio();
+    // Two sizes, deliberately apart: CSS pixels place the canvas in the
+    // page, device pixels size its backing store.
+    const cssW = Math.max(1, Math.round(rect.width));
+    const cssH = Math.max(1, Math.round(rect.height));
+    viewportW = Math.max(1, Math.round(cssW * pixelRatio));
+    viewportH = Math.max(1, Math.round(cssH * pixelRatio));
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
     canvas.width = viewportW;
     canvas.height = viewportH;
     // Flash the size chip on every real change after the first layout
@@ -2155,9 +2181,10 @@ export function createTileViewer(opts) {
     // Per-tile uniform updates — screen-space origin is a small f32
     // delta from a double-precision world coord, so high zoom stays
     // numerically stable. At fractional zoom `scale` magnifies the
-    // rendered tile size; at scale = 1 we're at the tile's native
-    // zoom level.
-    const scale = displayScale();
+    // rendered tile size; at displayScale = 1 we're at the tile's
+    // native zoom level, drawn at `pixelRatio` device pixels per
+    // tile pixel.
+    const scale = screenScale();
     const displaySize = tileSize * scale;
     for (const tile of tiles.values()) {
       if (!tile.ready) continue;
@@ -2332,13 +2359,48 @@ export function createTileViewer(opts) {
   resizeObserver.observe(container);
   updateCanvasSize();
 
-  // Pointer-drag panning + pinch-zoom. Screen-pixel deltas are converted
-  // into baseZoom world pixels via the current display scale so the
-  // gesture feels 1:1 with the cursor/finger regardless of fractional
-  // zoom. Two-finger pinch applies incremental pan + zoom per frame:
-  // pan by midpoint delta, then zoom by distance ratio anchored at the
-  // new midpoint. pinchMid/pinchDist are nulled whenever the pointer
+  // A ResizeObserver never fires when only the pixel ratio changes:
+  // drag the window from a 2x display to a 1x one and the CSS box is
+  // identical while the backing store is now twice what it needs to
+  // be (and the other way round leaves a soft canvas with no way back
+  // but a resize). matchMedia on the ratio catches it. The query
+  // matches one exact value, so it has to be rebuilt after each change.
+  let dprQuery = null;
+  let dprDisposed = false;
+  function onPixelRatioChange() {
+    updateCanvasSize();
+    watchPixelRatio();
+  }
+  function watchPixelRatio() {
+    if (dprDisposed) return;
+    dprQuery?.removeEventListener("change", onPixelRatioChange);
+    dprQuery = window.matchMedia(
+      `(resolution: ${window.devicePixelRatio || 1}dppx)`,
+    );
+    dprQuery.addEventListener("change", onPixelRatioChange);
+  }
+  watchPixelRatio();
+
+  // Pointer-drag panning + pinch-zoom. Pointer events carry CSS pixels;
+  // `pixelRatio` lifts them into the canvas device-pixel space, and the
+  // current screen scale converts from there into baseZoom world pixels,
+  // so the gesture feels 1:1 with the cursor/finger regardless of
+  // fractional zoom or display density. Two-finger pinch applies
+  // incremental pan + zoom per frame: pan by midpoint delta, then zoom
+  // by distance ratio anchored at the new midpoint. pinchMid/pinchDist are nulled whenever the pointer
   // set changes so the next move re-seeds cleanly without a jump.
+  // Client coordinates (CSS pixels, page-relative) to a zoom anchor in
+  // canvas device pixels. Pan and pinch convert their own deltas the
+  // same way, by multiplying through by `pixelRatio` before dividing
+  // by the screen scale.
+  const anchorFromClient = (clientX, clientY) => {
+    const rect = container.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) * pixelRatio,
+      y: (clientY - rect.top) * pixelRatio,
+    };
+  };
+
   const activePointers = new Map();
   let dragging = false;
   let dragMoved = false;
@@ -2390,17 +2452,13 @@ export function createTileViewer(opts) {
         pinchDist = curr.dist;
         return;
       }
-      const scale = displayScale();
-      centerWorldX -= (curr.x - pinchMid.x) / scale;
-      centerWorldY -= (curr.y - pinchMid.y) / scale;
+      const scale = screenScale();
+      centerWorldX -= ((curr.x - pinchMid.x) * pixelRatio) / scale;
+      centerWorldY -= ((curr.y - pinchMid.y) * pixelRatio) / scale;
       if (pinchDist > 0 && curr.dist > 0) {
         const dz = Math.log2(curr.dist / pinchDist);
         if (Math.abs(dz) > 1e-6) {
-          const rect = container.getBoundingClientRect();
-          zoomTo(zoom + dz, {
-            x: curr.x - rect.left,
-            y: curr.y - rect.top,
-          });
+          zoomTo(zoom + dz, anchorFromClient(curr.x, curr.y));
         }
       }
       pinchMid = { x: curr.x, y: curr.y };
@@ -2414,9 +2472,9 @@ export function createTileViewer(opts) {
       if (dx !== 0 || dy !== 0) dragMoved = true;
       lastX = e.clientX;
       lastY = e.clientY;
-      const scale = displayScale();
-      centerWorldX -= dx / scale;
-      centerWorldY -= dy / scale;
+      const scale = screenScale();
+      centerWorldX -= (dx * pixelRatio) / scale;
+      centerWorldY -= (dy * pixelRatio) / scale;
       needsRender = true;
       updateTiles();
     }
@@ -2459,11 +2517,7 @@ export function createTileViewer(opts) {
       e.preventDefault();
       const ZOOM_PER_PIXEL = 1 / 220;
       const dz = -e.deltaY * ZOOM_PER_PIXEL;
-      const rect = container.getBoundingClientRect();
-      zoomTo(zoom + dz, {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
+      zoomTo(zoom + dz, anchorFromClient(e.clientX, e.clientY));
       scheduleHashFlush();
     },
     { passive: false },
@@ -2474,11 +2528,7 @@ export function createTileViewer(opts) {
   container.addEventListener("dblclick", (e) => {
     if (dragMoved) return;
     e.preventDefault();
-    const rect = container.getBoundingClientRect();
-    const anchor = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
+    const anchor = anchorFromClient(e.clientX, e.clientY);
     // Shift-double-click zooms out as a companion gesture.
     const dz = e.shiftKey ? -1 : 1;
     zoomTo(zoom + dz, anchor);
@@ -2633,7 +2683,9 @@ export function createTileViewer(opts) {
     },
     /**
      * Pixel size a captured frame will have: the live canvas cropped
-     * to even dimensions. This is what the size chip reports.
+     * to even dimensions. This is what the size chip reports. Device
+     * pixels, not CSS pixels, so on a 2x display a recording comes out
+     * at twice the figure's on-screen size.
      */
     getFrameSize() {
       return [evenDown(viewportW), evenDown(viewportH)];
@@ -2698,6 +2750,8 @@ export function createTileViewer(opts) {
       worker.terminate();
       for (const w of cpuWorkers) w.terminate();
       resizeObserver.disconnect();
+      dprDisposed = true;
+      dprQuery?.removeEventListener("change", onPixelRatioChange);
       for (const tile of tiles.values()) tile.destroy();
       tiles.clear();
       try {
