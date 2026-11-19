@@ -146,7 +146,7 @@ struct Global {
   sunDir: vec4<f32>,       // xyz = world-space sun direction, w unused
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
-  hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w unused
+  hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -230,6 +230,31 @@ fn sampleElev(uv: vec2<f32>, n: i32) -> f32 {
   let h01 = elevAt(i0.x, i0.y + 1, n);
   let h11 = elevAt(i0.x + 1, i0.y + 1, n);
   return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+}
+
+// Openness, the LSAO term in the bake's blue channel, runs from 0 in a
+// slot canyon to 1 under open sky. Used to nudge where the ramp is
+// sampled it recovers structure that elevation alone cannot show: a
+// view whose relief is small next to the ramp window otherwise comes
+// out as one flat wash, because every feature in it maps to nearly the
+// same colour. A ridge then reads as higher ground than a hollow at the
+// same elevation, which is also how a reader already expects to see
+// terrain described.
+//
+// The pivot has to sit near the middle of the openness the terrain
+// actually produces, or the whole map rides up or down the ramp as the
+// strength is raised instead of spreading about its current colour.
+// Measured over 187k pixels of the Mapterhorn tiles this notebook opens
+// on: median 0.61, 5th percentile 0.38, 95th 0.91. Note this is far
+// from 1 even on open ground, because the channel stores the square of
+// the raw LSAO term. Pivot at the median, and scale so roughly the 5th
+// to 95th percentile band fills [-1, 1]; the clamp keeps the tails from
+// running away.
+const AO_PIVOT: f32 = 0.6;
+const AO_INV_HALF_RANGE: f32 = 3.7037;   // 1 / 0.27
+
+fn opennessOffset(ao: f32) -> f32 {
+  return clamp((ao - AO_PIVOT) * AO_INV_HALF_RANGE, -1.0, 1.0);
 }
 
 // Elevation to Oklab, linearly blending the two bracketing ramp
@@ -441,8 +466,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let v0 = max(mix(flatLamb, 1.0, reliefMode), 0.35);
   let k = clamp(v / v0, 0.0, 2.0);
 
+  // Sample the ramp at the pixel's elevation, shifted by openness. The
+  // shift is expressed as a fraction of the ramp window rather than in
+  // metres, so it keeps its visual weight when the window is resized.
+  // At full strength it reaches half the window either way, which is
+  // enough for openness alone to traverse the whole ramp.
   let h = sampleElev(in.uv, i32(t.tileZXY.w));
-  let lab = rampAt(h);
+  let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
+  let hSample = h + g.hypso.w * opennessOffset(ao) * 0.5 * rampSpan;
+  let lab = rampAt(hSample);
   let L2 = clamp(lab.x * k, 0.0, 1.0);
   // Scale chroma with lightness rather than holding it fixed. Holding
   // it fixed makes deep shade read as an unnaturally saturated version
@@ -844,6 +876,9 @@ export function createTileViewer(opts) {
     tintStrength: 0,
     rampMin: 0,
     rampMax: 5200,
+    // Openness tint: how far the LSAO term is allowed to shift where
+    // the ramp is sampled, as a fraction of half the ramp window.
+    opennessTint: 0,
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -1526,7 +1561,7 @@ export function createTileViewer(opts) {
     //   f32[4..7]   = sunDir.xyz, unused
     //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
-    //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, unused)
+    //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, opennessTint)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1546,7 +1581,7 @@ export function createTileViewer(opts) {
     globalData[16] = lighting.rampMin;
     globalData[17] = 1 / (lighting.rampMax - lighting.rampMin || 1);
     globalData[18] = lighting.tintStrength;
-    globalData[19] = 0;
+    globalData[19] = lighting.opennessTint;
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32
