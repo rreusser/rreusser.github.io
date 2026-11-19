@@ -239,60 +239,41 @@ fn sampleElev(uv: vec2<f32>, n: i32) -> f32 {
 // the same colour and a canyon reads as one wash. Shifting the sample
 // by openness pulls the drainages back out of it.
 //
-// Three things about this signal matter, and all three are easy to get
-// wrong:
+// The anchor is the one thing that has to be exactly right: a flat
+// surface must come through untouched, whatever the strength, so that
+// ground with no shape to it is coloured by its elevation and nothing
+// else. The sweep starts its horizon flat and only counts blockers
+// strictly above the ray, so flat ground returns exactly 1. Running the
+// real sweepCore over synthetic fields confirms it, and also shows the
+// limit of the signal:
 //
-// 1. The sweep starts its horizon at sin(a) = 0 and only counts blockers
-//    strictly above the ray, so a flat surface, a hill crest and a
-//    ridge top all return exactly 1. Convexity is not representable:
-//    the channel measures *concavity* and nothing else.
+//     flat   1.0000     pit          0.4540
+//     hill   1.0000     valley       0.5437
+//     ridge  1.0000     slot canyon  0.2790
 //
-// 2. The two falloffs do not share a range. cos²α reaches 0 when fully
-//    enclosed, but e^(−sin α) bottoms out at e^-1 ≈ 0.368, and after
-//    the bake's aoGamma = 2 those become 0 and 0.135. Normalising by
-//    the falloff's own floor is what stops the AO-falloff radio from
-//    silently recalibrating the tint.
+// A convex hill and a ridge crest saturate at the same 1 as flat
+// ground. The channel measures *concavity* and is blind to convexity,
+// so anchoring at flat necessarily makes this one-directional: hollows
+// move down the ramp and nothing moves up. Getting hollows down *and*
+// rims up while flat stays fixed would need the openness compared
+// against a spatially smoothed copy of itself, not against a constant.
 //
-// 3. Real terrain is nowhere near uniform in this variable. Measured
-//    over 4.7M pixels of the tiles this map opens on, enclosure (0 for
-//    flat, 1 for sealed) has median 0.17 and mean 0.21, piling up near
-//    the open end with a long tail into the canyons.
+// The two falloffs do not share a range either. cos²α reaches 0 when
+// fully enclosed, but e^(−sin α) bottoms out at e^-1 ≈ 0.368, and after
+// the bake's aoGamma = 2 those become 0 and 0.135. Normalising by the
+// falloff's own floor is what stops the AO-falloff radio from silently
+// recalibrating the tint, and it is also what makes enclosure 0 mean
+// "flat" in both modes.
 //
-// So: undo the gamma, normalise to enclosure using the falloff's floor,
-// then map through the CDF of an exponential fitted to that measured
-// distribution. Matching the CDF is what makes the result balanced:
-// under the model the offset comes out uniform on [-1, 1], so it pushes
-// colours up and down equally and never pins a region at the end of its
-// range. The curve is deliberately asymmetric about neutral in openness
-// units, because the data is.
-//
-// The previous linear remap, centred on a pivot in raw openness, pushed
-// 83% of pixels up, sat 29% of the map hard against +1, and had a mean
-// offset of +0.55. This one measures -0.02 mean, 0.00 median, a 51/49
-// split and no saturation at all.
-//
-// MU is the fitted scale, median enclosure / ln 2. Terrain much more or
-// much less enclosed than the fit drifts off centre (a view 1.7x more
-// enclosed measures a mean of -0.33), but it drifts smoothly and never
-// saturates, so the failure mode is a gentle bias rather than flat
-// patches of colour. Flat ground sits at the top of the curve by
-// construction: a genuinely flat plain takes a uniform +1, which is a
-// constant recolouring rather than a loss of structure.
-const AO_ENC_MU: f32 = 0.25;
-
+// The contrast argument shapes how enclosure maps to the shift. It is
+// an exponent, so it fixes both ends: enclosure 0 stays 0 whatever it
+// is set to, which is what keeps the flat-ground guarantee free of the
+// control. Below 1 it expands mildly enclosed ground into visible
+// structure; above 1 it keeps only the deepest hollows.
 fn opennessOffset(ao: f32, floorRaw: f32, contrast: f32) -> f32 {
   let raw = sqrt(max(ao, 0.0));                                  // undo aoGamma = 2
   let enc = clamp((1.0 - raw) / max(1.0 - floorRaw, 1e-6), 0.0, 1.0);
-  // 1 - exp(-enc/MU) is the fitted CDF, so t is the quantile mapped to
-  // [-1, 1]: roughly uniform, median 0.
-  let t = clamp(2.0 * exp(-enc / AO_ENC_MU) - 1.0, -1.0, 1.0);
-  // Contrast shapes that quantile without moving it off centre.
-  // sign(t)*|t|^p fixes t = 0 and t = ±1 and is odd, so the median
-  // stays at 0 and the up/down balance survives whatever p is. Below 1
-  // it expands the crowd of near-neutral pixels into visible structure
-  // and flattens the extremes; above 1 it does the reverse, keeping
-  // only the deepest hollows and the most exposed rims.
-  return sign(t) * pow(abs(t), contrast);
+  return -pow(enc, max(contrast, 0.05));
 }
 
 // Elevation to Oklab, linearly blending the two bracketing ramp
@@ -1630,7 +1611,8 @@ export function createTileViewer(opts) {
     globalData[20] = lighting.lsaoFalloff === "exp" ? Math.exp(-1) : 0;
     // Contrast exponent. The control is 0..1 with 0.5 neutral, mapped
     // so the ends land exactly on the parabolic and square-root cases:
-    // 0 -> 2, 0.5 -> 1, 1 -> 0.5.
+    // 0 -> 2, 0.5 -> 1, 1 -> 0.5. Never 0, which would turn pow(0, p)
+    // into 1 and break the flat-ground guarantee.
     globalData[21] = Math.pow(2, 1 - 2 * lighting.opennessContrast);
     globalData[22] = 0;
     globalData[23] = 0;
