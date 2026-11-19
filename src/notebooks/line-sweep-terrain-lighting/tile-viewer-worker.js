@@ -9,7 +9,11 @@
 //   main → worker:  { type: "fetch", z, x, y }
 //   main → worker:  { type: "cancel", z, x, y }
 //   worker → main:  { type: "tile", z, x, y, comp, horizon }
-//   worker → main:  { type: "error", z, x, y, message }
+//   worker → main:  { type: "error", z, x, y, message, status }
+//                    `status` is the HTTP status when the fetch got a
+//                    response, 0 for a network-level failure. The main
+//                    thread uses it to tell "this tile does not exist"
+//                    from "this tile did not arrive this time".
 //                    comp    = { N,  heights (Float32Array), hMin, hMax }
 //                    horizon = { HN, heights (Float32Array), hMin, hMax }
 //                    Both Float32Arrays are transferred (zero-copy).
@@ -78,7 +82,11 @@ function releaseFetch(z, x, y) {
 
 async function fetchTerrarium(url, signal) {
   const res = await fetch(url, { signal });
-  if (!res.ok) throw new Error(`tile fetch failed: ${url} (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(`tile fetch failed: ${url} (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
   const blob = await res.blob();
   const bitmap = await createImageBitmap(blob);
   const N = bitmap.width;
@@ -263,7 +271,11 @@ self.onmessage = (e) => {
       }).catch((err) => {
         if (!inFlight.has(key)) return; // cancelled
         inFlight.delete(key);
-        self.postMessage({ type: "error", z, x, y, message: err.message });
+        self.postMessage({
+          type: "error", z, x, y,
+          message: err.message,
+          status: err.status | 0,
+        });
       });
       break;
     }
