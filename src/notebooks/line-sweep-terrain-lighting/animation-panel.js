@@ -1,5 +1,5 @@
-// The figure's mp4 export: a day-cycle recording, from local solar
-// midnight round to local solar midnight.
+// The figure's mp4 export: a day-cycle recording of one local solar
+// day, defaulting to solar noon round to solar noon.
 //
 // Everything lives behind a <details> so the five controls it needs
 // don't crowd the shading sliders it sits next to. The recording is
@@ -21,7 +21,7 @@
 // notebook builtins and SunCalc is an npm package, which lib files in
 // this repo don't import directly.
 
-import { solarDayBounds } from "./solar-day.js";
+import { solarDayBounds, solarDaySpan } from "./solar-day.js";
 import {
   recordMp4,
   downloadMp4,
@@ -60,12 +60,16 @@ export function createAnimationPanel({
     value: 22,
     step: 1,
   });
+  // Noon to noon by default. All three are driven off the solar day
+  // containing the calendar's instant, so the date picker still means
+  // what it says whichever one is chosen.
   const spanEl = Inputs.radio(
     new Map([
-      ["full solar day", "day"],
-      ["daylight only", "daylight"],
+      ["dawn to dusk", "dawn"],
+      ["midnight to midnight", "midnight"],
+      ["noon to noon", "noon"],
     ]),
-    { label: "span", value: "day" },
+    { label: "span", value: "noon" },
   );
 
   const readout = html`<div
@@ -108,39 +112,60 @@ export function createAnimationPanel({
 
   // ---- span resolution -------------------------------------------------
   // Returns the instants the recording walks, plus whether the last
-  // frame sits on the end instant. A full solar day is half-open: the
-  // closing midnight is the same lighting as the opening one, so
-  // including it would duplicate a frame and spoil the loop. Daylight
-  // is closed — it isn't a loop, and ending exactly at sunset is the
-  // point.
+  // frame sits on the end instant.
+  //
+  // A whole solar day is half-open, midnight or noon alike: the
+  // closing frame is the same lighting as the opening one, so
+  // including it would duplicate a frame and put a stutter in the
+  // loop. Dawn to dusk is closed, because it is not a loop and
+  // stopping exactly at dusk is the point.
+  //
+  // Dawn and dusk here are the civil-twilight events, the sun at -6
+  // degrees, not sunrise and sunset. That is deliberate: the
+  // composite's twilight ramp is smoothstep(-0.105, 0.035, sin(alt)),
+  // which reaches zero at exactly -6, so civil dawn and dusk are the
+  // precise instants the terrain arrives at and leaves the night
+  // floor. Sunrise to sunset would cut off the part of the cycle
+  // where the terminator is actually sweeping.
   function resolveSpan() {
     const viewer = getViewer();
     if (!viewer) return null;
     const [lat, lng] = viewer.getCenter();
     const anchor = getAnchorUtcMs();
     if (!Number.isFinite(anchor)) return null;
-    const day = solarDayBounds(anchor, lng);
+    const mode = spanEl.value;
 
-    if (spanEl.value === "daylight") {
+    if (mode === "dawn") {
+      const day = solarDayBounds(anchor, lng);
       const times = SunCalc.getTimes(new Date(day.noon), lat, lng);
-      const rise = times.sunrise?.getTime();
-      const set = times.sunset?.getTime();
-      if (Number.isFinite(rise) && Number.isFinite(set) && set > rise) {
-        return { t0: rise, t1: set, inclusive: true, day, lat, lng };
+      const t0 = times.dawn?.getTime();
+      const t1 = times.dusk?.getTime();
+      if (Number.isFinite(t0) && Number.isFinite(t1) && t1 > t0) {
+        return { t0, t1, inclusive: true, day, lat, lng };
       }
-      // Inside the polar circles there may be no sunrise or sunset at
-      // all on this date. Fall back rather than refusing.
+      // Inside the polar circles there may be no civil dawn or dusk on
+      // this date at all. Fall back rather than refusing.
+      const span = solarDaySpan(anchor, lng, "noon");
       return {
-        t0: day.start,
-        t1: day.end,
+        t0: span.t0,
+        t1: span.t1,
         inclusive: false,
-        day,
+        day: span.day,
         lat,
         lng,
-        note: "no sunrise/sunset at this date and latitude; recording the full day",
+        note: "no civil dawn or dusk at this date and latitude; recording noon to noon",
       };
     }
-    return { t0: day.start, t1: day.end, inclusive: false, day, lat, lng };
+
+    const span = solarDaySpan(anchor, lng, mode);
+    return {
+      t0: span.t0,
+      t1: span.t1,
+      inclusive: false,
+      day: span.day,
+      lat,
+      lng,
+    };
   }
 
   function frameCountOf() {
