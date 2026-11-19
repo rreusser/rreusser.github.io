@@ -78,37 +78,3 @@ export function solarDayBounds(utcMs, lngDeg) {
   const end = solarMidnight(noon + DAY_MS / 2, lngDeg);
   return { start, noon, end, lengthMs: end - start };
 }
-
-/**
- * The instants a day-cycle animation should walk, as
- * { t0, t1, lengthMs, day }. `anchor` picks which event it starts and
- * ends on:
- *
- *   "midnight"  the solar day itself, midnight round to midnight
- *   "noon"      solar noon round to the next solar noon
- *
- * Both are exactly one solar day long, so either one loops. What
- * differs is where the seam falls, and that matters because
- * consecutive solar days are not quite identical — the sun's
- * declination drifts by up to about 0.4 degrees per day near the
- * equinoxes, so the closing frame's sun sits a little off the opening
- * frame's.
- *
- * At midnight that discrepancy is invisible: every pixel is already
- * at the night floor, so there is nothing for it to disagree about.
- * At noon it turns into a shadow-length step of order a percent,
- * against the brightest and most detailed frame in the clip. Noon
- * pays that to open on a frame worth looking at, which is what a
- * poster frame and a single unlooped play both want; midnight hides
- * the seam but opens and closes on a static dark image.
- */
-export function solarDaySpan(utcMs, lngDeg, anchor = "noon") {
-  const day = solarDayBounds(utcMs, lngDeg);
-  if (anchor === "noon") {
-    // Seeding one mean day out lands within half a minute of the true
-    // next noon, well inside the basin of the root we want.
-    const next = solarNoon(day.noon + DAY_MS, lngDeg);
-    return { t0: day.noon, t1: next, lengthMs: next - day.noon, day };
-  }
-  return { t0: day.start, t1: day.end, lengthMs: day.lengthMs, day };
-}

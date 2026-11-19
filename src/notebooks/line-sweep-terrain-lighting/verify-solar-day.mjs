@@ -29,13 +29,7 @@
 //
 //   node src/notebooks/line-sweep-terrain-lighting/verify-solar-day.mjs
 
-import {
-  solarNoon,
-  solarMidnight,
-  solarDayBounds,
-  solarDaySpan,
-} from "./solar-day.js";
-import { solarTimeQuantities } from "./solar-time.js";
+import { solarNoon, solarMidnight, solarDayBounds } from "./solar-day.js";
 
 const RAD = Math.PI / 180;
 const DAY_MS = 86400000;
@@ -218,85 +212,6 @@ for (const [date, expectMin] of [["2026-11-03", -16.4], ["2026-02-11", 14.2]]) {
     `${offsetMin > 0 ? "+" : ""}${offsetMin.toFixed(1)} min vs ${expectMin} expected`,
   );
 }
-
-// ---- the two loop spans ----------------------------------------------
-console.log("\nnoon-to-noon spans are one solar day (tolerance 40 s)");
-let worstNoonLen = 0;
-let noonStartMismatch = 0;
-for (const d of dates) {
-  for (const p of places) {
-    const anchorMs = Date.parse(`${d}T12:00:00Z`) - p.lng * 4 * 60000;
-    const span = solarDaySpan(anchorMs, p.lng, "noon");
-    worstNoonLen = Math.max(worstNoonLen, Math.abs(span.lengthMs - DAY_MS));
-    // The span must start on the noon of the day containing the
-    // anchor, so the date picker keeps meaning what it says.
-    if (span.t0 !== span.day.noon) noonStartMismatch++;
-  }
-}
-check("noon span length", worstNoonLen < 40000, `worst ${(worstNoonLen / 1000).toFixed(1)} s off`);
-check(
-  "noon span starts on the containing day's noon",
-  noonStartMismatch === 0,
-  `${noonStartMismatch} mismatches`,
-);
-
-console.log("\nboth ends of a noon span really are noons (AST ~ 720 min)");
-let worstNoonAst = 0;
-for (const d of dates) {
-  for (const p of places) {
-    const anchorMs = Date.parse(`${d}T12:00:00Z`) - p.lng * 4 * 60000;
-    const span = solarDaySpan(anchorMs, p.lng, "noon");
-    for (const t of [span.t0, span.t1]) {
-      // AST is minutes past UTC midnight plus the longitude term, so
-      // it runs outside [0, 1440) at far-east and far-west longitudes.
-      // Reduce the offset from noon the same way the midnight gate
-      // reduces its own, or an in-range answer reads as a day out.
-      const off = noaaAstMinutes(t, p.lng) - 720;
-      worstNoonAst = Math.max(
-        worstNoonAst,
-        Math.abs(off - Math.round(off / 1440) * 1440),
-      );
-    }
-  }
-}
-check("AST at both ends ~ 720", worstNoonAst * 60 < 60, `worst ${(worstNoonAst * 60).toFixed(1)} s`);
-
-console.log("\nmidnight and noon spans measure the same solar day");
-let worstSpanDiff = 0;
-for (const d of dates) {
-  for (const p of places) {
-    const anchorMs = Date.parse(`${d}T12:00:00Z`) - p.lng * 4 * 60000;
-    const a = solarDaySpan(anchorMs, p.lng, "midnight");
-    const b = solarDaySpan(anchorMs, p.lng, "noon");
-    worstSpanDiff = Math.max(worstSpanDiff, Math.abs(a.lengthMs - b.lengthMs));
-  }
-}
-check("span lengths agree", worstSpanDiff < 60000, `worst ${(worstSpanDiff / 1000).toFixed(1)} s apart`);
-
-// The seam cost that solarDaySpan's comment claims: consecutive solar
-// days are not identical because the declination moves, which is why a
-// midnight seam hides what a noon seam shows. Measured here so the
-// comment is a reported number rather than an assertion.
-console.log("\ndeclination drift across one solar day (the loop seam)");
-let worstDrift = 0;
-let driftWhen = null;
-const decDeg = (t) => (Math.asin(solarTimeQuantities(t).sinDec) * 180) / Math.PI;
-for (const d of dates) {
-  for (const p of places) {
-    const anchorMs = Date.parse(`${d}T12:00:00Z`) - p.lng * 4 * 60000;
-    const span = solarDaySpan(anchorMs, p.lng, "noon");
-    const drift = Math.abs(decDeg(span.t1) - decDeg(span.t0));
-    if (drift > worstDrift) {
-      worstDrift = drift;
-      driftWhen = d;
-    }
-  }
-}
-check(
-  "drift under 0.5° per day",
-  worstDrift < 0.5,
-  `worst ${worstDrift.toFixed(3)}° on ${driftWhen}`,
-);
 
 console.log(
   failures === 0 ? "\nall solar-day gates passed\n" : `\n${failures} GATE(S) FAILED\n`,
