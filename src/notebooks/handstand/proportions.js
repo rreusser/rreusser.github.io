@@ -34,12 +34,17 @@ import { buildModel, legMassShare, proportionedTable, tableLegFrac } from './ant
 import { createWorkspace, momenta, rnea } from './dynamics.js';
 import { groundHand, solveWristForCom, wristQ3LimitsDeg, QI, ROM_DEFAULTS } from './statics.js';
 import { balancedHandstand, HANDSTAND_TARGET_FRAC } from './rollout.js';
+import { drawScene, drawGhosts, viewTransform } from './render.js';
+
+// The reference body, wherever one is drawn behind another.
+export const GHOST_COLOR = '#d9622b';
 
 const D2R = Math.PI / 180;
 export const REACTION_DELAY_S = 0.15;
 
 export function balanceMetrics(model, ws = createWorkspace(model), { delay = REACTION_DELAY_S } = {}) {
   const q = balancedHandstand(model, ws);
+  const qStack = q.slice();
   const mo = momenta(model, q, null, ws);
   // The wrist is the forearm's origin.
   const wx = ws.px[1], wy = ws.py[1];
@@ -53,7 +58,7 @@ export function balanceMetrics(model, ws = createWorkspace(model), { delay = REA
   const Leq = h + (k * k) / h;
   const w = Math.sqrt(model.gravity / Leq);
   const a = q[0] + model.patch.x1 - mo.comX;   // CoM to fingertips
-  return { h, k, Leq, w, a, vMax: a * w * Math.exp(-w * delay) };
+  return { h, k, Leq, w, a, vMax: a * w * Math.exp(-w * delay), q: qStack };
 }
 
 export function pressMetric(model, ws = createWorkspace(model), {
@@ -74,7 +79,7 @@ export function pressMetric(model, ws = createWorkspace(model), {
     rnea(model, q, z, z, tau, null, { ws });
     return Math.abs(tau[QI.shoulder]);
   };
-  let worst = 0, worstHip = 0;
+  let worst = 0, worstHip = 0, worstSh = 0;
   for (let hip = hipLoDeg; hip <= hipHiDeg + 1e-9; hip += hipStepDeg) {
     // Coarse scan, then a golden-section polish around the best cell.
     let best = Infinity, bestSh = shoulderLoDeg;
@@ -89,17 +94,20 @@ export function pressMetric(model, ws = createWorkspace(model), {
       const m1 = hi - g * (hi - lo), m2 = lo + g * (hi - lo);
       if (torqueAt(hip, m1) < torqueAt(hip, m2)) hi = m2; else lo = m1;
     }
-    best = Math.min(best, torqueAt(hip, 0.5 * (lo + hi)));
-    if (best > worst) { worst = best; worstHip = hip; }
+    const polished = torqueAt(hip, 0.5 * (lo + hi));
+    if (polished < best) { best = polished; bestSh = 0.5 * (lo + hi); }
+    if (best > worst) { worst = best; worstHip = hip; worstSh = bestSh; }
   }
-  return { nmPerKg: worst / model.massKg, hipDeg: worstHip };
+  // The pose itself, so a figure can draw the moment the number is about.
+  torqueAt(worstHip, worstSh);
+  return { nmPerKg: worst / model.massKg, hipDeg: worstHip, shoulderDeg: worstSh, q: q.slice() };
 }
 
 // Both metrics for a body given by its parameters.
 export function bodyMetrics(params) {
   const model = buildModel(params);
   const ws = createWorkspace(model);
-  return { model, ...balanceMetrics(model, ws), press: pressMetric(model, ws) };
+  return { model, ws, ...balanceMetrics(model, ws), press: pressMetric(model, ws) };
 }
 
 // The grid over leg length and leg mass, as percent change relative to the
@@ -149,10 +157,76 @@ export async function proportionGridAsync(opts = {}, { yieldFn = () => new Promi
   return { base, cells, legFracs, legMassScales };
 }
 
+// A canvas that draws one body in a pose over the flat outline of another,
+// so a change of proportion shows up as the sliver of colour where the two
+// differ. The title and value lines are the panel's to fill.
+export function createBodyPanel(html, { w = 200, h = 280 } = {}) {
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+  const ctx = canvas.getContext('2d');
+  const title = html`<div style="font-weight:600; font-size:13px;"></div>`;
+  const value = html`<div style="font-size:13px; line-height:1.35; min-height:4.1em; font-variant-numeric:tabular-nums;"></div>`;
+  const element = html`<div style="width:${w}px; flex:0 0 auto;">${title}${canvas}${value}</div>`;
+  return {
+    element, title, value,
+    // body and ghost are { model, ws, q }; ghost is optional.
+    draw({ body, ghost = null, theme = null, view }) {
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+      if (ghost) {
+        drawGhosts(ctx, { model: ghost.model, ws: ghost.ws, poses: [{ q: ghost.q }],
+          width: w, height: h, theme, view, alpha: 0.55, color: GHOST_COLOR });
+      }
+      drawScene(ctx, { model: body.model, ws: body.ws, q: body.q, width: w, height: h, theme, view, clear: false });
+      // In a stack the two outlines nearly coincide -- same stature -- and
+      // what moved is inside them: the hip, and the centre of mass. Mark both
+      // for each body, the reference in its colour on top.
+      const { toX, toY } = viewTransform(w, h, view);
+      const marks = (b, color) => {
+        const mo = momenta(b.model, b.q, null, b.ws);
+        const hip = b.model.bodies.thighL;
+        const hx = b.ws.px[hip], hy = b.ws.py[hip];
+        ctx.strokeStyle = color; ctx.lineWidth = 2;
+        // The hip: a short bar across the body at the joint.
+        const th = b.ws.th[hip] + Math.PI / 2;
+        const r = 0.07 * b.model.heightM;
+        ctx.beginPath();
+        ctx.moveTo(toX(hx - r * Math.cos(th)), toY(hy - r * Math.sin(th)));
+        ctx.lineTo(toX(hx + r * Math.cos(th)), toY(hy + r * Math.sin(th)));
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(toX(mo.comX), toY(mo.comY), 5, 0, 2 * Math.PI);
+        ctx.stroke();
+      };
+      const ink = theme?.isDark ? '#eee' : '#222';
+      marks(body, ink);
+      if (ghost) marks(ghost, GHOST_COLOR);
+      ctx.restore();
+    },
+  };
+}
+
+// One window that holds both bodies in either pose: tall enough for the
+// taller, wide enough for a pike's legs either side of the hand.
+export function panelView(models, aspect) {
+  const reach = Math.max(...models.map((m) => m.reachM));
+  const yLo = -0.12, yHi = reach + 0.08;
+  // aspect is width over height. The pike's legs fold out toward -x by about
+  // half the reach; put the left edge just past them.
+  const halfW = 0.5 * aspect * (yHi - yLo);
+  return { cx: Math.min(0.1, -0.48 * reach + halfW), yLo, yHi };
+}
+
 // Two maps on one diverging scale, percent change against the table body:
 // left the shove the wrist can catch, right the shoulder torque a press needs.
 // Red is harder in both. The current body is the ringed dot.
-export function proportionFigure({ Plot, html, grid, current, width = 640 }) {
+//
+// onHover(cell | null) fires as a mouse moves over either map, and
+// onPick(cell) on a click or tap, with the grid cell under the pointer.
+export function proportionFigure({ Plot, html, grid, current, width = 640, onHover = null, onPick = null }) {
   const { legFracs, legMassScales } = grid;
   const dx = 100 * (legFracs[1] - legFracs[0]), dy = legMassScales[1] - legMassScales[0];
   const rects = grid.cells.map((c) => ({
@@ -185,6 +259,26 @@ export function proportionFigure({ Plot, html, grid, current, width = 640 }) {
       Plot.dot([current], { x: 'legPct', y: 'legMassScale', r: 7, stroke: 'currentColor', strokeWidth: 2.5, fill: 'none' }),
     ],
   }));
+  const cellAt = (chart, e) => {
+    const r = chart.getBoundingClientRect();
+    const x = chart.scale('x').invert(e.clientX - r.left);
+    const y = chart.scale('y').invert(e.clientY - r.top);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    let best = null, bd = Infinity;
+    for (const c of grid.cells) {
+      const d = Math.abs(c.legPct - x) / dx + Math.abs(c.legMassScale - y) / dy;
+      if (d < bd) { bd = d; best = c; }
+    }
+    return bd <= 1 ? best : null;
+  };
+  for (const chart of charts) {
+    chart.style.cursor = onPick ? 'pointer' : '';
+    if (onHover) {
+      chart.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') onHover(cellAt(chart, e)); });
+      chart.addEventListener('pointerleave', () => onHover(null));
+    }
+    if (onPick) chart.addEventListener('click', (e) => { const c = cellAt(chart, e); if (c) onPick(c); });
+  }
   const boxes = charts.map((c, i) => html`<div style="width:${w}px;">
     <div style="font-weight:600; font-size:13px; margin-bottom:2px;">${panels[i].title}</div>${c}</div>`);
   return html`<div style="display:flex; gap:16px; flex-wrap:wrap;">${boxes}</div>`;
