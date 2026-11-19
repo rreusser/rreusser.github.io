@@ -1944,8 +1944,13 @@
       step: 0.01,
     });
     const opennessTintEl = Inputs.range([0, 1], {
-      label: "openness tint",
+      label: "tint structure",
       value: 0.25,
+      step: 0.01,
+    });
+    const opennessContrastEl = Inputs.range([0, 1], {
+      label: "structure contrast",
+      value: 0.5,
       step: 0.01,
     });
     let _viewerRef = null;
@@ -1963,6 +1968,7 @@
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
     tileViewerControlsDiv.appendChild(tintEl);
     tileViewerControlsDiv.appendChild(opennessTintEl);
+    tileViewerControlsDiv.appendChild(opennessContrastEl);
     tileViewerControlsDiv.appendChild(sunModeEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
@@ -1978,6 +1984,7 @@
       sunCalendarEl,
       tintEl,
       opennessTintEl,
+      opennessContrastEl,
     };
   </script>
   <script id="72" type="module">
@@ -2257,6 +2264,7 @@
           // branch is reached, so there is nothing to suppress there.
           tintStrength: Number(c.tintEl.value),
           opennessTint: Number(c.opennessTintEl.value),
+          opennessContrast: Number(c.opennessContrastEl.value),
         };
         if (solar) lightingUpdate.solar = solar;
         viewer.setLighting(lightingUpdate);

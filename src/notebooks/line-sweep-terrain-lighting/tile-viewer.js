@@ -147,7 +147,7 @@ struct Global {
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
-  ao: vec4<f32>,           // x=floorRaw for the active falloff, y=1 when it is exp, zw unused
+  ao: vec4<f32>,           // x=floorRaw, y=1 when the falloff is exp, z=contrast exponent, w unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -273,7 +273,12 @@ fn sampleElev(uv: vec2<f32>, n: i32) -> f32 {
 // construction rather than by calibration, and a planar hillside of any
 // steepness stays near neutral too. Only ground more enclosed than its
 // own slope predicts moves, and it moves down.
-const AO_REL_SCALE: f32 = 0.6;
+// Scale fitted to real terrain rather than to a synthetic field. Over
+// 314k pixels of the tiles this map opens on, the raw residual runs
+// p01 -0.402, p05 -0.285, min -0.671. The previous 0.6 was fitted to a
+// synthetic field roughly 1.5x wider and left half the range unused:
+// it clipped 0.01% of real pixels where 0.45 clips 0.38%.
+const AO_REL_SCALE: f32 = 0.45;
 const AO_PLANE_A: f32 = 0.404038;
 const AO_PLANE_B: f32 = 0.499984;
 const AO_PLANE_C: f32 = -1.285729;
@@ -294,13 +299,56 @@ fn planeEnclosure(sinTheta: f32, nz: f32, isExp: f32) -> f32 {
   return clamp(mix(encCos2, encExp, isExp), 0.0, 1.0);
 }
 
-fn opennessOffset(ao: f32, floorRaw: f32, sinTheta: f32, nz: f32, isExp: f32) -> f32 {
+// The normal is packed into bytes, so a flat surface encodes as 128,
+// i.e. |nxy| = 0.0055 rather than 0. At contrast 1 that bias is worth
+// 0.19% of the ramp window, under one LUT entry, and rounds away. The
+// contrast exponent expands small values hardest, though, and takes it
+// to 3.5%, which is visible and would break the flat-ground guarantee.
+// Subtracting the bias restores it exactly and is continuous, unlike a
+// threshold. Slopes under about 0.3 degrees are below what the packed
+// normal can resolve anyway, so nothing real is lost.
+const AO_SLOPE_EPS: f32 = 0.008;
+
+fn opennessOffset(ao: f32, floorRaw: f32, sinTheta: f32, nz: f32, isExp: f32, contrast: f32) -> f32 {
+  let s = max(0.0, sinTheta - AO_SLOPE_EPS);
+  let nzAdj = sqrt(max(0.0, 1.0 - s * s));
   let encHere = enclosureOf(ao, floorRaw);
-  let encPlane = planeEnclosure(sinTheta, nz, isExp);
+  let encPlane = planeEnclosure(s, nzAdj, isExp);
   // Negative where the ground is more enclosed than its own slope
-  // predicts. Positive values are possible but tiny, since the clamped
-  // horizon leaves almost no headroom above a plane.
-  return clamp((encPlane - encHere) / AO_REL_SCALE, -1.0, 1.0);
+  // predicts. Positive values are possible but small, since the clamped
+  // horizon leaves little headroom above a plane.
+  let t = clamp((encPlane - encHere) / AO_REL_SCALE, -1.0, 1.0);
+  // Contrast. On real terrain the residual bunches up near zero, so an
+  // exponent below 1 pulls the crowded middle apart: measured over
+  // 225k pixels, the interquartile spread goes from 0.161 at p = 1 to
+  // 0.198 at p = 0.7 and 0.206 at p = 0.5, a 23-28% gain in the
+  // separation between one landform and the next.
+  //
+  // It is odd in t, so zero stays zero and flat ground and uniform
+  // hillsides keep their guarantees whatever the exponent. It does
+  // drag the mean, because the distribution is still lopsided toward
+  // enclosure: -0.178 at p = 1 against -0.277 at p = 0.7, which is
+  // about 3% of the ramp window at a strength of 0.6. That is the
+  // price, and it is why the control only reaches down to p = 0.5.
+  //
+  // Applying the exponent to the two enclosures *before* subtracting
+  // them would avoid relying on oddness, but it buys almost nothing:
+  // the same measurement moves the spread from 0.161 only to 0.165.
+  //
+  // The other cost is that expanding small values also expands the
+  // residual a *uniform* hillside shows, which comes mostly from the
+  // bake sampling only 8 azimuths so a plane's openness depends a
+  // little on its aspect. Max |offset| on a uniform slope:
+  //
+  //     slope  angle    c=0     c=0.5     c=1
+  //      0.30    17°   0.021    0.064    0.143
+  //      1.00    45°   0.049    0.119    0.222
+  //      1.70    60°   0.098    0.194    0.313
+  //
+  // At the default strength that is 1.5% of the ramp window on a 45°
+  // hillside at c = 0.5. Harmless at the default, but at c = 1 on very
+  // smooth steep ground it can show as faint aspect-dependent banding.
+  return sign(t) * pow(abs(t), max(contrast, 0.05));
 }
 
 // Elevation to Oklab, linearly blending the two bracketing ramp
@@ -519,7 +567,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // enough for openness alone to traverse the whole ramp.
   let h = sampleElev(in.uv, i32(t.tileZXY.w));
   let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
-  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x, slopeMag, nz, g.ao.y) * 0.5 * rampSpan;
+  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x, slopeMag, nz, g.ao.y, g.ao.z) * 0.5 * rampSpan;
   let lab = rampAt(hSample);
   let L2 = clamp(lab.x * k, 0.0, 1.0);
   // Scale chroma with lightness rather than holding it fixed. Holding
@@ -925,6 +973,8 @@ export function createTileViewer(opts) {
     // Openness tint: how far the LSAO term is allowed to shift where
     // the ramp is sampled, as a fraction of half the ramp window.
     opennessTint: 0,
+    // How hard to pull apart the crowded middle of that signal, 0 to 1.
+    opennessContrast: 0,
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -1608,7 +1658,7 @@ export function createTileViewer(opts) {
     //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
     //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, opennessTint)
-    //   f32[20..23] = ao (floorRaw, 1 when the falloff is exp, unused x2)
+    //   f32[20..23] = ao (floorRaw, 1 when the falloff is exp, contrast exponent, unused)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1634,7 +1684,11 @@ export function createTileViewer(opts) {
     // it keeps the openness tint calibrated across both falloffs.
     globalData[20] = lighting.lsaoFalloff === "exp" ? Math.exp(-1) : 0;
     globalData[21] = lighting.lsaoFalloff === "exp" ? 1 : 0;
-    globalData[22] = 0;
+    // Contrast exponent. The control is 0 (no reshaping) to 1 (the most
+    // the measurements support), mapped to p = 2^-c so 0 -> 1 and
+    // 1 -> 0.5. Never 0, which would make pow(0, p) = 1 and break the
+    // flat-ground guarantee.
+    globalData[22] = Math.pow(2, -lighting.opennessContrast);
     globalData[23] = 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
