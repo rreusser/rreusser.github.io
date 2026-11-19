@@ -202,7 +202,18 @@ const CSS = `
 }
 .grd-editor button.grd-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); }
 .grd-editor button.grd-btn:disabled { opacity: 0.4; cursor: default; }
-.grd-hint { color: var(--grd-fg-dim); opacity: 0.8; }
+
+.grd-editor select {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  color: var(--grd-fg);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--grd-line);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.grd-editor select option { color: #111; }
 
 /* The range slider ships a theme tuned for a page background. On this
    dark translucent panel its track disappears, so restate the surfaces
@@ -278,6 +289,11 @@ function niceStep(span, target) {
  * @param {[number,number]} [opts.bounds]  outer limits of the window
  *        control, e.g. [-440, 8848] for land elevation. Omit to hide it.
  * @param {number} [opts.boundsStep]       quantisation of the window control
+ * @param {Array<{name:string, stops:Array<{t:number,color:string}>}>} [opts.presets]
+ *        named ramps to offer. Stop positions are normalized to [0,1] and
+ *        mapped onto whatever window is current when one is picked, so
+ *        choosing a preset restyles the ramp without moving the elevations
+ *        it covers. Omit to hide the picker.
  */
 export function createGradientEditor({
   stops: initialStops,
@@ -291,6 +307,7 @@ export function createGradientEditor({
   onFit,
   bounds,
   boundsStep = 10,
+  presets,
 } = {}) {
   installCSS();
   const ns = `grd${++_uid}`;
@@ -397,6 +414,60 @@ export function createGradientEditor({
     domainRow.append(fitBtn);
   }
 
+  // Preset picker. Applying one maps the preset's normalized stops onto
+  // the current window, so it changes colours without disturbing which
+  // elevations the ramp covers. Any hand edit afterwards flips the
+  // picker back to "custom" so it never claims a ramp it no longer
+  // describes.
+  let presetSelect = null;
+  let presetRow = null;
+  let applyingPreset = false;
+  if (presets && presets.length > 0) {
+    presetRow = document.createElement("div");
+    presetRow.className = "grd-row";
+    const label = document.createElement("label");
+    label.textContent = "ramp";
+    presetSelect = document.createElement("select");
+    presetSelect.title = "Replace the ramp's colours, keeping its elevation window";
+    const custom = document.createElement("option");
+    custom.value = "";
+    custom.textContent = "custom";
+    presetSelect.appendChild(custom);
+    for (const p of presets) {
+      const o = document.createElement("option");
+      o.value = p.name;
+      o.textContent = p.name;
+      presetSelect.appendChild(o);
+    }
+    presetSelect.addEventListener("change", () => {
+      const p = presets.find((q) => q.name === presetSelect.value);
+      if (!p) return;
+      applyPreset(p);
+    });
+    presetRow.append(label, presetSelect);
+  }
+
+  function applyPreset(p) {
+    const [d0, d1] = domain;
+    const snap = Math.abs(d1 - d0) >= 100;
+    const next = p.stops.map((st) => {
+      const v = d0 + Math.min(1, Math.max(0, st.t)) * (d1 - d0);
+      return { value: snap ? Math.round(v) : v, color: st.color };
+    });
+    applyingPreset = true;
+    try {
+      setStopsInternal(next);
+    } finally {
+      applyingPreset = false;
+    }
+    if (presetSelect) presetSelect.value = p.name;
+  }
+
+  // Marks the ramp as hand-edited unless a preset is being applied.
+  function markCustom() {
+    if (!applyingPreset && presetSelect) presetSelect.value = "";
+  }
+
   // Window control: a two-thumb slider over the full plausible span.
   let windowSlider = null;
   let windowRow = null;
@@ -451,15 +522,9 @@ export function createGradientEditor({
     }
   }
 
-  const hint = document.createElement("div");
-  hint.className = "grd-hint";
-  hint.textContent = bounds
-    ? "Click the ramp to add a stop, drag a chip to move it. The slider moves the whole ramp."
-    : "Click the ramp to add a stop; drag a chip to move it.";
-
   body.append(strip, stopRow, domainRow);
   if (windowRow) body.append(windowRow);
-  body.append(hint);
+  if (presetRow) body.append(presetRow);
   root.append(head, body);
 
   // ---- geometry ----------------------------------------------------
@@ -572,6 +637,13 @@ export function createGradientEditor({
     onChange?.({ stops: sortedStops().map(({ value, color }) => ({ value, color })), domain: [...domain], lut });
   }
 
+  function setStopsInternal(next) {
+    stops = next.map((st, i) => ({ id: `${ns}-set${nextId++}-${i}`, value: st.value, color: st.color }));
+    selectedId = stops.length > 0 ? stops[0].id : null;
+    refresh();
+    emit();
+  }
+
   // ---- editing -----------------------------------------------------
 
   function addStopAt(value) {
@@ -585,6 +657,7 @@ export function createGradientEditor({
     const s = { id: `${ns}-${nextId++}`, value, color: oklabToHex(L, a, b) };
     stops.push(s);
     selectedId = s.id;
+    markCustom();
     refresh();
     emit();
     return s;
@@ -638,6 +711,7 @@ export function createGradientEditor({
     stops.splice(i, 1);
     const ordered = sortedStops();
     selectedId = ordered[Math.min(i, ordered.length - 1)].id;
+    markCustom();
     refresh();
     emit();
   }
@@ -668,6 +742,7 @@ export function createGradientEditor({
       // Snap to whole units on a metre-scale domain; the stop list is
       // nicer to read and the LUT cannot resolve sub-metre anyway.
       if (span >= 100) s.value = Math.round(s.value);
+      markCustom();
       refresh();
       emit();
       e.preventDefault();
@@ -694,6 +769,7 @@ export function createGradientEditor({
     const s = selected();
     if (!s) return;
     s.color = colorInput.value;
+    markCustom();
     refresh();
     emit();
   });
@@ -704,6 +780,7 @@ export function createGradientEditor({
     const v = Number(valueInput.value);
     if (!Number.isFinite(v)) return;
     s.value = v;
+    markCustom();
     refresh();
     emit();
   });
@@ -765,11 +842,11 @@ export function createGradientEditor({
     get lut() { return lut; },
     getStops: () => sortedStops().map(({ value, color }) => ({ value, color })),
     getDomain: () => [...domain],
-    setStops(next) {
-      stops = next.map((s, i) => ({ id: `${ns}-set${nextId++}-${i}`, value: s.value, color: s.color }));
-      selectedId = stops.length > 0 ? stops[0].id : null;
-      refresh();
-      emit();
+    setStops: setStopsInternal,
+    /** Apply a preset by name, mapped onto the current window. */
+    applyPreset(name) {
+      const p = (presets ?? []).find((q) => q.name === name);
+      if (p) applyPreset(p);
     },
     /**
      * Move the window, carrying the stops so each keeps its position on

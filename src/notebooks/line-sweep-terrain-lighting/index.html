@@ -1896,6 +1896,7 @@
     import { createSunCalendar } from "./lib/sun-calendar.js";
     import { solarTimeQuantities } from "./solar-time.js";
     import { createGradientEditor } from "./lib/gradient-editor.js";
+    import { interpolateViridis, interpolateMagma, interpolatePlasma, interpolateCividis, interpolateInferno } from "npm:d3-scale-chromatic";
   </script>
   <script id="71" type="module">
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
@@ -2082,6 +2083,47 @@
         "position:absolute; left:12px; bottom:12px; z-index:500; width:286px;" +
         " max-width:calc(100% - 24px); max-height:calc(100% - 24px); overflow:auto;" +
         " pointer-events:auto;";
+      // Ramp presets. Positions are normalized, so picking one restyles
+      // the ramp without moving the elevations it covers.
+      //
+      // The matplotlib scales are continuous functions, so they get
+      // resampled into stops the editor can show and drag. 13 is enough
+      // that the editor's Oklab monotone-cubic fit tracks the original
+      // closely while leaving a chip rail you can actually read.
+      const rgbToHex = (css) => {
+        const m = /rgba?\(([^)]+)\)/.exec(css);
+        if (!m) return css;
+        const [r, g, b] = m[1].split(",").map((v) => Math.round(parseFloat(v)));
+        const q = (v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0");
+        return `#${q(r)}${q(g)}${q(b)}`;
+      };
+      const sampled = (name, interp, n = 13) => ({
+        name,
+        stops: Array.from({ length: n }, (_, i) => {
+          const t = i / (n - 1);
+          return { t, color: rgbToHex(interp(t)) };
+        }),
+      });
+      const terrainStops = [
+        { t: 0.0,  color: "#46773f" },
+        { t: 0.08, color: "#7e9b4e" },
+        { t: 0.17, color: "#bdbf74" },
+        { t: 0.27, color: "#d8bd86" },
+        { t: 0.38, color: "#c3996c" },
+        { t: 0.54, color: "#a87f63" },
+        { t: 0.69, color: "#b9a89a" },
+        { t: 0.85, color: "#ddd5cc" },
+        { t: 1.0,  color: "#efe9e2" },
+      ];
+      const rampPresets = [
+        { name: "terrain", stops: terrainStops },
+        sampled("viridis", interpolateViridis),
+        sampled("magma", interpolateMagma),
+        sampled("plasma", interpolatePlasma),
+        sampled("inferno", interpolateInferno),
+        sampled("cividis", interpolateCividis),
+      ];
+
       let autoFitDone = false;
       // Elevation bounds of the loaded tiles, padded a little and
       // rounded outward to 100 m so the axis labels come out tidy.
@@ -2100,31 +2142,22 @@
         title: "Elevation tint",
         unit: " m",
         height: 230,
-        // On a phone the panel would swallow most of the map, so start
-        // it folded down to its header there and let the reader open it.
-        collapsed: window.innerWidth < 700,
+        // Starts folded down to its header so the map is unobstructed;
+        // the caret opens it.
+        collapsed: true,
         domain: [0, 5200],
         // The window slider spans land elevation end to end, from the
         // Dead Sea shore to Everest, so the control means the same
         // thing wherever on the planet the map happens to be.
         bounds: [-440, 8848],
         boundsStep: 10,
-        // A fairly conventional lowland-green through desert-tan to
-        // snow ramp. The top stop stops short of white on purpose: at
-        // Oklab L = 1 there is no headroom left, so a sunlit slope on a
-        // summit renders the same as a shaded one and the relief goes
-        // flat exactly where the terrain is most dramatic.
-        stops: [
-          { value: 0, color: "#46773f" },
-          { value: 400, color: "#7e9b4e" },
-          { value: 900, color: "#bdbf74" },
-          { value: 1400, color: "#d8bd86" },
-          { value: 2000, color: "#c3996c" },
-          { value: 2800, color: "#a87f63" },
-          { value: 3600, color: "#b9a89a" },
-          { value: 4400, color: "#ddd5cc" },
-          { value: 5200, color: "#efe9e2" },
-        ],
+        // Lowland green through desert tan to snow. The top stop stops
+        // short of white on purpose: at Oklab L = 1 there is no headroom
+        // left, so a sunlit slope on a summit renders the same as a
+        // shaded one and the relief goes flat exactly where the terrain
+        // is most dramatic.
+        stops: terrainStops.map((st) => ({ value: st.t * 5200, color: st.color })),
+        presets: rampPresets,
         onFit: fitRange,
         onChange: ({ lut, domain }) => viewer.setRamp(lut, domain),
       });
