@@ -1954,6 +1954,14 @@
       value: 0.49,
       step: 0.01,
     });
+    // Satellite imagery over the tint. At exactly zero the viewer
+    // fetches no imagery tiles and allocates no imagery textures, so
+    // the layer is free until it is asked for.
+    const satelliteEl = Inputs.range([0, 1], {
+      label: "satellite",
+      value: 0,
+      step: 0.01,
+    });
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1970,6 +1978,7 @@
     tileViewerControlsDiv.appendChild(tintEl);
     tileViewerControlsDiv.appendChild(opennessTintEl);
     tileViewerControlsDiv.appendChild(opennessContrastEl);
+    tileViewerControlsDiv.appendChild(satelliteEl);
     const animationPanel = createAnimationPanel({
       Inputs,
       html,
@@ -2005,6 +2014,7 @@
       tintEl,
       opennessTintEl,
       opennessContrastEl,
+      satelliteEl,
     };
   </script>
   <script id="72" type="module">
@@ -2086,6 +2096,14 @@
         device,
         format,
         tileUrl: "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
+        // Sentinel-2 cloudless, on the same tile grid as the terrain:
+        // one 256x256 image per elevation tile, linearly sampled up to
+        // the tile's size. Half the terrain's resolution, which the
+        // relief carries anyway, and half the memory of matching it.
+        imageryUrl:
+          "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg",
+        imageryAttribution:
+          'Imagery: <a href="https://s2maps.eu/" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by EOX',
         tileSize: 256,
         minZoom: 0,
         maxZoom: 15,
@@ -2311,6 +2329,7 @@
           tintStrength: Number(c.tintEl.value),
           opennessTint: Number(c.opennessTintEl.value),
           opennessContrast: Number(c.opennessContrastEl.value),
+          satOpacity: Number(c.satelliteEl.value),
         };
         if (solar) lightingUpdate.solar = solar;
         viewer.setLighting(lightingUpdate);
