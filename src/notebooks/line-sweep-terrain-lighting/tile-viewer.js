@@ -147,7 +147,7 @@ struct Global {
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
-  ao: vec4<f32>,           // x=floorRaw for the active LSAO falloff, yzw unused
+  ao: vec4<f32>,           // x=floorRaw for the active falloff, y=1 when it is exp, zw unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -233,52 +233,74 @@ fn sampleElev(uv: vec2<f32>, n: i32) -> f32 {
   return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
 }
 
-// Openness, the LSAO term in the bake's blue channel, used to nudge
-// where the ramp is sampled. Elevation alone flattens a view whose
-// relief is small next to the ramp window: every feature maps to nearly
-// the same colour and a canyon reads as one wash. Shifting the sample
-// by openness pulls the drainages back out of it.
+// Concavity, read from the LSAO term already in the bake's blue
+// channel, used to nudge where the ramp is sampled. Elevation alone
+// flattens a view whose relief is small next to the ramp window: every
+// feature maps to nearly the same colour and a canyon reads as one
+// wash. Pulling hollows down the ramp brings the landforms back.
 //
-// The anchor is the one thing that has to be exactly right: a flat
-// surface must come through untouched, whatever the strength, so that
-// ground with no shape to it is coloured by its elevation and nothing
-// else. The sweep starts its horizon flat and only counts blockers
-// strictly above the ray, so flat ground returns exactly 1. Running the
-// real sweepCore over synthetic fields confirms it, and also shows the
-// limit of the signal:
+// This is a one-directional effect and that is inherent, not a
+// shortcut. The sweep carries an infinite horizon: it starts level and
+// only counts blockers strictly above the ray, so nothing can ever read
+// as more open than level. Feed a spherical cap through an unclamped
+// march and it does come out above 1 (1.005 for a 3 km radius, 1.015
+// for 1 km), but the bake floors all of that to exactly 1, the same as
+// flat ground. So convexity is not recoverable here, and the channel
+// measures concavity and nothing else. That is also a defensible place
+// to stop physically, since ground reflects little light compared with
+// sky.
 //
-//     flat   1.0000     pit          0.4540
-//     hill   1.0000     valley       0.5437
-//     ridge  1.0000     slot canyon  0.2790
+// What the baseline must not be is a constant. A pixel on a uniform
+// hillside is partly occluded by its own slope, so against a constant
+// it reads as concave and gets dragged down the ramp for having no
+// shape at all. The right reference is the value the AO function
+// returns for the shape with no curvature: an infinite plane of that
+// pixel's own slope. The bake already stores the normal, so this costs
+// one polynomial and samples no neighbouring texel.
 //
-// A convex hill and a ridge crest saturate at the same 1 as flat
-// ground. The channel measures *concavity* and is blind to convexity,
-// so anchoring at flat necessarily makes this one-directional: hollows
-// move down the ramp and nothing moves up. Getting hollows down *and*
-// rims up while flat stays fixed would need the openness compared
-// against a spatially smoothed copy of itself, not against a constant.
+//   cos²α has an exact closed form. Averaging 1 - sin²α over azimuth
+//   with the plane's horizon tan α = max(0, tanθ·cos φ) gives
+//   <sin²α> = (1 - cos θ)/2, so the raw sweep value is (1 + nz)/2 and
+//   the enclosure is (1 - nz)/2. Matches the integral to 5e-7.
 //
-// The two falloffs do not share a range either. cos²α reaches 0 when
-// fully enclosed, but e^(−sin α) bottoms out at e^-1 ≈ 0.368, and after
-// the bake's aoGamma = 2 those become 0 and 0.135. Normalising by the
-// falloff's own floor is what stops the AO-falloff radio from silently
-// recalibrating the tint, and it is also what makes enclosure 0 mean
-// "flat" in both modes.
+//   e^(−sin α) has no elementary form, so it is a least-squares fit in
+//   sin θ, which is exactly |nxy|. Enclosure rises linearly in sin θ
+//   near flat rather than in (1 - nz), and fitting the wrong variable
+//   costs an order of magnitude: max error 0.023 over the full 0-90°
+//   range and under 0.005 across 0-60°, where terrain lives.
 //
-// The shift is linear in enclosure. An exponent was tried here as a
-// contrast control and removed: because the effect is one-directional,
-// every offset has the same sign, so reshaping the curve necessarily
-// moves its mean. Over a plausible spread of terrain the mean shift
-// ran from -0.08 to -0.41 across the control's range, which reads as a
-// second brightness knob rather than as contrast, and it duplicated
-// what the strength slider already does. An exponent can only be
-// brightness-neutral on a quantity that is already centred, and pinning
-// flat ground to one end of the range is exactly what stops this one
-// from being.
-fn opennessOffset(ao: f32, floorRaw: f32) -> f32 {
+// Both forms vanish at zero slope, so flat ground is neutral by
+// construction rather than by calibration, and a planar hillside of any
+// steepness stays near neutral too. Only ground more enclosed than its
+// own slope predicts moves, and it moves down.
+const AO_REL_SCALE: f32 = 0.6;
+const AO_PLANE_A: f32 = 0.404038;
+const AO_PLANE_B: f32 = 0.499984;
+const AO_PLANE_C: f32 = -1.285729;
+const AO_PLANE_D: f32 = 0.859000;
+
+fn enclosureOf(ao: f32, floorRaw: f32) -> f32 {
   let raw = sqrt(max(ao, 0.0));                                  // undo aoGamma = 2
-  let enc = clamp((1.0 - raw) / max(1.0 - floorRaw, 1e-6), 0.0, 1.0);
-  return -enc;
+  return clamp((1.0 - raw) / max(1.0 - floorRaw, 1e-6), 0.0, 1.0);
+}
+
+// Enclosure of an infinite plane with this normal. isExp selects the
+// falloff the bake was run with; the two do not share a range, so
+// without this the AO falloff radio would recalibrate the tint.
+fn planeEnclosure(sinTheta: f32, nz: f32, isExp: f32) -> f32 {
+  let s = clamp(sinTheta, 0.0, 1.0);
+  let encCos2 = 0.5 * (1.0 - clamp(nz, 0.0, 1.0));
+  let encExp = s * (AO_PLANE_A + s * (AO_PLANE_B + s * (AO_PLANE_C + s * AO_PLANE_D)));
+  return clamp(mix(encCos2, encExp, isExp), 0.0, 1.0);
+}
+
+fn opennessOffset(ao: f32, floorRaw: f32, sinTheta: f32, nz: f32, isExp: f32) -> f32 {
+  let encHere = enclosureOf(ao, floorRaw);
+  let encPlane = planeEnclosure(sinTheta, nz, isExp);
+  // Negative where the ground is more enclosed than its own slope
+  // predicts. Positive values are possible but tiny, since the clamped
+  // horizon leaves almost no headroom above a plane.
+  return clamp((encPlane - encHere) / AO_REL_SCALE, -1.0, 1.0);
 }
 
 // Elevation to Oklab, linearly blending the two bracketing ramp
@@ -497,7 +519,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // enough for openness alone to traverse the whole ramp.
   let h = sampleElev(in.uv, i32(t.tileZXY.w));
   let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
-  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x) * 0.5 * rampSpan;
+  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x, slopeMag, nz, g.ao.y) * 0.5 * rampSpan;
   let lab = rampAt(hSample);
   let L2 = clamp(lab.x * k, 0.0, 1.0);
   // Scale chroma with lightness rather than holding it fixed. Holding
@@ -1586,7 +1608,7 @@ export function createTileViewer(opts) {
     //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
     //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, opennessTint)
-    //   f32[20..23] = ao (floorRaw for the active falloff, unused x3)
+    //   f32[20..23] = ao (floorRaw, 1 when the falloff is exp, unused x2)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1611,7 +1633,7 @@ export function createTileViewer(opts) {
     // Naaji's exp(-sin a), 0 for the Lambertian cos2 a. Normalising by
     // it keeps the openness tint calibrated across both falloffs.
     globalData[20] = lighting.lsaoFalloff === "exp" ? Math.exp(-1) : 0;
-    globalData[21] = 0;
+    globalData[21] = lighting.lsaoFalloff === "exp" ? 1 : 0;
     globalData[22] = 0;
     globalData[23] = 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);

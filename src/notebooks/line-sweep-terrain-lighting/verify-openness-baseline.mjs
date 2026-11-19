@@ -1,15 +1,23 @@
-// Gate for the openness tint's baseline.
+// Gate for the openness tint.
 //
-// The tint shifts where the hypsometric ramp is sampled, in proportion
-// to how enclosed a pixel is. For that to mean anything, ground with no
-// shape to it has to come through untouched: a flat surface must be an
-// exact no-op at any strength, so that it is coloured by its elevation
-// and nothing else.
+// The tint shifts where the hypsometric ramp is sampled according to
+// how enclosed a pixel is. Two things have to hold for that to mean
+// anything:
 //
-// The baseline is therefore not something to measure off whatever view
-// the map happens to open on. It is a property of the AO function, so
-// this feeds constant elevation fields straight into the real sweep and
-// reads the output back.
+//   1. Ground with no shape to it comes through untouched, at any
+//      strength, so it is coloured by elevation and nothing else.
+//   2. A uniform hillside is also untouched. Slope on its own is not
+//      concavity, and a constant baseline would drag every hillside
+//      down the ramp for having no shape at all.
+//
+// Neither baseline is something to measure off a view. Both come out of
+// the AO function itself, so this feeds constant and constant-gradient
+// fields through the real sweep and reads the output back.
+//
+// It also records the limit of the signal: the sweep carries an
+// infinite horizon, starting level and counting only blockers strictly
+// above the ray, so nothing reads as more open than level and convexity
+// is not recoverable. The tint is concavity-only by consequence.
 //
 //   node src/notebooks/line-sweep-terrain-lighting/verify-openness-baseline.mjs
 
@@ -79,11 +87,41 @@ for (const falloff of ["exp", "cos2"]) {
         Math.abs(enclosure(sealed, falloff) - 1) < 1e-12, `enc=${enclosure(sealed, falloff)}`);
 }
 
-// The shift is -enclosure, so the baseline is an exact zero.
-console.log("\nThe offset at the baseline:\n");
+// The plane baseline: enclosure of an infinite plane of a given slope,
+// which is what a pixel with no curvature should be compared against.
+const A = 0.404038, B = 0.499984, C = -1.285729, D = 0.859000;
+const planeEnc = (sinTheta, falloff) => {
+  const s = Math.min(1, Math.max(0, sinTheta));
+  if (falloff === "cos2") return 0.5 * (1 - Math.sqrt(Math.max(0, 1 - s * s)));
+  return Math.min(1, Math.max(0, s * (A + s * (B + s * (C + s * D)))));
+};
+const offsetOf = (storedAo, sinTheta, falloff) =>
+  Math.max(-1, Math.min(1, (planeEnc(sinTheta, falloff) - enclosure(storedAo, falloff)) / 0.6));
+
+console.log("\nThe offset at the flat baseline:\n");
 for (const falloff of ["exp", "cos2"]) {
-  const offset = -enclosure(1, falloff);
-  check(`${falloff.padEnd(4)} flat offset is exactly 0`, offset === 0, `offset = ${offset}`);
+  const o = offsetOf(1, 0, falloff);
+  check(`${falloff.padEnd(4)} flat ground gives exactly 0`, o === 0, `offset = ${o}`);
+}
+
+// A uniform hillside has no curvature, so it should barely move. The
+// sweep's 8 directions and the fit both introduce a little error; bound
+// it so a regression would show.
+console.log("\nUniform hillsides, which have no curvature to show:\n");
+for (const falloff of ["exp", "cos2"]) {
+  for (const slope of [0.1, 0.3, 0.6, 1.0]) {
+    const N = 128, px = 30;
+    const elev = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) elev[y * N + x] = slope * px * x;
+    const ao = bakeOpenness(elev, N, px, falloff);
+    const sinTheta = slope / Math.sqrt(1 + slope * slope);
+    let worst = 0;
+    for (let y = 24; y < N - 24; y++) for (let x = 24; x < N - 24; x++) {
+      worst = Math.max(worst, Math.abs(offsetOf(ao[y * N + x], sinTheta, falloff)));
+    }
+    check(`${falloff.padEnd(4)} slope ${slope.toFixed(1)} stays near neutral`, worst < 0.12,
+          `max |offset| = ${worst.toFixed(4)}`);
+  }
 }
 
 // Convexity is invisible: a hill crest and a ridge saturate at the same
