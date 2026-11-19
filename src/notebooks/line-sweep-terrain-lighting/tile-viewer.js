@@ -479,12 +479,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let nightMask = 1.0 - shadowStrength * nightShadow;
   // Shadow-vs-altitude blend. In fixed mode, fade to "fully
   // shadowed" as the handle approaches the horizon — a grace note
-  // so the view doesn't snap to black at dip. In time mode, fade
-  // to "no shadow" per-pixel on the twilight smoothstep, matching
-  // the range used for nightMask and the relief fade so all three
-  // effects ramp together through the terminator.
+  // so the view doesn't snap to black at dip.
+  //
+  // In time mode, fade to "fully shadowed" as well. Fading to *no*
+  // shadow instead, which is what this did originally, lit the night
+  // side back up: past the terminator a shadowed pixel lost its cast
+  // shadow while the aspect relief faded out from under it too, so
+  // terrain that had been darkening all afternoon turned round and
+  // brightened once the sun was down — on a 45 degree slope facing
+  // away from the sun, by a factor of nearly three. Fading to fully
+  // shadowed makes the terminator a one-way ramp into the dark, and
+  // it is also the physically sensible limit: no sun anywhere means
+  // every pixel is in shadow. nightMask then stacks on top, so the
+  // night floor sits below a daytime cast shadow, which is right —
+  // a shadow at noon is still lit by the sky, and midnight is not.
+  // See verify-night-shading.mjs for the swept terminator.
   let fixedHS = mix(1.0, shadow, saturate(g.sunDir.z / 0.035));
-  let timeHS = mix(0.0, shadow, twilight);
+  let timeHS = mix(1.0, shadow, twilight);
   let horizonShadow = mix(fixedHS, timeHS, useTime);
   let shadowMask = 1.0 - shadowStrength * horizonShadow;
 
@@ -627,8 +638,54 @@ export function createTileViewer(opts) {
   canvas.style.display = "block";
   container.appendChild(canvas);
 
+  // Size chip: a small pill in the corner reporting the exact pixel
+  // size a recording will come out as. It flashes on every resize so
+  // the user can pick a recording resolution just by sizing the
+  // window, WYSIWYG, and the animation panel pins it while open.
+  const evenDown = (v) => Math.max(2, v - (v % 2));
+  const sizeChip = document.createElement("div");
+  sizeChip.style.cssText =
+    // Above the sun handle and ramp editor, which both sit at 500. It
+    // is pointer-events:none, so sitting on top costs them nothing.
+    "position:absolute; right:8px; bottom:8px; z-index:600;" +
+    " pointer-events:none;" +
+    " font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;" +
+    " font-variant-numeric:tabular-nums;" +
+    " padding:2px 6px; border-radius:4px;" +
+    " background:rgba(0,0,0,0.55); color:#fff;" +
+    " opacity:0; transition:opacity 180ms ease;";
+  container.appendChild(sizeChip);
+  let sizeChipTimer = 0;
+  let sizeChipPinned = false;
+  let sizedOnce = false;
+
+  function updateSizeChip(flash) {
+    sizeChip.textContent = `${evenDown(viewportW)} \u00d7 ${evenDown(viewportH)}`;
+    if (sizeChipPinned) {
+      clearTimeout(sizeChipTimer);
+      sizeChip.style.opacity = "1";
+      return;
+    }
+    if (!flash) return;
+    sizeChip.style.opacity = "1";
+    clearTimeout(sizeChipTimer);
+    sizeChipTimer = setTimeout(() => {
+      sizeChip.style.opacity = "0";
+    }, 1600);
+  }
+
   const gpuCtx = canvas.getContext("webgpu");
-  gpuCtx.configure({ device, format, alphaMode: "premultiplied" });
+  gpuCtx.configure({
+    device,
+    format,
+    alphaMode: "premultiplied",
+    // COPY_SRC lets captureFrame() copy the swap-chain texture into a
+    // readback buffer inside the *same* command buffer as the render
+    // pass. That sidesteps the race lib/webgpu-snapshot.js documents:
+    // once the browser presents the frame the canvas reads back blank,
+    // so toDataURL() only works synchronously after submit.
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
 
   // ------------------------------------------------------------------
   // Data-prep worker: handles tile fetching, terrarium decoding, and
@@ -919,6 +976,15 @@ export function createTileViewer(opts) {
 
   let sunDirty = true;
   let sunGeneration = 0;
+  let hqPending = false;
+
+  // Sun altitude at the view centre, in degrees, for the night-side
+  // re-bake skip. Only meaningful in time mode.
+  function centerSunAltDeg() {
+    if (!lighting.useTime || !lighting.solar) return 90;
+    const [lat, lng] = worldToLatLng(centerWorldX, centerWorldY, baseZoom, tileSize);
+    return sunAnglesAt(lighting.solar, (lat * Math.PI) / 180, (lng * Math.PI) / 180).altDeg;
+  }
   let hashTimer = 0;
   function scheduleHashFlush() {
     clearTimeout(hashTimer);
@@ -1635,18 +1701,128 @@ export function createTileViewer(opts) {
 
   function updateCanvasSize() {
     const rect = container.getBoundingClientRect();
+    const prevW = viewportW;
+    const prevH = viewportH;
     viewportW = Math.max(1, Math.round(rect.width));
     viewportH = Math.max(1, Math.round(rect.height));
     canvas.style.width = viewportW + "px";
     canvas.style.height = viewportH + "px";
     canvas.width = viewportW;
     canvas.height = viewportH;
+    // Flash the size chip on every real change after the first layout
+    // pass — the initial sizing isn't a user action worth announcing.
+    const changed = viewportW !== prevW || viewportH !== prevH;
+    updateSizeChip(changed && sizedOnce);
+    sizedOnce = true;
     needsRender = true;
     updateTiles();
   }
 
+  // ------------------------------------------------------------------
+  // Frame capture.
+  //
+  // captureFrame() parks a request here; the next render() copies the
+  // swap-chain texture into `captureBuffer` in the same command buffer
+  // as the draw, and finishCapture() maps it once the GPU is done. The
+  // buffer is reused across frames so a long recording doesn't churn
+  // allocations.
+  // ------------------------------------------------------------------
+  let capture = null;
+  let captureBuffer = null;
+  let captureBufferSize = 0;
+
+  async function finishCapture(req) {
+    const { w, h, bytesPerRow, buffer, resolve, reject } = req;
+    const total = bytesPerRow * h;
+    try {
+      await buffer.mapAsync(GPUMapMode.READ, 0, total);
+      const padded = new Uint8Array(buffer.getMappedRange(0, total));
+      const rowBytes = w * 4;
+      const out = new Uint8Array(rowBytes * h);
+      // getPreferredCanvasFormat() is bgra8unorm on most platforms
+      // (macOS included) and the h264 encoder wants RGBA, so unpack
+      // the 256-byte-aligned rows and swap R/B on the way out. Alpha
+      // is forced opaque: the canvas is premultiplied and the clear
+      // value is opaque white, but the encoder has no use for it.
+      const swap = format.startsWith("bgra");
+      for (let y = 0; y < h; y++) {
+        const src = y * bytesPerRow;
+        const dst = y * rowBytes;
+        if (swap) {
+          for (let i = 0; i < rowBytes; i += 4) {
+            out[dst + i] = padded[src + i + 2];
+            out[dst + i + 1] = padded[src + i + 1];
+            out[dst + i + 2] = padded[src + i];
+            out[dst + i + 3] = 255;
+          }
+        } else {
+          out.set(padded.subarray(src, src + rowBytes), dst);
+          for (let i = 3; i < rowBytes; i += 4) out[dst + i] = 255;
+        }
+      }
+      buffer.unmap();
+      resolve({ data: out, width: w, height: h });
+    } catch (err) {
+      try { buffer.unmap(); } catch (_) {}
+      reject(err);
+    }
+  }
+
+  function requestCapture() {
+    if (capture) {
+      return Promise.reject(
+        new Error("captureFrame: a capture is already in flight"),
+      );
+    }
+    // h264 macroblocks come in pairs, so crop to even dimensions
+    // rather than scaling — a one-pixel crop is invisible and keeps
+    // the recording pixel-exact with what is on screen.
+    const w = evenDown(viewportW);
+    const h = evenDown(viewportH);
+    const bytesPerRow = Math.ceil((w * 4) / 256) * 256;
+    const size = bytesPerRow * h;
+    if (captureBufferSize < size) {
+      try { captureBuffer?.destroy(); } catch (_) {}
+      captureBuffer = device.createBuffer({
+        size,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        label: "frame readback",
+      });
+      captureBufferSize = size;
+    }
+    needsRender = true;
+    return new Promise((resolve, reject) => {
+      capture = { w, h, bytesPerRow, buffer: captureBuffer, resolve, reject };
+    });
+  }
+
+  // Everything that has to quiesce before a captured frame is the
+  // frame the user would see if they stopped and waited: tile fetches,
+  // the static bake queue, the stale-tile crossfade, the shadow
+  // re-bake (async in CPU mode, via the worker pool), and the debounced
+  // HQ re-bake timer.
+  function isSettled() {
+    if (pendingTiles.size > 0) return false;
+    if (bakeQueue.length > 0) return false;
+    if (staleTiles.length > 0) return false;
+    if (sunDirty || hqPending) return false;
+    if (cpuQueue.length > 0) return false;
+    if (cpuIdle.length < cpuPoolSize) return false;
+    for (const tile of tiles.values()) {
+      if (tile.destroyed) continue;
+      if (!tile.ready) return false;
+      if (tile._shadowPending) return false;
+    }
+    return true;
+  }
+
   function render() {
-    if (!needsRender && bakeQueue.length === 0 && staleTiles.length === 0) {
+    if (
+      !needsRender &&
+      !capture &&
+      bakeQueue.length === 0 &&
+      staleTiles.length === 0
+    ) {
       requestAnimationFrame(render);
       return;
     }
@@ -1715,10 +1891,31 @@ export function createTileViewer(opts) {
     // Render first — compositing pre-baked tiles is trivially cheap
     // and must not be blocked by bake/shadow compute work.
     if (sunDirty) {
-      if (lighting.bakeMode === "cpu") {
-        rebakeShadowCPU();
-      } else {
-        rebakeShadowAllVisible();
+      // Night-side skip. In time mode the composite feeds the baked
+      // shadow through timeHS = mix(1, shadow, twilight), and
+      // twilight = smoothstep(-0.105, 0.035, sin(alt)) is exactly
+      // zero below about -6 degrees. At that point timeHS is the
+      // constant 1 whatever the bake says, so the baked value has no
+      // influence on a single pixel and re-baking it is wasted work.
+      // (Before the terminator fix the weight reached zero from the
+      // other side, mixing toward "no shadow" instead of "fully
+      // shadowed"; the skip was valid then for the same reason, that
+      // the baked value is not consulted.) -12 degrees leaves a wide
+      // margin for the altitude spread across a viewport (under 0.05
+      // degrees at these zooms) and hands roughly a third of a
+      // 24-hour recording back for free. Debug mode draws the raw
+      // bake texture, shadow channel and all, so it never takes the
+      // shortcut.
+      const nightSkip =
+        lighting.useTime &&
+        lighting.shadingMode !== 2 &&
+        centerSunAltDeg() < -12;
+      if (!nightSkip) {
+        if (lighting.bakeMode === "cpu") {
+          rebakeShadowCPU();
+        } else {
+          rebakeShadowAllVisible();
+        }
       }
       sunDirty = false;
     }
@@ -1742,10 +1939,11 @@ export function createTileViewer(opts) {
     }
 
     const encoder = device.createCommandEncoder();
+    const currentTexture = gpuCtx.getCurrentTexture();
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {
-          view: gpuCtx.getCurrentTexture().createView(),
+          view: currentTexture.createView(),
           clearValue: { r: 1, g: 1, b: 1, a: 1 },
           loadOp: "clear",
           storeOp: "store",
@@ -1767,7 +1965,39 @@ export function createTileViewer(opts) {
       pass.draw(6);
     }
     pass.end();
+    if (
+      capture &&
+      (capture.w !== evenDown(currentTexture.width) ||
+        capture.h !== evenDown(currentTexture.height))
+    ) {
+      // The window was resized between requesting this frame and
+      // drawing it. Copying anyway would either fail GPU validation or
+      // silently hand back a differently-framed crop, and an
+      // unresolved promise would hang the recording, so reject and let
+      // the recorder report it.
+      const stale = capture;
+      capture = null;
+      stale.reject(
+        new Error("captureFrame: canvas resized mid-capture"),
+      );
+    }
+    if (capture) {
+      encoder.copyTextureToBuffer(
+        { texture: currentTexture, origin: { x: 0, y: 0, z: 0 } },
+        {
+          buffer: capture.buffer,
+          bytesPerRow: capture.bytesPerRow,
+          rowsPerImage: capture.h,
+        },
+        { width: capture.w, height: capture.h, depthOrArrayLayers: 1 },
+      );
+    }
     device.queue.submit([encoder.finish()]);
+    if (capture) {
+      const req = capture;
+      capture = null;
+      finishCapture(req);
+    }
 
     // Prune stale tiles that are fully covered by ready active tiles.
     for (let i = staleTiles.length - 1; i >= 0; i--) {
@@ -1992,7 +2222,9 @@ export function createTileViewer(opts) {
   let hqTimer = 0;
   function scheduleHQRebake() {
     clearTimeout(hqTimer);
+    hqPending = true;
     hqTimer = setTimeout(() => {
+      hqPending = false;
       sunDirty = true; sunGeneration++;
       needsRender = true;
     }, 150);
@@ -2095,6 +2327,69 @@ export function createTileViewer(opts) {
       }
       return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? [lo, hi] : null;
     },
+    /**
+     * Pixel size a captured frame will have: the live canvas cropped
+     * to even dimensions. This is what the size chip reports.
+     */
+    getFrameSize() {
+      return [evenDown(viewportW), evenDown(viewportH)];
+    },
+
+    /** Keep the size chip visible (the animation panel does this). */
+    setSizeChipPinned(pinned) {
+      sizeChipPinned = !!pinned;
+      if (sizeChipPinned) {
+        updateSizeChip(true);
+      } else {
+        clearTimeout(sizeChipTimer);
+        sizeChip.style.opacity = "0";
+      }
+    },
+
+    /**
+     * Enable or disable pan/zoom. A recording freezes the view: the
+     * solar day is anchored to the centre longitude at the moment it
+     * starts, and a mid-recording pan would both re-frame the shot and
+     * invalidate that anchor.
+     */
+    setInteractive(enabled) {
+      container.style.pointerEvents = enabled ? "" : "none";
+      container.style.cursor = enabled ? "grab" : "default";
+    },
+
+    /** True when nothing is in flight and the canvas is final. */
+    isSettled,
+
+    /**
+     * Resolve once `isSettled()` holds. Polls on rAF because most of
+     * what we wait for is retired by the render loop itself.
+     */
+    awaitSettled({ timeoutMs = 60000 } = {}) {
+      const t0 = performance.now();
+      return new Promise((resolve, reject) => {
+        const poll = () => {
+          if (isSettled()) {
+            resolve();
+            return;
+          }
+          if (performance.now() - t0 > timeoutMs) {
+            reject(new Error("awaitSettled: timed out"));
+            return;
+          }
+          requestAnimationFrame(poll);
+        };
+        requestAnimationFrame(poll);
+      });
+    },
+
+    /**
+     * Render one frame and read it back as RGBA bytes. Resolves with
+     * { data, width, height }. One capture at a time.
+     */
+    captureFrame() {
+      return requestCapture();
+    },
+
     destroy() {
       worker.terminate();
       for (const w of cpuWorkers) w.terminate();
@@ -2106,6 +2401,9 @@ export function createTileViewer(opts) {
       } catch (_) {}
       try {
         rampBuffer.destroy();
+      } catch (_) {}
+      try {
+        captureBuffer?.destroy();
       } catch (_) {}
     },
   };

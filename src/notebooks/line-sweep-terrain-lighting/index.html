@@ -1895,6 +1895,7 @@
     import SunCalc from "npm:suncalc@1.9.0";
     import { createSunCalendar } from "./lib/sun-calendar.js";
     import { solarTimeQuantities } from "./solar-time.js";
+    import { createAnimationPanel } from "./animation-panel.js";
     import { createGradientEditor } from "./lib/gradient-editor.js";
     import * as d3chromatic from "npm:d3-scale-chromatic";
   </script>
@@ -1969,10 +1970,29 @@
     tileViewerControlsDiv.appendChild(tintEl);
     tileViewerControlsDiv.appendChild(opennessTintEl);
     tileViewerControlsDiv.appendChild(opennessContrastEl);
+    const animationPanel = createAnimationPanel({
+      Inputs,
+      html,
+      SunCalc,
+      getViewer: () => _viewerRef,
+      getSunMode: () => sunModeEl.value,
+      // Inputs.radio takes a settable value; dispatching "input"
+      // afterwards lets the figure's own listeners (the sun handle's
+      // enabled state) react exactly as they would to a click.
+      requestTimeMode: () => {
+        sunModeEl.value = "time";
+        sunModeEl.dispatchEvent(new Event("input", { bubbles: true }));
+        return sunModeEl.value === "time";
+      },
+      getAnchorUtcMs: () => sunCalendarEl.getUtcDate()?.getTime() ?? NaN,
+    });
     tileViewerControlsDiv.appendChild(sunModeEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
+    tileViewerControlsDiv.appendChild(animationPanel.element);
+    invalidation.then(() => animationPanel.dispose());
     display(tileViewerControlsDiv);
     const tileViewerControls = {
+      animationPanel,
       bakeModeEl,
       strengthEl,
       aoEl,
@@ -2224,7 +2244,18 @@
         // time slider moves.
         let solar = null;
         if (useTime) {
-          const utcDate = c.sunCalendarEl.getUtcDate();
+          // While a recording runs, time comes from the animation
+          // panel's override instead of the calendar: it sidesteps the
+          // time slider's one-minute steps and its single-calendar-day
+          // clamp, which matters because a solar day straddles two
+          // dates almost everywhere. Echoing `requested` into
+          // `applied` tells the recorder its instant is live, so the
+          // bake it then waits on is the right one.
+          const override = c.animationPanel.timeOverride;
+          const utcDate =
+            override.utcMs != null
+              ? new Date(override.utcMs)
+              : c.sunCalendarEl.getUtcDate();
           if (utcDate) {
             solar = solarTimeQuantities(utcDate.getTime());
             const [lat, lng] = viewer.getCenter();
@@ -2233,6 +2264,7 @@
             const scAzDeg = (pos.azimuth * 180) / Math.PI;
             const azDeg = (((270 - scAzDeg) % 360) + 360) % 360;
             tileViewerSunDirAccessor.set({ az: azDeg, alt: altDeg });
+            if (override.utcMs != null) override.applied = override.requested;
           }
         }
         const sd = tileViewerSunDirAccessor.get();
@@ -2264,7 +2296,11 @@
           shadowStrength,
           sunRadiusDeg: sunDiameter / 2,
           shadowSamples,
-          sunInteracting: sunOverlay.isDragging() || c.sunCalendarEl.isInteracting(),
+          // A recording must never land on the 1-sample scrub path,
+          // and with the override set no slider is moving anyway.
+          sunInteracting:
+            c.animationPanel.timeOverride.utcMs == null &&
+            (sunOverlay.isDragging() || c.sunCalendarEl.isInteracting()),
           shadingMode: isDebug ? 2 : 1,
           reliefStrength,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,

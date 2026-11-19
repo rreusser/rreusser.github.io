@@ -20,3 +20,9 @@ jobs:
 
       - name: Run kerr-geodesics tests
         run: node src/notebooks/kerr-geodesics/integrator.test.js
+
+      - name: Run line-sweep-terrain-lighting solar-day gates
+        run: node src/notebooks/line-sweep-terrain-lighting/verify-solar-day.mjs
+
+      - name: Run line-sweep-terrain-lighting night-shading gates
+        run: node src/notebooks/line-sweep-terrain-lighting/verify-night-shading.mjs
