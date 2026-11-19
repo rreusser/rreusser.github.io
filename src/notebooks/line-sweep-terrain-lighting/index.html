@@ -2167,10 +2167,13 @@
         // the caret opens it.
         collapsed: true,
         domain: [810, 1520],
-        // The window slider spans land elevation end to end, from the
-        // Dead Sea shore to Everest, so the control means the same
-        // thing wherever on the planet the map happens to be.
-        bounds: [-440, 8848],
+        // The window slider tops out at Everest, so the control means
+        // the same thing wherever on the planet the map happens to be.
+        // The bottom goes well past the Dead Sea shore on purpose: the
+        // structure offset shifts where the ramp is read, so pulling
+        // the window's floor below any real terrain gives that shift
+        // somewhere to go instead of pinning against the lowest stop.
+        bounds: [-1000, 8848],
         boundsStep: 10,
         // Tuned by hand over the canyon this map opens on, which is
         // why the stops carry absolute elevations rather than being
