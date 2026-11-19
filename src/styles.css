@@ -1167,6 +1167,67 @@ a.nbindex__tag:hover {
   color: var(--theme-foreground);
 }
 
+/* --- @observablehq/inputs specificity shim --------------------------------
+   notebook-kit pulls the Inputs stylesheet straight off the CDN, unpinned:
+
+     @import url("https://cdn.jsdelivr.net/npm/@observablehq/inputs/dist/index.css");
+
+   Inputs 1.0.0 wrapped every one of its selectors in :where(), which drops
+   the whole stylesheet to zero specificity. notebook-kit's own global.css
+   styles bare elements at specificity (0,1,1) — `input[type=number] { width:
+   240px }`, `table { border-collapse: collapse }` — so those rules now win
+   inside Inputs forms, where previously the library's own rules did.
+
+   The visible damage: the number box of an Inputs.range stops shrinking, so
+   its row grows to label + 240 + 240 and the slider is pushed out the side of
+   a narrow container (the floating controls panel, notably). Inputs.toggle
+   stretches its checkbox to fill the row, and Inputs.table loses its separate
+   border model and picks up a 640px max-width.
+
+   Each rule below restates a declaration the library already makes, with
+   enough specificity to take precedence again. Verified against 0.12.0 as the
+   baseline: computed styles over range/radio/select/text/number/color/date/
+   toggle/button/checkbox/textarea/table now match it node for node.
+
+   This can all go away once Inputs ships selectors that carry weight again,
+   or once notebook-kit stops tracking Inputs' latest from the CDN. */
+
+[class^="inputs-"][class$="-input"] > input,
+[class^="inputs-"][class$="-input"] > button,
+[class^="inputs-"][class$="-input"] > output {
+  width: inherit;
+  min-width: 0;
+}
+
+form[class^="inputs-"][class$="-toggle"] [class$="-input"] {
+  width: initial;
+}
+
+form[class^="inputs-"][class$="-table"] table {
+  max-width: initial;
+  min-height: 33px;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+form[class^="inputs-"][class$="-table"] tr > :not(:first-of-type) {
+  padding-left: var(--length2, 6.5px);
+}
+
+form[class^="inputs-"][class$="-table"] tr > :last-of-type {
+  padding-right: var(--length3, 13px);
+}
+
+form[class^="inputs-"][class$="-table"] thead tr {
+  border-bottom: none;
+}
+
+form[class^="inputs-"][class$="-table"] tbody tr:first-child td {
+  padding-top: 4px;
+}
+
 /* Floating controls panel */
 .expandable-controls-panel {
   position: fixed;
