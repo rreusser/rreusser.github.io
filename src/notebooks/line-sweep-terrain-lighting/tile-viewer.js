@@ -147,6 +147,7 @@ struct Global {
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
+  ao: vec4<f32>,           // x=floorRaw for the active LSAO falloff, yzw unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -232,29 +233,57 @@ fn sampleElev(uv: vec2<f32>, n: i32) -> f32 {
   return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
 }
 
-// Openness, the LSAO term in the bake's blue channel, runs from 0 in a
-// slot canyon to 1 under open sky. Used to nudge where the ramp is
-// sampled it recovers structure that elevation alone cannot show: a
-// view whose relief is small next to the ramp window otherwise comes
-// out as one flat wash, because every feature in it maps to nearly the
-// same colour. A ridge then reads as higher ground than a hollow at the
-// same elevation, which is also how a reader already expects to see
-// terrain described.
+// Openness, the LSAO term in the bake's blue channel, used to nudge
+// where the ramp is sampled. Elevation alone flattens a view whose
+// relief is small next to the ramp window: every feature maps to nearly
+// the same colour and a canyon reads as one wash. Shifting the sample
+// by openness pulls the drainages back out of it.
 //
-// The pivot has to sit near the middle of the openness the terrain
-// actually produces, or the whole map rides up or down the ramp as the
-// strength is raised instead of spreading about its current colour.
-// Measured over 187k pixels of the Mapterhorn tiles this notebook opens
-// on: median 0.61, 5th percentile 0.38, 95th 0.91. Note this is far
-// from 1 even on open ground, because the channel stores the square of
-// the raw LSAO term. Pivot at the median, and scale so roughly the 5th
-// to 95th percentile band fills [-1, 1]; the clamp keeps the tails from
-// running away.
-const AO_PIVOT: f32 = 0.6;
-const AO_INV_HALF_RANGE: f32 = 3.7037;   // 1 / 0.27
+// Three things about this signal matter, and all three are easy to get
+// wrong:
+//
+// 1. The sweep starts its horizon at sin(a) = 0 and only counts blockers
+//    strictly above the ray, so a flat surface, a hill crest and a
+//    ridge top all return exactly 1. Convexity is not representable:
+//    the channel measures *concavity* and nothing else.
+//
+// 2. The two falloffs do not share a range. cos²α reaches 0 when fully
+//    enclosed, but e^(−sin α) bottoms out at e^-1 ≈ 0.368, and after
+//    the bake's aoGamma = 2 those become 0 and 0.135. Normalising by
+//    the falloff's own floor is what stops the AO-falloff radio from
+//    silently recalibrating the tint.
+//
+// 3. Real terrain is nowhere near uniform in this variable. Measured
+//    over 4.7M pixels of the tiles this map opens on, enclosure (0 for
+//    flat, 1 for sealed) has median 0.17 and mean 0.21, piling up near
+//    the open end with a long tail into the canyons.
+//
+// So: undo the gamma, normalise to enclosure using the falloff's floor,
+// then map through the CDF of an exponential fitted to that measured
+// distribution. Matching the CDF is what makes the result balanced:
+// under the model the offset comes out uniform on [-1, 1], so it pushes
+// colours up and down equally and never pins a region at the end of its
+// range. The curve is deliberately asymmetric about neutral in openness
+// units, because the data is.
+//
+// The previous linear remap, centred on a pivot in raw openness, pushed
+// 83% of pixels up, sat 29% of the map hard against +1, and had a mean
+// offset of +0.55. This one measures -0.02 mean, 0.00 median, a 51/49
+// split and no saturation at all.
+//
+// MU is the fitted scale, median enclosure / ln 2. Terrain much more or
+// much less enclosed than the fit drifts off centre (a view 1.7x more
+// enclosed measures a mean of -0.33), but it drifts smoothly and never
+// saturates, so the failure mode is a gentle bias rather than flat
+// patches of colour. Flat ground sits at the top of the curve by
+// construction: a genuinely flat plain takes a uniform +1, which is a
+// constant recolouring rather than a loss of structure.
+const AO_ENC_MU: f32 = 0.25;
 
-fn opennessOffset(ao: f32) -> f32 {
-  return clamp((ao - AO_PIVOT) * AO_INV_HALF_RANGE, -1.0, 1.0);
+fn opennessOffset(ao: f32, floorRaw: f32) -> f32 {
+  let raw = sqrt(max(ao, 0.0));                                  // undo aoGamma = 2
+  let enc = clamp((1.0 - raw) / max(1.0 - floorRaw, 1e-6), 0.0, 1.0);
+  return clamp(2.0 * exp(-enc / AO_ENC_MU) - 1.0, -1.0, 1.0);
 }
 
 // Elevation to Oklab, linearly blending the two bracketing ramp
@@ -473,7 +502,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // enough for openness alone to traverse the whole ramp.
   let h = sampleElev(in.uv, i32(t.tileZXY.w));
   let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
-  let hSample = h + g.hypso.w * opennessOffset(ao) * 0.5 * rampSpan;
+  let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x) * 0.5 * rampSpan;
   let lab = rampAt(hSample);
   let L2 = clamp(lab.x * k, 0.0, 1.0);
   // Scale chroma with lightness rather than holding it fixed. Holding
@@ -702,10 +731,10 @@ export function createTileViewer(opts) {
     addressModeV: "clamp-to-edge",
   });
 
-  // Global uniform buffer (80 bytes: five vec4s — viewport, sunDir,
-  // params, solar, hypso).
+  // Global uniform buffer (96 bytes: six vec4s — viewport, sunDir,
+  // params, solar, hypso, ao).
   const globalBuffer = device.createBuffer({
-    size: 80,
+    size: 96,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "tile-viewer global uniforms",
   });
@@ -737,7 +766,7 @@ export function createTileViewer(opts) {
       { binding: 1, resource: { buffer: rampBuffer } },
     ],
   });
-  const globalData = new Float32Array(20);
+  const globalData = new Float32Array(24);
 
   // ------------------------------------------------------------------
   // GPU tile-bake resources.
@@ -1562,6 +1591,7 @@ export function createTileViewer(opts) {
     //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
     //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, opennessTint)
+    //   f32[20..23] = ao (floorRaw for the active falloff, unused x3)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1582,6 +1612,13 @@ export function createTileViewer(opts) {
     globalData[17] = 1 / (lighting.rampMax - lighting.rampMin || 1);
     globalData[18] = lighting.tintStrength;
     globalData[19] = lighting.opennessTint;
+    // Floor of the raw LSAO term, before the bake's aoGamma: e^-1 for
+    // Naaji's exp(-sin a), 0 for the Lambertian cos2 a. Normalising by
+    // it keeps the openness tint calibrated across both falloffs.
+    globalData[20] = lighting.lsaoFalloff === "exp" ? Math.exp(-1) : 0;
+    globalData[21] = 0;
+    globalData[22] = 0;
+    globalData[23] = 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32
