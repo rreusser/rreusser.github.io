@@ -1896,12 +1896,7 @@
     import { createSunCalendar } from "./lib/sun-calendar.js";
     import { solarTimeQuantities } from "./solar-time.js";
     import { createGradientEditor } from "./lib/gradient-editor.js";
-    import {
-      interpolateViridis, interpolateMagma, interpolatePlasma, interpolateInferno, interpolateCividis,
-      interpolateTurbo, interpolateWarm, interpolateCool, interpolateCubehelixDefault,
-      interpolateSpectral, interpolateRdYlBu, interpolateBrBG,
-      interpolateYlGnBu, interpolateYlOrBr, interpolateGreys,
-    } from "npm:d3-scale-chromatic";
+    import * as d3chromatic from "npm:d3-scale-chromatic";
     import { fitRampStops } from "./lib/color-ramp.js";
   </script>
   <script id="71" type="module">
@@ -2130,23 +2125,24 @@
         { t: 0.85, color: "#ddd5cc" },
         { t: 1.0,  color: "#efe9e2" },
       ];
+      // The d3 names are the ColorBrewer ones; `group` only sorts the
+      // picker into sections so a list this long stays navigable.
+      const family = (group, names) =>
+        names.map((n) => ({ ...sampled(n, d3chromatic["interpolate" + n]), group }));
       const rampPresets = [
         { name: "terrain", stops: terrainStops },
-        sampled("viridis", interpolateViridis),
-        sampled("magma", interpolateMagma),
-        sampled("plasma", interpolatePlasma),
-        sampled("inferno", interpolateInferno),
-        sampled("cividis", interpolateCividis),
-        sampled("turbo", interpolateTurbo),
-        sampled("warm", interpolateWarm),
-        sampled("cool", interpolateCool),
-        sampled("cubehelix", interpolateCubehelixDefault),
-        sampled("spectral", interpolateSpectral),
-        sampled("RdYlBu", interpolateRdYlBu),
-        sampled("BrBG", interpolateBrBG),
-        sampled("YlGnBu", interpolateYlGnBu),
-        sampled("YlOrBr", interpolateYlOrBr),
-        sampled("greys", interpolateGreys),
+        ...family("perceptual", [
+          "Viridis", "Magma", "Plasma", "Inferno", "Cividis", "Turbo",
+          "CubehelixDefault", "Warm", "Cool",
+        ]),
+        ...family("sequential", [
+          "Greys", "Blues", "Greens", "Oranges", "Purples", "Reds",
+          "BuGn", "BuPu", "GnBu", "OrRd", "PuBu", "PuBuGn", "PuRd", "RdPu",
+          "YlGn", "YlGnBu", "YlOrBr", "YlOrRd",
+        ]),
+        ...family("diverging", [
+          "Spectral", "RdYlBu", "RdYlGn", "BrBG", "PuOr", "RdBu", "PiYG", "PRGn",
+        ]),
       ];
 
       let autoFitDone = false;

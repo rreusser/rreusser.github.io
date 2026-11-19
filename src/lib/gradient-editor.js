@@ -203,17 +203,74 @@ const CSS = `
 .grd-editor button.grd-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); }
 .grd-editor button.grd-btn:disabled { opacity: 0.4; cursor: default; }
 
-.grd-editor select {
+.grd-preset-wrap { position: relative; flex: 1 1 auto; min-width: 0; }
+.grd-preset-btn {
   width: 100%;
-  min-width: 0;
   font: inherit;
+  text-align: left;
   color: var(--grd-fg);
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid var(--grd-line);
   border-radius: 4px;
-  padding: 2px 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.grd-editor select option { color: #111; }
+.grd-preset-btn:hover { background: rgba(255, 255, 255, 0.2); }
+.grd-preset-btn .sw {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+.grd-preset-btn .caret { flex: 0 0 auto; opacity: 0.7; }
+
+.grd-preset-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 3;
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: rgba(18, 18, 20, 0.97);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--grd-line);
+  border-radius: 6px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+}
+.grd-preset-menu[hidden] { display: none; }
+.grd-preset-group {
+  padding: 5px 6px 2px;
+  color: var(--grd-fg-dim);
+  opacity: 0.75;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.grd-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--grd-fg-dim);
+}
+.grd-preset-row:hover { background: rgba(255, 255, 255, 0.16); color: var(--grd-fg); }
+.grd-preset-row[data-active="1"] { color: var(--grd-fg); font-weight: 600; }
+.grd-preset-row .sw {
+  flex: 0 0 76px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
 
 /* The range slider ships a theme tuned for a page background. On this
    dark translucent panel its track disappears, so restate the surfaces
@@ -289,11 +346,13 @@ function niceStep(span, target) {
  * @param {[number,number]} [opts.bounds]  outer limits of the window
  *        control, e.g. [-440, 8848] for land elevation. Omit to hide it.
  * @param {number} [opts.boundsStep]       quantisation of the window control
- * @param {Array<{name:string, stops:Array<{t:number,color:string}>}>} [opts.presets]
+ * @param {Array<{name:string, group?:string, stops:Array<{t:number,color:string}>}>} [opts.presets]
  *        named ramps to offer. Stop positions are normalized to [0,1] and
  *        mapped onto whatever window is current when one is picked, so
  *        choosing a preset restyles the ramp without moving the elevations
- *        it covers. Omit to hide the picker.
+ *        it covers. An optional `group` sorts them into labelled sections,
+ *        which a long list needs to stay navigable. Omit to hide the
+ *        picker.
  */
 export function createGradientEditor({
   stops: initialStops,
@@ -419,35 +478,133 @@ export function createGradientEditor({
   // elevations the ramp covers. Any hand edit afterwards flips the
   // picker back to "custom" so it never claims a ramp it no longer
   // describes.
-  let presetSelect = null;
+  let closeMenu = () => {};
+  let refreshPresetButton = () => {};
+
+  let presetBtn = null;
+  let presetMenu = null;
   let presetRow = null;
+  let presetName = "";            // "" means hand-edited
   let applyingPreset = false;
+  let menuSnapshot = null;        // stops to restore if the menu is dismissed
+
+  // A CSS gradient sampled from the preset's own LUT, so the swatch is
+  // built the same way the ramp is.
+  const swatchCss = (p) => {
+    const lut = buildOklabLUT(p.stops.map((st) => ({ value: st.t, color: st.color })),
+      { size: 128, domain: [0, 1] });
+    const n = 16;
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      parts.push(`${oklabToHex(...sampleLUT(lut, [0, 1], t))} ${(t * 100).toFixed(1)}%`);
+    }
+    return `linear-gradient(to right, ${parts.join(", ")})`;
+  };
+
   if (presets && presets.length > 0) {
     presetRow = document.createElement("div");
     presetRow.className = "grd-row";
     const label = document.createElement("label");
     label.textContent = "ramp";
-    presetSelect = document.createElement("select");
-    presetSelect.title = "Replace the ramp's colours, keeping its elevation window";
-    const custom = document.createElement("option");
-    custom.value = "";
-    custom.textContent = "custom";
-    presetSelect.appendChild(custom);
+
+    const wrap = document.createElement("div");
+    wrap.className = "grd-preset-wrap";
+
+    presetBtn = document.createElement("button");
+    presetBtn.type = "button";
+    presetBtn.className = "grd-preset-btn";
+    presetBtn.title = "Pick a ramp. Hovering previews it; it only sticks when you click.";
+    const btnSw = document.createElement("span");
+    btnSw.className = "sw";
+    const caret = document.createElement("span");
+    caret.className = "caret";
+    caret.textContent = "\u25BE";
+    presetBtn.append(btnSw, caret);
+
+    presetMenu = document.createElement("div");
+    presetMenu.className = "grd-preset-menu";
+    presetMenu.hidden = true;
+
+    const rows = [];
+    let lastGroup = null;
     for (const p of presets) {
-      const o = document.createElement("option");
-      o.value = p.name;
-      o.textContent = p.name;
-      presetSelect.appendChild(o);
+      const g = p.group ?? "";
+      if (g && g !== lastGroup) {
+        const h = document.createElement("div");
+        h.className = "grd-preset-group";
+        h.textContent = g;
+        presetMenu.appendChild(h);
+        lastGroup = g;
+      }
+      const row = document.createElement("div");
+      row.className = "grd-preset-row";
+      row.dataset.name = p.name;
+      const sw = document.createElement("span");
+      sw.className = "sw";
+      sw.style.background = swatchCss(p);
+      const nm = document.createElement("span");
+      nm.textContent = p.name;
+      row.append(sw, nm);
+      // Hovering previews without committing, the way the eclipse map's
+      // palette menu does. Dismissing restores whatever was there first,
+      // including a hand-edited ramp.
+      row.addEventListener("mouseenter", () => applyPreset(p, { preview: true }));
+      row.addEventListener("click", (e) => { e.stopPropagation(); applyPreset(p); closeMenu(true); });
+      presetMenu.appendChild(row);
+      rows.push(row);
     }
-    presetSelect.addEventListener("change", () => {
-      const p = presets.find((q) => q.name === presetSelect.value);
-      if (!p) return;
-      applyPreset(p);
+
+    const markActive = () => {
+      for (const r of rows) r.dataset.active = r.dataset.name === presetName ? "1" : "0";
+      const p = presets.find((q) => q.name === presetName);
+      btnSw.style.background = p ? swatchCss(p) : (lut ? lutSwatchCss() : "none");
+      presetBtn.title = presetName
+        ? `${presetName}. Hovering previews; it only sticks when you click.`
+        : "custom. Hovering previews; it only sticks when you click.";
+    };
+    const lutSwatchCss = () => {
+      const n = 16, parts = [];
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1);
+        const v = domain[0] + t * (domain[1] - domain[0]);
+        parts.push(`${oklabToHex(...sampleLUT(lut, domain, v))} ${(t * 100).toFixed(1)}%`);
+      }
+      return `linear-gradient(to right, ${parts.join(", ")})`;
+    };
+    refreshPresetButton = markActive;
+
+    const onDown = (e) => { if (!presetMenu.contains(e.target) && e.target !== presetBtn && !presetBtn.contains(e.target)) closeMenu(false); };
+    const onKey = (e) => { if (e.key === "Escape") closeMenu(false); };
+    const openMenu = () => {
+      menuSnapshot = { stops: sortedStops().map(({ value, color }) => ({ value, color })), name: presetName };
+      presetMenu.hidden = false;
+      document.addEventListener("mousedown", onDown, true);
+      document.addEventListener("keydown", onKey);
+    };
+    closeMenu = (committed) => {
+      if (presetMenu.hidden) return;
+      presetMenu.hidden = true;
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("keydown", onKey);
+      if (!committed && menuSnapshot) {
+        applyingPreset = true;
+        try { setStopsInternal(menuSnapshot.stops); } finally { applyingPreset = false; }
+        presetName = menuSnapshot.name;
+        markActive();
+      }
+      menuSnapshot = null;
+    };
+    presetBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (presetMenu.hidden) openMenu(); else closeMenu(false);
     });
-    presetRow.append(label, presetSelect);
+
+    wrap.append(presetBtn, presetMenu);
+    presetRow.append(label, wrap);
   }
 
-  function applyPreset(p) {
+  function applyPreset(p, { preview = false } = {}) {
     const [d0, d1] = domain;
     const snap = Math.abs(d1 - d0) >= 100;
     const next = p.stops.map((st) => {
@@ -460,12 +617,17 @@ export function createGradientEditor({
     } finally {
       applyingPreset = false;
     }
-    if (presetSelect) presetSelect.value = p.name;
+    if (!preview) {
+      presetName = p.name;
+      refreshPresetButton();
+    }
   }
 
   // Marks the ramp as hand-edited unless a preset is being applied.
   function markCustom() {
-    if (!applyingPreset && presetSelect) presetSelect.value = "";
+    if (applyingPreset) return;
+    presetName = "";
+    refreshPresetButton();
   }
 
   // Window control: a two-thumb slider over the full plausible span.
@@ -848,6 +1010,8 @@ export function createGradientEditor({
       const p = (presets ?? []).find((q) => q.name === name);
       if (p) applyPreset(p);
     },
+    /** Name of the ramp in effect, or "" when it has been hand-edited. */
+    get presetName() { return presetName; },
     /**
      * Move the window, carrying the stops so each keeps its position on
      * screen. Returns false on a bad range.
