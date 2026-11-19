@@ -1895,6 +1895,7 @@
     import SunCalc from "npm:suncalc@1.9.0";
     import { createSunCalendar } from "./lib/sun-calendar.js";
     import { solarTimeQuantities } from "./solar-time.js";
+    import { createGradientEditor } from "./lib/gradient-editor.js";
   </script>
   <script id="71" type="module">
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
@@ -1936,6 +1937,11 @@
       new Map([["fixed angle", "fixed"], ["from time", "time"]]),
       { label: "sun mode", value: "fixed" },
     );
+    const tintEl = Inputs.range([0, 1], {
+      label: "elevation tint",
+      value: 1,
+      step: 0.01,
+    });
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1949,6 +1955,7 @@
     tileViewerControlsDiv.appendChild(shadowEl);
     tileViewerControlsDiv.appendChild(sunDiameterEl);
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
+    tileViewerControlsDiv.appendChild(tintEl);
     tileViewerControlsDiv.appendChild(sunModeEl);
     tileViewerControlsDiv.appendChild(sunCalendarEl);
     display(tileViewerControlsDiv);
@@ -1962,6 +1969,7 @@
       aoFalloffEl,
       sunModeEl,
       sunCalendarEl,
+      tintEl,
     };
   </script>
   <script id="72" type="module">
@@ -2050,6 +2058,80 @@
       tileViewerRef.set(viewer);
       viewerEl.appendChild(sunWrapper);
 
+      // Hypsometric ramp editor. It lives on the map rather than in the
+      // controls panel: it needs the room, and you want to see the
+      // terrain change under it while you drag a stop. It is a child of
+      // viewerEl, and deliberately *not* listed in the figure's
+      // `controls`, so it stays on the map when the figure expands
+      // instead of being pulled into the floating panel.
+      const rampWrapper = html`<div class="tile-viewer-ramp"></div>`;
+      rampWrapper.style.cssText =
+        "position:absolute; left:12px; bottom:12px; z-index:500; width:286px;" +
+        " max-width:calc(100% - 24px); max-height:calc(100% - 24px); overflow:auto;" +
+        " pointer-events:auto;";
+      let autoFitDone = false;
+      // Elevation bounds of the loaded tiles, padded a little and
+      // rounded outward to 100 m so the axis labels come out tidy.
+      // Shared by the fit button and the one-time fit below.
+      const fitRange = () => {
+        const range = viewer.getElevationRange();
+        if (!range) return null;
+        const pad = Math.max(50, 0.1 * (range[1] - range[0]));
+        const step = 100;
+        return [
+          Math.floor((range[0] - pad) / step) * step,
+          Math.ceil((range[1] + pad) / step) * step,
+        ];
+      };
+      const gradientEditor = createGradientEditor({
+        title: "Elevation tint",
+        unit: " m",
+        height: 230,
+        // On a phone the panel would swallow most of the map, so start
+        // it folded down to its header there and let the reader open it.
+        collapsed: window.innerWidth < 700,
+        domain: [0, 5200],
+        // A fairly conventional lowland-green through desert-tan to
+        // snow ramp. The top stop stops short of white on purpose: at
+        // Oklab L = 1 there is no headroom left, so a sunlit slope on a
+        // summit renders the same as a shaded one and the relief goes
+        // flat exactly where the terrain is most dramatic.
+        stops: [
+          { value: 0, color: "#46773f" },
+          { value: 400, color: "#7e9b4e" },
+          { value: 900, color: "#bdbf74" },
+          { value: 1400, color: "#d8bd86" },
+          { value: 2000, color: "#c3996c" },
+          { value: 2800, color: "#a87f63" },
+          { value: 3600, color: "#b9a89a" },
+          { value: 4400, color: "#ddd5cc" },
+          { value: 5200, color: "#efe9e2" },
+        ],
+        onFit: fitRange,
+        onChange: ({ lut, domain }) => viewer.setRamp(lut, domain),
+      });
+      rampWrapper.appendChild(gradientEditor.element);
+      viewerEl.appendChild(rampWrapper);
+
+      // The default 0 to 5200 m axis spans the whole plausible range of
+      // land elevation, which on any one view collapses the interesting
+      // part of the ramp into a sliver. Fit the axis to the terrain once
+      // the first tiles have reported their bounds, then leave it alone:
+      // re-fitting on every pan would make the colours mean something
+      // different from one moment to the next, which is the opposite of
+      // what a hypsometric ramp is for.
+      const autoFit = () => {
+        if (autoFitDone) return;
+        const range = fitRange();
+        if (!range) {
+          requestAnimationFrame(autoFit);
+          return;
+        }
+        autoFitDone = true;
+        gradientEditor.fitTo(range);
+      };
+      requestAnimationFrame(autoFit);
+
       // Poll the sun mutable and the three sliders each frame; when
       // anything has changed, push the new values through as a single
       // uniform-buffer write. `needsRender` inside the viewer makes
@@ -2120,6 +2202,9 @@
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
           lsaoFalloff,
           useTime,
+          // Debug mode returns the raw bake texture before the tint
+          // branch is reached, so there is nothing to suppress there.
+          tintStrength: Number(c.tintEl.value),
         };
         if (solar) lightingUpdate.solar = solar;
         viewer.setLighting(lightingUpdate);
@@ -2129,5 +2214,18 @@
 
       viewer;
     }
+  </script>
+  <script id="75" type="text/markdown">
+    ## Hypsometric tint
+
+    Shaded relief tells you the shape of the terrain but nothing about how high it is. The cartographic answer is a hypsometric tint, a colour ramp keyed to elevation, which the map above lays underneath the lighting. Open the **Elevation tint** panel at the lower left to edit it: click the ramp to add a stop, drag a chip to move one, and use the minus button or the Delete key to remove one. The **fit** button snaps the axis to the elevations currently on screen, which is also what it does once automatically when the first tiles arrive.
+
+    Three parts of this were worth some care.
+
+    **Where the elevation comes from.** The lighting is baked per tile into an `rgba8unorm` texture, and elevation is not one of its four channels. Re-baking colour tiles every time a stop moves would make the editor miserable to use, so instead the tile's elevation grid stays resident on the GPU and the ramp becomes a 512-entry lookup table that the fragment shader reads per pixel. Editing the ramp uploads 8 KB and redraws, and never touches the bake. It costs no extra memory either, because that elevation buffer was already allocated per tile for the shadow re-bake. In CPU bake mode it was sitting there unwritten.
+
+    **How the ramp is interpolated.** Stops are converted to [Oklab](https://bottosson.github.io/posts/oklab/), and L, a and b each run through a monotone cubic (PCHIP) interpolant. Oklab is what makes the midpoint of a transition look like a blend of its endpoints instead of lurching toward whichever end is brighter. Monotone cubic is what keeps the ramp smooth without overshooting, and overshoot in a colour ramp is not subtle: it puts a band of colour that is nowhere in the ramp just outside every sharp transition. The lookup table stores Oklab as well, so the blend between neighbouring entries happens in the space the ramp was authored in and the shader only ever needs the Oklab to sRGB direction.
+
+    **How the lighting is composited onto it.** Multiplying the tint by the shading is the obvious move, and it looks bad. Average shading sits well below one, so a straight multiply drags the whole map toward black and the colours turn muddy. Instead the shader works out what flat, unoccluded, unshadowed ground would render at under the same sun, and applies the shading as a ratio against that reference. Flat ground then comes out as exactly the ramp colour, and only real relief departs from it. That ratio scales Oklab lightness, with chroma scaled alongside so that deep shade does not read as a lurid version of the same hue. Whatever still lands outside sRGB is pulled back by reducing chroma at fixed lightness and hue, rather than by clamping channels, which would both shift the hue and flatten the relief precisely where the terrain is most strongly lit.
   </script>
 </notebook>

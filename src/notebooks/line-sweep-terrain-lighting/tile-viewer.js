@@ -127,18 +127,31 @@ struct Global {
   sunDir: vec4<f32>,       // xyz = world-space sun direction, w unused
   params: vec4<f32>,       // x=kAmbient, y=kDirect, z=aoStrength, w=shadowStrength
   solar: vec4<f32>,        // x=sinDec, y=cosDec, z=gmstMinusRA (rad), w=useTime (0 or 1)
+  hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
 
+// Hypsometric ramp, sampled uniformly across [rampMin, rampMin + span]
+// and stored as Oklab (L, a, b, 1). Oklab rather than sRGB because the
+// only conversion the shader needs is Oklab to sRGB, and because the
+// blend between adjacent entries then happens in the same space the
+// ramp was authored in.
+@group(0) @binding(1) var<storage, read> ramp: array<vec4<f32>>;
+
 struct TileData {
   originSize: vec4<f32>,   // xy = tile top-left in screen px, zw = tile size in screen px
-  tileZXY: vec4<f32>,      // x=z (integer), y=tileX, z=tileY, w unused
+  tileZXY: vec4<f32>,      // x=z (integer), y=tileX, z=tileY, w=raster size N
 };
 
 @group(1) @binding(0) var<uniform> t: TileData;
 @group(1) @binding(1) var tileTex: texture_2d<f32>;
 @group(1) @binding(2) var tileSampler: sampler;
+// The same N x N elevation grid the bake passes read, bound read-only.
+// Hypsometric tinting needs elevation at display time, and this buffer
+// already exists per tile for the shadow re-bake, so the tint costs no
+// extra memory: in CPU bake mode it was simply going unwritten.
+@group(1) @binding(3) var<storage, read> elev: array<f32>;
 
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
@@ -171,6 +184,90 @@ fn linearToSrgb(x: f32) -> f32 {
   let c = clamp(x, 0.0, 1.0);
   if (c <= 0.0031308) { return 12.92 * c; }
   return 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+}
+
+// ---------------------------------------------------------------------
+// Hypsometric tint
+// ---------------------------------------------------------------------
+
+// Bilinear fetch from the tile's elevation grid, matching the
+// half-texel convention and clamp-to-edge behaviour of the hardware
+// sampler used on the packed normal/AO/shadow texture, so the tint
+// lines up with the shading rather than sliding half a pixel against
+// it.
+fn elevAt(ix: i32, iy: i32, n: i32) -> f32 {
+  let cx = clamp(ix, 0, n - 1);
+  let cy = clamp(iy, 0, n - 1);
+  return elev[u32(cy * n + cx)];
+}
+
+fn sampleElev(uv: vec2<f32>, n: i32) -> f32 {
+  let p = uv * f32(n) - vec2<f32>(0.5, 0.5);
+  let b = floor(p);
+  let f = p - b;
+  let i0 = vec2<i32>(b);
+  let h00 = elevAt(i0.x, i0.y, n);
+  let h10 = elevAt(i0.x + 1, i0.y, n);
+  let h01 = elevAt(i0.x, i0.y + 1, n);
+  let h11 = elevAt(i0.x + 1, i0.y + 1, n);
+  return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+}
+
+// Elevation to Oklab, linearly blending the two bracketing ramp
+// entries. Outside the ramp's domain this clamps to the end entries.
+fn rampAt(h: f32) -> vec3<f32> {
+  let n = i32(arrayLength(&ramp));
+  let t = clamp((h - g.hypso.x) * g.hypso.y, 0.0, 1.0) * f32(n - 1);
+  let i0 = i32(floor(t));
+  let i1 = min(i0 + 1, n - 1);
+  let f = t - floor(t);
+  return mix(ramp[u32(i0)].xyz, ramp[u32(i1)].xyz, f);
+}
+
+// Oklab to linear sRGB, from the matrices in Björn Ottosson's
+// reference implementation (https://bottosson.github.io/posts/oklab/).
+fn oklabToLinearSrgb(lab: vec3<f32>) -> vec3<f32> {
+  let l_ = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
+  let m_ = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
+  let s_ = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;
+  let l = l_ * l_ * l_;
+  let m = m_ * m_ * m_;
+  let s = s_ * s_ * s_;
+  return vec3<f32>(
+     4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  );
+}
+
+fn inGamut(c: vec3<f32>) -> bool {
+  return all(c >= vec3<f32>(-1e-4)) && all(c <= vec3<f32>(1.0001));
+}
+
+// Oklab to gamma-encoded sRGB, holding lightness and hue fixed and
+// backing chroma off until the colour fits in the gamut. Clamping the
+// channels instead would both shift hue and flatten any structure in
+// the clipped channel, which on a shaded map shows up as patches of
+// terrain that lose their relief. Bisection is safe because a chroma
+// scale of zero is a neutral grey, always in gamut.
+fn oklabToSrgbClipped(lab: vec3<f32>) -> vec3<f32> {
+  let L = clamp(lab.x, 0.0, 1.0);
+  var rgb = oklabToLinearSrgb(vec3<f32>(L, lab.y, lab.z));
+  if (!inGamut(rgb)) {
+    var lo = 0.0;
+    var hi = 1.0;
+    for (var i = 0; i < 12; i = i + 1) {
+      let mid = 0.5 * (lo + hi);
+      if (inGamut(oklabToLinearSrgb(vec3<f32>(L, lab.y * mid, lab.z * mid)))) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    rgb = oklabToLinearSrgb(vec3<f32>(L, lab.y * lo, lab.z * lo));
+  }
+  let c = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+  return vec3<f32>(linearToSrgb(c.r), linearToSrgb(c.g), linearToSrgb(c.b));
 }
 
 // Invert web-mercator: (uv in tile, plus integer tile z/x/y) → lat/lng
@@ -304,7 +401,38 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // darkens both lambertian and relief together.
   let baseSrgb = mix(linearToSrgb(lambertian), reliefSrgb, reliefMode);
   let v = clamp(baseSrgb * aoFactor * nightMask, 0.0, 1.0);
-  return vec4<f32>(v, v, v, 1.0);
+
+  let tint = g.hypso.z;
+  if (tint <= 0.0) {
+    return vec4<f32>(v, v, v, 1.0);
+  }
+
+  // Shading is applied as a *relative* brightness, not as a multiply.
+  // v0 is what flat, unoccluded, unshadowed ground would render at
+  // under the same sun, so k = v / v0 is 1 on the flats and departs
+  // from 1 only where the terrain actually does something. That keeps
+  // the ramp colour intact where there is no relief to show; a plain
+  // multiply would instead drag the whole map toward black by
+  // whatever the average shading happens to be, which is the usual
+  // reason tinted relief comes out muddy.
+  //
+  // The 0.35 floor stops a low sun in lambertian mode from dividing
+  // by something near zero and blowing the tint out to white.
+  let flatLamb = linearToSrgb(clamp(sunDir.z, 0.0, 1.0));
+  let v0 = max(mix(flatLamb, 1.0, reliefMode), 0.35);
+  let k = clamp(v / v0, 0.0, 2.0);
+
+  let h = sampleElev(in.uv, i32(t.tileZXY.w));
+  let lab = rampAt(h);
+  let L2 = clamp(lab.x * k, 0.0, 1.0);
+  // Scale chroma with lightness rather than holding it fixed. Holding
+  // it fixed makes deep shade read as an unnaturally saturated version
+  // of the same hue, and pushes colours out of gamut exactly where the
+  // clipper has least room to work.
+  let cs = select(0.0, L2 / max(lab.x, 1e-4), lab.x > 0.0);
+  let rgb = oklabToSrgbClipped(vec3<f32>(L2, lab.y * cs, lab.z * cs));
+
+  return vec4<f32>(mix(vec3<f32>(v, v, v), rgb, tint), 1.0);
 }
 `;
 
@@ -470,6 +598,11 @@ export function createTileViewer(opts) {
         visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
         buffer: { type: "uniform" },
       },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "read-only-storage" },
+      },
     ],
   });
   const tileBindGroupLayout = device.createBindGroupLayout({
@@ -489,6 +622,11 @@ export function createTileViewer(opts) {
         binding: 2,
         visibility: GPUShaderStage.FRAGMENT,
         sampler: { type: "filtering" },
+      },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "read-only-storage" },
       },
     ],
   });
@@ -513,18 +651,42 @@ export function createTileViewer(opts) {
     addressModeV: "clamp-to-edge",
   });
 
-  // Global uniform buffer (64 bytes: four vec4s — viewport, sunDir,
-  // params, solar).
+  // Global uniform buffer (80 bytes: five vec4s — viewport, sunDir,
+  // params, solar, hypso).
   const globalBuffer = device.createBuffer({
-    size: 64,
+    size: 80,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "tile-viewer global uniforms",
   });
+
+  // Hypsometric ramp LUT: Oklab (L, a, b, 1) per entry. Starts as a
+  // neutral mid-grey so the buffer is never read uninitialised; the
+  // first setRamp replaces it. Tinting is off until setRamp is called
+  // with a non-zero strength, so what is in here before then is only
+  // ever a safety net.
+  const RAMP_SIZE = 512;
+  const rampBuffer = device.createBuffer({
+    size: RAMP_SIZE * 16,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    label: "tile-viewer hypsometric ramp",
+  });
+  {
+    const init = new Float32Array(RAMP_SIZE * 4);
+    for (let i = 0; i < RAMP_SIZE; i++) {
+      init[i * 4] = 0.75;
+      init[i * 4 + 3] = 1;
+    }
+    device.queue.writeBuffer(rampBuffer, 0, init);
+  }
+
   const globalBindGroup = device.createBindGroup({
     layout: globalBindGroupLayout,
-    entries: [{ binding: 0, resource: { buffer: globalBuffer } }],
+    entries: [
+      { binding: 0, resource: { buffer: globalBuffer } },
+      { binding: 1, resource: { buffer: rampBuffer } },
+    ],
   });
-  const globalData = new Float32Array(16);
+  const globalData = new Float32Array(20);
 
   // ------------------------------------------------------------------
   // GPU tile-bake resources.
@@ -656,6 +818,13 @@ export function createTileViewer(opts) {
     // represent the sun direction at the view centre.
     useTime: false,
     solar: { sinDec: 0, cosDec: 1, gmstMinusRA: 0 },
+    // Hypsometric tint. `tintStrength` of 0 leaves the composite
+    // exactly as it was before tinting existed (a grey shaded relief);
+    // 1 is the full elevation ramp. `rampMin`/`rampMax` are the
+    // elevations in metres that the ramp LUT spans.
+    tintStrength: 0,
+    rampMin: 0,
+    rampMax: 5200,
   };
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
@@ -763,10 +932,17 @@ export function createTileViewer(opts) {
             { binding: 0, resource: { buffer: this.uniformBuffer } },
             { binding: 1, resource: this.texture.createView() },
             { binding: 2, resource: sampler },
+            { binding: 3, resource: { buffer: this.elevBuffer } },
           ],
         });
 
         this._compN = compN;
+        // The display shader reads the elevation grid for hypsometric
+        // tinting, so it has to be on the GPU in both bake modes. The
+        // GPU path below used to be the only writer; in CPU mode the
+        // buffer was allocated and left empty.
+        device.queue.writeBuffer(this.elevBuffer, 0, comp.heights);
+        this.tileData[7] = compN;
 
         // Elevation bounds feed the shadow-rebake warmup trim in
         // deriveSweepParams. Needed regardless of bake mode — if they
@@ -837,7 +1013,7 @@ export function createTileViewer(opts) {
           needsRender = true;
         } else {
           // ---- GPU bake path (original) ----
-          device.queue.writeBuffer(this.elevBuffer, 0, comp.heights);
+          // elevBuffer is already uploaded above, for both bake modes.
           device.queue.writeBuffer(this.horizonBuffer, 0, horizon.heights);
 
           // Queue for baking — processed one per frame to avoid
@@ -1331,6 +1507,7 @@ export function createTileViewer(opts) {
     //   f32[4..7]   = sunDir.xyz, unused
     //   f32[8..11]  = params (kAmbient, kDirect, aoStrength, shadowStrength)
     //   f32[12..15] = solar (sinDec, cosDec, gmstMinusRA, useTime)
+    //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, unused)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -1347,6 +1524,10 @@ export function createTileViewer(opts) {
     globalData[13] = lighting.solar.cosDec;
     globalData[14] = lighting.solar.gmstMinusRA;
     globalData[15] = lighting.useTime ? 1 : 0;
+    globalData[16] = lighting.rampMin;
+    globalData[17] = 1 / (lighting.rampMax - lighting.rampMin || 1);
+    globalData[18] = lighting.tintStrength;
+    globalData[19] = 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32
@@ -1711,6 +1892,47 @@ export function createTileViewer(opts) {
     getCenter() {
       return worldToLatLng(centerWorldX, centerWorldY, baseZoom, tileSize);
     },
+
+    /**
+     * Upload a hypsometric ramp. `lut` is a Float32Array of
+     * RAMP_SIZE * 4 Oklab (L, a, b, 1) entries sampled uniformly
+     * across [domain[0], domain[1]] in metres, which is exactly what
+     * `buildOklabLUT` from lib/color-ramp.js produces. Shorter LUTs are
+     * accepted and padded by repeating the last entry, so the caller is
+     * free to pick its own resolution.
+     */
+    setRamp(lut, domain) {
+      if (!lut || lut.length < 4) return;
+      const have = Math.min(RAMP_SIZE, lut.length / 4) | 0;
+      const data = new Float32Array(RAMP_SIZE * 4);
+      data.set(lut.subarray(0, have * 4));
+      for (let i = have; i < RAMP_SIZE; i++) {
+        data.copyWithin(i * 4, (have - 1) * 4, have * 4);
+      }
+      device.queue.writeBuffer(rampBuffer, 0, data);
+      if (domain) {
+        lighting.rampMin = domain[0];
+        lighting.rampMax = domain[1];
+      }
+      needsRender = true;
+    },
+
+    /**
+     * Elevation range over the tiles currently loaded, as
+     * [min, max] in metres, or null when nothing is loaded yet. These
+     * are whole-tile bounds that the fetch already computed, so the
+     * range can reach a little past what is strictly on screen.
+     */
+    getElevationRange() {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const tile of tiles.values()) {
+        if (!tile.ready || tile.destroyed) continue;
+        if (tile._compHMin < lo) lo = tile._compHMin;
+        if (tile._compHMax > hi) hi = tile._compHMax;
+      }
+      return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? [lo, hi] : null;
+    },
     destroy() {
       worker.terminate();
       for (const w of cpuWorkers) w.terminate();
@@ -1719,6 +1941,9 @@ export function createTileViewer(opts) {
       tiles.clear();
       try {
         globalBuffer.destroy();
+      } catch (_) {}
+      try {
+        rampBuffer.destroy();
       } catch (_) {}
     },
   };
