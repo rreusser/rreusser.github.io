@@ -865,6 +865,11 @@ export function createTileViewer(opts) {
 
   const pendingTiles = new Map(); // "z/x/y" -> { resolve, reject }
 
+  // Elevation fetch retry, mirroring the imagery path below. A 4xx is
+  // not retried: the source is telling us the tile does not exist.
+  const TILE_RETRIES = 3;
+  const TILE_RETRY_MS = 250;
+
   worker.onmessage = (e) => {
     const msg = e.data;
     const key = `${msg.z}/${msg.x}/${msg.y}`;
@@ -874,7 +879,9 @@ export function createTileViewer(opts) {
     if (msg.type === "tile") {
       pending.resolve({ comp: msg.comp, horizon: msg.horizon });
     } else if (msg.type === "error") {
-      pending.reject(new Error(msg.message));
+      const err = new Error(msg.message);
+      err.status = msg.status | 0;
+      pending.reject(err);
     }
   };
 
@@ -1236,6 +1243,12 @@ export function createTileViewer(opts) {
       this._cpuNy = null;
       this._cpuAo = null;
       this._shadowPending = false;
+      // Set once this tile will never become ready: the source has no
+      // data for it (a 4xx), or the fetch failed often enough that we
+      // stopped asking. Either way nothing is still coming, so the
+      // tile must not hold up `isSettled()`.
+      this.unavailable = false;
+      this._fetchTries = 0;
       this.satTexture = null;  // satellite imagery, allocated on demand
       this._satAbort = null;
       this._satPending = false;
@@ -1477,7 +1490,33 @@ export function createTileViewer(opts) {
           // will process it on a subsequent frame.
         }
       } catch (err) {
-        console.error("tile populate error", err);
+        if (this.destroyed) return;
+        // A 4xx means this tile does not exist. Over ocean, or off the
+        // edge of the source's coverage, that is the normal answer and
+        // not an error: there is simply nothing to draw here.
+        const status = err && err.status | 0;
+        if (status >= 400 && status < 500) {
+          this.unavailable = true;
+          needsRender = true;
+          return;
+        }
+        // Anything else (a network blip, a 5xx, a rate limit) might
+        // well succeed on the next try, so back off and ask again
+        // rather than punching a permanent hole in the view.
+        if (this._fetchTries < TILE_RETRIES) {
+          const n = this._fetchTries++;
+          setTimeout(() => {
+            if (!this.destroyed) this._populate();
+          }, TILE_RETRY_MS << n);
+          return;
+        }
+        this.unavailable = true;
+        needsRender = true;
+        console.warn(
+          `tile-viewer elevation ${this.z}/${this.x}/${this.y} gave up ` +
+            `after ${this._fetchTries + 1} tries:`,
+          err && err.message,
+        );
       }
     }
 
@@ -2041,6 +2080,11 @@ export function createTileViewer(opts) {
     if (cpuIdle.length < cpuPoolSize) return false;
     for (const tile of tiles.values()) {
       if (tile.destroyed) continue;
+      // A tile the source has no data for, or one we have stopped
+      // retrying, is never going to arrive. Waiting on it hangs a
+      // recording forever instead of settling on the frame the user
+      // would see if they stopped and waited, which is this one.
+      if (tile.unavailable) continue;
       if (!tile.ready) return false;
       if (tile._shadowPending) return false;
       // A tile whose image is still in flight would be captured as
