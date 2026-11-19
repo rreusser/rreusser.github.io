@@ -1896,7 +1896,13 @@
     import { createSunCalendar } from "./lib/sun-calendar.js";
     import { solarTimeQuantities } from "./solar-time.js";
     import { createGradientEditor } from "./lib/gradient-editor.js";
-    import { interpolateViridis, interpolateMagma, interpolatePlasma, interpolateCividis, interpolateInferno } from "npm:d3-scale-chromatic";
+    import {
+      interpolateViridis, interpolateMagma, interpolatePlasma, interpolateInferno, interpolateCividis,
+      interpolateTurbo, interpolateWarm, interpolateCool, interpolateCubehelixDefault,
+      interpolateSpectral, interpolateRdYlBu, interpolateBrBG,
+      interpolateYlGnBu, interpolateYlOrBr, interpolateGreys,
+    } from "npm:d3-scale-chromatic";
+    import { fitRampStops } from "./lib/color-ramp.js";
   </script>
   <script id="71" type="module">
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
@@ -2104,12 +2110,14 @@
         const q = (v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0");
         return `#${q(r)}${q(g)}${q(b)}`;
       };
-      const sampled = (name, interp, n = 13) => ({
+      // Stop positions are fitted rather than spaced evenly. Even
+      // spacing wastes stops on the straight parts of a scale and
+      // starves the corners, which for magma and inferno sit at the
+      // dark end where they turn hue fastest. Fitting lets 9 stops beat
+      // what 13 evenly spaced ones managed, on every scale here.
+      const sampled = (name, interp, n = 9) => ({
         name,
-        stops: Array.from({ length: n }, (_, i) => {
-          const t = i / (n - 1);
-          return { t, color: rgbToHex(interp(t)) };
-        }),
+        stops: fitRampStops((t) => rgbToHex(interp(t)), n),
       });
       const terrainStops = [
         { t: 0.0,  color: "#46773f" },
@@ -2129,6 +2137,16 @@
         sampled("plasma", interpolatePlasma),
         sampled("inferno", interpolateInferno),
         sampled("cividis", interpolateCividis),
+        sampled("turbo", interpolateTurbo),
+        sampled("warm", interpolateWarm),
+        sampled("cool", interpolateCool),
+        sampled("cubehelix", interpolateCubehelixDefault),
+        sampled("spectral", interpolateSpectral),
+        sampled("RdYlBu", interpolateRdYlBu),
+        sampled("BrBG", interpolateBrBG),
+        sampled("YlGnBu", interpolateYlGnBu),
+        sampled("YlOrBr", interpolateYlOrBr),
+        sampled("greys", interpolateGreys),
       ];
 
       let autoFitDone = false;
