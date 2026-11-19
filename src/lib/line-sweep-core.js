@@ -57,6 +57,20 @@ export function sweepCore(opts) {
     mode,
     altDeg = 0,
     sunRadiusDeg = 0,
+    // Keep the soft penumbra window from reaching below the horizon,
+    // by centring it on `max(altDeg, 1.5 * sunRadiusDeg)` instead of
+    // on the true altitude. Flat ground then stays fully lit right
+    // down to the horizon, which is what the single-tile figures
+    // want: their sun handle cannot go below it, and a whole scene
+    // sliding to half brightness as the handle bottoms out reads as a
+    // bug rather than as dusk.
+    //
+    // A map that knows what time it is wants the opposite. The sun
+    // sets there, and the floor pins the sweep at a fixed altitude
+    // while the sun keeps going, so the terrain stops responding —
+    // see verify-low-sun.mjs. Pass false and the window follows the
+    // true altitude through the horizon and out the other side.
+    horizonFloor = true,
     weight = 1,
     horizon = null,
     HN = 0,
@@ -159,13 +173,17 @@ export function sweepCore(opts) {
       }
     : null;
 
-  // 'soft' mode constants. Clamp effective alt to ≥ halfWidthDeg so
-  // tanAltBot never goes negative; otherwise flat ground would land
-  // in the middle of the smoothstep range whenever the sun sits
-  // within a half-width of the horizon and the whole scene would
-  // darken to ~50%.
+  // 'soft' mode constants. Under `horizonFloor` the effective alt is
+  // held at ≥ halfWidthDeg so tanAltBot never goes negative, because
+  // otherwise flat ground lands in the middle of the smoothstep range
+  // whenever the sun sits within a half-width of the horizon and the
+  // whole scene darkens to ~50%. That is the right reading of the
+  // geometry — half the disc is below the horizon, so half the light
+  // is gone — but it is only wanted where something downstream knows
+  // the sun is setting and fades the scene to match.
   const halfWidthDeg = 1.5 * sunRadiusDeg;
-  const effectiveAltDeg = altDeg < halfWidthDeg ? halfWidthDeg : altDeg;
+  const effectiveAltDeg =
+    horizonFloor && altDeg < halfWidthDeg ? halfWidthDeg : altDeg;
   const tanAltBot = Math.tan(
     ((effectiveAltDeg - halfWidthDeg) * Math.PI) / 180,
   );

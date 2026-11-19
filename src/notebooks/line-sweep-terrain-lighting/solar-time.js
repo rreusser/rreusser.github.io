@@ -45,6 +45,26 @@ function wrapPi(x) {
 // center lat/lng) for shadow baking, so shadows don't drift as the
 // user pans the map. Returns notebook-convention angles in degrees:
 // azDeg measured from east, counter-clockwise; altDeg positive up.
+/**
+ * Unit vector toward the sun in the notebook's frame (x east, y north,
+ * z up) for an azimuth (0 = east, counter-clockwise) and an altitude,
+ * both in degrees.
+ *
+ * The altitude is used as given, negative included. Below the horizon
+ * z goes negative, and nothing downstream needs it held at zero:
+ * lambertian shading is max(0, n . L), the composite fades the cast
+ * shadow to fully shadowed as z crosses zero, and the shadow bake
+ * derives each tile's altitude and handles a low sun on its own.
+ * Clamping here instead froze the terrain at the horizon while the sun
+ * kept going (verify-sun-unclipped.mjs).
+ */
+export function sunVector(azDeg, altDeg) {
+  const az = (azDeg * Math.PI) / 180;
+  const alt = (altDeg * Math.PI) / 180;
+  const c = Math.cos(alt);
+  return [c * Math.cos(az), c * Math.sin(az), Math.sin(alt)];
+}
+
 export function sunAnglesAt(solar, latRad, lngRad) {
   const { sinDec, cosDec, gmstMinusRA } = solar;
   const sinPhi = Math.sin(latRad);

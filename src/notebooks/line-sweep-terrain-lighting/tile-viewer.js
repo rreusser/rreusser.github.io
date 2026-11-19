@@ -63,6 +63,7 @@ import {
   packUniforms,
 } from "./webgpu-pipelines.js";
 import { sunAnglesAt } from "./solar-time.js";
+import { splitHash, joinHash } from "./hash-params.js";
 
 const TAU = Math.PI * 2;
 const AO_DIRECTIONS = 8;
@@ -84,7 +85,9 @@ function worldToLatLng(x, y, z, tileSize) {
 }
 
 function parseHash(hash = location.hash) {
-  const h = String(hash).replace(/^#/, "");
+  // Only the path: notebook settings ride after a "?" (hash-params.js)
+  // and are none of the viewer's business.
+  const h = splitHash(hash).path;
   const parts = h.split("/");
   if (parts.length >= 3) {
     const z = parseFloat(parts[0]);
@@ -138,6 +141,24 @@ function tilePxSizeM(z, y, N) {
 // occlusion strength doesn't vary with latitude or jump at tile borders.
 function tilePxSizeMRef(z, N) {
   return EARTH_CIRCUMFERENCE_M / (Math.pow(2, z) * N);
+}
+
+// Whether a tile's imagery should be assembled from the 2x2 block one
+// level deeper rather than fetched as the single image at its own z.
+//
+// True while the source's own level z is coarser on the ground than
+// the data behind it: level z + 1 then still resolves something level
+// z does not. Once level z is already finer than `nativeResM`, the
+// deeper level is an upsample of this one and the three extra requests
+// buy interpolation and nothing else.
+//
+// Latitude enters through the Mercator cosine, so the flip comes a
+// level earlier near the poles than at the equator; it is evaluated
+// per tile row, not per zoom. `nativeResM = 0` disables the split.
+//
+// Exported for `verify-imagery-block.mjs`.
+export function imageryBlockSplit(z, y, tileSize, nativeResM) {
+  return nativeResM > 0 && tilePxSizeM(z, y, tileSize) > nativeResM;
 }
 
 const SHADER = /* wgsl */ `
@@ -671,6 +692,23 @@ export function createTileViewer(opts) {
     // visible; most sources require the credit.
     imageryUrl = null,
     imageryAttribution = "",
+    // Pixel size of the imagery source's own tiles, and the finest
+    // ground resolution the data behind them actually resolves.
+    // Together these say where the source's pyramid stops carrying new
+    // information: a level whose ground resolution is already finer
+    // than `imageryNativeResM` is an upsample of the level above it,
+    // not new detail. Sentinel-2's true-colour bands are 10 m, so
+    // s2cloudless runs out at about z13-z14 depending on latitude.
+    //
+    // While a tile's imagery level is still coarser than that, the
+    // viewer fetches the 2x2 block of (z + 1) images instead of the
+    // single tile at z and merges them into one texture of twice the
+    // size, matching the terrain raster. Past it the extra three
+    // requests would buy nothing but interpolation, so it fetches the
+    // single tile as before. `imageryNativeResM = 0` disables the
+    // merge entirely.
+    imageryTileSize = 256,
+    imageryNativeResM = 0,
     // Parent-horizon zoom delta. At `parentDZ = dz` a 2×2 block of
     // (z - dz) parents guarantees a (2^dz + 1)×(2^dz + 1) target-tile
     // symmetric window around the comp tile at (1/2^dz) parent
@@ -710,6 +748,9 @@ export function createTileViewer(opts) {
   // size a recording will come out as. It flashes on every resize so
   // the user can pick a recording resolution just by sizing the
   // window, WYSIWYG, and the animation panel pins it while open.
+  // The figure's backing store is device pixels, so on a 2x display
+  // the chip reads twice the figure's CSS size; that is the honest
+  // number, since a capture reads the backing store.
   const evenDown = (v) => Math.max(2, v - (v % 2));
   const sizeChip = document.createElement("div");
   sizeChip.style.cssText =
@@ -865,6 +906,11 @@ export function createTileViewer(opts) {
 
   const pendingTiles = new Map(); // "z/x/y" -> { resolve, reject }
 
+  // Elevation fetch retry, mirroring the imagery path below. A 4xx is
+  // not retried: the source is telling us the tile does not exist.
+  const TILE_RETRIES = 3;
+  const TILE_RETRY_MS = 250;
+
   worker.onmessage = (e) => {
     const msg = e.data;
     const key = `${msg.z}/${msg.x}/${msg.y}`;
@@ -874,7 +920,9 @@ export function createTileViewer(opts) {
     if (msg.type === "tile") {
       pending.resolve({ comp: msg.comp, horizon: msg.horizon });
     } else if (msg.type === "error") {
-      pending.reject(new Error(msg.message));
+      const err = new Error(msg.message);
+      err.status = msg.status | 0;
+      pending.reject(err);
     }
   };
 
@@ -1074,15 +1122,23 @@ export function createTileViewer(opts) {
   // every tile gets the handle-driven global direction; in time mode
   // each tile resolves its own direction from its geographic centre,
   // so shadows are stable under panning (newly revealed tiles still
-  // bake with their own centre angles). altDeg is clamped at a small
-  // positive floor so tiles on the far side of the terminator don't
-  // try to sweep at negative altitudes — those tiles' shadows are
-  // faded out in the composite anyway.
+  // bake with their own centre angles).
+  //
+  // The altitude is passed through as it comes, negative values
+  // included. It used to be floored at 0.5 degrees so tiles past the
+  // terminator never swept at a negative altitude, but a floor is a
+  // freeze: the shadow stops growing while the sun keeps setting, and
+  // every tile on the night side bakes the same frame. The sweep
+  // handles the sun going down on its own — the penumbra window
+  // crosses the horizon with it and the ground darkens — and the
+  // composite's twilight fade covers what is left, including the
+  // seams where a shadow outruns the parent ring. See
+  // verify-low-sun.mjs.
   function tileSunAngles(tile) {
     if (lighting.useTime && lighting.solar) {
       const [lat, lng] = tileCenterLatLngRad(tile.z, tile.x, tile.y);
       const a = sunAnglesAt(lighting.solar, lat, lng);
-      return { azDeg: a.azDeg, altDeg: Math.max(0.5, a.altDeg) };
+      return { azDeg: a.azDeg, altDeg: a.altDeg };
     }
     const sunZc = Math.max(-1, Math.min(1, lighting.sunZ));
     const altDeg = (Math.asin(sunZc) * 180) / Math.PI;
@@ -1102,13 +1158,19 @@ export function createTileViewer(opts) {
     return sunAnglesAt(lighting.solar, (lat * Math.PI) / 180, (lng * Math.PI) / 180).altDeg;
   }
   let hashTimer = 0;
+  // The view as "<zoom>/<lat>/<lng>", with no leading "#".
+  function hashPath() {
+    const [cLat, cLng] = worldToLatLng(centerWorldX, centerWorldY, baseZoom, tileSize);
+    const prec = Math.max(0, Math.ceil(zoom) + 1);
+    const fmt = (v, p) => v.toFixed(p).replace(/\.?0+$/, "");
+    return `${fmt(zoom, 2)}/${fmt(cLat, prec)}/${fmt(cLng, prec)}`;
+  }
   function scheduleHashFlush() {
     clearTimeout(hashTimer);
     hashTimer = setTimeout(() => {
-      const [cLat, cLng] = worldToLatLng(centerWorldX, centerWorldY, baseZoom, tileSize);
-      const prec = Math.max(0, Math.ceil(zoom) + 1);
-      const fmt = (v, p) => v.toFixed(p).replace(/\.?0+$/, "");
-      const newHash = `#${fmt(zoom, 2)}/${fmt(cLat, prec)}/${fmt(cLng, prec)}`;
+      // Rewrite the path and carry whatever settings follow it
+      // through untouched; the notebook owns those.
+      const newHash = joinHash(hashPath(), splitHash(location.hash).query);
       if (location.hash !== newHash) {
         history.replaceState(null, "", newHash);
       }
@@ -1116,6 +1178,24 @@ export function createTileViewer(opts) {
   }
 
   const displayScale = () => Math.pow(2, zoom - baseZoom);
+
+  // Backing-store resolution. The figure is laid out in CSS pixels but
+  // the canvas is sized in device pixels, so a 2x display actually
+  // resolves the 512-texel terrain raster and the merged satellite
+  // block instead of handing three quarters of them to the compositor
+  // to throw away. Capped at 2: past that the fragment cost keeps
+  // growing and there is nothing left for the eye to pick up.
+  const MAX_PIXEL_RATIO = 2;
+  const resolvePixelRatio = () =>
+    Math.max(1, Math.min(MAX_PIXEL_RATIO, window.devicePixelRatio || 1));
+  let pixelRatio = resolvePixelRatio();
+
+  // World (baseZoom tile pixels) to canvas device pixels. This is the
+  // space `viewportW`/`viewportH`, the `viewportPx` uniform and every
+  // tile rectangle live in. Pointer events arrive in CSS pixels and are
+  // converted at the handler boundary, so nothing in between has to
+  // know the pixel ratio.
+  const screenScale = () => displayScale() * pixelRatio;
 
   const lighting = {
     sunX: 0,
@@ -1173,6 +1253,44 @@ export function createTileViewer(opts) {
     !!imageryUrl && clampSatOpacity(lighting.satOpacity) > 0;
   const imageryTileUrl = (z, x, y) =>
     imageryUrl.replace("{z}", z).replace("{x}", x).replace("{y}", y);
+
+  const imagerySplit = (z, y) =>
+    imageryBlockSplit(z, y, imageryTileSize, imageryNativeResM);
+
+  // Imagery request queue.
+  //
+  // The block merge turns one request per tile into four, so a zoom
+  // change asks for a couple of hundred images at once. Fired all
+  // together at a donated public tile service, a good share of them
+  // come back with a 200 and a body that will not decode — and since
+  // a quadrant that fails leaves a quarter of a tile showing bare
+  // relief, those failures are far more visible than the whole-tile
+  // kind were. So requests go out a few at a time, and one that fails
+  // backs off and tries again before the quadrant is given up.
+  const IMAGERY_CONCURRENCY = 8;
+  const IMAGERY_RETRIES = 2;
+  const IMAGERY_RETRY_MS = 250;
+  const imageryQueue = [];
+  let imageryInFlight = 0;
+
+  function pumpImageryQueue() {
+    while (imageryInFlight < IMAGERY_CONCURRENCY && imageryQueue.length > 0) {
+      const run = imageryQueue.shift();
+      imageryInFlight++;
+      run().finally(() => {
+        imageryInFlight--;
+        pumpImageryQueue();
+      });
+    }
+  }
+
+  // Jobs check for their own cancellation when they run, so a queue
+  // left holding requests for tiles that have since scrolled away
+  // drains through them at a microtask apiece.
+  function queueImagery(run) {
+    imageryQueue.push(run);
+    pumpImageryQueue();
+  }
 
   // Inverse-normal CDF (Peter Acklam's rational approximation). Used
   // to stratify the azimuth offsets of the N shadow samples across a
@@ -1236,9 +1354,17 @@ export function createTileViewer(opts) {
       this._cpuNy = null;
       this._cpuAo = null;
       this._shadowPending = false;
+      // Set once this tile will never become ready: the source has no
+      // data for it (a 4xx), or the fetch failed often enough that we
+      // stopped asking. Either way nothing is still coming, so the
+      // tile must not hold up `isSettled()`.
+      this.unavailable = false;
+      this._fetchTries = 0;
       this.satTexture = null;  // satellite imagery, allocated on demand
       this._satAbort = null;
-      this._satPending = false;
+      this._satPending = 0;    // imagery requests still in flight
+      this._satSplit = false;  // assembled from a 2x2 block of z + 1
+      this._satQuadPx = 0;     // size of one source image, in texels
       this._populate();
       // Imagery is independent of the elevation fetch, so it starts
       // right away rather than waiting for the bake. Whichever lands
@@ -1266,21 +1392,69 @@ export function createTileViewer(opts) {
       });
     }
 
-    // Fetch this tile's satellite image, if imagery is live and we
-    // don't already have one in hand or in flight. A no-op otherwise —
+    // Fetch this tile's satellite imagery, if imagery is live and we
+    // don't already have it in hand or in flight. A no-op otherwise —
     // which is the whole point: with the opacity at zero this returns
     // before touching the network or the GPU.
+    //
+    // While the source's own level z is coarser than the data behind
+    // it (see `imagerySplit`), the imagery is the 2x2 block one level
+    // deeper, merged into a single texture of twice the size so it
+    // matches the terrain raster. Past that the three extra requests
+    // would buy interpolation and nothing else, so it is the single
+    // tile at this tile's own z, as before.
     ensureImagery() {
       if (!imageryLive()) return;
       if (this.destroyed || this.satTexture || this._satPending) return;
       const controller = new AbortController();
       this._satAbort = controller;
-      this._satPending = true;
+      this._satSplit = imagerySplit(this.z, this.y);
+      // Order is irrelevant: each image carries its own destination
+      // origin and lands wherever it lands.
+      const quads = this._satSplit
+        ? [[0, 0], [1, 0], [0, 1], [1, 1]]
+        : [[0, 0]];
+      this._satPending = quads.length;
+      for (const [qx, qy] of quads) {
+        const z = this._satSplit ? this.z + 1 : this.z;
+        const x = this._satSplit ? this.x * 2 + qx : this.x;
+        const y = this._satSplit ? this.y * 2 + qy : this.y;
+        this._fetchImageryQuad(controller, z, x, y, qx, qy);
+      }
+    }
+
+    // One of the one or four images that make up this tile's imagery.
+    // Counts itself off `_satPending` exactly once, however many
+    // attempts it takes and whether or not it ever lands.
+    _fetchImageryQuad(controller, z, x, y, qx, qy) {
+      let counted = false;
       const done = () => {
-        this._satPending = false;
-        if (this._satAbort === controller) this._satAbort = null;
+        if (counted) return;
+        counted = true;
+        // A `dropImagery` while this was in flight has already zeroed
+        // the count and dropped the controller; don't count it twice.
+        if (this._satAbort !== controller) return;
+        this._satPending = Math.max(0, this._satPending - 1);
+        if (this._satPending === 0) this._satAbort = null;
       };
-      fetch(imageryTileUrl(this.z, this.x, this.y), { signal: controller.signal })
+      const attempt = (n) => {
+        queueImagery(() => this._loadImageryQuad(controller, z, x, y, qx, qy, n, done, attempt));
+      };
+      attempt(0);
+    }
+
+    _loadImageryQuad(controller, z, x, y, qx, qy, n, done, retry) {
+      // The opacity may have gone back to zero, or the tile may have
+      // scrolled off, while this sat in the queue or in flight. Either
+      // way nothing is uploaded, so a quick toggle leaves nothing
+      // allocated behind it.
+      const stale = () =>
+        this.destroyed || controller.signal.aborted || !imageryLive();
+      if (stale()) {
+        done();
+        return Promise.resolve();
+      }
+      return fetch(imageryTileUrl(z, x, y), { signal: controller.signal })
         .then((res) => {
           if (!res.ok) throw new Error(`imagery fetch failed (${res.status})`);
           return res.blob();
@@ -1289,46 +1463,86 @@ export function createTileViewer(opts) {
         // only the upload below runs here.
         .then((blob) => createImageBitmap(blob))
         .then((bitmap) => {
-          // The opacity may have gone back to zero, or the tile may
-          // have scrolled off, while this was in flight. Either way the
-          // image is dropped rather than uploaded, so a quick toggle
-          // leaves nothing allocated behind it.
-          if (this.destroyed || controller.signal.aborted || !imageryLive()) {
+          if (stale()) {
             bitmap.close();
             done();
             return;
           }
-          this.satTexture = device.createTexture({
-            size: [bitmap.width, bitmap.height, 1],
-            format: "rgba8unorm",
-            // RENDER_ATTACHMENT is not optional even though nothing
-            // ever renders into this texture: it is what
-            // copyExternalImageToTexture requires of its destination,
-            // and without it the upload is silently dropped and the
-            // tile keeps showing the transparent placeholder.
-            usage:
-              GPUTextureUsage.TEXTURE_BINDING |
-              GPUTextureUsage.COPY_DST |
-              GPUTextureUsage.RENDER_ATTACHMENT,
-            label: `tile ${this.z}/${this.x}/${this.y} imagery`,
-          });
-          device.queue.copyExternalImageToTexture(
-            { source: bitmap },
-            { texture: this.satTexture },
-            [bitmap.width, bitmap.height],
-          );
+          this._uploadImageryQuad(bitmap, qx, qy);
           bitmap.close();
-          this._rebuildBindGroup();
           done();
           needsRender = true;
         })
         .catch((err) => {
+          if (stale()) {
+            done();
+            return;
+          }
+          if (n < IMAGERY_RETRIES) {
+            setTimeout(() => retry(n + 1), IMAGERY_RETRY_MS << n);
+            return;
+          }
+          // Out of tries. Not fatal: with one image per tile the tile
+          // stays tinted relief, and with four, that quadrant does.
           done();
-          if (controller.signal.aborted) return;
-          // A missing or failed image is not fatal: the tile keeps the
-          // transparent placeholder and renders as tinted relief.
-          console.warn(`tile-viewer imagery ${this.z}/${this.x}/${this.y}:`, err.message);
+          console.warn(
+            `tile-viewer imagery ${z}/${x}/${y} gave up after ${n + 1} tries:`,
+            err.message,
+          );
         });
+    }
+
+    // Copy one decoded image into its quadrant of this tile's imagery
+    // texture, allocating the texture on the first image to arrive.
+    //
+    // The merge needs no render pass and no canvas: the copy takes a
+    // destination origin, so each image writes straight into its own
+    // corner. The texture starts zeroed — WebGPU initialises it before
+    // first use — and the composite weights imagery by opacity times
+    // alpha, so a quadrant that has not landed yet shows as tinted
+    // relief and fills in when it does. No extra state to track, and a
+    // quadrant that never arrives simply stays relief.
+    _uploadImageryQuad(bitmap, qx, qy) {
+      if (bitmap.width !== bitmap.height) {
+        console.warn(
+          `tile-viewer imagery ${this.z}/${this.x}/${this.y}: expected a square image, got ${bitmap.width}x${bitmap.height}`,
+        );
+        return;
+      }
+      if (!this.satTexture) {
+        this._satQuadPx = bitmap.width;
+        const n = this._satQuadPx * (this._satSplit ? 2 : 1);
+        this.satTexture = device.createTexture({
+          size: [n, n, 1],
+          format: "rgba8unorm",
+          // RENDER_ATTACHMENT is not optional even though nothing
+          // ever renders into this texture: it is what
+          // copyExternalImageToTexture requires of its destination,
+          // and without it the upload is silently dropped and the
+          // tile keeps showing the transparent placeholder.
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.RENDER_ATTACHMENT,
+          label: `tile ${this.z}/${this.x}/${this.y} imagery`,
+        });
+        this._rebuildBindGroup();
+      } else if (bitmap.width !== this._satQuadPx) {
+        // The four images of a block have to agree or the quadrants
+        // don't tile. Keep the ones that fit what we allocated.
+        console.warn(
+          `tile-viewer imagery ${this.z}/${this.x}/${this.y}: image size changed mid-block (${this._satQuadPx} then ${bitmap.width})`,
+        );
+        return;
+      }
+      device.queue.copyExternalImageToTexture(
+        { source: bitmap },
+        {
+          texture: this.satTexture,
+          origin: [qx * this._satQuadPx, qy * this._satQuadPx, 0],
+        },
+        [bitmap.width, bitmap.height],
+      );
     }
 
     // Release this tile's imagery and cancel any fetch for it. Used
@@ -1336,7 +1550,8 @@ export function createTileViewer(opts) {
     dropImagery() {
       this._satAbort?.abort();
       this._satAbort = null;
-      this._satPending = false;
+      this._satPending = 0;
+      this._satQuadPx = 0;
       if (this.satTexture) {
         try {
           this.satTexture.destroy();
@@ -1434,6 +1649,10 @@ export function createTileViewer(opts) {
             parentScale,
             compHMin: comp.hMin,
             horizonHMax: horizon.hMax ?? 0,
+            // The map knows what time it is, so the penumbra window
+            // follows the sun through the horizon instead of stopping
+            // at it. See tileSunAngles.
+            horizonFloor: false,
           });
           if (!result || this.destroyed) {
             this.texture?.destroy();
@@ -1477,7 +1696,33 @@ export function createTileViewer(opts) {
           // will process it on a subsequent frame.
         }
       } catch (err) {
-        console.error("tile populate error", err);
+        if (this.destroyed) return;
+        // A 4xx means this tile does not exist. Over ocean, or off the
+        // edge of the source's coverage, that is the normal answer and
+        // not an error: there is simply nothing to draw here.
+        const status = err && err.status | 0;
+        if (status >= 400 && status < 500) {
+          this.unavailable = true;
+          needsRender = true;
+          return;
+        }
+        // Anything else (a network blip, a 5xx, a rate limit) might
+        // well succeed on the next try, so back off and ask again
+        // rather than punching a permanent hole in the view.
+        if (this._fetchTries < TILE_RETRIES) {
+          const n = this._fetchTries++;
+          setTimeout(() => {
+            if (!this.destroyed) this._populate();
+          }, TILE_RETRY_MS << n);
+          return;
+        }
+        this.unavailable = true;
+        needsRender = true;
+        console.warn(
+          `tile-viewer elevation ${this.z}/${this.x}/${this.y} gave up ` +
+            `after ${this._fetchTries + 1} tries:`,
+          err && err.message,
+        );
       }
     }
 
@@ -1731,6 +1976,7 @@ export function createTileViewer(opts) {
           mode: "soft",
           altDeg,
           sunRadiusDeg,
+          horizonFloor: false,
           weight,
           horizonN: tile.HN,
           parentScale,
@@ -1834,6 +2080,7 @@ export function createTileViewer(opts) {
         parentScale,
         compHMin: tile._compHMin,
         horizonHMax: tile._horizonHMax,
+        horizonFloor: false,
       }).then((result) => {
         tile._shadowPending = false;
         if (!result || tile.destroyed) return;
@@ -1853,7 +2100,7 @@ export function createTileViewer(opts) {
   }
 
   function updateTiles() {
-    const scale = displayScale();
+    const scale = screenScale();
     // Viewport → baseZoom world coordinates. At display scale > 1 one
     // baseZoom pixel covers more than one screen pixel, so the visible
     // range contracts accordingly.
@@ -1893,7 +2140,7 @@ export function createTileViewer(opts) {
     const clamped = Math.max(minZoom, Math.min(maxZoom, newZoom));
     if (clamped === zoom) return;
 
-    const oldScale = displayScale();
+    const oldScale = screenScale();
     const ax = anchorPx ? anchorPx.x : viewportW / 2;
     const ay = anchorPx ? anchorPx.y : viewportH / 2;
     // Geographic position under the anchor, in current baseZoom pixels.
@@ -1905,7 +2152,7 @@ export function createTileViewer(opts) {
     // Rescale the geographic position into the new base zoom's pixels.
     const newCursorWorldX = cursorWorldX * baseShift;
     const newCursorWorldY = cursorWorldY * baseShift;
-    const newScale = Math.pow(2, clamped - newBaseZoom);
+    const newScale = Math.pow(2, clamped - newBaseZoom) * pixelRatio;
     const newCenterWorldX = newCursorWorldX - (ax - viewportW / 2) / newScale;
     const newCenterWorldY = newCursorWorldY - (ay - viewportH / 2) / newScale;
 
@@ -1934,10 +2181,15 @@ export function createTileViewer(opts) {
     const rect = container.getBoundingClientRect();
     const prevW = viewportW;
     const prevH = viewportH;
-    viewportW = Math.max(1, Math.round(rect.width));
-    viewportH = Math.max(1, Math.round(rect.height));
-    canvas.style.width = viewportW + "px";
-    canvas.style.height = viewportH + "px";
+    pixelRatio = resolvePixelRatio();
+    // Two sizes, deliberately apart: CSS pixels place the canvas in the
+    // page, device pixels size its backing store.
+    const cssW = Math.max(1, Math.round(rect.width));
+    const cssH = Math.max(1, Math.round(rect.height));
+    viewportW = Math.max(1, Math.round(cssW * pixelRatio));
+    viewportH = Math.max(1, Math.round(cssH * pixelRatio));
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
     canvas.width = viewportW;
     canvas.height = viewportH;
     // Flash the size chip on every real change after the first layout
@@ -2041,6 +2293,11 @@ export function createTileViewer(opts) {
     if (cpuIdle.length < cpuPoolSize) return false;
     for (const tile of tiles.values()) {
       if (tile.destroyed) continue;
+      // A tile the source has no data for, or one we have stopped
+      // retrying, is never going to arrive. Waiting on it hangs a
+      // recording forever instead of settling on the frame the user
+      // would see if they stopped and waited, which is this one.
+      if (tile.unavailable) continue;
       if (!tile.ready) return false;
       if (tile._shadowPending) return false;
       // A tile whose image is still in flight would be captured as
@@ -2111,9 +2368,10 @@ export function createTileViewer(opts) {
     // Per-tile uniform updates — screen-space origin is a small f32
     // delta from a double-precision world coord, so high zoom stays
     // numerically stable. At fractional zoom `scale` magnifies the
-    // rendered tile size; at scale = 1 we're at the tile's native
-    // zoom level.
-    const scale = displayScale();
+    // rendered tile size; at displayScale = 1 we're at the tile's
+    // native zoom level, drawn at `pixelRatio` device pixels per
+    // tile pixel.
+    const scale = screenScale();
     const displaySize = tileSize * scale;
     for (const tile of tiles.values()) {
       if (!tile.ready) continue;
@@ -2288,13 +2546,48 @@ export function createTileViewer(opts) {
   resizeObserver.observe(container);
   updateCanvasSize();
 
-  // Pointer-drag panning + pinch-zoom. Screen-pixel deltas are converted
-  // into baseZoom world pixels via the current display scale so the
-  // gesture feels 1:1 with the cursor/finger regardless of fractional
-  // zoom. Two-finger pinch applies incremental pan + zoom per frame:
-  // pan by midpoint delta, then zoom by distance ratio anchored at the
-  // new midpoint. pinchMid/pinchDist are nulled whenever the pointer
+  // A ResizeObserver never fires when only the pixel ratio changes:
+  // drag the window from a 2x display to a 1x one and the CSS box is
+  // identical while the backing store is now twice what it needs to
+  // be (and the other way round leaves a soft canvas with no way back
+  // but a resize). matchMedia on the ratio catches it. The query
+  // matches one exact value, so it has to be rebuilt after each change.
+  let dprQuery = null;
+  let dprDisposed = false;
+  function onPixelRatioChange() {
+    updateCanvasSize();
+    watchPixelRatio();
+  }
+  function watchPixelRatio() {
+    if (dprDisposed) return;
+    dprQuery?.removeEventListener("change", onPixelRatioChange);
+    dprQuery = window.matchMedia(
+      `(resolution: ${window.devicePixelRatio || 1}dppx)`,
+    );
+    dprQuery.addEventListener("change", onPixelRatioChange);
+  }
+  watchPixelRatio();
+
+  // Pointer-drag panning + pinch-zoom. Pointer events carry CSS pixels;
+  // `pixelRatio` lifts them into the canvas device-pixel space, and the
+  // current screen scale converts from there into baseZoom world pixels,
+  // so the gesture feels 1:1 with the cursor/finger regardless of
+  // fractional zoom or display density. Two-finger pinch applies
+  // incremental pan + zoom per frame: pan by midpoint delta, then zoom
+  // by distance ratio anchored at the new midpoint. pinchMid/pinchDist are nulled whenever the pointer
   // set changes so the next move re-seeds cleanly without a jump.
+  // Client coordinates (CSS pixels, page-relative) to a zoom anchor in
+  // canvas device pixels. Pan and pinch convert their own deltas the
+  // same way, by multiplying through by `pixelRatio` before dividing
+  // by the screen scale.
+  const anchorFromClient = (clientX, clientY) => {
+    const rect = container.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) * pixelRatio,
+      y: (clientY - rect.top) * pixelRatio,
+    };
+  };
+
   const activePointers = new Map();
   let dragging = false;
   let dragMoved = false;
@@ -2346,17 +2639,13 @@ export function createTileViewer(opts) {
         pinchDist = curr.dist;
         return;
       }
-      const scale = displayScale();
-      centerWorldX -= (curr.x - pinchMid.x) / scale;
-      centerWorldY -= (curr.y - pinchMid.y) / scale;
+      const scale = screenScale();
+      centerWorldX -= ((curr.x - pinchMid.x) * pixelRatio) / scale;
+      centerWorldY -= ((curr.y - pinchMid.y) * pixelRatio) / scale;
       if (pinchDist > 0 && curr.dist > 0) {
         const dz = Math.log2(curr.dist / pinchDist);
         if (Math.abs(dz) > 1e-6) {
-          const rect = container.getBoundingClientRect();
-          zoomTo(zoom + dz, {
-            x: curr.x - rect.left,
-            y: curr.y - rect.top,
-          });
+          zoomTo(zoom + dz, anchorFromClient(curr.x, curr.y));
         }
       }
       pinchMid = { x: curr.x, y: curr.y };
@@ -2370,9 +2659,9 @@ export function createTileViewer(opts) {
       if (dx !== 0 || dy !== 0) dragMoved = true;
       lastX = e.clientX;
       lastY = e.clientY;
-      const scale = displayScale();
-      centerWorldX -= dx / scale;
-      centerWorldY -= dy / scale;
+      const scale = screenScale();
+      centerWorldX -= (dx * pixelRatio) / scale;
+      centerWorldY -= (dy * pixelRatio) / scale;
       needsRender = true;
       updateTiles();
     }
@@ -2415,11 +2704,7 @@ export function createTileViewer(opts) {
       e.preventDefault();
       const ZOOM_PER_PIXEL = 1 / 220;
       const dz = -e.deltaY * ZOOM_PER_PIXEL;
-      const rect = container.getBoundingClientRect();
-      zoomTo(zoom + dz, {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
+      zoomTo(zoom + dz, anchorFromClient(e.clientX, e.clientY));
       scheduleHashFlush();
     },
     { passive: false },
@@ -2430,11 +2715,7 @@ export function createTileViewer(opts) {
   container.addEventListener("dblclick", (e) => {
     if (dragMoved) return;
     e.preventDefault();
-    const rect = container.getBoundingClientRect();
-    const anchor = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
+    const anchor = anchorFromClient(e.clientX, e.clientY);
     // Shift-double-click zooms out as a companion gesture.
     const dz = e.shiftKey ? -1 : 1;
     zoomTo(zoom + dz, anchor);
@@ -2543,6 +2824,15 @@ export function createTileViewer(opts) {
       }
       needsRender = true;
     },
+    /**
+     * The current view as "<zoom>/<lat>/<lng>", the path part of the
+     * hash. The notebook uses it when it writes settings before the
+     * map has written a position of its own.
+     */
+    getHashPath() {
+      return hashPath();
+    },
+
     getCenter() {
       return worldToLatLng(centerWorldX, centerWorldY, baseZoom, tileSize);
     },
@@ -2589,7 +2879,9 @@ export function createTileViewer(opts) {
     },
     /**
      * Pixel size a captured frame will have: the live canvas cropped
-     * to even dimensions. This is what the size chip reports.
+     * to even dimensions. This is what the size chip reports. Device
+     * pixels, not CSS pixels, so on a 2x display a recording comes out
+     * at twice the figure's on-screen size.
      */
     getFrameSize() {
       return [evenDown(viewportW), evenDown(viewportH)];
@@ -2654,6 +2946,8 @@ export function createTileViewer(opts) {
       worker.terminate();
       for (const w of cpuWorkers) w.terminate();
       resizeObserver.disconnect();
+      dprDisposed = true;
+      dprQuery?.removeEventListener("change", onPixelRatioChange);
       for (const tile of tiles.values()) tile.destroy();
       tiles.clear();
       try {

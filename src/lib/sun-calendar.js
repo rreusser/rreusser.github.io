@@ -241,10 +241,17 @@ export function createSunCalendar(SunCalc, { getLocation, onChange }) {
   };
   container.setTimezone = (tz) => {
     if (!tz) return;
+    // Only zones the picker offers. Assigning anything else blanks the
+    // select, and a blank zone breaks every later date computation.
+    if (![...tzSelect.options].some((o) => o.value === tz)) return;
     tzSelect.value = tz;
     computeAndNotify();
   };
   container.getTimezone = () => tzSelect.value;
+  // Wall-clock state as the controls hold it, for deep links: the
+  // date as YYYY-MM-DD and the time as minutes past midnight.
+  container.getDateISO = () => dateInput.value;
+  container.getTimeMinutes = () => parseInt(timeSlider.value, 10);
 
   return container;
 }

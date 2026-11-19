@@ -1894,10 +1894,14 @@
     import { expandable } from "./lib/expandable.js";
     import SunCalc from "npm:suncalc@1.9.0";
     import { createSunCalendar } from "./lib/sun-calendar.js";
-    import { solarTimeQuantities } from "./solar-time.js";
+    import { solarTimeQuantities, sunVector } from "./solar-time.js";
     import { createAnimationPanel } from "./animation-panel.js";
     import { createGradientEditor } from "./lib/gradient-editor.js";
     import * as d3chromatic from "npm:d3-scale-chromatic";
+    import {
+      splitHash, joinHash, encodeParams, decodeParams,
+      num, oneOf, isoDate, clockMinutes, timeZone, range, rampStops,
+    } from "./hash-params.js";
   </script>
   <script id="71" type="module">
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
@@ -2089,6 +2093,10 @@
       new MutationObserver(() => {
         if (sunWrapper.closest(".expandable-controls-panel")) applyPanelStyle();
         else applyMapStyle();
+        // Both of those replace `style.cssText` wholesale, which drops
+        // the time-mode dimming. Put it back. (The observer fires
+        // asynchronously, after this cell has defined the function.)
+        syncSunHandleStyle();
       }).observe(document.body, { childList: true, subtree: true });
 
       const viewer = createTileViewer({
@@ -2096,12 +2104,18 @@
         device,
         format,
         tileUrl: "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
-        // Sentinel-2 cloudless, on the same tile grid as the terrain:
-        // one 256x256 image per elevation tile, linearly sampled up to
-        // the tile's size. Half the terrain's resolution, which the
-        // relief carries anyway, and half the memory of matching it.
+        // Sentinel-2 cloudless, on the same tile grid as the terrain.
+        // Zoomed out, where the source still holds detail a tile's own
+        // level does not resolve, each elevation tile takes the 2x2
+        // block one level deeper and merges it into a 512x512 texture
+        // matching the terrain raster. Once that level is already
+        // finer than Sentinel-2's 10 m bands it takes the single image
+        // at the tile's own level, since the deeper block is then an
+        // upsample of it and costs four requests to say so.
         imageryUrl:
           "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg",
+        imageryTileSize: 256,
+        imageryNativeResM: 10,
         imageryAttribution:
           'Imagery: <a href="https://s2maps.eu/" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by EOX',
         tileSize: 256,
@@ -2253,6 +2267,143 @@
       };
       c.sunModeEl.addEventListener("input", syncSunHandleStyle);
       syncSunHandleStyle();
+
+      // Settings in the URL hash. The map keeps its position in the
+      // hash path; everything else rides after it as ?key=value (see
+      // hash-params.js), so a reload or a shared link comes back
+      // configured. Each entry reads and writes one piece of state.
+      // Defaults are whatever the controls hold right now, before
+      // anything is restored, so they cannot drift from the controls'
+      // own declared values.
+      const isTime = () => c.sunModeEl.value === "time";
+      const fromEl = (el) => ({
+        get: () => el.value,
+        set: (v) => {
+          el.value = v;
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        },
+      });
+      const rec = c.animationPanel.inputs;
+      const cal = c.sunCalendarEl;
+      const sunDir = tileViewerSunDirAccessor;
+      const settings = {
+        mode: { codec: oneOf({ cpu: "cpu", gpu: "gpu", debug: "debug" }), ...fromEl(c.bakeModeEl) },
+        falloff: { codec: oneOf({ cos2: "cos²α", exp: "e^(−sin α)" }), ...fromEl(c.aoFalloffEl) },
+        ao: { codec: num(0, 1, 0.01), ...fromEl(c.aoEl) },
+        relief: { codec: num(0, 1, 0.01), ...fromEl(c.strengthEl) },
+        shadow: { codec: num(0, 1, 0.01), ...fromEl(c.shadowEl) },
+        sundiam: { codec: num(0.5, 30, 0.01), ...fromEl(c.sunDiameterEl) },
+        samples: { codec: num(1, 16, 1), ...fromEl(c.shadowSamplesEl) },
+        tint: { codec: num(0, 1, 0.01), ...fromEl(c.tintEl) },
+        structure: { codec: num(0, 1, 0.01), ...fromEl(c.opennessTintEl) },
+        contrast: { codec: num(0, 1, 0.01), ...fromEl(c.opennessContrastEl) },
+        sat: { codec: num(0, 1, 0.01), ...fromEl(c.satelliteEl) },
+        sun: { codec: oneOf({ fixed: "fixed", time: "time" }), ...fromEl(c.sunModeEl) },
+        // The calendar only means something in time mode, and there the
+        // date and time are always written: "today" is not a value a
+        // link can carry. The zone is written when it is not the
+        // browser's own.
+        date: {
+          codec: isoDate, always: true,
+          get: () => (isTime() ? cal.getDateISO() : undefined),
+          set: (v) => cal.setDateISO(v),
+        },
+        time: {
+          codec: clockMinutes, always: true,
+          get: () => (isTime() ? cal.getTimeMinutes() : undefined),
+          set: (v) => cal.setTimeMinutes(v),
+        },
+        tz: {
+          codec: timeZone,
+          // Read regardless of mode: the page loads in fixed mode, where
+          // `get` says nothing, but the default is still the browser's
+          // own zone.
+          default: cal.getTimezone(),
+          get: () => (isTime() ? cal.getTimezone() : undefined),
+          set: (v) => cal.setTimezone(v),
+        },
+        // The handle's direction, in fixed mode only. In time mode the
+        // calendar derives it every frame, so storing it would be
+        // stale the moment the view moved.
+        az: {
+          codec: num(0, 360, 0.5),
+          get: () => (isTime() ? undefined : sunDir.get().az),
+          set: (v) => sunDir.set({ ...sunDir.get(), az: v }),
+        },
+        alt: {
+          codec: num(-90, 90, 0.5),
+          get: () => (isTime() ? undefined : sunDir.get().alt),
+          set: (v) => sunDir.set({ ...sunDir.get(), alt: v }),
+        },
+        // Elevation ramp: the axis window, then the stops in metres.
+        // Order matters on restore: `setDomain` moves the axis without
+        // dragging the stops, so the absolute stop values land where
+        // they were.
+        rdom: {
+          codec: range(1),
+          get: () => gradientEditor.getDomain(),
+          set: (v) => gradientEditor.setDomain(v),
+        },
+        ramp: {
+          codec: rampStops,
+          get: () => gradientEditor.getStops(),
+          set: (v) => gradientEditor.setStops(v),
+        },
+        dur: { codec: num(4, 60, 1), ...fromEl(rec.duration) },
+        fps: { codec: oneOf({ 24: 24, 30: 30, 60: 60 }), ...fromEl(rec.fps) },
+        qp: { codec: num(10, 34, 1), ...fromEl(rec.qp) },
+        span: { codec: oneOf({ dawn: "dawn", midnight: "midnight", noon: "noon" }), ...fromEl(rec.span) },
+      };
+      const readSettings = () => {
+        const out = {};
+        for (const [k, e] of Object.entries(settings)) out[k] = e.get();
+        return out;
+      };
+      const schema = {};
+      {
+        const initial = readSettings();
+        for (const [k, e] of Object.entries(settings)) {
+          const def = "default" in e ? e.default : initial[k];
+          schema[k] = { codec: e.codec, default: e.always ? undefined : def };
+        }
+      }
+      // Restore. Sun mode goes first so the calendar and handle land in
+      // the mode they were saved in; the calendar before the handle,
+      // because every calendar edit pushes its own sun direction into
+      // the handle and would overwrite a restored fixed-mode angle.
+      {
+        const saved = decodeParams(splitHash(location.hash).query, schema);
+        const order = [
+          "sun", "date", "time", "tz", "az", "alt", "rdom", "ramp",
+          ...Object.keys(settings),
+        ];
+        const done = new Set();
+        for (const k of order) {
+          if (done.has(k) || !(k in saved)) continue;
+          done.add(k);
+          try {
+            settings[k].set(saved[k]);
+          } catch (err) {
+            console.warn(`hash setting ${k} not restored:`, err);
+          }
+        }
+      }
+      // Write back. A poll rather than a listener per control: the
+      // state is spread over sliders, a calendar, the ramp editor and a
+      // Mutable, and reading it all four times a second costs nothing.
+      // The path is kept when it is already a map position; otherwise
+      // (before the map has written one) the viewer supplies it.
+      let lastQuery = splitHash(location.hash).query;
+      const hashSync = setInterval(() => {
+        const query = encodeParams(readSettings(), schema);
+        if (query === lastQuery) return;
+        lastQuery = query;
+        const { path } = splitHash(location.hash);
+        const base = isLocationHash(`#${path}`) ? path : viewer.getHashPath();
+        const next = joinHash(base, query);
+        if (location.hash !== next) history.replaceState(null, "", next);
+      }, 250);
+      invalidation.then(() => clearInterval(hashSync));
       const tickLighting = () => {
         const useTime = c.sunModeEl.value === "time";
         // In time mode the calendar drives az/alt: push the current
@@ -2286,14 +2437,10 @@
           }
         }
         const sd = tileViewerSunDirAccessor.get();
-        const azRad = (sd.az * Math.PI) / 180;
-        // Clamp to the horizon for shading/shadow math — a negative
-        // altitude would break the sweep kernel. The widget still reads
-        // the raw sd.alt so its below-horizon state displays correctly.
-        const altRad = (Math.max(0, sd.alt) * Math.PI) / 180;
-        const sunX = Math.cos(altRad) * Math.cos(azRad);
-        const sunY = Math.cos(altRad) * Math.sin(azRad);
-        const sunZ = Math.sin(altRad);
+        // The true altitude, negative included. Never clamp it: a floor
+        // at the horizon froze the terrain there while the sun kept
+        // setting. See verify-sun-unclipped.mjs.
+        const [sunX, sunY, sunZ] = sunVector(sd.az, sd.alt);
         const reliefStrength = Number(c.strengthEl.value);
         const aoStrength = Number(c.aoEl.value);
         const shadowStrength = Number(c.shadowEl.value);
