@@ -296,3 +296,70 @@ export function sampleLUT(lut, domain, value) {
   const f = t - i0;
   return [0, 1, 2].map((c) => lut[i0 * 4 + c] * (1 - f) + lut[i1 * 4 + c] * f);
 }
+
+/**
+ * Choose `count` stop positions that reproduce a continuous colour
+ * scale as closely as the editor's own interpolation allows.
+ *
+ * Uniform spacing wastes stops on the straight parts of a scale and
+ * starves the corners, which for ramps like magma and inferno are at
+ * the dark end where they turn hue quickly. This instead starts from
+ * the two endpoints and repeatedly inserts a stop wherever the current
+ * reconstruction is furthest from the original, measured in Oklab,
+ * which is the space the reconstruction happens in.
+ *
+ * `colorAt(t)` takes t in [0, 1] and returns a hex string. Returns
+ * [{ t, color }] sorted by t, with the endpoints always included.
+ */
+export function fitRampStops(colorAt, count, { samples = 257 } = {}) {
+  const n = Math.max(2, count | 0);
+  const ts = [];
+  const labs = [];
+  for (let i = 0; i < samples; i++) {
+    const t = i / (samples - 1);
+    ts.push(t);
+    labs.push(hexToOklab(colorAt(t)));
+  }
+
+  const chosen = [0, samples - 1];
+  const errorAt = () => {
+    // Reconstruct exactly the way the editor will: Oklab, monotone cubic.
+    const pts = chosen.map((i) => ({ value: ts[i], color: colorAt(ts[i]) }));
+    const lut = buildOklabLUT(pts, { size: 512, domain: [0, 1] });
+    let worstI = -1;
+    let worst = -1;
+    for (let i = 0; i < samples; i++) {
+      if (chosen.includes(i)) continue;
+      const got = sampleLUT(lut, [0, 1], ts[i]);
+      const want = labs[i];
+      const d = Math.hypot(got[0] - want[0], got[1] - want[1], got[2] - want[2]);
+      if (d > worst) { worst = d; worstI = i; }
+    }
+    return { worstI, worst };
+  };
+
+  while (chosen.length < n) {
+    const { worstI } = errorAt();
+    if (worstI < 0) break;
+    chosen.push(worstI);
+    chosen.sort((a, b) => a - b);
+  }
+  return chosen.map((i) => ({ t: ts[i], color: colorAt(ts[i]) }));
+}
+
+/**
+ * Worst Oklab error between a set of stops, reconstructed the way the
+ * editor reconstructs them, and the scale they came from. Used to
+ * choose how many stops a preset needs.
+ */
+export function rampFitError(stops, colorAt, { samples = 401 } = {}) {
+  const lut = buildOklabLUT(stops.map((s) => ({ value: s.t, color: s.color })), { size: 512, domain: [0, 1] });
+  let worst = 0;
+  for (let i = 0; i < samples; i++) {
+    const t = i / (samples - 1);
+    const got = sampleLUT(lut, [0, 1], t);
+    const want = hexToOklab(colorAt(t));
+    worst = Math.max(worst, Math.hypot(got[0] - want[0], got[1] - want[1], got[2] - want[2]));
+  }
+  return worst;
+}

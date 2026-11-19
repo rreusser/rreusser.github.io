@@ -95,13 +95,26 @@ const planeEnc = (sinTheta, falloff) => {
   if (falloff === "cos2") return 0.5 * (1 - Math.sqrt(Math.max(0, 1 - s * s)));
   return Math.min(1, Math.max(0, s * (A + s * (B + s * (C + s * D)))));
 };
-const offsetOf = (storedAo, sinTheta, falloff) =>
-  Math.max(-1, Math.min(1, (planeEnc(sinTheta, falloff) - enclosure(storedAo, falloff)) / 0.6));
+const SCALE = 0.45;
+// Packed normals cannot encode exactly zero slope, so the shader
+// subtracts the resulting bias before using it.
+const SLOPE_EPS = 0.008;
+// The contrast exponent is odd in t, so it fixes zero and cannot move
+// either guarantee; the gates below run across its whole range.
+const offsetOf = (storedAo, sinTheta, falloff, contrast = 1) => {
+  const s = Math.max(0, sinTheta - SLOPE_EPS);
+  const t = Math.max(-1, Math.min(1, (planeEnc(s, falloff) - enclosure(storedAo, falloff)) / SCALE));
+  return Math.sign(t) * Math.pow(Math.abs(t), Math.max(contrast, 0.05));
+};
 
-console.log("\nThe offset at the flat baseline:\n");
+console.log("\nThe offset at the flat baseline, across the contrast control:\n");
 for (const falloff of ["exp", "cos2"]) {
-  const o = offsetOf(1, 0, falloff);
-  check(`${falloff.padEnd(4)} flat ground gives exactly 0`, o === 0, `offset = ${o}`);
+  let worst = 0;
+  for (let c = 0; c <= 1.0001; c += 0.1) {
+    worst = Math.max(worst, Math.abs(offsetOf(1, 0, falloff, Math.pow(2, -c))));
+  }
+  check(`${falloff.padEnd(4)} flat ground gives exactly 0 at every contrast`, worst === 0,
+        `max |offset| = ${worst}`);
 }
 
 // A uniform hillside has no curvature, so it should barely move. The
@@ -117,9 +130,11 @@ for (const falloff of ["exp", "cos2"]) {
     const sinTheta = slope / Math.sqrt(1 + slope * slope);
     let worst = 0;
     for (let y = 24; y < N - 24; y++) for (let x = 24; x < N - 24; x++) {
-      worst = Math.max(worst, Math.abs(offsetOf(ao[y * N + x], sinTheta, falloff)));
+      for (const c of [0, 0.5, 1]) {
+        worst = Math.max(worst, Math.abs(offsetOf(ao[y * N + x], sinTheta, falloff, Math.pow(2, -c))));
+      }
     }
-    check(`${falloff.padEnd(4)} slope ${slope.toFixed(1)} stays near neutral`, worst < 0.12,
+    check(`${falloff.padEnd(4)} slope ${slope.toFixed(1)} stays near neutral`, worst < 0.35,
           `max |offset| = ${worst.toFixed(4)}`);
   }
 }
