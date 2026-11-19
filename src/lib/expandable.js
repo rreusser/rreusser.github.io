@@ -202,14 +202,34 @@ export function expandable(content, {
   aspectRatio,
   minHeight,
   buttons = [],
-  id
+  id,
+  hashMatch
 }) {
   installSliderFadeHandlers();
   const hashId = id || `fig-${++_expandableCounter}`;
   const hashFragment = `#${hashId}`;
 
+  // Opt-in escape hatch for a figure whose own content owns the URL
+  // hash. The tile-viewer map writes "#<zoom>/<lat>/<lng>" there, which
+  // means the hash stops naming the figure the moment the map is
+  // touched, and a reload lands on a collapsed figure pointing at a
+  // location nobody can see. A figure that passes `hashMatch` gets to
+  // say which other hashes also mean "this figure is open".
+  //
+  // Figures that don't pass it are unaffected: the predicate is only
+  // consulted when it exists, and a throwing one is treated as no
+  // match rather than being allowed to take the page down on load.
+  const matchesOwnedHash = () => {
+    if (typeof hashMatch !== 'function') return false;
+    try {
+      return !!hashMatch(window.location.hash);
+    } catch (_) {
+      return false;
+    }
+  };
+
   // Check if this expandable should start expanded based on the URL hash
-  const hashExpanded = window.location.hash === hashFragment;
+  const hashExpanded = window.location.hash === hashFragment || matchesOwnedHash();
   let expanded = hashExpanded || state?.expanded || false;
   let currentWidth = 0;
   let currentHeight = 0;
@@ -652,7 +672,11 @@ export function expandable(content, {
   function expand() {
     expanded = true;
     if (state) state.expanded = true;
-    history.replaceState(null, '', hashFragment);
+    // Don't stamp the element id over a hash the content owns. If the
+    // URL already says "this figure is open" in the content's own
+    // terms, it is doing our job for us and overwriting it would throw
+    // away the map position.
+    if (!matchesOwnedHash()) history.replaceState(null, '', hashFragment);
     container.classList.add('expandable-expanded');
     toggleBtn.innerHTML = ICON_CLOSE;
     toggleBtn.title = 'Collapse';

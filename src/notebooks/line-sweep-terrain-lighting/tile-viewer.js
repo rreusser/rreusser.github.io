@@ -83,8 +83,8 @@ function worldToLatLng(x, y, z, tileSize) {
   return [lat, lng];
 }
 
-function parseHash() {
-  const h = location.hash.replace(/^#/, "");
+function parseHash(hash = location.hash) {
+  const h = String(hash).replace(/^#/, "");
   const parts = h.split("/");
   if (parts.length >= 3) {
     const z = parseFloat(parts[0]);
@@ -93,6 +93,25 @@ function parseHash() {
     if (isFinite(z) && isFinite(lat) && isFinite(lng)) return { zoom: z, lat, lng };
   }
   return null;
+}
+
+/**
+ * True for a hash this viewer wrote, i.e. "#<zoom>/<lat>/<lng>".
+ *
+ * The viewer and `expandable` both want the URL hash: the viewer stores
+ * the map position there, while expandable uses it to say which figure
+ * is open. Once the viewer has written a position, the hash no longer
+ * names the figure, so a reload would land on a collapsed map pointing
+ * at a location you cannot see. Handing this to expandable's
+ * `hashMatch` lets it treat a map position as "this figure is open"
+ * too.
+ */
+export function isLocationHash(hash) {
+  // `?? ""` rather than letting parseHash's default fire: this is a
+  // predicate on its argument, and falling through to the live
+  // location.hash would make it answer a different question (and throw
+  // outside a browser).
+  return parseHash(hash ?? "") !== null;
 }
 
 function tileCenterLatLngRad(z, x, y) {

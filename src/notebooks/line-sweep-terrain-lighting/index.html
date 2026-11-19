@@ -1890,7 +1890,7 @@
     const tileViewerSunDirAccessor = (() => { const m = tileViewerSunDirMut; return { get: () => m.value, set: (v) => { m.value = v; } }; })();
   </script>
   <script id="70" type="module">
-    import { createTileViewer } from "./tile-viewer.js";
+    import { createTileViewer, isLocationHash } from "./tile-viewer.js";
     import { expandable } from "./lib/expandable.js";
     import SunCalc from "npm:suncalc@1.9.0";
     import { createSunCalendar } from "./lib/sun-calendar.js";
@@ -1983,6 +1983,12 @@
       height: 600,
       wide: true,
       controls: ['.tile-viewer-controls', '.tile-viewer-sun-overlay'],
+      // The map keeps its position in the URL hash, so once you have
+      // panned, the hash no longer reads "#tile-viewer". Treat a map
+      // position as naming this figure too, otherwise reloading a
+      // shared link drops you on a collapsed figure showing somewhere
+      // you cannot see.
+      hashMatch: isLocationHash,
     }));
 
     if (webgpuContext.error) {
