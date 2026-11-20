@@ -170,6 +170,7 @@ struct Global {
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
   ao: vec4<f32>,           // x=floorRaw, y=1 when the falloff is exp, z=contrast exponent, w unused
   imagery: vec4<f32>,      // x=satellite opacity, yzw unused
+  grade: vec4<f32>,        // x=lightness exponent, y=chroma multiplier, zw unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -473,6 +474,49 @@ fn shadeOklab(lab: vec3<f32>, k: f32) -> vec3<f32> {
   return oklabToSrgbClipped(vec3<f32>(L2, lab.y * cs, lab.z * cs));
 }
 
+// Final grade: one brightness and one saturation knob, applied to the
+// finished pixel rather than anywhere inside the lighting, so the two
+// are a look applied to the image and nothing upstream has to know
+// they exist.
+//
+// Brightness is a gamma curve on Oklab lightness alone: L' = L^e, with
+// e = 2^-brightness, so brightness 0 leaves the pixel untouched, +1
+// takes the square root and -1 squares it. Three properties make this
+// safe in a way an exposure multiply is not. It fixes both endpoints,
+// so black stays black and white stays white however hard the knob is
+// pushed. It is strictly increasing on (0, 1), so no two distinct
+// lightnesses can ever collapse onto one value: brightening compresses
+// the highlights but cannot flatten them into a blown-out white. And
+// it cannot leave the range, so there is nothing to clip. Running it on
+// L rather than on r/g/b is what keeps hue intact — the same curve
+// applied per channel pulls every colour toward the channel that
+// saturates first, which is the usual way a brightened map turns
+// yellow-grey.
+//
+// Chroma then rides the lightness change, exactly as shadeOklab has it
+// ride the shading factor: the ratio C/L is what reads as a colour's
+// saturation, so scaling C by L'/L is what makes a brightened pixel
+// look like the same colour seen in more light rather than a faded
+// one. The saturation knob is a plain multiplier on top of that.
+//
+// Whatever the two knobs ask for, the result goes out through
+// oklabToSrgbClipped, which backs chroma off along a constant-hue,
+// constant-lightness line until the colour fits the display gamut. So
+// the failure mode of too much saturation is a colour that stops
+// getting more saturated, not one that clips a channel and shifts hue.
+fn gradeSrgb(srgb: vec3<f32>) -> vec3<f32> {
+  let e = g.grade.x;
+  let satK = g.grade.y;
+  // Both knobs neutral: return the pixel bit-for-bit rather than
+  // through an Oklab round trip that would only add rounding.
+  if (e == 1.0 && satK == 1.0) { return srgb; }
+  let lab = srgbToOklab(srgb);
+  let L = clamp(lab.x, 0.0, 1.0);
+  let L2 = pow(L, max(e, 1e-4));
+  let cs = select(0.0, satK * L2 / max(L, 1e-4), L > 0.0);
+  return oklabToSrgbClipped(vec3<f32>(L2, lab.y * cs, lab.z * cs));
+}
+
 // Invert web-mercator: (uv in tile, plus integer tile z/x/y) → lat/lng
 // in radians. Uses WGSL's built-in sinh; the Gudermannian form
 // atan(sinh(x)) gives the standard mercator-to-latitude map.
@@ -625,7 +669,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let sat = textureSample(satTex, tileSampler, in.uv);
   let satWeight = clamp(g.imagery.x, 0.0, 1.0) * sat.a;
   if (tint <= 0.0 && satWeight <= 0.0) {
-    return vec4<f32>(v, v, v, 1.0);
+    return vec4<f32>(gradeSrgb(vec3<f32>(v, v, v)), 1.0);
   }
 
   // Shading is applied as a *relative* brightness, not as a multiply.
@@ -667,7 +711,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     layered = mix(layered, shadeOklab(srgbToOklab(sat.rgb), k), satWeight);
   }
 
-  return vec4<f32>(layered, 1.0);
+  // Graded last, after every layer has been mixed in, so one curve
+  // lands on the composite the eye actually sees. Grading each layer
+  // before the mix would instead let the knobs change the *balance*
+  // between tint and imagery, since a gamma curve does not commute
+  // with a linear blend.
+  return vec4<f32>(gradeSrgb(layered), 1.0);
 }
 `;
 
@@ -1017,10 +1066,10 @@ export function createTileViewer(opts) {
   );
   const emptySatView = emptySatTexture.createView();
 
-  // Global uniform buffer (112 bytes: seven vec4s — viewport, sunDir,
-  // params, solar, hypso, ao, imagery).
+  // Global uniform buffer (128 bytes: eight vec4s — viewport, sunDir,
+  // params, solar, hypso, ao, imagery, grade).
   const globalBuffer = device.createBuffer({
-    size: 112,
+    size: 128,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "tile-viewer global uniforms",
   });
@@ -1052,7 +1101,7 @@ export function createTileViewer(opts) {
       { binding: 1, resource: { buffer: rampBuffer } },
     ],
   });
-  const globalData = new Float32Array(28);
+  const globalData = new Float32Array(32);
 
   // ------------------------------------------------------------------
   // GPU tile-bake resources.
@@ -1242,6 +1291,11 @@ export function createTileViewer(opts) {
     // and no imagery texture is allocated. The first non-zero value
     // starts the fetches, and going back to zero frees them again.
     satOpacity: 0,
+    // Final grade. `brightness` is in stops of the Oklab lightness
+    // gamma: 0 neutral, +1 the square root of L, -1 L squared.
+    // `saturation` multiplies Oklab chroma, 1 neutral, 0 greyscale.
+    brightness: 0,
+    saturation: 1,
   };
 
   const clampSatOpacity = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
@@ -2363,6 +2417,15 @@ export function createTileViewer(opts) {
     globalData[25] = 0;
     globalData[26] = 0;
     globalData[27] = 0;
+    // Brightness travels as the exponent itself, so the shader does no
+    // more than a pow: 0 stops is exactly 1, which is also the value
+    // the shader's neutral early-out tests for.
+    const brightStops = Number(lighting.brightness);
+    const satMul = Number(lighting.saturation);
+    globalData[28] = Math.pow(2, -(Number.isFinite(brightStops) ? brightStops : 0));
+    globalData[29] = Number.isFinite(satMul) ? Math.max(0, satMul) : 1;
+    globalData[30] = 0;
+    globalData[31] = 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32
