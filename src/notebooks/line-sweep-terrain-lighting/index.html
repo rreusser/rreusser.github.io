@@ -1966,6 +1966,24 @@
       value: 0,
       step: 0.01,
     });
+    // Final grade, applied to the finished composite rather than to
+    // the lighting. Brightness is in stops of a gamma curve on Oklab
+    // lightness, so it can be pushed to either end without blowing
+    // the map out: black and white are fixed points of L -> L^e and
+    // the curve is strictly increasing in between, so highlights
+    // compress rather than clip. Saturation scales Oklab chroma, with
+    // the gamut clipper backing it off at constant hue when a colour
+    // runs out of room. See gradeSrgb in tile-viewer.js.
+    const brightnessEl = Inputs.range([-1, 1], {
+      label: "brightness",
+      value: 0,
+      step: 0.01,
+    });
+    const saturationEl = Inputs.range([0, 2], {
+      label: "saturation",
+      value: 1,
+      step: 0.01,
+    });
     let _viewerRef = null;
     const tileViewerRef = { set: (v) => { _viewerRef = v; } };
     const sunCalendarEl = createSunCalendar(SunCalc, {
@@ -1983,6 +2001,8 @@
     tileViewerControlsDiv.appendChild(opennessTintEl);
     tileViewerControlsDiv.appendChild(opennessContrastEl);
     tileViewerControlsDiv.appendChild(satelliteEl);
+    tileViewerControlsDiv.appendChild(brightnessEl);
+    tileViewerControlsDiv.appendChild(saturationEl);
     const animationPanel = createAnimationPanel({
       Inputs,
       html,
@@ -2019,6 +2039,8 @@
       opennessTintEl,
       opennessContrastEl,
       satelliteEl,
+      brightnessEl,
+      saturationEl,
     };
   </script>
   <script id="72" type="module">
@@ -2298,6 +2320,10 @@
         structure: { codec: num(0, 1, 0.01), ...fromEl(c.opennessTintEl) },
         contrast: { codec: num(0, 1, 0.01), ...fromEl(c.opennessContrastEl) },
         sat: { codec: num(0, 1, 0.01), ...fromEl(c.satelliteEl) },
+        bright: { codec: num(-1, 1, 0.01), ...fromEl(c.brightnessEl) },
+        // `sat` is already taken by the satellite layer, and this knob
+        // scales Oklab chroma, so it rides under that name.
+        chroma: { codec: num(0, 2, 0.01), ...fromEl(c.saturationEl) },
         sun: { codec: oneOf({ fixed: "fixed", time: "time" }), ...fromEl(c.sunModeEl) },
         // The calendar only means something in time mode, and there the
         // date and time are always written: "today" is not a value a
@@ -2477,6 +2503,8 @@
           opennessTint: Number(c.opennessTintEl.value),
           opennessContrast: Number(c.opennessContrastEl.value),
           satOpacity: Number(c.satelliteEl.value),
+          brightness: Number(c.brightnessEl.value),
+          saturation: Number(c.saturationEl.value),
         };
         if (solar) lightingUpdate.solar = solar;
         viewer.setLighting(lightingUpdate);
