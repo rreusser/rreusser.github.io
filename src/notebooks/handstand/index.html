@@ -359,7 +359,7 @@
   <script id="model-section" type="text/markdown">
     ## A stick figure gymnast
 
-    Twelve rigid segments in the sagittal plane: one hand, a forearm and an upper arm (both arms merge by symmetry), a chest, a pelvis, a head, and a thigh, shank and foot per leg — joined at the wrist, elbow, shoulder, spine, neck, two hips, two knees and two ankles. Masses, mass centers and inertias follow de Leva's adjustment of the Zatsiorsky parameters, scaled by height and body mass. Every joint's zero is the stacked handstand: a straight elbow, a level spine, a pointed foot.
+    Twelve rigid segments in the sagittal plane: one hand, a forearm and an upper arm (both arms merge by symmetry), a chest, a pelvis, a head, and a thigh, shank and foot per leg — joined at the wrist, elbow, shoulder, spine, neck, two hips, two knees and two ankles. Masses, mass centers and inertias follow de Leva's adjustment of the Zatsiorsky parameters, scaled by height and body mass, and optionally re-proportioned by leg length and leg mass (see *Long torso, light legs* below). Every joint's zero is the stacked handstand: a straight elbow, a level spine, a pointed foot.
 
     The hand is the segment that matters. It is not a point of support but a patch, from the heel of the palm to the finger pads.
   </script>
@@ -370,7 +370,11 @@
     import { observeTheme } from './lib/theme.js';
     import { collapseCodeBlocks } from './lib/collapsible-code.js';
     import { createSnapshotButton } from './lib/snapshot.js';
-    import { buildModel } from './anthropometry.js';
+    import { buildModel, tableLegFrac } from './anthropometry.js';
+    import {
+      proportionGridAsync, proportionFigure, bodyMetrics, balanceMetrics, createBodyPanel, panelView,
+      REACTION_DELAY_S, GHOST_COLOR,
+    } from './proportions.js';
     import { createWorkspace, massMatrix, rnea, energy } from './dynamics.js';
     import {
       ROM_DEFAULTS, clampPose, groundHand, staticAnalysis, pressCorridor, jointLimits,
@@ -413,6 +417,14 @@
     // table puts 41.8 percent of body mass in the legs against 39.7, and in
     // a handstand the legs are the far end of the lever.
     const sex = bctrl(Inputs.select(['male', 'female'], { label: 'Segment proportions', value: 'male' }));
+    // Proportions within a stature: how long the legs are (hip-joint height
+    // over height; the trunk takes up the rest) and how heavy they are for
+    // their shape. Elements as well as values, because the proportions
+    // section mirrors both. See proportionedTable in anthropometry.js.
+    const legPctInput = Inputs.range([47, 57], { label: 'Leg length (% of height)', value: 100 * tableLegFrac('male'), step: 0.5 });
+    const legPct = bctrl(legPctInput);
+    const legMassInput = Inputs.range([0.7, 1.4], { label: 'Leg mass (× table)', value: 1, step: 0.05 });
+    const legMassScale = bctrl(legMassInput);
     // Shoulder strength in the units the rest of the notebook argues in:
     // maximum voluntary isometric torque per kilogram of body mass. It was a
     // unitless "strength scale" multiplying the whole profile, which put an
@@ -436,12 +448,37 @@
       value: STRENGTH_DEFAULTS.shoulder.t0Vol, step: 0.05,
     });
     const shoulderNmPerKg = offPanel(strengthInput);
-    display(bodyControls);
+    // The body these controls describe, drawn beside them, so that moving one
+    // shows what it did instead of only changing figures further down.
+    const bodyPreviewSlot = html`<div style="flex:0 0 auto;"></div>`;
+    display(html`<div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+      <div style="flex:1 1 300px; min-width:0;">${bodyControls}</div>${bodyPreviewSlot}</div>`);
+  </script>
+  <script id="page-theme" type="text/x-typescript">
+    const pageTheme = Generators.observe(observeTheme);
   </script>
   <script id="model" type="text/x-typescript">
-    const model = buildModel({ heightM, massKg, straddleDeg, sex });
+    const model = buildModel({ heightM, massKg, straddleDeg, sex, legFrac: legPct / 100, legMassScale });
     const ws = createWorkspace(model);
     const strengthProf = strengthProfile(model.massKg, { overrides: { shoulder: { t0Vol: shoulderNmPerKg } } });
+  </script>
+  <script id="body-preview" type="text/x-typescript">
+    {
+      // Drawn over the default body, shaded, with each body's hip and centre
+      // of mass marked: at a fixed height the outline hardly changes, and
+      // those two are what proportions move.
+      const ref = buildModel({});
+      const refWs = createWorkspace(ref), curWs = createWorkspace(model);
+      const panel = createBodyPanel(html, { w: 150, h: 230 });
+      panel.draw({
+        body: { model, ws: curWs, q: balanceMetrics(model, curWs).q },
+        ghost: { model: ref, ws: refWs, q: balanceMetrics(ref, refWs).q },
+        theme: pageTheme, view: { cx: 0.05, yLo: -0.12, yHi: Math.max(model.reachM, ref.reachM) + 0.08 },
+      });
+      panel.value.innerHTML = `<small>Legs ${(100 * model.legMassShare).toFixed(1)}% of mass.
+        <span style="color:${GHOST_COLOR}">Shaded</span>: 1.75 m, 70 kg, table proportions.</small>`;
+      bodyPreviewSlot.replaceChildren(panel.element);
+    }
   </script>
   <script id="pose-state" type="text/x-typescript">
     // Stable mutable state shared by the controls, the render loop, and the
@@ -736,7 +773,8 @@
   </script>
   <script id="press-corridor" type="text/x-typescript">
     const corridorView = (() => {
-      const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, shoulderNmPerKg]);
+      const cacheKey = JSON.stringify([romInfo, model.heightM, model.massKg, model.straddleDeg, model.sex,
+        model.legFrac, model.legMassScale, shoulderNmPerKg]);
       if (poseState.corridorCache.key !== cacheKey) {
         // Sampling shoulders below zero costs a band of cells that fail for a
         // reason that has nothing to do with pressing: the shoulder simply does
@@ -894,6 +932,129 @@
       </div>`;
     })();
     corridorSlot.replaceChildren(corridorView);
+  </script>
+  <script id="proportions-section" type="text/markdown">
+    ## Long torso, light legs
+
+    Does the shape of a body make a handstand easier, apart from its strength? Two controls at the top of the page re-proportion the body without changing its height or weight. *Leg length* is hip-joint height as a fraction of stature, 53 percent in the tables, and most adults fall within a few points of that; the trunk takes up whatever the legs give up. *Leg mass* makes the legs heavier or lighter for their shape. To keep this consistent, a segment that gets longer at the same cross-section gets heavier in proportion, and every other segment is scaled to keep body mass fixed. A long torso is therefore also a heavy one, and short legs are light ones.
+
+    The two questions get different answers.
+
+    **Holding the balance.** About the stacked handstand the body is an inverted pendulum pivoting at the wrist. With ${tex`h`} the height of the center of mass above the wrist and ${tex`k`} the radius of gyration about it, the center of mass moves horizontally as
+
+    ${tex.block`\ddot x = \omega^2 (x - x_{\mathrm{CoP}}), \qquad \omega^2 = \frac{g\,h}{h^2 + k^2}.`}
+
+    The center of pressure can only move as far as the fingertips, a distance ${tex`a`} ahead of the center of mass. A push at velocity ${tex`v`} is still catchable while ${tex`x + v/\omega`} stays on the palm. A reaction delay ${tex`d`} lets the error grow for that long first, so the largest catchable push is
+
+    ${tex.block`v_{\max} = a\,\omega\,e^{-\omega d}.`}
+
+    Heavier legs raise ${tex`h`} and ${tex`k`} together, so ${tex`\omega`} hardly moves. The left map shows the result: across the whole range it changes by about a percent and a half. Heavy legs do make the balance worse, as a runner would suspect, but only by about one percent. Simulating the full nonlinear body under the page's balance controller agrees: 25 percent heavier legs lose 1.7 percent of the catchable push, and 20 percent lighter legs gain 1.9.
+
+    **Getting there.** A press is a different matter. In a pike the legs hang out behind the hands, and the shoulders have to lean forward and hold torque to balance them. Shorter and lighter legs need less counterweight, and a longer, heavier trunk supplies more of it. The right map shows the least static shoulder torque a straight-leg press needs at its hardest point, a 100 degree pike. It moves by tens of percent. Three points of leg length (53 down to 50 percent) take a quarter off the press, and so does making the legs 30 percent lighter.
+
+    So a short-legged, long-torsoed instructor really does have an easier time. The benefit is mostly in the press and in any other shape that holds the legs away from the line over the hands, not in the stacked balance itself.
+  </script>
+  <script id="proportions-frame" type="text/x-typescript">
+    // The figure's skeleton: two bodies, the two controls directly under them,
+    // and the maps. This cell reads the slider ELEMENTS and never their
+    // values, so dragging one does not rebuild the slider under the cursor;
+    // the cells below draw into the slots.
+    const proportionsPanels = html`<div style="display:flex; gap:16px; flex-wrap:wrap; min-height:300px;"></div>`;
+    const proportionsMaps = html`<div style="min-height:220px; margin-top:14px;"><small style="opacity:.6">Computing 88 bodies…</small></div>`;
+    const proportionsMirrors = (() => {
+      const box = html`<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:0 18px; margin-top:4px;"></div>`;
+      const mirror = (domain, opts, source) => {
+        const input = Inputs.range(domain, opts);
+        Inputs.bind(input, source, invalidation);
+        box.appendChild(input);
+      };
+      mirror([47, 57], { label: 'Leg length (% of height)', step: 0.5 }, legPctInput);
+      mirror([0.7, 1.4], { label: 'Leg mass (× table)', step: 0.05 }, legMassInput);
+      return box;
+    })();
+    // Shared between the panels and the maps: hovering a map cell draws that
+    // body in the panels without re-running either cell.
+    const proportionsView = { show: null, showCurrent: null };
+    const proportionsFigure = html`<figure class="wide-figure">
+      ${proportionsPanels}
+      ${proportionsMirrors}
+      ${proportionsMaps}
+      <figcaption>Top: the body set by the controls, drawn over the <span style="color:${GHOST_COLOR}">table body</span> of the same height, weight and sex, with each body's hip (bar) and center of mass (ring) marked. Left is the stacked handstand; right is the hardest point of a straight-leg press, the 100 degree pike, in the shoulder angle that needs the least torque. Bottom: the same two numbers over every combination, as percent change against the table body. Red is harder in both. Hover a cell to see that body above, and click to use it. The maps are drawn at 1.75 m and 70 kg because the percentages barely depend on height or weight. The press torque is a static lower bound, just to hold the pose, so its changes mean more than its size.</figcaption>
+    </figure>`;
+    display(proportionsFigure);
+    const proportionsWidth = Generators.observe((notify) => {
+      let last = null;
+      const measure = () => {
+        const w = Math.floor((proportionsFigure.clientWidth || 640) / 20) * 20;
+        if (w > 0 && w !== last) { last = w; notify(w); }
+      };
+      const ro = new ResizeObserver(measure);
+      ro.observe(proportionsFigure);
+      measure();
+      return () => ro.disconnect();
+    });
+  </script>
+  <script id="proportions-panels" type="text/x-typescript">
+    {
+      const figW = Math.max(320, proportionsWidth);
+      const w = Math.min(280, Math.floor((figW - 16) / 2)), h = Math.round(w * 1.3);
+      const stackPanel = createBodyPanel(html, { w, h });
+      const pressPanel = createBodyPanel(html, { w, h });
+      stackPanel.title.textContent = 'Holding the stack';
+      pressPanel.title.textContent = 'Hardest point of the press';
+      proportionsPanels.replaceChildren(stackPanel.element, pressPanel.element);
+
+      const ref = bodyMetrics({ heightM, massKg, sex });
+      const cache = new Map();
+      const metricsFor = (legFrac, scale) => {
+        const key = `${legFrac.toFixed(4)}|${scale.toFixed(4)}`;
+        if (!cache.has(key)) cache.set(key, bodyMetrics({ heightM, massKg, sex, legFrac, legMassScale: scale }));
+        return cache.get(key);
+      };
+      const pct = (a, b) => {
+        const v = 100 * (a / b - 1);
+        return `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(Math.abs(v) < 10 ? 1 : 0)}%`;
+      };
+      const view = panelView([ref.model, metricsFor(0.57, 1).model], w / h);
+      const show = (legFrac, scale, note = '') => {
+        const m = metricsFor(legFrac, scale);
+        const head = note ? `<i>${note}</i><br>` : '';
+        stackPanel.draw({
+          body: { model: m.model, ws: m.ws, q: m.q }, ghost: { model: ref.model, ws: ref.ws, q: ref.q },
+          theme: pageTheme, view,
+        });
+        stackPanel.value.innerHTML = `${head}Catchable push <b>${(100 * m.vMax).toFixed(1)} cm/s</b>
+          (${pct(m.vMax, ref.vMax)}), at a ${(1000 * REACTION_DELAY_S).toFixed(0)} ms reaction delay`;
+        pressPanel.draw({
+          body: { model: m.model, ws: m.ws, q: m.press.q }, ghost: { model: ref.model, ws: ref.ws, q: ref.press.q },
+          theme: pageTheme, view,
+        });
+        pressPanel.value.innerHTML = `${head}Shoulder torque <b>${m.press.nmPerKg.toFixed(2)} Nm/kg</b>
+          (${pct(m.press.nmPerKg, ref.press.nmPerKg)}). Legs carry ${(100 * m.model.legMassShare).toFixed(1)}% of mass`;
+      };
+      proportionsView.show = show;
+      proportionsView.showCurrent = () => show(legPct / 100, legMassScale);
+      proportionsView.showCurrent();
+    }
+  </script>
+  <script id="proportions-grid" type="text/x-typescript">
+    // One grid per segment table. It yields to the browser between rows.
+    const proportionGridData = await proportionGridAsync({ sex });
+  </script>
+  <script id="proportions-maps" type="text/x-typescript">
+    proportionsMaps.replaceChildren(proportionFigure({
+      Plot, html, grid: proportionGridData, width: Math.max(320, proportionsWidth),
+      current: { legPct, legMassScale },
+      onHover: (c) => (c
+        ? proportionsView.show?.(c.legPct / 100, c.legMassScale, `Legs ${c.legPct.toFixed(0)}% of height, ×${c.legMassScale.toFixed(1)} mass. Click to use.`)
+        : proportionsView.showCurrent?.()),
+      onPick: (c) => {
+        legPctInput.value = c.legPct;
+        legMassInput.value = c.legMassScale;
+        legPctInput.dispatchEvent(new Event('input', { bubbles: true }));
+        legMassInput.dispatchEvent(new Event('input', { bubbles: true }));
+      },
+    }));
   </script>
   <script id="dynamics-section" type="text/markdown">
     ## Making it move

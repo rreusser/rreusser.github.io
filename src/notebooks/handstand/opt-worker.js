@@ -233,6 +233,7 @@ async function handle(msg) {
             body: {
               heightM: model.heightM, massKg: model.massKg,
               straddleDeg: model.straddleDeg, sex: model.sex,
+              legFrac: model.legFrac, legMassScale: model.legMassScale,
             },
             generation: poses,
           });

@@ -105,8 +105,14 @@ function tube(stations, capProx = 0, capDist = 0) {
 export function buildSilhouette({
   Lch, Lpv, H, sex = 'male', Lh, hw, patchHeelX, patchTipX, Lfa, Lua, Larm, Lhn,
   Ltr, Lth, Lsh, Lft, Lfoot, heelPt, ballPt, ankleH, heelBack, footFwd, ballFwd,
-  ballOnAxis, Ltoe }) {
-  const s = SHAPE[sex] || SHAPE.male;
+  ballOnAxis, Ltoe, legGirth = 1, trunkGirth = 1 }) {
+  // Girth follows mass per unit length: a segment carrying more mass for its
+  // length is drawn thicker, by the square root, since its cross-section is
+  // what holds the extra. Both are 1 for the table body.
+  const s0 = SHAPE[sex] || SHAPE.male;
+  const s = { ...s0 };
+  for (const k of ['thighA', 'thighP', 'knee', 'calfA', 'calfP']) s[k] = s0[k] * legGirth;
+  for (const k of ['chestA', 'chestP', 'waistA', 'waistP', 'hipA', 'hipP']) s[k] = s0[k] * trunkGirth;
   const f = (v) => v * H;
 
   // Hand, seen from the side with the palm flat: heel of the palm on the
