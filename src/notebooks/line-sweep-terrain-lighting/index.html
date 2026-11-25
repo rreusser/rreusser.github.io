@@ -1909,6 +1909,22 @@
       new Map([["CPU", "cpu"], ["GPU", "gpu"], ["debug", "debug"]]),
       { label: "mode", value: "cpu" },
     );
+    // Which shading model composites the map. "multiply" is the
+    // slope/aspect relief the sections above build, applied as a
+    // relative brightness. "overlay" is diffuse Lambertian relief
+    // measured against flat ground, accumulated with occlusion and
+    // shadow as signed departures from neutral and blended onto the
+    // albedo in overlay mode. The second is the one that holds up over
+    // satellite imagery, because an overlay blend is an exact identity
+    // at neutral shading: flat, open, lit ground comes out of the
+    // shader as the satellite pixel that went in, where a multiply has
+    // to be normalised by whatever flat ground renders at and gets
+    // unstable as that goes to zero. See overlayComposite in
+    // tile-viewer.js.
+    const shadingEl = Inputs.radio(
+      new Map([["overlay", "overlay"], ["multiply", "multiply"]]),
+      { label: "shading", value: "overlay" },
+    );
     const strengthEl = Inputs.range([0, 1], {
       label: "relief strength",
       value: 0.38,
@@ -1966,14 +1982,23 @@
       value: 0,
       step: 0.01,
     });
-    // Final grade, applied to the finished composite rather than to
-    // the lighting. Brightness is in stops of a gamma curve on Oklab
-    // lightness, so it can be pushed to either end without blowing
-    // the map out: black and white are fixed points of L -> L^e and
-    // the curve is strictly increasing in between, so highlights
-    // compress rather than clip. Saturation scales Oklab chroma, with
-    // the gamut clipper backing it off at constant hue when a colour
-    // runs out of room. See gradeSrgb in tile-viewer.js.
+    // Brightness and saturation, in whichever idiom the active shading
+    // model works in. Under "multiply" they are a final grade on the
+    // finished composite: brightness in stops of a gamma curve on
+    // Oklab lightness, which can be pushed to either end without
+    // blowing the map out because black and white are fixed points of
+    // L -> L^e and the curve is strictly increasing in between, so
+    // highlights compress rather than clip; saturation scales Oklab
+    // chroma, with the gamut clipper backing it off at constant hue
+    // when a colour runs out of room. See gradeSrgb in tile-viewer.js.
+    //
+    // Under "overlay" brightness is instead an additive term inside
+    // the shading accumulator, where it sets the soft clip's midpoint
+    // and so buys headroom rather than scaling what is already there,
+    // and saturation multiplies the albedo's chroma on top of the
+    // model's own desaturate-in-shade factor. Both are calibrated so
+    // that 0 and 1 mean the same thing in either model: the pixel
+    // untouched. See overlayComposite.
     const brightnessEl = Inputs.range([-1, 1], {
       label: "brightness",
       value: 0,
@@ -1991,6 +2016,7 @@
       onChange: (v) => tileViewerSunDirAccessor.set(v),
     });
     tileViewerControlsDiv.appendChild(bakeModeEl);
+    tileViewerControlsDiv.appendChild(shadingEl);
     tileViewerControlsDiv.appendChild(aoFalloffEl);
     tileViewerControlsDiv.appendChild(aoEl);
     tileViewerControlsDiv.appendChild(strengthEl);
@@ -2027,6 +2053,7 @@
     const tileViewerControls = {
       animationPanel,
       bakeModeEl,
+      shadingEl,
       strengthEl,
       aoEl,
       shadowEl,
@@ -2311,6 +2338,7 @@
       const settings = {
         mode: { codec: oneOf({ cpu: "cpu", gpu: "gpu", debug: "debug" }), ...fromEl(c.bakeModeEl) },
         falloff: { codec: oneOf({ cos2: "cos²α", exp: "e^(−sin α)" }), ...fromEl(c.aoFalloffEl) },
+        shading: { codec: oneOf({ overlay: "overlay", multiply: "multiply" }), ...fromEl(c.shadingEl) },
         ao: { codec: num(0, 1, 0.01), ...fromEl(c.aoEl) },
         relief: { codec: num(0, 1, 0.01), ...fromEl(c.strengthEl) },
         shadow: { codec: num(0, 1, 0.01), ...fromEl(c.shadowEl) },
@@ -2505,6 +2533,7 @@
           satOpacity: Number(c.satelliteEl.value),
           brightness: Number(c.brightnessEl.value),
           saturation: Number(c.saturationEl.value),
+          shadingModel: c.shadingEl.value,
         };
         if (solar) lightingUpdate.solar = solar;
         viewer.setLighting(lightingUpdate);
