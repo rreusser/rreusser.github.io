@@ -15,11 +15,13 @@
 //   main → worker: { type: "bake", z, x, y, heights, N, rawEqPxSizeM,
 //                     horizon, HN, azDeg, altDeg, sunRadiusDeg, shadowSamples,
 //                     lsaoFalloff, parentScale, compHMin, horizonHMax,
-//                     horizonFloor }
+//                     far, horizonFloor }
+//                    `far` is the outer prewarm ring,
+//                    { heights, HN, parentScale }, or null for one ring.
 //   main → worker: { type: "shadow", z, x, y, heights, N, rawEqPxSizeM,
 //                     horizon, HN, azDeg, altDeg, sunRadiusDeg, shadowSamples,
 //                     cachedNx, cachedNy, cachedAo, parentScale,
-//                     compHMin, horizonHMax, horizonFloor }
+//                     compHMin, horizonHMax, far, horizonFloor }
 //   worker → main: { type: "baked", z, x, y, packed (Uint8Array, transferred), N, nx, ny, ao }
 //   worker → main: { type: "shadowed", z, x, y, packed (Uint8Array, transferred), N }
 
@@ -37,14 +39,14 @@ self.onmessage = (e) => {
     case "bake": {
       const { z, x, y, heights, N, rawEqPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples, lsaoFalloff,
-              parentScale = 2, compHMin, horizonHMax,
+              parentScale = 2, compHMin, horizonHMax, far = null,
               horizonFloor = true } = msg;
       const rowPx = buildRowPx(rawEqPxSizeM, z, y, N);
       const { nx, ny } = computeNormals(heights, N, rowPx);
       const ao = computeLSAO(heights, N, rowPx, horizon, HN, lsaoFalloff, parentScale);
       const shadow = computeShadow(heights, N, rowPx, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
-                                   compHMin, horizonHMax, undefined, horizonFloor);
+                                   compHMin, horizonHMax, undefined, horizonFloor, far);
       const packed = packRGBA(nx, ny, ao, shadow, N);
       self.postMessage(
         { type: "baked", z, x, y, packed, N,
@@ -58,12 +60,12 @@ self.onmessage = (e) => {
       const { z, x, y, heights, N, rawEqPxSizeM, horizon, HN,
               azDeg, altDeg, sunRadiusDeg, shadowSamples,
               cachedNx, cachedNy, cachedAo,
-              parentScale = 2, compHMin, horizonHMax,
+              parentScale = 2, compHMin, horizonHMax, far = null,
               horizonFloor = true } = msg;
       const rowPx = buildRowPx(rawEqPxSizeM, z, y, N);
       const shadow = computeShadow(heights, N, rowPx, horizon, HN,
                                    azDeg, altDeg, sunRadiusDeg, shadowSamples, parentScale,
-                                   compHMin, horizonHMax, undefined, horizonFloor);
+                                   compHMin, horizonHMax, undefined, horizonFloor, far);
       const packed = packRGBA(cachedNx, cachedNy, cachedAo, shadow, N);
       self.postMessage(
         { type: "shadowed", z, x, y, packed, N },

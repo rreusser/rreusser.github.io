@@ -110,6 +110,30 @@ export function sweepCore(opts) {
     horizonTouched = null,
     lsaoFalloff = "cos2",
     parentScale = 2,
+    // An optional OUTER ring, coarser than the one above and reaching
+    // further, walked before it.
+    //
+    // Reach and resolution are set by different things and one ring
+    // cannot be both. Reach is set by the shallowest sun that still
+    // casts: at tan(alt) = 0.05 a 2000 m ridge reaches 40 km. Fidelity
+    // is set by the terrain against the tile boundary, where a cell's
+    // box mean is asserted a pixel or two from the targets that read
+    // it, and where a coarse cell produces a step across the seam
+    // between two tiles' bakes. Decimation also flattens peaks, so a
+    // coarse ring understates distant occluders; that is a property of
+    // box-mean pyramid data and not something the sweep can undo.
+    //
+    // So: this ring supplies the distance, `horizon` above supplies the
+    // structure. The march starts at this one's outer extent, steps
+    // inward at its cell scale, hands over at the inner ring's outer
+    // edge, and finishes at the inner ring's scale before entering the
+    // comp tile. Both deposit at cell centres, as a single ring does.
+    //
+    // Leave null for the original single-ring behaviour.
+    farHorizon = null,
+    farHN = 0,
+    farParentScale = 2,
+    farHorizonPN = null,
     // Optional elevation bounds used to trim the warmup march. A
     // parent-ring blocker of height `horizonElevMax` can only cast a
     // hard-shadow ray reaching a comp target at height `compElevMin`
@@ -295,6 +319,78 @@ export function sweepCore(opts) {
   const warmupMarginX = (_horizonPN_X * parentScale) >> 1;
   const warmupMarginY = (_horizonPN_Y * parentScale) >> 1;
 
+  // A prewarm ring reduced to what the march needs of it. Rings are
+  // concentric on the comp tile, so a ring of scale `s` covers
+  // canonical positions [-margin, W + margin) on each axis with
+  // margin = (PN * s) / 2.
+  //
+  // Cells are addressed by centre, which is what keeps the bilinear
+  // index an exact integer along the ray: see the comment in the
+  // warmup branch for why an off-centre sample bleeds in the first
+  // parent pixel inside the comp tile.
+  const makeTier = (ring, N, scale, mX, mY, touched) => {
+    if (!ring || !(N > 0)) return null;
+    const inv = 1 / scale;
+    const centreOff = 0.5 * (1 - inv);
+    return {
+      ring, N, scale, inv, centreOff, touched,
+      marginX: mX, marginY: mY,
+      // The along-ray axis is canonical x, which is the original y
+      // under swap.
+      marginAlong: swap ? mY : mX,
+      cxOfCell: (k) => scale * (k + centreOff) - mX,
+      // Index of the first cell whose centre is at or past canonical
+      // `cx`. `cellsBefore(cx) - 1` is therefore the last cell strictly
+      // before it.
+      cellsBefore: (cx) => Math.ceil((cx + mX) / scale - centreOff),
+    };
+  };
+
+  const nearTier = makeTier(
+    horizon, HN, parentScale, warmupMarginX, warmupMarginY, horizonTouched,
+  );
+  const farTier = (() => {
+    if (!farHorizon || !(farHN > 0)) return null;
+    const pnX = farHorizonPN != null ? farHorizonPN : (horizonPN != null ? horizonPN : W);
+    const pnY = farHorizonPN != null ? farHorizonPN : (horizonPN != null ? horizonPN : H);
+    return makeTier(
+      farHorizon, farHN, farParentScale,
+      (pnX * farParentScale) >> 1, (pnY * farParentScale) >> 1, null,
+    );
+  })();
+
+  // Bilinear sample of one tier at canonical (cx, cy), or null outside
+  // that ring.
+  const sampleTier = (tier, cx, cy, mark) => {
+    let oxf = swap ? cy : cx;
+    let oyf = swap ? cx : cy;
+    if (flipX) oxf = W - 1 - oxf;
+    if (flipY) oyf = H - 1 - oyf;
+    const hxf = (oxf + tier.marginX) * tier.inv - tier.centreOff;
+    const hyf = (oyf + tier.marginY) * tier.inv - tier.centreOff;
+    const hxi = Math.floor(hxf);
+    const hyi = Math.floor(hyf);
+    const n = tier.N;
+    if (hxi < 0 || hxi + 1 >= n) return null;
+    if (hyi < 0 || hyi + 1 >= n) return null;
+    const fx = hxf - hxi;
+    const fy = hyf - hyi;
+    if (mark && tier.touched) {
+      const tBit = cy >= 0 ? 1 : 2;
+      tier.touched[hyi * n + hxi] |= tBit;
+      tier.touched[hyi * n + hxi + 1] |= tBit;
+      tier.touched[(hyi + 1) * n + hxi] |= tBit;
+      tier.touched[(hyi + 1) * n + hxi + 1] |= tBit;
+    }
+    const r = tier.ring;
+    return (
+      (1 - fx) * (1 - fy) * r[hyi * n + hxi] +
+      fx * (1 - fy) * r[hyi * n + hxi + 1] +
+      (1 - fx) * fy * r[(hyi + 1) * n + hxi] +
+      fx * fy * r[(hyi + 1) * n + hxi + 1]
+    );
+  };
+
   // Elevation-bound warmup reduction. At sun altitude `altMin` (the
   // shallowest angle that still contributes shadow for the current
   // mode) a blocker of height H_b can only cast a shadow that reaches
@@ -316,7 +412,14 @@ export function sweepCore(opts) {
   //
   // Leave either elevation bound null and we fall back to the full
   // margin (backward-compatible for callers that don't track ranges).
-  let WARMUP_STEPS = warmupMarginX;
+  // The march may start as far out as the OUTERMOST ring reaches. The
+  // elevation trim below then usually pulls it much closer: with a
+  // 4400 m peak and a sun at tan 0.05 nothing beyond 88 km can reach
+  // the tile, and the bound is often far tighter than the ring's own
+  // extent, so the coarse tier's cells are walked only where they can
+  // matter. When the trim lands inside the inner ring, the coarse tier
+  // is not walked at all.
+  let WARMUP_STEPS = farTier ? farTier.marginX : warmupMarginX;
   if (
     horizon && HN > 0 &&
     mode !== "lsao" &&
@@ -365,25 +468,12 @@ export function sweepCore(opts) {
   // smoothing window epsH is only a few metres. The ring covers all
   // four sides of the comp tile, so sample it instead.
   const sampleHorizonAt = (cx, cy) => {
-    if (!hasHorizon) return null;
-    let oxf = swap ? cy : cx;
-    let oyf = swap ? cx : cy;
-    if (flipX) oxf = W - 1 - oxf;
-    if (flipY) oyf = H - 1 - oyf;
-    const hxf = (oxf + warmupMarginX) * invParentScale - parentCenterOffset;
-    const hyf = (oyf + warmupMarginY) * invParentScale - parentCenterOffset;
-    const hxi = Math.floor(hxf);
-    const hyi = Math.floor(hyf);
-    if (hxi < 0 || hxi + 1 >= HN) return null;
-    if (hyi < 0 || hyi + 1 >= HN) return null;
-    const fx = hxf - hxi;
-    const fy = hyf - hyi;
-    return (
-      (1 - fx) * (1 - fy) * horizon[hyi * HN + hxi] +
-      fx * (1 - fy) * horizon[hyi * HN + hxi + 1] +
-      (1 - fx) * fy * horizon[(hyi + 1) * HN + hxi] +
-      fx * fy * horizon[(hyi + 1) * HN + hxi + 1]
-    );
+    if (!nearTier) return null;
+    const v = sampleTier(nearTier, cx, cy);
+    if (v !== null) return v;
+    // Past the inner ring's footprint the coarse one may still cover
+    // this ground.
+    return farTier ? sampleTier(farTier, cx, cy) : null;
   };
 
   // Mode-specific shadow bit at (cx, hRay) against the current hull.
@@ -556,48 +646,32 @@ export function sweepCore(opts) {
       // terrain near its left edge that 25 % contribution inflates the hull
       // entry and casts a false shadow on the first comp rows even when the
       // sun is clearly above the outside terrain.
-      const firstK = Math.max(
-        0,
-        Math.ceil(
-          (warmStart + warmupMarginX) / parentScale - parentCenterOffset,
-        ),
-      );
-      const lastK =
-        Math.ceil(
-          (cxEntry + warmupMarginX) / parentScale - parentCenterOffset,
-        ) - 1;
-      for (let k = firstK; k <= lastK; k++) {
-        const cxP = parentScale * (k + parentCenterOffset) - warmupMarginX;
-        const yP = b + slope * cxP;
-        let oxfP = swap ? yP : cxP;
-        let oyfP = swap ? cxP : yP;
-        if (flipX) oxfP = W - 1 - oxfP;
-        if (flipY) oyfP = H - 1 - oyfP;
-        const hxfP = (oxfP + warmupMarginX) * invParentScale - parentCenterOffset;
-        const hyfP = (oyfP + warmupMarginY) * invParentScale - parentCenterOffset;
-        const hxiP = Math.floor(hxfP);
-        const hyiP = Math.floor(hyfP);
-        if (hxiP < 0 || hxiP + 1 >= HN) continue;
-        if (hyiP < 0 || hyiP + 1 >= HN) continue;
-        const fxP = hxfP - hxiP;
-        const fyP = hyfP - hyiP;
-        const h00P = horizon[hyiP * HN + hxiP];
-        const h10P = horizon[hyiP * HN + hxiP + 1];
-        const h01P = horizon[(hyiP + 1) * HN + hxiP];
-        const h11P = horizon[(hyiP + 1) * HN + hxiP + 1];
-        const hWP =
-          (1 - fxP) * (1 - fyP) * h00P +
-          fxP * (1 - fyP) * h10P +
-          (1 - fxP) * fyP * h01P +
-          fxP * fyP * h11P;
-        if (horizonTouched) {
-          const tBit = b >= 0 ? 1 : 2;
-          horizonTouched[hyiP * HN + hxiP] |= tBit;
-          horizonTouched[hyiP * HN + hxiP + 1] |= tBit;
-          horizonTouched[(hyiP + 1) * HN + hxiP] |= tBit;
-          horizonTouched[(hyiP + 1) * HN + hxiP + 1] |= tBit;
+      // Walk one tier's cells inward over [cxFrom, cxEnd), depositing
+      // each cell's value at its centre. A cell outside the ring (a ray
+      // that has left its footprint in the cross axis) is skipped.
+      const walkTier = (tier, cxFrom, cxEnd) => {
+        const firstK = Math.max(0, tier.cellsBefore(cxFrom));
+        const lastK = tier.cellsBefore(cxEnd) - 1;
+        for (let k = firstK; k <= lastK; k++) {
+          const cxP = tier.cxOfCell(k);
+          const h = sampleTier(tier, cxP, b + slope * cxP, true);
+          if (h === null) continue;
+          pushHull(cxP, h);
         }
-        pushHull(cxP, hWP);
+      };
+
+      // Outside in: the coarse tier supplies distance, the inner ring
+      // the structure that meets the boundary. The handover is the
+      // inner ring's outer edge, and because the rings are concentric
+      // every coarse cell sits at a smaller canonical cx than every
+      // inner one, which is what pushHull's monotonic-cx requirement
+      // needs.
+      if (farTier) {
+        const cxHandover = -nearTier.marginAlong;
+        if (warmStart < cxHandover) walkTier(farTier, warmStart, cxHandover);
+        walkTier(nearTier, Math.max(warmStart, cxHandover), cxEntry);
+      } else {
+        walkTier(nearTier, warmStart, cxEntry);
       }
 
       // Comp-rate edge-straddle deposits: for rays entering the canonical

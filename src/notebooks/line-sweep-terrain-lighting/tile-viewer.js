@@ -1120,28 +1120,34 @@ export function createTileViewer(opts) {
   // screen shares a handful.
   //
   // What it costs is resolution, and the claim that a coarse ring is
-  // harmless because it is only picked when shadows are long turned
-  // out to be wrong. It holds for the blocker tens of kilometres away,
-  // whose horizon angle really is its height over that distance. It
-  // fails at the tile boundary, where the ring describes the ground a
-  // pixel away and a cell's box mean is nowhere near what stands
-  // there. At dz 6 the cells are 212 m and the seam step between two
-  // tiles' bakes measured 0.17 mean (1219 of 5120 rows stepping by
-  // more than a quarter of full shadow) against an interior control of
-  // 0.06. At dz 7 it is worse.
+  // harmless because it is only picked when shadows are long is true
+  // for the distant blocker and false at the tile boundary, where the
+  // ring describes the ground a pixel away. A single ring cannot be
+  // both: reach and fidelity are set by different things.
   //
-  // So the cap is back to what it was before the per-sun choice
-  // existed: dz 2, a quarter-resolution ring over 5x5 tiles. The
-  // quadtree still picks the finest ring it can prove, it just cannot
-  // reach for resolutions whose boundary error dominates whatever the
-  // extra reach buys. Raising this again needs a seam measurement, not
-  // a reach argument. See PREWARM-FINDINGS.md.
-  const RING_MAX_DZ = 2;
+  // So there are two. The INNER ring meets the comp tile and is chosen
+  // for fidelity, fine enough that its cells do not step across a
+  // seam. The OUTER ring is chosen for reach and is what this cap
+  // governs: the march walks it from the outside in and hands over to
+  // the inner ring at that ring's outer edge, so its cells never touch
+  // the boundary and its coarseness costs nothing there. Measured on a
+  // two-tile seam, a coarse ring alone steps a full 1.0 where the two
+  // tiers step 0.0, while still catching a ridge 300 px out that the
+  // inner ring cannot see. See verify-ring-tiers.mjs.
+  const RING_MAX_DZ = 7;
 
-  // The level the occluder bounds are sampled at. Independent of the
-  // ring cap: it wants to stay coarse so one fetch serves a whole
-  // screen of comp tiles, and it used to be tied to RING_MAX_DZ when
-  // the two happened to coincide.
+  // How far either ring may be pushed BY HAND, for probing the levels
+  // directly rather than rendering with them.
+  const RING_PROBE_MAX_DZ = 7;
+
+  // The inner ring. dz 2 and 3 both measured clean across a seam; 2 is
+  // the default because its parents are cheaper and already fetched
+  // for neighbouring tiles.
+  const RING_NEAR_DZ_DEFAULT = 2;
+  const RING_NEAR_MAX_DZ = 4;
+
+  // The level the occluder bounds are sampled at, independent of the
+  // caps: it wants to stay coarse so one fetch serves a whole screen.
   const BOUNDS_DZ = 4;
 
   // Ring reach either side of the comp tile, in metres, at a given dz:
@@ -1234,20 +1240,56 @@ export function createTileViewer(opts) {
     return true;
   }
 
-  function pickAutoParentDZ(z) {
-    return Math.max(1, Math.min(ringAnswer.dz, z - minZoom));
+  // The inner ring's level. The `parentDZ` option seeds it; null means
+  // take the default.
+  let nearDZOverride = parentDZ;
+  // The outer ring's level. null means follow the quadtree; 0 means no
+  // outer ring at all, which is the original single-ring behaviour.
+  let farDZOverride = null;
+
+  const nearDZNow = () => Math.max(
+    1,
+    Math.min(
+      RING_NEAR_MAX_DZ,
+      nearDZOverride != null ? nearDZOverride | 0 : RING_NEAR_DZ_DEFAULT,
+      Math.max(1, baseZoom - minZoom),
+    ),
+  );
+
+  // The quadtree answers "how far must the prewarm reach", which is the
+  // OUTER ring's job. If the inner ring already reaches that far there
+  // is nothing for an outer ring to add, and we run with one.
+  function pickAutoFarDZ(nearDZ) {
+    const want = Math.max(1, Math.min(ringAnswer.dz, RING_MAX_DZ, baseZoom - minZoom));
+    return want > nearDZ ? want : 0;
   }
-  let currentParentDZ = -1;
+
+  let currentParentDZ = -1;   // the inner ring
   let parentScale = 1;
+  let currentFarDZ = -1;      // the outer ring, 0 when there is none
+  let farParentScale = 0;
+
   function recomputeParentDZ() {
-    const newDZ = parentDZ != null
-      ? Math.max(1, parentDZ | 0)
-      : pickAutoParentDZ(baseZoom);
-    if (newDZ === currentParentDZ) return false;
-    currentParentDZ = newDZ;
-    parentScale = 1 << newDZ;
+    const newNear = nearDZNow();
+    // A pinned level is still bounded by what the pyramid actually
+    // has: dz counts levels UP from the comp tile, so dz 7 at zoom 6
+    // asks for zoom -1 and the ring comes back empty. The auto path
+    // clamps through pickAutoFarDZ; without the same clamp here a pin
+    // silently loses the outer ring at low zoom while the readout went
+    // on claiming it.
+    const pinnedFar = farDZOverride != null
+      ? Math.max(0, Math.min(RING_PROBE_MAX_DZ, farDZOverride | 0, baseZoom - minZoom))
+      : null;
+    const newFar = pinnedFar != null ? pinnedFar : pickAutoFarDZ(newNear);
+    // An outer ring at or inside the inner one is just the inner one.
+    const far = newFar > newNear ? newFar : 0;
+    if (newNear === currentParentDZ && far === currentFarDZ) return false;
+    currentParentDZ = newNear;
+    parentScale = 1 << newNear;
+    currentFarDZ = far;
+    farParentScale = far ? 1 << far : 0;
     worker.postMessage({
-      type: "init", tileUrl, parentDZ: newDZ, boundsDZ: BOUNDS_DZ,
+      type: "init", tileUrl, parentDZ: newNear, farDZ: far, boundsDZ: BOUNDS_DZ,
     });
     return true;
   }
@@ -1284,7 +1326,7 @@ export function createTileViewer(opts) {
   // one reload per interval whatever else goes wrong.
   const RING_SWAP_COOLDOWN_MS = 4000;
   function adaptRingToSun() {
-    if (parentDZ != null) return; // explicit override, never adapt
+    if (farDZOverride != null) return; // outer ring pinned, never adapt
     // Never re-pick mid-fetch. A swap reloads the whole view, so it is
     // only worth making against a settled picture, and deciding while
     // tiles are still arriving is how a swap ends up cancelling the
@@ -1308,8 +1350,8 @@ export function createTileViewer(opts) {
       if (requestRingDZ(tanMin)) ringAskedTan = tanMin;
     }
 
-    const want = Math.max(1, Math.min(ringAnswer.dz, baseZoom - minZoom));
-    if (want === currentParentDZ) {
+    const want = pickAutoFarDZ(nearDZNow());
+    if (want === currentFarDZ) {
       if (ringAdaptPending !== -1) {
         clearTimeout(ringAdaptTimer);
         ringAdaptPending = -1;
@@ -1323,8 +1365,8 @@ export function createTileViewer(opts) {
       ringAdaptPending = -1;
       // Re-check: the sun may have moved back while we waited, and a
       // swap we no longer want is pure cost.
-      const now = Math.max(1, Math.min(ringAnswer.dz, baseZoom - minZoom));
-      if (now === currentParentDZ) return;
+      const now = pickAutoFarDZ(nearDZNow());
+      if (now === currentFarDZ) return;
       if (Date.now() - ringLastSwapAt < RING_SWAP_COOLDOWN_MS) return;
       ringLastSwapAt = Date.now();
       if (recomputeParentDZ()) reloadTilesForNewRing();
@@ -1380,6 +1422,9 @@ export function createTileViewer(opts) {
     const list = [];
     if (msg.heights?.buffer) list.push(msg.heights.buffer);
     if (msg.horizon?.buffer) list.push(msg.horizon.buffer);
+    // Each dispatch builds its own copy of the outer ring, so handing
+    // the buffer over saves a structured clone per tile.
+    if (msg.far?.heights?.buffer) list.push(msg.far.heights.buffer);
     if (msg.cachedNx?.buffer) list.push(msg.cachedNx.buffer);
     if (msg.cachedNy?.buffer) list.push(msg.cachedNy.buffer);
     if (msg.cachedAo?.buffer) list.push(msg.cachedAo.buffer);
@@ -1419,6 +1464,7 @@ export function createTileViewer(opts) {
       pending.resolve({
         comp: msg.comp,
         horizon: msg.horizon,
+        farHorizon: msg.farHorizon,
       });
     } else if (msg.type === "error") {
       const err = new Error(msg.message);
@@ -1866,6 +1912,13 @@ export function createTileViewer(opts) {
       // and its next re-bake, and a buffer sized for one scale read at
       // another marches off the end of its data.
       this._parentScale = 0;
+      // The outer prewarm ring, when there is one. Kept per tile for
+      // the same reason as the inner one: a ring swap is in flight for
+      // as long as it takes every tile to be refetched, and a rebake
+      // must use the pair its own rings were assembled as.
+      this._farHorizon = null;
+      this._farHN = 0;
+      this._farParentScale = 0;
       this._cpuNx = null;      // cached normals+AO from CPU bake
       this._cpuNy = null;
       this._cpuAo = null;
@@ -2086,7 +2139,7 @@ export function createTileViewer(opts) {
         });
         if (this.destroyed) return;
 
-        const { comp, horizon } = data;
+        const { comp, horizon, farHorizon } = data;
         const compN = comp.N;
         const HN = horizon.HN;
         this.HN = HN;
@@ -2129,8 +2182,24 @@ export function createTileViewer(opts) {
         this._compHMin = comp.hMin;
         this._compHMax = comp.hMax;
         this._horizonHMin = horizon.hMin ?? 0;
-        this._horizonHMax = horizon.hMax ?? 0;
+        // The march's reach is set by the highest ground either ring
+        // knows about. Decimation flattens peaks, so the FINER ring's
+        // maximum is the higher of the two; taking only the coarse
+        // one would under-walk.
+        this._horizonHMax = Math.max(
+          horizon.hMax ?? 0,
+          farHorizon ? (farHorizon.hMax ?? 0) : -Infinity,
+        );
         this._parentScale = parentScale;
+        if (farHorizon && farHorizon.HN > 0) {
+          this._farHorizon = farHorizon.heights;
+          this._farHN = farHorizon.HN;
+          this._farParentScale = 1 << farHorizon.parentDZ;
+        } else {
+          this._farHorizon = null;
+          this._farHN = 0;
+          this._farParentScale = 0;
+        }
 
         if (lighting.bakeMode === "cpu") {
           // ---- CPU bake path ----
@@ -2158,6 +2227,13 @@ export function createTileViewer(opts) {
             rawEqPxSizeM,
             horizon: new Float32Array(horizon.heights),
             HN,
+            far: farHorizon && farHorizon.HN > 0
+              ? {
+                  heights: new Float32Array(farHorizon.heights),
+                  HN: farHorizon.HN,
+                  parentScale: 1 << farHorizon.parentDZ,
+                }
+              : null,
             azDeg,
             altDeg,
             sunRadiusDeg: Math.max(0, lighting.sunRadiusDeg || 0),
@@ -2165,7 +2241,16 @@ export function createTileViewer(opts) {
             lsaoFalloff: lighting.lsaoFalloff,
             parentScale,
             compHMin: comp.hMin,
-            horizonHMax: horizon.hMax ?? 0,
+            // The bound over BOTH rings, not this ring's own hMax. It
+            // sets how far the march runs, and the outer ring is the
+            // one that knows about the distant peak: an inner ring at
+            // dz 2 spans two tiles, so its local maximum is some
+            // nearby rise and the march stops long before anything
+            // that could actually reach the tile. Passing the inner
+            // ring's own hMax here made a freshly baked tile lose
+            // every distant shadow while a shadow rebake of the same
+            // tile kept them, since that path already used the pair.
+            horizonHMax: this._horizonHMax,
             // The map knows what time it is, so the penumbra window
             // follows the sun through the horizon instead of stopping
             // at it. See tileSunAngles.
@@ -2587,6 +2672,15 @@ export function createTileViewer(opts) {
         rawEqPxSizeM: tile._rawEqPxSizeM,
         horizon: new Float32Array(tile._horizon),
         HN: tile._horizonHN,
+        // This tile's own outer ring, so a rebake uses the pair its
+        // rings were assembled as.
+        far: tile._farHorizon && tile._farHN > 0
+          ? {
+              heights: new Float32Array(tile._farHorizon),
+              HN: tile._farHN,
+              parentScale: tile._farParentScale,
+            }
+          : null,
         // This tile's own ring scale, not the module's: the two differ
         // for as long as a ring swap is in flight.
         parentScale: tile._parentScale || parentScale,
@@ -3380,6 +3474,37 @@ export function createTileViewer(opts) {
       return tiles;
     },
 
+    // Pin the INNER ring (the one that meets the comp tile) to a
+    // level, or pass null for the default. Fidelity at the tile
+    // boundary is this ring's job.
+    setRingNearDZ(dz) {
+      const next = dz == null ? null : Math.max(1, Math.min(RING_PROBE_MAX_DZ, dz | 0));
+      if (next === nearDZOverride) return currentParentDZ;
+      nearDZOverride = next;
+      if (recomputeParentDZ()) reloadTilesForNewRing();
+      return currentParentDZ;
+    },
+
+    // Pin the OUTER ring to a level, 0 for no outer ring, or null to
+    // hand it back to the quadtree. Reach is this ring's job.
+    //
+    // Changing either level reloads every live tile, so these are
+    // probes rather than things to drive from an animation: the old
+    // tiles keep drawing their last bake until the replacements land.
+    setRingFarDZ(dz) {
+      const next = dz == null ? null : Math.max(0, Math.min(RING_PROBE_MAX_DZ, dz | 0));
+      if (next === farDZOverride) return currentFarDZ;
+      farDZOverride = next;
+      if (next == null) {
+        // Back to automatic. Forget the sun the last answer was proved
+        // for so the next frame re-asks, rather than sitting on
+        // whatever the ring happened to be pinned to.
+        ringAskedTan = null;
+      }
+      if (recomputeParentDZ()) reloadTilesForNewRing();
+      return currentFarDZ;
+    },
+
     debugRingState() {
       const scales = {};
       for (const t of tiles.values()) {
@@ -3394,6 +3519,13 @@ export function createTileViewer(opts) {
       }
       return {
         currentParentDZ, parentScale,
+        // The outer ring: 0 when there is none.
+        currentFarDZ, farParentScale,
+        // null when the quadtree / default is driving that level.
+        nearDZOverride, farDZOverride,
+        ringMaxDZ: RING_MAX_DZ,
+        ringNearMaxDZ: RING_NEAR_MAX_DZ,
+        ringProbeMaxDZ: RING_PROBE_MAX_DZ,
         ringAnswer: { ...ringAnswer },
         ringAskedTan,
         // The bake inputs, so a probe can reproduce a tile's own sweep

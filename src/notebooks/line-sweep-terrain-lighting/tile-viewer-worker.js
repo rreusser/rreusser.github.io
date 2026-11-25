@@ -5,12 +5,12 @@
 // (bake + render) so panning/zooming existing tiles stays smooth.
 //
 // Protocol:
-//   main → worker:  { type: "init", tileUrl, parentDZ, boundsDZ }
+//   main → worker:  { type: "init", tileUrl, parentDZ, farDZ, boundsDZ }
 //   main → worker:  { type: "fetch", z, x, y }
 //   main → worker:  { type: "cancel", z, x, y }
 //   main → worker:  { type: "ringdz", id, z, x, y, compMin, compMax,
 //                     tanMin, minDZ, maxDZ, tileM, minLevel }
-//   worker → main:  { type: "tile", z, x, y, comp, horizon }
+//   worker → main:  { type: "tile", z, x, y, comp, horizon, farHorizon }
 //   worker → main:  { type: "ringdz", id, dz, provable, visited }
 //   worker → main:  { type: "error", z, x, y, message, status }
 //                    `status` is the HTTP status when the fetch got a
@@ -23,7 +23,13 @@
 //                    reverted: it put the tile's eight same-zoom
 //                    neighbours in its critical path for a seam it only
 //                    narrowed. See PREWARM-FINDINGS.md.
-//                    Both Float32Arrays are transferred (zero-copy).
+//                    farHorizon = the same shape, assembled at `farDZ`,
+//                    or null for a single ring. The sweep walks it from
+//                    the outside in and hands over to `horizon` at that
+//                    ring's outer edge: see line-sweep-core.js. Reach
+//                    and resolution are set by different things and one
+//                    ring cannot be both.
+//                    Every Float32Array is transferred (zero-copy).
 //                    The horizon's (hMin, hMax) bounds the ring's
 //                    actual elevations (including zero-fill from
 //                    missing parents) and is paired with comp's
@@ -53,7 +59,12 @@ import { pickRingDZ } from "./occluder-quadtree.js";
 const ROOT_LEVEL = 9;
 
 let tileUrl = "";
+// The ring that meets the comp tile: fine enough that its cells do not
+// step across a tile seam. Chosen for terrain fidelity, not reach.
 let parentDZ = 2;
+// An optional outer ring, coarser and reaching much further, walked
+// before the inner one. 0 means a single ring. Chosen for reach.
+let farDZ = 0;
 // Zoom delta at which the occluder bound is taken. Coarse on purpose:
 // one tile at z - boundsDZ covers 2^boundsDZ children each way, so a
 // whole screen of comp tiles shares the same handful of parents and
@@ -162,17 +173,34 @@ function parentKeys(z, x, y, dz) {
   return keys;
 }
 
+// Every parent tile either ring needs, deduped. At farDZ 0 (or equal
+// to parentDZ) this is just the inner ring's parents.
+function allRingKeys(z, x, y) {
+  const seen = new Set();
+  const keys = [];
+  const levels = farDZ > 0 && farDZ !== parentDZ ? [parentDZ, farDZ] : [parentDZ];
+  for (const dz of levels) {
+    for (const k of parentKeys(z, x, y, dz)) {
+      const id = k.join("/");
+      if (seen.has(id)) continue;
+      seen.add(id);
+      keys.push(k);
+    }
+  }
+  return keys;
+}
+
 function acquireAll(z, x, y) {
-  // Acquire the tile itself + all parents.
+  // Acquire the tile itself + all parents either ring needs.
   acquireFetch(z, x, y);
-  for (const [pz, px, py] of parentKeys(z, x, y, parentDZ)) {
+  for (const [pz, px, py] of allRingKeys(z, x, y)) {
     acquireFetch(pz, px, py);
   }
 }
 
 function releaseAll(z, x, y) {
   releaseFetch(z, x, y);
-  for (const [pz, px, py] of parentKeys(z, x, y, parentDZ)) {
+  for (const [pz, px, py] of allRingKeys(z, x, y)) {
     releaseFetch(pz, px, py);
   }
 }
@@ -298,6 +326,9 @@ self.onmessage = (e) => {
       if (Number.isFinite(msg.parentDZ) && msg.parentDZ >= 1) {
         parentDZ = msg.parentDZ | 0;
       }
+      if (Number.isFinite(msg.farDZ) && msg.farDZ >= 0) {
+        farDZ = msg.farDZ | 0;
+      }
       if (Number.isFinite(msg.boundsDZ) && msg.boundsDZ >= 1) {
         boundsDZ = msg.boundsDZ | 0;
       }
@@ -308,23 +339,37 @@ self.onmessage = (e) => {
       const key = refKey(z, x, y);
       inFlight.add(key);
       acquireAll(z, x, y);
+      const wantFar = farDZ > 0 && farDZ !== parentDZ;
       Promise.all([
         cache.get(key)?.promise,
         assembleParentHorizon(z, x, y, parentDZ),
-      ]).then(([comp, horizon]) => {
+        wantFar ? assembleParentHorizon(z, x, y, farDZ) : null,
+      ]).then(([comp, horizon, farHorizon]) => {
         if (!inFlight.has(key)) return; // cancelled
         inFlight.delete(key);
         // Clone heights so we can transfer without invalidating the cache.
         const compHeights = new Float32Array(comp.heights);
         const horizonHeights = new Float32Array(horizon.heights);
+        const transfer = [compHeights.buffer, horizonHeights.buffer];
+        let farOut = null;
+        if (farHorizon && farHorizon.HN > 0) {
+          const farHeights = new Float32Array(farHorizon.heights);
+          transfer.push(farHeights.buffer);
+          farOut = {
+            HN: farHorizon.HN, heights: farHeights,
+            hMin: farHorizon.hMin, hMax: farHorizon.hMax,
+            parentDZ: farDZ,
+          };
+        }
         self.postMessage(
           {
             type: "tile",
             z, x, y,
             comp: { N: comp.N, heights: compHeights, hMin: comp.hMin, hMax: comp.hMax },
             horizon: { HN: horizon.HN, heights: horizonHeights, hMin: horizon.hMin, hMax: horizon.hMax },
+            farHorizon: farOut,
           },
-          [compHeights.buffer, horizonHeights.buffer],
+          transfer,
         );
       }).catch((err) => {
         if (!inFlight.has(key)) return; // cancelled
