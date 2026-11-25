@@ -2370,6 +2370,7 @@ export function runScenario(model, ws, strengthProf, opts = {}) {
     body: {
       heightM: model.heightM, massKg: model.massKg,
       straddleDeg: model.straddleDeg, sex: model.sex,
+      legFrac: model.legFrac, legMassScale: model.legMassScale,
     },
     verdict: {
       upright, over, still, posed, feetFree,

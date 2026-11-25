@@ -140,9 +140,72 @@ function rodPiece(m, x0, x1, comFrac, kFrac) {
   return { m, cx: x0 + comFrac * L, cy: 0, I: m * (kFrac * L) ** 2 };
 }
 
-export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex = 'male' } = {}) {
-  const H = heightM, M = massKg;
+// Hip-joint height standing, as a fraction of stature, in the published
+// tables: thigh + shank + ankle height. Winter's fractions put it at 0.530.
+export const TABLE_ANKLE_H = 0.039;
+export function tableLegFrac(sex = 'male') {
   const d = SEGMENT_TABLES[sex] || DE_LEVA;
+  return d.thigh.len + d.shank.len + TABLE_ANKLE_H;
+}
+
+// Re-proportion a segment table, keeping stature and total mass fixed.
+//
+// legFrac is hip-joint height over stature -- relative leg length. The
+// trunk absorbs whatever the legs give up or take, so the head, the arms
+// and the stature are untouched: a long-torso, short-legged body of the same
+// height, not a smaller one. Thigh and shank scale together, keeping their
+// ratio.
+//
+// A segment that is longer at the same cross-section is heavier in
+// proportion, so each segment's mass fraction scales with its length factor.
+// legMassScale then multiplies the leg segments on top of that -- legs that
+// are denser or more muscular for the same shape -- and every fraction is
+// renormalised so the table still sums to what it summed to before. CoM
+// positions and radii of gyration are FRACTIONS of length and stay as they
+// are: the segment is stretched, not reshaped.
+//
+// With both at their defaults this returns the table unchanged, bit for bit.
+export function proportionedTable(sex = 'male', { legFrac = null, legMassScale = 1 } = {}) {
+  const d0 = SEGMENT_TABLES[sex] || DE_LEVA;
+  const L0 = d0.thigh.len + d0.shank.len;
+  // A slider in percent lands a hair off the table's own fraction; snap it.
+  const legLen = legFrac == null || Math.abs(legFrac - TABLE_ANKLE_H - L0) < 1e-9
+    ? L0 : legFrac - TABLE_ANKLE_H;
+  if (legLen === L0 && legMassScale === 1) return d0;
+  const sLeg = legLen / L0;
+  const trunkLen = d0.trunk.len + (L0 - legLen);
+  const sTrunk = trunkLen / d0.trunk.len;
+  if (!(trunkLen > 0.1 && legLen > 0.2)) throw new Error(`legFrac ${legFrac} out of range`);
+  const d = {};
+  for (const k of Object.keys(d0)) d[k] = { ...d0[k] };
+  d.trunk.len = trunkLen; d.trunk.m *= sTrunk;
+  d.thigh.len *= sLeg; d.shank.len *= sLeg;
+  d.thigh.m *= sLeg * legMassScale; d.shank.m *= sLeg * legMassScale;
+  d.foot.m *= legMassScale;
+  // Whole-body sum: the head and trunk once, every limb segment twice.
+  const total = (t) => t.headNeck.m + t.trunk.m
+    + 2 * (t.upperArm.m + t.forearm.m + t.hand.m + t.thigh.m + t.shank.m + t.foot.m);
+  const c = total(d0) / total(d);
+  for (const k of Object.keys(d)) d[k].m *= c;
+  return d;
+}
+
+// Share of body mass in the two legs (thigh, shank, foot), and the hip height
+// fraction, of a model or a table -- the two numbers the proportion controls
+// are read back as.
+export function legMassShare(d) {
+  const total = d.headNeck.m + d.trunk.m
+    + 2 * (d.upperArm.m + d.forearm.m + d.hand.m + d.thigh.m + d.shank.m + d.foot.m);
+  return 2 * (d.thigh.m + d.shank.m + d.foot.m) / total;
+}
+
+export function buildModel({
+  heightM = 1.75, massKg = 70, straddleDeg = 0, sex = 'male',
+  legFrac = null, legMassScale = 1,
+} = {}) {
+  const H = heightM, M = massKg;
+  const d = proportionedTable(sex, { legFrac, legMassScale });
+  const d0 = SEGMENT_TABLES[sex] || DE_LEVA;
   // Sagittal projection of a straddle: legs abducted by straddleDeg/2 each
   // shorten in side view. Mass is unchanged; gyration radius scales with the
   // projected length (a documented approximation).
@@ -372,6 +435,8 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
 
   return {
     heightM, massKg, straddleDeg, sex, gravity: 9.81,
+    legFrac: legFrac == null ? tableLegFrac(sex) : legFrac, legMassScale,
+    legMassShare: legMassShare(d),
     nb, nj: nb - 1, nq: nb - 1 + 3, fixedBase: false,
     parent, mass, comX, comY, inertia, anchorX, anchorY,
     bodies: B,
@@ -428,6 +493,9 @@ export function buildModel({ heightM = 1.75, massKg = 70, straddleDeg = 0, sex =
       ankleH, heelBack, footFwd: toeFwd, ballFwd: ballFrac * Lfoot - heelBack,
       // Where the foot outline is cut into a foot and a toe.
       ballOnAxis, Ltoe,
+      // Mass per unit length against the table's, for the girth.
+      legGirth: Math.sqrt((d.thigh.m / d.thigh.len) / (d0.thigh.m / d0.thigh.len)),
+      trunkGirth: Math.sqrt((d.trunk.m / d.trunk.len) / (d0.trunk.m / d0.trunk.len)),
     })),
     patch: { x0: patchHeelX, x1: patchTipX },
     wristHeight: hw,
