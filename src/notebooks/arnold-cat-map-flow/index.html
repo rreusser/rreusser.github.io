@@ -1,0 +1,628 @@
+<!doctype html>
+<notebook theme="air">
+  <title>The Arnold cat map as a continuous flow</title>
+  <script id="title" type="text/markdown">
+    # The Arnold cat map as a continuous flow
+  </script>
+  <script id="intro" type="text/markdown">
+    Arnold’s cat map is the linear map ${tex`M = \begin{pmatrix} 2 & 1 \\ 1 & 1 \end{pmatrix}`} acting on ${tex`\mathbb{Z}^2`} (and, after wrapping, on the torus ${tex`\mathbb{R}^2 / \mathbb{Z}^2`}). It’s the standard mascot of hyperbolic dynamics: the lattice maps onto itself, the unit cell stretches along one eigenvector and squeezes along the other, and the wrapping back to the torus produces a thoroughly chaotic orbit.
+
+    What if we let the discrete time index ${tex`n \in \mathbb{Z}`} flow continuously? That is, can we draw ${tex`M^t`} for ${tex`t \in [0, 1]`} so that ${tex`t = 0`} is the identity and ${tex`t = 1`} is the cat map? The animation below shows the result. Watch the moment the loop restarts. Every dot lands on a lattice site vacated at that same instant by a different dot, moving with exactly the velocity its predecessor had, so the cycle repeats with no visible seam. The rest of this notebook works out why.
+  </script>
+  <script id="imports" type="text/x-typescript">
+    import { expandable } from './lib/expandable.js'
+    import { createFrameLoop } from './lib/frame-loop.js'
+  </script>
+  <script id="mul2" type="text/x-typescript">
+    // 2×2 matrix product, flat [a, b, c, d] layout.
+    function mul2(A: number[], B: number[]): number[] {
+      return [
+        A[0] * B[0] + A[1] * B[2], A[0] * B[1] + A[1] * B[3],
+        A[2] * B[0] + A[3] * B[2], A[2] * B[1] + A[3] * B[3]
+      ];
+    }
+  </script>
+  <script id="params" type="text/x-typescript">
+    // Mutable parameters shared with the render loop. Properties are updated
+    // from the controls cell; this cell never re-runs.
+    const params = {
+      M: [2, 1, 1, 1],
+      showPaths: false,
+      matrixDirty: true
+    };
+  </script>
+  <script id="generators-info" type="text/markdown">
+    The controls below build ${tex`M`} by composing shears and rotations rather than by picking matrix entries directly, which guarantees every reachable matrix is a bijection of the lattice. Each press multiplies on the left, so pressing ${tex`L`} and then ${tex`T`} produces ${tex`T \cdot L`}, which happens to be the cat map.
+  </script>
+  <script id="controls" type="text/x-typescript">
+    const generators: Record<string, { M: number[], tex: string, desc: string }> = {
+      T:  { M: [1, 1, 0, 1], tex: 'T',      desc: 'horizontal shear x ← x + y' },
+      Ti: { M: [1,-1, 0, 1], tex: 'T^{-1}', desc: 'inverse horizontal shear' },
+      L:  { M: [1, 0, 1, 1], tex: 'L',      desc: 'vertical shear y ← y + x' },
+      Li: { M: [1, 0,-1, 1], tex: 'L^{-1}', desc: 'inverse vertical shear' },
+      S:  { M: [0,-1, 1, 0], tex: 'S',      desc: '90° rotation (counter-clockwise)' },
+      Si: { M: [0, 1,-1, 0], tex: 'S^{-1}', desc: '90° rotation (clockwise)' }
+    };
+    const inverseOf: Record<string, string> = {
+      T: 'Ti', Ti: 'T', L: 'Li', Li: 'L', S: 'Si', Si: 'S'
+    };
+
+    const presets: Record<string, string[]> = {
+      "Identity":       [],
+      "Arnold cat":     ['L', 'T'],   // T · L applied to v = T(L v)
+      "Fibonacci":      ['T', 'L'],
+      "Tall":           ['L', 'L', 'T'],
+      "Rotation (S)":   ['S']
+    };
+
+    const state = { ops: ['L', 'T'] };  // start as Arnold cat
+
+    function computeM(): number[] {
+      let m = [1, 0, 0, 1];
+      for (const op of state.ops) m = mul2(generators[op].M, m);
+      return m;
+    }
+
+    function applyOp(name: string) {
+      // If the new op is the inverse of the most recent one, cancel rather
+      // than appending (free-group reduction).
+      const last = state.ops[state.ops.length - 1];
+      if (last && inverseOf[last] === name) {
+        state.ops.pop();
+      } else {
+        state.ops.push(name);
+      }
+      // Catches non-adjacent cancellations like S^4 = I.
+      const m = computeM();
+      if (m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1) {
+        state.ops = [];
+      }
+      pushUpdate();
+    }
+    function undo() {
+      state.ops.pop();
+      pushUpdate();
+    }
+    function reset() {
+      state.ops = [];
+      pushUpdate();
+    }
+    function loadPreset(name: string) {
+      state.ops = [...(presets[name] ?? [])];
+      pushUpdate();
+    }
+
+    function pushUpdate() {
+      params.M = computeM();
+      params.matrixDirty = true;
+      renderMatrixDisplay();
+    }
+
+    const controlsContainer = html`<div id="cat-map-controls"></div>`;
+
+    function btn(label: string, onClick: () => void, title = ''): HTMLButtonElement {
+      const b = html`<button type="button" title="${title}" style="
+        font: inherit; font-size: 14px; padding: 4px 10px; margin: 2px;
+        border: 1px solid var(--theme-foreground-muted, #bbb);
+        border-radius: 4px;
+        background: var(--theme-background-alt, var(--theme-background, #fff));
+        color: var(--theme-foreground, #222);
+        cursor: pointer;
+      ">${label}</button>` as HTMLButtonElement;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    // Row 1: generators
+    const genRow = html`<div style="margin: 0.5rem 0;">
+      <span style="font-size: 13px; color: var(--theme-foreground-muted, #5f5e5a); margin-right: 0.5rem;">apply:</span>
+    </div>`;
+    for (const [key, g] of Object.entries(generators)) {
+      genRow.appendChild(btn(g.tex.replace('^{-1}', '⁻¹'), () => applyOp(key), g.desc));
+    }
+    genRow.appendChild(btn('undo', undo, 'remove the last generator'));
+    genRow.appendChild(btn('reset', reset, 'reset to the identity'));
+    controlsContainer.appendChild(genRow);
+
+    // Row 2: presets
+    const presetRow = html`<div style="margin: 0.5rem 0;">
+      <span style="font-size: 13px; color: var(--theme-foreground-muted, #5f5e5a); margin-right: 0.5rem;">load:</span>
+    </div>`;
+    for (const name of Object.keys(presets)) {
+      presetRow.appendChild(btn(name, () => loadPreset(name)));
+    }
+    controlsContainer.appendChild(presetRow);
+
+    // Matrix / classification display
+    const matrixDisplay = html`<div id="cat-map-matrix" style="margin: 0.5rem 0 0.75rem; min-height: 4em;"></div>`;
+    controlsContainer.appendChild(matrixDisplay);
+
+    function classify(M: number[]): { label: string, color: string, real: boolean, periodic: boolean } {
+      const [a, b, c, d] = M;
+      const tr = a + d;
+      const det = a * d - b * c;
+      const disc = tr * tr - 4 * det;
+      const periodic = det === 1 || det === -1;
+      if (det === 0) {
+        return { label: 'singular — collapses the plane', color: '#a04030', real: false, periodic: false };
+      }
+      if (disc > 1e-9) {
+        const sD = Math.sqrt(disc);
+        const lam1 = (tr + sD) / 2, lam2 = (tr - sD) / 2;
+        if (lam1 > 0 && lam2 > 0) {
+          return { label: 'hyperbolic, real flow', color: '#185fa5', real: true, periodic };
+        }
+        return { label: 'hyperbolic but a λ ≤ 0 — no real flow, showing linear interpolation', color: '#a04030', real: false, periodic };
+      }
+      if (disc < -1e-9) {
+        if (det > 0) return { label: 'elliptic, real flow (rotation-like)', color: '#185fa5', real: true, periodic };
+        return { label: 'elliptic with det ≤ 0 — no real flow', color: '#a04030', real: false, periodic };
+      }
+      const lam = tr / 2;
+      if (lam > 0) return { label: 'parabolic, real flow (linear in t)', color: '#185fa5', real: true, periodic };
+      return { label: 'parabolic with λ ≤ 0 — no real flow', color: '#a04030', real: false, periodic };
+    }
+
+    function formatOps(ops: string[]): string {
+      if (ops.length === 0) return 'I';
+      // Display in matrix-multiplication order (latest pressed appears leftmost).
+      const reversed = [...ops].reverse();
+      // Run-length encode consecutive identical generators so e.g.
+      // L · L · L renders as L^{3}.
+      const runs: [string, number][] = [];
+      for (const op of reversed) {
+        const last = runs[runs.length - 1];
+        if (last && last[0] === op) last[1]++;
+        else runs.push([op, 1]);
+      }
+      const isInverse = (op: string) => op === 'Ti' || op === 'Li' || op === 'Si';
+      return runs.map(([op, n]) => {
+        const base = op.charAt(0);
+        const sign = isInverse(op) ? -1 : 1;
+        const e = sign * n;
+        if (e === 1) return base;
+        if (e === -1) return `${base}^{-1}`;
+        return `${base}^{${e}}`;
+      }).join(' \\cdot ');
+    }
+
+    function renderMatrixDisplay() {
+      const M = params.M;
+      const [a, b, c, d] = M;
+      const det = a * d - b * c;
+      const tr = a + d;
+      const cls = classify(M);
+      const word = formatOps(state.ops);
+      matrixDisplay.replaceChildren(
+        tex.block`M = ${word} = \begin{pmatrix} ${a} & ${b} \\ ${c} & ${d} \end{pmatrix}, \quad \det M = ${det}, \quad \operatorname{tr} M = ${tr}`,
+        html`<div style="font-size: 13px; color: ${cls.color}; margin-top: 0.25rem;">
+          ${cls.label} ·
+          ${cls.periodic ? 'lattice bijection, loop closes' : `det = ${det}, not a Z² bijection`}
+        </div>`
+      );
+    }
+
+    function ctrl(input) {
+      controlsContainer.appendChild(input);
+      return Generators.input(input);
+    }
+    const showPaths = ctrl(Inputs.toggle({ label: "Show paths", value: false }));
+
+    pushUpdate();
+    display(controlsContainer);
+  </script>
+  <script id="sync-params" type="text/x-typescript">
+    // The matrix is mutated directly from the button handlers, so we only
+    // need to sync the auxiliary controls here.
+    params.showPaths = showPaths;
+    params.matrixDirty = true;
+  </script>
+  <script id="figure" type="text/x-typescript">
+    const ns = 'http://www.w3.org/2000/svg';
+    const figureState = { width: 0, height: 0, cellSize: 40 };
+
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('id', 'cat-map-svg');
+    svg.style.display = 'block';
+    svg.style.background = 'var(--theme-background-alt, var(--theme-background, #fff))';
+    svg.style.borderRadius = '6px';
+    svg.style.border = '0.5px solid var(--theme-foreground-muted, rgba(0,0,0,0.15))';
+
+    const eigenG = document.createElementNS(ns, 'g');
+    const pathsElement = document.createElementNS(ns, 'path');
+    pathsElement.setAttribute('fill', 'none');
+    pathsElement.setAttribute('stroke', '#185fa5');
+    pathsElement.setAttribute('stroke-width', '0.7');
+    pathsElement.setAttribute('stroke-opacity', '0');
+    const dotsG = document.createElementNS(ns, 'g');
+    const originDot = document.createElementNS(ns, 'circle');
+    originDot.setAttribute('r', '3.8');
+    originDot.setAttribute('fill', '#185fa5');
+    svg.append(eigenG, pathsElement, dotsG, originDot);
+
+    const eigenLines: SVGLineElement[] = [0, 1].map(() => {
+      const l = document.createElementNS(ns, 'line');
+      l.setAttribute('stroke', 'var(--theme-foreground-muted, #888)');
+      l.setAttribute('stroke-width', '1');
+      l.setAttribute('stroke-dasharray', '4 3');
+      l.setAttribute('stroke-opacity', '0');
+      eigenG.appendChild(l);
+      return l;
+    });
+
+    // Dynamic dot pool — grown on demand. We don't know up front how many
+    // lattice points fall in the visible window after Mt is applied, since
+    // a stretched/sheared Mt has integer preimages of the window that spill
+    // far beyond any fixed grid. Instead, each frame we compute the integer
+    // points whose image under Mt lies in the visible rectangle.
+    const dotPool: SVGCircleElement[] = [];
+    let activeDotCount = 0;
+    dotsG.setAttribute('color', 'var(--theme-foreground, #2c2c2a)');
+
+    function ensureDots(n: number) {
+      while (dotPool.length < n) {
+        const c = document.createElementNS(ns, 'circle');
+        c.setAttribute('r', '2.3');
+        c.setAttribute('fill', 'currentColor');
+        dotsG.appendChild(c);
+        dotPool.push(c);
+      }
+    }
+    function trimVisibleDots(n: number) {
+      for (let i = n; i < activeDotCount; i++) {
+        dotPool[i].setAttribute('display', 'none');
+      }
+      for (let i = activeDotCount; i < n; i++) {
+        dotPool[i].removeAttribute('display');
+      }
+      activeDotCount = n;
+    }
+
+    // Integer (i, j) such that Mt·(i,j) lies within [-W, W] × [-H, H] (with
+    // a small margin so dots don't pop at the edge). For each i we solve
+    // the two band constraints on j analytically, so we visit only points
+    // that will actually be drawn.
+    function visiblePts(Mt: number[], W: number, H: number, margin = 0.5): [number, number][] {
+      const [a, b, c, d] = Mt;
+      const det = a * d - b * c;
+      const W2 = W + margin, H2 = H + margin;
+      const pts: [number, number][] = [];
+      if (Math.abs(det) < 1e-9) return pts;
+
+      // Bounding box of i over the preimage parallelogram.
+      const ia = d / det, ib = -b / det;
+      let iLo = Infinity, iHi = -Infinity;
+      for (const sx of [-W2, W2]) for (const sy of [-H2, H2]) {
+        const i = ia * sx + ib * sy;
+        if (i < iLo) iLo = i;
+        if (i > iHi) iHi = i;
+      }
+      const iMin = Math.max(Math.floor(iLo), -500);
+      const iMax = Math.min(Math.ceil(iHi),  500);
+
+      for (let i = iMin; i <= iMax; i++) {
+        // |a·i + b·j| <= W2 and |c·i + d·j| <= H2 give two intervals for j.
+        let jLo = -Infinity, jHi = Infinity;
+        if (Math.abs(b) > 1e-12) {
+          const x0 = (-W2 - a * i) / b, x1 = (W2 - a * i) / b;
+          jLo = Math.max(jLo, Math.min(x0, x1));
+          jHi = Math.min(jHi, Math.max(x0, x1));
+        } else if (a * i < -W2 || a * i > W2) continue;
+        if (Math.abs(d) > 1e-12) {
+          const x0 = (-H2 - c * i) / d, x1 = (H2 - c * i) / d;
+          jLo = Math.max(jLo, Math.min(x0, x1));
+          jHi = Math.min(jHi, Math.max(x0, x1));
+        } else if (c * i < -H2 || c * i > H2) continue;
+        const jStart = Math.ceil(jLo), jEnd = Math.floor(jHi);
+        for (let j = jStart; j <= jEnd; j++) {
+          if (i === 0 && j === 0) continue;
+          pts.push([i, j]);
+        }
+      }
+      return pts;
+    }
+
+    function resizeFigure(w: number, h: number) {
+      figureState.width = w;
+      figureState.height = h;
+      figureState.cellSize = Math.max(20, Math.min(w, h) / 11);
+      svg.setAttribute('width', String(w));
+      svg.setAttribute('height', String(h));
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      originDot.setAttribute('cx', String(w / 2));
+      originDot.setAttribute('cy', String(h / 2));
+      params.matrixDirty = true;
+    }
+
+    const figure = html`<figure>
+      ${svg}
+      <figcaption>The continuous flow ${tex`\gamma(t) = M^t`} applied to the integer lattice. The origin (blue) is the only fixed point. Every other point lands on a different lattice site at ${tex`t = 1`}, so the pattern repeats even though no individual point comes back to where it started.</figcaption>
+    </figure>`;
+
+    display(expandable(figure, {
+      id: 'cat-map',
+      width: Math.min(width, 640),
+      height: Math.min(480, width),
+      controls: '#cat-map-controls',
+      onResize(_el, w, h) { resizeFigure(w, h); }
+    }));
+  </script>
+  <script id="render-loop" type="text/x-typescript">
+    // Unit eigenvectors of M for the dashed guide lines through the origin.
+    // Returns an empty array unless the two eigenvalues are real and distinct,
+    // which excludes the elliptic regime and the parabolic degenerate.
+    function eigenDirections(M: number[]): [number, number][] {
+      const [a, b, c, d] = M;
+      const tr = a + d;
+      const det = a * d - b * c;
+      const disc = tr * tr - 4 * det;
+      if (disc <= 1e-9) return [];
+      const sD = Math.sqrt(disc);
+      const lams = [(tr + sD) / 2, (tr - sD) / 2];
+      return lams.map(lam => {
+        let vx: number, vy: number;
+        if (Math.abs(c) > 1e-9) { vx = lam - d; vy = c; }
+        else if (Math.abs(b) > 1e-9) { vx = b; vy = lam - a; }
+        else { vx = 1; vy = 0; }
+        const n = Math.hypot(vx, vy);
+        return [vx / n, vy / n] as [number, number];
+      });
+    }
+
+    const PERIOD_SEC = 3.5;
+    let t = 0;
+    let last = performance.now();
+
+    const loop = createFrameLoop((now) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      t = (t + dt / PERIOD_SEC) % 1;
+
+      const w = figureState.width, h = figureState.height;
+      if (w === 0) return;
+      const cx = w / 2, cy = h / 2;
+      const cs = figureState.cellSize;
+
+      // Visible window in data space (origin centered, y up).
+      const W = (w / 2) / cs, H = (h / 2) / cs;
+
+      const Mt = powMt(params.M, t);
+      const [a, b, c, d] = Mt;
+
+      const pts = visiblePts(Mt, W, H);
+      ensureDots(pts.length);
+      for (let k = 0; k < pts.length; k++) {
+        const [i, j] = pts[k];
+        const qx = a * i + b * j;
+        const qy = c * i + d * j;
+        const dot = dotPool[k];
+        dot.setAttribute('cx', (cx + qx * cs).toFixed(1));
+        dot.setAttribute('cy', (cy - qy * cs).toFixed(1));
+      }
+      trimVisibleDots(pts.length);
+
+      if (params.matrixDirty) {
+        params.matrixDirty = false;
+
+        const dirs = eigenDirections(params.M);
+        eigenLines.forEach((line, k) => {
+          if (k < dirs.length) {
+            const [vx, vy] = dirs[k];
+            const L = Math.hypot(w, h);
+            line.setAttribute('x1', (cx - vx * L).toFixed(1));
+            line.setAttribute('y1', (cy + vy * L).toFixed(1));
+            line.setAttribute('x2', (cx + vx * L).toFixed(1));
+            line.setAttribute('y2', (cy - vy * L).toFixed(1));
+            line.setAttribute('stroke-opacity', '0.6');
+          } else {
+            line.setAttribute('stroke-opacity', '0');
+          }
+        });
+
+        if (params.showPaths) {
+          // Sample M^t at N+1 instants. The lattice points whose trajectory
+          // ever enters the visible window are the union of visiblePts over
+          // a coarser subset of those samples.
+          const N = 48;
+          const visStride = Math.max(1, Math.floor(N / 16));
+          const Mts: number[][] = [];
+          for (let q = 0; q <= N; q++) Mts.push(powMt(params.M, q / N));
+          const seen = new Set<number>();
+          const trajPts: [number, number][] = [];
+          for (let q = 0; q <= N; q += visStride) {
+            for (const ij of visiblePts(Mts[q], W, H, 0.5)) {
+              const key = ij[0] * 100003 + ij[1];
+              if (!seen.has(key)) { seen.add(key); trajPts.push(ij); }
+            }
+          }
+          const parts: string[] = [];
+          for (const [i, j] of trajPts) {
+            let s = '';
+            for (let q = 0; q <= N; q++) {
+              const m = Mts[q];
+              const qx = m[0] * i + m[1] * j;
+              const qy = m[2] * i + m[3] * j;
+              s += (q === 0 ? 'M' : 'L') + (cx + qx * cs).toFixed(1) + ' ' + (cy - qy * cs).toFixed(1) + ' ';
+            }
+            parts.push(s);
+          }
+          pathsElement.setAttribute('d', parts.join(''));
+          pathsElement.setAttribute('stroke-opacity', '0.35');
+        } else {
+          pathsElement.setAttribute('stroke-opacity', '0');
+        }
+      }
+    });
+
+    invalidation.then(() => loop.cancel());
+  </script>
+  <script id="discrete-heading" type="text/markdown">
+    ## The discrete map
+  </script>
+  <script id="discrete" type="text/markdown">
+    The cat map is a linear self-map of ${tex`\mathbb{Z}^2`} given by
+
+    ${tex.block`M = \begin{pmatrix} 2 & 1 \\ 1 & 1 \end{pmatrix}, \qquad \det M = 1.`}
+
+    Because ${tex`M`} has integer entries and unit determinant, ${tex`M^{-1}`} has integer entries too, so ${tex`M`} is a bijection ${tex`\mathbb{Z}^2 \to \mathbb{Z}^2`}. Its eigenvalues ${tex`\lambda_\pm = (3 \pm \sqrt{5})/2 = \varphi^{\pm 2}`} are reciprocals of one another, so each application of the map stretches the plane by ${tex`\varphi^2 \approx 2.618`} along one eigenvector and squeezes it by the same factor along the other. Iterating ${tex`M`} on the torus ${tex`\mathbb{R}^2/\mathbb{Z}^2`} is the canonical example of a chaotic, ergodic, mixing dynamical system.
+
+    We won’t use the torus here; we keep the map on all of ${tex`\mathbb{R}^2`} and let the discrete iteration count flow continuously.
+  </script>
+  <script id="continuous-heading" type="text/markdown">
+    ## A continuous flow between ${tex`I`} and ${tex`M`}
+  </script>
+  <script id="continuous-1" type="text/markdown">
+    Plenty of paths connect ${tex`I`} at ${tex`t=0`} to ${tex`M`} at ${tex`t=1`}; straight-line interpolation ${tex`(1-t)I + tM`} is one. What singles out a canonical choice is asking the interpolation to behave like *time*: flowing for time ${tex`s`} and then for time ${tex`t`} should be the same as flowing for time ${tex`s+t`},
+
+    ${tex.block`\gamma(s+t) \;=\; \gamma(s)\,\gamma(t).`}
+
+    A smooth path with this property is a one-parameter subgroup of ${tex`\mathrm{GL}_2(\mathbb{R})`}, and the one through ${tex`M`} is
+
+    ${tex.block`\gamma(t) \;=\; M^t \;:=\; \exp(t\,\log M),`}
+
+    where ${tex`\log M`} is a real matrix logarithm of ${tex`M`}. For the cat map, ${tex`M`} is symmetric with both eigenvalues positive, so ${tex`\log M`} exists and is unique.
+  </script>
+  <script id="continuous-2" type="text/markdown">
+    Now let a point ${tex`v_0`} flow according to ${tex`v(t) = \gamma(t)\,v_0`}. Differentiating,
+
+    ${tex.block`
+      \frac{dv}{dt} \;=\; \frac{d}{dt}\bigl[\exp(t \log M)\bigr]\,v_0
+      \;=\; (\log M)\,\exp(t \log M)\,v_0
+      \;=\; (\log M)\,v(t).
+    `}
+
+    The velocity at any position depends only on that position. It is the linear vector field ${tex`v \mapsto (\log M)\,v`}, with no explicit ${tex`t`}-dependence, so the flow is autonomous. A few consequences come for free: the origin is fixed for all ${tex`t`}, distinct trajectories never cross, and since ${tex`\operatorname{tr} \log M = \log \det M = 0`} for ${tex`\det M = 1`}, the flow is area-preserving at every instant, not just at integer times.
+  </script>
+  <script id="loop-heading" type="text/markdown">
+    ## Why the loop closes seamlessly
+  </script>
+  <script id="loop-1" type="text/markdown">
+    The animation runs ${tex`t`} from ${tex`0`} to ${tex`1`} then snaps back. Why does that look continuous, when each dot really does jump from ${tex`M v_0`} back to ${tex`v_0`} at the reset?
+
+    Because ${tex`M`} is a bijection of ${tex`\mathbb{Z}^2`}, the *set* of integer lattice positions at ${tex`t=1`} equals the *set* at ${tex`t=0`}. Only the labels (which dot is which) get permuted. Visually no dot has moved: every integer site occupied at ${tex`t=1^-`} is still occupied at ${tex`t=0^+`}.
+
+    And by autonomy, the velocity at any point ${tex`p`} is the same function of ${tex`p`} at every instant. So the velocity vectors at every visible lattice site at ${tex`t=1^-`} match those at ${tex`t=0^+`}. The loop is ${tex`C^1`}-smooth at the seam, even though no individual dot’s trajectory is.
+
+    Neither ingredient refers to any particular dot. The permutation of the lattice and the autonomy of the velocity field are both properties of ${tex`M`} itself, which is why the seam is invisible no matter where you look.
+  </script>
+  <script id="exp-heading" type="text/markdown">
+    ## Computing ${tex`M^t`} without an eigendecomposition
+  </script>
+  <script id="exp-1" type="text/markdown">
+    The Cayley–Hamilton theorem implies that every analytic function of a 2×2 matrix ${tex`M`} is a linear combination of ${tex`I`} and ${tex`M`}. In particular, there are scalar functions ${tex`c_0(t)`} and ${tex`c_1(t)`} with
+
+    ${tex.block`M^t \;=\; c_0(t)\,I + c_1(t)\,M.`}
+
+    Applying both sides to an eigenvector with eigenvalue ${tex`\lambda`} gives ${tex`\lambda^t = c_0(t) + c_1(t)\,\lambda`}, so the two eigenvalues ${tex`\lambda_+`} and ${tex`\lambda_-`} determine ${tex`c_0`} and ${tex`c_1`} through a ${tex`2\times 2`} linear system, with solution
+
+    ${tex.block`
+      c_1(t) = \frac{\lambda_+^t - \lambda_-^t}{\lambda_+ - \lambda_-},
+      \qquad
+      c_0(t) = \frac{\lambda_+\lambda_-^t - \lambda_-\lambda_+^t}{\lambda_+ - \lambda_-}.
+    `}
+
+    No eigenvectors required. The eigenvalues come straight from the trace and determinant.
+  </script>
+  <script id="exp-2" type="text/markdown">
+    When the discriminant ${tex`\operatorname{tr}^2 M - 4\det M`} vanishes, the eigenvalues collide and these formulas become ${tex`0/0`}. Taking the limit ${tex`\lambda_- \to \lambda_+`} gives ${tex`c_1 = t\lambda^{t-1}`} and ${tex`c_0 = (1-t)\lambda^t`}, and the flow is a shear that is linear in ${tex`t`}.
+
+    A negative discriminant means complex conjugate eigenvalues ${tex`r e^{\pm i\theta}`}. The imaginary parts cancel in ${tex`c_0`} and ${tex`c_1`}, leaving the real-valued
+
+    ${tex.block`
+      c_1(t) = \frac{r^t \sin(t\theta)}{r\,\sin\theta},
+      \qquad
+      c_0(t) = \frac{r^t \sin((1-t)\theta)}{\sin\theta},
+    `}
+
+    a spiraling rotation.
+  </script>
+  <script id="exp-3" type="text/markdown">
+    All three branches fit in one function, which is exactly what drives the animation above. The classification line under the matrix display tells you which branch is in play.
+  </script>
+  <script id="powMt" type="text/x-typescript" pinned="">
+    // M^t for a 2×2 matrix M = [a, b, c, d], computed as c0(t) I + c1(t) M.
+    // Three regimes via disc = tr² − 4 det:
+    //   disc > 0  hyperbolic — two real eigenvalues; real flow needs both > 0
+    //   disc = 0  parabolic  — repeated eigenvalue λ = tr/2; real flow needs λ > 0
+    //   disc < 0  elliptic   — complex conjugate eigenvalues; real flow needs det > 0
+    // When the flow can't be made real, fall back to linear interpolation
+    // (1−t) I + t M. The animation still works; the loop just won't be C¹.
+    function powMt(M: number[], t: number): number[] {
+      const [a, b, c, d] = M;
+      const tr = a + d;
+      const det = a * d - b * c;
+      const disc = tr * tr - 4 * det;
+      let c0: number, c1: number;
+      if (disc > 1e-9) {
+        const sD = Math.sqrt(disc);
+        const lam1 = (tr + sD) / 2;
+        const lam2 = (tr - sD) / 2;
+        if (lam1 > 0 && lam2 > 0) {
+          const e1 = Math.pow(lam1, t);
+          const e2 = Math.pow(lam2, t);
+          c1 = (e1 - e2) / sD;
+          c0 = (lam1 * e2 - lam2 * e1) / sD;
+        } else {
+          c1 = t; c0 = 1 - t;
+        }
+      } else if (disc < -1e-9) {
+        if (det <= 0) { c1 = t; c0 = 1 - t; }
+        else {
+          const r = Math.sqrt(det);
+          const theta = Math.atan2(Math.sqrt(-disc) / 2, tr / 2);
+          const rT = Math.pow(r, t);
+          const sinT = Math.sin(theta);
+          c1 = rT * Math.sin(t * theta) / (r * sinT);
+          c0 = rT * Math.sin((1 - t) * theta) / sinT;
+        }
+      } else {
+        const lam = tr / 2;
+        if (lam > 0) {
+          c1 = t * Math.pow(lam, t - 1);
+          c0 = (1 - t) * Math.pow(lam, t);
+        } else {
+          c1 = t; c0 = 1 - t;
+        }
+      }
+      return [c0 + c1 * a, c1 * b, c1 * c, c0 + c1 * d];
+    }
+  </script>
+  <script id="params-heading" type="text/markdown">
+    ## Parameterizing the matrix
+  </script>
+  <script id="params-1" type="text/markdown">
+    For the visual loop to close, ${tex`M`} must permute ${tex`\mathbb{Z}^2`}, which happens exactly when it has integer entries and ${tex`\det M = \pm 1`}. Picking four independent integers and hoping they satisfy ${tex`ad - bc = \pm 1`} is a frustrating way to explore, since almost every choice misses.
+
+    It works better to build the constraint into the controls. The orientation-preserving lattice bijections form the group ${tex`\mathrm{SL}_2(\mathbb{Z})`}, and this group is generated by a handful of elementary moves. Every element is a product of
+
+    ${tex.block`
+      T = \begin{pmatrix} 1 & 1 \\ 0 & 1 \end{pmatrix},\quad
+      L = \begin{pmatrix} 1 & 0 \\ 1 & 1 \end{pmatrix},\quad
+      S = \begin{pmatrix} 0 & -1 \\ 1 & 0 \end{pmatrix}
+    `}
+
+    and their inverses. ${tex`T`} is a unit horizontal shear, ${tex`L`} a unit vertical shear, and ${tex`S`} a 90° rotation. (Two of the three suffice, since ${tex`L = S^{-1} T^{-1} S T^{-1}`}, but having both shears makes the controls more direct.)
+
+    The cat map factors as ${tex`M = T \cdot L`}. Apply ${tex`L`} first to shear ${tex`y`} upward by ${tex`x`}, then ${tex`T`} to shear ${tex`x`} rightward by ${tex`y`}. Press ${tex`L`} then ${tex`T`} in the controls above to watch it assemble.
+
+    The payoff is that the exploration is constructive. Every sequence of presses lands on a valid element of ${tex`\mathrm{SL}_2(\mathbb{Z})`}, and the display writes the result as a word in the generators. (Orientation-reversing bijections, with ${tex`\det M = -1`}, would additionally require a reflection; these controls stay orientation-preserving.)
+  </script>
+  <script id="params-2" type="text/markdown">
+    Three regimes show up as you compose:
+
+    - **Hyperbolic** (${tex`\mathrm{tr}\,M > 2`}): distinct real eigenvalues ${tex`\lambda_+ > 1 > \lambda_- > 0`}; the flow stretches along one eigen-direction (dashed) and squeezes along the other. The cat map and its higher-trace cousins live here.
+    - **Parabolic** (${tex`\mathrm{tr}\,M = 2`}): repeated eigenvalue ${tex`1`}; the flow is a pure shear, linear in ${tex`t`}. A single press of ${tex`T`} or ${tex`L`} from the identity.
+    - **Elliptic** (${tex`|\mathrm{tr}\,M| < 2`}): complex conjugate eigenvalues of modulus ${tex`1`}; the flow is a rotation. A single press of ${tex`S`} carries the lattice through ${tex`90°`} over one period.
+
+    Traces of ${tex`-2`} and below are the missing case. There the eigenvalues are negative, a negative eigenvalue has no real logarithm, and no real autonomous flow reaches such an ${tex`M`} in one unit of time. The status line calls this out, and the animation falls back to straight-line interpolation, which closes the loop in position but visibly not in velocity.
+
+    “Show paths” traces each lattice point’s orbit through one period. With the cat map you see hyperbolas hugging the eigen-directions; with ${tex`S`} you see concentric circles.
+  </script>
+  <script id="closing" type="text/markdown">
+    The whole construction is a small instance of a familiar pattern: a discrete map with the right algebraic structure embeds into a continuous flow, with ${tex`\log M`} playing the role of an element of the Lie algebra generating a path in the group. The loop animation is a way to *see* that the cat map, poster child of chaos, is the time-1 sample of a perfectly tame linear ODE. The chaos was never in the flow; it comes from wrapping the plane onto the torus, where the stretching folds back on itself over and over.
+  </script>
+  <script id="collapse" type="text/x-typescript">
+    import { collapseCodeBlocks } from './lib/collapsible-code.js'
+    collapseCodeBlocks({ maxHeight: 600 });
+  </script>
+</notebook>
