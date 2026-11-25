@@ -1,3 +1,4 @@
+import { shadowReachM } from "./lib/line-sweep-core.js";
 // WebGPU pipeline builder for the unified line-sweep kernel.
 //
 // The CPU reference is `sweepCore` in the shared `./lib/line-sweep-core.js`.
@@ -1289,12 +1290,14 @@ export function deriveSweepParams({
     compElevMin !== null && compElevMin !== undefined &&
     horizonElevMax !== null && horizonElevMax !== undefined
   ) {
-    const dh = horizonElevMax - compElevMin;
-    if (dh <= 0) {
+    const reachM = shadowReachM(
+      horizonElevMax - compElevMin,
+      mode === "hard" ? tanAlt : tanAltBot,
+    );
+    if (reachM === 0) {
       warmupSteps = 0;
     } else {
-      const tanMin = mode === "hard" ? tanAlt : tanAltBot;
-      if (tanMin > 0) {
+      if (Number.isFinite(reachM)) {
         // Conservative pxMin: we want the walk to cover the full
         // physical shadow distance in every row, so we need the
         // SMALLEST pxSize on the tile (smallest metres-per-pixel ⇒
@@ -1314,8 +1317,7 @@ export function deriveSweepParams({
           const maxAbsLat = Math.max(Math.abs(lat0), Math.abs(latH));
           pxMin = outEqPxSizeM * Math.cos(maxAbsLat);
         }
-        const maxDistM = dh / tanMin;
-        const maxDistPx = Math.ceil(maxDistM / pxMin);
+        const maxDistPx = Math.ceil(reachM / pxMin);
         if (maxDistPx < warmupSteps) warmupSteps = Math.max(0, maxDistPx);
       }
     }

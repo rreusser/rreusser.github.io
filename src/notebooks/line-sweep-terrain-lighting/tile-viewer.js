@@ -62,6 +62,7 @@ import {
   getPackBindGroupLayout,
   packUniforms,
 } from "./webgpu-pipelines.js";
+import { shadowReachM, shadowTanMin } from "./lib/line-sweep-core.js";
 import { sunAnglesAt } from "./solar-time.js";
 import { splitHash, joinHash } from "./hash-params.js";
 
@@ -699,6 +700,29 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let horizonShadow = mix(fixedHS, timeHS, useTime);
   let shadowMask = 1.0 - shadowStrength * horizonShadow;
 
+  // The bake's own answer, with no altitude fade over it, which is what
+  // the overlay model uses instead of shadowMask.
+  //
+  // The two fades above exist because the slope/aspect model needs
+  // them: its relief can only darken, so as relief fades out through
+  // the terminator the scene would brighten unless the cast shadow
+  // were driven to full at the same time. The overlay model has a
+  // night floor for that job (see nightDepth below), so it does not
+  // need the fade — and the fade costs more than it is worth here.
+  //
+  // What it costs is the entire low-sun phenomenon. The sweep runs at
+  // the true altitude with horizonFloor false, so it already knows,
+  // per pixel, whether the sun clears that pixel's own terrain
+  // horizon: a summit looking down on everything around it keeps
+  // shadow = 0 while the valley beside it goes to 1. Last light on the
+  // summits is computed, correctly, and then the fade averaged it
+  // away. At 1 degree a fully lit pixel came out at 0.76 of open
+  // ground, at 0.2 degrees at 0.58, and at the horizon at 0.53 —
+  // which is exactly where a fully shadowed pixel sits, so the two
+  // rendered as the same colour. All of that happened above the
+  // horizon, with the sun still up. See verify-low-sun-illumination.mjs.
+  let directMask = 1.0 - shadowStrength * shadow;
+
   // AO tonemap in sRGB space — matching the LSAO section's atan
   // contrast curve. Applied after sRGB conversion for better
   // perceptual dynamic range.
@@ -737,6 +761,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let reliefDark = sin(scaledSlope) * (1.0 - shadeDir) * reliefFade;
   let reliefSrgb = pow(1.0 - reliefDark * 0.85, 2.5) * shadowMask;
 
+  // Debug mode: show the raw bake texture, darkened by shadow.
+  // A channel encodes shadow as 1=shadowed, 0=lit, so invert it.
   // Debug mode: show the raw bake texture, darkened by shadow.
   // A channel encodes shadow as 1=shadowed, 0=lit, so invert it.
   if (reliefMode >= 1.5) {
@@ -798,7 +824,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var value = 0.5;
     value += 0.5 * lambRel * reliefGain;
     value += SHADE_TO_VALUE * (aoFactor - 1.0);
-    value += SHADE_TO_VALUE * (shadowMask - 1.0);
+    value += SHADE_TO_VALUE * (directMask - 1.0);
     // The night floor, which in time mode fades in across civil
     // twilight as the relief term fades out. It has to be at least as
     // deep as the relief it is replacing, or the terminator runs
@@ -924,18 +950,21 @@ export function createTileViewer(opts) {
     // resolution. `dz = 2` gives 5×5 coverage at quarter-res; `dz = 1`
     // is the original 3×3-tile / half-res behavior.
     //
-    // Default `null` selects dz = 2 wherever the pyramid allows it
-    // (dz = 1 right above minZoom). dz is deliberately capped at 2: the
-    // seam error at a tile's sun-facing edges is dominated by how well
-    // the ring resolves blockers just across the boundary, and that
-    // error grows roughly linearly with 2^dz — at dz ≥ 3 the near
-    // field degrades so much that the ring is barely better than no
-    // prewarm at all within a parent texel of the seam. The price of
-    // the cap is warmup reach: the ring spans W·2^dz/2 child pixels
-    // (~5 km at z = 14), so very long low-sun shadows from terrain
-    // beyond that are truncated. Extending reach without wrecking the
-    // near field would take a second, coarser far-field ring, not a
-    // bigger dz. Pass a number to override.
+    // Default `null` selects dz = 4 wherever the pyramid allows it,
+    // falling back towards dz = 1 as it runs out above minZoom. The
+    // ring spans W·2^dz/2 child pixels, so dz = 4 reaches 15.4 km at
+    // z = 14 where dz = 2 reached 3.8 — which is the difference
+    // between seeing and missing the terrain that casts a shadow at
+    // one degree. pickAutoParentDZ carries the measurements behind the
+    // choice, including what it costs at the seam. Pass a number to
+    // override.
+    //
+    // A second, coarser far-field ring walked ahead of this one does
+    // slightly better again — it keeps dz = 2's seam while reaching as
+    // far as dz = 5 — but only by about 0.01 in mean error over the
+    // single best dz, which did not justify a second buffer, a second
+    // warmup phase in both bake paths, and a second set of parents to
+    // fetch per tile.
     parentDZ = null,
   } = opts;
 
@@ -1037,13 +1066,176 @@ export function createTileViewer(opts) {
     { type: "module" },
   );
 
-  // Auto parentDZ: always 2 when the pyramid has a level there, 1 just
-  // above minZoom. Never more — a coarser ring resolves the blockers
-  // immediately across the tile seam so poorly that the sun-facing
-  // seam line gets *worse* with every extra level (see the constructor
-  // opt comment for the reach trade-off this accepts).
+  // Parent-ring width, chosen per sun angle from a bound on the
+  // tallest thing that could cast into the view.
+  //
+  // The ring warms each sweep ray up with terrain from outside the comp
+  // tile. At `parentDZ = dz` it spans 2^dz / 2 tiles either side at
+  // 2^dz child pixels per sample, so widening it and coarsening it are
+  // the same act — there is no setting that is both long and sharp.
+  //
+  // Coarsening is not a soft cost. Averaging over 16 child pixels takes
+  // the crest off a sharp ridge; the shortened blocker throws a shorter
+  // shadow or none at all, while the tile that owns the ridge still
+  // draws it correctly from its own full-resolution data. The shadow
+  // then stops dead at the tile boundary — a straight edge with shadow
+  // on one side and none on the other, over a region as large as the
+  // shadow itself. Measured as the step across a shared edge between
+  // two independently baked tiles, the worst case runs 0.1315 at
+  // dz = 2 against 0.2888 at dz = 4, and it peaks between 15 and 25
+  // degrees of sun altitude, where shadows are short enough that the
+  // near field does all the work. See verify-ring-resolution.mjs.
+  //
+  // So the ring is kept as sharp as it can be and widened only where
+  // the shadows have genuinely outrun it. How far they reach is
+  // (occluder height - tile floor) / tan(altitude), and both terms are
+  // known: the altitude from the sun, and the occluder from a bound
+  // the worker returns with every tile — the highest elevation
+  // anywhere in a coarse neighbourhood far wider than any ring this
+  // picks, taken off four already-cached parents. Over-estimating it
+  // only ever selects a wider ring than needed, which is the safe
+  // direction to be wrong in.
+  //
+  // At 20 degrees over 600 m of relief that is 1.6 km and one level up
+  // carries it. At 5 degrees it is 6.9 km and wants three. At 1 degree
+  // it is 34 km, past anything on offer, and the ring goes to its cap
+  // — which is the one regime where coarse data is also the right
+  // answer, since a blocker that far away is described perfectly well
+  // by a coarse sample.
+  const RING_MIN_DZ = 1;
+  // Capped at 7, which reaches 123 km at z = 14. The old cap of 4
+  // bound hard at low sun — 15 km against the 100 km a kilometre of
+  // relief throws at 1.4 degrees — and left whole tiles without the
+  // shadow their neighbours drew, which is the rectangular patching
+  // that shows up in a low-sun view.
+  //
+  // Raising it is close to free, which is the part that is easy to get
+  // wrong by analogy with the near field. The warmup marches in parent
+  // samples, not child pixels, so a ring twice as coarse covers twice
+  // the ground in the same number of steps: the march to a given
+  // distance costs the same at every dz. The buffer gets *smaller* as
+  // dz grows, since HN = PN(s+1)/s falls toward PN — 520 samples at
+  // dz 7 against 640 at dz 2. And the extra parents are at ever
+  // coarser levels, where one tile covers 2^dz children and the whole
+  // screen shares a handful.
+  //
+  // What it costs is resolution, and the claim that a coarse ring is
+  // harmless because it is only picked when shadows are long turned
+  // out to be wrong. It holds for the blocker tens of kilometres away,
+  // whose horizon angle really is its height over that distance. It
+  // fails at the tile boundary, where the ring describes the ground a
+  // pixel away and a cell's box mean is nowhere near what stands
+  // there. At dz 6 the cells are 212 m and the seam step between two
+  // tiles' bakes measured 0.17 mean (1219 of 5120 rows stepping by
+  // more than a quarter of full shadow) against an interior control of
+  // 0.06. At dz 7 it is worse.
+  //
+  // So the cap is back to what it was before the per-sun choice
+  // existed: dz 2, a quarter-resolution ring over 5x5 tiles. The
+  // quadtree still picks the finest ring it can prove, it just cannot
+  // reach for resolutions whose boundary error dominates whatever the
+  // extra reach buys. Raising this again needs a seam measurement, not
+  // a reach argument. See PREWARM-FINDINGS.md.
+  const RING_MAX_DZ = 2;
+
+  // The level the occluder bounds are sampled at. Independent of the
+  // ring cap: it wants to stay coarse so one fetch serves a whole
+  // screen of comp tiles, and it used to be tied to RING_MAX_DZ when
+  // the two happened to coincide.
+  const BOUNDS_DZ = 4;
+
+  // Ring reach either side of the comp tile, in metres, at a given dz:
+  // 2^dz / 2 tiles. Latitude-true, not the reference pixel size — the
+  // equatorial figure over-states the ground a tile covers everywhere
+  // else, which would select too sharp a ring, the unsafe direction.
+  function ringReachM(dz) {
+    const [lat] = worldToLatLng(centerWorldX, centerWorldY, baseZoom, tileSize);
+    const tileM =
+      (EARTH_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180)) /
+      Math.pow(2, baseZoom);
+    return tileM * Math.pow(2, dz - 1);
+  }
+
+  // Sun altitude driving the choice: the handle's in fixed mode, the
+  // view centre's in time mode. One ring serves the whole view, so a
+  // single altitude is the right granularity.
+  function ringSunAltDeg() {
+    if (lighting.useTime && lighting.solar) return centerSunAltDeg();
+    const zc = Math.max(-1, Math.min(1, lighting.sunZ));
+    return (Math.asin(zc) * 180) / Math.PI;
+  }
+
+  // The ring width the quadtree last proved enough, and the sun it was
+  // proved for. The query runs in the worker and answers
+  // asynchronously, so the selector reads the last answer and the
+  // request is fired when the sun has moved enough to invalidate it.
+  // `provable` is false until the quadtree has actually answered. The
+  // finest ring is the right thing to fetch first, but calling that a
+  // proof would make "no answer yet" indistinguishable from "a narrow
+  // ring is enough" — which is how a page that never got an answer
+  // ends up sitting on dz 1 at a one-degree sun.
+  let ringAnswer = { dz: RING_MIN_DZ, provable: false };
+  let ringAskedTan = null;
+  let ringReqId = 0;
+  const ringPending = new Map();
+
+  // Sun altitude driving the choice: the handle's in fixed mode, the
+  // view centre's in time mode. One ring serves the whole view, so a
+  // single altitude is the right granularity.
+  function ringSunAltDeg() {
+    if (lighting.useTime && lighting.solar) return centerSunAltDeg();
+    const zc = Math.max(-1, Math.min(1, lighting.sunZ));
+    return (Math.asin(zc) * 180) / Math.PI;
+  }
+
+  // Ground width of one tile at the view centre, latitude-true.
+  function viewTileM() {
+    const [lat] = worldToLatLng(centerWorldX, centerWorldY, baseZoom, tileSize);
+    return (EARTH_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180)) /
+      Math.pow(2, baseZoom);
+  }
+
+  // The tile the query is asked about: the lowest floor on screen,
+  // paired with its own ceiling. The lowest floor is the hardest case,
+  // since a blocker reaches further over low ground than high.
+  function ringQueryTile() {
+    let best = null;
+    for (const tile of tiles.values()) {
+      if (!tile.ready || tile.destroyed) continue;
+      if (!best || tile._compHMin < best._compHMin) best = tile;
+    }
+    return best;
+  }
+
+  // Ask the worker which ring width is provably enough. Cheap: the
+  // walk prunes whole subtrees against their own bounds and touches a
+  // fraction of a percent of the pyramid, almost all of it already
+  // cached from rendering.
+  // Returns whether the request actually went out. The caller must not
+  // record the sun as asked-about unless it did: there are no tiles to
+  // ask about on the first frames, and marking it asked then would
+  // retire the question for good.
+  function requestRingDZ(tanMin) {
+    const tile = ringQueryTile();
+    if (!tile) return false;
+    const id = ++ringReqId;
+    ringPending.set(id, true);
+    worker.postMessage({
+      type: "ringdz", id,
+      z: tile.z, x: tile.x, y: tile.y,
+      compMin: tile._compHMin, compMax: tile._compHMax,
+      tanMin, minDZ: RING_MIN_DZ, maxDZ: RING_MAX_DZ,
+      tileM: viewTileM(),
+      // Descent stops here. Below it the nodes are individual tiles
+      // far from the view, which would be fetched for the query alone;
+      // stopping early just means the answer errs wide.
+      minLevel: 2,
+    });
+    return true;
+  }
+
   function pickAutoParentDZ(z) {
-    return Math.max(1, Math.min(2, z - minZoom));
+    return Math.max(1, Math.min(ringAnswer.dz, z - minZoom));
   }
   let currentParentDZ = -1;
   let parentScale = 1;
@@ -1054,8 +1246,89 @@ export function createTileViewer(opts) {
     if (newDZ === currentParentDZ) return false;
     currentParentDZ = newDZ;
     parentScale = 1 << newDZ;
-    worker.postMessage({ type: "init", tileUrl, parentDZ: newDZ });
+    worker.postMessage({
+      type: "init", tileUrl, parentDZ: newDZ, boundsDZ: BOUNDS_DZ,
+    });
     return true;
+  }
+
+  // Swap every live tile for one fetched against the current ring
+  // width. The old tiles move to the stale set rather than being
+  // destroyed, so they keep drawing their last bake until the
+  // replacements arrive and the swap is invisible; stale tiles are
+  // display-only and never re-baked, which is what keeps them from
+  // baking their old ring against the new `parentScale`.
+  function reloadTilesForNewRing() {
+    for (const tile of tiles.values()) {
+      if (tile.ready) staleTiles.push(tile);
+      else tile.destroy();
+    }
+    tiles.clear();
+    updateTiles();
+  }
+
+  // Re-pick the ring when the demand has held steady long enough to
+  // mean it. The dwell matters because a swap costs four parent
+  // fetches per tile and a re-bake: cheap once, not cheap per frame,
+  // and a dragged sun handle or a recorded solar day sweeps the
+  // altitude continuously.
+  let ringAdaptTimer = 0;
+  let ringAdaptPending = -1;
+  let ringLastSwapAt = 0;
+  const RING_ADAPT_DWELL_MS = 400;
+  // A floor on how often the ring may change, independent of what the
+  // policy wants. The policy should never ask twice in a row — the
+  // inputs it reads are sticky across a reload for exactly that reason
+  // — but a swap reloads every tile in the view, so the cost of being
+  // wrong is an endless refetch of the whole map. This bounds that to
+  // one reload per interval whatever else goes wrong.
+  const RING_SWAP_COOLDOWN_MS = 4000;
+  function adaptRingToSun() {
+    if (parentDZ != null) return; // explicit override, never adapt
+    // Never re-pick mid-fetch. A swap reloads the whole view, so it is
+    // only worth making against a settled picture, and deciding while
+    // tiles are still arriving is how a swap ends up cancelling the
+    // fetches that would have informed it. Keyed on outstanding worker
+    // fetches rather than on tiles being ready: a tile that will never
+    // be ready — a 404 over the ocean, say — must not freeze the ring
+    // for the rest of the session.
+    if (pendingTiles.size > 0) return;
+
+    // Re-ask when the sun has moved enough to matter. The threshold is
+    // on tan, not degrees, because that is what the query compares
+    // against: a degree near the horizon changes the reach far more
+    // than a degree near the zenith.
+    const tanMin = shadowTanMin(
+      ringSunAltDeg(), Math.max(0, lighting.sunRadiusDeg || 0),
+    );
+    if (
+      ringAskedTan === null ||
+      !(Math.abs(tanMin - ringAskedTan) <= 0.02 * Math.abs(ringAskedTan))
+    ) {
+      if (requestRingDZ(tanMin)) ringAskedTan = tanMin;
+    }
+
+    const want = Math.max(1, Math.min(ringAnswer.dz, baseZoom - minZoom));
+    if (want === currentParentDZ) {
+      if (ringAdaptPending !== -1) {
+        clearTimeout(ringAdaptTimer);
+        ringAdaptPending = -1;
+      }
+      return;
+    }
+    if (ringAdaptPending === want) return; // already waiting on this
+    clearTimeout(ringAdaptTimer);
+    ringAdaptPending = want;
+    ringAdaptTimer = setTimeout(() => {
+      ringAdaptPending = -1;
+      // Re-check: the sun may have moved back while we waited, and a
+      // swap we no longer want is pure cost.
+      const now = Math.max(1, Math.min(ringAnswer.dz, baseZoom - minZoom));
+      if (now === currentParentDZ) return;
+      if (Date.now() - ringLastSwapAt < RING_SWAP_COOLDOWN_MS) return;
+      ringLastSwapAt = Date.now();
+      if (recomputeParentDZ()) reloadTilesForNewRing();
+    }, RING_ADAPT_DWELL_MS);
   }
 
   // ------------------------------------------------------------------
@@ -1122,12 +1395,31 @@ export function createTileViewer(opts) {
 
   worker.onmessage = (e) => {
     const msg = e.data;
+    // The ring-width answer is not about one tile and carries no tile
+    // key, so it has to be taken before the per-tile dispatch below
+    // looks one up and gives up when it finds none.
+    if (msg.type === "ringdz") {
+      if (!ringPending.delete(msg.id)) return;  // superseded
+      if (msg.dz != null) {
+        ringAnswer = { dz: msg.dz, provable: !!msg.provable, ladder: msg.ladder };
+        needsRender = true;
+      } else {
+        // The query failed. Forget that we asked so the next frame
+        // tries again, rather than keeping whatever the ring happens
+        // to be for the rest of the session.
+        ringAskedTan = null;
+      }
+      return;
+    }
     const key = `${msg.z}/${msg.x}/${msg.y}`;
     const pending = pendingTiles.get(key);
     if (!pending) return;
     pendingTiles.delete(key);
     if (msg.type === "tile") {
-      pending.resolve({ comp: msg.comp, horizon: msg.horizon });
+      pending.resolve({
+        comp: msg.comp,
+        horizon: msg.horizon,
+      });
     } else if (msg.type === "error") {
       const err = new Error(msg.message);
       err.status = msg.status | 0;
@@ -1569,6 +1861,11 @@ export function createTileViewer(opts) {
       this._compHMax = 0;
       this._horizonHMin = 0;
       this._horizonHMax = 0;
+      // The ring scale this tile's horizon buffer was built at. The
+      // module-level `parentScale` can change between a tile's fetch
+      // and its next re-bake, and a buffer sized for one scale read at
+      // another marches off the end of its data.
+      this._parentScale = 0;
       this._cpuNx = null;      // cached normals+AO from CPU bake
       this._cpuNy = null;
       this._cpuAo = null;
@@ -1833,6 +2130,7 @@ export function createTileViewer(opts) {
         this._compHMax = comp.hMax;
         this._horizonHMin = horizon.hMin ?? 0;
         this._horizonHMax = horizon.hMax ?? 0;
+        this._parentScale = parentScale;
 
         if (lighting.bakeMode === "cpu") {
           // ---- CPU bake path ----
@@ -2289,6 +2587,9 @@ export function createTileViewer(opts) {
         rawEqPxSizeM: tile._rawEqPxSizeM,
         horizon: new Float32Array(tile._horizon),
         HN: tile._horizonHN,
+        // This tile's own ring scale, not the module's: the two differ
+        // for as long as a ring swap is in flight.
+        parentScale: tile._parentScale || parentScale,
         azDeg,
         altDeg,
         sunRadiusDeg,
@@ -2296,7 +2597,6 @@ export function createTileViewer(opts) {
         cachedNx: new Float32Array(tile._cpuNx),
         cachedNy: new Float32Array(tile._cpuNy),
         cachedAo: new Float32Array(tile._cpuAo),
-        parentScale,
         compHMin: tile._compHMin,
         horizonHMax: tile._horizonHMax,
         horizonFloor: false,
@@ -2528,6 +2828,10 @@ export function createTileViewer(opts) {
   }
 
   function render() {
+    // Cheap, and it has to see every sun change, including the ones
+    // that arrive while the frame loop is otherwise idle. The dwell
+    // timer inside is what keeps an actual swap rare.
+    adaptRingToSun();
     if (
       !needsRender &&
       !capture &&
@@ -3063,6 +3367,69 @@ export function createTileViewer(opts) {
      */
     getHashPath() {
       return hashPath();
+    },
+
+    /**
+     * Ring-selection state, for debugging. Reports which ring width is
+     * in force, what the quadtree last proved, and the scale each live
+     * and stale tile was actually baked at — a mixture means tiles on
+     * screen disagree about how far their warmup reached.
+     */
+    // TEMPORARY debug accessor: live tile objects, for alignment forensics.
+    _debugTiles() {
+      return tiles;
+    },
+
+    debugRingState() {
+      const scales = {};
+      for (const t of tiles.values()) {
+        if (!t.ready) continue;
+        const k = String(t._parentScale);
+        scales[k] = (scales[k] || 0) + 1;
+      }
+      const staleScales = {};
+      for (const t of staleTiles) {
+        const k = String(t._parentScale);
+        staleScales[k] = (staleScales[k] || 0) + 1;
+      }
+      return {
+        currentParentDZ, parentScale,
+        ringAnswer: { ...ringAnswer },
+        ringAskedTan,
+        // The bake inputs, so a probe can reproduce a tile's own sweep
+        // exactly rather than guessing the sun from the hash.
+        bake: {
+          mode: lighting.bakeMode,
+          sunRadiusDeg: Math.max(0, lighting.sunRadiusDeg || 0),
+          shadowSamples: Math.max(1, Math.round(lighting.shadowSamples || 1)),
+          lsaoFalloff: lighting.lsaoFalloff,
+          sunByTile: Object.fromEntries(
+            [...tiles.values()]
+              .filter((t) => t.ready)
+              .map((t) => [`${t.z}/${t.x}/${t.y}`, tileSunAngles(t)]),
+          ),
+        },
+        liveTiles: tiles.size,
+        liveByScale: scales,
+        staleTiles: staleTiles.length,
+        staleByScale: staleScales,
+        pendingFetches: pendingTiles.size,
+        sunDirty, hqPending, sunGeneration,
+        bakeQueue: bakeQueue.length,
+        cpuQueue: cpuQueue.length,
+        rects: [...tiles.values()].filter((t) => t.ready).map((t) => ({
+          k: `${t.z}/${t.x}/${t.y}`,
+          x: +t.tileData[0].toFixed(2), y: +t.tileData[1].toFixed(2),
+          w: +t.tileData[2].toFixed(2), h: +t.tileData[3].toFixed(2),
+          n: t.tileData[7],
+        })).sort((a, b) => a.x - b.x || a.y - b.y),
+        staleRects: staleTiles.map((t) => ({
+          k: `${t.z}/${t.x}/${t.y}`,
+          x: +t.tileData[0].toFixed(2), w: +t.tileData[2].toFixed(2),
+        })),
+        notReady: [...tiles.values()].filter((t) => !t.ready && !t.unavailable).length,
+        unavailable: [...tiles.values()].filter((t) => t.unavailable).length,
+      };
     },
 
     getCenter() {

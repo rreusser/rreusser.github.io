@@ -158,7 +158,10 @@ function scene({
   return { N, sunDir, ao, shadow, reliefStr, aoStr, shadowStr, brightness, useTime };
 }
 
-// The masks both models share, lifted verbatim from the shader.
+// The masks, lifted from the shader. `shadowMask` carries the altitude
+// fade and belongs to the slope/aspect model; `directMask` is the
+// bake's own answer, which is what the overlay model uses. See
+// verify-low-sun-illumination.mjs for why they differ.
 function masks(s) {
   const twilight = smoothstep(-0.105, 0.035, s.sunDir[2]);
   const nightShadow = s.useTime ? 1 - twilight : 0;
@@ -169,19 +172,20 @@ function masks(s) {
   const horizonShadow = s.useTime ? timeHS : fixedHS;
   const shadowMask = 1 - s.shadowStr * horizonShadow;
   const reliefFade = s.useTime ? twilight : 1;
-  return { twilight, nightShadow, nightMask, shadowMask, reliefFade };
+  const directMask = 1 - s.shadowStr * s.shadow;
+  return { twilight, nightShadow, nightMask, shadowMask, directMask, reliefFade };
 }
 
 // The overlay model's shading accumulator.
 function overlayValue(s) {
-  const { nightShadow, shadowMask, reliefFade } = masks(s);
+  const { nightShadow, directMask, reliefFade } = masks(s);
   const dotNL = s.N[0] * s.sunDir[0] + s.N[1] * s.sunDir[1] + s.N[2] * s.sunDir[2];
   const lambRel = (dotNL - s.sunDir[2]) * reliefFade;
   const gain = s.reliefStr / Math.max(1 - s.reliefStr, 0.01);
   let value = 0.5;
   value += 0.5 * lambRel * gain;
   value += SHADE_TO_VALUE * (aoFactorOf(s.ao, s.aoStr) - 1);
-  value += SHADE_TO_VALUE * (shadowMask - 1);
+  value += SHADE_TO_VALUE * (directMask - 1);
   const nightDepth = Math.max(SHADE_TO_VALUE * s.shadowStr, 0.5 * gain);
   value -= nightDepth * nightShadow;
   value += s.brightness;
@@ -539,8 +543,10 @@ console.log("\n7. through the terminator, nothing brightens");
   // fading it to zero is itself a brightening. Collecting the terms in
   // T, the T-dependent part of value is
   //
-  //   T * [ 0.5 * lambRel * reliefGain + nightDepth
-  //         + SHADE_TO_VALUE * shadowStr * (1 - shadow) ]
+  //   T * [ 0.5 * lambRel * reliefGain + nightDepth ]
+  //
+  // — the cast shadow drops out, because the overlay model takes it
+  // straight from the bake and the bake does not fade with twilight.
   //
   // so the composite darkens as T falls exactly while that bracket is
   // positive. lambRel is bounded below by -1 near the horizon, which

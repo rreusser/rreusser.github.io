@@ -2010,7 +2010,13 @@
       step: 0.01,
     });
     let _viewerRef = null;
-    const tileViewerRef = { set: (v) => { _viewerRef = v; } };
+    const tileViewerRef = {
+      set: (v) => { _viewerRef = v; },
+      // Read access for debugging from the console: the viewer exposes
+      // debugRingState(), which reports the ring width in force and
+      // the scale every live and stale tile was baked at.
+      get: () => _viewerRef,
+    };
     const sunCalendarEl = createSunCalendar(SunCalc, {
       getLocation: () => _viewerRef ? _viewerRef.getCenter() : [36.1, -111.99],
       onChange: (v) => tileViewerSunDirAccessor.set(v),
