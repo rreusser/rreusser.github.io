@@ -2017,6 +2017,33 @@
       // the scale every live and stale tile was baked at.
       get: () => _viewerRef,
     };
+    // Prewarm ring levels. There are two rings: the INNER one meets
+    // the comp tile and is chosen for fidelity (its cells are what a
+    // target a pixel inside the boundary reads, so a coarse cell here
+    // steps across the seam between two tiles' bakes), the OUTER one
+    // is walked first and is chosen for reach. Decimation also
+    // flattens peaks, so a coarse ring understates distant occluders;
+    // that is a property of the pyramid data, not of the sweep.
+    //
+    // Both are selectable so each can be looked at directly. "auto"
+    // on the outer ring is the occluder quadtree answering how far the
+    // prewarm has to reach; "off" runs a single ring, which is what
+    // the artifacts looked like before. See PREWARM-FINDINGS.md.
+    const ringNearDZEl = Inputs.select(["1", "2", "3", "4"], {
+      label: "ring dz (inner)", value: "2",
+    });
+    display(ringNearDZEl);
+    const ringFarDZEl = Inputs.select(
+      ["auto", "off", "3", "4", "5", "6", "7"],
+      { label: "ring dz (outer)", value: "auto" },
+    );
+    display(ringFarDZEl);
+    // What the rings actually are, which "auto" otherwise hides.
+    const ringDZReadout = html`<div style="
+      margin: -2px 0 6px 0; font-size: 11px; line-height: 1.35;
+      opacity: 0.75; font-variant-numeric: tabular-nums;
+    "></div>`;
+
     const sunCalendarEl = createSunCalendar(SunCalc, {
       getLocation: () => _viewerRef ? _viewerRef.getCenter() : [36.1, -111.99],
       onChange: (v) => tileViewerSunDirAccessor.set(v),
@@ -2029,6 +2056,9 @@
     tileViewerControlsDiv.appendChild(shadowEl);
     tileViewerControlsDiv.appendChild(sunDiameterEl);
     tileViewerControlsDiv.appendChild(shadowSamplesEl);
+    tileViewerControlsDiv.appendChild(ringNearDZEl);
+    tileViewerControlsDiv.appendChild(ringFarDZEl);
+    tileViewerControlsDiv.appendChild(ringDZReadout);
     tileViewerControlsDiv.appendChild(tintEl);
     tileViewerControlsDiv.appendChild(opennessTintEl);
     tileViewerControlsDiv.appendChild(opennessContrastEl);
@@ -2065,6 +2095,9 @@
       shadowEl,
       sunDiameterEl,
       shadowSamplesEl,
+      ringNearDZEl,
+      ringFarDZEl,
+      ringDZReadout,
       aoFalloffEl,
       sunModeEl,
       sunCalendarEl,
@@ -2323,6 +2356,45 @@
       c.sunModeEl.addEventListener("input", syncSunHandleStyle);
       syncSunHandleStyle();
 
+      // Prewarm ring levels. Changing either reloads every tile, so
+      // they are driven by the controls rather than polled per frame.
+      const syncRingDZ = () => {
+        viewer.setRingNearDZ(Number(c.ringNearDZEl.value));
+        const f = c.ringFarDZEl.value;
+        viewer.setRingFarDZ(f === "auto" ? null : f === "off" ? 0 : Number(f));
+      };
+      c.ringNearDZEl.addEventListener("input", syncRingDZ);
+      c.ringFarDZEl.addEventListener("input", syncRingDZ);
+      syncRingDZ();
+
+      // Readout. "auto" hides which outer ring is in force and the
+      // answer moves with the sun, so it is polled rather than pushed.
+      // Reach is 2^(dz-1) tiles either side; cells are `parentScale`
+      // comp pixels, which is the unit a seam step is driven by.
+      const refreshRingReadout = () => {
+        const st = viewer.debugRingState();
+        const reach = (dz) => Math.pow(2, dz - 1);
+        const inner = `inner dz ${st.currentParentDZ} · cells ` +
+          `${st.parentScale} px · reach ${reach(st.currentParentDZ)} ` +
+          `tile${reach(st.currentParentDZ) === 1 ? "" : "s"}`;
+        let outer;
+        if (!st.currentFarDZ) {
+          outer = st.farDZOverride === 0
+            ? "outer: off"
+            : "outer: none needed (the inner ring already reaches that far)";
+        } else {
+          const how = st.farDZOverride != null
+            ? "pinned"
+            : st.ringAnswer.provable ? "auto, proved" : "auto, unproved";
+          outer = `outer dz ${st.currentFarDZ} · cells ${st.farParentScale} px ` +
+            `· reach ${reach(st.currentFarDZ)} tiles · ${how}`;
+        }
+        c.ringDZReadout.innerHTML = `${inner}<br>${outer}`;
+      };
+      refreshRingReadout();
+      const ringReadoutTimer = setInterval(refreshRingReadout, 400);
+      invalidation.then(() => clearInterval(ringReadoutTimer));
+
       // Settings in the URL hash. The map keeps its position in the
       // hash path; everything else rides after it as ?key=value (see
       // hash-params.js), so a reload or a shared link comes back
@@ -2350,6 +2422,24 @@
         shadow: { codec: num(0, 1, 0.01), ...fromEl(c.shadowEl) },
         sundiam: { codec: num(0.5, 30, 0.01), ...fromEl(c.sunDiameterEl) },
         samples: { codec: num(1, 16, 1), ...fromEl(c.shadowSamplesEl) },
+        // Prewarm ring levels. The inner one is always written, since
+        // it has a fixed default a link should pin. The outer one is
+        // written only when it is not on "auto", because a link should
+        // not freeze the quadtree's choice.
+        pdz: {
+          codec: oneOf({ 1: "1", 2: "2", 3: "3", 4: "4" }),
+          ...fromEl(c.ringNearDZEl),
+        },
+        fdz: {
+          codec: oneOf({
+            off: "off", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7",
+          }),
+          get: () => (c.ringFarDZEl.value === "auto" ? undefined : c.ringFarDZEl.value),
+          set: (v) => {
+            c.ringFarDZEl.value = v;
+            c.ringFarDZEl.dispatchEvent(new Event("input", { bubbles: true }));
+          },
+        },
         tint: { codec: num(0, 1, 0.01), ...fromEl(c.tintEl) },
         structure: { codec: num(0, 1, 0.01), ...fromEl(c.opennessTintEl) },
         contrast: { codec: num(0, 1, 0.01), ...fromEl(c.opennessContrastEl) },

@@ -13,33 +13,52 @@ shadow across the seam between two tiles.
 
 ## 0. The conclusion, stated first
 
-**The ring's resolution was the problem. The deposit code was not.**
+**Reach and resolution are set by different things and one ring cannot
+be both. Use two, nested.**
 
-Ring width used to be fixed at dz 2 (quarter resolution). A per-sun-angle
-selector was added that could reach dz 7, on the argument that a coarse
-ring is only chosen when shadows are long, and a blocker tens of
-kilometres away is described perfectly well by a coarse sample. That
-argument is true for the distant blocker and false at the tile boundary,
-where the same ring describes ground one pixel away and a cell's box
-mean is nowhere near what stands there.
+The INNER ring meets the comp tile and is chosen for fidelity: its
+cells are what a target a pixel inside the boundary reads, so a coarse
+cell here steps across the seam between two tiles' bakes. The OUTER
+ring is chosen for reach, walked from the outside in, handing over to
+the inner ring at that ring's outer edge, so its cells never touch the
+boundary and its coarseness costs nothing there. Both deposit at cell
+centres, as a single ring always did.
 
-Measured on ten real seams, same sun (3.8 deg), same tiles, varying only
-the ring cap and the sweep:
+Measured on real terrain, 15 tiles, 22 seams, sun at 0.7 degrees, all
+three configurations computed from the same resident tiles so the tile
+set is identical:
 
-| configuration | seam mean step | rows stepping >0.25 | interior control |
-|---|---|---|---|
-| dz 6, with the reconstruction deposit | 0.226 | 1611 / 5120 | 0.051 |
-| dz 6, with the plain centre deposit | 0.168 | 1219 / 5120 | 0.060 |
-| **dz 2 cap, plain centre deposit** | **0.055** | **434 / 5120** | **0.040** |
+| configuration | seam mean step | rows >0.25 | interior control | mean shadow |
+|---|---|---|---|---|
+| inner only (dz 3) | 0.0665 | 1038 | 0.0563 | 0.549 |
+| outer only (dz 7) | 0.0244 | 445 | 0.0197 | 0.927 |
+| **two tiers (3 + 7)** | **0.0110** | **191** | **0.0106** | **0.928** |
 
-At the dz 2 cap the seam step is 1.4x an ordinary adjacent-pixel step
-inside a tile, which is the regime where it stops being visible. Two
-rounds of work on the deposit moved the middle row of that table and
-never approached the bottom one.
+Two tiers is best on every axis. Its seam step is 1.04x the interior
+control, i.e. a seam is indistinguishable from an ordinary
+adjacent-pixel step, and its mean shadow matches the coarse ring, so
+none of the reach is given up. Note why inner-only is the *worst* at
+the seam despite being the finest: at 0.7 degrees it cannot see the
+distant blockers at all, and neighbouring tiles disagree about what
+they are missing. That is a reach failure showing up as a seam.
 
-`RING_MAX_DZ` in `tile-viewer.js` is therefore back to 2. The quadtree
-still picks the finest ring it can prove; it just cannot reach for
-resolutions whose boundary error dominates whatever extra reach buys.
+In the synthetic two-tile figure (`verify-ring-tiers.mjs`) the same
+thing is cleaner still: a coarse ring alone steps a full 1.0 across the
+seam where two tiers step 0.0, while still catching a ridge 300 px out
+that the inner ring cannot see.
+
+**The levels are selectable** (`ring dz (inner)`, `ring dz (outer)`, and
+`pdz` / `fdz` in the URL hash) so each can be looked at directly rather
+than argued about. "auto" on the outer ring is the occluder quadtree
+answering how far the prewarm must reach; "off" runs a single ring,
+which is what the artifacts looked like before.
+
+A caveat on the data, not the sweep: box-mean decimation flattens
+peaks, so a coarse ring understates distant occluders. Nothing here can
+undo that. A max-pooled pyramid would preserve them and is the natural
+follow-up, since what an occlusion query wants to know is whether
+anything in a cell can block, not what the cell averages. The quadtree
+already carries `hMax` per node.
 
 ## 1. What was ruled out, with evidence
 
@@ -122,38 +141,44 @@ answer: prefer resolution, accept that the far field is incomplete.
 Note that the selector reports `provable: false` at the cap, which is
 honest. We are knowingly using a ring that is not provably wide enough.
 
-## 4. The two-tier attempt (reverted)
+## 4. Two tiers: the variant that worked and the one that did not
 
-Two rings, coarse walked from outside in, handing over to a fine one at
-the fine ring's outer edge.
+The architecture in section 0 is the second attempt at two tiers. The
+difference is where the fine tier's data comes from.
 
-**At dz 4 it worked.** Against a reference with an exact near field,
-mean error within 8 px of an edge over four interior tiles fell from
-0.0045-0.0489 to 0.0005-0.0063 with a dz-1 fine tier, and to
-0.00000-0.00001 with an exact scale-1 window.
+**Reverted: a same-zoom neighbour window.** The fine tier was built at
+`parentScale 1` from the tile's eight same-zoom neighbours, cropped to
+128 child pixels, which makes the near field *exact*. It measured
+exact, too: against a reference with an exact near field, error within
+8 px of an edge fell to 0.00001 with zero pixels off by more than 0.25.
 
-**At dz 7 it did not.** Seam step fell only from 0.366 to 0.216 (interior
-control 0.043), and widening the window from 32 px to 128 px gained
-almost nothing, which locates the error outside the window.
+It was still the wrong trade. It put **8 same-zoom neighbour fetches in
+every tile's critical path**, so a newly visible tile could not start
+baking until its neighbours landed, and the neighbour union adds a
+one-tile border to the view (24 tiles against 8 for a 4x2 view). Panning
+got visibly slower. And the exactness bought less than it looked:
+measured as a seam step at dz 7 it only went 0.366 to 0.216, because
+*that* measurement shared the same coarse ring as the thing under test
+and so could not see far-field error (see section 6.2).
 
-**Why.** For a target at tile A's edge, blockers beyond the window come
-from A's coarse ring; for a target one pixel across the seam in B, the
-same blockers are B's *own* comp data. A sees coarse where B sees exact,
-over the span from the window edge to one full tile. So an exact window
-has to be **one full tile wide** to match a neighbour's self-knowledge.
-That is `1536^2` floats, 9.4 MB per tile.
+**Landed: nested parent rings.** The fine tier is an ordinary parent
+ring at dz 2 or 3, which costs 4 parent fetches at `z - dz` exactly as
+the single ring always did, and those parents are shared with
+neighbouring tiles. No same-zoom fetches, nothing new in the critical
+path, and the numbers in section 0 are better than the exact-window
+variant managed on the metric that matters.
 
-**What it cost.** Sweep time was not the issue (93 ms against 97 ms). It
-put **8 same-zoom neighbour fetches in every tile's critical path**, so a
-newly visible tile could not start baking until its neighbours landed,
-and the neighbour union adds a one-tile border to the view (24 tiles
-against 8 for a 4x2 view). That is what made panning slow.
+The lesson is narrow and worth keeping: the exact window was a better
+*approximation* and a worse *change*.
 
-## 5. If the cap is ever to be raised
+## 5. The selector still over-asks
 
-The cap is a blunt instrument: it gives up far-field completeness to buy
-near-field fidelity, and `provable: false` says so. Raising it safely
-needs the selector to stop asking for coarse rings it does not need.
+The outer ring's level comes from the quadtree, and it still reports
+`provable: false` at a grazing sun, meaning it fell back to the cap
+rather than proving a width sufficient. That is now much less costly
+than it was, since a coarse outer ring no longer touches the boundary,
+but it still fetches more than it needs to and it is still the wrong
+answer to the right question.
 
 The ladder for the bad view, sun 3.85 deg, `tanMin = 0.047`:
 
@@ -229,32 +254,65 @@ returns and the cap is what saves us.
    measured zero trivially.
 9. **`debugRingState().bake`** exposes per-tile sun angles, so a probe
    can reproduce a tile's own sweep instead of guessing from the hash.
+10. **A broken WGSL pipeline says nothing useful.** WebGPU reports only
+   "Invalid ComputePipeline ... is invalid due to a previous error",
+   thousands of times. `buildComputeWGSL` is exported so a probe can
+   build the module directly and read `getCompilationInfo()`, which
+   gives the line and the message. Two real errors surfaced that way:
+   `from` is a WGSL reserved keyword, and an `i32` loop counter
+   initialised from what had become an `f32`.
+11. **No backticks inside the WGSL template literals.** A comment
+   written as `` // `from` is reserved `` closed the template and the
+   shader text was then parsed as JavaScript, which reported an
+   unrelated syntax error in an importing cell.
+12. **The GPU bake writes shadow only in the rebake pass.** The static
+   bake does normals, AO and pack, so a freshly baked tile's alpha is
+   zero until a sun change triggers `rebakeShadowGPU`, and that pass
+   covers only VISIBLE tiles while the CPU one walks every tile. A
+   comparison that ignores either fact reads as a total mismatch.
 
 ## 7. Current state
 
-- `src/lib/line-sweep-core.js` is the committed sweep plus two exported
-  helpers, `shadowTanMin` and `shadowReachM`, which `tile-viewer.js`,
-  `webgpu-pipelines.js` and `verify-occluder-quadtree.mjs` import. The
-  sweep body itself is unmodified. `line-sweep-bake.js` and
-  `cpu-bake-worker.js` are byte-identical to the committed versions.
-- `RING_MAX_DZ = 2`; `BOUNDS_DZ = 4` is now independent of it.
-- The quadtree selector (`occluder-quadtree.js`, never committed) still
-  runs and is still worth keeping: within dz 1-2 it picks the finer ring
-  when it can prove it.
-- **The WGSL bake path never received any of the deposit work**, which
-  no longer matters since the deposit work is reverted, but it does
-  still read module-level `parentScale` rather than per-tile, so a GPU
-  bake can mismatch during a ring swap.
+- `src/lib/line-sweep-core.js` takes an optional outer ring
+  (`farHorizon`, `farHN`, `farParentScale`, `farHorizonPN`) and walks it
+  before the inner one, handing over at the inner ring's outer edge.
+  With no outer ring the behaviour is byte-identical to the single-ring
+  path, which is what the other twelve gates passing unchanged
+  demonstrates. The deposit is unchanged: cell centres, both tiers.
+- `WARMUP_STEPS` spans the outermost ring, then the elevation trim
+  usually pulls the march far closer: with a 4400 m peak and a sun at
+  tan 0.05 nothing beyond 88 km can reach the tile. When the trim lands
+  inside the inner ring the outer tier is not walked at all. This is
+  what makes a 64-tile reach affordable.
+- Inner ring: `RING_NEAR_DZ_DEFAULT = 2`, selectable 1-4. Outer ring:
+  quadtree-chosen up to `RING_MAX_DZ = 7`, selectable off/3-7.
+  `BOUNDS_DZ = 4` is independent of both.
+- The half-cell shortfall of section 2 is still there on purpose, now
+  bounded by the inner ring's cell size rather than by a cap on the
+  only ring.
+- **The WGSL bake path now walks both rings too**, with the outer ring
+  on binding 4 (a 4-byte stub when a tile has none) and its scale and
+  cell offset in the uniforms. The two ring samplers are generated from
+  one JS template, as is the hull push, because WGSL cannot index a
+  storage binding dynamically and hand-written near-copies drift. It
+  also now reads each tile's own `parentScale` rather than the module's,
+  which mattered during a ring swap.
+  Verified by reading the baked texture back and diffing it against the
+  CPU reference on the same tiles: identical to **1/255** on all 262144
+  pixels of four tiles, which is the 8-bit alpha channel's quantization
+  limit. The tile texture gained `COPY_SRC` so that diff is possible at
+  all; these two paths have drifted apart more than once.
+- **The LSAO branch is single-tier** and unchanged.
 - `tile-viewer.js` carries a temporary `_debugTiles()` accessor.
-- All 13 gates pass.
+- All 14 gates pass.
 
-## 8. Suggested order for the next attempt
+## 8. Where to go next
 
-1. Re-measure the seam metric (section 6.1) as the first step, before
-   changing anything, so there is a baseline at the current cap. It is
-   0.055 against an interior 0.040 at a 3.8 deg sun as of these notes.
-2. If boundary quality is wanted beyond that, the lever is the selector
-   (section 5), not the deposit (section 2) and not a second ring
-   (section 4).
-3. Leave the deposit alone unless a seam measurement, not a wall figure,
-   says otherwise.
+1. Fix the selector (section 5) so a grazing sun stops falling back to
+   the cap. It is cheaper than it was but still over-fetches.
+2. Consider a max-pooled pyramid for the outer ring (section 0), which
+   would stop decimation understating distant peaks.
+3. The LSAO branch has the same boundary problem and no fix, on both
+   the CPU and GPU paths.
+4. Leave the deposit alone (section 2) unless a seam measurement, not a
+   wall figure, says otherwise.

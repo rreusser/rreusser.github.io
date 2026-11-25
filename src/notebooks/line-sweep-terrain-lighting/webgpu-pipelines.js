@@ -64,13 +64,22 @@ const UNIFORMS_WGSL = /* wgsl */ `
     bMax: i32,
     invParentScale: f32,
     parentCenterOffset: f32,
+
+    // The OUTER prewarm ring, walked before the inner one. farHorizonN
+    // is 0 when there is none, and then binding 4 is a stub and the
+    // march is single-tier. See line-sweep-core.js for why there are
+    // two: reach and resolution are set by different things.
+    farHorizonN: u32,
+    farInvParentScale: f32,
+    farParentCenterOffset: f32,
+    _pad0: u32,
   };
 `;
 
 // JS-side packer that mirrors the WGSL struct above. Returns a 96-byte
 // ArrayBuffer ready for `device.queue.writeBuffer`. Centralized so the
 // notebook driver doesn't have to track field offsets.
-export const UNIFORM_BYTES = 96;
+export const UNIFORM_BYTES = 112;
 export function packUniforms(opts) {
   const {
     W, H, viewW, viewH,
@@ -83,6 +92,9 @@ export function packUniforms(opts) {
     bMin, bMax,
     parentScale = 2,
     warmupSteps = null,
+    // The outer ring. Leave horizonN 0 / scale 0 for a single ring.
+    farParentScale = 0,
+    farHorizonN = 0,
   } = opts;
   const buf = new ArrayBuffer(UNIFORM_BYTES);
   const u32 = new Uint32Array(buf);
@@ -123,7 +135,82 @@ export function packUniforms(opts) {
   const invParentScale = 1 / parentScale;
   f32[22] = invParentScale;
   f32[23] = 0.5 * (1 - invParentScale);
+  // The outer ring, same derivation at its own scale.
+  const hasFar = farHorizonN > 0 && farParentScale > 0;
+  u32[24] = hasFar ? farHorizonN >>> 0 : 0;
+  const farInv = hasFar ? 1 / farParentScale : 1;
+  f32[25] = farInv;
+  f32[26] = 0.5 * (1 - farInv);
+  u32[27] = 0;
   return buf;
+}
+
+// One ring's bilinear sampler, as WGSL text. Generated twice, for the
+// inner and outer rings, because WGSL cannot index a storage binding
+// dynamically and two hand-written near-copies would drift. Returns
+// vec2(height, 1) or vec2(0, 0) when the ring is absent or the
+// position falls outside its footprint.
+//
+// A ring of scale s covers canonical positions [-margin, W + margin)
+// with margin = (PN * s) / 2, and PN is W here. Cells are addressed by
+// centre, which keeps the bilinear index an exact integer along the
+// ray: see the warmup block for why an off-centre sample bleeds in the
+// first parent pixel inside the comp tile.
+function ringSamplerWGSL({ fn, ring, hN, inv, centreOff }) {
+  return /* wgsl */ `
+  fn ${fn}(cxF: f32, cyF: f32) -> vec2<f32> {
+    let hN: i32 = i32(${hN});
+    if (hN <= 0) { return vec2<f32>(0.0, 0.0); }
+    let scaleF: f32 = 1.0 / ${inv};
+    let marginX: f32 = f32(u.W) * scaleF * 0.5;
+    let marginY: f32 = f32(u.H) * scaleF * 0.5;
+    var ox_f: f32 = cxF;
+    var oy_f: f32 = cyF;
+    if (u.swap != 0u) { ox_f = cyF; oy_f = cxF; }
+    if (u.flipX != 0u) { ox_f = f32(u.W) - 1.0 - ox_f; }
+    if (u.flipY != 0u) { oy_f = f32(u.H) - 1.0 - oy_f; }
+    let hx_f: f32 = (ox_f + marginX) * ${inv} - ${centreOff};
+    let hy_f: f32 = (oy_f + marginY) * ${inv} - ${centreOff};
+    let hx_i: i32 = i32(floor(hx_f));
+    let hy_i: i32 = i32(floor(hy_f));
+    if (hx_i < 0 || hx_i + 1 >= hN || hy_i < 0 || hy_i + 1 >= hN) {
+      return vec2<f32>(0.0, 0.0);
+    }
+    let fx: f32 = hx_f - f32(hx_i);
+    let fy: f32 = hy_f - f32(hy_i);
+    let h: f32 =
+      (1.0 - fx) * (1.0 - fy) * ${ring}[hy_i * hN + hx_i] +
+      fx * (1.0 - fy) * ${ring}[hy_i * hN + hx_i + 1] +
+      (1.0 - fx) * fy * ${ring}[(hy_i + 1) * hN + hx_i] +
+      fx * fy * ${ring}[(hy_i + 1) * hN + hx_i + 1];
+    return vec2<f32>(h, 1.0);
+  }
+`;
+}
+
+// The hull push, as WGSL text, so the two warmup tiers and the main
+// loop cannot drift apart. Mirrors pushHull in line-sweep-core.js:
+// pop any top-of-stack entry that the new one dominates.
+function pushHullWGSL(cxExpr, hExpr) {
+  return /* wgsl */ `
+          {
+            let pcx: f32 = ${cxExpr};
+            let ph: f32 = ${hExpr};
+            loop {
+              if (hullPtr < 1) { break; }
+              let ax = hullCx[hullPtr - 1];
+              let ay = hullH[hullPtr - 1];
+              let bx = hullCx[hullPtr];
+              let by = hullH[hullPtr];
+              let crossP = (bx - ax) * (ph - ay) - (by - ay) * (pcx - ax);
+              if (crossP < 0.0) { break; }
+              hullPtr = hullPtr - 1;
+            }
+            hullPtr = min(hullPtr + 1, hullMax);
+            hullCx[hullPtr] = pcx;
+            hullH[hullPtr] = ph;
+          }
+`;
 }
 
 // Shared WGSL helpers: toOrig, hull-push prune, hull height fetch.
@@ -162,39 +249,24 @@ const HELPERS_WGSL = /* wgsl */ `
     return u.eqPxSizeM * cos(lat);
   }
 
-  // Bilinear horizon sample at an arbitrary canonical (cx, cy).
-  // Returns vec2(height, 1.0), or vec2(0, 0) when there's no horizon
-  // bound (horizonN == 0, e.g. the non-prewarm stub buffer) or the
-  // position falls outside the ring. Mirrors line-sweep-core.js
-  // sampleHorizonAt: used by the main loop for rays straddling the
-  // tile boundary in the cross-ray axis, where clamping to the edge
-  // row used to draw a constant seam line along downstream tile edges.
+  // Bilinear horizon sample at an arbitrary canonical (cx, cy),
+  // preferring the inner ring and falling back to the outer one where
+  // the inner ring's footprint has run out. Used by the main loop for
+  // rays straddling the tile boundary in the cross-ray axis, where
+  // clamping to the edge row used to draw a constant seam line along
+  // downstream tile edges. Mirrors line-sweep-core.js sampleHorizonAt.
+${ringSamplerWGSL({
+  fn: "sampleNearRing", ring: "horizon", hN: "u.horizonN",
+  inv: "u.invParentScale", centreOff: "u.parentCenterOffset",
+})}
+${ringSamplerWGSL({
+  fn: "sampleFarRing", ring: "farHorizon", hN: "u.farHorizonN",
+  inv: "u.farInvParentScale", centreOff: "u.farParentCenterOffset",
+})}
   fn sampleHorizonAt(cxF: f32, cyF: f32) -> vec2<f32> {
-    let hN: i32 = i32(u.horizonN);
-    if (hN <= 0) { return vec2<f32>(0.0, 0.0); }
-    let parentScaleF: f32 = 1.0 / u.invParentScale;
-    let warmupMarginX: f32 = f32(u.W) * parentScaleF * 0.5;
-    let warmupMarginY: f32 = f32(u.H) * parentScaleF * 0.5;
-    var ox_f: f32 = cxF;
-    var oy_f: f32 = cyF;
-    if (u.swap != 0u) { ox_f = cyF; oy_f = cxF; }
-    if (u.flipX != 0u) { ox_f = f32(u.W) - 1.0 - ox_f; }
-    if (u.flipY != 0u) { oy_f = f32(u.H) - 1.0 - oy_f; }
-    let hx_f: f32 = (ox_f + warmupMarginX) * u.invParentScale - u.parentCenterOffset;
-    let hy_f: f32 = (oy_f + warmupMarginY) * u.invParentScale - u.parentCenterOffset;
-    let hx_i: i32 = i32(floor(hx_f));
-    let hy_i: i32 = i32(floor(hy_f));
-    if (hx_i < 0 || hx_i + 1 >= hN || hy_i < 0 || hy_i + 1 >= hN) {
-      return vec2<f32>(0.0, 0.0);
-    }
-    let fx: f32 = hx_f - f32(hx_i);
-    let fy: f32 = hy_f - f32(hy_i);
-    let h: f32 =
-      (1.0 - fx) * (1.0 - fy) * horizon[hy_i * hN + hx_i] +
-      fx * (1.0 - fy) * horizon[hy_i * hN + hx_i + 1] +
-      (1.0 - fx) * fy * horizon[(hy_i + 1) * hN + hx_i] +
-      fx * fy * horizon[(hy_i + 1) * hN + hx_i + 1];
-    return vec2<f32>(h, 1.0);
+    let near: vec2<f32> = sampleNearRing(cxF, cyF);
+    if (near.y != 0.0) { return near; }
+    return sampleFarRing(cxF, cyF);
   }
 `;
 
@@ -298,83 +370,88 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
   const kernel = modeKernelWGSL(mode, lsaoFalloff);
   return /* wgsl */ `
     {
-      // Child-pixel margin the horizon includes on each side of the
-      // comp tile: (PN/2) parent pixels = W * parentScale / 2 child
-      // pixels. At parentScale=2 that's W (the original behaviour);
-      // at parentScale=4 it's 2·W; and so on. The horizon-sample
-      // formula must shift by this full amount to land at the correct
-      // parent pixel. The loop count, however, is u.warmupSteps —
-      // the caller may precompute a tighter upper bound from the
-      // comp-tile-min / horizon-max elevation range and the current
-      // sun angle, trimming the loop when shadows can't physically
-      // reach across the full margin.
-      let parentScaleF: f32 = 1.0 / u.invParentScale;
+      // Two nested rings, walked outside in. The OUTER ring supplies
+      // reach, the INNER one the structure that meets the tile
+      // boundary; the handover is the inner ring's outer edge. Because
+      // the rings are concentric, every outer cell sits at a smaller
+      // canonical cx than every inner one, which is what the hull's
+      // monotonic-cx requirement needs. Mirrors the warmup branch in
+      // line-sweep-core.js; see there for why reach and resolution
+      // cannot come from one ring.
+      //
+      // Cells are addressed by CENTRE so the bilinear index is an
+      // exact integer along the ray: fx = 0 (or fy = 0 for swap)
+      // collapses it to a 1-D interp in the cross-ray axis and no
+      // pixel k+1 is touched. Off-centre, a comp-rate step at cx = -1
+      // blends in the parent pixel centred inside the comp tile, and
+      // high terrain near the tile's edge then casts a false shadow on
+      // the first comp rows even with the sun well above the outside
+      // terrain.
+      //
+      // The loop count is u.warmupSteps, which spans the outermost
+      // ring and is then trimmed by the caller from the comp-tile and
+      // horizon elevation bounds: beyond that distance nothing can
+      // reach the tile. When the trim lands inside the inner ring the
+      // outer tier is not walked at all, which is what makes a wide
+      // outer ring affordable.
       let Wf = f32(i32(u.W));
       let Hf = f32(i32(u.H));
-      let warmupMarginX: f32 = Wf * parentScaleF * 0.5;
-      let warmupMarginY: f32 = Hf * parentScaleF * 0.5;
+      let nearScaleF: f32 = 1.0 / u.invParentScale;
+      let nearMarginX: f32 = Wf * nearScaleF * 0.5;
+      let nearMarginY: f32 = Hf * nearScaleF * 0.5;
+      // The along-ray axis is canonical x, which is the original y
+      // under swap.
+      let nearMarginAlong: f32 = select(nearMarginX, nearMarginY, u.swap != 0u);
       let WARMUP_STEPS: i32 = i32(u.warmupSteps);
-      let warmStart: i32 = cxEntry - WARMUP_STEPS;
+      let warmStartI: i32 = cxEntry - WARMUP_STEPS;
+      let warmStart: f32 = f32(warmStartI);
       let hN: i32 = i32(u.horizonN);
       if (hN > 0) {
-        // Parent-rate hull pushes: place hull entries at parent pixel
-        // centres so hx_f = k exactly (or hy_f = k for swap), collapsing
-        // the bilinear to a 1-D cross-axis lerp with no along-ray bleed
-        // from the first parent pixel inside the comp tile. Matches the
-        // CPU line-sweep-core.js fix — see comments there for the derivation.
-        let firstK: i32 = max(
-          0,
-          i32(ceil(
-            (f32(warmStart) + warmupMarginX) * u.invParentScale - u.parentCenterOffset
-          ))
-        );
-        let lastK: i32 = i32(ceil(
-          (f32(cxEntry) + warmupMarginX) * u.invParentScale - u.parentCenterOffset
-        )) - 1;
-        for (var k: i32 = firstK; k <= lastK; k = k + 1) {
-          let cxF: f32 = parentScaleF * (f32(k) + u.parentCenterOffset) - warmupMarginX;
-          let yw: f32 = f32(b) + u.slope * cxF;
-          var ox_f: f32 = cxF;
-          var oy_f: f32 = yw;
-          if (u.swap != 0u) { ox_f = yw; oy_f = cxF; }
-          if (u.flipX != 0u) { ox_f = (Wf - 1.0) - ox_f; }
-          if (u.flipY != 0u) { oy_f = (Hf - 1.0) - oy_f; }
-          let hx_f: f32 = (ox_f + warmupMarginX) * u.invParentScale - u.parentCenterOffset;
-          let hy_f: f32 = (oy_f + warmupMarginY) * u.invParentScale - u.parentCenterOffset;
-          let hx_i: i32 = i32(floor(hx_f));
-          let hy_i: i32 = i32(floor(hy_f));
-          if (hx_i < 0 || hx_i + 1 >= hN) { continue; }
-          if (hy_i < 0 || hy_i + 1 >= hN) { continue; }
-          let fx: f32 = hx_f - f32(hx_i);
-          let fy2: f32 = hy_f - f32(hy_i);
-          let h00: f32 = horizon[hy_i * hN + hx_i];
-          let h10: f32 = horizon[hy_i * hN + hx_i + 1];
-          let h01: f32 = horizon[(hy_i + 1) * hN + hx_i];
-          let h11: f32 = horizon[(hy_i + 1) * hN + hx_i + 1];
-          let hW: f32 =
-            (1.0 - fx) * (1.0 - fy2) * h00 +
-            fx * (1.0 - fy2) * h10 +
-            (1.0 - fx) * fy2 * h01 +
-            fx * fy2 * h11;
-          loop {
-            if (hullPtr < 1) { break; }
-            let ax = hullCx[hullPtr - 1];
-            let ay = hullH[hullPtr - 1];
-            let bx = hullCx[hullPtr];
-            let by = hullH[hullPtr];
-            let crossP = (bx - ax) * (hW - ay) - (by - ay) * (cxF - ax);
-            if (crossP < 0.0) { break; }
-            hullPtr = hullPtr - 1;
+        let hasFar: bool = u.farHorizonN > 0u;
+        let cxHandover: f32 = -nearMarginAlong;
+
+        // Outer tier: only where the inner ring has nothing.
+        if (hasFar && warmStart < cxHandover) {
+          let farScaleF: f32 = 1.0 / u.farInvParentScale;
+          let farMarginX: f32 = Wf * farScaleF * 0.5;
+          let firstK: i32 = max(0, i32(ceil(
+            (warmStart + farMarginX) * u.farInvParentScale - u.farParentCenterOffset
+          )));
+          let lastK: i32 = i32(ceil(
+            (cxHandover + farMarginX) * u.farInvParentScale - u.farParentCenterOffset
+          )) - 1;
+          for (var k: i32 = firstK; k <= lastK; k = k + 1) {
+            let cxP: f32 = farScaleF * (f32(k) + u.farParentCenterOffset) - farMarginX;
+            let r: vec2<f32> = sampleFarRing(cxP, f32(b) + u.slope * cxP);
+            if (r.y == 0.0) { continue; }
+${pushHullWGSL("cxP", "r.x")}
           }
-          hullPtr = min(hullPtr + 1, hullMax);
-          hullCx[hullPtr] = cxF;
-          hullH[hullPtr] = hW;
+        }
+
+        // Inner tier, up to the comp tile.
+        {
+          // Not named 'from': that is a WGSL reserved keyword. And no
+          // backticks in here either, since this text lives inside a JS
+          // template literal.
+          let cxFrom: f32 = select(warmStart, max(warmStart, cxHandover), hasFar);
+          let firstK: i32 = max(0, i32(ceil(
+            (cxFrom + nearMarginX) * u.invParentScale - u.parentCenterOffset
+          )));
+          let lastK: i32 = i32(ceil(
+            (f32(cxEntry) + nearMarginX) * u.invParentScale - u.parentCenterOffset
+          )) - 1;
+          for (var k: i32 = firstK; k <= lastK; k = k + 1) {
+            let cxP: f32 = nearScaleF * (f32(k) + u.parentCenterOffset) - nearMarginX;
+            let r: vec2<f32> = sampleNearRing(cxP, f32(b) + u.slope * cxP);
+            if (r.y == 0.0) { continue; }
+${pushHullWGSL("cxP", "r.x")}
+          }
         }
 
         // Comp-rate edge-straddle deposits: fill shadow values for
         // pixels at cx ∈ [0, cxEntry) that only the warmup visits.
         // Hull is already populated by the parent-rate loop; no push.
-        for (var cxw: i32 = max(warmStart, 0); cxw < cxEntry; cxw = cxw + 1) {
+        for (var cxw: i32 = max(warmStartI, 0); cxw < cxEntry; cxw = cxw + 1) {
           let yw = f32(b) + u.slope * f32(cxw);
           let yiw: i32 = i32(floor(yw));
           let fyw: f32 = yw - f32(yiw);
@@ -382,29 +459,12 @@ function warmupBlock(prewarm, mode, lsaoFalloff) {
           let loInW: bool = yiw >= 0 && yiw < i32(u.viewH);
           let hiInW: bool = yjw >= 0 && yjw < i32(u.viewH);
           if (!loInW && !hiInW) { continue; }
-          var ox_f: f32 = f32(cxw);
-          var oy_f: f32 = yw;
-          if (u.swap != 0u) { ox_f = yw; oy_f = f32(cxw); }
-          if (u.flipX != 0u) { ox_f = (Wf - 1.0) - ox_f; }
-          if (u.flipY != 0u) { oy_f = (Hf - 1.0) - oy_f; }
-          let hx_f: f32 = (ox_f + warmupMarginX) * u.invParentScale - u.parentCenterOffset;
-          let hy_f: f32 = (oy_f + warmupMarginY) * u.invParentScale - u.parentCenterOffset;
-          let hx_i: i32 = i32(floor(hx_f));
-          let hy_i: i32 = i32(floor(hy_f));
-          if (hx_i < 0 || hx_i + 1 >= hN) { continue; }
-          if (hy_i < 0 || hy_i + 1 >= hN) { continue; }
-          let fx: f32 = hx_f - f32(hx_i);
-          let fy2: f32 = hy_f - f32(hy_i);
-          let h00: f32 = horizon[hy_i * hN + hx_i];
-          let h10: f32 = horizon[hy_i * hN + hx_i + 1];
-          let h01: f32 = horizon[(hy_i + 1) * hN + hx_i];
-          let h11: f32 = horizon[(hy_i + 1) * hN + hx_i + 1];
-          let hW: f32 =
-            (1.0 - fx) * (1.0 - fy2) * h00 +
-            fx * (1.0 - fy2) * h10 +
-            (1.0 - fx) * fy2 * h01 +
-            fx * fy2 * h11;
-          let hRay: f32 = hW;
+          // These targets sit inside the tile footprint but on a row
+          // outside the view, so a ring is the only source for their
+          // own height. Inner ring first, outer as a fallback.
+          let samp: vec2<f32> = sampleHorizonAt(f32(cxw), yw);
+          if (samp.y == 0.0) { continue; }
+          let hRay: f32 = samp.x;
           let cx: i32 = cxw;
           let targetRow: i32 = select(yjw, yiw, loInW);
           let pxSize = targetPxSize(cx, targetRow);
@@ -495,7 +555,10 @@ function modeKernelWGSL(mode, lsaoFalloff = "cos2") {
 }
 
 // Build the full WGSL source for one (mode, prewarm, lsaoFalloff) permutation.
-function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
+// Exported so a shader compile error can be read back with
+// getCompilationInfo(): an invalid pipeline otherwise surfaces only
+// as "invalid due to a previous error", which says nothing.
+export function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
   // `prewarm` is honoured for every mode, including LSAO. The caller
   // is responsible for deciding whether it's the right trade-off:
   // LSAO with prewarm introduces a within-tile gradient near the
@@ -517,6 +580,8 @@ function buildComputeWGSL({ mode, prewarm, lsaoFalloff }) {
     @group(0) @binding(1) var<storage, read> elev: array<f32>;
     @group(0) @binding(2) var<storage, read_write> shadow: array<atomic<u32>>;
     @group(0) @binding(3) var<storage, read> horizon: array<f32>;
+    // The outer ring. A 4-byte stub when u.farHorizonN is 0.
+    @group(0) @binding(4) var<storage, read> farHorizon: array<f32>;
 
     ${HELPERS_WGSL}
 
@@ -727,6 +792,7 @@ function getComputeLayouts(device) {
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     ],
   });
   const pipelineLayout = device.createPipelineLayout({
@@ -1240,6 +1306,9 @@ export function deriveSweepParams({
   horizonFloor = true,
   horizonN = 0,
   parentScale = 2,
+  // The outer prewarm ring. 0 / 0 means a single ring.
+  farParentScale = 0,
+  farHorizonN = 0,
   compElevMin = null,
   horizonElevMax = null,
 }) {
@@ -1282,7 +1351,11 @@ export function deriveSweepParams({
   // compute internally. LSAO is a horizon-slope scan with no
   // shallowest-angle cutoff, so the trim doesn't apply and we fall
   // back to the full margin.
-  const fullWarmup = (W * parentScale) >> 1;
+  // The march may start as far out as the OUTERMOST ring reaches. The
+  // elevation trim below then usually pulls it much closer, and when it
+  // lands inside the inner ring the outer tier is not walked at all.
+  const hasFar = farHorizonN > 0 && farParentScale > 0;
+  const fullWarmup = (W * (hasFar ? farParentScale : parentScale)) >> 1;
   let warmupSteps = fullWarmup;
   if (
     horizonN > 0 &&
@@ -1337,6 +1410,8 @@ export function deriveSweepParams({
     useMercator: useMercator ? 1 : 0,
     eqPxSizeM: outEqPxSizeM,
     parentScale,
+    farParentScale: hasFar ? farParentScale : 0,
+    farHorizonN: hasFar ? farHorizonN : 0,
     warmupSteps,
   };
 }

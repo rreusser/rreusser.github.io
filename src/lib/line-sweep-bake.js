@@ -90,7 +90,22 @@ export function computeLSAO(heights, N, pxSizeByRow, horizon, HN, lsaoFalloff, p
 // `horizonFloor` is passed through to sweepCore: true (the default)
 // keeps the soft penumbra window above the horizon, false lets it
 // follow the sun down through it. See the option's comment there.
-export function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples, parentScale, compHMin, horizonHMax, horizonPN, horizonFloor = true) {
+// `far` is the optional outer prewarm ring,
+// { heights, HN, parentScale, horizonPN }: coarser than `horizon` and
+// reaching much further, walked before it and handing over at its
+// outer edge. `horizon` supplies the structure that meets the tile
+// boundary, `far` supplies the distance. See line-sweep-core.js.
+// `horizonHMax` must bound BOTH rings, since decimation flattens peaks
+// and the finer ring's maximum is the higher of the two.
+export function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDeg, sunRadiusDeg, samples, parentScale, compHMin, horizonHMax, horizonPN, horizonFloor = true, far = null) {
+  const farOpts = far && far.HN > 0 && far.heights
+    ? {
+        farHorizon: far.heights,
+        farHN: far.HN,
+        farParentScale: far.parentScale,
+        farHorizonPN: far.horizonPN != null ? far.horizonPN : undefined,
+      }
+    : null;
   const shadow = new Float32Array(N * N);
   if (samples <= 1) {
     const result = sweepCore({
@@ -98,6 +113,7 @@ export function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDe
       mode: 'soft', altDeg, sunRadiusDeg, horizonFloor, weight: 1,
       horizon: HN > 0 ? horizon : null, HN,
       parentScale, horizonPN,
+      ...farOpts,
       compElevMin: compHMin, horizonElevMax: horizonHMax,
     });
     for (let i = 0; i < N * N; i++) shadow[i] = result[i];
@@ -114,6 +130,7 @@ export function computeShadow(heights, N, pxSizeByRow, horizon, HN, azDeg, altDe
       mode: 'soft', altDeg, sunRadiusDeg, horizonFloor, weight,
       horizon: HN > 0 ? horizon : null, HN,
       parentScale, horizonPN,
+      ...farOpts,
       compElevMin: compHMin, horizonElevMax: horizonHMax,
     });
     for (let i = 0; i < N * N; i++) shadow[i] += result[i];
