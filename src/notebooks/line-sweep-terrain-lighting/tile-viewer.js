@@ -170,7 +170,7 @@ struct Global {
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
   ao: vec4<f32>,           // x=floorRaw, y=1 when the falloff is exp, z=contrast exponent, w unused
   imagery: vec4<f32>,      // x=satellite opacity, yzw unused
-  grade: vec4<f32>,        // x=lightness exponent, y=chroma multiplier, zw unused
+  grade: vec4<f32>,        // x=lightness exponent, y=chroma multiplier, z=1 for the overlay model, w=brightness stops (overlay only)
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -517,6 +517,97 @@ fn gradeSrgb(srgb: vec3<f32>) -> vec3<f32> {
   return oklabToSrgbClipped(vec3<f32>(L2, lab.y * cs, lab.z * cs));
 }
 
+// ---- the overlay shading model ---------------------------------------
+//
+// Everything below is the second of the figure's two shading models,
+// and the one meant for satellite imagery. The model above — slope and
+// aspect relief, applied as a relative brightness — is what the
+// sections further up the page build, and it is the right thing for a
+// map whose colour is a hypsometric ramp the shading is free to push
+// around. Imagery is not that: it arrives already carrying its own
+// light and shade, so the shading has to read as a modification of a
+// photograph rather than as the thing being drawn.
+//
+// Overlay blend from Jamie Owen's glsl-blend (MIT) — multiply where the
+// base is dark, screen where it is light, which is Photoshop's Overlay
+// mode. The property the whole model is built on is that 0.5 is its
+// identity element: blendOverlay(a, 0.5) == a for every a. That is why
+// the shading value is accumulated around 0.5 rather than around 1.
+fn blendOverlay(base: f32, blend: f32) -> f32 {
+  return select(
+    1.0 - 2.0 * (1.0 - base) * (1.0 - blend),
+    2.0 * base * blend,
+    base < 0.5,
+  );
+}
+
+// sqrt(0.5) desaturation factor, inverted, so the knob is calibrated at
+// neutral shading. See overlayComposite.
+const DESAT_AT_NEUTRAL: f32 = 1.3060193;
+
+// Occlusion and cast shadow reach this model as multiplicative factors,
+// inherited from the one above, where a factor f means "this pixel
+// renders at f times what open, lit ground would". Entering 1 - f into
+// the accumulator at face value darkens considerably harder than that,
+// because the blend applies the shading a second time: an albedo at
+// L = 0.5 taking the default shadow strength straight comes out at 0.32
+// of itself where the other model puts it at 0.53, which is the
+// difference between a shadow and a hole.
+//
+// Matching them is a closed form. Writing u for the clipped departure,
+// an albedo at 0.5 lands at 2(0.5 + u)^2, so f is hit at
+// u = 0.5(sqrt(f) - 1), and undoing the soft clip gives
+// atanh(sqrt(f) - 1). Over the sliders' useful range, f from 0.5 to 1,
+// that sits within 0.02 of a straight 0.57 * (f - 1) — a twentieth of
+// what the shadow slider alone contributes — so the constant is what
+// is used, and the two sliders keep the meaning they have in the other
+// model. See verify-overlay-shading.mjs.
+const SHADE_TO_VALUE: f32 = 0.57;
+
+// Composite a shading value onto an albedo.
+//
+// albedo is the surface colour in Oklab, L in [0, 1]: the hypsometric
+// ramp, the satellite pixel, the mix of the two, or the mid-grey that
+// stands in for both when neither layer is on. value is the scene's
+// shading, already soft-clipped into (0, 1), where 0.5 means flat, open,
+// fully lit ground.
+//
+// Lightness takes the shading twice over, once as an offset
+// (albedo.L + value - 0.5) and once through the overlay blend against
+// value itself. Both are exact identities at value = 0.5, so neutral
+// ground renders the albedo untouched — a satellite pixel on the flats
+// comes out of the shader as the pixel that went in. That is the
+// property a multiply cannot have: a multiply has to be normalised by
+// whatever flat ground would render at (the k = v / v0 division in
+// the model above) to come close, and that division is exactly what
+// gets unstable as the sun drops and v0 goes to zero. Away from neutral
+// the offset and the blend compound, which is what lets relief read
+// through imagery that already has contrast of its own.
+//
+// Monotonicity survives the pair: on either side of the blend's split
+// the result is increasing in value, the two branches agree at
+// base = 0.5, and the output cannot leave [0, 1]. So the model shares
+// the two structural guarantees of gradeSrgb above — no two shading
+// values collapse onto one, and nothing clips. See
+// verify-overlay-shading.mjs.
+//
+// Chroma is scaled by sqrt(value), so shade desaturates toward grey.
+// That is both what happens physically, as less and less of what
+// reaches the eye is direct light, and what keeps a darkened satellite
+// pixel from reading as a lurid version of itself; the 0.2 floor keeps
+// some colour alive in deep shadow. Scaling by the shading rather than
+// by the albedo's own lightness is deliberate: dark rock stays as
+// colourful as the imagery has it, while a shadowed slope goes grey
+// whatever colour it is. The factor is normalised at value = 0.5 so
+// satK means what it means in the model above: 1 is the albedo's own
+// chroma, untouched.
+fn overlayComposite(albedo: vec3<f32>, value: f32, satK: f32) -> vec3<f32> {
+  let base = clamp(albedo.x + value - 0.5, 0.0, 1.0);
+  let L = blendOverlay(base, value);
+  let c = satK * (0.2 + 0.8 * sqrt(max(value, 0.0))) * DESAT_AT_NEUTRAL;
+  return oklabToSrgbClipped(vec3<f32>(L, albedo.y * c, albedo.z * c));
+}
+
 // Invert web-mercator: (uv in tile, plus integer tile z/x/y) → lat/lng
 // in radians. Uses WGSL's built-in sinh; the Gudermannian form
 // atan(sinh(x)) gives the standard mercator-to-latitude map.
@@ -668,6 +759,83 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // placeholder is transparent, so its weight is zero.
   let sat = textureSample(satTex, tileSampler, in.uv);
   let satWeight = clamp(g.imagery.x, 0.0, 1.0) * sat.a;
+
+  // The elevation the hypsometric ramp is read at, shifted by openness.
+  // The shift is expressed as a fraction of the ramp window rather than
+  // in metres, so it keeps its visual weight when the window is
+  // resized. At full strength it reaches half the window either way,
+  // which is enough for openness alone to traverse the whole ramp.
+  // Hoisted out of both models, which read the ramp identically.
+  let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
+  let hSample = sampleElev(in.uv, i32(t.tileZXY.w))
+    + g.hypso.w * opennessOffset(ao, g.ao.x, slopeMag, nz, g.ao.y, g.ao.z)
+    * 0.5 * rampSpan;
+
+  // ---- overlay model ---------------------------------------------
+  // Diffuse Lambertian relief, measured against flat ground. The dot
+  // product on its own darkens every pixel as the sun drops, which on
+  // a map reads as the lights going out rather than as terrain;
+  // subtracting what flat ground receives under the same sun leaves a
+  // signed departure that is zero wherever the ground is flat, however
+  // low the sun is, so the surface's own shape is all that survives.
+  // This is the one term that differs in kind from the model above,
+  // which throws the true normal away and reconstructs a darkening
+  // from slope and aspect separately.
+  if (g.grade.z > 0.5) {
+    let lambRel = (dot(N, sunDir) - sunDir.z) * reliefFade;
+    // The slider's own gain curve, r / (1 - r): linear at the bottom
+    // and steep at the top, so the useful range isn't crammed into the
+    // first tenth of the track. Capped short of the pole.
+    let reliefGain = reliefStr / max(1.0 - reliefStr, 0.01);
+
+    // Relief, occlusion and shadow enter as signed departures from
+    // neutral rather than as factors multiplying each other down.
+    // Each term is zero where it has nothing to say, so one that is
+    // switched off costs nothing and moves nothing; and because they
+    // are summed inside the soft clip rather than multiplied, the
+    // composite approaches black asymptotically instead of arriving
+    // there the moment two of them happen to coincide.
+    var value = 0.5;
+    value += 0.5 * lambRel * reliefGain;
+    value += SHADE_TO_VALUE * (aoFactor - 1.0);
+    value += SHADE_TO_VALUE * (shadowMask - 1.0);
+    // The night floor, which in time mode fades in across civil
+    // twilight as the relief term fades out. It has to be at least as
+    // deep as the relief it is replacing, or the terminator runs
+    // backwards: on a slope turned away from the sun the relief term
+    // is negative, so fading it to zero is itself a brightening, and
+    // terrain that had been darkening all afternoon would lighten
+    // once the sun went down. Half the relief gain is exactly the most
+    // that fade can give back, since lambRel is bounded below by -1
+    // near the horizon, so taking the deeper of the two makes the
+    // terminator a one-way ramp into the dark at every setting of
+    // both sliders rather than only at the defaults. It also reads
+    // correctly: a map whose relief is exaggerated needs a darker
+    // night to put it away. See verify-overlay-shading.mjs.
+    let nightDepth = max(SHADE_TO_VALUE * shadowStrength, 0.5 * reliefGain);
+    value -= nightDepth * nightShadow;
+    // Brightness lands inside the accumulator rather than on the
+    // finished pixel: it sets where the soft clip's midpoint sits
+    // relative to the shading, so it buys headroom at the end being
+    // compressed instead of merely scaling what is already there.
+    value += g.grade.w;
+    // Soft clip. tanh is the reason the terms above are free to
+    // overshoot: nothing has to be clamped on the way in, extremes
+    // compress smoothly instead of flattening onto 0 or 1, and the
+    // factor-of-two it costs at the midpoint is handed straight back
+    // by the overlay blend, whose slope there is 2.
+    value = 0.5 + 0.5 * tanh(value - 0.5);
+
+    // Albedo stack, bottom up. Mid-grey stands in for "no layer":
+    // 0.5 is the overlay's identity, so an unlayered map renders the
+    // shading itself, and a white base would instead make the blend
+    // non-monotonic in value.
+    var albedo = vec3<f32>(0.5, 0.0, 0.0);
+    if (tint > 0.0) { albedo = mix(albedo, rampAt(hSample), tint); }
+    if (satWeight > 0.0) { albedo = mix(albedo, srgbToOklab(sat.rgb), satWeight); }
+    return vec4<f32>(overlayComposite(albedo, value, g.grade.y), 1.0);
+  }
+
   if (tint <= 0.0 && satWeight <= 0.0) {
     return vec4<f32>(gradeSrgb(vec3<f32>(v, v, v)), 1.0);
   }
@@ -696,14 +864,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   var layered = vec3<f32>(v, v, v);
 
   if (tint > 0.0) {
-    // Sample the ramp at the pixel's elevation, shifted by openness. The
-    // shift is expressed as a fraction of the ramp window rather than in
-    // metres, so it keeps its visual weight when the window is resized.
-    // At full strength it reaches half the window either way, which is
-    // enough for openness alone to traverse the whole ramp.
-    let h = sampleElev(in.uv, i32(t.tileZXY.w));
-    let rampSpan = 1.0 / max(g.hypso.y, 1e-9);
-    let hSample = h + g.hypso.w * opennessOffset(ao, g.ao.x, slopeMag, nz, g.ao.y, g.ao.z) * 0.5 * rampSpan;
     layered = mix(layered, shadeOklab(rampAt(hSample), k), tint);
   }
 
@@ -1296,6 +1456,11 @@ export function createTileViewer(opts) {
     // `saturation` multiplies Oklab chroma, 1 neutral, 0 greyscale.
     brightness: 0,
     saturation: 1,
+    // Which shading model composites the final pixel: "overlay" for
+    // diffuse Lambertian relief blended onto the albedo, "multiply"
+    // for the slope/aspect relief applied as a relative brightness.
+    // See the overlay model section of the shader.
+    shadingModel: "overlay",
   };
 
   const clampSatOpacity = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
@@ -2382,6 +2547,8 @@ export function createTileViewer(opts) {
     //   f32[16..19] = hypso (rampMin, 1/rampSpan, tintStrength, opennessTint)
     //   f32[20..23] = ao (floorRaw, 1 when the falloff is exp, contrast exponent, unused)
     //   f32[24..27] = imagery (satellite opacity, unused x3)
+    //   f32[28..31] = grade (lightness exponent, chroma multiplier,
+    //                 1 for the overlay model, brightness in stops)
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
@@ -2424,8 +2591,10 @@ export function createTileViewer(opts) {
     const satMul = Number(lighting.saturation);
     globalData[28] = Math.pow(2, -(Number.isFinite(brightStops) ? brightStops : 0));
     globalData[29] = Number.isFinite(satMul) ? Math.max(0, satMul) : 1;
-    globalData[30] = 0;
-    globalData[31] = 0;
+    globalData[30] = lighting.shadingModel === "overlay" ? 1 : 0;
+    // The overlay model wants brightness unconverted: there it is an
+    // additive term inside the shading accumulator, not an exponent.
+    globalData[31] = Number.isFinite(brightStops) ? brightStops : 0;
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32
