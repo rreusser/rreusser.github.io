@@ -1907,7 +1907,7 @@
     const tileViewerControlsDiv = html`<div class="tile-viewer-controls"></div>`;
     const bakeModeEl = Inputs.radio(
       new Map([["CPU", "cpu"], ["GPU", "gpu"], ["debug", "debug"]]),
-      { label: "mode", value: "cpu" },
+      { label: "bake mode", value: "cpu" },
     );
     // Which shading model composites the map. "multiply" is the
     // slope/aspect relief the sections above build, applied as a
@@ -1921,23 +1921,48 @@
     // to be normalised by whatever flat ground renders at and gets
     // unstable as that goes to zero. See overlayComposite in
     // tile-viewer.js.
+    // The value stays "overlay" so saved links keep working; only the
+    // label changed, because the model behind it is now the irradiance
+    // one and "multiply" is the legacy slope/aspect path.
     const shadingEl = Inputs.radio(
-      new Map([["overlay", "overlay"], ["multiply", "multiply"]]),
+      new Map([["irradiance", "overlay"], ["legacy relief", "multiply"]]),
       { label: "shading", value: "overlay" },
     );
-    const strengthEl = Inputs.range([0, 1], {
-      label: "relief strength",
-      value: 0.38,
+    // Terrain exaggeration of the shading normal, as a factor, because
+    // its neutral is x1 and not zero. It was labelled "relief strength"
+    // on a 0..1 track, which reads as though zero should mean no relief
+    // -- and it does not: at x1 you get the true normal and the full
+    // physical Lambert shading. Measured across the old slider, lit
+    // shading spread moved only 0.7882 to 0.8049, so the control never
+    // did what its name promised. As a factor the low end reads as
+    // "none added" rather than "off", which is what it is.
+    const strengthEl = Inputs.range([1, 6], {
+      label: "terrain exaggeration",
+      value: 2.9,
+      step: 0.1,
+    });
+    // 1 means "use the sky visibility the bake measured, as it is".
+    // Anything less is a deliberate under-application, and the old
+    // default of 0.3 existed only because the model it fed applied
+    // occlusion to direct sunlight as well, where it had no business.
+    // 1 applies the sky occlusion the bake measured, as it is. Above 1
+    // is exaggeration, the same idiom terrain exaggeration uses, and it
+    // reaches past 1 because the measured amount reads as subtle: it
+    // can only remove sky light, which is a minority of the budget at a
+    // high sun. It cannot break that ceiling however far it is pushed.
+    const aoEl = Inputs.range([0, 2.5], {
+      label: "sky occlusion",
+      value: 1,
       step: 0.01,
     });
-    const aoEl = Inputs.range([0, 1], {
-      label: "AO strength",
-      value: 0.3,
-      step: 0.01,
-    });
+    // 1 is a cast shadow that actually blocks the sun. The old default
+    // of 0.47 said a fully shadowed pixel still received half the
+    // direct beam, which is not a statement about shadows so much as an
+    // admission that full shadow was too black before sky light existed
+    // to fill it. Sky light fills it now.
     const shadowEl = Inputs.range([0, 1], {
-      label: "shadow strength",
-      value: 0.47,
+      label: "shadow depth",
+      value: 1,
       step: 0.01,
     });
     const sunDiameterEl = Inputs.range([0.5, 30], {
@@ -1952,8 +1977,53 @@
       step: 1,
     });
     const aoFalloffEl = Inputs.radio(["cos²α", "e^(−sin α)"], {
-      label: "AO falloff",
+      label: "occlusion falloff",
       value: "e^(−sin α)",
+    });
+    // The irradiance model's own parameters. Defaults are the ones the
+    // sweeps in verify-lighting-model.mjs were run at; see
+    // LIGHTING-DESIGN.md for what each one buys.
+    //
+    // What eta really controls is how much of the sun's own altitude is
+    // divided back out of the irradiance, so "exposure" named the wrong
+    // thing entirely. Inverted and renamed: 0 holds flat ground at one
+    // brightness however low the sun gets, 1 lets the map darken with
+    // it, physically.
+    //
+    // 0.3 rather than 0 because low-sun relief contrast is actually MORE
+    // uniform part-way along: full normalisation inflates the irradiance
+    // ratio into the tone curve's shoulder and gets it compressed back,
+    // giving 2.95-4.28x across the altitude range where 0.3 gives
+    // 3.6-4.0x.
+    const exposureEl = Inputs.range([0, 1], {
+      label: "sunset dimming",
+      value: 0.3,
+      step: 0.01,
+    });
+    // How much of the circumsolar glow survives an occluder, and so how
+    // much relief shows inside a cast shadow. The ridge that blocks the
+    // sun blocks most of the glow around it too, so this sits well
+    // under 1; raising it makes shadowed relief read harder, bounded by
+    // the sky's share of the budget.
+    const glowLeakEl = Inputs.range([0, 1], {
+      label: "relief in shade",
+      value: 0.25,
+      step: 0.01,
+    });
+    // The share of the irradiance budget that arrives from the sky
+    // rather than straight from the sun, which is what sets how deep an
+    // open shadow goes.
+    const skyFracEl = Inputs.range([0.05, 0.5], {
+      label: "ambient light",
+      value: 0.22,
+      step: 0.01,
+    });
+    // Grade contrast: a power curve about a fixed 0.5 pivot on the
+    // finished lightness, a post-process like brightness and saturation.
+    const contrastEl = Inputs.range([0.3, 2.5], {
+      label: "contrast",
+      value: 1,
+      step: 0.01,
     });
     const sunModeEl = Inputs.radio(
       new Map([["fixed angle", "fixed"], ["from time", "time"]]),
@@ -1965,12 +2035,12 @@
       step: 0.01,
     });
     const opennessTintEl = Inputs.range([0, 1], {
-      label: "tint structure",
+      label: "concavity tint",
       value: 0.7,
       step: 0.01,
     });
     const opennessContrastEl = Inputs.range([0, 1], {
-      label: "structure contrast",
+      label: "concavity contrast",
       value: 0.49,
       step: 0.01,
     });
@@ -2048,23 +2118,6 @@
       getLocation: () => _viewerRef ? _viewerRef.getCenter() : [36.1, -111.99],
       onChange: (v) => tileViewerSunDirAccessor.set(v),
     });
-    tileViewerControlsDiv.appendChild(bakeModeEl);
-    tileViewerControlsDiv.appendChild(shadingEl);
-    tileViewerControlsDiv.appendChild(aoFalloffEl);
-    tileViewerControlsDiv.appendChild(aoEl);
-    tileViewerControlsDiv.appendChild(strengthEl);
-    tileViewerControlsDiv.appendChild(shadowEl);
-    tileViewerControlsDiv.appendChild(sunDiameterEl);
-    tileViewerControlsDiv.appendChild(shadowSamplesEl);
-    tileViewerControlsDiv.appendChild(ringNearDZEl);
-    tileViewerControlsDiv.appendChild(ringFarDZEl);
-    tileViewerControlsDiv.appendChild(ringDZReadout);
-    tileViewerControlsDiv.appendChild(tintEl);
-    tileViewerControlsDiv.appendChild(opennessTintEl);
-    tileViewerControlsDiv.appendChild(opennessContrastEl);
-    tileViewerControlsDiv.appendChild(satelliteEl);
-    tileViewerControlsDiv.appendChild(brightnessEl);
-    tileViewerControlsDiv.appendChild(saturationEl);
     const animationPanel = createAnimationPanel({
       Inputs,
       html,
@@ -2081,13 +2134,110 @@
       },
       getAnchorUtcMs: () => sunCalendarEl.getUtcDate()?.getTime() ?? NaN,
     });
-    tileViewerControlsDiv.appendChild(sunModeEl);
-    tileViewerControlsDiv.appendChild(sunCalendarEl);
+
+    // Collapsible groups, in the same idiom the animation panel already
+    // uses: a <details> under a hairline rule, styled inline because
+    // this panel has no stylesheet of its own.
+    //
+    // There are two dozen controls now, and flat they read as one
+    // undifferentiated column of sliders with no clue which ones belong
+    // together. Grouping them by what they are -- the physics of the
+    // light, the tone mapping laid over it, the colour underneath it,
+    // and the bake that feeds all three -- also puts the pipeline's
+    // shape into the UI, which is worth something on a figure whose
+    // whole subject is that pipeline.
+    //
+    // Open/closed is per-section and deliberately NOT in the hash: it is
+    // a view preference, not part of the picture a shared link
+    // reproduces.
+    const controlSection = (label, children, { open = false, divider = true } = {}) => {
+      // The rule separates one section from the one above it, so the
+      // first section does not get one.
+      const details = html`<details
+        style="${divider
+          ? "margin-top:6px; border-top:1px solid rgba(128,128,128,0.3); padding-top:6px;"
+          : "margin-top:0; padding-top:0;"}"
+      ><summary style="cursor:pointer; user-select:none;">${label}</summary></details>`;
+      const body = html`<div style="padding-top:4px;"></div>`;
+      for (const child of children) if (child) body.appendChild(child);
+      details.appendChild(body);
+      details.open = open;
+      return details;
+    };
+
+    // The sun handle and the ramp editor are controls too, but they are
+    // also overlays that want reading against the terrain, so they live
+    // over the map and move into these slots whenever the figure's
+    // controls panel is open. Before this they were hoisted into the
+    // panel as bare siblings of the sections, which is the one place
+    // they should be grouped like everything else.
+    const sunSlotEl = html`<div></div>`;
+    const rampSlotEl = html`<div></div>`;
+
+    // The albedo the light lands on.
+    tileViewerControlsDiv.appendChild(controlSection("color", [
+      tintEl,
+      satelliteEl,
+      opennessTintEl,
+      opennessContrastEl,
+      // The editor is a block widget, so it sits below the sliders
+      // rather than splitting them in two.
+      rampSlotEl,
+    ], { divider: false }));
+
+    // Where the light comes from and what it does when it arrives.
+    // `relief strength` sits here despite being the one deliberately
+    // unphysical term: it exaggerates the shading normal, so it acts on
+    // dot(N, L) alongside everything else in this group.
+    tileViewerControlsDiv.appendChild(controlSection("light", [
+      sunSlotEl,
+      sunModeEl,
+      sunCalendarEl,
+      sunDiameterEl,
+      // How the map answers the sun's altitude, so it belongs with the
+      // sun rather than with the grade: it acts on the irradiance,
+      // upstream of the albedo, where brightness, contrast and
+      // saturation are all downstream of it.
+      exposureEl,
+      strengthEl,
+      // Then the shade, in the order it is built: whether the sun is
+      // blocked at all, how much sky light fills in behind it, how much
+      // of that the terrain occludes, and how directional what is left
+      // is. Sky occlusion used to sit between the first two, splitting
+      // the shadow control from the three sky controls it feeds.
+      shadowEl,
+      skyFracEl,
+      aoEl,
+      glowLeakEl,
+    ], { open: true }));
+
+    // What feeds the three groups above: which shading model runs, where
+    // the bake runs, and the sweep's own resolution and reach.
+    tileViewerControlsDiv.appendChild(controlSection("bake and model", [
+      shadingEl,
+      bakeModeEl,
+      aoFalloffEl,
+      shadowSamplesEl,
+      ringNearDZEl,
+      ringFarDZEl,
+      ringDZReadout,
+    ]));
+
+    // The post-process, and nothing else: it lands on the finished
+    // pixel, so nothing upstream knows these three exist.
+    tileViewerControlsDiv.appendChild(controlSection("tone and grade", [
+      brightnessEl,
+      contrastEl,
+      saturationEl,
+    ]));
+
     tileViewerControlsDiv.appendChild(animationPanel.element);
     invalidation.then(() => animationPanel.dispose());
     display(tileViewerControlsDiv);
     const tileViewerControls = {
       animationPanel,
+      sunSlotEl,
+      rampSlotEl,
       bakeModeEl,
       shadingEl,
       strengthEl,
@@ -2107,6 +2257,10 @@
       satelliteEl,
       brightnessEl,
       saturationEl,
+      exposureEl,
+      skyFracEl,
+      glowLeakEl,
+      contrastEl,
     };
   </script>
   <script id="72" type="module">
@@ -2119,7 +2273,10 @@
       width: 640,
       height: 600,
       wide: true,
-      controls: ['.tile-viewer-controls', '.tile-viewer-sun-overlay'],
+      // The sun overlay is NOT listed here any more. It is moved into
+      // the light section by placeOverlays() below, so it arrives in the
+      // panel already grouped rather than as a bare sibling.
+      controls: ['.tile-viewer-controls'],
       // The map keeps its position in the URL hash, so once you have
       // panned, the hash no longer reads "#tile-viewer". Treat a map
       // position as naming this figure too, otherwise reloading a
@@ -2177,15 +2334,6 @@
       };
       applyMapStyle();
 
-      // Watch for reparenting between the map and the controls panel.
-      new MutationObserver(() => {
-        if (sunWrapper.closest(".expandable-controls-panel")) applyPanelStyle();
-        else applyMapStyle();
-        // Both of those replace `style.cssText` wholesale, which drops
-        // the time-mode dimming. Put it back. (The observer fires
-        // asynchronously, after this cell has defined the function.)
-        syncSunHandleStyle();
-      }).observe(document.body, { childList: true, subtree: true });
 
       const viewer = createTileViewer({
         container: viewerEl,
@@ -2300,7 +2448,7 @@
         ];
       };
       const gradientEditor = createGradientEditor({
-        title: "Elevation tint",
+        title: "Elevation ramp",
         unit: " m",
         height: 230,
         // Starts folded down to its header so the map is unobstructed;
@@ -2335,6 +2483,88 @@
       rampWrapper.appendChild(gradientEditor.element);
       viewerEl.appendChild(rampWrapper);
 
+      // Ramp editor styling, map against panel. Over the map it floats
+      // bottom-left at a fixed width; in the panel it is just another
+      // block in the colour section and takes the full width it is
+      // given.
+      //
+      // Over the map the editor is a floating glass card, which is what
+      // it should look like there. In the panel that card reads as a
+      // foreign dark box wedged between two slider rows, and its own
+      // header is a second collapse control nested inside the colour
+      // section's. So panel mode flattens the chrome and hides the
+      // header, letting the section carry the name and the collapsing.
+      const rampRoot = gradientEditor.element;
+      const rampHead = () => rampRoot.querySelector(".grd-head");
+      const rampBody = () => rampRoot.querySelector(".grd-body");
+      const applyRampMapStyle = () => {
+        rampWrapper.style.cssText =
+          "position:absolute; left:12px; bottom:12px; z-index:500; width:286px;" +
+          " max-width:calc(100% - 24px); max-height:calc(100% - 24px); overflow:auto;" +
+          " pointer-events:auto;";
+        for (const k of ["background", "backdropFilter", "webkitBackdropFilter",
+                         "border", "borderRadius", "boxShadow"]) {
+          rampRoot.style[k] = "";
+        }
+        const h = rampHead();
+        if (h) h.style.display = "";
+        const b = rampBody();
+        if (b) b.style.padding = "";
+      };
+      const applyRampPanelStyle = () => {
+        rampWrapper.style.cssText =
+          "position:static; width:100%; max-width:100%; max-height:none;" +
+          " overflow:visible; pointer-events:auto;";
+        rampRoot.style.background = "none";
+        rampRoot.style.backdropFilter = "none";
+        rampRoot.style.webkitBackdropFilter = "none";
+        rampRoot.style.border = "none";
+        rampRoot.style.borderRadius = "0";
+        rampRoot.style.boxShadow = "none";
+        const h = rampHead();
+        if (h) h.style.display = "none";
+        // Left-align with the slider rows above it rather than keeping
+        // the card's own inset.
+        const b = rampBody();
+        if (b) b.style.padding = "2px 0 0 0";
+        // With the header hidden there is nothing to expand it again,
+        // so a ramp collapsed over the map must not arrive collapsed.
+        // Guarded: setCollapsed assigns headToggle.textContent, which
+        // REPLACES a text node even when the text is unchanged, and that
+        // is a childList mutation the observer below is watching.
+        if (rampRoot.dataset.collapsed === "1") gradientEditor.setCollapsed(false);
+      };
+
+      // Move both overlays between the map and their sections, following
+      // whether the controls panel is up. Guarded on current parent, so
+      // the mutations this causes settle after one extra callback rather
+      // than retriggering forever; style writes are not observed, since
+      // the observer only watches childList.
+      const panelIsUp = () => {
+        const panel = document.querySelector(".expandable-controls-panel");
+        return !!panel && getComputedStyle(panel).display !== "none";
+      };
+      const placeOverlays = () => {
+        if (panelIsUp()) {
+          if (sunWrapper.parentElement !== tileViewerControls.sunSlotEl) {
+            tileViewerControls.sunSlotEl.appendChild(sunWrapper);
+          }
+          if (rampWrapper.parentElement !== tileViewerControls.rampSlotEl) {
+            tileViewerControls.rampSlotEl.appendChild(rampWrapper);
+          }
+          applyPanelStyle();
+          applyRampPanelStyle();
+        } else {
+          if (sunWrapper.parentElement !== viewerEl) viewerEl.appendChild(sunWrapper);
+          if (rampWrapper.parentElement !== viewerEl) viewerEl.appendChild(rampWrapper);
+          applyMapStyle();
+          applyRampMapStyle();
+        }
+        // applyMapStyle and applyPanelStyle both replace style.cssText
+        // wholesale, which drops the time-mode dimming. Put it back.
+        syncSunHandleStyle();
+      };
+
       // No auto-fit on load any more: the window above is tuned for the
       // view this map opens on, and fitting would immediately throw it
       // away. The fit button is still there for when you pan somewhere
@@ -2355,6 +2585,52 @@
       };
       c.sunModeEl.addEventListener("input", syncSunHandleStyle);
       syncSunHandleStyle();
+
+      // Installed here, not where placeOverlays is defined: it calls
+      // syncSunHandleStyle, which is a const declared just above, so an
+      // eager call from further up the cell hits its temporal dead zone
+      // and throws. The observer alone would have been fine, since it
+      // only ever fires asynchronously -- the eager first placement is
+      // what needs the definition to exist.
+      // Watching all of document.body with subtree:true was wrong twice
+      // over. It fired on every text node any live figure on the page
+      // replaced, dozens of times a second, and each run re-armed a
+      // whole-document observation; worse, the handler's own writes were
+      // inside what it was watching, so the first version span forever
+      // and wedged the tab.
+      //
+      // Neither is necessary. The controls panel is a DIRECT CHILD of
+      // body, so childList without subtree catches it appearing and
+      // going away, and nothing else on the page reaches that list. A
+      // second observer on the panel itself catches it being shown or
+      // hidden, which is an attribute change rather than a child one.
+      // The handler only ever writes inside the panel or inside the
+      // figure, and neither observer is watching those, so there is no
+      // feedback path at all.
+      const panelObserver = new MutationObserver(placeOverlays);
+      let watchedPanel = null;
+      const watchPanel = () => {
+        const el = document.querySelector(".expandable-controls-panel");
+        if (el === watchedPanel) return;
+        panelObserver.disconnect();
+        watchedPanel = el;
+        if (el) {
+          panelObserver.observe(el, {
+            attributes: true, attributeFilter: ["style", "class"],
+          });
+        }
+      };
+      const overlayObserver = new MutationObserver(() => {
+        watchPanel();
+        placeOverlays();
+      });
+      overlayObserver.observe(document.body, { childList: true });
+      invalidation.then(() => {
+        overlayObserver.disconnect();
+        panelObserver.disconnect();
+      });
+      watchPanel();
+      placeOverlays();
 
       // Prewarm ring levels. Changing either reloads every tile, so
       // they are driven by the controls rather than polled per frame.
@@ -2417,8 +2693,8 @@
         mode: { codec: oneOf({ cpu: "cpu", gpu: "gpu", debug: "debug" }), ...fromEl(c.bakeModeEl) },
         falloff: { codec: oneOf({ cos2: "cos²α", exp: "e^(−sin α)" }), ...fromEl(c.aoFalloffEl) },
         shading: { codec: oneOf({ overlay: "overlay", multiply: "multiply" }), ...fromEl(c.shadingEl) },
-        ao: { codec: num(0, 1, 0.01), ...fromEl(c.aoEl) },
-        relief: { codec: num(0, 1, 0.01), ...fromEl(c.strengthEl) },
+        ao: { codec: num(0, 2.5, 0.01), ...fromEl(c.aoEl) },
+        exag: { codec: num(1, 6, 0.1), ...fromEl(c.strengthEl) },
         shadow: { codec: num(0, 1, 0.01), ...fromEl(c.shadowEl) },
         sundiam: { codec: num(0.5, 30, 0.01), ...fromEl(c.sunDiameterEl) },
         samples: { codec: num(1, 16, 1), ...fromEl(c.shadowSamplesEl) },
@@ -2444,6 +2720,10 @@
         structure: { codec: num(0, 1, 0.01), ...fromEl(c.opennessTintEl) },
         contrast: { codec: num(0, 1, 0.01), ...fromEl(c.opennessContrastEl) },
         sat: { codec: num(0, 1, 0.01), ...fromEl(c.satelliteEl) },
+        dim: { codec: num(0, 1, 0.01), ...fromEl(c.exposureEl) },
+        skyf: { codec: num(0.05, 0.5, 0.01), ...fromEl(c.skyFracEl) },
+        glow: { codec: num(0, 1, 0.01), ...fromEl(c.glowLeakEl) },
+        con: { codec: num(0.3, 2.5, 0.01), ...fromEl(c.contrastEl) },
         bright: { codec: num(-1, 1, 0.01), ...fromEl(c.brightnessEl) },
         // `sat` is already taken by the satellite layer, and this knob
         // scales Oklab chroma, so it rides under that name.
@@ -2591,7 +2871,7 @@
         // at the horizon froze the terrain there while the sun kept
         // setting. See verify-sun-unclipped.mjs.
         const [sunX, sunY, sunZ] = sunVector(sd.az, sd.alt);
-        const reliefStrength = Number(c.strengthEl.value);
+        const reliefExag = Number(c.strengthEl.value);
         const aoStrength = Number(c.aoEl.value);
         const shadowStrength = Number(c.shadowEl.value);
         const sunDiameter = Number(c.sunDiameterEl.value);
@@ -2617,7 +2897,7 @@
             c.animationPanel.timeOverride.utcMs == null &&
             (sunOverlay.isDragging() || c.sunCalendarEl.isInteracting()),
           shadingMode: isDebug ? 2 : 1,
-          reliefStrength,
+          reliefExag,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
           lsaoFalloff,
           useTime,
@@ -2630,6 +2910,11 @@
           brightness: Number(c.brightnessEl.value),
           saturation: Number(c.saturationEl.value),
           shadingModel: c.shadingEl.value,
+          // The control reads as dimming; eta is its complement.
+          eta: 1 - Number(c.exposureEl.value),
+          skyFrac: Number(c.skyFracEl.value),
+          leak: Number(c.glowLeakEl.value),
+          contrastPost: Number(c.contrastEl.value),
         };
         if (solar) lightingUpdate.solar = solar;
         viewer.setLighting(lightingUpdate);

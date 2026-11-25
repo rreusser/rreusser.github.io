@@ -162,7 +162,7 @@ export function imageryBlockSplit(z, y, tileSize, nativeResM) {
   return nativeResM > 0 && tilePxSizeM(z, y, tileSize) > nativeResM;
 }
 
-const SHADER = /* wgsl */ `
+export const SHADER = /* wgsl */ `
 struct Global {
   viewportPx: vec4<f32>,   // xy = viewport size, z = shadingMode (0=lambertian,1=relief), w = reliefStrength
   sunDir: vec4<f32>,       // xyz = world-space sun direction, w unused
@@ -171,7 +171,13 @@ struct Global {
   hypso: vec4<f32>,        // x=rampMin (m), y=1/rampSpan, z=tintStrength, w=opennessTint
   ao: vec4<f32>,           // x=floorRaw, y=1 when the falloff is exp, z=contrast exponent, w unused
   imagery: vec4<f32>,      // x=satellite opacity, yzw unused
-  grade: vec4<f32>,        // x=lightness exponent, y=chroma multiplier, z=1 for the overlay model, w=brightness stops (overlay only)
+  grade: vec4<f32>,        // x=lightness exponent, y=chroma multiplier, z=1 for the irradiance model, w=brightness stops (legacy path only)
+  // The irradiance model's own parameters. See LIGHTING-DESIGN.md; the
+  // reference implementation is src/lib/terrain-lighting.js and
+  // verify-lighting-model.mjs gates the two against each other.
+  light: vec4<f32>,        // x=skyFrac, y=beta, z=leak, w=eta
+  tone: vec4<f32>,         // x=ceilStops, y=nightFloor, z=kneeMin, w=sunRadiusDeg
+  shape: vec4<f32>,        // x=reliefExag, y=contrastPost, z=pivot, w=toneContrast
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -383,6 +389,173 @@ fn opennessOffset(ao: f32, floorRaw: f32, sinTheta: f32, nz: f32, isExp: f32, co
   return sign(t) * pow(abs(t), max(contrast, 0.05));
 }
 
+// ---- the irradiance model --------------------------------------------
+//
+// Mirrors PROPOSED in src/lib/terrain-lighting.js line for line. What
+// runs here has to agree with that reference to 1/255; the comments
+// explaining WHY each piece is shaped this way live there and in
+// LIGHTING-DESIGN.md rather than being duplicated.
+
+const REL_OPENNESS_MAX: f32 = 1.1;
+
+const KNEE_MAX: f32 = 0.9;
+const DEG_TO_RAD: f32 = 0.017453292519943295;
+const LN2: f32 = 0.6931471805599453;
+
+// Compactly supported C1 smooth max, scale s. Outside +/- s this is
+// exactly max(x, 0); inside, value and slope match at both joins. A
+// softplus is smooth too but has infinite support, so at a wide sun it
+// would light a surface whose own horizon the disc is entirely below,
+// where the answer must be exactly zero.
+fn smaxC(x: f32, s: f32) -> f32 {
+  if (s <= 0.0) { return max(x, 0.0); }
+  let u = x / s;
+  if (u <= -1.0) { return 0.0; }
+  if (u >= 1.0) { return x; }
+  return s * (1.0 + u) * (1.0 + u) * 0.25;
+}
+
+// The bake's stored AO, renormalised so both falloffs span [0, 1].
+fn opennessOfStored(ao: f32, floorRaw: f32) -> f32 {
+  let raw = sqrt(max(ao, 0.0));
+  return clamp((raw - floorRaw) / max(1.0 - floorRaw, 1e-6), 0.0, 1.0);
+}
+
+// Absolute irradiance, in units where kSun + kSky = 1. V is sun-disc
+// visibility (cast shadow times the geometric horizon gate); Om is sky
+// visibility relative to this surface's own plane.
+fn irradianceOf(Nsh: vec3<f32>, sunDir: vec3<f32>, V: f32, Om: f32, sunRadS: f32) -> f32 {
+  let kSky = g.light.x;
+  let kSun = 1.0 - g.light.x;
+  let beta = g.light.y;
+  let leak = g.light.z;
+  let cosS = smaxC(dot(Nsh, sunDir), sunRadS);
+  // The occluder that hides the sun hides most of the circumsolar sky
+  // with it, less a leak for the glow's angular width.
+  let csV = leak + (1.0 - leak) * V;
+  let skyA = (1.0 - beta) * 0.5 * (1.0 + Nsh.z) + beta * csV * cosS;
+  return kSun * V * cosS + kSky * skyA * Om;
+}
+
+// Flat, open, unshadowed ground under the same sun. Every term mirrors
+// irradianceOf with N = up, V = H and Om = 1, which is what makes the
+// ratio of the two exactly 1 on the flats at every sun altitude.
+fn irradianceRefOf(sunZ: f32, H: f32, sunRadS: f32) -> f32 {
+  let kSky = g.light.x;
+  let kSun = 1.0 - g.light.x;
+  let beta = g.light.y;
+  let leak = g.light.z;
+  let Lz = smaxC(sunZ, sunRadS);
+  return kSun * H * Lz + kSky * ((1.0 - beta) + beta * (leak + (1.0 - leak) * H) * Lz);
+}
+
+// Soft clip in stops: odd in log R, so R = 1 maps to exactly 1 and the
+// flat-ground identity survives the curve. Bounded by +/- ceilStops.
+fn toneOf(R: f32) -> f32 {
+  let k = max(g.tone.x, 1e-3) * LN2;
+  return exp(k * tanh(g.shape.w * log(max(R, 1e-12)) / k));
+}
+
+// Brightness and contrast on the finished lightness. Monotone, and
+// deliberately unbounded above: the shoulder below is what guarantees
+// no clipping, so this must not clamp or it would BE the clip.
+fn gradeOklabL(L: f32) -> f32 {
+  let b = pow(max(L, 0.0), g.grade.x);
+  let pivot = max(g.shape.z, 1e-3);
+  return pivot * pow(max(b, 1e-12) / pivot, g.shape.y);
+}
+
+// Highlight shoulder: identity below the knee, slope 1 on both sides of
+// it, strictly increasing and strictly below 1 over the reachable
+// range. exp rather than tanh because an asymptote of exactly 1 is
+// REACHED in float once its argument saturates, and a shoulder that
+// returns 1.0 is itself the clip it was added to remove.
+fn shoulderOf(L: f32, knee: f32) -> f32 {
+  let k = min(max(knee, 0.0), KNEE_MAX);
+  if (L <= k) { return L; }
+  return 1.0 - (1.0 - k) * exp(-(L - k) / (1.0 - k));
+}
+
+// The whole irradiance model, as one function of a pixel's bake values
+// and the sun, returning the finished Oklab lightness.
+//
+// It is a function rather than inline in fs_main so that
+// verify-lighting-parity can call this exact text from a compute pass
+// and compare it against composite() in src/lib/terrain-lighting.js.
+// That is gate 13, and a model that only exists inside a fragment entry
+// point cannot be checked that way.
+fn irradianceL(nxy: vec2<f32>, nz: f32, slopeMag: f32, ao: f32, shadow: f32,
+               sunDir: vec3<f32>, albedoL: f32) -> f32 {
+  let aoStr = g.params.z;
+  let shadowStrength = g.params.w;
+
+  // Relief is vertical exaggeration of the shading normal, not an
+  // additive gain. dot(N, L) <= 1 whatever the exaggeration, so no
+  // setting of it can brighten an occluded pixel; and flat ground has
+  // nxy = 0, so it stays flat at any exaggeration and the flat-ground
+  // identity is untouched.
+  let exag = max(g.shape.x, 1e-3);
+  let Nsh = normalize(vec3<f32>(nxy * exag, nz));
+
+  let sunRadS = sin(g.tone.w * DEG_TO_RAD);
+  // A gate on the SUN, not on the pixel: below the geometric horizon
+  // there is no disc anywhere, whatever a steep slope's own
+  // orientation says about dot(N, L).
+  let H = smoothstep(-0.0045, 0.0045, sunDir.z);
+  let V = (1.0 - shadowStrength * shadow) * H;
+
+  // Sky visibility, relative to what this surface's own plane reads.
+  // The sweep starts level and counts blockers strictly above the ray,
+  // so a uniform hillside is NOT open -- its uphill azimuths block it,
+  // and a 45 degree slope comes back at openness 0.73. The sky term's
+  // own (1 + nz)/2 already carries the tilt, so feeding the raw
+  // measurement in as well counts the slope twice, and the two falloffs
+  // disagree about by how much. Dividing by planeEnclosure's prediction
+  // -- the fit that already serves the openness tint, and which this
+  // path never used -- leaves only the occlusion the terrain actually
+  // causes. Gate 6.
+  let sEps = max(0.0, slopeMag - AO_SLOPE_EPS);
+  let nzEps = sqrt(max(0.0, 1.0 - sEps * sEps));
+  let planeOp = 1.0 - planeEnclosure(sEps, nzEps, g.ao.y);
+  let omRel = clamp(opennessOfStored(ao, g.ao.x) / max(planeOp, 1e-6),
+                    0.0, REL_OPENNESS_MAX);
+  // One-sided. Over 37k pixels of real baked terrain the ratio runs
+  // p01 0.642, p50 0.894, p90 0.974, with 80% of the map more occluded
+  // than its own tangent plane. The part above 1 is not signal: the
+  // sweep starts level and counts only blockers strictly above the ray,
+  // so nothing reads as more open than level and convexity is not
+  // recoverable. Ignoring it also makes a uniform plane of any
+  // steepness exactly neutral rather than nearly so.
+  //
+  // The strength slider reaches past 1, which is exaggeration rather
+  // than measurement. It cannot break the physical ceiling: Om floors
+  // at 0 and multiplies only the sky term. Gate 4.
+  let occluded = max(0.0, 1.0 - omRel);
+  let Om = clamp(1.0 - aoStr * occluded, 0.0, 1.0);
+
+  // Relative irradiance. The reference at the zenith is exactly 1,
+  // because kSun + kSky = 1, so eta alone sets how much of the sun's
+  // own altitude is divided back out: 1 holds flat ground at one
+  // brightness all day, 0 lets the map darken toward sunset.
+  let E = irradianceOf(Nsh, sunDir, V, Om, sunRadS);
+  let Eref = irradianceRefOf(sunDir.z, H, sunRadS);
+  let R = E / max(pow(max(Eref, 1e-6), g.light.w), 1e-9);
+
+  // The one monotone carrier of day into night, in place of the
+  // nightMask / nightDepth / horizonShadow stack the legacy path still
+  // needs. Because R is normalised it carries no altitude trend of its
+  // own, so the terminator cannot run backwards.
+  let D = g.tone.y + (1.0 - g.tone.y) * smoothstep(-0.105, 0.035, sunDir.z);
+
+  let lit = albedoL * toneOf(R) * D;
+
+  // Grade on the finished lightness and nowhere else, then the
+  // shoulder. The knee rides the graded albedo so that R = 1 is the
+  // identity for every albedo, not just one below kneeMin.
+  let knee = max(g.tone.z, gradeOklabL(albedoL));
+  return shoulderOf(gradeOklabL(lit), knee);
+}
+
 // Elevation to Oklab, linearly blending the two bracketing ramp
 // entries. Outside the ramp's domain this clamps to the end entries.
 fn rampAt(h: f32) -> vec3<f32> {
@@ -518,97 +691,6 @@ fn gradeSrgb(srgb: vec3<f32>) -> vec3<f32> {
   return oklabToSrgbClipped(vec3<f32>(L2, lab.y * cs, lab.z * cs));
 }
 
-// ---- the overlay shading model ---------------------------------------
-//
-// Everything below is the second of the figure's two shading models,
-// and the one meant for satellite imagery. The model above — slope and
-// aspect relief, applied as a relative brightness — is what the
-// sections further up the page build, and it is the right thing for a
-// map whose colour is a hypsometric ramp the shading is free to push
-// around. Imagery is not that: it arrives already carrying its own
-// light and shade, so the shading has to read as a modification of a
-// photograph rather than as the thing being drawn.
-//
-// Overlay blend from Jamie Owen's glsl-blend (MIT) — multiply where the
-// base is dark, screen where it is light, which is Photoshop's Overlay
-// mode. The property the whole model is built on is that 0.5 is its
-// identity element: blendOverlay(a, 0.5) == a for every a. That is why
-// the shading value is accumulated around 0.5 rather than around 1.
-fn blendOverlay(base: f32, blend: f32) -> f32 {
-  return select(
-    1.0 - 2.0 * (1.0 - base) * (1.0 - blend),
-    2.0 * base * blend,
-    base < 0.5,
-  );
-}
-
-// sqrt(0.5) desaturation factor, inverted, so the knob is calibrated at
-// neutral shading. See overlayComposite.
-const DESAT_AT_NEUTRAL: f32 = 1.3060193;
-
-// Occlusion and cast shadow reach this model as multiplicative factors,
-// inherited from the one above, where a factor f means "this pixel
-// renders at f times what open, lit ground would". Entering 1 - f into
-// the accumulator at face value darkens considerably harder than that,
-// because the blend applies the shading a second time: an albedo at
-// L = 0.5 taking the default shadow strength straight comes out at 0.32
-// of itself where the other model puts it at 0.53, which is the
-// difference between a shadow and a hole.
-//
-// Matching them is a closed form. Writing u for the clipped departure,
-// an albedo at 0.5 lands at 2(0.5 + u)^2, so f is hit at
-// u = 0.5(sqrt(f) - 1), and undoing the soft clip gives
-// atanh(sqrt(f) - 1). Over the sliders' useful range, f from 0.5 to 1,
-// that sits within 0.02 of a straight 0.57 * (f - 1) — a twentieth of
-// what the shadow slider alone contributes — so the constant is what
-// is used, and the two sliders keep the meaning they have in the other
-// model. See verify-overlay-shading.mjs.
-const SHADE_TO_VALUE: f32 = 0.57;
-
-// Composite a shading value onto an albedo.
-//
-// albedo is the surface colour in Oklab, L in [0, 1]: the hypsometric
-// ramp, the satellite pixel, the mix of the two, or the mid-grey that
-// stands in for both when neither layer is on. value is the scene's
-// shading, already soft-clipped into (0, 1), where 0.5 means flat, open,
-// fully lit ground.
-//
-// Lightness takes the shading twice over, once as an offset
-// (albedo.L + value - 0.5) and once through the overlay blend against
-// value itself. Both are exact identities at value = 0.5, so neutral
-// ground renders the albedo untouched — a satellite pixel on the flats
-// comes out of the shader as the pixel that went in. That is the
-// property a multiply cannot have: a multiply has to be normalised by
-// whatever flat ground would render at (the k = v / v0 division in
-// the model above) to come close, and that division is exactly what
-// gets unstable as the sun drops and v0 goes to zero. Away from neutral
-// the offset and the blend compound, which is what lets relief read
-// through imagery that already has contrast of its own.
-//
-// Monotonicity survives the pair: on either side of the blend's split
-// the result is increasing in value, the two branches agree at
-// base = 0.5, and the output cannot leave [0, 1]. So the model shares
-// the two structural guarantees of gradeSrgb above — no two shading
-// values collapse onto one, and nothing clips. See
-// verify-overlay-shading.mjs.
-//
-// Chroma is scaled by sqrt(value), so shade desaturates toward grey.
-// That is both what happens physically, as less and less of what
-// reaches the eye is direct light, and what keeps a darkened satellite
-// pixel from reading as a lurid version of itself; the 0.2 floor keeps
-// some colour alive in deep shadow. Scaling by the shading rather than
-// by the albedo's own lightness is deliberate: dark rock stays as
-// colourful as the imagery has it, while a shadowed slope goes grey
-// whatever colour it is. The factor is normalised at value = 0.5 so
-// satK means what it means in the model above: 1 is the albedo's own
-// chroma, untouched.
-fn overlayComposite(albedo: vec3<f32>, value: f32, satK: f32) -> vec3<f32> {
-  let base = clamp(albedo.x + value - 0.5, 0.0, 1.0);
-  let L = blendOverlay(base, value);
-  let c = satK * (0.2 + 0.8 * sqrt(max(value, 0.0))) * DESAT_AT_NEUTRAL;
-  return oklabToSrgbClipped(vec3<f32>(L, albedo.y * c, albedo.z * c));
-}
-
 // Invert web-mercator: (uv in tile, plus integer tile z/x/y) → lat/lng
 // in radians. Uses WGSL's built-in sinh; the Gudermannian form
 // atan(sinh(x)) gives the standard mercator-to-latitude map.
@@ -674,7 +756,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let twilight = smoothstep(-0.105, 0.035, sunPP.z); // ≈ (−6°, +2°)
 
   let aoContrast = g.params.z;
-  let shadowStrength = g.params.w;
+  // LEGACY PATH ONLY, and scaled for the same reason aoC is below.
+  //
+  // This model multiplies its darkenings together -- relief times
+  // shadowMask times aoFactor -- so at full shadow depth they compound
+  // to black: measured at the physical default, 52% of the frame
+  // clipped to zero at a low sun. That compounding is precisely the
+  // defect the irradiance model was built to remove, and it is why the
+  // old shared default was 0.47 rather than 1.
+  //
+  // Scaling by that old default puts the slider's top end exactly where
+  // this path used to sit, so "shadow depth" stays meaningful in both
+  // models even though they read the uniform on different scales. The
+  // irradiance path reads g.params.w unscaled, in irradianceL.
+  let shadowStrength = g.params.w * 0.47;
 
   let nightShadow = mix(0.0, 1.0 - twilight, useTime);
   let nightMask = 1.0 - shadowStrength * nightShadow;
@@ -700,35 +795,40 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let horizonShadow = mix(fixedHS, timeHS, useTime);
   let shadowMask = 1.0 - shadowStrength * horizonShadow;
 
-  // The bake's own answer, with no altitude fade over it, which is what
-  // the overlay model uses instead of shadowMask.
+  // NOTE for the legacy path only: shadowMask above carries an
+  // altitude fade that drives the cast shadow to full as the sun
+  // reaches the horizon. The slope/aspect model needs it, because its
+  // relief can only darken and the scene would otherwise brighten
+  // through the terminator. It costs the entire low-sun phenomenon.
   //
-  // The two fades above exist because the slope/aspect model needs
-  // them: its relief can only darken, so as relief fades out through
-  // the terminator the scene would brighten unless the cast shadow
-  // were driven to full at the same time. The overlay model has a
-  // night floor for that job (see nightDepth below), so it does not
-  // need the fade — and the fade costs more than it is worth here.
+  // The sweep runs at the true altitude with horizonFloor false, so it
+  // already knows per pixel whether the sun clears that pixel's own
+  // terrain horizon: a summit looking down on everything around it
+  // keeps shadow = 0 while the valley beside it goes to 1. The fade
+  // averaged that away -- at 0.2 degrees a fully LIT pixel came out at
+  // 0.58 of open ground against 0.53 for a fully shadowed one, so the
+  // two rendered as the same colour, with the sun still up.
   //
-  // What it costs is the entire low-sun phenomenon. The sweep runs at
-  // the true altitude with horizonFloor false, so it already knows,
-  // per pixel, whether the sun clears that pixel's own terrain
-  // horizon: a summit looking down on everything around it keeps
-  // shadow = 0 while the valley beside it goes to 1. Last light on the
-  // summits is computed, correctly, and then the fade averaged it
-  // away. At 1 degree a fully lit pixel came out at 0.76 of open
-  // ground, at 0.2 degrees at 0.58, and at the horizon at 0.53 —
-  // which is exactly where a fully shadowed pixel sits, so the two
-  // rendered as the same colour. All of that happened above the
-  // horizon, with the sun still up. See verify-low-sun-illumination.mjs.
-  let directMask = 1.0 - shadowStrength * shadow;
+  // The irradiance model needs no fade at all: direct light is
+  // V * max(dot(N, L), 0) with V the bake's own answer, gated only at
+  // the geometric horizon, and the daylight factor carries day into
+  // night separately. So it reads the raw shadow value and keeps the
+  // phenomenon. See verify-low-sun-illumination.mjs and gate 9.
 
   // AO tonemap in sRGB space — matching the LSAO section's atan
   // contrast curve. Applied after sRGB conversion for better
   // perceptual dynamic range.
   // ao was stored as rawAo^2; use directly.
   let aoLin = ao;
-  let aoC = clamp(aoContrast, 0.0, 0.999999);
+  // LEGACY PATH ONLY. The two models read params.z differently: the
+  // irradiance path takes it as a linear strength, where 1 means "apply
+  // the measured sky visibility as it is", while this atan tonemap takes
+  // it as a contrast with a pole at 1 -- so the slider's new default of
+  // 1 would drive this branch to black on any pixel that is not
+  // perfectly open. Scaling by the legacy default of 0.3 puts the
+  // slider's top end exactly where this path used to sit, so one
+  // control stays meaningful in both.
+  let aoC = clamp(aoContrast * 0.3, 0.0, 0.999999);
   let aoS = aoC / (1.0 - aoC);
   let aoShade = clamp(1.0 - aoLin, 0.0, 1.0);
   let aoFactor = 1.0 - (2.0 / 3.14159265) * atan(aoS * aoShade);
@@ -797,71 +897,52 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     + g.hypso.w * opennessOffset(ao, g.ao.x, slopeMag, nz, g.ao.y, g.ao.z)
     * 0.5 * rampSpan;
 
-  // ---- overlay model ---------------------------------------------
-  // Diffuse Lambertian relief, measured against flat ground. The dot
-  // product on its own darkens every pixel as the sun drops, which on
-  // a map reads as the lights going out rather than as terrain;
-  // subtracting what flat ground receives under the same sun leaves a
-  // signed departure that is zero wherever the ground is flat, however
-  // low the sun is, so the surface's own shape is all that survives.
-  // This is the one term that differs in kind from the model above,
-  // which throws the true normal away and reconstructs a darkening
-  // from slope and aspect separately.
+  // ---- the irradiance model --------------------------------------
+  //
+  // Relief shading and cast shadow are not two effects to be combined:
+  // they are one term, V * max(dot(N, L), 0), where V is the fraction
+  // of the sun disc that is visible. Lambert says how obliquely the
+  // light arrives, shadow says whether it arrives at all, and a product
+  // means either one going to zero kills direct light outright.
+  //
+  // Relief surviving in shadow -- which is wanted, both aesthetically
+  // and because indirect light really is biased toward the sun -- then
+  // comes from the SECOND light rather than from a fudge on the first:
+  // the sky has a circumsolar peak, so sky illumination is itself
+  // sun-directional, and it is bounded by the sky's share of the
+  // budget. That bound is the whole fix. The model this replaced let
+  // relief outgun shadow by two orders of magnitude and took a fully
+  // shadowed slope to clipped white.
+  //
+  // See LIGHTING-DESIGN.md; the model itself is irradianceL above.
   if (g.grade.z > 0.5) {
-    let lambRel = (dot(N, sunDir) - sunDir.z) * reliefFade;
-    // The slider's own gain curve, r / (1 - r): linear at the bottom
-    // and steep at the top, so the useful range isn't crammed into the
-    // first tenth of the track. Capped short of the pole.
-    let reliefGain = reliefStr / max(1.0 - reliefStr, 0.01);
-
-    // Relief, occlusion and shadow enter as signed departures from
-    // neutral rather than as factors multiplying each other down.
-    // Each term is zero where it has nothing to say, so one that is
-    // switched off costs nothing and moves nothing; and because they
-    // are summed inside the soft clip rather than multiplied, the
-    // composite approaches black asymptotically instead of arriving
-    // there the moment two of them happen to coincide.
-    var value = 0.5;
-    value += 0.5 * lambRel * reliefGain;
-    value += SHADE_TO_VALUE * (aoFactor - 1.0);
-    value += SHADE_TO_VALUE * (directMask - 1.0);
-    // The night floor, which in time mode fades in across civil
-    // twilight as the relief term fades out. It has to be at least as
-    // deep as the relief it is replacing, or the terminator runs
-    // backwards: on a slope turned away from the sun the relief term
-    // is negative, so fading it to zero is itself a brightening, and
-    // terrain that had been darkening all afternoon would lighten
-    // once the sun went down. Half the relief gain is exactly the most
-    // that fade can give back, since lambRel is bounded below by -1
-    // near the horizon, so taking the deeper of the two makes the
-    // terminator a one-way ramp into the dark at every setting of
-    // both sliders rather than only at the defaults. It also reads
-    // correctly: a map whose relief is exaggerated needs a darker
-    // night to put it away. See verify-overlay-shading.mjs.
-    let nightDepth = max(SHADE_TO_VALUE * shadowStrength, 0.5 * reliefGain);
-    value -= nightDepth * nightShadow;
-    // Brightness lands inside the accumulator rather than on the
-    // finished pixel: it sets where the soft clip's midpoint sits
-    // relative to the shading, so it buys headroom at the end being
-    // compressed instead of merely scaling what is already there.
-    value += g.grade.w;
-    // Soft clip. tanh is the reason the terms above are free to
-    // overshoot: nothing has to be clamped on the way in, extremes
-    // compress smoothly instead of flattening onto 0 or 1, and the
-    // factor-of-two it costs at the midpoint is handed straight back
-    // by the overlay blend, whose slope there is 2.
-    value = 0.5 + 0.5 * tanh(value - 0.5);
-
-    // Albedo stack, bottom up. Mid-grey stands in for "no layer":
-    // 0.5 is the overlay's identity, so an unlayered map renders the
-    // shading itself, and a white base would instead make the blend
-    // non-monotonic in value.
+    // Albedo stack, bottom up. Mid-grey stands in for "no layer".
     var albedo = vec3<f32>(0.5, 0.0, 0.0);
     if (tint > 0.0) { albedo = mix(albedo, rampAt(hSample), tint); }
     if (satWeight > 0.0) { albedo = mix(albedo, srgbToOklab(sat.rgb), satWeight); }
-    return vec4<f32>(overlayComposite(albedo, value, g.grade.y), 1.0);
+
+    // Every layer in the stack above is an ALBEDO -- the mid-grey, the
+    // hypsometric ramp and the satellite imagery alike -- and one
+    // lighting applies to all of them equally. Satellite imagery really
+    // does carry the light of the day it was taken, so this is an
+    // assumption rather than a fact, and where the capture sun and the
+    // drawn sun disagree it shades slightly twice. Taking it as the
+    // intrinsic diffuse colour is what makes the model coherent: there
+    // is one albedo and one light, and no layer needs its own exception.
+    let Lout = irradianceL(nxy, nz, slopeMag, ao, shadow, sunDir, albedo.x);
+
+    // Chroma scales by L / albedo.L, holding C/L -- which is what reads
+    // as saturation -- fixed through shade. Scaling by L / lit instead
+    // makes a shadow more saturated than the ground it falls on. Gate 15.
+    let cs = select(0.0, g.grade.y * Lout / max(albedo.x, 1e-4), albedo.x > 0.0);
+    return vec4<f32>(oklabToSrgbClipped(vec3<f32>(Lout, albedo.y * cs, albedo.z * cs)), 1.0);
   }
 
+  // ---- legacy slope/aspect model ---------------------------------
+  // Kept intact, and still reachable from the shading radio, so the two
+  // can be compared on screen. It is the model whose relief can only
+  // darken, and the fades above (nightMask, horizonShadow, reliefFade)
+  // exist for it alone.
   if (tint <= 0.0 && satWeight <= 0.0) {
     return vec4<f32>(gradeSrgb(vec3<f32>(v, v, v)), 1.0);
   }
@@ -1564,10 +1645,10 @@ export function createTileViewer(opts) {
   );
   const emptySatView = emptySatTexture.createView();
 
-  // Global uniform buffer (128 bytes: eight vec4s — viewport, sunDir,
-  // params, solar, hypso, ao, imagery, grade).
+  // Global uniform buffer (176 bytes: eleven vec4s — viewport, sunDir,
+  // params, solar, hypso, ao, imagery, grade, light, tone, shape).
   const globalBuffer = device.createBuffer({
-    size: 128,
+    size: 176,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "tile-viewer global uniforms",
   });
@@ -1609,7 +1690,7 @@ export function createTileViewer(opts) {
       { binding: 1, resource: { buffer: rampBuffer } },
     ],
   });
-  const globalData = new Float32Array(32);
+  const globalData = new Float32Array(44);
 
   // ------------------------------------------------------------------
   // GPU tile-bake resources.
@@ -1772,6 +1853,34 @@ export function createTileViewer(opts) {
     sunInteracting: false,
     shadingMode: 0,
     reliefStrength: 1,
+    // The irradiance model (LIGHTING-DESIGN.md). Defaults are the ones
+    // the sweeps in verify-lighting-model.mjs were run at.
+    skyFrac: 0.22,       // sky's share of the budget at a high sun
+    leak: 0.25,          // glow surviving an occluder: relief in shade
+    eta: 0.7,            // exposure: 1 holds the flats all day, 0 absolute
+    nightFloor: 0.06,
+    kneeMin: 0.8,        // highlight shoulder's knee
+    contrastPost: 1,     // contrast, a post-process about a 0.5 pivot
+    reliefExag: 2.9,     // vertical exaggeration of the shading normal
+    // Not exposed as controls, and the measurements are the reason.
+    // `beta` (the circumsolar share of sky radiance) reshapes the
+    // picture almost exactly as `skyFrac` does -- structural cosine
+    // 0.976, opposed, so one simply undoes the other -- and leaving it
+    // adjustable also let it reach 0, where `leak` goes completely
+    // dead: the glow it scales is the only thing leak acts on.
+    // `ceilStops` and `toneContrast` are the lighting's own contrast;
+    // toneContrast measured 0.981 against contrastPost, which is the
+    // same control twice, and the post-process one is the one that
+    // belongs to the viewer rather than to the physics.
+    // See LIGHTING-DESIGN.md section 9.
+    beta: 0.45,
+    ceilStops: 1.6,
+    toneContrast: 1,
+    // Full cast shadow. Depth of the shade is the `shadow depth`
+    // control (params.w); it is left adjustable because it is the only
+    // thing with real reach there -- sky light alone moves shadowed
+    // ground only from 0.425 to 0.582 of lit ground across its whole
+    // range, where shadow depth spans 0.72 in lightness.
     bakeMode: "cpu",
     lsaoFalloff: "exp",
     // Per-pixel sun-position mode (time-driven). When useTime is
@@ -1810,6 +1919,9 @@ export function createTileViewer(opts) {
     // See the overlay model section of the shader.
     shadingModel: "overlay",
   };
+
+// Clamp a lighting parameter to [0, 1].
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
   const clampSatOpacity = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
   // Imagery is live only when the viewer was given a source and the
@@ -2991,14 +3103,19 @@ export function createTileViewer(opts) {
     globalData[0] = viewportW;
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
-    globalData[3] = lighting.reliefStrength;
+    const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+    // The legacy slope/aspect path reads relief as 0..1, so derive it
+    // from the exaggeration factor the control now carries.
+    globalData[3] = Number.isFinite(Number(lighting.reliefStrength))
+      ? Number(lighting.reliefStrength)
+      : clamp01((num(lighting.reliefExag, 2.9) - 1) / 5);
     globalData[4] = lighting.sunX;
     globalData[5] = lighting.sunY;
     globalData[6] = lighting.sunZ;
     globalData[7] = 0;
     globalData[8] = lighting.kAmbient;
     globalData[9] = lighting.kDirect;
-    globalData[10] = lighting.aoStrength;
+    globalData[10] = Math.min(2.5, Math.max(0, Number(lighting.aoStrength) || 0));
     globalData[11] = lighting.shadowStrength;
     globalData[12] = lighting.solar.sinDec;
     globalData[13] = lighting.solar.cosDec;
@@ -3020,6 +3137,8 @@ export function createTileViewer(opts) {
     globalData[22] = Math.pow(2, -lighting.opennessContrast);
     globalData[23] = 0;
     globalData[24] = imageryUrl ? clampSatOpacity(lighting.satOpacity) : 0;
+    // imagery.y is unused: the imagery is taken as an albedo like every
+    // other layer, so it needs no relighting term of its own.
     globalData[25] = 0;
     globalData[26] = 0;
     globalData[27] = 0;
@@ -3031,9 +3150,40 @@ export function createTileViewer(opts) {
     globalData[28] = Math.pow(2, -(Number.isFinite(brightStops) ? brightStops : 0));
     globalData[29] = Number.isFinite(satMul) ? Math.max(0, satMul) : 1;
     globalData[30] = lighting.shadingModel === "overlay" ? 1 : 0;
-    // The overlay model wants brightness unconverted: there it is an
-    // additive term inside the shading accumulator, not an exponent.
+    // Only the legacy path reads brightness unconverted; the irradiance
+    // model takes it as the exponent in globalData[28] like everything
+    // else, because there it is a post-process rather than a term
+    // inside an accumulator.
     globalData[31] = Number.isFinite(brightStops) ? brightStops : 0;
+
+    // ---- the irradiance model's own parameters --------------------
+    // light = (skyFrac, beta, leak, eta)
+    globalData[32] = clamp01(num(lighting.skyFrac, 0.22));
+    // Pinned, not a control. See the lighting defaults above.
+    globalData[33] = clamp01(num(lighting.beta, 0.45));
+    globalData[34] = clamp01(num(lighting.leak, 0.25));
+    globalData[35] = clamp01(num(lighting.eta, 0.7));
+    // tone = (ceilStops, nightFloor, kneeMin, sunRadiusDeg)
+    //
+    // sunRadiusDeg is the SAME quantity the bake already uses for the
+    // shadow penumbra, so one control widens the Lambert terminator and
+    // the shadow edge together rather than the composite having a razor
+    // terminator under a deliberately soft sun. Gate 14.
+    globalData[36] = Math.max(0.1, num(lighting.ceilStops, 1.6));
+    globalData[37] = clamp01(num(lighting.nightFloor, 0.06));
+    globalData[38] = clamp01(num(lighting.kneeMin, 0.8));
+    globalData[39] = Math.max(0, num(lighting.sunRadiusDeg, 0.46));
+    // shape = (reliefExag, contrastPost, pivot, toneContrast)
+    //
+    // The exaggeration arrives as the factor itself now, because that
+    // is what the control reads: its neutral is x1, not 0. A 0..1
+    // "relief strength" track implied that zero meant no relief, and it
+    // never did -- at x1 you get the true normal and full physical
+    // Lambert shading.
+    globalData[40] = Math.min(12, Math.max(1, num(lighting.reliefExag, 2.9)));
+    globalData[41] = Math.max(0.05, num(lighting.contrastPost, 1));
+    globalData[42] = 0.5;
+    globalData[43] = Math.max(0.05, num(lighting.toneContrast, 1));
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32
