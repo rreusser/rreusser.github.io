@@ -5,10 +5,13 @@
 // (bake + render) so panning/zooming existing tiles stays smooth.
 //
 // Protocol:
-//   main → worker:  { type: "init", tileUrl, parentDZ }
+//   main → worker:  { type: "init", tileUrl, parentDZ, boundsDZ }
 //   main → worker:  { type: "fetch", z, x, y }
 //   main → worker:  { type: "cancel", z, x, y }
+//   main → worker:  { type: "ringdz", id, z, x, y, compMin, compMax,
+//                     tanMin, minDZ, maxDZ, tileM, minLevel }
 //   worker → main:  { type: "tile", z, x, y, comp, horizon }
+//   worker → main:  { type: "ringdz", id, dz, provable, visited }
 //   worker → main:  { type: "error", z, x, y, message, status }
 //                    `status` is the HTTP status when the fetch got a
 //                    response, 0 for a network-level failure. The main
@@ -16,11 +19,21 @@
 //                    from "this tile did not arrive this time".
 //                    comp    = { N,  heights (Float32Array), hMin, hMax }
 //                    horizon = { HN, heights (Float32Array), hMin, hMax }
+//                    A second, finer prewarm ring was tried here and
+//                    reverted: it put the tile's eight same-zoom
+//                    neighbours in its critical path for a seam it only
+//                    narrowed. See PREWARM-FINDINGS.md.
 //                    Both Float32Arrays are transferred (zero-copy).
 //                    The horizon's (hMin, hMax) bounds the ring's
 //                    actual elevations (including zero-fill from
 //                    missing parents) and is paired with comp's
 //                    (hMin, hMax) by the sweep to trim the warmup.
+//                    The "ringdz" exchange answers which parent ring
+//                    width is provably enough for a tile at a given
+//                    sun angle, by walking the elevation quadtree the
+//                    tile pyramid already is. It selects a level; it
+//                    does not change how the sweep warms up. See
+//                    occluder-quadtree.js.
 //
 // `parentDZ` controls how many zoom levels up the pyramid the parent-
 // horizon window is assembled from. The 2×2 block of parents at
@@ -32,8 +45,22 @@
 // covers `s` child pixels — see line-sweep-core.js for the matching
 // bilinear-sample alignment math.
 
+import { pickRingDZ } from "./occluder-quadtree.js";
+
+// How far up the pyramid the ring query starts. Nine levels above the
+// target tile is a 512-tile square, which at z = 14 is most of a
+// continent — far enough that the world-beyond-the-root never matters.
+const ROOT_LEVEL = 9;
+
 let tileUrl = "";
 let parentDZ = 2;
+// Zoom delta at which the occluder bound is taken. Coarse on purpose:
+// one tile at z - boundsDZ covers 2^boundsDZ children each way, so a
+// whole screen of comp tiles shares the same handful of parents and
+// the bound costs one fetch per large area, then nothing.
+let boundsDZ = 4;
+// key -> max elevation, for the bound only.
+const boundsCache = new Map();
 
 function buildUrl(z, x, y) {
   return tileUrl.replace("{z}", z).replace("{x}", x).replace("{y}", y);
@@ -119,10 +146,10 @@ async function fetchTerrarium(url, signal) {
 // of the 2×2 parent block (slots [s/2, 3s/2-1]), keeping at least s/2
 // child tiles of margin on whichever side is "short" — that's the
 // worst-case symmetric window of s+1 child tiles around the target.
-function parentKeys(z, x, y) {
-  const parentZ = z - parentDZ;
+function parentKeys(z, x, y, dz) {
+  const parentZ = z - dz;
   if (parentZ < 0) return [];
-  const s = 1 << parentDZ;
+  const s = 1 << dz;
   const qx = Math.floor((x - s / 2) / s);
   const qy = Math.floor((y - s / 2) / s);
   const nParent = 1 << parentZ;
@@ -138,24 +165,52 @@ function parentKeys(z, x, y) {
 function acquireAll(z, x, y) {
   // Acquire the tile itself + all parents.
   acquireFetch(z, x, y);
-  for (const [pz, px, py] of parentKeys(z, x, y)) {
+  for (const [pz, px, py] of parentKeys(z, x, y, parentDZ)) {
     acquireFetch(pz, px, py);
   }
 }
 
 function releaseAll(z, x, y) {
   releaseFetch(z, x, y);
-  for (const [pz, px, py] of parentKeys(z, x, y)) {
+  for (const [pz, px, py] of parentKeys(z, x, y, parentDZ)) {
     releaseFetch(pz, px, py);
   }
 }
 
-function assembleParentHorizon(z, x, y) {
-  const parentZ = z - parentDZ;
+// Bounds of one quadtree node, as the ring query wants them.
+//
+// A node at level L over the target tile grid is exactly the tile at
+// zoom z - L: the pyramid already is the quadtree, so there is nothing
+// to build. Bounds come off the decode, which scans every pixel
+// anyway, and are cached per tile so a query that revisits a node
+// costs nothing.
+function nodeBoundsFor(z) {
+  return (L, nx, ny) => {
+    const bz = z - L;
+    if (bz < 0) return null;
+    const n = 1 << bz;
+    if (nx < 0 || ny < 0 || nx >= n || ny >= n) return null;
+    const key = `n${bz}/${nx}/${ny}`;
+    const hit = boundsCache.get(key);
+    if (hit !== undefined) return hit;
+    acquireFetch(bz, nx, ny);
+    return (cache.get(refKey(bz, nx, ny))?.promise || Promise.resolve(null))
+      .catch(() => null)
+      .then((t) => {
+        releaseFetch(bz, nx, ny);
+        const v = t ? { hMin: t.hMin, hMax: t.hMax } : null;
+        boundsCache.set(key, v);
+        return v;
+      });
+  };
+}
+
+function assembleParentHorizon(z, x, y, dz) {
+  const parentZ = z - dz;
   if (parentZ < 0) {
     return Promise.resolve({ HN: 0, heights: new Float32Array(0) });
   }
-  const s = 1 << parentDZ;
+  const s = 1 << dz;
   const qx = Math.floor((x - s / 2) / s);
   const qy = Math.floor((y - s / 2) / s);
   const nParent = 1 << parentZ;
@@ -243,6 +298,9 @@ self.onmessage = (e) => {
       if (Number.isFinite(msg.parentDZ) && msg.parentDZ >= 1) {
         parentDZ = msg.parentDZ | 0;
       }
+      if (Number.isFinite(msg.boundsDZ) && msg.boundsDZ >= 1) {
+        boundsDZ = msg.boundsDZ | 0;
+      }
       break;
 
     case "fetch": {
@@ -252,7 +310,7 @@ self.onmessage = (e) => {
       acquireAll(z, x, y);
       Promise.all([
         cache.get(key)?.promise,
-        assembleParentHorizon(z, x, y),
+        assembleParentHorizon(z, x, y, parentDZ),
       ]).then(([comp, horizon]) => {
         if (!inFlight.has(key)) return; // cancelled
         inFlight.delete(key);
@@ -276,6 +334,28 @@ self.onmessage = (e) => {
           message: err.message,
           status: err.status | 0,
         });
+      });
+      break;
+    }
+
+    case "ringdz": {
+      // Which ring width is provably enough for this tile at this sun.
+      // Pure selection: nothing here changes how the sweep warms up,
+      // only which single level it warms up from.
+      const { id, z, x, y, compMin, compMax, tanMin, minDZ, maxDZ, tileM, minLevel } = msg;
+      pickRingDZ({
+        minDZ, maxDZ,
+        radiusOf: (dz) => tileM * Math.pow(2, dz - 1),
+        tanMin, compMin, compMax,
+        rootLevel: Math.min(ROOT_LEVEL, z),
+        minLevel: minLevel ?? 0,
+        tileM, tx: x, ty: y,
+        getBounds: nodeBoundsFor(z),
+      }).then((r) => {
+        self.postMessage({ type: "ringdz", id, dz: r.dz, provable: r.provable, visited: r.visited, ladder: r.ladder });
+      }).catch(() => {
+        // No answer is not a crash: the caller keeps what it has.
+        self.postMessage({ type: "ringdz", id, dz: null });
       });
       break;
     }

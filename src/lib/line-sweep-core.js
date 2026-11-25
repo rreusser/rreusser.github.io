@@ -46,6 +46,39 @@
 // Currently only the hard-shadow parent-tile figure supplies one, but
 // the same hook is available to soft and LSAO if wanted.
 
+/**
+ * The shallowest sun angle that still casts, as a tangent.
+ *
+ * A finite sun is a disc, not a point, so the shadow a blocker throws
+ * runs out at the bottom edge of the disc rather than its centre: the
+ * penumbra window spans [alt - 1.5r, alt + 1.5r] and the longest
+ * shadow in it belongs to the bottom. Callers that only have the
+ * centre pass `sunRadiusDeg` and get the same angle the sweep itself
+ * uses, so a reach computed outside this module cannot disagree with
+ * the one computed inside it.
+ */
+export function shadowTanMin(altDeg, sunRadiusDeg = 0) {
+  return Math.tan(((altDeg - 1.5 * sunRadiusDeg) * Math.PI) / 180);
+}
+
+/**
+ * How far, in metres, a blocker standing `riseM` above its target can
+ * throw a shadow when the shallowest casting angle has tangent
+ * `tanAltMin`.
+ *
+ * Infinite at or below the horizon, where a shadow has no end.
+ *
+ * NOTE: sweepCore below computes its own warmup trim inline, as it did
+ * at this commit. This helper exists for callers outside the module
+ * (the viewer's ring-width query, the WGSL driver's uniform packing).
+ * Keep the two in agreement if either changes.
+ */
+export function shadowReachM(riseM, tanAltMin) {
+  if (!(riseM > 0)) return 0;
+  if (!(tanAltMin > 0)) return Infinity;
+  return riseM / tanAltMin;
+}
+
 export function sweepCore(opts) {
   const {
     W,
