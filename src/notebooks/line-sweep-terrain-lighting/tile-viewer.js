@@ -1578,6 +1578,16 @@ export function createTileViewer(opts) {
   // with a non-zero strength, so what is in here before then is only
   // ever a safety net.
   const RAMP_SIZE = 512;
+  // Binding 4 of the compute layout is the outer prewarm ring, and it
+  // is in the layout whether or not a tile has one, so every bind group
+  // needs something there. The shader never reads it when
+  // u.farHorizonN is 0.
+  const farHorizonStub = device.createBuffer({
+    size: 4,
+    usage: GPUBufferUsage.STORAGE,
+    label: "tile-viewer far horizon stub",
+  });
+
   const rampBuffer = device.createBuffer({
     size: RAMP_SIZE * 16,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -1897,6 +1907,10 @@ export function createTileViewer(opts) {
       this.texture = null;
       this.elevBuffer = null;
       this.horizonBuffer = null;
+      // The outer ring, for the GPU bake. A shared 4-byte stub when
+      // this tile has no outer ring, since binding 4 is in the layout
+      // and every bind group must fill it.
+      this.farHorizonBuffer = null;
       this.HN = 0;
       this.bindGroup = null;
       this._heights = null;    // kept for CPU shadow rebake
@@ -2151,7 +2165,12 @@ export function createTileViewer(opts) {
           usage:
             GPUTextureUsage.TEXTURE_BINDING |
             GPUTextureUsage.COPY_DST |
-            GPUTextureUsage.RENDER_ATTACHMENT,
+            GPUTextureUsage.RENDER_ATTACHMENT |
+            // COPY_SRC so a baked tile can be read back and diffed
+            // against the CPU reference. The GPU and CPU sweeps have
+            // drifted apart more than once, and being able to compare
+            // them on real tiles is worth a usage flag.
+            GPUTextureUsage.COPY_SRC,
           label: `tile ${this.z}/${this.x}/${this.y} packed`,
         });
         this.elevBuffer = device.createBuffer({
@@ -2260,6 +2279,7 @@ export function createTileViewer(opts) {
             this.texture?.destroy();
             this.elevBuffer?.destroy();
             this.horizonBuffer?.destroy();
+            this.farHorizonBuffer?.destroy();
             return;
           }
 
@@ -2282,6 +2302,14 @@ export function createTileViewer(opts) {
           // ---- GPU bake path (original) ----
           // elevBuffer is already uploaded above, for both bake modes.
           device.queue.writeBuffer(this.horizonBuffer, 0, horizon.heights);
+          if (farHorizon && farHorizon.HN > 0) {
+            this.farHorizonBuffer = device.createBuffer({
+              size: farHorizon.HN * farHorizon.HN * 4,
+              usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+              label: `tile ${this.z}/${this.x}/${this.y} far horizon`,
+            });
+            device.queue.writeBuffer(this.farHorizonBuffer, 0, farHorizon.heights);
+          }
 
           // Queue for baking — processed one per frame to avoid
           // saturating the GPU and blocking the display render pass.
@@ -2292,6 +2320,7 @@ export function createTileViewer(opts) {
             this.texture.destroy();
             this.elevBuffer.destroy();
             this.horizonBuffer.destroy();
+            this.farHorizonBuffer?.destroy();
             return;
           }
           // Tile data is uploaded but not yet baked — the bake queue
@@ -2345,6 +2374,7 @@ export function createTileViewer(opts) {
       } catch (_) {}
       try {
         this.horizonBuffer?.destroy();
+        this.farHorizonBuffer?.destroy();
       } catch (_) {}
       try {
         this.uniformBuffer.destroy();
@@ -2401,7 +2431,7 @@ export function createTileViewer(opts) {
         mode: "lsao",
         weight: 1 / AO_DIRECTIONS,
         horizonN: tile.HN,
-        parentScale,
+        parentScale: tile._parentScale || parentScale,
       });
       lsaoSweeps[d] = sweep;
       device.queue.writeBuffer(
@@ -2456,6 +2486,8 @@ export function createTileViewer(opts) {
             { binding: 1, resource: { buffer: tile.elevBuffer } },
             { binding: 2, resource: { buffer: bakeRes.workingAo } },
             { binding: 3, resource: { buffer: tile.horizonBuffer } },
+            // LSAO is single-tier, like its CPU counterpart.
+            { binding: 4, resource: { buffer: farHorizonStub } },
           ],
         });
         const pass = encoder.beginComputePass({ label: `lsao ${d}` });
@@ -2581,7 +2613,12 @@ export function createTileViewer(opts) {
           horizonFloor: false,
           weight,
           horizonN: tile.HN,
-          parentScale,
+          // This tile's own ring scales, not the module's: the two
+          // differ for as long as a ring swap is in flight, and baking
+          // a tile's old ring against the new scale misreads it.
+          parentScale: tile._parentScale || parentScale,
+          farParentScale: tile._farParentScale || 0,
+          farHorizonN: tile._farHN || 0,
           compElevMin: tile._compHMin,
           horizonElevMax: tile._horizonHMax,
         });
@@ -2606,6 +2643,10 @@ export function createTileViewer(opts) {
             { binding: 1, resource: { buffer: tile.elevBuffer } },
             { binding: 2, resource: { buffer: bakeRes.workingShadow } },
             { binding: 3, resource: { buffer: tile.horizonBuffer } },
+            {
+              binding: 4,
+              resource: { buffer: tile.farHorizonBuffer || farHorizonStub },
+            },
           ],
         });
         const pass = encoder.beginComputePass({

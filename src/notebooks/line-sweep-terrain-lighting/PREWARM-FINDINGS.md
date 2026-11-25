@@ -254,6 +254,22 @@ returns and the cap is what saves us.
    measured zero trivially.
 9. **`debugRingState().bake`** exposes per-tile sun angles, so a probe
    can reproduce a tile's own sweep instead of guessing from the hash.
+10. **A broken WGSL pipeline says nothing useful.** WebGPU reports only
+   "Invalid ComputePipeline ... is invalid due to a previous error",
+   thousands of times. `buildComputeWGSL` is exported so a probe can
+   build the module directly and read `getCompilationInfo()`, which
+   gives the line and the message. Two real errors surfaced that way:
+   `from` is a WGSL reserved keyword, and an `i32` loop counter
+   initialised from what had become an `f32`.
+11. **No backticks inside the WGSL template literals.** A comment
+   written as `` // `from` is reserved `` closed the template and the
+   shader text was then parsed as JavaScript, which reported an
+   unrelated syntax error in an importing cell.
+12. **The GPU bake writes shadow only in the rebake pass.** The static
+   bake does normals, AO and pack, so a freshly baked tile's alpha is
+   zero until a sun change triggers `rebakeShadowGPU`, and that pass
+   covers only VISIBLE tiles while the CPU one walks every tile. A
+   comparison that ignores either fact reads as a total mismatch.
 
 ## 7. Current state
 
@@ -274,23 +290,29 @@ returns and the cap is what saves us.
 - The half-cell shortfall of section 2 is still there on purpose, now
   bounded by the inner ring's cell size rather than by a cap on the
   only ring.
-- **The WGSL bake path has one ring only.** It never received the
-  deposit work (which no longer matters, since that was reverted) but it
-  does not know about the outer ring either, so a GPU bake is
-  single-tier and will show the artifacts this fixes. It also reads
-  module-level `parentScale` rather than per-tile.
+- **The WGSL bake path now walks both rings too**, with the outer ring
+  on binding 4 (a 4-byte stub when a tile has none) and its scale and
+  cell offset in the uniforms. The two ring samplers are generated from
+  one JS template, as is the hull push, because WGSL cannot index a
+  storage binding dynamically and hand-written near-copies drift. It
+  also now reads each tile's own `parentScale` rather than the module's,
+  which mattered during a ring swap.
+  Verified by reading the baked texture back and diffing it against the
+  CPU reference on the same tiles: identical to **1/255** on all 262144
+  pixels of four tiles, which is the 8-bit alpha channel's quantization
+  limit. The tile texture gained `COPY_SRC` so that diff is possible at
+  all; these two paths have drifted apart more than once.
 - **The LSAO branch is single-tier** and unchanged.
 - `tile-viewer.js` carries a temporary `_debugTiles()` accessor.
 - All 14 gates pass.
 
 ## 8. Where to go next
 
-1. Port the outer ring to the WGSL bake path, so GPU and CPU agree.
-   Today a GPU bake is single-tier.
-2. Fix the selector (section 5) so a grazing sun stops falling back to
+1. Fix the selector (section 5) so a grazing sun stops falling back to
    the cap. It is cheaper than it was but still over-fetches.
-3. Consider a max-pooled pyramid for the outer ring (section 0), which
+2. Consider a max-pooled pyramid for the outer ring (section 0), which
    would stop decimation understating distant peaks.
-4. The LSAO branch has the same boundary problem and no fix.
-5. Leave the deposit alone (section 2) unless a seam measurement, not a
+3. The LSAO branch has the same boundary problem and no fix, on both
+   the CPU and GPU paths.
+4. Leave the deposit alone (section 2) unless a seam measurement, not a
    wall figure, says otherwise.
