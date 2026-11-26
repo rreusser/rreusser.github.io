@@ -1,8 +1,26 @@
-// Gates for the final figure's overlay shading model.
+// Gates for the SUPERSEDED overlay shading model.
 //
-// This ports the `g.grade.z > 0.5` branch of the composite shader in
-// tile-viewer.js to JS, together with the slope/aspect branch it sits
-// beside, so the two can be swept against each other without a GPU.
+// This model is no longer in the shader. The `g.grade.z > 0.5` branch of
+// tile-viewer.js now holds the irradiance model of LIGHTING-DESIGN.md,
+// gated by verify-lighting-model.mjs, whose CURRENT half carries the
+// same transcription this file is built on.
+//
+// It is kept, and still passing, because the properties below are the
+// reasoning that got the figure from the slope/aspect model to a
+// signed-departure one, and most of them carried forward: a signed
+// relief term, an exact identity on open lit flats, hue preservation,
+// monotonicity in the shading value, and a one-way terminator are all
+// still requirements, now met by different machinery. Property 4 is the
+// one that did NOT carry forward, and the reason for the rewrite:
+// summing relief, occlusion and shadow instead of composing them let
+// relief outgun shadow by two orders of magnitude.
+//
+// Read it as history. Do not add gates here; add them to
+// verify-lighting-model.mjs.
+//
+// This ports the old branch to JS, together with the slope/aspect
+// branch it sat beside, so the two can be swept against each other
+// without a GPU.
 // What is being locked down is a handful of structural properties, each
 // of which is a reason the imagery path is built this way:
 //
