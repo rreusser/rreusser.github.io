@@ -176,8 +176,8 @@ struct Global {
   // reference implementation is src/lib/terrain-lighting.js and
   // verify-lighting-model.mjs gates the two against each other.
   light: vec4<f32>,        // x=skyFrac, y=beta, z=leak, w=eta
-  tone: vec4<f32>,         // x=ceilStops, y=nightFloor, z=kneeMin, w=sunRadiusDeg
-  shape: vec4<f32>,        // x=reliefExag, y=contrastPost, z=pivot, w=toneContrast
+  tone: vec4<f32>,         // x=highlightStops, y=nightFloor, z=kneeMin, w=sunRadiusDeg
+  shape: vec4<f32>,        // x=shadowStops, y=contrastPost, z=pivot, w=toneContrast
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -449,11 +449,21 @@ fn irradianceRefOf(sunZ: f32, H: f32, sunRadS: f32) -> f32 {
   return kSun * H * Lz + kSky * ((1.0 - beta) + beta * (leak + (1.0 - leak) * H) * Lz);
 }
 
-// Soft clip in stops: odd in log R, so R = 1 maps to exactly 1 and the
-// flat-ground identity survives the curve. Bounded by +/- ceilStops.
+// Soft clip in stops. R = 1 maps to exactly 1, so the flat-ground
+// identity survives the curve, and the reach is set separately on each
+// side of neutral: both branches have value 1 and the same slope at
+// x = 0, so it is still C1 there.
+//
+// A symmetric reach was wrong at both ends. Below, it floored the
+// composite at 2^-1.6 = 0.330 of flat lit ground while the physics puts
+// an open shadow at R = 0.036, so the curve lifted shadows tenfold and
+// no control could reach past it. Above, the headroom went unused: on
+// real terrain R tops out near 1.55.
 fn toneOf(R: f32) -> f32 {
-  let k = max(g.tone.x, 1e-3) * LN2;
-  return exp(k * tanh(g.shape.w * log(max(R, 1e-12)) / k));
+  let x = log(max(R, 1e-12));
+  let stops = select(max(g.shape.x, 1e-3), max(g.tone.x, 1e-3), x >= 0.0);
+  let k = stops * LN2;
+  return exp(k * tanh(g.shape.w * x / k));
 }
 
 // Brightness and contrast on the finished lightness. Monotone, and
@@ -489,13 +499,11 @@ fn irradianceL(nxy: vec2<f32>, nz: f32, slopeMag: f32, ao: f32, shadow: f32,
   let aoStr = g.params.z;
   let shadowStrength = g.params.w;
 
-  // Relief is vertical exaggeration of the shading normal, not an
-  // additive gain. dot(N, L) <= 1 whatever the exaggeration, so no
-  // setting of it can brighten an occluded pixel; and flat ground has
-  // nxy = 0, so it stays flat at any exaggeration and the flat-ground
-  // identity is untouched.
-  let exag = max(g.shape.x, 1e-3);
-  let Nsh = normalize(vec3<f32>(nxy * exag, nz));
+  // The shading normal, as measured. An exaggeration control sat here
+  // and was removed as unnecessary; leaving it out also stops sun-facing
+  // slopes being driven further above flat ground than the terrain
+  // warrants, which was feeding the highlight end.
+  let Nsh = vec3<f32>(nxy, nz);
 
   let sunRadS = sin(g.tone.w * DEG_TO_RAD);
   // A gate on the SUN, not on the pixel: below the geometric horizon
@@ -1856,25 +1864,32 @@ export function createTileViewer(opts) {
     // The irradiance model (LIGHTING-DESIGN.md). Defaults are the ones
     // the sweeps in verify-lighting-model.mjs were run at.
     skyFrac: 0.22,       // sky's share of the budget at a high sun
-    leak: 0.25,          // glow surviving an occluder: relief in shade
     eta: 0.7,            // exposure: 1 holds the flats all day, 0 absolute
     nightFloor: 0.06,
+    highlightStops: 0.6, // soft-clip reach above neutral
+    shadowStops: 3.5,    // and below it, where shadows need the room
     kneeMin: 0.8,        // highlight shoulder's knee
     contrastPost: 1,     // contrast, a post-process about a 0.5 pivot
-    reliefExag: 2.9,     // vertical exaggeration of the shading normal
     // Not exposed as controls, and the measurements are the reason.
     // `beta` (the circumsolar share of sky radiance) reshapes the
     // picture almost exactly as `skyFrac` does -- structural cosine
     // 0.976, opposed, so one simply undoes the other -- and leaving it
     // adjustable also let it reach 0, where `leak` goes completely
     // dead: the glow it scales is the only thing leak acts on.
-    // `ceilStops` and `toneContrast` are the lighting's own contrast;
+    // `toneContrast` is the lighting's own contrast;
     // toneContrast measured 0.981 against contrastPost, which is the
     // same control twice, and the post-process one is the one that
     // belongs to the viewer rather than to the physics.
     // See LIGHTING-DESIGN.md section 9.
+    // `leak` -- how much of the circumsolar glow survives an occluder,
+    // and so how much relief shows inside a cast shadow -- is pinned
+    // too. The effect is wanted and is why shadowed relief is visible
+    // at all, but as a CONTROL it had no authority: swept end to end it
+    // moved a quarter of the frame by at most 35/255, p95 10/255, which
+    // is not worth a slider. Left on at its default rather than
+    // removed.
+    leak: 0.25,
     beta: 0.45,
-    ceilStops: 1.6,
     toneContrast: 1,
     // Full cast shadow. Depth of the shade is the `shadow depth`
     // control (params.w); it is left adjustable because it is the only
@@ -3104,11 +3119,10 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
     globalData[1] = viewportH;
     globalData[2] = lighting.shadingMode;
     const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
-    // The legacy slope/aspect path reads relief as 0..1, so derive it
-    // from the exaggeration factor the control now carries.
-    globalData[3] = Number.isFinite(Number(lighting.reliefStrength))
-      ? Number(lighting.reliefStrength)
-      : clamp01((num(lighting.reliefExag, 2.9) - 1) / 5);
+    // Only the legacy slope/aspect path still reads a relief strength;
+    // the irradiance path uses the shading normal as measured. Its own
+    // former default keeps that path looking as it did.
+    globalData[3] = clamp01(num(lighting.reliefStrength, 0.38));
     globalData[4] = lighting.sunX;
     globalData[5] = lighting.sunY;
     globalData[6] = lighting.sunZ;
@@ -3163,24 +3177,18 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
     globalData[33] = clamp01(num(lighting.beta, 0.45));
     globalData[34] = clamp01(num(lighting.leak, 0.25));
     globalData[35] = clamp01(num(lighting.eta, 0.7));
-    // tone = (ceilStops, nightFloor, kneeMin, sunRadiusDeg)
+    // tone = (highlightStops, nightFloor, kneeMin, sunRadiusDeg)
     //
     // sunRadiusDeg is the SAME quantity the bake already uses for the
     // shadow penumbra, so one control widens the Lambert terminator and
     // the shadow edge together rather than the composite having a razor
     // terminator under a deliberately soft sun. Gate 14.
-    globalData[36] = Math.max(0.1, num(lighting.ceilStops, 1.6));
+    globalData[36] = Math.max(0.05, num(lighting.highlightStops, 0.6));
     globalData[37] = clamp01(num(lighting.nightFloor, 0.06));
     globalData[38] = clamp01(num(lighting.kneeMin, 0.8));
     globalData[39] = Math.max(0, num(lighting.sunRadiusDeg, 0.46));
-    // shape = (reliefExag, contrastPost, pivot, toneContrast)
-    //
-    // The exaggeration arrives as the factor itself now, because that
-    // is what the control reads: its neutral is x1, not 0. A 0..1
-    // "relief strength" track implied that zero meant no relief, and it
-    // never did -- at x1 you get the true normal and full physical
-    // Lambert shading.
-    globalData[40] = Math.min(12, Math.max(1, num(lighting.reliefExag, 2.9)));
+    // shape = (shadowStops, contrastPost, pivot, toneContrast)
+    globalData[40] = Math.max(0.05, num(lighting.shadowStops, 3.5));
     globalData[41] = Math.max(0.05, num(lighting.contrastPost, 1));
     globalData[42] = 0.5;
     globalData[43] = Math.max(0.05, num(lighting.toneContrast, 1));

@@ -52,8 +52,11 @@ export const DEFAULTS = {
   beta: 0.45,             // circumsolar share of sky radiance
   leak: 0.25,             // share of the circumsolar glow that survives
                           // an occluder: the knob for shadowed relief
-  // geometry
-  reliefExag: 1,          // vertical exaggeration of the shading normal
+  // geometry. The shading normal is used as measured: an exaggeration
+  // control was offered and removed as unnecessary, and leaving it at 1
+  // also keeps sun-facing slopes from being driven further above flat
+  // ground than the terrain warrants.
+  reliefExag: 1,
   sunRadiusDeg: 0.46,     // one radius for the Lambert penumbra AND the
                           // shadow penumbra in the bake
   // visibility strengths
@@ -63,7 +66,17 @@ export const DEFAULTS = {
   eta: 0.7,               // 1 = flat ground holds constant brightness at
                           // every sun altitude, 0 = absolute
   contrast: 1,            // gain in stops on relative irradiance
-  ceilStops: 1.6,         // symmetric bound of the stops-space soft clip
+  // The soft clip's reach, in stops, now separate above and below.
+  // A symmetric 1.6 was wrong at both ends. Below, it floored the
+  // composite at 2^-1.6 = 0.330 of flat lit ground, while the physics
+  // puts an open shadow at R = 0.036 under a high sun with ambient at
+  // its minimum -- the curve was lifting shadows tenfold and no control
+  // could get past it. Above, 1.6 stops of headroom was never used:
+  // measured on real terrain R tops out at 1.55, so the ceiling of 3.03
+  // did nothing while bright ramp albedo multiplied by R > 1 ran into
+  // the shoulder instead.
+  highlightStops: 0.6,
+  shadowStops: 3.5,
   nightFloor: 0.06,
   // output shoulder
   kneeMin: 0.8,
@@ -247,10 +260,15 @@ export function relIrradiance(args) {
 
 // Soft clip in stops: odd in log R, so R = 1 maps to exactly 1 and the
 // flat-ground identity survives the curve. Strictly increasing, bounded
-// by +/- ceilStops, so every term upstream is free to overshoot.
+// on each side by its own stop count, so every term upstream is free
+// to overshoot.
 export function tone(R, p = DEFAULTS) {
-  const k = p.ceilStops * Math.LN2;
-  return Math.exp(k * Math.tanh((p.contrast * Math.log(Math.max(R, 1e-12))) / k));
+  const x = Math.log(Math.max(R, 1e-12));
+  // Separate reach on each side of neutral. Both branches have value 1
+  // and slope `contrast` at x = 0, so the curve is still C1 there, and
+  // R = 1 still maps to exactly 1.
+  const k = (x >= 0 ? p.highlightStops : p.shadowStops) * Math.LN2;
+  return Math.exp(k * Math.tanh((p.contrast * x) / k));
 }
 
 // The one monotone carrier of day into night.
@@ -287,7 +305,7 @@ export function gradeL(L, p = DEFAULTS) {
 // above 1.085 returned exactly 1.0, which is the failure the shoulder
 // exists to prevent. exp decays instead of saturating, and capping the
 // knee at 0.9 keeps the argument under 22 over the whole reachable
-// range (albedo 1 times the tone ceiling 2^ceilStops), where exp is
+// range (albedo 1 times the tone ceiling 2^highlightStops), where exp is
 // still comfortably representable.
 //
 // The cost of the cap is that an albedo above 0.9 is compressed a

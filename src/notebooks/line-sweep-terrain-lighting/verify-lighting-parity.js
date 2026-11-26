@@ -35,8 +35,9 @@ export async function verifyLightingParity({ verbose = true } = {}) {
   const P = {
     ...ref.DEFAULTS,
     skyFrac: 0.26, beta: 0.38, leak: 0.33, eta: 0.62,
-    ceilStops: 1.4, nightFloor: 0.08, kneeMin: 0.75, sunRadiusDeg: 3.5,
-    reliefExag: 2.7, contrastPost: 1.25, pivot: 0.5, contrast: 1.15,
+    highlightStops: 0.8, shadowStops: 2.9, nightFloor: 0.08,
+    kneeMin: 0.75, sunRadiusDeg: 3.5,
+    contrastPost: 1.25, pivot: 0.5, contrast: 1.15,
     shadowStrength: 0.9, aoStrength: 0.85, brightness: 0.3,
     // The shader sees a byte-packed normal, so it subtracts this bias
     // before reading the plane baseline. See relOpenness.
@@ -78,9 +79,9 @@ export async function verifyLightingParity({ verbose = true } = {}) {
   g[20] = floorRaw; g[21] = falloff === "exp" ? 1 : 0;
   g[28] = Math.pow(2, -P.brightness); g[29] = 1; g[30] = 1;
   g[32] = P.skyFrac; g[33] = P.beta; g[34] = P.leak; g[35] = P.eta;
-  g[36] = P.ceilStops; g[37] = P.nightFloor; g[38] = P.kneeMin;
+  g[36] = P.highlightStops; g[37] = P.nightFloor; g[38] = P.kneeMin;
   g[39] = P.sunRadiusDeg;
-  g[40] = P.reliefExag; g[41] = P.contrastPost; g[42] = P.pivot;
+  g[40] = P.shadowStops; g[41] = P.contrastPost; g[42] = P.pivot;
   g[43] = P.contrast;
 
   const mk = (data, usage) => {
