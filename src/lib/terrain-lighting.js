@@ -77,7 +77,14 @@ export const DEFAULTS = {
   // the shoulder instead.
   highlightStops: 0.6,
   shadowStops: 3.5,
-  nightFloor: 0.06,
+  // The sky's residual level once the sun is down, as a fraction of its
+  // daytime level, and the only thing that lights the night side.
+  // Frankly aesthetic: real twilight is 1e-3 to 1e-4 of noon, and at
+  // that level this chain lands on 1/255. It enters the irradiance, so
+  // the tone curve and `eta` both still act on it -- at eta = 1 it
+  // cancels out of the ratio entirely, which is what eta = 1 means.
+  // At the default it puts flat open mid-grey ground at 19/255. Gate 16.
+  nightSky: 0.25,
   // output shoulder
   kneeMin: 0.8,
   // Packed-normal bias correction; 0 here, the shader's AO_SLOPE_EPS in
@@ -227,8 +234,9 @@ export function irradiance({ N, sunDir, shadow = 0, openness = 1,
   // grazing sun by a wide margin.
   const csV = p.leak + (1 - p.leak) * V;
   const skyA = (1 - p.beta) * 0.5 * (1 + Ns[2]) + p.beta * csV * cosS;
+  const T = twilightLevel(sunDir[2], p);
 
-  return kSun * V * cosS + kSky * skyA * Om;
+  return kSun * V * cosS + kSky * T * skyA * Om;
 }
 
 // Irradiance of flat, open, unshadowed ground under the same sun. Every
@@ -240,7 +248,11 @@ export function irradianceRef(sunDir, p = DEFAULTS) {
   const s = Math.sin((p.sunRadiusDeg * Math.PI) / 180);
   const H = horizonGate(sunDir[2]);
   const Lz = smax(sunDir[2], s);
-  return kSun * H * Lz + kSky * ((1 - p.beta) + p.beta * (p.leak + (1 - p.leak) * H) * Lz);
+  const T = twilightLevel(sunDir[2], p);
+  // T is in this and in `irradiance` alike, so it does not cancel out of
+  // their ratio unless eta = 1: night survives as T^(1 - eta).
+  return kSun * H * Lz +
+         kSky * T * ((1 - p.beta) + p.beta * (p.leak + (1 - p.leak) * H) * Lz);
 }
 
 // Relative irradiance. eta = 1 divides by the reference at the current
@@ -271,9 +283,18 @@ export function tone(R, p = DEFAULTS) {
   return Math.exp(k * Math.tanh((p.contrast * x) / k));
 }
 
-// The one monotone carrier of day into night.
-export function daylight(sunDir, p = DEFAULTS) {
-  return p.nightFloor + (1 - p.nightFloor) * smoothstep(-0.105, 0.035, sunDir[2]);
+// The one monotone carrier of day into night: the sky's own level,
+// falling across civil twilight to `nightSky` and staying there.
+//
+// This multiplies the SKY TERM INSIDE the irradiance, and it used to
+// multiply the finished lightness after the tone curve instead. That was
+// the bug: downstream of the curve nothing compresses it, so a floor of
+// 0.06 was a flat four-stop cut that took albedo, occlusion and relief
+// to 0/255 together. Inside the irradiance the same fall is a change in
+// the light, the curve gives it the shadow end's 3.5 stops of reach, and
+// what survives is dim ambient-lit relief. Gate 16.
+export function twilightLevel(sunZ, p = DEFAULTS) {
+  return p.nightSky + (1 - p.nightSky) * smoothstep(-0.105, 0.035, sunZ);
 }
 
 // Lighting alone. Takes NO grade parameters, which is the structural
@@ -281,7 +302,9 @@ export function daylight(sunDir, p = DEFAULTS) {
 // see gate 9.
 export function shadeLighting(args) {
   const p = args.p ?? DEFAULTS;
-  return tone(relIrradiance(args), p) * daylight(args.sunDir, p);
+  // No day/night factor out here any more: it is in the irradiance,
+  // where the tone curve can compress it.
+  return tone(relIrradiance(args), p);
 }
 
 // Brightness and contrast on the finished lightness. Monotone and

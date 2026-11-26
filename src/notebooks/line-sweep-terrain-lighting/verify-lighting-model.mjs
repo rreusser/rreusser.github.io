@@ -9,9 +9,12 @@
 //
 // That is the point. A gate that merely fails on today's code does not
 // show it can tell the two apart, and a gate that only passes on the new
-// model does not show there was anything to fix. Four of the twelve are
+// model does not show there was anything to fix. Five of the sixteen are
 // properties the current shader already has and the port must not lose;
-// the other eight are the faults, and they are expected to fail now.
+// the other eleven are the faults, and they are expected to fail now.
+// Gate 16 was added after the port shipped, for a fault the port itself
+// introduced, which is why the current model fails it too -- from the
+// opposite end.
 //
 // Gate 13 in the design (GPU equals CPU to 1/255) is not here: it needs
 // a device, and it runs against the live figure the way the bake's
@@ -124,6 +127,21 @@ function storedFor(openness, falloff) {
   return raw * raw;                                  // aoGamma = 2
 }
 
+// Neutral Oklab lightness to an 8-bit sRGB grey. For a grey the Oklab
+// matrices collapse to Y = L^3, so this is just the transfer function.
+// Gate 16 is about what the eye gets, and 0.016 vs 0.13 in L is the
+// difference between nothing and a visible hillside, which reads much
+// more plainly in 8-bit.
+function srgb8(L) {
+  const Y = Math.max(0, L) ** 3;
+  const v = Y <= 0.0031308 ? 12.92 * Y : 1.055 * Y ** (1 / 2.4) - 0.055;
+  return Math.round(255 * Math.min(1, Math.max(0, v)));
+}
+
+// Sun altitudes below the horizon: just inside the twilight band, and
+// well past it where the night level is whatever the model's floor is.
+const NIGHT_ALTS = [-3, -5, -10, -18];
+
 const ALTS = [0.2, 0.5, 1, 2, 5, 10, 20, 40, 60, 80];
 const SLOPES = [0, 10, 20, 30, 40, 50, 60, 70, 80];
 const AZS = [0, 45, 90, 135, 180];
@@ -204,10 +222,10 @@ gate(2, "flat open sunlit ground is exactly the albedo (eta = 1)",
     for (const alt of ALTS) for (const albedoL of [0.1, 0.35, 0.5, 0.8, 0.93, 1.0]) {
       const L = shade(model, {
         N: [0, 0, 1], sunDir: sunDirOf(alt), shadow: 0, openness: 1, albedoL,
-        over: model === "proposed" ? { eta: 1, nightFloor: 0 } : {},
+        over: model === "proposed" ? { eta: 1 } : {},
       }).L;
       const want = albedoL * (model === "proposed"
-        ? shadeLighting({ N: [0, 0, 1], sunDir: sunDirOf(alt), p: P({ eta: 1, nightFloor: 0 }) })
+        ? shadeLighting({ N: [0, 0, 1], sunDir: sunDirOf(alt), p: P({ eta: 1 }) })
         : 1);
       const d = Math.abs(L - want);
       if (albedoL <= DEFAULTS.kneeMin) {
@@ -365,10 +383,25 @@ gate(7, "more shadow is never brighter",
 // Stated below the horizon only, deliberately. Above it a 50-80 degree
 // slope passing its own terminator genuinely brightens as the sun sets,
 // at every eta, and gating that globally would be wrong.
+//
+// Two clauses, because the disc takes a moment to set. Once the sun is
+// properly down -- past the disc, where both the direct term and its
+// smax foot are identically zero -- every pixel falls with T^(1 - eta)
+// and nothing rises at all. Across the crossing itself a pixel that
+// never had direct light does tick UP, because `eta` divides by the
+// reference and the reference is losing its own direct term while the
+// pixel has none to lose. That lift is real and is bounded by the size
+// of the reference's direct term at the horizon, which is 2% of its
+// total, so the second clause measures it rather than assuming it away.
+// It used to be hidden rather than absent: the old post-tone day/night
+// multiplier fell steeply enough through here to swamp it.
 gate(8, "below the geometric horizon, no pixel brightens as the sun sets",
   { current: true, proposed: true },
   (model) => {
-    let bad = 0, worst = 0, at = "";
+    // The sun's disc is fully below the horizon past -0.6 deg: the gate
+    // on sunDir.z spans +-0.26 deg and smax's foot another 0.46 deg.
+    const SET = -0.6;
+    let bad = 0, worst = 0, at = "", lift = 0, liftAt = "";
     for (const slope of SLOPES) for (const az of AZS) for (const openness of [1, 0.5])
     for (const shadow of [0, 0.5, 1]) for (const relief of [0, 0.38, 1]) {
       let prev = Infinity;
@@ -377,11 +410,21 @@ gate(8, "below the geometric horizon, no pixel brightens as the sun sets",
           N: normalOf(slope, az), sunDir: sunDirOf(alt), shadow, openness, relief, albedoL: 1,
           over: model === "current" ? { useTime: 1 } : {},
         }).L;
-        if (L > prev + 1e-7) { bad++; if (L - prev > worst) { worst = L - prev; at = `slope ${slope} az ${az} alt ${alt.toFixed(1)}`; } }
+        const rise = L - prev;
+        if (rise > 1e-7) {
+          if (alt <= SET) { bad++; if (rise > worst) { worst = rise; at = `slope ${slope} az ${az} alt ${alt.toFixed(1)}`; } }
+          else if (rise > lift) { lift = rise; liftAt = `slope ${slope} az ${az} alt ${alt.toFixed(1)}`; }
+        }
         prev = L;
       }
     }
-    return { ok: bad === 0, detail: bad ? `${bad} rises, worst +${worst.toFixed(5)} at ${at}` : "no rises over +0.3 to -8 deg" };
+    return {
+      ok: bad === 0 && lift <= 1 / 255,
+      detail: (bad ? `${bad} rises past ${SET} deg, worst +${worst.toFixed(5)} at ${at}`
+                   : `no rises past ${SET} deg, down to -8`) +
+              `; across the crossing +${lift.toFixed(5)} = ${(255 * lift).toFixed(2)}/255` +
+              (liftAt ? ` (${liftAt})` : ""),
+    };
   });
 
 // =====================================================================
@@ -601,6 +644,62 @@ gate(15, "shading does not change saturation, and the grade knob scales it",
       ok: worst < 1e-9 && knobOk,
       detail: `saturation drifts ${(100 * worst).toFixed(1)}% under shading (${at}); ` +
               `knob is a pure multiplier: ${knobOk}`,
+    };
+  });
+
+// =====================================================================
+// 16. Night is dim, not black
+// =====================================================================
+// Below the horizon there is no sun disc, so there is no direct term and
+// a cast shadow makes no difference. That part is right. Reaching for
+// black is not: the sky is still there, the ground still has an albedo,
+// and the terrain still occludes its own view of the sky, so a night
+// frame should read as dim ambient-lit relief rather than as nothing.
+//
+// Both models failed this when it was written, from opposite ends. The
+// legacy branch has no night at all -- it goes on drawing noon cast
+// shadows at midnight, which is what the nightMask stack outside
+// currentValue is there to paper over. The irradiance port had the
+// horizon gate and so had no shadows, but carried all of day-into-night
+// in one multiplier applied AFTER the tone curve, where nothing
+// compresses it: a floor of 0.06 there is a flat four-stop cut, and it
+// took albedo, occlusion and relief to 0/255 together.
+gate(16, "a night frame is dim rather than black, and keeps albedo and occlusion",
+  { current: false, proposed: true },
+  (model) => {
+    const at = (alt, over) => srgb8(shade(model, {
+      N: [0, 0, 1], sunDir: sunDirOf(alt), ...over,
+    }).L);
+
+    let dimmest = 255, dimAt = "", worstAlbedo = 255, worstOcc = 255;
+    for (const alt of NIGHT_ALTS) {
+      const open = at(alt, { albedoL: 0.5 });
+      if (open < dimmest) { dimmest = open; dimAt = `alt ${alt}`; }
+      worstAlbedo = Math.min(worstAlbedo, at(alt, { albedoL: 0.8 }) - at(alt, { albedoL: 0.35 }));
+      worstOcc = Math.min(worstOcc, open - at(alt, { albedoL: 0.5, openness: 0.45 }));
+    }
+
+    // The sun is gone, so a shadow flag must not matter. Both models
+    // hold this one for the same reason: V carries the horizon gate.
+    let shadowMoves = 0;
+    for (const alt of NIGHT_ALTS) {
+      shadowMoves = Math.max(shadowMoves, Math.abs(
+        shade(model, { N: [0, 0, 1], sunDir: sunDirOf(alt), albedoL: 0.5, shadow: 1 }).L -
+        shade(model, { N: [0, 0, 1], sunDir: sunDirOf(alt), albedoL: 0.5, shadow: 0 }).L));
+    }
+
+    // Reported, not asserted: the circumsolar sky survives the sun
+    // setting, so the night side stays gently biased toward where the
+    // sun went down. That bias is wanted -- it is the indirect light
+    // this model was built to carry -- and is not a direct term.
+    const toward = at(-10, { albedoL: 0.5, N: normalOf(40, 0, 0) });
+    const away = at(-10, { albedoL: 0.5, N: normalOf(40, 180, 0) });
+
+    return {
+      ok: dimmest >= 8 && worstAlbedo >= 6 && worstOcc >= 3 && shadowMoves < 1e-9,
+      detail: `flat mid-grey night floor ${dimmest}/255 (${dimAt}); albedo spread ` +
+              `${worstAlbedo}/255, occlusion spread ${worstOcc}/255; shadow moves ` +
+              `${shadowMoves.toExponential(1)}; glow bias ${toward} vs ${away}/255`,
     };
   });
 

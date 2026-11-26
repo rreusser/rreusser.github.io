@@ -1104,3 +1104,84 @@ lighting, so sun-facing slopes were driven further above flat ground
 than the terrain warranted, feeding the highlight end. It is gone and
 the shading normal is used as measured. `shape.x`, which carried the
 exaggeration factor, now carries `shadowStops`.
+
+## 16. Night was black, and why
+
+Reported: the view fades to full black as the sun goes down, where it
+should hold some low illumination with the albedo and the occlusion
+still legible and no directed light.
+
+Below the horizon the model was already right about the direct term.
+`H`, the gate on `sunDir.z`, takes sun visibility `V` to zero, so there
+is no Lambert term and a cast shadow makes no difference at all. The
+fault was everything else going with it.
+
+Day into night was carried by one factor applied to the finished
+lightness, AFTER the tone curve:
+
+    D = nightFloor + (1 - nightFloor) * smoothstep(-0.105, 0.035, sunZ)
+    lit = albedo * tone(R) * D
+
+Downstream of the curve nothing compresses it. A floor of 0.06 is a flat
+four-stop cut with no shoulder under it, so it did not darken the night
+side, it collapsed it: every surface arrived at 0/255 together.
+Measured on flat open ground with a mid-grey albedo, at a sun 10 degrees
+down:
+
+| surface | before | after |
+| --- | --- | --- |
+| open, mid-grey | 0/255 | 19/255 |
+| occluded (openness 0.45), mid-grey | 0/255 | 4/255 |
+| open, bright (L 0.8) | 0/255 | 45/255 |
+| open, dark (L 0.35) | 0/255 | 7/255 |
+
+The relative irradiance `R` was not carrying any of this. It sat at
+0.5307 from the horizon all the way down to -18 degrees, because `eta`
+divides by the reference at the current sun and both numerator and
+denominator had lost the same sun. All of the fade was `D`.
+
+So the factor moves inside the irradiance, onto the sky term, in both
+`irradiance` and `irradianceRef`:
+
+    T = nightSky + (1 - nightSky) * smoothstep(-0.105, 0.035, sunZ)
+    E    = kSun * V * cosS + kSky * T * skyA * Om
+    Eref = kSun * H * Lz   + kSky * T * (...)
+
+It does not cancel between them, because the ratio raises the reference
+to `eta`: night survives as `T^(1 - eta)`. At `eta = 1` it cancels
+exactly, which is already what `eta = 1` means -- flat ground holds one
+brightness whatever the sun is doing, midnight included.
+
+`nightSky` is frankly aesthetic at 0.25. Real twilight is 1e-3 to 1e-4
+of noon and this chain puts that at 1/255; the compression available is
+`^(1 - eta)` and then the curve's shadow stops, which is strong but not
+unlimited. Sunset dimming (`1 - eta`) remains the control over how dark
+night gets, and it now means something at night instead of being
+overridden by a fixed floor.
+
+### What gate 8 caught
+
+Gate 8 asks that no pixel brighten as the sun sets below the horizon,
+and it started failing: 631 rises, worst 0.67/255. Checked by sun
+altitude, every one of them is inside the disc crossing, between +0.3
+and -0.6 degrees, and there are exactly zero below that.
+
+The lift is structural, not a slip. `eta` divides by the reference,
+the reference is losing its own direct term across the disc width, and
+a pixel that never had direct light has none to lose, so it rises by
+the reference's direct share -- about 2% of its total at the horizon.
+The old `D` fell steeply enough through the same window to hide it.
+
+The gate now states both halves separately: exactly monotone once the
+disc is down, and a measured bound of 1/255 across the crossing. That
+is narrower than what it asserted before, not looser.
+
+### The glow survives, on purpose
+
+The circumsolar term is gated by `V` less `leak`, so at night it keeps
+`leak` of its daytime weight and the night side stays gently biased
+toward where the sun went down: 14/255 against 9/255 for a 40 degree
+slope facing the set sun versus away from it. That is indirect light
+with a direction, which is what section 2 set out to carry, and it is
+not a direct term -- there is no disc and no shadow. Gate 16 reports it
+rather than forbidding it.

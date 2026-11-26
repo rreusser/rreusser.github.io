@@ -176,7 +176,7 @@ struct Global {
   // reference implementation is src/lib/terrain-lighting.js and
   // verify-lighting-model.mjs gates the two against each other.
   light: vec4<f32>,        // x=skyFrac, y=beta, z=leak, w=eta
-  tone: vec4<f32>,         // x=highlightStops, y=nightFloor, z=kneeMin, w=sunRadiusDeg
+  tone: vec4<f32>,         // x=highlightStops, y=nightSky, z=kneeMin, w=sunRadiusDeg
   shape: vec4<f32>,        // x=shadowStops, y=contrastPost, z=pivot, w=toneContrast
 };
 
@@ -424,6 +424,20 @@ fn opennessOfStored(ao: f32, floorRaw: f32) -> f32 {
 // Absolute irradiance, in units where kSun + kSky = 1. V is sun-disc
 // visibility (cast shadow times the geometric horizon gate); Om is sky
 // visibility relative to this surface's own plane.
+// The one monotone carrier of day into night: the sky's own level,
+// falling across civil twilight to g.tone.y and staying there.
+//
+// It scales the SKY TERM INSIDE the irradiance. It used to multiply the
+// finished lightness after the tone curve instead, which was the bug:
+// downstream of the curve nothing compresses it, so a floor of 0.06 was
+// a flat four-stop cut that took albedo, occlusion and relief to 0/255
+// together and left the night side pure black. In here the same fall is
+// a change in the light, the curve lends it the shadow end's reach, and
+// what survives is dim ambient-lit relief. Gate 16.
+fn twilightOf(sunZ: f32) -> f32 {
+  return g.tone.y + (1.0 - g.tone.y) * smoothstep(-0.105, 0.035, sunZ);
+}
+
 fn irradianceOf(Nsh: vec3<f32>, sunDir: vec3<f32>, V: f32, Om: f32, sunRadS: f32) -> f32 {
   let kSky = g.light.x;
   let kSun = 1.0 - g.light.x;
@@ -434,7 +448,8 @@ fn irradianceOf(Nsh: vec3<f32>, sunDir: vec3<f32>, V: f32, Om: f32, sunRadS: f32
   // with it, less a leak for the glow's angular width.
   let csV = leak + (1.0 - leak) * V;
   let skyA = (1.0 - beta) * 0.5 * (1.0 + Nsh.z) + beta * csV * cosS;
-  return kSun * V * cosS + kSky * skyA * Om;
+  let T = twilightOf(sunDir.z);
+  return kSun * V * cosS + kSky * T * skyA * Om;
 }
 
 // Flat, open, unshadowed ground under the same sun. Every term mirrors
@@ -446,7 +461,11 @@ fn irradianceRefOf(sunZ: f32, H: f32, sunRadS: f32) -> f32 {
   let beta = g.light.y;
   let leak = g.light.z;
   let Lz = smaxC(sunZ, sunRadS);
-  return kSun * H * Lz + kSky * ((1.0 - beta) + beta * (leak + (1.0 - leak) * H) * Lz);
+  // T is here and in irradianceOf alike, so it does not cancel out of
+  // their ratio unless eta = 1: night survives as T^(1 - eta).
+  let T = twilightOf(sunZ);
+  return kSun * H * Lz +
+         kSky * T * ((1.0 - beta) + beta * (leak + (1.0 - leak) * H) * Lz);
 }
 
 // Soft clip in stops. R = 1 maps to exactly 1, so the flat-ground
@@ -549,13 +568,11 @@ fn irradianceL(nxy: vec2<f32>, nz: f32, slopeMag: f32, ao: f32, shadow: f32,
   let Eref = irradianceRefOf(sunDir.z, H, sunRadS);
   let R = E / max(pow(max(Eref, 1e-6), g.light.w), 1e-9);
 
-  // The one monotone carrier of day into night, in place of the
-  // nightMask / nightDepth / horizonShadow stack the legacy path still
-  // needs. Because R is normalised it carries no altitude trend of its
-  // own, so the terminator cannot run backwards.
-  let D = g.tone.y + (1.0 - g.tone.y) * smoothstep(-0.105, 0.035, sunDir.z);
-
-  let lit = albedoL * toneOf(R) * D;
+  // Day into night is already in E and Eref, via twilightOf, so there
+  // is no factor out here. Because R is normalised it carries no
+  // altitude trend of its own and the terminator cannot run backwards:
+  // past the setting disc every pixel falls together as T^(1 - eta).
+  let lit = albedoL * toneOf(R);
 
   // Grade on the finished lightness and nowhere else, then the
   // shoulder. The knee rides the graded albedo so that R = 1 is the
@@ -819,8 +836,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   //
   // The irradiance model needs no fade at all: direct light is
   // V * max(dot(N, L), 0) with V the bake's own answer, gated only at
-  // the geometric horizon, and the daylight factor carries day into
-  // night separately. So it reads the raw shadow value and keeps the
+  // the geometric horizon, and the sky's twilight level carries day
+  // into night separately. So it reads the raw shadow value and keeps the
   // phenomenon. See verify-low-sun-illumination.mjs and gate 9.
 
   // AO tonemap in sRGB space — matching the LSAO section's atan
@@ -1865,7 +1882,14 @@ export function createTileViewer(opts) {
     // the sweeps in verify-lighting-model.mjs were run at.
     skyFrac: 0.22,       // sky's share of the budget at a high sun
     eta: 0.7,            // exposure: 1 holds the flats all day, 0 absolute
-    nightFloor: 0.06,
+    // The sky's residual level once the sun is down, as a fraction of
+    // its daytime level, and the only thing lighting the night side.
+    // Aesthetic rather than physical: real twilight is 1e-3 to 1e-4 of
+    // noon and this chain puts that at 1/255. At 0.25 flat open
+    // mid-grey ground reads 19/255 at night with its albedo and its
+    // occlusion still legible, against 0/255 for everything when the
+    // fade was a post-tone multiplier. Gate 16.
+    nightSky: 0.25,
     highlightStops: 0.6, // soft-clip reach above neutral
     shadowStops: 3.5,    // and below it, where shadows need the room
     kneeMin: 0.8,        // highlight shoulder's knee
@@ -3177,14 +3201,14 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
     globalData[33] = clamp01(num(lighting.beta, 0.45));
     globalData[34] = clamp01(num(lighting.leak, 0.25));
     globalData[35] = clamp01(num(lighting.eta, 0.7));
-    // tone = (highlightStops, nightFloor, kneeMin, sunRadiusDeg)
+    // tone = (highlightStops, nightSky, kneeMin, sunRadiusDeg)
     //
     // sunRadiusDeg is the SAME quantity the bake already uses for the
     // shadow penumbra, so one control widens the Lambert terminator and
     // the shadow edge together rather than the composite having a razor
     // terminator under a deliberately soft sun. Gate 14.
     globalData[36] = Math.max(0.05, num(lighting.highlightStops, 0.6));
-    globalData[37] = clamp01(num(lighting.nightFloor, 0.06));
+    globalData[37] = clamp01(num(lighting.nightSky, 0.25));
     globalData[38] = clamp01(num(lighting.kneeMin, 0.8));
     globalData[39] = Math.max(0, num(lighting.sunRadiusDeg, 0.46));
     // shape = (shadowStops, contrastPost, pivot, toneContrast)

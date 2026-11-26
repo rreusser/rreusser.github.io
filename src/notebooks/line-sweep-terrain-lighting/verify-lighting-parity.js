@@ -14,8 +14,10 @@
 //     await import("/notebooks/line-sweep-terrain-lighting/verify-lighting-parity.js");
 //   await verifyLightingParity();
 //
-// Last run: 38880 samples, max 3.6e-7 (0.00009/255), mean 4.3e-8,
-// 0 samples over 1/255, 0 WebGPU errors.
+// Last run: 45360 samples, max 3.4e-7 (0.00009/255), mean 4.7e-8,
+// 0 samples over 1/255, 0 WebGPU errors. The altitude list reaches to
+// -12 deg so the night side, where the twilight factor is at its floor
+// and the direct term is gone, is covered too.
 
 const BASE = "/notebooks/line-sweep-terrain-lighting";
 
@@ -35,7 +37,7 @@ export async function verifyLightingParity({ verbose = true } = {}) {
   const P = {
     ...ref.DEFAULTS,
     skyFrac: 0.26, beta: 0.38, leak: 0.33, eta: 0.62,
-    highlightStops: 0.8, shadowStops: 2.9, nightFloor: 0.08,
+    highlightStops: 0.8, shadowStops: 2.9, nightSky: 0.18,
     kneeMin: 0.75, sunRadiusDeg: 3.5,
     contrastPost: 1.25, pivot: 0.5, contrast: 1.15,
     shadowStrength: 0.9, aoStrength: 0.85, brightness: 0.3,
@@ -48,7 +50,7 @@ export async function verifyLightingParity({ verbose = true } = {}) {
 
   // Inputs as a flat buffer, 10 floats per sample, so both sides read
   // identical bits rather than each deriving them.
-  const alts = [-2, -0.3, 0, 0.2, 0.5, 1, 2, 5, 10, 25, 50, 80];
+  const alts = [-12, -6, -2, -0.3, 0, 0.2, 0.5, 1, 2, 5, 10, 25, 50, 80];
   const slopes = [0, 5, 12, 20, 30, 40, 50, 65, 80];
   const azs = [0, 45, 90, 135, 180, 270];
   const storedAos = [1, 0.85, 0.6, 0.35, 0.1353];
@@ -79,7 +81,7 @@ export async function verifyLightingParity({ verbose = true } = {}) {
   g[20] = floorRaw; g[21] = falloff === "exp" ? 1 : 0;
   g[28] = Math.pow(2, -P.brightness); g[29] = 1; g[30] = 1;
   g[32] = P.skyFrac; g[33] = P.beta; g[34] = P.leak; g[35] = P.eta;
-  g[36] = P.highlightStops; g[37] = P.nightFloor; g[38] = P.kneeMin;
+  g[36] = P.highlightStops; g[37] = P.nightSky; g[38] = P.kneeMin;
   g[39] = P.sunRadiusDeg;
   g[40] = P.shadowStops; g[41] = P.contrastPost; g[42] = P.pivot;
   g[43] = P.contrast;
