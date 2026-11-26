@@ -1928,19 +1928,6 @@
       new Map([["irradiance", "overlay"], ["legacy relief", "multiply"]]),
       { label: "shading", value: "overlay" },
     );
-    // Terrain exaggeration of the shading normal, as a factor, because
-    // its neutral is x1 and not zero. It was labelled "relief strength"
-    // on a 0..1 track, which reads as though zero should mean no relief
-    // -- and it does not: at x1 you get the true normal and the full
-    // physical Lambert shading. Measured across the old slider, lit
-    // shading spread moved only 0.7882 to 0.8049, so the control never
-    // did what its name promised. As a factor the low end reads as
-    // "none added" rather than "off", which is what it is.
-    const strengthEl = Inputs.range([1, 6], {
-      label: "terrain exaggeration",
-      value: 2.9,
-      step: 0.1,
-    });
     // 1 means "use the sky visibility the bake measured, as it is".
     // Anything less is a deliberate under-application, and the old
     // default of 0.3 existed only because the model it fed applied
@@ -1998,16 +1985,6 @@
     const exposureEl = Inputs.range([0, 1], {
       label: "sunset dimming",
       value: 0.3,
-      step: 0.01,
-    });
-    // How much of the circumsolar glow survives an occluder, and so how
-    // much relief shows inside a cast shadow. The ridge that blocks the
-    // sun blocks most of the glow around it too, so this sits well
-    // under 1; raising it makes shadowed relief read harder, bounded by
-    // the sky's share of the budget.
-    const glowLeakEl = Inputs.range([0, 1], {
-      label: "relief in shade",
-      value: 0.25,
       step: 0.01,
     });
     // The share of the irradiance budget that arrives from the sky
@@ -2199,7 +2176,6 @@
       // upstream of the albedo, where brightness, contrast and
       // saturation are all downstream of it.
       exposureEl,
-      strengthEl,
       // Then the shade, in the order it is built: whether the sun is
       // blocked at all, how much sky light fills in behind it, how much
       // of that the terrain occludes, and how directional what is left
@@ -2208,7 +2184,6 @@
       shadowEl,
       skyFracEl,
       aoEl,
-      glowLeakEl,
     ], { open: true }));
 
     // What feeds the three groups above: which shading model runs, where
@@ -2240,7 +2215,6 @@
       rampSlotEl,
       bakeModeEl,
       shadingEl,
-      strengthEl,
       aoEl,
       shadowEl,
       sunDiameterEl,
@@ -2259,7 +2233,6 @@
       saturationEl,
       exposureEl,
       skyFracEl,
-      glowLeakEl,
       contrastEl,
     };
   </script>
@@ -2694,7 +2667,6 @@
         falloff: { codec: oneOf({ cos2: "cos²α", exp: "e^(−sin α)" }), ...fromEl(c.aoFalloffEl) },
         shading: { codec: oneOf({ overlay: "overlay", multiply: "multiply" }), ...fromEl(c.shadingEl) },
         ao: { codec: num(0, 2.5, 0.01), ...fromEl(c.aoEl) },
-        exag: { codec: num(1, 6, 0.1), ...fromEl(c.strengthEl) },
         shadow: { codec: num(0, 1, 0.01), ...fromEl(c.shadowEl) },
         sundiam: { codec: num(0.5, 30, 0.01), ...fromEl(c.sunDiameterEl) },
         samples: { codec: num(1, 16, 1), ...fromEl(c.shadowSamplesEl) },
@@ -2722,7 +2694,6 @@
         sat: { codec: num(0, 1, 0.01), ...fromEl(c.satelliteEl) },
         dim: { codec: num(0, 1, 0.01), ...fromEl(c.exposureEl) },
         skyf: { codec: num(0.05, 0.5, 0.01), ...fromEl(c.skyFracEl) },
-        glow: { codec: num(0, 1, 0.01), ...fromEl(c.glowLeakEl) },
         con: { codec: num(0.3, 2.5, 0.01), ...fromEl(c.contrastEl) },
         bright: { codec: num(-1, 1, 0.01), ...fromEl(c.brightnessEl) },
         // `sat` is already taken by the satellite layer, and this knob
@@ -2871,7 +2842,6 @@
         // at the horizon froze the terrain there while the sun kept
         // setting. See verify-sun-unclipped.mjs.
         const [sunX, sunY, sunZ] = sunVector(sd.az, sd.alt);
-        const reliefExag = Number(c.strengthEl.value);
         const aoStrength = Number(c.aoEl.value);
         const shadowStrength = Number(c.shadowEl.value);
         const sunDiameter = Number(c.sunDiameterEl.value);
@@ -2897,7 +2867,6 @@
             c.animationPanel.timeOverride.utcMs == null &&
             (sunOverlay.isDragging() || c.sunCalendarEl.isInteracting()),
           shadingMode: isDebug ? 2 : 1,
-          reliefExag,
           bakeMode: isDebug ? "cpu" : c.bakeModeEl.value,
           lsaoFalloff,
           useTime,
@@ -2913,7 +2882,6 @@
           // The control reads as dimming; eta is its complement.
           eta: 1 - Number(c.exposureEl.value),
           skyFrac: Number(c.skyFracEl.value),
-          leak: Number(c.glowLeakEl.value),
           contrastPost: Number(c.contrastEl.value),
         };
         if (solar) lightingUpdate.solar = solar;

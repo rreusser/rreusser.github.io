@@ -484,7 +484,7 @@ gate(12, "nothing clips: the finished lightness never reaches 0 or 1",
     // ceiling. A shoulder whose asymptote is reached in float IS a clip,
     // and that is what the tanh form did at a knee near 1.
     let shoulderMono = true;
-    const reach = Math.pow(2, DEFAULTS.ceilStops);
+    const reach = Math.pow(2, DEFAULTS.highlightStops);
     for (const knee of [0.5, 0.8, KNEE_MAX]) {
       let prev = -Infinity;
       for (let L = 0; L <= reach; L += reach / 20000) {

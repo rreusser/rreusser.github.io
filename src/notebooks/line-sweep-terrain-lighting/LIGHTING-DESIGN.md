@@ -1061,3 +1061,46 @@ And gate 4 now sweeps strength to 2.5 rather than stopping at 1, because
 the ceiling is the thing that has to hold under exaggeration: `Om` floors
 at 0 and multiplies only the sky term, so no setting of the slider can
 remove more light than the sky supplies.
+
+## 14. The tone curve was the shadow floor
+
+Shadows could not be made dark, and the cause was not the lighting.
+
+`tone()` used one symmetric reach, `ceilStops = 1.6`, which clamps the
+relative irradiance to `[2^-1.6, 2^1.6]` = `[0.330, 3.03]`. The physics
+was already producing what was asked for: an open shadow under a high
+sun with ambient at its minimum has **R = 0.036**. The curve lifted that
+to 0.330, a factor of ten, and no control downstream could reach past
+it, because the floor was in the curve rather than in any term feeding
+it.
+
+The other end was never used. Measured on real terrain R tops out at
+**1.55**, so 1.6 stops of headroom above neutral did nothing at all
+while bright ramp albedo multiplied by R > 1 ran into the output
+shoulder instead.
+
+So the reach is now set separately on each side: `highlightStops` 0.6
+and `shadowStops` 3.5. Both branches still have value 1 and the same
+slope at R = 1, so the curve is C1 there and the flat-ground identity is
+untouched.
+
+Measured on the live figure at a 30 degree sun, sweeping only the curve:
+
+| | p05 | p50 | p95 |
+|---|-----|-----|-----|
+| symmetric 1.6, ambient 0.22 | 7.0 | 36.3 | 83.3 |
+| asymmetric, ambient 0.22 | **4.3** | 36.0 | 81.7 |
+| symmetric 1.6, ambient 0.05 | 6.7 | 40.0 | 91.3 |
+| asymmetric, ambient 0.05 | **3.3** | 39.7 | 87.7 |
+
+The midtones barely move, which is right: `tanh` is nearly linear near
+neutral, so the stop counts only act in the tails. That is the whole
+point of changing them rather than the contrast.
+
+## 15. Terrain exaggeration removed
+
+It multiplied the shading normal's horizontal component before the
+lighting, so sun-facing slopes were driven further above flat ground
+than the terrain warranted, feeding the highlight end. It is gone and
+the shading normal is used as measured. `shape.x`, which carried the
+exaggeration factor, now carries `shadowStops`.
