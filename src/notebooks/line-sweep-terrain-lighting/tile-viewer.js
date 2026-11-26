@@ -176,8 +176,9 @@ struct Global {
   // reference implementation is src/lib/terrain-lighting.js and
   // verify-lighting-model.mjs gates the two against each other.
   light: vec4<f32>,        // x=skyFrac, y=beta, z=leak, w=eta
-  tone: vec4<f32>,         // x=highlightStops, y=nightFloor, z=kneeMin, w=sunRadiusDeg
+  tone: vec4<f32>,         // x=highlightStops, y=nightSky, z=kneeMin, w=sunRadiusDeg
   shape: vec4<f32>,        // x=shadowStops, y=contrastPost, z=pivot, w=toneContrast
+  color: vec4<f32>,        // x=sunWarmth, y=temperature (white balance), zw unused
 };
 
 @group(0) @binding(0) var<uniform> g: Global;
@@ -424,7 +425,35 @@ fn opennessOfStored(ao: f32, floorRaw: f32) -> f32 {
 // Absolute irradiance, in units where kSun + kSky = 1. V is sun-disc
 // visibility (cast shadow times the geometric horizon gate); Om is sky
 // visibility relative to this surface's own plane.
-fn irradianceOf(Nsh: vec3<f32>, sunDir: vec3<f32>, V: f32, Om: f32, sunRadS: f32) -> f32 {
+// The one monotone carrier of day into night: the sky's own level,
+// falling across civil twilight to g.tone.y and staying there.
+//
+// It scales the SKY TERM INSIDE the irradiance. It used to multiply the
+// finished lightness after the tone curve instead, which was the bug:
+// downstream of the curve nothing compresses it, so a floor of 0.06 was
+// a flat four-stop cut that took albedo, occlusion and relief to 0/255
+// together and left the night side pure black. In here the same fall is
+// a change in the light, the curve lends it the shadow end's reach, and
+// what survives is dim ambient-lit relief. Gate 16.
+// The warm/cool axis in Oklab a/b, as a unit vector: mostly +b with a
+// little +a. It is the direction between a warm sunlight white and a
+// cool skylight white, which sits at 77 degrees in the a/b plane for
+// any sensible pair of the two. WARM_SCALE is chroma per unit
+// lightness at a full knob; the white balance needs less reach because
+// it applies to every pixel at once.
+const WARM_AB = vec2<f32>(0.2272, 0.9738);
+const WARM_SCALE = 0.18;
+const WHITE_BALANCE_SCALE = 0.12;
+
+fn twilightOf(sunZ: f32) -> f32 {
+  return g.tone.y + (1.0 - g.tone.y) * smoothstep(-0.105, 0.035, sunZ);
+}
+
+// The two terms separately, (sun, sky). Their sum is the irradiance;
+// the split is what the warm/cool tint weighs itself by, since "how
+// much of this pixel's light came from the disc" is exactly the
+// question a colour temperature answers.
+fn irradiancePartsOf(Nsh: vec3<f32>, sunDir: vec3<f32>, V: f32, Om: f32, sunRadS: f32) -> vec2<f32> {
   let kSky = g.light.x;
   let kSun = 1.0 - g.light.x;
   let beta = g.light.y;
@@ -434,11 +463,12 @@ fn irradianceOf(Nsh: vec3<f32>, sunDir: vec3<f32>, V: f32, Om: f32, sunRadS: f32
   // with it, less a leak for the glow's angular width.
   let csV = leak + (1.0 - leak) * V;
   let skyA = (1.0 - beta) * 0.5 * (1.0 + Nsh.z) + beta * csV * cosS;
-  return kSun * V * cosS + kSky * skyA * Om;
+  let T = twilightOf(sunDir.z);
+  return vec2<f32>(kSun * V * cosS, kSky * T * skyA * Om);
 }
 
 // Flat, open, unshadowed ground under the same sun. Every term mirrors
-// irradianceOf with N = up, V = H and Om = 1, which is what makes the
+// irradiancePartsOf with N = up, V = H and Om = 1, which is what makes
 // ratio of the two exactly 1 on the flats at every sun altitude.
 fn irradianceRefOf(sunZ: f32, H: f32, sunRadS: f32) -> f32 {
   let kSky = g.light.x;
@@ -446,7 +476,11 @@ fn irradianceRefOf(sunZ: f32, H: f32, sunRadS: f32) -> f32 {
   let beta = g.light.y;
   let leak = g.light.z;
   let Lz = smaxC(sunZ, sunRadS);
-  return kSun * H * Lz + kSky * ((1.0 - beta) + beta * (leak + (1.0 - leak) * H) * Lz);
+  // T is here and in irradiancePartsOf alike, so it does not cancel out
+  // their ratio unless eta = 1: night survives as T^(1 - eta).
+  let T = twilightOf(sunZ);
+  return kSun * H * Lz +
+         kSky * T * ((1.0 - beta) + beta * (leak + (1.0 - leak) * H) * Lz);
 }
 
 // Soft clip in stops. R = 1 maps to exactly 1, so the flat-ground
@@ -495,7 +529,7 @@ fn shoulderOf(L: f32, knee: f32) -> f32 {
 // That is gate 13, and a model that only exists inside a fragment entry
 // point cannot be checked that way.
 fn irradianceL(nxy: vec2<f32>, nz: f32, slopeMag: f32, ao: f32, shadow: f32,
-               sunDir: vec3<f32>, albedoL: f32) -> f32 {
+               sunDir: vec3<f32>, albedoL: f32) -> vec3<f32> {
   let aoStr = g.params.z;
   let shadowStrength = g.params.w;
 
@@ -545,23 +579,39 @@ fn irradianceL(nxy: vec2<f32>, nz: f32, slopeMag: f32, ao: f32, shadow: f32,
   // because kSun + kSky = 1, so eta alone sets how much of the sun's
   // own altitude is divided back out: 1 holds flat ground at one
   // brightness all day, 0 lets the map darken toward sunset.
-  let E = irradianceOf(Nsh, sunDir, V, Om, sunRadS);
+  let parts = irradiancePartsOf(Nsh, sunDir, V, Om, sunRadS);
+  let E = parts.x + parts.y;
   let Eref = irradianceRefOf(sunDir.z, H, sunRadS);
   let R = E / max(pow(max(Eref, 1e-6), g.light.w), 1e-9);
 
-  // The one monotone carrier of day into night, in place of the
-  // nightMask / nightDepth / horizonShadow stack the legacy path still
-  // needs. Because R is normalised it carries no altitude trend of its
-  // own, so the terminator cannot run backwards.
-  let D = g.tone.y + (1.0 - g.tone.y) * smoothstep(-0.105, 0.035, sunDir.z);
-
-  let lit = albedoL * toneOf(R) * D;
+  // Day into night is already in E and Eref, via twilightOf, so there
+  // is no factor out here. Because R is normalised it carries no
+  // altitude trend of its own and the terminator cannot run backwards:
+  // past the setting disc every pixel falls together as T^(1 - eta).
+  let lit = albedoL * toneOf(R);
 
   // Grade on the finished lightness and nowhere else, then the
   // shoulder. The knee rides the graded albedo so that R = 1 is the
   // identity for every albedo, not just one below kneeMin.
   let knee = max(g.tone.z, gradeOklabL(albedoL));
-  return shoulderOf(gradeOklabL(lit), knee);
+  let L = shoulderOf(gradeOklabL(lit), knee);
+
+  // The colour the light adds, as an offset in Oklab a/b. Both parts
+  // scale with the finished L, which holds a CHROMATICITY rather than a
+  // chroma: a surface lit only by blue sky is just as blue when it is
+  // dim, not more so, and a constant a/b offset would make every shadow
+  // more saturated the darker it got.
+  //
+  // The warm/cool part is signed by the disc's share of this pixel's own
+  // light -- +1 when the disc supplies everything, -1 when it supplies
+  // nothing, 0 at an even split -- which is what puts blue in the
+  // shadows and in the night. It is scaled by saturation because it is
+  // the scene's colour. The white balance is the same shift for every
+  // pixel and is NOT scaled by saturation, because it is the camera's.
+  let fSun = parts.x / max(E, 1e-12);
+  let k = g.grade.y * g.color.x * WARM_SCALE * (2.0 * fSun - 1.0) +
+          g.color.y * WHITE_BALANCE_SCALE;
+  return vec3<f32>(L, k * L * WARM_AB.x, k * L * WARM_AB.y);
 }
 
 // Elevation to Oklab, linearly blending the two bracketing ramp
@@ -819,8 +869,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   //
   // The irradiance model needs no fade at all: direct light is
   // V * max(dot(N, L), 0) with V the bake's own answer, gated only at
-  // the geometric horizon, and the daylight factor carries day into
-  // night separately. So it reads the raw shadow value and keeps the
+  // the geometric horizon, and the sky's twilight level carries day
+  // into night separately. So it reads the raw shadow value and keeps the
   // phenomenon. See verify-low-sun-illumination.mjs and gate 9.
 
   // AO tonemap in sRGB space — matching the LSAO section's atan
@@ -937,13 +987,17 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // drawn sun disagree it shades slightly twice. Taking it as the
     // intrinsic diffuse colour is what makes the model coherent: there
     // is one albedo and one light, and no layer needs its own exception.
-    let Lout = irradianceL(nxy, nz, slopeMag, ao, shadow, sunDir, albedo.x);
+    // x = lightness, yz = the colour the light itself adds.
+    let shaded = irradianceL(nxy, nz, slopeMag, ao, shadow, sunDir, albedo.x);
+    let Lout = shaded.x;
 
     // Chroma scales by L / albedo.L, holding C/L -- which is what reads
     // as saturation -- fixed through shade. Scaling by L / lit instead
     // makes a shadow more saturated than the ground it falls on. Gate 15.
     let cs = select(0.0, g.grade.y * Lout / max(albedo.x, 1e-4), albedo.x > 0.0);
-    return vec4<f32>(oklabToSrgbClipped(vec3<f32>(Lout, albedo.y * cs, albedo.z * cs)), 1.0);
+    // The surface's own colour, scaled, plus the light's, added.
+    return vec4<f32>(oklabToSrgbClipped(
+      vec3<f32>(Lout, albedo.y * cs + shaded.y, albedo.z * cs + shaded.z)), 1.0);
   }
 
   // ---- legacy slope/aspect model ---------------------------------
@@ -1656,7 +1710,7 @@ export function createTileViewer(opts) {
   // Global uniform buffer (176 bytes: eleven vec4s — viewport, sunDir,
   // params, solar, hypso, ao, imagery, grade, light, tone, shape).
   const globalBuffer = device.createBuffer({
-    size: 176,
+    size: 192,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "tile-viewer global uniforms",
   });
@@ -1698,7 +1752,7 @@ export function createTileViewer(opts) {
       { binding: 1, resource: { buffer: rampBuffer } },
     ],
   });
-  const globalData = new Float32Array(44);
+  const globalData = new Float32Array(48);
 
   // ------------------------------------------------------------------
   // GPU tile-bake resources.
@@ -1865,7 +1919,14 @@ export function createTileViewer(opts) {
     // the sweeps in verify-lighting-model.mjs were run at.
     skyFrac: 0.22,       // sky's share of the budget at a high sun
     eta: 0.7,            // exposure: 1 holds the flats all day, 0 absolute
-    nightFloor: 0.06,
+    // The sky's residual level once the sun is down, as a fraction of
+    // its daytime level, and the only thing lighting the night side.
+    // Aesthetic rather than physical: real twilight is 1e-3 to 1e-4 of
+    // noon and this chain puts that at 1/255. At 0.25 flat open
+    // mid-grey ground reads 19/255 at night with its albedo and its
+    // occlusion still legible, against 0/255 for everything when the
+    // fade was a post-tone multiplier. Gate 16.
+    nightSky: 0.25,
     highlightStops: 0.6, // soft-clip reach above neutral
     shadowStops: 3.5,    // and below it, where shadows need the room
     kneeMin: 0.8,        // highlight shoulder's knee
@@ -3177,14 +3238,14 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
     globalData[33] = clamp01(num(lighting.beta, 0.45));
     globalData[34] = clamp01(num(lighting.leak, 0.25));
     globalData[35] = clamp01(num(lighting.eta, 0.7));
-    // tone = (highlightStops, nightFloor, kneeMin, sunRadiusDeg)
+    // tone = (highlightStops, nightSky, kneeMin, sunRadiusDeg)
     //
     // sunRadiusDeg is the SAME quantity the bake already uses for the
     // shadow penumbra, so one control widens the Lambert terminator and
     // the shadow edge together rather than the composite having a razor
     // terminator under a deliberately soft sun. Gate 14.
     globalData[36] = Math.max(0.05, num(lighting.highlightStops, 0.6));
-    globalData[37] = clamp01(num(lighting.nightFloor, 0.06));
+    globalData[37] = clamp01(num(lighting.nightSky, 0.25));
     globalData[38] = clamp01(num(lighting.kneeMin, 0.8));
     globalData[39] = Math.max(0, num(lighting.sunRadiusDeg, 0.46));
     // shape = (shadowStops, contrastPost, pivot, toneContrast)
@@ -3192,6 +3253,9 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
     globalData[41] = Math.max(0.05, num(lighting.contrastPost, 1));
     globalData[42] = 0.5;
     globalData[43] = Math.max(0.05, num(lighting.toneContrast, 1));
+    // color = (sunWarmth, temperature, unused, unused)
+    globalData[44] = clamp01(num(lighting.sunWarmth, 0.35));
+    globalData[45] = Math.max(-1, Math.min(1, num(lighting.temperature, 0)));
     device.queue.writeBuffer(globalBuffer, 0, globalData);
 
     // Per-tile uniform updates — screen-space origin is a small f32

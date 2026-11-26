@@ -1104,3 +1104,180 @@ lighting, so sun-facing slopes were driven further above flat ground
 than the terrain warranted, feeding the highlight end. It is gone and
 the shading normal is used as measured. `shape.x`, which carried the
 exaggeration factor, now carries `shadowStops`.
+
+## 16. Night was black, and why
+
+Reported: the view fades to full black as the sun goes down, where it
+should hold some low illumination with the albedo and the occlusion
+still legible and no directed light.
+
+Below the horizon the model was already right about the direct term.
+`H`, the gate on `sunDir.z`, takes sun visibility `V` to zero, so there
+is no Lambert term and a cast shadow makes no difference at all. The
+fault was everything else going with it.
+
+Day into night was carried by one factor applied to the finished
+lightness, AFTER the tone curve:
+
+    D = nightFloor + (1 - nightFloor) * smoothstep(-0.105, 0.035, sunZ)
+    lit = albedo * tone(R) * D
+
+Downstream of the curve nothing compresses it. A floor of 0.06 is a flat
+four-stop cut with no shoulder under it, so it did not darken the night
+side, it collapsed it: every surface arrived at 0/255 together.
+Measured on flat open ground with a mid-grey albedo, at a sun 10 degrees
+down:
+
+| surface | before | after |
+| --- | --- | --- |
+| open, mid-grey | 0/255 | 19/255 |
+| occluded (openness 0.45), mid-grey | 0/255 | 4/255 |
+| open, bright (L 0.8) | 0/255 | 45/255 |
+| open, dark (L 0.35) | 0/255 | 7/255 |
+
+The relative irradiance `R` was not carrying any of this. It sat at
+0.5307 from the horizon all the way down to -18 degrees, because `eta`
+divides by the reference at the current sun and both numerator and
+denominator had lost the same sun. All of the fade was `D`.
+
+So the factor moves inside the irradiance, onto the sky term, in both
+`irradiance` and `irradianceRef`:
+
+    T = nightSky + (1 - nightSky) * smoothstep(-0.105, 0.035, sunZ)
+    E    = kSun * V * cosS + kSky * T * skyA * Om
+    Eref = kSun * H * Lz   + kSky * T * (...)
+
+It does not cancel between them, because the ratio raises the reference
+to `eta`: night survives as `T^(1 - eta)`. At `eta = 1` it cancels
+exactly, which is already what `eta = 1` means -- flat ground holds one
+brightness whatever the sun is doing, midnight included.
+
+`nightSky` is frankly aesthetic at 0.25. Real twilight is 1e-3 to 1e-4
+of noon and this chain puts that at 1/255; the compression available is
+`^(1 - eta)` and then the curve's shadow stops, which is strong but not
+unlimited. Sunset dimming (`1 - eta`) remains the control over how dark
+night gets, and it now means something at night instead of being
+overridden by a fixed floor.
+
+### What gate 8 caught
+
+Gate 8 asks that no pixel brighten as the sun sets below the horizon,
+and it started failing: 631 rises, worst 0.67/255. Checked by sun
+altitude, every one of them is inside the disc crossing, between +0.3
+and -0.6 degrees, and there are exactly zero below that.
+
+The lift is structural, not a slip. `eta` divides by the reference,
+the reference is losing its own direct term across the disc width, and
+a pixel that never had direct light has none to lose, so it rises by
+the reference's direct share -- about 2% of its total at the horizon.
+The old `D` fell steeply enough through the same window to hide it.
+
+The gate now states both halves separately: exactly monotone once the
+disc is down, and a measured bound of 1/255 across the crossing. That
+is narrower than what it asserted before, not looser.
+
+### The glow survives, on purpose
+
+The circumsolar term is gated by `V` less `leak`, so at night it keeps
+`leak` of its daytime weight and the night side stays gently biased
+toward where the sun went down: 14/255 against 9/255 for a 40 degree
+slope facing the set sun versus away from it. That is indirect light
+with a direction, which is what section 2 set out to carry, and it is
+not a direct term -- there is no disc and no shadow. Gate 16 reports it
+rather than forbidding it.
+
+## 17. Colour temperature, as two controls
+
+Asked for: a temperature adjustment. It turned out to be two different
+things, and the model already had the machinery for the more
+interesting one sitting unused.
+
+### sun warmth
+
+The irradiance is already a sum of two terms, and they are not the same
+colour: the disc is warm and the sky is blue. So `irradianceParts`
+returns them separately, and the tint is signed by the disc's share of
+that pixel's own light:
+
+    fSun   = E_sun / (E_sun + E_sky)
+    signed = 2 * fSun - 1          // +1 all disc, -1 all sky, 0 even
+
+A sunlit face warms, a cast shadow and the whole night side cool, and a
+pixel lit half by each is exactly neutral. This is the one that puts
+blue in the shadows, which no amount of global grading can do, because
+globally the shadows and the lit ground move together.
+
+Measured on the frame, as blue minus red in 8 bits, negative being warm:
+
+| sun warmth | shadows | lit faces |
+| --- | --- | --- |
+| 0 | -7.2 | -65.5 |
+| 0.35 | -3.3 | -87.3 |
+| 1 | **+4.3** | -119.4 |
+
+The two ends separate: 58 units apart at 0, 124 at 1, and at full knob
+the shadows cross over into actually blue.
+
+It has one consequence worth stating plainly, because it is the
+opposite of what the name suggests. **It is not a golden-hour
+control.** At a 10 degree sun the disc supplies only half the light on
+flat ground (0.78 * sin 10 = 0.135 against the sky's 0.12), so the
+signed weight is 0.495 and the knob does almost nothing. The low sun
+really does look warm, but that is the disc AND the sky both reddening
+through more air, and this model carries a fixed sky colour. Warming a
+sunset frame is the other control's job.
+
+### temperature
+
+White balance on the finished picture: the same shift for every pixel.
+This is the camera rather than the scene, so it sits in the grade with
+brightness and contrast, and `saturation` does not scale it -- a
+monochrome frame with a warm cast is a legitimate thing to ask for,
+whereas the scene's own colour should desaturate with everything else.
+
+| temperature | shadows | lit faces |
+| --- | --- | --- |
+| -0.6 | -1.0 | -13.6 |
+| 0 | -7.2 | -65.5 |
+| +0.6 | -13.2 | -102.7 |
+
+Both ends move together, which is exactly what distinguishes it from
+the control above.
+
+### Both scale with L, which is the point
+
+The offset is `k * L * WARM_AB`, not `k * WARM_AB`. Scaling by the
+finished lightness holds a CHROMATICITY rather than a chroma: a surface
+lit only by blue sky is just as blue when it is dim, not more so. A
+constant a/b offset would make every shadow more saturated the darker it
+got, and the night side would have come out lurid.
+
+`WARM_AB` is `[0.2272, 0.9738]`, the direction in Oklab a/b between a
+warm sunlight white and a cool skylight white -- mostly +b with a little
++a. It sits at 77 degrees for any sensible pair of the two, from a mild
+pair to a deliberately extreme one, so it is not a tuned number.
+
+### Gate 17
+
+The gate is as much about what these must NOT do. Neither knob may move
+the lightness by a single bit, anywhere, under any shadow, slope, sun
+or openness: the whole structure of this model is that lighting decides
+L and the grade decides how it is presented, and a temperature that
+dragged L around would be a contrast control wearing a colour name. It
+also pins that with both knobs at zero the tint is exactly zero, so the
+feature is inert when it is off.
+
+GPU parity now checks the colour on the same footing as the lightness:
+`irradianceL` returns `vec3(L, tintA, tintB)` and the harness compares
+all three, with `saturation` set off 1 so a multiply applied to the
+wrong one of the two parts shows up. Max tint difference over 45360
+samples is 0.00001/255.
+
+### A default that is not zero
+
+`sun warmth` defaults to 0.35 rather than 0, which means existing links
+without a `warm` parameter will render very slightly warmer in the sun
+and cooler in shade than they did. That is deliberate: the sun being
+warmer than the sky is a fact rather than a taste, so 0 is the
+unphysical setting, and 0.35 is quiet enough to read as neutral at a
+glance. It is one number if that turns out to be wrong.

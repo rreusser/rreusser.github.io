@@ -77,7 +77,28 @@ export const DEFAULTS = {
   // the shoulder instead.
   highlightStops: 0.6,
   shadowStops: 3.5,
-  nightFloor: 0.06,
+  // The sky's residual level once the sun is down, as a fraction of its
+  // daytime level, and the only thing that lights the night side.
+  // Frankly aesthetic: real twilight is 1e-3 to 1e-4 of noon, and at
+  // that level this chain lands on 1/255. It enters the irradiance, so
+  // the tone curve and `eta` both still act on it -- at eta = 1 it
+  // cancels out of the ratio entirely, which is what eta = 1 means.
+  // At the default it puts flat open mid-grey ground at 19/255. Gate 16.
+  nightSky: 0.25,
+
+  // How much warmer the sun is than the sky, 0 to 1. The direction is
+  // fixed and only the amount is a control, because which way round it
+  // goes is not a matter of taste: the disc is warm and the sky is
+  // blue. It acts per pixel on each term's share of that pixel's own
+  // irradiance, so a sunlit face warms, a cast shadow and the night
+  // side cool, and a pixel lit half by each stays exactly neutral.
+  sunWarmth: 0.35,
+  // White balance on the finished picture, -1 cool to +1 warm. Every
+  // pixel, equally. This is the camera, not the scene, which is why it
+  // is in the grade with brightness and contrast and why saturation
+  // does not scale it: a monochrome frame with a warm cast is a
+  // legitimate thing to ask for.
+  temperature: 0,
   // output shoulder
   kneeMin: 0.8,
   // Packed-normal bias correction; 0 here, the shader's AO_SLOPE_EPS in
@@ -156,6 +177,21 @@ export function planeOpenness(nz, falloff = "exp") {
 // the exp baseline's polynomial drift, which reaches 1.07 on a measured
 // 59.5 degree hillside, and not a real signal. 1.1 covers the fit
 // without inventing a convexity term the measurement cannot support.
+// The warm/cool axis in Oklab a/b, as a unit vector: mostly +b with a
+// little +a. Measured as the direction between a warm sunlight white
+// and a cool skylight white, which is stable at 77 degrees in the a/b
+// plane over any sensible pair -- 3000K against blue sky gives
+// [0.227, 0.974], a deliberately extreme pair [0.262, 0.965].
+export const WARM_AB = [0.2272, 0.9738];
+
+// Chroma per unit lightness at full knob. 0.18 puts a sunlit face at
+// C/L = 0.10 at sunWarmth 1 (its sun share is 0.78, so the signed
+// weight is 0.56) and the night side at C/L = 0.18, which is a firmly
+// blue night without being ink. 0.12 for the white balance, which
+// applies to everything at once and so needs less reach.
+export const WARM_SCALE = 0.18;
+export const WHITE_BALANCE_SCALE = 0.12;
+
 export const REL_OPENNESS_MAX = 1.1;
 
 // No hidden gain. `aoStrength` is the multiplier, and the control
@@ -188,9 +224,12 @@ function exaggerate(N, e) {
 // no disc anywhere, whatever a steep slope's orientation says.
 const horizonGate = (sunZ) => smoothstep(-0.0045, 0.0045, sunZ);
 
-// Absolute irradiance, in units where kSun + kSky = 1.
-export function irradiance({ N, sunDir, shadow = 0, openness = 1,
-                             falloff = "exp", p = DEFAULTS }) {
+// The two terms separately. `irradiance` is their sum; the split is
+// what the warm/cool tint weighs itself by, since "how much of this
+// pixel's light came from the disc" is exactly the question a colour
+// temperature answers.
+export function irradianceParts({ N, sunDir, shadow = 0, openness = 1,
+                                  falloff = "exp", p = DEFAULTS }) {
   const kSky = p.skyFrac;
   const kSun = 1 - p.skyFrac;
   const Ns = exaggerate(N, p.reliefExag);
@@ -227,8 +266,25 @@ export function irradiance({ N, sunDir, shadow = 0, openness = 1,
   // grazing sun by a wide margin.
   const csV = p.leak + (1 - p.leak) * V;
   const skyA = (1 - p.beta) * 0.5 * (1 + Ns[2]) + p.beta * csV * cosS;
+  const T = twilightLevel(sunDir[2], p);
 
-  return kSun * V * cosS + kSky * skyA * Om;
+  return { sun: kSun * V * cosS, sky: kSky * T * skyA * Om };
+}
+
+// Absolute irradiance, in units where kSun + kSky = 1.
+export function irradiance(args) {
+  const { sun, sky } = irradianceParts(args);
+  return sun + sky;
+}
+
+// The disc's share of this pixel's light, 0 to 1. 0 in a cast shadow
+// and everywhere at night, since V gates the direct term; about 0.78 on
+// sunlit flats at a high sun, where kSun is the whole budget less the
+// sky's share.
+export function sunShare(args) {
+  const { sun, sky } = irradianceParts(args);
+  const tot = sun + sky;
+  return tot > 1e-12 ? sun / tot : 0;
 }
 
 // Irradiance of flat, open, unshadowed ground under the same sun. Every
@@ -240,7 +296,11 @@ export function irradianceRef(sunDir, p = DEFAULTS) {
   const s = Math.sin((p.sunRadiusDeg * Math.PI) / 180);
   const H = horizonGate(sunDir[2]);
   const Lz = smax(sunDir[2], s);
-  return kSun * H * Lz + kSky * ((1 - p.beta) + p.beta * (p.leak + (1 - p.leak) * H) * Lz);
+  const T = twilightLevel(sunDir[2], p);
+  // T is in this and in `irradiance` alike, so it does not cancel out of
+  // their ratio unless eta = 1: night survives as T^(1 - eta).
+  return kSun * H * Lz +
+         kSky * T * ((1 - p.beta) + p.beta * (p.leak + (1 - p.leak) * H) * Lz);
 }
 
 // Relative irradiance. eta = 1 divides by the reference at the current
@@ -271,9 +331,18 @@ export function tone(R, p = DEFAULTS) {
   return Math.exp(k * Math.tanh((p.contrast * x) / k));
 }
 
-// The one monotone carrier of day into night.
-export function daylight(sunDir, p = DEFAULTS) {
-  return p.nightFloor + (1 - p.nightFloor) * smoothstep(-0.105, 0.035, sunDir[2]);
+// The one monotone carrier of day into night: the sky's own level,
+// falling across civil twilight to `nightSky` and staying there.
+//
+// This multiplies the SKY TERM INSIDE the irradiance, and it used to
+// multiply the finished lightness after the tone curve instead. That was
+// the bug: downstream of the curve nothing compresses it, so a floor of
+// 0.06 was a flat four-stop cut that took albedo, occlusion and relief
+// to 0/255 together. Inside the irradiance the same fall is a change in
+// the light, the curve gives it the shadow end's 3.5 stops of reach, and
+// what survives is dim ambient-lit relief. Gate 16.
+export function twilightLevel(sunZ, p = DEFAULTS) {
+  return p.nightSky + (1 - p.nightSky) * smoothstep(-0.105, 0.035, sunZ);
 }
 
 // Lighting alone. Takes NO grade parameters, which is the structural
@@ -281,7 +350,9 @@ export function daylight(sunDir, p = DEFAULTS) {
 // see gate 9.
 export function shadeLighting(args) {
   const p = args.p ?? DEFAULTS;
-  return tone(relIrradiance(args), p) * daylight(args.sunDir, p);
+  // No day/night factor out here any more: it is in the irradiance,
+  // where the tone curve can compress it.
+  return tone(relIrradiance(args), p);
 }
 
 // Brightness and contrast on the finished lightness. Monotone and
@@ -330,6 +401,34 @@ export function shoulder(L, knee) {
 // leaves C/L proportional to 1/lit, which makes a shadow MORE saturated
 // than the ground it falls on -- the error this had until the WGSL port
 // put the two side by side. Gate 15.
+// The colour the light adds, as an offset in Oklab a/b. Both parts
+// scale with the finished L, which is what holds CHROMATICITY fixed
+// rather than chroma: a surface lit only by blue sky is just as blue
+// when it is dim, it is not more so, and tinting by a constant a/b
+// would make every shadow more saturated the darker it got.
+//
+//   warm/cool   signed by the disc's share of this pixel's own light,
+//               neutral at an even split, and scaled by `saturation`
+//               because it is the scene's colour.
+//   white bal.  the same for every pixel, and NOT scaled by
+//               `saturation`, because it is the camera's.
+export function tintAB(args, L) {
+  const p = args.p ?? DEFAULTS;
+  // Signed by the disc's share: +1 when the disc supplies everything,
+  // -1 when it supplies nothing, 0 at an even split. This is the right
+  // mix of two coloured lights, and it has a consequence worth knowing:
+  // at a 10 degree sun the disc supplies only half the light on flat
+  // ground (0.78 * sin 10 = 0.135 against the sky's 0.12), so the
+  // weight is 0.495 and this knob does almost nothing there. It is not
+  // a golden-hour control. The low sun really does look warm, but that
+  // is the disc AND the sky both reddening, which this model does not
+  // carry; reach for `temperature` to warm a sunset frame.
+  const signed = 2 * sunShare(args) - 1;
+  const k = p.saturation * p.sunWarmth * WARM_SCALE * signed +
+            p.temperature * WHITE_BALANCE_SCALE;
+  return [k * L * WARM_AB[0], k * L * WARM_AB[1]];
+}
+
 export function composite(args) {
   const p = args.p ?? DEFAULTS;
   const albedoL = args.albedoL ?? 0.5;
@@ -337,7 +436,10 @@ export function composite(args) {
   const knee = Math.max(p.kneeMin, gradeL(albedoL, p));
   const L = shoulder(gradeL(lit, p), knee);
   const chroma = albedoL > 0 ? p.saturation * (L / albedoL) : 0;
-  return { L, chroma, lighting: shadeLighting(args), R: relIrradiance(args) };
+  // `chroma` multiplies the albedo's own a/b; `tint` is added on top.
+  // Separate because one is the surface and the other is the light.
+  return { L, chroma, tint: tintAB(args, L),
+           lighting: shadeLighting(args), R: relIrradiance(args) };
 }
 
 // =====================================================================
