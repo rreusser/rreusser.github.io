@@ -40,6 +40,10 @@ export async function verifyLightingParity({ verbose = true } = {}) {
     highlightStops: 0.8, shadowStops: 2.9, nightSky: 0.18,
     kneeMin: 0.75, sunRadiusDeg: 3.5,
     contrastPost: 1.25, pivot: 0.5, contrast: 1.15,
+    // Both temperature knobs off their defaults, and saturation off 1,
+    // since the warm/cool part is scaled by it and the white balance
+    // is not: a swapped multiply shows up here.
+    sunWarmth: 0.62, temperature: -0.4, saturation: 1.3,
     shadowStrength: 0.9, aoStrength: 0.85, brightness: 0.3,
     // The shader sees a byte-packed normal, so it subtracts this bias
     // before reading the plane baseline. See relOpenness.
@@ -75,16 +79,17 @@ export async function verifyLightingParity({ verbose = true } = {}) {
     inF[b + 9] = r.albedoL;
   });
 
-  // The same 44-float layout tile-viewer packs into globalBuffer.
-  const g = new Float32Array(44);
+  // The same 48-float layout tile-viewer packs into globalBuffer.
+  const g = new Float32Array(48);
   g[10] = P.aoStrength; g[11] = P.shadowStrength;
   g[20] = floorRaw; g[21] = falloff === "exp" ? 1 : 0;
-  g[28] = Math.pow(2, -P.brightness); g[29] = 1; g[30] = 1;
+  g[28] = Math.pow(2, -P.brightness); g[29] = P.saturation; g[30] = 1;
   g[32] = P.skyFrac; g[33] = P.beta; g[34] = P.leak; g[35] = P.eta;
   g[36] = P.highlightStops; g[37] = P.nightSky; g[38] = P.kneeMin;
   g[39] = P.sunRadiusDeg;
   g[40] = P.shadowStops; g[41] = P.contrastPost; g[42] = P.pivot;
   g[43] = P.contrast;
+  g[44] = P.sunWarmth; g[45] = P.temperature;
 
   const mk = (data, usage) => {
     const b = device.createBuffer({
@@ -95,11 +100,13 @@ export async function verifyLightingParity({ verbose = true } = {}) {
   };
   const uBuf = mk(g, GPUBufferUsage.UNIFORM);
   const iBuf = mk(inF, GPUBufferUsage.STORAGE);
+  // Three floats out per sample: the lightness and the two components
+  // of the colour the light adds.
   const oBuf = device.createBuffer({
-    size: n * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    size: n * 12, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
   });
   const rBuf = device.createBuffer({
-    size: n * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    size: n * 12, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
   });
 
   // Bindings 8 and 9 are free in group 0, and layout "auto" includes
@@ -113,10 +120,13 @@ fn dbg_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = gid.x;
   if (i * 10u + 9u >= arrayLength(&dbgIn)) { return; }
   let b = i * 10u;
-  dbgOut[i] = irradianceL(
+  let r = irradianceL(
     vec2<f32>(dbgIn[b], dbgIn[b + 1u]), dbgIn[b + 2u], dbgIn[b + 3u],
     dbgIn[b + 4u], dbgIn[b + 5u],
     vec3<f32>(dbgIn[b + 6u], dbgIn[b + 7u], dbgIn[b + 8u]), dbgIn[b + 9u]);
+  dbgOut[i * 3u] = r.x;
+  dbgOut[i * 3u + 1u] = r.y;
+  dbgOut[i * 3u + 2u] = r.z;
 }`;
 
   const mod = device.createShaderModule({ code });
@@ -143,24 +153,34 @@ fn dbg_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   pass.setBindGroup(0, bg);
   pass.dispatchWorkgroups(Math.ceil(n / 64));
   pass.end();
-  enc.copyBufferToBuffer(oBuf, 0, rBuf, 0, n * 4);
+  enc.copyBufferToBuffer(oBuf, 0, rBuf, 0, n * 12);
   device.queue.submit([enc.finish()]);
   await rBuf.mapAsync(GPUMapMode.READ);
   const gpu = new Float32Array(rBuf.getMappedRange().slice(0));
   rBuf.unmap();
 
-  let maxAbs = 0, sumAbs = 0, over = 0, worst = null;
+  let maxAbs = 0, sumAbs = 0, over = 0, worst = null, maxTint = 0, tintAt = null;
   for (let i = 0; i < n; i++) {
     const r = rows[i];
     const want = ref.composite({
       N: r.N, sunDir: r.sun, shadow: r.shadow,
       openness: ref.opennessOf(r.storedAo, falloff), falloff,
       albedoL: r.albedoL, p: P,
-    }).L;
-    const d = Math.abs(gpu[i] - want);
+    });
+    const d = Math.abs(gpu[i * 3] - want.L);
     sumAbs += d;
     if (d > 1 / 255) over++;
-    if (d > maxAbs) { maxAbs = d; worst = { ...r, gpu: gpu[i], want }; }
+    if (d > maxAbs) { maxAbs = d; worst = { ...r, gpu: gpu[i * 3], want: want.L }; }
+    // The colour the light adds, checked on the same footing. It is an
+    // offset in Oklab a/b, so 1/255 is the right scale for it too.
+    const dt = Math.max(Math.abs(gpu[i * 3 + 1] - want.tint[0]),
+                        Math.abs(gpu[i * 3 + 2] - want.tint[1]));
+    if (dt > 1 / 255) over++;
+    if (dt > maxTint) {
+      maxTint = dt;
+      tintAt = { alt: r.alt, slope: r.slope, az: r.az, shadow: r.shadow,
+                 gpu: [gpu[i * 3 + 1], gpu[i * 3 + 2]], want: want.tint };
+    }
   }
 
   const out = {
@@ -168,6 +188,9 @@ fn dbg_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     samples: n,
     maxAbsDiff: maxAbs,
     maxAbsDiffIn255ths: maxAbs * 255,
+    maxTintDiff: maxTint,
+    maxTintDiffIn255ths: maxTint * 255,
+    worstTint: tintAt,
     meanAbsDiff: sumAbs / n,
     samplesOver_1_255: over,
     webgpuErrors: errs,

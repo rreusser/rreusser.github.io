@@ -1185,3 +1185,99 @@ slope facing the set sun versus away from it. That is indirect light
 with a direction, which is what section 2 set out to carry, and it is
 not a direct term -- there is no disc and no shadow. Gate 16 reports it
 rather than forbidding it.
+
+## 17. Colour temperature, as two controls
+
+Asked for: a temperature adjustment. It turned out to be two different
+things, and the model already had the machinery for the more
+interesting one sitting unused.
+
+### sun warmth
+
+The irradiance is already a sum of two terms, and they are not the same
+colour: the disc is warm and the sky is blue. So `irradianceParts`
+returns them separately, and the tint is signed by the disc's share of
+that pixel's own light:
+
+    fSun   = E_sun / (E_sun + E_sky)
+    signed = 2 * fSun - 1          // +1 all disc, -1 all sky, 0 even
+
+A sunlit face warms, a cast shadow and the whole night side cool, and a
+pixel lit half by each is exactly neutral. This is the one that puts
+blue in the shadows, which no amount of global grading can do, because
+globally the shadows and the lit ground move together.
+
+Measured on the frame, as blue minus red in 8 bits, negative being warm:
+
+| sun warmth | shadows | lit faces |
+| --- | --- | --- |
+| 0 | -7.2 | -65.5 |
+| 0.35 | -3.3 | -87.3 |
+| 1 | **+4.3** | -119.4 |
+
+The two ends separate: 58 units apart at 0, 124 at 1, and at full knob
+the shadows cross over into actually blue.
+
+It has one consequence worth stating plainly, because it is the
+opposite of what the name suggests. **It is not a golden-hour
+control.** At a 10 degree sun the disc supplies only half the light on
+flat ground (0.78 * sin 10 = 0.135 against the sky's 0.12), so the
+signed weight is 0.495 and the knob does almost nothing. The low sun
+really does look warm, but that is the disc AND the sky both reddening
+through more air, and this model carries a fixed sky colour. Warming a
+sunset frame is the other control's job.
+
+### temperature
+
+White balance on the finished picture: the same shift for every pixel.
+This is the camera rather than the scene, so it sits in the grade with
+brightness and contrast, and `saturation` does not scale it -- a
+monochrome frame with a warm cast is a legitimate thing to ask for,
+whereas the scene's own colour should desaturate with everything else.
+
+| temperature | shadows | lit faces |
+| --- | --- | --- |
+| -0.6 | -1.0 | -13.6 |
+| 0 | -7.2 | -65.5 |
+| +0.6 | -13.2 | -102.7 |
+
+Both ends move together, which is exactly what distinguishes it from
+the control above.
+
+### Both scale with L, which is the point
+
+The offset is `k * L * WARM_AB`, not `k * WARM_AB`. Scaling by the
+finished lightness holds a CHROMATICITY rather than a chroma: a surface
+lit only by blue sky is just as blue when it is dim, not more so. A
+constant a/b offset would make every shadow more saturated the darker it
+got, and the night side would have come out lurid.
+
+`WARM_AB` is `[0.2272, 0.9738]`, the direction in Oklab a/b between a
+warm sunlight white and a cool skylight white -- mostly +b with a little
++a. It sits at 77 degrees for any sensible pair of the two, from a mild
+pair to a deliberately extreme one, so it is not a tuned number.
+
+### Gate 17
+
+The gate is as much about what these must NOT do. Neither knob may move
+the lightness by a single bit, anywhere, under any shadow, slope, sun
+or openness: the whole structure of this model is that lighting decides
+L and the grade decides how it is presented, and a temperature that
+dragged L around would be a contrast control wearing a colour name. It
+also pins that with both knobs at zero the tint is exactly zero, so the
+feature is inert when it is off.
+
+GPU parity now checks the colour on the same footing as the lightness:
+`irradianceL` returns `vec3(L, tintA, tintB)` and the harness compares
+all three, with `saturation` set off 1 so a multiply applied to the
+wrong one of the two parts shows up. Max tint difference over 45360
+samples is 0.00001/255.
+
+### A default that is not zero
+
+`sun warmth` defaults to 0.35 rather than 0, which means existing links
+without a `warm` parameter will render very slightly warmer in the sun
+and cooler in shade than they did. That is deliberate: the sun being
+warmer than the sky is a fact rather than a taste, so 0 is the
+unphysical setting, and 0.35 is quiet enough to read as neutral at a
+glance. It is one number if that turns out to be wrong.

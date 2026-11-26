@@ -24,7 +24,7 @@
 //   node .../verify-lighting-model.mjs --table
 //
 import {
-  DEFAULTS, CURRENT_DEFAULTS, KNEE_MAX,
+  DEFAULTS, CURRENT_DEFAULTS, KNEE_MAX, WARM_AB,
   composite, currentComposite,
   relIrradiance, irradianceRef, shadeLighting,
   smax, opennessOf, irradiance, shoulder,
@@ -700,6 +700,68 @@ gate(16, "a night frame is dim rather than black, and keeps albedo and occlusion
       detail: `flat mid-grey night floor ${dimmest}/255 (${dimAt}); albedo spread ` +
               `${worstAlbedo}/255, occlusion spread ${worstOcc}/255; shadow moves ` +
               `${shadowMoves.toExponential(1)}; glow bias ${toward} vs ${away}/255`,
+    };
+  });
+
+// =====================================================================
+// 17. Temperature is colour and nothing but colour
+// =====================================================================
+// Two knobs, and the gate is as much about what they must NOT do.
+// Neither may move the lightness by a single bit: the whole structure
+// of this model is that lighting decides L and the grade decides how it
+// is presented, and a temperature that dragged L around would be a
+// contrast control wearing a colour name.
+//
+// `sunWarmth` is signed by the disc's share of each pixel's own light,
+// so it is the one that makes shadows blue. `temperature` is the same
+// shift everywhere, scaled by L to hold a chromaticity rather than a
+// chroma, and deliberately NOT scaled by saturation.
+gate(17, "temperature moves colour, never lightness, and the two knobs differ",
+  { current: false, proposed: true },
+  (model) => {
+    const at = (over, args) => {
+      const r = shade(model, { albedoL: 0.5, N: [0, 0, 1], sunDir: sunDirOf(45), ...args, over });
+      const t = r.tint ?? [0, 0];
+      // Signed projection onto the warm axis, per unit lightness.
+      return { L: r.L, warm: (t[0] * WARM_AB[0] + t[1] * WARM_AB[1]) / r.L };
+    };
+
+    // (a) neither knob touches L, at all, anywhere
+    let dL = 0;
+    for (const over of [{ sunWarmth: 1 }, { sunWarmth: 0 }, { temperature: 1 }, { temperature: -1 }])
+    for (const args of [{}, { shadow: 1 }, { sunDir: sunDirOf(-8) }, { N: normalOf(50, 180) }, { openness: 0.4 }]) {
+      dL = Math.max(dL, Math.abs(at(over, args).L - at({ sunWarmth: 0, temperature: 0 }, args).L));
+    }
+
+    // (b) warm sun, cool shadow, cool night
+    const W = { sunWarmth: 1, temperature: 0 };
+    const lit = at(W, {}).warm;
+    const shadowed = at(W, { shadow: 1 }).warm;
+    const night = at(W, { sunDir: sunDirOf(-8) }).warm;
+
+    // (c) off is exactly off
+    let offTint = 0;
+    for (const args of [{}, { shadow: 1 }, { sunDir: sunDirOf(-8) }])
+      offTint = Math.max(offTint, Math.abs(at({ sunWarmth: 0, temperature: 0 }, args).warm));
+
+    // (d) the white balance is the SAME shift for every pixel
+    let wbSpread = 0;
+    const wb = { sunWarmth: 0, temperature: 1 };
+    const wbRef = at(wb, {}).warm;
+    for (const args of [{ shadow: 1 }, { sunDir: sunDirOf(-8) }, { N: normalOf(60, 180) }, { openness: 0.3 }])
+      wbSpread = Math.max(wbSpread, Math.abs(at(wb, args).warm - wbRef));
+
+    // (e) saturation scales the scene's tint and not the camera's
+    const satScalesSun = Math.abs(at({ ...W, saturation: 0.5 }, {}).warm / lit - 0.5);
+    const satLeavesWb = Math.abs(at({ ...wb, saturation: 0.5 }, {}).warm / wbRef - 1);
+
+    return {
+      ok: dL < 1e-12 && lit > 0.02 && shadowed < -0.02 && night < -0.02 &&
+          offTint < 1e-12 && wbSpread < 1e-12 && satScalesSun < 1e-12 && satLeavesWb < 1e-12,
+      detail: `dL ${dL.toExponential(1)}; warm axis C/L lit ${lit.toFixed(4)}, ` +
+              `shadow ${shadowed.toFixed(4)}, night ${night.toFixed(4)}; off ` +
+              `${offTint.toExponential(1)}; white balance spread ${wbSpread.toExponential(1)}; ` +
+              `saturation scales sun ${satScalesSun < 1e-12}, leaves balance ${satLeavesWb < 1e-12}`,
     };
   });
 

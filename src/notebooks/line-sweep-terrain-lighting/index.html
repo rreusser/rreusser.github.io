@@ -2056,6 +2056,30 @@
       value: 1,
       step: 0.01,
     });
+
+    // How much warmer the disc is than the sky. Only the amount is a
+    // control: which way round it goes is not a matter of taste, so
+    // there is no cool-sun end. It acts per pixel on each term's share
+    // of that pixel's own irradiance, so a sunlit face warms while a
+    // cast shadow and the whole night side cool, and a pixel lit half
+    // by each stays neutral. That share is also why it does little at a
+    // very low sun: at 10 degrees the disc supplies only half the light
+    // on flat ground. To warm a sunset frame, reach for `temperature`.
+    const sunWarmthEl = Inputs.range([0, 1], {
+      label: "sun warmth",
+      value: 0.35,
+      step: 0.01,
+    });
+
+    // White balance on the finished picture: the same shift for every
+    // pixel, scaled by its lightness so it holds a chromaticity rather
+    // than a chroma. This is the camera rather than the scene, which is
+    // why it sits in the grade and why saturation does not scale it.
+    const temperatureEl = Inputs.range([-1, 1], {
+      label: "temperature",
+      value: 0,
+      step: 0.01,
+    });
     let _viewerRef = null;
     const tileViewerRef = {
       set: (v) => { _viewerRef = v; },
@@ -2184,6 +2208,10 @@
       shadowEl,
       skyFracEl,
       aoEl,
+      // Last in the group because it is the only one here that changes
+      // colour rather than amount, and because it reads off the split
+      // the four above have just finished setting up.
+      sunWarmthEl,
     ], { open: true }));
 
     // What feeds the three groups above: which shading model runs, where
@@ -2199,11 +2227,12 @@
     ]));
 
     // The post-process, and nothing else: it lands on the finished
-    // pixel, so nothing upstream knows these three exist.
+    // pixel, so nothing upstream knows these four exist.
     tileViewerControlsDiv.appendChild(controlSection("tone and grade", [
       brightnessEl,
       contrastEl,
       saturationEl,
+      temperatureEl,
     ]));
 
     tileViewerControlsDiv.appendChild(animationPanel.element);
@@ -2231,6 +2260,8 @@
       satelliteEl,
       brightnessEl,
       saturationEl,
+      sunWarmthEl,
+      temperatureEl,
       exposureEl,
       skyFracEl,
       contrastEl,
@@ -2699,6 +2730,8 @@
         // `sat` is already taken by the satellite layer, and this knob
         // scales Oklab chroma, so it rides under that name.
         chroma: { codec: num(0, 2, 0.01), ...fromEl(c.saturationEl) },
+        warm: { codec: num(0, 1, 0.01), ...fromEl(c.sunWarmthEl) },
+        temp: { codec: num(-1, 1, 0.01), ...fromEl(c.temperatureEl) },
         sun: { codec: oneOf({ fixed: "fixed", time: "time" }), ...fromEl(c.sunModeEl) },
         // The calendar only means something in time mode, and there the
         // date and time are always written: "today" is not a value a
@@ -2878,6 +2911,8 @@
           satOpacity: Number(c.satelliteEl.value),
           brightness: Number(c.brightnessEl.value),
           saturation: Number(c.saturationEl.value),
+          sunWarmth: Number(c.sunWarmthEl.value),
+          temperature: Number(c.temperatureEl.value),
           shadingModel: c.shadingEl.value,
           // The control reads as dimming; eta is its complement.
           eta: 1 - Number(c.exposureEl.value),
