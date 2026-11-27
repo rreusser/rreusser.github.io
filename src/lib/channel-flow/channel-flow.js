@@ -30,6 +30,10 @@
  */
 
 import { createChannelPoisson } from '../webgpu-poisson/channel-poisson.js';
+import { gridHeaderWGSL, stateAccessorWGSL } from './wgsl-common.js';
+import { createFlowStatistics } from './flow-statistics.js';
+
+export { gridHeaderWGSL, stateAccessorWGSL };
 
 // Wray's low-storage RK3. Stage s advances by (GAMMA[s] + ZETA[s]) dt.
 const GAMMA = [8 / 15, 5 / 12, 3 / 4];
@@ -40,56 +44,6 @@ export const RK3_IMAGINARY_LIMIT = Math.sqrt(3);
 export const RK3_REAL_LIMIT = 2.5127;
 
 const PARAM_FLOATS = 8;
-const STAT_FLOATS = 12;
-const STAT_BYTES = 4 * STAT_FLOATS;
-
-/** WGSL grid constants and the stage parameter struct, shared by every shader that reads the state. */
-export function gridHeaderWGSL({ Nx, Ny, Nz, dx, dz, wallSign }) {
-  return /* wgsl */ `
-const NX = ${Nx}u;
-const NY = ${Ny}u;
-const NZ = ${Nz}u;
-const IDX = ${(1 / dx).toExponential(9)};
-const IDZ = ${(1 / dz).toExponential(9)};
-const WALL = ${wallSign.toFixed(1)};
-
-struct Params {
-  a: f32,          // dt * gamma
-  b: f32,          // dt * zeta
-  nu: f32,
-  fx: f32,
-  invAlphaDt: f32, // 1 / (dt * (gamma + zeta))
-  pad0: f32,
-  pad1: f32,
-  pad2: f32,
-}
-
-// Per-row mesh data: (1 / h_j, 1 / (yc_j - yc_{j-1}), 1 / (yc_{j+1} - yc_j),
-// h_{j-1} / (h_{j-1} + h_j)). Beyond a wall the centre spacing is that of the
-// mirrored cell.
-`;
-}
-
-/**
- * WGSL accessor for the velocity buffer `name` with periodic wrap in x and z
- * and mirrored ghost cells beyond the walls. The ghost tangential velocity is
- * WALL times the interior one (-1: no slip, +1: free slip), and the ghost
- * wall-normal velocity is zero, which is also the value on the top wall.
- */
-export function stateAccessorWGSL(name) {
-  return /* wgsl */ `
-fn at(i: i32, j: i32, k: i32) -> vec4f {
-  let ii = u32(i + i32(NX)) & (NX - 1u);
-  let kk = u32(k + i32(NZ)) & (NZ - 1u);
-  let jj = u32(clamp(j, 0, i32(NY) - 1));
-  var q = ${name}[ii + NX * (kk + NZ * jj)];
-  if (j < 0 || j >= i32(NY)) {
-    q = vec4f(WALL * q.x, 0.0, WALL * q.z, q.w);
-  }
-  return q;
-}
-`;
-}
 
 function predictorShader(cfg) {
   return /* wgsl */ `
@@ -230,83 +184,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 /**
- * Plane statistics, reduced in two steps so that neighbouring threads read
- * neighbouring memory: first over z for every (i, j), then over x.
- *
- * Per plane j, twelve floats:
- *   0 sum u      1 sum u^2    2 sum v^2 (on the face below)    3 sum w^2
- *   4 sum u v (both averaged to the cell centre)
- *   5 max (|u|/dx + |v|/h + |w|/dz)     6 max |div u|     7 sum w
- *   8, 9   sums of the squared second and first differences of u in x
- *   10, 11 the same in z
- * The last four measure how close the streamwise velocity is to the grid
- * scale; see `statistics`.
- */
-function statsShaders(cfg) {
-  const common = /* wgsl */ `
-${gridHeaderWGSL(cfg)}
-struct Stats { s: vec4f, t: vec4f, r: vec4f }
-`;
-  const overZ = /* wgsl */ `
-${common}
-@group(0) @binding(0) var<storage, read> U: array<vec4f>;
-@group(0) @binding(1) var<storage, read_write> cols: array<Stats>;
-@group(0) @binding(2) var<storage, read> ymesh: array<vec4f>;
-${stateAccessorWGSL('U')}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  if (gid.x >= NX || gid.y >= NY) { return; }
-  let i = i32(gid.x);
-  let j = i32(gid.y);
-  let ih = ymesh[gid.y].x;
-  var s = vec4f(0.0);
-  var t = vec4f(0.0);
-  var r = vec4f(0.0);
-  for (var k = 0; k < i32(NZ); k++) {
-    let c = at(i, j, k);
-    let xp = at(i + 1, j, k);
-    let yp = at(i, j + 1, k);
-    let zp = at(i, j, k + 1);
-    let xm = at(i - 1, j, k);
-    let zm = at(i, j, k - 1);
-    let d2x = xp.x - 2.0 * c.x + xm.x;
-    let d1x = xp.x - xm.x;
-    let d2z = zp.x - 2.0 * c.x + zm.x;
-    let d1z = zp.x - zm.x;
-    r += vec4f(d2x * d2x, d1x * d1x, d2z * d2z, d1z * d1z);
-    let uc = 0.5 * (c.x + xp.x);
-    let vc = 0.5 * (c.y + yp.y);
-    s += vec4f(c.x, c.x * c.x, c.y * c.y, c.z * c.z);
-    let div = (xp.x - c.x) * IDX + (zp.z - c.z) * IDZ + (yp.y - c.y) * ih;
-    let cfl = abs(c.x) * IDX + abs(c.z) * IDZ + abs(c.y) * ih;
-    t = vec4f(t.x + uc * vc, max(t.y, cfl), max(t.z, abs(div)), t.w + c.z);
-  }
-  cols[gid.x + NX * gid.y] = Stats(s, t, r);
-}
-`;
-  const overX = /* wgsl */ `
-${common}
-@group(0) @binding(0) var<storage, read> cols: array<Stats>;
-@group(0) @binding(1) var<storage, read_write> planes: array<Stats>;
-@compute @workgroup_size(16)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  if (gid.x >= NY) { return; }
-  var s = vec4f(0.0);
-  var t = vec4f(0.0);
-  var r = vec4f(0.0);
-  for (var i = 0u; i < NX; i++) {
-    let q = cols[i + NX * gid.x];
-    s += q.s;
-    r += q.r;
-    t = vec4f(t.x + q.t.x, max(t.y, q.t.y), max(t.z, q.t.z), t.w + q.t.w);
-  }
-  planes[gid.x] = Stats(s, t, r);
-}
-`;
-  return { overZ, overX };
-}
-
-/**
  * @param {GPUDevice} device
  * @param {Object} opts
  * @param {number} opts.Nx, opts.Ny, opts.Nz - cells; Nx and Nz powers of two
@@ -366,9 +243,6 @@ export function createChannelFlow(device, opts) {
   const params = [0, 1, 2].map((s) =>
     makeBuffer(`flow params ${s}`, PARAM_FLOATS * 4, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
   );
-  const cols = makeBuffer('flow column stats', Nx * Ny * STAT_BYTES, GPUBufferUsage.STORAGE);
-  const planes = makeBuffer('flow plane stats', Ny * STAT_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-  const planesRead = makeBuffer('flow plane stats readback', Ny * STAT_BYTES, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
 
   // The Poisson solver reads its right-hand side from, and writes its
   // solution to, the same scalar buffer.
@@ -392,15 +266,10 @@ export function createChannelFlow(device, opts) {
   const predictor = pipeline('flow: predictor', predictorShader(cfg));
   const divergence = pipeline('flow: divergence', divergenceShader(cfg));
   const correction = pipeline('flow: correction', correctionShader(cfg));
-  const stats = statsShaders(cfg);
-  const statsZ = pipeline('flow: stats over z', stats.overZ);
-  const statsX = pipeline('flow: stats over x', stats.overX);
 
   const predictorBind = params.map((p) => bind(predictor, [state, star, rhsPrev, ymesh, p]));
   const divergenceBind = bind(divergence, [star, phi, ymesh]);
   const correctionBind = params.map((p) => bind(correction, [star, phi, state, ymesh, p]));
-  const statsZBind = bind(statsZ, [state, cols, ymesh]);
-  const statsXBind = bind(statsX, [cols, planes]);
 
   const grid = [Math.ceil(Nx / wg[0]), Math.ceil(Nz / wg[1]), Math.ceil(Ny / wg[2])];
 
@@ -439,8 +308,11 @@ export function createChannelFlow(device, opts) {
     }
   };
 
-  let statsBusy = false;
   let destroyed = false;
+  const statistics = createFlowStatistics(device, {
+    cfg, state, ymesh, sim,
+    grid: { Nx, Ny, Nz, yFaces, yCenters: yc, heights: h, faceSpacings: hf },
+  });
 
   return {
     Nx, Ny, Nz, Lx, Lz, dx, dz, cells,
@@ -449,9 +321,13 @@ export function createChannelFlow(device, opts) {
     config: cfg,
     poisson,
     sim,
+    method: 'finite-difference',
+    /** Where u sits within a cell in x, and w in z: on the lower face. */
+    xOffsetU: 0,
+    zOffsetW: 0,
     get time() { return sim.time; },
     get steps() { return sim.steps; },
-    get bytes() { return owned.reduce((sum, b) => sum + b.size, 0) + poisson.bytes; },
+    get bytes() { return owned.reduce((sum, b) => sum + b.size, 0) + poisson.bytes + statistics.bytes; },
 
     /**
      * Advance `n` steps of size `dt`. The viscosity and forcing in `sim` are
@@ -532,68 +408,7 @@ export function createChannelFlow(device, opts) {
      * per wave. Above about 0.5 the field is dominated by waves of fewer
      * than four points and is not resolved.
      */
-    async statistics() {
-      if (statsBusy || destroyed) return null;
-      statsBusy = true;
-      try {
-        const encoder = device.createCommandEncoder();
-        const pass = encoder.beginComputePass({ label: 'flow statistics' });
-        pass.setPipeline(statsZ);
-        pass.setBindGroup(0, statsZBind);
-        pass.dispatchWorkgroups(Math.ceil(Nx / 64), Ny);
-        pass.setPipeline(statsX);
-        pass.setBindGroup(0, statsXBind);
-        pass.dispatchWorkgroups(Math.ceil(Ny / 16));
-        pass.end();
-        encoder.copyBufferToBuffer(planes, 0, planesRead, 0, Ny * STAT_BYTES);
-        device.queue.submit([encoder.finish()]);
-        const time = sim.time;
-        await planesRead.mapAsync(GPUMapMode.READ);
-        const raw = new Float32Array(planesRead.getMappedRange().slice(0));
-        planesRead.unmap();
-
-        const n = Nx * Nz;
-        const mean = (o) => Float64Array.from({ length: Ny }, (_, j) => raw[STAT_FLOATS * j + o] / n);
-        const out = {
-          time,
-          y: yc,
-          u: mean(0), uu: mean(1), vv: mean(2), ww: mean(3), uv: mean(4), w: mean(7),
-          maxCfl: 0, maxDivergence: 0, bulkVelocity: 0, kineticEnergy: 0,
-        };
-        // Differences smaller than this fraction of u^2 are rounding noise.
-        const NOISE = 1e-11;
-        const fraction = (second, first, square) =>
-          first > NOISE * square ? (2 / Math.PI) * Math.atan(Math.sqrt(second / first)) : 0;
-        const at = (j, o) => raw[STAT_FLOATS * j + o];
-        const total = (o) => { let t = 0; for (let j = 0; j < Ny; j++) t += at(j, o); return t; };
-        out.gridScale = {
-          x: fraction(total(8), total(9), total(1)),
-          z: fraction(total(10), total(11), total(1)),
-          profileX: Float64Array.from({ length: Ny }, (_, j) => fraction(at(j, 8), at(j, 9), at(j, 1))),
-          profileZ: Float64Array.from({ length: Ny }, (_, j) => fraction(at(j, 10), at(j, 11), at(j, 1))),
-        };
-        const height = yFaces[Ny] - yFaces[0];
-        for (let j = 0; j < Ny; j++) {
-          out.maxCfl = Math.max(out.maxCfl, raw[STAT_FLOATS * j + 5]);
-          out.maxDivergence = Math.max(out.maxDivergence, raw[STAT_FLOATS * j + 6]);
-          out.bulkVelocity += (out.u[j] * h[j]) / height;
-          // v^2 belongs to the face below cell j, whose control volume has height hf[j].
-          out.kineticEnergy += (0.5 * (out.uu[j] * h[j] + out.ww[j] * h[j] + out.vv[j] * hf[j])) / height;
-        }
-        // Wall shear stress / density from the one-sided difference the scheme itself uses.
-        out.wallShear = [
-          (sim.nu * out.u[0]) / (0.5 * h[0]),
-          (sim.nu * out.u[Ny - 1]) / (0.5 * h[Ny - 1]),
-        ];
-        return out;
-      } catch (error) {
-        // Destroying the buffers rejects a read that is still in flight.
-        if (destroyed) return null;
-        throw error;
-      } finally {
-        statsBusy = false;
-      }
-    },
+    statistics: () => statistics.read(),
 
     /**
      * Largest stable time step for the current flow, times `safety`.
@@ -612,6 +427,7 @@ export function createChannelFlow(device, opts) {
 
     destroy() {
       destroyed = true;
+      statistics.destroy();
       for (const b of owned) b.destroy();
       poisson.destroy();
     },

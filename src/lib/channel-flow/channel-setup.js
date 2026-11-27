@@ -59,7 +59,7 @@ export function wallUnits(flow, reTau) {
  * @param {number} [amplitude] - disturbance size as a fraction of `bulk`
  */
 export function perturbedChannel(flow, { bulk = 15.6, amplitude = 0.2, seed = 1 } = {}) {
-  const { Nx, Ny, Nz, Lx, Lz, dx, dz, yFaces, yCenters } = flow;
+  const { Nx, Ny, Nz, Lx, Lz, dx, dz, yFaces, yCenters, xOffsetU = 0, zOffsetW = 0 } = flow;
   const rand = mulberry32(seed);
   const ax = (2 * Math.PI) / Lx;
   const az = (2 * Math.PI) / Lz;
@@ -106,11 +106,11 @@ export function perturbedChannel(flow, { bulk = 15.6, amplitude = 0.2, seed = 1 
     for (let k = 0; k < Nz; k++)
       for (let i = 0; i < Nx; i++) {
         const o = 4 * (i + Nx * (k + Nz * j));
-        const xf = i * dx, xc = (i + 0.5) * dx;
-        const zf = k * dz, zc = (k + 0.5) * dz;
-        data[o] = u(xf, yCenters[j], zc);
+        const xu = (i + xOffsetU) * dx, xc = (i + 0.5) * dx;
+        const zw = (k + zOffsetW) * dz, zc = (k + 0.5) * dz;
+        data[o] = u(xu, yCenters[j], zc);
         data[o + 1] = j > 0 ? v(xc, yFaces[j], zc) : 0;
-        data[o + 2] = w(xc, yCenters[j], zf);
+        data[o + 2] = w(xc, yCenters[j], zw);
       }
   return data;
 }
@@ -159,7 +159,7 @@ export function fluxForcing(stats, target, relax = 1) {
  * @param {number} [lx], [lz] - streamwise and spanwise extent, in half-heights
  */
 export function localizedDisturbance(flow, opts = {}) {
-  const { Nx, Ny, Nz, Lx, Lz, dx, dz, yFaces, yCenters } = flow;
+  const { Nx, Ny, Nz, Lx, Lz, dx, dz, yFaces, yCenters, zOffsetW = 0 } = flow;
   const {
     amplitude = 0.15,
     lx = 0.8,
@@ -192,7 +192,7 @@ export function localizedDisturbance(flow, opts = {}) {
           const { zt, e } = envelope(xc, (k + 0.5) * dz);
           data[o + 1] = (eps / lz) * f(yFaces[j]) * (1 - 2 * zt * zt) * e;
         }
-        const { zt, e } = envelope(xc, k * dz);
+        const { zt, e } = envelope(xc, (k + zOffsetW) * dz);
         data[o + 2] = -eps * df(yCenters[j]) * zt * e;
       }
   return data;
@@ -214,7 +214,7 @@ export function localizedDisturbance(flow, opts = {}) {
  * Returns an interleaved state; call `flow.project()` after uploading it.
  */
 export function wavePerturbedPoiseuille(flow, waves) {
-  const { Nx, Ny, Nz, Lx, Lz, dx, dz, yFaces, yCenters } = flow;
+  const { Nx, Ny, Nz, Lx, Lz, dx, dz, yFaces, yCenters, xOffsetU = 0, zOffsetW = 0 } = flow;
   for (const { mode } of waves) {
     const nx = (mode.alpha * Lx) / (2 * Math.PI);
     const nz = (mode.beta * Lz) / (2 * Math.PI);
@@ -233,8 +233,8 @@ export function wavePerturbedPoiseuille(flow, waves) {
     for (let k = 0; k < Nz; k++)
       for (let i = 0; i < Nx; i++) {
         const o = 4 * (i + Nx * (k + Nz * j));
-        const xf = i * dx, xc = (i + 0.5) * dx;
-        const zf = k * dz, zc = (k + 0.5) * dz;
+        const xf = (i + xOffsetU) * dx, xc = (i + 0.5) * dx;
+        const zf = (k + zOffsetW) * dz, zc = (k + 0.5) * dz;
         let u = 1 - yCenters[j] ** 2, v = 0, w = 0;
         waves.forEach(({ mode, amplitude, phase = 0, pair = false }, n) => {
           const { alpha, beta } = mode;

@@ -80,8 +80,11 @@ export function secondOrderEigenvalue(k, N, h) {
  * m_0 = 0 there replaces its first equation by p_0 = 0, which pins the
  * constant; the discarded equation is implied by the others whenever the
  * right-hand side sums to zero.
+ *
+ * `lamX` (length Nx/2 + 1) and `lamZ` (length Nz) are the eigenvalues of
+ * minus the second derivative in each periodic direction.
  */
-function buildPivots({ Nx, Ny, Nz, lamX, lamZ, lower, upper }) {
+export function buildPivots({ Nx, Ny, Nz, lamX, lamZ, lower, upper }) {
   const Mx = Nx / 2 + 1;
   const plane = Mx * Nz;
   const piv = new Float32Array(plane * Ny);

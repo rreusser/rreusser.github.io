@@ -18,6 +18,7 @@
     import { tanhFaces } from './lib/webgpu-poisson/channel-poisson.js';
     import { validateChannelPoisson, benchmarkChannelPoisson } from './lib/webgpu-poisson/validation.js';
     import { createChannelFlow } from './lib/channel-flow/channel-flow.js';
+    import { createSpectralChannelFlow } from './lib/channel-flow/spectral-channel-flow.js';
     import {
       channelOptions, laminarOptions, kTypeOptions, wallUnits,
       perturbedChannel, localizedDisturbance, kTypeDisturbance, fluxForcing,
@@ -72,6 +73,13 @@
         ['Turbulent channel', 'turbulent'],
       ]),
       { label: 'Scenario', value: 'ktype' }
+    ));
+    const method = view(Inputs.radio(
+      new Map([
+        ['Fourier in x and z', 'fourier'],
+        ['Second-order differences', 'finite-difference'],
+      ]),
+      { label: 'Method', value: 'fourier' }
     ));
   </script>
 
@@ -150,7 +158,8 @@
     invalidation.then(() => {
       for (const resource of owned.reverse()) resource.destroy();
     });
-    const flow = createChannelFlow(device,
+    const createFlow = method === 'fourier' ? createSpectralChannelFlow : createChannelFlow;
+    const flow = createFlow(device,
       scenario === 'turbulent' ? channelOptions({ reTau: setup.reynolds, ...setup.grid })
       : scenario === 'ktype' ? kTypeOptions({ re: setup.reynolds, alpha: setup.alpha, beta: setup.beta, ...setup.grid })
       : laminarOptions({ re: setup.reynolds, ...setup.grid }));
@@ -865,7 +874,7 @@
 
   <script id="flow-validation" type="module">
     if (flowValidationRun > 0) {
-      const flowRows = [...(await validateChannelFlow(device)), ...(await validateQCriterion(device))];
+      const flowRows = [...(await validateChannelFlow(device, method)), ...(await validateQCriterion(device, method))];
       display(Inputs.table(flowRows, {
         columns: ['pass', 'test', 'grid', 'value', 'limit'],
         format: {

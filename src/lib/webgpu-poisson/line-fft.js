@@ -101,33 +101,59 @@ var<workgroup> wb: array<vec2f, ${n}>;
 }
 
 /**
+ * Where a complex field lives inside a storage buffer declared as
+ * array<vec2f>. A buffer may interleave several fields per site: field
+ * `offset` of `stride` fields per site is at element offset + stride * site.
+ * The default is a buffer holding one field.
+ */
+const ONE_FIELD = { stride: 1, offset: 0 };
+const element = (field, site) =>
+  field.stride === 1 && field.offset === 0 ? site : `${field.offset}u + ${field.stride}u * (${site})`;
+
+/**
  * Real-to-complex transform along contiguous lines.
  *
- * Input:  array<f32>, line l occupies [l * N, (l + 1) * N).
- * Output: array<vec2f>, line l occupies [l * (N/2+1), (l + 1) * (N/2+1)).
+ * Input:  by default array<f32>, line l occupying [l * N, (l + 1) * N).
+ * Output: array<vec2f> field, line l occupying sites [l * (N/2+1), ...).
  * Line index: workgroup_id.x + linesX * workgroup_id.y.
  * Twiddles: makeTwiddles(N, N/2 + 1).
+ *
+ * `source` replaces the input by an arbitrary expression, which lets a
+ * product or a difference be formed as it is loaded instead of in a pass of
+ * its own. It is { declarations, value }: WGSL declaring whatever bindings
+ * the expression reads (binding 0 and any from 3 up; 1 and 2 are the output
+ * and the twiddles), and an expression for the sample at position `i` along
+ * the line, on line (`a`, `b`) = workgroup_id.xy, all u32.
+ *
+ * @param {Object} [opts.dst] - { stride, offset } of the output field
  */
-export function generateR2C({ N, linesX, maxInvocations = 256 }) {
+export function generateR2C({ N, linesX, maxInvocations = 256, source = null, dst = ONE_FIELD }) {
   if (!isPow2(N) || N < 4) throw new Error(`r2c length must be a power of two >= 4, got ${N}`);
   const H = N / 2;
   const M = H + 1;
   const L = Math.log2(H);
   const { W, E } = workgroupFor(H, maxInvocations);
   const stages = butterflyStages({ n: H, W, E, period: N, inverse: false });
+  const declarations = source
+    ? source.declarations
+    : '@group(0) @binding(0) var<storage, read> src: array<f32>;';
+  const value = source ? source.value : `src[(a + ${linesX}u * b) * ${N}u + i]`;
   return {
     workgroupSize: W,
     code: /* wgsl */ `
 // r2c, N = ${N} (complex FFT of length ${H}), ${W} invocations x ${E} elements
 ${COMMON}
-@group(0) @binding(0) var<storage, read> src: array<f32>;
+${declarations}
 @group(0) @binding(1) var<storage, read_write> dst: array<vec2f>;
 @group(0) @binding(2) var<storage, read> tw: array<vec2f>;
 ${workgroupArrays(H)}
+fn load(i: u32, a: u32, b: u32) -> f32 {
+  return ${value};
+}
+
 @compute @workgroup_size(${W})
 fn main(@builtin(local_invocation_index) lid: u32, @builtin(workgroup_id) wid: vec3u) {
   let line = wid.x + ${linesX}u * wid.y;
-  let inBase = line * ${N}u;
   let outBase = line * ${M}u;
 
   // Pack even samples into the real part and odd samples into the imaginary
@@ -135,7 +161,7 @@ fn main(@builtin(local_invocation_index) lid: u32, @builtin(workgroup_id) wid: v
   for (var e = 0u; e < ${E}u; e++) {
     let j = lid + e * ${W}u;
     let r = ${L === 0 ? '0u' : `reverseBits(j) >> ${32 - L}u`};
-    wa[j] = vec2f(src[inBase + 2u * r], src[inBase + 2u * r + 1u]);
+    wa[j] = vec2f(load(2u * r, wid.x, wid.y), load(2u * r + 1u, wid.x, wid.y));
   }
   workgroupBarrier();
 ${stages.code}
@@ -146,9 +172,9 @@ ${stages.code}
     let zr = ${stages.result}[(${H}u - k) & ${H - 1}u];
     let zc = vec2f(zr.x, -zr.y);
     let d = cmul(tw[k], z - zc);
-    dst[outBase + k] = 0.5 * (z + zc + vec2f(d.y, -d.x));
+    dst[${element(dst, 'outBase + k')}] = 0.5 * (z + zc + vec2f(d.y, -d.x));
     if (k == 0u) {
-      dst[outBase + ${H}u] = vec2f(z.x - z.y, 0.0);
+      dst[${element(dst, `outBase + ${H}u`)}] = vec2f(z.x - z.y, 0.0);
     }
   }
 }
@@ -159,14 +185,21 @@ ${stages.code}
 /**
  * Complex-to-real inverse of `generateR2C`. Output is multiplied by `scale`
  * (the unscaled round trip r2c -> c2r gains a factor N/2).
+ *
+ * @param {Object} [opts.src] - { stride, offset } of the input field
+ * @param {Object} [opts.dst] - { stride, offset } of the output inside an
+ *   array<f32>, so one component of an interleaved real field can be written
+ * @param {number} [opts.keptModes] - modes at and above this index are taken
+ *   as zero without being read, for spectra truncated to remove aliasing
  */
-export function generateC2R({ N, linesX, scale, maxInvocations = 256 }) {
+export function generateC2R({ N, linesX, scale, maxInvocations = 256, src = ONE_FIELD, dst = ONE_FIELD, keptModes = null }) {
   if (!isPow2(N) || N < 4) throw new Error(`c2r length must be a power of two >= 4, got ${N}`);
   const H = N / 2;
   const M = H + 1;
   const L = Math.log2(H);
   const { W, E } = workgroupFor(H, maxInvocations);
   const stages = butterflyStages({ n: H, W, E, period: N, inverse: true });
+  const kept = keptModes ?? M;
   return {
     workgroupSize: W,
     code: /* wgsl */ `
@@ -176,6 +209,11 @@ ${COMMON}
 @group(0) @binding(1) var<storage, read_write> dst: array<f32>;
 @group(0) @binding(2) var<storage, read> tw: array<vec2f>;
 ${workgroupArrays(H)}
+fn mode(base: u32, k: u32) -> vec2f {
+  if (k >= ${kept}u) { return vec2f(0.0); }
+  return src[${element(src, 'base + k')}];
+}
+
 @compute @workgroup_size(${W})
 fn main(@builtin(local_invocation_index) lid: u32, @builtin(workgroup_id) wid: vec3u) {
   let line = wid.x + ${linesX}u * wid.y;
@@ -186,8 +224,8 @@ fn main(@builtin(local_invocation_index) lid: u32, @builtin(workgroup_id) wid: v
   for (var e = 0u; e < ${E}u; e++) {
     let j = lid + e * ${W}u;
     let k = ${L === 0 ? '0u' : `reverseBits(j) >> ${32 - L}u`};
-    let x = src[inBase + k];
-    let xr = src[inBase + ${H}u - k];
+    let x = mode(inBase, k);
+    let xr = mode(inBase, ${H}u - k);
     let xc = vec2f(xr.x, -xr.y);
     let t = tw[k];
     let d = cmul(vec2f(t.x, -t.y), x - xc);
@@ -198,8 +236,8 @@ ${stages.code}
   for (var e = 0u; e < ${E}u; e++) {
     let n = lid + e * ${W}u;
     let z = ${stages.result}[n] * ${scale.toExponential(9)};
-    dst[outBase + 2u * n] = z.x;
-    dst[outBase + 2u * n + 1u] = z.y;
+    dst[${element(dst, 'outBase + 2u * n')}] = z.x;
+    dst[${element(dst, 'outBase + 2u * n + 1u')}] = z.y;
   }
 }
 `,
@@ -207,39 +245,46 @@ ${stages.code}
 }
 
 /**
- * In-place complex transform along strided lines.
+ * Complex transform along strided lines.
  *
- * Element n of line (a, b) = (workgroup_id.x, workgroup_id.y) lives at
+ * Sample n of line (a, b) = (workgroup_id.x, workgroup_id.y) is at site
  * a + lineStrideY * b + stride * n. Twiddles: makeTwiddles(N, N/2).
  *
- * Every element of a line is read into workgroup memory before any is
- * written back, and lines are disjoint, so operating in place is safe.
+ * By default the transform is in place on binding 0. Every sample of a line
+ * is read into workgroup memory before any is written back, and lines are
+ * disjoint, so that is safe. With `dst` given, the result goes to a second
+ * buffer on binding 2 instead and the input is left alone.
+ *
+ * @param {Object} [opts.src] - { stride, offset } of the input field
+ * @param {Object} [opts.dst] - { stride, offset } of a separate output field
  */
-export function generateC2C({ N, stride, lineStrideY, inverse, maxInvocations = 256 }) {
+export function generateC2C({ N, stride, lineStrideY, inverse, maxInvocations = 256, src = ONE_FIELD, dst = null }) {
   if (!isPow2(N) || N < 2) throw new Error(`c2c length must be a power of two >= 2, got ${N}`);
   const L = Math.log2(N);
   const { W, E } = workgroupFor(N, maxInvocations);
   const stages = butterflyStages({ n: N, W, E, period: N, inverse });
+  const out = dst ?? src;
   return {
     workgroupSize: W,
     code: /* wgsl */ `
 // c2c ${inverse ? 'inverse' : 'forward'}, N = ${N}, stride ${stride}, ${W} invocations x ${E} elements
 ${COMMON}
-@group(0) @binding(0) var<storage, read_write> data: array<vec2f>;
+@group(0) @binding(0) var<storage, ${dst ? 'read' : 'read_write'}> data: array<vec2f>;
 @group(0) @binding(1) var<storage, read> tw: array<vec2f>;
+${dst ? '@group(0) @binding(2) var<storage, read_write> result: array<vec2f>;' : ''}
 ${workgroupArrays(N)}
 @compute @workgroup_size(${W})
 fn main(@builtin(local_invocation_index) lid: u32, @builtin(workgroup_id) wid: vec3u) {
   let base = wid.x + ${lineStrideY}u * wid.y;
   for (var e = 0u; e < ${E}u; e++) {
     let j = lid + e * ${W}u;
-    wa[j] = data[base + ${stride}u * (reverseBits(j) >> ${32 - L}u)];
+    wa[j] = data[${element(src, `base + ${stride}u * (reverseBits(j) >> ${32 - L}u)`)}];
   }
   workgroupBarrier();
 ${stages.code}
   for (var e = 0u; e < ${E}u; e++) {
     let j = lid + e * ${W}u;
-    data[base + ${stride}u * j] = ${stages.result}[j];
+    ${dst ? 'result' : 'data'}[${element(out, `base + ${stride}u * j`)}] = ${stages.result}[j];
   }
 }
 `,

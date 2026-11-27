@@ -6,7 +6,8 @@
  *
  * Two compute passes per extraction:
  *
- *  1. Q at every cell centre from the staggered velocities, stored together
+ *  1. Q at every cell centre from the velocities, whether staggered in x
+ *     and z or not (the flow's `config.collocated`), stored together
  *     with the cell-centred streamwise velocity (used to colour the surface).
  *  2. Marching cubes on the grid whose corners are the cell centres. Each
  *     thread handles one cube; if the surface crosses it, the thread reserves
@@ -21,7 +22,7 @@
  * gradient points into the vortex core, so the outward normal is its negative.
  */
 
-import { gridHeaderWGSL, stateAccessorWGSL } from './channel-flow.js';
+import { gridHeaderWGSL, stateAccessorWGSL } from './wgsl-common.js';
 import { TRIANGLE_TABLE, EDGE_CORNERS, CORNER_OFFSETS } from './marching-cubes-table.js';
 
 export const VERTEX_BYTES = 32;
@@ -64,6 +65,20 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let hx = 0.5 * IDX;
   let hz = 0.5 * IDZ;
 
+${cfg.collocated ? `
+  // u and w share the cell centre in x and z, so their derivatives there
+  // are plain central differences. v is on the faces below and above; it is
+  // averaged to the centre before being differenced in x and z.
+  let ux = (xp.x - xm.x) * hx;
+  let vy = (yp.y - c.y) * row.y;
+  let wz = (zp.z - zm.z) * hz;
+  let uy = (yp.x - ym.x) * row.z;
+  let uz = (zp.x - zm.x) * hz;
+  let vx = 0.5 * (xp.y + xp_yp.y - xm.y - xm_yp.y) * hx;
+  let vz = 0.5 * (zp.y + yp_zp.y - zm.y - yp_zm.y) * hz;
+  let wx = (xp.z - xm.z) * hx;
+  let wy = (yp.z - ym.z) * row.z;
+  let uc = c.x;` : `
   // Diagonal terms are exact differences across the cell. Off-diagonal terms
   // average the staggered component to cell centres, then difference centrally.
   let ux = (xp.x - c.x) * IDX;
@@ -75,9 +90,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let vz = 0.5 * (zp.y + yp_zp.y - zm.y - yp_zm.y) * hz;
   let wx = 0.5 * (xp.z + xp_zp.z - xm.z - xm_zp.z) * hx;
   let wy = 0.5 * (yp.z + yp_zp.z - ym.z - ym_zp.z) * row.z;
+  let uc = 0.5 * (c.x + xp.x);`}
 
   let Q = -0.5 * (ux * ux + vy * vy + wz * wz) - (uy * vx + uz * wx + vz * wy);
-  q[gid.x + NX * (gid.y + NZ * gid.z)] = vec2f(Q, 0.5 * (c.x + xp.x));
+  q[gid.x + NX * (gid.y + NZ * gid.z)] = vec2f(Q, uc);
 }
 `;
 }

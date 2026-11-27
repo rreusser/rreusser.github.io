@@ -4,6 +4,7 @@
  */
 
 import { createChannelFlow } from './channel-flow.js';
+import { createSpectralChannelFlow } from './spectral-channel-flow.js';
 import { createQCriterion, VERTEX_BYTES } from './q-criterion.js';
 import { uniformFaces, tanhFaces } from '../webgpu-poisson/channel-poisson.js';
 import { laminarOptions, wavePerturbedPoiseuille } from './channel-setup.js';
@@ -11,14 +12,14 @@ import { orrSommerfeldSpectrum, orrSommerfeldMode } from './orr-sommerfeld.js';
 
 /** Build an interleaved state from functions of position for u, v and w. */
 export function fillState(flow, { u, v, w }) {
-  const { Nx, Ny, Nz, dx, dz, yFaces, yCenters } = flow;
+  const { Nx, Ny, Nz, dx, dz, yFaces, yCenters, xOffsetU = 0, zOffsetW = 0 } = flow;
   const data = new Float32Array(4 * Nx * Ny * Nz);
   for (let j = 0; j < Ny; j++)
     for (let k = 0; k < Nz; k++)
       for (let i = 0; i < Nx; i++) {
         const o = 4 * (i + Nx * (k + Nz * j));
-        const xf = i * dx, xc = (i + 0.5) * dx;
-        const zf = k * dz, zc = (k + 0.5) * dz;
+        const xf = (i + xOffsetU) * dx, xc = (i + 0.5) * dx;
+        const zf = (k + zOffsetW) * dz, zc = (k + 0.5) * dz;
         data[o] = u ? u(xf, yCenters[j], zc) : 0;
         data[o + 1] = v && j > 0 ? v(xc, yFaces[j], zc) : 0;
         data[o + 2] = w ? w(xc, yCenters[j], zf) : 0;
@@ -66,9 +67,9 @@ const smoothField = {
 };
 
 /** An arbitrary field is divergence-free after projection, and stays so. */
-async function testDivergence(device, results) {
+async function testDivergence(device, results, create) {
   const Nx = 32, Ny = 24, Nz = 16;
-  const flow = createChannelFlow(device, {
+  const flow = create(device, {
     Nx, Ny, Nz, Lx: TAU, Lz: TAU, yFaces: tanhFaces(Ny, 1.5), nu: 0.01,
   });
   flow.setState(fillState(flow, smoothField));
@@ -78,7 +79,12 @@ async function testDivergence(device, results) {
   flow.advance(0.01, 10);
   const stepped = await flow.statistics();
   const grid = `${Nx}x${Ny}x${Nz} tanh`;
-  results.push({ test: 'projection: |div after| / |div before|', grid, value: after.maxDivergence / before.maxDivergence, limit: 1e-5 });
+  if (flow.method === 'fourier') {
+    // Loading a state already projects it, so there is no "before".
+    results.push({ test: 'projection: |div| / max velocity gradient scale', grid, value: after.maxDivergence / after.maxCfl, limit: 1e-5 });
+  } else {
+    results.push({ test: 'projection: |div after| / |div before|', grid, value: after.maxDivergence / before.maxDivergence, limit: 1e-5 });
+  }
   results.push({ test: 'after 10 steps: |div| / max velocity gradient scale', grid, value: stepped.maxDivergence / stepped.maxCfl, limit: 1e-5 });
   flow.destroy();
 }
@@ -89,12 +95,12 @@ async function testDivergence(device, results) {
  * F = exp(-2 nu t). Checks the periodic convective and viscous terms and the
  * spatial order.
  */
-async function testTaylorGreen(device, results) {
+async function testTaylorGreen(device, results, create) {
   const nu = 0.1, T = 2, dt = 0.01;
   const errors = [];
   const sizes = [16, 32, 64];
   for (const N of sizes) {
-    const flow = createChannelFlow(device, {
+    const flow = create(device, {
       Nx: N, Ny: 4, Nz: N, Lx: TAU, Lz: TAU, yFaces: uniformFaces(4, 0, 1), nu, wall: 'free-slip',
     });
     flow.setState(fillState(flow, {
@@ -114,6 +120,14 @@ async function testTaylorGreen(device, results) {
     errors.push(err / F);
     flow.destroy();
   }
+  if (create === createSpectralChannelFlow) {
+    // Exact derivatives: the error is rounding error on every grid, so
+    // there is no order of convergence to measure.
+    sizes.forEach((N, s) =>
+      results.push({ test: 'Taylor-Green: relative error at t = 2', grid: `${N}x4x${N}`, value: errors[s], limit: 2e-5 })
+    );
+    return;
+  }
   sizes.forEach((N, s) =>
     results.push({ test: 'Taylor-Green: relative error at t = 2', grid: `${N}x4x${N}`, value: errors[s], limit: 0.02 })
   );
@@ -132,14 +146,14 @@ async function testTaylorGreen(device, results) {
  * must fall as dt^3. Any indexing or weighting mistake in the convective
  * terms breaks the skew-symmetry and shows up here.
  */
-async function testEnergy(device, results) {
+async function testEnergy(device, results, create) {
   const Nx = 32, Ny = 24, Nz = 16, T = 1.6;
   const grid = `${Nx}x${Ny}x${Nz} tanh`;
   const drifts = [];
   let momentum = 0;
   // Large steps on purpose: at small ones the drift sinks into round-off.
   for (const dt of [0.08, 0.04]) {
-    const flow = createChannelFlow(device, {
+    const flow = create(device, {
       Nx, Ny, Nz, Lx: TAU, Lz: TAU, yFaces: tanhFaces(Ny, 1.5), nu: 0,
     });
     flow.setState(fillState(flow, smoothField));
@@ -183,9 +197,9 @@ function discretePoiseuille(flow, G, nu) {
 }
 
 /** Forced laminar flow on a stretched grid stays put, and is near the parabola. */
-async function testPoiseuille(device, results) {
+async function testPoiseuille(device, results, create) {
   const Nx = 8, Ny = 32, Nz = 8, nu = 0.05, G = 0.1;
-  const flow = createChannelFlow(device, {
+  const flow = create(device, {
     Nx, Ny, Nz, Lx: 2, Lz: 2, yFaces: tanhFaces(Ny, 1.5), nu, forcing: G,
   });
   const steady = discretePoiseuille(flow, G, nu);
@@ -216,7 +230,7 @@ async function testPoiseuille(device, results) {
  * series solution. Checks the time-accurate wall-normal diffusion, the
  * no-slip walls and the forcing.
  */
-async function testStartup(device, results) {
+async function testStartup(device, results, create) {
   const nu = 0.5, G = 1, T = 0.5, dt = 0.002;
   const exact = (y) => {
     let u = (G / (2 * nu)) * (1 - y * y);
@@ -232,7 +246,7 @@ async function testStartup(device, results) {
   const errors = [];
   const sizes = [16, 32];
   for (const Ny of sizes) {
-    const flow = createChannelFlow(device, {
+    const flow = create(device, {
       Nx: 4, Ny, Nz: 4, Lx: 4, Lz: 4, yFaces: uniformFaces(Ny), nu, forcing: G,
     });
     flow.setState(new Float32Array(4 * 16 * Ny));
@@ -263,7 +277,7 @@ async function testStartup(device, results) {
  * layer and viscous dissipation at the wall, and any numerical dissipation
  * turns it into decay.
  */
-async function testTollmienSchlichting(device, results) {
+async function testTollmienSchlichting(device, results, create) {
   // The eigenvalue itself, against Orszag (1971).
   const c = orrSommerfeldSpectrum({ re: 10000, alpha: 1 })[0];
   results.push({
@@ -279,7 +293,7 @@ async function testTollmienSchlichting(device, results) {
   const errors = [];
   const grids = [[32, 64], [64, 128]];
   for (const [Nx, Ny] of grids) {
-    const flow = createChannelFlow(device, laminarOptions({
+    const flow = create(device, laminarOptions({
       re, Nx, Ny, Nz: 4, Lx: TAU / alpha, Lz: 1, stretch: 1.5,
     }));
     flow.setState(wavePerturbedPoiseuille(flow, [{ mode, amplitude: 1e-3 }]));
@@ -329,15 +343,20 @@ async function testTollmienSchlichting(device, results) {
   });
 }
 
-/** Run the whole suite. Returns rows of { test, grid, value, limit, pass }. */
-export async function validateChannelFlow(device) {
+/**
+ * Run the whole suite. Returns rows of { test, grid, value, limit, pass }.
+ *
+ * @param {'fourier'|'finite-difference'} [method] - which solver to test
+ */
+export async function validateChannelFlow(device, method = 'fourier') {
+  const create = method === 'fourier' ? createSpectralChannelFlow : createChannelFlow;
   const results = [];
-  await testDivergence(device, results);
-  await testTaylorGreen(device, results);
-  await testEnergy(device, results);
-  await testPoiseuille(device, results);
-  await testStartup(device, results);
-  await testTollmienSchlichting(device, results);
+  await testDivergence(device, results, create);
+  await testTaylorGreen(device, results, create);
+  await testEnergy(device, results, create);
+  await testPoiseuille(device, results, create);
+  await testStartup(device, results, create);
+  await testTollmienSchlichting(device, results, create);
   for (const r of results) {
     r.pass = Number.isFinite(r.value) && (r.atLeast ? r.value >= r.limit : r.value <= r.limit);
   }
@@ -360,15 +379,17 @@ async function readFloats(device, buffer, byteLength) {
 }
 
 /** Q from an analytic velocity field, away from the walls. */
-async function testQField(device, results) {
+async function testQField(device, results, create) {
   const { sin, cos } = Math;
   const errors = [];
   const sizes = [32, 64];
   for (const N of sizes) {
-    const flow = createChannelFlow(device, {
+    const flow = create(device, {
       Nx: N, Ny: N, Nz: N, Lx: TAU, Lz: TAU, yFaces: uniformFaces(N), nu: 0,
     });
-    flow.setState(fillState(flow, {
+    // Written straight into the physical state: the field is not free of
+    // divergence, and only the Q computation is under test.
+    device.queue.writeBuffer(flow.state, 0, fillState(flow, {
       u: (x, y, z) => cos(x) * sin(2 * y),
       v: (x, y, z) => sin(x) * (1 - y * y),
       w: (x, y, z) => cos(z + y) * sin(x),
@@ -461,10 +482,16 @@ async function testSphere(device, results) {
   flow.destroy();
 }
 
-/** Validation of the Q-criterion field and the isosurface extraction. */
-export async function validateQCriterion(device) {
+/**
+ * Validation of the Q-criterion field and the isosurface extraction.
+ *
+ * @param {'fourier'|'finite-difference'} [method] - whose velocity layout
+ *   the Q field is computed from
+ */
+export async function validateQCriterion(device, method = 'fourier') {
+  const create = method === 'fourier' ? createSpectralChannelFlow : createChannelFlow;
   const results = [];
-  await testQField(device, results);
+  await testQField(device, results, create);
   await testSphere(device, results);
   for (const r of results) {
     r.pass = Number.isFinite(r.value) && (r.atLeast ? r.value >= r.limit : r.value <= r.limit);
