@@ -6,6 +6,8 @@
 import { createChannelFlow } from './channel-flow.js';
 import { createQCriterion, VERTEX_BYTES } from './q-criterion.js';
 import { uniformFaces, tanhFaces } from '../webgpu-poisson/channel-poisson.js';
+import { laminarOptions, wavePerturbedPoiseuille } from './channel-setup.js';
+import { orrSommerfeldSpectrum, orrSommerfeldMode } from './orr-sommerfeld.js';
 
 /** Build an interleaved state from functions of position for u, v and w. */
 export function fillState(flow, { u, v, w }) {
@@ -253,6 +255,80 @@ async function testStartup(device, results) {
   });
 }
 
+
+/**
+ * A small Tollmien-Schlichting wave at Re = 7500, alpha = 1 must grow at the
+ * rate linear theory gives. This is a demanding test of a Navier-Stokes
+ * code: the growth is a small difference between production at the critical
+ * layer and viscous dissipation at the wall, and any numerical dissipation
+ * turns it into decay.
+ */
+async function testTollmienSchlichting(device, results) {
+  // The eigenvalue itself, against Orszag (1971).
+  const c = orrSommerfeldSpectrum({ re: 10000, alpha: 1 })[0];
+  results.push({
+    test: 'Orr-Sommerfeld eigenvalue vs Orszag (Re = 10000)',
+    grid: 'Chebyshev 96',
+    value: Math.hypot(c.re - 0.23752649, c.im - 0.00373967),
+    limit: 2e-8,
+  });
+
+  const re = 7500, alpha = 1;
+  const mode = orrSommerfeldMode({ re, alpha });
+  const theory = 2 * mode.growthRate;
+  const errors = [];
+  const grids = [[32, 64], [64, 128]];
+  for (const [Nx, Ny] of grids) {
+    const flow = createChannelFlow(device, laminarOptions({
+      re, Nx, Ny, Nz: 4, Lx: TAU / alpha, Lz: 1, stretch: 1.5,
+    }));
+    flow.setState(wavePerturbedPoiseuille(flow, [{ mode, amplitude: 1e-3 }]));
+    flow.project();
+    // Energy of the departure from the streamwise mean, in double precision.
+    const logEnergy = async () => {
+      const s = await flow.readState();
+      const plane = Nx * 4;
+      let e = 0;
+      for (let j = 0; j < Ny; j++) {
+        let mean = 0;
+        for (let q = 0; q < plane; q++) mean += s[4 * (q + plane * j)];
+        mean /= plane;
+        for (let q = 0; q < plane; q++) {
+          const o = 4 * (q + plane * j);
+          e += (s[o] - mean) ** 2 * flow.heights[j] + s[o + 1] ** 2 * flow.faceSpacings[j] + s[o + 2] ** 2 * flow.heights[j];
+        }
+      }
+      return Math.log(e);
+    };
+    // Sample every two time units to t = 40 and fit the slope after t = 10.
+    let sx = 0, sy = 0, sxx = 0, sxy = 0, m = 0;
+    for (let n = 0; n <= 20; n++) {
+      if (flow.time >= 10 - 1e-9) {
+        const t = flow.time, y = await logEnergy();
+        sx += t; sy += y; sxx += t * t; sxy += t * y; m++;
+      }
+      flow.advance(0.05, 40);
+    }
+    errors.push(Math.abs((m * sxy - sx * sy) / (m * sxx - sx * sx) - theory) / theory);
+    flow.destroy();
+  }
+  grids.forEach(([Nx, Ny], s) =>
+    results.push({
+      test: 'Tollmien-Schlichting wave: relative error in growth rate',
+      grid: `${Nx}x${Ny}x4 tanh`,
+      value: errors[s],
+      limit: s === 0 ? 0.4 : 0.1,
+    })
+  );
+  results.push({
+    test: 'Tollmien-Schlichting wave: observed order',
+    grid: '32x64 -> 64x128',
+    value: Math.log2(errors[0] / errors[1]),
+    limit: 1.7,
+    atLeast: true,
+  });
+}
+
 /** Run the whole suite. Returns rows of { test, grid, value, limit, pass }. */
 export async function validateChannelFlow(device) {
   const results = [];
@@ -261,6 +337,7 @@ export async function validateChannelFlow(device) {
   await testEnergy(device, results);
   await testPoiseuille(device, results);
   await testStartup(device, results);
+  await testTollmienSchlichting(device, results);
   for (const r of results) {
     r.pass = Number.isFinite(r.value) && (r.atLeast ? r.value >= r.limit : r.value <= r.limit);
   }

@@ -6,6 +6,7 @@
  */
 
 import { tanhFaces } from '../webgpu-poisson/channel-poisson.js';
+import { orrSommerfeldMode } from './orr-sommerfeld.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -195,4 +196,107 @@ export function localizedDisturbance(flow, opts = {}) {
         data[o + 2] = -eps * df(yCenters[j]) * zt * e;
       }
   return data;
+}
+
+/**
+ * Laminar parabolic flow plus Orr-Sommerfeld eigenmodes, in laminar units.
+ *
+ * Each entry of `waves` is { mode, amplitude, phase, pair }:
+ *
+ *  - `mode` comes from `orrSommerfeldMode`. Its wavelengths must fit the box.
+ *  - `amplitude` is the peak streamwise velocity of the wave, in centreline
+ *    velocities.
+ *  - `pair: true` adds the wave together with its mirror image in z, each at
+ *    half the amplitude, which gives a standing pattern cos(beta z) in u and
+ *    v and sin(beta z) in w with peak streamwise velocity `amplitude`.
+ *  - `phase` shifts the wave in x, in radians.
+ *
+ * Returns an interleaved state; call `flow.project()` after uploading it.
+ */
+export function wavePerturbedPoiseuille(flow, waves) {
+  const { Nx, Ny, Nz, Lx, Lz, dx, dz, yFaces, yCenters } = flow;
+  for (const { mode } of waves) {
+    const nx = (mode.alpha * Lx) / (2 * Math.PI);
+    const nz = (mode.beta * Lz) / (2 * Math.PI);
+    if (Math.abs(nx - Math.round(nx)) > 1e-6 || Math.abs(nz - Math.round(nz)) > 1e-6) {
+      throw new Error(`Wave (alpha, beta) = (${mode.alpha}, ${mode.beta}) does not fit the box`);
+    }
+  }
+  // Mode shapes on the rows where each component lives.
+  const rows = waves.map(({ mode }) => ({
+    centre: Array.from(yCenters, (y) => mode.sample(y)),
+    face: Array.from({ length: Ny }, (_, j) => mode.sample(yFaces[j])),
+  }));
+
+  const data = new Float32Array(4 * Nx * Ny * Nz);
+  for (let j = 0; j < Ny; j++)
+    for (let k = 0; k < Nz; k++)
+      for (let i = 0; i < Nx; i++) {
+        const o = 4 * (i + Nx * (k + Nz * j));
+        const xf = i * dx, xc = (i + 0.5) * dx;
+        const zf = k * dz, zc = (k + 0.5) * dz;
+        let u = 1 - yCenters[j] ** 2, v = 0, w = 0;
+        waves.forEach(({ mode, amplitude, phase = 0, pair = false }, n) => {
+          const { alpha, beta } = mode;
+          const c = rows[n].centre[j], f = rows[n].face[j];
+          // Real part of q exp(i theta)
+          const real = (q, theta) => q[0] * Math.cos(theta) - q[1] * Math.sin(theta);
+          const imag = (q, theta) => q[0] * Math.sin(theta) + q[1] * Math.cos(theta);
+          if (pair) {
+            u += amplitude * Math.cos(beta * zc) * real(c.u, alpha * xf + phase);
+            v += amplitude * Math.cos(beta * zc) * real(f.v, alpha * xc + phase);
+            w -= amplitude * Math.sin(beta * zf) * imag(c.w, alpha * xc + phase);
+          } else {
+            u += amplitude * real(c.u, alpha * xf + beta * zc + phase);
+            v += amplitude * real(f.v, alpha * xc + beta * zc + phase);
+            w += amplitude * real(c.w, alpha * xc + beta * zf + phase);
+          }
+        });
+        data[o] = u;
+        data[o + 1] = j > 0 ? v : 0;
+        data[o + 2] = w;
+      }
+  return data;
+}
+
+/**
+ * Options for a K-type (Klebanoff) transition run: laminar units, with a box
+ * exactly one wavelength of the waves long and wide. The defaults are those
+ * of the classic channel simulations of this route (Gilbert & Kleiser 1990).
+ */
+export function kTypeOptions({ re = 5000, alpha = 1.12, beta = 2.1, Nx, Ny, Nz, stretch = 1.5 }) {
+  return laminarOptions({
+    re, Nx, Ny, Nz, stretch,
+    Lx: (2 * Math.PI) / alpha,
+    Lz: (2 * Math.PI) / beta,
+  });
+}
+
+/**
+ * Initial condition for K-type transition: the parabolic profile, a
+ * two-dimensional Tollmien-Schlichting wave of finite amplitude, and a weak
+ * pair of oblique waves with the same streamwise wavenumber. The plane wave
+ * barely grows or decays on its own, but it makes the flow unstable to the
+ * oblique pair, whose growth bends the spanwise vortex lines of the wave
+ * into Lambda-shaped vortices at fixed spanwise positions.
+ *
+ * @param {number} [amplitude2d], [amplitude3d] - peak streamwise velocity of
+ *   the plane wave and of the oblique pair, in centreline velocities
+ * @param {number} [phase] - streamwise phase of the oblique pair relative to
+ *   the plane wave, in radians
+ * @returns {{ state: Float32Array, plane, oblique }} the interleaved state
+ *   and the two eigenmodes
+ */
+export function kTypeDisturbance(flow, opts = {}) {
+  const {
+    re = 5000, alpha = 1.12, beta = 2.1,
+    amplitude2d = 0.03, amplitude3d = 0.001, phase = 0, N = 96,
+  } = opts;
+  const plane = orrSommerfeldMode({ re, alpha, N });
+  const oblique = orrSommerfeldMode({ re, alpha, beta, N });
+  const state = wavePerturbedPoiseuille(flow, [
+    { mode: plane, amplitude: amplitude2d },
+    { mode: oblique, amplitude: amplitude3d, pair: true, phase },
+  ]);
+  return { state, plane, oblique };
 }

@@ -18,8 +18,10 @@
     import { validateChannelPoisson, benchmarkChannelPoisson } from './lib/webgpu-poisson/validation.js';
     import { createChannelFlow } from './lib/channel-flow/channel-flow.js';
     import {
-      channelOptions, laminarOptions, wallUnits, perturbedChannel, localizedDisturbance, fluxForcing,
+      channelOptions, laminarOptions, kTypeOptions, wallUnits,
+      perturbedChannel, localizedDisturbance, kTypeDisturbance, fluxForcing,
     } from './lib/channel-flow/channel-setup.js';
+    import { orrSommerfeldSpectrum } from './lib/channel-flow/orr-sommerfeld.js';
     import { createSliceView } from './lib/channel-flow/slice-view.js';
     import { createQCriterion } from './lib/channel-flow/q-criterion.js';
     import { createIsosurfaceView } from './lib/channel-flow/isosurface-view.js';
@@ -37,7 +39,9 @@
   <script id="simulation-text" type="text/markdown">
     ## Simulation
 
-    Plane Poiseuille flow is linearly stable at these Reynolds numbers, so it does not become turbulent by itself: a disturbance has to be large enough to trigger transition directly, and small ones decay. Two starting points are offered.
+    Plane Poiseuille flow is linearly stable below a Reynolds number of 5772, and above it the unstable waves grow very slowly, so it does not become turbulent by itself: a disturbance has to be large enough to trigger a faster route. Three starting points are offered.
+
+    **K-type transition.** The classical controlled route, named after Klebanoff. The laminar flow carries a two-dimensional Tollmien–Schlichting wave of a few percent amplitude, plus a pair of oblique waves a thousandth of the centreline velocity, all three computed from the Orr–Sommerfeld equation. The plane wave hardly changes on its own, but its presence makes the flow unstable to the oblique pair, which grows exponentially for about 150 time units with nothing visible happening. Then the spanwise vortex lines of the wave bend into Λ-shaped vortices at fixed spanwise positions, the tips lift away from the wall, and the flow breaks down. The box is one wavelength long and wide.
 
     **Localized disturbance.** Laminar flow with a single pair of counter-rotating streamwise vortices placed next to the lower wall. Between the vortices fluid moves away from the wall and carries slow fluid up into the faster stream. The vortices are stretched and tilted by the shear into a long, lifted pair, with a low-speed streak between them capped by a thin shear layer. That shear layer is unstable, and it rolls up into a train of arch-shaped vortices straddling the streak: hairpins. Lengths are in channel half-heights and velocities in units of the laminar centreline velocity, and the mass flux is held fixed.
 
@@ -54,8 +58,12 @@
 
   <script id="scenario-input" type="module">
     const scenario = view(Inputs.radio(
-      new Map([['Localized disturbance in laminar flow', 'localized'], ['Turbulent channel', 'turbulent']]),
-      { label: 'Scenario', value: 'localized' }
+      new Map([
+        ['K-type transition', 'ktype'],
+        ['Localized disturbance in laminar flow', 'localized'],
+        ['Turbulent channel', 'turbulent'],
+      ]),
+      { label: 'Scenario', value: 'ktype' }
     ));
   </script>
 
@@ -72,6 +80,22 @@
           ),
           reynolds: Inputs.range([60, 400], { label: 'Friction Reynolds number', step: 10, value: 180 }),
           amplitude: Inputs.range([0, 0.5], { label: 'Disturbance amplitude', step: 0.01, value: 0.2 }),
+        })
+      : scenario === 'ktype'
+      ? Inputs.form({
+          grid: Inputs.select(
+            new Map([
+              ['128 × 96 × 128', { Nx: 128, Ny: 96, Nz: 128 }],
+              ['64 × 64 × 64', { Nx: 64, Ny: 64, Nz: 64 }],
+              ['256 × 128 × 256', { Nx: 256, Ny: 128, Nz: 256 }],
+            ]),
+            { label: 'Grid (one wavelength each way)' }
+          ),
+          reynolds: Inputs.range([3000, 10000], { label: 'Reynolds number', step: 100, value: 5000 }),
+          alpha: Inputs.range([0.8, 1.4], { label: 'Streamwise wavenumber α', step: 0.01, value: 1.12 }),
+          beta: Inputs.range([1, 3], { label: 'Spanwise wavenumber β', step: 0.05, value: 2.1 }),
+          amplitude2d: Inputs.range([0.005, 0.06], { label: 'Plane wave amplitude', step: 0.001, value: 0.03 }),
+          amplitude3d: Inputs.range([0.0001, 0.01], { label: 'Oblique pair amplitude', step: 0.0001, value: 0.001 }),
         })
       : Inputs.form({
           grid: Inputs.select(
@@ -102,16 +126,25 @@
     // (centreline velocity / half-height)^2 for the laminar case.
     const qLevel = view(scenario === 'turbulent'
       ? Inputs.range([0.001, 0.05], { label: 'Q threshold (wall units)', step: 0.0005, value: 0.006 })
-      : Inputs.range([0.005, 1], { label: 'Q threshold', step: 0.005, value: 0.05 }));
+      : Inputs.range([0.001, 1], { label: 'Q threshold', step: 0.001, value: scenario === 'ktype' ? 0.01 : 0.05 }));
   </script>
 
   <script id="simulation-state" type="module">
     restart;
-    const flow = createChannelFlow(device, scenario === 'turbulent'
-      ? channelOptions({ reTau: setup.reynolds, ...setup.grid })
+    const flow = createChannelFlow(device,
+      scenario === 'turbulent' ? channelOptions({ reTau: setup.reynolds, ...setup.grid })
+      : scenario === 'ktype' ? kTypeOptions({ re: setup.reynolds, alpha: setup.alpha, beta: setup.beta, ...setup.grid })
       : laminarOptions({ re: setup.reynolds, ...setup.grid }));
-    flow.setState(scenario === 'turbulent'
-      ? perturbedChannel(flow, { amplitude: setup.amplitude })
+    // The eigenmodes that seed the K-type run, for the stability section below.
+    const waves = scenario === 'ktype'
+      ? kTypeDisturbance(flow, {
+          re: setup.reynolds, alpha: setup.alpha, beta: setup.beta,
+          amplitude2d: setup.amplitude2d, amplitude3d: setup.amplitude3d,
+        })
+      : null;
+    flow.setState(
+      scenario === 'turbulent' ? perturbedChannel(flow, { amplitude: setup.amplitude })
+      : scenario === 'ktype' ? waves.state
       : localizedDisturbance(flow, { amplitude: setup.amplitude, lx: setup.lx, lz: setup.lz }));
     flow.project();
     const sliceView = createSliceView(device, flow, canvasFormat);
@@ -326,10 +359,56 @@
     invalidation.then(() => clearInterval(plotTimer));
   </script>
 
+  <script id="stability-text" type="text/markdown">
+    ## Linear stability
+
+    A wave proportional to ${tex`e^{i(\alpha x + \beta z - \alpha c t)}`} on the parabolic profile has a wall-normal velocity that satisfies the Orr–Sommerfeld equation,
+
+    ${tex.block`\left[(U - c)\left(D^2 - k^2\right) - U''\right]\hat v - \frac{1}{i \alpha Re}\left(D^2 - k^2\right)^2 \hat v = 0, \qquad k^2 = \alpha^2 + \beta^2,`}
+
+    an eigenvalue problem for the complex phase speed ${tex`c`}. The wave grows when ${tex`\operatorname{Im} c > 0`}. It is solved here by Chebyshev collocation. The plot shows the spectrum for the plane wave; the Tollmien–Schlichting wave is the isolated eigenvalue at the top left, and it is the only one that ever crosses into the upper half-plane.
+  </script>
+
+  <script id="stability-inputs" type="module">
+    const stabilityRe = view(Inputs.range([1000, 20000], { label: 'Reynolds number', step: 100, value: 5000 }));
+    const stabilityAlpha = view(Inputs.range([0.5, 1.5], { label: 'Streamwise wavenumber α', step: 0.01, value: 1.12 }));
+  </script>
+
+  <script id="stability-plot" type="module">
+    const spectrum = orrSommerfeldSpectrum({ re: stabilityRe, alpha: stabilityAlpha });
+    const leading = spectrum.find((c) => c.re < 0.6);
+    display(html`<p style="font-size: 0.9em">
+      Tollmien–Schlichting wave: c = ${leading.re.toFixed(6)} ${leading.im < 0 ? '−' : '+'} ${Math.abs(leading.im).toFixed(6)} i,
+      amplitude growth rate ${(stabilityAlpha * leading.im).toExponential(3)} per time unit
+      (${leading.im > 0 ? 'unstable' : 'stable'}).
+    </p>`);
+    display(Plot.plot({
+      width: Math.min(width, 640),
+      height: 320,
+      x: { label: 'Re c', domain: [0, 1] },
+      y: { label: 'Im c', domain: [-1, 0.1] },
+      marks: [
+        Plot.ruleY([0], { strokeOpacity: 0.4 }),
+        Plot.dot(spectrum, { x: 're', y: 'im', r: 2.5, fill: 'steelblue' }),
+        Plot.dot([leading], { x: 're', y: 'im', r: 5, stroke: 'tomato' }),
+      ],
+    }));
+  </script>
+
+  <script id="stability-waves" type="module">
+    if (waves) {
+      const describe = (m) => `c = ${m.c.re.toFixed(5)} ${m.c.im < 0 ? '−' : '+'} ${Math.abs(m.c.im).toFixed(5)} i`;
+      display(html`<p style="font-size: 0.9em">
+        Waves seeding the current run: plane wave ${describe(waves.plane)}; oblique pair ${describe(waves.oblique)}.
+        Both are damped on their own at this Reynolds number; the oblique pair grows only because of the plane wave.
+      </p>`);
+    }
+  </script>
+
   <script id="flow-validation-text" type="text/markdown">
     ## Flow solver validation
 
-    Exact solutions and conservation properties, with double-precision references. The Taylor–Green vortex tests the periodic directions and the spatial order; the inviscid run tests that the convective terms conserve energy on a stretched grid, leaving only the third-order error of the time integrator; the two laminar channel cases test the walls, the wall-normal diffusion and the forcing. The last rows check the Q field against an analytic one, and that marching cubes turns a sphere into a closed surface of the right area.
+    Exact solutions and conservation properties, with double-precision references. The Taylor–Green vortex tests the periodic directions and the spatial order; the inviscid run tests that the convective terms conserve energy on a stretched grid, leaving only the third-order error of the time integrator; the two laminar channel cases test the walls, the wall-normal diffusion and the forcing. The Tollmien–Schlichting rows check the stability solver against a published eigenvalue, and that a small wave in the flow solver grows at the rate the linear theory predicts, which any numerical dissipation would spoil. The last rows check the Q field against an analytic one, and that marching cubes turns a sphere into a closed surface of the right area.
   </script>
 
   <script id="flow-validation-run" type="module">
