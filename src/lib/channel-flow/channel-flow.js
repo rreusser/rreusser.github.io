@@ -41,7 +41,8 @@ export const RK3_REAL_LIMIT = 2.5127;
 
 const PARAM_FLOATS = 8;
 
-function header({ Nx, Ny, Nz, dx, dz, wallSign }) {
+/** WGSL grid constants and the stage parameter struct, shared by every shader that reads the state. */
+export function gridHeaderWGSL({ Nx, Ny, Nz, dx, dz, wallSign }) {
   return /* wgsl */ `
 const NX = ${Nx}u;
 const NY = ${Ny}u;
@@ -73,7 +74,7 @@ struct Params {
  * WALL times the interior one (-1: no slip, +1: free slip), and the ghost
  * wall-normal velocity is zero, which is also the value on the top wall.
  */
-function accessor(name) {
+export function stateAccessorWGSL(name) {
   return /* wgsl */ `
 fn at(i: i32, j: i32, k: i32) -> vec4f {
   let ii = u32(i + i32(NX)) & (NX - 1u);
@@ -90,13 +91,13 @@ fn at(i: i32, j: i32, k: i32) -> vec4f {
 
 function predictorShader(cfg) {
   return /* wgsl */ `
-${header(cfg)}
+${gridHeaderWGSL(cfg)}
 @group(0) @binding(0) var<storage, read> U: array<vec4f>;
 @group(0) @binding(1) var<storage, read_write> Ustar: array<vec4f>;
 @group(0) @binding(2) var<storage, read_write> R: array<vec4f>;
 @group(0) @binding(3) var<storage, read> ymesh: array<vec4f>;
 @group(0) @binding(4) var<uniform> params: Params;
-${accessor('U')}
+${stateAccessorWGSL('U')}
 @compute @workgroup_size(${cfg.wg.join(', ')})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   if (gid.x >= NX || gid.y >= NZ || gid.z >= NY) { return; }
@@ -180,11 +181,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
 function divergenceShader(cfg) {
   return /* wgsl */ `
-${header(cfg)}
+${gridHeaderWGSL(cfg)}
 @group(0) @binding(0) var<storage, read> Ustar: array<vec4f>;
 @group(0) @binding(1) var<storage, read_write> phi: array<f32>;
 @group(0) @binding(2) var<storage, read> ymesh: array<vec4f>;
-${accessor('Ustar')}
+${stateAccessorWGSL('Ustar')}
 @compute @workgroup_size(${cfg.wg.join(', ')})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   if (gid.x >= NX || gid.y >= NZ || gid.z >= NY) { return; }
@@ -202,7 +203,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
 function correctionShader(cfg) {
   return /* wgsl */ `
-${header(cfg)}
+${gridHeaderWGSL(cfg)}
 @group(0) @binding(0) var<storage, read> Ustar: array<vec4f>;
 @group(0) @binding(1) var<storage, read> phi: array<f32>;
 @group(0) @binding(2) var<storage, read_write> U: array<vec4f>;
@@ -237,7 +238,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
  */
 function statsShaders(cfg) {
   const common = /* wgsl */ `
-${header(cfg)}
+${gridHeaderWGSL(cfg)}
 struct Stats { s: vec4f, t: vec4f }
 `;
   const overZ = /* wgsl */ `
@@ -245,7 +246,7 @@ ${common}
 @group(0) @binding(0) var<storage, read> U: array<vec4f>;
 @group(0) @binding(1) var<storage, read_write> cols: array<Stats>;
 @group(0) @binding(2) var<storage, read> ymesh: array<vec4f>;
-${accessor('U')}
+${stateAccessorWGSL('U')}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   if (gid.x >= NX || gid.y >= NY) { return; }
@@ -428,6 +429,7 @@ export function createChannelFlow(device, opts) {
     Nx, Ny, Nz, Lx, Lz, dx, dz, cells,
     yFaces, yCenters: yc, heights: h, faceSpacings: hf,
     state,
+    config: cfg,
     poisson,
     sim,
     get time() { return sim.time; },

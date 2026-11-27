@@ -13,12 +13,15 @@
   <script id="imports" type="module">
     import { createWebGPUContext } from './lib/webgpu-canvas.js';
     import { createFrameLoop } from './lib/frame-loop.js';
+    import { createUnifiedCamera } from './lib/unified-camera.js';
     import { tanhFaces } from './lib/webgpu-poisson/channel-poisson.js';
     import { validateChannelPoisson, benchmarkChannelPoisson } from './lib/webgpu-poisson/validation.js';
     import { createChannelFlow } from './lib/channel-flow/channel-flow.js';
     import { channelOptions, wallUnits, perturbedChannel } from './lib/channel-flow/channel-setup.js';
     import { createSliceView } from './lib/channel-flow/slice-view.js';
-    import { validateChannelFlow } from './lib/channel-flow/validation.js';
+    import { createQCriterion } from './lib/channel-flow/q-criterion.js';
+    import { createIsosurfaceView } from './lib/channel-flow/isosurface-view.js';
+    import { validateChannelFlow, validateQCriterion } from './lib/channel-flow/validation.js';
   </script>
 
   <script id="context" type="module">
@@ -33,6 +36,14 @@
     ## Simulation
 
     The flow starts as a parabolic profile carrying the bulk velocity of the turbulent state, plus streamwise vortices and a few oblique waves. Plane Poiseuille flow is linearly stable at this Reynolds number, so the disturbance has to be large enough to trigger transition directly; small ones decay.
+  </script>
+
+  <script id="vortices-text" type="text/markdown">
+    The three-dimensional view shows an isosurface of the Q-criterion,
+
+    ${tex.block`Q = \tfrac{1}{2}\left(\lVert\boldsymbol{\Omega}\rVert^2 - \lVert\mathbf{S}\rVert^2\right) = -\tfrac{1}{2}\,\frac{\partial u_i}{\partial x_j}\frac{\partial u_j}{\partial x_i},`}
+
+    which is positive where rotation outweighs strain and so picks out vortex cores. The surface is extracted on the GPU every frame with marching cubes and drawn without the geometry ever leaving the GPU.
   </script>
 
   <script id="simulation-inputs" type="module">
@@ -54,6 +65,8 @@
     const stepsPerFrame = view(Inputs.range([1, 20], { label: 'Steps per frame', step: 1, value: 4 }));
     const sliceComponent = view(Inputs.radio(['u', 'v', 'w', 'p'], { label: 'Show', value: 'u' }));
     const planHeight = view(Inputs.range([1, 100], { label: 'Plan view height (wall units)', step: 1, value: 15 }));
+    const showVortices = view(Inputs.toggle({ label: 'Show vortices', value: true }));
+    const qPlus = view(Inputs.range([0.001, 0.05], { label: 'Q threshold (wall units)', step: 0.0005, value: 0.006 }));
   </script>
 
   <script id="simulation-state" type="module">
@@ -62,9 +75,13 @@
     flow.setState(perturbedChannel(flow, { amplitude }));
     flow.project();
     const sliceView = createSliceView(device, flow, canvasFormat);
+    const vortices = createQCriterion(device, flow);
+    const vortexView = createIsosurfaceView(device, flow, vortices, canvasFormat);
     // Mutated by the frame loop; read by the plots.
-    const live = { stats: await flow.statistics(), history: [], failed: false };
+    const live = { stats: await flow.statistics(), history: [], failed: false, triangles: 0 };
     invalidation.then(() => {
+      vortexView.destroy();
+      vortices.destroy();
       sliceView.destroy();
       flow.destroy();
     });
@@ -73,7 +90,7 @@
   <script id="simulation-resolution" type="module">
     const units = wallUnits(flow, reTau);
     display(html`<p style="font-size: 0.9em">
-      ${(flow.cells / 1e6).toFixed(2)} million cells, ${(flow.bytes / 2 ** 20).toFixed(0)} MB.
+      ${(flow.cells / 1e6).toFixed(2)} million cells, ${((flow.bytes + vortices.bytes) / 2 ** 20).toFixed(0)} MB.
       Domain ${units.LxPlus.toFixed(0)} × ${(2 * reTau).toFixed(0)} × ${units.LzPlus.toFixed(0)} wall units;
       spacing Δx⁺ = ${units.dxPlus.toFixed(1)}, Δz⁺ = ${units.dzPlus.toFixed(1)},
       Δy⁺ = ${units.dyWallPlus.toFixed(2)} at the wall to ${units.dyCentrePlus.toFixed(1)} at the centre.
@@ -90,11 +107,28 @@
       context.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
       return { canvas, context };
     };
+    const vortexCanvas = makeCanvas('channel-vortices', 0.62);
+    // Drag to orbit, scroll to zoom. The outer container, not the canvas,
+    // carries touch-action so that a touch drag does not scroll the page.
+    const camera = createUnifiedCamera(vortexCanvas.canvas, {
+      mode: 'orbit',
+      center: [0.5 * flow.Lx, -0.1, 0.5 * flow.Lz],
+      distance: 1.1 * Math.hypot(flow.Lx, 2, flow.Lz) + 0.5,
+      phi: 2.25,
+      theta: 0.43,
+      fov: Math.PI / 5,
+      near: 0.05,
+      far: 200,
+      renderContinuously: true,
+    });
+    invalidation.then(() => camera.destroy());
     const sideView = makeCanvas('channel-side-view', 2 / flow.Lx);
     const planView = makeCanvas('channel-plan-view', flow.Lz / flow.Lx);
     const statusLine = html`<div id="channel-status" style="font: 12px var(--monospace, monospace); white-space: pre-wrap"></div>`;
     display(html`<figure id="channel-figure" style="max-width: ${figureWidth}px">
-      <div style="font-size: 0.8em">Side view (x–y) at mid-span</div>
+      <div style="font-size: 0.8em">Vortices: isosurface of Q, coloured by streamwise velocity</div>
+      <div id="channel-vortices-container" style="touch-action: none">${vortexCanvas.canvas}</div>
+      <div style="font-size: 0.8em; margin-top: 6px">Side view (x–y) at mid-span</div>
       ${sideView.canvas}
       <div style="font-size: 0.8em; margin-top: 6px">Plan view (x–z)</div>
       ${planView.canvas}
@@ -161,13 +195,31 @@
       sliceView.draw(encoder, planView.context.getCurrentTexture().createView(), {
         plane: 'xz', index: planRow, component: sliceComponent, ...range,
       });
+      if (showVortices) {
+        const { canvas, context } = vortexCanvas;
+        const { projView, eye } = camera.update(canvas.width / canvas.height);
+        // Q in wall units is Q nu^2 / u_tau^4; here u_tau = 1 and nu = 1 / Re_tau.
+        vortices.extract(encoder, qPlus * reTau * reTau);
+        vortexView.draw(encoder, context.getCurrentTexture().createView(), canvas.width, canvas.height, {
+          projView, eye, lo: 0, hi: 1.1 * Math.max(stats.u[flow.Ny >> 1], 1),
+        });
+      }
       device.queue.submit([encoder.finish()]);
+      if (showVortices && frame % 30 === 0) {
+        vortices.vertexCount().then((n) => {
+          if (n !== null) live.triangles = n / 3;
+        });
+      }
       if (frame % 10 === 0) {
         statusLine.textContent = live.failed
           ? 'The solution became non-finite. Restart with a finer grid or a smaller disturbance.'
           : `t = ${stats.time.toFixed(3)}   step ${flow.steps}   dt⁺ = ${(flow.sim.dt * reTau).toFixed(3)}\n` +
             `bulk velocity ${stats.bulkVelocity.toFixed(2)}   wall shear ${stats.wallShear[0].toFixed(3)}, ${stats.wallShear[1].toFixed(3)}   ` +
-            `max |div| ${stats.maxDivergence.toExponential(1)}`;
+            `max |div| ${stats.maxDivergence.toExponential(1)}` +
+            (showVortices
+              ? `\n${Math.round(live.triangles).toLocaleString()} triangles` +
+                (3 * live.triangles > vortices.capacity ? ' (truncated: raise the threshold)' : '')
+              : '');
       }
       frame++;
     });
@@ -226,7 +278,7 @@
   <script id="flow-validation-text" type="text/markdown">
     ## Flow solver validation
 
-    Exact solutions and conservation properties, with double-precision references. The Taylor–Green vortex tests the periodic directions and the spatial order; the inviscid run tests that the convective terms conserve energy on a stretched grid, leaving only the third-order error of the time integrator; the two laminar channel cases test the walls, the wall-normal diffusion and the forcing.
+    Exact solutions and conservation properties, with double-precision references. The Taylor–Green vortex tests the periodic directions and the spatial order; the inviscid run tests that the convective terms conserve energy on a stretched grid, leaving only the third-order error of the time integrator; the two laminar channel cases test the walls, the wall-normal diffusion and the forcing. The last rows check the Q field against an analytic one, and that marching cubes turns a sphere into a closed surface of the right area.
   </script>
 
   <script id="flow-validation-run" type="module">
@@ -235,7 +287,7 @@
 
   <script id="flow-validation" type="module">
     if (flowValidationRun > 0) {
-      const flowRows = await validateChannelFlow(device);
+      const flowRows = [...(await validateChannelFlow(device)), ...(await validateQCriterion(device))];
       display(Inputs.table(flowRows, {
         columns: ['pass', 'test', 'grid', 'value', 'limit'],
         format: {

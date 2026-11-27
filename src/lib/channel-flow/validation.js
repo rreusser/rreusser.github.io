@@ -4,6 +4,7 @@
  */
 
 import { createChannelFlow } from './channel-flow.js';
+import { createQCriterion, VERTEX_BYTES } from './q-criterion.js';
 import { uniformFaces, tanhFaces } from '../webgpu-poisson/channel-poisson.js';
 
 /** Build an interleaved state from functions of position for u, v and w. */
@@ -260,6 +261,134 @@ export async function validateChannelFlow(device) {
   await testEnergy(device, results);
   await testPoiseuille(device, results);
   await testStartup(device, results);
+  for (const r of results) {
+    r.pass = Number.isFinite(r.value) && (r.atLeast ? r.value >= r.limit : r.value <= r.limit);
+  }
+  return results;
+}
+
+async function readFloats(device, buffer, byteLength) {
+  const staging = device.createBuffer({
+    size: byteLength,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+  const encoder = device.createCommandEncoder();
+  encoder.copyBufferToBuffer(buffer, 0, staging, 0, byteLength);
+  device.queue.submit([encoder.finish()]);
+  await staging.mapAsync(GPUMapMode.READ);
+  const out = new Float32Array(staging.getMappedRange().slice(0));
+  staging.unmap();
+  staging.destroy();
+  return out;
+}
+
+/** Q from an analytic velocity field, away from the walls. */
+async function testQField(device, results) {
+  const { sin, cos } = Math;
+  const errors = [];
+  const sizes = [32, 64];
+  for (const N of sizes) {
+    const flow = createChannelFlow(device, {
+      Nx: N, Ny: N, Nz: N, Lx: TAU, Lz: TAU, yFaces: uniformFaces(N), nu: 0,
+    });
+    flow.setState(fillState(flow, {
+      u: (x, y, z) => cos(x) * sin(2 * y),
+      v: (x, y, z) => sin(x) * (1 - y * y),
+      w: (x, y, z) => cos(z + y) * sin(x),
+    }));
+    const surface = createQCriterion(device, flow);
+    const encoder = device.createCommandEncoder();
+    surface.extract(encoder, 0);
+    device.queue.submit([encoder.finish()]);
+    const q = await readFloats(device, surface.q, flow.cells * 8);
+    let err = 0, scale = 0;
+    for (let j = 2; j < N - 2; j++)
+      for (let k = 0; k < N; k++)
+        for (let i = 0; i < N; i++) {
+          const x = (i + 0.5) * flow.dx, y = flow.yCenters[j], z = (k + 0.5) * flow.dz;
+          const ux = -sin(x) * sin(2 * y), uy = 2 * cos(x) * cos(2 * y);
+          const vx = cos(x) * (1 - y * y), vy = -2 * y * sin(x);
+          const wz = -sin(z + y) * sin(x);
+          // uz and vz vanish, so the terms with wx and wy drop out.
+          const exact = -0.5 * (ux * ux + vy * vy + wz * wz) - uy * vx;
+          err = Math.max(err, Math.abs(q[2 * (i + N * (k + N * j))] - exact));
+          scale = Math.max(scale, Math.abs(exact));
+        }
+    errors.push(err / scale);
+    surface.destroy();
+    flow.destroy();
+  }
+  sizes.forEach((N, s) =>
+    results.push({ test: 'Q of an analytic field: relative error', grid: `${N}^3`, value: errors[s], limit: 0.05 })
+  );
+  results.push({
+    test: 'Q of an analytic field: observed order',
+    grid: '32 -> 64',
+    value: Math.log2(errors[0] / errors[1]),
+    limit: 1.8,
+    atLeast: true,
+  });
+}
+
+/**
+ * Marching cubes on a sphere: the mesh must be closed (every edge shared by
+ * exactly two triangles), have the right area, and carry outward normals.
+ */
+async function testSphere(device, results) {
+  const N = 32, R = 0.6, centre = [1, 0, 1];
+  const flow = createChannelFlow(device, {
+    Nx: N, Ny: N, Nz: N, Lx: 2, Lz: 2, yFaces: uniformFaces(N), nu: 0,
+  });
+  const surface = createQCriterion(device, flow);
+  const field = new Float32Array(2 * flow.cells);
+  for (let j = 0; j < N; j++)
+    for (let k = 0; k < N; k++)
+      for (let i = 0; i < N; i++) {
+        const x = (i + 0.5) * flow.dx - centre[0];
+        const y = flow.yCenters[j] - centre[1];
+        const z = (k + 0.5) * flow.dz - centre[2];
+        field[2 * (i + N * (k + N * j))] = R * R - (x * x + y * y + z * z);
+      }
+  device.queue.writeBuffer(surface.q, 0, field);
+  const encoder = device.createCommandEncoder();
+  surface.extract(encoder, 0, { computeQ: false });
+  device.queue.submit([encoder.finish()]);
+  const count = await surface.vertexCount();
+  const v = await readFloats(device, surface.vertices, count * VERTEX_BYTES);
+
+  const key = (n) => [0, 1, 2].map((c) => Math.round(v[8 * n + c] * 1e4)).join(',');
+  const edges = new Map();
+  let area = 0, inward = 0;
+  for (let t = 0; t < count; t += 3) {
+    const p = [0, 1, 2].map((n) => [v[8 * (t + n)], v[8 * (t + n) + 1], v[8 * (t + n) + 2]]);
+    const a = p[1].map((c, d) => c - p[0][d]);
+    const b = p[2].map((c, d) => c - p[0][d]);
+    area += 0.5 * Math.hypot(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
+    for (let n = 0; n < 3; n++) {
+      const e = [key(t + n), key(t + ((n + 1) % 3))].sort().join('|');
+      edges.set(e, (edges.get(e) ?? 0) + 1);
+      // The stored gradient points inward; it must oppose the radius.
+      const o = 8 * (t + n);
+      const dot = v[o + 4] * (v[o] - centre[0]) + v[o + 5] * (v[o + 1] - centre[1]) + v[o + 6] * (v[o + 2] - centre[2]);
+      if (dot >= 0) inward++;
+    }
+  }
+  let open = 0;
+  for (const n of edges.values()) if (n !== 2) open++;
+  const grid = `${N}^3`;
+  results.push({ test: 'marching cubes sphere: triangles', grid, value: count / 3, limit: 100, atLeast: true });
+  results.push({ test: 'marching cubes sphere: edges not shared by two triangles', grid, value: open, limit: 0 });
+  results.push({ test: 'marching cubes sphere: relative area error', grid, value: Math.abs(area / (4 * Math.PI * R * R) - 1), limit: 0.02 });
+  results.push({ test: 'marching cubes sphere: wrongly oriented normals', grid, value: inward, limit: 0 });
+  surface.destroy();
+  flow.destroy();
+}
+
+/** Validation of the Q-criterion field and the isosurface extraction. */
+export async function validateQCriterion(device) {
+  const results = [];
+  await testQField(device, results);
+  await testSphere(device, results);
   for (const r of results) {
     r.pass = Number.isFinite(r.value) && (r.atLeast ? r.value >= r.limit : r.value <= r.limit);
   }
