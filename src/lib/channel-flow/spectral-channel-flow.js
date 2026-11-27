@@ -52,6 +52,7 @@ import { buildPivots, wallNormalCoefficients } from '../webgpu-poisson/channel-p
 import { gridHeaderWGSL } from './wgsl-common.js';
 import { createFlowStatistics } from './flow-statistics.js';
 import { RK3_IMAGINARY_LIMIT, RK3_REAL_LIMIT } from './channel-flow.js';
+import { fourthOrderWallNormal } from './wall-normal-fourth.js';
 
 const GAMMA = [8 / 15, 5 / 12, 3 / 4];
 const ZETA = [0, -17 / 60, -5 / 12];
@@ -59,7 +60,6 @@ const PARAM_FLOATS = 8;
 
 // Fields per site in the interleaved spectral buffers.
 const STATE_FIELDS = 4; // u, v, w, p
-const PRODUCT_FIELDS = 8;
 
 /**
  * The eight products the convective term needs, as functions of the
@@ -76,37 +76,43 @@ const PRODUCT_FIELDS = 8;
  * On a uniform grid they coincide.
  */
 const PRODUCTS = [
-  { value: 'let q = P(i, k, j); return q.x * q.x;' },
-  { value: 'let q = P(i, k, j); return q.x * q.z;' },
-  { value: 'let q = P(i, k, j); return q.z * q.z;' },
+  { value: 'let j = row; let q = P(i, k, j); return q.x * q.x;' },
+  { value: 'let j = row; let q = P(i, k, j); return q.x * q.z;' },
+  { value: 'let j = row; let q = P(i, k, j); return q.z * q.z;' },
   {
-    value: `var above = 0.0;
+    value: `let j = row;
+  var above = 0.0;
   if (j + 1u < NY) { above = P(i, k, j + 1u).y; }
   let vc = 0.5 * (P(i, k, j).y + above);
   return vc * vc;`,
   },
-  { value: 'if (j == 0u) { return 0.0; } let q = P(i, k, j); return q.y * 0.5 * (P(i, k, j - 1u).x + q.x);' },
-  { value: 'if (j == 0u) { return 0.0; } let q = P(i, k, j); return q.y * 0.5 * (P(i, k, j - 1u).z + q.z);' },
+  { value: 'let j = row; if (j == 0u) { return 0.0; } let q = P(i, k, j); return q.y * 0.5 * (P(i, k, j - 1u).x + q.x);' },
+  { value: 'let j = row; if (j == 0u) { return 0.0; } let q = P(i, k, j); return q.y * 0.5 * (P(i, k, j - 1u).z + q.z);' },
   {
     mesh: true,
-    value: 'if (j == 0u) { return 0.0; } let q = P(i, k, j); let m = ymesh[j].w; return q.y * (m * P(i, k, j - 1u).x + (1.0 - m) * q.x);',
+    value: 'let j = row; if (j == 0u) { return 0.0; } let q = P(i, k, j); let m = ymesh[j].w; return q.y * (m * P(i, k, j - 1u).x + (1.0 - m) * q.x);',
   },
   {
     mesh: true,
-    value: 'if (j == 0u) { return 0.0; } let q = P(i, k, j); let m = ymesh[j].w; return q.y * (m * P(i, k, j - 1u).z + (1.0 - m) * q.z);',
+    value: 'let j = row; if (j == 0u) { return 0.0; } let q = P(i, k, j); let m = ymesh[j].w; return q.y * (m * P(i, k, j - 1u).z + (1.0 - m) * q.z);',
   },
 ];
 
-function physicalSource(cfg, body, mesh) {
+/**
+ * Input of a forward transform: an expression of the physical velocity,
+ * evaluated at point i of line (k, row). `preamble(binding)` declares the
+ * mesh data, on the given binding, and any helpers the expression uses.
+ */
+function physicalSource(cfg, body, preamble = () => '') {
   return {
     declarations: /* wgsl */ `
 const NX = ${cfg.Nx}u;
 const NY = ${cfg.Ny}u;
 const NZ = ${cfg.Nz}u;
 @group(0) @binding(0) var<storage, read> phys: array<vec4f>;
-${mesh ? '@group(0) @binding(3) var<storage, read> ymesh: array<vec4f>;' : ''}
 fn P(i: u32, k: u32, j: u32) -> vec4f { return phys[i + NX * (k + NZ * j)]; }
-fn physicalValue(i: u32, k: u32, j: u32) -> f32 {
+${preamble(3)}
+fn physicalValue(i: u32, k: u32, row: u32) -> f32 {
   ${body}
 }`,
     value: 'physicalValue(i, a, b)',
@@ -129,9 +135,9 @@ fn waveZ(n: u32) -> f32 { return KZ0 * select(f32(n) - f32(NZ), f32(n), n <= NZ 
 `;
 }
 
-function predictorShader(cfg) {
+function predictorShader(cfg, header) {
   return /* wgsl */ `
-${spectralHeader(cfg)}
+${header}
 @group(0) @binding(0) var<storage, read> spec: array<vec2f>;        // 4 fields: u, v, w, p
 @group(0) @binding(1) var<storage, read_write> rprev: array<vec2f>; // 4 fields
 @group(0) @binding(2) var<storage, read> prod: array<vec2f>;        // 8 fields
@@ -218,9 +224,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
  * subtracting the pressure gradient on the way. Wavenumbers outside the
  * retained set are zeroed.
  */
-function projectionShader(cfg) {
+function projectionShader(cfg, header) {
   return /* wgsl */ `
-${spectralHeader(cfg)}
+${header}
 @group(0) @binding(0) var<storage, read> star: array<vec2f>;
 @group(0) @binding(1) var<storage, read_write> spec: array<vec2f>;
 @group(0) @binding(2) var<storage, read_write> phi: array<vec2f>;
@@ -278,9 +284,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 /** Root-mean-square divergence on each plane, by Parseval's theorem. */
-function divergenceShader(cfg) {
+function divergenceShader(cfg, header) {
   return /* wgsl */ `
-${spectralHeader(cfg)}
+${header}
 @group(0) @binding(0) var<storage, read> spec: array<vec2f>;
 @group(0) @binding(1) var<storage, read> ymesh: array<vec4f>;
 @group(0) @binding(2) var<storage, read_write> result: array<f32>;
@@ -308,15 +314,62 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 `;
 }
 
+/** The second-order staggered differences across the channel. */
+function secondOrderWallNormal(cfg, yFacesIn, waveX, waveZ) {
+  const { Nx, Ny, Nz, Mx } = cfg;
+  const yFaces = Float64Array.from(yFacesIn);
+  const h = Float64Array.from({ length: Ny }, (_, j) => yFaces[j + 1] - yFaces[j]);
+  const yc = Float64Array.from({ length: Ny }, (_, j) => 0.5 * (yFaces[j] + yFaces[j + 1]));
+  const hf = Float64Array.from({ length: Ny + 1 }, (_, j) =>
+    j === 0 ? h[0] : j === Ny ? h[Ny - 1] : yc[j] - yc[j - 1]
+  );
+  const mesh = new Float32Array(4 * Ny);
+  for (let j = 0; j < Ny; j++) {
+    mesh[4 * j] = 1 / h[j];
+    mesh[4 * j + 1] = 1 / hf[j];
+    mesh[4 * j + 2] = 1 / hf[j + 1];
+    mesh[4 * j + 3] = j === 0 ? 0.5 : h[j - 1] / (h[j - 1] + h[j]);
+  }
+  const { lower, upper } = wallNormalCoefficients(yFaces);
+  const coef = new Float32Array(2 * Ny);
+  for (let j = 0; j < Ny; j++) {
+    coef[2 * j] = lower[j];
+    coef[2 * j + 1] = upper[j];
+  }
+  const piv = buildPivots({
+    Nx, Ny, Nz, lower, upper,
+    lamX: Float64Array.from({ length: Mx }, (_, m) => waveX(m) ** 2),
+    lamZ: Float64Array.from({ length: Nz }, (_, n) => waveZ(n) ** 2),
+  });
+  return {
+    order: 2,
+    rows: Ny,
+    productFields: 8,
+    productPreamble: (binding) => `@group(0) @binding(${binding}) var<storage, read> ymesh: array<vec4f>;`,
+    products: PRODUCTS,
+    predictorShader,
+    projectionShader,
+    divergenceShader,
+    yFaces, yCenters: yc, heights: h, faceSpacings: hf,
+    tables: { mesh, piv, coef, statsMesh: mesh },
+    wallSlopes: null,
+    cflY: 1,
+    viscousY: 4,
+  };
+}
+
 /**
  * @param {GPUDevice} device
  * @param {Object} opts - as for `createChannelFlow`: Nx, Ny, Nz, Lx, Lz,
- *   yFaces, nu, forcing, wall, workgroup, maxInvocations
+ *   yFaces, nu, forcing, wall, workgroup, maxInvocations, and
+ * @param {2|4} [opts.wallNormalOrder] - order of the differences across the
+ *   channel. Fourth order (the default when a mapping is given) needs
+ * @param {{ y, dy }} [opts.mapping] - the wall-normal coordinate as a
+ *   function of xi in [0, 1], and its derivative. With fourth order the
+ *   rows are placed by the mapping and `yFaces` is ignored.
  */
 export function createSpectralChannelFlow(device, opts) {
   const { Nx, Ny, Nz, Lx, Lz } = opts;
-  const yFaces = Float64Array.from(opts.yFaces);
-  if (yFaces.length !== Ny + 1) throw new Error(`yFaces must have Ny + 1 = ${Ny + 1} entries`);
   const dx = Lx / Nx;
   const dz = Lz / Nz;
   const cells = Nx * Ny * Nz;
@@ -335,7 +388,7 @@ export function createSpectralChannelFlow(device, opts) {
   if (workgroupStorageBytes(Math.max(Nx / 2, Nz)) > limits.maxComputeWorkgroupStorageSize) {
     throw new Error(`Nx = ${Nx}, Nz = ${Nz} exceeds the device's workgroup storage`);
   }
-  const largest = Math.max(cells * 16, sites * 8 * PRODUCT_FIELDS);
+  const largest = Math.max(cells * 16, plane * (Ny + 4) * 8 * 11);
   if (largest > limits.maxStorageBufferBindingSize) {
     throw new Error(
       `Grid needs a ${largest} byte storage binding; the device allows ` +
@@ -358,31 +411,18 @@ export function createSpectralChannelFlow(device, opts) {
     cflZ: kzMax * dz,
   };
 
-  const h = Float64Array.from({ length: Ny }, (_, j) => yFaces[j + 1] - yFaces[j]);
-  const yc = Float64Array.from({ length: Ny }, (_, j) => 0.5 * (yFaces[j] + yFaces[j + 1]));
-  const hf = Float64Array.from({ length: Ny + 1 }, (_, j) =>
-    j === 0 ? h[0] : j === Ny ? h[Ny - 1] : yc[j] - yc[j - 1]
-  );
-  const ymeshData = new Float32Array(4 * Ny);
-  for (let j = 0; j < Ny; j++) {
-    ymeshData[4 * j] = 1 / h[j];
-    ymeshData[4 * j + 1] = 1 / hf[j];
-    ymeshData[4 * j + 2] = 1 / hf[j + 1];
-    ymeshData[4 * j + 3] = j === 0 ? 0.5 : h[j - 1] / (h[j - 1] + h[j]);
-  }
-  const { lower, upper } = wallNormalCoefficients(yFaces);
-  const coefData = new Float32Array(2 * Ny);
-  for (let j = 0; j < Ny; j++) {
-    coefData[2 * j] = lower[j];
-    coefData[2 * j + 1] = upper[j];
-  }
   const waveX = (m) => ((2 * Math.PI) / Lx) * m;
   const waveZ = (n) => ((2 * Math.PI) / Lz) * (n <= Nz / 2 ? n : n - Nz);
-  const pivData = buildPivots({
-    Nx, Ny, Nz, lower, upper,
-    lamX: Float64Array.from({ length: Mx }, (_, m) => waveX(m) ** 2),
-    lamZ: Float64Array.from({ length: Nz }, (_, n) => waveZ(n) ** 2),
-  });
+  const order = opts.wallNormalOrder ?? (opts.mapping ? 4 : 2);
+  if (order === 4 && !opts.mapping) throw new Error('Fourth-order wall-normal differences need opts.mapping');
+  const scheme = order === 4
+    ? fourthOrderWallNormal(cfg, opts.mapping, waveX, waveZ)
+    : secondOrderWallNormal(cfg, opts.yFaces, waveX, waveZ);
+  const { yFaces, yCenters: yc, heights: h, faceSpacings: hf } = scheme;
+  cfg.cflY = scheme.cflY;
+  const productRows = scheme.rows;
+  const PRODUCT_FIELDS = scheme.productFields;
+  const header = spectralHeader(cfg);
 
   const owned = [];
   const makeBuffer = (label, size, usage, data) => {
@@ -397,12 +437,17 @@ export function createSpectralChannelFlow(device, opts) {
   const spec = makeBuffer('flow spectral state', sites * 8 * STATE_FIELDS, S);
   const star = makeBuffer('flow spectral predictor', sites * 8 * STATE_FIELDS, S);
   const rprev = makeBuffer('flow previous rhs', sites * 8 * STATE_FIELDS, S);
-  const prod = makeBuffer('flow products', sites * 8 * PRODUCT_FIELDS, S);
+  const prod = makeBuffer('flow products', plane * productRows * 8 * PRODUCT_FIELDS, S);
   const work = makeBuffer('flow transform scratch', sites * 8, S);
   const phi = makeBuffer('flow phi', sites * 8, S);
-  const piv = makeBuffer('flow pivots', pivData.byteLength, TABLE, pivData);
-  const coef = makeBuffer('flow y coefficients', coefData.byteLength, TABLE, coefData);
-  const ymesh = makeBuffer('flow y mesh', ymeshData.byteLength, TABLE, ymeshData);
+  const table = (label, data) => makeBuffer(label, data.byteLength, TABLE, data);
+  // Mesh data in the layout the scheme's own shaders read, and in the one
+  // the statistics shader reads; for second order they are the same.
+  const mesh = table('flow y mesh', order === 4 ? scheme.tables.metric : scheme.tables.mesh);
+  const statsMesh = order === 4 ? table('flow y mesh for statistics', scheme.tables.statsMesh) : mesh;
+  const solveTables = order === 4
+    ? [[3, table('flow pressure factors', scheme.tables.lu)]]
+    : [[3, table('flow pivots', scheme.tables.piv)], [4, table('flow y coefficients', scheme.tables.coef)]];
   const twX = makeBuffer('flow twiddles x', (Nx / 2 + 1) * 8, TABLE, makeTwiddles(Nx, Nx / 2 + 1));
   const twZ = makeBuffer('flow twiddles z', Math.max(Nz / 2, 1) * 8, TABLE, makeTwiddles(Nz, Math.max(Nz / 2, 1)));
   const divergence = makeBuffer('flow divergence', Ny * 4, S | GPUBufferUsage.COPY_SRC);
@@ -435,23 +480,23 @@ export function createSpectralChannelFlow(device, opts) {
   // Forward transform of a real field defined by `body`, into field `field`
   // of an interleaved spectral buffer: real-to-complex along x for every
   // line, then along z for the retained kx only.
-  const forward = (label, body, mesh, target, field) => {
-    const src = physicalSource(cfg, body, mesh);
+  const forward = (label, body, usesMesh, target, field, rows) => {
+    const src = physicalSource(cfg, body, usesMesh === null ? undefined : scheme.productPreamble);
     const bindings = [[0, state], [1, target], [2, twX]];
-    if (mesh) bindings.push([3, ymesh]);
+    if (usesMesh) bindings.push([3, mesh]);
     return [
-      step(`${label}: r2c x`, generateR2C({ ...xLines, source: src, dst: field }).code, bindings, [Nz, Ny]),
+      step(`${label}: r2c x`, generateR2C({ ...xLines, source: src, dst: field }).code, bindings, [Nz, rows]),
       step(`${label}: c2c z`, generateC2C({ ...zLines, inverse: false, src: field }).code,
-        [[0, target], [1, twZ]], [keptX, Ny]),
+        [[0, target], [1, twZ]], [keptX, rows]),
     ];
   };
-  const productSteps = PRODUCTS.flatMap((p, f) =>
-    forward(`flow: product ${f}`, p.value, !!p.mesh, prod, { stride: PRODUCT_FIELDS, offset: f })
+  const productSteps = scheme.products.flatMap((p, f) =>
+    forward(`flow: product ${f}`, p.value, !!p.mesh, prod, { stride: PRODUCT_FIELDS, offset: f }, productRows)
   );
   // For setState: the velocity components themselves, into the predictor
   // buffer, from which the projection produces a valid state.
   const loadSteps = ['x', 'y', 'z'].flatMap((component, c) =>
-    forward(`flow: load ${component}`, `return P(i, k, j).${component};`, false, star, { stride: STATE_FIELDS, offset: c })
+    forward(`flow: load ${component}`, `return P(i, k, row).${component};`, null, star, { stride: STATE_FIELDS, offset: c }, Ny)
   );
 
   // The unscaled round trip gains Nx / 2 from the half-length x transform
@@ -468,16 +513,16 @@ export function createSpectralChannelFlow(device, opts) {
 
   const grid = [Math.ceil(keptX / cfg.wg[0]), Math.ceil(Nz / cfg.wg[1]), Math.ceil(Ny / cfg.wg[2])];
   const predictor = params.map((p) =>
-    step('flow: spectral predictor', predictorShader(cfg),
-      [[0, spec], [1, rprev], [2, prod], [3, star], [4, ymesh], [5, p]], grid)
+    step('flow: spectral predictor', scheme.predictorShader(cfg, header),
+      [[0, spec], [1, rprev], [2, prod], [3, star], [4, mesh], [5, p]], grid)
   );
   const projection = params.map((p) =>
-    step('flow: spectral projection', projectionShader(cfg),
-      [[0, star], [1, spec], [2, phi], [3, piv], [4, coef], [5, ymesh], [6, p]],
+    step('flow: spectral projection', scheme.projectionShader(cfg, header),
+      [[0, star], [1, spec], [2, phi], ...solveTables, [5, mesh], [6, p]],
       [Math.ceil(keptX / cfg.columnWorkgroup), Nz])
   );
-  const divergenceStep = step('flow: spectral divergence', divergenceShader(cfg),
-    [[0, spec], [1, ymesh], [2, divergence]], [Ny]);
+  const divergenceStep = step('flow: spectral divergence', scheme.divergenceShader(cfg, header),
+    [[0, spec], [1, mesh], [2, divergence]], [Ny]);
 
   const sim = { nu: opts.nu, forcing: opts.forcing ?? 0, dt: NaN, time: 0, steps: 0 };
   let written = {};
@@ -500,9 +545,10 @@ export function createSpectralChannelFlow(device, opts) {
   };
 
   const statistics = createFlowStatistics(device, {
-    cfg, state, ymesh, sim,
+    cfg, state, ymesh: statsMesh, sim,
     grid: { Nx, Ny, Nz, yFaces, yCenters: yc, heights: h, faceSpacings: hf },
     divergence: { encode: (pass) => run(pass, divergenceStep), buffer: divergence },
+    wallSlopes: scheme.wallSlopes,
   });
 
   return {
@@ -513,6 +559,7 @@ export function createSpectralChannelFlow(device, opts) {
     config: cfg,
     sim,
     method: 'fourier',
+    wallNormalOrder: order,
     /** Where u sits within a cell in x, and w in z: the centre. */
     xOffsetU: 0.5,
     zOffsetW: 0.5,
@@ -588,7 +635,7 @@ export function createSpectralChannelFlow(device, opts) {
     stableTimeStep(stats, safety = 0.5) {
       let hmin = Infinity;
       for (let j = 0; j < Ny; j++) hmin = Math.min(hmin, h[j]);
-      const viscous = sim.nu * (kxMax * kxMax + kzMax * kzMax + 4 / (hmin * hmin));
+      const viscous = sim.nu * (kxMax * kxMax + kzMax * kzMax + scheme.viscousY / (hmin * hmin));
       const convective = stats.maxCfl;
       return safety * Math.min(
         convective > 0 ? RK3_IMAGINARY_LIMIT / convective : Infinity,

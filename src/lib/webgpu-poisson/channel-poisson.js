@@ -349,3 +349,29 @@ export function tanhFaces(Ny, beta = 2) {
   const t = Math.tanh(beta);
   return Float64Array.from({ length: Ny + 1 }, (_, j) => Math.tanh(beta * ((2 * j) / Ny - 1)) / t);
 }
+
+/**
+ * The same clustering as `tanhFaces` as a smooth mapping from xi in [0, 1]
+ * to y in [-1, 1], with its derivative, for schemes that difference in xi.
+ */
+export function tanhMapping(beta = 2) {
+  const t = Math.tanh(beta);
+  return {
+    y: (xi) => Math.tanh(beta * (2 * xi - 1)) / t,
+    dy: (xi) => (2 * beta) / (t * Math.cosh(beta * (2 * xi - 1)) ** 2),
+  };
+}
+
+/** Uniform mapping from xi in [0, 1] to [y0, y1]. */
+export function uniformMapping(y0 = -1, y1 = 1) {
+  return { y: (xi) => y0 + (y1 - y0) * xi, dy: () => y1 - y0 };
+}
+
+/** Faces and mapping together, to spread into a solver's options. */
+export function tanhGrid(Ny, beta = 2) {
+  return { yFaces: tanhFaces(Ny, beta), mapping: tanhMapping(beta) };
+}
+
+export function uniformGrid(Ny, y0 = -1, y1 = 1) {
+  return { yFaces: uniformFaces(Ny, y0, y1), mapping: uniformMapping(y0, y1) };
+}

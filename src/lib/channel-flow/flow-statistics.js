@@ -25,12 +25,13 @@ const STAT_BYTES = 4 * STAT_FLOATS;
  * centre instead of on staggered faces. `cfg.cflX` and `cfg.cflZ` scale the
  * streamwise and spanwise terms of the convective rate: 1 for second-order
  * differences, whose largest effective wavenumber is 1 / h, and larger for a
- * spectral derivative.
+ * spectral derivative. `cfg.cflY` does the same for the wall-normal term.
  */
 function shaders(cfg) {
   const collocated = !!cfg.collocated;
   const cflX = (cfg.cflX ?? 1).toExponential(9);
   const cflZ = (cfg.cflZ ?? 1).toExponential(9);
+  const cflY = (cfg.cflY ?? 1).toExponential(9);
   const common = /* wgsl */ `
 ${gridHeaderWGSL(cfg)}
 struct Stats { s: vec4f, t: vec4f, r: vec4f }
@@ -66,7 +67,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let vc = 0.5 * (c.y + yp.y);
     s += vec4f(c.x, c.x * c.x, c.y * c.y, c.z * c.z);
     let div = ${collocated ? '0.0' : '(xp.x - c.x) * IDX + (zp.z - c.z) * IDZ + (yp.y - c.y) * ih'};
-    let cfl = ${cflX} * abs(c.x) * IDX + ${cflZ} * abs(c.z) * IDZ + abs(c.y) * ih;
+    let cfl = ${cflX} * abs(c.x) * IDX + ${cflZ} * abs(c.z) * IDZ + ${cflY} * abs(c.y) * ih;
     t = vec4f(t.x + uc * vc, max(t.y, cfl), max(t.z, abs(div)), t.w + c.z);
   }
   cols[gid.x + NX * gid.y] = Stats(s, t, r);
@@ -105,8 +106,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
  * @param {Object} [opts.divergence] - for solvers that measure divergence
  *   elsewhere: { encode(pass), buffer }, where `buffer` receives one f32 per
  *   plane, the largest divergence found there
+ * @param {(u: Float64Array) => [number, number]} [opts.wallSlopes] - du/dy on
+ *   the lower and upper walls from the mean profile, both taken positive
+ *   into the flow; by default the second-order one-sided difference
  */
-export function createFlowStatistics(device, { cfg, state, ymesh, sim, grid, divergence = null }) {
+export function createFlowStatistics(device, { cfg, state, ymesh, sim, grid, divergence = null, wallSlopes = null }) {
   const { Nx, Ny, Nz, yFaces, yCenters: yc, heights: h, faceSpacings: hf } = grid;
   const code = shaders(cfg);
   const pipeline = (label, wgsl) =>
@@ -195,10 +199,9 @@ export function createFlowStatistics(device, { cfg, state, ymesh, sim, grid, div
           out.kineticEnergy += (0.5 * (out.uu[j] * h[j] + out.ww[j] * h[j] + out.vv[j] * hf[j])) / height;
         }
         // Wall shear stress / density from the one-sided difference the scheme itself uses.
-        out.wallShear = [
-          (sim.nu * out.u[0]) / (0.5 * h[0]),
-          (sim.nu * out.u[Ny - 1]) / (0.5 * h[Ny - 1]),
-        ];
+        out.wallShear = wallSlopes
+          ? wallSlopes(out.u).map((slope) => sim.nu * slope)
+          : [(sim.nu * out.u[0]) / (0.5 * h[0]), (sim.nu * out.u[Ny - 1]) / (0.5 * h[Ny - 1])];
         return out;
       } catch (error) {
         // Destroying the buffers rejects a read that is still in flight.

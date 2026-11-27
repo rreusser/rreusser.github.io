@@ -5,7 +5,7 @@
  * flow has wall shear stress 1 on each wall.
  */
 
-import { tanhFaces } from '../webgpu-poisson/channel-poisson.js';
+import { tanhFaces, tanhMapping } from '../webgpu-poisson/channel-poisson.js';
 import { orrSommerfeldMode } from './orr-sommerfeld.js';
 
 function mulberry32(seed) {
@@ -24,6 +24,7 @@ export function channelOptions({ reTau = 180, Nx, Ny, Nz, Lx = Math.PI, Lz = Mat
   return {
     Nx, Ny, Nz, Lx, Lz,
     yFaces: tanhFaces(Ny, stretch),
+    mapping: tanhMapping(stretch),
     nu: 1 / reTau,
     forcing: 1,
   };
@@ -125,6 +126,7 @@ export function laminarOptions({ re = 3000, Nx, Ny, Nz, Lx = 4 * Math.PI, Lz = 2
   return {
     Nx, Ny, Nz, Lx, Lz,
     yFaces: tanhFaces(Ny, stretch),
+    mapping: tanhMapping(stretch),
     nu: 1 / re,
     forcing: 2 / re,
   };

@@ -7,7 +7,7 @@
 
     This notebook simulates the flow of an incompressible fluid between two parallel walls and follows it from the laminar state through transition to turbulence. It is a direct numerical simulation, which means that the Navier–Stokes equations are solved as they stand, with no turbulence model and no numerical smoothing. Every eddy in the flow has to be carried by the grid, and the only dissipation is that of the fluid's own viscosity.
 
-    The simulation runs on the GPU through WebGPU. The method is of the kind used by research codes for this problem. Fourier series represent the flow in the two periodic directions, energy-conserving differences on a staggered grid represent it across the channel, an explicit Runge–Kutta scheme advances it in time, and the pressure equation is solved directly after every stage. What follows first is the simulation itself. The sections after it describe the flow, the ways it becomes turbulent, the numerical method and its implementation, and the tests the code has to pass.
+    The simulation runs on the GPU through WebGPU. The method is of the kind used by research codes for this problem. Fourier series represent the flow in the two periodic directions, fourth-order differences on a staggered grid represent it across the channel, an explicit Runge–Kutta scheme advances it in time, and the pressure equation is solved directly after every stage. What follows first is the simulation itself. The sections after it describe the flow, the ways it becomes turbulent, the numerical method and its implementation, and the tests the code has to pass.
   </script>
 
   <script id="imports" type="module">
@@ -76,8 +76,9 @@
     ));
     const method = view(Inputs.radio(
       new Map([
-        ['Fourier in x and z', 'fourier'],
-        ['Second-order differences', 'finite-difference'],
+        ['Fourier, fourth-order across the channel', 'fourier'],
+        ['Fourier, second-order across the channel', 'fourier-second'],
+        ['Second-order differences throughout', 'finite-difference'],
       ]),
       { label: 'Method', value: 'fourier' }
     ));
@@ -158,7 +159,11 @@
     invalidation.then(() => {
       for (const resource of owned.reverse()) resource.destroy();
     });
-    const createFlow = method === 'fourier' ? createSpectralChannelFlow : createChannelFlow;
+    // The set-up helpers supply both the cell faces and the smooth mapping
+    // they come from; each method uses the one it needs.
+    const createFlow = method === 'finite-difference'
+      ? createChannelFlow
+      : (gpu, options) => createSpectralChannelFlow(gpu, { ...options, wallNormalOrder: method === 'fourier' ? 4 : 2 });
     const flow = createFlow(device,
       scenario === 'turbulent' ? channelOptions({ reTau: setup.reynolds, ...setup.grid })
       : scenario === 'ktype' ? kTypeOptions({ re: setup.reynolds, alpha: setup.alpha, beta: setup.beta, ...setup.grid })
@@ -649,7 +654,7 @@
   </script>
 
   <script id="method-variants" type="text/markdown">
-    Two discretisations are offered, and they differ only in the periodic directions. The default represents the flow there by Fourier series, which differentiate exactly. The alternative uses second-order central differences in all three directions. Across the channel both use the same staggered differences, so the description starts with the difference scheme and then turns to what the Fourier series change.
+    Three discretisations are offered. The default represents the flow in the periodic directions by Fourier series, which differentiate exactly, and uses fourth-order differences across the channel. The second keeps the Fourier series but uses second-order differences across the channel. The third uses second-order differences in all three directions. The description starts with the last, which is the simplest and contains the ideas the others build on, and then turns to what the Fourier series and the fourth-order differences change.
   </script>
 
   <script id="staggered-text" type="text/markdown">
@@ -729,9 +734,62 @@
   <script id="fourier-consequences-text" type="text/markdown">
     With the products exact in this sense, the convective term conserves kinetic energy just as the difference scheme does, and for the same reason, since integration by parts now holds exactly in ${tex`x`} and ${tex`z`}. The inviscid test confirms it.
 
-    Two costs come with the gain. Each stage of a time step needs eleven two-dimensional transforms where the difference scheme needs two, so a step costs about three times as much on the same grid. And the largest retained wavenumber, ${tex`2\pi/(3\,\Delta x)`}, is about twice the largest effective wavenumber of a second-order difference, so the convective limit on the time step is about half as large. In return, a given accuracy in ${tex`x`} and ${tex`z`} needs far fewer points.
+    Two costs come with the gain. Each stage of a time step needs between eleven and fourteen two-dimensional transforms where the difference scheme needs two, so a step costs several times as much on the same grid. And the largest retained wavenumber, ${tex`2\pi/(3\,\Delta x)`}, is about twice the largest effective wavenumber of a second-order difference, so the convective limit on the time step is about half as large. In return, a given accuracy in ${tex`x`} and ${tex`z`} needs far fewer points.
 
-    The wall-normal direction is untouched by all this, and it is still second-order. For flows whose fine structure lies across the channel, such as the Tollmien–Schlichting wave, it is the wall-normal grid that sets the accuracy, whichever method is used in the other two directions.
+    The wall-normal direction is untouched by all this. For flows whose fine structure lies across the channel, such as the Tollmien–Schlichting wave, it is the wall-normal discretisation that sets the accuracy, whatever is used in the other two directions.
+  </script>
+
+  <script id="fourth-text" type="text/markdown">
+    ### Fourth-order differences across the channel
+
+    There is no Fourier series across the channel, where the flow is bounded by walls and the grid is stretched, but the differences there can be made more accurate. The wall-normal coordinate is written as a smooth function ${tex`y(\xi)`} of a coordinate ${tex`\xi`} in which the rows are evenly spaced, so that a derivative in ${tex`y`} is a derivative in ${tex`\xi`} divided by ${tex`J = dy/d\xi`}. On the even grid the staggered difference and the interpolation to the midpoint use four values instead of two,
+
+    ${tex.block`\left.\frac{df}{d\xi}\right|_j \approx \frac{1}{\Delta\xi}\left[\tfrac{9}{8}\left(f_{j+\frac12} - f_{j-\frac12}\right) - \tfrac{1}{24}\left(f_{j+\frac32} - f_{j-\frac32}\right)\right], \qquad f_j \approx \tfrac{9}{16}\left(f_{j+\frac12} + f_{j-\frac12}\right) - \tfrac{1}{16}\left(f_{j+\frac32} + f_{j-\frac32}\right),`}
+
+    and both are fourth-order accurate. Halving the spacing divides their error by sixteen.
+
+    The convective term cannot simply use these formulas wherever the second-order scheme used a difference or an average, because the result would not conserve energy. Morinishi and his co-authors found the combination that does. It is the second-order conserving form evaluated twice, once with fluxes that span one cell and once with fluxes that span three, combined with weights ${tex`9/8`} and ${tex`-1/8`}, and with the flux that does the carrying interpolated at fourth order. Vasilyev showed how to carry it to a stretched grid through the mapping.
+  </script>
+
+  <script id="fourth-walls-text" type="text/markdown">
+    The walls need care. A four-point stencil centred on a row next to a wall reaches beyond the wall, where there is no flow, and something has to stand in for the missing values. Two choices are natural, and each fails alone.
+
+    The first is to mirror the interior values across the wall with a change of sign. This keeps the conservation of energy exact, because the sums that express it still close at the wall. But a mirrored profile has zero curvature at the wall and the true one does not, and the scheme falls back to second order.
+
+    The second is to extrapolate, with the cubic that passes through the three nearest values inside the flow and through zero on the wall itself. This restores the accuracy. But with extrapolated values in the convective fluxes the conservation of energy is lost at the wall, and without viscosity the scheme is unstable. In the inviscid test the energy grew without bound after about one time unit.
+
+    The scheme here uses each where it is needed. The convective fluxes use the mirror image, and the viscous term, the divergence and the pressure gradient use the extrapolation. The fluxes are small next to a no-slip wall, so mirroring them costs little, and the growth rate in the plot below is nearly as accurate as with extrapolation throughout. The two rules do not quite agree with one another, and that leaves a small residual drift of energy that the other two methods do not have. In the inviscid test, where the flow slips along the walls and the mismatch is at its worst, it amounts to about half a percent after eight time units.
+
+    The mapping, unlike the flow, is a known smooth function, and its Jacobian beyond the wall is simply evaluated. Mirroring it turns out to be worse than mirroring the velocity, and leaves the rows at the wall only first-order accurate.
+
+    The pressure equation changes shape as well. The divergence of the gradient now couples each row to four on either side, so the tridiagonal system for each wavenumber pair becomes a banded one. Its factors are computed once, in double precision, and the solve remains a single sweep down each column and back.
+  </script>
+
+  <script id="fourth-figure" type="module">
+    // Error in the growth rate of the Tollmien-Schlichting wave at Re = 7500,
+    // alpha = 1, from a one-dimensional double-precision model of each scheme.
+    // The GPU solver gives the same values at 64 and 128 rows.
+    const orderData = [
+      [32, 111.6, 1.81], [48, 48.5, 0.79], [64, 27.1, 0.33], [96, 12.0, 0.08], [128, 6.73, 0.03],
+    ].flatMap(([rows, second, fourth]) => [
+      { rows, error: second, scheme: 'second order' },
+      { rows, error: fourth, scheme: 'fourth order' },
+    ]);
+    display(Plot.plot({
+      width: Math.min(width, 640),
+      height: 300,
+      color: { legend: true, range: [palette[1], palette[0]] },
+      x: { type: 'log', label: 'rows across the channel', ticks: [32, 48, 64, 96, 128], tickFormat: (d) => String(d) },
+      y: { type: 'log', label: 'error in the growth rate (%)' },
+      marks: [
+        Plot.line(orderData, { x: 'rows', y: 'error', stroke: 'scheme', z: 'scheme' }),
+        Plot.dot(orderData, { x: 'rows', y: 'error', fill: 'scheme', r: 3 }),
+      ],
+    }));
+  </script>
+
+  <script id="fourth-payoff-text" type="text/markdown">
+    The plot shows what this buys for the Tollmien–Schlichting wave of the validation section, whose growth rate is the hardest number in this notebook to get right. The values come from a one-dimensional model of each scheme in double precision, which the full solver matches at 64 and 128 rows. With 64 rows the error falls from 27 percent to 0.3 percent. To reach that with second-order differences would take several hundred rows, and the time step would shrink with them.
   </script>
 
   <script id="underresolved-text" type="text/markdown">
@@ -814,7 +872,7 @@
 
     where ${tex`a_j`} and ${tex`c_j`} come from the cell heights and ${tex`\lambda_z`} is defined like ${tex`\lambda_x`}. The numbers ${tex`\lambda`} are the eigenvalues of the second difference, the discrete counterpart of ${tex`k^2`}. Using them, and not ${tex`k^2`} itself, is what makes the solution satisfy the discrete equation exactly. What remains is one tridiagonal system in ${tex`y`} for each wavenumber pair, which is solved directly by elimination. The inverse transforms then return the pressure.
 
-    In the Fourier method the velocity is already held as amplitudes, so no transform is needed for this step, and the gradient and divergence in ${tex`x`} and ${tex`z`} are exact. The numbers ${tex`\lambda`} are then simply ${tex`k_x^2`} and ${tex`k_z^2`}.
+    In the Fourier method the velocity is already held as amplitudes, so no transform is needed for this step, and the gradient and divergence in ${tex`x`} and ${tex`z`} are exact. The numbers ${tex`\lambda`} are then simply ${tex`k_x^2`} and ${tex`k_z^2`}. With fourth-order differences across the channel the system for each wavenumber pair has nine bands instead of three.
 
     The solution is exact up to rounding. The mode with ${tex`k_x = k_z = 0`} needs one exception, since the pressure is determined only up to a constant and that system is singular. One of its equations is replaced by a condition fixing the constant.
   </script>
@@ -853,7 +911,7 @@
   </script>
 
   <script id="gpu-fourier-text" type="text/markdown">
-    The Fourier method reorganises the stage around the transforms. Eight products are transformed forward, and each is formed from the grid values as they are loaded into the transform, so the products never exist as arrays of their own. One pass then assembles the right-hand side and the provisional velocity for every wavenumber and row. A second pass does the whole projection with one thread per wavenumber pair, eliminating down the column and substituting back up it. Three inverse transforms return the velocity to the grid for the next stage, which is also what the figures and statistics read. Wavenumbers beyond the retained two thirds are skipped wherever a pass can skip them.
+    The Fourier method reorganises the stage around the transforms. Eight products, or eleven with fourth-order differences, are transformed forward, and each is formed from the grid values as they are loaded into the transform, so the products never exist as arrays of their own. One pass then assembles the right-hand side and the provisional velocity for every wavenumber and row. A second pass does the whole projection with one thread per wavenumber pair, eliminating down the column and substituting back up it. Three inverse transforms return the velocity to the grid for the next stage, which is also what the figures and statistics read. Wavenumbers beyond the retained two thirds are skipped wherever a pass can skip them.
   </script>
 
   <script id="q-heading" type="text/markdown">
@@ -889,15 +947,15 @@
     |---|---|
     | Projection | The velocity is free of divergence to rounding error, initially and after stepping |
     | Taylor–Green vortex | An exact decaying solution in the periodic directions is reproduced, with error falling as the square of the grid spacing |
-    | Inviscid energy | Without viscosity the kinetic energy is conserved on a stretched grid between walls. The remaining drift comes from the time scheme and falls as the cube of the time step |
-    | Poiseuille flow | The forced laminar profile is steady |
+    | Inviscid energy | Without viscosity the kinetic energy is conserved on a stretched grid between walls. With second-order differences across the channel the remaining drift comes from the time scheme and falls as the cube of the time step. With fourth-order differences there is a small additional drift from the rows next to the walls |
+    | Poiseuille flow | The forced laminar profile is steady. With fourth-order differences the test checks that the parabola barely moves |
     | Start-up from rest | The approach to that profile under a constant force follows the exact series solution |
     | Orr–Sommerfeld eigenvalue | The stability solver agrees with the value published by Orszag in 1971 |
     | Tollmien–Schlichting wave | A small wave grows in the flow solver at the rate linear theory predicts |
     | Q of an analytic field | The vortex measure is computed to second order |
     | Marching cubes on a sphere | The extracted surface is closed, has the right area, and has outward normals |
 
-    The Tollmien–Schlichting test is the most demanding. The growth of the wave is a small difference between production and viscous loss, and any numerical dissipation turns it into decay, which is why it has long been used to judge Navier–Stokes codes. The two grids in the test give errors of 27 and 7 percent in the growth rate. The error falls by a factor of four between them, as it should for a method that is second-order across the channel. It is the same for both methods, because the wave is a smooth sinusoid along the stream and all of its fine structure lies across the channel. Refining the streamwise grid alone changes the error by only a few percentage points.
+    The Tollmien–Schlichting test is the most demanding. The growth of the wave is a small difference between production and viscous loss, and any numerical dissipation turns it into decay, which is why it has long been used to judge Navier–Stokes codes. With second-order differences across the channel, the two grids in the test give errors of 27 and 7 percent in the growth rate, whether or not Fourier series are used in the other directions, because the wave is a smooth sinusoid along the stream and all of its fine structure lies across the channel. With fourth-order differences they are a few tenths of a percent and a few hundredths.
 
     The Taylor–Green test shows the other side. With differences its error falls from half a percent on 16 points to three hundredths of a percent on 64. With Fourier series it is at the level of rounding error on every grid.
   </script>
@@ -1001,7 +1059,7 @@
 
     The simulation is honest about what it resolves, but several things separate it from a research calculation.
 
-    Across the channel the scheme is second-order, so it needs a fine wall-normal grid, and with the difference method the same is true of the other two directions. The default grids are chosen to run interactively and are coarser than a careful study would use, particularly for the late stages of transition, where thin shear layers form. Grid-scale oscillations in the slices are the sign that a run has outgrown its grid.
+    Even the default method is only as good as its grid, and the second-order alternatives need considerably finer ones. With fourth-order differences across the channel, conservation of energy is not quite exact in the rows next to the walls. The default grids are chosen to run interactively and are coarser than a careful study would use, particularly for the late stages of transition, where thin shear layers form. Grid-scale oscillations in the slices are the sign that a run has outgrown its grid.
 
     The periodic box replaces development along the channel with development in time. The two are related but not identical, and a box one wavelength long cannot represent anything longer than itself. The smallest boxes offered for the turbulent scenario are close to the minimal size that sustains turbulence, and the statistics of such boxes differ from those of a large channel away from the walls.
 
@@ -1036,6 +1094,7 @@
     - Harlow, F. H. & Welch, J. E. (1965). Numerical calculation of time-dependent viscous incompressible flow of fluid with free surface. *Physics of Fluids* 8, 2182–2189.
     - Chorin, A. J. (1968). Numerical solution of the Navier–Stokes equations. *Mathematics of Computation* 22, 745–762.
     - Morinishi, Y., Lund, T. S., Vasilyev, O. V. & Moin, P. (1998). Fully conservative higher order finite difference schemes for incompressible flow. *Journal of Computational Physics* 143, 90–124.
+    - Vasilyev, O. V. (2000). High order finite difference schemes on non-uniform meshes with good conservation properties. *Journal of Computational Physics* 157, 746–761.
     - Verstappen, R. W. C. P. & Veldman, A. E. P. (2003). Symmetry-preserving discretization of turbulent flow. *Journal of Computational Physics* 187, 343–368.
     - Spalart, P. R., Moser, R. D. & Rogers, M. M. (1991). Spectral methods for the Navier–Stokes equations with one infinite and two periodic directions. *Journal of Computational Physics* 96, 297–324.
     - Trefethen, L. N. (2000). *Spectral Methods in MATLAB*. SIAM.
