@@ -40,6 +40,8 @@ export const RK3_IMAGINARY_LIMIT = Math.sqrt(3);
 export const RK3_REAL_LIMIT = 2.5127;
 
 const PARAM_FLOATS = 8;
+const STAT_FLOATS = 12;
+const STAT_BYTES = 4 * STAT_FLOATS;
 
 /** WGSL grid constants and the stage parameter struct, shared by every shader that reads the state. */
 export function gridHeaderWGSL({ Nx, Ny, Nz, dx, dz, wallSign }) {
@@ -231,15 +233,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
  * Plane statistics, reduced in two steps so that neighbouring threads read
  * neighbouring memory: first over z for every (i, j), then over x.
  *
- * Per plane j, eight floats:
+ * Per plane j, twelve floats:
  *   0 sum u      1 sum u^2    2 sum v^2 (on the face below)    3 sum w^2
  *   4 sum u v (both averaged to the cell centre)
  *   5 max (|u|/dx + |v|/h + |w|/dz)     6 max |div u|     7 sum w
+ *   8, 9   sums of the squared second and first differences of u in x
+ *   10, 11 the same in z
+ * The last four measure how close the streamwise velocity is to the grid
+ * scale; see `statistics`.
  */
 function statsShaders(cfg) {
   const common = /* wgsl */ `
 ${gridHeaderWGSL(cfg)}
-struct Stats { s: vec4f, t: vec4f }
+struct Stats { s: vec4f, t: vec4f, r: vec4f }
 `;
   const overZ = /* wgsl */ `
 ${common}
@@ -255,11 +261,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let ih = ymesh[gid.y].x;
   var s = vec4f(0.0);
   var t = vec4f(0.0);
+  var r = vec4f(0.0);
   for (var k = 0; k < i32(NZ); k++) {
     let c = at(i, j, k);
     let xp = at(i + 1, j, k);
     let yp = at(i, j + 1, k);
     let zp = at(i, j, k + 1);
+    let xm = at(i - 1, j, k);
+    let zm = at(i, j, k - 1);
+    let d2x = xp.x - 2.0 * c.x + xm.x;
+    let d1x = xp.x - xm.x;
+    let d2z = zp.x - 2.0 * c.x + zm.x;
+    let d1z = zp.x - zm.x;
+    r += vec4f(d2x * d2x, d1x * d1x, d2z * d2z, d1z * d1z);
     let uc = 0.5 * (c.x + xp.x);
     let vc = 0.5 * (c.y + yp.y);
     s += vec4f(c.x, c.x * c.x, c.y * c.y, c.z * c.z);
@@ -267,7 +281,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let cfl = abs(c.x) * IDX + abs(c.z) * IDZ + abs(c.y) * ih;
     t = vec4f(t.x + uc * vc, max(t.y, cfl), max(t.z, abs(div)), t.w + c.z);
   }
-  cols[gid.x + NX * gid.y] = Stats(s, t);
+  cols[gid.x + NX * gid.y] = Stats(s, t, r);
 }
 `;
   const overX = /* wgsl */ `
@@ -279,12 +293,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   if (gid.x >= NY) { return; }
   var s = vec4f(0.0);
   var t = vec4f(0.0);
+  var r = vec4f(0.0);
   for (var i = 0u; i < NX; i++) {
     let q = cols[i + NX * gid.x];
     s += q.s;
+    r += q.r;
     t = vec4f(t.x + q.t.x, max(t.y, q.t.y), max(t.z, q.t.z), t.w + q.t.w);
   }
-  planes[gid.x] = Stats(s, t);
+  planes[gid.x] = Stats(s, t, r);
 }
 `;
   return { overZ, overX };
@@ -350,9 +366,9 @@ export function createChannelFlow(device, opts) {
   const params = [0, 1, 2].map((s) =>
     makeBuffer(`flow params ${s}`, PARAM_FLOATS * 4, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
   );
-  const cols = makeBuffer('flow column stats', Nx * Ny * 32, GPUBufferUsage.STORAGE);
-  const planes = makeBuffer('flow plane stats', Ny * 32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-  const planesRead = makeBuffer('flow plane stats readback', Ny * 32, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
+  const cols = makeBuffer('flow column stats', Nx * Ny * STAT_BYTES, GPUBufferUsage.STORAGE);
+  const planes = makeBuffer('flow plane stats', Ny * STAT_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+  const planesRead = makeBuffer('flow plane stats readback', Ny * STAT_BYTES, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
 
   // The Poisson solver reads its right-hand side from, and writes its
   // solution to, the same scalar buffer.
@@ -495,12 +511,22 @@ export function createChannelFlow(device, opts) {
 
     /**
      * Plane-averaged statistics and stability numbers, reduced on the GPU so
-     * only 8 Ny floats cross back. Returns null if a previous call is still
+     * only 12 Ny floats cross back. Returns null if a previous call is still
      * in flight.
      *
      * Profiles are over y (length Ny). `uv` is the Reynolds shear stress
      * including the mean-flow contribution, which is zero in a channel since
      * the mean of v vanishes.
+     *
+     * `gridScale` is a resolution monitor. For each of x and z it gives the
+     * typical wavenumber of the streamwise velocity as a fraction of the
+     * largest the grid can hold (two points per wave), weighted towards the
+     * short waves that carry the gradients. It is computed from the ratio of
+     * second to first differences, which for a single wave of wavenumber k
+     * is tan^2(k h / 2). `profile` holds the value on each plane and `x`,
+     * `z` the largest over all planes. Values near 0.25 mean eight points
+     * per wave. Above about 0.5 the field is dominated by waves of fewer
+     * than four points and is not resolved.
      */
     async statistics() {
       if (statsBusy) return null;
@@ -515,7 +541,7 @@ export function createChannelFlow(device, opts) {
         pass.setBindGroup(0, statsXBind);
         pass.dispatchWorkgroups(Math.ceil(Ny / 16));
         pass.end();
-        encoder.copyBufferToBuffer(planes, 0, planesRead, 0, Ny * 32);
+        encoder.copyBufferToBuffer(planes, 0, planesRead, 0, Ny * STAT_BYTES);
         device.queue.submit([encoder.finish()]);
         const time = sim.time;
         await planesRead.mapAsync(GPUMapMode.READ);
@@ -523,17 +549,24 @@ export function createChannelFlow(device, opts) {
         planesRead.unmap();
 
         const n = Nx * Nz;
-        const mean = (o) => Float64Array.from({ length: Ny }, (_, j) => raw[8 * j + o] / n);
+        const mean = (o) => Float64Array.from({ length: Ny }, (_, j) => raw[STAT_FLOATS * j + o] / n);
         const out = {
           time,
           y: yc,
           u: mean(0), uu: mean(1), vv: mean(2), ww: mean(3), uv: mean(4), w: mean(7),
           maxCfl: 0, maxDivergence: 0, bulkVelocity: 0, kineticEnergy: 0,
         };
+        const fraction = (second, first) =>
+          first > 0 ? (2 / Math.PI) * Math.atan(Math.sqrt(second / first)) : 0;
+        const gx = Float64Array.from({ length: Ny }, (_, j) =>
+          fraction(raw[STAT_FLOATS * j + 8], raw[STAT_FLOATS * j + 9]));
+        const gz = Float64Array.from({ length: Ny }, (_, j) =>
+          fraction(raw[STAT_FLOATS * j + 10], raw[STAT_FLOATS * j + 11]));
+        out.gridScale = { x: Math.max(...gx), z: Math.max(...gz), profileX: gx, profileZ: gz };
         const height = yFaces[Ny] - yFaces[0];
         for (let j = 0; j < Ny; j++) {
-          out.maxCfl = Math.max(out.maxCfl, raw[8 * j + 5]);
-          out.maxDivergence = Math.max(out.maxDivergence, raw[8 * j + 6]);
+          out.maxCfl = Math.max(out.maxCfl, raw[STAT_FLOATS * j + 5]);
+          out.maxDivergence = Math.max(out.maxDivergence, raw[STAT_FLOATS * j + 6]);
           out.bulkVelocity += (out.u[j] * h[j]) / height;
           // v^2 belongs to the face below cell j, whose control volume has height hf[j].
           out.kineticEnergy += (0.5 * (out.uu[j] * h[j] + out.ww[j] * h[j] + out.vv[j] * hf[j])) / height;

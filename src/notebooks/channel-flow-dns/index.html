@@ -5,14 +5,15 @@
   <script id="intro" type="text/markdown">
     # Channel Flow
 
-    A direct simulation of incompressible flow between two parallel walls, periodic in the streamwise (${tex`x`}) and spanwise (${tex`z`}) directions.
+    This notebook simulates the flow of an incompressible fluid between two parallel walls and follows it from the laminar state through transition to turbulence. It is a direct numerical simulation, which means that the Navier–Stokes equations are solved as they stand, with no turbulence model and no numerical smoothing. Every eddy in the flow has to be carried by the grid, and the only dissipation is that of the fluid's own viscosity.
 
-    The method favours accuracy over robustness. Space is discretised with second-order central differences on a staggered grid, in a form that conserves kinetic energy exactly in the absence of viscosity, so nothing is dissipated except by the viscous term. Time is advanced with a three-stage Runge–Kutta scheme, and after every stage the velocity is projected onto the divergence-free fields by solving the pressure Poisson equation directly, with Fourier transforms in ${tex`x`} and ${tex`z`} and a tridiagonal solve in ${tex`y`}.
+    The simulation runs on the GPU through WebGPU. The method is the one used by research codes for this problem, namely central differences on a staggered grid, an explicit Runge–Kutta scheme, and a direct solution of the pressure equation after every stage. What follows first is the simulation itself. The sections after it describe the flow, the ways it becomes turbulent, the numerical method and its implementation, and the tests the code has to pass.
   </script>
 
   <script id="imports" type="module">
     import { createWebGPUContext } from './lib/webgpu-canvas.js';
     import { createFrameLoop } from './lib/frame-loop.js';
+    import { observeTheme } from './lib/theme.js';
     import { createUnifiedCamera } from './lib/unified-camera.js';
     import { tanhFaces } from './lib/webgpu-poisson/channel-poisson.js';
     import { validateChannelPoisson, benchmarkChannelPoisson } from './lib/webgpu-poisson/validation.js';
@@ -21,7 +22,8 @@
       channelOptions, laminarOptions, kTypeOptions, wallUnits,
       perturbedChannel, localizedDisturbance, kTypeDisturbance, fluxForcing,
     } from './lib/channel-flow/channel-setup.js';
-    import { orrSommerfeldSpectrum } from './lib/channel-flow/orr-sommerfeld.js';
+    import { orrSommerfeldSpectrum, orrSommerfeldMode } from './lib/channel-flow/orr-sommerfeld.js';
+    import { channelDiagram, staggeredCellDiagram, rungeKuttaStabilityBoundary } from './figures.js';
     import { createSliceView } from './lib/channel-flow/slice-view.js';
     import { createQCriterion } from './lib/channel-flow/q-criterion.js';
     import { createIsosurfaceView } from './lib/channel-flow/isosurface-view.js';
@@ -36,24 +38,30 @@
     invalidation.then(() => device.destroy());
   </script>
 
+  <script id="theme" type="module">
+    // Colours that follow the page theme. Every figure below reads these, so
+    // they redraw when the theme changes.
+    const theme = Generators.observe(observeTheme);
+  </script>
+
+  <script id="theme-colours" type="module">
+    const cssColour = (c) => `rgb(${c.map((x) => Math.round(255 * x)).join(', ')})`;
+    const ink = cssColour(theme.foreground);
+    const palette = theme.isDark
+      ? ['#7db4e8', '#ff8f73', '#8fd08a']
+      : ['#2f6fad', '#d4472b', '#3b8a45'];
+  </script>
+
   <script id="simulation-text" type="text/markdown">
     ## Simulation
 
-    Plane Poiseuille flow is linearly stable below a Reynolds number of 5772, and above it the unstable waves grow very slowly, so it does not become turbulent by itself: a disturbance has to be large enough to trigger a faster route. Three starting points are offered.
+    Three starting points are offered. Each is described in more detail in the section on transition below.
 
-    **K-type transition.** The classical controlled route, named after Klebanoff. The laminar flow carries a two-dimensional Tollmien–Schlichting wave of a few percent amplitude, plus a pair of oblique waves a thousandth of the centreline velocity, all three computed from the Orr–Sommerfeld equation. The plane wave hardly changes on its own, but its presence makes the flow unstable to the oblique pair, which grows exponentially for about 150 time units with nothing visible happening. Then the spanwise vortex lines of the wave bend into Λ-shaped vortices at fixed spanwise positions, the tips lift away from the wall, and the flow breaks down. The box is one wavelength long and wide.
+    **K-type transition** starts from laminar flow carrying a plane wave of a few percent amplitude and a much weaker pair of oblique waves. Little is visible for about 150 time units while the oblique waves grow. Then Λ-shaped vortices appear, lift away from the walls, and the flow breaks down.
 
-    **Localized disturbance.** Laminar flow with a single pair of counter-rotating streamwise vortices placed next to the lower wall. Between the vortices fluid moves away from the wall and carries slow fluid up into the faster stream. The vortices are stretched and tilted by the shear into a long, lifted pair, with a low-speed streak between them capped by a thin shear layer. That shear layer is unstable, and it rolls up into a train of arch-shaped vortices straddling the streak: hairpins. Lengths are in channel half-heights and velocities in units of the laminar centreline velocity, and the mass flux is held fixed.
+    **Localized disturbance** starts from laminar flow with one pair of counter-rotating vortices next to the lower wall. The pair lifts slow fluid into a streak, and a train of hairpin vortices forms along it within about ten time units.
 
-    **Turbulent channel.** A parabolic profile carrying the bulk velocity of the turbulent state, plus streamwise vortices and a few oblique waves of large amplitude, which breaks down within about one time unit. Here velocities are in friction velocities, so the viscosity is ${tex`1/Re_\tau`} and the pressure gradient that drives the flow is one.
-  </script>
-
-  <script id="vortices-text" type="text/markdown">
-    The three-dimensional view shows an isosurface of the Q-criterion,
-
-    ${tex.block`Q = \tfrac{1}{2}\left(\lVert\boldsymbol{\Omega}\rVert^2 - \lVert\mathbf{S}\rVert^2\right) = -\tfrac{1}{2}\,\frac{\partial u_i}{\partial x_j}\frac{\partial u_j}{\partial x_i},`}
-
-    which is positive where rotation outweighs strain and so picks out vortex cores. The surface is extracted on the GPU every frame with marching cubes and drawn without the geometry ever leaving the GPU.
+    **Turbulent channel** starts from a strongly disturbed profile that breaks down almost at once, and settles into sustained turbulence at the chosen friction Reynolds number.
   </script>
 
   <script id="scenario-input" type="module">
@@ -181,6 +189,10 @@
     </p>`);
   </script>
 
+  <script id="vortices-text" type="text/markdown">
+    The three-dimensional view shows a surface of constant ${tex`Q`}, a quantity that is positive where the fluid rotates more than it strains and which therefore marks vortex cores. It is defined in the section on seeing vortices below. Drag to rotate the view and scroll to zoom. The two slices below it show one velocity component or the pressure on a vertical plane through the middle of the span and on a horizontal plane near the lower wall.
+  </script>
+
   <script id="simulation-figure" type="module">
     const figureWidth = Math.min(width, 640);
     const makeCanvas = (id, aspect) => {
@@ -238,6 +250,19 @@
       return { lo: -0.03 * centre * centre, hi: 0.03 * centre * centre, diverging: true };
     };
 
+    // Grid spacing in wall units from the current wall shear, and how close
+    // the streamwise velocity is to the grid scale (see the text).
+    const resolutionLine = (stats) => {
+      const uTau = Math.sqrt(Math.max(0.5 * (stats.wallShear[0] + stats.wallShear[1]), 0));
+      const plus = uTau / flow.sim.nu;
+      const g = stats.gridScale;
+      const coarse = Math.max(g.x, g.z) > 0.5;
+      return `Δx⁺ ${(flow.dx * plus).toFixed(1)}   Δz⁺ ${(flow.dz * plus).toFixed(1)}   ` +
+        `Δy⁺ ${(Math.min(...flow.heights) * plus).toFixed(2)} at the wall\n` +
+        `grid-scale content: x ${g.x.toFixed(2)}, z ${g.z.toFixed(2)}` +
+        (coarse ? '   (under-resolved: above 0.5)' : '');
+    };
+
     let frame = 0;
     let pending = false;
     const loop = createFrameLoop(() => {
@@ -284,6 +309,7 @@
         vortices.extract(encoder, qLevel * scales.qScale);
         vortexView.draw(encoder, context.getCurrentTexture().createView(), canvas.width, canvas.height, {
           projView, eye, lo: 0, hi: 1.1 * stats.u[flow.Ny >> 1],
+          background: theme.background, foreground: theme.foreground,
         });
       }
       device.queue.submit([encoder.finish()]);
@@ -298,7 +324,8 @@
           : `t = ${stats.time.toFixed(3)}   step ${flow.steps}   dt = ${(flow.sim.dt || 0).toExponential(2)}\n` +
             `bulk velocity ${stats.bulkVelocity.toFixed(3)}   wall shear / initial drive ` +
             `${(stats.wallShear[0] / scales.drive).toFixed(3)}, ${(stats.wallShear[1] / scales.drive).toFixed(3)}   ` +
-            `max |div| ${stats.maxDivergence.toExponential(1)}` +
+            `max |div| ${stats.maxDivergence.toExponential(1)}\n` +
+            resolutionLine(stats) +
             (showVortices
               ? `\n${Math.round(live.triangles).toLocaleString()} triangles` +
                 (3 * live.triangles > vortices.capacity ? ' (truncated: raise the threshold)' : '')
@@ -336,9 +363,9 @@
           x: { type: 'log', label: 'y⁺', domain: [0.5, Math.max(reNow, 15)] },
           y: { label: 'u⁺', domain: [0, Math.max(25, 1.05 * d3.max(profile, (d) => d.uPlus))] },
           marks: [
-            Plot.line(sublayer, { x: 'yPlus', y: 'uPlus', strokeDasharray: '4 3', stroke: 'currentColor', strokeOpacity: 0.5 }),
-            Plot.line(logLaw, { x: 'yPlus', y: 'uPlus', strokeDasharray: '4 3', stroke: 'currentColor', strokeOpacity: 0.5 }),
-            Plot.line(profile, { x: 'yPlus', y: 'uPlus', stroke: 'steelblue', strokeWidth: 2 }),
+            Plot.line(sublayer, { x: 'yPlus', y: 'uPlus', strokeDasharray: '4 3', stroke: ink, strokeOpacity: 0.5 }),
+            Plot.line(logLaw, { x: 'yPlus', y: 'uPlus', strokeDasharray: '4 3', stroke: ink, strokeOpacity: 0.5 }),
+            Plot.line(profile, { x: 'yPlus', y: 'uPlus', stroke: palette[0], strokeWidth: 2 }),
           ],
         }),
         Plot.plot({
@@ -348,8 +375,8 @@
           y: { label: 'wall shear stress / initial driving force' },
           marks: [
             Plot.ruleY([1], { strokeOpacity: 0.4 }),
-            Plot.line(live.history, { x: 'time', y: 'lower', stroke: 'steelblue' }),
-            Plot.line(live.history, { x: 'time', y: 'upper', stroke: 'tomato' }),
+            Plot.line(live.history, { x: 'time', y: 'lower', stroke: palette[0] }),
+            Plot.line(live.history, { x: 'time', y: 'upper', stroke: palette[1] }),
           ],
         })
       );
@@ -359,14 +386,53 @@
     invalidation.then(() => clearInterval(plotTimer));
   </script>
 
-  <script id="stability-text" type="text/markdown">
-    ## Linear stability
+  <script id="flow-heading" type="text/markdown">
+    ## The flow
 
-    A wave proportional to ${tex`e^{i(\alpha x + \beta z - \alpha c t)}`} on the parabolic profile has a wall-normal velocity that satisfies the Orr–Sommerfeld equation,
+    The fluid fills the gap between two flat walls at ${tex`y = \pm 1`}. Lengths are measured in units of the half-height of the channel. The mean flow is along ${tex`x`}, the streamwise direction, and ${tex`z`} runs across the span. The velocity components in the three directions are ${tex`u`}, ${tex`v`} and ${tex`w`}.
+  </script>
+
+  <script id="flow-figure" type="module">
+    const channelFigure = html`<figure id="channel-diagram"></figure>`;
+    channelFigure.innerHTML = channelDiagram({ ink, accent: palette[0] }) +
+      '<figcaption>The channel seen from the side, with the laminar velocity profile.</figcaption>';
+    display(channelFigure);
+  </script>
+
+  <script id="flow-equations" type="text/markdown">
+    The motion obeys the incompressible Navier–Stokes equations,
+
+    ${tex.block`\frac{\partial \mathbf{u}}{\partial t} + \nabla \cdot (\mathbf{u}\mathbf{u}) = -\nabla p + \frac{1}{Re}\nabla^2 \mathbf{u} + f\,\mathbf{e}_x, \qquad \nabla \cdot \mathbf{u} = 0,`}
+
+    with ${tex`\mathbf{u} = 0`} on both walls. The first equation is Newton's second law for a fluid particle. The second says that the fluid neither piles up nor thins out anywhere. Pressure has no equation of its own. It takes whatever value is needed at each instant to keep the velocity field free of divergence, and most of the difficulty of solving these equations comes from that constraint.
+  </script>
+
+  <script id="flow-periodic" type="text/markdown">
+    The domain is periodic in ${tex`x`} and ${tex`z`}, so fluid that leaves through one end re-enters through the other. A real channel has an inlet and an outlet, and a disturbance in it develops as it travels downstream. In the periodic box the same disturbance develops in time instead, while the box travels with it. This is called a temporal simulation. It gives up a faithful picture of the streamwise development in exchange for a domain a few wavelengths long instead of hundreds of channel heights, and it is the setting of most of the classical channel simulations.
+
+    Because the pressure is periodic too, it cannot carry the pressure drop that pushes the fluid along a real channel. The uniform body force ${tex`f`} stands in for that pressure gradient.
+  </script>
+
+  <script id="flow-laminar" type="text/markdown">
+    The equations have a steady solution in which the fluid moves in parallel layers, ${tex`u = U(y) = 1 - y^2`}, driven by ${tex`f = 2/Re`}. This is plane Poiseuille flow. Its centreline velocity is the unit of velocity for the two laminar starting points, and the Reynolds number ${tex`Re = U_c\,\delta/\nu`} is built from that velocity, the half-height ${tex`\delta`} and the kinematic viscosity ${tex`\nu`}. The Reynolds number measures how weak viscosity is compared with inertia, and it is the only parameter of the problem.
+
+    Poiseuille flow exists at every Reynolds number. Whether it is what one observes depends on what happens to disturbances.
+  </script>
+
+  <script id="transition-heading" type="text/markdown">
+    ## From laminar to turbulent
+
+    A laminar flow becomes turbulent when disturbances to it grow rather than decay. The simplest question to ask is what happens to disturbances so small that their effect on one another can be neglected.
+  </script>
+
+  <script id="stability-text" type="text/markdown">
+    ### Linear stability
+
+    A small disturbance to Poiseuille flow can be written as a sum of waves, each proportional to ${tex`e^{i(\alpha x + \beta z - \alpha c t)}`}, with wavenumbers ${tex`\alpha`} and ${tex`\beta`} along and across the stream. Substituting one such wave into the equations and discarding products of small quantities leaves a single equation for the shape ${tex`\hat v(y)`} of its wall-normal velocity, the Orr–Sommerfeld equation,
 
     ${tex.block`\left[(U - c)\left(D^2 - k^2\right) - U''\right]\hat v - \frac{1}{i \alpha Re}\left(D^2 - k^2\right)^2 \hat v = 0, \qquad k^2 = \alpha^2 + \beta^2,`}
 
-    an eigenvalue problem for the complex phase speed ${tex`c`}. The wave grows when ${tex`\operatorname{Im} c > 0`}. It is solved here by Chebyshev collocation. The plot shows the spectrum for the plane wave; the Tollmien–Schlichting wave is the isolated eigenvalue at the top left, and it is the only one that ever crosses into the upper half-plane.
+    where ${tex`D`} denotes differentiation in ${tex`y`} and ${tex`\hat v`} and its derivative vanish at the walls. Only certain complex values of the phase speed ${tex`c`} allow a solution, so this is an eigenvalue problem. The real part of ${tex`c`} is the speed at which the wave travels, and the wave grows if the imaginary part is positive.
   </script>
 
   <script id="stability-inputs" type="module">
@@ -389,10 +455,39 @@
       y: { label: 'Im c', domain: [-1, 0.1] },
       marks: [
         Plot.ruleY([0], { strokeOpacity: 0.4 }),
-        Plot.dot(spectrum, { x: 're', y: 'im', r: 2.5, fill: 'steelblue' }),
-        Plot.dot([leading], { x: 're', y: 'im', r: 5, stroke: 'tomato' }),
+        Plot.dot(spectrum, { x: 're', y: 'im', r: 2.5, fill: palette[0] }),
+        Plot.dot([leading], { x: 're', y: 'im', r: 5, stroke: palette[1], strokeWidth: 2 }),
       ],
     }));
+  </script>
+
+  <script id="stability-spectrum-text" type="text/markdown">
+    The plot shows the eigenvalues for a plane wave, ${tex`\beta = 0`}. They fall on three branches that meet in a Y. The modes on the left branch are concentrated near the walls and travel slowly. Those on the right branch live near the centreline and travel at nearly the centreline speed. The vertical branch is heavily damped. One eigenvalue at the top of the left branch stands apart from the rest. This is the Tollmien–Schlichting wave, and it is the only mode that ever becomes unstable. It does so at ${tex`Re = 5772`} for ${tex`\alpha = 1.02`}, the critical Reynolds number of the flow.
+  </script>
+
+  <script id="stability-eigenfunction" type="module">
+    const waveShape = orrSommerfeldMode({ re: stabilityRe, alpha: stabilityAlpha });
+    const shapeData = Array.from(waveShape.y, (y, j) => [
+      { y, value: Math.hypot(waveShape.u[0][j], waveShape.u[1][j]), component: 'streamwise velocity' },
+      { y, value: Math.hypot(waveShape.v[0][j], waveShape.v[1][j]), component: 'wall-normal velocity' },
+    ]).flat();
+    // Heights where the wave travels with the fluid, U(y) = Re c.
+    const criticalHeight = Math.sqrt(Math.max(1 - waveShape.c.re, 0));
+    display(Plot.plot({
+      width: Math.min(width, 640),
+      height: 320,
+      color: { legend: true, range: palette },
+      x: { label: 'amplitude of the Tollmien–Schlichting wave' },
+      y: { label: 'y', domain: [-1, 1] },
+      marks: [
+        Plot.ruleY([-criticalHeight, criticalHeight], { stroke: ink, strokeDasharray: '4 3', strokeOpacity: 0.6 }),
+        Plot.line(shapeData, { x: 'value', y: 'y', stroke: 'component', z: 'component' }),
+      ],
+    }));
+  </script>
+
+  <script id="stability-eigenfunction-text" type="text/markdown">
+    The shape of the wave explains why it is so delicate. Its streamwise velocity peaks close to each wall, at about the height where the wave travels at the local speed of the fluid, shown by the dashed lines. Energy is fed to the wave in a thin layer around that height and removed by viscosity at the wall, and the growth rate is the small difference between the two. Viscosity is what makes the instability possible, since an inviscid parabolic profile is stable, and the wave needs hundreds of time units to grow by a factor of ${tex`e`}.
   </script>
 
   <script id="stability-waves" type="module">
@@ -405,10 +500,280 @@
     }
   </script>
 
-  <script id="flow-validation-text" type="text/markdown">
-    ## Flow solver validation
+  <script id="stability-squire" type="text/markdown">
+    Oblique waves need no separate treatment at this level. Squire's theorem states that an oblique wave behaves like a plane wave at a lower Reynolds number, so the first wave to become unstable as the Reynolds number rises is always a plane one. The oblique waves matter for what comes next.
+  </script>
 
-    Exact solutions and conservation properties, with double-precision references. The Taylor–Green vortex tests the periodic directions and the spatial order; the inviscid run tests that the convective terms conserve energy on a stretched grid, leaving only the third-order error of the time integrator; the two laminar channel cases test the walls, the wall-normal diffusion and the forcing. The Tollmien–Schlichting rows check the stability solver against a published eigenvalue, and that a small wave in the flow solver grows at the rate the linear theory predicts, which any numerical dissipation would spoil. The last rows check the Q field against an analytic one, and that marching cubes turns a sphere into a closed surface of the right area.
+  <script id="subcritical-text" type="text/markdown">
+    ### Why the linear theory is not enough
+
+    In experiments, channel flow becomes turbulent at Reynolds numbers between one and two thousand, far below the critical value, and far too quickly for a Tollmien–Schlichting wave to be responsible. The linear theory describes what happens to infinitesimal disturbances. Real ones have finite size, and two mechanisms let them grow where the linear theory predicts decay.
+  </script>
+
+  <script id="secondary-text" type="text/markdown">
+    ### Secondary instability and K-type transition
+
+    The first mechanism starts from a plane wave that has reached an amplitude of about one percent of the centreline velocity. Seen from a frame moving with the wave, the flow is then steady and periodic in ${tex`x`}, a row of weak spanwise rollers. This modulated flow is unstable to three-dimensional disturbances, and the instability is fast. It grows on the time scale of the flow itself, not on the slow viscous scale of the plane wave, and it operates well below the critical Reynolds number. Orszag and Patera identified it in 1983 and Herbert developed the theory.
+
+    The form the instability takes depends on the oblique waves present. If they have the same streamwise wavelength as the plane wave, the three lock together and the spanwise vortex lines of the wave bend downstream at fixed positions across the span. The result is a row of Λ-shaped vortices, one behind another, each with its tip pointing downstream and lifted away from the wall. This is K-type transition, after Klebanoff, whose hot-wire measurements in 1962 revealed the alternating spanwise positions of strong and weak disturbance that the vortices produce. If the oblique waves have twice the wavelength of the plane wave, the vortices form a staggered pattern instead, known as H-type.
+  </script>
+
+  <script id="secondary-breakdown-text" type="text/markdown">
+    What follows is rapid. The two legs of each Λ vortex are stretched by the shear and intensify. Between them, slow fluid is pumped away from the wall, and a thin layer of intense shear forms above the lifted fluid. That layer rolls up into a succession of small vortices that connect across the tip, which gives the hairpin or horseshoe shape. Each roll-up appears to a fixed probe as a sharp spike in the velocity signal. Within a few periods of the original wave the structures have multiplied, the wall shear has risen sharply, and the flow is turbulent.
+
+    The K-type scenario here follows this route with the parameters of the simulations of Gilbert and Kleiser, a plane wave of three percent and an oblique pair of a tenth of a percent at ${tex`Re = 5000`}, ${tex`\alpha = 1.12`} and ${tex`\beta = 2.1`}. The box holds exactly one wavelength in each direction.
+  </script>
+
+  <script id="bypass-text" type="text/markdown">
+    ### Lift-up and bypass transition
+
+    The second mechanism does not involve the Tollmien–Schlichting wave at all, and is said to bypass it. A weak vortex aligned with the stream moves fluid across the mean shear. Slow fluid from near the wall is carried outwards on one side of the vortex and fast fluid inwards on the other, which produces long streaks of low and high streamwise velocity. The streaks can become far stronger than the vortices that create them, because a small wall-normal displacement taps the large velocity difference across the channel. This is the lift-up effect. It grows in proportion to time, not exponentially, and it occurs even though every individual eigenmode decays. The eigenmodes of a shear flow are far from orthogonal, and a sum of decaying modes can grow for a long while before it decays.
+
+    A low-speed streak is capped by a layer of strong shear where the lifted slow fluid meets the faster stream above it. That layer is unstable in the same way as the one above a Λ vortex, and it rolls up into a train of hairpins that straddle the streak. Acarlar and Smith produced such trains in the laboratory by placing a small hemisphere on a wall. The localized-disturbance scenario does it with a pair of counter-rotating vortices, in the spirit of the initial conditions of Henningson, Lundbladh and Johansson.
+  </script>
+
+  <script id="turbulence-text" type="text/markdown">
+    ### The turbulent state
+
+    Once the flow is turbulent the orderly sequence is gone, but the same ingredients persist near the walls. Streaks of slow fluid are created by streamwise vortices, become unstable, and regenerate the vortices. This self-sustaining cycle needs no input from the rest of the flow. Jiménez and Moin showed that turbulence survives in a periodic box only just large enough to hold one streak and one pair of vortices, and dies out in anything smaller.
+  </script>
+
+  <script id="wall-units-text" type="text/markdown">
+    The size of these structures is set by the wall, not by the channel. The natural velocity scale is the friction velocity ${tex`u_\tau = \sqrt{\tau_w / \rho}`}, built from the shear stress ${tex`\tau_w`} that the fluid exerts on the wall, and the natural length is ${tex`\nu / u_\tau`}. Quantities measured in these wall units carry a superscript plus. The streaks are about ${tex`100`} wall units apart, and the smallest box that sustains turbulence is about that wide and three times as long.
+
+    The ratio of the half-height to the viscous length is the friction Reynolds number ${tex`Re_\tau = u_\tau \delta / \nu`}. In a steady state the force on the fluid balances the friction on the two walls, which gives ${tex`\tau_w = f\,\delta`}. The turbulent scenario uses wall units throughout, so that ${tex`f = 1`}, ${tex`\nu = 1/Re_\tau`}, and the wall shear stress settles to one. Its default, ${tex`Re_\tau = 180`}, is the case computed by Kim, Moin and Moser in 1987, which has served as the reference for wall turbulence since.
+  </script>
+
+  <script id="law-of-the-wall-text" type="text/markdown">
+    In wall units the mean velocity near the wall follows a profile that is the same for every wall-bounded turbulent flow. Within about five wall units of the wall, viscosity dominates and ${tex`u^+ = y^+`}. Beyond about thirty, the velocity rises as the logarithm of the distance, ${tex`u^+ = \ln(y^+)/\kappa + B`} with ${tex`\kappa \approx 0.41`} and ${tex`B \approx 5.2`}. The statistics plot under the simulation compares the computed profile with both. A laminar profile lies far above the logarithmic line, and the collapse onto it is a clear sign that the flow has become turbulent.
+  </script>
+
+  <script id="method-heading" type="text/markdown">
+    ## The numerical method
+
+    The methods used to animate fluids in computer graphics are built to never fail. They trace the flow backwards along its path and interpolate, and they treat everything else implicitly, so that any time step is stable. The interpolation acts as a diffusion whose strength depends on the grid and the time step, and on an affordable grid it usually exceeds the viscosity of the fluid. The result looks like a fluid, but its effective Reynolds number is unknown and much lower than intended. Upwind differencing has the same character, since its leading error is a diffusion proportional to the grid spacing.
+
+    Transition and turbulence are decided by the balance between the growth of disturbances and their viscous decay, so a simulation of them cannot afford dissipation that is not physical. The method here has none. The price is that nothing smooths over an under-resolved flow. If the grid is too coarse the solution shows grid-scale oscillations, which is at least an honest signal, and stability has to come from the structure of the scheme.
+  </script>
+
+  <script id="staggered-text" type="text/markdown">
+    ### The staggered grid
+
+    The domain is divided into cells, uniform in ${tex`x`} and ${tex`z`} and of varying height in ${tex`y`}. The unknowns are not all stored at the same place. Pressure sits at the centre of each cell, and each velocity component sits at the centre of the faces it crosses, so that ${tex`u`} lives on the faces normal to ${tex`x`}, and so on. Harlow and Welch introduced this arrangement in 1965.
+  </script>
+
+  <script id="staggered-figure" type="module">
+    const staggeredFigure = html`<figure id="staggered-diagram"></figure>`;
+    staggeredFigure.innerHTML = staggeredCellDiagram({ ink, accent: palette[0], accent2: palette[1] }) +
+      '<figcaption>One cell in the x–y plane. The third component, w, sits on the faces normal to z in the same way.</figcaption>';
+    display(staggeredFigure);
+  </script>
+
+  <script id="staggered-why" type="text/markdown">
+    The arrangement makes the two operators that involve pressure as compact as they can be. The net outflow from a cell is the difference of the velocities on opposite faces, and the pressure gradient that acts on a face velocity is the difference of the two pressures on either side of it. If everything were stored at cell centres, a centred pressure gradient would skip the centre value and connect only alternate cells, and a checkerboard pattern of pressure would go unnoticed by the velocity. On the staggered grid no such pattern exists, and the discrete divergence of the discrete gradient is the ordinary seven-point Laplacian.
+
+    The wall-normal cells are made thinner towards the walls with a hyperbolic tangent, because the gradients there are the steepest in the flow. In the turbulent scenario the first cell is about one wall unit high.
+  </script>
+
+  <script id="conservation-text" type="text/markdown">
+    ### Convection that conserves energy
+
+    The convective term is written as the divergence of a momentum flux, ${tex`\nabla \cdot (\mathbf{u}\mathbf{u})`}. Each velocity component has its own control volume, centred on the face where it lives and shaded in the figure for ${tex`u`}. The flux through each face of that volume is the product of the volume of fluid crossing the face and the value of the component it carries, each obtained by averaging the two nearest stored values.
+
+    With this choice the momentum that leaves one control volume enters its neighbour, so momentum is conserved exactly. Less obviously, kinetic energy is conserved too. In the exact equations the convective term moves energy around without creating or destroying any, which follows from integrating by parts and using ${tex`\nabla \cdot \mathbf{u} = 0`}. The discrete operator built from plain averages has the same property, because summation by parts works for it in the same way, provided the discrete velocity is free of divergence. On a stretched grid the property survives if the carried value is the unweighted mean of its two neighbours and the carrying flux is weighted by cell height, as Verstappen and Veldman showed.
+
+    This is what replaces numerical dissipation as the source of stability. The total kinetic energy cannot grow except through the forcing, whatever the grid, so the nonlinear term cannot make the solution blow up.
+  </script>
+
+  <script id="wavenumber-text" type="text/markdown">
+    ### Resolution
+
+    Central differences are second-order accurate, which means that halving the grid spacing ${tex`h`} divides the error by four. A more telling measure is what a difference does to a single wave ${tex`e^{ikx}`}. The exact derivative multiplies the wave by ${tex`ik`}. A difference multiplies it by ${tex`ik'`}, where the modified wavenumber ${tex`k'`} falls below ${tex`k`} as the wave becomes short compared with the grid.
+  </script>
+
+  <script id="wavenumber-figure" type="module">
+    const wavenumberData = d3.range(0, 1.0001, 0.01).flatMap((s) => {
+      const kh = Math.PI * s;
+      return [
+        { kh, value: kh, scheme: 'exact' },
+        { kh, value: 2 * Math.sin(kh / 2), scheme: 'difference across one cell (staggered)' },
+        { kh, value: Math.sin(kh), scheme: 'difference across two cells' },
+      ];
+    });
+    display(Plot.plot({
+      width: Math.min(width, 640),
+      height: 300,
+      color: { legend: true, range: [ink, palette[0], palette[1]] },
+      x: { label: 'k h', ticks: [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI], tickFormat: (d) => ['0', 'π/4', 'π/2', '3π/4', 'π'][Math.round((4 * d) / Math.PI)] },
+      y: { label: 'k′ h' },
+      marks: [
+        Plot.line(wavenumberData, { x: 'kh', y: 'value', stroke: 'scheme', z: 'scheme' }),
+      ],
+    }));
+  </script>
+
+  <script id="wavenumber-after" type="text/markdown">
+    The shortest wave a grid can hold has two points per wavelength, ${tex`kh = \pi`}. A wave with eight points per wavelength, ${tex`kh = \pi/4`}, is differentiated with an error of 2.6 percent by a difference across one cell and 10 percent by a difference across two. The staggered grid uses the first kind for the pressure gradient and the divergence, and the convective term mixes the two. A spectral method makes no such error at any resolved wavenumber, so a second-order code needs roughly twice as many points in each direction to reach the same fidelity. That is the main cost of this method, and the Tollmien–Schlichting test below shows it plainly.
+  </script>
+
+  <script id="underresolved-text" type="text/markdown">
+    ### When the grid is too coarse
+
+    It is fair to ask what protects a simulation like this from quietly turning into one with numerical dissipation as the Reynolds number rises and the grid falls behind. The answer has two parts.
+
+    The absence of numerical dissipation does not depend on resolution. The convective operator conserves energy because of how its fluxes are formed, and the property holds on any grid, however coarse. The inviscid test below verifies it on a deliberately coarse, stretched grid. So an under-resolved run cannot dissipate energy numerically. The only sink remains the viscous term.
+
+    That does not make an under-resolved run correct. It fails in a different way. Turbulence passes energy from large eddies to smaller ones until the eddies are small enough for viscosity to turn their motion into heat. The size at which this happens is the Kolmogorov length ${tex`\eta = (\nu^3/\varepsilon)^{1/4}`}, where ${tex`\varepsilon`} is the rate of dissipation. In a channel at this Reynolds number it is about one and a half wall units near the wall and about four at the centre. If the grid cannot hold eddies of a few times that size, the energy arriving at the smallest resolved scale has nowhere to go. A dissipative scheme would remove it and hide the problem. This scheme leaves it there, and it accumulates as oscillations at the scale of the grid. The total energy stays bounded, so the run does not blow up, but the small scales are wrong, and through them the wall friction and everything else.
+  </script>
+
+  <script id="resolution-cost-text" type="text/markdown">
+    The practical rule for this kind of code is a streamwise spacing of about ten wall units, a spanwise spacing of about five, and a first cell of about one wall unit at the wall. Since the wall unit shrinks as the Reynolds number rises, the number of grid points needed grows roughly as ${tex`Re_\tau^{9/4}`}. Going from ${tex`Re_\tau = 180`} to ${tex`400`} in the same box takes about six times as many points, and a smaller time step as well. The friction Reynolds number slider goes further than the grids offered can follow, on purpose, so that the failure can be seen.
+
+    Two indicators under the figure show where a run stands. The first is the grid spacing in wall units, computed from the wall shear stress the flow has at that moment. The second measures the solution itself. For a single wave of wavenumber ${tex`k`}, the ratio of the mean squared second difference to the mean squared first difference is ${tex`\tan^2(kh/2)`}. Applied to the streamwise velocity, the same ratio gives a typical wavenumber of the field, weighted towards the short waves that carry the gradients, and it is reported as a fraction of the largest wavenumber the grid can hold. A value of ${tex`0.25`} means the gradients are carried by waves of eight points. Above about ${tex`0.5`}, waves of fewer than four points dominate and the run should not be trusted. The modified-wavenumber plot above shows why those are the natural thresholds.
+  </script>
+
+  <script id="time-text" type="text/markdown">
+    ### Advancing in time
+
+    With the spatial terms evaluated, each velocity value obeys an ordinary differential equation in time. These are advanced with a three-stage Runge–Kutta scheme due to Wray. Writing ${tex`\mathbf{R}(\mathbf{u})`} for the convective, viscous and forcing terms together, each stage is
+
+    ${tex.block`\mathbf{u}^{(s)} = \mathbf{u}^{(s-1)} + \Delta t\left[\gamma_s\,\mathbf{R}\big(\mathbf{u}^{(s-1)}\big) + \zeta_s\,\mathbf{R}\big(\mathbf{u}^{(s-2)}\big)\right] - \Delta t\,(\gamma_s + \zeta_s)\,\nabla p^{(s)},`}
+
+    with ${tex`\gamma = \left(\tfrac{8}{15}, \tfrac{5}{12}, \tfrac{3}{4}\right)`} and ${tex`\zeta = \left(0, -\tfrac{17}{60}, -\tfrac{5}{12}\right)`}. Each stage needs only the current velocity and the right-hand side of the stage before, so the scheme takes two arrays of storage however many stages it has. It is third-order accurate.
+  </script>
+
+  <script id="time-stability-text" type="text/markdown">
+    The choice of scheme is tied to the choice of central differences. An explicit scheme is stable for a term of the equations if the product of the time step and each eigenvalue ${tex`\lambda`} of that term lies inside the scheme's stability region in the complex plane. Diffusion has negative real eigenvalues. Convection discretised without dissipation has purely imaginary ones, since it only moves things around. The forward Euler scheme and the second-order Runge–Kutta scheme have stability regions that do not contain any part of the imaginary axis, so they amplify every convected wave. The three-stage scheme covers the imaginary axis up to ${tex`\sqrt{3}`} and the real axis down to ${tex`-2.51`}.
+  </script>
+
+  <script id="time-stability-figure" type="module">
+    const stabilityNames = ['', 'forward Euler', 'Runge–Kutta 2', 'Runge–Kutta 3'];
+    const stabilityData = [1, 2, 3].flatMap((s) =>
+      rungeKuttaStabilityBoundary(s).map((point) => ({ ...point, method: stabilityNames[s] })));
+    display(Plot.plot({
+      width: Math.min(width, 480),
+      aspectRatio: 1,
+      color: { legend: true, domain: stabilityNames.slice(1), range: [palette[2], palette[1], palette[0]] },
+      x: { label: 'Re(λ Δt)', domain: [-3, 0.8] },
+      y: { label: 'Im(λ Δt)', domain: [-2.7, 2.7] },
+      marks: [
+        Plot.ruleX([0], { stroke: ink, strokeOpacity: 0.4 }),
+        Plot.ruleY([0], { stroke: ink, strokeOpacity: 0.4 }),
+        Plot.line(stabilityData, { x: 're', y: 'im', stroke: 'method', z: 'method' }),
+        Plot.dot([{ re: 0, im: Math.sqrt(3) }, { re: 0, im: -Math.sqrt(3) }], { x: 're', y: 'im', r: 3, fill: ink }),
+      ],
+    }));
+  </script>
+
+  <script id="time-step-text" type="text/markdown">
+    Each curve encloses the region where that scheme is stable. The dots mark the limit of the three-stage scheme on the imaginary axis. These two limits translate into two bounds on the time step,
+
+    ${tex.block`\Delta t\left(\frac{|u|}{\Delta x} + \frac{|v|}{\Delta y} + \frac{|w|}{\Delta z}\right) \le \sqrt{3}, \qquad 4\,\nu\,\Delta t\left(\frac{1}{\Delta x^2} + \frac{1}{\Delta y^2} + \frac{1}{\Delta z^2}\right) \le 2.51,`}
+
+    the first from convection and the second from diffusion. The simulation measures the left-hand sides on the GPU as it runs and takes half the largest step they allow. In the turbulent scenario the two bounds are comparable, because the wall cells are thin. That is why the viscous term is treated explicitly here, where larger simulations treat it implicitly.
+  </script>
+
+  <script id="projection-text" type="text/markdown">
+    ### Keeping the velocity free of divergence
+
+    The stage formula above contains the pressure at the new stage, which is not yet known. It is found by splitting the stage in two. First the velocity is advanced without the pressure term, giving a provisional field ${tex`\mathbf{u}^*`} that has some divergence. Then the gradient of a pressure is subtracted, chosen so that the divergence of the result is zero. Taking the divergence of the stage formula gives the equation the pressure must satisfy,
+
+    ${tex.block`\nabla^2 p^{(s)} = \frac{\nabla \cdot \mathbf{u}^*}{(\gamma_s + \zeta_s)\,\Delta t},`}
+
+    a Poisson equation, with the condition that the pressure gradient normal to a wall is zero because the provisional velocity already vanishes there. This is the projection method of Chorin. The correction removes exactly the part of ${tex`\mathbf{u}^*`} that is a gradient and leaves the rest untouched.
+
+    Projection methods usually introduce an error of their own, because the pressure and viscous terms are advanced separately. Here they do not. Every term is explicit, each stage starts from a field without divergence, and the projection is a linear operation, so the result is identical to applying the Runge–Kutta scheme directly to the constrained equations.
+  </script>
+
+  <script id="poisson-text" type="text/markdown">
+    ### Solving for the pressure
+
+    The Poisson equation couples every cell to every other and has to be solved three times per time step, so it dominates the cost. Iterative methods such as multigrid solve it to a tolerance, and whatever error remains is left in the velocity as divergence. The geometry of the channel allows something better.
+
+    Because the grid is uniform and periodic in ${tex`x`} and ${tex`z`}, a discrete Fourier transform in those two directions turns the differences there into multiplications. For each pair of wavenumbers ${tex`(k_x, k_z)`} the transformed pressure ${tex`\hat p_j`} on row ${tex`j`} satisfies
+
+    ${tex.block`a_j\,\hat p_{j-1} - \left(a_j + c_j + \lambda_x + \lambda_z\right)\hat p_j + c_j\,\hat p_{j+1} = \hat f_j, \qquad \lambda_x = \frac{2 - 2\cos(2\pi k_x / N_x)}{\Delta x^2},`}
+
+    where ${tex`a_j`} and ${tex`c_j`} come from the cell heights and ${tex`\lambda_z`} is defined like ${tex`\lambda_x`}. The numbers ${tex`\lambda`} are the eigenvalues of the second difference, the discrete counterpart of ${tex`k^2`}. Using them, and not ${tex`k^2`} itself, is what makes the solution satisfy the discrete equation exactly. What remains is one tridiagonal system in ${tex`y`} for each wavenumber pair, which is solved directly by elimination. The inverse transforms then return the pressure.
+
+    The solution is exact up to rounding. The mode with ${tex`k_x = k_z = 0`} needs one exception, since the pressure is determined only up to a constant and that system is singular. One of its equations is replaced by a condition fixing the constant.
+  </script>
+
+  <script id="precision-text" type="text/markdown">
+    ### Single precision
+
+    WebGPU offers only single-precision arithmetic, about seven significant digits, where research codes normally use sixteen. The method tolerates this well. The divergence left after a time step is around ${tex`10^{-7}`} of the velocity gradients, and the growth rates and conservation properties tested below are unaffected. Quantities that are small differences of large numbers are the weak point. The factors of the tridiagonal systems and the trigonometric tables of the transforms are therefore computed in double precision on the CPU and stored, and an arbitrary initial condition is projected twice, since a single solve leaves a residual proportional to the size of the correction.
+  </script>
+
+  <script id="gpu-text" type="text/markdown">
+    ### On the GPU
+
+    A GPU runs the same small program on thousands of threads at once and is limited mostly by how fast it can move data to and from memory. The implementation is organised around touching memory as few times as possible, and in order.
+
+    The state is one array holding ${tex`(u, v, w, p)`} for each cell, ordered so that ${tex`x`} varies fastest and each horizontal plane is a contiguous block. One Runge–Kutta stage is eight passes over this data.
+
+    | Pass | Work |
+    |---|---|
+    | 1 | Convective, viscous and forcing terms, and the provisional velocity |
+    | 2 | Divergence of the provisional velocity |
+    | 3 | Fourier transform in ${tex`x`}, real to complex |
+    | 4 | Fourier transform in ${tex`z`} |
+    | 5 | Tridiagonal solves in ${tex`y`} |
+    | 6 | Inverse transform in ${tex`z`} |
+    | 7 | Inverse transform in ${tex`x`}, complex to real |
+    | 8 | Subtraction of the pressure gradient |
+  </script>
+
+  <script id="gpu-fft-text" type="text/markdown">
+    In the transforms, each group of threads takes one line of the grid, copies it into a small block of fast memory that the group shares, performs every stage of the fast Fourier transform there, and writes the line back once. A line that runs along ${tex`z`} is not contiguous in memory, but it is read and written with a stride, so the data are never rearranged between passes. The input is real, so only half of the spectrum is computed and stored.
+
+    The tridiagonal elimination is sequential along ${tex`y`} but independent for each wavenumber pair, so one thread handles each pair and marches from one wall to the other and back. At every step the threads together read and write exactly one plane.
+
+    Statistics are reduced on the GPU as well. The plane averages, the largest divergence and the quantities that set the time step come back to the CPU as a few hundred numbers. The velocity field itself is never copied back.
+  </script>
+
+  <script id="q-heading" type="text/markdown">
+    ## Seeing vortices
+
+    A vortex is easy to recognise and hard to define. Vorticity, the curl of the velocity, measures the local rate of rotation of the fluid, but it is large in any shear flow whether or not anything is swirling. The laminar flow next to a wall has strong vorticity and no vortices.
+
+    A more selective measure comes from the velocity gradient ${tex`\partial u_i / \partial x_j`}. Its symmetric part ${tex`\mathbf{S}`} describes the rate at which a fluid element is stretched and sheared, and its antisymmetric part ${tex`\boldsymbol{\Omega}`} the rate at which it rotates. Hunt, Wray and Moin proposed marking as a vortex the regions where rotation exceeds strain,
+
+    ${tex.block`Q = \tfrac{1}{2}\left(\lVert\boldsymbol{\Omega}\rVert^2 - \lVert\mathbf{S}\rVert^2\right) = -\tfrac{1}{2}\,\frac{\partial u_i}{\partial x_j}\frac{\partial u_j}{\partial x_i} > 0.`}
+
+    In a pure shear the two parts are equal and ${tex`Q`} vanishes, so the mean flow by itself contributes nothing. In practice one draws the surface on which ${tex`Q`} equals some positive threshold. The threshold is a free choice, and the picture depends on it. A high value shows only the strongest cores, and a low one fills the view. For the turbulent scenario the threshold is given in wall units.
+  </script>
+
+  <script id="marching-text" type="text/markdown">
+    The surface is extracted with marching cubes, the algorithm of Lorensen and Cline. Take ${tex`Q`} at the centres of eight neighbouring cells as the corners of a small cube. Each corner is either above the threshold or below it, which gives 256 possible patterns. For each pattern a table lists the triangles that separate the corners above from those below, and the vertices of the triangles are placed along the edges of the cube where linear interpolation says the threshold is crossed. Cubes that the surface misses produce nothing.
+
+    On the GPU one thread examines each cube. A thread whose cube is crossed reserves space for its triangles in a shared buffer by incrementing a counter atomically, then writes them. The number of vertices goes straight into the arguments of the draw call, so neither the geometry nor its size returns to the CPU. The surface is shaded with the gradient of ${tex`Q`} as its normal, which keeps it smooth where the triangles are coarse, and coloured by the streamwise velocity, so that structures in slow fluid near the wall appear dark and those reaching into the fast stream appear bright.
+  </script>
+
+  <script id="validation-heading" type="text/markdown">
+    ## Validation
+
+    A simulation that is meant to be accurate has to be tested against things that are known. The tests below can be run here, on your own GPU. Each compares the single-precision result with an exact solution or with a reference computed in double precision.
+  </script>
+
+  <script id="flow-validation-text" type="text/markdown">
+    ### The flow solver
+
+    Each group of tests isolates one part of the method.
+
+    | Test | What it establishes |
+    |---|---|
+    | Projection | The velocity is free of divergence to rounding error, initially and after stepping |
+    | Taylor–Green vortex | An exact decaying solution in the periodic directions is reproduced, with error falling as the square of the grid spacing |
+    | Inviscid energy | Without viscosity the kinetic energy is conserved on a stretched grid between walls. The remaining drift comes from the time scheme and falls as the cube of the time step |
+    | Poiseuille flow | The forced laminar profile is steady |
+    | Start-up from rest | The approach to that profile under a constant force follows the exact series solution |
+    | Orr–Sommerfeld eigenvalue | The stability solver agrees with the value published by Orszag in 1971 |
+    | Tollmien–Schlichting wave | A small wave grows in the flow solver at the rate linear theory predicts |
+    | Q of an analytic field | The vortex measure is computed to second order |
+    | Marching cubes on a sphere | The extracted surface is closed, has the right area, and has outward normals |
+
+    The Tollmien–Schlichting test is the most demanding. The growth of the wave is a small difference between production and viscous loss, and any numerical dissipation turns it into decay, which is why it has long been used to judge Navier–Stokes codes. The two grids in the test give errors of 27 and 7 percent in the growth rate. The error falls by a factor of four between them, as it should for a second-order method, and it also shows how fine a grid such a method needs before slow instabilities are captured accurately.
   </script>
 
   <script id="flow-validation-run" type="module">
@@ -433,9 +798,9 @@
   </script>
 
   <script id="validation-text" type="text/markdown">
-    ## Pressure solver validation
+    ### The pressure solver
 
-    Each row compares the single-precision GPU result with a double-precision reference computed on the CPU. The projection rows subtract the pressure gradient from a random staggered velocity field and report how much of its divergence survives.
+    These tests exercise the transforms and the tridiagonal solve alone. The transforms are compared with a direct evaluation of the Fourier sum. The solver is then given right-hand sides whose exact discrete solution is known, on uniform and stretched grids, and finally a smooth continuous problem, for which the error must fall as the square of the grid spacing.
   </script>
 
   <script id="validation-run" type="module">
@@ -460,9 +825,9 @@
   </script>
 
   <script id="benchmark-text" type="text/markdown">
-    ## Pressure solver timing
+    ### Timing
 
-    Per-pass GPU time, averaged over repeated solves. Per-pass times need the `timestamp-query` feature; without it only the wall-clock total is reported.
+    The time each pass of the pressure solve takes on the GPU, averaged over repeated solves. Per-pass times need the `timestamp-query` feature of WebGPU. Without it only the total is reported.
   </script>
 
   <script id="benchmark-inputs" type="module">
@@ -504,4 +869,56 @@
     }
     }
   </script>
+
+  <script id="limitations-text" type="text/markdown">
+    ## Limitations
+
+    The simulation is honest about what it resolves, but several things separate it from a research calculation.
+
+    The scheme is second-order, so it needs fine grids. The default grids are chosen to run interactively and are coarser than a careful study would use, particularly for the late stages of transition, where thin shear layers form. Grid-scale oscillations in the slices are the sign that a run has outgrown its grid.
+
+    The periodic box replaces development along the channel with development in time. The two are related but not identical, and a box one wavelength long cannot represent anything longer than itself. The smallest boxes offered for the turbulent scenario are close to the minimal size that sustains turbulence, and the statistics of such boxes differ from those of a large channel away from the walls.
+
+    The statistics shown are instantaneous averages over planes. Comparison with published profiles requires averaging over a long time as well, which the notebook does not yet do.
+
+    Arithmetic is single precision. Nothing tested here is limited by it, but very small disturbances, below about ${tex`10^{-5}`} of the mean flow, cannot be followed accurately.
+  </script>
+
+  <script id="references" type="text/markdown">
+    ## References
+
+    **The flow and its transition**
+
+    - Orszag, S. A. (1971). Accurate solution of the Orr–Sommerfeld stability equation. *Journal of Fluid Mechanics* 50, 689–703.
+    - Klebanoff, P. S., Tidstrom, K. D. & Sargent, L. M. (1962). The three-dimensional nature of boundary-layer instability. *Journal of Fluid Mechanics* 12, 1–34.
+    - Orszag, S. A. & Patera, A. T. (1983). Secondary instability of wall-bounded shear flows. *Journal of Fluid Mechanics* 128, 347–385.
+    - Herbert, T. (1988). Secondary instability of boundary layers. *Annual Review of Fluid Mechanics* 20, 487–526.
+    - Gilbert, N. & Kleiser, L. (1990). Near-wall phenomena in transition to turbulence. In *Near-Wall Turbulence* (ed. S. J. Kline & N. H. Afgan), 7–27. Hemisphere.
+    - Landahl, M. T. (1980). A note on an algebraic instability of inviscid parallel shear flows. *Journal of Fluid Mechanics* 98, 243–251.
+    - Henningson, D. S., Lundbladh, A. & Johansson, A. V. (1993). A mechanism for bypass transition from localized disturbances in wall-bounded shear flows. *Journal of Fluid Mechanics* 250, 169–207.
+    - Acarlar, M. S. & Smith, C. R. (1987). A study of hairpin vortices in a laminar boundary layer. *Journal of Fluid Mechanics* 175, 1–41 and 43–83.
+    - Schmid, P. J. & Henningson, D. S. (2001). *Stability and Transition in Shear Flows*. Springer.
+
+    **Wall turbulence**
+
+    - Kim, J., Moin, P. & Moser, R. (1987). Turbulence statistics in fully developed channel flow at low Reynolds number. *Journal of Fluid Mechanics* 177, 133–166.
+    - Jiménez, J. & Moin, P. (1991). The minimal flow unit in near-wall turbulence. *Journal of Fluid Mechanics* 225, 213–240.
+    - Hamilton, J. M., Kim, J. & Waleffe, F. (1995). Regeneration mechanisms of near-wall turbulence structures. *Journal of Fluid Mechanics* 287, 317–348.
+
+    **Numerical method**
+
+    - Harlow, F. H. & Welch, J. E. (1965). Numerical calculation of time-dependent viscous incompressible flow of fluid with free surface. *Physics of Fluids* 8, 2182–2189.
+    - Chorin, A. J. (1968). Numerical solution of the Navier–Stokes equations. *Mathematics of Computation* 22, 745–762.
+    - Morinishi, Y., Lund, T. S., Vasilyev, O. V. & Moin, P. (1998). Fully conservative higher order finite difference schemes for incompressible flow. *Journal of Computational Physics* 143, 90–124.
+    - Verstappen, R. W. C. P. & Veldman, A. E. P. (2003). Symmetry-preserving discretization of turbulent flow. *Journal of Computational Physics* 187, 343–368.
+    - Spalart, P. R., Moser, R. D. & Rogers, M. M. (1991). Spectral methods for the Navier–Stokes equations with one infinite and two periodic directions. *Journal of Computational Physics* 96, 297–324.
+    - Trefethen, L. N. (2000). *Spectral Methods in MATLAB*. SIAM.
+    - Stam, J. (1999). Stable fluids. *Proceedings of SIGGRAPH 99*, 121–128.
+
+    **Visualization**
+
+    - Hunt, J. C. R., Wray, A. A. & Moin, P. (1988). Eddies, streams, and convergence zones in turbulent flows. *Center for Turbulence Research, Proceedings of the Summer Program*, 193–208.
+    - Lorensen, W. E. & Cline, H. E. (1987). Marching cubes: a high resolution 3D surface construction algorithm. *Computer Graphics* 21, 163–169.
+  </script>
+
 </notebook>

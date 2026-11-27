@@ -20,6 +20,8 @@ struct Scene {
   lo: f32,
   light: vec3f,
   hi: f32,
+  line: vec4f,
+  wall: vec4f,
 }
 @group(0) @binding(0) var<uniform> scene: Scene;
 `;
@@ -72,16 +74,17 @@ fn fs(in: VSOut) -> @location(0) vec4f {
 
 const FLAT = /* wgsl */ `
 ${COMMON}
-struct VSOut { @builtin(position) clip: vec4f, @location(0) colour: vec4f }
+struct VSOut { @builtin(position) clip: vec4f, @location(0) kind: f32 }
 
+// kind is 0 for the outline and 1 for the wall.
 @vertex
-fn vs(@location(0) position: vec3f, @location(1) colour: vec4f) -> VSOut {
-  return VSOut(scene.projView * vec4f(position, 1.0), colour);
+fn vs(@location(0) position: vec3f, @location(1) kind: f32) -> VSOut {
+  return VSOut(scene.projView * vec4f(position, 1.0), kind);
 }
 
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4f {
-  return in.colour;
+  return mix(scene.line, scene.wall, in.kind);
 }
 `;
 
@@ -90,14 +93,11 @@ fn fs(in: VSOut) -> @location(0) vec4f {
  * @param {Object} flow - result of createChannelFlow
  * @param {Object} surface - result of createQCriterion
  * @param {GPUTextureFormat} format - format of the target
- * @param {Object} [opts]
- * @param {number[]} [opts.background] - clear colour, RGBA
  */
-export function createIsosurfaceView(device, flow, surface, format, opts = {}) {
-  const background = opts.background ?? [0.07, 0.08, 0.1, 1];
+export function createIsosurfaceView(device, flow, surface, format) {
   const scene = device.createBuffer({
     label: 'isosurface scene',
-    size: 96,
+    size: 128,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -127,10 +127,10 @@ export function createIsosurfaceView(device, flow, surface, format, opts = {}) {
 
   const flatModule = device.createShaderModule({ label: 'channel box', code: FLAT });
   const flatLayout = [{
-    arrayStride: 28,
+    arrayStride: 16,
     attributes: [
       { shaderLocation: 0, offset: 0, format: 'float32x3' },
-      { shaderLocation: 1, offset: 12, format: 'float32x4' },
+      { shaderLocation: 1, offset: 12, format: 'float32' },
     ],
   }];
   const flatPipeline = (topology) =>
@@ -150,14 +150,12 @@ export function createIsosurfaceView(device, flow, surface, format, opts = {}) {
   const x1 = flow.Lx, z1 = flow.Lz;
   const y0 = flow.yFaces[0], y1 = flow.yFaces[flow.Ny];
   const corner = (n) => [n & 1 ? x1 : 0, n & 2 ? y1 : y0, n & 4 ? z1 : 0];
-  const lineColour = [0.75, 0.78, 0.82, 1];
-  const wallColour = [0.16, 0.17, 0.2, 1];
   const flat = [];
   for (let a = 0; a < 8; a++)
     for (const bit of [1, 2, 4])
-      if (!(a & bit)) flat.push(...corner(a), ...lineColour, ...corner(a | bit), ...lineColour);
-  const lineVertices = flat.length / 7;
-  for (const n of [0, 1, 5, 0, 5, 4]) flat.push(...corner(n), ...wallColour);
+      if (!(a & bit)) flat.push(...corner(a), 0, ...corner(a | bit), 0);
+  const lineVertices = flat.length / 4;
+  for (const n of [0, 1, 5, 0, 5, 4]) flat.push(...corner(n), 1);
   const boxBuffer = device.createBuffer({
     label: 'channel box',
     size: flat.length * 4,
@@ -201,9 +199,15 @@ export function createIsosurfaceView(device, flow, surface, format, opts = {}) {
      * @param {Float32Array} view.projView - column-major, depth in [0, 1]
      * @param {ArrayLike<number>} view.eye
      * @param {number} view.lo, view.hi - colour scalar mapped to the ends of the scale
+     * @param {number[]} [view.background], [view.foreground] - RGB in [0, 1]
+     *   for the clear colour and the channel outline; the lower wall is
+     *   drawn as a tint between the two
      */
-    draw(encoder, target, width, height, { projView, eye, lo, hi }) {
-      const data = new Float32Array(24);
+    draw(encoder, target, width, height, { projView, eye, lo, hi, background = [0.07, 0.08, 0.1], foreground = [0.75, 0.78, 0.82] }) {
+      const data = new Float32Array(32);
+      const wall = background.map((b, n) => b + 0.1 * (foreground[n] - b));
+      data.set([...foreground.slice(0, 3), 1], 24);
+      data.set([...wall, 1], 28);
       data.set(projView, 0);
       data.set([eye[0], eye[1], eye[2], lo], 16);
       // Light from above and behind the viewer's shoulder.
@@ -217,7 +221,7 @@ export function createIsosurfaceView(device, flow, surface, format, opts = {}) {
           resolveTarget: target,
           loadOp: 'clear',
           storeOp: 'discard',
-          clearValue: background,
+          clearValue: [background[0], background[1], background[2], 1],
         }],
         depthStencilAttachment: {
           view: t.depth.createView(),
