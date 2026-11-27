@@ -27,6 +27,7 @@ import {
   downloadMp4,
   formatDuration,
 } from "./lib/mp4-recorder.js";
+import { pollUntil } from "./lib/poll-until.js";
 
 // Hour angle advances 360° per solar day, so this converts "solar
 // minutes per frame" into the per-frame sun motion that decides
@@ -205,16 +206,18 @@ export function createAnimationPanel({
   // ---- the recording ---------------------------------------------------
   const run = { active: false, cancel: false };
 
-  const waitForOverrideApplied = () =>
-    new Promise((resolve) => {
-      const poll = () => {
-        if (timeOverride.applied >= timeOverride.requested) {
-          resolve();
-          return;
-        }
-        requestAnimationFrame(poll);
-      };
-      requestAnimationFrame(poll);
+  // The echo comes from the notebook's lighting tick, which runs on
+  // rAF, so this is the same kind of wait as the map's and is spent
+  // the same way — in attended time, not wall clock. See
+  // ./lib/poll-until.js. It had no timeout at all before, so a tick
+  // that had stopped (an edited cell re-running, say) left the
+  // recording hanging with nothing on screen to say why.
+  const waitForOverrideApplied = (handlers) =>
+    pollUntil(() => timeOverride.applied >= timeOverride.requested, {
+      timeoutMs: 10000,
+      label: "recording",
+      reason: () => "the notebook to pick up the instant",
+      ...handlers,
     });
 
   async function record() {
@@ -256,6 +259,34 @@ export function createAnimationPanel({
     viewer.setInteractive(false);
     viewer.setSizeChipPinned(true);
 
+    // Both waits run on frames, and a window that is hidden or fully
+    // covered stops getting them. On an export that takes minutes
+    // that is a normal thing for the user to do, so the waits pause
+    // instead of failing; this is what says so, since a paused
+    // recording and a stuck one look identical otherwise.
+    let resumeTo = null;
+    const handlers = {
+      onStall: () => {
+        resumeTo = status.textContent;
+        setStatus("paused — the window has to stay visible to record");
+      },
+      onResume: () => {
+        if (resumeTo != null) setStatus(resumeTo);
+        resumeTo = null;
+      },
+    };
+
+    // A frame the map cannot finish is not worth the whole export.
+    // Capturing it anyway costs a thirtieth of a second of slightly
+    // stale shadows; throwing away a four-minute encode costs
+    // everything. So a frame that times out goes in, and the count is
+    // reported at the end. A map that cannot settle at all is a
+    // different thing, and still stops the recording — otherwise a
+    // dead bake worker would turn a four-minute export into a
+    // six-hour one.
+    const EARLY_LIMIT = 3;
+    let early = 0;
+
     const t0 = performance.now();
     try {
       const result = await recordMp4({
@@ -271,8 +302,21 @@ export function createAnimationPanel({
           // notebook's lighting tick push this instant into the viewer
           // (so the bake it triggers is the one we then wait on), the
           // second lets tiles, bakes and the shadow re-bake finish.
-          await waitForOverrideApplied();
-          await viewer.awaitSettled();
+          await waitForOverrideApplied(handlers);
+          try {
+            await viewer.awaitSettled({ ...handlers, timeoutMs: 30000 });
+          } catch (err) {
+            early++;
+            console.warn(
+              `[animation] frame ${i + 1} captured before the map finished: ` +
+                err.message,
+            );
+            if (early > EARLY_LIMIT) {
+              throw new Error(
+                `the map could not finish ${early} frames — ${err.message}`,
+              );
+            }
+          }
         },
         captureFrame: () => viewer.captureFrame(),
         onProgress: ({ frame, frameCount: total, elapsedMs }) => {
@@ -296,11 +340,15 @@ export function createAnimationPanel({
       setStatus(
         `${result.frameCount} frames · ${result.width}×${result.height} · ` +
           `${(result.bytes.length / 1048576).toFixed(1)} MB · ` +
-          `${formatDuration(performance.now() - t0)} · ${name}`,
+          `${formatDuration(performance.now() - t0)} · ${name}` +
+          (early
+            ? ` · ${early} frame${early === 1 ? "" : "s"} captured early`
+            : ""),
       );
     } catch (err) {
       console.error("[animation] recording failed", err);
       setStatus(`failed: ${err.message}`);
+      status.title = String(err.message || err);
     } finally {
       run.active = false;
       timeOverride.utcMs = null;
