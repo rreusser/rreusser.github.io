@@ -250,6 +250,7 @@ export function createQCriterion(device, flow, opts = {}) {
   const wg = cfg.wg;
   const grid = [Math.ceil(Nx / wg[0]), Math.ceil(Nz / wg[1]), Math.ceil(Ny / wg[2])];
   let countBusy = false;
+  let destroyed = false;
 
   return {
     vertices,
@@ -283,10 +284,11 @@ export function createQCriterion(device, flow, opts = {}) {
 
     /**
      * Number of vertices the last extraction wanted. More than `capacity`
-     * means the surface was truncated. Returns null if a read is in flight.
+     * means the surface was truncated. Returns null if a read is in flight
+     * or the buffers are destroyed before it completes.
      */
     async vertexCount() {
-      if (countBusy) return null;
+      if (countBusy || destroyed) return null;
       countBusy = true;
       try {
         const encoder = device.createCommandEncoder();
@@ -296,12 +298,16 @@ export function createQCriterion(device, flow, opts = {}) {
         const n = new Uint32Array(countRead.getMappedRange())[0];
         countRead.unmap();
         return n;
+      } catch (error) {
+        if (destroyed) return null;
+        throw error;
       } finally {
         countBusy = false;
       }
     },
 
     destroy() {
+      destroyed = true;
       for (const b of owned) b.destroy();
     },
   };

@@ -172,7 +172,11 @@
     const vortexView = createIsosurfaceView(device, flow, vortices, canvasFormat);
     owned.push(sliceView, vortices, vortexView);
     // Mutated by the frame loop; read by the plots.
-    const live = { stats: await flow.statistics(), history: [], failed: false, triangles: 0 };
+    const firstStats = await flow.statistics();
+    // Null means this run was replaced by a newer one while it waited. The
+    // newer one owns the page now, so this one simply never finishes.
+    if (!firstStats) await new Promise(() => {});
+    const live = { stats: firstStats, history: [], failed: false, triangles: 0 };
     // Scales that differ between the scenarios. The nominal friction Reynolds
     // number is the one at which the wall shear balances the initial driving
     // force. The laminar case runs at fixed mass flux, the turbulent one at
@@ -223,6 +227,8 @@
       near: 0.05,
       far: 200,
       renderContinuously: false,
+      // The canvas keeps the size given above; the camera must not resize it.
+      observeResize: false,
     });
     invalidation.then(() => camera.destroy());
     const sideView = makeCanvas('channel-side-view', 2 / flow.Lx);
@@ -290,7 +296,8 @@
       const stats = live.stats;
       statusLine.textContent = live.failed
         ? 'The solution became non-finite. Restart with a finer grid or a smaller disturbance.'
-        : `t = ${stats.time.toFixed(3)}   step ${flow.steps}   dt = ${(flow.sim.dt || 0).toExponential(2)}\n` +
+        : `t = ${stats.time.toFixed(3)}   step ${flow.steps}   dt = ${(flow.sim.dt || 0).toExponential(2)}   ` +
+          `${pace.stepsPerSecond.toFixed(0)} steps/s\n` +
           `bulk velocity ${stats.bulkVelocity.toFixed(3)}   wall shear / initial drive ` +
           `${(stats.wallShear[0] / scales.drive).toFixed(3)}, ${(stats.wallShear[1] / scales.drive).toFixed(3)}   ` +
           `max |div| ${stats.maxDivergence.toExponential(1)}\n` +
@@ -301,12 +308,28 @@
             : '');
     };
 
+    // The GPU runs behind the commands sent to it. If a batch of time steps
+    // were sent every frame regardless, a GPU that cannot finish a batch in
+    // one frame would fall further and further behind: statistics would
+    // never come back and a paused view could not be redrawn until the
+    // backlog cleared. So a new batch is sent only once the previous one has
+    // finished, and the achieved rate is whatever the GPU can sustain.
+    const pace = { busy: false, sent: performance.now(), stepsPerSecond: 0 };
+
     let frame = 0;
     let pending = false;
     const loop = createFrameLoop(() => {
       const advancing = running && !live.failed;
-      if (advancing) {
+      if (advancing && !pace.busy) {
         flow.advance(flow.stableTimeStep(live.stats, 0.5), stepsPerFrame);
+        pace.busy = true;
+        device.queue.onSubmittedWorkDone().then(() => {
+          const now = performance.now();
+          const rate = (1000 * stepsPerFrame) / Math.max(now - pace.sent, 1);
+          pace.stepsPerSecond = pace.stepsPerSecond ? 0.9 * pace.stepsPerSecond + 0.1 * rate : rate;
+          pace.sent = now;
+          pace.busy = false;
+        });
         markDirty();
       }
       // Statistics lag the state by a few frames; the time step has enough

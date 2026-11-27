@@ -440,6 +440,7 @@ export function createChannelFlow(device, opts) {
   };
 
   let statsBusy = false;
+  let destroyed = false;
 
   return {
     Nx, Ny, Nz, Lx, Lz, dx, dz, cells,
@@ -512,7 +513,7 @@ export function createChannelFlow(device, opts) {
     /**
      * Plane-averaged statistics and stability numbers, reduced on the GPU so
      * only 12 Ny floats cross back. Returns null if a previous call is still
-     * in flight.
+     * in flight, or if the flow is destroyed before the data arrive.
      *
      * Profiles are over y (length Ny). `uv` is the Reynolds shear stress
      * including the mean-flow contribution, which is zero in a channel since
@@ -523,13 +524,16 @@ export function createChannelFlow(device, opts) {
      * largest the grid can hold (two points per wave), weighted towards the
      * short waves that carry the gradients. It is computed from the ratio of
      * second to first differences, which for a single wave of wavenumber k
-     * is tan^2(k h / 2). `profile` holds the value on each plane and `x`,
-     * `z` the largest over all planes. Values near 0.25 mean eight points
+     * is tan^2(k h / 2). `profileX` and `profileZ` hold the value on each
+     * plane, and `x` and `z` the value for the whole field, which weights
+     * each plane by how much the velocity varies there. Where the variation
+     * is too small to tell from rounding error the value is zero. Values near
+     * 0.25 mean eight points
      * per wave. Above about 0.5 the field is dominated by waves of fewer
      * than four points and is not resolved.
      */
     async statistics() {
-      if (statsBusy) return null;
+      if (statsBusy || destroyed) return null;
       statsBusy = true;
       try {
         const encoder = device.createCommandEncoder();
@@ -556,13 +560,18 @@ export function createChannelFlow(device, opts) {
           u: mean(0), uu: mean(1), vv: mean(2), ww: mean(3), uv: mean(4), w: mean(7),
           maxCfl: 0, maxDivergence: 0, bulkVelocity: 0, kineticEnergy: 0,
         };
-        const fraction = (second, first) =>
-          first > 0 ? (2 / Math.PI) * Math.atan(Math.sqrt(second / first)) : 0;
-        const gx = Float64Array.from({ length: Ny }, (_, j) =>
-          fraction(raw[STAT_FLOATS * j + 8], raw[STAT_FLOATS * j + 9]));
-        const gz = Float64Array.from({ length: Ny }, (_, j) =>
-          fraction(raw[STAT_FLOATS * j + 10], raw[STAT_FLOATS * j + 11]));
-        out.gridScale = { x: Math.max(...gx), z: Math.max(...gz), profileX: gx, profileZ: gz };
+        // Differences smaller than this fraction of u^2 are rounding noise.
+        const NOISE = 1e-11;
+        const fraction = (second, first, square) =>
+          first > NOISE * square ? (2 / Math.PI) * Math.atan(Math.sqrt(second / first)) : 0;
+        const at = (j, o) => raw[STAT_FLOATS * j + o];
+        const total = (o) => { let t = 0; for (let j = 0; j < Ny; j++) t += at(j, o); return t; };
+        out.gridScale = {
+          x: fraction(total(8), total(9), total(1)),
+          z: fraction(total(10), total(11), total(1)),
+          profileX: Float64Array.from({ length: Ny }, (_, j) => fraction(at(j, 8), at(j, 9), at(j, 1))),
+          profileZ: Float64Array.from({ length: Ny }, (_, j) => fraction(at(j, 10), at(j, 11), at(j, 1))),
+        };
         const height = yFaces[Ny] - yFaces[0];
         for (let j = 0; j < Ny; j++) {
           out.maxCfl = Math.max(out.maxCfl, raw[STAT_FLOATS * j + 5]);
@@ -577,6 +586,10 @@ export function createChannelFlow(device, opts) {
           (sim.nu * out.u[Ny - 1]) / (0.5 * h[Ny - 1]),
         ];
         return out;
+      } catch (error) {
+        // Destroying the buffers rejects a read that is still in flight.
+        if (destroyed) return null;
+        throw error;
       } finally {
         statsBusy = false;
       }
@@ -598,6 +611,7 @@ export function createChannelFlow(device, opts) {
     },
 
     destroy() {
+      destroyed = true;
       for (const b of owned) b.destroy();
       poisson.destroy();
     },
