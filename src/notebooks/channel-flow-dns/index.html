@@ -119,8 +119,14 @@
           lx: Inputs.range([0.2, 2], { label: 'Streamwise extent', step: 0.05, value: 0.8 }),
           lz: Inputs.range([0.1, 1], { label: 'Spanwise extent', step: 0.05, value: 0.35 }),
         });
-    const setup = view(setupForm);
-    const restart = view(Inputs.button('Restart'));
+    display(setupForm);
+    // The simulation is rebuilt only when this button is pressed. Rebuilding
+    // on every slider movement would allocate a new set of GPU buffers many
+    // times a second, faster than the old ones are released.
+    const setup = view(Inputs.button('Restart with these settings', {
+      value: { ...setupForm.value },
+      reduce: () => ({ ...setupForm.value }),
+    }));
   </script>
 
   <script id="simulation-controls" type="module">
@@ -138,7 +144,12 @@
   </script>
 
   <script id="simulation-state" type="module">
-    restart;
+    // Everything created here is released when the cell is invalidated,
+    // including when that happens while it is still waiting below.
+    const owned = [];
+    invalidation.then(() => {
+      for (const resource of owned.reverse()) resource.destroy();
+    });
     const flow = createChannelFlow(device,
       scenario === 'turbulent' ? channelOptions({ reTau: setup.reynolds, ...setup.grid })
       : scenario === 'ktype' ? kTypeOptions({ re: setup.reynolds, alpha: setup.alpha, beta: setup.beta, ...setup.grid })
@@ -154,10 +165,12 @@
       scenario === 'turbulent' ? perturbedChannel(flow, { amplitude: setup.amplitude })
       : scenario === 'ktype' ? waves.state
       : localizedDisturbance(flow, { amplitude: setup.amplitude, lx: setup.lx, lz: setup.lz }));
+    owned.push(flow);
     flow.project();
     const sliceView = createSliceView(device, flow, canvasFormat);
     const vortices = createQCriterion(device, flow);
     const vortexView = createIsosurfaceView(device, flow, vortices, canvasFormat);
+    owned.push(sliceView, vortices, vortexView);
     // Mutated by the frame loop; read by the plots.
     const live = { stats: await flow.statistics(), history: [], failed: false, triangles: 0 };
     // Scales that differ between the scenarios. The nominal friction Reynolds
@@ -170,12 +183,6 @@
       qScale: scenario === 'turbulent' ? setup.reynolds ** 2 : 1,
       fluxTarget: scenario === 'turbulent' ? null : live.stats.bulkVelocity,
     };
-    invalidation.then(() => {
-      vortexView.destroy();
-      vortices.destroy();
-      sliceView.destroy();
-      flow.destroy();
-    });
   </script>
 
   <script id="simulation-resolution" type="module">
