@@ -1,38 +1,267 @@
 <!doctype html>
 <notebook theme="air">
-  <title>Channel Flow: Pressure Solver</title>
+  <title>Channel Flow</title>
 
   <script id="intro" type="text/markdown">
-    # Channel Flow: Pressure Solver
+    # Channel Flow
 
-    This is a test bench for the pressure solver of a staggered-grid channel flow simulation. The domain is periodic in ${tex`x`} and ${tex`z`} and bounded by walls in ${tex`y`}. Fourier transforms in the two periodic directions reduce the discrete Poisson equation
+    A direct simulation of incompressible flow between two parallel walls, periodic in the streamwise (${tex`x`}) and spanwise (${tex`z`}) directions and driven by a constant pressure gradient. Lengths are in channel half-heights and velocities in friction velocities, so the viscosity is ${tex`1/Re_\tau`}, the driving force is one, and a flow in equilibrium has unit shear stress on each wall.
 
-    ${tex.block`\nabla_h \cdot \nabla_h\, p = f`}
-
-    to one tridiagonal system in ${tex`y`} for each wavenumber pair ${tex`(k_x, k_z)`}, which is solved directly. The solve takes five passes over the data: a real-to-complex transform in ${tex`x`}, a complex transform in ${tex`z`}, the tridiagonal sweep in ${tex`y`}, and the two inverse transforms.
+    The method favours accuracy over robustness. Space is discretised with second-order central differences on a staggered grid, in a form that conserves kinetic energy exactly in the absence of viscosity, so nothing is dissipated except by the viscous term. Time is advanced with a three-stage Runge–Kutta scheme, and after every stage the velocity is projected onto the divergence-free fields by solving the pressure Poisson equation directly, with Fourier transforms in ${tex`x`} and ${tex`z`} and a tridiagonal solve in ${tex`y`}.
   </script>
 
   <script id="imports" type="module">
     import { createWebGPUContext } from './lib/webgpu-canvas.js';
+    import { createFrameLoop } from './lib/frame-loop.js';
     import { tanhFaces } from './lib/webgpu-poisson/channel-poisson.js';
     import { validateChannelPoisson, benchmarkChannelPoisson } from './lib/webgpu-poisson/validation.js';
+    import { createChannelFlow } from './lib/channel-flow/channel-flow.js';
+    import { channelOptions, wallUnits, perturbedChannel } from './lib/channel-flow/channel-setup.js';
+    import { createSliceView } from './lib/channel-flow/slice-view.js';
+    import { validateChannelFlow } from './lib/channel-flow/validation.js';
   </script>
 
   <script id="context" type="module">
-    const { device } = await createWebGPUContext({
+    const { device, canvasFormat } = await createWebGPUContext({
       optionalFeatures: ['timestamp-query'],
       maxBufferSizes: true,
     });
     invalidation.then(() => device.destroy());
   </script>
 
+  <script id="simulation-text" type="text/markdown">
+    ## Simulation
+
+    The flow starts as a parabolic profile carrying the bulk velocity of the turbulent state, plus streamwise vortices and a few oblique waves. Plane Poiseuille flow is linearly stable at this Reynolds number, so the disturbance has to be large enough to trigger transition directly; small ones decay.
+  </script>
+
+  <script id="simulation-inputs" type="module">
+    const gridPreset = view(Inputs.select(
+      new Map([
+        ['Minimal channel, 64 × 96 × 64', { Nx: 64, Ny: 96, Nz: 64, Lx: Math.PI, Lz: Math.PI / 2 }],
+        ['Small channel, 128 × 128 × 128', { Nx: 128, Ny: 128, Nz: 128, Lx: 2 * Math.PI, Lz: Math.PI }],
+        ['Full channel, 256 × 160 × 256', { Nx: 256, Ny: 160, Nz: 256, Lx: 4 * Math.PI, Lz: (4 * Math.PI) / 3 }],
+      ]),
+      { label: 'Domain and grid' }
+    ));
+    const reTau = view(Inputs.range([60, 400], { label: 'Friction Reynolds number', step: 10, value: 180 }));
+    const amplitude = view(Inputs.range([0, 0.5], { label: 'Disturbance amplitude', step: 0.01, value: 0.2 }));
+    const restart = view(Inputs.button('Restart'));
+  </script>
+
+  <script id="simulation-controls" type="module">
+    const running = view(Inputs.toggle({ label: 'Run', value: true }));
+    const stepsPerFrame = view(Inputs.range([1, 20], { label: 'Steps per frame', step: 1, value: 4 }));
+    const sliceComponent = view(Inputs.radio(['u', 'v', 'w', 'p'], { label: 'Show', value: 'u' }));
+    const planHeight = view(Inputs.range([1, 100], { label: 'Plan view height (wall units)', step: 1, value: 15 }));
+  </script>
+
+  <script id="simulation-state" type="module">
+    restart;
+    const flow = createChannelFlow(device, channelOptions({ reTau, ...gridPreset }));
+    flow.setState(perturbedChannel(flow, { amplitude }));
+    flow.project();
+    const sliceView = createSliceView(device, flow, canvasFormat);
+    // Mutated by the frame loop; read by the plots.
+    const live = { stats: await flow.statistics(), history: [], failed: false };
+    invalidation.then(() => {
+      sliceView.destroy();
+      flow.destroy();
+    });
+  </script>
+
+  <script id="simulation-resolution" type="module">
+    const units = wallUnits(flow, reTau);
+    display(html`<p style="font-size: 0.9em">
+      ${(flow.cells / 1e6).toFixed(2)} million cells, ${(flow.bytes / 2 ** 20).toFixed(0)} MB.
+      Domain ${units.LxPlus.toFixed(0)} × ${(2 * reTau).toFixed(0)} × ${units.LzPlus.toFixed(0)} wall units;
+      spacing Δx⁺ = ${units.dxPlus.toFixed(1)}, Δz⁺ = ${units.dzPlus.toFixed(1)},
+      Δy⁺ = ${units.dyWallPlus.toFixed(2)} at the wall to ${units.dyCentrePlus.toFixed(1)} at the centre.
+    </p>`);
+  </script>
+
+  <script id="simulation-figure" type="module">
+    const figureWidth = Math.min(width, 640);
+    const makeCanvas = (id, aspect) => {
+      const canvas = html`<canvas id="${id}" style="width: 100%; display: block; image-rendering: pixelated"></canvas>`;
+      canvas.width = Math.round(figureWidth * devicePixelRatio);
+      canvas.height = Math.max(1, Math.round(canvas.width * aspect));
+      const context = canvas.getContext('webgpu');
+      context.configure({ device, format: canvasFormat, alphaMode: 'opaque' });
+      return { canvas, context };
+    };
+    const sideView = makeCanvas('channel-side-view', 2 / flow.Lx);
+    const planView = makeCanvas('channel-plan-view', flow.Lz / flow.Lx);
+    const statusLine = html`<div id="channel-status" style="font: 12px var(--monospace, monospace); white-space: pre-wrap"></div>`;
+    display(html`<figure id="channel-figure" style="max-width: ${figureWidth}px">
+      <div style="font-size: 0.8em">Side view (x–y) at mid-span</div>
+      ${sideView.canvas}
+      <div style="font-size: 0.8em; margin-top: 6px">Plan view (x–z)</div>
+      ${planView.canvas}
+      ${statusLine}
+    </figure>`);
+  </script>
+
+  <script id="simulation-loop" type="module">
+    // Row nearest the requested distance from the lower wall.
+    const planRow = (() => {
+      let best = 0;
+      for (let j = 0; j < flow.Ny / 2; j++) {
+        const yPlus = (flow.yCenters[j] - flow.yFaces[0]) * reTau;
+        if (Math.abs(yPlus - planHeight) < Math.abs((flow.yCenters[best] - flow.yFaces[0]) * reTau - planHeight)) best = j;
+      }
+      return best;
+    })();
+
+    const colourRange = (stats) => {
+      const centre = stats.u[flow.Ny >> 1];
+      const rms = (a) => Math.sqrt(Math.max(...a));
+      if (sliceComponent === 'u') return { lo: 0, hi: 1.15 * Math.max(centre, 1), diverging: false };
+      if (sliceComponent === 'v') return { lo: -3 * rms(stats.vv) - 1e-3, hi: 3 * rms(stats.vv) + 1e-3, diverging: true };
+      if (sliceComponent === 'w') return { lo: -3 * rms(stats.ww) - 1e-3, hi: 3 * rms(stats.ww) + 1e-3, diverging: true };
+      return { lo: -10, hi: 10, diverging: true };
+    };
+
+    let frame = 0;
+    let pending = false;
+    const loop = createFrameLoop(() => {
+      const stats = live.stats;
+      if (running && !live.failed) {
+        flow.advance(flow.stableTimeStep(stats, 0.5), stepsPerFrame);
+      }
+      // Statistics lag the state by a few frames; the time step has enough
+      // margin to absorb that.
+      if (!pending && frame % 5 === 0) {
+        pending = true;
+        flow.statistics().then((next) => {
+          pending = false;
+          if (!next) return;
+          if (!Number.isFinite(next.maxCfl) || !Number.isFinite(next.kineticEnergy)) {
+            live.failed = true;
+            return;
+          }
+          live.stats = next;
+          const last = live.history[live.history.length - 1];
+          if (!last || next.time > last.time) {
+            live.history.push({
+              time: next.time,
+              lower: next.wallShear[0],
+              upper: next.wallShear[1],
+              bulk: next.bulkVelocity,
+            });
+            if (live.history.length > 4000) live.history.splice(0, 2000);
+          }
+        });
+      }
+      const range = colourRange(stats);
+      const encoder = device.createCommandEncoder();
+      sliceView.draw(encoder, sideView.context.getCurrentTexture().createView(), {
+        plane: 'xy', index: flow.Nz >> 1, component: sliceComponent, ...range,
+      });
+      sliceView.draw(encoder, planView.context.getCurrentTexture().createView(), {
+        plane: 'xz', index: planRow, component: sliceComponent, ...range,
+      });
+      device.queue.submit([encoder.finish()]);
+      if (frame % 10 === 0) {
+        statusLine.textContent = live.failed
+          ? 'The solution became non-finite. Restart with a finer grid or a smaller disturbance.'
+          : `t = ${stats.time.toFixed(3)}   step ${flow.steps}   dt⁺ = ${(flow.sim.dt * reTau).toFixed(3)}\n` +
+            `bulk velocity ${stats.bulkVelocity.toFixed(2)}   wall shear ${stats.wallShear[0].toFixed(3)}, ${stats.wallShear[1].toFixed(3)}   ` +
+            `max |div| ${stats.maxDivergence.toExponential(1)}`;
+      }
+      frame++;
+    });
+    invalidation.then(() => loop.cancel());
+  </script>
+
+  <script id="statistics-heading" type="text/markdown">
+    ### Statistics
+
+    The mean velocity profile is an average over the two homogeneous directions and both halves of the channel at the current instant, not over time, so it fluctuates. The dashed lines are the viscous sublayer ${tex`u^+ = y^+`} and the logarithmic law ${tex`u^+ = \ln(y^+)/0.41 + 5.2`}. The wall shear stress settles to one when the driving force and the wall friction balance.
+  </script>
+
+  <script id="statistics-plots" type="module">
+    const plotHolder = display(html`<div id="channel-statistics"></div>`);
+    const drawPlots = () => {
+      const stats = live.stats;
+      const half = flow.Ny >> 1;
+      const uTau = Math.sqrt(Math.max(0.5 * (stats.wallShear[0] + stats.wallShear[1]), 1e-12));
+      const profile = Array.from({ length: half }, (_, j) => ({
+        yPlus: (flow.yCenters[j] - flow.yFaces[0]) * reTau * uTau,
+        uPlus: (0.5 * (stats.u[j] + stats.u[flow.Ny - 1 - j])) / uTau,
+      }));
+      const sublayer = d3.range(0.5, 12, 0.5).map((y) => ({ yPlus: y, uPlus: y }));
+      const logLaw = d3.range(10, reTau, 5).map((y) => ({ yPlus: y, uPlus: Math.log(y) / 0.41 + 5.2 }));
+      const plotWidth = Math.min(width, 640);
+      plotHolder.replaceChildren(
+        Plot.plot({
+          width: plotWidth,
+          height: 280,
+          x: { type: 'log', label: 'y⁺', domain: [0.5, Math.max(reTau, 10)] },
+          y: { label: 'u⁺', domain: [0, 25], clamp: true },
+          marks: [
+            Plot.line(sublayer, { x: 'yPlus', y: 'uPlus', strokeDasharray: '4 3', stroke: 'currentColor', strokeOpacity: 0.5 }),
+            Plot.line(logLaw, { x: 'yPlus', y: 'uPlus', strokeDasharray: '4 3', stroke: 'currentColor', strokeOpacity: 0.5 }),
+            Plot.line(profile, { x: 'yPlus', y: 'uPlus', stroke: 'steelblue', strokeWidth: 2 }),
+          ],
+        }),
+        Plot.plot({
+          width: plotWidth,
+          height: 200,
+          x: { label: 'time (half-heights / friction velocity)' },
+          y: { label: 'wall shear stress' },
+          marks: [
+            Plot.ruleY([1], { strokeOpacity: 0.4 }),
+            Plot.line(live.history, { x: 'time', y: 'lower', stroke: 'steelblue' }),
+            Plot.line(live.history, { x: 'time', y: 'upper', stroke: 'tomato' }),
+          ],
+        })
+      );
+    };
+    drawPlots();
+    const plotTimer = setInterval(drawPlots, 1000);
+    invalidation.then(() => clearInterval(plotTimer));
+  </script>
+
+  <script id="flow-validation-text" type="text/markdown">
+    ## Flow solver validation
+
+    Exact solutions and conservation properties, with double-precision references. The Taylor–Green vortex tests the periodic directions and the spatial order; the inviscid run tests that the convective terms conserve energy on a stretched grid, leaving only the third-order error of the time integrator; the two laminar channel cases test the walls, the wall-normal diffusion and the forcing.
+  </script>
+
+  <script id="flow-validation-run" type="module">
+    const flowValidationRun = view(Inputs.button('Run flow validation'));
+  </script>
+
+  <script id="flow-validation" type="module">
+    if (flowValidationRun > 0) {
+      const flowRows = await validateChannelFlow(device);
+      display(Inputs.table(flowRows, {
+        columns: ['pass', 'test', 'grid', 'value', 'limit'],
+        format: {
+          pass: (d) => (d ? '✓' : '✗'),
+          value: (d) => d.toExponential(2),
+          limit: (d) => d.toExponential(0),
+        },
+        width: { pass: 40, value: 80, limit: 60 },
+        rows: 30,
+        select: false,
+      }));
+    }
+  </script>
+
   <script id="validation-text" type="text/markdown">
-    ## Validation
+    ## Pressure solver validation
 
     Each row compares the single-precision GPU result with a double-precision reference computed on the CPU. The projection rows subtract the pressure gradient from a random staggered velocity field and report how much of its divergence survives.
   </script>
 
+  <script id="validation-run" type="module">
+    const validationRun = view(Inputs.button('Run pressure solver validation'));
+  </script>
+
   <script id="validation" type="module">
+    if (validationRun > 0) {
     const validationRows = await validateChannelPoisson(device);
     display(Inputs.table(validationRows, {
       columns: ['pass', 'test', 'grid', 'value', 'limit'],
@@ -45,10 +274,11 @@
       rows: 30,
       select: false,
     }));
+    }
   </script>
 
   <script id="benchmark-text" type="text/markdown">
-    ## Timing
+    ## Pressure solver timing
 
     Per-pass GPU time, averaged over repeated solves. Per-pass times need the `timestamp-query` feature; without it only the wall-clock total is reported.
   </script>
@@ -65,7 +295,7 @@
   </script>
 
   <script id="benchmark" type="module">
-    benchRun;
+    if (benchRun > 0) {
     const benchResult = await benchmarkChannelPoisson(device, {
       Nx: benchNx,
       Ny: benchNy,
@@ -89,6 +319,7 @@
         format: { ms: (d) => d.toFixed(3) },
         select: false,
       }));
+    }
     }
   </script>
 </notebook>

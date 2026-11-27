@@ -1,4 +1,4 @@
-description: Validation and timing of a direct pressure Poisson solver for channel flow in WebGPU
+description: Direct numerical simulation of channel flow in WebGPU with an energy-conserving staggered scheme
 maxWidth: 640px
 hideFromIndex: true
 hideFromSearch: true
