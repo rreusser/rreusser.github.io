@@ -150,6 +150,17 @@
     const qLevel = view(scenario === 'turbulent'
       ? Inputs.range([0.001, 0.05], { label: 'Q threshold (wall units)', step: 0.0005, value: 0.006 })
       : Inputs.range([0.001, 1], { label: 'Q threshold', step: 0.001, value: scenario === 'ktype' ? 0.01 : 0.05 }));
+    const vortexColour = view(Inputs.radio(
+      new Map([['Streamwise velocity', 'velocity'], ['Distance from the wall', 'wall']]),
+      { label: 'Colour vortices by', value: 'velocity' }
+    ));
+    const showStreaks = view(Inputs.toggle({ label: 'Show low-speed streaks', value: true }));
+    // How far the streamwise velocity must fall below the plane average: in
+    // units of the friction velocity for the turbulent channel, and of the
+    // laminar centreline velocity otherwise.
+    const streakLevel = view(scenario === 'turbulent'
+      ? Inputs.range([0.5, 8], { label: 'Streak velocity deficit (wall units)', step: 0.1, value: 3.5 })
+      : Inputs.range([0.005, 0.5], { label: 'Streak velocity deficit', step: 0.005, value: scenario === 'ktype' ? 0.05 : 0.1 }));
   </script>
 
   <script id="simulation-state" type="module">
@@ -190,7 +201,7 @@
     // Null means this run was replaced by a newer one while it waited. The
     // newer one owns the page now, so this one simply never finishes.
     if (!firstStats) await new Promise(() => {});
-    const live = { stats: firstStats, history: [], failed: false, triangles: 0 };
+    const live = { stats: firstStats, history: [], failed: false, triangles: 0, streakTriangles: 0 };
     // Scales that differ between the scenarios. The nominal friction Reynolds
     // number is the one at which the wall shear balances the initial driving
     // force. The laminar case runs at fixed mass flux, the turbulent one at
@@ -215,7 +226,7 @@
   </script>
 
   <script id="vortices-text" type="text/markdown">
-    The three-dimensional view shows a surface of constant ${tex`Q`}, a quantity that is positive where the fluid rotates more than it strains and which therefore marks vortex cores. It is defined in the section on seeing vortices below. Drag to rotate the view and scroll to zoom. The two slices below it show one velocity component or the pressure on a vertical plane through the middle of the span and on a horizontal plane near the lower wall.
+    The three-dimensional view shows a surface of constant ${tex`Q`}, a quantity that is positive where the fluid rotates more than it strains and which therefore marks vortex cores. It is defined in the section on seeing vortices below. The orange surface encloses low-speed streaks, where the streamwise velocity is well below the average at that height. Drag to rotate the view and scroll to zoom. The two slices below it show one velocity component or the pressure on a vertical plane through the middle of the span and on a horizontal plane near the lower wall.
   </script>
 
   <script id="simulation-figure" type="module">
@@ -249,7 +260,7 @@
     const planView = makeCanvas('channel-plan-view', flow.Lz / flow.Lx);
     const statusLine = html`<div id="channel-status" style="font: 12px var(--monospace, monospace); white-space: pre-wrap"></div>`;
     display(html`<figure id="channel-figure" style="max-width: ${figureWidth}px">
-      <div style="font-size: 0.8em">Vortices: isosurface of Q, coloured by streamwise velocity</div>
+      <div style="font-size: 0.8em">Vortices: isosurface of Q, coloured from dark to bright. Low-speed streaks in orange.</div>
       <div id="channel-vortices-container" style="touch-action: none">${vortexCanvas.canvas}</div>
       <div style="font-size: 0.8em; margin-top: 6px">Side view (x–y) at mid-span</div>
       ${sideView.canvas}
@@ -317,8 +328,12 @@
           `max |div| ${stats.maxDivergence.toExponential(1)}\n` +
           resolutionLine(stats) +
           (showVortices
-            ? `\n${Math.round(live.triangles).toLocaleString()} triangles` +
+            ? `\nvortices: ${Math.round(live.triangles).toLocaleString()} triangles` +
               (3 * live.triangles > vortices.capacity ? ' (truncated: raise the threshold)' : '')
+            : '') +
+          (showStreaks
+            ? `\nstreaks: ${Math.round(live.streakTriangles).toLocaleString()} triangles` +
+              (3 * live.streakTriangles > vortices.streaks.capacity ? ' (truncated: raise the deficit)' : '')
             : '');
     };
 
@@ -394,22 +409,31 @@
           });
           drawn = true;
         }
-        const drawVortices = showVortices && onScreen.get(vortexCanvas.canvas);
+        const drawVortices = (showVortices || showStreaks) && onScreen.get(vortexCanvas.canvas);
         if (drawVortices) {
           const { canvas, context } = vortexCanvas;
           const { projView, eye } = camera.update(canvas.width / canvas.height);
-          vortices.extract(encoder, qLevel * scales.qScale);
+          vortices.extract(encoder, qLevel * scales.qScale, {
+            vortices: showVortices,
+            streaks: showStreaks ? streakLevel : null,
+          });
           vortexView.draw(encoder, context.getCurrentTexture().createView(), canvas.width, canvas.height, {
             projView, eye, lo: 0, hi: 1.1 * stats.u[flow.Ny >> 1],
+            colourBy: vortexColour, vortices: showVortices, streaks: showStreaks,
             background: theme.background, foreground: theme.foreground,
           });
           drawn = true;
         }
         if (drawn) device.queue.submit([encoder.finish()]);
         if (drawVortices && (!advancing || frame % 30 === 0)) {
-          vortices.vertexCount().then((n) => {
+          if (showVortices) vortices.vertexCount().then((n) => {
             if (n === null) return;
             live.triangles = n / 3;
+            if (!advancing) updateStatus();
+          });
+          if (showStreaks) vortices.streaks.vertexCount().then((n) => {
+            if (n === null) return;
+            live.streakTriangles = n / 3;
             if (!advancing) updateStatus();
           });
         }
@@ -929,7 +953,13 @@
   <script id="marching-text" type="text/markdown">
     The surface is extracted with marching cubes, the algorithm of Lorensen and Cline. Take ${tex`Q`} at the centres of eight neighbouring cells as the corners of a small cube. Each corner is either above the threshold or below it, which gives 256 possible patterns. For each pattern a table lists the triangles that separate the corners above from those below, and the vertices of the triangles are placed along the edges of the cube where linear interpolation says the threshold is crossed. Cubes that the surface misses produce nothing.
 
-    On the GPU one thread examines each cube. A thread whose cube is crossed reserves space for its triangles in a shared buffer by incrementing a counter atomically, then writes them. The number of vertices goes straight into the arguments of the draw call, so neither the geometry nor its size returns to the CPU. The surface is shaded with the gradient of ${tex`Q`} as its normal, which keeps it smooth where the triangles are coarse, and coloured by the streamwise velocity, so that structures in slow fluid near the wall appear dark and those reaching into the fast stream appear bright.
+    On the GPU one thread examines each cube. A thread whose cube is crossed reserves space for its triangles in a shared buffer by incrementing a counter atomically, then writes them. The number of vertices goes straight into the arguments of the draw call, so neither the geometry nor its size returns to the CPU. The surface is shaded with the gradient of ${tex`Q`} as its normal, which keeps it smooth where the triangles are coarse, and coloured either by the streamwise velocity or by the distance from the nearer wall. With either choice, structures near the wall appear dark and those reaching into the middle of the channel appear bright. The velocity also distinguishes fast fluid from slow at the same height, and the distance shows more plainly how far a hairpin has lifted.
+  </script>
+
+  <script id="streaks-text" type="text/markdown">
+    Vortices are half of the picture near a wall. The other half is the streaks of slow fluid that they lift, which in turn give rise to new vortices. To show them, split the streamwise velocity into its average ${tex`\bar u(y)`} over the plane at each height and the remainder ${tex`u' = u - \bar u`}. The second surface in the view is drawn where ${tex`u'`} equals a chosen negative value, so it encloses fluid moving slower than its surroundings by at least that amount. It is extracted in the same way as the surface of ${tex`Q`}.
+
+    Seen together, the two surfaces show the relation described earlier. Hairpins sit astride a streak with their legs along its flanks, and in the turbulent channel the vortices near the wall lie beside the streaks, not on them. Like the threshold on ${tex`Q`}, the velocity deficit is a free choice. In the turbulent scenario it is in units of the friction velocity, in which the fluctuations of ${tex`u`} near the wall have a root-mean-square of a little under three.
   </script>
 
   <script id="validation-heading" type="text/markdown">

@@ -1,6 +1,7 @@
 /**
- * Render the Q-criterion isosurface produced by `createQCriterion`, with the
- * outline of the channel and its lower wall for context.
+ * Render the surfaces produced by `createQCriterion`, the Q-criterion
+ * isosurface and optionally the low-speed streaks, with the outline of the
+ * channel and its lower wall for context.
  *
  * The surface is drawn with an indirect draw call straight from the vertex
  * buffer the compute passes filled. Normals come from the gradient of Q, so
@@ -22,6 +23,10 @@ struct Scene {
   hi: f32,
   line: vec4f,
   wall: vec4f,
+  // Colour of the streak surface.
+  tint: vec4f,
+  // (lower wall, upper wall, 1 to colour by wall distance, 0)
+  walls: vec4f,
 }
 @group(0) @binding(0) var<uniform> scene: Scene;
 `;
@@ -51,24 +56,39 @@ fn viridis(t: f32) -> vec3f {
   return c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6)))));
 }
 
-@fragment
-fn fs(in: VSOut) -> @location(0) vec4f {
+fn shade(in: VSOut, base: vec3f) -> vec4f {
   let toEye = normalize(scene.eye - in.world);
-  // Q grows towards the vortex core, so the outward normal is -grad Q. Flip
-  // it towards the viewer in case the surface is seen from inside.
+  // The scalar grows towards the inside of the structure, so the outward
+  // normal is minus its gradient. Flip it towards the viewer in case the
+  // surface is seen from inside.
   var n = -in.gradient;
   let len = length(n);
   n = select(toEye, n / max(len, 1e-20), len > 0.0);
   if (dot(n, toEye) < 0.0) { n = -n; }
 
-  let t = clamp((in.scalar - scene.lo) / (scene.hi - scene.lo), 0.0, 1.0);
-  let base = clamp(viridis(t), vec3f(0.0), vec3f(1.0));
   let l = normalize(scene.light);
   let diffuse = max(dot(n, l), 0.0);
   let fill = 0.5 + 0.5 * n.y;
   let spec = pow(max(dot(n, normalize(l + toEye)), 0.0), 40.0);
   let rgb = base * (0.25 + 0.2 * fill + 0.65 * diffuse) + vec3f(0.18 * spec);
   return vec4f(rgb, 1.0);
+}
+
+// Vortices: coloured by the scalar carried with the vertices, or by the
+// distance to the nearer wall as a fraction of the half-height.
+@fragment
+fn fs(in: VSOut) -> @location(0) vec4f {
+  let y = in.world.y;
+  let wallDistance = 2.0 * min(y - scene.walls.x, scene.walls.y - y) / (scene.walls.y - scene.walls.x);
+  let value = (in.scalar - scene.lo) / (scene.hi - scene.lo);
+  let t = clamp(select(value, wallDistance, scene.walls.z > 0.5), 0.0, 1.0);
+  return shade(in, clamp(viridis(t), vec3f(0.0), vec3f(1.0)));
+}
+
+// Streaks: one colour.
+@fragment
+fn fsTint(in: VSOut) -> @location(0) vec4f {
+  return shade(in, scene.tint.rgb);
 }
 `;
 
@@ -97,7 +117,7 @@ fn fs(in: VSOut) -> @location(0) vec4f {
 export function createIsosurfaceView(device, flow, surface, format) {
   const scene = device.createBuffer({
     label: 'isosurface scene',
-    size: 128,
+    size: 160,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -105,8 +125,8 @@ export function createIsosurfaceView(device, flow, surface, format) {
   const multisample = { count: SAMPLES };
 
   const surfaceModule = device.createShaderModule({ label: 'isosurface', code: SURFACE });
-  const surfacePipeline = device.createRenderPipeline({
-    label: 'isosurface',
+  const makeSurfacePipeline = (label, entryPoint) => device.createRenderPipeline({
+    label,
     layout: 'auto',
     vertex: {
       module: surfaceModule,
@@ -119,11 +139,13 @@ export function createIsosurfaceView(device, flow, surface, format) {
         ],
       }],
     },
-    fragment: { module: surfaceModule, entryPoint: 'fs', targets: [{ format }] },
+    fragment: { module: surfaceModule, entryPoint, targets: [{ format }] },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
     depthStencil,
     multisample,
   });
+  const surfacePipeline = makeSurfacePipeline('isosurface', 'fs');
+  const streakPipeline = makeSurfacePipeline('streak isosurface', 'fsTint');
 
   const flatModule = device.createShaderModule({ label: 'channel box', code: FLAT });
   const flatLayout = [{
@@ -169,6 +191,7 @@ export function createIsosurfaceView(device, flow, surface, format) {
       entries: [{ binding: 0, resource: { buffer: scene } }],
     });
   const surfaceBind = sceneBind(surfacePipeline);
+  const streakBind = sceneBind(streakPipeline);
   const lineBind = sceneBind(linePipeline);
   const wallBind = sceneBind(wallPipeline);
 
@@ -199,12 +222,22 @@ export function createIsosurfaceView(device, flow, surface, format) {
      * @param {Float32Array} view.projView - column-major, depth in [0, 1]
      * @param {ArrayLike<number>} view.eye
      * @param {number} view.lo, view.hi - colour scalar mapped to the ends of the scale
+     * @param {'velocity' | 'wall'} [view.colourBy] - colour the vortices by
+     *   the scalar or by the distance to the nearer wall
+     * @param {boolean} [view.vortices], [view.streaks] - which surfaces to draw
+     * @param {number[]} [view.streakColour] - RGB in [0, 1]
      * @param {number[]} [view.background], [view.foreground] - RGB in [0, 1]
      *   for the clear colour and the channel outline; the lower wall is
      *   drawn as a tint between the two
      */
-    draw(encoder, target, width, height, { projView, eye, lo, hi, background = [0.07, 0.08, 0.1], foreground = [0.75, 0.78, 0.82] }) {
-      const data = new Float32Array(32);
+    draw(encoder, target, width, height, {
+      projView, eye, lo, hi,
+      colourBy = 'velocity', vortices = true, streaks = false, streakColour = [0.86, 0.5, 0.3],
+      background = [0.07, 0.08, 0.1], foreground = [0.75, 0.78, 0.82],
+    }) {
+      const data = new Float32Array(40);
+      data.set([...streakColour.slice(0, 3), 1], 32);
+      data.set([y0, y1, colourBy === 'wall' ? 1 : 0, 0], 36);
       const wall = background.map((b, n) => b + 0.1 * (foreground[n] - b));
       data.set([...foreground.slice(0, 3), 1], 24);
       data.set([...wall, 1], 28);
@@ -237,10 +270,18 @@ export function createIsosurfaceView(device, flow, surface, format) {
       pass.setPipeline(linePipeline);
       pass.setBindGroup(0, lineBind);
       pass.draw(lineVertices);
-      pass.setPipeline(surfacePipeline);
-      pass.setBindGroup(0, surfaceBind);
-      pass.setVertexBuffer(0, surface.vertices);
-      pass.drawIndirect(surface.indirect, 0);
+      if (vortices) {
+        pass.setPipeline(surfacePipeline);
+        pass.setBindGroup(0, surfaceBind);
+        pass.setVertexBuffer(0, surface.vertices);
+        pass.drawIndirect(surface.indirect, 0);
+      }
+      if (streaks) {
+        pass.setPipeline(streakPipeline);
+        pass.setBindGroup(0, streakBind);
+        pass.setVertexBuffer(0, surface.streaks.vertices);
+        pass.drawIndirect(surface.streaks.indirect, 0);
+      }
       pass.end();
     },
 
