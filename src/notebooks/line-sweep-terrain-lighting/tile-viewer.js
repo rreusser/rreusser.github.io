@@ -65,6 +65,12 @@ import {
 import { shadowReachM, shadowTanMin } from "./lib/line-sweep-core.js";
 import { sunAnglesAt } from "./solar-time.js";
 import { splitHash, joinHash } from "./hash-params.js";
+import {
+  settleBlockers,
+  staleCovered,
+  fetchRetryable,
+} from "./tile-settle.js";
+import { pollUntil } from "./lib/poll-until.js";
 
 const TAU = Math.PI * 2;
 const AO_DIRECTIONS = 8;
@@ -1531,34 +1537,59 @@ export function createTileViewer(opts) {
   function cpuDispatch(tile, msg) {
     return new Promise((resolve) => {
       if (tile.destroyed) { resolve(null); return; }
-      const item = { tile, msg, resolve };
-      if (cpuIdle.length > 0) {
-        cpuSend(cpuIdle.pop(), item);
-      } else {
-        cpuQueue.push(item);
-      }
+      cpuQueue.push({ tile, msg, resolve });
+      pumpCpuQueue();
     });
   }
+
+  // Drain destroyed tiles from the front of the queue before
+  // dispatching — no point spending a worker on a tile that has
+  // already been panned off screen — then fill every idle slot.
+  function pumpCpuQueue() {
+    let skipped = 0;
+    while (cpuQueue.length > 0 && cpuQueue[0].tile.destroyed) {
+      // Resolved, not just dropped: whoever is awaiting it has a
+      // texture to release on the null.
+      cpuQueue.shift().resolve(null);
+      skipped++;
+    }
+    if (skipped > 0) console.log(`[tile] skipped ${skipped} destroyed tiles from queue`);
+    while (cpuIdle.length > 0 && cpuQueue.length > 0) {
+      cpuSend(cpuIdle.pop(), cpuQueue.shift());
+    }
+  }
+
   function cpuSend(worker, item) {
     const t0 = performance.now();
-    worker.onmessage = (e) => {
+    // One exit for all three outcomes, so the slot goes back to the
+    // pool exactly once however the dispatch ends.
+    const finish = (data, note) => {
+      if (worker._cpuItem !== item) return;
+      worker._cpuItem = null;
+      worker.onmessage = null;
+      worker.onerror = null;
+      worker.onmessageerror = null;
       const ms = (performance.now() - t0).toFixed(0);
       const t = item.tile;
       const dest = t.destroyed ? " (destroyed)" : "";
-      console.log(`[tile] ${item.msg.type} ${t.z}/${t.x}/${t.y} done in ${ms}ms${dest}, queue=${cpuQueue.length}`);
+      console.log(`[tile] ${item.msg.type} ${t.z}/${t.x}/${t.y} ${note} in ${ms}ms${dest}, queue=${cpuQueue.length}`);
       cpuIdle.push(worker);
-      item.resolve(e.data);
-      // Drain destroyed tiles from the front of the queue before
-      // dispatching the next item — avoids wasting a worker on a
-      // tile that has already been panned off screen.
-      let skipped = 0;
-      while (cpuQueue.length > 0 && cpuQueue[0].tile.destroyed) {
-        cpuQueue.shift();
-        skipped++;
-      }
-      if (skipped > 0) console.log(`[tile] skipped ${skipped} destroyed tiles from queue`);
-      if (cpuQueue.length > 0) cpuSend(cpuIdle.pop(), cpuQueue.shift());
+      item.resolve(data);
+      pumpCpuQueue();
     };
+    worker._cpuItem = item;
+    worker.onmessage = (e) => finish(e.data, "done");
+    // A worker that throws posts nothing back. Without these two the
+    // slot never returns to the pool and the promise never settles,
+    // and since `isSettled` counts the idle workers, one throw leaves
+    // the map unsettleable for the rest of the session — silently,
+    // because an unhandled worker error logs nothing either. Every
+    // later recording then times out on a map that looks fine.
+    worker.onerror = (e) => {
+      e.preventDefault?.();
+      finish(null, `failed (${(e && e.message) || "worker error"})`);
+    };
+    worker.onmessageerror = () => finish(null, "failed (unreadable reply)");
     worker.postMessage(item.msg, getTransferables(item.msg));
   }
   function getTransferables(msg) {
@@ -1615,6 +1646,28 @@ export function createTileViewer(opts) {
       pending.reject(err);
     }
   };
+
+  // The data-prep worker dying would otherwise leave every tile it
+  // was asked for pending forever, and `pendingFetches` is the first
+  // thing a recording waits on. Fail them instead, marked fatal so
+  // the retry does not post to a worker that is gone.
+  let dataWorkerFailed = false;
+  function failDataWorker(what) {
+    dataWorkerFailed = true;
+    console.error(`tile-viewer data worker failed: ${what}`);
+    for (const [key, pending] of [...pendingTiles]) {
+      pendingTiles.delete(key);
+      const err = new Error(`tile data worker failed: ${what}`);
+      err.fatal = true;
+      pending.reject(err);
+    }
+    needsRender = true;
+  }
+  worker.onerror = (e) => {
+    e.preventDefault?.();
+    failDataWorker((e && e.message) || "worker error");
+  };
+  worker.onmessageerror = () => failDataWorker("unreadable reply");
 
   const shaderModule = device.createShaderModule({
     code: SHADER,
@@ -2520,7 +2573,7 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
         // edge of the source's coverage, that is the normal answer and
         // not an error: there is simply nothing to draw here.
         const status = err && err.status | 0;
-        if (status >= 400 && status < 500) {
+        if (err?.fatal || !fetchRetryable(status)) {
           this.unavailable = true;
           needsRender = true;
           return;
@@ -2528,7 +2581,7 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
         // Anything else (a network blip, a 5xx, a rate limit) might
         // well succeed on the next try, so back off and ask again
         // rather than punching a permanent hole in the view.
-        if (this._fetchTries < TILE_RETRIES) {
+        if (this._fetchTries < TILE_RETRIES && !dataWorkerFailed) {
           const n = this._fetchTries++;
           setTimeout(() => {
             if (!this.destroyed) this._populate();
@@ -3126,28 +3179,38 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
   // the static bake queue, the stale-tile crossfade, the shadow
   // re-bake (async in CPU mode, via the worker pool), and the debounced
   // HQ re-bake timer.
+  // The predicate itself is in ./tile-settle.js, with the awkward
+  // cases under verify-tile-settle.mjs: an export waits on it before
+  // every frame, so a clause nothing retires stalls a whole recording
+  // rather than one frame.
+  function settleState() {
+    return {
+      pendingFetches: pendingTiles.size,
+      bakeQueue: bakeQueue.length,
+      stale: staleTiles,
+      baseZoom,
+      tileAt: (k) => tiles.get(k),
+      sunDirty,
+      hqPending,
+      cpuQueue: cpuQueue.length,
+      cpuIdle: cpuIdle.length,
+      cpuPoolSize,
+      tiles: [...tiles.values()].map((t) => ({
+        ready: t.ready,
+        destroyed: t.destroyed,
+        unavailable: t.unavailable,
+        shadowPending: !!t._shadowPending,
+        satPending: t._satPending > 0,
+      })),
+    };
+  }
+
+  function blockers() {
+    return settleBlockers(settleState());
+  }
+
   function isSettled() {
-    if (pendingTiles.size > 0) return false;
-    if (bakeQueue.length > 0) return false;
-    if (staleTiles.length > 0) return false;
-    if (sunDirty || hqPending) return false;
-    if (cpuQueue.length > 0) return false;
-    if (cpuIdle.length < cpuPoolSize) return false;
-    for (const tile of tiles.values()) {
-      if (tile.destroyed) continue;
-      // A tile the source has no data for, or one we have stopped
-      // retrying, is never going to arrive. Waiting on it hangs a
-      // recording forever instead of settling on the frame the user
-      // would see if they stopped and waited, which is this one.
-      if (tile.unavailable) continue;
-      if (!tile.ready) return false;
-      if (tile._shadowPending) return false;
-      // A tile whose image is still in flight would be captured as
-      // tinted relief, so a recording waits for it the same way it
-      // waits for a bake.
-      if (tile._satPending) return false;
-    }
-    return true;
+    return blockers().length === 0;
   }
 
   function render() {
@@ -3393,35 +3456,21 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
     // Prune stale tiles that are fully covered by ready active tiles.
     for (let i = staleTiles.length - 1; i >= 0; i--) {
       const stale = staleTiles[i];
-      const d = baseZoom - stale.z;
-      let covered = true;
-      if (d > 0) {
-        // Zoomed in: stale is larger, check all child tiles.
-        const factor = 1 << d;
-        const x0 = stale.x * factor;
-        const y0 = stale.y * factor;
-        for (let ty = y0; ty < y0 + factor && covered; ty++) {
-          for (let tx = x0; tx < x0 + factor && covered; tx++) {
-            const t = tiles.get(`${baseZoom}/${tx}/${ty}`);
-            if (!t || !t.ready) covered = false;
-          }
-        }
-      } else {
-        // Zoomed out: stale is smaller, check parent tile.
-        const factor = 1 << -d;
-        const px = Math.floor(stale.x / factor);
-        const py = Math.floor(stale.y / factor);
-        const t = tiles.get(`${baseZoom}/${px}/${py}`);
-        if (!t || !t.ready) covered = false;
-      }
-      if (covered) {
+      if (staleCovered(stale, baseZoom, (k) => tiles.get(k))) {
         stale.destroy();
         staleTiles.splice(i, 1);
       }
     }
 
     // Process one queued tile bake per frame to avoid GPU saturation.
-    if (lighting.bakeMode === "gpu" && bakeQueue.length > 0) {
+    //
+    // Not gated on the bake mode. Only the GPU path queues anything,
+    // but the queue blocks settling, and gating the drain on the mode
+    // meant a switch to CPU left a tile queued that nothing would
+    // ever take off again — so every frame of every recording waited
+    // on it until the page was reloaded. Tiles the switch destroyed
+    // are skipped below.
+    if (bakeQueue.length > 0) {
       const tile = bakeQueue.shift();
       if (!tile.destroyed && tile._compN) {
         runStaticBake(tile, tile._compN);
@@ -3713,6 +3762,8 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
         tiles.clear();
         for (const s of staleTiles) s.destroy();
         staleTiles.length = 0;
+        // Every tile it referred to has just been destroyed.
+        bakeQueue.length = 0;
         updateTiles();
       }
       needsRender = true;
@@ -3809,6 +3860,8 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
         staleTiles: staleTiles.length,
         staleByScale: staleScales,
         pendingFetches: pendingTiles.size,
+        cpuIdle: cpuIdle.length, cpuPoolSize,
+        pending: blockers(),
         sunDirty, hqPending, sunGeneration,
         bakeQueue: bakeQueue.length,
         cpuQueue: cpuQueue.length,
@@ -3908,24 +3961,25 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
     /**
      * Resolve once `isSettled()` holds. Polls on rAF because most of
-     * what we wait for is retired by the render loop itself.
+     * what we wait for is retired by the render loop itself, which is
+     * also why the timeout is spent in attended time rather than wall
+     * clock: see ./lib/poll-until.js. `onStall` fires when the frames
+     * stop arriving at all, which on a long export means the window
+     * was hidden rather than that anything is wrong.
      */
-    awaitSettled({ timeoutMs = 60000 } = {}) {
-      const t0 = performance.now();
-      return new Promise((resolve, reject) => {
-        const poll = () => {
-          if (isSettled()) {
-            resolve();
-            return;
-          }
-          if (performance.now() - t0 > timeoutMs) {
-            reject(new Error("awaitSettled: timed out"));
-            return;
-          }
-          requestAnimationFrame(poll);
-        };
-        requestAnimationFrame(poll);
+    awaitSettled({ timeoutMs = 60000, onStall, onResume } = {}) {
+      return pollUntil(isSettled, {
+        timeoutMs,
+        label: "awaitSettled",
+        reason: () => blockers().join(", "),
+        onStall,
+        onResume,
       });
+    },
+
+    /** What the map is still waiting on, in words. Empty when settled. */
+    pendingWork() {
+      return blockers();
     },
 
     /**
