@@ -1,0 +1,7 @@
+description: Direct numerical simulation of channel flow in WebGPU with an energy-conserving staggered scheme
+maxWidth: 640px
+hideFromIndex: true
+hideFromSearch: true
+tags:
+  - webgpu
+  - pde
