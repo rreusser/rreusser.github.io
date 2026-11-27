@@ -1,0 +1,7 @@
+description: Validation and timing of a direct pressure Poisson solver for channel flow in WebGPU
+maxWidth: 640px
+hideFromIndex: true
+hideFromSearch: true
+tags:
+  - webgpu
+  - pde

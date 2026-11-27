@@ -1,0 +1,94 @@
+<!doctype html>
+<notebook theme="air">
+  <title>Channel Flow: Pressure Solver</title>
+
+  <script id="intro" type="text/markdown">
+    # Channel Flow: Pressure Solver
+
+    This is a test bench for the pressure solver of a staggered-grid channel flow simulation. The domain is periodic in ${tex`x`} and ${tex`z`} and bounded by walls in ${tex`y`}. Fourier transforms in the two periodic directions reduce the discrete Poisson equation
+
+    ${tex.block`\nabla_h \cdot \nabla_h\, p = f`}
+
+    to one tridiagonal system in ${tex`y`} for each wavenumber pair ${tex`(k_x, k_z)`}, which is solved directly. The solve takes five passes over the data: a real-to-complex transform in ${tex`x`}, a complex transform in ${tex`z`}, the tridiagonal sweep in ${tex`y`}, and the two inverse transforms.
+  </script>
+
+  <script id="imports" type="module">
+    import { createWebGPUContext } from './lib/webgpu-canvas.js';
+    import { tanhFaces } from './lib/webgpu-poisson/channel-poisson.js';
+    import { validateChannelPoisson, benchmarkChannelPoisson } from './lib/webgpu-poisson/validation.js';
+  </script>
+
+  <script id="context" type="module">
+    const { device } = await createWebGPUContext({
+      optionalFeatures: ['timestamp-query'],
+      maxBufferSizes: true,
+    });
+    invalidation.then(() => device.destroy());
+  </script>
+
+  <script id="validation-text" type="text/markdown">
+    ## Validation
+
+    Each row compares the single-precision GPU result with a double-precision reference computed on the CPU. The projection rows subtract the pressure gradient from a random staggered velocity field and report how much of its divergence survives.
+  </script>
+
+  <script id="validation" type="module">
+    const validationRows = await validateChannelPoisson(device);
+    display(Inputs.table(validationRows, {
+      columns: ['pass', 'test', 'grid', 'value', 'limit'],
+      format: {
+        pass: (d) => (d ? '✓' : '✗'),
+        value: (d) => d.toExponential(2),
+        limit: (d) => d.toExponential(0),
+      },
+      width: { pass: 40, value: 80, limit: 60 },
+      rows: 30,
+      select: false,
+    }));
+  </script>
+
+  <script id="benchmark-text" type="text/markdown">
+    ## Timing
+
+    Per-pass GPU time, averaged over repeated solves. Per-pass times need the `timestamp-query` feature; without it only the wall-clock total is reported.
+  </script>
+
+  <script id="benchmark-inputs" type="module">
+    const benchNx = view(Inputs.select([64, 128, 256, 512], { label: 'Nx', value: 256 }));
+    const benchNy = view(Inputs.select([64, 96, 128, 160, 192, 256], { label: 'Ny', value: 128 }));
+    const benchNz = view(Inputs.select([32, 64, 128, 256], { label: 'Nz', value: 128 }));
+    const benchInvocations = view(Inputs.select([32, 64, 128, 256], {
+      label: 'Max FFT workgroup size',
+      value: 256,
+    }));
+    const benchRun = view(Inputs.button('Run benchmark'));
+  </script>
+
+  <script id="benchmark" type="module">
+    benchRun;
+    const benchResult = await benchmarkChannelPoisson(device, {
+      Nx: benchNx,
+      Ny: benchNy,
+      Nz: benchNz,
+      Lx: 4 * Math.PI,
+      Lz: 2 * Math.PI,
+      yFaces: tanhFaces(benchNy, 2),
+      maxInvocations: benchInvocations,
+    });
+    const mcells = benchResult.cells / 1e6;
+    display(html`<p>
+      ${mcells.toFixed(2)} million cells,
+      ${(benchResult.bytes / 2 ** 20).toFixed(0)} MB of solver buffers,
+      ${benchResult.totalMs.toFixed(2)} ms per solve
+      (${(benchResult.totalMs / mcells).toFixed(2)} ms per million cells, ${benchResult.method}).
+    </p>`);
+    if (benchResult.stages.length) {
+      display(Inputs.table(benchResult.stages, {
+        columns: ['label', 'ms'],
+        header: { label: 'pass', ms: 'ms' },
+        format: { ms: (d) => d.toFixed(3) },
+        select: false,
+      }));
+    }
+  </script>
+</notebook>
