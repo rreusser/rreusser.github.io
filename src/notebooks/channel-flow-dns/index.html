@@ -215,7 +215,7 @@
       fov: Math.PI / 5,
       near: 0.05,
       far: 200,
-      renderContinuously: true,
+      renderContinuously: false,
     });
     invalidation.then(() => camera.destroy());
     const sideView = makeCanvas('channel-side-view', 2 / flow.Lx);
@@ -263,22 +263,56 @@
         (coarse ? '   (under-resolved: above 0.5)' : '');
     };
 
+    // Nothing is drawn unless something changed: the flow advanced, the
+    // camera moved, a canvas scrolled into view, or this cell re-ran because
+    // a control or the theme changed. Canvases that are off screen are
+    // skipped, though the flow itself keeps advancing while it is running.
+    const view = { dirty: true };
+    const markDirty = () => { view.dirty = true; };
+    camera.on('render', markDirty);
+    const onScreen = new Map([vortexCanvas, sideView, planView].map((c) => [c.canvas, true]));
+    const visibility = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        onScreen.set(entry.target, entry.isIntersecting);
+        if (entry.isIntersecting) markDirty();
+      }
+    });
+    for (const canvas of onScreen.keys()) visibility.observe(canvas);
+
+    const updateStatus = () => {
+      const stats = live.stats;
+      statusLine.textContent = live.failed
+        ? 'The solution became non-finite. Restart with a finer grid or a smaller disturbance.'
+        : `t = ${stats.time.toFixed(3)}   step ${flow.steps}   dt = ${(flow.sim.dt || 0).toExponential(2)}\n` +
+          `bulk velocity ${stats.bulkVelocity.toFixed(3)}   wall shear / initial drive ` +
+          `${(stats.wallShear[0] / scales.drive).toFixed(3)}, ${(stats.wallShear[1] / scales.drive).toFixed(3)}   ` +
+          `max |div| ${stats.maxDivergence.toExponential(1)}\n` +
+          resolutionLine(stats) +
+          (showVortices
+            ? `\n${Math.round(live.triangles).toLocaleString()} triangles` +
+              (3 * live.triangles > vortices.capacity ? ' (truncated: raise the threshold)' : '')
+            : '');
+    };
+
     let frame = 0;
     let pending = false;
     const loop = createFrameLoop(() => {
-      const stats = live.stats;
-      if (running && !live.failed) {
-        flow.advance(flow.stableTimeStep(stats, 0.5), stepsPerFrame);
+      const advancing = running && !live.failed;
+      if (advancing) {
+        flow.advance(flow.stableTimeStep(live.stats, 0.5), stepsPerFrame);
+        markDirty();
       }
       // Statistics lag the state by a few frames; the time step has enough
-      // margin to absorb that.
-      if (!pending && frame % 5 === 0) {
+      // margin to absorb that. While paused they are fetched once, when this
+      // cell starts, so that they describe the state being shown.
+      if ((advancing || frame === 0) && !pending && frame % 5 === 0) {
         pending = true;
         flow.statistics().then((next) => {
           pending = false;
           if (!next) return;
           if (!Number.isFinite(next.maxCfl) || !Number.isFinite(next.kineticEnergy)) {
             live.failed = true;
+            updateStatus();
             return;
           }
           live.stats = next;
@@ -293,47 +327,57 @@
             });
             if (live.history.length > 4000) live.history.splice(0, 2000);
           }
+          // The colour ranges follow the statistics.
+          markDirty();
         });
       }
-      const range = colourRange(stats);
-      const encoder = device.createCommandEncoder();
-      sliceView.draw(encoder, sideView.context.getCurrentTexture().createView(), {
-        plane: 'xy', index: flow.Nz >> 1, component: sliceComponent, ...range,
-      });
-      sliceView.draw(encoder, planView.context.getCurrentTexture().createView(), {
-        plane: 'xz', index: planRow, component: sliceComponent, ...range,
-      });
-      if (showVortices) {
-        const { canvas, context } = vortexCanvas;
-        const { projView, eye } = camera.update(canvas.width / canvas.height);
-        vortices.extract(encoder, qLevel * scales.qScale);
-        vortexView.draw(encoder, context.getCurrentTexture().createView(), canvas.width, canvas.height, {
-          projView, eye, lo: 0, hi: 1.1 * stats.u[flow.Ny >> 1],
-          background: theme.background, foreground: theme.foreground,
-        });
-      }
-      device.queue.submit([encoder.finish()]);
-      if (showVortices && frame % 30 === 0) {
-        vortices.vertexCount().then((n) => {
-          if (n !== null) live.triangles = n / 3;
-        });
-      }
-      if (frame % 10 === 0) {
-        statusLine.textContent = live.failed
-          ? 'The solution became non-finite. Restart with a finer grid or a smaller disturbance.'
-          : `t = ${stats.time.toFixed(3)}   step ${flow.steps}   dt = ${(flow.sim.dt || 0).toExponential(2)}\n` +
-            `bulk velocity ${stats.bulkVelocity.toFixed(3)}   wall shear / initial drive ` +
-            `${(stats.wallShear[0] / scales.drive).toFixed(3)}, ${(stats.wallShear[1] / scales.drive).toFixed(3)}   ` +
-            `max |div| ${stats.maxDivergence.toExponential(1)}\n` +
-            resolutionLine(stats) +
-            (showVortices
-              ? `\n${Math.round(live.triangles).toLocaleString()} triangles` +
-                (3 * live.triangles > vortices.capacity ? ' (truncated: raise the threshold)' : '')
-              : '');
+
+      if (view.dirty) {
+        view.dirty = false;
+        const stats = live.stats;
+        const range = colourRange(stats);
+        const encoder = device.createCommandEncoder();
+        let drawn = false;
+        if (onScreen.get(sideView.canvas)) {
+          sliceView.draw(encoder, sideView.context.getCurrentTexture().createView(), {
+            plane: 'xy', index: flow.Nz >> 1, component: sliceComponent, ...range,
+          });
+          drawn = true;
+        }
+        if (onScreen.get(planView.canvas)) {
+          sliceView.draw(encoder, planView.context.getCurrentTexture().createView(), {
+            plane: 'xz', index: planRow, component: sliceComponent, ...range,
+          });
+          drawn = true;
+        }
+        const drawVortices = showVortices && onScreen.get(vortexCanvas.canvas);
+        if (drawVortices) {
+          const { canvas, context } = vortexCanvas;
+          const { projView, eye } = camera.update(canvas.width / canvas.height);
+          vortices.extract(encoder, qLevel * scales.qScale);
+          vortexView.draw(encoder, context.getCurrentTexture().createView(), canvas.width, canvas.height, {
+            projView, eye, lo: 0, hi: 1.1 * stats.u[flow.Ny >> 1],
+            background: theme.background, foreground: theme.foreground,
+          });
+          drawn = true;
+        }
+        if (drawn) device.queue.submit([encoder.finish()]);
+        if (drawVortices && (!advancing || frame % 30 === 0)) {
+          vortices.vertexCount().then((n) => {
+            if (n === null) return;
+            live.triangles = n / 3;
+            if (!advancing) updateStatus();
+          });
+        }
+        if (!advancing || frame % 10 === 0) updateStatus();
       }
       frame++;
     });
-    invalidation.then(() => loop.cancel());
+    invalidation.then(() => {
+      loop.cancel();
+      visibility.disconnect();
+      camera.off('render', markDirty);
+    });
   </script>
 
   <script id="statistics-heading" type="text/markdown">
@@ -382,7 +426,16 @@
       );
     };
     drawPlots();
-    const plotTimer = setInterval(drawPlots, 1000);
+    // Redraw once a second, but only if there are new statistics and the
+    // plots are on screen.
+    let plotted = live.stats.time;
+    const plotTimer = setInterval(() => {
+      if (live.stats.time === plotted) return;
+      const box = plotHolder.getBoundingClientRect();
+      if (box.bottom < 0 || box.top > window.innerHeight) return;
+      plotted = live.stats.time;
+      drawPlots();
+    }, 1000);
     invalidation.then(() => clearInterval(plotTimer));
   </script>
 
