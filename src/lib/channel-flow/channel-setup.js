@@ -113,3 +113,86 @@ export function perturbedChannel(flow, { bulk = 15.6, amplitude = 0.2, seed = 1 
       }
   return data;
 }
+
+/**
+ * Options for `createChannelFlow` for laminar-scaled runs: half-height 1 and
+ * centreline velocity 1 for the parabolic profile, so nu = 1 / Re and the
+ * force that holds the parabola steady is 2 / Re. Time is in half-heights
+ * per centreline velocity.
+ */
+export function laminarOptions({ re = 3000, Nx, Ny, Nz, Lx = 4 * Math.PI, Lz = 2 * Math.PI, stretch = 1.5 }) {
+  return {
+    Nx, Ny, Nz, Lx, Lz,
+    yFaces: tanhFaces(Ny, stretch),
+    nu: 1 / re,
+    forcing: 2 / re,
+  };
+}
+
+/**
+ * Body force that steers the bulk velocity to `target`, for running at
+ * fixed mass flux. The bulk velocity obeys dU/dt = force - mean wall shear,
+ * so this cancels the measured shear and relaxes the remaining error over
+ * the time `relax`. `stats` is the result of `flow.statistics()`.
+ */
+export function fluxForcing(stats, target, relax = 1) {
+  const shear = 0.5 * (stats.wallShear[0] + stats.wallShear[1]);
+  return shear + (target - stats.bulkVelocity) / relax;
+}
+
+/**
+ * Laminar parabolic flow plus one localized pair of counter-rotating
+ * streamwise vortices next to the lower wall:
+ *
+ *   psi = eps f(y) zt exp(-xt^2 - zt^2),   v = d psi / dz,   w = -d psi / dy,
+ *
+ * with xt = (x - x0) / lx, zt = (z - z0) / lz and f = (1 + y)^p (1 - y)^q.
+ * Between the vortices fluid moves away from the wall, lifting slow fluid
+ * into the faster stream; the kinked shear layer that results is what rolls
+ * up into a hairpin. Larger q pushes the disturbance towards the lower wall.
+ * After Henningson, Lundbladh & Johansson (1993), who used a pair of such
+ * vortex pairs. Returns an interleaved state; call `flow.project()` after
+ * uploading it.
+ *
+ * @param {number} [amplitude] - peak wall-normal velocity, in centreline velocities
+ * @param {number} [lx], [lz] - streamwise and spanwise extent, in half-heights
+ */
+export function localizedDisturbance(flow, opts = {}) {
+  const { Nx, Ny, Nz, Lx, Lz, dx, dz, yFaces, yCenters } = flow;
+  const {
+    amplitude = 0.15,
+    lx = 0.8,
+    lz = 0.35,
+    x0 = 0.15 * Lx,
+    z0 = 0.5 * Lz,
+    p = 2,
+    q = 5,
+  } = opts;
+  const f = (y) => (1 + y) ** p * (1 - y) ** q;
+  const df = (y) => p * (1 + y) ** (p - 1) * (1 - y) ** q - q * (1 + y) ** p * (1 - y) ** (q - 1);
+  const yPeak = (p - q) / (p + q);
+  const eps = (amplitude * lz) / f(yPeak);
+  // Nearest periodic image, so a disturbance near the edge of the box wraps.
+  const wrap = (d, L) => d - L * Math.round(d / L);
+  const envelope = (x, z) => {
+    const xt = wrap(x - x0, Lx) / lx;
+    const zt = wrap(z - z0, Lz) / lz;
+    return { zt, e: Math.exp(-xt * xt - zt * zt) };
+  };
+
+  const data = new Float32Array(4 * Nx * Ny * Nz);
+  for (let j = 0; j < Ny; j++)
+    for (let k = 0; k < Nz; k++)
+      for (let i = 0; i < Nx; i++) {
+        const o = 4 * (i + Nx * (k + Nz * j));
+        const xc = (i + 0.5) * dx;
+        data[o] = 1 - yCenters[j] ** 2;
+        if (j > 0) {
+          const { zt, e } = envelope(xc, (k + 0.5) * dz);
+          data[o + 1] = (eps / lz) * f(yFaces[j]) * (1 - 2 * zt * zt) * e;
+        }
+        const { zt, e } = envelope(xc, k * dz);
+        data[o + 2] = -eps * df(yCenters[j]) * zt * e;
+      }
+  return data;
+}
