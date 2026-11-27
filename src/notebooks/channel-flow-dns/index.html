@@ -7,7 +7,7 @@
 
     This notebook simulates the flow of an incompressible fluid between two parallel walls and follows it from the laminar state through transition to turbulence. It is a direct numerical simulation, which means that the Navier–Stokes equations are solved as they stand, with no turbulence model and no numerical smoothing. Every eddy in the flow has to be carried by the grid, and the only dissipation is that of the fluid's own viscosity.
 
-    The simulation runs on the GPU through WebGPU. The method is the one used by research codes for this problem, namely central differences on a staggered grid, an explicit Runge–Kutta scheme, and a direct solution of the pressure equation after every stage. What follows first is the simulation itself. The sections after it describe the flow, the ways it becomes turbulent, the numerical method and its implementation, and the tests the code has to pass.
+    The simulation runs on the GPU through WebGPU. The method is of the kind used by research codes for this problem. Fourier series represent the flow in the two periodic directions, energy-conserving differences on a staggered grid represent it across the channel, an explicit Runge–Kutta scheme advances it in time, and the pressure equation is solved directly after every stage. What follows first is the simulation itself. The sections after it describe the flow, the ways it becomes turbulent, the numerical method and its implementation, and the tests the code has to pass.
   </script>
 
   <script id="imports" type="module">
@@ -648,6 +648,10 @@
     Transition and turbulence are decided by the balance between the growth of disturbances and their viscous decay, so a simulation of them cannot afford dissipation that is not physical. The method here has none. The price is that nothing smooths over an under-resolved flow. If the grid is too coarse the solution shows grid-scale oscillations, which is at least an honest signal, and stability has to come from the structure of the scheme.
   </script>
 
+  <script id="method-variants" type="text/markdown">
+    Two discretisations are offered, and they differ only in the periodic directions. The default represents the flow there by Fourier series, which differentiate exactly. The alternative uses second-order central differences in all three directions. Across the channel both use the same staggered differences, so the description starts with the difference scheme and then turns to what the Fourier series change.
+  </script>
+
   <script id="staggered-text" type="text/markdown">
     ### The staggered grid
 
@@ -687,7 +691,7 @@
     const wavenumberData = d3.range(0, 1.0001, 0.01).flatMap((s) => {
       const kh = Math.PI * s;
       return [
-        { kh, value: kh, scheme: 'exact' },
+        { kh, value: kh, scheme: 'exact, and Fourier' },
         { kh, value: 2 * Math.sin(kh / 2), scheme: 'difference across one cell (staggered)' },
         { kh, value: Math.sin(kh), scheme: 'difference across two cells' },
       ];
@@ -705,7 +709,29 @@
   </script>
 
   <script id="wavenumber-after" type="text/markdown">
-    The shortest wave a grid can hold has two points per wavelength, ${tex`kh = \pi`}. A wave with eight points per wavelength, ${tex`kh = \pi/4`}, is differentiated with an error of 2.6 percent by a difference across one cell and 10 percent by a difference across two. The staggered grid uses the first kind for the pressure gradient and the divergence, and the convective term mixes the two. A spectral method makes no such error at any resolved wavenumber, so a second-order code needs roughly twice as many points in each direction to reach the same fidelity. That is the main cost of this method, and the Tollmien–Schlichting test below shows it plainly.
+    The shortest wave a grid can hold has two points per wavelength, ${tex`kh = \pi`}. A wave with eight points per wavelength, ${tex`kh = \pi/4`}, is differentiated with an error of 2.6 percent by a difference across one cell and 10 percent by a difference across two. The staggered grid uses the first kind for the pressure gradient and the divergence, and the convective term mixes the two. A spectral method makes no such error at any resolved wavenumber, so a second-order code needs roughly twice as many points in each direction to reach the same fidelity. That is the main cost of second-order differences, and the reason for the alternative described next.
+  </script>
+
+  <script id="fourier-text" type="text/markdown">
+    ### Fourier series in the periodic directions
+
+    In a periodic direction there is a better option than differences. A periodic function on ${tex`N`} grid points is a sum of ${tex`N`} waves ${tex`e^{ikx}`}, and the fast Fourier transform converts between the grid values and the amplitudes of the waves. Differentiating a wave multiplies its amplitude by ${tex`ik`}, exactly. So if the unknowns are the amplitudes instead of the grid values, derivatives in ${tex`x`} and ${tex`z`} carry no error at all for any wave the grid can hold. In the plot above this method lies on the exact line.
+
+    The Fourier method here stores, for every row of the channel, the amplitudes of each velocity component in ${tex`x`} and ${tex`z`}. Across the channel it keeps the staggered differences, with ${tex`v`} on the faces between rows.
+  </script>
+
+  <script id="fourier-products-text" type="text/markdown">
+    The difficulty is the nonlinear term. A product of two fields is simple on the grid, where it is a multiplication at each point, and awkward in terms of amplitudes, where it is a sum over all pairs of waves. So the products are formed on the grid. The velocity is transformed to grid values, the products ${tex`uu`}, ${tex`uw`} and so on are taken point by point, and the results are transformed back. Only their derivatives are then evaluated on the amplitudes. This is the pseudo-spectral method of Orszag and Patterson.
+
+    It has one trap. The product of two waves with wavenumbers ${tex`k_1`} and ${tex`k_2`} is a wave with wavenumber ${tex`k_1 + k_2`}, which may be shorter than anything the grid can hold. On the grid such a wave is indistinguishable from a longer one, and its energy is silently credited to that longer wave. This is aliasing, and left alone it feeds spurious energy into the resolved scales. The standard cure is to keep only the lowest two thirds of the wavenumbers in each direction. The sum of any two retained wavenumbers then either is itself retained and correct, or aliases onto a wavenumber that is discarded anyway. The price is that a grid of ${tex`N`} points carries ${tex`2N/3`} waves.
+  </script>
+
+  <script id="fourier-consequences-text" type="text/markdown">
+    With the products exact in this sense, the convective term conserves kinetic energy just as the difference scheme does, and for the same reason, since integration by parts now holds exactly in ${tex`x`} and ${tex`z`}. The inviscid test confirms it.
+
+    Two costs come with the gain. Each stage of a time step needs eleven two-dimensional transforms where the difference scheme needs two, so a step costs about three times as much on the same grid. And the largest retained wavenumber, ${tex`2\pi/(3\,\Delta x)`}, is about twice the largest effective wavenumber of a second-order difference, so the convective limit on the time step is about half as large. In return, a given accuracy in ${tex`x`} and ${tex`z`} needs far fewer points.
+
+    The wall-normal direction is untouched by all this, and it is still second-order. For flows whose fine structure lies across the channel, such as the Tollmien–Schlichting wave, it is the wall-normal grid that sets the accuracy, whichever method is used in the other two directions.
   </script>
 
   <script id="underresolved-text" type="text/markdown">
@@ -788,6 +814,8 @@
 
     where ${tex`a_j`} and ${tex`c_j`} come from the cell heights and ${tex`\lambda_z`} is defined like ${tex`\lambda_x`}. The numbers ${tex`\lambda`} are the eigenvalues of the second difference, the discrete counterpart of ${tex`k^2`}. Using them, and not ${tex`k^2`} itself, is what makes the solution satisfy the discrete equation exactly. What remains is one tridiagonal system in ${tex`y`} for each wavenumber pair, which is solved directly by elimination. The inverse transforms then return the pressure.
 
+    In the Fourier method the velocity is already held as amplitudes, so no transform is needed for this step, and the gradient and divergence in ${tex`x`} and ${tex`z`} are exact. The numbers ${tex`\lambda`} are then simply ${tex`k_x^2`} and ${tex`k_z^2`}.
+
     The solution is exact up to rounding. The mode with ${tex`k_x = k_z = 0`} needs one exception, since the pressure is determined only up to a constant and that system is singular. One of its equations is replaced by a condition fixing the constant.
   </script>
 
@@ -802,7 +830,7 @@
 
     A GPU runs the same small program on thousands of threads at once and is limited mostly by how fast it can move data to and from memory. The implementation is organised around touching memory as few times as possible, and in order.
 
-    The state is one array holding ${tex`(u, v, w, p)`} for each cell, ordered so that ${tex`x`} varies fastest and each horizontal plane is a contiguous block. One Runge–Kutta stage is eight passes over this data.
+    The state is one array holding ${tex`(u, v, w, p)`} for each cell, ordered so that ${tex`x`} varies fastest and each horizontal plane is a contiguous block. With second-order differences, one Runge–Kutta stage is eight passes over this data.
 
     | Pass | Work |
     |---|---|
@@ -822,6 +850,10 @@
     The tridiagonal elimination is sequential along ${tex`y`} but independent for each wavenumber pair, so one thread handles each pair and marches from one wall to the other and back. At every step the threads together read and write exactly one plane.
 
     Statistics are reduced on the GPU as well. The plane averages, the largest divergence and the quantities that set the time step come back to the CPU as a few hundred numbers. The velocity field itself is never copied back.
+  </script>
+
+  <script id="gpu-fourier-text" type="text/markdown">
+    The Fourier method reorganises the stage around the transforms. Eight products are transformed forward, and each is formed from the grid values as they are loaded into the transform, so the products never exist as arrays of their own. One pass then assembles the right-hand side and the provisional velocity for every wavenumber and row. A second pass does the whole projection with one thread per wavenumber pair, eliminating down the column and substituting back up it. Three inverse transforms return the velocity to the grid for the next stage, which is also what the figures and statistics read. Wavenumbers beyond the retained two thirds are skipped wherever a pass can skip them.
   </script>
 
   <script id="q-heading" type="text/markdown">
@@ -865,7 +897,9 @@
     | Q of an analytic field | The vortex measure is computed to second order |
     | Marching cubes on a sphere | The extracted surface is closed, has the right area, and has outward normals |
 
-    The Tollmien–Schlichting test is the most demanding. The growth of the wave is a small difference between production and viscous loss, and any numerical dissipation turns it into decay, which is why it has long been used to judge Navier–Stokes codes. The two grids in the test give errors of 27 and 7 percent in the growth rate. The error falls by a factor of four between them, as it should for a second-order method, and it also shows how fine a grid such a method needs before slow instabilities are captured accurately.
+    The Tollmien–Schlichting test is the most demanding. The growth of the wave is a small difference between production and viscous loss, and any numerical dissipation turns it into decay, which is why it has long been used to judge Navier–Stokes codes. The two grids in the test give errors of 27 and 7 percent in the growth rate. The error falls by a factor of four between them, as it should for a method that is second-order across the channel. It is the same for both methods, because the wave is a smooth sinusoid along the stream and all of its fine structure lies across the channel. Refining the streamwise grid alone changes the error by only a few percentage points.
+
+    The Taylor–Green test shows the other side. With differences its error falls from half a percent on 16 points to three hundredths of a percent on 64. With Fourier series it is at the level of rounding error on every grid.
   </script>
 
   <script id="flow-validation-run" type="module">
@@ -967,7 +1001,7 @@
 
     The simulation is honest about what it resolves, but several things separate it from a research calculation.
 
-    The scheme is second-order, so it needs fine grids. The default grids are chosen to run interactively and are coarser than a careful study would use, particularly for the late stages of transition, where thin shear layers form. Grid-scale oscillations in the slices are the sign that a run has outgrown its grid.
+    Across the channel the scheme is second-order, so it needs a fine wall-normal grid, and with the difference method the same is true of the other two directions. The default grids are chosen to run interactively and are coarser than a careful study would use, particularly for the late stages of transition, where thin shear layers form. Grid-scale oscillations in the slices are the sign that a run has outgrown its grid.
 
     The periodic box replaces development along the channel with development in time. The two are related but not identical, and a box one wavelength long cannot represent anything longer than itself. The smallest boxes offered for the turbulent scenario are close to the minimal size that sustains turbulence, and the statistics of such boxes differ from those of a large channel away from the walls.
 
@@ -1005,6 +1039,7 @@
     - Verstappen, R. W. C. P. & Veldman, A. E. P. (2003). Symmetry-preserving discretization of turbulent flow. *Journal of Computational Physics* 187, 343–368.
     - Spalart, P. R., Moser, R. D. & Rogers, M. M. (1991). Spectral methods for the Navier–Stokes equations with one infinite and two periodic directions. *Journal of Computational Physics* 96, 297–324.
     - Trefethen, L. N. (2000). *Spectral Methods in MATLAB*. SIAM.
+    - Orszag, S. A. & Patterson, G. S. (1972). Numerical simulation of three-dimensional homogeneous isotropic turbulence. *Physical Review Letters* 28, 76–79.
     - Stam, J. (1999). Stable fluids. *Proceedings of SIGGRAPH 99*, 121–128.
 
     **Visualization**
